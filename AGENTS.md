@@ -71,6 +71,24 @@ The Brain asks `pyauto-heart readiness --json`, reasons over the result, and onl
 on a **green** verdict triggers Build's release. Heart never triggers Build;
 Build never re-derives a decision the Brain already made.
 
+## Brain agents consult one another (a society of agents)
+
+Brain agents are not limited to driving organs — they can **consult each other**.
+The canonical example is the **Build Agent**, which does not query Heart directly:
+it consults the **Health Agent**, and only the Health Agent talks to the Heart
+organ. So the Build Agent's full chain is:
+
+```
+Mind  →  Build Agent  →  Health Agent  →  Heart  →  GREEN/YELLOW/RED
+                      →  Build Agent  →  Build (execute)
+```
+
+This generalises: a future Feature Agent can ask the Health Agent whether the
+tree is fit for a refactor; a future Release Agent can ask the Build Agent to
+package a release. Reasoning lives in Brain agents that consult one another; the
+organs (Heart, Hands/Build, Memory) provide capabilities and state. The Build
+Agent is the reusable template for this pattern.
+
 ## Specialist reasoning agents
 
 Each agent is a directory under `agents/<name>/` with:
@@ -81,19 +99,36 @@ Each agent is a directory under `agents/<name>/` with:
 
 Current agents:
 
+- **`agents/build/`** — the executive function for execution work. Consults the
+  Health Agent, reasons over the verdict, and on a healthy result delegates to
+  the appropriate PyAutoBuild capability. The canonical example of the Brain
+  coordinating *multiple* organs. Has `build` / `deploy` / `release` modes —
+  release is isolated as a mode now, with a clean seam to a future Release Agent.
 - **`agents/release/`** — reasons over `pyauto-heart readiness`, and on green
   triggers the PyAutoBuild release executor (`autobuild pre_build` → `release.yml`).
 - **`agents/health/`** — reasons over the PyAutoHeart monitoring/readiness surface.
 
+> **Build Agent vs. release mode vs. the release agent.** The Build Agent owns
+> all execution orchestration and keeps release as one of its modes (broad build
+> scope: generate, run, aggregate, package, tag). `agents/release/` is the older,
+> narrower readiness→`pre_build` driver. The mature architecture splits a
+> dedicated **Release Agent** out of the Build Agent's release mode — making
+> release-specific decisions (versioning, changelogs, PyPI/tags, human approval),
+> consulting the Health Agent *more strictly*, then requesting execution from the
+> Build Agent / PyAutoBuild. Until then: one agent now, clean seam for two later.
+
 More specialist agents are expected over time (e.g. a Feature agent that reasons
-over PyAutoMind tasks, a Build agent that coordinates execution, several health
-agents each reasoning over a different part of Heart); add them as new
-`agents/<name>/` directories.
+over PyAutoMind tasks, Bug / Refactor / Documentation / Research agents, and a
+split-out Release agent). The Build Agent is the reusable template — add new
+ones as `agents/<name>/` directories following its shape (a concise `AGENTS.md`,
+a deterministic entrypoint, and a capability audit of any organ it drives).
 
 ## Running
 
 ```bash
 bin/pyauto-brain help            # list agents
+bin/pyauto-brain build           # consult health, then delegate execution to Build
+bin/pyauto-brain build --dry-run # reason + plan only (emit the BuildDecision)
 bin/pyauto-brain release         # reason about readiness, then release on green
 bin/pyauto-brain health          # one health tick + readiness verdict
 ```
