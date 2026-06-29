@@ -4,64 +4,19 @@ Long-form templates and procedures factored out of `start_dev.md` to keep the
 primary skill concise. The body skill is authoritative for the flow; this file
 holds the verbatim formats it points at.
 
-## Issue body template
+## Issue body
 
-```markdown
-## Overview
+The issue body is assembled and created by the Mind primitive `/create_issue`
+(see `PyAutoMind/skills/create_issue/SKILL.md` → "Assemble + create the issue").
+start_dev does **not** call `gh issue create` itself — it supplies the content
+and delegates the write.
 
-<2-4 sentence summary of what this task is and why it matters>
+When delegating, pass these in the plan content so create_issue includes them in
+the collapsible detailed block (they are start_dev-specific extras on top of
+create_issue's base template):
 
-## Plan
-
-<High-level bullet-point plan — human readable, no code>
-
-<details>
-<summary>Detailed implementation plan</summary>
-
-### Affected Repositories
-- repo1 (primary)
-- repo2
-
-### Work Classification
-<Library / Workspace / Both>
-
-### Branch Survey
-
-| Repository | Current Branch | Dirty? |
-|-----------|---------------|--------|
-| ./RepoName | main | clean |
-
-**Suggested branch:** `feature/<name>`
-**Worktree root:** `~/Code/PyAutoLabs-wt/<name>/` (created later by `/start_library`)
-
-### Implementation Steps
-
-1. Detailed step with file paths and specifics...
-2. ...
-
-### Key Files
-- `path/to/file.py` — description of changes
-
-</details>
-
-## Original Prompt
-
-<details>
-<summary>Click to expand starting prompt</summary>
-
-<original prompt content copied verbatim>
-
-</details>
-```
-
-Pass via HEREDOC:
-
-```bash
-gh issue create --repo <owner/repo> --title "<title>" --body "$(cat <<'ISSUE_EOF'
-<body content>
-ISSUE_EOF
-)"
-```
+- **Work Classification** — `Library / Workspace / Both`
+- **Worktree root** — `~/Code/PyAutoLabs-wt/<name>/` (created later by `/start_library`)
 
 ## Registry entries
 

@@ -90,13 +90,16 @@ Run `/plan_branches` reasoning for the affected repos: report each repo's branch
 the worktree root `~/Code/PyAutoLabs-wt/<task-name>/` (created later by
 `/start_library`). See `plan_branches`.
 
-### 5. Create the GitHub issue
+### 5. Create the issue via the Mind primitive
 
-Generate a concise title (<70 chars, conventional prefix where apt). Build the
-issue body from [`reference.md`](reference.md) → "Issue body template" (Overview,
-Plan, collapsible detailed plan + branch survey, Original Prompt). **Present the
-body for review, then** create via `gh issue create` (feature-dev git/gh
-mechanics — not Build).
+Generate a concise title (<70 chars, conventional prefix where apt), then
+**delegate the issue write to `/create_issue`** (the PyAutoMind issue+registry
+primitive) — pass it the classified primary repo, title, two-level plan, and
+suggested branch. It assembles the body, creates the issue (after review), moves
+the prompt to `issued/`, and pushes Mind. Do **not** re-implement issue creation
+here. Registration in `active.md` is conflict-dependent (next step), so tell
+`/create_issue` to **skip its active.md registration** — start_dev owns that
+routing decision.
 
 ### 6. Register in Mind + route
 
@@ -105,18 +108,20 @@ source admin_jammy/software/worktree.sh
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 
-- **Conflict (non-zero):** add the task to `PyAutoMind/planned.md` (blocked) and
-  tell the user what's blocking it.
-- **No conflict:** add the task to `PyAutoMind/active.md` with
+- **No conflict:** register the task in `PyAutoMind/active.md` with
   `status: library-dev | workspace-dev` and the `worktree:` path.
+- **Conflict (non-zero):** register in `PyAutoMind/planned.md` (blocked) and tell
+  the user what's blocking it.
 
 Registry-entry formats are in [`reference.md`](reference.md) → "Registry
-entries". Move the prompt to `PyAutoMind/issued/<filename>` (timestamp-suffix on
-clash). Then route: library → `/start_library`; workspace → `/start_workspace`;
+entries". Then route: library → `/start_library`; workspace → `/start_workspace`;
 both → `/start_library` first. Display the issue URL, primary repo, branch, and
 classification.
 
 ### 7. Push Mind state
+
+`/create_issue` already pushed the issue + `issued/` move; push the routing
+registration (active.md / planned.md) added in step 6:
 
 ```bash
 source PyAutoMind/scripts/prompt_sync.sh
