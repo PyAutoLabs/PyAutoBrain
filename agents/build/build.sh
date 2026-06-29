@@ -60,7 +60,9 @@ forward=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode) mode="${2:-}"; shift 2 ;;
+    --mode)
+      [[ $# -ge 2 ]] || { echo "build agent: --mode needs a value (build|deploy|release)" >&2; exit 5; }
+      mode="$2"; shift 2 ;;
     --mode=*) mode="${1#*=}"; shift ;;
     --force) force=1; shift ;;
     --dry-run) dry_run=1; shift ;;
@@ -146,7 +148,6 @@ plan=("$plan_cmd")
 if [[ "$mode" == "release" ]]; then
   follow_up+=("Release reasoning lives in 'release mode'; it may later split into a dedicated PyAutoBrain Release Agent.")
 fi
-[[ "$decision_code" -eq 0 && "$dry_run" -eq 0 ]] || true
 
 # ----- emit the BuildDecision (structured) -----
 summary="$decision via '$plan_cmd' (health=$verdict, mode=$mode)"
