@@ -19,12 +19,12 @@ The PyAuto ecosystem is a software organism; each repo is an organ with one job:
 |-------|------|------|
 | **Mind** | PyAutoMind | Decides *what* should be done — intent, goals, priorities. |
 | **Brain** | **PyAutoBrain** | Figures out *how* — reasoning, planning, orchestration. |
-| **Hands** | PyAutoBuild | Performs the work — packaging, tagging, notebooks, PyPI. |
+| **Hands** | PyAutoBuild | Builds and releases the software — packaging, tagging, notebooks, PyPI. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. |
 | **Memory** | PyAutoMemory | Long-term scientific / software / project knowledge. |
 
 In one line each: **Mind** decides what, **Brain** figures out how, **Hands**
-perform the work, **Heart** says whether it is healthy.
+build and release the software, **Heart** says whether it is healthy.
 
 ## The split
 

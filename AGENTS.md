@@ -31,7 +31,7 @@ organ with one job:
 |-------|------|------|
 | **Mind** | PyAutoMind | Decides *what* should be done — intent, goals, priorities, future work. |
 | **Brain** | **PyAutoBrain** (this repo) | Figures out *how* — reasoning, planning, decomposition, orchestration, agent coordination, decision-making. |
-| **Hands** | PyAutoBuild | Performs the work — packaging, tagging, notebooks, PyPI execution. (May later be renamed PyAutoHands.) |
+| **Hands** | PyAutoBuild | Builds and releases the software — packaging, tagging, notebooks, PyPI. (May later be renamed PyAutoHands.) |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy — the authoritative readiness verdict. |
 | **Memory** | PyAutoMemory | Long-term scientific, software and project knowledge. |
 
@@ -39,13 +39,13 @@ The clean boundary, in one line each:
 
 - **Mind** → decides what should be done.
 - **Brain** → figures out how.
-- **Hands** → performs the work.
+- **Hands** → build and release the software.
 - **Heart** → determines whether the organism is healthy.
 
-PyAutoBrain does not directly perform software execution (that belongs to the
-Hands / PyAutoBuild) and does not measure health (that belongs to the Heart /
-PyAutoHeart). The Brain determines *how* work should be performed; the Hands
-perform it; the Heart says whether it is safe to.
+PyAutoBrain does not build or release software (that belongs to the Hands /
+PyAutoBuild) and does not measure health (that belongs to the Heart /
+PyAutoHeart). The Brain determines *how* work should be done; the Hands build
+and release it; the Heart says whether it is safe to.
 
 ## The boundary (one description, mirrored across the organs)
 
