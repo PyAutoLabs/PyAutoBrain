@@ -1,8 +1,8 @@
 # Health agent
 
-The first PyAutoBrain specialist reasoning agent. It decides whether the PyAuto
-organism is healthy enough to proceed with work, by **reasoning over
-PyAutoHeart's outputs** — never by performing health checks itself.
+A PyAutoBrain specialist reasoning agent. It decides whether the PyAuto organism
+is healthy enough to proceed with work, by **reasoning over PyAutoHeart's
+outputs** — never by performing health checks itself.
 
 ```
 Mind (intent) -> Brain (reasoning) -> Heart (gate) -> Hands/Build (execute)
@@ -38,10 +38,10 @@ via the manifest — reason about *categories of signal*, not fixed names.
 ## Run
 
 ```bash
-bin/pyauto-brain health             # one tick + structured decision
-bin/pyauto-brain health --json      # one tick + readiness JSON from Heart
-bin/pyauto-brain health status      # forward to: pyauto-heart status
-bin/pyauto-brain health watch 300   # forward to: pyauto-heart watch 300
+bin/pyauto-brain health                   # one tick + structured decision
+bin/pyauto-brain health readiness --json  # forward: pyauto-heart readiness --json (no tick)
+bin/pyauto-brain health status            # forward to: pyauto-heart status
+bin/pyauto-brain health watch 300         # forward to: pyauto-heart watch 300
 ```
 
 The entrypoint (`health.sh`) refreshes Heart's state and prints the readiness
