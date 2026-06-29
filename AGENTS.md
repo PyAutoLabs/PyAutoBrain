@@ -99,6 +99,13 @@ Each agent is a directory under `agents/<name>/` with:
 
 Current agents:
 
+- **`agents/feature/`** — the **growth function**: reasons over PyAutoMind
+  `feature/*` intent and decides *how the organism should grow*. Selects the next
+  feature task (or plans a named one), estimates difficulty, decides whether to
+  phase, consults PyAutoMemory for scientific/architectural context and (for
+  risky work) the Health Agent, and emits a `FeatureDecision` that the existing
+  `start_dev → ship_library/ship_workspace` workflow consumes. It reasons; it
+  never edits source. (Organism-facing name: *Growth Agent*.)
 - **`agents/build/`** — the executive function for execution work. Consults the
   Health Agent, reasons over the verdict, and on a healthy result delegates to
   the appropriate PyAutoBuild capability. The canonical example of the Brain
@@ -117,16 +124,20 @@ Current agents:
 > consulting the Health Agent *more strictly*, then requesting execution from the
 > Build Agent / PyAutoBuild. Until then: one agent now, clean seam for two later.
 
-More specialist agents are expected over time (e.g. a Feature agent that reasons
-over PyAutoMind tasks, Bug / Refactor / Documentation / Research agents, and a
-split-out Release agent). The Build Agent is the reusable template — add new
-ones as `agents/<name>/` directories following its shape (a concise `AGENTS.md`,
-a deterministic entrypoint, and a capability audit of any organ it drives).
+More specialist agents are expected over time (Bug / Refactor / Documentation /
+Research agents, and a split-out Release agent); the Feature Agent above is the
+first of these, the Brain agent that reasons over PyAutoMind `feature/*` intent.
+The Build Agent is the reusable template — add new ones as `agents/<name>/`
+directories following its shape (a concise `AGENTS.md`, a deterministic
+entrypoint, and a capability audit of any organ it drives — the Feature Agent's
+`MIND_TAXONOMY.md` is that audit for the PyAutoMind/PyAutoMemory surface).
 
 ## Running
 
 ```bash
 bin/pyauto-brain help            # list agents
+bin/pyauto-brain feature         # select the best next PyAutoMind feature task
+bin/pyauto-brain feature feature/autofit/sbi.md   # plan a specific feature task
 bin/pyauto-brain build           # consult health, then delegate execution to Build
 bin/pyauto-brain build --dry-run # reason + plan only (emit the BuildDecision)
 bin/pyauto-brain release         # reason about readiness, then release on green

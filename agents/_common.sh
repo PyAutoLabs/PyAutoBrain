@@ -35,6 +35,35 @@ resolve_autobuild() {
   _resolve_bin autobuild "$PYAUTO_ROOT/PyAutoBuild/bin/autobuild"
 }
 
+# _resolve_dir <env-var-name> <repo-name> — echo the path to a sibling PyAuto
+# *repository checkout* (not a binary), or print a hint to stderr and return 1.
+# Organs like PyAutoMind and PyAutoMemory are markdown knowledge bases with no
+# CLI: the Brain reasons over their files directly. Resolution order: an explicit
+# env override (e.g. PYAUTO_MIND), then $PYAUTO_ROOT/<repo>, then a couple of
+# common dev layouts ($HOME/<repo>, $HOME/Code/<repo>).
+_resolve_dir() {
+  local var="$1" repo="$2" override="${!1:-}" c
+  if [[ -n "$override" && -d "$override" ]]; then printf '%s' "$override"; return 0; fi
+  # The parent of this PyAutoBrain checkout is the most reliable sibling root
+  # (organs are typically cloned side by side), so check it first.
+  local brain_parent
+  brain_parent="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+  for c in "$brain_parent/$repo" "$PYAUTO_ROOT/$repo" "$HOME/$repo" \
+           "$HOME/Code/$repo" "$HOME/Code/PyAutoLabs/$repo"; do
+    if [[ -d "$c" ]]; then printf '%s' "$c"; return 0; fi
+  done
+  echo "pyauto-brain: '$repo' checkout not found (set $var, or clone it beside PyAutoBrain / under $PYAUTO_ROOT)" >&2
+  return 1
+}
+
+# resolve_mind — locate the PyAutoMind checkout (the organism's intent store).
+resolve_mind() { _resolve_dir PYAUTO_MIND PyAutoMind; }
+
+# resolve_memory — locate the PyAutoMemory checkout (the organism's long-term
+# scientific/architectural knowledge). Optional: the Feature Agent degrades
+# gracefully when memory is absent rather than inventing context.
+resolve_memory() { _resolve_dir PYAUTO_MEMORY PyAutoMemory; }
+
 # readiness_verdict — run `pyauto-heart readiness --json` and echo the verdict
 # string (green/yellow/red). Returns non-zero if Heart can't be resolved/run.
 readiness_verdict() {
