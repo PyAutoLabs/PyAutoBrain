@@ -1,0 +1,112 @@
+# ship_workspace — reference detail
+
+Factored out of `ship_workspace.md`. The body skill is authoritative for the
+flow; this file holds the PR format, the merge gate, and the issue/Mind formats.
+
+## PR body format
+
+The PR body **MUST** include a `## Scripts Changed` section.
+
+```markdown
+## Summary
+<concise description of what and why>
+
+## Scripts Changed
+- `scripts/overview/overview_1_the_basics.py` — updated `OldClass` usage to `new_function()`
+- `scripts/imaging/start_here.py` — replaced deprecated `fit.log_likelihood` with `fit.figure_of_merit`
+
+## Upstream PR
+<library PR URL — include only if linked to an upstream library PR>
+
+## Test Plan
+- [ ] Smoke tests pass for all affected workspaces
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+Omit `## Upstream PR` entirely if there is no linked library PR.
+
+## Execution contract (feature-dev)
+
+The dev workflow's own git execution (commit/push/feature-PR), not a Build/release
+step. Per workspace repo, after the readiness gate is GREEN:
+
+1. Verify the branch is `feature/<task-name>`; if unexpectedly on `main`, stop
+   and report — never auto-switch.
+2. `git -C "$WT_ROOT/<workspace>" add -A && git commit -m "<message>" && git push -u origin feature/<task-name>`.
+3. `source "$WT_ROOT/activate.sh"`, then run `/smoke_test`. Smoke runs feed
+   Heart's verdict — any failure means **stop**, return the failures verbatim, do
+   not create the PR, do not try to fix the scripts.
+4. `gh pr create --repo <owner/repo> --head feature/<task-name> --label "pending-release" --title "<title>" --body "<body>"`
+   (paste the drafted body verbatim via HEREDOC). Verify the label landed
+   (`gh pr view <n> --json labels --jq '[.labels[].name]'`); if absent, fix with
+   `ensure_workspace_labels.sh` + `gh pr edit <n> --add-label pending-release`.
+5. If a library PR URL was passed in, cross-reference it:
+   `gh pr comment <library-PR-number> --body "Workspace PR: <workspace-PR-URL>"`.
+6. Return a structured summary: one line per workspace with smoke pass/fail,
+   commit SHA, PR URL, and confirmation of the cross-reference comment.
+
+Only edit files in `scripts/`; notebooks are regenerated, never hand-edited. In
+local-dev delegate this to a Sonnet subagent; elsewhere run it directly.
+
+## Library-first merge gate
+
+If linked to an upstream library PR, the **library PR must be merged before** the
+workspace PR — workspace scripts import the new API, so merging the workspace
+first breaks `main` for anyone who pulls it before the library.
+
+```bash
+gh pr view <library-PR-url> --json state --jq '.state'
+```
+
+- `MERGED` → offer to merge the workspace PR (`gh pr merge <n> --merge`).
+- `OPEN` / anything else → **refuse to merge**; display the block (library PR
+  URL + state, workspace PR URL) and tell the user to merge the library first.
+  Do **not** use `--auto` as a workaround — the gate is manual by design.
+
+Standalone (no upstream PR): just offer `gh pr merge <n> --merge`. If the user
+declines, leave the PR open.
+
+## Issue completion + Mind state
+
+1. Detect the issue (from `active.md`; else PR branch name; else ask). If none
+   and the user confirms there isn't one, skip.
+2. Generate a session summary — key decisions, alternatives considered, gotchas,
+   future-work ideas not captured in code/PR.
+3. Post a "Shipped" comment:
+
+```bash
+gh issue comment <number> --repo <owner/repo> --body "$(cat <<'SHIP_EOF'
+## Shipped — <YYYY-MM-DD>
+
+### PRs
+- <workspace PR URL(s), one per line>
+
+### Upstream PR
+<library PR URL — include only if linked. Omit otherwise.>
+
+### Summary
+<2-4 sentences: what was done and the outcome>
+
+### Session Notes
+<Key decisions, alternatives, gotchas, future work. Omit if nothing to note.>
+
+SHIP_EOF
+)"
+```
+
+4. Move the task from `active.md` to `complete.md`:
+
+```markdown
+## <task-name>
+- issue: <issue-url>
+- completed: <YYYY-MM-DD>
+- library-pr: <library PR URL — if linked>
+- workspace-pr: <workspace PR URL(s)>
+```
+
+Push Mind: `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.
+
+If the task is not fully finished (e.g. only the library half shipped), leave it
+in `active.md` with an updated `status:` instead of moving it — any later session,
+in any environment, resumes it straight from `active.md`.
