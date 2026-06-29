@@ -7,6 +7,7 @@
 # the CLIs feel the same. Each subcommand is a specialist reasoning agent under
 # agents/<name>/.
 #
+#   pyauto-brain build   [args]   coordinate execution: consult health, run Build
 #   pyauto-brain release [args]   reason about readiness, then release on green
 #   pyauto-brain health  [args]   reason over the PyAutoHeart health surface
 #   pyauto-brain help   [name]    list agents or show one agent's docs
@@ -21,14 +22,16 @@ BRAIN_HOME="$(cd "$(dirname "$_self")/.." && pwd)"
 AGENTS_DIR="$BRAIN_HOME/agents"
 
 declare -A AGENT_SCRIPT=(
+  [build]="$AGENTS_DIR/build/build.sh"
   [release]="$AGENTS_DIR/release/release.sh"
   [health]="$AGENTS_DIR/health/health.sh"
 )
 declare -A AGENT_DESC=(
+  [build]="Coordinate execution: consult the Health Agent, then delegate to PyAutoBuild"
   [release]="Reason about pyauto-heart readiness, then run the Build release on green"
   [health]="Reason over the PyAutoHeart monitoring / readiness surface"
 )
-AGENT_ORDER=(release health)
+AGENT_ORDER=(build release health)
 
 cmd_help() {
   if [[ $# -gt 0 ]]; then

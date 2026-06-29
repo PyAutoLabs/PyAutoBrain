@@ -42,14 +42,32 @@ Brain  →  Heart (gate)  →  Build (execute)
 
 ## Specialist reasoning agents
 
+- **`agents/build/`** — the executive function for execution work. Consults the
+  Health Agent, reasons over the verdict, and on a healthy result delegates to
+  PyAutoBuild. The canonical example of the Brain coordinating multiple organs;
+  has `build` / `deploy` / `release` modes.
 - **`agents/release/`** — reasons over `pyauto-heart readiness` → on green, runs
   the PyAutoBuild release executor.
 - **`agents/health/`** — reasons over the PyAutoHeart monitoring / readiness surface.
+
+Brain agents can also **consult one another**: the Build Agent doesn't query
+Heart directly — it asks the Health Agent, which is the only agent that talks to
+the Heart organ.
+
+```
+Mind  →  Build Agent  →  Health Agent  →  Heart  →  GREEN/YELLOW/RED
+                      →  Build Agent  →  Build (execute)
+```
+
+Release is a **mode** of the Build Agent today (because PyAutoBuild owns
+release/build/deploy execution), isolated so it can split into a dedicated
+**Release Agent** later — one agent now, clean seam for two later.
 
 ## Usage
 
 ```bash
 bin/pyauto-brain help        # list agents
+bin/pyauto-brain build       # consult health, then delegate execution to Build
 bin/pyauto-brain release     # reason about readiness, then release on green
 bin/pyauto-brain health      # one health tick + readiness verdict
 ```

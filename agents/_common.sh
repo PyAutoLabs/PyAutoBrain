@@ -42,3 +42,49 @@ readiness_verdict() {
   heart="$(resolve_heart)" || return $?
   "$heart" readiness --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("verdict","unknown"))'
 }
+
+# _agents_dir — directory holding the sibling agents (this file lives in it).
+_agents_dir() {
+  cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd
+}
+
+# consult_health_agent_verdict [--refresh] — ask the *sibling Health Agent* for
+# the readiness verdict, rather than querying PyAutoHeart directly. This is the
+# Brain-agent-consults-Brain-agent pattern: a specialist agent reasons *with*
+# another specialist agent, and only the Health Agent talks to the Heart organ.
+# It keeps the Build Agent decoupled from Heart's surface and lets future agents
+# (Feature, Release, ...) consult one another the same way.
+#
+#   --refresh   ask the Health Agent to refresh Heart's state first (a fresh
+#               gate); release-grade work uses this, ordinary build work does not.
+#
+# Echoes one of: green | yellow | red | unknown. Never fails the caller — an
+# unresolvable/again-unknown verdict is reported as "unknown" (treated as YELLOW
+# by callers), never silently as green.
+consult_health_agent_verdict() {
+  local refresh=0
+  [[ "${1:-}" == "--refresh" ]] && refresh=1
+  local health
+  health="$(_agents_dir)/health/health.sh"
+  if [[ ! -f "$health" ]]; then
+    echo "unknown"
+    return 0
+  fi
+  if [[ "$refresh" -eq 1 ]]; then
+    bash "$health" tick >/dev/null 2>&1 || true
+  fi
+  # Capture into a variable rather than piping straight out: the caller may have
+  # `set -o pipefail`, under which a non-zero exit from the (possibly
+  # Heart-less) Health Agent would otherwise double-fire a fallback. The python
+  # below always prints exactly one token, even on empty/garbage input.
+  local out
+  out="$(bash "$health" readiness --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    v = json.load(sys.stdin).get("verdict", "unknown")
+    print(v or "unknown")
+except Exception:
+    print("unknown")
+' 2>/dev/null)"
+  printf '%s\n' "${out:-unknown}"
+}
