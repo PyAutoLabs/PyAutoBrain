@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# bin/pyauto-brain — PyAutoBrain CLI dispatcher.
+#
+# PyAutoBrain is the reasoning layer of the PyAuto organism: it figures out HOW
+# work should be done and coordinates the organs that do it. The subcommand
+# pattern mirrors PyAutoBuild/bin/autobuild and PyAutoHeart/bin/pyauto-heart so
+# the CLIs feel the same. Each subcommand is a specialist reasoning agent under
+# agents/<name>/.
+#
+#   pyauto-brain release [args]   reason about readiness, then release on green
+#   pyauto-brain health  [args]   reason over the PyAutoHeart health surface
+#   pyauto-brain help   [name]    list agents or show one agent's docs
+#
+# Back-compat: the former name `pyauto-agent` is kept as a thin shim that execs
+# this dispatcher.
+
+set -u
+
+_self="$(readlink -f "${BASH_SOURCE[0]}")"
+BRAIN_HOME="$(cd "$(dirname "$_self")/.." && pwd)"
+AGENTS_DIR="$BRAIN_HOME/agents"
+
+declare -A AGENT_SCRIPT=(
+  [release]="$AGENTS_DIR/release/release.sh"
+  [health]="$AGENTS_DIR/health/health.sh"
+)
+declare -A AGENT_DESC=(
+  [release]="Reason about pyauto-heart readiness, then run the Build release on green"
+  [health]="Reason over the PyAutoHeart monitoring / readiness surface"
+)
+AGENT_ORDER=(release health)
+
+cmd_help() {
+  if [[ $# -gt 0 ]]; then
+    local name="$1"
+    local doc="$AGENTS_DIR/$name/AGENTS.md"
+    if [[ -f "$doc" ]]; then
+      cat "$doc"
+      return 0
+    fi
+    echo "pyauto-brain: unknown agent '$name'" >&2
+    return 2
+  fi
+  cat <<EOF
+pyauto-brain — reasoning CLI for the PyAuto organism.
+
+PyAutoBrain figures out HOW work should be done; it owns no checks and no
+execution. It reasons, then delegates to the organs:
+
+Call chain:  Brain -> Heart (gate) -> Build (execute)
+
+Usage: pyauto-brain <agent> [args...]
+       pyauto-brain help [agent]
+
+Specialist reasoning agents:
+EOF
+  local name
+  for name in "${AGENT_ORDER[@]}"; do
+    printf '    %-10s %s\n' "$name" "${AGENT_DESC[$name]}"
+  done
+  echo
+  echo "Run 'pyauto-brain help <agent>' for that agent's full docs."
+}
+
+main() {
+  local sub="${1:-help}"
+  case "$sub" in
+    ""|-h|--help|help)
+      shift 2>/dev/null || true
+      cmd_help "$@"
+      return $?
+      ;;
+  esac
+  shift
+  local script="${AGENT_SCRIPT[$sub]:-}"
+  if [[ -z "$script" || ! -f "$script" ]]; then
+    echo "pyauto-brain: unknown agent '$sub'" >&2
+    cmd_help >&2
+    return 2
+  fi
+  exec bash "$script" "$@"
+}
+
+main "$@"

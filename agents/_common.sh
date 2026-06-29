@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# agents/_common.sh — shared helpers for PyAutoAgent agents.
+# agents/_common.sh — shared helpers for PyAutoBrain's specialist agents.
 #
-# Resolves the sibling PyAuto CLIs (pyauto-pulse, autobuild) the same way the
-# autobuild shim resolves pyauto-pulse: prefer PATH, fall back to the sibling
+# Resolves the sibling PyAuto organ CLIs (pyauto-heart, autobuild) the same way
+# the autobuild shim resolves them: prefer PATH, fall back to the sibling
 # checkout under ~/Code/PyAutoLabs/. Nothing here is pip-installed.
 
 PYAUTO_ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
@@ -19,23 +19,26 @@ _resolve_bin() {
     printf '%s' "$fallback"
     return 0
   fi
-  echo "pyauto-agent: '$name' not found on PATH or at $fallback" >&2
+  echo "pyauto-brain: '$name' not found on PATH or at $fallback" >&2
   echo "  Clone the sibling repo under $PYAUTO_ROOT and add its bin/ to PATH." >&2
   return 127
 }
 
-resolve_pulse() {
-  _resolve_bin pyauto-pulse "$PYAUTO_ROOT/PyAutoPulse/bin/pyauto-pulse"
+# resolve_heart — locate the PyAutoHeart CLI (the health authority of the
+# organism). The former name was `pyauto-pulse`; PyAutoHeart keeps that as a
+# back-compat shim, but the canonical command is `pyauto-heart`.
+resolve_heart() {
+  _resolve_bin pyauto-heart "$PYAUTO_ROOT/PyAutoHeart/bin/pyauto-heart"
 }
 
 resolve_autobuild() {
   _resolve_bin autobuild "$PYAUTO_ROOT/PyAutoBuild/bin/autobuild"
 }
 
-# readiness_verdict — run `pyauto-pulse readiness --json` and echo the verdict
-# string (green/yellow/red). Returns non-zero if Pulse can't be resolved/run.
+# readiness_verdict — run `pyauto-heart readiness --json` and echo the verdict
+# string (green/yellow/red). Returns non-zero if Heart can't be resolved/run.
 readiness_verdict() {
-  local pulse
-  pulse="$(resolve_pulse)" || return $?
-  "$pulse" readiness --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("verdict","unknown"))'
+  local heart
+  heart="$(resolve_heart)" || return $?
+  "$heart" readiness --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("verdict","unknown"))'
 }

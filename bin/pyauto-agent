@@ -1,76 +1,8 @@
 #!/usr/bin/env bash
-# bin/pyauto-agent — PyAutoAgent CLI dispatcher.
+# bin/pyauto-agent — backwards-compatibility shim.
 #
-# Subcommand pattern mirrors PyAutoBuild/bin/autobuild and
-# PyAutoPulse/bin/pyauto-pulse so the three CLIs feel the same. Each subcommand
-# is a named agent under agents/<name>/.
-#
-#   pyauto-agent release [args]   gate on readiness, then release on green
-#   pyauto-agent health  [args]   drive the Pulse monitoring/readiness surface
-#   pyauto-agent help   [name]    list agents or show one agent's docs
-
-set -u
-
+# PyAutoAgent has been renamed to PyAutoBrain (the reasoning layer of the
+# PyAuto organism). The canonical CLI is now `pyauto-brain`; this shim forwards
+# every invocation to it so existing callers keep working.
 _self="$(readlink -f "${BASH_SOURCE[0]}")"
-AGENT_HOME="$(cd "$(dirname "$_self")/.." && pwd)"
-AGENTS_DIR="$AGENT_HOME/agents"
-
-declare -A AGENT_SCRIPT=(
-  [release]="$AGENTS_DIR/release/release.sh"
-  [health]="$AGENTS_DIR/health/health.sh"
-)
-declare -A AGENT_DESC=(
-  [release]="Gate on pyauto-pulse readiness, then run the Build release on green"
-  [health]="Drive the PyAutoPulse monitoring / readiness surface"
-)
-AGENT_ORDER=(release health)
-
-cmd_help() {
-  if [[ $# -gt 0 ]]; then
-    local name="$1"
-    local doc="$AGENTS_DIR/$name/AGENTS.md"
-    if [[ -f "$doc" ]]; then
-      cat "$doc"
-      return 0
-    fi
-    echo "pyauto-agent: unknown agent '$name'" >&2
-    return 2
-  fi
-  cat <<EOF
-pyauto-agent — orchestration CLI for the PyAuto release ecosystem.
-
-Call chain:  Agent -> Pulse (gate) -> Build (execute)
-
-Usage: pyauto-agent <agent> [args...]
-       pyauto-agent help [agent]
-
-Agents:
-EOF
-  local name
-  for name in "${AGENT_ORDER[@]}"; do
-    printf '    %-10s %s\n' "$name" "${AGENT_DESC[$name]}"
-  done
-  echo
-  echo "Run 'pyauto-agent help <agent>' for that agent's full docs."
-}
-
-main() {
-  local sub="${1:-help}"
-  case "$sub" in
-    ""|-h|--help|help)
-      shift 2>/dev/null || true
-      cmd_help "$@"
-      return $?
-      ;;
-  esac
-  shift
-  local script="${AGENT_SCRIPT[$sub]:-}"
-  if [[ -z "$script" || ! -f "$script" ]]; then
-    echo "pyauto-agent: unknown agent '$sub'" >&2
-    cmd_help >&2
-    return 2
-  fi
-  exec bash "$script" "$@"
-}
-
-main "$@"
+exec "$(dirname "$_self")/pyauto-brain" "$@"
