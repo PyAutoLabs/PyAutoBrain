@@ -141,7 +141,7 @@ bin/pyauto-brain feature feature/autofit/sbi.md   # plan a specific feature task
 bin/pyauto-brain build           # consult health, then delegate execution to Build
 bin/pyauto-brain build --dry-run # reason + plan only (emit the BuildDecision)
 bin/pyauto-brain release         # reason about readiness, then release on green
-bin/pyauto-brain health          # one health tick + readiness verdict
+bin/pyauto-brain health          # one health tick + the unified dashboard card
 ```
 
 Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install);

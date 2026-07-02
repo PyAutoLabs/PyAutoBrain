@@ -2,7 +2,9 @@
 # agents/health/health.sh — the health agent (a PyAutoBrain reasoning agent).
 #
 # Reasons over the PyAutoHeart monitoring surface. By default it runs one
-# refresh cycle and prints the authoritative readiness verdict. Any subcommand
+# refresh cycle and renders the unified dashboard card (the same board every
+# other surface shows — the authoritative readiness verdict at its head, plus
+# every check and the release-validation state). Any subcommand
 # is forwarded straight to `pyauto-heart`, so this agent is a thin, named driver
 # of Heart rather than a second implementation of any check. The Brain reasons
 # about health; PyAutoHeart measures it.

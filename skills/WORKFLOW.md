@@ -50,7 +50,7 @@ Reasoning is delegated to PyAutoBrain agents (`PyAutoBrain/AGENTS.md` is authori
 bin/pyauto-brain feature [<work-type>/<target>/<task>.md]  # classify + plan a task (Feature/Bug/Refactor/… routing)
 bin/pyauto-brain build   [--dry-run]                       # consult Health, then delegate execution to Build
 bin/pyauto-brain release                                   # reason over readiness, release on green
-bin/pyauto-brain health                                    # one health tick + readiness verdict
+bin/pyauto-brain health                                    # one health tick + the unified dashboard card
 ```
 
 If a dedicated agent for a work type does not exist yet (e.g. Bug/Refactor/Docs),
