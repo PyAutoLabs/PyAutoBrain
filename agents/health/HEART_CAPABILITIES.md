@@ -35,6 +35,23 @@ reimplement inside Brain.
 - Cloud-safe health issue maintenance via `.github/workflows/pulse-health.yml`,
   displayed as Heart Health during the Pulse→Heart compatibility period.
 
+## Release validation in Heart (ingest-and-judge)
+
+- `pyauto-heart validate --ingest <artifacts>` folds the release-validation
+  artifacts (the M1 TestPyPI rehearsal, a `{repo: sha}` commit_shas.json, and —
+  from M3 — the wheel-based integration `report.json`) into a tracked
+  `validation_report.json` (`~/.pyauto-heart/validation_report.json`).
+- The report is a **hard readiness gate**: GREEN-for-release requires a fresh
+  passing report whose `commit_shas` match the current `main` HEADs under the
+  `release` profile; absent/stale/SHA-mismatch/wrong-profile → YELLOW; a failed
+  stage → RED. It is exposed as the `validate` capability + `validation_report`
+  signal in Heart's `health_agent/capabilities.yaml`.
+- **Heart is ingest-and-judge only** — it never dispatches `release.yml` or
+  `workspace-validation.yml`. Dispatching/polling/downloading the artifacts is the
+  **Release Agent's** job (`pyauto-brain release rehearse`), via MCP GitHub tools.
+  The **Health Agent stays read-only**: it reports the resulting verdict, it does
+  not dispatch.
+
 ## Heart implementation assets
 
 - Bash dispatcher and loop: `bin/pyauto-heart`, `heart/daemon.sh`, `heart/tick.sh`.

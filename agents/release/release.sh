@@ -25,6 +25,14 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../_common.sh"
 
+# `release rehearse ...` drives the M2 release-VALIDATION rehearsal (dispatch the
+# TestPyPI rehearsal, ingest the report into Heart, consult the Health Agent) —
+# distinct from the real-release delegation below. Route it to rehearse.sh.
+if [[ "${1:-}" == "rehearse" ]]; then
+  shift
+  exec bash "$HERE/rehearse.sh" "$@"
+fi
+
 force=0
 forward=()
 while [[ $# -gt 0 ]]; do
