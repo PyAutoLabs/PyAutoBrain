@@ -166,14 +166,10 @@ def find_version():
                         return str(v)
             except (OSError, json.JSONDecodeError):
                 continue
-    # Fall back to any JSON carrying a "version" key.
-    for p in sorted(d.rglob("*.json")):
-        try:
-            data = json.loads(p.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(data, dict) and data.get("version"):
-            return str(data["version"])
+    # No loose "any JSON with a version key" fallback: once Stage 3 has run its
+    # stage_report.json ALSO carries a "version", so guessing could pick the
+    # wrong artifact. Only the Stage-2 rehearsal artifacts are authoritative;
+    # missing them is a hard failure (handled by the caller), not a guess.
     return ""
 
 def find_shas():
@@ -200,10 +196,19 @@ print(shas_json)
 
   testpypi_version="$(printf '%s\n' "$read_out" | sed -n '1p')"
   commit_shas_json="$(printf '%s\n' "$read_out" | sed -n '2p')"
-  [[ -z "$commit_shas_json" ]] && commit_shas_json="{}"
 
   if [[ -z "$testpypi_version" ]]; then
     echo "release validate: no testpypi_version found in '$stage3_dir' (expected rehearsal.json or testpypi_version.txt from Stage 2)" >&2
+    exit 1
+  fi
+
+  # Stage 3 REQUIRES Stage 2's commit_shas (the authoritative library HEADs the
+  # Release Agent read from GitHub). Missing/empty is a hard failure: dispatching
+  # with an empty {} would run the integration against unconfirmed source and
+  # then emit a phase-C `--commit-shas <dir>/commit_shas.json` step pointing at a
+  # file that may not exist. Better to stop here than dispatch a blind run.
+  if [[ -z "$commit_shas_json" || "$commit_shas_json" == "{}" ]]; then
+    echo "release validate: no Stage-2 commit_shas found in '$stage3_dir' (expected a non-empty commit_shas.json — the authoritative library main HEADs). Cannot dispatch Stage 3 without them." >&2
     exit 1
   fi
 
@@ -332,16 +337,31 @@ for lib in libs:
     branch = rs.get("branch")
     if branch and branch != "main":
         blockers.append(f"{lib}: on branch {branch} (not main)")
-    try:
-        dirty = int(rs.get("dirty_real", rs.get("dirty_files", 0)) or 0)
-    except (TypeError, ValueError):
+    # A present-but-unparseable count (schema drift / non-int) must NOT be
+    # coerced to 0 and silently pass as clean — that would violate the
+    # "unknowns are never silently treated as green" invariant. An ABSENT key is
+    # fine (repo_state omits it when clean); only a value we cannot parse is an
+    # unknown, surfaced as a warning (still non-blocking, per the unknown policy).
+    raw_dirty = rs.get("dirty_real", rs.get("dirty_files"))
+    if raw_dirty is None:
         dirty = 0
+    else:
+        try:
+            dirty = int(raw_dirty)
+        except (TypeError, ValueError):
+            dirty = 0
+            unknowns.append(f"{lib}: dirty count unparseable ({raw_dirty!r}) — not assuming clean")
     if dirty > 0:
         blockers.append(f"{lib}: {dirty} uncommitted source change(s)")
-    try:
-        behind = int(rs.get("behind", 0) or 0)
-    except (TypeError, ValueError):
+    raw_behind = rs.get("behind")
+    if raw_behind is None:
         behind = 0
+    else:
+        try:
+            behind = int(raw_behind)
+        except (TypeError, ValueError):
+            behind = 0
+            unknowns.append(f"{lib}: behind count unparseable ({raw_behind!r}) — not assuming up-to-date")
     if behind > 0:
         blockers.append(f"{lib}: {behind} commit(s) behind origin")
 
