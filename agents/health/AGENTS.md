@@ -123,6 +123,41 @@ Status: <GREEN | YELLOW | RED>   (score <0-100>, snapshot <ts>)
 - <red reason, mapped to its capability>   (or "None")
 ```
 
+## Day-to-day defaults (operating agreement)
+
+How `pyauto-brain health` should render and reason on a routine run. These are
+presentation/triage conventions layered *on top of* the procedure above — they
+never change the verdict, which is always adopted from Heart verbatim.
+
+- **Default surface.** Lead with the `pyauto-heart dashboard --md` mobile card
+  (verdict · score · warnings · tiles), then the structured report beneath it.
+- **Grouping.** Order reasons by severity, then capability: blocking issues
+  first, then warnings, each mapped to its manifest capability.
+- **Unknown-CI tiles.** A repo whose required-workflow conclusion is
+  unresolved on `main` HEAD is rendered by Heart as `CI in_progress` — an
+  *unknown*, not an actively-running workflow, and it does **not** enter
+  `readiness.yellow_reasons`. Keep such tiles visually secondary: note the
+  "unknown-on-HEAD, gate-irrelevant" nature once and do not let many
+  near-identical tiles dominate the card.
+- **Local-checks-blind.** When `repo_state` reports `present: false` (the
+  repos are not under `PYAUTO_ROOT`, e.g. a cloud box where they live outside
+  `~/Code/PyAutoLabs`), the local half of Heart — `repo_state`, `version_skew`,
+  `worktree_drift`, `script_timing`, `test_run` — observes nothing. Say "local
+  health unobserved here" and **downgrade confidence**; do not read the
+  resulting silence (or a vacuously green tile) as *verified clean*. Cite the
+  one-time fix: set `PYAUTO_ROOT` to the actual checkout root (or auto-detect).
+- **`fix` citations.** Cite a `pyauto-heart fix <ci|dirty|drift|timing>` entry
+  point **only when Heart's verdict names that failure class**. An unknown is
+  not a failure — never emit a fix for it.
+- **Staleness.** If `dashboard.stale == true`, or the snapshot `ts` is older
+  than the watch interval, downgrade confidence and recommend
+  `pyauto-heart tick` rather than trusting the stale board.
+- **Expected first-run gaps vs. real problems.** Treat "no test-run report",
+  "install verification not run", and "no release validation for current
+  source" as standing baseline unknowns (YELLOW), not action items. Only a real
+  CI failure, dirty tree, worktree drift, or timing regression is a genuine
+  health signal to act on.
+
 ## Gate semantics (what the caller does next)
 
 - **GREEN** — the organism is healthy. PyAutoBuild/Hands may proceed
