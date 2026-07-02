@@ -25,12 +25,20 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../_common.sh"
 
-# `release rehearse ...` drives the M2 release-VALIDATION rehearsal (dispatch the
-# TestPyPI rehearsal, ingest the report into Heart, consult the Health Agent) —
-# distinct from the real-release delegation below. Route it to rehearse.sh.
+# `release rehearse ...` drives the M2 release-VALIDATION rehearsal (Stage 2
+# alone: dispatch the TestPyPI rehearsal, ingest the report into Heart, consult
+# the Health Agent) — distinct from the real-release delegation below.
 if [[ "${1:-}" == "rehearse" ]]; then
   shift
   exec bash "$HERE/rehearse.sh" "$@"
+fi
+
+# `release validate ...` drives the M4 FULL Stages 0-3 release-validation
+# orchestrator (preflight -> unit -> rehearse -> integrate -> ingest -> verdict).
+# It sequences rehearse.sh's Stage-2 pieces and adds Stage 0/1 preflight + Stage 3.
+if [[ "${1:-}" == "validate" ]]; then
+  shift
+  exec bash "$HERE/validate.sh" "$@"
 fi
 
 force=0
