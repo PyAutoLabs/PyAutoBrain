@@ -75,6 +75,69 @@ reports GREEN/YELLOW/RED from the freshly-ingested report.
 Exit codes (phase 2): `0` green (release-ready) · `2` yellow (use --force) ·
 `3` red · `4` unknown · `1` could not ingest.
 
+## Full release-validation orchestrator (M4) — `release validate`
+
+`release rehearse` drives Stage 2 alone. `release validate` (`validate.sh`) is
+the **full Stages 0–3 orchestrator** — the end-to-end
+preflight → unit → rehearse → integrate → ingest → verdict flow the
+`release_validation.md` spec calls for. It **sequences** what M2/M3 already
+built, adding only Stage 0/1 preflight and the Stage 3 dispatch; it does not
+re-implement Stage 2 (it calls into `rehearse.sh`).
+
+Because every dispatch stage crosses the same MCP boundary (bash can't call
+GitHub), it is a **3-phase driver** — one phase per hand-off to/from the agent's
+MCP work:
+
+```bash
+# Phase A — preflight (Stage 0/1) + emit the Stage 2 dispatch plan:
+bin/pyauto-brain release validate [--ref main] [--minor N] [--json]
+#   Stage 0/1 bad -> RED decision, exit 3, NOTHING dispatched.
+#   Stage 0/1 ok  -> emits the Stage 2 plan (via rehearse.sh), which continues to:
+
+# Phase B — once Stage 2 artifacts exist, emit the Stage 3 dispatch plan:
+bin/pyauto-brain release validate --stage3-plan <dir> [--ref main] [--json]
+
+# Phase C — once Stage 3 artifacts exist, ingest everything + get the verdict:
+bin/pyauto-brain release validate --ingest <dir> --commit-shas <dir>/commit_shas.json
+bin/pyauto-brain release validate --ingest <dir> --force   # accept a YELLOW
+```
+
+- **Stage 0 (preflight)** and **Stage 1 (unit)** are a *pure local read* of
+  Heart's cached `repo_state` / `version_skew` / `ci_status` signals for the 5
+  libraries (via `pyauto-heart status --json`). Definitely-bad signals (off-main
+  / dirty / behind / failing CI / skew AHEAD/MISMATCH/BAD) abort **RED** (exit 3)
+  before anything is dispatched — "no point building a dirty tree". Unknowns are
+  surfaced as warnings but do not block (never silently green, never a hard
+  abort). Stage 1 reuses the cached CI conclusion; dispatching a fresh unit run
+  if stale is the spec's optional path, deferred for M4's first cut.
+- **Stage 2 (rehearse)** is `rehearse.sh`'s phase-1 plan, reused verbatim via its
+  `--next-plan-cmd` hook so its dispatch/poll/download/capture-heads plan stays
+  defined in ONE place; only the "continue" step is redirected into phase B.
+- **Stage 3 (integrate)** dispatches PyAutoHeart's `workspace-validation.yml` in
+  `mode=release` with `testpypi_version` + `commit_shas` (a JSON *string*) read
+  from the Stage 2 artifacts, then downloads the `release-stage-report`
+  (`stage_report.json`) **into the same dir** as the Stage 2 artifacts.
+- **Final ingest + verdict** delegates to `rehearse.sh --ingest` (reused
+  verbatim), so `pyauto-heart validate --ingest` folds Stage 2's
+  `rehearsal.json`/`commit_shas.json` and Stage 3's `stage_report.json`
+  together, then the Health Agent judges. Exit codes are identical to Stage 2's.
+
+Exit codes: preflight RED `3`; a phase that can't proceed (missing artifacts)
+`1`; phase-C ingest `0` green · `2` yellow (`--force`) · `3` red · `4` unknown ·
+`1` could-not-ingest. Plan-emission phases exit `0`.
+
+**`commit_shas` authority.** Stage 2's `commit_shas.json` (library `main` HEADs
+the Release Agent read straight from GitHub) is the single source of truth.
+Stage 3 only echoes it back — the same JSON is the workflow's `commit_shas`
+input, which `emit_release_report` writes out and embeds into
+`stage_report.json`. So the phase-C `--commit-shas` flag and the stage report's
+embedded copy come from the same file and cannot legitimately disagree; passing
+`--commit-shas` is a **safety net** (readiness still gets the SHAs even if a
+stage report omits them), not redundant. In `heart/validate.py`'s fold a stage
+artifact's embedded `commit_shas` is applied after the `--commit-shas` seed
+(last-writer-wins), so on the impossible disagreement the embedded copy wins —
+but both originate from Stage 2, which stays authoritative by construction.
+
 ## What this agent must never do
 
 - Re-derive or second-guess the readiness verdict (that is Heart's / the Health

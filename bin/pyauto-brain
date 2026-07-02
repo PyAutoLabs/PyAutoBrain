@@ -10,8 +10,8 @@
 #   pyauto-brain feature [args]   reason over PyAutoMind feature tasks, plan growth
 #   pyauto-brain build   [args]   coordinate execution: consult health, run Build
 #   pyauto-brain release [args]   reason about readiness, then release on green
-#                                 (release rehearse: drive a TestPyPI rehearsal,
-#                                  ingest the validation report, judge via Health)
+#                                 (release rehearse: Stage-2 TestPyPI rehearsal;
+#                                  release validate: full Stages 0-3 orchestrator)
 #   pyauto-brain health  [args]   reason over the PyAutoHeart health surface
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
@@ -33,7 +33,7 @@ declare -A AGENT_SCRIPT=(
 declare -A AGENT_DESC=(
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
   [build]="Coordinate execution: consult the Health Agent, then delegate to PyAutoBuild"
-  [release]="Reason about readiness + run release on green; 'release rehearse' drives TestPyPI validation"
+  [release]="Reason about readiness + run release on green; 'release rehearse'/'release validate' drive release validation"
   [health]="Reason over the PyAutoHeart monitoring / readiness surface"
 )
 AGENT_ORDER=(feature build release health)

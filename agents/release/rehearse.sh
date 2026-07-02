@@ -27,6 +27,13 @@
 #   rehearse.sh --ingest <artifacts-dir> [--commit-shas FILE] [--profile P]
 #               [--force] [--json]
 #
+# Reuse hooks (used by the M4 full orchestrator, agents/release/validate.sh, so
+# Stage 2's dispatch/capture-heads plan is defined here in ONE place):
+#   --next-plan-cmd CMD   override the phase-1 plan's final "continue" step
+#                         (default: `release rehearse --ingest ...`).
+#   --mode-label NAME     stamp the phase-2 verdict JSON's "mode" (default:
+#                         "rehearse"; the orchestrator passes "validate").
+#
 # Exit codes (ingest phase): 0 green · 2 yellow (use --force) · 3 red · 4 unknown
 #   · 1 could not ingest. Plan phase always exits 0.
 
@@ -57,6 +64,15 @@ commit_shas_file=""
 profile=""
 force=0
 json_only=0
+# The command the emitted phase-1 plan tells the agent to run once the Stage-2
+# artifacts have landed. Default = ingest here (the Stage-2-only path). The M4
+# full-orchestrator (`release validate`) overrides it via --next-plan-cmd so the
+# same dispatch/poll/download/capture-heads plan continues into Stage 3 instead —
+# this is the single reuse hook that keeps Stage 2's plan defined in ONE place.
+next_cmd="pyauto-brain release rehearse --ingest <dir> --commit-shas <dir>/commit_shas.json"
+# The "mode" stamped on the phase-2 verdict JSON. Overridden to "validate" when
+# the full orchestrator delegates its final ingest+verdict step here.
+mode_label="rehearse"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -70,6 +86,10 @@ while [[ $# -gt 0 ]]; do
     --commit-shas=*) commit_shas_file="${1#*=}"; shift ;;
     --profile) profile="$2"; shift 2 ;;
     --profile=*) profile="${1#*=}"; shift ;;
+    --next-plan-cmd) next_cmd="$2"; shift 2 ;;
+    --next-plan-cmd=*) next_cmd="${1#*=}"; shift ;;
+    --mode-label) mode_label="$2"; shift 2 ;;
+    --mode-label=*) mode_label="${1#*=}"; shift ;;
     --force) force=1; shift ;;
     --json) json_only=1; shift ;;
     -h|--help)
@@ -88,7 +108,8 @@ if [[ -z "$ingest_dir" ]]; then
 
   if [[ "$json_only" -eq 1 ]]; then
     REF="$ref" INPUTS="$inputs" REPO="$BUILD_REPO" WF="$RELEASE_WORKFLOW" \
-    ART="$REHEARSAL_ARTIFACT" LIBS="${LIBRARIES[*]}" LIBS_OWNER="$LIBRARIES_OWNER" python3 -c '
+    ART="$REHEARSAL_ARTIFACT" LIBS="${LIBRARIES[*]}" LIBS_OWNER="$LIBRARIES_OWNER" \
+    NEXT_CMD="$next_cmd" python3 -c '
 import json, os
 libs = os.environ["LIBS"].split()
 owner = os.environ["LIBS_OWNER"]
@@ -107,7 +128,7 @@ print(json.dumps({
      "note": "write {repo: sha} of each library main HEAD to commit_shas.json in the dir, "
              "keyed by the BARE repo name (e.g. PyAutoConf, not owner/repo) - "
              "matches heart/readiness.py commit_shas convention"},
-    {"step": "ingest", "cmd": "pyauto-brain release rehearse --ingest <dir> --commit-shas <dir>/commit_shas.json"},
+    {"step": "next", "cmd": os.environ["NEXT_CMD"]},
   ],
 }, indent=2))
 '
@@ -141,11 +162,11 @@ Bash cannot call GitHub; execute these steps with Brain's MCP GitHub tools
    (readiness matches them against the live main HEADs):
      mcp__github__get_commit  for: ${LIBRARIES[*]/#/$LIBRARIES_OWNER/}
 
-5. INGEST + get the verdict (this script, phase 2):
-     pyauto-brain release rehearse --ingest <dir> --commit-shas <dir>/commit_shas.json
+5. NEXT (continue the pipeline):
+     $next_cmd
 
-After ingest, the Health Agent (read-only) reports GREEN/YELLOW/RED from the
-freshly-ingested validation_report — it does NOT dispatch anything.
+After the final ingest, the Health Agent (read-only) reports GREEN/YELLOW/RED
+from the freshly-ingested validation_report — it does NOT dispatch anything.
 EOF
   exit 0
 fi
@@ -205,7 +226,7 @@ case "$eff" in
 esac
 
 emit_decision() {
-  HEALTH="$verdict" DECISION="$decision" DIR="$ingest_dir" \
+  HEALTH="$verdict" DECISION="$decision" DIR="$ingest_dir" MODE="$mode_label" \
   WARNINGS="$(printf '%s\n' "${warnings[@]:-}")" \
   BLOCKERS="$(printf '%s\n' "${blockers[@]:-}")" \
   NEXT="$(printf '%s\n' "${next[@]:-}")" \
@@ -213,7 +234,7 @@ emit_decision() {
 import json, os
 def lines(k): return [x for x in os.environ.get(k, "").splitlines() if x.strip()]
 print(json.dumps({
-  "agent": "release", "mode": "rehearse", "phase": "verdict",
+  "agent": "release", "mode": os.environ["MODE"], "phase": "verdict",
   "artifacts": os.environ["DIR"],
   "health_status": os.environ["HEALTH"],
   "decision": os.environ["DECISION"],
