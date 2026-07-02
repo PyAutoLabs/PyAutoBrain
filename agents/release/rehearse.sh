@@ -40,8 +40,15 @@ BUILD_REPO="PyAutoLabs/PyAutoBuild"
 RELEASE_WORKFLOW="release.yml"
 REHEARSAL_ARTIFACT="testpypi-rehearsal-version"
 # The 5 libraries whose main HEADs the rehearsal is built from; readiness
-# confirms the ingested report's commit_shas against these.
+# confirms the ingested report's commit_shas against these. Bare names here
+# are intentional: `commit_shas.json` keys (and heart/readiness.py's
+# _GATE_SHA_LIBS) are bare repo names, e.g. "PyAutoConf", not "owner/repo".
+# LIBRARIES_OWNER qualifies them ONLY for the get_commit MCP calls below
+# (same convention as BUILD_REPO) — all five libraries live under this one
+# GitHub org in this ecosystem, but qualifying explicitly removes any
+# ambiguity for the agent executing the emitted plan.
 LIBRARIES=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+LIBRARIES_OWNER="PyAutoLabs"
 
 ref="main"
 minor=""
@@ -65,7 +72,9 @@ while [[ $# -gt 0 ]]; do
     --profile=*) profile="${1#*=}"; shift ;;
     --force) force=1; shift ;;
     --json) json_only=1; shift ;;
-    -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "${BASH_SOURCE[0]}"
+      exit 0 ;;
     *) echo "release rehearse: unknown arg '$1'" >&2; exit 5 ;;
   esac
 done
@@ -79,8 +88,10 @@ if [[ -z "$ingest_dir" ]]; then
 
   if [[ "$json_only" -eq 1 ]]; then
     REF="$ref" INPUTS="$inputs" REPO="$BUILD_REPO" WF="$RELEASE_WORKFLOW" \
-    ART="$REHEARSAL_ARTIFACT" LIBS="${LIBRARIES[*]}" python3 -c '
+    ART="$REHEARSAL_ARTIFACT" LIBS="${LIBRARIES[*]}" LIBS_OWNER="$LIBRARIES_OWNER" python3 -c '
 import json, os
+libs = os.environ["LIBS"].split()
+owner = os.environ["LIBS_OWNER"]
 print(json.dumps({
   "agent": "release", "mode": "rehearse", "phase": "dispatch-plan",
   "steps": [
@@ -92,8 +103,10 @@ print(json.dumps({
     {"step": "download", "artifact": os.environ["ART"],
      "note": "download into an artifacts dir (rehearsal.json + testpypi_version.txt)"},
     {"step": "capture-heads", "mcp_tool": "mcp__github__get_commit",
-     "repos": os.environ["LIBS"].split(),
-     "note": "write {repo: sha} of each library main HEAD to commit_shas.json in the dir"},
+     "repos": [f"{owner}/{lib}" for lib in libs],
+     "note": "write {repo: sha} of each library main HEAD to commit_shas.json in the dir, "
+             "keyed by the BARE repo name (e.g. PyAutoConf, not owner/repo) - "
+             "matches heart/readiness.py commit_shas convention"},
     {"step": "ingest", "cmd": "pyauto-brain release rehearse --ingest <dir> --commit-shas <dir>/commit_shas.json"},
   ],
 }, indent=2))
@@ -122,9 +135,11 @@ Bash cannot call GitHub; execute these steps with Brain's MCP GitHub tools
    (it contains rehearsal.json + testpypi_version.txt).
 
 4. CAPTURE the current main HEAD sha of each library and write them as
-   {repo: sha} to <dir>/commit_shas.json — so Heart can confirm the report is
-   for THIS source (readiness matches them against the live main HEADs):
-     mcp__github__get_commit  for: ${LIBRARIES[*]}
+   {bare_repo_name: sha} to <dir>/commit_shas.json (keys are bare names, e.g.
+   "PyAutoConf" — matches heart/readiness.py's commit_shas convention, NOT
+   "owner/repo") — so Heart can confirm the report is for THIS source
+   (readiness matches them against the live main HEADs):
+     mcp__github__get_commit  for: ${LIBRARIES[*]/#/$LIBRARIES_OWNER/}
 
 5. INGEST + get the verdict (this script, phase 2):
      pyauto-brain release rehearse --ingest <dir> --commit-shas <dir>/commit_shas.json
