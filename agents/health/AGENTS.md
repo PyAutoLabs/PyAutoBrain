@@ -38,16 +38,20 @@ via the manifest — reason about *categories of signal*, not fixed names.
 ## Run
 
 ```bash
-bin/pyauto-brain health                   # one tick + structured decision
-bin/pyauto-brain health readiness --json  # forward: pyauto-heart readiness --json (no tick)
-bin/pyauto-brain health status            # forward to: pyauto-heart status
-bin/pyauto-brain health watch 300         # forward to: pyauto-heart watch 300
+bin/pyauto-brain health                    # one tick + the unified dashboard card
+bin/pyauto-brain health dashboard --json   # forward: the board as one machine card
+bin/pyauto-brain health readiness --json   # forward: pyauto-heart readiness --json (no tick)
+bin/pyauto-brain health status             # forward to: pyauto-heart status
+bin/pyauto-brain health watch 300          # forward to: pyauto-heart watch 300
 ```
 
-The entrypoint (`health.sh`) refreshes Heart's state and prints the readiness
-verdict; any explicit subcommand is forwarded verbatim to `pyauto-heart`, so this
-agent is a thin, named driver of Heart rather than a second implementation of any
-check.
+The entrypoint (`health.sh`) refreshes Heart's state and renders the **unified
+dashboard card** (`pyauto-heart dashboard` — verdict, score, every check, and
+the release-validation state, from the one renderer in `heart/dashboard.py`); any
+explicit subcommand is forwarded verbatim to `pyauto-heart`, so this agent is a
+thin, named driver of Heart rather than a second implementation of any check. The
+board is the same one the GitHub Pages page and the venv one-liner show — the
+surfaces cannot disagree.
 
 ## Procedure
 
@@ -68,6 +72,16 @@ check.
    ```
    Map each reason to its capability using the manifest (e.g. a
    `version_skew AHEAD` reason -> the dependency-consistency capability).
+
+   For the **mobile card**, render the unified board instead of raw verdict JSON:
+   ```bash
+   pyauto-heart dashboard --json     # the board as one machine card
+   pyauto-heart dashboard --md       # the same board as a phone-friendly card
+   ```
+   It carries the verdict, score, top blockers, the release-validation state, and
+   the board's own age/staleness — the same board the GitHub Pages page shows
+   (`published_board` in the manifest). It is a *projection* of the same signals,
+   so adopt Heart's `verdict`; never re-derive it from the card.
 
 3. **Reason about significance.** Group the reasons:
    - **Blocking** = every entry in `red_reasons` (release blockers).

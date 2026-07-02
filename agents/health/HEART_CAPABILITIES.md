@@ -10,6 +10,10 @@ reimplement inside Brain.
 - `pyauto-heart status` — renders the cached state.
 - `pyauto-heart readiness` — emits the authoritative GREEN / YELLOW / RED gate.
 - `pyauto-heart readiness --json` — machine-readable gate for agents/scripts.
+- `pyauto-heart dashboard [--oneline|--md|--html|--json|--badge]` — the ONE
+  unified health board (verdict + every check + release-validation state); reads
+  cache only, never ticks. The Health Agent's mobile card is the `--json`/`--md`
+  view of this board.
 - `pyauto-heart watch [seconds]` / `live` — continuous monitoring daemon.
 - `pyauto-heart stop` / `stop --all` — daemon lifecycle control.
 - `pyauto-heart fix <topic>` — emits a context bundle/invocation for remediation;
@@ -51,6 +55,25 @@ reimplement inside Brain.
   **Release Agent's** job (`pyauto-brain release rehearse`), via MCP GitHub tools.
   The **Health Agent stays read-only**: it reports the resulting verdict, it does
   not dispatch.
+
+## Unified health dashboard (M5)
+
+- `heart/dashboard.py` is a **single pure renderer** that projects the same
+  cached snapshot (`state.json` + `release_ready.json` + `validation_report.json`)
+  into every surface's format (`term`/`oneline`/`md`/`html`/`json` + a shields
+  badge). The web page, the CLI line, and the mobile card are all projections of
+  one board, so they cannot disagree.
+- **Three surfaces:** GitHub Pages (`https://pyautolabs.github.io/PyAutoHeart/`)
+  + `$GITHUB_STEP_SUMMARY` + a README badge/block (all published by
+  `pulse-health.yml`); the `pyauto-heart dashboard` CLI + a sourceable venv hook
+  (`heart/shell/heart_prompt.sh`); and this Health Agent's mobile card.
+- **The Health Agent renders the card from `pyauto-heart dashboard --json`/`--md`**
+  — the same board, not raw verdict JSON. It is exposed as the `dashboard`
+  capability + `published_board` URL in Heart's `health_agent/capabilities.yaml`.
+- **Observer-only.** The dashboard SHOWS health; the `readiness` verdict stays
+  the gate. Everything the dashboard writes stays within PyAutoHeart's own repo
+  (gh-pages / README / `[heart-health]` issue), the job step summary, or
+  `~/.pyauto-heart/`. The Health Agent stays read-and-reason.
 
 ## Heart implementation assets
 

@@ -69,7 +69,7 @@ release/build/deploy execution), isolated so it can split into a dedicated
 bin/pyauto-brain help        # list agents
 bin/pyauto-brain build       # consult health, then delegate execution to Build
 bin/pyauto-brain release     # reason about readiness, then release on green
-bin/pyauto-brain health      # one health tick + readiness verdict
+bin/pyauto-brain health      # one health tick + the unified dashboard card
 ```
 
 PyAutoBrain runs from its checkout (no pip install), resolving the sibling
