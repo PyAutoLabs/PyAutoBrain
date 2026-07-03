@@ -39,7 +39,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-source "$HERE/../_common.sh"
+source "$HERE/../../_common.sh"
 
 # ----- mode -> allowed actions, default action, gate strictness -----
 # Actions are PyAutoBuild capabilities. The Build Agent calls them; it never

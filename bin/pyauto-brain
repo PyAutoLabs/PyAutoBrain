@@ -4,15 +4,22 @@
 # PyAutoBrain is the reasoning layer of the PyAuto organism: it figures out HOW
 # work should be done and coordinates the organs that do it. The subcommand
 # pattern mirrors PyAutoBuild/bin/autobuild and PyAutoHeart/bin/pyauto-heart so
-# the CLIs feel the same. Each subcommand is a specialist reasoning agent under
-# agents/<name>/.
+# the CLIs feel the same. Agents live in two tiers under agents/:
 #
-#   pyauto-brain feature [args]   reason over PyAutoMind feature tasks, plan growth
-#   pyauto-brain build   [args]   coordinate execution: consult health, run Build
-#   pyauto-brain release [args]   reason about readiness, then release on green
+#   agents/conductors/<name>/  — front-door agents a human DRIVES (they decide
+#                                AND act, delegating execution to the organs).
+#   agents/faculties/<name>/   — read-only reasoning capabilities the conductors
+#                                CONSULT (they only opine; never dispatch or
+#                                mutate). Runnable directly for a quick read.
+#
+#   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
+#   pyauto-brain build   [args]   (conductor) coordinate execution: consult health, run Build
+#   pyauto-brain release [args]   (conductor) reason about readiness, then release on green
 #                                 (release rehearse: Stage-2 TestPyPI rehearsal;
 #                                  release validate: full Stages 0-3 orchestrator)
-#   pyauto-brain health  [args]   reason over the PyAutoHeart health surface
+#   pyauto-brain doctor  [args]   (conductor) the organism's clinician: run the health
+#                                 loop with a human, dispatch by dispatch, toward green
+#   pyauto-brain health  [args]   (faculty)   read-only: report the PyAutoHeart verdict
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Back-compat: the former name `pyauto-agent` is kept as a thin shim that execs
@@ -24,25 +31,36 @@ _self="$(readlink -f "${BASH_SOURCE[0]}")"
 BRAIN_HOME="$(cd "$(dirname "$_self")/.." && pwd)"
 AGENTS_DIR="$BRAIN_HOME/agents"
 
+CONDUCTORS_DIR="$AGENTS_DIR/conductors"
+FACULTIES_DIR="$AGENTS_DIR/faculties"
+
 declare -A AGENT_SCRIPT=(
-  [feature]="$AGENTS_DIR/feature/feature.sh"
-  [build]="$AGENTS_DIR/build/build.sh"
-  [release]="$AGENTS_DIR/release/release.sh"
-  [health]="$AGENTS_DIR/health/health.sh"
+  [feature]="$CONDUCTORS_DIR/feature/feature.sh"
+  [build]="$CONDUCTORS_DIR/build/build.sh"
+  [release]="$CONDUCTORS_DIR/release/release.sh"
+  [doctor]="$CONDUCTORS_DIR/doctor/doctor.sh"
+  [health]="$FACULTIES_DIR/health/health.sh"
 )
 declare -A AGENT_DESC=(
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
-  [build]="Coordinate execution: consult the Health Agent, then delegate to PyAutoBuild"
+  [build]="Coordinate execution: consult the health faculty, then delegate to PyAutoBuild"
   [release]="Reason about readiness + run release on green; 'release rehearse'/'release validate' drive release validation"
-  [health]="Reason over the PyAutoHeart monitoring / readiness surface"
+  [doctor]="The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green"
+  [health]="Read-only: report the PyAutoHeart readiness verdict (consulted by the conductors)"
 )
-AGENT_ORDER=(feature build release health)
+# Conductors are the front doors a human drives; faculties are consulted (and
+# runnable read-only). Both are dispatchable, but the menu groups them by tier.
+CONDUCTOR_ORDER=(feature build release doctor)
+FACULTY_ORDER=(health)
+AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
 cmd_help() {
   if [[ $# -gt 0 ]]; then
     local name="$1"
-    local doc="$AGENTS_DIR/$name/AGENTS.md"
-    if [[ -f "$doc" ]]; then
+    # The doc lives beside the agent's script, wherever its tier put it.
+    local script="${AGENT_SCRIPT[$name]:-}"
+    local doc="${script:+$(dirname "$script")/AGENTS.md}"
+    if [[ -n "$doc" && -f "$doc" ]]; then
       cat "$doc"
       return 0
     fi
@@ -60,10 +78,15 @@ Call chain:  Brain -> Heart (gate) -> Build (execute)
 Usage: pyauto-brain <agent> [args...]
        pyauto-brain help [agent]
 
-Specialist reasoning agents:
+Conductors (front doors you drive — decide AND act):
 EOF
   local name
-  for name in "${AGENT_ORDER[@]}"; do
+  for name in "${CONDUCTOR_ORDER[@]}"; do
+    printf '    %-10s %s\n' "$name" "${AGENT_DESC[$name]}"
+  done
+  echo
+  echo "Faculties (read-only; the conductors consult these — also runnable directly):"
+  for name in "${FACULTY_ORDER[@]}"; do
     printf '    %-10s %s\n' "$name" "${AGENT_DESC[$name]}"
   done
   echo

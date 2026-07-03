@@ -73,6 +73,9 @@ readiness_verdict() {
 }
 
 # _agents_dir — directory holding the sibling agents (this file lives in it).
+# Agents are organised into two tiers beneath it: conductors/ (front-door agents
+# a human drives) and faculties/ (read-only reasoning capabilities the conductors
+# consult). This helper returns the tier-parent (agents/); callers add the tier.
 _agents_dir() {
   cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd
 }
@@ -94,7 +97,7 @@ consult_health_agent_verdict() {
   local refresh=0
   [[ "${1:-}" == "--refresh" ]] && refresh=1
   local health
-  health="$(_agents_dir)/health/health.sh"
+  health="$(_agents_dir)/faculties/health/health.sh"
   if [[ ! -f "$health" ]]; then
     echo "unknown"
     return 0

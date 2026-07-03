@@ -1,5 +1,12 @@
 # Health agent
 
+> **Tier: faculty** — a read-only reasoning capability the conductors *consult*,
+> not a front door you drive to get work done. It only *opines*: it adopts
+> PyAutoHeart's verdict and explains it, and never dispatches or mutates
+> anything. It is the single component that talks to Heart; everything else asks
+> it. (Runnable directly as a quick "what's my status?" read — e.g. the doctor
+> conductor consults it every loop.)
+
 A PyAutoBrain specialist reasoning agent. It decides whether the PyAuto organism
 is healthy enough to proceed with work, by **reasoning over PyAutoHeart's
 outputs** — never by performing health checks itself.

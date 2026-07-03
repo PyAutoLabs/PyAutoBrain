@@ -42,17 +42,36 @@ Brain  →  Heart (gate)  →  Build (execute)
 
 ## Specialist reasoning agents
 
-- **`agents/build/`** — the executive function for execution work. Consults the
-  Health Agent, reasons over the verdict, and on a healthy result delegates to
-  PyAutoBuild. The canonical example of the Brain coordinating multiple organs;
-  has `build` / `deploy` / `release` modes.
-- **`agents/release/`** — reasons over `pyauto-heart readiness` → on green, runs
-  the PyAutoBuild release executor.
-- **`agents/health/`** — reasons over the PyAutoHeart monitoring / readiness surface.
+Agents live in **two tiers** under `agents/`, split by one question — *does it
+act, or only opine?* **Conductors** (`agents/conductors/`) are front doors you
+drive: they decide *and* act, delegating execution to the organs. **Faculties**
+(`agents/faculties/`) are read-only reasoning capabilities the conductors
+consult: they only return a judgment and stop. Keep the conductor set small; let
+faculties multiply behind them.
 
-Brain agents can also **consult one another**: the Build Agent doesn't query
-Heart directly — it asks the Health Agent, which is the only agent that talks to
-the Heart organ.
+**Conductors:**
+
+- **`agents/conductors/feature/`** — the growth function: reasons over PyAutoMind
+  `feature/*` intent and plans how the organism grows.
+- **`agents/conductors/build/`** — the executive function for execution work.
+  Consults the health faculty, reasons over the verdict, and on a healthy result
+  delegates to PyAutoBuild. Has `build` / `deploy` / `release` modes.
+- **`agents/conductors/release/`** — reasons over `pyauto-heart readiness` → on
+  green, runs the PyAutoBuild release executor; also orchestrates release
+  validation (`release rehearse` / `release validate`).
+- **`agents/conductors/doctor/`** — the organism's clinician: runs the health
+  loop with a human — assess → triage → (on your go-ahead) dispatch a validation
+  leg → re-judge — until Heart goes green. Consults the health faculty and
+  delegates dispatch to the release conductor. (Skeleton; validation + recommend.)
+
+**Faculties:**
+
+- **`agents/faculties/health/`** — read-only: adopts the PyAutoHeart readiness
+  verdict and explains it. The single component that talks to Heart.
+
+Brain agents **consult one another**: a conductor doesn't query Heart directly —
+it asks the health faculty, which is the only agent that talks to the Heart
+organ.
 
 ```
 Mind  →  Build Agent  →  Health Agent  →  Heart  →  GREEN/YELLOW/RED

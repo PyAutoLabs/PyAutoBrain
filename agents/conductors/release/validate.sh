@@ -74,7 +74,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-source "$HERE/../_common.sh"
+source "$HERE/../../_common.sh"
 
 # Stage 3 target: Heart's workspace-validation.yml (the M3 mode=release path).
 # Dispatched on Heart's own main (where the merged workflow lives) — the LIBRARY

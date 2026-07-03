@@ -1,5 +1,9 @@
 # Build agent
 
+> **Tier: conductor** — a front-door agent you *drive*. It decides *whether/what*
+> to build and drives execution, delegating the *building* to PyAutoBuild and the
+> *health decision* to the read-only health faculty. It acts; it does not measure.
+
 The second canonical **PyAutoBrain** reasoning agent, and the reference example
 of how the Brain coordinates *multiple* organs. It is the executive function for
 execution work: it owns the build *workflow* but delegates the *building* to

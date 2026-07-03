@@ -1,5 +1,9 @@
 # Release agent
 
+> **Tier: conductor** — a front-door agent you *drive*. It decides whether/when to
+> release and orchestrates release validation (dispatch/poll/download across the
+> MCP boundary), *consulting* the read-only health faculty for the verdict.
+
 A specialist **PyAutoBrain** reasoning agent. It decides whether and when a
 release should happen, then drives it through the canonical chain:
 

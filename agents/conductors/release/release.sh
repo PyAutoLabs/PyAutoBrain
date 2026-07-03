@@ -23,7 +23,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-source "$HERE/../_common.sh"
+source "$HERE/../../_common.sh"
 
 # `release rehearse ...` drives the M2 release-VALIDATION rehearsal (Stage 2
 # alone: dispatch the TestPyPI rehearsal, ingest the report into Heart, consult
