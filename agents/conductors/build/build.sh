@@ -8,12 +8,12 @@
 #
 # Call chain (the Brain coordinating multiple organs):
 #
-#   Mind -> Build Agent -> Health Agent -> Heart -> GREEN/YELLOW/RED
+#   Mind -> Build Agent -> vitals faculty -> Heart -> GREEN/YELLOW/RED
 #                       -> Build Agent -> PyAutoBuild (execute)
 #
-# Note the consult step goes through the *sibling Health Agent*, not Heart
+# Note the consult step goes through the *sibling vitals faculty*, not Heart
 # directly: Brain agents consult one another (a society of reasoning agents),
-# and only the Health Agent talks to the Heart organ.
+# and only the vitals faculty talks to the Heart organ.
 #
 # Modes (one agent now, clean seam for a future Release Agent):
 #   build    generic execution (generate notebooks, run scripts, aggregate).
@@ -45,7 +45,7 @@ source "$HERE/../../_common.sh"
 # Actions are PyAutoBuild capabilities. The Build Agent calls them; it never
 # reimplements them. Health-shim commands (verify_install, url_check, watch,
 # status, tick, fix) are deliberately NOT routable here — those are Heart's
-# surface, reached through the Health Agent, never re-owned by Build.
+# surface, reached through the vitals faculty, never re-owned by Build.
 BUILD_ACTIONS="generate run run_python run_all script_matrix aggregate_results slow_skip_check repro_command bump_colab_urls"
 DEPLOY_ACTIONS="generate bump_colab_urls"
 RELEASE_ACTIONS="pre_build tag_and_merge generate_release_notes create_analysis_issue aggregate_results"
@@ -85,7 +85,7 @@ esac
 # Reject health-shim commands with a pointer to the right organ.
 if [[ " $HEALTH_SHIMS " == *" $action "* ]]; then
   echo "build agent: '$action' is a health concern owned by PyAutoHeart, not a" >&2
-  echo "  build action. Consult it via:  pyauto-brain health $action" >&2
+  echo "  build action. Consult it via:  pyauto-brain vitals $action" >&2
   exit 5
 fi
 if [[ " $allowed " != *" $action "* ]]; then
@@ -94,12 +94,12 @@ if [[ " $allowed " != *" $action "* ]]; then
   exit 5
 fi
 
-# ----- consult the sibling Health Agent (not Heart directly) -----
-[[ "$json_only" -eq 1 ]] || echo "== build agent ($mode): consulting Health Agent for readiness =="
+# ----- consult the sibling vitals faculty (not Heart directly) -----
+[[ "$json_only" -eq 1 ]] || echo "== build agent ($mode): consulting vitals faculty for readiness =="
 if [[ "$mode" == "release" ]]; then
-  verdict="$(consult_health_agent_verdict --refresh)"
+  verdict="$(consult_vitals_verdict --refresh)"
 else
-  verdict="$(consult_health_agent_verdict)"
+  verdict="$(consult_vitals_verdict)"
 fi
 
 # ----- reason: map (mode, verdict) -> decision -----
@@ -110,12 +110,12 @@ eff="$verdict"
 decision="" ; decision_code=0
 warnings=() ; blockers=() ; follow_up=()
 
-[[ "$verdict" == "unknown" ]] && warnings+=("Readiness verdict unknown; treated as YELLOW. Run 'pyauto-brain health' to refresh.")
+[[ "$verdict" == "unknown" ]] && warnings+=("Readiness verdict unknown; treated as YELLOW. Run 'pyauto-brain vitals' to refresh.")
 
 case "$eff" in
   red)
     decision="abort"; decision_code=3
-    blockers+=("PyAutoHeart reports RED. Resolve the blockers (see 'pyauto-brain health') before $mode work.")
+    blockers+=("PyAutoHeart reports RED. Resolve the blockers (see 'pyauto-brain vitals') before $mode work.")
     ;;
   yellow)
     if [[ "$mode" == "build" ]]; then

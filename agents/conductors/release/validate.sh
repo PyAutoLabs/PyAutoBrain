@@ -24,10 +24,10 @@
 #   final ingest+verdict hand Stage 2's rehearsal.json/commit_shas.json AND
 #                        Stage 3's stage_report.json together to
 #                        `pyauto-heart validate --ingest`, then consult the
-#                        Health Agent — reused AS-IS from rehearse.sh's phase 2.
+#                        vitals faculty — reused AS-IS from rehearse.sh's phase 2.
 #
 # BOUNDARY (unchanged from M2, non-negotiable). Heart never dispatches, never
-# talks to GitHub, never mutates a repo — ingest-and-judge only. The Health Agent
+# talks to GitHub, never mutates a repo — ingest-and-judge only. The vitals faculty
 # is strict read-and-reason. ALL dispatch/poll/download across all four stages is
 # the Release Agent's job, done via Brain's MCP GitHub tools (cloud/mobile has no
 # gh; bash cannot call MCP). So — exactly as rehearse.sh already does for Stage 2 —

@@ -7,7 +7,7 @@ HowToLens) for every workspace repo touched by the task. This is
 release/packaging only). Same flow as `/ship_library`:
 
 ```
-ship_workspace → Brain dev-workflow → Brain Health Agent → Heart (GREEN/YELLOW/RED) → smoke / commit / push / feature-PR / merge
+ship_workspace → Brain dev-workflow → Brain vitals faculty → Heart (GREEN/YELLOW/RED) → smoke / commit / push / feature-PR / merge
 ```
 
 Ships **scripts, notebooks and configs only** — never library source. Workflow
@@ -39,13 +39,13 @@ body — which **must** include `## Scripts Changed`. If a "Library PR Created"
 comment exists on the issue, capture the library PR URL for `## Upstream PR`.
 Format in [`reference.md`](reference.md) → "PR body format".
 
-### 3. Gate readiness through the Health Agent → Heart
+### 3. Gate readiness through the vitals faculty → Heart
 
-Consult the Brain Health Agent (not the Build Agent — shipping a feature is not a
+Consult the Brain vitals faculty (not the Build Agent — shipping a feature is not a
 release):
 
 ```bash
-bin/pyauto-brain health              # reason over the readiness surface (Health Agent → Heart)
+bin/pyauto-brain vitals              # reason over the readiness surface (vitals faculty → Heart)
 pyauto-heart readiness --json        # GREEN / YELLOW / RED
 ```
 

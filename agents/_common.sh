@@ -80,37 +80,41 @@ _agents_dir() {
   cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd
 }
 
-# consult_health_agent_verdict [--refresh] — ask the *sibling Health Agent* for
-# the readiness verdict, rather than querying PyAutoHeart directly. This is the
-# Brain-agent-consults-Brain-agent pattern: a specialist agent reasons *with*
-# another specialist agent, and only the Health Agent talks to the Heart organ.
-# It keeps the Build Agent decoupled from Heart's surface and lets future agents
-# (Feature, Release, ...) consult one another the same way.
+# consult_vitals_verdict [--refresh] — ask the *sibling vitals faculty* for the
+# readiness verdict, rather than querying PyAutoHeart directly. This is the
+# Brain-agent-consults-Brain-agent pattern: a conductor reasons *with* a
+# read-only faculty, and only the vitals faculty talks to the Heart organ. It
+# keeps the conductors (build, release, feature, health) decoupled from Heart's
+# surface and lets them all read the verdict the same way.
 #
-#   --refresh   ask the Health Agent to refresh Heart's state first (a fresh
+# (Back-compat: `consult_health_agent_verdict` remains as an alias below — the
+# faculty was renamed health -> vitals, and the loop conductor took the name
+# `health`.)
+#
+#   --refresh   ask the vitals faculty to refresh Heart's state first (a fresh
 #               gate); release-grade work uses this, ordinary build work does not.
 #
 # Echoes one of: green | yellow | red | unknown. Never fails the caller — an
 # unresolvable/again-unknown verdict is reported as "unknown" (treated as YELLOW
 # by callers), never silently as green.
-consult_health_agent_verdict() {
+consult_vitals_verdict() {
   local refresh=0
   [[ "${1:-}" == "--refresh" ]] && refresh=1
-  local health
-  health="$(_agents_dir)/faculties/health/health.sh"
-  if [[ ! -f "$health" ]]; then
+  local vitals
+  vitals="$(_agents_dir)/faculties/vitals/vitals.sh"
+  if [[ ! -f "$vitals" ]]; then
     echo "unknown"
     return 0
   fi
   if [[ "$refresh" -eq 1 ]]; then
-    bash "$health" tick >/dev/null 2>&1 || true
+    bash "$vitals" tick >/dev/null 2>&1 || true
   fi
   # Capture into a variable rather than piping straight out: the caller may have
   # `set -o pipefail`, under which a non-zero exit from the (possibly
-  # Heart-less) Health Agent would otherwise double-fire a fallback. The python
+  # Heart-less) vitals faculty would otherwise double-fire a fallback. The python
   # below always prints exactly one token, even on empty/garbage input.
   local out
-  out="$(bash "$health" readiness --json 2>/dev/null | python3 -c '
+  out="$(bash "$vitals" readiness --json 2>/dev/null | python3 -c '
 import json, sys
 try:
     v = json.load(sys.stdin).get("verdict", "unknown")
@@ -120,3 +124,6 @@ except Exception:
 ' 2>/dev/null)"
   printf '%s\n' "${out:-unknown}"
 }
+
+# Back-compat alias for the pre-rename name (faculty: health -> vitals).
+consult_health_agent_verdict() { consult_vitals_verdict "$@"; }

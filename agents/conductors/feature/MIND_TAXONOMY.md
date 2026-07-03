@@ -105,7 +105,7 @@ must re-derive at runtime.
 intent      → PyAutoMind   (feature/* prompts, active/planned/queue state)
 reasoning   → PyAutoBrain  (Feature Agent — this)
 knowledge   → PyAutoMemory (via direct file reads; cited, never invented)
-health      → PyAutoHeart  (via the Health Agent, never queried directly)
+health      → PyAutoHeart  (via the vitals faculty, never queried directly)
 execution   → PyAutoBuild  (via start_dev / ship_* — never run by this agent)
 ```
 

@@ -54,27 +54,28 @@ faculties multiply behind them.
 - **`agents/conductors/feature/`** — the growth function: reasons over PyAutoMind
   `feature/*` intent and plans how the organism grows.
 - **`agents/conductors/build/`** — the executive function for execution work.
-  Consults the health faculty, reasons over the verdict, and on a healthy result
+  Consults the vitals faculty, reasons over the verdict, and on a healthy result
   delegates to PyAutoBuild. Has `build` / `deploy` / `release` modes.
 - **`agents/conductors/release/`** — reasons over `pyauto-heart readiness` → on
   green, runs the PyAutoBuild release executor; also orchestrates release
   validation (`release rehearse` / `release validate`).
-- **`agents/conductors/doctor/`** — the organism's clinician: runs the health
+- **`agents/conductors/health/`** — the organism's clinician: runs the health
   loop with a human — assess → triage → (on your go-ahead) dispatch a validation
-  leg → re-judge — until Heart goes green. Consults the health faculty and
+  leg → re-judge — until Heart goes green. Consults the vitals faculty and
   delegates dispatch to the release conductor. (Skeleton; validation + recommend.)
 
 **Faculties:**
 
-- **`agents/faculties/health/`** — read-only: adopts the PyAutoHeart readiness
-  verdict and explains it. The single component that talks to Heart.
+- **`agents/faculties/vitals/`** — read-only: reads the Heart's pulse — adopts the
+  PyAutoHeart readiness verdict and explains it. The single component that talks
+  to Heart.
 
 Brain agents **consult one another**: a conductor doesn't query Heart directly —
-it asks the health faculty, which is the only agent that talks to the Heart
+it asks the vitals faculty, which is the only agent that talks to the Heart
 organ.
 
 ```
-Mind  →  Build Agent  →  Health Agent  →  Heart  →  GREEN/YELLOW/RED
+Mind  →  Build Agent  →  vitals faculty  →  Heart  →  GREEN/YELLOW/RED
                       →  Build Agent  →  Build (execute)
 ```
 
@@ -86,9 +87,10 @@ release/build/deploy execution), isolated so it can split into a dedicated
 
 ```bash
 bin/pyauto-brain help        # list agents
-bin/pyauto-brain build       # consult health, then delegate execution to Build
+bin/pyauto-brain build       # consult vitals, then delegate execution to Build
 bin/pyauto-brain release     # reason about readiness, then release on green
-bin/pyauto-brain health      # one health tick + the unified dashboard card
+bin/pyauto-brain health      # (conductor) run the health loop with a human, toward green
+bin/pyauto-brain vitals      # (faculty) one tick + the unified dashboard card (raw read)
 ```
 
 PyAutoBrain runs from its checkout (no pip install), resolving the sibling

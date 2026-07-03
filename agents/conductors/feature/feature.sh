@@ -12,8 +12,8 @@
 #                                                    ->  start_workspace / ship_workspace
 #
 # Like the Build Agent, it is a society-of-agents citizen: for risky / multi-repo
-# / release-bound work it can consult the sibling Health Agent (and only the
-# Health Agent talks to the Heart organ). It consults PyAutoMemory for scientific
+# / release-bound work it can consult the sibling vitals faculty (and only the
+# vitals faculty talks to the Heart organ). It consults PyAutoMemory for scientific
 # and architectural context — it never invents science when memory has material.
 #
 # Modes:
@@ -28,7 +28,7 @@
 #                      [--model weak|strong] [--budget] [--ambitious]
 #                      [--impact] [--limit N]
 #   feature.sh [--json] ...                       # machine-readable FeatureDecision
-#   feature.sh [--check-health] ...               # also consult the Health Agent
+#   feature.sh [--check-health] ...               # also consult the vitals faculty
 #
 # The analysis core lives in _feature.py (stdlib-only, never writes). This script
 # resolves the PyAutoMind / PyAutoMemory checkouts and, optionally, the verdict.
@@ -69,12 +69,12 @@ elif [[ "${forward[0]}" != "select" && "${forward[0]}" != "specific" \
   forward=(specific "${forward[@]}")
 fi
 
-# Optionally consult the sibling Health Agent up front (society-of-agents). This
+# Optionally consult the sibling vitals faculty up front (society-of-agents). This
 # does not gate the decision — it annotates it — so the agent still reasons even
 # when Heart is unreachable.
 if [[ "$check_health" -eq 1 ]]; then
-  echo "== feature agent: consulting Health Agent for tree readiness =="
-  verdict="$(consult_health_agent_verdict)"
+  echo "== feature agent: consulting vitals faculty for tree readiness =="
+  verdict="$(consult_vitals_verdict)"
   echo "   readiness verdict: $verdict"
   echo
 fi

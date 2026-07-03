@@ -2,7 +2,7 @@
 
 > **Tier: conductor** — a front-door agent you *drive*. It decides how the
 > organism grows and drives that plan into the dev workflow; it *consults* the
-> read-only health faculty (`--check-health`) but never queries Heart directly.
+> read-only vitals faculty (`--check-health`) but never queries Heart directly.
 
 The **growth function** of PyAutoBrain. It reasons over the feature *intent*
 stored in PyAutoMind and decides **how the organism should grow** — which feature
@@ -16,7 +16,7 @@ Mind (PyAutoMind feature/*)  →  Feature Agent  →  start_dev
                                               →  start_library / ship_library
                                               →  start_workspace / ship_workspace
        consults ↘                    ↙ consults
-        Health Agent            PyAutoMemory (scientific / architectural context)
+        vitals faculty            PyAutoMemory (scientific / architectural context)
 ```
 
 > Long term this is the organism-facing **Growth Agent**; *Feature Agent* is the
@@ -32,9 +32,8 @@ handed to the existing workflow.
 ## Brain agents consult one another
 
 Like the Build Agent, the Feature Agent is a citizen of the society of agents.
-For risky / multi-repo / release-bound work it **consults the sibling Health
-Agent** (`--check-health`) rather than querying the Heart organ directly — only
-the Health Agent talks to Heart. It also consults **PyAutoMemory** for scientific
+For risky / multi-repo / release-bound work it **consults the sibling vitals faculty** (`--check-health`) rather than querying the Heart organ directly — only
+the vitals faculty talks to Heart. It also consults **PyAutoMemory** for scientific
 and architectural context, and **never invents science** when memory has
 material. See [`MIND_TAXONOMY.md`](./MIND_TAXONOMY.md) for the PyAutoMind taxonomy
 it reasons over and the PyAutoMemory routing it uses.
@@ -111,7 +110,7 @@ body, not the folder (per PyAutoMind `ROUTING.md`).
 
 - Edit source, open PRs, or run builds itself — that is the Build Agent /
   PyAutoBuild via `start_dev` / `ship_*`.
-- Query PyAutoHeart directly — consult the Health Agent (`--check-health`).
+- Query PyAutoHeart directly — consult the vitals faculty (`--check-health`).
 - Invent scientific or architectural context when PyAutoMemory has material —
   cite the sub-wiki instead.
 - Just pick the first prompt in selection mode — rank, and explain the choice.

@@ -2,7 +2,7 @@
 
 > **Tier: conductor** — a front-door agent you *drive*. It decides whether/when to
 > release and orchestrates release validation (dispatch/poll/download across the
-> MCP boundary), *consulting* the read-only health faculty for the verdict.
+> MCP boundary), *consulting* the read-only vitals faculty for the verdict.
 
 A specialist **PyAutoBrain** reasoning agent. It decides whether and when a
 release should happen, then drives it through the canonical chain:
@@ -42,14 +42,14 @@ Exit codes: `0` released/delegated · `2` yellow (use --force) · `3` red blocke
 Beyond gating a real release, the Release Agent **orchestrates release
 validation**: it proves the exact source about to ship was built, published to
 TestPyPI, installed from the wheel, and exercised at release fidelity — then
-consults the Health Agent for the verdict. It does this without ever letting
+consults the vitals faculty for the verdict. It does this without ever letting
 Heart dispatch a build (Heart is ingest-and-judge only).
 
 The full chain (M2 builds the dispatch+ingest half; M3/M4 add release-fidelity
 integration + full orchestration):
 
 ```
-Mind -> Release Agent (orchestrate) -> Heart (measure) -> Health Agent (judge) -> Hands/Build (promote on GREEN)
+Mind -> Release Agent (orchestrate) -> Heart (measure) -> vitals faculty (judge) -> Hands/Build (promote on GREEN)
 ```
 
 `rehearse.sh` is a two-phase driver. Cloud/mobile sessions have **no `gh`**, so
@@ -73,7 +73,7 @@ poll `mcp__github__actions_get` to completion → download the
 `testpypi-rehearsal-version` artifact → `mcp__github__get_commit` each library's
 `main` HEAD into `commit_shas.json`. Phase 2 hands the artifacts to
 `pyauto-heart validate --ingest` (Heart writes `validation_report.json`), then
-calls `consult_health_agent_verdict --refresh` so the **read-only Health Agent**
+calls `consult_vitals_verdict --refresh` so the **read-only vitals faculty**
 reports GREEN/YELLOW/RED from the freshly-ingested report.
 
 Exit codes (phase 2): `0` green (release-ready) · `2` yellow (use --force) ·
@@ -124,7 +124,7 @@ bin/pyauto-brain release validate --ingest <dir> --force   # accept a YELLOW
 - **Final ingest + verdict** delegates to `rehearse.sh --ingest` (reused
   verbatim), so `pyauto-heart validate --ingest` folds Stage 2's
   `rehearsal.json`/`commit_shas.json` and Stage 3's `stage_report.json`
-  together, then the Health Agent judges. Exit codes are identical to Stage 2's.
+  together, then the vitals faculty judges. Exit codes are identical to Stage 2's.
 
 Exit codes: preflight RED `3`; a phase that can't proceed (missing artifacts)
 `1`; phase-C ingest `0` green · `2` yellow (`--force`) · `3` red · `4` unknown ·
@@ -144,13 +144,11 @@ but both originate from Stage 2, which stays authoritative by construction.
 
 ## What this agent must never do
 
-- Re-derive or second-guess the readiness verdict (that is Heart's / the Health
-  Agent's job).
+- Re-derive or second-guess the readiness verdict (that is Heart's / the vitals faculty's job).
 - Run any packaging/tagging/publish step itself (that is Build's job).
 - Write into PyAutoHeart or PyAutoBuild repos.
 
-## What only this agent does (not the Health Agent)
+## What only this agent does (not the vitals faculty)
 
-- Dispatch/poll/download GitHub workflows and artifacts (via MCP). The Health
-  Agent is strictly read-and-reason — it never dispatches. Heart never dispatches
+- Dispatch/poll/download GitHub workflows and artifacts (via MCP). The vitals faculty is strictly read-and-reason — it never dispatches. Heart never dispatches
   either. All release-validation dispatching is the Release Agent's job.

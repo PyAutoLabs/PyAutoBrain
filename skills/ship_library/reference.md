@@ -55,7 +55,7 @@ See full details below.
 ## Execution contract (feature-dev — the mechanical ship step)
 
 This is the dev workflow's own git execution (commit/push/feature-PR), not a
-Build/release step. Per repo, after the Health Agent / Heart verdict is GREEN:
+Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
 
 1. `source "$WT_ROOT/activate.sh"`; run `python -m pytest <test_dir>/ -x` from
    inside `"$WT_ROOT/<repo>"` (skip only if the repo has no test dir). These

@@ -13,13 +13,13 @@
 #                                mutate). Runnable directly for a quick read.
 #
 #   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
-#   pyauto-brain build   [args]   (conductor) coordinate execution: consult health, run Build
+#   pyauto-brain build   [args]   (conductor) coordinate execution: consult vitals, run Build
 #   pyauto-brain release [args]   (conductor) reason about readiness, then release on green
 #                                 (release rehearse: Stage-2 TestPyPI rehearsal;
 #                                  release validate: full Stages 0-3 orchestrator)
-#   pyauto-brain doctor  [args]   (conductor) the organism's clinician: run the health
+#   pyauto-brain health  [args]   (conductor) the organism's clinician: run the health
 #                                 loop with a human, dispatch by dispatch, toward green
-#   pyauto-brain health  [args]   (faculty)   read-only: report the PyAutoHeart verdict
+#   pyauto-brain vitals  [args]   (faculty)   read-only: read the Heart's pulse (the verdict)
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Back-compat: the former name `pyauto-agent` is kept as a thin shim that execs
@@ -38,20 +38,20 @@ declare -A AGENT_SCRIPT=(
   [feature]="$CONDUCTORS_DIR/feature/feature.sh"
   [build]="$CONDUCTORS_DIR/build/build.sh"
   [release]="$CONDUCTORS_DIR/release/release.sh"
-  [doctor]="$CONDUCTORS_DIR/doctor/doctor.sh"
-  [health]="$FACULTIES_DIR/health/health.sh"
+  [health]="$CONDUCTORS_DIR/health/health.sh"
+  [vitals]="$FACULTIES_DIR/vitals/vitals.sh"
 )
 declare -A AGENT_DESC=(
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
-  [build]="Coordinate execution: consult the health faculty, then delegate to PyAutoBuild"
+  [build]="Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild"
   [release]="Reason about readiness + run release on green; 'release rehearse'/'release validate' drive release validation"
-  [doctor]="The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green"
-  [health]="Read-only: report the PyAutoHeart readiness verdict (consulted by the conductors)"
+  [health]="The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green"
+  [vitals]="Read-only: read the Heart's pulse — the PyAutoHeart readiness verdict (consulted by the conductors)"
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
-CONDUCTOR_ORDER=(feature build release doctor)
-FACULTY_ORDER=(health)
+CONDUCTOR_ORDER=(feature build release health)
+FACULTY_ORDER=(vitals)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
 cmd_help() {
