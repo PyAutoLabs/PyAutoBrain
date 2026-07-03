@@ -10,7 +10,7 @@
 #     -> download the `testpypi-rehearsal-version` artifact
 #     -> capture the current main HEAD sha of each library
 #     -> hand it all to `pyauto-heart validate --ingest`   (Heart measures)
-#     -> consult the vitals faculty for the verdict           (Health judges)
+#     -> consult the vitals faculty for the verdict           (vitals judges)
 #
 # BOUNDARY. Dispatch/poll/download are GitHub actions, done via Brain's MCP
 # GitHub tools (cloud/mobile sessions have no `gh`). Bash cannot call MCP, so

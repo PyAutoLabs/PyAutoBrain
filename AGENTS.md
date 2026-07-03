@@ -174,7 +174,7 @@ thing only reasons.
 bin/pyauto-brain help            # list agents
 bin/pyauto-brain feature         # select the best next PyAutoMind feature task
 bin/pyauto-brain feature feature/autofit/sbi.md   # plan a specific feature task
-bin/pyauto-brain build           # consult health, then delegate execution to Build
+bin/pyauto-brain build           # consult vitals, then delegate execution to Build
 bin/pyauto-brain build --dry-run # reason + plan only (emit the BuildDecision)
 bin/pyauto-brain release         # reason about readiness, then release on green
 bin/pyauto-brain health          # (conductor) run the health loop with a human, toward green

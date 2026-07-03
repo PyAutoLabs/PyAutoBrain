@@ -60,7 +60,8 @@ For just the raw read (no loop), consult the faculty directly:
 `bin/pyauto-brain vitals`.
 
 Exit codes mirror the adopted verdict so a caller can branch:
-`0` green · `2` yellow · `3` red · `4` unknown.
+`0` green · `2` yellow · `3` red · `4` unknown. A CLI usage error (unknown
+subcommand) exits `5`, kept distinct so misuse is never read as a real YELLOW.
 
 The conversational loop itself is mediated by the Brain reasoning layer on top of
 `health.sh`; the script supplies the deterministic footing (current card +

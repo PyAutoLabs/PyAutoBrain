@@ -28,7 +28,8 @@
 #   health.sh -h|--help  # this header
 #
 # Exit codes mirror the verdict so a caller can branch: 0 green · 2 yellow ·
-# 3 red · 4 unknown.
+# 3 red · 4 unknown. A CLI usage error (unknown subcommand) exits 5 — kept
+# distinct from the verdict codes so misuse is never read as a real YELLOW.
 
 set -uo pipefail
 
@@ -43,7 +44,7 @@ case "${1:-assess}" in
   assess) : ;;
   *)
     echo "health: unknown subcommand '${1:-}' (this skeleton supports: assess)" >&2
-    exit 2
+    exit 5   # usage error — distinct from the verdict codes (2=YELLOW)
     ;;
 esac
 
