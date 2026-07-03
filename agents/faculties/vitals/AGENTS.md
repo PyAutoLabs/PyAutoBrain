@@ -134,8 +134,8 @@ Status: <GREEN | YELLOW | RED>   (score <0-100>, snapshot <ts>)
 
 ## Day-to-day defaults (operating agreement)
 
-How the vitals faculty (and the **health conductor** that consults it) should
-render and reason on a routine run. These are presentation/triage conventions
+On a routine run, how the vitals faculty (and the **health conductor** that
+consults it) should render and reason. These are presentation/triage conventions
 layered *on top of* the procedure above — they never change the verdict, which is
 always adopted from Heart verbatim.
 
