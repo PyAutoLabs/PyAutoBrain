@@ -145,8 +145,8 @@ always adopted from Heart verbatim.
   first, then warnings, each mapped to its manifest capability.
 - **Unknown-CI tiles.** A repo whose required-workflow conclusion is
   unresolved on `main` HEAD is rendered by Heart as `CI in_progress` — an
-  *unknown*, not an actively-running workflow, and it does **not** enter
-  `readiness.yellow_reasons`. Keep such tiles visually secondary: note the
+  *unknown*, not an actively-running workflow, and it does **not** enter the
+  readiness output's top-level `yellow_reasons`. Keep such tiles visually secondary: note the
   "unknown-on-HEAD, gate-irrelevant" nature once and do not let many
   near-identical tiles dominate the card.
 - **Local-checks-blind.** When `repo_state` reports `present: false` (the
@@ -156,9 +156,9 @@ always adopted from Heart verbatim.
   health unobserved here" and **downgrade confidence**; do not read the
   resulting silence (or a vacuously green tile) as *verified clean*. Cite the
   one-time fix: set `PYAUTO_ROOT` to the actual checkout root (or auto-detect).
-- **`fix` citations.** Cite a `pyauto-heart fix <ci|dirty|drift|timing>` entry
-  point **only when Heart's verdict names that failure class**. An unknown is
-  not a failure — never emit a fix for it.
+- **`fix` citations.** Cite a `pyauto-heart fix <topic>` entry point (topics:
+  `ci`, `dirty`, `drift`, `timing`) **only when Heart's verdict names that
+  failure class**. An unknown is not a failure — never emit a fix for it.
 - **Staleness.** If `dashboard.stale == true`, or the snapshot `ts` is older
   than the watch interval, downgrade confidence and recommend
   `pyauto-heart tick` rather than trusting the stale board.
