@@ -67,7 +67,9 @@ for arg in "$@"; do
   case "$arg" in
     --json) json_only=1 ;;
     -h|--help)
-      sed -n '2,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      # Print only the comment header block (stop at the first non-comment line,
+      # so the help never bleeds into `set -uo pipefail` / `source ...`).
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     assess|triage|recommend)
@@ -154,7 +156,7 @@ RULES = [
     (re.compile(r"AHEAD|MISMATCH|version.?skew|pinned|version\.txt|general\.yaml", re.I),
                                                              "version_skew",   "real-problem", None),
     (re.compile(r"timing|slow|regression",           re.I), "script_timing",  "real-problem", "timing"),
-    (re.compile(r"worktree|drift",                   re.I), "worktree_drift", "advisory",     "drift"),
+    (re.compile(r"worktree|drift",                   re.I), "worktree_drift", "real-problem", "drift"),
     (re.compile(r"\bCI\b",                           re.I), "ci_status",      "real-problem", "ci"),
     (re.compile(r"open PR",                          re.I), "open_prs",       "advisory",     None),
     (re.compile(r"test run|report\.json|test_run",   re.I), "test_run",       "baseline-gap", None),
