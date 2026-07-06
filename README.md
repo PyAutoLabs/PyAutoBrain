@@ -9,7 +9,7 @@ It owns no state, no health checks, and no release mechanics — it only reasons
 and delegates.
 
 > Renamed from **PyAutoAgent**. The canonical CLI is now `pyauto-brain`;
-> `pyauto-agent` remains as a back-compat shim.
+> the former `pyauto-agent` back-compat shim has been removed.
 
 ## The organism
 

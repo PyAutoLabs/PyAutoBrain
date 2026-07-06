@@ -25,8 +25,8 @@ _resolve_bin() {
 }
 
 # resolve_heart — locate the PyAutoHeart CLI (the health authority of the
-# organism). The former name was `pyauto-pulse`; PyAutoHeart keeps that as a
-# back-compat shim, but the canonical command is `pyauto-heart`.
+# organism). The former name was `pyauto-pulse` (the back-compat shim has since
+# been removed); the canonical command is `pyauto-heart`.
 resolve_heart() {
   _resolve_bin pyauto-heart "$PYAUTO_ROOT/PyAutoHeart/bin/pyauto-heart"
 }

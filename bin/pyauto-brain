@@ -22,8 +22,8 @@
 #   pyauto-brain vitals  [args]   (faculty)   read-only: read the Heart's pulse (the verdict)
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
-# Back-compat: the former name `pyauto-agent` is kept as a thin shim that execs
-# this dispatcher.
+# Renamed from `pyauto-agent`; the former back-compat shim has been removed now
+# that every caller uses `pyauto-brain`.
 
 set -u
 

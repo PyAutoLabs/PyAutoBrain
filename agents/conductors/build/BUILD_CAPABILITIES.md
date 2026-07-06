@@ -37,8 +37,7 @@ its own. Confirmed against `PyAutoBuild/CLAUDE.md` ("PyAutoBuild is the executor
 … it runs **no** release-readiness checks of its own").
 
 It does, however, still expose **health-shim commands** that delegate to the
-health authority (named PyAutoPulse in current PyAutoBuild docs; that is
-PyAutoHeart, which keeps a `pyauto-pulse` back-compat shim):
+health authority (PyAutoHeart):
 
 - `verify_install` — shim → health authority (deep install-path checks).
 - `url_check` — shim → health authority (forbidden Binder/Colab URL guard).
@@ -60,14 +59,15 @@ health     → PyAutoHeart (via the vitals faculty)
 execution  → PyAutoBuild (via the Build Agent)
 ```
 
-## Drift note
+## Naming resilience
 
-Current PyAutoBuild guidance still uses the older name **PyAutoPulse** for the
-health authority and **PyAutoAgent** for the reasoning layer in places. The Build
-Agent reasons about *categories of capability* (execution vs. health), not fixed
-names, so a rename in PyAutoBuild does not break it. When PyAutoBuild gains or
-renames an execution subcommand, update the table above; do not encode the list
-anywhere the agent must re-derive at runtime beyond the per-mode allowlists in
+PyAutoBuild has been renamed onto the canonical **PyAutoHeart** / **PyAutoBrain**
+names (the earlier **PyAutoPulse** / **PyAutoAgent** usages are gone). Regardless,
+the Build Agent reasons about *categories of capability* (execution vs. health),
+not fixed names, so any future rename in PyAutoBuild does not break it. When
+PyAutoBuild gains or renames an execution subcommand, update the table above; do
+not encode the list anywhere the agent must re-derive at runtime beyond the
+per-mode allowlists in
 `build.sh`.
 
 ## Build Agent decision policy (recap)

@@ -6,7 +6,7 @@ discovering this repository. It is the canonical description of PyAutoBrain — 
 boundary; PyAutoBuild and PyAutoHeart point back here.
 
 > Renamed from **PyAutoAgent** to **PyAutoBrain**. The CLI is now `pyauto-brain`;
-> `pyauto-agent` remains as a back-compat shim. See "Renamed from PyAutoAgent".
+> the former `pyauto-agent` shim has been removed. See "Renamed from PyAutoAgent".
 
 ## What this repo is
 
@@ -189,12 +189,13 @@ it resolves the sibling `pyauto-heart` and `autobuild` binaries from PATH or the
 
 This repository was previously **PyAutoAgent**. The rename to **PyAutoBrain**
 reflects the organism model above: it is the reasoning layer, not just a host of
-"agents". Backwards compatibility is preserved where practical:
+"agents". The compatibility shims kept during the rename have since been removed,
+now that every caller is migrated:
 
-- `bin/pyauto-brain` is the canonical CLI; `bin/pyauto-agent` is a thin shim that
-  forwards to it.
+- `bin/pyauto-brain` is the canonical (and only) CLI; the former `bin/pyauto-agent`
+  forwarding shim has been removed.
 - The sibling health authority moved from `pyauto-pulse`/PyAutoPulse to
-  `pyauto-heart`/PyAutoHeart (PyAutoHeart keeps a `pyauto-pulse` shim).
+  `pyauto-heart`/PyAutoHeart; its `pyauto-pulse` shim has likewise been removed.
 
 ## Never rewrite history
 

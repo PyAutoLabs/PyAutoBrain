@@ -6,4 +6,4 @@ Brain / Heart / Build boundary, and for how the specialist reasoning agents in
 this repo work.
 
 > This repository was renamed from **PyAutoAgent** to **PyAutoBrain**. The CLI is
-> now `pyauto-brain` (with `pyauto-agent` kept as a back-compat shim).
+> now `pyauto-brain` (the former `pyauto-agent` back-compat shim has been removed).
