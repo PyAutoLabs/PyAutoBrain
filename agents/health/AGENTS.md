@@ -131,14 +131,16 @@ never change the verdict, which is always adopted from Heart verbatim.
 
 - **Default surface.** Lead with the `pyauto-heart dashboard --md` mobile card
   (verdict · score · warnings · tiles), then the structured report beneath it.
-- **Grouping.** Order reasons by severity, then capability: blocking issues
-  first, then warnings, each mapped to its manifest capability.
+- **Grouping.** When *ranking* reasons for triage and on the dashboard card,
+  order by severity then capability — most-severe first — each mapped to its
+  manifest capability. (The structured report keeps its fixed section order from
+  the Output schema above: Warnings, Recommendations, Blocking Issues.)
 - **Unknown-CI tiles.** A repo whose required-workflow conclusion is
   unresolved on `main` HEAD is rendered by Heart as `CI in_progress` — an
   *unknown*, not an actively-running workflow, and it does **not** enter the
-  readiness output's top-level `yellow_reasons`. Keep such tiles visually secondary: note the
-  "unknown-on-HEAD, gate-irrelevant" nature once and do not let many
-  near-identical tiles dominate the card.
+  readiness output's top-level `yellow_reasons`. Keep such tiles visually
+  secondary: note the "unknown-on-HEAD, gate-irrelevant" nature once and do not
+  let many near-identical tiles dominate the card.
 - **Local-checks-blind.** When `repo_state` reports `present: false` (the
   repos are not under `PYAUTO_ROOT`, e.g. a cloud box where they live outside
   `~/Code/PyAutoLabs`), the local half of Heart — `repo_state`, `version_skew`,
