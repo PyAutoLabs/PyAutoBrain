@@ -2,11 +2,11 @@
 # bin/pyauto-agent — PyAutoAgent CLI dispatcher.
 #
 # Subcommand pattern mirrors PyAutoBuild/bin/autobuild and
-# PyAutoPulse/bin/pyauto-pulse so the three CLIs feel the same. Each subcommand
+# PyAutoHeart/bin/pyauto-heart so the three CLIs feel the same. Each subcommand
 # is a named agent under agents/<name>/.
 #
 #   pyauto-agent release [args]   gate on readiness, then release on green
-#   pyauto-agent health  [args]   drive the Pulse monitoring/readiness surface
+#   pyauto-agent health  [args]   drive the Heart monitoring/readiness surface
 #   pyauto-agent help   [name]    list agents or show one agent's docs
 
 set -u
@@ -20,8 +20,8 @@ declare -A AGENT_SCRIPT=(
   [health]="$AGENTS_DIR/health/health.sh"
 )
 declare -A AGENT_DESC=(
-  [release]="Gate on pyauto-pulse readiness, then run the Build release on green"
-  [health]="Drive the PyAutoPulse monitoring / readiness surface"
+  [release]="Gate on pyauto-heart readiness, then run the Build release on green"
+  [health]="Drive the PyAutoHeart monitoring / readiness surface"
 )
 AGENT_ORDER=(release health)
 
@@ -39,7 +39,7 @@ cmd_help() {
   cat <<EOF
 pyauto-agent — orchestration CLI for the PyAuto release ecosystem.
 
-Call chain:  Agent -> Pulse (gate) -> Build (execute)
+Call chain:  Agent -> Heart (gate) -> Build (execute)
 
 Usage: pyauto-agent <agent> [args...]
        pyauto-agent help [agent]

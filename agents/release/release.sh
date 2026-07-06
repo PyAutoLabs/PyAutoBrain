@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # agents/release/release.sh — the release agent.
 #
-# Call chain: Agent -> Pulse (gate) -> Build (execute).
+# Call chain: Agent -> Heart (gate) -> Build (execute).
 #
-#   1. Ask PyAutoPulse for the authoritative readiness verdict.
+#   1. Ask PyAutoHeart for the authoritative readiness verdict.
 #   2. Block unless it is green (red = a real blocker; yellow = caution).
 #   3. On green, delegate to the PyAutoBuild executor (`autobuild pre_build`,
 #      which prepares the workspaces and dispatches release.yml).
 #
 # This agent contains NO gate logic and NO release mechanics of its own — it
-# reads Pulse's verdict and delegates to Build. Everything it decides is decided
-# by Pulse; everything it executes is executed by Build.
+# reads Heart's verdict and delegates to Build. Everything it decides is decided
+# by Heart; everything it executes is executed by Build.
 #
 # Usage:
 #   release.sh [--force] [-- <args forwarded to `autobuild pre_build`>]
@@ -33,17 +33,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "== release agent: gating on pyauto-pulse readiness =="
+echo "== release agent: gating on pyauto-heart readiness =="
 
-pulse="$(resolve_pulse)" || exit $?
+heart="$(resolve_heart)" || exit $?
 
 # Refresh the verdict from a fresh tick so the gate is not stale, then read it.
-"$pulse" tick >/dev/null 2>&1 || echo "  (warning: tick failed; using last cached state)" >&2
+"$heart" tick >/dev/null 2>&1 || echo "  (warning: tick failed; using last cached state)" >&2
 
 verdict="$(readiness_verdict)" || { echo "release agent: could not obtain readiness verdict" >&2; exit 1; }
 
 # Show the human-readable readiness block too.
-"$pulse" readiness || true
+"$heart" readiness || true
 
 case "$verdict" in
   green)

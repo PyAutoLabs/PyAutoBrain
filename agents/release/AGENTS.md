@@ -3,13 +3,13 @@
 Drives a PyAuto release through the canonical chain:
 
 ```
-Agent  →  Pulse (gate)  →  Build (execute)
+Agent  →  Heart (gate)  →  Build (execute)
 ```
 
 ## Responsibility
 
-1. Refresh and read PyAutoPulse's authoritative readiness verdict
-   (`pyauto-pulse readiness --json`).
+1. Refresh and read PyAutoHeart's authoritative readiness verdict
+   (`pyauto-heart readiness --json`).
 2. **Block** unless the verdict is green:
    - **RED** → a real release blocker; refuse (exit 3).
    - **YELLOW** → caution; refuse unless `--force` (exit 2).
@@ -18,7 +18,7 @@ Agent  →  Pulse (gate)  →  Build (execute)
    prepares the workspaces and dispatches `release.yml`.
 
 The agent holds **no gate logic and no release mechanics of its own**. The
-decision is Pulse's; the execution is Build's.
+decision is Heart's; the execution is Build's.
 
 ## Run
 
@@ -33,6 +33,6 @@ Exit codes: `0` released/delegated · `2` yellow (use --force) · `3` red blocke
 
 ## What this agent must never do
 
-- Re-derive or second-guess the readiness verdict (that is Pulse's job).
+- Re-derive or second-guess the readiness verdict (that is Heart's job).
 - Run any packaging/tagging/publish step itself (that is Build's job).
-- Write into PyAutoPulse or PyAutoBuild repos.
+- Write into PyAutoHeart or PyAutoBuild repos.
