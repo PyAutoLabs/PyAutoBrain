@@ -1,12 +1,16 @@
 # Build agent
 
+> **Tier: conductor** — a front-door agent you *drive*. It decides *whether/what*
+> to build and drives execution, delegating the *building* to PyAutoBuild and the
+> *health decision* to the read-only vitals faculty. It acts; it does not measure.
+
 The second canonical **PyAutoBrain** reasoning agent, and the reference example
 of how the Brain coordinates *multiple* organs. It is the executive function for
 execution work: it owns the build *workflow* but delegates the *building* to
-PyAutoBuild and the *health decision* to the Health Agent.
+PyAutoBuild and the *health decision* to the vitals faculty.
 
 ```
-Mind  →  Build Agent  →  Health Agent  →  Heart  →  GREEN/YELLOW/RED
+Mind  →  Build Agent  →  vitals faculty  →  Heart  →  GREEN/YELLOW/RED
                       →  Build Agent  →  PyAutoBuild (execute)
 ```
 
@@ -20,10 +24,10 @@ PyAutoBuild executes. It must never duplicate PyAutoBuild functionality.
 ## Brain agents consult one another
 
 The Build Agent does not call PyAutoHeart directly. It **consults the sibling
-Health Agent**, which is the only agent that talks to the Heart organ. This is
+vitals faculty**, which is the only agent that talks to the Heart organ. This is
 the society-of-agents pattern: specialist Brain agents reason *with* each other,
 while the organs (Heart, Hands, Memory) provide capabilities and state. Future
-agents generalise the same way — a Feature Agent asking the Health Agent if the
+agents generalise the same way — a Feature Agent asking the vitals faculty if the
 tree is fit for a refactor; a Release Agent asking the Build Agent to package.
 
 ## Modes (one agent now, clean seam for a Release Agent later)
@@ -39,7 +43,7 @@ later with no churn to build mode.
 | `deploy` | `generate` | cautious — GREEN proceeds, YELLOW needs `--force`, RED aborts | `generate`, `bump_colab_urls` |
 | `release` | `pre_build` | strict — refreshes health first; GREEN proceeds, YELLOW needs `--force`, RED aborts | `pre_build`, `tag_and_merge`, `generate_release_notes`, `create_analysis_issue`, `aggregate_results` |
 
-Release consults health *more strictly*: it asks the Health Agent to refresh
+Release consults health *more strictly*: it asks the vitals faculty to refresh
 Heart's state first (`--refresh`) so a release is never gated on a stale verdict.
 An **unknown** verdict collapses to YELLOW — never silently GREEN.
 
@@ -47,8 +51,8 @@ An **unknown** verdict collapses to YELLOW — never silently GREEN.
 
 1. Receive a build request (mode + action).
 2. Validate the action against the mode (reject health-shim commands — those are
-   Heart's surface, reached via `pyauto-brain health`).
-3. Consult the Health Agent for the readiness verdict.
+   Heart's surface, reached via `pyauto-brain vitals`).
+3. Consult the vitals faculty for the readiness verdict.
 4. Interpret it: **GREEN** proceed · **YELLOW** caution (proceed in build mode,
    else `--force`) · **RED** abort with blockers.
 5. Invoke the appropriate PyAutoBuild capability.
@@ -97,9 +101,9 @@ A future Python `BuildAgent().execute(...)` wrapper can return this same shape.
 
 - Build, package, tag, or publish anything itself — that is PyAutoBuild's job.
 - Query PyAutoHeart directly or re-derive a readiness verdict — consult the
-  Health Agent.
+  vitals faculty.
 - Re-own a health-shim command (`verify_install`, `url_check`, `watch`, `status`,
-  `tick`, `fix`) — those belong to Heart, reached via `pyauto-brain health`.
+  `tick`, `fix`) — those belong to Heart, reached via `pyauto-brain vitals`.
 - Mix release-specific reasoning into generic build execution — keep it in
   release mode.
 

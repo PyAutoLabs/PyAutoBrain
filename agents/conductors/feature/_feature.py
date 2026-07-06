@@ -294,8 +294,8 @@ def health_consideration(level: str, factors: dict, workflow: str):
     if workflow == "combined":
         reasons.append("requires coordinated library + workspace PRs")
     if not reasons:
-        return "Optional: tree is likely fit; consult the Health Agent if recent CI is unknown."
-    return ("Consult the Health Agent (pyauto-brain health) before starting — this task "
+        return "Optional: tree is likely fit; consult the vitals faculty if recent CI is unknown."
+    return ("Consult the vitals faculty (pyauto-brain vitals) before starting — this task "
             + ", ".join(reasons) + ".")
 
 
@@ -516,7 +516,7 @@ def main(argv=None):
     emit_human(mode, decision)
     print("\nWhy this task: highest-ranked under the active constraint after "
           "down-ranking in-flight work; confirm against PyAutoMind priorities "
-          "(planned.md / active.md) and a Health Agent check before committing.")
+          "(planned.md / active.md) and a vitals faculty check before committing.")
     return 0
 
 

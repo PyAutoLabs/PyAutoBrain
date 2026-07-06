@@ -27,9 +27,9 @@ skill never re-implements another organ's job.
 
 ```
 start_dev      →  Brain Feature Agent  →  Mind task  +  Memory context  →  plan  →  start_library/start_workspace
-ship_library   →  Brain dev-workflow   →  Brain Health Agent  →  Heart (GREEN/YELLOW/RED)  →  commit / push / feature-PR
-ship_workspace →  Brain dev-workflow   →  Brain Health Agent  →  Heart  →  commit / push / feature-PR
-release (later)→  Brain Build/Release Agent  →  Brain Health Agent  →  Heart  →  PyAutoBuild (tag / notebooks / PyPI)
+ship_library   →  Brain dev-workflow   →  Brain vitals faculty  →  Heart (GREEN/YELLOW/RED)  →  commit / push / feature-PR
+ship_workspace →  Brain dev-workflow   →  Brain vitals faculty  →  Heart  →  commit / push / feature-PR
+release (later)→  Brain Build/Release Agent  →  Brain vitals faculty  →  Heart  →  PyAutoBuild (tag / notebooks / PyPI)
 ```
 
 `ship_*` is **feature-development** work: the commit/push/feature-PR is the dev
@@ -38,8 +38,8 @@ release/packaging only; `ship_*` reaches Build solely to trigger the release ste
 once changes are ready to publish.
 
 Brain agents consult one another — e.g. the Build Agent never queries Heart
-directly; it asks the Health Agent, and only the Health Agent talks to the Heart
-organ. The same applies when the dev workflow consults the Health Agent for its
+directly; it asks the vitals faculty, and only the vitals faculty talks to the Heart
+organ. The same applies when the dev workflow consults the vitals faculty for its
 ship gate.
 
 ## Brain agent entry points
@@ -48,9 +48,9 @@ Reasoning is delegated to PyAutoBrain agents (`PyAutoBrain/AGENTS.md` is authori
 
 ```bash
 bin/pyauto-brain feature [<work-type>/<target>/<task>.md]  # classify + plan a task (Feature/Bug/Refactor/… routing)
-bin/pyauto-brain build   [--dry-run]                       # consult Health, then delegate execution to Build
+bin/pyauto-brain build   [--dry-run]                       # consult vitals, then delegate execution to Build
 bin/pyauto-brain release                                   # reason over readiness, release on green
-bin/pyauto-brain health                                    # one health tick + the unified dashboard card
+bin/pyauto-brain vitals                                    # one health tick + the unified dashboard card
 ```
 
 If a dedicated agent for a work type does not exist yet (e.g. Bug/Refactor/Docs),
@@ -82,7 +82,7 @@ pyauto-heart readiness --json    # authoritative GREEN / YELLOW / RED verdict
 - **RED** → stop; report what failed. Do not ship.
 
 Tests/smoke runs that feed the verdict are Heart's domain — invoke them through
-the Health Agent rather than re-deriving pass/fail criteria in the skill.
+the vitals faculty rather than re-deriving pass/fail criteria in the skill.
 
 ## Execution environments
 

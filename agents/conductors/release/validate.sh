@@ -24,10 +24,10 @@
 #   final ingest+verdict hand Stage 2's rehearsal.json/commit_shas.json AND
 #                        Stage 3's stage_report.json together to
 #                        `pyauto-heart validate --ingest`, then consult the
-#                        Health Agent — reused AS-IS from rehearse.sh's phase 2.
+#                        vitals faculty — reused AS-IS from rehearse.sh's phase 2.
 #
 # BOUNDARY (unchanged from M2, non-negotiable). Heart never dispatches, never
-# talks to GitHub, never mutates a repo — ingest-and-judge only. The Health Agent
+# talks to GitHub, never mutates a repo — ingest-and-judge only. The vitals faculty
 # is strict read-and-reason. ALL dispatch/poll/download across all four stages is
 # the Release Agent's job, done via Brain's MCP GitHub tools (cloud/mobile has no
 # gh; bash cannot call MCP). So — exactly as rehearse.sh already does for Stage 2 —
@@ -51,7 +51,7 @@
 #   # Phase C — once Stage 3 artifacts exist, ingest everything + get the verdict:
 #   validate.sh --ingest <dir> [--commit-shas FILE] [--profile P] [--force] [--json]
 #       delegates to rehearse.sh --ingest (reused verbatim) so the ingest +
-#       Health-Agent consult + decision + exit codes are IDENTICAL to Stage 2's.
+#       vitals-faculty consult + decision + exit codes are IDENTICAL to Stage 2's.
 #
 # Exit codes: preflight RED -> 3; a phase that cannot proceed (missing artifacts)
 # -> 1; phase-C ingest -> 0 green · 2 yellow (use --force) · 3 red · 4 unknown ·
@@ -74,7 +74,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-source "$HERE/../_common.sh"
+source "$HERE/../../_common.sh"
 
 # Stage 3 target: Heart's workspace-validation.yml (the M3 mode=release path).
 # Dispatched on Heart's own main (where the merged workflow lives) — the LIBRARY
@@ -120,7 +120,7 @@ done
 
 # ---------------------------------------------------------------------------
 # Phase C: final ingest + verdict (Stage 2 + Stage 3 artifacts together).
-# Reuse rehearse.sh --ingest VERBATIM so the ingest + Health-Agent consult +
+# Reuse rehearse.sh --ingest VERBATIM so the ingest + vitals-faculty consult +
 # decision + exit codes are identical to the Stage-2-only path — the "mode" in
 # the emitted verdict JSON is stamped "validate" to attribute it to this flow.
 # ---------------------------------------------------------------------------

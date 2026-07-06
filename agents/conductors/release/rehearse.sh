@@ -10,7 +10,7 @@
 #     -> download the `testpypi-rehearsal-version` artifact
 #     -> capture the current main HEAD sha of each library
 #     -> hand it all to `pyauto-heart validate --ingest`   (Heart measures)
-#     -> consult the Health Agent for the verdict           (Health judges)
+#     -> consult the vitals faculty for the verdict           (vitals judges)
 #
 # BOUNDARY. Dispatch/poll/download are GitHub actions, done via Brain's MCP
 # GitHub tools (cloud/mobile sessions have no `gh`). Bash cannot call MCP, so
@@ -40,7 +40,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-source "$HERE/../_common.sh"
+source "$HERE/../../_common.sh"
 
 # The Build repo + workflow the rehearsal is dispatched against (M1).
 BUILD_REPO="PyAutoLabs/PyAutoBuild"
@@ -165,14 +165,14 @@ Bash cannot call GitHub; execute these steps with Brain's MCP GitHub tools
 5. NEXT (continue the pipeline):
      $next_cmd
 
-After the final ingest, the Health Agent (read-only) reports GREEN/YELLOW/RED
+After the final ingest, the vitals faculty (read-only) reports GREEN/YELLOW/RED
 from the freshly-ingested validation_report — it does NOT dispatch anything.
 EOF
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2: ingest the downloaded artifacts, then consult the Health Agent.
+# Phase 2: ingest the downloaded artifacts, then consult the vitals faculty.
 # ---------------------------------------------------------------------------
 if [[ ! -d "$ingest_dir" && ! -f "$ingest_dir" ]]; then
   echo "release rehearse: artifacts path '$ingest_dir' not found" >&2
@@ -191,11 +191,11 @@ if ! "$heart" "${ingest_args[@]}"; then
   exit 1
 fi
 
-# Consult the sibling Health Agent (read-only) for the verdict. --refresh runs a
+# Consult the sibling vitals faculty (read-only) for the verdict. --refresh runs a
 # fresh Heart tick so state.json re-aggregates the just-written
 # validation_report.json before readiness recomputes the gate.
-[[ "$json_only" -eq 1 ]] || echo "== release agent: consulting Health Agent for the release-validation verdict =="
-verdict="$(consult_health_agent_verdict --refresh)"
+[[ "$json_only" -eq 1 ]] || echo "== release agent: consulting vitals faculty for the release-validation verdict =="
+verdict="$(consult_vitals_verdict --refresh)"
 
 eff="$verdict"; [[ "$eff" == "unknown" ]] && eff="yellow"
 decision=""; decision_code=0; blockers=(); warnings=(); next=()
@@ -212,7 +212,7 @@ case "$eff" in
       warnings+=("Readiness YELLOW; proceeding under --force.")
     else
       decision="hold"; decision_code=2
-      blockers+=("Readiness is YELLOW — likely no fresh release-fidelity run yet, stale rehearsal, or source moved. See 'pyauto-brain health'. Re-run with --force to accept the caution.")
+      blockers+=("Readiness is YELLOW — likely no fresh release-fidelity run yet, stale rehearsal, or source moved. See 'pyauto-brain vitals'. Re-run with --force to accept the caution.")
     fi
     ;;
   red)

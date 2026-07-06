@@ -1,6 +1,13 @@
-# Health agent
+# Vitals faculty
 
-A PyAutoBrain specialist reasoning agent. It decides whether the PyAuto organism
+> **Tier: faculty** — a read-only reasoning capability the conductors *consult*,
+> not a front door you drive to get work done. It *reads the Heart's pulse*: it
+> only *opines* — adopts PyAutoHeart's verdict and explains it, and never
+> dispatches or mutates anything. It is the single component that talks to Heart;
+> everything else asks it. (Runnable directly as a quick "what's my status?"
+> read — e.g. the **health conductor** consults it every loop.)
+
+A PyAutoBrain read-only reasoning faculty. It judges whether the PyAuto organism
 is healthy enough to proceed with work, by **reasoning over PyAutoHeart's
 outputs** — never by performing health checks itself.
 
@@ -10,10 +17,10 @@ Mind (intent) -> Brain (reasoning) -> Heart (gate) -> Hands/Build (execute)
 
 - **PyAutoHeart measures health.** It owns every check and the authoritative
   green/yellow/red verdict.
-- **The Health Agent reasons about health.** It invokes Heart, interprets the
+- **The vitals faculty reasons about health.** It invokes Heart, interprets the
   results, and produces a clear GREEN / YELLOW / RED decision with an explanation
   and recommendations.
-- The agent **must not** implement testing, validation, or gating logic. That
+- The faculty **must not** implement testing, validation, or gating logic. That
   remains owned entirely by PyAutoHeart.
 
 ## Treat PyAutoHeart as an abstract health provider
@@ -23,7 +30,7 @@ PyAutoHeart's capability manifest — `health_agent/capabilities.yaml` in the
 PyAutoHeart checkout (Heart self-describing its surface; it is **never vendored
 or copied into Brain**). The manifest lists the provider, the primary query, the
 gate semantics, and every continuous/deep check, workflow, and operation. When
-Heart gains or renames a check, the manifest changes *there* and this agent
+Heart gains or renames a check, the manifest changes *there* and this faculty
 adapts with no edits. The local [`HEART_CAPABILITIES.md`](./HEART_CAPABILITIES.md)
 is a human-readable cross-reference to that same surface.
 
@@ -38,20 +45,22 @@ via the manifest — reason about *categories of signal*, not fixed names.
 ## Run
 
 ```bash
-bin/pyauto-brain health                    # one tick + the unified dashboard card
-bin/pyauto-brain health dashboard --json   # forward: the board as one machine card
-bin/pyauto-brain health readiness --json   # forward: pyauto-heart readiness --json (no tick)
-bin/pyauto-brain health status             # forward to: pyauto-heart status
-bin/pyauto-brain health watch 300          # forward to: pyauto-heart watch 300
+bin/pyauto-brain vitals                    # one tick + the unified dashboard card
+bin/pyauto-brain vitals dashboard --json   # forward: the board as one machine card
+bin/pyauto-brain vitals readiness --json   # forward: pyauto-heart readiness --json (no tick)
+bin/pyauto-brain vitals status             # forward to: pyauto-heart status
+bin/pyauto-brain vitals watch 300          # forward to: pyauto-heart watch 300
 ```
 
-The entrypoint (`health.sh`) refreshes Heart's state and renders the **unified
+The entrypoint (`vitals.sh`) refreshes Heart's state and renders the **unified
 dashboard card** (`pyauto-heart dashboard` — verdict, score, every check, and
 the release-validation state, from the one renderer in `heart/dashboard.py`); any
-explicit subcommand is forwarded verbatim to `pyauto-heart`, so this agent is a
+explicit subcommand is forwarded verbatim to `pyauto-heart`, so this faculty is a
 thin, named driver of Heart rather than a second implementation of any check. The
 board is the same one the GitHub Pages page and the venv one-liner show — the
-surfaces cannot disagree.
+surfaces cannot disagree. (For the *actioning* loop that drives these signals to
+green, use the **health conductor** — `pyauto-brain health` — which consults this
+faculty every cycle.)
 
 ## Procedure
 
@@ -125,9 +134,10 @@ Status: <GREEN | YELLOW | RED>   (score <0-100>, snapshot <ts>)
 
 ## Day-to-day defaults (operating agreement)
 
-On a routine run, how `pyauto-brain health` should render and reason. These are
-presentation/triage conventions layered *on top of* the procedure above — they
-never change the verdict, which is always adopted from Heart verbatim.
+On a routine run, how the vitals faculty (and the **health conductor** that
+consults it) should render and reason. These are presentation/triage conventions
+layered *on top of* the procedure above — they never change the verdict, which is
+always adopted from Heart verbatim.
 
 - **Default surface.** Lead with the `pyauto-heart dashboard --md` mobile card
   (verdict · score · warnings · tiles), then the structured report beneath it.
@@ -169,13 +179,13 @@ never change the verdict, which is always adopted from Heart verbatim.
 - **RED** — blocked. The caller must not proceed with release work until the
   blocking issues are resolved.
 
-The agent only ever returns the decision and its reasoning. Execution belongs to
+The faculty only ever returns the decision and its reasoning. Execution belongs to
 Hands/PyAutoBuild, which acts **only after** receiving this GREEN/YELLOW/RED
 decision — it never re-runs the checks or re-derives the gate.
 
 ## Hard boundaries
 
-- Never write into any repo, run a build, or trigger a release. The agent is a
+- Never write into any repo, run a build, or trigger a release. The faculty is a
   read-and-reason role.
 - Never implement or duplicate a health check. If a needed signal is missing,
   recommend that PyAutoHeart add the check — do not compute it here.

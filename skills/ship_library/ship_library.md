@@ -7,7 +7,7 @@ own execution, gated by Heart. It is **not** a Build task (Build is
 release/packaging only; `ship_*` reaches it solely for the release step):
 
 ```
-ship_library → Brain dev-workflow → Brain Health Agent → Heart (GREEN/YELLOW/RED) → commit / push / feature-PR
+ship_library → Brain dev-workflow → Brain vitals faculty → Heart (GREEN/YELLOW/RED) → commit / push / feature-PR
 ```
 
 Workflow entry point — not an agent. Read [`../WORKFLOW.md`](../WORKFLOW.md) for
@@ -39,14 +39,14 @@ and the full PR body. Writing the `## API Changes` section is judgement-heavy an
 stays in the reasoning model — follow [`reference.md`](reference.md) → "Writing
 the `## API Changes` section" and "Full PR format".
 
-### 3. Gate readiness through the Health Agent → Heart
+### 3. Gate readiness through the vitals faculty → Heart
 
-Consult the Brain Health Agent, which is the only one that talks to the Heart
+Consult the Brain vitals faculty, which is the only one that talks to the Heart
 organ (do **not** route this through the Build Agent — shipping a feature is not
 a release):
 
 ```bash
-bin/pyauto-brain health              # reason over the readiness surface (Health Agent → Heart)
+bin/pyauto-brain vitals              # reason over the readiness surface (vitals faculty → Heart)
 pyauto-heart readiness --json        # authoritative GREEN / YELLOW / RED
 ```
 

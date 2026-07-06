@@ -45,8 +45,8 @@ PyAutoHeart, which keeps a `pyauto-pulse` back-compat shim):
 - `watch` / `status` / `tick` / `fix` — monitoring-daemon shims.
 
 **Decision:** these are health concerns, not build actions. The Build Agent
-**refuses to route them** and points the caller at `pyauto-brain health <cmd>`
-instead. They belong to PyAutoHeart and are reached through the Health Agent —
+**refuses to route them** and points the caller at `pyauto-brain vitals <cmd>`
+instead. They belong to PyAutoHeart and are reached through the vitals faculty —
 never re-owned by the Build Agent, and never duplicated in Brain. No non-trivial
 readiness logic was found living *inside* PyAutoBuild itself (the shims only
 delegate); if any ever appears, migrate it to PyAutoHeart and leave only
@@ -55,8 +55,8 @@ delegation in PyAutoBuild.
 This keeps the architecture clean:
 
 ```
-reasoning  → PyAutoBrain (Build Agent, Health Agent)
-health     → PyAutoHeart (via the Health Agent)
+reasoning  → PyAutoBrain (Build Agent, vitals faculty)
+health     → PyAutoHeart (via the vitals faculty)
 execution  → PyAutoBuild (via the Build Agent)
 ```
 
@@ -75,7 +75,7 @@ anywhere the agent must re-derive at runtime beyond the per-mode allowlists in
 - **GREEN** — proceed; invoke the requested PyAutoBuild capability.
 - **YELLOW** — build mode proceeds with a warning; deploy/release require
   `--force`. An unknown verdict is treated as YELLOW.
-- **RED** — abort; surface Heart's blockers (via the Health Agent) and do not
+- **RED** — abort; surface Heart's blockers (via the vitals faculty) and do not
   execute.
 
 The Build Agent may sequence, plan, and explain execution, but it must never run

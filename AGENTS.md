@@ -75,15 +75,15 @@ Build never re-derives a decision the Brain already made.
 
 Brain agents are not limited to driving organs — they can **consult each other**.
 The canonical example is the **Build Agent**, which does not query Heart directly:
-it consults the **Health Agent**, and only the Health Agent talks to the Heart
+it consults the **vitals faculty**, and only the vitals faculty talks to the Heart
 organ. So the Build Agent's full chain is:
 
 ```
-Mind  →  Build Agent  →  Health Agent  →  Heart  →  GREEN/YELLOW/RED
+Mind  →  Build Agent  →  vitals faculty  →  Heart  →  GREEN/YELLOW/RED
                       →  Build Agent  →  Build (execute)
 ```
 
-This generalises: a future Feature Agent can ask the Health Agent whether the
+This generalises: a future Feature Agent can ask the vitals faculty whether the
 tree is fit for a refactor; a future Release Agent can ask the Build Agent to
 package a release. Reasoning lives in Brain agents that consult one another; the
 organs (Heart, Hands/Build, Memory) provide capabilities and state. The Build
@@ -91,46 +91,82 @@ Agent is the reusable template for this pattern.
 
 ## Specialist reasoning agents
 
-Each agent is a directory under `agents/<name>/` with:
+Agents live in **two tiers** under `agents/`, distinguished by one question —
+*does it act, or only opine?*
 
-- `AGENTS.md` — what the agent reasons about and how to run it.
-- a deterministic entrypoint script (`*.sh` / `*.py`) — the part CI and humans
-  invoke identically, so behaviour isn't re-derived from prose each time.
+- **Conductors** (`agents/conductors/<name>/`) — front-door agents a human
+  **drives**. They *decide **and** act*, delegating execution to the organs.
+  They have side effects in the world (a plan driven into dev, a build, a
+  release). This is the small, curated set of things you invoke and converse
+  with.
+- **Faculties** (`agents/faculties/<name>/`) — read-only reasoning capabilities
+  the conductors **consult**. They *only opine* — return a judgment and stop;
+  they never dispatch or mutate. They are *sinks* in the consult graph
+  (everything reaches into them; they reach out only to their sensor organ). Not
+  chat-first surfaces, though they stay runnable for a quick read.
 
-Current agents:
+The rule of thumb: **keep the conductor set small and human-meaningful; let
+faculties multiply behind them.** A side-effecting decider is a conductor; a
+side-effect-free opinion is a faculty.
 
-- **`agents/feature/`** — the **growth function**: reasons over PyAutoMind
-  `feature/*` intent and decides *how the organism should grow*. Selects the next
-  feature task (or plans a named one), estimates difficulty, decides whether to
-  phase, consults PyAutoMemory for scientific/architectural context and (for
-  risky work) the Health Agent, and emits a `FeatureDecision` that the existing
-  `start_dev → ship_library/ship_workspace` workflow consumes. It reasons; it
-  never edits source. (Organism-facing name: *Growth Agent*.)
-- **`agents/build/`** — the executive function for execution work. Consults the
-  Health Agent, reasons over the verdict, and on a healthy result delegates to
-  the appropriate PyAutoBuild capability. The canonical example of the Brain
-  coordinating *multiple* organs. Has `build` / `deploy` / `release` modes —
-  release is isolated as a mode now, with a clean seam to a future Release Agent.
-- **`agents/release/`** — reasons over `pyauto-heart readiness`, and on green
-  triggers the PyAutoBuild release executor (`autobuild pre_build` → `release.yml`).
-- **`agents/health/`** — reasons over the PyAutoHeart monitoring/readiness surface.
+Each agent is a directory with an `AGENTS.md` (what it reasons about + how to run
+it) and a deterministic entrypoint script (`*.sh` / `*.py`) — the part CI and
+humans invoke identically, so behaviour isn't re-derived from prose each time.
+
+### Conductors
+
+- **`agents/conductors/feature/`** — the **growth function**: reasons over
+  PyAutoMind `feature/*` intent and decides *how the organism should grow*.
+  Selects the next feature task (or plans a named one), estimates difficulty,
+  decides whether to phase, consults PyAutoMemory for scientific/architectural
+  context and (for risky work) the vitals faculty, and emits a `FeatureDecision`
+  that the existing `start_dev → ship_library/ship_workspace` workflow consumes.
+  It reasons; it never edits source. (Organism-facing name: *Growth Agent*.)
+- **`agents/conductors/build/`** — the executive function for execution work.
+  Consults the vitals faculty, reasons over the verdict, and on a healthy result
+  delegates to the appropriate PyAutoBuild capability. The canonical example of
+  the Brain coordinating *multiple* organs. Has `build` / `deploy` / `release`
+  modes — release is isolated as a mode now, with a clean seam to the release
+  conductor.
+- **`agents/conductors/release/`** — reasons over `pyauto-heart readiness`, and on
+  green triggers the PyAutoBuild release executor (`autobuild pre_build` →
+  `release.yml`); also orchestrates release validation (`release rehearse` /
+  `release validate`) across the MCP boundary.
+- **`agents/conductors/health/`** — the organism's **clinician**: runs the health
+  *loop* with a human — assess → triage → (on your go-ahead) dispatch a
+  validation leg → re-judge — until Heart goes GREEN. Consults the vitals faculty
+  for every verdict and delegates all dispatch to the release conductor; it drives
+  the loop, not the wire. Named for what it manages (the organism's *health*), not
+  an external visitor. Current scope is *validation + recommend*, checkpointing
+  every dispatch; *edit-in fixes* are an explicit follow-up. (Skeleton.)
+
+### Faculties
+
+- **`agents/faculties/vitals/`** — the read-only **vitals faculty** (it *reads the
+  Heart's pulse*): adopts the PyAutoHeart readiness verdict and explains it,
+  mapping each reason to its capability. It is the single component that talks to
+  Heart; the conductors (build, release, feature, health) all consult it rather
+  than querying Heart directly. It never dispatches or mutates — that inertness is
+  why it is safe for everyone to call.
 
 > **Build Agent vs. release mode vs. the release agent.** The Build Agent owns
 > all execution orchestration and keeps release as one of its modes (broad build
-> scope: generate, run, aggregate, package, tag). `agents/release/` is the older,
+> scope: generate, run, aggregate, package, tag). `agents/conductors/release/` is the older,
 > narrower readiness→`pre_build` driver. The mature architecture splits a
 > dedicated **Release Agent** out of the Build Agent's release mode — making
 > release-specific decisions (versioning, changelogs, PyPI/tags, human approval),
-> consulting the Health Agent *more strictly*, then requesting execution from the
+> consulting the vitals faculty *more strictly*, then requesting execution from the
 > Build Agent / PyAutoBuild. Until then: one agent now, clean seam for two later.
 
 More specialist agents are expected over time (Bug / Refactor / Documentation /
-Research agents, and a split-out Release agent); the Feature Agent above is the
-first of these, the Brain agent that reasons over PyAutoMind `feature/*` intent.
-The Build Agent is the reusable template — add new ones as `agents/<name>/`
-directories following its shape (a concise `AGENTS.md`, a deterministic
-entrypoint, and a capability audit of any organ it drives — the Feature Agent's
-`MIND_TAXONOMY.md` is that audit for the PyAutoMind/PyAutoMemory surface).
+Research agents, cost/risk faculties, …). When adding one, **place it by tier**:
+a side-effecting decider you drive → `agents/conductors/<name>/`; a read-only
+opinion the conductors consult → `agents/faculties/<name>/`. Follow the Build
+Agent's shape (a concise `AGENTS.md` opening with its `Tier:` line, a
+deterministic entrypoint, and a capability audit of any organ it drives — the
+Feature Agent's `MIND_TAXONOMY.md` is that audit for the PyAutoMind/PyAutoMemory
+surface). Keep the conductor set small; prefer adding a faculty when the new
+thing only reasons.
 
 ## Running
 
@@ -138,10 +174,11 @@ entrypoint, and a capability audit of any organ it drives — the Feature Agent'
 bin/pyauto-brain help            # list agents
 bin/pyauto-brain feature         # select the best next PyAutoMind feature task
 bin/pyauto-brain feature feature/autofit/sbi.md   # plan a specific feature task
-bin/pyauto-brain build           # consult health, then delegate execution to Build
+bin/pyauto-brain build           # consult vitals, then delegate execution to Build
 bin/pyauto-brain build --dry-run # reason + plan only (emit the BuildDecision)
 bin/pyauto-brain release         # reason about readiness, then release on green
-bin/pyauto-brain health          # one health tick + the unified dashboard card
+bin/pyauto-brain health          # (conductor) run the health loop with a human, toward green
+bin/pyauto-brain vitals          # (faculty) one tick + the unified dashboard card (raw read)
 ```
 
 Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install);

@@ -6,7 +6,7 @@ description: Ship PyAutoLabs workspace and tutorial repository changes. Use when
 # Ship Workspace
 
 A PyAutoBrain development-workflow entry point. Shipping a workspace feature is
-**feature-dev** work: dev-workflow → Health Agent → Heart readiness gate →
+**feature-dev** work: dev-workflow → vitals faculty → Heart readiness gate →
 commit/push/feature-PR/merge, with PyAutoMind holding task state. It is **not** a
 Build task — Build is release/packaging only. Shared organ boundary, the
 readiness gate and the execution-environment model are in

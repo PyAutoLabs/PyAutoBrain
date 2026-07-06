@@ -6,7 +6,7 @@ description: Ship PyAutoLabs source-library changes. Use when Codex needs to ins
 # Ship Library
 
 A PyAutoBrain development-workflow entry point. Shipping a library feature is
-**feature-dev** work: dev-workflow → Health Agent → Heart readiness gate →
+**feature-dev** work: dev-workflow → vitals faculty → Heart readiness gate →
 commit/push/feature-PR, with PyAutoMind holding task state. It is **not** a Build
 task — Build is release/packaging only (PyPI/tags/notebooks) and `ship_*` reaches
 it solely for the release step. Shared organ boundary, the readiness gate and the

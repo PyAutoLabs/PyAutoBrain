@@ -1,6 +1,6 @@
-# PyAutoHeart capabilities known to the Health Agent
+# PyAutoHeart capabilities known to the vitals faculty
 
-This audit records the health surface the PyAutoBrain Health Agent reasons over.
+This audit records the health surface the PyAutoBrain vitals faculty reasons over.
 The agent must treat every item here as a PyAutoHeart capability, not as logic to
 reimplement inside Brain.
 
@@ -12,7 +12,7 @@ reimplement inside Brain.
 - `pyauto-heart readiness --json` — machine-readable gate for agents/scripts.
 - `pyauto-heart dashboard [--oneline|--md|--html|--json|--badge]` — the ONE
   unified health board (verdict + every check + release-validation state); reads
-  cache only, never ticks. The Health Agent's mobile card is the `--json`/`--md`
+  cache only, never ticks. The vitals faculty's mobile card is the `--json`/`--md`
   view of this board.
 - `pyauto-heart watch [seconds]` / `live` — continuous monitoring daemon.
 - `pyauto-heart stop` / `stop --all` — daemon lifecycle control.
@@ -53,7 +53,7 @@ reimplement inside Brain.
 - **Heart is ingest-and-judge only** — it never dispatches `release.yml` or
   `workspace-validation.yml`. Dispatching/polling/downloading the artifacts is the
   **Release Agent's** job (`pyauto-brain release rehearse`), via MCP GitHub tools.
-  The **Health Agent stays read-only**: it reports the resulting verdict, it does
+  The **vitals faculty stays read-only**: it reports the resulting verdict, it does
   not dispatch.
 
 ## Unified health dashboard (M5)
@@ -66,14 +66,14 @@ reimplement inside Brain.
 - **Three surfaces:** GitHub Pages (`https://pyautolabs.github.io/PyAutoHeart/`)
   + `$GITHUB_STEP_SUMMARY` + a README badge/block (all published by
   `pulse-health.yml`); the `pyauto-heart dashboard` CLI + a sourceable venv hook
-  (`heart/shell/heart_prompt.sh`); and this Health Agent's mobile card.
-- **The Health Agent renders the card from `pyauto-heart dashboard --json`/`--md`**
+  (`heart/shell/heart_prompt.sh`); and this vitals faculty's mobile card.
+- **The vitals faculty renders the card from `pyauto-heart dashboard --json`/`--md`**
   — the same board, not raw verdict JSON. It is exposed as the `dashboard`
   capability + `published_board` URL in Heart's `health_agent/capabilities.yaml`.
 - **Observer-only.** The dashboard SHOWS health; the `readiness` verdict stays
   the gate. Everything the dashboard writes stays within PyAutoHeart's own repo
   (gh-pages / README / `[heart-health]` issue), the job step summary, or
-  `~/.pyauto-heart/`. The Health Agent stays read-and-reason.
+  `~/.pyauto-heart/`. The vitals faculty stays read-and-reason.
 
 ## Heart implementation assets
 
@@ -100,7 +100,7 @@ Heart/Brain and the shims are confirmed to delegate only. Do not duplicate those
 checks in Brain. If any shim contains non-trivial readiness logic, migrate that
 logic to PyAutoHeart and leave only delegation in PyAutoBuild.
 
-## Health Agent decision policy
+## vitals faculty decision policy
 
 - GREEN: Heart reports no blocking or cautionary issues. Build may proceed
   automatically if the calling agent requested execution.
@@ -108,6 +108,6 @@ logic to PyAutoHeart and leave only delegation in PyAutoBuild.
   is recommended before release/deployment.
 - RED: Heart reports blocking issues. Build must not proceed automatically.
 
-The Health Agent may explain, rank, and recommend actions from Heart output, but
+The vitals faculty may explain, rank, and recommend actions from Heart output, but
 it must never independently measure repo health, run tests directly, classify
 files, or re-derive release readiness.
