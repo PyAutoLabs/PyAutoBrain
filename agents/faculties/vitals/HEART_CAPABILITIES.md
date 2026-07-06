@@ -87,18 +87,16 @@ reimplement inside Brain.
 - Tests: `tests/`, expected to run quickly with stdlib + PyYAML only.
 - Docs / agent guidance: `README.md`, `AGENTS.md`, `CLAUDE.md`.
 
-## PyAutoBuild drift audit
+## PyAutoBuild delegation audit
 
-Current PyAutoBuild guidance still uses the old names PyAutoPulse and
-PyAutoAgent in places, and exposes compatibility shims such as
+PyAutoBuild has been fully renamed onto the Heart/Brain names (no PyAutoPulse or
+PyAutoAgent references remain) and exposes health-shim commands such as
 `autobuild verify_install`, `autobuild url_check`, and `autobuild watch|status|tick|fix`.
-These are documented as delegating to the health authority rather than owning
-readiness logic.
+These delegate to the health authority rather than owning readiness logic.
 
-Decision: YELLOW until the docs are fully renamed from Pulse/Agent to
-Heart/Brain and the shims are confirmed to delegate only. Do not duplicate those
-checks in Brain. If any shim contains non-trivial readiness logic, migrate that
-logic to PyAutoHeart and leave only delegation in PyAutoBuild.
+Decision: GREEN — the docs are renamed and the shims delegate only. Do not
+duplicate those checks in Brain. If any shim ever gains non-trivial readiness
+logic, migrate that logic to PyAutoHeart and leave only delegation in PyAutoBuild.
 
 ## vitals faculty decision policy
 

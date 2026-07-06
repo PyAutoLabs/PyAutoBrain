@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# bin/pyauto-agent — backwards-compatibility shim.
-#
-# PyAutoAgent has been renamed to PyAutoBrain (the reasoning layer of the
-# PyAuto organism). The canonical CLI is now `pyauto-brain`; this shim forwards
-# every invocation to it so existing callers keep working.
-_self="$(readlink -f "${BASH_SOURCE[0]}")"
-exec "$(dirname "$_self")/pyauto-brain" "$@"
