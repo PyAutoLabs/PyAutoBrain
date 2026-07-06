@@ -51,7 +51,7 @@
 #   # Phase C — once Stage 3 artifacts exist, ingest everything + get the verdict:
 #   validate.sh --ingest <dir> [--commit-shas FILE] [--profile P] [--force] [--json]
 #       delegates to rehearse.sh --ingest (reused verbatim) so the ingest +
-#       Health-Agent consult + decision + exit codes are IDENTICAL to Stage 2's.
+#       vitals-faculty consult + decision + exit codes are IDENTICAL to Stage 2's.
 #
 # Exit codes: preflight RED -> 3; a phase that cannot proceed (missing artifacts)
 # -> 1; phase-C ingest -> 0 green · 2 yellow (use --force) · 3 red · 4 unknown ·
@@ -120,7 +120,7 @@ done
 
 # ---------------------------------------------------------------------------
 # Phase C: final ingest + verdict (Stage 2 + Stage 3 artifacts together).
-# Reuse rehearse.sh --ingest VERBATIM so the ingest + Health-Agent consult +
+# Reuse rehearse.sh --ingest VERBATIM so the ingest + vitals-faculty consult +
 # decision + exit codes are identical to the Stage-2-only path — the "mode" in
 # the emitted verdict JSON is stamped "validate" to attribute it to this flow.
 # ---------------------------------------------------------------------------

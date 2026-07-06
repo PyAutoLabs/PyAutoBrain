@@ -71,7 +71,7 @@ bin/pyauto-brain feature feature/autofit/sbi.md            # specific mode
 bin/pyauto-brain feature select --difficulty easy          # easy task
 bin/pyauto-brain feature select --model strong --limit 5   # ambitious shortlist
 bin/pyauto-brain feature select --impact                   # highest-leverage
-bin/pyauto-brain feature --check-health feature/autolens/x.md   # also consult Health
+bin/pyauto-brain feature --check-health feature/autolens/x.md   # also consult vitals
 bin/pyauto-brain feature --json select                     # machine-readable
 ```
 
