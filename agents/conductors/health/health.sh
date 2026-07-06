@@ -185,6 +185,13 @@ items = []
 for severity, reasons in (("red", red), ("yellow", yellow)):
     for reason in reasons:
         cap, kind, fix_topic = classify(reason, severity)
+        # Severity wins over the keyword class: anything Heart put in red_reasons
+        # is a release blocker to act on now, never a "baseline gap" you accept.
+        # (E.g. absent validation -> "no release validation" is a yellow
+        # baseline-gap; a FAILED validation -> "release validation FAILED" is red
+        # and a real problem, even though both map to the `validate` capability.)
+        if severity == "red" and kind != "real-problem":
+            kind = "real-problem"
         repo = repo_of(reason)
         fix_cmd = None
         if fix_topic:
