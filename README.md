@@ -8,9 +8,6 @@ and delegate execution to [PyAutoBuild](https://github.com/PyAutoLabs/PyAutoBuil
 It owns no state, no health checks, and no release mechanics — it only reasons
 and delegates.
 
-> Renamed from **PyAutoAgent**. The canonical CLI is now `pyauto-brain`;
-> the former `pyauto-agent` back-compat shim has been removed.
-
 ## The organism
 
 The PyAuto ecosystem is a software organism; each repo is an organ with one job:

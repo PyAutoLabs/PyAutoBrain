@@ -5,9 +5,6 @@ discovering this repository. It is the canonical description of PyAutoBrain — 
 **reasoning layer** of the PyAuto organism — and of the Brain / Heart / Build
 boundary; PyAutoBuild and PyAutoHeart point back here.
 
-> Renamed from **PyAutoAgent** to **PyAutoBrain**. The CLI is now `pyauto-brain`;
-> the former `pyauto-agent` shim has been removed. See "Renamed from PyAutoAgent".
-
 ## What this repo is
 
 PyAutoBrain is the **reasoning layer** of the PyAuto ecosystem as it grows into a
@@ -184,18 +181,6 @@ bin/pyauto-brain vitals          # (faculty) one tick + the unified dashboard ca
 Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install);
 it resolves the sibling `pyauto-heart` and `autobuild` binaries from PATH or the
 `~/Code/PyAutoLabs/` checkouts.
-
-## Renamed from PyAutoAgent
-
-This repository was previously **PyAutoAgent**. The rename to **PyAutoBrain**
-reflects the organism model above: it is the reasoning layer, not just a host of
-"agents". The compatibility shims kept during the rename have since been removed,
-now that every caller is migrated:
-
-- `bin/pyauto-brain` is the canonical (and only) CLI; the former `bin/pyauto-agent`
-  forwarding shim has been removed.
-- The sibling health authority moved from `pyauto-pulse`/PyAutoPulse to
-  `pyauto-heart`/PyAutoHeart; its `pyauto-pulse` shim has likewise been removed.
 
 ## Never rewrite history
 
