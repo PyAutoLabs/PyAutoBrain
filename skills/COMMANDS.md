@@ -30,6 +30,7 @@ readiness gate, or execution — those belong to the organs.
 | Command | Agent | Chain |
 |---------|-------|-------|
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
+| `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoBuild |
 | `/health` | Health Agent | `bin/pyauto-brain health` loop → vitals faculty → Heart → GREEN |
 
@@ -39,7 +40,6 @@ the Brain (via `start_dev` → Feature Agent), so nothing is bypassed:
 
 | Command | PyAutoMind work-type | Promotion follow-up |
 |---------|----------------------|---------------------|
-| `/bug` | `bug/` | dedicated Bug conductor |
 | `/refactor` | `refactor/` | dedicated Refactor conductor |
 | `/docs` | `docs/` | dedicated Documentation conductor |
 | `/research` | `research/` | dedicated Research conductor |

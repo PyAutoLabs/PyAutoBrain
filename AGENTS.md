@@ -119,6 +119,16 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   context and (for risky work) the vitals faculty, and emits a `FeatureDecision`
   that the existing `start_dev → ship_library/ship_workspace` workflow consumes.
   It reasons; it never edits source. (Organism-facing name: *Growth Agent*.)
+- **`agents/conductors/bug/`** — the organism's **immune system**: recognises a
+  pathogen (bug, regression, failing test or PyAutoHeart finding), tells it from
+  benign self, classifies it (severity/scope/type/confidence), consults PyAutoMemory
+  as immune memory, and mounts a *targeted* response — deciding **where the fix
+  belongs** (source-first; never degrading a user-facing workspace script, the
+  autoimmune failure mode) and emitting a `BugDecision` the `start_dev → ship_*`
+  workflow consumes. Health mode reads two inputs: the live vitals verdict **and**
+  the filed PyAutoHeart issues. Reuses the Feature Agent's core; consults the vitals
+  faculty, never Heart directly. It reasons; it never edits source. (Organism-facing
+  name: *Immune Agent*.)
 - **`agents/conductors/build/`** — the executive function for execution work.
   Consults the vitals faculty, reasons over the verdict, and on a healthy result
   delegates to the appropriate PyAutoBuild capability. The canonical example of
@@ -155,8 +165,9 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
 > consulting the vitals faculty *more strictly*, then requesting execution from the
 > Build Agent / PyAutoBuild. Until then: one agent now, clean seam for two later.
 
-More specialist agents are expected over time (Bug / Refactor / Documentation /
-Research agents, cost/risk faculties, …). When adding one, **place it by tier**:
+More specialist agents are expected over time (Refactor / Documentation / Research
+agents, a `diagnosis` faculty split from the Bug Agent, cost/risk faculties, …).
+When adding one, **place it by tier**:
 a side-effecting decider you drive → `agents/conductors/<name>/`; a read-only
 opinion the conductors consult → `agents/faculties/<name>/`. Follow the Build
 Agent's shape (a concise `AGENTS.md` opening with its `Tier:` line, a
@@ -194,16 +205,17 @@ to the right agent; normal usage never says "PyAutoBrain".
 | Command | Routes to | Tier |
 |---------|-----------|------|
 | `/feature` | Feature Agent → `start_dev` | real conductor |
+| `/bug` | Bug Agent → `start_dev` (health mode → vitals + Heart issues) | real conductor |
 | `/build` | Build Agent → vitals → Heart → PyAutoBuild | real conductor |
 | `/health` | Health Agent loop → vitals → Heart | real conductor |
-| `/bug` `/refactor` `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
+| `/refactor` `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
 | `/route <text>` | infers the work-type and dispatches to one of the above | NL router |
 | `/brain <agent>` | raw `bin/pyauto-brain` passthrough | debug door |
 
-\* No dedicated Bug/Refactor/Docs/Research conductor exists yet — those verbs
-route through the Brain dev-flow with their PyAutoMind work-type fixed (still
-through the Brain, nothing bypassed), until each earns promotion to its own
-conductor. Every command routes **through** the Brain; none replaces it.
+\* No dedicated Refactor/Docs/Research conductor exists yet — those verbs route
+through the Brain dev-flow with their PyAutoMind work-type fixed (still through the
+Brain, nothing bypassed), until each earns promotion to its own conductor (as `/bug`
+now has). Every command routes **through** the Brain; none replaces it.
 
 The command bodies live in `skills/<verb>/<verb>.md` (thin; installed as flat
 commands by `bin/install.sh`); the shared architecture prose is in
