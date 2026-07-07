@@ -99,4 +99,25 @@ that used to live in `admin_jammy/skills/`. Run `bash PyAutoBrain/bin/install.sh
 to (re-)symlink every organ's skills/commands into `~/.claude/`. See
 [`bin/README.md`](bin/README.md).
 
+## The command surface (Brain implicit)
+
+Humans drive the CLI above through short verb commands installed into
+`~/.claude/commands/`. The Brain stays **implicit**: you type a verb (or plain
+natural language) and it routes to the right agent — normal usage never says
+"PyAutoBrain".
+
+> **Users speak in short commands; PyAutoBrain performs the routing.**
+
+- **Real conductors:** `/feature` → Feature Agent, `/build` → Build Agent,
+  `/health` → Health Agent (each → vitals/Heart/Build as needed).
+- **Work-type entries:** `/bug` `/refactor` `/docs` `/research` route through the
+  Brain dev-flow (`start_dev`) with their PyAutoMind work-type fixed — honest
+  interim doors until each earns its own conductor.
+- **Router + debug:** `/route <text>` infers the work-type and dispatches;
+  `/brain <agent>` is the raw passthrough. Every command routes **through** the
+  Brain; none replaces it.
+
+Bodies live in `skills/<verb>/<verb>.md`; shared prose in
+[`skills/COMMANDS.md`](skills/COMMANDS.md).
+
 See [`AGENTS.md`](AGENTS.md) for the full description.
