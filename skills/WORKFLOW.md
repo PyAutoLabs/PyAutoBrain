@@ -61,6 +61,57 @@ When `pyauto-brain` is not on `PATH` and no PyAutoBrain checkout is present
 (e.g. a GitHub-only session), perform the same reasoning inline following this
 file and `PyAutoBrain/AGENTS.md`, and note that the agent was emulated.
 
+## Model delegation (Opus plans, Sonnet executes)
+
+The workflow skills follow a **"plan in Opus, execute in Sonnet"** split: the main
+session stays on Opus for planning, judgment and orchestration; mechanical
+shell/git phases are delegated to Sonnet subagents (`Agent` tool,
+`model: "sonnet"`). This keeps judgement in the stronger model while moving bulk
+execution to the faster, cheaper one — no manual model toggling.
+
+**Delegated (mechanical phase only):**
+
+- `ship_library` — step 3 (test, commit, push, open PR).
+- `ship_workspace` — step 3 (commit, push, smoke test, open PR, cross-reference).
+- `pre_build` — step 2 (format, generate, version bump, stage, commit, push,
+  dispatch workflow).
+
+**Stays in Opus:** planning (`start_dev`), environment setup
+(`start_library`/`start_workspace`), release triage (`review_release`);
+identifying affected repos, drafting the commit message and full PR body
+(`## API Changes` / `## Scripts Changed`), workspace-impact analysis, the
+library-first merge gate, the merge decision, `active.md` / `complete.md`
+updates, and final issue comments. In `pre_build`: validating clean `main`,
+asking for the minor version, printing the summary.
+
+**Subagent prompt contract (all delegated calls):**
+
+- **Inputs Opus passes:** worktree path / `$WT_ROOT`, repo list, pre-drafted
+  commit message, pre-drafted PR body (paste verbatim via HEREDOC — never
+  rewrite), relevant URLs (library PR, issue), target branch, labels.
+- **Subagent's job:** run the named shell steps exactly. `source activate.sh`
+  before `pytest` / `smoke_test`. Verify the branch is `feature/<task-name>`
+  before committing — never auto-switch branches. **Never modify code to make
+  tests or smoke tests pass.** On failure, stop and return the failure verbatim
+  (failing test names + traceback tail, or the shell error).
+- **Subagent returns:** one line per repo — test/smoke pass-fail counts, commit
+  SHA, PR URL, cross-reference/dispatch confirmations.
+- **Opus after return:** interpret failures, decide routing, update registries,
+  talk to the user.
+
+**Tutorial-prose split** (separate from skill delegation — depends on what the
+reader is there to learn):
+
+- **Opus** for narrative science-teaching scripts where the docstrings/comments
+  are the product: tutorials in `autofit_workspace`, `autogalaxy_workspace`,
+  `autolens_workspace` (`overview_*`, `start_here.py`, `howto*`). Sonnet drifts
+  to generic textbook phrasing and misses domain framing here.
+- **Sonnet** for code-heavy, doc-light scripts where comments are short
+  API-usage notes: `*_workspace_test`, `euclid_strong_lens_modeling_pipeline`
+  glue, and developer/regression/smoke/parity scripts.
+- Heuristic: *"is the reader here to learn science, or to exercise code?"*
+  Science → Opus. Code → Sonnet.
+
 ## Consult Memory before substantial planning
 
 Before committing to a plan, consult **PyAutoMemory** whenever historical,
