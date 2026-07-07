@@ -96,4 +96,10 @@ bin/pyauto-brain vitals      # (faculty) one tick + the unified dashboard card (
 PyAutoBrain runs from its checkout (no pip install), resolving the sibling
 `pyauto-heart` and `autobuild` binaries from PATH or `~/Code/PyAutoLabs/`.
 
+`bin/` also hosts the cross-organ Claude skill **installer** (`install.sh`) and
+line-count **guard** (`check_skill_line_counts.sh`) — organism-wide infrastructure
+that used to live in `admin_jammy/skills/`. Run `bash PyAutoBrain/bin/install.sh`
+to (re-)symlink every organ's skills/commands into `~/.claude/`. See
+[`bin/README.md`](bin/README.md).
+
 See [`AGENTS.md`](AGENTS.md) for the full description.
