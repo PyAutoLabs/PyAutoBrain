@@ -53,7 +53,7 @@ are created.
 A "conflict" means another `active.md` entry already claims one of the target
 repos via its `worktree:` field. Tasks editing different repos run in parallel;
 two tasks wanting the same repo must serialise. After a blocking task ships,
-`/pyauto-status` shows the queued task as ready, then `/start_library` or
+`/health status` shows the queued task as ready, then `/start_library` or
 `/start_workspace` begins it.
 
 Legacy check: if a target repo's **main checkout** is on a feature branch not
