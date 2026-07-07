@@ -22,8 +22,10 @@ Auto-discovers (no hardcoded skill list) by scanning each organ repo's
   `ship_library`, `ship_workspace`, `register_and_iterate`, `repo_cleanup`,
   `update_issue`).
 - **`PyAutoHeart/skills/`** — status / readiness / validation skills
-  (`pyauto-status`, `pyauto-status-full`, `worktree_status`, `smoke_test`,
-  `dep_audit`, `verify_install`, `review_release`, `audit_docs`, `cli_noise_clean`).
+  (`worktree_status`, `smoke_test`, `dep_audit`, `verify_install`,
+  `review_release`, `audit_docs`, `cli_noise_clean`), plus the reference-only
+  `/health` legs `health_sweep/`, `pyauto-status/`, `pyauto-status-full/` (driven
+  by the Brain's `/health` door, not installed as standalone commands).
 - **`PyAutoBuild/skills/`** — release-execution skills **only** (`pre_build`).
   Build owns no dev-workflow skills; `ship_*` (Brain) only *call* its release step.
 - **`autolens_profiling/skills/`** — science-profiling skills (`profile_likelihood`).
