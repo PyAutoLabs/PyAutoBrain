@@ -182,6 +182,34 @@ Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install)
 it resolves the sibling `pyauto-heart` and `autobuild` binaries from PATH or the
 `~/Code/PyAutoLabs/` checkouts.
 
+## The command surface (Brain implicit)
+
+The `bin/pyauto-brain <agent>` CLI above is the machinery; humans drive it through
+short verb commands installed into `~/.claude/commands/`. The Brain stays
+**implicit** — you type a verb (or plain natural language) and the Brain routes it
+to the right agent; normal usage never says "PyAutoBrain".
+
+> **Users speak in short commands; PyAutoBrain performs the routing.**
+
+| Command | Routes to | Tier |
+|---------|-----------|------|
+| `/feature` | Feature Agent → `start_dev` | real conductor |
+| `/build` | Build Agent → vitals → Heart → PyAutoBuild | real conductor |
+| `/health` | Health Agent loop → vitals → Heart | real conductor |
+| `/bug` `/refactor` `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
+| `/route <text>` | infers the work-type and dispatches to one of the above | NL router |
+| `/brain <agent>` | raw `bin/pyauto-brain` passthrough | debug door |
+
+\* No dedicated Bug/Refactor/Docs/Research conductor exists yet — those verbs
+route through the Brain dev-flow with their PyAutoMind work-type fixed (still
+through the Brain, nothing bypassed), until each earns promotion to its own
+conductor. Every command routes **through** the Brain; none replaces it.
+
+The command bodies live in `skills/<verb>/<verb>.md` (thin; installed as flat
+commands by `bin/install.sh`); the shared architecture prose is in
+[`skills/COMMANDS.md`](skills/COMMANDS.md). The work-type taxonomy the router and
+work-type entries use is `PyAutoMind/ROUTING.md`.
+
 ## Never rewrite history
 
 NEVER perform these operations on any repo with a remote:
