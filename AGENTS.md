@@ -135,6 +135,16 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   `complete.md` history. Grep-ranked at query time — no indexes, no layout
   coupling, never a page dump; an empty digest is the honest answer. Privacy
   seam: PyAutoMemory citations never reach public user-facing output.
+- **`agents/faculties/samplers/`** — *the motor faculty*: expertise in how the
+  organism moves through parameter space. Emits the **SamplerSurface** — an
+  inventory of the sampler script tiers (`searches_minimal` prototypes, the
+  removed-sampler archive, workspace_test integration scripts), the PyAutoFit
+  search catalogue, the minimal-tier benchmark record, and tier-gap findings —
+  and holds the judgment tables (sampler ↔ likelihood match, gradient/JAX
+  constraints, initialization chaining, promotion criteria). The
+  `skills/sampler_pipeline/` skill drives prototype → profile → promote with
+  this faculty's opinion; the science lives in `PyAutoMemory/methods_wiki`.
+  Never runs a sampler, never edits source.
 
 > **Build Agent vs. the release conductor — resolved.** The Build Agent's
 > release mode owns the **single** readiness-gate + execution path
