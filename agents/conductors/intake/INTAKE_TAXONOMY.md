@@ -94,7 +94,22 @@ No YAML, no required fields — this is the light header PyAutoMind blesses in
 `README.md` "Prompt file format", extended with the three intake keys
 (`Difficulty:/Autonomy:/Priority:`). `Type:` always matches the work-type folder.
 
-## 6. What intake does NOT own
+## 6. Census + dashboard (reading the taxonomy back)
+
+The write path above has a read path: **census** walks every work-type folder
+(incl. `triage/`) and parses the same light header back out of each prompt
+(`parse_header`), producing per-prompt records plus aggregates by work-type,
+target, difficulty and priority. The **folder position is authoritative** for
+work-type/target — a header `Target:` is free prose and never overrides the
+taxonomy. Prompts that pre-date the header surface as *hygiene flags* (shown as
+`-`), never errors. `issued/` prompts are already dispatched: counted, not
+itemised.
+
+**dashboard** renders that census as `PyAutoMind/dashboard.md` — the Mind
+*backlog* page (never health; that is Heart's). Census is always read-only;
+dashboard writes only under `--apply`.
+
+## 7. What intake does NOT own
 
 - The difficulty heuristic, prompt parsing, repo sets → the **sizing faculty**.
 - The work-type → agent routing → `PyAutoMind/ROUTING.md` + the conductors.

@@ -72,10 +72,15 @@ schema — light structure over free-form prose.
 |------|---------|--------------|
 | **classify** | `intake "<text>"` / `intake classify --file P` | classify one raw input; `--apply` writes the prompt |
 | **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
+| **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
+| **dashboard** | `intake dashboard` | render the census as the Mind **backlog** page; `--apply` writes `PyAutoMind/dashboard.md` |
 
-`census` / `repair` / `dashboard` (registry hygiene + a Mind *backlog* dashboard,
-distinct from Heart's `/health status` health view) are the **planned follow-up**
-— not in this first cut.
+Census/dashboard are the Mind *backlog* view — deliberately distinct from
+Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
+folder is authoritative for a prompt's work-type/target; header fields are
+display metadata, and headerless legacy prompts surface as hygiene flags rather
+than errors. `repair` (fixing those flags in place) is the **planned follow-up**
+— not in this cut.
 
 ## Run
 
@@ -85,6 +90,9 @@ bin/pyauto-brain intake --json "<text>"                            # machine-rea
 bin/pyauto-brain intake --apply classify --file tmp/raw.md         # write the prompt
 bin/pyauto-brain intake ideas                                      # scan ideas.md (dry-run)
 bin/pyauto-brain intake --apply ideas                              # write them + mark bullets
+bin/pyauto-brain intake census                                     # backlog inventory (read-only)
+bin/pyauto-brain intake dashboard                                  # backlog page to stdout (dry-run)
+bin/pyauto-brain intake --apply dashboard                          # write PyAutoMind/dashboard.md
 ```
 
 **Writes only under `--apply`; dry-run is the default.** Exit codes: `0` produced

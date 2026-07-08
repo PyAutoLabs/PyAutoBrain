@@ -18,10 +18,13 @@
 #   intake "<raw text>"          classify raw text (bare text => classify mode)
 #   intake classify --file P     classify the contents of a file
 #   intake ideas                 scan ideas.md; propose one prompt per bullet
+#   intake census                inventory all filed prompts (always read-only)
+#   intake dashboard             render the census as the Mind backlog page;
+#                                --apply writes PyAutoMind/dashboard.md
 #
 # Flags (place before the subcommand; both default OFF):
-#   --apply    write the formal prompt file(s); without it, dry-run only
-#   --json     emit the machine-readable IntakeDecision
+#   --apply    write the formal prompt file(s) / dashboard.md; else dry-run only
+#   --json     emit the machine-readable IntakeDecision / census
 #
 # The analysis core lives in _intake.py (stdlib-only). It writes ONLY under
 # --apply; every other path is read-only.
@@ -39,7 +42,7 @@ apply=0
 forward=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --json) as_json=1; shift ;;
     --apply) apply=1; shift ;;
     *) forward+=("$1"); shift ;;
@@ -54,9 +57,10 @@ if [[ ${#forward[@]} -eq 0 ]]; then
 fi
 # A bare first token that is not a known subcommand -> classify mode on the rest,
 # so `intake "raw idea"` and `intake --file p.md` both work as the front door.
-if [[ "${forward[0]}" != "classify" && "${forward[0]}" != "ideas" ]]; then
-  forward=(classify "${forward[@]}")
-fi
+case "${forward[0]}" in
+  classify|ideas|census|dashboard) ;;
+  *) forward=(classify "${forward[@]}") ;;
+esac
 
 flags=()
 [[ "$as_json" -eq 1 ]] && flags+=(--json)
