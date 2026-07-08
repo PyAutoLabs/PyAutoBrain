@@ -177,11 +177,11 @@ Build is reached only for the release/packaging step (PyPI/tags/notebooks).
 
 ## Repo → GitHub owner mapping
 
-| Local dir | GitHub repo |
-|-----------|-------------|
-| PyAutoConf, PyAutoFit | `rhayes777/<name>` |
-| PyAutoArray, PyAutoGalaxy, PyAutoLens | `Jammy2211/<name>` |
-| autofit_workspace, autogalaxy_workspace, autolens_workspace, autolens_workspace_test, HowToLens, euclid_strong_lens_modeling_pipeline | `Jammy2211/<name>` |
+<!-- repos_sync:begin -->
+All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/autofit_workspace_developer`, `Jammy2211/euclid_assistant`, `Jammy2211/admin_jammy`.
 
 **Library repos:** PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens.
-**Workspace repos:** the `*_workspace*` repos, HowToLens, euclid pipeline.
+**Workspace repos:** autofit_workspace, autogalaxy_workspace, autolens_workspace, autofit_workspace_test, autogalaxy_workspace_test, autolens_workspace_test, HowToFit, HowToGalaxy, HowToLens, euclid_strong_lens_modeling_pipeline.
+
+Generated from `PyAutoMind/repos.yaml`; edit there, then run `python3 PyAutoMind/scripts/repos_sync.py --write`.
+<!-- repos_sync:end -->
