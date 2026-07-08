@@ -63,7 +63,10 @@ WORK_TYPE_SIGNALS = {
                  "literature", "compare approaches"],
     "experiment": ["experiment", "spike", "proof of concept", "proof-of-concept",
                    "poc", "prototype", "try out", "sandbox"],
-    "feature": ["add", "implement", "support", "introduce", "enable", "new ",
+    # `_hits` is word-boundary *prefix* matching, so keep bare stems that would
+    # over-fire out: "add " (with the space) matches "add X" but not "address"/
+    # "additional"; "new " not "renew".
+    "feature": ["add ", "implement", "support", "introduce", "enable", "new ",
                 "extend", "build a", "create a", "capability", "feature"],
 }
 # Order used to break exact-score ties (more specific intent wins over feature).
@@ -141,10 +144,11 @@ def _repos_in(text: str) -> list:
 
 def classify_work_type(text: str):
     """Return (work_type, confidence, per_type_hits)."""
-    low = text.lower()
     scores = {}
     for wt, sigs in WORK_TYPE_SIGNALS.items():
-        hits = [s for s in sigs if s in low]
+        # Word-boundary prefix match (shared _hits) — not plain substring, so
+        # "add" does not fire on "address" and "test" not on "latest".
+        hits = _hits(text, sigs)
         if hits:
             scores[wt] = hits
     if not scores:
@@ -244,7 +248,10 @@ def analyse(text: str, source: str):
         proposed = f"triage/{slug}.md"
         folder = "triage"
 
-    header = _render_header(title, work_type, target_display, repos, level,
+    # `Type:` matches the destination folder (PyAutoMind convention). For a
+    # low-confidence triage filing that means `Type: triage`, not the provisional
+    # guess — the guess still rides in the IntakeDecision's `work_type` field.
+    header = _render_header(title, folder, target_display, repos, level,
                             autonomy, priority)
     return {
         "source": source,
@@ -335,13 +342,35 @@ def scan_ideas(mind: Path):
         if s.endswith(":") and not s.startswith("-"):
             ctx = s.rstrip(":")
             continue
-        if s.startswith("[formalised"):
+        text = s.lstrip("-*").strip()
+        if text.startswith("[formalised"):   # already reconciled — skip
             continue
-        text = s.lstrip("-* ").strip()
         if len(text) < 4:
             continue
         out.append((text, ctx))
     return out
+
+
+def mark_ideas(mind: Path, formalised: dict):
+    """Conservatively annotate formalised ideas.md bullets in place.
+
+    Rewrites each formalised bullet line as `- [formalised -> <path>] <text>` —
+    it never deletes the original text, so nothing is lost until a human (or a
+    later, trusted pass) prunes it.
+    """
+    f = mind / "ideas.md"
+    if not f.is_file():
+        return
+    lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    out = []
+    for raw in lines:
+        content = raw.strip().lstrip("-*").strip()
+        if content in formalised and not content.startswith("[formalised"):
+            indent = raw[:len(raw) - len(raw.lstrip())]
+            out.append(f"{indent}- [formalised -> {formalised[content]}] {content}")
+        else:
+            out.append(raw)
+    f.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 # --- emit ---------------------------------------------------------------------
@@ -418,12 +447,16 @@ def main(argv=None):
             print("intake: no un-formalised ideas found in ideas.md.", file=sys.stderr)
             return 4
         results = []
+        formalised = {}
         for text, ctx in bullets:
             ctx_text = f"{ctx}: {text}" if ctx else text
             d = analyse(ctx_text, f"ideas.md ({ctx or 'top'})")
             if a.apply:
                 d["written"] = write_prompt(mind, d, ctx_text, d["source"])
+                formalised[text] = d["written"]
             results.append(d)
+        if a.apply and formalised:
+            mark_ideas(mind, formalised)
         if a.as_json:
             print(json.dumps(results, indent=2))
         else:
