@@ -87,6 +87,26 @@ Type/Target from the folder, keeps every existing field value and every line of
 prose, and turns work-type disagreements into **re-home suggestions** — it never
 moves or deletes a file.
 
+## Machine sources (one staging surface)
+
+Conception input increasingly arrives from the organism itself — research
+runs (`/research` scholar mode), Heart-filed findings, profiling results,
+review-faculty leftovers. The design is deliberately **one staging surface,
+many writers**: every such source appends a bullet to `ideas.md` with a
+provenance tag, and the *existing* ideas sweep formalises it —
+
+```markdown
+- [from: <source> · <wiki page | issue | result>] <the idea>
+```
+
+Intake is **not** taught per-source formats: the sweep, the human review of
+each IntakeDecision, and `--apply` are the same whether a human or a machine
+staged the bullet. Provenance tags survive into the formal prompt's prose
+(private Mind), but PyAutoMemory citations never reach public user-facing
+output (the memory faculty's privacy seam). Writers propose their batch to
+the human before appending; intake never sweeps silently into prompts —
+dry-run first, always.
+
 ## Run
 
 ```bash

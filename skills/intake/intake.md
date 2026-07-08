@@ -46,3 +46,7 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
 - Low-confidence classification lands in `triage/` — the existing unclassified
   bucket, reused.
 - Writes happen **only** under `--apply`; the default is a read-only dry run.
+- **Machine sources** (scholar research runs, Heart findings, profiling
+  results) stage as provenance-tagged `ideas.md` bullets — `- [from: <source>]
+  <idea>` — and ride the same ideas sweep; intake learns no per-source formats
+  (the conductor's "Machine sources" section is authoritative).
