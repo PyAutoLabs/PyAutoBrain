@@ -29,7 +29,7 @@ readiness gate, or execution — those belong to the organs.
 
 | Command | Agent | Chain |
 |---------|-------|-------|
-| `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`) |
+| `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`); `census`/`dashboard` = backlog inventory / `PyAutoMind/dashboard.md` |
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoBuild |

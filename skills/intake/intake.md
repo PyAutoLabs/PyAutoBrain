@@ -24,6 +24,16 @@ Intake **files a prompt; it does not start development.** It is the step *before
 `/start_dev`. Once the prompt is written, `/start_dev <path>` routes it into the
 dev workflow (issue, branch, plan). Do not bypass the Brain.
 
+## Backlog view (census / dashboard)
+
+- `bin/pyauto-brain intake census` — read-only inventory of every filed prompt
+  (counts by work-type/target/difficulty/priority + hygiene flags for headerless
+  legacy prompts). `--json` for the full records.
+- `bin/pyauto-brain intake dashboard` — renders the census as the Mind
+  **backlog** page; dry-run prints it, `--apply` writes
+  `PyAutoMind/dashboard.md` (commit via `prompt_sync_push`). Backlog only —
+  organism *health* is `/health`, not this page.
+
 ## Boundary
 
 - **`/route`** infers a work-type and *dispatches* (starts dev now); **`/intake`**
