@@ -55,7 +55,10 @@ as an ad-hoc step the skill re-judges. **GREEN** → proceed to step 4.
 **YELLOW** → surface warnings, proceed only on explicit user acknowledgement.
 **RED** → stop and report; do not ship. If `pyauto-brain`/`pyauto-heart` are
 unavailable, run the per-repo `pytest <test_dir>/ -x` inside the worktree as the
-gate and treat any failure as RED (WORKFLOW.md).
+gate and treat any failure as RED (WORKFLOW.md). Under `--auto`, this step is
+the four-leg **autonomous-ship gate** — tests (+ downstream dependents on
+public-API changes), smoke, review-faculty CLEAN, Heart — per
+`AUTONOMY.md` "The autonomous-ship gate"; do not restate it here.
 
 ### 4. Execute the ship (feature-dev)
 
