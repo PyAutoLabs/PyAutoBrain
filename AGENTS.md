@@ -129,6 +129,12 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   verdict — the automatic-review leg of the autonomous-ship gate
   ([`AUTONOMY.md`](AUTONOMY.md)). Dev-workflow ship only: it never opines on
   release readiness (Heart's, via vitals) and never fixes what it finds.
+- **`agents/faculties/memory/`** — *recalls what the organism knows*: given a
+  topic, returns a **cited digest** (ranked pages + snippets) over
+  PyAutoMemory's sub-wikis, `autolens_assistant`'s skills/wiki, and Mind's
+  `complete.md` history. Grep-ranked at query time — no indexes, no layout
+  coupling, never a page dump; an empty digest is the honest answer. Privacy
+  seam: PyAutoMemory citations never reach public user-facing output.
 
 > **Build Agent vs. the release conductor — resolved.** The Build Agent's
 > release mode owns the **single** readiness-gate + execution path
