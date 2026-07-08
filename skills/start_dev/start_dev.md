@@ -85,10 +85,11 @@ fresh session could start from the issue alone.
 
 ### 4. Survey branches
 
-Run `/plan_branches` reasoning for the affected repos: report each repo's branch
-+ dirty state, suggest `feature/<task-name>` (kebab-case, <50 chars), and derive
-the worktree root `~/Code/PyAutoLabs-wt/<task-name>/` (created later by
-`/start_library`). See `plan_branches`.
+Run the **branch survey** ([`reference.md`](reference.md) → "Branch survey")
+for the affected repos: report each repo's branch + dirty state, check worktree
+claims, suggest `feature/<task-name>` (kebab-case, <50 chars), and derive the
+worktree root `~/Code/PyAutoLabs-wt/<task-name>/` (created later by
+`/start_library`).
 
 ### 5. Create the issue via the Mind primitive
 

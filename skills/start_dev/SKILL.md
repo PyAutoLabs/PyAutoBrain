@@ -5,25 +5,8 @@ description: Default entry point for PyAutoLabs development tasks — implement,
 
 # Start Dev
 
-A PyAutoBrain development-workflow entry point. It routes reasoning through the
-Brain Feature Agent, consults PyAutoMemory, records state in PyAutoMind, and
-hands off to `/start_library` / `/start_workspace`. Shared organ boundary,
-agent entry points and the execution-environment model are in
-[`../WORKFLOW.md`](../WORKFLOW.md).
-
-Use `start_dev.md` in this directory as the authoritative workflow body
-(`reference.md` holds the long-form templates).
-
-Follow the command file exactly, adapting Claude-specific references to Codex:
-
-- `/start_dev <prompt>` means use this skill with the same prompt path.
-- If the user gives a development task without a prompt path, first create a
-  concise prompt file in the appropriate `PyAutoMind/` category and include
-  the original request verbatim, then use this skill with that prompt path.
-- "Plan Mode" means present the plan and wait for explicit user approval before
-  file edits when this workflow is being used.
-- Slash-command references such as `/plan_branches`, `/start_library`, and
-  `/start_workspace` refer to the matching Codex skill or shared command body.
-
-Do not duplicate or reinterpret the workflow here. If the workflow changes, edit
-`start_dev.md`.
+Follow [`start_dev.md`](start_dev.md) in this directory exactly — the
+authoritative workflow body. `reference.md` holds the long-form templates and
+the branch survey; shared context and cross-harness notes are in
+[`../WORKFLOW.md`](../WORKFLOW.md). Do not duplicate or reinterpret the
+workflow here — if it changes, edit `start_dev.md`.

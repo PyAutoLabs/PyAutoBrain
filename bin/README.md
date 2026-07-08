@@ -18,7 +18,7 @@ Auto-discovers (no hardcoded skill list) by scanning each organ repo's
 
 - **`PyAutoMind/skills/`** — registry-coupled skills (`create_issue`).
 - **`PyAutoBrain/skills/`** — development-workflow skills (`start_dev`,
-  `start_dev_for_user`, `plan_branches`, `start_library`, `start_workspace`,
+  `start_dev_for_user`, `start_library`, `start_workspace`,
   `ship_library`, `ship_workspace`, `register_and_iterate`, `repo_cleanup`,
   `update_issue`).
 - **`PyAutoHeart/skills/`** — status / readiness / validation skills

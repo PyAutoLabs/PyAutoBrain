@@ -30,8 +30,8 @@ execution-environment model: [`../WORKFLOW.md`](../WORKFLOW.md).
 
 **Distinct from:** `worktree_status` (Heart read-only diagnostic — consulted here,
 but this also mutates); post-merge cleanup in `CLAUDE.md` (once per shipped task —
-this covers residue when that flow is skipped); `plan_branches` (task start — this
-is between-tasks hygiene).
+this covers residue when that flow is skipped); the start_dev branch survey
+(task start — this is between-tasks hygiene).
 
 ## Safety principles (non-negotiable)
 

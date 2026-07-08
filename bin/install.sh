@@ -11,7 +11,7 @@
 #                             slated to leave PyAutoLabs/; kept only so an old
 #                             checkout still resolves, auto-skipped once gone
 #   - PyAutoMind/skills/    — registry-coupled skills (create_issue, handoff)
-#   - PyAutoBrain/skills/   — development-workflow skills (start_*/ship_*/plan_branches/…)
+#   - PyAutoBrain/skills/   — development-workflow skills (start_*/ship_*/…)
 #   - PyAutoHeart/skills/   — status / readiness / diagnostic skills
 #   - PyAutoBuild/skills/   — release-execution skills ONLY (pre_build)
 #   - autolens_profiling/skills/ — science-profiling skills (profile_likelihood)

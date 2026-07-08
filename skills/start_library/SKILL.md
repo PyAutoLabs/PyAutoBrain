@@ -5,19 +5,8 @@ description: Set up PyAutoLabs source-library development after start_dev — cr
 
 # Start Library
 
-A PyAutoBrain development-workflow entry point: sets up the worktree/branch for
-library source work and registers state in PyAutoMind. Shared organ boundary and
-the execution-environment model are in [`../WORKFLOW.md`](../WORKFLOW.md).
-
-Use `start_library.md` in this directory as the authoritative workflow body.
-
-Follow the command file exactly, adapting Claude-specific references to Codex:
-
-- `/start_library` means use this skill.
-- Slash-command references such as `/ship_library` refer to the matching Codex
-  skill or shared command body.
-- When the command file says to display a summary, report the same operational
-  details to the user before editing inside the task worktree.
-
-Do not duplicate or reinterpret the workflow here. If the workflow changes, edit
-`start_library.md`.
+Follow [`start_library.md`](start_library.md) in this directory exactly — the
+authoritative workflow body. Shared context and cross-harness notes are in
+[`../WORKFLOW.md`](../WORKFLOW.md). Report the worktree/branch summary to the
+user before editing inside the task worktree. Do not duplicate or reinterpret
+the workflow here — if it changes, edit `start_library.md`.
