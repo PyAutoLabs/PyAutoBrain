@@ -51,6 +51,8 @@ per-work-type caps, and the hard invariants (merge is always human; autonomous
 runs end at PR-open). Levels bind **only** under an explicit `--auto` launch;
 default runs present-and-wait at every checkpoint, exactly as the steps below
 describe. Do not restate checkpoint rules in a skill body — link the contract.
+The gate's automatic-review leg is the **review faculty**
+(`bin/pyauto-brain review --task <name>`; `agents/faculties/review/AGENTS.md`).
 
 ## Brain agent entry points
 

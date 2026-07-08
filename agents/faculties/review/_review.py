@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""agents/faculties/review/_review.py — the review-surface substrate.
+
+The **review faculty** is a read-only opinion sink: given a task worktree or
+explicit repo checkouts, it prepares the **ReviewSurface** — everything the
+reviewing agent needs to run the review procedure in this faculty's AGENTS.md
+(code review at high effort + a verify pass) and map the outcome to a
+CLEAN / FINDINGS / BLOCKED verdict.
+
+This script produces the *surface*, never the *verdict*: findings are the
+reviewing agent's judgment. It is stdlib-only, never writes anything, and
+never exits non-zero because of what the diff contains.
+
+Exit codes: 0 surface produced · 4 no reviewable diff / could not resolve ·
+5 bad usage.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+WT_BASE = Path.home() / "Code" / "PyAutoLabs-wt"
+
+# Paths that smell like public API / behaviour when changed — flags only,
+# the reviewing agent judges.
+RISK_MARKERS = {
+    "config-or-schema": (".yaml", ".yml", ".json", ".toml", ".ini", ".cfg"),
+    "packaging": ("setup.py", "setup.cfg", "pyproject.toml", "requirements"),
+}
+
+
+def _git(repo: Path, *args: str) -> str:
+    out = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True, text=True, check=False,
+    )
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def repo_surface(repo: Path) -> dict | None:
+    """One repo's slice of the ReviewSurface, or None if there is no diff."""
+    if not (repo / ".git").exists():
+        return None
+    branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    base = _git(repo, "merge-base", "HEAD", "origin/main")
+    if not base:
+        return None
+    commits = _git(repo, "log", "--oneline", f"{base}..HEAD")
+    if not commits:
+        return None
+    files = _git(repo, "diff", "--name-status", f"{base}..HEAD").splitlines()
+    stat = _git(repo, "diff", "--shortstat", f"{base}..HEAD")
+    changed = [line.split("\t")[-1] for line in files if line.strip()]
+    flags = []
+    if not any("test" in f.lower() for f in changed):
+        flags.append("no-test-changes")
+    for name, exts in RISK_MARKERS.items():
+        if any(f.endswith(exts) or any(m in f for m in exts) for f in changed):
+            flags.append(name)
+    if any(f.endswith(".py") and "test" not in f.lower() for f in changed):
+        flags.append("python-source")
+    return {
+        "repo": repo.name,
+        "path": str(repo),
+        "branch": branch,
+        "base": base[:12],
+        "commits_ahead": len(commits.splitlines()),
+        "commits": commits.splitlines(),
+        "shortstat": stat,
+        "files": files,
+        "risk_flags": flags,
+    }
+
+
+def resolve_repos(task: str | None, repos: list[str]) -> list[Path]:
+    if task:
+        root = WT_BASE / task
+        if not root.is_dir():
+            return []
+        # Claimed repos are real directories (not symlinks) holding a .git
+        # file/dir — worktree_create symlinks everything unclaimed.
+        return sorted(
+            p for p in root.iterdir()
+            if p.is_dir() and not p.is_symlink() and (p / ".git").exists()
+        )
+    return [Path(r).resolve() for r in repos]
+
+
+def emit_human(surfaces: list[dict]) -> None:
+    print("== ReviewSurface (review faculty — surface only; the verdict is the")
+    print("   reviewing agent's, per agents/faculties/review/AGENTS.md) ==")
+    for s in surfaces:
+        print(f"\n-- {s['repo']}  [{s['branch']}]  base {s['base']}")
+        print(f"   {s['commits_ahead']} commit(s) ahead — {s['shortstat']}")
+        for c in s["commits"][:10]:
+            print(f"   * {c}")
+        print(f"   risk flags: {', '.join(s['risk_flags']) or 'none'}")
+        for f in s["files"][:40]:
+            print(f"     {f}")
+        if len(s["files"]) > 40:
+            print(f"     ... and {len(s['files']) - 40} more")
+    print("\nVerdict rubric: CLEAN (nothing must change) | FINDINGS (ranked,")
+    print("file:line, failure scenario) | BLOCKED (could not review — say why).")
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="review")
+    ap.add_argument("--task", default="", help="task worktree name under ~/Code/PyAutoLabs-wt/")
+    ap.add_argument("--repo", action="append", default=[], help="explicit repo checkout path")
+    ap.add_argument("--json", action="store_true", dest="as_json")
+    a = ap.parse_args(argv)
+    if not a.task and not a.repo:
+        print("review: pass --task <name> or --repo <path>", file=sys.stderr)
+        return 5
+    repos = resolve_repos(a.task or None, a.repo)
+    if not repos:
+        print("review: could not resolve any repo checkout", file=sys.stderr)
+        return 4
+    surfaces = [s for s in (repo_surface(r) for r in repos) if s]
+    if not surfaces:
+        print("review: no reviewable diff against origin/main", file=sys.stderr)
+        return 4
+    if a.as_json:
+        print(json.dumps({"review_surface": surfaces}, indent=2))
+    else:
+        emit_human(surfaces)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
