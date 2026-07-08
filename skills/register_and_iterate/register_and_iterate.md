@@ -5,8 +5,11 @@ variant's `_pytree.py`, run it, register offending types until the
 `jax.jit(analysis.fit_from)` round-trip matches NumPy, then hand off to
 `/ship_library` + `/ship_workspace`. Pause only at hard judgment gates.
 
-A PyAutoBrain dev-workflow orchestration loop — it drives the standard
-`start_dev → start_library → ship_*` lifecycle for each prompt. Read
+The **pytree instance of the generic queue loop** — the loop itself (queue
+conventions, per-entry lifecycle at the task's autonomy level, `DONE`/`PARKED`
+markers, batch report) is [`/run_queue`](../run_queue/run_queue.md); this skill
+adds only what is pytree-specific: the scaffold pattern, the offending-type
+classification heuristic, and the domain judgment gates below. Read
 [`../WORKFLOW.md`](../WORKFLOW.md) for the organ boundary; the scaffold pattern,
 classification heuristic, delegation block, recommended queue, and
 failure/reporting detail are in

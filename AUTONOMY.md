@@ -164,9 +164,10 @@ calibration, not by optimism.
   for `safe`, launch-acknowledgement recording (its "--auto mode" section).
 - `ship_library` / `ship_workspace` — the four-leg gate at step 4, stop at
   PR-open, validation checklist, calibration append.
-- `register_and_iterate` — the origin instance of checkpoint-and-continue;
-  its gates now reference the general section here.
-- Pending from the `PyAutoMind/feature/autonomy/` series: task 7 (queue
-  runner).
+- `run_queue` — the generic queue loop: launching it is the batch's `--auto`
+  activation; per-entry effective-level dispatch, `PARKED` checkpointing, RED
+  stops the run.
+- `register_and_iterate` — the pytree instance of `run_queue`, and the origin
+  of checkpoint-and-continue; its gates reference the general sections here.
 
 Skills must link here rather than copying the tables.
