@@ -33,6 +33,11 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   **backlog** page; dry-run prints it, `--apply` writes
   `PyAutoMind/dashboard.md` (commit via `prompt_sync_push`). Backlog only —
   organism *health* is `/health`, not this page.
+- `bin/pyauto-brain intake formalise [prefix]` — retroactively headers the
+  prompts census flags (word-vomit is intent, not defect): derives the missing
+  fields, inserts them in place with all prose verbatim, reports re-home
+  suggestions instead of ever moving files. Dry-run proposes; `--apply` writes
+  (then regenerate the dashboard).
 
 ## Boundary
 

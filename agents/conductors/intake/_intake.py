@@ -466,6 +466,127 @@ def emit_census(c: dict):
           "header (--json lists them)")
 
 
+# --- formalise (retroactive conception) ----------------------------------------
+# The backlog's raw prompts are intended word-vomit — conception deferred, not
+# defects (hence *formalise*, not "repair"). Formalise derives the missing header
+# fields and inserts them without touching a single existing line of prose.
+_FIELD_LINE = re.compile(
+    r"(Type|Target|Difficulty|Autonomy|Priority|Status):\s*\S")
+
+
+def _derive_fields(text: str, work_type: str, target: str) -> dict:
+    """Derive a full header for a prompt body, folder identity authoritative.
+
+    Type/Target come from the taxonomy folder; Difficulty/Autonomy/Priority run
+    the same sizing-faculty path `analyse` uses at conception time.
+    """
+    repos = _repos_in(text)
+    tgt = normalise_repo(target) if target != "-" else "?"
+    if tgt in KNOWN_REPOS and tgt not in repos:
+        repos = sorted(set(repos) | {tgt})
+    p = {"text": text, "repos": repos, "words": len(text.split()),
+         "target": target, "work_type": work_type}
+    level, _score, factors = estimate_difficulty(p)
+    return {
+        "type": work_type,
+        "target": REPO_DISPLAY.get(tgt, target if target != "-" else "?"),
+        "difficulty": level,
+        "autonomy": infer_autonomy(level, factors),
+        "priority": infer_priority(text),
+        "status": "formalised",
+    }
+
+
+def _insert_fields(text: str, add: dict, has_header: bool, title: str) -> str:
+    """Insert the missing `Field: value` lines, preserving every existing line.
+
+    Partial header -> append after the last recognised field line in the leading
+    block (non-field lines like `Repos:` / `Milestone:` stay put). No header but
+    a leading `# heading` -> insert below it. Neither -> prepend a derived
+    `# <title>` so the file lands on the blessed shape.
+    """
+    lines = text.splitlines()
+    field_lines = [f"{f.capitalize()}: {add[f]}" for f in HEADER_FIELDS if f in add]
+    if has_header:
+        last = max(i for i, ln in enumerate(lines[:30])
+                   if _FIELD_LINE.match(ln.strip()))
+        lines[last + 1:last + 1] = field_lines
+    else:
+        first = next((i for i, ln in enumerate(lines) if ln.strip()), 0)
+        if lines and lines[first].lstrip().startswith("#"):
+            lines[first + 1:first + 1] = [""] + field_lines
+        else:
+            lines[:0] = [f"# {title}", ""] + field_lines + [""]
+    # Preserve the file's own line endings — "verbatim" includes bytes, and a
+    # CRLF prompt must not come back LF-normalised with every line rewritten.
+    nl = "\r\n" if "\r\n" in text else "\n"
+    return nl.join(lines) + (nl if text.endswith("\n") else "")
+
+
+def formalise(mind: Path, prefix: str = "", apply: bool = False) -> dict:
+    """Retroactively formalise headerless / incomplete backlog prompts in place.
+
+    Reuses the census to select records with missing fields; writes ONLY under
+    --apply. Never moves or deletes a file — a work-type disagreement between
+    the body classifier and the taxonomy folder becomes a re-home *suggestion*
+    for a human, because the folder is authoritative.
+    """
+    c = census(mind)
+    proposals, suggestions = [], []
+    for r in c["records"]:
+        if prefix and not r["path"].startswith(prefix):
+            continue
+        if not r["missing"]:
+            continue
+        path = mind / r["path"]
+        # newline="" keeps \r\n intact — read_text's universal-newline mode
+        # would silently translate it and defeat the verbatim write-back.
+        with path.open(encoding="utf-8", errors="replace", newline="") as fh:
+            text = fh.read()
+        derived = _derive_fields(text, r["work_type"], r["target"])
+        add = {f: derived[f] for f in r["missing"]}
+        proposals.append({"path": r["path"], "title": r["title"],
+                          "add": add, "keep": r["header"]})
+        if apply:
+            new = _insert_fields(text, add, bool(r["header"]), r["title"])
+            stamp = (f"<!-- formalised retroactively by the Intake (Conception) "
+                     f"Agent on {_dt.date.today().isoformat()} -->")
+            if "formalised retroactively" not in new:
+                nl = "\r\n" if "\r\n" in new else "\n"
+                new = new.rstrip("\r\n") + nl + nl + stamp + nl
+            path.write_text(new, encoding="utf-8", newline="")
+        wt_guess, conf, _hits_ = classify_work_type(text)
+        if (conf != "low" and wt_guess != r["work_type"]
+                and r["work_type"] != "triage"):
+            suggestions.append(f"{r['path']} — classifier reads as {wt_guess} "
+                               f"({conf}); filed under {r['work_type']}/")
+    return {
+        "generated": _dt.date.today().isoformat(),
+        "scanned": c["total"],
+        "formalised": len(proposals),
+        "applied": bool(apply),
+        "proposals": proposals,
+        "rehome_suggestions": suggestions,
+    }
+
+
+def emit_formalise(res: dict):
+    verb = "formalised" if res["applied"] else "to formalise"
+    print(f"== Intake formalise: {res['formalised']} prompt(s) {verb} "
+          f"(of {res['scanned']} scanned) ==")
+    for p in res["proposals"]:
+        adds = " · ".join(f"{f.capitalize()}: {v}" for f, v in p["add"].items())
+        print(f"  {p['path']}")
+        print(f"      + {adds}")
+    if res["rehome_suggestions"]:
+        print(f"Re-home suggestions ({len(res['rehome_suggestions'])}) — "
+              "folder stays authoritative; move by hand if the classifier is right:")
+        for s in res["rehome_suggestions"]:
+            print(f"  - {s}")
+    if not res["applied"]:
+        print("\n(dry-run — re-run `intake --apply formalise` to write the headers)")
+
+
 # --- ideas.md scanning --------------------------------------------------------
 def scan_ideas(mind: Path):
     """Yield (bullet_text, context_header) for substantive ideas.md lines."""
@@ -552,8 +673,19 @@ def main(argv=None):
     sub.add_parser("dashboard", help="render the census as the Mind backlog page; "
                                      "--apply writes dashboard.md")
 
+    fm = sub.add_parser("formalise", help="retroactively header the backlog "
+                                          "prompts census flags; --apply writes")
+    fm.add_argument("prefix", nargs="?", default="",
+                    help="only formalise prompts under this path prefix "
+                         "(e.g. bug/)")
+
     a = ap.parse_args(argv)
     mind = Path(a.mind)
+
+    if a.cmd == "formalise":
+        res = formalise(mind, prefix=a.prefix, apply=a.apply)
+        print(json.dumps(res, indent=2)) if a.as_json else emit_formalise(res)
+        return 0
 
     if a.cmd == "census":
         c = census(mind)
