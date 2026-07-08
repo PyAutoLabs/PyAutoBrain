@@ -52,7 +52,9 @@ pyauto-heart readiness --json        # GREEN / YELLOW / RED
 Workspace **smoke tests** are part of Heart's verdict. **GREEN** → execute.
 **YELLOW** → proceed only on explicit acknowledgement. **RED** → stop. If the
 organism CLIs are unavailable, run `/smoke_test` (with `activate.sh` sourced) as
-the gate and treat any failure as RED.
+the gate and treat any failure as RED. Under `--auto`, this step is the
+four-leg **autonomous-ship gate** (`AUTONOMY.md` "The autonomous-ship gate");
+do not restate it here.
 
 ### 4. Execute the ship (feature-dev)
 

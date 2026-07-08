@@ -30,7 +30,7 @@ Where the dev workflow stops for a human today:
 |------------|--------|--------------|------------------|
 | Plan approval | write plan to the issue, proceed | write plan to the issue, proceed | present + wait |
 | Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere | present + wait |
-| Heart YELLOW | park — human checkpoint at **every** level | park | present + wait |
+| Heart YELLOW | park, unless the reason set was human-acknowledged at launch (see the autonomous-ship gate) | same as `safe` | present + wait |
 | Heart RED | stop, report | stop, report | stop, report |
 | Merge / close | human, always | human, always | human, always |
 | Version ask | n/a — release is always `human-required` | n/a | ask |
@@ -69,19 +69,36 @@ evidence.
 
 ## The autonomous-ship gate
 
-An unattended ship (checkpoint 2 at `safe`) requires **all four**, no
-substitutions:
+An unattended ship (checkpoint 2 at `safe`) requires **all four legs**, no
+substitutions. Audited 2026-07-08 (issue #38); each leg carries an
+applicability rule so "n/a" is a stated fact, never an assumption:
 
-1. worktree pytest on the affected repos (full suite),
-2. the curated smoke-test subset,
-3. review-faculty verdict **CLEAN**,
-4. Heart **GREEN**.
+1. **Tests** — worktree pytest (full suite, `-x`) on every **shipped** repo,
+   *plus* every downstream library repo when the diff touches public API
+   (review-surface `python-source` flag with Removed/Renamed/Changed-Signature
+   entries). The audit found the shipped-repos-only contract papers over
+   downstream breakage with human PR review — an autonomous run doesn't have
+   that reviewer, so it runs the dependents' suites too. Repos with no test
+   dir (organism/doc repos): leg is n/a, stated in the PR body.
+2. **Smoke** — the curated `smoke_tests.txt` subsets (Heart's `smoke_test`
+   skill, all six workspaces by default) run with the task worktree's
+   `activate.sh` sourced, so they exercise the branch. Applies where the
+   changed repo has a downstream script surface; organism/doc-only changes:
+   n/a, stated in the PR body. Never grow the curated lists to make this leg
+   feel stronger.
+3. **Review** — review-faculty verdict **CLEAN**
+   (`agents/faculties/review/AGENTS.md`). FINDINGS → resolve and re-review, or
+   park to a human checkpoint; BLOCKED → park.
+4. **Heart** — verdict **GREEN**, or **YELLOW whose reason set is contained
+   in the set the human acknowledged at launch**. Heart observes organism
+   state, not the branch (the audit confirmed its legs never see feature
+   branches), and chronic staleness reasons would otherwise dead-end all
+   autonomy. The acknowledgement binds to the *exact reason list* at launch,
+   for that launch only — any new reason, or RED, parks the run. Never
+   ambient, never carried across sessions.
 
-The gate's audit and precise composition are `PyAutoMind/feature/autonomy/`
-task 3; the review faculty is task 2. **Until both land, no run ships
-unattended** — `--auto` ends at ship sign-off regardless of level. A failed
-gate downgrades the run to a human checkpoint: state written to the issue,
-nothing force-shipped.
+A failed leg downgrades the run to a human checkpoint: state written to the
+issue, nothing force-shipped, never modify code to make a leg pass.
 
 ## Calibration log
 
@@ -103,7 +120,9 @@ calibration, not by optimism.
 - **Autonomous runs end at PR-open**, with the PR body carrying the plan, the
   review verdict, test/smoke counts, and a validation checklist.
 - **Never modify code to make tests or smoke tests pass.**
-- **Heart YELLOW/RED is never acknowledged autonomously.**
+- **Heart YELLOW/RED is never acknowledged autonomously.** A launch-time
+  human acknowledgement of a named reason set is a human acknowledgement — it
+  binds to that exact set, for that launch, and never extends to new reasons.
 - **Never rewrite history** (`AGENTS.md` rules apply verbatim to autonomous
   runs).
 - The `Autonomy:` header is a model's own estimate. The caps, the explicit
