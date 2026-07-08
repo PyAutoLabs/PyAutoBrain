@@ -74,13 +74,18 @@ schema — light structure over free-form prose.
 | **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
 | **dashboard** | `intake dashboard` | render the census as the Mind **backlog** page; `--apply` writes `PyAutoMind/dashboard.md` |
+| **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
 folder is authoritative for a prompt's work-type/target; header fields are
 display metadata, and headerless legacy prompts surface as hygiene flags rather
-than errors. `repair` (fixing those flags in place) is the **planned follow-up**
-— not in this cut.
+than errors. Formalise closes those flags (once codenamed `repair`, renamed
+because raw prompts are intended word-vomit awaiting conception, not defects):
+it derives Difficulty/Autonomy/Priority via the sizing faculty, writes
+Type/Target from the folder, keeps every existing field value and every line of
+prose, and turns work-type disagreements into **re-home suggestions** — it never
+moves or deletes a file.
 
 ## Run
 
@@ -93,6 +98,8 @@ bin/pyauto-brain intake --apply ideas                              # write them 
 bin/pyauto-brain intake census                                     # backlog inventory (read-only)
 bin/pyauto-brain intake dashboard                                  # backlog page to stdout (dry-run)
 bin/pyauto-brain intake --apply dashboard                          # write PyAutoMind/dashboard.md
+bin/pyauto-brain intake formalise                                  # propose retroactive headers (dry-run)
+bin/pyauto-brain intake --apply formalise bug/                     # write them, only under bug/
 ```
 
 **Writes only under `--apply`; dry-run is the default.** Exit codes: `0` produced

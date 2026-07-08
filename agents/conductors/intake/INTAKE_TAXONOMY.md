@@ -109,6 +109,18 @@ itemised.
 *backlog* page (never health; that is Heart's). Census is always read-only;
 dashboard writes only under `--apply`.
 
+**formalise** closes the hygiene flags retroactively (once codenamed `repair`;
+renamed — raw prompts are intended word-vomit awaiting conception, not defects).
+Per flagged prompt it derives the missing fields (Type/Target from the folder,
+Difficulty/Autonomy/Priority via the same sizing-faculty path conception uses)
+and inserts only those lines: after the last field of a partial header block,
+below an existing `# heading`, or under a derived `# <title>` when there is
+neither — every existing line survives verbatim, plus a retroactive-provenance
+comment. Where the body classifier disagrees with the folder at medium/high
+confidence it emits a *re-home suggestion*; it never moves or deletes a file.
+Optional path-prefix argument scopes the run (`intake formalise bug/`); writes
+only under `--apply` and re-runs are no-ops (nothing left missing).
+
 ## 7. What intake does NOT own
 
 - The difficulty heuristic, prompt parsing, repo sets → the **sizing faculty**.
