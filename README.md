@@ -50,6 +50,9 @@ faculties multiply behind them.
 
 - **`agents/conductors/feature/`** — the growth function: reasons over PyAutoMind
   `feature/*` intent and plans how the organism grows.
+- **`agents/conductors/bug/`** — the immune system: recognises a bug / regression /
+  failing test / PyAutoHeart finding, classifies it, decides where the fix belongs
+  (source-first, never degrading a user-facing script), and plans the repair.
 - **`agents/conductors/build/`** — the executive function for execution work.
   Consults the vitals faculty, reasons over the verdict, and on a healthy result
   delegates to PyAutoBuild. Has `build` / `deploy` / `release` modes.
@@ -108,11 +111,11 @@ natural language) and it routes to the right agent — normal usage never says
 
 > **Users speak in short commands; PyAutoBrain performs the routing.**
 
-- **Real conductors:** `/feature` → Feature Agent, `/build` → Build Agent,
-  `/health` → Health Agent (each → vitals/Heart/Build as needed).
-- **Work-type entries:** `/bug` `/refactor` `/docs` `/research` route through the
-  Brain dev-flow (`start_dev`) with their PyAutoMind work-type fixed — honest
-  interim doors until each earns its own conductor.
+- **Real conductors:** `/feature` → Feature Agent, `/bug` → Bug Agent, `/build` →
+  Build Agent, `/health` → Health Agent (each → vitals/Heart/Build as needed).
+- **Work-type entries:** `/refactor` `/docs` `/research` route through the Brain
+  dev-flow (`start_dev`) with their PyAutoMind work-type fixed — honest interim
+  doors until each earns its own conductor.
 - **Router + debug:** `/route <text>` infers the work-type and dispatches;
   `/brain <agent>` is the raw passthrough. Every command routes **through** the
   Brain; none replaces it.
