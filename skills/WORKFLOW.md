@@ -65,7 +65,7 @@ bin/pyauto-brain release                                   # release door → Bu
 bin/pyauto-brain vitals                                    # one health tick + the unified dashboard card
 ```
 
-If a dedicated agent for a work type does not exist yet (e.g. Bug/Refactor/Docs),
+If a dedicated agent for a work type does not exist yet (e.g. Docs/Research),
 the Feature Agent's routing applies the closest available reasoning and the
 missing agent is recorded as a follow-up — the skill still runs end-to-end.
 

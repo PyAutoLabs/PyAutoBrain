@@ -32,6 +32,7 @@ readiness gate, or execution — those belong to the organs.
 | `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`); `census`/`dashboard` = backlog inventory / `PyAutoMind/dashboard.md` |
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
+| `/refactor` | Refactor Agent | `bin/pyauto-brain refactor` → `start_dev [--auto]` → `ship_*` (behaviour-preserving; default-safe) |
 | `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoBuild |
 | `/health` | Health Agent | `bin/pyauto-brain health` loop → vitals faculty → Heart → GREEN |
 
@@ -41,9 +42,11 @@ the Brain (via `start_dev` → Feature Agent), so nothing is bypassed:
 
 | Command | PyAutoMind work-type |
 |---------|----------------------|
-| `/refactor` | `refactor/` |
 | `/docs` | `docs/` |
 | `/research` | `research/` |
+
+(`/refactor` graduated to a real conductor — the Refactor Agent,
+`agents/conductors/refactor/` — and now sits in tier 1 above.)
 
 These are honest doors — they do **not** pretend an agent exists that doesn't,
 and a dedicated conductor is added only on demonstrated need, never for

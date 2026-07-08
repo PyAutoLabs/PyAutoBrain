@@ -92,6 +92,14 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   and emits a `BugDecision` for `start_dev → ship_*`. Health mode reads the
   live vitals verdict plus the filed Heart issues. Reuses the Feature Agent's
   core; consults vitals, never Heart directly.
+- **`agents/conductors/refactor/`** — the *Renewal Agent*: plans
+  **behaviour-preserving** restructuring from `refactor/*` intent and emits a
+  `RefactorDecision` — invariant + witnessing test suites, a public-API guard
+  (suspect prompts re-route to `feature/`, never run at `safe`), and a
+  `candidates` miner over the backlog + `ideas.md` (files nothing; intake
+  formalises). The first conductor whose normal `--auto` mode is **`safe`**
+  (the `refactor` work-type cap in [`AUTONOMY.md`](AUTONOMY.md)). Reuses the
+  Feature Agent's core by import.
 - **`agents/conductors/build/`** — the executive function for execution work.
   Consults the vitals faculty, reasons over the verdict, and on a healthy result
   delegates to the appropriate PyAutoBuild capability. The canonical example of
@@ -146,6 +154,8 @@ bin/pyauto-brain intake "add data cube modelling to autolens"  # conceive: raw t
 bin/pyauto-brain intake --apply ideas             # sweep ideas.md into formal prompts
 bin/pyauto-brain feature         # select the best next PyAutoMind feature task
 bin/pyauto-brain feature feature/autofit/sbi.md   # plan a specific feature task
+bin/pyauto-brain refactor        # select + plan the best next behaviour-preserving refactor
+bin/pyauto-brain refactor candidates              # mine the refactor backlog + ideas.md (read-only)
 bin/pyauto-brain build           # consult vitals, then delegate execution to Build
 bin/pyauto-brain build --dry-run # reason + plan only (emit the BuildDecision)
 bin/pyauto-brain release         # reason about readiness, then release on green
@@ -174,15 +184,17 @@ to the right agent; normal usage never says "PyAutoBrain".
 | `/bug` | Bug Agent → `start_dev` (health mode → vitals + Heart issues) | real conductor |
 | `/build` | Build Agent → vitals → Heart → PyAutoBuild | real conductor |
 | `/health` | Health Agent loop → vitals → Heart | real conductor |
-| `/refactor` `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
+| `/refactor` | Refactor Agent → `start_dev [--auto]` (default-safe) | real conductor |
+| `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
 | `/route <text>` | infers the work-type and dispatches to one of the above | NL router |
 | `/brain <agent>` | raw `bin/pyauto-brain` passthrough | debug door |
 
-\* No dedicated Refactor/Docs/Research conductor exists — those verbs route
-through the Brain dev-flow with their PyAutoMind work-type fixed (still through
-the Brain, nothing bypassed). A dedicated conductor is added only on
-demonstrated need, never for symmetry. Every command routes **through** the
-Brain; none replaces it.
+\* No dedicated Docs/Research conductor exists — those verbs route through the
+Brain dev-flow with their PyAutoMind work-type fixed (still through the Brain,
+nothing bypassed). A dedicated conductor is added only on demonstrated need,
+never for symmetry — the Refactor Agent earned its promotion via the `ideas.md`
+backlog bullet, the skill's own recorded follow-up, and the autonomy series.
+Every command routes **through** the Brain; none replaces it.
 
 The command bodies live in `skills/<verb>/<verb>.md` (thin; installed as flat
 commands by `bin/install.sh`); the shared architecture prose is in
