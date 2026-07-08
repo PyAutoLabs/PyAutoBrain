@@ -1,6 +1,6 @@
 ---
 name: sampler_pipeline
-description: Trial a new non-linear sampler through the prototype → profile → promote pipeline — minimal searches_minimal script with MLTracker diagnostics, benchmark comparison, then (if warranted) a Mind prompt for the full PyAutoFit implementation. Use when the user wants to try, benchmark, or promote a sampler / search / MCMC / nested-sampling / HMC method.
+description: Trial a new non-linear sampler through the ingest → prototype → profile → promote pipeline — point it at a sampler's GitHub repo, get it running on the standard problem and on a likelihood the user owns (MLTracker diagnostics, benchmark comparison), then (if warranted) the full PyAutoFit implementation. Use when the user wants to try, benchmark, or promote a sampler / search / MCMC / nested-sampling / HMC method, or gives a sampler repo URL.
 ---
 
 # Sampler Pipeline: Prototype → Profile → Promote
@@ -30,14 +30,23 @@ right stage instead of starting over. The deeper science is in
 `initialization-chaining`, `sampler-benchmarks`) — internal use only; its
 citations never reach public user-facing output.
 
-## 1. Prototype (minimal tier)
+## 1. Ingest + prototype (minimal tier)
 
-A new sampler lands first as **one script** in
+The canonical input is a **GitHub repo URL**. Ingest it first —
+[`reference.md`](reference.md) Stage 0: run the repo's own quickstart
+verbatim, check dependency compatibility against the stack, classify the
+sampler on the six API dimensions (prior-interface shape, likelihood
+signature, batching, gradients, boundary escape hatches, resume) — that
+classification picks the template and predicts the adapter cost.
+
+Then the sampler lands as **one script** in
 `autofit_workspace_developer/searches_minimal/` — external sampler API plugged
 directly into `af.Model`/`Analysis`, **no** `NonLinearSearch` subclass. This is
 a workspace edit: file/annotate the Mind prompt and go through `start_dev`.
-Copy the nearest template and run it from the repo root —
-[`reference.md`](reference.md) Stage 1 has the template table and commands.
+Copy the nearest template and run it from the repo root (Stage 1); then run
+it on the likelihood the user owns via the same two-function adapter or
+`Fitness`/`_vmap` (Stage 1b) — that run, not the Gaussian, is the decision
+evidence.
 
 The prototype contract (what makes its row comparable):
 
