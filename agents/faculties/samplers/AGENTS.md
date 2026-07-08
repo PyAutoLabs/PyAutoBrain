@@ -91,7 +91,10 @@ Promote a prototyped sampler only when **all** hold:
 
 - **PyAutoFit search API** — `PyAutoFit:autofit/non_linear/search/`
   (`nest/`, `mcmc/`, `mle/`; base class `abstract_search.py`; start-point
-  machinery `autofit/non_linear/initializer.py`).
+  machinery `autofit/non_linear/initializer.py`). Reference implementations
+  for a promotion: `nest/nss/` (JAX, chunked vmap), `mcmc/blackjax/nuts/`
+  (gradient consumer), `nest/nautilus/` (canonical callback shape) — the
+  package anatomy is `skills/sampler_pipeline/reference.md` Stage 3.
 - **Script tiers** — `autofit_workspace_developer/searches_minimal/`
   (prototypes + `_metrics.py` + `output/comparison.txt`),
   `autofit_workspace_developer/searches/` (removed-sampler archive),

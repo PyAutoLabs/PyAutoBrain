@@ -1,15 +1,20 @@
 ---
 name: sampler_pipeline
-description: Trial a new non-linear sampler through the prototype → profile → promote pipeline — minimal searches_minimal script with MLTracker diagnostics, benchmark comparison, then (if warranted) a Mind prompt for the full PyAutoFit implementation. Use when the user wants to try, benchmark, or promote a sampler / search / MCMC / nested-sampling / HMC method.
+description: Trial a new non-linear sampler through the ingest → prototype → profile → promote pipeline — point it at a sampler's GitHub repo, get it running on the standard problem and on a likelihood the user owns (MLTracker diagnostics, benchmark comparison), then (if warranted) the full PyAutoFit implementation. Use when the user wants to try, benchmark, or promote a sampler / search / MCMC / nested-sampling / HMC method, or gives a sampler repo URL.
 ---
 
 # Sampler Pipeline: Prototype → Profile → Promote
 
 The organism learning a new gait: try the movement cheaply, practice it with a
 stopwatch, and only then commit it to muscle memory (a full PyAutoFit
-`NonLinearSearch`). This is a **PyAutoBrain dev-workflow** skill: it reasons
-with the **samplers faculty** and routes every edit through the normal
-`start_dev` workflow — shared context in [`WORKFLOW.md`](../WORKFLOW.md).
+`NonLinearSearch`). This is a **development skill**: the session running it
+writes and runs the code at every stage — the prototype script, the benchmark
+runs, the PyAutoFit implementation, the integration scripts — reasoning with
+the **samplers faculty** and going through the normal `start_dev` workflow
+like any dev task. The implementation playbook (templates to copy, the
+search-package anatomy, how to run everything) is
+[`reference.md`](reference.md); shared context in
+[`WORKFLOW.md`](../WORKFLOW.md).
 
 ## 0. Consult the faculty first
 
@@ -25,12 +30,23 @@ right stage instead of starting over. The deeper science is in
 `initialization-chaining`, `sampler-benchmarks`) — internal use only; its
 citations never reach public user-facing output.
 
-## 1. Prototype (minimal tier)
+## 1. Ingest + prototype (minimal tier)
 
-A new sampler lands first as **one script** in
+The canonical input is a **GitHub repo URL**. Ingest it first —
+[`reference.md`](reference.md) Stage 0: run the repo's own quickstart
+verbatim, check dependency compatibility against the stack, classify the
+sampler on the six API dimensions (prior-interface shape, likelihood
+signature, batching, gradients, boundary escape hatches, resume) — that
+classification picks the template and predicts the adapter cost.
+
+Then the sampler lands as **one script** in
 `autofit_workspace_developer/searches_minimal/` — external sampler API plugged
 directly into `af.Model`/`Analysis`, **no** `NonLinearSearch` subclass. This is
 a workspace edit: file/annotate the Mind prompt and go through `start_dev`.
+Copy the nearest template and run it from the repo root (Stage 1); then run
+it on the likelihood the user owns via the same two-function adapter or
+`Fitness`/`_vmap` (Stage 1b) — that run, not the Gaussian, is the decision
+evidence.
 
 The prototype contract (what makes its row comparable):
 
@@ -64,12 +80,17 @@ The prototype contract (what makes its row comparable):
 Score the candidate against the faculty's **promotion criteria** (all four:
 comparable row · converged · concrete win · implementation cost justified).
 
-- **Promote** → file a Mind prompt via `/intake` for the PyAutoFit
-  implementation: `NonLinearSearch` subclass under
+- **Promote** → file a Mind prompt via `/intake`, then **implement it**: a
+  `NonLinearSearch` subclass under
   `autofit/non_linear/search/<group>/<name>/`, plus an integration script in
   `autofit_workspace_test/scripts/searches/` (and a `*_jax` variant when the
-  likelihood is jittable). That prompt runs `start_dev → ship_library` as a
-  normal library task — this skill never edits library source itself.
+  likelihood is jittable), run end-to-end before shipping. The full
+  six-point package anatomy (search.py, samples.py, `af.` export, dependency
+  extra + the PyPI git-URL gotcha, numpy-only unit tests, workspace config
+  mirroring) and the reference implementations to read first are in
+  [`reference.md`](reference.md) Stages 3–4. The prompt runs
+  `start_dev → ship_library` as a normal library task — library source is
+  edited inside that task's worktree, never ad hoc.
 - **Archive** → the prototype stays in `searches_minimal/` as the record;
   note the negative result in the comparison Notes (a measured "no" is a
   result — nautilus_jax vs nautilus_simple is the canonical example).
