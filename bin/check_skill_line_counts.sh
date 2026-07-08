@@ -35,25 +35,31 @@ for root in "${ROOTS[@]}"; do
   for dir in "$root"/*/; do
     [ -d "$dir" ] || continue
     name="$(basename "$dir")"
-    # Primary files: SKILL.md (dispatcher/frontmatter) and the command/body
-    # <dirname>.md. Supporting docs (reference.md, examples, etc.) are exempt.
+    # The budget is the skill's MANDATORY LOAD: SKILL.md (dispatcher/
+    # frontmatter) plus the command/body <dirname>.md, summed — both are read
+    # on every invocation. Supporting docs (reference.md, examples, etc.) are
+    # lazy and exempt.
+    total=0
+    found=0
     for primary in "$dir/SKILL.md" "$dir/$name.md"; do
       [ -f "$primary" ] || continue
-      checked=$((checked + 1))
-      lines=$(wc -l < "$primary")
-      if [ "$lines" -gt "$LIMIT" ]; then
-        echo "OVER  ${lines}  ${primary#$PYAUTO_ROOT/}"
-        over=$((over + 1))
-      fi
+      found=1
+      total=$((total + $(wc -l < "$primary")))
     done
+    [ "$found" -eq 1 ] || continue
+    checked=$((checked + 1))
+    if [ "$total" -gt "$LIMIT" ]; then
+      echo "OVER  ${total}  ${dir#$PYAUTO_ROOT/} (SKILL.md + $name.md)"
+      over=$((over + 1))
+    fi
   done
 done
 
 echo ""
 if [ "$over" -eq 0 ]; then
-  echo "OK: all $checked primary skill files are within $LIMIT lines."
+  echo "OK: all $checked skills are within the $LIMIT-line mandatory-load budget."
   exit 0
 else
-  echo "FAIL: $over primary skill file(s) exceed $LIMIT lines — factor detail into reference.md."
+  echo "FAIL: $over skill(s) exceed the $LIMIT-line mandatory-load budget — factor detail into reference.md."
   exit 1
 fi

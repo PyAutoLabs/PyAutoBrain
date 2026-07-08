@@ -1,6 +1,6 @@
 # PyAuto workflow skills — shared reference
 
-The `start_*` / `ship_*` / `plan_branches` / `register_and_iterate` skills are the
+The `start_*` / `ship_*` / `register_and_iterate` skills are the
 **development-workflow entry points** of the PyAuto organism. They are *not*
 independent reasoning systems: each one is a thin entry point that delegates to
 the organs. This file is the shared context every workflow skill points at, so
@@ -132,6 +132,19 @@ pyauto-heart readiness --json    # authoritative GREEN / YELLOW / RED verdict
 
 Tests/smoke runs that feed the verdict are Heart's domain — invoke them through
 the vitals faculty rather than re-deriving pass/fail criteria in the skill.
+
+## Cross-harness notes (apply to every workflow skill)
+
+- `/name` references mean "use that skill"; a harness without slash commands
+  follows the same body file directly.
+- "Plan Mode" means: present the plan and wait for explicit user approval
+  before any file edit.
+- If the user gives a development task with **no** PyAutoMind prompt path,
+  first write a concise prompt under the right `<work-type>/<target>/` folder
+  (original request verbatim), then continue with that path.
+- Where a body delegates mechanical execution to a Sonnet subagent, a harness
+  without subagents performs the same steps directly, preserving the
+  judgment/mechanical split above.
 
 ## Execution environments
 

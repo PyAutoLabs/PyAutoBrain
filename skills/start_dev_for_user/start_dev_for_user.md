@@ -67,8 +67,9 @@ comment → `needs-info` label → partial `active.md` entry → **stop**) per
 ### 4. Plan + branch survey
 
 Produce the two-level plan (high-level + detailed) as in `/start_dev` step 3, and
-run `/plan_branches` reasoning — suggest `feature/<task-name>` and derive the
-worktree root. We do **not** create or rename an issue.
+run the branch survey (`start_dev/reference.md` → "Branch survey") — suggest
+`feature/<task-name>` and derive the worktree root. We do **not** create or
+rename an issue.
 
 ### 5. Plan comment (milestone #2)
 
