@@ -134,13 +134,16 @@ reader is there to learn):
 
 ## Consult Memory before substantial planning
 
-Before committing to a plan, consult **PyAutoMemory** whenever historical,
-scientific or architectural context would improve the decision — prior
-architectural decisions, literature summaries, previous implementations,
-previously failed approaches, coding conventions, design rationale. Memory is
-read-only context; do not couple to its internal layout (read its wikis /
-`reading-queue.md` / bibliography on demand). The Feature Agent does this for
-feature work; do it directly when running a skill without the agent.
+Before committing to a plan, consult the **memory faculty**
+(`bin/pyauto-brain memory "<topic>"`; `agents/faculties/memory/AGENTS.md`)
+whenever historical, scientific or architectural context would improve the
+decision — prior architectural decisions, literature summaries, previous
+implementations, previously failed approaches, design rationale. It returns a
+cited digest (pointers + snippets) over PyAutoMemory, `autolens_assistant` and
+Mind history; read only the cited pages. Memory stays read-only context with
+no layout coupling; an empty digest means proceed without memory context —
+never invent it. Privacy seam: PyAutoMemory citations never reach public
+user-facing output (the faculty doc is the rule's home).
 
 ## Heart readiness gate (for ship_*)
 
