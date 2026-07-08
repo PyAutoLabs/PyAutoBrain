@@ -146,7 +146,7 @@ plan_cmd="autobuild $action"
 plan=("$plan_cmd")
 
 if [[ "$mode" == "release" ]]; then
-  follow_up+=("Release reasoning lives in 'release mode'; it may later split into a dedicated PyAutoBrain Release Agent.")
+  follow_up+=("This release mode is the single gate+execution path; the release conductor delegates plain releases through it and owns rehearse/validate.")
 fi
 
 # ----- emit the BuildDecision (structured) -----

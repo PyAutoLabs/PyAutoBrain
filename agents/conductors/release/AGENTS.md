@@ -13,29 +13,25 @@ Brain  →  Heart (gate)  →  Build (execute)
 
 ## Responsibility
 
-1. Refresh and read PyAutoHeart's authoritative readiness verdict
-   (`pyauto-heart readiness --json`).
-2. **Reason over it** — block unless the verdict is green:
-   - **RED** → a real release blocker; refuse (exit 3).
-   - **YELLOW** → caution; refuse unless `--force` (exit 2).
-   - **GREEN** → proceed.
-3. On green, delegate to the PyAutoBuild executor — `autobuild pre_build`, which
-   prepares the workspaces and dispatches `release.yml`.
-
-The agent holds **no health logic and no release mechanics of its own**. The
-health decision is Heart's; the execution is Build's. The Brain only reasons
-about the verdict and decides to proceed.
+1. **Release-validation orchestration** (this conductor's own machinery):
+   `release rehearse` (Stage-2 TestPyPI rehearsal) and `release validate` (the
+   full Stages 0–3 orchestrator) — see `rehearse.sh` / `validate.sh` below.
+2. **The release door**: plain `release [--force]` delegates the readiness gate
+   *and* execution to the Build Agent's release mode
+   (`build.sh --mode release`), the **single** gate implementation — GREEN
+   proceeds, YELLOW needs `--force`, RED blocks; on a pass `autobuild
+   pre_build` dispatches `release.yml`. This conductor holds no second copy of
+   that gate.
 
 ## Run
 
 ```bash
-bin/pyauto-brain release           # reason about readiness, release on green
+bin/pyauto-brain release           # release door → Build Agent release mode
 bin/pyauto-brain release --force   # also proceed on yellow (cautions ack'd)
 bin/pyauto-brain release -- 2      # forward `2` (minor_version) to pre_build
 ```
 
-Exit codes: `0` released/delegated · `2` yellow (use --force) · `3` red blocked
-· `1/4` could not obtain a verdict / unknown verdict.
+Gate outcomes and exit codes are the Build Agent's (release mode).
 
 ## Release-validation rehearsal (M2) — `release rehearse`
 

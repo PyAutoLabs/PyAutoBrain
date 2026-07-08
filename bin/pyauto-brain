@@ -14,7 +14,7 @@
 #
 #   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
 #   pyauto-brain build   [args]   (conductor) coordinate execution: consult vitals, run Build
-#   pyauto-brain release [args]   (conductor) reason about readiness, then release on green
+#   pyauto-brain release [args]   (conductor) release door → Build Agent release mode (gate + pre_build)
 #                                 (release rehearse: Stage-2 TestPyPI rehearsal;
 #                                  release validate: full Stages 0-3 orchestrator)
 #   pyauto-brain health  [args]   (conductor) the organism's clinician: run the health
@@ -48,7 +48,7 @@ declare -A AGENT_DESC=(
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
   [bug]="The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair"
   [build]="Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild"
-  [release]="Reason about readiness + run release on green; 'release rehearse'/'release validate' drive release validation"
+  [release]="Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation"
   [health]="The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green"
   [vitals]="Read-only: read the Heart's pulse — the PyAutoHeart readiness verdict (consulted by the conductors)"
 )

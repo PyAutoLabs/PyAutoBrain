@@ -94,10 +94,11 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   the Brain coordinating *multiple* organs. Has `build` / `deploy` / `release`
   modes — release is isolated as a mode now, with a clean seam to the release
   conductor.
-- **`agents/conductors/release/`** — reasons over `pyauto-heart readiness`, and on
-  green triggers the PyAutoBuild release executor (`autobuild pre_build` →
-  `release.yml`); also orchestrates release validation (`release rehearse` /
-  `release validate`) across the MCP boundary.
+- **`agents/conductors/release/`** — the release door and release-validation
+  orchestrator: `release rehearse` / `release validate` drive the TestPyPI
+  rehearsal and the full Stages 0–3 validation; plain `release` delegates the
+  readiness gate and execution to the Build Agent's release mode (one gate
+  implementation, not two).
 - **`agents/conductors/health/`** — the *clinician*: runs the health loop with
   a human — assess (vitals) → triage → (on your go-ahead) dispatch a validation
   leg → re-judge — until Heart goes GREEN. Delegates all dispatch to the
@@ -111,14 +112,12 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   capability. The single component that talks to Heart; every conductor
   consults it rather than querying Heart directly. Never dispatches or mutates.
 
-> **Build Agent vs. release mode vs. the release agent.** The Build Agent owns
-> all execution orchestration and keeps release as one of its modes (broad build
-> scope: generate, run, aggregate, package, tag). `agents/conductors/release/` is the older,
-> narrower readiness→`pre_build` driver. The mature architecture splits a
-> dedicated **Release Agent** out of the Build Agent's release mode — making
-> release-specific decisions (versioning, changelogs, PyPI/tags, human approval),
-> consulting the vitals faculty *more strictly*, then requesting execution from the
-> Build Agent / PyAutoBuild. Until then: one agent now, clean seam for two later.
+> **Build Agent vs. the release conductor — resolved.** The Build Agent's
+> release mode owns the **single** readiness-gate + execution path
+> (`build.sh --mode release` → `pre_build`). The release conductor owns
+> release-*validation* orchestration (`rehearse` / `validate`) and, for plain
+> releases, is a door that delegates through that mode. There is deliberately
+> no second gate implementation.
 
 New agents are added on **demonstrated need, never for symmetry**. Place by
 tier: a side-effecting decider you drive → `agents/conductors/<name>/`; a
