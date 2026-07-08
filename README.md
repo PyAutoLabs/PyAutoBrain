@@ -48,6 +48,9 @@ faculties multiply behind them.
 
 **Conductors:**
 
+- **`agents/conductors/intake/`** — the conceptive function: turns raw input (an
+  idea, a bug report, an `ideas.md` bullet) into a formal, headed PyAutoMind
+  prompt. Files it; never starts dev — the step before `start_dev`.
 - **`agents/conductors/feature/`** — the growth function: reasons over PyAutoMind
   `feature/*` intent and plans how the organism grows.
 - **`agents/conductors/bug/`** — the immune system: recognises a bug / regression /
@@ -111,7 +114,8 @@ natural language) and it routes to the right agent — normal usage never says
 
 > **Users speak in short commands; PyAutoBrain performs the routing.**
 
-- **Real conductors:** `/feature` → Feature Agent, `/bug` → Bug Agent, `/build` →
+- **Real conductors:** `/intake` → Intake Agent (files a Mind prompt, before
+  `start_dev`), `/feature` → Feature Agent, `/bug` → Bug Agent, `/build` →
   Build Agent, `/health` → Health Agent (each → vitals/Heart/Build as needed).
 - **Work-type entries:** `/refactor` `/docs` `/research` route through the Brain
   dev-flow (`start_dev`) with their PyAutoMind work-type fixed — honest interim

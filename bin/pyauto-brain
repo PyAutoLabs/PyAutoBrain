@@ -35,6 +35,7 @@ CONDUCTORS_DIR="$AGENTS_DIR/conductors"
 FACULTIES_DIR="$AGENTS_DIR/faculties"
 
 declare -A AGENT_SCRIPT=(
+  [intake]="$CONDUCTORS_DIR/intake/intake.sh"
   [feature]="$CONDUCTORS_DIR/feature/feature.sh"
   [bug]="$CONDUCTORS_DIR/bug/bug.sh"
   [build]="$CONDUCTORS_DIR/build/build.sh"
@@ -43,6 +44,7 @@ declare -A AGENT_SCRIPT=(
   [vitals]="$FACULTIES_DIR/vitals/vitals.sh"
 )
 declare -A AGENT_DESC=(
+  [intake]="Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev)"
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
   [bug]="The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair"
   [build]="Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild"
@@ -52,7 +54,7 @@ declare -A AGENT_DESC=(
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
-CONDUCTOR_ORDER=(feature bug build release health)
+CONDUCTOR_ORDER=(intake feature bug build release health)
 FACULTY_ORDER=(vitals)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
