@@ -44,6 +44,10 @@ consult faculties; faculties read their sensor organ; a conductor never
 consults another conductor — if it wants one's opinion, that opinion should be
 a faculty. The Build Agent is the reusable template for this pattern.
 
+How much human checkpointing a workflow run needs is defined once in
+[`AUTONOMY.md`](AUTONOMY.md) — the autonomy contract mapping each Mind-prompt
+`Autonomy:` level to behaviour at every checkpoint.
+
 ## Specialist reasoning agents
 
 Agents live in **two tiers** under `agents/`, distinguished by one question —

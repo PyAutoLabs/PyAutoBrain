@@ -40,6 +40,18 @@ directly; it asks the vitals faculty, and only the vitals faculty talks to the H
 organ. The same applies when the dev workflow consults the vitals faculty for its
 ship gate.
 
+## Autonomy (how much human checkpointing)
+
+The human checkpoints across these skills — plan approval, ship PR sign-off,
+Heart YELLOW acknowledgement, merge/close, the `pre_build` version ask,
+post-merge cleanup — are governed by **the autonomy contract**,
+[`../AUTONOMY.md`](../AUTONOMY.md): what each Mind-prompt `Autonomy:` level
+(`safe`/`supervised`/`human-required`) does at each checkpoint, the
+per-work-type caps, and the hard invariants (merge is always human; autonomous
+runs end at PR-open). Levels bind **only** under an explicit `--auto` launch;
+default runs present-and-wait at every checkpoint, exactly as the steps below
+describe. Do not restate checkpoint rules in a skill body — link the contract.
+
 ## Brain agent entry points
 
 Reasoning is delegated to PyAutoBrain agents (`PyAutoBrain/AGENTS.md` is authoritative):
@@ -59,13 +71,20 @@ When `pyauto-brain` is not on `PATH` and no PyAutoBrain checkout is present
 (e.g. a GitHub-only session), perform the same reasoning inline following this
 file and `PyAutoBrain/AGENTS.md`, and note that the agent was emulated.
 
-## Model delegation (Opus plans, Sonnet executes)
+## Model delegation (judgment tier plans, execution tier ships)
 
-The workflow skills follow a **"plan in Opus, execute in Sonnet"** split: the main
-session stays on Opus for planning, judgment and orchestration; mechanical
-shell/git phases are delegated to Sonnet subagents (`Agent` tool,
-`model: "sonnet"`). This keeps judgement in the stronger model while moving bulk
-execution to the faster, cheaper one — no manual model toggling.
+The workflow skills split work across **model tiers**, not named models — the
+doctrine survives model access changing:
+
+- **Judgment tier** — the strongest model available to the session (currently
+  **Fable 5**; previously, and as fallback, **Opus**). Planning, orchestration,
+  risk judgment, anything user-facing.
+- **Execution tier** — a fast, cheap model (currently **Sonnet**) for
+  mechanical shell/git phases, delegated as subagents (`Agent` tool,
+  `model: "sonnet"`).
+
+The main session stays on the judgment tier; bulk execution moves to the
+execution tier — no manual model toggling.
 
 **Delegated (mechanical phase only):**
 
@@ -74,7 +93,7 @@ execution to the faster, cheaper one — no manual model toggling.
 - `pre_build` — step 2 (format, generate, version bump, stage, commit, push,
   dispatch workflow).
 
-**Stays in Opus:** planning (`start_dev`), environment setup
+**Stays in the judgment tier:** planning (`start_dev`), environment setup
 (`start_library`/`start_workspace`), release triage (`review_release`);
 identifying affected repos, drafting the commit message and full PR body
 (`## API Changes` / `## Scripts Changed`), workspace-impact analysis, the
@@ -84,9 +103,9 @@ asking for the minor version, printing the summary.
 
 **Subagent prompt contract (all delegated calls):**
 
-- **Inputs Opus passes:** worktree path / `$WT_ROOT`, repo list, pre-drafted
-  commit message, pre-drafted PR body (paste verbatim via HEREDOC — never
-  rewrite), relevant URLs (library PR, issue), target branch, labels.
+- **Inputs the judgment tier passes:** worktree path / `$WT_ROOT`, repo list,
+  pre-drafted commit message, pre-drafted PR body (paste verbatim via HEREDOC —
+  never rewrite), relevant URLs (library PR, issue), target branch, labels.
 - **Subagent's job:** run the named shell steps exactly. `source activate.sh`
   before `pytest` / `smoke_test`. Verify the branch is `feature/<task-name>`
   before committing — never auto-switch branches. **Never modify code to make
@@ -94,21 +113,22 @@ asking for the minor version, printing the summary.
   (failing test names + traceback tail, or the shell error).
 - **Subagent returns:** one line per repo — test/smoke pass-fail counts, commit
   SHA, PR URL, cross-reference/dispatch confirmations.
-- **Opus after return:** interpret failures, decide routing, update registries,
-  talk to the user.
+- **Judgment tier after return:** interpret failures, decide routing, update
+  registries, talk to the user.
 
 **Tutorial-prose split** (separate from skill delegation — depends on what the
 reader is there to learn):
 
-- **Opus** for narrative science-teaching scripts where the docstrings/comments
-  are the product: tutorials in `autofit_workspace`, `autogalaxy_workspace`,
-  `autolens_workspace` (`overview_*`, `start_here.py`, `howto*`). Sonnet drifts
-  to generic textbook phrasing and misses domain framing here.
-- **Sonnet** for code-heavy, doc-light scripts where comments are short
+- **Judgment tier** for narrative science-teaching scripts where the
+  docstrings/comments are the product: tutorials in `autofit_workspace`,
+  `autogalaxy_workspace`, `autolens_workspace` (`overview_*`, `start_here.py`,
+  `howto*`). Execution-tier models drift to generic textbook phrasing and miss
+  domain framing here.
+- **Execution tier** for code-heavy, doc-light scripts where comments are short
   API-usage notes: `*_workspace_test`, `euclid_strong_lens_modeling_pipeline`
   glue, and developer/regression/smoke/parity scripts.
 - Heuristic: *"is the reader here to learn science, or to exercise code?"*
-  Science → Opus. Code → Sonnet.
+  Science → judgment tier. Code → execution tier.
 
 ## Consult Memory before substantial planning
 
@@ -127,7 +147,9 @@ pyauto-heart readiness --json    # authoritative GREEN / YELLOW / RED verdict
 ```
 
 - **GREEN** → proceed to execution.
-- **YELLOW** → surface the warnings; proceed only with explicit user acknowledgement.
+- **YELLOW** → surface the warnings; proceed only with explicit user
+  acknowledgement (a human checkpoint at **every** autonomy level —
+  [`../AUTONOMY.md`](../AUTONOMY.md)).
 - **RED** → stop; report what failed. Do not ship.
 
 Tests/smoke runs that feed the verdict are Heart's domain — invoke them through
@@ -138,11 +160,12 @@ the vitals faculty rather than re-deriving pass/fail criteria in the skill.
 - `/name` references mean "use that skill"; a harness without slash commands
   follows the same body file directly.
 - "Plan Mode" means: present the plan and wait for explicit user approval
-  before any file edit.
+  before any file edit (checkpoint 1 of [`../AUTONOMY.md`](../AUTONOMY.md);
+  under an explicit `--auto` launch the contract's level table applies).
 - If the user gives a development task with **no** PyAutoMind prompt path,
   first write a concise prompt under the right `<work-type>/<target>/` folder
   (original request verbatim), then continue with that path.
-- Where a body delegates mechanical execution to a Sonnet subagent, a harness
+- Where a body delegates mechanical execution to an execution-tier subagent, a harness
   without subagents performs the same steps directly, preserving the
   judgment/mechanical split above.
 
