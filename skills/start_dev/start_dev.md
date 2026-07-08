@@ -16,6 +16,7 @@ and the Mind registry paths used below.
 
 ```
 /start_dev <prompt-file-path>          # path relative to PyAutoMind/
+/start_dev <prompt-file-path> --auto   # autonomous mode per ../AUTONOMY.md (see "--auto mode")
 /start_dev z_features/<epic>.md        # audit-only tracker mode (see reference.md)
 ```
 
@@ -27,6 +28,28 @@ Examples: `bug/autofit/factor_graph_instance_iteration.md`,
 If the user gives a development task with **no** prompt path, first write a
 concise prompt file under the right `PyAutoMind/<work-type>/<target>/` folder
 (include the original request verbatim), then continue with that path.
+
+## --auto mode
+
+Only when the human launches with an explicit `--auto` (never ambient — the
+activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
+
+1. Compute the **effective level** = min(prompt `Autonomy:` header, work-type
+   cap from the contract); missing header → `human-required`.
+2. **`safe`** → skip the Plan-Mode hold: write both plan levels into the issue
+   (step 5 below) and proceed straight through steps 4–7 and into
+   `start_library`/`start_workspace` and implementation. The plan the human
+   would have approved is on the issue for post-hoc validation.
+3. **`supervised`** → judgment gates become batched issue questions
+   (checkpoint-and-continue, per the contract); mechanical stretches proceed.
+4. **`human-required`** → `--auto` changes nothing; today's flow.
+5. If the human acknowledged a Heart YELLOW reason set at launch, record that
+   exact list in the task's `active.md` entry (`- heart-ack:` block) — the
+   ship gate's leg 4 reads it; it never extends to new reasons.
+
+Everything downstream (`ship_*` under `--auto`) is gated by the four-leg
+autonomous-ship gate and **ends at PR-open** — merge stays a human act.
+Default runs without the flag are unchanged: present-and-wait.
 
 ## Flow
 

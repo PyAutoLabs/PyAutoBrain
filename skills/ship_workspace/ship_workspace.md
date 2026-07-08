@@ -66,12 +66,21 @@ directly), `gh pr create --label pending-release`, verify the label, and
 cross-reference the upstream library PR if linked. In local-dev delegate to a
 Sonnet subagent; elsewhere run directly. Any failure → stop and report.
 
+**Under `--auto`:** all four legs of the autonomous-ship gate must pass (step
+3 note); ship without interactive sign-off, add the `## Validation checklist`
+to the PR body (`../ship_library/reference.md` → "Validation checklist
+(--auto)"), **stop at PR-open**, append the calibration row to
+`PyAutoMind/autonomy_log.md`, set `active.md` to awaiting-merge. Failed leg →
+park per [`../../AUTONOMY.md`](../../AUTONOMY.md). Step 5's merge is skipped
+entirely — merge stays human.
+
 ### 5. Merge (library-first gate)
 
 Offer to merge (never force). If linked to an upstream library PR, enforce the
 **library-first merge gate** — the library PR must be `MERGED` before the
-workspace PR may merge; refuse otherwise (no `--auto` workaround). See
-[`reference.md`](reference.md) → "Library-first merge gate".
+workspace PR may merge; refuse otherwise (no `gh pr merge --auto`-flag
+workaround — unrelated to the workflow's `--auto` mode, which never merges).
+See [`reference.md`](reference.md) → "Library-first merge gate".
 
 ### 6. Complete the issue + Mind state
 

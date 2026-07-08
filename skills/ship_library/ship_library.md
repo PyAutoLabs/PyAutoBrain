@@ -70,6 +70,16 @@ landed. This is feature-development git work, not a Build/release step. In
 local-dev delegate the mechanical part to a Sonnet subagent; elsewhere run it
 directly. If any step fails, stop and report — do not proceed.
 
+**Under `--auto`:** all four legs of the autonomous-ship gate must pass (step
+3 note); then ship **without interactive sign-off** — the PR body additionally
+carries the `## Validation checklist` section
+([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run
+**stops at PR-open** (merge stays human, always), a calibration row is
+appended to `PyAutoMind/autonomy_log.md`, and `active.md` moves to
+`library-shipped, awaiting-merge`. Any failed leg → park per
+[`../../AUTONOMY.md`](../../AUTONOMY.md): write state to the issue, never
+modify code to make a leg pass, nothing force-shipped.
+
 ### 5. Workspace impact + routing
 
 Analyse downstream workspace impact and present data-driven options — see
@@ -85,6 +95,11 @@ Analyse downstream workspace impact and present data-driven options — see
 
 Comment templates and Mind-state transitions are in [`reference.md`](reference.md)
 → "Issue comments + Mind state".
+
+**Under `--auto`:** run the same analysis but never merge and never offer to —
+post the data-driven recommendation (i/ii/iii, affected scripts) to the issue
+and end the run at PR-open. Routing into `/start_workspace` happens on the
+next human (or queued) launch.
 
 ## Notes
 
