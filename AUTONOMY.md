@@ -131,7 +131,11 @@ calibration, not by optimism.
 
 ## Consumers
 
-Today: **none** — this page is doctrine ahead of implementation, by design.
-Consumption lands with the `PyAutoMind/feature/autonomy/` series: task 4
-(`--auto` through `start_dev → ship_*`), task 5 (checkpoint-and-continue),
-task 7 (queue runner). Skills must link here rather than copying the tables.
+- `start_dev` — `--auto` usage, effective-level computation, plan-to-issue
+  for `safe`, launch-acknowledgement recording (its "--auto mode" section).
+- `ship_library` / `ship_workspace` — the four-leg gate at step 4, stop at
+  PR-open, validation checklist, calibration append.
+- Pending from the `PyAutoMind/feature/autonomy/` series: task 5
+  (checkpoint-and-continue for `supervised`), task 7 (queue runner).
+
+Skills must link here rather than copying the tables.

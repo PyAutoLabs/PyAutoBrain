@@ -52,6 +52,27 @@ See full details below.
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
+## Validation checklist (--auto)
+
+`--auto` runs append this section to the PR body, after the Test Plan — it is
+what the human validates instead of the pre-approval they didn't give:
+
+```markdown
+## Validation checklist (--auto run — plan was not pre-approved)
+- Effective level: safe (header: <level>, cap: <work-type> → <cap>)
+- Plan: on the issue (#<n>), written at start, unmodified since
+- Gate: tests <pass counts / n-a + why> · smoke <result / n-a + why> ·
+  review CLEAN · Heart <GREEN | YELLOW within launch ack>
+- [ ] Human: plan sound in hindsight?
+- [ ] Human: diff matches plan (no scope creep)?
+- [ ] Human: merge, amend, or reject — then log the outcome
+```
+
+After PR-open, append the calibration row (`PyAutoMind/autonomy_log.md`,
+schema in that file's header; outcome starts `parked`/blank and is set at the
+human's merge decision) and push Mind with
+`prompt_sync_push "mind: autonomy_log — <task> at PR-open"`.
+
 ## Execution contract (feature-dev — the mechanical ship step)
 
 This is the dev workflow's own git execution (commit/push/feature-PR), not a
