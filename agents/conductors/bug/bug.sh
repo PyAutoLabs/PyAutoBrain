@@ -47,7 +47,7 @@ as_json=0
 forward=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,45p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p'; exit 0 ;;
     --check-health) check_health=1; shift ;;
     --json) as_json=1; shift ;;
     *) forward+=("$1"); shift ;;
@@ -74,31 +74,33 @@ json_flag=()
 # (2) the durable findings Heart *filed* as GitHub issues. Both feed _bug.py, which
 # classifies each and routes real defects to PyAutoMind/bug/health_fixes/.
 if [[ "${forward[0]}" == "health" ]]; then
-  echo "== bug agent: health-issue mode =="
+  # Diagnostics go to stderr so stdout stays pure (valid JSON under --json).
+  echo "== bug agent: health-issue mode ==" >&2
   verdict="$(consult_vitals_verdict)"
-  echo "   live vitals verdict: $verdict"
+  echo "   live vitals verdict: $verdict" >&2
   issues_json="$(mktemp)"
   trap 'rm -f "$issues_json"' EXIT
   if command -v gh >/dev/null 2>&1; then
-    echo "   scanning filed PyAutoHeart issues: https://github.com/$HEART_ISSUES_REPO/issues"
+    echo "   scanning filed PyAutoHeart issues: https://github.com/$HEART_ISSUES_REPO/issues" >&2
     gh issue list --repo "$HEART_ISSUES_REPO" --state open --limit 50 \
        --json number,title,labels,url > "$issues_json" 2>/dev/null \
        || echo "[]" > "$issues_json"
   else
-    echo "   (gh not available — skipping the filed-issue scan)"
+    echo "   (gh not available — skipping the filed-issue scan)" >&2
     echo "[]" > "$issues_json"
   fi
-  echo
-  exec python3 "$HERE/_bug.py" --mind "$mind" --memory "$memory" \
+  # Run (not exec) so the EXIT trap fires and the temp file is cleaned up.
+  python3 "$HERE/_bug.py" --mind "$mind" --memory "$memory" \
     "${json_flag[@]}" health --verdict "$verdict" --heart-issues "$issues_json"
+  exit $?
 fi
 
 # Optionally annotate a specific/selection decision with the vitals verdict
-# (society-of-agents). This does not gate the decision — it informs it.
+# (society-of-agents). This does not gate the decision — it informs it. Diagnostics
+# go to stderr so a --json run still emits valid JSON on stdout.
 if [[ "$check_health" -eq 1 ]]; then
-  echo "== bug agent: consulting vitals faculty for tree readiness =="
-  echo "   readiness verdict: $(consult_vitals_verdict)"
-  echo
+  echo "== bug agent: consulting vitals faculty for tree readiness ==" >&2
+  echo "   readiness verdict: $(consult_vitals_verdict)" >&2
 fi
 
 exec python3 "$HERE/_bug.py" --mind "$mind" --memory "$memory" \

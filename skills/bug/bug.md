@@ -12,8 +12,8 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    to select the next bug (severity-first). Difficulty/importance constraints:
    `bin/pyauto-brain bug select --difficulty easy | --impact | --model strong`.
 2. **From PyAutoHeart** — run `bin/pyauto-brain bug health`: it reads the live vitals
-   verdict **and** scans the filed PyAutoHeart issues, routing real defects to
-   `PyAutoMind/bug/health_fixes/`.
+   verdict **and** scans the filed PyAutoHeart issues, hinting a category per finding;
+   confirm the real defects and file them under `PyAutoMind/bug/health_fixes/`.
 3. Take the emitted `BugDecision` (classification, **fix locus**, strategy, workflow)
    and continue with **`/start_dev`** on the chosen bug — that carries the branch
    survey, issue creation, and registration.

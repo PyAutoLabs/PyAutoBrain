@@ -21,10 +21,10 @@ reasoning layer can override it — exactly as the difficulty heuristic is.
 | **confidence** | high · medium · low | high when the type is clear and no ambiguity keywords fire; low when the type is `unknown` or the report is exploratory. |
 
 **Signal discipline.** Type signals are specific on purpose: generic words ("workflow",
-"pipeline", "docstring") appear in ordinary science prompts and would mis-type a real
-defect, so they are omitted. When the lists drift, edit `TYPE_SIGNALS` / `TYPE_ORDER` in
-`_bug.py` and this table together — never encode them where the agent re-derives at
-runtime.
+"pipeline") appear in ordinary science prompts and would mis-type a real defect, so they
+are omitted; a specific marker like `docstring` for `docs-error` is kept because it is
+not generic. When the lists drift, edit `TYPE_SIGNALS` / `TYPE_ORDER` in `_bug.py` and
+this table together — never encode them where the agent re-derives at runtime.
 
 ## Fix locus — the targeted response (no autoimmunity)
 
@@ -76,12 +76,13 @@ re-implement a Heart check. `bug.sh health` reads two complementary signals:
    open` (`$PYAUTO_HEART_REPO` overridable). The durable, detailed findings Heart
    authored (e.g. #27 release-fidelity, #19/#7 degraded-health, #10 url-check).
 
-For each finding the agent decides **real-bug / flaky / config / expected** and where the
-fix belongs (affected repo, PyAutoHeart, PyAutoBuild, PyAutoBrain). Real defects become
-`PyAutoMind/bug/health_fixes/<name>.md` prompts and enter the normal workflow; flaky /
-expected findings are left to the Health conductor's loop. Validation after patching is
-always the vitals faculty (`pyauto-heart readiness` GREEN/YELLOW), never a check re-run
-here.
+For each finding `_bug.py` emits a first-pass **category hint** (real-bug / config /
+flaky / expected, from the issue title + labels); the reasoning layer confirms it and
+decides where the fix belongs (affected repo, PyAutoHeart, PyAutoBuild, PyAutoBrain).
+Confirmed real defects become `PyAutoMind/bug/health_fixes/<name>.md` prompts and enter
+the normal workflow; flaky / expected findings are left to the Health conductor's loop.
+Validation after patching is always the vitals faculty (`pyauto-heart readiness` GREEN,
+or acknowledged YELLOW), never a check re-run here.
 
 ## Difficulty & selection (reused, severity-weighted)
 

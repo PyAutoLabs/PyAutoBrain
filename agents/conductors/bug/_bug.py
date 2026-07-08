@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -38,9 +39,14 @@ INFRA_TARGETS = {
     "pyautomind": "PyAutoMind", "pyautomemory": "PyAutoMemory",
 }
 
+# A file path referenced in the prompt (e.g. @PyAutoArray/.../inversion.py, foo.yaml).
+# Used to detect single-file scope.
+FILE_RE = re.compile(r"[\w./@-]+\.(?:py|md|yaml|yml|rst|ipynb|cfg|toml|sh)\b")
+
 # type -> word-boundary-prefix signals (matched with _feature._hits). Signals are
-# deliberately specific: generic words ("workflow", "pipeline", "docstring") appear
-# in ordinary science prompts and would mis-type a real defect, so they are omitted.
+# deliberately specific: generic words ("workflow", "pipeline") appear in ordinary
+# science prompts and would mis-type a real defect, so they are omitted (a specific
+# marker like "docstring" for docs-error is kept — it is not generic).
 TYPE_SIGNALS = {
     "flaky": ["flaky", "intermittent", "non-determin", "race condition", "sometimes fail"],
     "release-error": ["pypi", "wheel", "testpypi", "colab url", "release-block",
@@ -93,12 +99,16 @@ def classify(p: dict, factors: dict) -> dict:
     if factors["repos_affected"] >= 3 and severity in ("low", "medium"):
         severity = "high"
 
-    # scope — from the repo blast radius (single-file only when one repo + one @file).
+    # scope — from the repo blast radius; single-file when ≤1 repo and the prompt
+    # points at exactly one file.
     n = factors["repos_affected"]
+    n_files = len({m.lstrip("@") for m in FILE_RE.findall(text)})
     if n >= 3:
         scope = "ecosystem"
     elif n == 2:
         scope = "multi-repo"
+    elif n_files == 1:
+        scope = "single-file"
     else:
         scope = "single-repo"
 
@@ -209,7 +219,11 @@ def recommended_workflow(p: dict, factors: dict) -> str:
 
 
 def health_validation(workflow: str, factors: dict) -> str:
-    """Which health signals must be GREEN (via the vitals faculty) before shipping."""
+    """Which health signals to confirm via the vitals faculty before shipping.
+
+    The ship gate is GREEN, or YELLOW with explicit acknowledgement (per the
+    ship_* readiness policy) — never a check the Bug Agent re-runs itself.
+    """
     checks = ["unit tests (lib-tests)"] if workflow in ("library", "combined", "infrastructure") else []
     if workflow in ("workspace", "combined"):
         checks.append("workspace/integration validation (test_run)")
@@ -224,11 +238,19 @@ def re_home_check(p: dict) -> str | None:
     if wt != "bug":
         return None
     text = p["text"].lower()
+    # A genuine defect signal keeps it a bug even if other words also fire.
+    defect = F._hits(text, ["bug", "regression", "crash", "traceback", "wrong",
+                            "incorrect", "fail", "exception", "broken"])
     if F._hits(text, ["new feature", "add support for", "implement a new", "capability"]):
         return "feature"
-    if F._hits(text, ["refactor", "restructure", "rename", "clean up", "tidy"]) and \
-            not F._hits(text, ["bug", "regression", "crash", "wrong", "fail"]):
+    if F._hits(text, ["refactor", "restructure", "rename", "clean up", "tidy"]) and not defect:
         return "refactor"
+    if F._hits(text, ["docstring", "tutorial", "typo", "broken link", ".rst",
+                      "documentation"]) and not defect:
+        return "docs"
+    if F._hits(text, ["unclear", "investigate", "explore", "open question",
+                      "not sure", "design decision", "research"]) and not defect:
+        return "research"
     return None
 
 
@@ -275,12 +297,27 @@ def discover_bugs(mind: Path):
     return sorted(bug.rglob("*.md")) if bug.is_dir() else []
 
 
+def _referenced_bug_paths(mind: Path):
+    """Bug prompt paths mentioned in active.md / planned.md (in-flight work).
+
+    The Feature Agent's `_referenced_paths` only matches `feature/…` paths, so the
+    Bug Agent needs its own `bug/…`-aware scan to down-rank work already moving.
+    """
+    refs = set()
+    for n in ("active.md", "planned.md"):
+        f = mind / n
+        if f.is_file():
+            for m in re.findall(r"[\w./-]*bug/[\w./-]+\.md", f.read_text(errors="replace")):
+                refs.add(m.split("PyAutoMind/")[-1].lstrip("/"))
+    return refs
+
+
 SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 def select_bug(mind: Path, constraint: dict, limit: int):
     prompts = [p for p in discover_bugs(mind) if p.name.lower() != "readme.md"]
-    in_flight = F._referenced_paths(mind, "active.md", "planned.md")
+    in_flight = _referenced_bug_paths(mind)
     rows = []
     for path in prompts:
         p = F.parse_prompt(path, mind)
@@ -289,7 +326,7 @@ def select_bug(mind: Path, constraint: dict, limit: int):
         rows.append({
             "path": p["path"], "difficulty": level, "score": score,
             "severity": cls["severity"], "type": cls["type"],
-            "in_flight": (p["path"] in in_flight) or ("bug/" + p["path"] in in_flight),
+            "in_flight": p["path"] in in_flight,
             "factors": factors,
         })
 
@@ -348,6 +385,26 @@ def emit_human(mode: str, d: dict):
     print(f"Next action:          {_next_action(d)}")
 
 
+def hint_heart_category(issue: dict) -> str:
+    """A first-pass category *hint* for a filed PyAutoHeart issue.
+
+    From the issue title + labels only (never re-running a Heart check): one of
+    real-bug / config / flaky / expected. It is a hint the reasoning layer confirms
+    before routing — not an authoritative verdict.
+    """
+    hay = (issue.get("title", "") + " " +
+           " ".join(l.get("name", "") for l in issue.get("labels", []))).lower()
+    if F._hits(hay, ["url-check", "broken", "forbidden url"]):
+        return "config (URL hygiene)"
+    if F._hits(hay, ["flaky", "intermittent", "timeout"]):
+        return "flaky/timeout — confirm before treating as a defect"
+    if F._hits(hay, ["fail", "regression", "error", "not positive", "wrong"]):
+        return "likely real-bug"
+    if F._hits(hay, ["degraded", "health", "readiness"]):
+        return "expected/rollup — triage its child findings, not the umbrella issue"
+    return "unknown — inspect the issue before routing"
+
+
 def emit_health(mode: str, verdict: str, issues: list, mind: Path):
     print("== BugDecision (health-issue mode) ==")
     print(f"Mode:                 {mode}")
@@ -357,13 +414,15 @@ def emit_health(mode: str, verdict: str, issues: list, mind: Path):
     if not issues:
         print("Filed PyAutoHeart issues: none open (or gh unavailable).")
     else:
-        print(f"Filed PyAutoHeart issues ({len(issues)} open) — classify each real-bug / "
-              "flaky / config / expected, then route:")
+        print(f"Filed PyAutoHeart issues ({len(issues)} open) — category hint per finding "
+              "(confirm before routing):")
         for it in issues:
             print(f"  - #{it.get('number')}  {it.get('title','').strip()}")
-    print("Next action:          For each real defect, write a PyAutoMind/bug/health_fixes/"
-          "<name>.md prompt and run start_dev; leave flaky/expected findings for the "
-          "Health conductor. Confirm with the vitals faculty (never query Heart directly).")
+            print(f"      hint: {hint_heart_category(it)}")
+    print("Next action:          For each finding the hint marks a real defect, write a "
+          "PyAutoMind/bug/health_fixes/<name>.md prompt and run start_dev; leave "
+          "flaky/expected findings for the Health conductor. Confirm with the vitals "
+          "faculty (never query Heart directly).")
 
 
 def main(argv=None):
@@ -415,8 +474,11 @@ def main(argv=None):
             except Exception:
                 issues = []
         if a.as_json:
+            enriched = [{"number": it.get("number"), "title": it.get("title"),
+                         "url": it.get("url"), "category_hint": hint_heart_category(it)}
+                        for it in issues]
             print(json.dumps({"mode": "health-issue", "verdict": a.verdict,
-                              "heart_issues": issues}, indent=2))
+                              "heart_issues": enriched}, indent=2))
         else:
             emit_health("health-issue", a.verdict, issues, mind)
         return 0

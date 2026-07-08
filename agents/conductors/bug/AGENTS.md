@@ -68,16 +68,17 @@ so (`rehome_suggestion`) instead of planning a fix.
 ## Health mode — two inputs, one router
 
 The bug can come from PyAutoHeart. `bug.sh health` gathers both signals and hands them
-to `_bug.py`, which classifies each finding **real-bug / flaky / config / expected** and
-decides whether the fix belongs in the affected repo, PyAutoHeart, PyAutoBuild or
-PyAutoBrain:
+to `_bug.py`, which emits a first-pass **category hint** per finding (real-bug / config /
+flaky / expected) that the reasoning layer confirms before deciding whether the fix
+belongs in the affected repo, PyAutoHeart, PyAutoBuild or PyAutoBrain:
 
 1. the **live vitals verdict** — via the vitals faculty (never Heart directly);
 2. the **filed PyAutoHeart issues** — `gh issue list --repo PyAutoLabs/PyAutoHeart`
    (`$PYAUTO_HEART_REPO` overridable), the durable findings Heart authored.
 
-Real defects become `PyAutoMind/bug/health_fixes/<name>.md` prompts (its README already
-cites Heart issue #27); flaky/expected findings are left to the Health conductor.
+Findings hinted as real defects become `PyAutoMind/bug/health_fixes/<name>.md` prompts
+(its README already cites Heart issue #27); flaky/expected findings are left to the
+Health conductor.
 
 > **Boundary with the Health conductor.** The Health conductor drives the assess →
 > triage → dispatch loop toward GREEN — its cut is *validation + recommend, no edit-in
