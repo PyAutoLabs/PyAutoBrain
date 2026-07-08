@@ -1,6 +1,6 @@
 ---
 name: start-dev
-description: Default entry point for PyAutoLabs development tasks, even when the user does not explicitly say start_dev. Use for requests to implement, fix, add, change, refactor, migrate, optimize, document, test, ship, or open a PR for any PyAutoLabs library, workspace, tutorial, build/release, or project-doc task. Creates or reads a PyAutoMind markdown prompt, creates or audits the GitHub issue, classifies library versus workspace work, surveys affected repository branches, generates the implementation plan, and registers the task before edits begin. Do not use for pure questions, reviews, status checks, or explicit workflow opt-outs.
+description: Default entry point for PyAutoLabs development tasks — implement, fix, add, change, refactor, migrate, optimize, document, test, ship, or open a PR — even when the user does not say start_dev. Not for pure questions, reviews, status checks, or explicit workflow opt-outs.
 ---
 
 # Start Dev

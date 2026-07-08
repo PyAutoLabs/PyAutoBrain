@@ -1,6 +1,6 @@
 ---
 name: repo_cleanup
-description: Periodic hygiene sweep across PyAuto libraries, workspaces, and worktrees. Audits for deletable feature branches (local and remote), stale tracking refs, old stashes, dirty checkouts, and worktree mismatches, then executes per-bucket cleanups after user confirmation. Use for end-of-week tidying or when branch lists have grown unwieldy.
+description: Periodic hygiene sweep across PyAuto repos and worktrees — audit stale feature branches, tracking refs, stashes, and dirty checkouts, then execute per-bucket cleanups after confirmation. Use for end-of-week tidying or unwieldy branch lists.
 ---
 
 # Repo Cleanup
