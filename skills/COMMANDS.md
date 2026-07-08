@@ -1,7 +1,7 @@
 # PyAutoBrain command surface — shared reference
 
-The short verb commands (`/feature`, `/build`, `/health`, `/bug`, `/refactor`,
-`/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
+The short verb commands (`/intake`, `/feature`, `/build`, `/health`, `/bug`,
+`/refactor`, `/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
 over the PyAutoBrain router (`bin/pyauto-brain`). This file is the shared context
 every command file points at, so each command body stays a few lines long.
 
@@ -29,6 +29,7 @@ readiness gate, or execution — those belong to the organs.
 
 | Command | Agent | Chain |
 |---------|-------|-------|
+| `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`) |
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoBuild |

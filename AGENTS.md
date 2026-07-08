@@ -112,6 +112,15 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
 
 ### Conductors
 
+- **`agents/conductors/intake/`** — the **conceptive function**: turns raw input
+  (a text-vomit idea, a bug report, an `ideas.md` bullet) into a *formal, grouped,
+  headed* PyAutoMind prompt under `<work-type>/<target>/<name>.md`. Classifies the
+  work-type, resolves the target (incl. the organism repos), consults the sizing
+  faculty for difficulty and **persists** it (plus autonomy/priority) into the
+  prompt header, and emits an `IntakeDecision`. It *files* a prompt; it never
+  starts dev — the step *before* `create_issue`/`start_dev`. Lifecycle:
+  **Conception → Growth**. It reasons + writes a Mind prompt (under `--apply`); it
+  never edits source. (Organism-facing name: *Conception Agent*.)
 - **`agents/conductors/feature/`** — the **growth function**: reasons over
   PyAutoMind `feature/*` intent and decides *how the organism should grow*.
   Selects the next feature task (or plans a named one), estimates difficulty,
@@ -180,6 +189,8 @@ thing only reasons.
 
 ```bash
 bin/pyauto-brain help            # list agents
+bin/pyauto-brain intake "add data cube modelling to autolens"  # conceive: raw text -> a formal Mind prompt (dry-run)
+bin/pyauto-brain intake --apply ideas             # sweep ideas.md into formal prompts
 bin/pyauto-brain feature         # select the best next PyAutoMind feature task
 bin/pyauto-brain feature feature/autofit/sbi.md   # plan a specific feature task
 bin/pyauto-brain build           # consult vitals, then delegate execution to Build
@@ -204,6 +215,7 @@ to the right agent; normal usage never says "PyAutoBrain".
 
 | Command | Routes to | Tier |
 |---------|-----------|------|
+| `/intake` | Intake Agent → files a PyAutoMind prompt (before `start_dev`) | real conductor |
 | `/feature` | Feature Agent → `start_dev` | real conductor |
 | `/bug` | Bug Agent → `start_dev` (health mode → vitals + Heart issues) | real conductor |
 | `/build` | Build Agent → vitals → Heart → PyAutoBuild | real conductor |

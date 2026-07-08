@@ -20,192 +20,30 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
-# --- the PyAutoMind taxonomy (mirrors PyAutoMind/ROUTING.md) -----------------
-# work-type folder -> the kind of work and the recommended re-home when a
-# feature prompt is mis-filed. The Feature Agent helps keep PyAutoMind organised.
-WORK_TYPES = {
-    "feature": "new user-facing or scientific capability",
-    "bug": "incorrect behaviour, crash or regression",
-    "refactor": "internal restructuring, no behaviour change",
-    "docs": "documentation, tutorials, notebooks, examples",
-    "test": "test coverage, smoke tests, validation",
-    "release": "packaging, versions, deployment, readiness",
-    "maintenance": "dependency updates, hygiene, small tech debt",
-    "research": "exploratory scientific/algorithmic investigation",
-    "experiment": "prototype, spike, proof-of-concept",
-    "triage": "classification still unclear",
-}
+# The sizing substrate (prompt parsing, the PyAutoMind taxonomy/vocabulary, and
+# the difficulty heuristic) is a shared read-only faculty consulted by BOTH the
+# Feature Agent and the Intake Agent — one definition, so a difficulty Intake
+# persists is the same number this agent reasons over. See
+# agents/faculties/sizing/_sizing.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "faculties" / "sizing"))
+from _sizing import (  # noqa: E402
+    WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, REPO_ALIASES,
+    KNOWN_REPOS, MEMORY_WIKIS, SCIENCE_KEYWORDS, RISK_KEYWORDS, AMBIGUITY_KEYWORDS,
+    TEST_KEYWORDS, normalise_repo, parse_prompt, estimate_difficulty, _hits, _within,
+)
 
-# Targets that are source *libraries* (work classifies as library vs workspace).
-LIBRARY_REPOS = {
-    "pyautoconf", "pyautofit", "pyautoarray", "pyautogalaxy", "pyautolens",
-    "autoconf", "autofit", "autoarray", "autogalaxy", "autolens",
-}
-# Targets / @-mentions that are workspaces, tutorials or example repos.
-WORKSPACE_REPOS = {
-    "autolens_workspace", "autogalaxy_workspace", "autofit_workspace",
-    "autolens_workspace_test", "autogalaxy_workspace_test", "autofit_workspace_test",
-    "howtolens", "howtogalaxy", "howtofit", "autolens_assistant",
-    "autolens_profiling", "workspaces",
-}
-# Normalise an @-mention or folder name to a canonical key.
-REPO_ALIASES = {
-    "aa": "autoarray", "af": "autofit", "ag": "autogalaxy", "al": "autolens",
-    "pyautoarray": "autoarray", "pyautofit": "autofit", "pyautoconf": "autoconf",
-    "pyautogalaxy": "autogalaxy", "pyautolens": "autolens",
-}
-
-# --- PyAutoMemory sub-wiki routing -------------------------------------------
-# Map target/keywords -> the PyAutoMemory sub-wiki that holds relevant context.
-# Source of truth for the sub-wiki list: PyAutoMemory/index.md.
-MEMORY_WIKIS = {
-    "lensing_wiki": ["lens", "deflection", "source reconstruction", "caustic",
-                     "einstein", "subhalo", "substructure", "time delay",
-                     "cosmography", "shear", "multipole", "mass sheet", "slacs",
-                     "tdcosmo", "h0licow", "macromodel"],
-    "smbh_wiki": ["black hole", "smbh", "binary", "recoil", "nanograv",
-                  "gravitational wave background"],
-    "cti_wiki": ["charge transfer", "cti", "trap", "arctic", "vis calibration"],
-    "methods_wiki": ["bayesian", "sampler", "nautilus", "dynesty", "emcee",
-                     "mcmc", "nested sampling", "likelihood", "jax", "nufft",
-                     "interpolat", "graphical model", "expectation propagation",
-                     "deep learning", "sbi", "simulation based inference",
-                     "probabilistic", "optimis", "gradient", "regularis"],
-    "galaxies_wiki": ["galaxy formation", "bulge", "disk", "morphology", "mge",
-                      "stellar halo", "ifu", "kinematic", "elliptical", "cosmos"],
-}
-# Default sub-wiki to consult per library target when no keyword fires.
+# Default sub-wiki to consult per library target when no keyword fires. Memory
+# routing is the Feature Agent's own concern, so it stays here (the shared
+# science *vocabulary* it keys off — MEMORY_WIKIS — lives in the sizing faculty).
 TARGET_DEFAULT_WIKI = {
     "autolens": "lensing_wiki", "autogalaxy": "galaxies_wiki",
     "autofit": "methods_wiki", "autoarray": "methods_wiki",
     "autoconf": "methods_wiki",
 }
-
-SCIENCE_KEYWORDS = sorted({kw for kws in MEMORY_WIKIS.values() for kw in kws})
-RISK_KEYWORDS = ["api", "breaking", "backwards", "migrat", "deprecat",
-                 "cross-repo", "interface", "refactor", "rename", "public api"]
-AMBIGUITY_KEYWORDS = ["unclear", "investigate", "explore", "research", "decide",
-                      "figure out", "not sure", "tbd", "open question", "design",
-                      "proof of concept", "prototype", "spike", "?"]
-TEST_KEYWORDS = ["test", "smoke", "parity", "jax", "likelihood", "vmap",
-                 "validation", "regression"]
-
-
-def normalise_repo(name: str) -> str:
-    # Take the head token before any '.' or '/': an @-mention may be an API path
-    # (e.g. @aa.decorators.to_vector_yx -> aa) or a repo path, not just a name.
-    key = re.split(r"[./]", name.strip().lstrip("@").lower(), 1)[0]
-    return REPO_ALIASES.get(key, key)
-
-
-KNOWN_REPOS = LIBRARY_REPOS | WORKSPACE_REPOS
-
-
-def parse_prompt(path: Path, mind: Path):
-    """Read a prompt file and extract structure: work-type, target, repos, body."""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    try:
-        rel = path.relative_to(mind)
-        parts = rel.parts
-    except ValueError:
-        parts = path.parts
-    work_type = parts[0] if parts else "?"
-    target = parts[1] if len(parts) > 1 else "?"
-
-    mentions = {normalise_repo(m) for m in re.findall(r"@[A-Za-z0-9._/-]+", text)}
-    # Keep only mentions that resolve to a repo we know — drops project refs
-    # (@z_projects), bare libraries (@jax) and noise, so the repo count is real.
-    repos = {m for m in mentions if m in KNOWN_REPOS}
-    if target not in ("?", "workspaces") and target not in WORK_TYPES:
-        t = normalise_repo(target)
-        if t in KNOWN_REPOS:
-            repos.add(t)
-
-    return {
-        "path": str(path.relative_to(mind)) if _within(path, mind) else str(path),
-        "work_type": work_type,
-        "target": target,
-        "repos": sorted(repos),
-        "text": text,
-        "lines": text.count("\n") + 1,
-        "words": len(text.split()),
-    }
-
-
-def _within(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-        return True
-    except ValueError:
-        return False
-
-
-def _hits(text: str, keywords) -> list:
-    """Keyword hits using word-boundary *prefix* matching.
-
-    A leading \\b stops short tokens ("cti", "api", "mge") matching inside other
-    words ("function", "rapid"), while leaving the end open so stems still fire
-    ("interpolat" -> "interpolation", "migrat" -> "migration").
-    """
-    low = text.lower()
-    out = []
-    for k in keywords:
-        if re.search(r"\b" + re.escape(k), low):
-            out.append(k)
-    return out
-
-
-def estimate_difficulty(p: dict):
-    """Heuristic difficulty estimate -> (level, score, factors).
-
-    Considers: repos affected, prompt size, scientific complexity, architectural
-    risk, test burden, and whether human judgement / memory context is needed.
-    """
-    text = p["text"]
-    lib = [r for r in p["repos"] if r in LIBRARY_REPOS]
-    wsp = [r for r in p["repos"] if r in WORKSPACE_REPOS]
-    repo_count = len(set(p["repos"]))
-    science = _hits(text, SCIENCE_KEYWORDS)
-    risk = _hits(text, RISK_KEYWORDS)
-    tests = _hits(text, TEST_KEYWORDS)
-    ambiguity = _hits(text, AMBIGUITY_KEYWORDS)
-
-    score = 0
-    score += max(0, repo_count - 1) * 2          # multi-repo is the big driver
-    score += 2 if (lib and wsp) else 0           # library+workspace coordination
-    score += min(p["words"] // 150, 4)           # size of the description
-    score += min(len(science), 3)                # scientific complexity
-    score += min(len(risk) * 2, 4)               # architectural risk
-    score += 1 if tests else 0                   # test burden
-    score += 1 if science else 0                 # memory context likely needed
-
-    if score <= 2:
-        level = "small"
-    elif score <= 5:
-        level = "medium"
-    elif score <= 9:
-        level = "large"
-    else:
-        level = "too-large"
-
-    factors = {
-        "repos_affected": repo_count,
-        "library_repos": lib,
-        "workspace_repos": wsp,
-        "library_and_workspace": bool(lib and wsp),
-        "size_words": p["words"],
-        "scientific_complexity": science,
-        "architectural_risk": risk,
-        "test_burden": tests,
-        "human_judgement": ambiguity,
-        "memory_context_required": bool(science),
-    }
-    return level, score, factors
 
 
 def recommend_workflow(p: dict, factors: dict):
@@ -217,10 +55,11 @@ def recommend_workflow(p: dict, factors: dict):
 
     lib = factors["library_repos"]
     wsp = factors["workspace_repos"]
+    org = factors.get("organism_repos") or []
 
     # Re-home suggestions for mis-filed feature prompts.
     rehome = None
-    if factors["human_judgement"] and not (lib or wsp):
+    if factors["human_judgement"] and not (lib or wsp or org):
         rehome = "research"
     if lib and wsp:
         return "combined", rehome
@@ -228,6 +67,11 @@ def recommend_workflow(p: dict, factors: dict):
         return "library", rehome
     if wsp:
         return "workspace", rehome
+    # Organism/infrastructure work (PyAutoBrain/Mind/Heart/Build/Memory) ships
+    # like a library — worktree + PR via start_library. Resolving these stops the
+    # old "(none resolved) -> research-first" mis-route of a `pyautobrain` target.
+    if org:
+        return "library", rehome
     # No repo resolved — most likely needs scoping first.
     return "research", (rehome or "research")
 
@@ -249,7 +93,8 @@ def memory_context(p: dict):
 
 def phase_decision(level: str, factors: dict, p: dict):
     """direct | split-into-phases | research-first | defer, plus phase stubs."""
-    if factors["human_judgement"] and not (factors["library_repos"] or factors["workspace_repos"]):
+    if factors["human_judgement"] and not (factors["library_repos"]
+            or factors["workspace_repos"] or factors.get("organism_repos")):
         return "research-first", []
     if level == "too-large":
         # Phase stubs live in the prompt's own target folder (mirrors the
