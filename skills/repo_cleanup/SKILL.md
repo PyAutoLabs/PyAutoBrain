@@ -28,7 +28,7 @@ execution-environment model: [`../WORKFLOW.md`](../WORKFLOW.md).
 > Until it exists, run the reasoning here per this file and record the agent as a
 > follow-up — the same pattern WORKFLOW.md describes for the other skills.
 
-**Distinct from:** `worktree_status` (Heart read-only diagnostic — consulted here,
+**Distinct from:** `/health worktrees` (Heart read-only diagnostic — consulted here,
 but this also mutates); post-merge cleanup in `CLAUDE.md` (once per shipped task —
 this covers residue when that flow is skipped); the start_dev branch survey
 (task start — this is between-tasks hygiene).
@@ -104,6 +104,6 @@ Format: [`reference.md`](reference.md) → "Recap".
   **never** worktrees — the `ship_*` flow + post-merge cleanup handle those.
 - Skip missing / non-git / detached-HEAD repos with a one-line note.
 - Never skip hooks, never force-push — these are read/prune/delete operations only.
-- Suggest `/worktree_status` first if unsure whether tasks are in flight.
+- Suggest `/health worktrees` first if unsure whether tasks are in flight.
 - Execution-environment fallback (remote-audit-only when there's no local tree)
   is in [`reference.md`](reference.md).
