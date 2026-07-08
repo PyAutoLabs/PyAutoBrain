@@ -39,14 +39,15 @@ readiness gate, or execution — those belong to the organs.
 through the Brain dev-flow with their PyAutoMind work-type fixed. Still through
 the Brain (via `start_dev` → Feature Agent), so nothing is bypassed:
 
-| Command | PyAutoMind work-type | Promotion follow-up |
-|---------|----------------------|---------------------|
-| `/refactor` | `refactor/` | dedicated Refactor conductor |
-| `/docs` | `docs/` | dedicated Documentation conductor |
-| `/research` | `research/` | dedicated Research conductor |
+| Command | PyAutoMind work-type |
+|---------|----------------------|
+| `/refactor` | `refactor/` |
+| `/docs` | `docs/` |
+| `/research` | `research/` |
 
-These are honest interim doors — they do **not** pretend an agent exists that
-doesn't. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
+These are honest doors — they do **not** pretend an agent exists that doesn't,
+and a dedicated conductor is added only on demonstrated need, never for
+symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 
 **3. Router + debug door:**
 

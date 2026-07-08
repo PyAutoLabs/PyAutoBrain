@@ -8,13 +8,11 @@ the individual skill files can stay short.
 
 ## Organ boundary (who owns what)
 
-| Organ | Repo | Owns |
-|-------|------|------|
-| **Mind** | PyAutoMind | Intent + workflow **state**: the prompt registry, `active.md` / `planned.md` / `complete.md`, the work-type taxonomy. *What the organism wants.* |
-| **Memory** | PyAutoMemory | Accumulated **knowledge**: literature, wikis, scientific/architectural context, prior decisions. *What the organism has learned.* |
-| **Brain** | PyAutoBrain | **Reasoning**: task classification, planning, agent selection, phasing, risk judgement. Hosts the specialist agents these skills call. *What to do.* |
-| **Heart** | PyAutoHeart | **Health / readiness**: tests, validation, the GREEN/YELLOW/RED `pyauto-heart readiness` gate. *Is it safe?* |
-| **Hands** | PyAutoBuild | **Release/packaging executor ONLY**: tagging, notebook generation, PyPI publication via `release.yml`. Owns **no** dev-workflow skills. *Do the release.* |
+The organs and boundaries are defined once in
+[`../ORGANISM.md`](../ORGANISM.md). What the workflow skills need to know on
+top of that: Mind owns the workflow **state** (`active.md` / `planned.md` /
+`complete.md`, the prompt taxonomy), and Build owns **no dev-workflow skills**
+— it is the release/packaging executor only.
 
 A workflow skill reasons through **Brain**, gates ship through **Heart**, records
 state in **Mind**, and pulls context from **Memory**. The **dev-workflow's own

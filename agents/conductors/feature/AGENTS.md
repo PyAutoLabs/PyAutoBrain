@@ -1,10 +1,11 @@
 # Feature agent
 
-> **Tier: conductor** — a front-door agent you *drive*. It decides how the
-> organism grows and drives that plan into the dev workflow; it *consults* the
-> read-only vitals faculty (`--check-health`) but never queries Heart directly.
+> **Tier: conductor** — a front-door agent you *drive*. The *Growth Agent*:
+> it decides how the organism grows and drives that plan into the dev
+> workflow; it *consults* the read-only vitals faculty (`--check-health`) but
+> never queries Heart directly.
 
-The **growth function** of PyAutoBrain. It reasons over the feature *intent*
+It reasons over the feature *intent*
 stored in PyAutoMind and decides **how the organism should grow** — which feature
 task to work on, how hard it is, whether it must be phased, what scientific
 context applies, and which development path to take. It does **not** implement
@@ -18,9 +19,6 @@ Mind (PyAutoMind feature/*)  →  Feature Agent  →  start_dev
        consults ↘                    ↙ consults
         vitals faculty            PyAutoMemory (scientific / architectural context)
 ```
-
-> Long term this is the organism-facing **Growth Agent**; *Feature Agent* is the
-> engineering-facing name and the safe first implementation.
 
 ## Fundamental principle
 
