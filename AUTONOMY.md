@@ -39,10 +39,8 @@ Where the dev workflow stops for a human today:
 The difference between `safe` and `supervised` is the ship step and judgment
 gates: `safe` runs end-to-end to an open PR; `supervised` proceeds wherever the
 path is mechanical but converts each judgment gate into a batched question on
-the issue and moves on (**checkpoint-and-continue** — the question is written
-with enough context to answer cold, the task parks as `awaiting-input` in
-`active.md`, and the session advances to the next independent step or task
-rather than blocking).
+the issue and moves on — **checkpoint-and-continue**, defined in its own
+section below.
 
 ## Per-work-type caps
 
@@ -66,6 +64,37 @@ evidence.
   present-and-wait at every checkpoint.
 - Opt-in per invocation, never ambient: no config flag, no environment
   variable, no "remembered" mode.
+
+## Checkpoint-and-continue (`supervised`)
+
+The operational mechanics of the levels-table behaviour, generalised from
+`register_and_iterate`'s proven contract (its "writes a clear question and
+stops … auto-advances between tasks"):
+
+- **Trigger** — any judgment gate the levels table marks as a question for
+  `supervised`: ship sign-off, a scope/design fork the plan didn't settle, an
+  ambiguous classification, a FINDINGS verdict the run cannot resolve
+  mechanically. Mechanical stretches never pause.
+- **The question** — one batched comment per pause on the task's GitHub
+  issue, written to be answerable cold: what was being done, the fork and the
+  options, the run's recommendation, and what happens on each answer. Never a
+  trickle of one-liners (match the conversational issue-update style).
+- **Parking** — set the task's `active.md` entry to `status: awaiting-input`
+  and add `- question: <issue-comment-url>`; push Mind. `active.md` is the
+  shared cross-environment state — no new store, no daemon.
+- **Continue policy** — in order: the next *independent* step of the same
+  task (one whose outcome no pending answer can invalidate); else the next
+  queued task; else end the run cleanly with a summary of every parked
+  question.
+- **Resume** — the human answers on the issue (or relaunches); any
+  environment reads `active.md`, finds `awaiting-input` + the question
+  pointer, and continues from the recorded state.
+- **Hard blockers** are not questions — a thing that cannot work is written
+  up per the prompt's fallback clause and the task parks as blocked, exactly
+  as `register_and_iterate` does today.
+
+Ship sign-off and merge park the *task*, never bypass the gate —
+checkpoint-and-continue frees the human's session, not the checkpoint.
 
 ## The autonomous-ship gate
 
@@ -135,7 +164,9 @@ calibration, not by optimism.
   for `safe`, launch-acknowledgement recording (its "--auto mode" section).
 - `ship_library` / `ship_workspace` — the four-leg gate at step 4, stop at
   PR-open, validation checklist, calibration append.
-- Pending from the `PyAutoMind/feature/autonomy/` series: task 5
-  (checkpoint-and-continue for `supervised`), task 7 (queue runner).
+- `register_and_iterate` — the origin instance of checkpoint-and-continue;
+  its gates now reference the general section here.
+- Pending from the `PyAutoMind/feature/autonomy/` series: task 7 (queue
+  runner).
 
 Skills must link here rather than copying the tables.
