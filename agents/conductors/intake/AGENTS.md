@@ -75,6 +75,7 @@ schema — light structure over free-form prose.
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
 | **dashboard** | `intake dashboard` | render the census as the Mind **backlog** page; `--apply` writes `PyAutoMind/dashboard.md` |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
+| **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs `complete.md` / `issued/`); always read-only — retiring stays human |
 
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
@@ -86,6 +87,14 @@ it derives Difficulty/Autonomy/Priority via the sizing faculty, writes
 Type/Target from the folder, keeps every existing field value and every line of
 prose, and turns work-type disagreements into **re-home suggestions** — it never
 moves or deletes a file.
+
+Reconcile exists because a prompt's `Status:` header is **not** a completeness
+signal — formalise preserves an existing Status verbatim, so shipped work can
+still read `Status: planned`. It cross-references each backlog prompt against
+`complete.md` (path references + `## header` topic overlap), `issued/`
+basenames, and hand-set Status values, then ranks suspects (high/medium/low)
+with the evidence shown. The final verification — the target repo's git log /
+merged PRs — and the retirement itself stay human.
 
 ## Machine sources (one staging surface)
 
@@ -120,6 +129,7 @@ bin/pyauto-brain intake dashboard                                  # backlog pag
 bin/pyauto-brain intake --apply dashboard                          # write PyAutoMind/dashboard.md
 bin/pyauto-brain intake formalise                                  # propose retroactive headers (dry-run)
 bin/pyauto-brain intake --apply formalise bug/                     # write them, only under bug/
+bin/pyauto-brain intake reconcile                                  # rank shipped-but-stale suspects (read-only)
 ```
 
 **Writes only under `--apply`; dry-run is the default.** Exit codes: `0` produced

@@ -587,6 +587,124 @@ def emit_formalise(res: dict):
         print("\n(dry-run — re-run `intake --apply formalise` to write the headers)")
 
 
+# --- reconcile (shipped-but-stale audit) ----------------------------------------
+# A prompt's Status: header is NOT a completeness signal — formalise preserves an
+# existing Status verbatim, so shipped work can still read "Status: planned" (the
+# PyAutoHeart M0-M5 cluster sat exactly like that). Reconcile cross-references
+# the backlog against the Mind's shipped-state records and RANKS suspects for a
+# human to retire. Read-only, always: retiring a prompt (moving it to issued/)
+# stays a human act, and the final verification — the target repo's git log /
+# merged PRs — stays out of scope by design.
+_STOPWORDS = frozenset(
+    "the a an of to in for and or is are be with on by via from into as at it "
+    "this that use using make add new fix update support get set can we i you "
+    "our my need should will when once each all its".split())
+# Wording in a complete.md reference line that marks the prompt as a deferred
+# follow-up (still open) rather than the shipped task itself.
+_FOLLOWUP_WORDS = ("follow", "restore", "parked", "remain", "blocked", "later",
+                   "next step", "next-step", "deferred")
+
+
+def _tokens(s: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9]+", s.lower())
+            if len(w) > 2 and w not in _STOPWORDS}
+
+
+def reconcile(mind: Path, prefix: str = "") -> dict:
+    """Rank backlog prompts that look already-shipped, for a human to retire.
+
+    Four Mind-local signals per prompt: a complete.md line referencing its path
+    (follow-up wording downgrades it), a duplicate basename in issued/, token
+    overlap with a completed task's `## header`, and a hand-set Status the
+    formalise pass deliberately preserved. Never writes anything.
+    """
+    c = census(mind)
+    comp = mind / "complete.md"
+    comp_lines = (comp.read_text(encoding="utf-8", errors="replace").splitlines()
+                  if comp.is_file() else [])
+    headers = [(ln[3:].strip(), _tokens(ln[3:].replace("-", " ")))
+               for ln in comp_lines if ln.startswith("## ")]
+    issued = mind / "issued"
+    issued_names = ({p.name for p in issued.glob("*.md")}
+                    if issued.is_dir() else set())
+
+    suspects = []
+    for r in c["records"]:
+        if prefix and not r["path"].startswith(prefix):
+            continue
+        path = r["path"]
+        base = path.rsplit("/", 1)[-1]
+        sans_wt = path.split("/", 1)[1] if "/" in path else path
+        findings = []
+        score = 0.0
+
+        for ln in comp_lines:
+            if base in ln or sans_wt in ln:
+                kind = ("referenced-followup"
+                        if any(w in ln.lower() for w in _FOLLOWUP_WORDS)
+                        else "referenced")
+                findings.append((kind, ln.strip()))
+
+        if base in issued_names:
+            findings.append(("issued-duplicate", f"issued/{base} already exists"))
+
+        sig = _tokens(base.replace("_", " ")) | _tokens(r["title"])
+        best = (0.0, "", set())
+        for h, ht in headers:
+            if not sig or not ht:
+                continue
+            shared = sig & ht
+            j = len(shared) / len(sig | ht)
+            if (j, len(shared)) > (best[0], len(best[2])):
+                best = (j, h, shared)
+        if best[0] >= 0.40 or len(best[2]) >= 3:
+            score = best[0]
+            findings.append(("topic-overlap",
+                             f"complete.md '## {best[1]}' "
+                             f"(shared: {', '.join(sorted(best[2]))})"))
+
+        if r["status"] not in ("-", "formalised"):
+            findings.append(("stale-status",
+                             f"Status: {r['status']} — hand-set; verify against "
+                             "shipped state"))
+
+        if findings:
+            kinds = {k for k, _ in findings}
+            if "issued-duplicate" in kinds or "referenced" in kinds:
+                conf = "high"
+            elif "topic-overlap" in kinds:
+                conf = "medium"
+            else:
+                conf = "low"       # follow-up reference / stale status only
+            suspects.append({
+                "path": path, "title": r["title"], "confidence": conf,
+                "overlap_score": round(score, 2),
+                "findings": [{"kind": k, "evidence": e} for k, e in findings],
+            })
+
+    order = {"high": 0, "medium": 1, "low": 2}
+    suspects.sort(key=lambda s: (order[s["confidence"]],
+                                 -s["overlap_score"], s["path"]))
+    return {"generated": _dt.date.today().isoformat(), "scanned": c["total"],
+            "suspects": suspects}
+
+
+def emit_reconcile(res: dict):
+    print(f"== Intake reconcile: {len(res['suspects'])} suspect(s) of "
+          f"{res['scanned']} scanned ==")
+    if not res["suspects"]:
+        print("  backlog reconciles clean against complete.md / issued/.")
+    for s in res["suspects"]:
+        print(f"[{s['confidence']:>6}] {s['path']}")
+        for f in s["findings"]:
+            ev = f["evidence"]
+            if len(ev) > 160:
+                ev = ev[:157] + "…"
+            print(f"         {f['kind']}: {ev}")
+    print("\nRetiring a prompt stays human: verify against the target repo's "
+          "git log / merged\nPRs, then move it to issued/ by hand.")
+
+
 # --- ideas.md scanning --------------------------------------------------------
 def scan_ideas(mind: Path):
     """Yield (bullet_text, context_header) for substantive ideas.md lines."""
@@ -679,12 +797,25 @@ def main(argv=None):
                     help="only formalise prompts under this path prefix "
                          "(e.g. bug/)")
 
+    rc = sub.add_parser("reconcile", help="rank backlog prompts that look "
+                                          "already-shipped (always read-only)")
+    rc.add_argument("prefix", nargs="?", default="",
+                    help="only reconcile prompts under this path prefix")
+
     a = ap.parse_args(argv)
     mind = Path(a.mind)
 
     if a.cmd == "formalise":
         res = formalise(mind, prefix=a.prefix, apply=a.apply)
         print(json.dumps(res, indent=2)) if a.as_json else emit_formalise(res)
+        return 0
+
+    if a.cmd == "reconcile":
+        if a.apply:
+            print("intake reconcile is read-only — retiring prompts stays "
+                  "human (--apply ignored).", file=sys.stderr)
+        res = reconcile(mind, prefix=a.prefix)
+        print(json.dumps(res, indent=2)) if a.as_json else emit_reconcile(res)
         return 0
 
     if a.cmd == "census":

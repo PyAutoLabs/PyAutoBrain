@@ -24,6 +24,9 @@
 #   intake formalise [prefix]    retroactively header the backlog prompts the
 #                                census flags (word-vomit is intent, not defect);
 #                                --apply writes the headers in place
+#   intake reconcile [prefix]    rank backlog prompts that look already-shipped
+#                                (vs complete.md / issued/); always read-only —
+#                                retiring a prompt stays human
 #
 # Flags (place before the subcommand; both default OFF):
 #   --apply    write the formal prompt file(s) / dashboard.md; else dry-run only
@@ -45,7 +48,7 @@ apply=0
 forward=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --json) as_json=1; shift ;;
     --apply) apply=1; shift ;;
     *) forward+=("$1"); shift ;;
@@ -61,7 +64,7 @@ fi
 # A bare first token that is not a known subcommand -> classify mode on the rest,
 # so `intake "raw idea"` and `intake --file p.md` both work as the front door.
 case "${forward[0]}" in
-  classify|ideas|census|dashboard|formalise) ;;
+  classify|ideas|census|dashboard|formalise|reconcile) ;;
   *) forward=(classify "${forward[@]}") ;;
 esac
 

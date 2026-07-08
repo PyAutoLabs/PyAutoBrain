@@ -38,6 +38,11 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   fields, inserts them in place with all prose verbatim, reports re-home
   suggestions instead of ever moving files. Dry-run proposes; `--apply` writes
   (then regenerate the dashboard).
+- `bin/pyauto-brain intake reconcile [prefix]` — ranks backlog prompts that
+  look already-shipped (cross-referenced against `complete.md` and `issued/`;
+  a stale hand-set `Status:` is a signal, never proof). Always read-only:
+  verify each suspect against the target repo's git log / merged PRs, then
+  retire it to `issued/` by hand.
 
 ## Boundary
 

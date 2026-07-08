@@ -121,6 +121,17 @@ confidence it emits a *re-home suggestion*; it never moves or deletes a file.
 Optional path-prefix argument scopes the run (`intake formalise bug/`); writes
 only under `--apply` and re-runs are no-ops (nothing left missing).
 
+**reconcile** audits the opposite failure: prompts whose work shipped but whose
+status went stale (a header `Status:` is display metadata — formalise preserves
+an existing value verbatim, so `Status: planned` can outlive the work by
+months). Per backlog prompt it collects four Mind-local signals — a
+`complete.md` line referencing its path (follow-up/restore/parked wording
+downgrades it to likely-open), a duplicate basename in `issued/`, token overlap
+with a completed task's `## header`, and a hand-set Status — then ranks
+suspects high/medium/low with the evidence shown. Always read-only: the final
+verification (target repo git log / merged PRs) and the retirement to
+`issued/` stay human.
+
 ## 7. What intake does NOT own
 
 - The difficulty heuristic, prompt parsing, repo sets → the **sizing faculty**.
