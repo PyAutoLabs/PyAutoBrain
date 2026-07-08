@@ -1,24 +1,19 @@
 #!/usr/bin/env bash
-# agents/release/release.sh — the release agent (a PyAutoBrain reasoning agent).
+# agents/release/release.sh — the release conductor.
 #
-# Call chain: Brain -> Heart (gate) -> Build (execute).
+# Two jobs:
+#   release rehearse|validate      — release-VALIDATION orchestration, this
+#                                    conductor's own machinery (rehearse.sh /
+#                                    validate.sh).
+#   release [--force] [-- <args>]  — the release door: delegates the readiness
+#                                    gate AND execution to the Build Agent's
+#                                    release mode (build.sh --mode release),
+#                                    the single gate implementation. GREEN
+#                                    proceeds, YELLOW needs --force, RED
+#                                    blocks; <args> forward to pre_build.
 #
-#   1. Ask PyAutoHeart for the authoritative readiness verdict.
-#   2. Reason over it: block unless it is green (red = a real blocker;
-#      yellow = caution).
-#   3. On green, delegate to the PyAutoBuild executor (`autobuild pre_build`,
-#      which prepares the workspaces and dispatches release.yml).
-#
-# This agent contains NO health logic and NO release mechanics of its own — it
-# reasons over Heart's verdict and delegates execution to Build. The health
-# decision is Heart's; the work is Build's. The Brain only decides whether and
-# when to proceed.
-#
-# Usage:
-#   release.sh [--force] [-- <args forwarded to `autobuild pre_build`>]
-#
-#   --force   Proceed on a YELLOW verdict (cautions acknowledged). RED always
-#             blocks. Use only when you know what you are doing.
+# This conductor holds no second copy of the gate logic — one gate
+# implementation lives in the Build Agent; this door routes through it.
 
 set -uo pipefail
 
@@ -51,40 +46,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "== release agent: reasoning over pyauto-heart readiness =="
+echo "== release conductor: delegating gate + execution to the Build Agent (release mode) =="
 
-heart="$(resolve_heart)" || exit $?
-
-# Refresh the verdict from a fresh tick so the gate is not stale, then read it.
-"$heart" tick >/dev/null 2>&1 || echo "  (warning: tick failed; using last cached state)" >&2
-
-verdict="$(readiness_verdict)" || { echo "release agent: could not obtain readiness verdict" >&2; exit 1; }
-
-# Show the human-readable readiness block too.
-"$heart" readiness || true
-
-case "$verdict" in
-  green)
-    echo "== readiness GREEN — delegating to PyAutoBuild executor =="
-    ;;
-  yellow)
-    if [[ "$force" -eq 1 ]]; then
-      echo "== readiness YELLOW — proceeding (--force) =="
-    else
-      echo "release agent: readiness is YELLOW (caution). Re-run with --force to proceed." >&2
-      exit 2
-    fi
-    ;;
-  red)
-    echo "release agent: readiness is RED — release blocked. Fix the blockers above." >&2
-    exit 3
-    ;;
-  *)
-    echo "release agent: unknown readiness verdict '$verdict' — refusing to release." >&2
-    exit 4
-    ;;
-esac
-
-autobuild="$(resolve_autobuild)" || exit $?
-echo "== exec: autobuild pre_build ${forward[*]:-} =="
-exec "$autobuild" pre_build "${forward[@]}"
+# One gate implementation, not two: the Build Agent's release mode refreshes
+# health via the vitals faculty, applies GREEN / YELLOW(--force) / RED, and on
+# a pass runs `autobuild pre_build` (which dispatches release.yml).
+args=(--mode release)
+[[ "$force" -eq 1 ]] && args+=(--force)
+exec bash "$HERE/../build/build.sh" "${args[@]}" -- "${forward[@]}"
