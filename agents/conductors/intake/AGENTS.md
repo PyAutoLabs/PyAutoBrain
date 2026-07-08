@@ -1,13 +1,11 @@
 # Intake agent
 
-> **Tier: conductor** — a front-door agent you *drive*. It turns raw input into a
-> formal PyAutoMind prompt and writes it (a side effect in the world), so it is a
-> conductor, not a read-only faculty. It *consults* the read-only sizing faculty
-> for difficulty; it never starts development.
-
-The **conceptive function** of PyAutoBrain. A task is **conceived** here — raw
-stimulus becomes a formed concept the Mind can hold — before the **Growth Agent**
-(the Feature Agent) grows it into code. Lifecycle: **Conception → Growth**.
+> **Tier: conductor** — a front-door agent you *drive*. The *Conception
+> Agent*: it turns raw input into a formal PyAutoMind prompt and writes it (a
+> side effect in the world), so it is a conductor, not a read-only faculty. It
+> *consults* the read-only sizing faculty for difficulty; it never starts
+> development. ("Intake" because its front door takes in *any* raw input —
+> bug, refactor, docs — not just feature ideas.)
 
 It turns raw input — a text-vomit idea, a bug report, an `ideas.md` bullet — into
 a **formal, grouped, headed PyAutoMind prompt** under `<work-type>/<target>/<name>.md`.
@@ -19,10 +17,6 @@ raw input  →  Intake Agent  →  PyAutoMind <work-type>/<target>/<name>.md
       consults ↘
         sizing faculty (difficulty — the same estimate the Feature Agent trusts)
 ```
-
-> Organism-facing name: the **Conception Agent**; *Intake Agent* is the
-> engineering name. "Intake" over "idea" because its front door takes in *any*
-> raw input — bug, refactor, docs — not just feature ideas.
 
 ## Fundamental principle
 

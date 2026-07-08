@@ -1,19 +1,12 @@
 # Bug agent
 
-> **Tier: conductor** — a front-door agent you *drive*. The organism's
-> **immune system**: it recognises a pathogen (a bug, regression, failing test or
-> PyAutoHeart finding), tells it from benign self, types the threat, recalls whether
-> it has met it before, and mounts a *targeted* response — neutralising the defect at
-> its source without harming healthy tissue. It *consults* the read-only vitals
-> faculty (`--check-health`), never queries Heart directly, and never wields the
-> scalpel itself. (Organism-facing name: *Immune Agent*.)
-
-The **immune response** of PyAutoBrain. Where the Feature Agent grows the organism and
-the Health conductor keeps it in homeostasis, the Bug Agent answers a *specific threat*:
-it detects and classifies a defect, tells a real pathogen from benign self (an expected
-failure, a flaky test, a mis-filed feature), consults immune **memory** (PyAutoMemory)
-for prior/recurring/flaky cases, and produces a precise repair plan the `start_dev →
-ship_*` workflow executes. It reasons; it does not edit source.
+> **Tier: conductor** — a front-door agent you *drive*. The *Immune Agent*:
+> it classifies a defect (bug, regression, failing test or PyAutoHeart
+> finding), tells a real defect from benign self (an expected failure, a flaky
+> test, a mis-filed feature), consults PyAutoMemory for prior/recurring cases,
+> and emits a targeted `BugDecision` the `start_dev → ship_*` workflow
+> executes. It *consults* the read-only vitals faculty (`--check-health`),
+> never queries Heart directly, and never edits source itself.
 
 ```
 report / failing test / issue / PyAutoHeart finding

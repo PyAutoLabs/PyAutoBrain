@@ -1,10 +1,8 @@
 # Health agent
 
-> **Tier: conductor** — a front-door agent you *drive*. The organism's
-> clinician; the brain's vagus-nerve link to the Heart. It reads the Heart's
-> pulse (via the read-only **vitals faculty**) and works with you, dispatch by
-> dispatch, to restore the organism to green. Named for what it manages
-> (the organism's *health*), not for an external visitor.
+> **Tier: conductor** — a front-door agent you *drive*. The *clinician*: it
+> reads the Heart's verdict (via the read-only **vitals faculty**) and works
+> with you, dispatch by dispatch, to restore the organism to green.
 
 A PyAutoBrain conductor. Where the **vitals faculty** only *opines* (adopts
 PyAutoHeart's verdict and explains it, read-only), the health conductor **acts**:
