@@ -7,23 +7,41 @@ dispatcher (`PyAutoBuild/bin/autobuild`) and `PyAutoBuild/CLAUDE.md`.
 
 ## Execution capabilities (the Build Agent calls these)
 
-From `autobuild help`:
+From `autobuild help`. **Mode** is the Build Agent allowlist that *may* route
+the capability (`build.sh`); **Consumer today** is who actually drives it now.
+The two diverge for the workspace-run surface — see the note below.
 
-| Capability | What it does | Build Agent mode |
-|------------|--------------|------------------|
-| `pre_build` | Format, regenerate notebooks, push workspaces, then dispatch `release.yml`. | release |
-| `tag_and_merge` | Commit and tag every library repo for a release. | release |
-| `generate_release_notes` | Generate release notes from merged PRs and create GitHub Releases. | release |
-| `create_analysis_issue` | Open a GitHub issue with the release report and assign Copilot. | release |
-| `generate` | Convert a workspace's `scripts/` to `notebooks/`. | build, deploy |
-| `run` | Execute notebooks in a workspace folder. | build |
-| `run_python` | Execute Python scripts in a workspace folder. | build |
-| `run_all` | Run scripts across one or more workspaces, produce summary reports. | build |
-| `script_matrix` | Output a JSON `{name, directory}` matrix for GitHub Actions. | build |
-| `aggregate_results` | Aggregate per-job JSON into a release-readiness report. | build, release |
-| `slow_skip_check` | Surface SLOW / NEEDS_FIX entries in workspace `no_run.yaml`. | build |
-| `repro_command` | Emit the shell command autobuild uses to run one script. | build |
-| `bump_colab_urls` | Rewrite Colab URLs in cwd from an old to a new date-tag. | build, deploy |
+| Capability | What it does | Mode | Consumer today |
+|------------|--------------|------|----------------|
+| `pre_build` | Format, regenerate notebooks, push workspaces, then dispatch `release.yml`. | release | Build Agent (release) · `/pre_build` |
+| `tag_and_merge` | Commit and tag every library repo for a release. | release | release path (release execution) |
+| `generate_release_notes` | Generate release notes from merged PRs and create GitHub Releases. | release | `release.yml` (CI) |
+| `create_analysis_issue` | Open a GitHub issue with the release report and assign Copilot. | release | release path — posts the Heart-run aggregate report |
+| `generate` | Convert a workspace's `scripts/` to `notebooks/`. | build, deploy | Build Agent (deploy) **and** Heart `workspace-validation.yml` |
+| `run` | Execute notebooks in a workspace folder. | build | **Heart** `workspace-validation.yml` |
+| `run_python` | Execute Python scripts in a workspace folder. | build | **Heart** `workspace-validation.yml` · `health_release.sh` |
+| `run_all` | Run scripts across one or more workspaces, produce summary reports. | build | **Heart** `health_release.sh` + readiness checks |
+| `script_matrix` | Output a JSON `{name, directory}` matrix for GitHub Actions. | build | **Heart** `workspace-validation.yml` (CI) |
+| `aggregate_results` | Aggregate per-job JSON into a release-readiness report. | build, release | **Heart** `workspace-validation.yml` (CI) |
+| `slow_skip_check` | Surface SLOW / NEEDS_FIX entries in workspace `no_run.yaml`. | build | `run_all.py` + Heart `test_run` check |
+| `repro_command` | Emit the shell command autobuild uses to run one script. | build | triage (manual handoff) |
+| `bump_colab_urls` | Rewrite Colab URLs in cwd from an old to a new date-tag. | build, deploy | `release.yml` (CI) + deploy |
+
+**Reading the Consumer column — the run\* seam is latent, not active.** The
+capabilities still *exist* and match the `autobuild` dispatcher and the
+`build.sh` allowlists exactly; the *Mode* column remains accurate as the
+allowlist of record. What changed is the driver. The workspace full-run →
+report → issue flow moved **out of `release.yml` into PyAutoHeart's
+`workspace-validation.yml`** (see `PyAutoBuild/docs/internals.md` and the
+`release.yml` comment recording the removed `run_scripts` / `run_notebooks` /
+`analyze_results` jobs). Heart checks these primitives out from Build and reuses
+them directly — calling `run.py` / `run_python.py` / `script_matrix.py` /
+`aggregate_results.py`, **not** `autobuild run_*` and **not** `pyauto-brain build
+run_*`. Nothing invokes `run` / `run_python` / `run_all` through the Build Agent
+today, so their build-mode allowlist entries are a **latent seam** — kept so the
+Build Agent could re-own execution without churn, but **Heart is the live
+consumer**. This is the execution/health boundary the audit below argues for,
+now made visible in the table itself.
 
 Underlying implementation assets the agent never re-owns: `autobuild/run_python.py`,
 `run.py`, `generate.py`, `script_matrix.py`, `aggregate_results.py`,
