@@ -40,8 +40,10 @@ activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
    (step 5 below) and proceed straight through steps 4–7 and into
    `start_library`/`start_workspace` and implementation. The plan the human
    would have approved is on the issue for post-hoc validation.
-3. **`supervised`** → judgment gates become batched issue questions
-   (checkpoint-and-continue, per the contract); mechanical stretches proceed.
+3. **`supervised`** → judgment gates become batched issue questions and the
+   run advances (the contract's "Checkpoint-and-continue" section: question →
+   `awaiting-input` park → next independent step or task → resume from
+   `active.md`); mechanical stretches proceed.
 4. **`human-required`** → `--auto` changes nothing; today's flow.
 5. If the human acknowledged a Heart YELLOW reason set at launch, record that
    exact list in the task's `active.md` entry (`- heart-ack:` block) — the

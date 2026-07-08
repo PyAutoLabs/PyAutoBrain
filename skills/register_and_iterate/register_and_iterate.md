@@ -25,8 +25,11 @@ Prompts are paths relative to `PyAutoMind/`, organised by work type
 
 ## Autonomy contract
 
-Runs without intervention **except** at these gates, where it writes a clear
-question and stops:
+This contract is the origin of, and now an instance of, the general
+**checkpoint-and-continue** mechanics in
+[`../../AUTONOMY.md`](../../AUTONOMY.md) — question format, `awaiting-input`
+parking and resume are defined there, once. Runs without intervention
+**except** at these gates, where it writes a clear question and stops:
 
 1. **Aux/dynamic judgment** on an offending type whose classification is not
    obvious (non-Array attributes, callable state, known-gotcha class).
