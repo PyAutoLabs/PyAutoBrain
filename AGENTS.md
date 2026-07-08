@@ -115,6 +115,12 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   PyAutoHeart readiness verdict and explains it, mapping each reason to its
   capability. The single component that talks to Heart; every conductor
   consults it rather than querying Heart directly. Never dispatches or mutates.
+- **`agents/faculties/review/`** — *reviews the change*: prepares a feature
+  branch's ReviewSurface (diff, commits, risk flags) and defines the procedure
+  by which the reviewing agent maps it to a **CLEAN / FINDINGS / BLOCKED**
+  verdict — the automatic-review leg of the autonomous-ship gate
+  ([`AUTONOMY.md`](AUTONOMY.md)). Dev-workflow ship only: it never opines on
+  release readiness (Heart's, via vitals) and never fixes what it finds.
 
 > **Build Agent vs. the release conductor — resolved.** The Build Agent's
 > release mode owns the **single** readiness-gate + execution path
@@ -145,6 +151,7 @@ bin/pyauto-brain build --dry-run # reason + plan only (emit the BuildDecision)
 bin/pyauto-brain release         # reason about readiness, then release on green
 bin/pyauto-brain health          # (conductor) run the health loop with a human, toward green
 bin/pyauto-brain vitals          # (faculty) one tick + the unified dashboard card (raw read)
+bin/pyauto-brain review --task <name>   # (faculty) a branch's ReviewSurface for the ship gate's review leg
 ```
 
 Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install);
