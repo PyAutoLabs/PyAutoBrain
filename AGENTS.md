@@ -116,6 +116,12 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   leg → re-judge — until Heart goes GREEN. Delegates all dispatch to the
   release conductor. Current scope is *validate + recommend*, checkpointing
   every dispatch; edit-in fixes are an explicit follow-up. (Skeleton.)
+- **`agents/conductors/clone/`** — the *Mitosis Agent* (**design only** — see
+  its `DESIGN.md`; no CLI yet): will reproduce a mature domain assistant
+  (reference: `autolens_assistant`) into a new specialised assistant cell —
+  domain analysis, template-boundary partition, a `CloneDecision` with an
+  exact-clone/sibling/seed question, generation delegated to Build, newborn
+  validation by Heart.
 
 ### Faculties
 
