@@ -29,7 +29,7 @@ prune candidates (`git remote prune --dry-run origin`).
 
 ## Audit worktrees
 
-Reuse `worktree_status` logic (don't duplicate it) to get: every real worktree
+Reuse the `/health worktrees` procedure logic (don't duplicate it) to get: every real worktree
 under `$PYAUTO_WT_ROOT/<task>/<repo>`; which task each belongs to per `active.md`;
 orphan roots; missing roots; dirty/unpushed counts. Collect the set of
 `(repo, branch)` pairs checked out in any worktree — **protected**, excluded from

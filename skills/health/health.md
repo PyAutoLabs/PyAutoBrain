@@ -13,6 +13,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 | `/health check` | One-shot **green-light sweep**: sync each repo's `main`, run library pytest + workspace smoke, report a pass/fail matrix. | `PyAutoHeart/skills/health_sweep/reference.md` |
 | `/health status` | **Active-work dashboard**: what's in flight across the repos (reads `active.md` / `planned.md` / `complete.md`), conflicts, idle repos. | `PyAutoHeart/skills/pyauto-status/reference.md` |
 | `/health full` | **Release-run dashboard**: what the last PyAutoBuild release-prep run produced (per-workspace pass/fail/timing, slowest scripts, failure tracebacks). | `PyAutoHeart/skills/pyauto-status-full/reference.md` |
+| `/health worktrees` | **Worktree/task dashboard**: every task worktree under `~/Code/PyAutoLabs-wt/`, cross-referenced with `active.md` — which parallel tasks are in flight and which repos each holds. | `PyAutoHeart/skills/worktree_status/reference.md` |
 
 ## Do
 
@@ -26,12 +27,14 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
   `PyAutoHeart/skills/pyauto-status/reference.md`.
 - **`/health full`** → follow the release-run dashboard procedure in
   `PyAutoHeart/skills/pyauto-status-full/reference.md`.
+- **`/health worktrees`** → follow the worktree dashboard procedure in
+  `PyAutoHeart/skills/worktree_status/reference.md`.
 
 `/health` is the **only** health command. The former `/health_check`,
-`/pyauto-status`, and `/pyauto-status-full` are retired as top-level commands and
-live on as the `check`, `status`, and `full` legs above — the door is the Brain,
-the procedures are Heart's.
+`/pyauto-status`, `/pyauto-status-full`, and `/worktree_status` are retired as
+top-level commands and live on as the `check`, `status`, `full`, and
+`worktrees` legs above — the door is the Brain, the procedures are Heart's.
 
 On the shell side, the same vocabulary applies: `health` (git-sync dashboard),
-`health release`, and `health audit` (see `PyAutoMind/scripts/health.sh`) — a
+`health release`, and `health audit` (see `PyAutoHeart/scripts/health.sh`) — a
 separate local convenience layer, not this command.
