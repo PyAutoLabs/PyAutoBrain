@@ -24,6 +24,8 @@
 #   pyauto-brain review  [args]   (faculty)   read-only: prepare a branch's ReviewSurface for the
 #                                 ship gate's review leg (verdict is the reviewing agent's)
 #   pyauto-brain memory  [args]   (faculty)   read-only: cited digest over the knowledge surfaces
+#   pyauto-brain samplers [args]  (faculty)   read-only: the SamplerSurface — sampler script tiers,
+#                                 PyAutoFit search catalogue, benchmark record, tier gaps
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Renamed from `pyauto-agent`; the former back-compat shim has been removed now
@@ -49,6 +51,7 @@ declare -A AGENT_SCRIPT=(
   [vitals]="$FACULTIES_DIR/vitals/vitals.sh"
   [review]="$FACULTIES_DIR/review/review.sh"
   [memory]="$FACULTIES_DIR/memory/memory.sh"
+  [samplers]="$FACULTIES_DIR/samplers/samplers.sh"
 )
 declare -A AGENT_DESC=(
   [intake]="Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev)"
@@ -61,11 +64,12 @@ declare -A AGENT_DESC=(
   [vitals]="Read-only: read the Heart's pulse — the PyAutoHeart readiness verdict (consulted by the conductors)"
   [review]="Read-only: prepare the branch ReviewSurface — the reviewing agent maps it to CLEAN/FINDINGS/BLOCKED (the ship gate's review leg)"
   [memory]="Read-only: recall what the organism knows — a cited digest over PyAutoMemory, autolens_assistant and Mind history"
+  [samplers]="Read-only: the motor faculty — SamplerSurface digest over the sampler script tiers, the PyAutoFit search catalogue and the benchmark record"
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
 CONDUCTOR_ORDER=(intake feature bug refactor build release health)
-FACULTY_ORDER=(vitals review memory)
+FACULTY_ORDER=(vitals review memory samplers)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
 cmd_help() {
