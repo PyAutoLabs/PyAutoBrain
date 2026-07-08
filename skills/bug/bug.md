@@ -17,6 +17,16 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 3. Take the emitted `BugDecision` (classification, **fix locus**, strategy, workflow)
    and continue with **`/start_dev`** on the chosen bug — that carries the branch
    survey, issue creation, and registration.
+4. **Finish & reset (per fix).** When a bug reaches a terminal state — shipped
+   (`/ship_*`), parked, or closed — first confirm its durable state is fully
+   externalised: the **GitHub issue** (investigation trail), **PyAutoMind**
+   (`active`/`planned`/`complete`), and **auto-memory** (cross-bug learnings worth
+   carrying forward). Then tell the user it is **safe to `/clear` before the next
+   `/bug`**: the transcript now holds only disposable investigation scratch (file
+   reads, repro runs, tool output), so a fresh session loses nothing and context
+   stays lean across many bugs in one sitting. Claude cannot self-clear — this is a
+   deliberate one-keystroke user step, and the externalised state above is what makes
+   it lossless.
 
 The Bug Agent **reasons; it never edits source**, and its first question is always
 *where the fix belongs*: prefer a general library-source fix, and **never degrade a
