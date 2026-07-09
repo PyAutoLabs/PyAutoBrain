@@ -1,7 +1,7 @@
 # PyAutoBrain command surface — shared reference
 
 The short verb commands (`/intake`, `/feature`, `/build`, `/health`, `/bug`,
-`/refactor`, `/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
+`/refactor`, `/profiling`, `/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
 over the PyAutoBrain router (`bin/pyauto-brain`). This file is the shared context
 every command file points at, so each command body stays a few lines long.
 
@@ -33,6 +33,7 @@ readiness gate, or execution — those belong to the organs.
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/refactor` | Refactor Agent | `bin/pyauto-brain refactor` → `start_dev [--auto]` → `ship_*` (behaviour-preserving; default-safe) |
+| `/profiling` | Profiling Agent | `bin/pyauto-brain profiling` → campaign/ingest/triage plans over the autolens_profiling workspace |
 | `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoBuild |
 | `/health` | Health Agent | `bin/pyauto-brain health` loop → vitals faculty → Heart → GREEN |
 

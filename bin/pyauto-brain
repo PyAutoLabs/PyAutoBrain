@@ -14,6 +14,7 @@
 #
 #   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
 #   pyauto-brain refactor [args]  (conductor) plan behaviour-preserving restructuring (default-safe)
+#   pyauto-brain profiling [args] (conductor) campaign/ingest/triage plans over the profiling workspace
 #   pyauto-brain build   [args]   (conductor) coordinate execution: consult vitals, run Build
 #   pyauto-brain release [args]   (conductor) release door → Build Agent release mode (gate + pre_build)
 #                                 (release rehearse: Stage-2 TestPyPI rehearsal;
@@ -45,6 +46,7 @@ declare -A AGENT_SCRIPT=(
   [feature]="$CONDUCTORS_DIR/feature/feature.sh"
   [bug]="$CONDUCTORS_DIR/bug/bug.sh"
   [refactor]="$CONDUCTORS_DIR/refactor/refactor.sh"
+  [profiling]="$CONDUCTORS_DIR/profiling/profiling.sh"
   [build]="$CONDUCTORS_DIR/build/build.sh"
   [release]="$CONDUCTORS_DIR/release/release.sh"
   [health]="$CONDUCTORS_DIR/health/health.sh"
@@ -58,6 +60,7 @@ declare -A AGENT_DESC=(
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
   [bug]="The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair"
   [refactor]="The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto"
+  [profiling]="The measurement function: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision"
   [build]="Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild"
   [release]="Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation"
   [health]="The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green"
@@ -68,7 +71,7 @@ declare -A AGENT_DESC=(
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
-CONDUCTOR_ORDER=(intake feature bug refactor build release health)
+CONDUCTOR_ORDER=(intake feature bug refactor profiling build release health)
 FACULTY_ORDER=(vitals review memory samplers)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
