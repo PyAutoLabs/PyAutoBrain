@@ -4,7 +4,7 @@
 > `_clone.py`, no `bin/pyauto-brain clone` wiring. This document is the agreed
 > design it will be implemented against; `AGENTS.md` arrives with the
 > implementation. Filed from `PyAutoMind/issued/clone_mitosis_agent.md`
-> (PyAutoBrain #57).
+> (PyAutoBrain #59).
 
 > **Tier: conductor** — a front-door agent you *drive*. Engineering name:
 > **Clone Agent** (CLI: `pyauto-brain clone`). Organism-facing name: **Mitosis
