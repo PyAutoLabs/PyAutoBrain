@@ -129,13 +129,18 @@ applicability rule so "n/a" is a stated fact, never an assumption:
 3. **Review** — review-faculty verdict **CLEAN**
    (`agents/faculties/review/AGENTS.md`). FINDINGS → resolve and re-review, or
    park to a human checkpoint; BLOCKED → park.
-4. **Heart** — verdict **GREEN**, or **YELLOW whose reason set is contained
-   in the set the human acknowledged at launch**. Heart observes organism
-   state, not the branch (the audit confirmed its legs never see feature
-   branches), and chronic staleness reasons would otherwise dead-end all
-   autonomy. The acknowledgement binds to the *exact reason list* at launch,
-   for that launch only — any new reason, or RED, parks the run. Never
-   ambient, never carried across sessions.
+4. **Heart** — verdict **GREEN** or **STALE**, or **YELLOW whose reason set is
+   contained in the set the human acknowledged at launch**. Heart observes
+   organism state, not the branch (the audit confirmed its legs never see
+   feature branches). **STALE** is Heart's freshness tier (evidence missing or
+   expired, nothing known-bad — `PyAutoHeart/heart/readiness.py`): it passes
+   this leg because an evidence gap is organism-scope, not branch-scope, and
+   legs 1–3 gate the branch itself; the PR body lists the stale reasons.
+   Releases are unaffected — they always require GREEN. A verdict from a Heart
+   without the tier behaves as before. For YELLOW, the acknowledgement binds
+   to the *exact reason list* at launch, for that launch only — any new
+   reason, or RED, parks the run. Never ambient, never carried across
+   sessions.
 
 A failed leg downgrades the run to a human checkpoint: state written to the
 issue, nothing force-shipped, never modify code to make a leg pass.
