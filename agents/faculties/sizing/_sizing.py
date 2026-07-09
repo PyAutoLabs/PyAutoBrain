@@ -19,6 +19,13 @@ prompt-parsing primitives and the PyAutoMind taxonomy/vocabulary both agents key
 off (mirrors PyAutoMind/ROUTING.md).
 
 It is intentionally dependency-free (stdlib only) and never writes anything.
+
+Calibration status: reviewed 2026-07-09 against the first 59 rows of
+PyAutoMind/autonomy_log.md (AUTONOMY.md "Calibration review — 2026-07-09").
+The conception heuristics held — zero rejected outcomes; the work-type cap,
+not this estimate, was the binding clamp — so the scoring below is unchanged.
+`too-large` is a routing signal, not a difficulty grade: such prompts go to a
+decomposition pass, never straight to dispatch (intake AGENTS.md).
 """
 from __future__ import annotations
 

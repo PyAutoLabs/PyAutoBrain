@@ -50,12 +50,23 @@ A prompt's header never exceeds its work-type cap. The **effective level** is
 | Work-type | Cap | Why |
 |-----------|-----|-----|
 | `refactor`, `test`, `maintenance` | `safe` | behaviour-preserving by definition; tests + review are a near-complete gate |
-| `feature`, `bug`, `docs` | `supervised` | until the calibration log justifies raising |
+| `feature`, `docs` | `safe` at Difficulty ≤ `medium`; `supervised` at `large` and above | raised 2026-07-09 on calibration evidence (see "Calibration review — 2026-07-09") |
+| `bug` | `supervised` | the log holds too few bug rows to justify raising (graduation rule below) |
 | `research`, `experiment` | `supervised` | output is judgment-shaped |
 | `release` | `human-required` | always; no autonomy level ships a release |
 
 Raising a cap is a doctrine edit to this page and must cite calibration-log
 evidence.
+
+### Graduation and demotion
+
+A cap may rise one level only when the calibration log holds **≥ 10 clean
+rows** for that work-type since the last doctrine edit — *clean* means outcome
+`merged-unchanged`, or `amended` where the amendment was a human-directed
+scope addition rather than a correction of the run's own work — and **zero
+`rejected`** rows over the same window. Any `rejected` row demotes that
+work-type's cap one level immediately, pending a review that cites the row.
+Both directions are dated doctrine edits to the table above, citing rows.
 
 ## Activation
 
@@ -141,6 +152,27 @@ at PR-open (or on parking):
 Outcome ∈ `merged-unchanged` / `amended` / `rejected` / `parked`. This is the
 evidence base for raising or lowering caps — autonomy grows by demonstrated
 calibration, not by optimism.
+
+### Calibration review — 2026-07-09
+
+First review, over 59 rows (2026-07-08 → 2026-07-09): **zero `rejected`**;
+26 runs reached merge — 23 `merged-unchanged`, 3 `amended`, and all three
+amendments were human-directed scope additions mid-run, not corrections of the
+run's own work. All 3 `safe`-level rows (refactors) merged unchanged through
+the four-leg gate. Human ship sign-off added no delta in 23 of 26 merged
+supervised runs — exactly the evidence the caps table anticipated.
+
+Result: `feature` and `docs` raised to `safe` at Difficulty ≤ `medium`. The
+conception heuristic (`infer_autonomy`) already marks large, multi-repo and
+architecturally risky prompts `supervised`, so the work-type cap was the
+binding clamp for small/medium single-repo work; raising it makes the
+already-conservative header effective. `bug` stays `supervised` — the window
+holds almost no pure bug rows.
+
+One constant across all 59 rows: Heart never read GREEN — every shipped run
+went out on an acked YELLOW. That is ack-fatigue risk, addressed by making
+Heart's verdict distinguish stale evidence from bad evidence (the freshness
+tier), never by weakening leg 4.
 
 ## Hard invariants (every level, no exceptions)
 
