@@ -1,7 +1,8 @@
 # Profiling agent
 
-> **Tier: conductor** — a front-door agent you *drive*. The *Measurement
-> Agent*: it owns the organism's performance-data lifecycle, with
+> **Tier: conductor** — a front-door agent you *drive*. The *proprioceptive
+> function* — the organism's sense of its own effort: it owns the
+> performance-data lifecycle, with
 > `autolens_profiling` as its workspace. It consults the read-only vitals
 > faculty like every conductor and reads Heart's `profiling_drift` leg state;
 > it never dispatches Heart and never edits source — it reasons and emits a

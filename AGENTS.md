@@ -100,9 +100,10 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   formalises). The first conductor whose normal `--auto` mode is **`safe`**
   (the `refactor` work-type cap in [`AUTONOMY.md`](AUTONOMY.md)). Reuses the
   Feature Agent's core by import.
-- **`agents/conductors/profiling/`** — the *Measurement Agent*: owns the
-  organism's performance-data lifecycle with `autolens_profiling` as its
-  workspace. Three modes — `campaign` (diff the sweep grid against the
+- **`agents/conductors/profiling/`** — the *proprioceptive function*: the
+  organism's sense of its own effort. Heart reads the vitals at rest; this
+  agent runs the stress test — it owns the performance-data lifecycle with
+  `autolens_profiling` as its workspace. Three modes — `campaign` (diff the sweep grid against the
   results tree, emit the tier's dispatch plan under the CPU-usability
   policy), `ingest` (fresh probe JSONs → vram-table/pin/baseline plan) and
   `triage` (classify Heart's `profiling_drift` findings: stale pin → re-pin;

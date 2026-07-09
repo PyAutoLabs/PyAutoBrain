@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # agents/conductors/profiling/profiling.sh — the Profiling Agent (a PyAutoBrain
-# reasoning conductor). The measurement function.
+# reasoning conductor). The proprioceptive function — the organism's sense
+# of its own effort.
 #
 # Owns the organism's performance-data lifecycle with autolens_profiling as
 # its workspace: diffs the campaign grid against the results tree and emits

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """agents/conductors/profiling/_profiling.py — core for the Profiling Agent.
 
-The Profiling Agent is the *measurement function* of PyAutoBrain: it owns the
+The Profiling Agent is the *proprioceptive function* of PyAutoBrain — the
+organism's sense of its own effort. It owns the
 performance-data lifecycle of the organism, with `autolens_profiling` as its
 workspace. It reasons over the campaign grid, the probe/batch tables, the
 results tree and the pinned-value drift surface, and emits a structured
