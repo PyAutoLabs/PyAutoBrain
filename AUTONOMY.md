@@ -33,7 +33,7 @@ Where the dev workflow stops for a human today:
 | Heart YELLOW | park, unless the reason set was human-acknowledged at launch (see the autonomous-ship gate) | same as `safe` | present + wait |
 | Heart RED | stop, report | stop, report | stop, report |
 | Merge / close | human, always | human, always | human, always |
-| Version ask | n/a — release is always `human-required` | n/a | ask |
+| Version ask | n/a — release stays `human-required` (sole exception: the scheduled-nightly standing grant, dated below) | n/a | ask |
 | Cleanup | proceed + log | proceed + log | confirm |
 
 The difference between `safe` and `supervised` is the ship step and judgment
@@ -53,7 +53,7 @@ A prompt's header never exceeds its work-type cap. The **effective level** is
 | `feature`, `docs` | `safe` at Difficulty ≤ `medium`; `supervised` at `large` and above | raised 2026-07-09 on calibration evidence (see "Calibration review — 2026-07-09") |
 | `bug` | `supervised` | the log holds too few bug rows to justify raising (graduation rule below) |
 | `research`, `experiment` | `supervised` | output is judgment-shaped |
-| `release` | `human-required` | always; no autonomy level ships a release |
+| `release` | `human-required` | always, for manual and agent-initiated releases; the **sole** exception is the scheduled-nightly standing grant below (2026-07-09) |
 
 Raising a cap is a doctrine edit to this page and must cite calibration-log
 evidence.
@@ -67,6 +67,36 @@ scope addition rather than a correction of the run's own work — and **zero
 `rejected`** rows over the same window. Any `rejected` row demotes that
 work-type's cap one level immediately, pending a review that cites the row.
 Both directions are dated doctrine edits to the table above, citing rows.
+
+### The scheduled-nightly standing grant — 2026-07-09
+
+The human decided (2026-07-09, recorded in
+[PyAutoBuild#127](https://github.com/PyAutoLabs/PyAutoBuild/issues/127)) that
+the **scheduled nightly release path** is human-pre-authorised as a standing
+grant: once armed, nightly runs perform full live PyPI releases unattended,
+with no per-release human approval. This is a deliberate, dated, scoped
+exception to the release cap above — not a weakening of it.
+
+**Scope — the grant attaches to the schedule, not to the pipeline:**
+
+- It covers exactly the scheduled nightly driver defined in
+  `PyAutoBuild/docs/nightly_release_design.md`: activity-gated (quiet nights
+  skip, loudly), Heart-GREEN-gated (STALE/YELLOW/RED stop the run — on this
+  path YELLOW is never acknowledged by anyone; there is no force input), and
+  kill-switchable (the `NIGHTLY_RELEASES` repo var).
+- **Manual and agent-initiated releases remain `human-required`, unchanged.**
+  No agent may dispatch or invoke the nightly path to route a release around
+  a human — a release wanted *now* is a manual release and takes the human
+  gate.
+- `pre_build`'s minor-version ask is automated on this path only (the date
+  scheme derives it, `YYYY.M.D.1`); the interactive ask is unchanged for
+  manual releases.
+- The human's role on this path: the kill switch, responding to pages
+  (any stop/red/anomaly notifies), and reviewing the morning digest of what
+  shipped.
+
+Revoking the grant is one act (unset `NIGHTLY_RELEASES`) and needs no
+doctrine edit; removing this section is the doctrine edit that retires it.
 
 ## Activation
 
@@ -183,6 +213,10 @@ tier), never by weakening leg 4.
 
 - **Merge and issue-close are human acts.** An explicit future flag may extend
   autonomy to merge; it does not exist and must not be assumed.
+- **Releases are human acts, with one dated exception.** The scheduled-nightly
+  standing grant (2026-07-09, above) is the only path that ships a release
+  without a per-release human; it is activity-gated, Heart-GREEN-gated and
+  kill-switchable. Every other release is `human-required`.
 - **Autonomous runs end at PR-open**, with the PR body carrying the plan, the
   review verdict, test/smoke counts, and a validation checklist.
 - **Never modify code to make tests or smoke tests pass.**
