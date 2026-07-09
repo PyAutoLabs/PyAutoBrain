@@ -1,0 +1,75 @@
+name: Nightly Release
+
+# The scheduled-nightly release driver (PyAutoBuild/docs/nightly_release_design.md
+# §3) — the ONLY path authorised to ship a live PyPI release without a
+# per-release human, under PyAutoBrain/AUTONOMY.md's standing grant (2026-07-09).
+#
+# This workflow is a scheduler, nothing more: all sequencing, gating and
+# notification logic lives in agents/conductors/release/nightly.sh (testable
+# locally via `pyauto-brain release nightly`). Scheduling authority moved HERE
+# from PyAutoBuild's release.yml (whose cron was removed in the same change) —
+# Build executes releases, it does not decide when.
+#
+# Arming (design §9, all human acts, in order):
+#   1. the next manual live release succeeds end-to-end;
+#   2. PyAutoBuild#126 closed / de-labelled (`release-blocker`);
+#   3. a dry_run=true nightly observed GREEN end-to-end;
+#   4. set the repo Actions variable NIGHTLY_RELEASES=true and flip the
+#      DRY_RUN default below from 'true' to 'false'.
+# Pausing forever after is one act: unset NIGHTLY_RELEASES.
+
+on:
+  schedule:
+    # Every night: quiet nights exit at the activity gate in seconds, so
+    # weekend scheduling costs nothing and weekend merges release on time.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true = run every gate but log instead of dispatching the live release"
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+
+permissions:
+  contents: read
+
+# One night at a time; a manual dispatch queues behind a scheduled run rather
+# than racing it (two live releases of the same date must be impossible).
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    # Rehearsal (~1h) + release-fidelity integration (~2h) + live release (~1.5h).
+    timeout-minutes: 350
+    steps:
+      - name: Checkout PyAutoBrain
+        uses: actions/checkout@v4
+
+      - name: Checkout PyAutoHeart (sibling — resolve_heart finds it via PYAUTO_ROOT)
+        uses: actions/checkout@v4
+        with:
+          repository: PyAutoLabs/PyAutoHeart
+          path: PyAutoHeart
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML (Heart's only dependency)
+        run: pip install --quiet pyyaml
+
+      - name: Run the nightly driver
+        env:
+          GH_TOKEN: ${{ secrets.PAT_PYAUTOLABS }}
+          PYAUTO_RELEASE_WEBHOOK_URL: ${{ secrets.PYAUTO_RELEASE_WEBHOOK_URL }}
+          NIGHTLY_RELEASES: ${{ vars.NIGHTLY_RELEASES }}
+          # Scheduled runs have no inputs: default 'true' (dry-run) until the
+          # arming checklist flips this literal to 'false' (design §9).
+          DRY_RUN: ${{ inputs.dry_run || 'true' }}
+          PYAUTO_ROOT: ${{ github.workspace }}
+        run: bash agents/conductors/release/nightly.sh
