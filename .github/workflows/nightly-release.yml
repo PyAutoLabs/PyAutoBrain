@@ -16,7 +16,11 @@ name: Nightly Release
 #   3. a dry_run=true nightly observed GREEN end-to-end;
 #   4. set the repo Actions variable NIGHTLY_RELEASES=true and flip the
 #      DRY_RUN default below from 'true' to 'false'.
-# Pausing forever after is one act: unset NIGHTLY_RELEASES.
+# ARMED 2026-07-09 (human-directed, PyAutoBuild#127): the manual live release
+# 2026.7.9.1 succeeded and the human flipped the default the same day —
+# checklist steps 2-3 were consciously waived; open release-blocker issues
+# (e.g. PyAutoBuild#126) still stop every night at step 3 until closed or
+# de-labelled. Pausing is one act: unset NIGHTLY_RELEASES.
 
 on:
   schedule:
@@ -29,7 +33,7 @@ on:
         description: "true = run every gate but log instead of dispatching the live release"
         type: choice
         options: ["true", "false"]
-        default: "true"
+        default: "false"
 
 permissions:
   contents: read
@@ -68,8 +72,8 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT_PYAUTOLABS }}
           PYAUTO_RELEASE_WEBHOOK_URL: ${{ secrets.PYAUTO_RELEASE_WEBHOOK_URL }}
           NIGHTLY_RELEASES: ${{ vars.NIGHTLY_RELEASES }}
-          # Scheduled runs have no inputs: default 'true' (dry-run) until the
-          # arming checklist flips this literal to 'false' (design §9).
-          DRY_RUN: ${{ inputs.dry_run || 'true' }}
+          # Scheduled runs have no inputs: default 'false' — ARMED 2026-07-09
+          # (design §9; the kill switch is the NIGHTLY_RELEASES repo var).
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
           PYAUTO_ROOT: ${{ github.workspace }}
         run: bash agents/conductors/release/nightly.sh
