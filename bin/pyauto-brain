@@ -18,7 +18,8 @@
 #   pyauto-brain build   [args]   (conductor) coordinate execution: consult vitals, run Build
 #   pyauto-brain release [args]   (conductor) release door → Build Agent release mode (gate + pre_build)
 #                                 (release rehearse: Stage-2 TestPyPI rehearsal;
-#                                  release validate: full Stages 0-3 orchestrator)
+#                                  release validate: full Stages 0-3 orchestrator;
+#                                  release nightly: the scheduled-nightly driver)
 #   pyauto-brain health  [args]   (conductor) the organism's clinician: run the health
 #                                 loop with a human, dispatch by dispatch, toward green
 #   pyauto-brain vitals  [args]   (faculty)   read-only: read the Heart's pulse (the verdict)
@@ -62,7 +63,7 @@ declare -A AGENT_DESC=(
   [refactor]="The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto"
   [profiling]="The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision"
   [build]="Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild"
-  [release]="Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation"
+  [release]="Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation; 'release nightly' is the scheduled-nightly driver"
   [health]="The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green"
   [vitals]="Read-only: read the Heart's pulse — the PyAutoHeart readiness verdict (consulted by the conductors)"
   [review]="Read-only: prepare the branch ReviewSurface — the reviewing agent maps it to CLEAN/FINDINGS/BLOCKED (the ship gate's review leg)"

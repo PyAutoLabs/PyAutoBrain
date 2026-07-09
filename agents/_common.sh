@@ -91,15 +91,24 @@ _agents_dir() {
 # faculty was renamed health -> vitals, and the loop conductor took the name
 # `health`.)
 #
-#   --refresh   ask the vitals faculty to refresh Heart's state first (a fresh
-#               gate); release-grade work uses this, ordinary build work does not.
+#   --refresh     ask the vitals faculty to refresh Heart's state first (a fresh
+#                 gate); release-grade work uses this, ordinary build work does not.
+#   --profile P   evaluate under a readiness evidence profile (e.g. `release-ci`
+#                 for the scheduled-nightly gate — heart/readiness.py "Profiles").
 #
 # Echoes one of: green | yellow | red | unknown. Never fails the caller — an
 # unresolvable/again-unknown verdict is reported as "unknown" (treated as YELLOW
 # by callers), never silently as green.
 consult_vitals_verdict() {
-  local refresh=0
-  [[ "${1:-}" == "--refresh" ]] && refresh=1
+  local refresh=0 profile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --refresh) refresh=1; shift ;;
+      --profile) profile="$2"; shift 2 ;;
+      --profile=*) profile="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
   local vitals
   vitals="$(_agents_dir)/faculties/vitals/vitals.sh"
   if [[ ! -f "$vitals" ]]; then
@@ -113,8 +122,10 @@ consult_vitals_verdict() {
   # `set -o pipefail`, under which a non-zero exit from the (possibly
   # Heart-less) vitals faculty would otherwise double-fire a fallback. The python
   # below always prints exactly one token, even on empty/garbage input.
+  local args=(readiness --json)
+  [[ -n "$profile" ]] && args+=(--profile "$profile")
   local out
-  out="$(bash "$vitals" readiness --json 2>/dev/null | python3 -c '
+  out="$(bash "$vitals" "${args[@]}" 2>/dev/null | python3 -c '
 import json, sys
 try:
     v = json.load(sys.stdin).get("verdict", "unknown")
