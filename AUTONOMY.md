@@ -50,12 +50,23 @@ A prompt's header never exceeds its work-type cap. The **effective level** is
 | Work-type | Cap | Why |
 |-----------|-----|-----|
 | `refactor`, `test`, `maintenance` | `safe` | behaviour-preserving by definition; tests + review are a near-complete gate |
-| `feature`, `bug`, `docs` | `supervised` | until the calibration log justifies raising |
+| `feature`, `docs` | `safe` at Difficulty ≤ `medium`; `supervised` at `large` and above | raised 2026-07-09 on calibration evidence (see "Calibration review — 2026-07-09") |
+| `bug` | `supervised` | the log holds too few bug rows to justify raising (graduation rule below) |
 | `research`, `experiment` | `supervised` | output is judgment-shaped |
 | `release` | `human-required` | always; no autonomy level ships a release |
 
 Raising a cap is a doctrine edit to this page and must cite calibration-log
 evidence.
+
+### Graduation and demotion
+
+A cap may rise one level only when the calibration log holds **≥ 10 clean
+rows** for that work-type since the last doctrine edit — *clean* means outcome
+`merged-unchanged`, or `amended` where the amendment was a human-directed
+scope addition rather than a correction of the run's own work — and **zero
+`rejected`** rows over the same window. Any `rejected` row demotes that
+work-type's cap one level immediately, pending a review that cites the row.
+Both directions are dated doctrine edits to the table above, citing rows.
 
 ## Activation
 
@@ -118,13 +129,18 @@ applicability rule so "n/a" is a stated fact, never an assumption:
 3. **Review** — review-faculty verdict **CLEAN**
    (`agents/faculties/review/AGENTS.md`). FINDINGS → resolve and re-review, or
    park to a human checkpoint; BLOCKED → park.
-4. **Heart** — verdict **GREEN**, or **YELLOW whose reason set is contained
-   in the set the human acknowledged at launch**. Heart observes organism
-   state, not the branch (the audit confirmed its legs never see feature
-   branches), and chronic staleness reasons would otherwise dead-end all
-   autonomy. The acknowledgement binds to the *exact reason list* at launch,
-   for that launch only — any new reason, or RED, parks the run. Never
-   ambient, never carried across sessions.
+4. **Heart** — verdict **GREEN** or **STALE**, or **YELLOW whose reason set is
+   contained in the set the human acknowledged at launch**. Heart observes
+   organism state, not the branch (the audit confirmed its legs never see
+   feature branches). **STALE** is Heart's freshness tier (evidence missing or
+   expired, nothing known-bad — `PyAutoHeart/heart/readiness.py`): it passes
+   this leg because an evidence gap is organism-scope, not branch-scope, and
+   legs 1–3 gate the branch itself; the PR body lists the stale reasons.
+   Releases are unaffected — they always require GREEN. A verdict from a Heart
+   without the tier behaves as before. For YELLOW, the acknowledgement binds
+   to the *exact reason list* at launch, for that launch only — any new
+   reason, or RED, parks the run. Never ambient, never carried across
+   sessions.
 
 A failed leg downgrades the run to a human checkpoint: state written to the
 issue, nothing force-shipped, never modify code to make a leg pass.
@@ -141,6 +157,27 @@ at PR-open (or on parking):
 Outcome ∈ `merged-unchanged` / `amended` / `rejected` / `parked`. This is the
 evidence base for raising or lowering caps — autonomy grows by demonstrated
 calibration, not by optimism.
+
+### Calibration review — 2026-07-09
+
+First review, over 59 rows (2026-07-08 → 2026-07-09): **zero `rejected`**;
+26 runs reached merge — 23 `merged-unchanged`, 3 `amended`, and all three
+amendments were human-directed scope additions mid-run, not corrections of the
+run's own work. All 3 `safe`-level rows (refactors) merged unchanged through
+the four-leg gate. Human ship sign-off added no delta in 23 of 26 merged
+supervised runs — exactly the evidence the caps table anticipated.
+
+Result: `feature` and `docs` raised to `safe` at Difficulty ≤ `medium`. The
+conception heuristic (`infer_autonomy`) already marks large, multi-repo and
+architecturally risky prompts `supervised`, so the work-type cap was the
+binding clamp for small/medium single-repo work; raising it makes the
+already-conservative header effective. `bug` stays `supervised` — the window
+holds almost no pure bug rows.
+
+One constant across all 59 rows: Heart never read GREEN — every shipped run
+went out on an acked YELLOW. That is ack-fatigue risk, addressed by making
+Heart's verdict distinguish stale evidence from bad evidence (the freshness
+tier), never by weakening leg 4.
 
 ## Hard invariants (every level, no exceptions)
 

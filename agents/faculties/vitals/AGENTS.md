@@ -68,8 +68,12 @@ faculty every cycle.)
    ```bash
    pyauto-heart readiness --json
    ```
-   This returns `{ verdict, score, red_reasons[], yellow_reasons[], ts }`. The
-   `verdict` is Heart's decision — adopt it; do not re-derive it from raw checks.
+   This returns `{ verdict, score, red_reasons[], yellow_reasons[],
+   stale_reasons[], ts }`. The `verdict` is Heart's decision — adopt it; do not
+   re-derive it from raw checks. Verdicts are GREEN / STALE / YELLOW / RED;
+   STALE is the freshness tier (evidence missing or expired, nothing
+   known-bad — remedy is re-running the named checks). A verdict from an older
+   Heart without `stale_reasons` behaves as before (the tier is additive).
    If the command is unavailable, fall back to the persisted
    `~/.pyauto-heart/release_ready.json`; if neither exists, the verdict is
    **unknown -> treat as YELLOW** and recommend running `pyauto-heart tick`.

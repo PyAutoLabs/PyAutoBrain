@@ -60,6 +60,16 @@ Proposed path · Header (the block written verbatim) · Risks · Next action
   (`low|normal|high`) — the "can an agent safely handle this?" and "how urgent?"
   inputs, written into the header.
 
+**`too-large` means decompose, never dispatch.** A prompt sized `too-large` is
+not an executable unit of work — no conductor takes it to `start_dev` directly.
+The route is a decomposition pass first: rewrite it as a sequenced series of
+`small`/`medium` prompts, each with concrete acceptance criteria and stated
+dependencies on its predecessors (the psf-oversampling series is the model:
+one too-large idea → 8 phased prompts, all shipped). The original prompt
+becomes the series' tracker or is retired. Decomposition is planning judgment —
+it stays with the strongest available model; the resulting phases are what the
+cheaper execution models run.
+
 ## The header — extend the blessed convention, never YAML
 
 Writes the light header PyAutoMind blesses (`README.md` "Prompt file format"),

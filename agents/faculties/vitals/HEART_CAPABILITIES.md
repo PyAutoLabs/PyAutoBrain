@@ -8,7 +8,7 @@ reimplement inside Brain.
 
 - `pyauto-heart tick` — refreshes the cached health snapshot.
 - `pyauto-heart status` — renders the cached state.
-- `pyauto-heart readiness` — emits the authoritative GREEN / YELLOW / RED gate.
+- `pyauto-heart readiness` — emits the authoritative GREEN / STALE / YELLOW / RED gate.
 - `pyauto-heart readiness --json` — machine-readable gate for agents/scripts.
 - `pyauto-heart dashboard [--oneline|--md|--html|--json|--badge]` — the ONE
   unified health board (verdict + every check + release-validation state); reads
@@ -47,7 +47,8 @@ reimplement inside Brain.
   `validation_report.json` (`~/.pyauto-heart/validation_report.json`).
 - The report is a **hard readiness gate**: GREEN-for-release requires a fresh
   passing report whose `commit_shas` match the current `main` HEADs under the
-  `release` profile; absent/stale/SHA-mismatch/wrong-profile → YELLOW; a failed
+  `release` profile; absent/stale/SHA-mismatch/wrong-profile → STALE (an evidence gap: re-run
+  the rehearsal, don't fix code); a failed
   stage → RED. It is exposed as the `validate` capability + `validation_report`
   signal in Heart's `health_agent/capabilities.yaml`.
 - **Heart is ingest-and-judge only** — it never dispatches `release.yml` or
@@ -102,8 +103,13 @@ logic, migrate that logic to PyAutoHeart and leave only delegation in PyAutoBuil
 
 - GREEN: Heart reports no blocking or cautionary issues. Build may proceed
   automatically if the calling agent requested execution.
-- YELLOW: Heart reports warnings or unknowns. Work may proceed, but human review
-  is recommended before release/deployment.
+- STALE: the freshness tier — nothing known-bad, but named evidence is missing
+  or expired. **Releases still require GREEN**: recommend re-running the named
+  checks (never code fixes), then re-read. The dev-ship gate (`AUTONOMY.md`
+  leg 4) treats STALE as passing — evidence gaps are organism-scope, not
+  branch-scope.
+- YELLOW: Heart reports warnings on current evidence. Work may proceed, but
+  human review is recommended before release/deployment.
 - RED: Heart reports blocking issues. Build must not proceed automatically.
 
 The vitals faculty may explain, rank, and recommend actions from Heart output, but
