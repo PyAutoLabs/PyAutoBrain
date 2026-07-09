@@ -64,6 +64,33 @@ Exit codes: `0` surface produced · `4` no reviewable diff / could not resolve �
 `5` bad usage. The script never exits non-zero for *findings* — findings are
 the agent's judgment, not the script's.
 
+## Recurring-defect rubric (organism-specific)
+
+Checked on every review, alongside the generic correctness pass. These are the
+defects that have actually recurred in this stack — each earned its line;
+operational mechanics live in [`../../../skills/OPERATIONS.md`](../../../skills/OPERATIONS.md).
+
+- **Silent `None`-guards.** A guard that swallows bad input hides the bug —
+  the fix belongs at the producer; bad data must crash loudly. Flag any new
+  `if x is None: return …` that papers over an upstream defect.
+- **JAX in library unit tests.** Library test suites are numpy-only; cross-xp
+  checks live in the `*_workspace_test` repos. Flag any `import jax` (or
+  jax-only fixture) added under a library's `test_*` tree.
+- **Misplaced guard tests.** Install/smoke/cross-package JAX guards do not go
+  in library test dirs — they belong in `workspace_test` / `verify_install`.
+- **Grown smoke lists.** `smoke_tests.txt` is a small curated subset; a diff
+  that adds entries to make a gate feel stronger is a finding, not a feature
+  (`AUTONOMY.md`, smoke leg).
+- **Dishonest JAX benchmarks.** A perf claim measured through a single JIT
+  trace of `pure_callback`-bearing code is const-folded and inflated; require
+  vmap-based numbers. Likewise flag closures created per-call (JIT
+  cache-bust) presented as "fast".
+- **Workspace-ship hygiene.** New output dirs need `.gitignore` cover; new
+  library `output.yaml` keys need mirroring into workspace configs; CRLF
+  files must keep their line endings (see OPERATIONS.md "Diff hygiene").
+- **Env mutation.** `os.environ` writes inside scripts where
+  `config/build/env_vars.yaml` is the override surface.
+
 ## What this faculty must never do
 
 - Dispatch, mutate, fix, comment, or open PRs/issues — it only opines.

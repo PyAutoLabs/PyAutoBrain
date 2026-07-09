@@ -41,6 +41,8 @@ step. Per workspace repo, after the readiness gate is GREEN:
    (paste the drafted body verbatim via HEREDOC). Verify the label landed
    (`gh pr view <n> --json labels --jq '[.labels[].name]'`); if absent, fix with
    `ensure_workspace_labels.sh` + `gh pr edit <n> --add-label pending-release`.
+   If `gh pr create`/`gh pr edit` errors (SSH-URL origin, classic-Projects
+   GraphQL failure), use the `gh api` fallbacks in `skills/OPERATIONS.md`.
 5. If a library PR URL was passed in, cross-reference it:
    `gh pr comment <library-PR-number> --body "Workspace PR: <workspace-PR-URL>"`.
 6. Return a structured summary: one line per workspace with smoke pass/fail,
