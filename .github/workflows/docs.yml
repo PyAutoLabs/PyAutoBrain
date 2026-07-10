@@ -1,0 +1,28 @@
+name: Docs
+
+# Docs build check is defined once, centrally, in PyAutoHeart's reusable
+# workflow (Heart owns all health/readiness checking). This thin caller
+# builds the Sphinx docs on PRs and fails on warning-count regression
+# against docs/sphinx_warning_baseline.txt. PyAutoBrain is not a pip
+# package, so it uses the workflow's docs-only mode.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".readthedocs.yaml"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".readthedocs.yaml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+jobs:
+  docs:
+    uses: PyAutoLabs/PyAutoHeart/.github/workflows/docs-build.yml@main
+    with:
+      package: pyautoscientist
+    secrets: inherit
