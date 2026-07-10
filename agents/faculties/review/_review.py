@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -75,11 +77,46 @@ def repo_surface(repo: Path) -> dict | None:
     }
 
 
+def in_place_repos(task: str) -> list[Path]:
+    """Checkouts claimed by an in-place task (worktree: none) in active.md.
+
+    Parses only the named task's `- repos:` block (`  - <Repo>: <branch>`
+    lines), never the bare 2-space claims other tooling reads — an in-place
+    entry lists its repos there and the checkouts live at the workspace root.
+    """
+    pyauto_root = Path(os.environ.get(
+        "PYAUTO_ROOT", Path.home() / "Code" / "PyAutoLabs"
+    ))
+    active = pyauto_root / "PyAutoMind" / "active.md"
+    if not active.exists():
+        return []
+    repos: list[Path] = []
+    in_entry = in_block = False
+    for line in active.read_text(errors="replace").splitlines():
+        if line.startswith("## "):
+            in_entry = line[3:].strip() == task
+            in_block = False
+            continue
+        if not in_entry:
+            continue
+        if line.strip() == "- repos:":
+            in_block = True
+            continue
+        if in_block:
+            m = re.match(r"^  - ([A-Za-z0-9_-]+):", line)
+            if m:
+                repos.append(pyauto_root / m.group(1))
+            else:
+                in_block = False
+    return [r for r in repos if (r / ".git").exists()]
+
+
 def resolve_repos(task: str | None, repos: list[str]) -> list[Path]:
     if task:
         root = WT_BASE / task
         if not root.is_dir():
-            return []
+            # No worktree — an in-place task; fall back to its active.md claims.
+            return in_place_repos(task)
         # Claimed repos are real directories (not symlinks) holding a .git
         # file/dir — worktree_create symlinks everything unclaimed.
         return sorted(
