@@ -1,10 +1,10 @@
 # Clone agent — design (not yet implemented)
 
-> **Status: DESIGN.** This conductor does not exist yet — no `clone.sh`, no
-> `_clone.py`, no `bin/pyauto-brain clone` wiring. This document is the agreed
-> design it will be implemented against; `AGENTS.md` arrives with the
-> implementation. Filed from `PyAutoMind/issued/clone_mitosis_agent.md`
-> (PyAutoBrain #59).
+> **Status: v0 implemented** (analyze — decision only; PyAutoBrain#73). v1
+> (lightweight-seed births via Build) and v2 (differentiated siblings) remain
+> unimplemented; this document stays the agreed design they will be built
+> against. The operating summary is [`AGENTS.md`](AGENTS.md). Filed from
+> `PyAutoMind/issued/clone_mitosis_agent.md` (PyAutoBrain #59).
 
 > **Tier: conductor** — a front-door agent you *drive*. Engineering name:
 > **Clone Agent** (CLI: `pyauto-brain clone`). Organism-facing name: **Mitosis
