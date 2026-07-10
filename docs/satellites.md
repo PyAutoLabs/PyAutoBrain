@@ -32,4 +32,10 @@ Two properties make the contract workable:
   contract can't silently rot.
 
 An adopter's minimal viable body: one `library` + one `workspace`. Every
-other category is opt-in as your project grows into it.
+other category is opt-in as your project grows into it. The contract has a
+working embodiment you can copy — the **PyAutoProject template family**
+([PyAutoProject](https://github.com/PyAutoLabs/PyAutoProject) +
+[autoproject_workspace](https://github.com/PyAutoLabs/autoproject_workspace) +
+[autoproject_workspace_test](https://github.com/PyAutoLabs/autoproject_workspace_test)),
+a complete 1D-Gaussian project satisfying every expectation in the table;
+the {doc}`adoption guide <adoption/guide>` walks through it.
