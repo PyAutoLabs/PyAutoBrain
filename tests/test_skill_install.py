@@ -100,3 +100,35 @@ def test_installer_preserves_non_symlink_destinations(tmp_path):
 
     assert marker.read_text() == "keep\n"
     assert "SKIP intake (Codex skill" in result.stdout
+
+
+def test_invalid_codex_name_does_not_suppress_claude_surfaces(tmp_path):
+    pyauto_root = tmp_path / "PyAutoLabs"
+    skill = pyauto_root / "PyAutoBrain" / "skills" / "legacy_skill"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: legacy_skill\ndescription: Legacy test skill.\n---\n"
+    )
+    (skill / "legacy_skill.md").write_text("# Legacy command\n")
+    claude_home = tmp_path / "claude"
+    codex_home = tmp_path / "codex"
+    env = os.environ | {
+        "HOME": str(tmp_path / "home"),
+        "PYAUTO_ROOT": str(pyauto_root),
+        "CLAUDE_HOME": str(claude_home),
+        "CODEX_HOME": str(codex_home),
+    }
+
+    result = subprocess.run(
+        ["bash", str(INSTALLER)],
+        cwd=BRAIN_HOME,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (claude_home / "skills" / "legacy_skill").is_symlink()
+    assert (claude_home / "commands" / "legacy_skill.md").is_symlink()
+    assert not (codex_home / "skills" / "legacy_skill").exists()
+    assert "Codex skill name invalid" in result.stdout

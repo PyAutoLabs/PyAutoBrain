@@ -33,7 +33,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DEFAULT_PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PYAUTO_ROOT="${PYAUTO_ROOT:-$DEFAULT_PYAUTO_ROOT}"
 ADMIN_SKILLS_DIR="$PYAUTO_ROOT/admin_jammy/skills"
 MIND_SKILLS_DIR="$PYAUTO_ROOT/PyAutoMind/skills"
 BRAIN_SKILLS_DIR="$PYAUTO_ROOT/PyAutoBrain/skills"
@@ -107,16 +108,17 @@ install_from_dir() {
 
     local found=0
     if [ -f "$entry/SKILL.md" ]; then
+      _link_symlink "$entry" "$CLAUDE_HOME/skills/$name" "Claude skill"
+      installed_count=$((installed_count + 1))
+      found=1
+
       local skill_name
       skill_name="$(sed -n 's/^name:[[:space:]]*//p' "$entry/SKILL.md" | head -1)"
       if [ -z "$skill_name" ] || [[ "$skill_name" == *[!a-z0-9-]* ]]; then
-        echo "  SKIP $name (invalid or missing SKILL.md name: ${skill_name:-<empty>})"
-        found=1
+        echo "  SKIP $name (Codex skill name invalid or missing: ${skill_name:-<empty>})"
       else
-        _link_symlink "$entry" "$CLAUDE_HOME/skills/$name" "Claude skill"
         _link_symlink "$entry" "$CODEX_HOME/skills/$skill_name" "Codex skill"
-        installed_count=$((installed_count + 2))
-        found=1
+        installed_count=$((installed_count + 1))
       fi
     fi
     if [ -f "$entry/$name.md" ]; then
