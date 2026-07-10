@@ -24,9 +24,9 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    carrying forward). Then tell the user it is **safe to `/clear` before the next
    `/bug`**: the transcript now holds only disposable investigation scratch (file
    reads, repro runs, tool output), so a fresh session loses nothing and context
-   stays lean across many bugs in one sitting. Claude cannot self-clear — this is a
-   deliberate one-keystroke user step, and the externalised state above is what makes
-   it lossless.
+   stays lean across many bugs in one sitting. An agent cannot clear its own host
+   transcript — this is a deliberate one-keystroke user step, and the externalised
+   state above is what makes it lossless.
 
 The Bug Agent **reasons; it never edits source**, and its first question is always
 *where the fix belongs*: prefer a general library-source fix, and **never degrade a

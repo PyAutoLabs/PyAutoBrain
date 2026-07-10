@@ -126,7 +126,7 @@ PyAutoMind. Shared organ boundary and the execution-environment model are in
 
    If a repo is on a non-main/non-master branch or has uncommitted changes, flag it with a warning — this may indicate another task or agent is active there.
 
-3. **Check for active Claude agents, recent branches, and worktree claims**
+3. **Check for active agents, recent branches, and worktree claims**
 
    Source the worktree helper and list anything already claimed by another task:
 

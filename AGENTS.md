@@ -126,12 +126,12 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   leg → re-judge — until Heart goes GREEN. Delegates all dispatch to the
   release conductor. Current scope is *validate + recommend*, checkpointing
   every dispatch; edit-in fixes are an explicit follow-up. (Skeleton.)
-- **`agents/conductors/clone/`** — the *Mitosis Agent* (**design only** — see
-  its `DESIGN.md`; no CLI yet): will reproduce a mature domain assistant
+- **`agents/conductors/clone/`** — the *Mitosis Agent* (**analysis-only v0** —
+  see its `DESIGN.md`): analyzes how to reproduce a mature domain assistant
   (reference: `autolens_assistant`) into a new specialised assistant cell —
   domain analysis, template-boundary partition, a `CloneDecision` with an
   exact-clone/sibling/seed question, generation delegated to Build, newborn
-  validation by Heart.
+  validation by Heart. Its current CLI emits the decision and writes nothing.
 
 ### Faculties
 
@@ -203,9 +203,9 @@ it resolves the sibling `pyauto-heart` and `autobuild` binaries from PATH or the
 ## The command surface (Brain implicit)
 
 The `bin/pyauto-brain <agent>` CLI above is the machinery; humans drive it through
-short verb commands installed into `~/.claude/commands/`. The Brain stays
-**implicit** — you type a verb (or plain natural language) and the Brain routes it
-to the right agent; normal usage never says "PyAutoBrain".
+short verb commands in Claude Code or discoverable skills in Claude and Codex.
+The Brain stays **implicit** — you type a verb (or plain natural language) and
+the Brain routes it to the right agent; normal usage never says "PyAutoBrain".
 
 > **Users speak in short commands; PyAutoBrain performs the routing.**
 
@@ -228,10 +228,11 @@ never for symmetry — the Refactor Agent earned its promotion via the `ideas.md
 backlog bullet, the skill's own recorded follow-up, and the autonomy series.
 Every command routes **through** the Brain; none replaces it.
 
-The command bodies live in `skills/<verb>/<verb>.md` (thin; installed as flat
-commands by `bin/install.sh`); the shared architecture prose is in
-[`skills/COMMANDS.md`](skills/COMMANDS.md). The work-type taxonomy the router and
-work-type entries use is `PyAutoMind/ROUTING.md`.
+The command bodies live in `skills/<verb>/<verb>.md`; thin `SKILL.md` wrappers
+make the same canonical workflows discoverable to skill-aware harnesses.
+`bin/install.sh` installs both surfaces without duplicating their bodies. Shared
+architecture prose is in [`skills/COMMANDS.md`](skills/COMMANDS.md). The
+work-type taxonomy the router and work-type entries use is `PyAutoMind/ROUTING.md`.
 
 ## Never rewrite history
 

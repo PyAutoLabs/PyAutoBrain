@@ -3,7 +3,7 @@
 Executable tooling for the PyAuto organism.
 
 - **`pyauto-brain`** — the PyAutoBrain CLI (reasoning-layer entry point).
-- **`install.sh`** — the cross-organ Claude skill/command **installer**.
+- **`install.sh`** — the cross-organ Claude/Codex skill and command installer.
 - **`check_skill_line_counts.sh`** — the skill line-count **guard** (primary
   skill `.md` files must stay < 200 lines).
 
@@ -14,7 +14,8 @@ admin_jammy hosts no skills and is slated to leave `PyAutoLabs/`.
 ## install.sh
 
 Auto-discovers (no hardcoded skill list) by scanning each organ repo's
-`skills/` dir for `*/` subdirs, then symlinks each into `~/.claude/`:
+`skills/` dir for `*/` subdirs, then symlinks each supported surface into its
+harness home:
 
 - **`PyAutoMind/skills/`** — registry-coupled skills (`create_issue`).
 - **`PyAutoBrain/skills/`** — development-workflow skills (`start_dev`,
@@ -32,15 +33,17 @@ Auto-discovers (no hardcoded skill list) by scanning each organ repo's
 - **`admin_jammy/skills/`** — vestigial: hosts no skills; scanned only so an old
   checkout still resolves, auto-skipped once admin_jammy leaves.
 
-Discovery rule per root:
+Discovery rules per root are independent, so a directory may expose both:
 
-- A directory with `SKILL.md` → **skill**, symlinked to `~/.claude/skills/<name>/`.
-- A directory with `<dirname>.md` (and no `SKILL.md`) → **command**, symlinked to
-  `~/.claude/commands/<name>.md`.
+- `SKILL.md` → skill directory symlinked to Claude under its source-directory
+  name and to Codex under the hyphenated frontmatter `name`.
+- `<dirname>.md` → command symlinked to `~/.claude/commands/<name>.md`.
 
 Roots that aren't checked out are skipped. It is idempotent — existing symlinks
 are replaced, non-symlink files are left alone, and broken symlinks pointing into
-a PyAuto root are pruned. Re-run it after pulling updates.
+a PyAuto root are pruned. `CLAUDE_HOME` and `CODEX_HOME` may override the
+destinations for isolated tests or non-default installations. Re-run it after
+pulling updates.
 
 ## Bootstrap on a new machine
 

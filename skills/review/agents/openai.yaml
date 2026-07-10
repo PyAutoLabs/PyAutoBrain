@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Faculty"
+  short_description: "Prepare a PyAuto branch review surface"
+  default_prompt: "Use $review to prepare the active PyAuto task branch for an independent review verdict."

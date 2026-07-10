@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Report any *primary* skill .md file over the line limit (default 200).
 #
-# Claude skill guidance keeps primary skill files short; long background,
+# Agent skill guidance keeps primary skill files short; long background,
 # templates and examples belong in supporting docs (`reference.md`, shared
 # `WORKFLOW.md`), which are exempt here. A "primary" file is a skill's `SKILL.md`
 # or its command body `<dirname>.md`.

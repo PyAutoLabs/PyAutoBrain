@@ -75,15 +75,13 @@ file and `PyAutoBrain/AGENTS.md`, and note that the agent was emulated.
 
 ## Model delegation (judgment tier plans, execution tier ships)
 
-The workflow skills split work across **model tiers**, not named models — the
-doctrine survives model access changing:
+The workflow skills split work across **capability tiers**, not named models or
+harness-specific tool names, so the doctrine survives model access changing:
 
-- **Judgment tier** — the strongest model available to the session (currently
-  **Fable 5**; previously, and as fallback, **Opus**). Planning, orchestration,
-  risk judgment, anything user-facing.
-- **Execution tier** — a fast, cheap model (currently **Sonnet**) for
-  mechanical shell/git phases, delegated as subagents (`Agent` tool,
-  `model: "sonnet"`).
+- **Judgment tier** — the strongest reasoning model available to the session.
+  Planning, orchestration, risk judgment, and anything user-facing.
+- **Execution tier** — a fast, lower-cost model for mechanical shell/git phases,
+  delegated through the harness's subagent mechanism when available.
 
 The main session stays on the judgment tier; bulk execution moves to the
 execution tier — no manual model toggling.
@@ -170,8 +168,8 @@ the vitals faculty rather than re-deriving pass/fail criteria in the skill.
 - If the user gives a development task with **no** PyAutoMind prompt path,
   first write a concise prompt under the right `<work-type>/<target>/` folder
   (original request verbatim), then continue with that path.
-- Where a body delegates mechanical execution to an execution-tier subagent, a harness
-  without subagents performs the same steps directly, preserving the
+- Where a body delegates mechanical execution to an execution-tier subagent, a
+  harness without subagents performs the same steps directly, preserving the
   judgment/mechanical split above.
 
 ## Execution environments

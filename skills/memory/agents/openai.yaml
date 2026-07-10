@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memory Faculty"
+  short_description: "Recall cited PyAuto knowledge"
+  default_prompt: "Use $memory to recall cited PyAuto architectural or scientific context for this task."

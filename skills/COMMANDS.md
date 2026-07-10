@@ -61,11 +61,18 @@ symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 - **`/brain <agent> [args]`** — explicit, un-veneered passthrough to
   `bin/pyauto-brain` for debugging. Free-text `/brain` defers to `/route`.
 
+Codex skills also expose the remaining public CLI agents directly: the
+analysis-only `clone` conductor, the `release` conductor, and the read-only
+`vitals`, `review`, `memory`, and `samplers` faculties. They do not gain new
+slash commands; `brain` remains Claude's low-level passthrough.
+
 ## How these are installed
 
-Each command is a directory `skills/<verb>/` containing only `<verb>.md` (no
-`SKILL.md`). `bin/install.sh` turns that into a flat `~/.claude/commands/<verb>.md`
-symlink — a typed slash command, not an auto-triggered skill. This file
-(`COMMANDS.md`) sits at the `skills/` root, so the installer's directory scan
-skips it: it is reference-only. Keep command bodies short and this file the single
-place architecture prose lives (guarded by `bin/check_skill_line_counts.sh`).
+Each command directory keeps `<verb>.md` as its canonical command body and may
+add a thin `SKILL.md` discovery wrapper. `bin/install.sh` treats the two files
+independently: it installs the command into `~/.claude/commands/` and the skill
+into both `~/.claude/skills/` and `~/.codex/skills/` (using the skill's
+hyphenated frontmatter name for Codex). This file (`COMMANDS.md`)
+sits at the `skills/` root, so the directory scan skips it; it is reference-only.
+Keep wrappers and command bodies short and keep shared architecture prose here
+(guarded by `bin/check_skill_line_counts.sh`).
