@@ -47,56 +47,72 @@ WORK_TYPES = {
     "triage": "classification still unclear",
 }
 
-# Targets that are source *libraries* (work classifies as library vs workspace).
-LIBRARY_REPOS = {
-    "pyautoconf", "pyautofit", "pyautoarray", "pyautogalaxy", "pyautolens",
-    "autoconf", "autofit", "autoarray", "autogalaxy", "autolens",
-}
-# Targets / @-mentions that are workspaces, tutorials or example repos.
-WORKSPACE_REPOS = {
-    "autolens_workspace", "autogalaxy_workspace", "autofit_workspace",
-    "autolens_workspace_test", "autogalaxy_workspace_test", "autofit_workspace_test",
-    "howtolens", "howtogalaxy", "howtofit", "autolens_assistant",
-    "autolens_profiling", "workspaces",
-}
-# The organism's own organs (Mind / Brain / Heart / Hands / Memory) and their
-# CLIs. Work here is *infrastructure* — edited like a library (worktree + PR) but
-# with no science library / workspace split. Resolving these is the specific gap
-# that made the Feature Agent mis-route a `pyautobrain` target as "(none
-# resolved) -> research-first"; putting them in KNOWN_REPOS fixes that for every
-# consumer of parse_prompt.
-ORGANISM_REPOS = {
-    "pyautomind", "pyautobrain", "pyautoheart", "pyautobuild", "pyautomemory",
-    "autobuild",
-}
+# --- policy + body-map loaders (the extraction seam, PyAutoBrain#75) ---------
+# Vocabulary lives in PyAutoBrain/config/policy.yaml (a declared config
+# surface an adopting fork replaces); repo IDENTITY derives from the body map
+# (PyAutoMind/repos.yaml) at runtime. Both loads are strict — these tables
+# are load-bearing for routing, so a missing file is a setup bug that must
+# fail loudly, never silently degrade.
+
+BRAIN_HOME = Path(__file__).resolve().parents[3]
+POLICY_PATH = BRAIN_HOME / "config" / "policy.yaml"
+BODY_MAP_PATH = BRAIN_HOME.parent / "PyAutoMind" / "repos.yaml"
+
+_POLICY_CACHE: dict = {}
+
+
+def policy() -> dict:
+    if not _POLICY_CACHE:
+        import yaml
+
+        _POLICY_CACHE.update(yaml.safe_load(POLICY_PATH.read_text()))
+    return _POLICY_CACHE
+
+
+def _body_map_categories() -> dict:
+    """repo name -> category, from the body map (the single source of repo
+    identity)."""
+    import yaml
+
+    data = yaml.safe_load(BODY_MAP_PATH.read_text())
+    return {name: spec["category"] for name, spec in data["repos"].items()}
+
+
+def _target_sets() -> tuple[set, set, set]:
+    cats = _body_map_categories()
+    pol = policy()
+    grouping = pol["sizing_categories"]
+
+    def names_for(kind):
+        wanted = set(grouping[kind])
+        out = set()
+        for name, cat in cats.items():
+            if cat in wanted:
+                out.add(name.lower())
+                if name.lower().startswith("pyauto"):
+                    out.add(name.lower()[2:])  # PyAutoFit -> autofit package form
+        return out
+
+    libraries = names_for("library")
+    workspaces = names_for("workspace") | set(pol["extra_workspace_targets"])
+    organism = names_for("organism") | set(pol["extra_organism_targets"])
+    return libraries, workspaces, organism
+
+
+# Targets that are source *libraries* (work classifies as library vs workspace),
+# workspaces/tutorials/example repos, and the organism's own organs — all
+# derived from the body map's categories per the policy's grouping.
+LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS = _target_sets()
+
 # Normalise an @-mention or folder name to a canonical key.
-REPO_ALIASES = {
-    "aa": "autoarray", "af": "autofit", "ag": "autogalaxy", "al": "autolens",
-    "pyautoarray": "autoarray", "pyautofit": "autofit", "pyautoconf": "autoconf",
-    "pyautogalaxy": "autogalaxy", "pyautolens": "autolens",
-}
+REPO_ALIASES = policy()["repo_aliases"]
 
 # --- PyAutoMemory sub-wiki routing (shared science vocabulary) ----------------
 # Map keywords -> the PyAutoMemory sub-wiki that holds relevant context. This is
 # also the canonical *science vocabulary* difficulty scoring keys off (see
 # SCIENCE_KEYWORDS), so it lives here in the shared substrate rather than being
 # duplicated. Source of truth for the sub-wiki list: PyAutoMemory/index.md.
-MEMORY_WIKIS = {
-    "lensing_wiki": ["lens", "deflection", "source reconstruction", "caustic",
-                     "einstein", "subhalo", "substructure", "time delay",
-                     "cosmography", "shear", "multipole", "mass sheet", "slacs",
-                     "tdcosmo", "h0licow", "macromodel"],
-    "smbh_wiki": ["black hole", "smbh", "binary", "recoil", "nanograv",
-                  "gravitational wave background"],
-    "cti_wiki": ["charge transfer", "cti", "trap", "arctic", "vis calibration"],
-    "methods_wiki": ["bayesian", "sampler", "nautilus", "dynesty", "emcee",
-                     "mcmc", "nested sampling", "likelihood", "jax", "nufft",
-                     "interpolat", "graphical model", "expectation propagation",
-                     "deep learning", "sbi", "simulation based inference",
-                     "probabilistic", "optimis", "gradient", "regularis"],
-    "galaxies_wiki": ["galaxy formation", "bulge", "disk", "morphology", "mge",
-                      "stellar halo", "ifu", "kinematic", "elliptical", "cosmos"],
-}
+MEMORY_WIKIS = policy()["memory_wikis"]
 
 SCIENCE_KEYWORDS = sorted({kw for kws in MEMORY_WIKIS.values() for kw in kws})
 RISK_KEYWORDS = ["api", "breaking", "backwards", "migrat", "deprecat",

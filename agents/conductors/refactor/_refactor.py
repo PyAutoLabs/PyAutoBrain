@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "feature"))
 from _feature import analyse  # noqa: E402  (pulls _sizing onto the path too)
-from _sizing import parse_prompt  # noqa: E402
+from _sizing import parse_prompt, policy as _sizing_policy  # noqa: E402
 
 # Public-API-change smells: a "refactor" prompt matching these is suspect —
 # it belongs in feature/ (or bug/) and must not run at `safe`.
@@ -40,12 +40,7 @@ API_CHANGE_PATTERNS = [
 
 # Normalised repo name -> the test dir that witnesses behaviour preservation
 # (repos arrive normalised by _sizing.normalise_repo: lowercase, no Py prefix).
-TEST_WITNESS = {
-    "autoconf": "PyAutoConf/test_autoconf", "autofit": "PyAutoFit/test_autofit",
-    "autoarray": "PyAutoArray/test_autoarray",
-    "autogalaxy": "PyAutoGalaxy/test_autogalaxy",
-    "autolens": "PyAutoLens/test_autolens",
-}
+TEST_WITNESS = _sizing_policy()["test_witness"]
 
 REFACTOR_IDEA_WORDS = ("refactor", "restructur", "clean up", "cleanup",
                        "simplif", "dedupl", "extract", "consolidat")

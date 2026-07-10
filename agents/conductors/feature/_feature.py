@@ -33,17 +33,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "facultie
 from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, REPO_ALIASES,
     KNOWN_REPOS, MEMORY_WIKIS, SCIENCE_KEYWORDS, RISK_KEYWORDS, AMBIGUITY_KEYWORDS,
+    policy as _sizing_policy,
     TEST_KEYWORDS, normalise_repo, parse_prompt, estimate_difficulty, _hits, _within,
 )
 
 # Default sub-wiki to consult per library target when no keyword fires. Memory
 # routing is the Feature Agent's own concern, so it stays here (the shared
 # science *vocabulary* it keys off — MEMORY_WIKIS — lives in the sizing faculty).
-TARGET_DEFAULT_WIKI = {
-    "autolens": "lensing_wiki", "autogalaxy": "galaxies_wiki",
-    "autofit": "methods_wiki", "autoarray": "methods_wiki",
-    "autoconf": "methods_wiki",
-}
+TARGET_DEFAULT_WIKI = _sizing_policy()["target_default_wiki"]
 
 
 def recommend_workflow(p: dict, factors: dict):

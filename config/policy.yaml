@@ -1,0 +1,85 @@
+# PyAutoBrain POLICY — the Brain's instance vocabulary and routing maps.
+# A declared config surface: an adopting fork replaces this file (and their
+# Mind's repos.yaml supplies repo IDENTITY — the sizing sets derive from its
+# categories at runtime; nothing here duplicates the body map).
+
+# Normalise an @-mention or folder name to a canonical target key.
+repo_aliases:
+  aa: autoarray
+  af: autofit
+  ag: autogalaxy
+  al: autolens
+  pyautoarray: autoarray
+  pyautofit: autofit
+  pyautoconf: autoconf
+  pyautogalaxy: autogalaxy
+  pyautolens: autolens
+
+# Which body-map categories mean "library-flow" / "workspace-flow" /
+# "organism-infrastructure" to the sizing faculty; extra literal targets
+# that behave as workspace mentions.
+sizing_categories:
+  library: [library]
+  workspace: [workspace, workspace_test, workspace_developer, howto, assistant, pipeline, project]
+  organism: [organ]
+extra_workspace_targets: [workspaces]
+extra_organism_targets: [autobuild]
+
+# Keyword -> PyAutoMemory sub-wiki (also the science vocabulary difficulty
+# scoring keys off). Source of truth for the wiki list: PyAutoMemory/index.md.
+memory_wikis:
+  lensing_wiki: [lens, deflection, source reconstruction, caustic, einstein,
+                 subhalo, substructure, time delay, cosmography, shear,
+                 multipole, mass sheet, slacs, tdcosmo, h0licow, macromodel]
+  smbh_wiki: [black hole, smbh, binary, recoil, nanograv,
+              gravitational wave background]
+  cti_wiki: [charge transfer, cti, trap, arctic, vis calibration]
+  methods_wiki: [bayesian, sampler, nautilus, dynesty, emcee, mcmc,
+                 nested sampling, likelihood, jax, nufft, interpolat,
+                 graphical model, expectation propagation, deep learning, sbi,
+                 simulation based inference, probabilistic, optimis, gradient,
+                 regularis]
+  galaxies_wiki: [galaxy formation, bulge, disk, morphology, mge, stellar halo,
+                  ifu, kinematic, elliptical, cosmos]
+
+# Intake keyword -> target repo routing signals.
+target_signals:
+  autolens: [lens, lensing, deflection, einstein, caustic,
+             source reconstruction, subhalo, substructure, point source]
+  autogalaxy: [galaxy, light profile, mass profile, sersic, bulge, disk, mge,
+               morphology]
+  autofit: [sampler, nautilus, dynesty, emcee, prior, non-linear, search,
+            aggregator, graphical model, model fitting]
+  autoarray: [grid, mask, array, inversion, pixelization, interferometer,
+              convolver, over sample, oversampl]
+  pyautobrain: [brain, conductor, faculty, feature agent, route,
+                reasoning layer, intake, agent]
+  pyautomind: [pyautomind, the mind, prompt registry, active.md, planned.md,
+               ideas.md, dashboard]
+  pyautoheart: [heart, readiness, health check, vitals, green verdict]
+  pyautobuild: [autobuild, release.yml, notebook generation, the hands]
+
+# Feature conductor: target -> the sub-wiki consulted by default.
+target_default_wiki:
+  autolens: lensing_wiki
+  autogalaxy: galaxies_wiki
+  autofit: methods_wiki
+  autoarray: methods_wiki
+  autoconf: methods_wiki
+
+# Refactor conductor: normalised repo -> the test dir that witnesses
+# behaviour preservation.
+test_witness:
+  autoconf: PyAutoConf/test_autoconf
+  autofit: PyAutoFit/test_autofit
+  autoarray: PyAutoArray/test_autoarray
+  autogalaxy: PyAutoGalaxy/test_autogalaxy
+  autolens: PyAutoLens/test_autolens
+
+# Release policy (NOT identity: the released set is a deliberate subset of
+# the body map's libraries — e.g. PyAutoReduce is not in the nightly matrix).
+release:
+  relevant_repos: [PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens,
+                   autofit_workspace, autogalaxy_workspace, autolens_workspace,
+                   HowToFit, HowToGalaxy, HowToLens]
+  tag_repo: PyAutoLabs/PyAutoLens
