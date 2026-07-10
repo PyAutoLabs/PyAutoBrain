@@ -1,5 +1,7 @@
 # PyAutoBrain
 
+📖 **Full documentation → <https://pyautoscientist.readthedocs.io>** — the whole PyAutoScientist organism, including how to fork and run your own.
+
 The reasoning layer of the PyAuto organism. Brain figures out *how* work
 gets done: it classifies incoming tasks, plans them, and routes them to
 specialist agents, delegating execution to the other organs. It holds no

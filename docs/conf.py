@@ -29,6 +29,13 @@ html_static_path = ["_static"]
 html_css_files = ["pyauto.css"]
 
 html_theme_options = {
+    "announcement": (
+        "⚠️ The PyAutoScientist docs are at a <strong>very early stage</strong> "
+        "of writing — obviously entirely AI-generated, and will be improved upon "
+        "significantly moving forward. Even so, they should already be good enough "
+        "to get the idea behind PyAutoScientist, and the AI-development workflow it "
+        "enables is now thoroughly tested, with months of development behind it."
+    ),
     "light_css_variables": {
         "color-brand-primary": "#be123c",
         "color-brand-content": "#be123c",
