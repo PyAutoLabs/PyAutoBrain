@@ -54,7 +54,8 @@ GENERIC_PATTERNS = [
     "skills/_style.md", "skills/_bootstrap_skill.md", "skills/README.md",
     "skills/start-new-project*", "skills/contribute-upstream*",
     "sources.yaml", "sources/*",  # the source-registry pattern
-    "autoassistant/*",            # API gate + wiki-currency tooling
+    "autoassistant/*",            # API gate + wiki-currency + benchmark tooling
+    "benchmarks/AGENTS.md",       # benchmark run/record contract
     ".github/*",                  # wiki-currency / citation workflows
     "wiki/README.md", "wiki/project/*",   # project wiki rules + profile template
     "scripts/AGENTS.md", "scripts/CLAUDE.md",
@@ -71,10 +72,15 @@ DOMAIN_PATTERNS = [
     "dataset/*",
     "README.md",                  # science framing + the three example prompts
     "hpc/*",
+    "benchmarks/prompts/*",       # prompt cards — a new domain writes its own
+    # Per-clone data: a newborn starts with empty runs/ and regenerates
+    # RESULTS.md (benchmark.py report) — never copied, so "regenerate or stub".
+    "benchmarks/runs/*", "benchmarks/RESULTS.md",
 ]
 MIXED_PATTERNS = [
     "llms.txt", "llms-full.txt",
     "config/*",
+    "benchmarks/README.md",       # protocol generic, benchmark table domain
 ]
 
 ACTIONS = {
