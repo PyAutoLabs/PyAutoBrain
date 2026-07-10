@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "facultie
 from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
     RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, estimate_difficulty, _hits,
+    policy as _sizing_policy,
 )
 
 # --- work-type classification -------------------------------------------------
@@ -76,24 +77,8 @@ TYPE_PRECEDENCE = ["bug", "test", "docs", "refactor", "release", "maintenance",
 # --- target inference ---------------------------------------------------------
 # When no @RepoName resolves a target, guess the domain from keywords. Maps a
 # domain keyword -> the target folder (second-folder slug) it belongs under.
-TARGET_SIGNALS = {
-    "autolens": ["lens", "lensing", "deflection", "einstein", "caustic",
-                 "source reconstruction", "subhalo", "substructure", "point source"],
-    "autogalaxy": ["galaxy", "light profile", "mass profile", "sersic", "bulge",
-                   "disk", "mge", "morphology"],
-    "autofit": ["sampler", "nautilus", "dynesty", "emcee", "prior", "non-linear",
-                "search", "aggregator", "graphical model", "model fitting"],
-    "autoarray": ["grid", "mask", "array", "inversion", "pixelization",
-                  "interferometer", "convolver", "over sample", "oversampl"],
-    "pyautobrain": ["brain", "conductor", "faculty", "feature agent", "route",
-                    "reasoning layer", "intake", "agent"],
-    "pyautomind": ["pyautomind", "the mind", "prompt registry", "active.md",
-                   "planned.md", "ideas.md", "dashboard"],
-    "pyautoheart": ["heart", "readiness", "health check", "vitals", "green verdict"],
-    "pyautobuild": ["autobuild", "release.yml", "notebook generation", "the hands"],
-    "pyautomemory": ["pyautomemory", "wiki", "bibliography", "literature summary"],
-    "workspaces": ["workspace", "tutorial", "example notebook", "howto"],
-}
+TARGET_SIGNALS = _sizing_policy()["target_signals"]
+
 # Human-readable display name for the header's `Target:` line.
 REPO_DISPLAY = {
     "autoconf": "PyAutoConf", "autofit": "PyAutoFit", "autoarray": "PyAutoArray",

@@ -26,24 +26,21 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Any
 
 # The release-relevant set (design §4): the repos whose merged work a nightly
 # release ships or regenerates. Mirrors PyAutoMind/repos.yaml roles and the
 # release.yml build/workspace matrices.
-RELEASE_RELEVANT_REPOS: tuple[str, ...] = (
-    "PyAutoConf",
-    "PyAutoFit",
-    "PyAutoArray",
-    "PyAutoGalaxy",
-    "PyAutoLens",
-    "autofit_workspace",
-    "autogalaxy_workspace",
-    "autolens_workspace",
-    "HowToFit",
-    "HowToGalaxy",
-    "HowToLens",
-)
+def _release_policy() -> dict:
+    import yaml
+
+    path = Path(__file__).resolve().parents[3] / "config" / "policy.yaml"
+    return yaml.safe_load(path.read_text())["release"]
+
+
+RELEASE_RELEVANT_REPOS: tuple[str, ...] = tuple(_release_policy()["relevant_repos"])
+
 
 # Pipeline self-commit contract (design §4) — a release must never count as
 # the next night's activity. Post-#118/#120 the pipeline no longer stamps

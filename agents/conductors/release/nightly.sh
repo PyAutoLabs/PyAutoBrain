@@ -58,7 +58,9 @@ source "$HERE/../../_common.sh"
 BRAIN_REPO="PyAutoLabs/PyAutoBuild"   # where release-blocker labels are curated first
 ANCHOR_REPO="PyAutoLabs/PyAutoBrain"
 ANCHOR_VAR="NIGHTLY_LAST_WINDOW_END"
-TAG_REPO="PyAutoLabs/PyAutoLens"      # release tags land on every library; one suffices
+# Release tags land on every library; one suffices. Which one is release
+# POLICY — read from config/policy.yaml (the declared config surface).
+TAG_REPO="$(python3 -c "import yaml, pathlib; print(yaml.safe_load((pathlib.Path('$HERE').parents[2] / 'config' / 'policy.yaml').read_text())['release']['tag_repo'])")"
 BUILD_REPO="PyAutoLabs/PyAutoBuild"
 RELEASE_WORKFLOW="release.yml"
 # Repos whose open `release-blocker` issues stop the night (the release-relevant
