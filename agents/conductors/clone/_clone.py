@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """agents/conductors/clone/_clone.py — core for the Clone (Mitosis) Agent, v0.
 
-v0 is DECISION ONLY (DESIGN.md "Phased implementation"): the `analyze` mode —
-domain analysis, template-boundary partition, generation plan — emitting a
-CloneDecision. It writes no repo, no file, no GitHub state; `--apply` (v1,
-lightweight-seed births via PyAutoBuild) exits 5 with a pointer.
+analyze (default) is decision only. v1 adds `--apply --mode
+lightweight-seed`: the agent writes its generation plan as JSON and hands
+execution to PyAutoBuild's `clone_seed.py` primitive (repo creation
+PRIVATE-first; the newborn's publish gate is Heart's newborn-validation
+checklist). The agent itself still writes no repo and no GitHub state — the
+mandatory clone-mode question is answered by the human typing `--mode`.
+Other modes (exact-clone, differentiated-sibling) are v2 and exit 5.
 
 The generic-vs-domain partition is OWNED BY THE REFERENCE ASSISTANT
 (`modes/maintainer.md`, "Assistant-as-template") — this agent reads that
@@ -284,6 +287,70 @@ def print_decision(d):
     print(f"Next action:          {d['next_action']}")
 
 
+def reference_library(reference_name):
+    """The reference assistant's own domain (package, LibraryRepo) pair,
+    derived from its name (e.g. autolens_assistant -> autolens, PyAutoLens)."""
+    package = reference_name.replace("_assistant", "")
+    want = f"pyauto{package[4:]}" if package.startswith("auto") else None
+    for child in sorted(PYAUTO_ROOT.iterdir()):
+        if child.is_dir() and child.name.lower() == want:
+            return package, child.name
+    fail(4, f"cannot resolve the reference's library repo for '{reference_name}'")
+
+
+def repo_owner(repo_root):
+    out = subprocess.run(
+        ["git", "-C", str(repo_root), "remote", "get-url", "origin"],
+        capture_output=True, text=True,
+    )
+    url = out.stdout.strip().removesuffix(".git")
+    return url.rstrip("/").split("/")[-2].split(":")[-1]
+
+
+def apply_seed(args, decision):
+    """v1: emit the generation plan and hand execution to Build (clone_seed)."""
+    import tempfile
+
+    reference_root = repo_root(args.reference)
+    library_root = repo_root(args.library)
+    ref_pkg, ref_lib = reference_library(args.reference)
+    target_pkg = library_package(library_root)
+
+    sets = partition(reference_root)
+    if sets["unclassified"]:
+        fail(4, "unclassified reference files — fix the boundary before a birth")
+
+    plan = {
+        "target": decision["target"],
+        "owner": repo_owner(reference_root),
+        "reference_path": str(reference_root),
+        "substitutions": [
+            # skill prefix first (al_ -> af_): package initials, e.g.
+            # autolens -> al, autofit -> af
+            [f"{ref_pkg[0]}{ref_pkg[4]}_", f"{target_pkg[0]}{target_pkg[4]}_"],
+            [ref_lib, args.library],       # PyAutoLens -> PyAutoFit
+            [ref_pkg, target_pkg],         # autolens -> autofit
+        ],
+        "generic": sets["generic"],
+        "mixed": sets["mixed"],
+        "domain": sets["domain"],
+        "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc"],
+    }
+    plan_path = Path(tempfile.mkstemp(prefix="clone_plan_", suffix=".json")[1])
+    plan_path.write_text(json.dumps(plan, indent=2))
+
+    seed_script = PYAUTO_ROOT / "PyAutoBuild" / "autobuild" / "clone_seed.py"
+    if not seed_script.exists():
+        fail(4, f"Build primitive not found: {seed_script}")
+    cmd = [sys.executable, str(seed_script), str(plan_path)]
+    if not args.no_push:
+        cmd.append("--push")
+    print(f"\n== handing the plan to Build: {' '.join(cmd)}")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        fail(4, "Build's clone_seed failed — see its output")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("library", help="source library repo, e.g. PyAutoFit")
@@ -292,18 +359,28 @@ def main():
     parser.add_argument("--reference", default="autolens_assistant",
                         help="reference assistant repo (default: autolens_assistant)")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--mode", choices=["lightweight-seed"], default=None,
+                        help="the clone mode (mandatory with --apply; typing it "
+                             "is the human's answer to the clone-mode question)")
+    parser.add_argument("--no-push", action="store_true",
+                        help="with --apply: build the seed tree only, do not "
+                             "create/push the repo")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.apply:
-        fail(5, "--apply is v1 (lightweight-seed births via PyAutoBuild) — "
-                "v0 is decision-only; see agents/conductors/clone/DESIGN.md")
+    if args.apply and args.mode != "lightweight-seed":
+        fail(5, "--apply requires --mode lightweight-seed (the human-answered "
+                "clone-mode question); exact-clone / differentiated-sibling "
+                "are v2 — see agents/conductors/clone/DESIGN.md")
 
     decision = build_decision(args)
     if args.json:
         print(json.dumps(decision, indent=2))
     else:
         print_decision(decision)
+
+    if args.apply:
+        apply_seed(args, decision)
     sys.exit(0)
 
 
