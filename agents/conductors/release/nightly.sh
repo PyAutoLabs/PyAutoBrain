@@ -136,6 +136,16 @@ if [[ "${GITHUB_EVENT_NAME:-}" == "schedule" && "${NIGHTLY_RELEASES:-}" != "true
 fi
 
 # ---------------------------------------------------------------------------
+# Step 0b — token sanity: every later step reads GitHub through gh. A dead or
+# missing GH_TOKEN must page BEFORE any judgment — on 2026-07-10 a tokenless
+# run read as a quiet night and silently skipped a real release (#67).
+# ---------------------------------------------------------------------------
+if ! gh api rate_limit >/dev/null 2>&1; then
+  page "driver cannot authenticate to GitHub (GH_TOKEN missing or expired?) — no gate was evaluated"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Step 1 — same-day guard: never double-release a date (design §8).
 # ---------------------------------------------------------------------------
 today="$(date -u +'%Y.%-m.%-d')"
@@ -153,7 +163,16 @@ fi
 # ---------------------------------------------------------------------------
 anchor="${NIGHTLY_WINDOW_START:-}"
 [[ -z "$anchor" ]] && anchor="$(gh api "repos/$ANCHOR_REPO/actions/variables/$ANCHOR_VAR" --jq .value 2>/dev/null || true)"
-[[ -z "$anchor" ]] && anchor="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+# Validate the anchor before it reaches a `since=` parameter: a failed read
+# can land an API error body on stdout (#67, hole 2 — the 404 JSON became the
+# window start and poisoned every fetch). Anything malformed → 24h fallback.
+if ! PYTHONPATH="$HERE" python3 -c '
+import sys
+from activity_gate import valid_anchor
+sys.exit(0 if valid_anchor(sys.argv[1]) else 1)' "$anchor" 2>/dev/null; then
+  [[ -n "$anchor" ]] && log "anchor read is not a timestamp ('${anchor:0:60}') — falling back to 24h"
+  anchor="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+fi
 log "activity window: $anchor → $WINDOW_END"
 
 repos="$(PYTHONPATH="$HERE" python3 -c 'from activity_gate import RELEASE_RELEVANT_REPOS as R; print("\n".join(R))')"
@@ -163,7 +182,11 @@ commits_json="$WORK/commits.json"
   first=1
   while IFS= read -r repo; do
     [[ -z "$repo" ]] && continue
-    body="$(gh api "repos/PyAutoLabs/$repo/commits?sha=main&since=$anchor&per_page=100" 2>/dev/null || echo '[]')"
+    # A failed fetch is `null`, never `[]`: an unreadable repo must not be
+    # mistaken for a quiet one (#67, hole 1). activity_gate.py counts these.
+    if ! body="$(gh api "repos/PyAutoLabs/$repo/commits?sha=main&since=$anchor&per_page=100" 2>/dev/null)"; then
+      body='null'
+    fi
     [[ "$first" -eq 0 ]] && printf ','
     first=0
     printf '%s' "\"$repo\":"
@@ -178,11 +201,31 @@ gate="$(PYTHONPATH="$HERE" python3 "$HERE/activity_gate.py" < "$commits_json")" 
 }
 active="$(printf '%s' "$gate" | python3 -c 'import json,sys; print("1" if json.load(sys.stdin)["active"] else "0")')"
 summary="$(printf '%s' "$gate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["summary"])')"
+fetch_errors="$(printf '%s' "$gate" | python3 -c 'import json,sys; print(json.load(sys.stdin)["fetch_errors"])')"
+all_failed="$(printf '%s' "$gate" | python3 -c 'import json,sys; print("1" if json.load(sys.stdin)["all_failed"] else "0")')"
 log "$summary"
+
+# An unobservable GitHub pages, never sleeps (#67): if every fetch failed the
+# night was not judged at all. Partial failures proceed on what was readable —
+# activity in a readable repo still legitimately qualifies the night.
+if [[ "$all_failed" == "1" ]]; then
+  page "activity fetch failed for every release-relevant repo — the night was NOT judged. $summary"
+  exit 1
+fi
 
 if [[ "$active" != "1" ]]; then
   notify "💤" "*nightly release skipped* — no activity since $anchor. $summary. <$RUN_URL|nightly run>"
-  advance_anchor
+  # Advance only a truly-judged, truly-quiet night: unreadable repos may hold
+  # the missed activity, and a dry-run must not mutate state (design header:
+  # "dry-runs and stops leave it" — the 2026-07-10 08:03 dry-run violated
+  # this and swallowed the missed window).
+  if [[ "$fetch_errors" != "0" ]]; then
+    log "fetch errors present — anchor NOT advanced"
+  elif [[ "$DRY_RUN" == "true" ]]; then
+    log "dry-run — anchor NOT advanced"
+  else
+    advance_anchor
+  fi
   exit 0
 fi
 

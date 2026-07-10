@@ -89,8 +89,52 @@ def test_empty_window_is_quiet():
 def test_malformed_entries_never_crash_or_count():
     v = activity_gate.judge({"PyAutoLens": [None, "junk", {}], "bad": "not-a-list"})
     # {} is a well-formed-enough commit dict (not pipeline) — it counts;
-    # non-dicts never do, and a non-list repo value is ignored.
+    # non-dicts never do, and a non-list repo value is a FETCH ERROR (#67),
+    # counted rather than ignored.
     assert v["counts"] == {"PyAutoLens": 1}
+    assert v["fetch_errors"] == 1
+    assert v["fetched"] == 1
+    assert v["all_failed"] is False
+
+
+def test_fetch_error_is_not_a_quiet_repo():
+    # The 2026-07-10 06:05 incident (#67, hole 1): every fetch failed and the
+    # old '[]' fallback read as a quiet night. `null` per repo must instead
+    # produce all_failed=True so the driver pages, never 💤-skips.
+    v = activity_gate.judge({r: None for r in activity_gate.RELEASE_RELEVANT_REPOS})
+    assert v["active"] is False
+    assert v["fetch_errors"] == len(activity_gate.RELEASE_RELEVANT_REPOS)
+    assert v["fetched"] == 0
+    assert v["all_failed"] is True
+    assert "UNREADABLE" in v["summary"]
+
+
+def test_partial_fetch_errors_still_qualify_on_readable_activity():
+    v = activity_gate.judge({"PyAutoLens": [commit()], "PyAutoFit": None})
+    assert v["active"] is True
+    assert v["all_failed"] is False
+    assert v["fetch_errors"] == 1
+    assert "UNREADABLE" in v["summary"]
+
+
+def test_quiet_night_with_no_errors_is_clean():
+    v = activity_gate.judge({r: [] for r in activity_gate.RELEASE_RELEVANT_REPOS})
+    assert v["fetch_errors"] == 0
+    assert v["all_failed"] is False
+    assert "UNREADABLE" not in v["summary"]
+
+
+def test_anchor_validator():
+    # The 2026-07-10 08:03 incident (#67, hole 2): a 404 JSON body reached the
+    # `since=` parameter because the empty-string check couldn't catch it.
+    assert activity_gate.valid_anchor("2026-07-09T06:05:39Z")
+    assert not activity_gate.valid_anchor("")
+    assert not activity_gate.valid_anchor(None)
+    assert not activity_gate.valid_anchor(
+        '{"message":"Not Found","documentation_url":"...","status":"404"}'
+    )
+    assert not activity_gate.valid_anchor("2026-07-09T06:05:39Z\n")
+    assert not activity_gate.valid_anchor("2026-07-09T06:05:39+00:00")
 
 
 def test_release_relevant_set_is_the_design_set():
