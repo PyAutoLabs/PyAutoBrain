@@ -1,20 +1,22 @@
 # PyAutoScientist
 
 PyAutoScientist is a working, opinionated reference implementation of an
-**AI-agent development organism**: a set of five git repositories — Mind,
-Brain, Heart, Hands, Memory — that together let AI coding agents plan,
-implement, test, gate and release software across a multi-repo project,
-with a human checkpointing the judgment calls.
+**AI-agent development organism** for human-led, natural-language software
+development: a set of five git repositories — Mind, Brain, Heart, Hands,
+Memory — through which you lead a multi-repo project in plain English. You
+describe what you want; AI agents plan, implement, test, gate and release
+it; you make every judgment call.
 
 It is not a framework you install. It is the live system that develops the
 [PyAuto astronomy stack](https://pyautolabs.github.io) every day — tens of
 repositories, nightly releases, hundreds of tasks — documented so that you
-can **fork it and run your own**, driving projects that have nothing to do
+can **fork it and lead your own**, driving projects that have nothing to do
 with astronomy.
 
 ## The idea in five lines
 
-- Every piece of work starts as a plain-English markdown file in the **Mind**.
+- Every piece of work starts as a plain-English markdown file you write in
+  the **Mind**.
 - The **Brain** classifies it, plans it, and routes it through specialist agents.
 - Work happens on task worktrees and ships as pull requests, gated by the
   **Heart**'s health verdict.

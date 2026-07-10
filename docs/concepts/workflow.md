@@ -7,8 +7,9 @@ idea  →  prompt file  →  issue  →  worktree  →  PR(s)  →  merge  →  
         (Mind)          (GitHub)   (isolated)   (gated)   (human)   (Mind)
 ```
 
-1. **Intent is written down first.** A task starts as a markdown file in the
-   Mind under `<work-type>/<target>/<name>.md` — plain English, no template.
+1. **Intent is written down first.** A task starts as a markdown file you
+   write in the Mind under `<work-type>/<target>/<name>.md` — plain English,
+   no template.
    The work-type folder (`feature/`, `bug/`, `refactor/`, `docs/`, …) tells
    the Brain what kind of reasoning the task needs.
 2. **`start_dev`** routes the prompt through the Brain's Feature Agent:
