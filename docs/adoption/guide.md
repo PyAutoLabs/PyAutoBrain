@@ -23,31 +23,54 @@ work, this system is not for you (and that's fine):
 
 ## The walkthrough
 
+Every "create" step below is a GitHub **Use this template** click — the
+template repos are generated from the live organism and satisfy every
+contract on day one.
+
 1. **Fork Brain, Heart, Hands** (keep the repo names — they are framework
    identity).
-2. **Create your Mind** with the documented shape
-   ([PyAutoMind/REFERENCE.md](https://github.com/PyAutoLabs/PyAutoMind/blob/main/REFERENCE.md)):
-   the registry files, the work-type prompt folders, a copy of `scripts/`,
-   and — the load-bearing part — **your own `repos.yaml` body map** listing
-   your libraries, workspaces and their categories per the
-   {doc}`category contract <../satellites>`.
-3. **Replace the config surfaces** in your forks with rows for your repos —
+2. **Create your Mind from
+   [PyAutoMind-template](https://github.com/PyAutoLabs/PyAutoMind-template)**:
+   the registry files, work-type prompt folders and generic `scripts/` come
+   ready, and its `repos.yaml` body map is pre-filled with the template
+   satellite family below. The schemas it follows are documented in
+   [REFERENCE.md](https://github.com/PyAutoLabs/PyAutoMind/blob/main/REFERENCE.md).
+3. **Create your science repos from the PyAutoProject family** —
+   [PyAutoProject](https://github.com/PyAutoLabs/PyAutoProject) (the
+   library: a working 1D-Gaussian model + `Analysis` + packaged prior
+   config on the PyAutoFit engine),
+   [autoproject_workspace](https://github.com/PyAutoLabs/autoproject_workspace)
+   (end-to-end scripts that build to notebooks; `start_here.py` teaches the
+   convention), and
+   [autoproject_workspace_test](https://github.com/PyAutoLabs/autoproject_workspace_test)
+   (smoke/regression scripts). Rename `autoproject` to your science and
+   replace the Gaussian with your model — the {doc}`category contract
+   <../satellites>` is what each repo must keep honouring.
+4. **Replace the config surfaces** in your forks with rows for your repos —
    the complete inventory with file paths is {doc}`config_surfaces`. The
    big three: Heart's `config/repos.yaml` (what to poll and gate), the
    Hands' `run_workspace` table in `pre_build.sh` (what the pipeline runs),
    and the Brain's constant tables (sizing sets, routing keywords, the
    release library tuple).
-4. **Regenerate and check.** `python3 <YourMind>/scripts/repos_sync.py
+5. **Regenerate and check.** `python3 <YourMind>/scripts/repos_sync.py
    --write` stamps the generated doc blocks from your body map; `--check`
    verifies every mirror agrees — including the tenant firewall, which
    fails if an upstream instance fact survives anywhere outside the
    declared surfaces you just replaced.
-5. **Install the command surface**: `bash <YourBrain>/bin/install.sh`
+6. **Install the command surface**: `bash <YourBrain>/bin/install.sh`
    symlinks every organ's skills into `~/.claude`.
-6. **Create your Memory when you need it** — the shape is documented in
-   {doc}`the Memory page <../organs/memory>`; the organism runs fine
-   without one until your domain knowledge accumulates.
-7. **Go.** Write your first prompt in your Mind and run `/start_dev` on it.
+7. **Create your Memory from
+   [PyAutoMemory-template](https://github.com/PyAutoLabs/PyAutoMemory-template)
+   when you need it** — the wiki schema, bibliography tooling and citation
+   validation come wired, with one empty `example_wiki/` to copy per
+   domain; the organism runs fine without it until your knowledge
+   accumulates. Your assistant repo comes later still — grown by the clone
+   agent once your project matures, never hand-built.
+8. **Go.** Write your first prompt in your Mind and run `/start_dev` on it.
+
+The Mind and Memory templates are **generated views** of the live organism
+(stamped by `spawn`, drift-checked in CI) — they track the live structure
+without ever containing its content.
 
 ## Staying current
 
