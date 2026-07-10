@@ -4,6 +4,10 @@ The **one canonical page** for the organs, their boundaries, and the call
 chain. Every other repo links here instead of restating this — if you are
 editing organism prose anywhere else, stop and edit this file.
 
+The organism is an agentic AI ecosystem for **human-led, natural-language
+software development**: you describe what you want in plain English, the
+organs plan, build, test and release it, and you make every judgment call.
+
 ## The organs
 
 | Organ | Repo | Role and boundary |

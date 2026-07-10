@@ -5,8 +5,9 @@ gets done: it classifies incoming tasks, plans them, and routes them to
 specialist agents, delegating execution to the other organs. It holds no
 state, runs no health checks, and never releases anything itself.
 
-The organism is described once in [ORGANISM.md](ORGANISM.md). The short
-version:
+The organism — an agentic AI ecosystem for human-led, natural-language
+software development — is described once in [ORGANISM.md](ORGANISM.md). The
+short version:
 
 | Organ | Repo | Job |
 |-------|------|-----|
@@ -31,5 +32,5 @@ bash bin/install.sh          # symlink every organ's skills into ~/.claude
 Runs straight from its checkout — no pip install. Agent contracts and the
 organ boundary are in [AGENTS.md](AGENTS.md); how much a run may do without
 a human is the autonomy contract, [AUTONOMY.md](AUTONOMY.md). The full
-organism documentation — including how to fork and run your own — is at
+organism documentation — including how to fork it and lead your own — is at
 <https://pyautoscientist.readthedocs.io> (source: `docs/`).
