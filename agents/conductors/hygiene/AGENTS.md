@@ -19,30 +19,39 @@ paired repo**, boundaries) recorded in PyAutoMind
 
 ## Modes
 
-| Mode | Question | Emits |
-|------|----------|-------|
-| `perf` | Which unit tests / integration-mode workspace scripts / imports are slow, and what is the cheapest win? | timing findings + route (refactor/bug; JAX-adapt only on a clear win) — *phase 3* |
-| `tidy` | What git debris (stale branches, stashes, `[gone]` refs, dirty checkouts) is safe to remove? | the `repo_cleanup` sweep — *phase 2* |
-| `noise` | What CLI noise (warnings, stray prints, library chatter) do tests/scripts emit? | the `cli_noise_clean` audit — *phase 2* |
-| `deps` | Which dependency caps drift behind PyPI, and at what risk? | the `dep_audit` summary — *phase 2* |
-| `docs` | Which `docs/api/*.rst` module paths are stale? | the `audit_docs` findings — *phase 2* |
-| *(default)* | Across all of the above, what is the single most useful hygiene action now? | a prioritised `HygieneDecision` worklist |
+Each mode does a cheap, read-only local **pre-scan** and **delegates** the full
+audit + any execution to the owning skill — the conductor never runs a heavy
+audit and never mutates a repo. A pre-scan is one of three kinds, which is what
+makes its count comparable (or not):
+
+- **debris** — finds directly-removable items; a real, rankable count (`tidy`).
+- **surface** — only *sizes* the audit; the real problems emerge when the
+  delegated skill runs, so the count is **not** a problem count (`deps`, `docs`).
+- **advisory** — no cheap local signal at all (`noise`).
+
+| Mode | Pre-scan (kind) | Delegates to |
+|------|-----------------|--------------|
+| `perf` | *staged — phase 3* (dev-loop timing: slow tests / integration-mode scripts / imports) | `refactor` / `bug` |
+| `tidy` | git debris — stale branches, stashes, `[gone]` refs, dirty checkouts (**debris**) | `/repo_cleanup` (Brain) |
+| `noise` | none — needs a pytest + workspace-script run (**advisory**) | `/cli_noise_clean` (Heart) |
+| `deps` | capped/pinned specifiers in library `pyproject.toml` (**surface**) | `/dep_audit` (Heart, hits PyPI) |
+| `docs` | `docs/api/*.rst` + `currentmodule` counts across the 3 doc repos (**surface**) | `/audit_docs` (Heart, imports) |
+| *(default)* | all of the above | a ranked `HygieneDecision` worklist — recommends `tidy` when debris exists (the only directly-actionable count), else prompts the periodic audits |
 
 ```
-pyauto-brain hygiene              # audit across modes → prioritised worklist
+pyauto-brain hygiene              # audit across modes → ranked worklist
 pyauto-brain hygiene perf         # dev-loop timing        (staged: phase 3)
-pyauto-brain hygiene tidy         # git debris             (staged: phase 2)
-pyauto-brain hygiene noise        # CLI noise              (staged: phase 2)
-pyauto-brain hygiene deps         # dependency-cap drift   (staged: phase 2)
-pyauto-brain hygiene docs         # stale API docs         (staged: phase 2)
+pyauto-brain hygiene tidy         # git debris → /repo_cleanup
+pyauto-brain hygiene noise        # CLI noise → /cli_noise_clean
+pyauto-brain hygiene deps         # dependency-cap surface → /dep_audit
+pyauto-brain hygiene docs         # API-docs surface → /audit_docs
 pyauto-brain hygiene <mode> --json
 ```
 
-> **Staged.** This is the phase-1 scaffold: the conductor is real, routable and
-> bounded, but the modes are stubs — each prints its staged notice. Phase 2
-> absorbs `repo_cleanup` (`tidy`) and `cli_noise_clean` (`noise`) and consults
-> `dep_audit` (`deps`) / `audit_docs` (`docs`); phase 3 builds `perf` and any
-> PyAutoHeart observation legs.
+Repos are read under `PYAUTO_ROOT` (default `~/Code/PyAutoLabs`). `noise`/`deps`/
+`docs` route to **read-only PyAutoHeart observation skills** — measurement lives
+in Heart; hygiene pre-scans, prioritises and routes. `perf` and any new standing
+Heart legs (`import_time` / `cli_noise`) remain phase 3.
 
 ## Fundamental principles
 
