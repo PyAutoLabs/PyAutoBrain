@@ -27,6 +27,9 @@
 #   hygiene.sh noise           # CLI-noise route -> /cli_noise_clean
 #   hygiene.sh deps            # dependency-cap pre-scan -> /dep_audit
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
+#   hygiene.sh crlf            # .py files with CRLF line endings -> /refactor
+#   hygiene.sh config          # library config keys missing downstream -> /refactor
+#   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh <mode> --json   # machine-readable HygieneDecision
 #
 # All five modes are live. The fast default scan DEFERS perf's import timing (it
@@ -54,13 +57,16 @@ PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
 read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy noise deps docs)
+MODE_ORDER=(perf tidy crlf artifacts noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="/repo_cleanup"
+  [crlf]="/refactor"
+  [artifacts]="/repo_cleanup"
   [noise]="/cli_noise_clean"
   [deps]="/dep_audit"
   [docs]="/audit_docs"
+  [config]="/refactor"
 )
 # A mode's pre-scan is one of a few kinds, which is what makes its count
 # comparable (or not): 'debris' finds directly-removable items and 'timing'
@@ -69,7 +75,8 @@ declare -A MODE_DELEGATE=(
 # NOT a problem count); 'advisory' has no cheap local signal. Only 'debris' and
 # 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
-  [perf]="timing" [tidy]="debris" [deps]="surface" [docs]="surface" [noise]="advisory"
+  [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris"
+  [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
 # --- Pre-scan helpers (read-only; each echoes "count|one-line summary"). -------
@@ -122,6 +129,47 @@ prescan_docs() {
     rst=$((rst + n)); cm=$((cm + c))
   done
   echo "${cm}|${rst} api .rst files, ${cm} currentmodule directives across ${#DOC_REPOS[@]} repos"
+}
+
+# crlf: .py files with CRLF line endings across the managed repos (a documented
+# recurring gotcha — CRLF files produce 10x diffs). Fix: sed -i 's/\r$//' / dos2unix.
+prescan_crlf() {
+  local total=0 detail="" repo dir n
+  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}"; do
+    dir="$ROOT/$repo"
+    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    n=$(git -C "$dir" grep -Il $'\r$' -- '*.py' 2>/dev/null | wc -l | tr -d ' ')
+    total=$((total + n))
+    [[ "$n" -gt 0 ]] && detail+="${repo}:${n} "
+  done
+  echo "${total}|${total} .py files with CRLF line endings: ${detail}(fix: dos2unix / sed -i 's/\\r\$//')"
+}
+
+# artifacts: tracked files that look like leaked generated outputs — anything
+# under a run-output dir (outputs?/, but NOT the output_test fixture dir) plus
+# stray data-ext files outside dataset/test fixtures. Should be gitignored.
+prescan_artifacts() {
+  local total=0 detail="" repo dir n
+  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}" autolens_workspace autogalaxy_workspace autofit_workspace; do
+    dir="$ROOT/$repo"
+    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    local leaked
+    leaked=$( { git -C "$dir" ls-files 2>/dev/null | grep -E '(^|/)outputs?/';
+               git -C "$dir" ls-files -- '*.fits' '*.hdf5' '*.npy' '*.npz' '*.pkl' '*.pt' 2>/dev/null \
+                 | grep -vE '(^|/)(dataset|test_|files|output_test)/'; } | sort -u | wc -l | tr -d ' ')
+    total=$((total + leaked))
+    [[ "$leaked" -gt 0 ]] && detail+="${repo}:${leaked} "
+  done
+  echo "${total}|${total} tracked files look like leaked outputs/data: ${detail}(fix: gitignore + git rm --cached)"
+}
+
+# config: keys present in a library config yaml but missing from the matching
+# workspace config (the "mirror new library config keys downstream" chore).
+# Uses a stdlib+PyYAML helper for a recursive key diff; degrades if PyYAML absent.
+prescan_config() {
+  local out
+  out=$(python3 "$HERE/_hygiene_config.py" --root "$ROOT" 2>/dev/null)
+  [[ -n "$out" ]] && echo "$out" || echo "0|config diff unavailable (PyYAML missing?)"
 }
 
 # noise: no cheap local signal (needs running pytest + workspace scripts).
@@ -185,6 +233,7 @@ prescan() {
   case "$1" in
     perf) prescan_perf ;; tidy) prescan_tidy ;; deps) prescan_deps ;;
     docs) prescan_docs ;; noise) prescan_noise ;;
+    crlf) prescan_crlf ;; artifacts) prescan_artifacts ;; config) prescan_config ;;
   esac
 }
 
@@ -194,7 +243,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|noise|deps|docs) mode="$arg" ;;
+    perf|tidy|noise|deps|docs|crlf|config|artifacts) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -292,16 +341,16 @@ echo
 render_delegate_line() { # mode
   local m="$1"
   if [[ "${MODE_KIND[$m]}" == "timing" ]]; then
-    printf '  %-6s %-9s → route slow items to %s; slow tests/scripts → Heart script_timing/test_run\n' "" "" "${MODE_DELEGATE[$m]}"
+    printf '  %-9s %-9s → route slow items to %s; slow tests/scripts → Heart script_timing/test_run\n' "" "" "${MODE_DELEGATE[$m]}"
   else
-    printf '  %-6s %-9s → run %s for the full audit\n' "" "" "${MODE_DELEGATE[$m]}"
+    printf '  %-9s %-9s → run %s for the full audit\n' "" "" "${MODE_DELEGATE[$m]}"
   fi
 }
 
 render_row() { # mode
   local m="$1"
   if perf_deferred "$m"; then
-    printf '  %-6s %-9s %s\n' "perf" "run it" "import timings (subprocess) — run 'hygiene perf'; deferred in the fast default scan"
+    printf '  %-9s %-9s %s\n' "perf" "run it" "import timings (subprocess) — run 'hygiene perf'; deferred in the fast default scan"
     render_delegate_line "$m"
     return
   fi
@@ -312,22 +361,26 @@ render_row() { # mode
   elif [[ "$count" == "0" ]]; then tag="clean"
   elif [[ "$kind" == "timing" ]]; then tag="${count} slow"
   else tag="${count} debris"; fi
-  printf '  %-6s %-9s %s\n' "$m" "$tag" "$summary"
+  printf '  %-9s %-9s %s\n' "$m" "$tag" "$summary"
   render_delegate_line "$m"
 }
 
 if [[ "$mode" == "default" ]]; then
-  # Only the 'debris'/'timing' pre-scans yield a directly-actionable count, and
-  # perf's timing is deferred here (too slow for the fast scan) — so the default
-  # recommendation ranks on tidy debris and points at the periodic audits.
-  tidy_n="$(prescan tidy)"; tidy_n="${tidy_n%%|*}"
+  # Only 'debris' pre-scans yield a directly-actionable count (perf's timing is
+  # deferred here — too slow for the fast scan). Rank across all debris modes and
+  # recommend the one with the most removable items.
+  best=""; best_n=0
+  for m in tidy crlf artifacts; do
+    local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
+    if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
+  done
   for m in "${MODE_ORDER[@]}"; do render_row "$m"; done
   echo
-  if [[ "$tidy_n" -gt 0 ]]; then
-    echo "Recommended next: hygiene tidy (${tidy_n} removable debris items), then run /repo_cleanup."
-    echo "  Then 'hygiene perf' for import timings; deps/docs/noise are periodic audits (surface only)."
+  if [[ -n "$best" ]]; then
+    echo "Recommended next: hygiene ${best} (${best_n} items), then run ${MODE_DELEGATE[$best]}."
+    echo "  Then 'hygiene perf' for import timings; config/deps/docs/noise are periodic audits (surface only)."
   else
-    echo "Recommended next: no removable debris — run 'hygiene perf' for import timings, and deps/docs/noise audits periodically."
+    echo "Recommended next: no removable debris — run 'hygiene perf' for import timings, and config/deps/docs/noise audits periodically."
   fi
   echo "Design: PyAutoMind research/pyautobrain/hygiene_agent_decision.md."
 else

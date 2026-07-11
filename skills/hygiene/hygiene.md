@@ -9,11 +9,13 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 ## Do
 
-1. Run `bin/pyauto-brain hygiene [perf | tidy | noise | deps | docs]` (no arg =
-   pre-scan across modes → a ranked worklist; perf's import timing is deferred
-   there). This is a **dry run** — each mode does a cheap read-only pre-scan and
-   emits a `HygieneDecision` naming the skill to run for the full audit. Nothing
-   is executed or mutated.
+1. Run `bin/pyauto-brain hygiene [perf | tidy | noise | deps | docs | crlf |
+   config | artifacts]` (no arg = pre-scan across modes → a ranked worklist;
+   perf's import timing is deferred there). This is a **dry run** — each mode
+   does a cheap read-only pre-scan and emits a `HygieneDecision` naming the
+   skill to run for the full audit. Nothing is executed or mutated. (`crlf` =
+   CRLF `.py` files; `config` = library→workspace config-key drift; `artifacts`
+   = tracked leaked outputs/data.)
 2. Execute the emitted plan: run the named delegate — `/repo_cleanup` (git
    debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
    or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt

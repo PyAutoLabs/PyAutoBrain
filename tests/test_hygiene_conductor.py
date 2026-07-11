@@ -13,7 +13,7 @@ from pathlib import Path
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
-MODES = {"perf", "tidy", "noise", "deps", "docs"}
+MODES = {"perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts"}
 
 _PROFILE_TARGET = """
 def my_hot_function():
@@ -57,7 +57,9 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     # fast default scan (it spawns real imports).
     kinds = {row["mode"]: row.get("kind") for row in doc["rows"]}
     assert kinds["tidy"] == "debris"
+    assert kinds["crlf"] == "debris" and kinds["artifacts"] == "debris"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
+    assert kinds["config"] == "surface"
     assert kinds["noise"] == "advisory"
     perf = next(row for row in doc["rows"] if row["mode"] == "perf")
     assert perf["status"] == "deferred"
@@ -156,6 +158,29 @@ def test_profile_ranks_nonlikelihood_and_excludes_likelihood(tmp_path):
     names = [c["function"] for c in doc["candidates"]]
     assert "my_hot_function" in names
     assert "log_likelihood_function" not in names
+
+
+def _load_config_helper():
+    import importlib.util
+    path = BRAIN_HOME / "agents" / "conductors" / "hygiene" / "_hygiene_config.py"
+    spec = importlib.util.spec_from_file_location("_hygiene_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_config_helper_recursive_key_diff(tmp_path):
+    cfg = _load_config_helper()  # skips (SystemExit) if PyYAML absent
+    import yaml
+    lib = tmp_path / "lib" / "config"; ws = tmp_path / "ws" / "config"
+    lib.mkdir(parents=True); ws.mkdir(parents=True)
+    # library adds a nested key + a top-level key the workspace lacks.
+    (lib / "general.yaml").write_text(yaml.safe_dump(
+        {"a": {"x": 1, "y": 2}, "b": 3, "c": 4}))
+    (ws / "general.yaml").write_text(yaml.safe_dump(
+        {"a": {"x": 1}, "b": 3}))  # missing a.y and c
+    total, detail = cfg.diff(str(tmp_path), pairs=[("lib/config", "ws/config")])
+    assert total == 2  # 'a.y' and 'c'
 
 
 def test_help_lists_the_usage_block(tmp_path):
