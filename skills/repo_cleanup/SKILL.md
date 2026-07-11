@@ -22,13 +22,14 @@ Cleanup is not release work, so it never touches PyAutoBuild. It reads the
 PyAutoMind registry (`active.md`) to know what's claimed. Organ boundary +
 execution-environment model: [`../WORKFLOW.md`](../WORKFLOW.md).
 
-> **The hygiene conductor.** This skill is the inline form; its reasoning is now
-> owned by the PyAutoBrain **Hygiene Agent** (`agents/conductors/hygiene/`),
-> which generalises hygiene across the organism and absorbs this sweep as its
-> `tidy` mode. That conductor's phase-1 scaffold exists and documents the
-> boundary; the `tidy` mode itself lands in phase 2. Until it does, run the
-> reasoning here per this file — this remains the working form for git-debris
-> cleanup.
+> **The hygiene conductor.** The PyAutoBrain **Hygiene Agent**
+> (`agents/conductors/hygiene/`) generalises hygiene across the organism; its
+> `tidy` mode (`pyauto-brain hygiene tidy`) is the front door — it pre-scans the
+> git debris (stale branches / stashes / `[gone]` refs / dirty checkouts) and
+> routes here. **This skill remains the executor:** the conductor reasons and
+> never mutates a repo, so the interactive per-bucket audit + deletion below is
+> what actually does the cleanup. Reach for `hygiene tidy` to see the debris and
+> the recommendation; run this skill to act on it.
 
 **Distinct from:** `/health worktrees` (Heart read-only diagnostic — consulted here,
 but this also mutates); post-merge cleanup in `CLAUDE.md` (once per shipped task —

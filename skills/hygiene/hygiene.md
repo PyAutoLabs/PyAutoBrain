@@ -9,18 +9,18 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 ## Do
 
-1. Run `bin/pyauto-brain hygiene [perf | tidy | noise | deps | docs]` (no arg =
-   audit across modes → a prioritised worklist). This is a **dry run** — it emits
-   a `HygieneDecision`. Nothing is executed.
-2. Execute the emitted plan through the normal dev workflow: hygiene *finds and
-   prioritises* quality debt and *delegates the fix* — restructuring to
-   `/refactor`, regressions to `/bug`, larger changes to `/feature` — shipped via
+1. Run `bin/pyauto-brain hygiene [tidy | noise | deps | docs]` (no arg = pre-scan
+   across modes → a ranked worklist). This is a **dry run** — each mode does a
+   cheap read-only pre-scan and emits a `HygieneDecision` naming the skill to run
+   for the full audit. Nothing is executed or mutated.
+2. Execute the emitted plan: run the named delegate — `/repo_cleanup` (git
+   debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
+   then route any code fixes to `/refactor` / `/bug` / `/feature`, shipped via
    `ship_library` / `ship_workspace`.
 
-The Hygiene Agent **reasons; it never edits source.** Measurement lives in Heart
-(the `script_timing` / `test_run` signals); hygiene acts on it.
+The Hygiene Agent **reasons; it never edits source and never mutates a repo.**
+Measurement lives in Heart (`noise`/`deps`/`docs` route to read-only PyAutoHeart
+skills, plus the `script_timing` / `test_run` signals); hygiene pre-scans + routes.
 
-> **Staged (phase 1):** the conductor is real and bounded but its modes are
-> stubs. `tidy` / `noise` / `deps` / `docs` land in phase 2 (absorbing
-> `repo_cleanup` + `cli_noise_clean`, consulting `dep_audit` + `audit_docs`);
-> `perf` in phase 3.
+> **Staged:** only `perf` (dev-loop timing) remains staged — it lands in phase 3
+> with any new PyAutoHeart legs. `tidy` / `noise` / `deps` / `docs` are live.
