@@ -128,12 +128,34 @@ prescan_noise() {
   echo "-1|no cheap local signal — runs pytest + workspace scripts (PYAUTO_TEST_MODE=2)"
 }
 
-# perf: import-cost timing — time `import <pkg>` per library in a SUBPROCESS
-# (best-effort; the conductor never imports the science stack itself). The count
-# is the number of libraries whose import exceeds the slow threshold. Heavy
-# dev-loop timing (slow tests / integration scripts) is already observed by
-# PyAutoHeart's script_timing / test_run legs — perf points there and routes.
+# perf: prefer PyAutoHeart's tracked `import_time` leg (baseline + regression
+# over time — the standing signal) when present; otherwise fall back to a
+# one-shot import-cost timing, timing `import <pkg>` per library in a SUBPROCESS
+# (the conductor never imports the science stack itself). Heavy dev-loop timing
+# (slow tests / integration scripts) is already observed by PyAutoHeart's
+# script_timing / test_run legs — perf points there and routes.
 prescan_perf() {
+  # --- Heart import_time leg (preferred): the tracked over-time view. --------
+  local heart_json="${HEART_STATE_DIR:-$HOME/.pyauto-heart}/import_time.json"
+  if [[ -f "$heart_json" ]]; then
+    local counts
+    counts=$(python3 - "$heart_json" <<'PY' 2>/dev/null
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(int(d.get("red_count", 0)), int(d.get("yellow_count", 0)),
+          int(d.get("green_count", 0)), int(d.get("packages_measured", 0)))
+except Exception:
+    pass
+PY
+)
+    if [[ -n "$counts" ]]; then
+      local r y g m; read -r r y g m <<< "$counts"
+      echo "$((r + y))|Heart import_time leg: ${r} regressions / ${y} slow / ${g} within baseline (${m} libs tracked); refresh: python -m heart.checks.import_time"
+      return
+    fi
+  fi
+  # --- Fallback: one-shot subprocess timing (no Heart reading available). -----
   local slow=0 measured=0 detail="" pkg rc start end t
   for pkg in "${PERF_LIBS[@]}"; do
     [[ -n "$pkg" ]] || continue
