@@ -42,6 +42,7 @@ kinds, which is what makes its count comparable (or not):
 ```
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
 pyauto-brain hygiene perf         # import cost (subprocess) → /refactor + Heart legs
+pyauto-brain hygiene perf --profile <script>   # cProfile a normal-mode run → rank NON-likelihood hotspots → /refactor
 pyauto-brain hygiene tidy         # git debris → /repo_cleanup
 pyauto-brain hygiene noise        # CLI noise → /cli_noise_clean
 pyauto-brain hygiene deps         # dependency-cap surface → /dep_audit
@@ -57,6 +58,23 @@ to time the science libs), so the conductor itself never imports the JAX stack;
 the slow-test / slow-script signal is read from Heart, not re-run. A *standing*
 Heart `import_time` (or `cli_noise`) leg — promoting the import pre-scan to a
 tracked Heart signal — is a deferred optional follow-up (a PyAutoHeart change).
+
+**`perf --profile <script>` (function profiling).** An on-demand action: run a
+**normal-mode** script under `cProfile` in a subprocess (`HYGIENE_PYTHON`), then
+rank the slowest dev-loop functions by *self* time as `/refactor` candidates (a
+clear win may be flagged a JAX-adaptation candidate — a judgement, never
+automatic). **Scope is broad by default** — simulation, data prep, model
+composition, plotting, the aggregator, config, and general utilities (including
+ones called *during* a fit). The **one hard boundary** is the **likelihood
+function itself** (`log_likelihood_function` / `figure_of_merit` / `Fitness` +
+its JAX/XLA compile) — that compute is `/profiling`'s domain. `_hygiene_profile.py`
+draws it in two tiers: the likelihood boundary (self-ranking already drops the
+entry points, which wrap the fit at ~0 self time) and non-refactorable noise
+(no-source built-ins — not a scope choice). It is a **transparent heuristic, not
+a perfect separator**: a hotspot inside the likelihood compute is `/profiling`'s,
+a human/refactor judgement surfaced not enforced. `HYGIENE_PROFILE_EXCLUDE`
+overrides the boundary tier to profile even more broadly. Heavy + per-target →
+on-demand only (never the default scan, never a Heart tick).
 
 ## Fundamental principles
 

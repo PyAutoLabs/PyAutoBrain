@@ -22,6 +22,7 @@
 # Usage:
 #   hygiene.sh                 # pre-scan across modes -> ranked worklist (default)
 #   hygiene.sh perf            # import-cost timing (subprocess) -> /refactor + Heart legs
+#   hygiene.sh perf --profile <script>  # cProfile a script, rank NON-likelihood hotspots -> /refactor
 #   hygiene.sh tidy            # git debris pre-scan -> /repo_cleanup
 #   hygiene.sh noise           # CLI-noise route -> /cli_noise_clean
 #   hygiene.sh deps            # dependency-cap pre-scan -> /dep_audit
@@ -189,20 +190,63 @@ prescan() {
 
 # --- Arg parse. ----------------------------------------------------------------
 
-mode="default"; json=0
+mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
+  if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
     perf|tidy|noise|deps|docs) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
+    --profile) mode="perf"; expect_script=1 ;;
+    --profile=*) mode="perf"; profile_script="${arg#*=}" ;;
     -h|--help|help) mode="help" ;;
-    *) echo "hygiene: unknown argument '$arg' (modes: ${MODE_ORDER[*]}, --json)" >&2; exit 2 ;;
+    *) echo "hygiene: unknown argument '$arg' (modes: ${MODE_ORDER[*]}, --json, perf --profile <script>)" >&2; exit 2 ;;
   esac
 done
+if [[ "$expect_script" -eq 1 ]]; then
+  echo "hygiene: --profile needs a script path" >&2; exit 2
+fi
 
 if [[ "$mode" == "help" ]]; then
   awk '/^# Usage:/{u=1;next} u{ if($0 ~ /^#   /){sub(/^#   /,"  "); print} else exit }' "$HERE/hygiene.sh"
   exit 0
+fi
+
+# perf --profile <script>: an on-demand cProfile run of a NORMAL-mode script,
+# ranking the slowest NON-likelihood functions as /refactor candidates. The
+# script runs under cProfile in a SUBPROCESS (HYGIENE_PYTHON — the science env),
+# so the conductor never imports the science stack; the stdlib helper then ranks
+# and applies the likelihood-exclusion filter. Heavy + per-target → on demand
+# only, never the default scan or a Heart tick.
+run_profile() {
+  local script="$1"
+  if [[ ! -f "$script" ]]; then
+    echo "hygiene perf --profile: no such script '$script'" >&2; return 2
+  fi
+  local py="${HYGIENE_PYTHON:-python3}" out dir base rc
+  out="$(mktemp)"; dir="$(cd "$(dirname "$script")" && pwd)"; base="$(basename "$script")"
+  ( cd "$dir" && timeout "${HYGIENE_PROFILE_TIMEOUT:-600}" "$py" -m cProfile -o "$out" "$base" >/dev/null 2>&1 )
+  rc=$?
+  if [[ $rc -ne 0 || ! -s "$out" ]]; then
+    rm -f "$out"
+    echo "hygiene perf --profile: could not profile '$script' (rc=$rc; set HYGIENE_PYTHON to the science venv, e.g. ~/venv/PyAuto/bin/python)" >&2
+    return 1
+  fi
+  if [[ "$json" -eq 1 ]]; then
+    python3 "$HERE/_hygiene_profile.py" "$out" --json
+  else
+    echo "== HygieneDecision (perf --profile: $script) =="
+    echo "Slowest NON-likelihood functions by self time (likelihood entry points + JAX compile excluded):"
+    python3 "$HERE/_hygiene_profile.py" "$out"
+    echo
+    echo "→ route candidates to /refactor; a clear win may be a JAX-adaptation candidate (judgement, never automatic)."
+    echo "  A hotspot inside the likelihood compute path belongs to /profiling, not hygiene."
+  fi
+  rm -f "$out"
+}
+
+if [[ -n "$profile_script" ]]; then
+  run_profile "$profile_script"; exit $?
 fi
 
 # perf's import timing spawns real imports, so the fast default scan defers it;

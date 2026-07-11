@@ -8,11 +8,32 @@ without depending on the state of the real checkouts.
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {"perf", "tidy", "noise", "deps", "docs"}
+
+_PROFILE_TARGET = """
+def my_hot_function():
+    s = 0
+    for i in range(400000):
+        s += i
+    return s
+
+def log_likelihood_function():
+    s = 0
+    for i in range(600000):
+        s += i * i
+    return s
+
+def top():
+    my_hot_function()
+    log_likelihood_function()
+
+top()
+"""
 
 
 def _run(args, root, extra=None):
@@ -110,6 +131,31 @@ def test_unknown_mode_exits_2(tmp_path):
     r = _run(["bogus"], tmp_path)
     assert r.returncode == 2
     assert "unknown argument" in r.stderr
+
+
+def test_profile_missing_script_exits_2(tmp_path):
+    r = _run(["perf", "--profile", str(tmp_path / "nope.py")], tmp_path)
+    assert r.returncode == 2
+
+
+def test_profile_needs_a_script_arg(tmp_path):
+    r = _run(["perf", "--profile"], tmp_path)
+    assert r.returncode == 2
+
+
+def test_profile_ranks_nonlikelihood_and_excludes_likelihood(tmp_path):
+    # A real cProfile run of a tiny normal-mode script: the likelihood entry
+    # point must be excluded; the ordinary hot function must be surfaced.
+    script = tmp_path / "prof_target.py"
+    script.write_text(_PROFILE_TARGET)
+    r = _run(["perf", "--profile", str(script), "--json"], tmp_path,
+             extra={"HYGIENE_PYTHON": sys.executable})
+    assert r.returncode == 0, r.stderr
+    doc = json.loads(r.stdout)
+    assert doc["mode"] == "perf-profile" and doc["delegate"] == "/refactor"
+    names = [c["function"] for c in doc["candidates"]]
+    assert "my_hot_function" in names
+    assert "log_likelihood_function" not in names
 
 
 def test_help_lists_the_usage_block(tmp_path):
