@@ -54,10 +54,17 @@ def test_single_mode_json_round_trips(tmp_path):
         assert doc["row"]["delegate"].startswith("/")
 
 
+def _no_heart(tmp_path):
+    # Point HEART_STATE_DIR at an empty dir so perf falls back to its own
+    # subprocess timing instead of reading a real ~/.pyauto-heart import_time leg.
+    return str(tmp_path / "noheart")
+
+
 def test_perf_times_imports_in_a_subprocess(tmp_path):
     # Fast stdlib modules keep the test hermetic + quick; the point is the row
     # shape, not the science libs (which need the PyAuto venv).
-    r = _run(["perf", "--json"], tmp_path, extra={"HYGIENE_PERF_LIBS": "sys json"})
+    r = _run(["perf", "--json"], tmp_path,
+             extra={"HYGIENE_PERF_LIBS": "sys json", "HEART_STATE_DIR": _no_heart(tmp_path)})
     assert r.returncode == 0, r.stderr
     row = json.loads(r.stdout)["row"]
     assert row["mode"] == "perf"
@@ -67,10 +74,27 @@ def test_perf_times_imports_in_a_subprocess(tmp_path):
 
 
 def test_perf_advisory_when_nothing_importable(tmp_path):
-    r = _run(["perf", "--json"], tmp_path, extra={"HYGIENE_PERF_LIBS": "nope_not_a_module_xyz"})
+    r = _run(["perf", "--json"], tmp_path,
+             extra={"HYGIENE_PERF_LIBS": "nope_not_a_module_xyz", "HEART_STATE_DIR": _no_heart(tmp_path)})
     assert r.returncode == 0, r.stderr
     row = json.loads(r.stdout)["row"]
     assert row["status"] == "advisory" and row["count"] is None
+
+
+def test_perf_prefers_heart_import_time_leg_when_present(tmp_path):
+    # When Heart's import_time leg has produced a reading, perf surfaces the
+    # tracked baseline/regression view instead of its own one-shot timing.
+    heart = tmp_path / "heart"
+    heart.mkdir()
+    (heart / "import_time.json").write_text(json.dumps({
+        "red_count": 1, "yellow_count": 1, "green_count": 3, "packages_measured": 5,
+    }))
+    r = _run(["perf", "--json"], tmp_path, extra={"HEART_STATE_DIR": str(heart)})
+    assert r.returncode == 0, r.stderr
+    row = json.loads(r.stdout)["row"]
+    assert row["mode"] == "perf" and row["kind"] == "timing"
+    assert row["count"] == 2  # red + yellow regressions
+    assert "import_time leg" in row["summary"]
 
 
 def test_unknown_mode_exits_2(tmp_path):
