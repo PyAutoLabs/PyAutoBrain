@@ -19,28 +19,29 @@ paired repo**, boundaries) recorded in PyAutoMind
 
 ## Modes
 
-Each mode does a cheap, read-only local **pre-scan** and **delegates** the full
-audit + any execution to the owning skill — the conductor never runs a heavy
-audit and never mutates a repo. A pre-scan is one of three kinds, which is what
-makes its count comparable (or not):
+All five modes are live. Each does a cheap, read-only local **pre-scan** and
+**delegates** the full audit + any execution to the owning skill — the conductor
+never runs a heavy audit and never mutates a repo. A pre-scan is one of a few
+kinds, which is what makes its count comparable (or not):
 
 - **debris** — finds directly-removable items; a real, rankable count (`tidy`).
+- **timing** — measures import cost; a real, rankable count of *slow* imports (`perf`).
 - **surface** — only *sizes* the audit; the real problems emerge when the
   delegated skill runs, so the count is **not** a problem count (`deps`, `docs`).
 - **advisory** — no cheap local signal at all (`noise`).
 
 | Mode | Pre-scan (kind) | Delegates to |
 |------|-----------------|--------------|
-| `perf` | *staged — phase 3* (dev-loop timing: slow tests / integration-mode scripts / imports) | `refactor` / `bug` |
+| `perf` | import cost — times `import <pkg>` per library in a **subprocess** (**timing**); heavy test/script timing is read from Heart's `script_timing` / `test_run` | `/refactor` / `/bug` (+ Heart timing legs) |
 | `tidy` | git debris — stale branches, stashes, `[gone]` refs, dirty checkouts (**debris**) | `/repo_cleanup` (Brain) |
 | `noise` | none — needs a pytest + workspace-script run (**advisory**) | `/cli_noise_clean` (Heart) |
 | `deps` | capped/pinned specifiers in library `pyproject.toml` (**surface**) | `/dep_audit` (Heart, hits PyPI) |
 | `docs` | `docs/api/*.rst` + `currentmodule` counts across the 3 doc repos (**surface**) | `/audit_docs` (Heart, imports) |
-| *(default)* | all of the above | a ranked `HygieneDecision` worklist — recommends `tidy` when debris exists (the only directly-actionable count), else prompts the periodic audits |
+| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends `tidy` when debris exists, then `hygiene perf`, then the periodic audits |
 
 ```
-pyauto-brain hygiene              # audit across modes → ranked worklist
-pyauto-brain hygiene perf         # dev-loop timing        (staged: phase 3)
+pyauto-brain hygiene              # pre-scan across modes → ranked worklist
+pyauto-brain hygiene perf         # import cost (subprocess) → /refactor + Heart legs
 pyauto-brain hygiene tidy         # git debris → /repo_cleanup
 pyauto-brain hygiene noise        # CLI noise → /cli_noise_clean
 pyauto-brain hygiene deps         # dependency-cap surface → /dep_audit
@@ -50,8 +51,12 @@ pyauto-brain hygiene <mode> --json
 
 Repos are read under `PYAUTO_ROOT` (default `~/Code/PyAutoLabs`). `noise`/`deps`/
 `docs` route to **read-only PyAutoHeart observation skills** — measurement lives
-in Heart; hygiene pre-scans, prioritises and routes. `perf` and any new standing
-Heart legs (`import_time` / `cli_noise`) remain phase 3.
+in Heart; hygiene pre-scans, prioritises and routes. `perf` times imports in a
+**subprocess** (`HYGIENE_PYTHON`, default `python3` — point it at the PyAuto venv
+to time the science libs), so the conductor itself never imports the JAX stack;
+the slow-test / slow-script signal is read from Heart, not re-run. A *standing*
+Heart `import_time` (or `cli_noise`) leg — promoting the import pre-scan to a
+tracked Heart signal — is a deferred optional follow-up (a PyAutoHeart change).
 
 ## Fundamental principles
 

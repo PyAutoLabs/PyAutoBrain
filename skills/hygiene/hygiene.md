@@ -9,18 +9,20 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 ## Do
 
-1. Run `bin/pyauto-brain hygiene [tidy | noise | deps | docs]` (no arg = pre-scan
-   across modes → a ranked worklist). This is a **dry run** — each mode does a
-   cheap read-only pre-scan and emits a `HygieneDecision` naming the skill to run
-   for the full audit. Nothing is executed or mutated.
+1. Run `bin/pyauto-brain hygiene [perf | tidy | noise | deps | docs]` (no arg =
+   pre-scan across modes → a ranked worklist; perf's import timing is deferred
+   there). This is a **dry run** — each mode does a cheap read-only pre-scan and
+   emits a `HygieneDecision` naming the skill to run for the full audit. Nothing
+   is executed or mutated.
 2. Execute the emitted plan: run the named delegate — `/repo_cleanup` (git
    debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
-   then route any code fixes to `/refactor` / `/bug` / `/feature`, shipped via
-   `ship_library` / `ship_workspace`.
+   or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt
+   is a judgement call, never automatic), shipped via `ship_library` / `ship_workspace`.
 
 The Hygiene Agent **reasons; it never edits source and never mutates a repo.**
 Measurement lives in Heart (`noise`/`deps`/`docs` route to read-only PyAutoHeart
-skills, plus the `script_timing` / `test_run` signals); hygiene pre-scans + routes.
+skills; `perf`'s slow-test/script signal is read from Heart's `script_timing` /
+`test_run`, and its import timing runs in a subprocess); hygiene pre-scans + routes.
 
-> **Staged:** only `perf` (dev-loop timing) remains staged — it lands in phase 3
-> with any new PyAutoHeart legs. `tidy` / `noise` / `deps` / `docs` are live.
+All five modes are live. Point `HYGIENE_PYTHON` at the PyAuto venv for `perf` to
+time the science libraries (otherwise it reports advisory).
