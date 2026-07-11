@@ -32,7 +32,7 @@ kinds, which is what makes its count comparable (or not):
 
 | Mode | Pre-scan (kind) | Delegates to |
 |------|-----------------|--------------|
-| `perf` | import cost — prefers Heart's tracked **`import_time`** leg when present, else times `import <pkg>` per library in a **subprocess** (**timing**); heavy test/script timing is read from Heart's `script_timing` / `test_run` | `/refactor` / `/bug` (+ Heart timing legs) |
+| `perf` | dev-loop timing — prefers Heart's tracked timing legs when present (`import_time`, `unit_test_timing`, `workspace_testmode_timing`), else times `import <pkg>` per library in a **subprocess** (**timing**) | `/refactor` / `/bug` (+ Heart timing legs) |
 | `tidy` | git debris — stale branches, stashes, `[gone]` refs, dirty checkouts (**debris**) | `/repo_cleanup` (Brain) |
 | `noise` | none — needs a pytest + workspace-script run (**advisory**) | `/cli_noise_clean` (Heart) |
 | `deps` | capped/pinned specifiers in library `pyproject.toml` (**surface**) | `/dep_audit` (Heart, hits PyPI) |

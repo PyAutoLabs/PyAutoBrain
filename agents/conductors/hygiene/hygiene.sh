@@ -128,32 +128,37 @@ prescan_noise() {
   echo "-1|no cheap local signal — runs pytest + workspace scripts (PYAUTO_TEST_MODE=2)"
 }
 
-# perf: prefer PyAutoHeart's tracked `import_time` leg (baseline + regression
-# over time — the standing signal) when present; otherwise fall back to a
+# perf: prefer PyAutoHeart's tracked dev-loop timing legs (baseline + regression
+# over time — the standing signals) when present; otherwise fall back to a
 # one-shot import-cost timing, timing `import <pkg>` per library in a SUBPROCESS
-# (the conductor never imports the science stack itself). Heavy dev-loop timing
-# (slow tests / integration scripts) is already observed by PyAutoHeart's
-# script_timing / test_run legs — perf points there and routes.
+# (the conductor never imports the science stack itself). The legs are the
+# hygiene-perf family shipped alongside the conductor: import_time (import cost),
+# unit_test_timing (slow unit tests), workspace_testmode_timing (TEST_MODE
+# scripts) — each read only when its sidecar exists.
+PERF_HEART_LEGS=(import_time unit_test_timing workspace_testmode_timing)
 prescan_perf() {
-  # --- Heart import_time leg (preferred): the tracked over-time view. --------
-  local heart_json="${HEART_STATE_DIR:-$HOME/.pyauto-heart}/import_time.json"
-  if [[ -f "$heart_json" ]]; then
-    local counts
-    counts=$(python3 - "$heart_json" <<'PY' 2>/dev/null
+  # --- Heart timing legs (preferred): the tracked over-time view. ------------
+  local hs="${HEART_STATE_DIR:-$HOME/.pyauto-heart}" leg jf present=0 total=0 parts="" counts r y
+  for leg in "${PERF_HEART_LEGS[@]}"; do
+    jf="$hs/${leg}.json"
+    [[ -f "$jf" ]] || continue
+    counts=$(python3 - "$jf" <<'PY' 2>/dev/null
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
-    print(int(d.get("red_count", 0)), int(d.get("yellow_count", 0)),
-          int(d.get("green_count", 0)), int(d.get("packages_measured", 0)))
+    print(int(d.get("red_count", 0)), int(d.get("yellow_count", 0)))
 except Exception:
     pass
 PY
 )
-    if [[ -n "$counts" ]]; then
-      local r y g m; read -r r y g m <<< "$counts"
-      echo "$((r + y))|Heart import_time leg: ${r} regressions / ${y} slow / ${g} within baseline (${m} libs tracked); refresh: python -m heart.checks.import_time"
-      return
-    fi
+    [[ -n "$counts" ]] || continue
+    read -r r y <<< "$counts"
+    present=$((present + 1)); total=$((total + r + y))
+    parts+="${leg}:${r}r/${y}y "
+  done
+  if [[ "$present" -gt 0 ]]; then
+    echo "${total}|Heart timing legs (${present}): ${parts}(regressions = red+yellow); refresh via the leg drivers (python -m heart.checks.<leg>)"
+    return
   fi
   # --- Fallback: one-shot subprocess timing (no Heart reading available). -----
   local slow=0 measured=0 detail="" pkg rc start end t

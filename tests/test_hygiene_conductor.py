@@ -81,20 +81,29 @@ def test_perf_advisory_when_nothing_importable(tmp_path):
     assert row["status"] == "advisory" and row["count"] is None
 
 
-def test_perf_prefers_heart_import_time_leg_when_present(tmp_path):
-    # When Heart's import_time leg has produced a reading, perf surfaces the
+def test_perf_prefers_heart_timing_legs_when_present(tmp_path):
+    # When a Heart dev-loop timing leg has produced a reading, perf surfaces the
     # tracked baseline/regression view instead of its own one-shot timing.
     heart = tmp_path / "heart"
     heart.mkdir()
-    (heart / "import_time.json").write_text(json.dumps({
-        "red_count": 1, "yellow_count": 1, "green_count": 3, "packages_measured": 5,
-    }))
+    (heart / "import_time.json").write_text(json.dumps({"red_count": 1, "yellow_count": 1}))
     r = _run(["perf", "--json"], tmp_path, extra={"HEART_STATE_DIR": str(heart)})
     assert r.returncode == 0, r.stderr
     row = json.loads(r.stdout)["row"]
     assert row["mode"] == "perf" and row["kind"] == "timing"
     assert row["count"] == 2  # red + yellow regressions
-    assert "import_time leg" in row["summary"]
+    assert "import_time" in row["summary"]
+
+
+def test_perf_aggregates_multiple_heart_timing_legs(tmp_path):
+    heart = tmp_path / "heart"
+    heart.mkdir()
+    (heart / "import_time.json").write_text(json.dumps({"red_count": 1, "yellow_count": 1}))
+    (heart / "unit_test_timing.json").write_text(json.dumps({"red_count": 2, "yellow_count": 0}))
+    r = _run(["perf", "--json"], tmp_path, extra={"HEART_STATE_DIR": str(heart)})
+    row = json.loads(r.stdout)["row"]
+    assert row["count"] == 4  # 2 + 2 regressions across both legs
+    assert "import_time" in row["summary"] and "unit_test_timing" in row["summary"]
 
 
 def test_unknown_mode_exits_2(tmp_path):
