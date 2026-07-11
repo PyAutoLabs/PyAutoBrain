@@ -1,0 +1,4 @@
+interface:
+  display_name: "Samplers Faculty"
+  short_description: "Inspect PyAuto sampler capabilities"
+  default_prompt: "Use $samplers to inspect the PyAuto sampler surface and recommend the appropriate tier."

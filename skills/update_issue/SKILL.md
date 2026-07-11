@@ -1,7 +1,6 @@
 ---
 name: update-issue
 description: Post a progress update to a GitHub issue from the current CLI session — commits, summary, and remaining work.
-user-invocable: true
 ---
 
 Post a progress summary from the current session to a GitHub issue.

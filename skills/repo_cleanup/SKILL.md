@@ -1,5 +1,5 @@
 ---
-name: repo_cleanup
+name: repo-cleanup
 description: Periodic hygiene sweep across PyAuto repos and worktrees — audit stale feature branches, tracking refs, stashes, and dirty checkouts, then execute per-bucket cleanups after confirmation. Use for end-of-week tidying or unwieldy branch lists.
 ---
 

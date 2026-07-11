@@ -67,7 +67,7 @@ On GREEN, run the dev workflow's own test → commit → push → feature-PR ste
 worktree, confirm the branch is `feature/<task-name>` (never auto-switch),
 commit, push, `gh pr create --label pending-release`, and verify the label
 landed. This is feature-development git work, not a Build/release step. In
-local-dev delegate the mechanical part to a Sonnet subagent; elsewhere run it
+local-dev delegate the mechanical part to an execution-tier subagent; elsewhere run it
 directly. If any step fails, stop and report — do not proceed.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass (step

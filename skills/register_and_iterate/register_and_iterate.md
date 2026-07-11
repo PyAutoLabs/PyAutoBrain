@@ -69,7 +69,7 @@ classifying and registering each offending type. Full pattern, the three-step
 assertion, and the classification heuristic are in
 [`reference.md`](reference.md) → "Scaffold", "Registration loop",
 "Classification heuristic". In local-dev, delegate the mechanical run-and-register
-cycle to a Sonnet subagent (reference.md → "Delegation").
+cycle to an execution-tier subagent (reference.md → "Delegation").
 
 ### 4. After PASS — gate: ship approval
 

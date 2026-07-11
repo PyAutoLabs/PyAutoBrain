@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Bootstrap Claude Code skills/commands into ~/.claude/ from every PyAuto
-# organism repo that hosts skills.
+# Bootstrap Claude Code commands and Claude/Codex skills from every PyAuto
+# organism repo that hosts them.
 #
 # This installer lives in PyAutoBrain (the reasoning/orchestration organ). It
-# scans every organ repo's skills/ dir and symlinks their skills+commands into
-# ~/.claude/. Roots that aren't checked out are simply skipped.
+# scans every organ repo's skills/ dir and symlinks skills into both harnesses;
+# Claude-only command files remain available as slash commands. Roots that
+# aren't checked out are simply skipped.
 #
 # Discovery roots (scanned in order):
 #   - admin_jammy/skills/   — vestigial: admin_jammy hosts no skills and is
@@ -19,10 +20,10 @@
 # (PyAutoBuild's root is for its own release/packaging-execution skills only — it
 #  owns NO dev-workflow skills; the ship_* skills merely call its release step.)
 #
-# Auto-discovers skills in each root:
-#   - A directory with SKILL.md → installed as ~/.claude/skills/<name>/
-#   - A directory with <name>.md (and no SKILL.md) → installed as a flat
-#     command at ~/.claude/commands/<name>.md
+# Auto-discovers surfaces in each root independently:
+#   - SKILL.md → installed in both the Claude and Codex skill roots
+#   - <name>.md → installed as a flat Claude command
+# A directory may contain both; neither surface suppresses the other.
 #
 # Safe to re-run — existing symlinks are replaced, non-symlink files are skipped.
 #
@@ -32,13 +33,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+DEFAULT_PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PYAUTO_ROOT="${PYAUTO_ROOT:-$DEFAULT_PYAUTO_ROOT}"
 ADMIN_SKILLS_DIR="$PYAUTO_ROOT/admin_jammy/skills"
 MIND_SKILLS_DIR="$PYAUTO_ROOT/PyAutoMind/skills"
 BRAIN_SKILLS_DIR="$PYAUTO_ROOT/PyAutoBrain/skills"
 HEART_SKILLS_DIR="$PYAUTO_ROOT/PyAutoHeart/skills"
 BUILD_SKILLS_DIR="$PYAUTO_ROOT/PyAutoBuild/skills"
 PROFILING_SKILLS_DIR="$PYAUTO_ROOT/autolens_profiling/skills"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 
 # ---------- Execution-environment note ----------
 #
@@ -53,7 +57,7 @@ else
 fi
 echo ""
 
-mkdir -p "$HOME/.claude/skills" "$HOME/.claude/commands"
+mkdir -p "$CLAUDE_HOME/skills" "$CLAUDE_HOME/commands" "$CODEX_HOME/skills"
 
 # ---------- Prune stale symlinks ----------
 #
@@ -76,8 +80,9 @@ prune_stale_symlinks() {
   done
 }
 
-prune_stale_symlinks "$HOME/.claude/skills"
-prune_stale_symlinks "$HOME/.claude/commands"
+prune_stale_symlinks "$CLAUDE_HOME/skills"
+prune_stale_symlinks "$CLAUDE_HOME/commands"
+prune_stale_symlinks "$CODEX_HOME/skills"
 
 # ---------- Install one source dir's skills/commands ----------
 
@@ -101,17 +106,27 @@ install_from_dir() {
     # Skip the install.sh dir itself, or any non-skill dirs
     [ "$name" = "skills" ] && continue
 
+    local found=0
     if [ -f "$entry/SKILL.md" ]; then
-      # Skill — symlink the directory
-      local dst="$HOME/.claude/skills/$name"
-      _link_symlink "$entry" "$dst" "skill"
+      _link_symlink "$entry" "$CLAUDE_HOME/skills/$name" "Claude skill"
       installed_count=$((installed_count + 1))
-    elif [ -f "$entry/$name.md" ]; then
-      # Command — symlink the flat .md file
-      local dst="$HOME/.claude/commands/$name.md"
-      _link_symlink "$entry/$name.md" "$dst" "command"
+      found=1
+
+      local skill_name
+      skill_name="$(sed -n 's/^name:[[:space:]]*//p' "$entry/SKILL.md" | head -1)"
+      if [ -z "$skill_name" ] || [[ "$skill_name" == *[!a-z0-9-]* ]]; then
+        echo "  SKIP $name (Codex skill name invalid or missing: ${skill_name:-<empty>})"
+      else
+        _link_symlink "$entry" "$CODEX_HOME/skills/$skill_name" "Codex skill"
+        installed_count=$((installed_count + 1))
+      fi
+    fi
+    if [ -f "$entry/$name.md" ]; then
+      _link_symlink "$entry/$name.md" "$CLAUDE_HOME/commands/$name.md" "Claude command"
       installed_count=$((installed_count + 1))
-    else
+      found=1
+    fi
+    if [ "$found" -eq 0 ]; then
       echo "  SKIP $name (no SKILL.md or $name.md found)"
     fi
   done
@@ -149,4 +164,4 @@ install_from_dir "$PROFILING_SKILLS_DIR" "autolens_profiling/skills/ — science
 
 # ---------- Summary ----------
 
-echo "Done. Restart Claude Code to pick up changes."
+echo "Done. Restart Claude Code and Codex to pick up changes."

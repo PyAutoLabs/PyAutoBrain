@@ -64,7 +64,7 @@ cross-reference step per
 auto-switch), regenerate notebooks from scripts (never edit `notebooks/`
 directly), `gh pr create --label pending-release`, verify the label, and
 cross-reference the upstream library PR if linked. In local-dev delegate to a
-Sonnet subagent; elsewhere run directly. Any failure → stop and report.
+execution-tier subagent; elsewhere run directly. Any failure → stop and report.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass (step
 3 note); ship without interactive sign-off, add the `## Validation checklist`

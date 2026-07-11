@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Agent"
+  short_description: "Coordinate gated PyAuto release workflows"
+  default_prompt: "Use $release to assess or drive the requested PyAuto release workflow."

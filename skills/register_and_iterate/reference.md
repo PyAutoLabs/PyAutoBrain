@@ -55,7 +55,7 @@ check. Stage changes (do **not** commit). Then hit the ship-approval gate.
 
 ## Delegation (local-dev)
 
-Delegate the mechanical run-and-register cycle to a Sonnet subagent; the outer
+Delegate the mechanical run-and-register cycle to an execution-tier subagent; the outer
 skill keeps cross-task context and handles judgement gates.
 
 ```

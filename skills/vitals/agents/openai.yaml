@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vitals Faculty"
+  short_description: "Read and explain organism readiness"
+  default_prompt: "Use $vitals to read and explain the current PyAutoHeart readiness verdict."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clone Agent"
+  short_description: "Analyze assistant cloning boundaries"
+  default_prompt: "Use $clone to analyze how a PyAuto domain assistant should be cloned."
