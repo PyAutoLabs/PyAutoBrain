@@ -15,8 +15,10 @@ BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {"perf", "tidy", "noise", "deps", "docs"}
 
 
-def _run(args, root):
+def _run(args, root, extra=None):
     env = {**os.environ, "PYAUTO_ROOT": str(root)}
+    if extra:
+        env.update(extra)
     return subprocess.run(
         [str(BRAIN), "hygiene", *args],
         capture_output=True, text=True, env=env,
@@ -30,11 +32,16 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert doc["decision"] == "HygieneDecision"
     assert doc["mode"] == "default"
     assert {row["mode"] for row in doc["rows"]} == MODES
-    # perf is staged; the other four carry a pre-scan kind.
+    # the four pre-scan modes carry their kind; perf's timing is deferred in the
+    # fast default scan (it spawns real imports).
     kinds = {row["mode"]: row.get("kind") for row in doc["rows"]}
     assert kinds["tidy"] == "debris"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
     assert kinds["noise"] == "advisory"
+    perf = next(row for row in doc["rows"] if row["mode"] == "perf")
+    assert perf["status"] == "deferred"
+    # nothing is staged any more — all five modes are live.
+    assert all(row.get("status") != "staged" for row in doc["rows"])
 
 
 def test_single_mode_json_round_trips(tmp_path):
@@ -45,6 +52,25 @@ def test_single_mode_json_round_trips(tmp_path):
         assert doc["mode"] == mode
         assert doc["row"]["mode"] == mode
         assert doc["row"]["delegate"].startswith("/")
+
+
+def test_perf_times_imports_in_a_subprocess(tmp_path):
+    # Fast stdlib modules keep the test hermetic + quick; the point is the row
+    # shape, not the science libs (which need the PyAuto venv).
+    r = _run(["perf", "--json"], tmp_path, extra={"HYGIENE_PERF_LIBS": "sys json"})
+    assert r.returncode == 0, r.stderr
+    row = json.loads(r.stdout)["row"]
+    assert row["mode"] == "perf"
+    assert row["kind"] == "timing"
+    assert row["delegate"] == "/refactor"
+    assert row["status"] in {"clean", "timing"}  # sys/json import well under threshold
+
+
+def test_perf_advisory_when_nothing_importable(tmp_path):
+    r = _run(["perf", "--json"], tmp_path, extra={"HYGIENE_PERF_LIBS": "nope_not_a_module_xyz"})
+    assert r.returncode == 0, r.stderr
+    row = json.loads(r.stdout)["row"]
+    assert row["status"] == "advisory" and row["count"] is None
 
 
 def test_unknown_mode_exits_2(tmp_path):
