@@ -49,14 +49,19 @@ pyauto-brain profiling <mode> --json
   `profiling_drift` leg, PyAutoHeart#38); this agent runs the measurement
   lifecycle. Heart never dispatches campaigns; this agent never issues health
   verdicts.
-- **vs hygiene** — performance measurement ≠ repo hygiene (the hygiene split:
-  Heart observes noise / Brain `repo_cleanup` mutates).
+- **vs hygiene** — split by *what is measured*: profiling owns the product's
+  modelling / compute speed (likelihood on the science grid, GPU tiers, A100);
+  the **hygiene conductor** (`agents/conductors/hygiene/`) owns the developer
+  loop's cost (unit-test time, `PYAUTO_TEST_MODE` / `PYAUTO_SMALL_DATASETS`
+  scripts, import time) and repo tidiness. Hunting generally-slow functions
+  flagged by integration tests is hygiene's `perf` mode, not profiling's.
 - **vs build** — campaigns are not releases; `profile.yml`'s on-release runs
   stay CI/Build territory.
 
 ## Future modes (staged in the founding prompt)
 
-JAX compilation-time profiling of likelihood functions; hunting
-generally-slow functions flagged by integration tests. A read-only profiling
-*faculty* (opine on regressions / optimization targets) splits out only on
-demonstrated consult demand.
+JAX compilation-time profiling of likelihood functions. (Hunting
+generally-slow functions flagged by integration tests moved to the hygiene
+conductor's `perf` mode — that is developer-loop cost, not modelling speed.)
+A read-only profiling *faculty* (opine on regressions / optimization targets)
+splits out only on demonstrated consult demand.

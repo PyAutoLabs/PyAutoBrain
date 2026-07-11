@@ -15,6 +15,7 @@
 #   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
 #   pyauto-brain refactor [args]  (conductor) plan behaviour-preserving restructuring (default-safe)
 #   pyauto-brain profiling [args] (conductor) campaign/ingest/triage plans over the profiling workspace
+#   pyauto-brain hygiene [args]   (conductor) code-quality upkeep: perf/tidy/noise/deps/docs — HygieneDecision (modes staged)
 #   pyauto-brain clone   [args]   (conductor) v0: analyze a library+workspace against the reference assistant — CloneDecision (writes nothing)
 #   pyauto-brain build   [args]   (conductor) coordinate execution: consult vitals, run Build
 #   pyauto-brain release [args]   (conductor) release door → Build Agent release mode (gate + pre_build)
@@ -49,6 +50,7 @@ declare -A AGENT_SCRIPT=(
   [bug]="$CONDUCTORS_DIR/bug/bug.sh"
   [refactor]="$CONDUCTORS_DIR/refactor/refactor.sh"
   [profiling]="$CONDUCTORS_DIR/profiling/profiling.sh"
+  [hygiene]="$CONDUCTORS_DIR/hygiene/hygiene.sh"
   [clone]="$CONDUCTORS_DIR/clone/clone.sh"
   [build]="$CONDUCTORS_DIR/build/build.sh"
   [release]="$CONDUCTORS_DIR/release/release.sh"
@@ -64,6 +66,7 @@ declare -A AGENT_DESC=(
   [bug]="The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair"
   [refactor]="The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto"
   [profiling]="The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision"
+  [hygiene]="The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision"
   [clone]="The Mitosis Agent (v0: decision only): partition the reference assistant, analyze the domain, emit the CloneDecision — never writes"
   [build]="Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild"
   [release]="Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation; 'release nightly' is the scheduled-nightly driver"
@@ -75,7 +78,7 @@ declare -A AGENT_DESC=(
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
-CONDUCTOR_ORDER=(intake feature bug refactor profiling clone build release health)
+CONDUCTOR_ORDER=(intake feature bug refactor profiling hygiene clone build release health)
 FACULTY_ORDER=(vitals review memory samplers)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
