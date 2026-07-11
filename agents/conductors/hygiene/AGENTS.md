@@ -37,7 +37,10 @@ kinds, which is what makes its count comparable (or not):
 | `noise` | none — needs a pytest + workspace-script run (**advisory**) | `/cli_noise_clean` (Heart) |
 | `deps` | capped/pinned specifiers in library `pyproject.toml` (**surface**) | `/dep_audit` (Heart, hits PyPI) |
 | `docs` | `docs/api/*.rst` + `currentmodule` counts across the 3 doc repos (**surface**) | `/audit_docs` (Heart, imports) |
-| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends `tidy` when debris exists, then `hygiene perf`, then the periodic audits |
+| `crlf` | `.py` files with CRLF line endings across the managed repos (**debris**) | `/refactor` (`dos2unix` / `sed`) |
+| `config` | library `config/*.yaml` keys missing from the matching workspace config — recursive diff (**surface**) | `/refactor` (mirror keys) |
+| `artifacts` | tracked files that look like leaked run outputs / stray data (under `output/`, or data-ext outside fixtures) (**debris**) | `/repo_cleanup` (gitignore + `git rm --cached`) |
+| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count debris mode (`tidy`/`crlf`/`artifacts`), then `hygiene perf`, then the periodic surface audits |
 
 ```
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
@@ -47,6 +50,9 @@ pyauto-brain hygiene tidy         # git debris → /repo_cleanup
 pyauto-brain hygiene noise        # CLI noise → /cli_noise_clean
 pyauto-brain hygiene deps         # dependency-cap surface → /dep_audit
 pyauto-brain hygiene docs         # API-docs surface → /audit_docs
+pyauto-brain hygiene crlf         # CRLF .py files → /refactor
+pyauto-brain hygiene config       # library→workspace config drift → /refactor
+pyauto-brain hygiene artifacts    # tracked leaked outputs/data → /repo_cleanup
 pyauto-brain hygiene <mode> --json
 ```
 
