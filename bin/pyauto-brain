@@ -140,4 +140,10 @@ main() {
   exec bash "$script" "$@"
 }
 
-main "$@"
+# Only dispatch when executed directly. When sourced (e.g. by
+# bin/install.sh --write-agents-surface, which reuses the AGENT_DESC registry
+# below as the single source of the command surface) the arrays are defined but
+# main is not run.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

@@ -132,3 +132,31 @@ def test_invalid_codex_name_does_not_suppress_claude_surfaces(tmp_path):
     assert (claude_home / "commands" / "legacy_skill.md").is_symlink()
     assert not (codex_home / "skills" / "legacy_skill").exists()
     assert "Codex skill name invalid" in result.stdout
+
+
+def test_command_surface_block_is_current():
+    """This repo's committed command-surface block matches the agent registry.
+    Guards against editing bin/pyauto-brain without regenerating the block
+    (bash PyAutoBrain/bin/install.sh --write-agents-surface)."""
+    result = subprocess.run(
+        ["bash", str(INSTALLER), "--check-agents-surface"],
+        cwd=BRAIN_HOME,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "DRIFT" not in result.stdout
+
+
+def test_command_surface_covers_every_public_agent():
+    agents = public_agents()
+    assert agents
+    text = (BRAIN_HOME / "AGENTS.md").read_text()
+    begin = text.index("<!-- pyauto:commands:begin -->")
+    end = text.index("<!-- pyauto:commands:end -->")
+    surface = text[begin:end]
+    missing = [
+        name for name in sorted(agents)
+        if f"`bin/pyauto-brain {name}`" not in surface
+    ]
+    assert missing == []
