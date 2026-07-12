@@ -32,6 +32,9 @@
 #   bash PyAutoBrain/bin/install.sh --write-agents-surface # (re)generate the command
 #                                                          #   surface block in each organ AGENTS.md
 #   bash PyAutoBrain/bin/install.sh --check-agents-surface # drift-check that block (exit 1 on drift)
+#   bash PyAutoBrain/bin/install.sh --write-project-discovery # (re)generate committed
+#                                                          #   .claude/ + .codex/ discovery per repo
+#   bash PyAutoBrain/bin/install.sh --check-project-discovery # drift-check that discovery (exit 1)
 #
 # The command-surface modes are the agent-agnostic half of command discovery:
 # per-tool symlinks (above) are absent in cloud/web sessions, which load only
@@ -170,11 +173,101 @@ check_agents_surface() {
   return "$drift"
 }
 
+# ---------- Committed per-tool discovery (web/cloud) ----------
+#
+# The user-level ~/.claude / ~/.codex symlinks (below) are NOT loaded in cloud/
+# web sessions — only committed repo files travel. So each skill-hosting repo
+# also COMMITS a project-level discovery tree — .claude/commands, .claude/skills
+# and .codex/skills — as relative symlinks into that repo's own skills/, so the
+# slash commands and skills register on web with no user-level install. Per-repo:
+# each repo mirrors its OWN skills/ (no cross-repo duplication); a Brain-loaded
+# web session gets Brain's verbs, and every other repo's commands register when it
+# is checked out. The AGENTS.md command surface (above) still advertises the full
+# verb set + hosting organ. Generated + drift-checked — do not hand-edit these
+# dirs. Symlinks (single source = skills/), matching the user-level install.
+DISCOVERY_REPOS=(PyAutoMind PyAutoBrain PyAutoHeart PyAutoBuild autolens_profiling)
+DISCOVERY_DIRS=(.claude/commands .claude/skills .codex/skills)
+
+# Emit the (link<TAB>target) pairs a repo's committed discovery should contain,
+# derived from its skills/. Link is relative to the repo root; target relative to
+# the link's own directory. Mirrors the user-level install rules: a SKILL.md dir
+# becomes a Claude + Codex skill (Codex uses the frontmatter `name:` when valid);
+# a <name>.md becomes a Claude slash command.
+_discovery_manifest() {
+  local repo_dir="$1" skills_dir="$1/skills" entry name sk
+  [ -d "$skills_dir" ] || return 0
+  for entry in "$skills_dir"/*/; do
+    [ -d "$entry" ] || continue
+    name=$(basename "$entry")
+    if [ -f "$entry/SKILL.md" ]; then
+      printf '.claude/skills/%s\t../../skills/%s\n' "$name" "$name"
+      sk=$(sed -n 's/^name:[[:space:]]*//p' "$entry/SKILL.md" | head -1)
+      if [ -n "$sk" ] && [[ "$sk" != *[!a-z0-9-]* ]]; then
+        printf '.codex/skills/%s\t../../skills/%s\n' "$sk" "$name"
+      fi
+    fi
+    if [ -f "$entry/$name.md" ]; then
+      printf '.claude/commands/%s.md\t../../skills/%s/%s.md\n' "$name" "$name" "$name"
+    fi
+  done | sort
+}
+
+# All currently-present managed symlinks in a repo, as (link<TAB>target), sorted.
+_discovery_actual() {
+  local repo_dir="$1" d link
+  for d in "${DISCOVERY_DIRS[@]}"; do
+    [ -d "$repo_dir/$d" ] || continue
+    for link in "$repo_dir/$d"/*; do
+      [ -L "$link" ] || continue
+      printf '%s\t%s\n' "${link#"$repo_dir"/}" "$(readlink "$link")"
+    done
+  done | sort
+}
+
+write_project_discovery() {
+  local repo repo_dir link target d
+  for repo in "${DISCOVERY_REPOS[@]}"; do
+    repo_dir="$PYAUTO_ROOT/$repo"
+    if [ ! -d "$repo_dir/skills" ]; then echo "skipped (no skills/): $repo_dir"; continue; fi
+    # Drop our managed symlinks (only symlinks — never real files) so a removed
+    # or renamed skill does not leave a stale committed link.
+    for d in "${DISCOVERY_DIRS[@]}"; do
+      [ -d "$repo_dir/$d" ] && find "$repo_dir/$d" -maxdepth 1 -type l -delete 2>/dev/null || true
+    done
+    while IFS=$'\t' read -r link target; do
+      [ -n "$link" ] || continue
+      mkdir -p "$repo_dir/$(dirname "$link")"
+      ln -sf "$target" "$repo_dir/$link"
+    done < <(_discovery_manifest "$repo_dir")
+    echo "wrote discovery: $repo (.claude/{commands,skills}, .codex/skills)"
+  done
+}
+
+check_project_discovery() {
+  local repo repo_dir want got drift=0
+  for repo in "${DISCOVERY_REPOS[@]}"; do
+    repo_dir="$PYAUTO_ROOT/$repo"
+    [ -d "$repo_dir/skills" ] || continue
+    want="$(_discovery_manifest "$repo_dir")"
+    got="$(_discovery_actual "$repo_dir")"
+    if [ "$want" = "$got" ]; then
+      echo "OK: $repo"
+    else
+      echo "DRIFT: $repo — run: bash PyAutoBrain/bin/install.sh --write-project-discovery"
+      diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed 's/^/    /'
+      drift=1
+    fi
+  done
+  return "$drift"
+}
+
 case "${1:-}" in
   --write-agents-surface) write_agents_surface; exit 0 ;;
   --check-agents-surface) check_agents_surface; exit $? ;;
+  --write-project-discovery) write_project_discovery; exit 0 ;;
+  --check-project-discovery) check_project_discovery; exit $? ;;
   --help|-h)
-    sed -n '2,20p' "$0"; exit 0 ;;
+    sed -n '2,24p' "$0"; exit 0 ;;
 esac
 
 # ---------- Execution-environment note ----------

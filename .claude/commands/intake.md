@@ -1,0 +1,1 @@
+../../skills/intake/intake.md

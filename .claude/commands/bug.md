@@ -1,0 +1,1 @@
+../../skills/bug/bug.md
