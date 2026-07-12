@@ -1,6 +1,5 @@
-# PyAutoBrain — Claude guidance
+@AGENTS.md
 
-Read [`AGENTS.md`](AGENTS.md) in this directory. It is the shared source of truth
-for PyAutoBrain — the reasoning layer of the PyAuto organism — for the
-Brain / Heart / Build boundary, and for how the specialist reasoning agents in
-this repo work.
+<!-- Guidance is agent-agnostic and lives in AGENTS.md (read natively by Codex,
+     Cursor, etc.). Claude Code loads CLAUDE.md, not AGENTS.md, so this file exists
+     only to import that one source. Keep it a pointer — put content in AGENTS.md. -->

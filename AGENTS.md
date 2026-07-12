@@ -5,6 +5,28 @@ discovering this repository. It is the canonical description of PyAutoBrain — 
 **reasoning layer** of the PyAuto organism — and of the Brain / Heart / Build
 boundary; PyAutoBuild and PyAutoHeart point back here.
 
+## The organism map
+
+<!-- repos_sync:map:begin -->
+**You are one organ of the PyAuto organism** — an agentic ecosystem for
+human-led, natural-language software development. The organs below are
+peer repositories; this repo is one of them, not a part of another.
+Canonical boundaries live in `PyAutoBrain/ORGANISM.md`; the full body map
+(every repo, not just organs) is `PyAutoMind/repos.yaml`.
+
+| Organ | Repo | Role |
+|-------|------|------|
+| **Mind** | PyAutoMind | Intent, goals, priorities, workflow state; every task starts as a markdown prompt here. |
+| **Brain** | PyAutoBrain | Reasoning/orchestration layer; how work is decomposed and routed; the specialist agents. |
+| **Hands** | PyAutoBuild | Packaging, tagging, notebook generation, PyPI release execution. |
+| **Heart** | PyAutoHeart | Health/readiness — the authoritative "is it safe to release?" verdict. |
+| **Memory** | PyAutoMemory | Long-term scientific/software/project knowledge (see science pointer below). |
+
+Call chain (always this order): **Brain → Heart (gate) → Build (execute)**. Brain agents are **conductors** (front-door; a human drives them; they decide *and* act) or **faculties** (read-only opinions the conductors consult; they judge and stop). New capability grows as a faculty, not a new organ, unless it owns state or effects no existing organ can.
+
+Generated from `PyAutoMind/repos.yaml` + `PyAutoBrain/ORGANISM.md`; edit there, then run `python3 PyAutoMind/scripts/repos_sync.py --write`.
+<!-- repos_sync:map:end -->
+
 ## What this repo is
 
 PyAutoBrain is the **reasoning layer** of the PyAuto ecosystem as it grows into a
