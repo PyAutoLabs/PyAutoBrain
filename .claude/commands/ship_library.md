@@ -1,0 +1,1 @@
+../../skills/ship_library/ship_library.md

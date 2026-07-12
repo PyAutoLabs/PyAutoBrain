@@ -1,0 +1,1 @@
+../../skills/ship_workspace/ship_workspace.md
