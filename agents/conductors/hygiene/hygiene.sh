@@ -23,7 +23,8 @@
 #   hygiene.sh                 # pre-scan across modes -> ranked worklist (default)
 #   hygiene.sh perf            # import-cost timing (subprocess) -> /refactor + Heart legs
 #   hygiene.sh perf --profile <script>  # cProfile a script, rank NON-likelihood hotspots -> /refactor
-#   hygiene.sh tidy            # git debris pre-scan -> /repo_cleanup
+#   hygiene.sh tidy            # git debris pre-scan -> condemn into condemned.md (async, no per-item gate)
+#   hygiene.sh sweep           # void condemned.md entries past sweep-after -> pyauto-gut void (repo_cleanup gates)
 #   hygiene.sh noise           # CLI-noise route -> /cli_noise_clean
 #   hygiene.sh deps            # dependency-cap pre-scan -> /dep_audit
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
@@ -31,6 +32,12 @@
 #   hygiene.sh config          # library config keys missing downstream -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh <mode> --json   # machine-readable HygieneDecision
+#
+# tidy + sweep are the PyAutoGut drive seam (the organ HOLDS and VOIDS; this
+# conductor DECIDES what to condemn and WHEN to sweep, mirroring Heart <-> vitals).
+# tidy files 95%-sure debris into the condemned.md manifest asynchronously (no
+# synchronous per-item repo_cleanup interrogation); sweep runs the repo_cleanup
+# safety gates in batch against entries whose transit window has expired.
 #
 # All five modes are live. The fast default scan DEFERS perf's import timing (it
 # spawns real imports); run `hygiene perf` for it. Repos are read under
@@ -49,6 +56,16 @@ LIB_REPOS=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 ORG_REPOS=(PyAutoBrain PyAutoBuild PyAutoHeart PyAutoMind)
 DOC_REPOS=(PyAutoFit PyAutoGalaxy PyAutoLens)
 
+# PyAutoGut drive seam (tidy/sweep). The conductor DECIDES and emits a plan; the
+# organ entrypoint performs the archive/void. GUT_CMD is referenced in the
+# emitted plan, not executed here — the session/organ runs it. MIND holds the
+# condemned.md catalog; transit-days is the default holding window a condemned
+# item stays recoverable before it is eligible to be swept.
+GUT_CMD="${PYAUTO_GUT:-pyauto-gut}"
+MIND="$(resolve_mind 2>/dev/null || true)"
+CONDEMN_MANIFEST="${MIND:+$MIND/condemned.md}"
+CONDEMN_TRANSIT_DAYS="${HYGIENE_CONDEMN_TRANSIT_DAYS:-30}"
+
 # perf: import timing is measured in a subprocess with this interpreter (never
 # imported into the conductor). Point HYGIENE_PYTHON at the PyAuto venv to time
 # the science libs; HYGIENE_PERF_LIBS overrides the import names (tests use
@@ -60,7 +77,7 @@ read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autoga
 MODE_ORDER=(perf tidy crlf artifacts noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
-  [tidy]="/repo_cleanup"
+  [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
   [crlf]="/refactor"
   [artifacts]="/repo_cleanup"
   [noise]="/cli_noise_clean"
@@ -243,7 +260,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|noise|deps|docs|crlf|config|artifacts) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|config|artifacts) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -298,6 +315,114 @@ if [[ -n "$profile_script" ]]; then
   run_profile "$profile_script"; exit $?
 fi
 
+# --- PyAutoGut drive seam: tidy (condemn) + sweep (void). ----------------------
+# The conductor stays a planner: it enumerates candidates / reads the manifest
+# and EMITS the plan (condemned.md entries + the exact pyauto-gut commands). The
+# organ performs the archive/void; the session applies the filing. Nothing here
+# mutates a repo — consistent with every other hygiene mode.
+
+# enumerate_condemn_candidates — read-only: stale local branches (with merged
+# status vs the default branch) and stashes across the managed checkouts. Echoes
+# TSV rows: "<repo>\t<type>\t<locator>\t<merged>".
+enumerate_condemn_candidates() {
+  local repo dir def br
+  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}"; do
+    dir="$ROOT/$repo"
+    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    def=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
+    [[ -n "$def" ]] || def=main
+    while IFS= read -r br; do
+      [[ -z "$br" ]] && continue
+      case "$br" in main|master|HEAD|"$def") continue ;; esac
+      local merged=no
+      if git -C "$dir" merge-base --is-ancestor "$br" "origin/$def" 2>/dev/null \
+         || git -C "$dir" merge-base --is-ancestor "$br" "$def" 2>/dev/null; then
+        merged=yes
+      fi
+      printf '%s\tbranch\t%s\t%s\n' "$repo" "$br" "$merged"
+    done < <(git -C "$dir" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null)
+    local i=0 line
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      printf '%s\tstash\tstash@{%s}\tno\n' "$repo" "$i"; i=$((i + 1))
+    done < <(git -C "$dir" stash list 2>/dev/null)
+  done
+}
+
+# run_tidy — emit the async condemnation plan (no synchronous per-item gate).
+run_tidy() {
+  local rows; rows="$(enumerate_condemn_candidates)"
+  local sweep_after; sweep_after="$(date -d "+${CONDEMN_TRANSIT_DAYS} days" +%F 2>/dev/null || echo "<today+${CONDEMN_TRANSIT_DAYS}d>")"
+  if [[ "$json" -eq 1 ]]; then
+    printf '{"decision":"HygieneDecision","mode":"tidy","action":"condemn","manifest":%s,"transit_days":%s,"sweep_after":"%s","candidates":[' \
+      "$([[ -n "$CONDEMN_MANIFEST" ]] && printf '"%s"' "$CONDEMN_MANIFEST" || echo null)" \
+      "$CONDEMN_TRANSIT_DAYS" "$sweep_after"
+    local sep="" repo typ loc merged
+    while IFS=$'\t' read -r repo typ loc merged; do
+      [[ -z "$repo" ]] && continue
+      printf '%s{"repo":"%s","type":"%s","locator":"%s","merged":"%s"}' "$sep" "$repo" "$typ" "$loc" "$merged"; sep=","
+    done <<< "$rows"
+    printf ']}\n'; return 0
+  fi
+  echo "== HygieneDecision (tidy → condemn) =="
+  echo "PyAutoGut drive seam: file 95%-sure git debris into condemned.md ASYNC — no"
+  echo "synchronous per-item gate. Nothing is deleted now; 'hygiene sweep' voids each"
+  echo "entry once its transit window expires (recover a false positive until then)."
+  echo
+  if [[ -z "$rows" ]]; then
+    echo "No condemn candidates (no stale branches/stashes in the checkouts under $ROOT)."
+    [[ -z "$MIND" ]] && echo "(PyAutoMind checkout not found — set PYAUTO_MIND to locate condemned.md.)"
+    return 0
+  fi
+  echo "Candidates → one condemned.md entry each (sweep-after ${sweep_after}):"
+  local repo typ loc merged slug
+  while IFS=$'\t' read -r repo typ loc merged; do
+    [[ -z "$repo" ]] && continue
+    if [[ "$typ" == "branch" && "$merged" == "yes" ]]; then
+      echo "  - ${repo}:${loc} — merged branch → skips the pen: recommend straight delete."
+    else
+      slug="${repo,,}-${loc//[^A-Za-z0-9]/-}"
+      echo "  - ${repo}:${loc} — ${typ}, unmerged → archive then condemn:"
+      echo "      (cd $ROOT/$repo && $GUT_CMD archive ${loc} ${slug})"
+      echo "      condemned.md: type=${typ} locator=${loc} merged=${merged} sweep-after=${sweep_after} archive-ref=refs/heads/archive/condemned/${slug}"
+    fi
+  done <<< "$rows"
+  echo
+  echo "File the batch async (no per-item interrogation); recover any false positive"
+  echo "with '$GUT_CMD recover <slug>' until it is swept."
+  [[ -n "$CONDEMN_MANIFEST" ]] && echo "Manifest: $CONDEMN_MANIFEST"
+}
+
+# run_sweep — read condemned.md, emit the batch void plan for past-due entries.
+run_sweep() {
+  if [[ -z "$CONDEMN_MANIFEST" ]]; then
+    echo "hygiene sweep: PyAutoMind checkout not found — set PYAUTO_MIND to locate condemned.md" >&2
+    return 4
+  fi
+  if [[ "$json" -eq 1 ]]; then
+    python3 "$HERE/_hygiene_condemned.py" --manifest "$CONDEMN_MANIFEST" --json; return $?
+  fi
+  echo "== HygieneDecision (sweep → void) =="
+  echo "Batch-void condemned.md entries whose transit window has expired. The organ"
+  echo "performs the deletion; the existing repo_cleanup safety gates apply (no second"
+  echo "gate). Reabsorb anything still wanted BEFORE sweeping."
+  echo
+  python3 "$HERE/_hygiene_condemned.py" --manifest "$CONDEMN_MANIFEST"
+  echo
+  local due_names
+  due_names="$(python3 "$HERE/_hygiene_condemned.py" --manifest "$CONDEMN_MANIFEST" --json \
+    | python3 -c 'import json,sys;print("\n".join(e["name"] for e in json.load(sys.stdin)["due"]))' 2>/dev/null)"
+  if [[ -n "$due_names" ]]; then
+    echo "Void plan (past sweep-after) — run each behind the repo_cleanup gate:"
+    while IFS= read -r n; do [[ -n "$n" ]] && echo "  $GUT_CMD void ${n// /-}"; done <<< "$due_names"
+  else
+    echo "Nothing due — no entry has reached its sweep-after date. Pending entries stay recoverable."
+  fi
+}
+
+if [[ "$mode" == "tidy"  ]]; then run_tidy;  exit $?; fi
+if [[ "$mode" == "sweep" ]]; then run_sweep; exit $?; fi
+
 # perf's import timing spawns real imports, so the fast default scan defers it;
 # an explicit `hygiene perf` runs it. This predicate decides which.
 perf_deferred() { [[ "$1" == "perf" && "$mode" == "default" ]]; }
@@ -340,6 +465,10 @@ echo
 
 render_delegate_line() { # mode
   local m="$1"
+  if [[ "$m" == "tidy" ]]; then
+    printf '  %-9s %-9s → hygiene tidy condemns these into condemned.md (async); hygiene sweep voids past-due\n' "" ""
+    return
+  fi
   if [[ "${MODE_KIND[$m]}" == "timing" ]]; then
     printf '  %-9s %-9s → route slow items to %s; slow tests/scripts → Heart script_timing/test_run\n' "" "" "${MODE_DELEGATE[$m]}"
   else
