@@ -21,6 +21,7 @@ Canonical boundaries live in `PyAutoBrain/ORGANISM.md`; the full body map
 | **Hands** | PyAutoBuild | Packaging, tagging, notebook generation, PyPI release execution. |
 | **Heart** | PyAutoHeart | Health/readiness — the authoritative "is it safe to release?" verdict. |
 | **Memory** | PyAutoMemory | Long-term scientific/software/project knowledge (see science pointer below). |
+| **Gut** | PyAutoGut | Owns the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds it as durable, recoverable git refs through a transit window and voids it on a sweep. The storage mirror of Memory (retention vs release). |
 
 Call chain (always this order): **Brain → Heart (gate) → Build (execute)**. Brain agents are **conductors** (front-door; a human drives them; they decide *and* act) or **faculties** (read-only opinions the conductors consult; they judge and stop). New capability grows as a faculty, not a new organ, unless it owns state or effects no existing organ can.
 

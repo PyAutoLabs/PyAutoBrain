@@ -68,13 +68,44 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
 
 
 def test_single_mode_json_round_trips(tmp_path):
-    for mode in MODES - {"perf"}:
+    # perf defers (own test); tidy is now an action mode (the PyAutoGut condemn
+    # plan, its own test), not a generic delegating scan-row.
+    for mode in MODES - {"perf", "tidy"}:
         r = _run([mode, "--json"], tmp_path)
         assert r.returncode == 0, r.stderr
         doc = json.loads(r.stdout)
         assert doc["mode"] == mode
         assert doc["row"]["mode"] == mode
         assert doc["row"]["delegate"].startswith("/")
+
+
+def test_tidy_emits_an_async_condemn_plan(tmp_path):
+    # tidy drives PyAutoGut: with an empty root there are no candidates, but the
+    # plan's structure (the condemn contract) is asserted.
+    r = _run(["tidy", "--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    doc = json.loads(r.stdout)
+    assert doc["decision"] == "HygieneDecision"
+    assert doc["mode"] == "tidy" and doc["action"] == "condemn"
+    assert doc["candidates"] == []
+    assert "transit_days" in doc and "sweep_after" in doc
+
+
+def test_sweep_classifies_manifest_entries_by_transit_clock(tmp_path):
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    (mind / "condemned.md").write_text(
+        "# Condemned material\n"
+        "## due-one\n- type: branch\n- locator: feature/old\n- sweep-after: 2000-01-01\n"
+        "## pending-one\n- type: stash\n- locator: stash@{0}\n- sweep-after: 2999-12-31\n"
+        "<!-- ## ignored\n- type: branch\n- locator: feature/example -->\n"
+    )
+    r = _run(["sweep", "--json"], tmp_path, extra={"PYAUTO_MIND": str(mind)})
+    assert r.returncode == 0, r.stderr
+    doc = json.loads(r.stdout)
+    assert doc["total"] == 2  # the HTML-commented example is excluded
+    assert [e["name"] for e in doc["due"]] == ["due-one"]
+    assert [e["name"] for e in doc["pending"]] == ["pending-one"]
 
 
 def _no_heart(tmp_path):

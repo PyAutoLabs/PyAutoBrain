@@ -33,7 +33,8 @@ kinds, which is what makes its count comparable (or not):
 | Mode | Pre-scan (kind) | Delegates to |
 |------|-----------------|--------------|
 | `perf` | dev-loop timing — prefers Heart's tracked timing legs when present (`import_time`, `unit_test_timing`, `workspace_testmode_timing`), else times `import <pkg>` per library in a **subprocess** (**timing**) | `/refactor` / `/bug` (+ Heart timing legs) |
-| `tidy` | git debris — stale branches, stashes, `[gone]` refs, dirty checkouts (**debris**) | `/repo_cleanup` (Brain) |
+| `tidy` | git debris — stale branches, stashes, `[gone]` refs, dirty checkouts (**debris**) | **condemn** → files candidates into `condemned.md` async (PyAutoGut archives the fragile forms); no synchronous per-item gate |
+| `sweep` | reads `condemned.md`, classifies entries by their transit clock (**due** / pending / undated) | `pyauto-gut void` for past-due entries, behind the existing `repo_cleanup` safety gates |
 | `noise` | none — needs a pytest + workspace-script run (**advisory**) | `/cli_noise_clean` (Heart) |
 | `deps` | capped/pinned specifiers in library `pyproject.toml` (**surface**) | `/dep_audit` (Heart, hits PyPI) |
 | `docs` | `docs/api/*.rst` + `currentmodule` counts across the 3 doc repos (**surface**) | `/audit_docs` (Heart, imports) |
@@ -46,7 +47,8 @@ kinds, which is what makes its count comparable (or not):
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
 pyauto-brain hygiene perf         # import cost (subprocess) → /refactor + Heart legs
 pyauto-brain hygiene perf --profile <script>   # cProfile a normal-mode run → rank NON-likelihood hotspots → /refactor
-pyauto-brain hygiene tidy         # git debris → /repo_cleanup
+pyauto-brain hygiene tidy         # git debris → condemn into condemned.md (async, no per-item gate)
+pyauto-brain hygiene sweep        # void condemned.md entries past sweep-after → pyauto-gut void (repo_cleanup gates)
 pyauto-brain hygiene noise        # CLI noise → /cli_noise_clean
 pyauto-brain hygiene deps         # dependency-cap surface → /dep_audit
 pyauto-brain hygiene docs         # API-docs surface → /audit_docs
@@ -112,3 +114,26 @@ on-demand only (never the default scan, never a Heart tick).
 - **vs bug / refactor** — hygiene finds and prioritises debt and *delegates* the
   fix to them; they own the repair.
 - **vs build** — hygiene is upkeep, not release; it never touches PyAutoBuild.
+- **vs Gut (PyAutoGut)** — the `tidy`/`sweep` modes are the **hygiene → PyAutoGut
+  drive seam**, mirroring the **Heart ↔ vitals** template: the organ *holds and
+  voids*, this conductor *decides what to condemn and when to sweep* and owns none
+  of the storage. `tidy` enumerates 95%-sure debris and emits an async
+  condemnation plan (proposed `condemned.md` entries + the exact `pyauto-gut
+  archive` calls) — no synchronous per-item interrogation; `sweep` reads the
+  manifest and emits the batch void plan for entries past their `sweep-after`
+  transit date. The conductor stays a **planner** (never mutates a repo): it emits
+  the plan, `pyauto-gut` archives/voids, and the existing `repo_cleanup` safety
+  gates guard the sweep — there is no second gate. Design:
+  PyAutoMind `research/pyautobrain/pyautogut_organ_decision.md`.
+
+## Capability audit — what `tidy`/`sweep` drive
+
+- **PyAutoGut** (`bin/pyauto-gut`): `archive <local-ref> <slug>` (materialise a
+  fragile form under `refs/heads/archive/condemned/<slug>` before deletion),
+  `recover <slug>` (reabsorb during transit), `void <slug>` (eliminate on sweep),
+  `list`. Resolved via `PYAUTO_GUT` or PATH; the conductor names the commands in
+  its plan, it does not run them.
+- **PyAutoMind `condemned.md`**: the catalog (symmetric to `parked.md`). `tidy`
+  proposes entries; `sweep` reads them. Located via `resolve_mind` (`PYAUTO_MIND`
+  → `$PYAUTO_ROOT/PyAutoMind`). `HYGIENE_CONDEMN_TRANSIT_DAYS` (default 30) sets
+  the default transit window `tidy` writes into `sweep-after`.
