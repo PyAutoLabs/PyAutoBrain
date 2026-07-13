@@ -62,6 +62,17 @@ symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 - **`/brain <agent> [args]`** — explicit, un-veneered passthrough to
   `bin/pyauto-brain` for debugging. Free-text `/brain` defers to `/route`.
 
+**4. Composition doors** — orchestrate existing doors + workspace-ops scripts;
+own no agent and re-implement no reasoning (all judgment defers to the doors they
+call, so the Brain is not bypassed):
+
+- **`/morning`** — start-of-day routine: sync every repo to main
+  (`bin/pull_all_main.sh`) → clean generated cruft, restoring shipped datasets
+  (`bin/clean_slate.sh`) → consult **`/health`** → emit one prioritized digest.
+  Auto-runs only the non-destructive steps; surfaces destructive cleanup for
+  approval. Interactive/terminal only (the automated morning webhooks are
+  separate).
+
 Codex skills also expose the remaining public CLI agents directly: the
 analysis-only `clone` conductor, the `release` conductor, and the read-only
 `vitals`, `review`, `memory`, and `samplers` faculties. They do not gain new
