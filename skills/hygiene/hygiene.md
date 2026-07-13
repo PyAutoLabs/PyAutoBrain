@@ -14,8 +14,9 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    perf's import timing is deferred there). This is a **dry run** — each mode
    does a cheap read-only pre-scan and emits a `HygieneDecision` naming the
    skill to run for the full audit. Nothing is executed or mutated. (`crlf` =
-   CRLF `.py` files; `config` = library→workspace config-key drift; `artifacts`
-   = tracked leaked outputs/data.)
+   executable scripts w/ CRLF that break on HPC — library `.py` CRLF reported as
+   cosmetic; `config` = library→workspace config-key drift; `artifacts` =
+   tracked leaked outputs/data.)
 2. Execute the emitted plan: run the named delegate — `/repo_cleanup` (git
    debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
    or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt

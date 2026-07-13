@@ -28,7 +28,7 @@
 #   hygiene.sh noise           # CLI-noise route -> /cli_noise_clean
 #   hygiene.sh deps            # dependency-cap pre-scan -> /dep_audit
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
-#   hygiene.sh crlf            # .py files with CRLF line endings -> /refactor
+#   hygiene.sh crlf            # executable scripts w/ CRLF break on HPC (+ cosmetic .py) -> /refactor
 #   hygiene.sh config          # library config keys missing downstream -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh <mode> --json   # machine-readable HygieneDecision
@@ -148,18 +148,31 @@ prescan_docs() {
   echo "${cm}|${rst} api .rst files, ${cm} currentmodule directives across ${#DOC_REPOS[@]} repos"
 }
 
-# crlf: .py files with CRLF line endings across the managed repos (a documented
-# recurring gotcha — CRLF files produce 10x diffs). Fix: sed -i 's/\r$//' / dos2unix.
+# crlf: CRLF line endings, split by severity. The count that MATTERS is
+# executable scripts (`.sh` + shebang-executable `.py`, mode 755): a CRLF shebang
+# (`#!/bin/bash\r`) breaks execution on Linux/HPC ("bad interpreter"). Library
+# `.py` CRLF is COSMETIC (Python reads CRLF fine) — reported separately, not
+# ranked, since mass-normalising it is a big diff for zero functional gain
+# (the real fix there is `.gitattributes * text=auto`, going forward).
 prescan_crlf() {
-  local total=0 detail="" repo dir n
-  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}"; do
+  local scripts=0 cosmetic=0 sdetail="" repo dir sh_n exe_list exe_n py_n
+  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}" autolens_workspace autogalaxy_workspace autofit_workspace; do
     dir="$ROOT/$repo"
     [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
-    n=$(git -C "$dir" grep -Il $'\r$' -- '*.py' 2>/dev/null | wc -l | tr -d ' ')
-    total=$((total + n))
-    [[ "$n" -gt 0 ]] && detail+="${repo}:${n} "
+    # .sh with CRLF (all shell scripts break)
+    sh_n=$(git -C "$dir" grep -Il $'\r$' -- '*.sh' 2>/dev/null | wc -l | tr -d ' ')
+    # executable .py (mode 755 — run directly, so a CRLF shebang breaks)
+    exe_n=0
+    exe_list=$(git -C "$dir" ls-files --stage -- '*.py' 2>/dev/null | awk '$1 ~ /755$/ {print $4}')
+    [[ -n "$exe_list" ]] && exe_n=$(git -C "$dir" grep -Il $'\r$' -- $exe_list 2>/dev/null | wc -l | tr -d ' ')
+    local repo_scripts=$((sh_n + exe_n))
+    scripts=$((scripts + repo_scripts))
+    [[ "$repo_scripts" -gt 0 ]] && sdetail+="${repo}:${repo_scripts} "
+    # cosmetic: library .py with CRLF (informational)
+    py_n=$(git -C "$dir" grep -Il $'\r$' -- '*.py' 2>/dev/null | wc -l | tr -d ' ')
+    cosmetic=$((cosmetic + py_n))
   done
-  echo "${total}|${total} .py files with CRLF line endings: ${detail}(fix: dos2unix / sed -i 's/\\r\$//')"
+  echo "${scripts}|${scripts} executable scripts w/ CRLF (BREAK on HPC — normalise + add .gitattributes eol=lf): ${sdetail}; ${cosmetic} library .py w/ CRLF (cosmetic — leave, or '* text=auto' going forward)"
 }
 
 # artifacts: tracked files that look like leaked generated outputs — anything
