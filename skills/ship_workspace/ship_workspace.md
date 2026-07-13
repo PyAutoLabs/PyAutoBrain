@@ -22,7 +22,7 @@ and issue/Mind formats are in [`reference.md`](reference.md).
 Read `PyAutoMind/active.md` for the task's `worktree:` and `repos:` list.
 
 ```bash
-source admin_jammy/software/worktree.sh
+source PyAutoBrain/bin/worktree.sh
 WT_ROOT=~/Code/PyAutoLabs-wt/<task-name>
 source "$WT_ROOT/activate.sh"
 ```

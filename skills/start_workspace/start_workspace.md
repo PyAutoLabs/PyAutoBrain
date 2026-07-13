@@ -16,7 +16,7 @@ helpers, execution-environment model, and registry paths. Verbose formats live i
 ### 1. Conflict guard
 
 ```bash
-source admin_jammy/software/worktree.sh
+source PyAutoBrain/bin/worktree.sh
 worktree_check_conflict <task-name> <workspace_repo1> [workspace_repo2 ...]
 ```
 

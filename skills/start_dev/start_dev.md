@@ -130,7 +130,7 @@ routing decision.
 ### 6. Register in Mind + route
 
 ```bash
-source admin_jammy/software/worktree.sh
+source PyAutoBrain/bin/worktree.sh
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 

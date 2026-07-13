@@ -14,7 +14,7 @@ the worktree helpers, the execution-environment model, and the registry paths.
 ### 1. Conflict guard
 
 ```bash
-source admin_jammy/software/worktree.sh
+source PyAutoBrain/bin/worktree.sh
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 
@@ -47,7 +47,7 @@ library work ships first (`/ship_library`), workspace follows.
 ### 4. Create the task worktree (feature-dev mechanics, local-dev)
 
 ```bash
-source admin_jammy/software/worktree.sh
+source PyAutoBrain/bin/worktree.sh
 worktree_create <task-name> <repo1> [repo2 ...]
 ```
 

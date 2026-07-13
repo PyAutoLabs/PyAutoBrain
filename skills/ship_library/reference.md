@@ -89,7 +89,7 @@ Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
    (paste the drafted body verbatim via HEREDOC). Then **verify the label
    landed**: `gh pr view <n> --json labels --jq '[.labels[].name]'`. If
    `pending-release` is absent, stop and report — usually the label doesn't
-   exist on the repo; fix with `bash admin_jammy/software/ensure_workspace_labels.sh`
+   exist on the repo; fix with `bash PyAutoBrain/bin/ensure_workspace_labels.sh`
    then `gh pr edit <n> --add-label pending-release`.
    If `gh pr create`/`gh pr edit` errors (SSH-URL origin, classic-Projects
    GraphQL failure), use the `gh api` fallbacks in `skills/OPERATIONS.md`.

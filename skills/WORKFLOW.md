@@ -205,7 +205,7 @@ that resolve from any sibling repo:
 
 ## Worktree / branch model (local-dev)
 
-Task worktrees keep parallel work isolated (`admin_jammy/software/worktree.sh`):
+Task worktrees keep parallel work isolated (`PyAutoBrain/bin/worktree.sh`):
 `worktree_create`, `worktree_add_repo`, `worktree_check_conflict`,
 `worktree_list_claimed`, `worktree_remove`. Branch convention: `feature/<task-name>`
 (lowercase kebab-case). Worktrees, branches, commits and feature PRs are the

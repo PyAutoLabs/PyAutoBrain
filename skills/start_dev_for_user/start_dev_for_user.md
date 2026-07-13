@@ -79,7 +79,7 @@ developer review** — template in [`reference.md`](reference.md) → "Plan comm
 ### 6. Conflict check + register (Mind)
 
 ```bash
-source admin_jammy/software/worktree.sh
+source PyAutoBrain/bin/worktree.sh
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 

@@ -68,7 +68,7 @@ listed above. Skip any entry that is missing, not a git repo, or a bare symlink.
 ### 1. Setup
 
 ```bash
-source admin_jammy/software/worktree.sh
+source PyAutoBrain/bin/worktree.sh
 ```
 
 Provides `worktree_list_claimed`, `worktree_root_path`, `PYAUTO_LIBS`,

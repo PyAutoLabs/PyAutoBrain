@@ -131,7 +131,7 @@ PyAutoMind. Shared organ boundary and the execution-environment model are in
    Source the worktree helper and list anything already claimed by another task:
 
    ```bash
-   source admin_jammy/software/worktree.sh
+   source PyAutoBrain/bin/worktree.sh
    worktree_list_claimed
    ```
 
