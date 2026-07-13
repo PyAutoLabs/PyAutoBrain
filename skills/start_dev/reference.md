@@ -60,41 +60,6 @@ Legacy check: if a target repo's **main checkout** is on a feature branch not
 referenced by any `worktree:` claim, warn (unregistered prior-session work) —
 ask whether to proceed; don't treat it as an automatic conflict.
 
-## z_features audit (tracker mode)
-
-`z_features/<epic>.md` files are umbrella trackers for multi-task epics; their
-sub-prompts are issued individually. In audit-only mode, **do not create an
-issue** — instead:
-
-1. **Parse** the tracker for sub-prompt references (markdown links → path in
-   parens; bare `<work-type>/<target>/<name>.md` or pre-migration
-   `<target>/<name>.md` paths). Dedupe, resolve `../` relative to the tracker,
-   skip self-references inside `z_features/`.
-2. **Status each sub-prompt** (lifecycle states, issue #71):
-   - exists at `PyAutoMind/draft/<path>` (or a legacy bare path) → **not yet
-     issued**;
-   - exists at `PyAutoMind/active/<basename>` (or legacy `issued/<basename>`
-     during the transition) → **issued**; derive task-name candidates from the
-     filename stem (`_`→`-`) and from `## <task-name>` headings, then check
-     shipped-ness: a `complete/<YYYY>/<MM>/<candidate>.md` record (or, until
-     `complete.md` is retired, `^## <candidate>$` in `PyAutoMind/complete.md`)
-     → **shipped** (record heading + PR URL); no match = **in flight**;
-   - neither → **unknown** (link rot — warn).
-3. **Report** a table (Sub-prompt | Status | Notes) + summary line
-   `N shipped / M in flight / K not yet issued / U unknown`.
-4. **Decide:**
-   - Any non-shipped entries → stop, list outstanding work, do not move the
-     tracker, do not push.
-   - All shipped → verify PyAutoMind is on `main` and clean, show the archive
-     commands, get explicit confirmation, then:
-     ```bash
-     mkdir -p PyAutoMind/z_features/complete
-     mv PyAutoMind/z_features/<filename> PyAutoMind/z_features/complete/<filename>
-     source PyAutoMind/scripts/prompt_sync.sh
-     prompt_sync_push "prompt: archive completed z_features tracker — <stem>"
-     ```
-   Print a one-line "archived" confirmation and stop.
-
 ## Branch survey (the former /plan_branches)
 
 Run after the plan is approved (start_dev step 4): survey every repository the plan will touch, report branch state, and propose a single working branch name for the task.

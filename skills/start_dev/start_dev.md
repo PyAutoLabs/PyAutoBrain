@@ -17,7 +17,6 @@ and the Mind registry paths used below.
 ```
 /start_dev <prompt-file-path>          # path relative to PyAutoMind/
 /start_dev <prompt-file-path> --auto   # autonomous mode per ../AUTONOMY.md (see "--auto mode")
-/start_dev z_features/<epic>.md        # audit-only tracker mode (see reference.md)
 ```
 
 Prompts live under `<work-type>/<target>/` (first folder = work type, second =
@@ -72,10 +71,6 @@ the shared task state, so no special handoff step is needed across environments.
 Normalize the argument (strip whitespace/backticks/angle-brackets; if it's a
 markdown link `[label](path)`, take the path in the last `](…)`). Read
 `PyAutoMind/<normalized>`. If missing, report and list prompts in that folder.
-
-If the path starts with `z_features/`, switch to **audit-only tracker mode** —
-follow [`reference.md`](reference.md) → "z_features audit" and skip the rest of
-this flow (no issue is created).
 
 ### 2. Route through the Feature Agent (Brain + Memory)
 
@@ -158,5 +153,5 @@ prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill>"
 
 - Always present the issue body for review before creating it.
 - If `gh auth status` fails, tell the user to run `! gh auth login`.
-- Long-form detail (issue-body template, registry formats, z_features audit) is
-  in [`reference.md`](reference.md).
+- Long-form detail (issue-body template, registry formats) is in
+  [`reference.md`](reference.md).
