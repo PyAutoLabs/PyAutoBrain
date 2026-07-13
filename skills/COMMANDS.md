@@ -66,11 +66,15 @@ symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 own no agent and re-implement no reasoning (all judgment defers to the doors they
 call, so the Brain is not bypassed):
 
-- **`/morning`** — start-of-day routine: sync every repo to main
+- **`/morning`** — start-of-day routine. **Local:** sync every repo to main
   (`bin/pull_all_main.sh`) → clean generated cruft, restoring shipped datasets
-  (`bin/clean_slate.sh`) → consult **`/health`** → emit one prioritized digest.
-  Auto-runs only the non-destructive steps; surfaces destructive cleanup for
-  approval. Interactive/terminal only (the automated morning webhooks are
+  (`bin/clean_slate.sh`) → consult **`/health`** + **`/hygiene`**. **Everywhere
+  (gh-API, so it runs on mobile Claude Code chat / Codex too):** an overnight
+  scheduled-run sweep (`bin/overnight_status.sh`), a version-pin drift check
+  (`bin/version_drift.sh`), and resume-context (in-flight work + pending-release
+  PRs) → one prioritized digest. Auto-runs only the non-destructive steps;
+  surfaces destructive cleanup for approval; on mobile/codex it skips the
+  local-only steps. Interactive/terminal only (the automated morning webhooks are
   separate).
 
 Codex skills also expose the remaining public CLI agents directly: the
