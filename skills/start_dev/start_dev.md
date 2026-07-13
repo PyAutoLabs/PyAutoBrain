@@ -122,7 +122,7 @@ Generate a concise title (<70 chars, conventional prefix where apt), then
 **delegate the issue write to `/create_issue`** (the PyAutoMind issue+registry
 primitive) — pass it the classified primary repo, title, two-level plan, and
 suggested branch. It assembles the body, creates the issue (after review), moves
-the prompt to `issued/`, and pushes Mind. Do **not** re-implement issue creation
+the prompt to `active/`, and pushes Mind. Do **not** re-implement issue creation
 here. Registration in `active.md` is conflict-dependent (next step), so tell
 `/create_issue` to **skip its active.md registration** — start_dev owns that
 routing decision.
@@ -146,7 +146,7 @@ classification.
 
 ### 7. Push Mind state
 
-`/create_issue` already pushed the issue + `issued/` move; push the routing
+`/create_issue` already pushed the issue + `active/` move; push the routing
 registration (active.md / planned.md) added in step 6:
 
 ```bash

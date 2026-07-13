@@ -70,12 +70,15 @@ issue** — instead:
    parens; bare `<work-type>/<target>/<name>.md` or pre-migration
    `<target>/<name>.md` paths). Dedupe, resolve `../` relative to the tracker,
    skip self-references inside `z_features/`.
-2. **Status each sub-prompt:**
-   - exists at `PyAutoMind/<path>` → **not yet issued**;
-   - exists at `PyAutoMind/issued/<basename>` → **issued**; derive task-name
-     candidates from the filename stem (`_`→`-`) and from `## <task-name>`
-     headings, grep `PyAutoMind/complete.md` for `^## <candidate>$` → match =
-     **shipped** (record heading + PR URL); no match = **in flight**;
+2. **Status each sub-prompt** (lifecycle states, issue #71):
+   - exists at `PyAutoMind/draft/<path>` (or a legacy bare path) → **not yet
+     issued**;
+   - exists at `PyAutoMind/active/<basename>` (or legacy `issued/<basename>`
+     during the transition) → **issued**; derive task-name candidates from the
+     filename stem (`_`→`-`) and from `## <task-name>` headings, then check
+     shipped-ness: a `complete/<YYYY>/<MM>/<candidate>.md` record (or, until
+     `complete.md` is retired, `^## <candidate>$` in `PyAutoMind/complete.md`)
+     → **shipped** (record heading + PR URL); no match = **in flight**;
    - neither → **unknown** (link rot — warn).
 3. **Report** a table (Sub-prompt | Status | Notes) + summary line
    `N shipped / M in flight / K not yet issued / U unknown`.

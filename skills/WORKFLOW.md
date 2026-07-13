@@ -196,12 +196,16 @@ shared task state, so any environment reads it and continues an in-flight task.
 Workflow skills read and write Mind state via **workspace-root-relative** paths
 that resolve from any sibling repo:
 
-- `PyAutoMind/active.md`, `PyAutoMind/planned.md`, `PyAutoMind/complete.md`
+- `PyAutoMind/active.md`, `PyAutoMind/planned.md`, `PyAutoMind/complete.md` (ledgers)
+- Prompt **files** advance `draft/ → active/ → complete/<YYYY>/<MM>/` in lockstep
+  with the ledgers; `PyAutoMind/scripts/lifecycle.py` owns the moves (`move`) and
+  drift-checks them (`check`). See `PyAutoMind/complete/AGENTS.md` (issue #71).
 - `source PyAutoMind/scripts/prompt_sync.sh` → `prompt_sync_push "<msg>"` (commit+push registry)
 
 `active.md` task schema, `complete.md` schema, and the prompt taxonomy
-(`feature/<target>/`, `bug/<target>/`, …) are documented in `PyAutoMind/README.md`.
-**The first folder is the work type, the second is the target repo/domain.**
+(`draft/feature/<target>/`, `draft/bug/<target>/`, …) are documented in
+`PyAutoMind/README.md`. **Under `draft/`, the first folder is the work type, the
+second is the target repo/domain.**
 
 ## Worktree / branch model (local-dev)
 
