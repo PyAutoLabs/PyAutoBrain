@@ -136,6 +136,14 @@ push Mind. Do **not** move to `complete.md`.
 
 **Shipped (option iii passed):** offer to merge the library PR
 (`gh pr merge <n> --merge --auto`), post a "Shipped" comment (PRs, summary,
-optional session notes), move the entry from `active.md` to `complete.md`
-(`issue`, `completed: <date>`, `library-pr:`), and push Mind with
+optional session notes), then record completion in **both** lifecycle layers
+(issue #71) — the ledger entry **and** the prompt file move in lockstep:
+- **Ledger:** move the entry from `active.md` to `complete.md` (`issue`,
+  `completed: <date>`, `library-pr:`).
+- **File:** advance the prompt from `active/` to `complete/<YYYY>/<MM>/` —
+  `python3 PyAutoMind/scripts/lifecycle.py move <name> --date <completed> --apply`
+  (writes the rich record there; the `active/` file no longer lingers as it did
+  under the old `issued/`).
+
+Then push Mind with
 `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.

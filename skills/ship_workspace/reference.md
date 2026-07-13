@@ -97,7 +97,10 @@ SHIP_EOF
 )"
 ```
 
-4. Move the task from `active.md` to `complete.md`:
+4. Record completion in **both** lifecycle layers (issue #71): the ledger entry
+   **and** the prompt file, in lockstep.
+
+   **Ledger** — move the task from `active.md` to `complete.md`:
 
 ```markdown
 ## <task-name>
@@ -105,6 +108,12 @@ SHIP_EOF
 - completed: <YYYY-MM-DD>
 - library-pr: <library PR URL — if linked>
 - workspace-pr: <workspace PR URL(s)>
+```
+
+   **File** — advance the prompt from `active/` to `complete/<YYYY>/<MM>/`:
+
+```bash
+python3 PyAutoMind/scripts/lifecycle.py move <name> --date <YYYY-MM-DD> --apply
 ```
 
 Push Mind: `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.
