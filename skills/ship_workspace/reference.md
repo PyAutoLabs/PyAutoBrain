@@ -110,10 +110,12 @@ SHIP_EOF
 - workspace-pr: <workspace PR URL(s)>
 ```
 
-   **File** — advance the prompt from `active/` to `complete/<YYYY>/<MM>/`:
+   **Record** — write the paired dated record from the just-appended
+   `complete.md` entry, folding + removing the `active/` prompt (kept paired 1:1
+   by slug; `lifecycle.py check` enforces it):
 
 ```bash
-python3 PyAutoMind/scripts/lifecycle.py move <name> --date <YYYY-MM-DD> --apply
+python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <YYYY-MM-DD> --prompt <active-filename> --apply
 ```
 
 Push Mind: `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.

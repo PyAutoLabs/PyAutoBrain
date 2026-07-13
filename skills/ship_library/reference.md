@@ -137,13 +137,14 @@ push Mind. Do **not** move to `complete.md`.
 **Shipped (option iii passed):** offer to merge the library PR
 (`gh pr merge <n> --merge --auto`), post a "Shipped" comment (PRs, summary,
 optional session notes), then record completion in **both** lifecycle layers
-(issue #71) — the ledger entry **and** the prompt file move in lockstep:
-- **Ledger:** move the entry from `active.md` to `complete.md` (`issue`,
-  `completed: <date>`, `library-pr:`).
-- **File:** advance the prompt from `active/` to `complete/<YYYY>/<MM>/` —
-  `python3 PyAutoMind/scripts/lifecycle.py move <name> --date <completed> --apply`
-  (writes the rich record there; the `active/` file no longer lingers as it did
-  under the old `issued/`).
+(issue #71) — the ledger entry **and** the dated record, kept paired 1:1 by slug:
+- **Ledger:** append the entry to `complete.md` (`## <slug>`, `issue`,
+  `completed: <date>`, `library-pr:`) and drop it from `active.md`.
+- **Record:** write the paired dated record and fold + remove the `active/`
+  prompt —
+  `python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <completed> --prompt <active-filename> --apply`
+  (writes `complete/<YYYY>/<MM>/<slug>.md` from the just-appended `complete.md`
+  entry; `lifecycle.py check` enforces the record ↔ `complete.md` pairing).
 
 Then push Mind with
 `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.
