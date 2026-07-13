@@ -17,6 +17,7 @@ version:
 | Heart | PyAutoHeart | is it healthy — the release-readiness verdict |
 | Hands | PyAutoBuild | do it — packaging, tagging, PyPI releases |
 | Memory | PyAutoMemory | what we know — long-term scientific knowledge |
+| Gut | PyAutoGut | what we shed — condemned branches, stashes and dead code, held recoverably then voided |
 
 Agents live under `agents/` in two tiers: **conductors** (front doors a
 human drives; they decide and act) and **faculties** (read-only judgments

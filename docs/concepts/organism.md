@@ -14,6 +14,7 @@ it and adds the framework/instance distinction an adopter needs.
 | **Heart** | PyAutoHeart | Decides whether the organism is *healthy*. `pyauto-heart readiness` is the authoritative GREEN/YELLOW/RED release gate. An observer: never writes into other repos, never triggers a build. |
 | **Hands** | PyAutoBuild | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
 | **Memory** | PyAutoMemory | *Knows* — long-term domain knowledge: literature wikis, concepts, bibliographies. Pull-only; consulted, never load-bearing at runtime. |
+| **Gut** | PyAutoGut | *Sheds* — the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds each as a durable, recoverable git ref through a transit window, then **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 
 Everything else — the libraries being developed, their example workspaces,
 test suites, tutorials — is a **satellite**: a capability the organism works
@@ -33,15 +34,16 @@ organ has to be trusted to police itself.
 
 ## Framework vs instance
 
-The five organs split on one line that matters for adoption:
+The six organs split on one line that matters for adoption:
 
 - **Framework organs — Brain, Heart, Hands.** Code, agents, checks,
   pipelines. Domain facts appear only in declared config surfaces (tables
   and policy files, not logic), and a drift check — the
   {ref}`tenant firewall <tenant-firewall>` — keeps it that way.
-- **Instance organs — Mind, Memory.** Committed state and knowledge. These
-  are *inherently yours*: an adopter never forks the upstream Mind or Memory
-  content, they create their own repos with the same documented shape.
+- **Instance organs — Mind, Memory, Gut.** Committed state, knowledge, and
+  shed material. These are *inherently yours*: an adopter never forks the
+  upstream Mind, Memory or Gut content, they create their own repos with the
+  same documented shape.
 
 One more principle worth knowing before you read anything else:
 **one canonical page per fact.** Organ boundaries live in ORGANISM.md;
