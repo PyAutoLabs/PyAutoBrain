@@ -85,6 +85,17 @@ def test_recovery_sequence_is_merge_then_fresh_validation_then_new_verdict():
     assert "human-required" in sec  # release cap untouched
 
 
+def test_agent_provides_the_quote():
+    # The human quotes the exact RED reason, so the agent must surface it
+    # verbatim from Heart's verdict — the human never reconstructs the wording.
+    sec = _section()
+    assert "the agent provides the quote" in sec
+    assert "verbatim from heart's current verdict" in sec
+    # and the ship gates instruct the agent to surface it at the RED step
+    for doc in (SHIP_LIBRARY, SHIP_WORKSPACE, WORKFLOW):
+        assert "verbatim from" in _norm(doc)
+
+
 def test_exception_is_human_only_never_under_auto():
     sec = _section()
     assert "human act" in sec

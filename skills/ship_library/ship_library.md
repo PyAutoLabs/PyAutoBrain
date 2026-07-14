@@ -56,7 +56,10 @@ as an ad-hoc step the skill re-judges. **GREEN** → proceed to step 4.
 **RED** → stop and report; do not ship — **unless** a human authorizes the
 narrow corrective-PR exception naming the exact RED reason (`AUTONOMY.md`
 "Corrective-PR exception for Heart RED"), which permits commit/push/PR-open of
-one reason-scoped fix only, never merge or release. If `pyauto-brain`/`pyauto-heart` are
+one reason-scoped fix only, never merge or release. When that exception is in
+play, **surface the exact RED reason string(s) verbatim from `pyauto-heart
+readiness`** and the specific corrective request, so the human authorizes the
+quote the agent provided rather than hunting for the wording. If `pyauto-brain`/`pyauto-heart` are
 unavailable, run the per-repo `pytest <test_dir>/ -x` inside the worktree as the
 gate and treat any failure as RED (WORKFLOW.md). Under `--auto`, this step is
 the four-leg **autonomous-ship gate** — tests (+ downstream dependents on

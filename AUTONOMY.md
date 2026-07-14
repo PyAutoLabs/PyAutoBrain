@@ -194,7 +194,12 @@ incident.
   (a) quotes the exact RED reason string and (b) approves the specific
   corrective issue. It is recorded as a human comment on that issue; a stored,
   reused or "standing" authorization does not count — it must be for this RED,
-  now.
+  now. **The agent provides the quote.** When the circumstance arises, the agent
+  surfaces the exact RED reason string(s) **verbatim from Heart's current
+  verdict** (`pyauto-heart readiness`) together with the specific corrective
+  request it is asking the human to approve — so the human authorizes what the
+  agent put in front of them, never a string reconstructed from memory. It is the
+  human's judgement, on the agent-surfaced reason, that authorizes.
 - **Permitted, and nothing else** — commit, push, and opening **one**
   pending-release feature PR whose issue, plan and diff all map to the named
   reason.
