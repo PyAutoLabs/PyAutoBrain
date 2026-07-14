@@ -50,7 +50,14 @@ pyauto-heart readiness --json        # GREEN / YELLOW / RED
 ```
 
 Workspace **smoke tests** are part of Heart's verdict. **GREEN** → execute.
-**YELLOW** → proceed only on explicit acknowledgement. **RED** → stop. If the
+**YELLOW** → proceed only on explicit acknowledgement. **RED** → stop —
+**unless** a human authorizes the narrow corrective-PR exception naming the
+exact RED reason (`AUTONOMY.md` "Corrective-PR exception for Heart RED"), which
+permits commit/push/PR-open of one reason-scoped fix only, never merge or
+release. When that exception is in play, **surface the exact RED reason
+string(s) verbatim from `pyauto-heart readiness`** and the specific corrective
+request, so the human authorizes the quote the agent provided rather than
+hunting for the wording. If the
 organism CLIs are unavailable, run `/smoke_test` (with `activate.sh` sourced) as
 the gate and treat any failure as RED. Under `--auto`, this step is the
 four-leg **autonomous-ship gate** (`AUTONOMY.md` "The autonomous-ship gate");
