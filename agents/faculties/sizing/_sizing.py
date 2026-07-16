@@ -166,10 +166,28 @@ def parse_prompt(path: Path, mind: Path):
         parts = path.parts
     # Lifecycle layout (Mind #71): backlog prompts live under draft/ — the
     # taxonomy folders (<work-type>/<target>/) sit below the state folder.
+    # active/ is FLAT (issued prompts, no taxonomy folders), so its path
+    # carries no work-type/target at all — the header fallback below supplies
+    # them there.
     if parts and parts[0] == "draft":
         parts = parts[1:]
+    elif parts and parts[0] == "active":
+        parts = ()
     work_type = parts[0] if parts else "?"
     target = parts[1] if len(parts) > 1 else "?"
+
+    # Formalised prompts carry Type:/Target: header lines — authoritative
+    # whenever the path yields no valid taxonomy (active/, stray layouts).
+    if work_type not in WORK_TYPES:
+        m = re.search(r"^Type:\s*([a-z_]+)\s*$", text, re.M)
+        if m and m.group(1) in WORK_TYPES:
+            work_type = m.group(1)
+    if target == "?":
+        m = re.search(r"^Target:\s*(\S+)\s*$", text, re.M)
+        if m:
+            t = normalise_repo(m.group(1))
+            if t in KNOWN_REPOS or t == "workspaces":
+                target = t
 
     mentions = {normalise_repo(m) for m in re.findall(r"@[A-Za-z0-9._/-]+", text)}
     # Keep only mentions that resolve to a repo we know — drops project refs
