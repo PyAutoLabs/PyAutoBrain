@@ -95,8 +95,9 @@ Analyse downstream workspace impact and present data-driven options — see
   "Library PR Created" progress comment, set `active.md` to
   `library-shipped, workspace-pending`, add `library-pr:`, push Mind.
 - **(iii)** no workspace impact → run `/smoke_test` (with `activate.sh` sourced).
-  On pass, offer to merge the library PR, post a "Shipped" comment, move the task
-  to `complete.md`, push Mind. On fail, report and suggest `/start_workspace`
+  On pass, offer to merge the library PR, post a "Shipped" comment, write the
+  dated completion record (`lifecycle.py record`) and drop the `active.md`
+  entry, push Mind. On fail, report and suggest `/start_workspace`
   (likely option ii); do not merge, do not clean up `active.md`.
 
 Comment templates and Mind-state transitions are in [`reference.md`](reference.md)

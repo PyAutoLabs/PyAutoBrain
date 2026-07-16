@@ -25,7 +25,7 @@
 #                                census flags (word-vomit is intent, not defect);
 #                                --apply writes the headers in place
 #   intake reconcile [prefix]    rank backlog prompts that look already-shipped
-#                                (vs complete.md / issued/); always read-only —
+#                                (vs the complete/ records / active/); always read-only —
 #                                retiring a prompt stays human
 #
 # Flags (place before the subcommand; both default OFF):

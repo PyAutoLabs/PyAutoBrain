@@ -2,7 +2,7 @@
 
 **What it owns:** intent and workflow state. Every task starts here as a
 plain-English markdown prompt; the registry files track what is in flight
-(`active.md`), queued (`planned.md`) and done (`complete.md`); and
+(`active.md`), queued (`planned.md`) and done (the dated `complete/` records); and
 `repos.yaml` — the **body map** — is the single source of repo identity for
 the whole organism.
 
@@ -18,7 +18,7 @@ the whole organism.
   repo or domain. Prompts are free-form prose; an optional light header
   (`Type:` / `Difficulty:` / `Autonomy:` / `Priority:`) gives both humans
   and the Brain a glance-level summary.
-- **The registry** (`active.md` / `planned.md` / `complete.md`) is the
+- **The registry** (`active.md` / `planned.md` / the `complete/` records) is the
   shared task state — worktree claims, issue links, status, resume notes.
   It is what makes the workflow machine-independent.
 - **The body map** (`repos.yaml`) declares every repo's GitHub home,

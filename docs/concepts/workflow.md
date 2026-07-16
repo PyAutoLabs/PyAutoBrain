@@ -23,10 +23,10 @@ idea  →  prompt file  →  issue  →  worktree  →  PR(s)  →  merge  →  
 4. **`ship_*`** gates the finish: test suites, the review faculty, and the
    Heart readiness verdict. GREEN ships; YELLOW needs an explicit human
    acknowledgement; RED stops. One PR per repo, always.
-5. **Merge is always human.** After merge, the task entry moves from
-   `active.md` to `complete.md` — the organism's operational history.
+5. **Merge is always human.** After merge, the task leaves `active.md` and a
+   dated `complete/` record is written — the organism's operational history.
 
-The registry files (`active.md`, `planned.md`, `complete.md`) are shared
+The registry files (`active.md`, `planned.md`, the `complete/` records) are shared
 state in the Mind repo, so any machine or session — laptop, web, CI — can
 read the current picture and resume an in-flight task with no handoff
 ceremony.

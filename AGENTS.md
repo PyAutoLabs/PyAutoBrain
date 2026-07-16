@@ -192,7 +192,7 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
 - **`agents/faculties/memory/`** — *recalls what the organism knows*: given a
   topic, returns a **cited digest** (ranked pages + snippets) over
   PyAutoMemory's sub-wikis, `autolens_assistant`'s skills/wiki, and Mind's
-  `complete.md` history. Grep-ranked at query time — no indexes, no layout
+  `complete/` records. Grep-ranked at query time — no indexes, no layout
   coupling, never a page dump; an empty digest is the honest answer. Privacy
   seam: PyAutoMemory citations never reach public user-facing output.
 - **`agents/faculties/samplers/`** — *the motor faculty*: expertise in how the

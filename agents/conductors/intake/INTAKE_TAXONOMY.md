@@ -125,7 +125,7 @@ only under `--apply` and re-runs are no-ops (nothing left missing).
 status went stale (a header `Status:` is display metadata — formalise preserves
 an existing value verbatim, so `Status: planned` can outlive the work by
 months). Per backlog prompt it collects four Mind-local signals — a
-`complete.md` line referencing its path (follow-up/restore/parked wording
+completion-record line referencing its path (follow-up/restore/parked wording
 downgrades it to likely-open), a duplicate basename in `issued/`, token overlap
 with a completed task's `## header`, and a hand-set Status — then ranks
 suspects high/medium/low with the evidence shown. Always read-only: the final
