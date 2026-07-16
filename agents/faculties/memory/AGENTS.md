@@ -29,7 +29,7 @@ memory.sh "delaunay regularization prior work"
 - **No indexes, no embeddings, no new infra** — grep + the wikis' own
   structure, the same as a careful human session, kept deterministic.
 - **No layout coupling** — sub-wikis are discovered at query time
-  (`*_wiki/` directories); when Memory grows a wiki, the faculty sees it with
+  (`wiki/<domain>/`, plus legacy root `*_wiki/`); when Memory grows a wiki, the faculty sees it with
   no edits (the standing "do not couple to Memory's internal layout" rule).
 - Operational history stays Mind's: `complete.md` is *read* here as a recall
   surface, but the boundary prose in ORGANISM.md is unchanged.

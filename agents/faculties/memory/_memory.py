@@ -32,7 +32,11 @@ def terms_of(query: str) -> list[str]:
 def surfaces(memory: Path | None, assistant: Path | None, mind: Path | None):
     """Yield (surface-name, root, md-file) triples, discovered at query time."""
     if memory and memory.is_dir():
-        for wiki in sorted(memory.glob("*_wiki")):
+        # wiki/<domain>/ is the current layout; root-level *_wiki/ is the
+        # pre-2026-07 layout, kept for older checkouts and forks.
+        wikis = sorted(d for d in memory.glob("wiki/*") if d.is_dir())
+        wikis += sorted(memory.glob("*_wiki"))
+        for wiki in wikis:
             for f in wiki.rglob("*.md"):
                 yield f"PyAutoMemory/{wiki.name}", memory, f
     if assistant and assistant.is_dir():
