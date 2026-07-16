@@ -12,6 +12,7 @@
 #                                CONSULT (they only opine; never dispatch or
 #                                mutate). Runnable directly for a quick read.
 #
+#   pyauto-brain community [args] (conductor) the Ears: scan/triage user-filed issues across the repos — read-only surfaces, replies stay human-gated
 #   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
 #   pyauto-brain refactor [args]  (conductor) plan behaviour-preserving restructuring (default-safe)
 #   pyauto-brain workspace [args] (conductor) the Voice: plan/survey workspace + HowTo example authorship — WorkspaceDecision (writes nothing)
@@ -47,6 +48,7 @@ FACULTIES_DIR="$AGENTS_DIR/faculties"
 
 declare -A AGENT_SCRIPT=(
   [intake]="$CONDUCTORS_DIR/intake/intake.sh"
+  [community]="$CONDUCTORS_DIR/community/community.sh"
   [feature]="$CONDUCTORS_DIR/feature/feature.sh"
   [bug]="$CONDUCTORS_DIR/bug/bug.sh"
   [refactor]="$CONDUCTORS_DIR/refactor/refactor.sh"
@@ -64,6 +66,7 @@ declare -A AGENT_SCRIPT=(
 )
 declare -A AGENT_DESC=(
   [intake]="Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev)"
+  [community]="The ears — the organism's receptive function: scan/triage user-filed GitHub issues across the repos; drafts stay human-gated, dev work routes via start_dev_for_user (never posts)"
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
   [bug]="The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair"
   [refactor]="The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto"
@@ -81,7 +84,7 @@ declare -A AGENT_DESC=(
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
-CONDUCTOR_ORDER=(intake feature bug refactor workspace profiling hygiene clone build release health)
+CONDUCTOR_ORDER=(intake community feature bug refactor workspace profiling hygiene clone build release health)
 FACULTY_ORDER=(vitals review memory samplers)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 

@@ -52,14 +52,21 @@ Run in order, then emit the digest.
    conclusions are the readiness/release signal.
 5. **Version drift** — `bash PyAutoBrain/bin/version_drift.sh`: version-stamp
    consistency across libs + workspaces vs the latest release tag.
-6. **Resume context** — pick up where you left off: in-flight / parked / queued
+6. **Community** — `bin/pyauto-brain community scan`: open issues raised by
+   **other humans** (not you) across every repo, with awaiting-response
+   ranking. Surface who is waiting and for how long; respond via
+   **`/community`** (drafts are human-approved there — never auto-reply from
+   the digest).
+7. **Resume context** — pick up where you left off: in-flight / parked / queued
    work (`PyAutoMind/active.md`, `parked.md`, `queue.md`) + open **pending-release
    PRs** (`gh`); **locally** also worktrees with unpushed commits.
-7. **Hygiene** *(local)* — consult **`/hygiene`** for cleanup candidates.
+8. **Hygiene** *(local)* — consult **`/hygiene`** for cleanup candidates.
 
 ### Digest
 Emit one prioritized card:
 - 🚨 **Blocking** — release blocked, RED readiness, failing overnight jobs / CI.
+- 💬 **Community** — external users awaiting a response (issue, author, days
+  waiting); point at **`/community`**, never draft replies in the digest.
 - ⚠️ **Drifted** — off-main / behind repos, version-pin mismatches.
 - 🔄 **Resume** — in-flight / parked tasks, open pending-release PRs.
 - 🧹 **Cleanable** — cleanup surfaced *for approval*: list it, never auto-act.
