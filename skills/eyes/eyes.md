@@ -29,10 +29,27 @@ different workspace root to review another project.
    `/start_dev` as usual (config + script surfaces → workspace PR; `plot_api`
    → library PR). **Never edit plot source inside the review session.**
 
+## Paper-informed pass ("restyle to match this paper")
+
+When the human supplies a paper (PDF, arXiv link, or a directory of figure
+panels):
+
+1. Get the reference figures locally — read PDF pages directly in-session,
+   or extract panels into a directory.
+2. `bin/pyauto-brain eyes review <workspace-root> --against <reference-dir>`
+   — the panels ride the review surface as `reference_figures`.
+3. Read the references FIRST and write an explicit **convention list**:
+   colormap family, panel composition, critical-curve/caustic annotation,
+   colorbar placement + units, fonts, scale bars. Show it to the human
+   before critiquing — it is the rubric.
+4. Critique the workspace figures against the rubric; notes carry
+   `reference` (the motivating panel). Consult the memory faculty for style
+   precedent; PyAutoMemory citations never reach public output.
+5. Delegate exactly as step 4 above.
+
 ## Boundary
 
 - The Eyes Agent decides and routes; the workspace renders; intake/start_dev
   ship. No step edits plots directly from critique.
-- Paper-informed critique ("restyle to match this paper") is epic Phase 3 —
-  when asked for it today, gather the paper's figures as review context
-  manually and file the restyle as an ordinary intake prompt.
+- The core never fetches papers or figures — the session gathers reference
+  material; the conductor only lists what it is given.

@@ -14,6 +14,9 @@
 # Usage:
 #   eyes.sh survey <workspace-root>            # EyesSurvey
 #   eyes.sh review <workspace-root> [--batch N] # EyesReviewSurface
+#   eyes.sh review <root> --against <dir>      # paper-informed pass: the
+#                                              # dir's figures ride along as
+#                                              # reference context
 #   eyes.sh --json ...                         # machine-readable decision
 
 set -uo pipefail

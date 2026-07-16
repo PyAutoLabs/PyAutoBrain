@@ -14,6 +14,9 @@ Modes:
                   -> EyesSurvey
   review <root>   ordered figure batches + the critique-note schema the
                   agentic review loop consumes -> EyesReviewSurface
+                  --against <dir>: paper-informed pass — the directory's
+                  figures (a paper's extracted panels) ride along as
+                  reference context; notes may then carry a `reference`
 
 Decision-only, stdlib-only: reads the filesystem, writes nothing, renders
 nothing (rendering is the workspace's `scripts/gallery/gallery_run.sh`), and
@@ -112,11 +115,14 @@ def survey(root: Path) -> dict:
     }
 
 
-def review(root: Path, batch: int) -> dict:
+REFERENCE_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+
+def review(root: Path, batch: int, against: Path | None = None) -> dict:
     records = scan(root)["records"]
     figures = [f for r in records for f in r["figures"]]
     batches = [figures[i:i + batch] for i in range(0, len(figures), batch)]
-    return {
+    surface = {
         "kind": "EyesReviewSurface",
         "workspace": str(root),
         "n_figures": len(figures),
@@ -127,6 +133,8 @@ def review(root: Path, batch: int) -> dict:
             "observation": "what looks wrong / could improve (human or agent)",
             "proposal": "the concrete change",
             "surface": f"one of {sorted(EDIT_SURFACES)}",
+            "reference": ("reference figure that motivated the note "
+                          "(paper-informed passes only; optional)"),
             "accepted": "true only after explicit human agreement",
         },
         "edit_surfaces": EDIT_SURFACES,
@@ -135,6 +143,17 @@ def review(root: Path, batch: int) -> dict:
                         "intake prompt per coherent accepted change — never "
                         "edit plot source in-session"),
     }
+    if against is not None:
+        surface["reference_figures"] = [
+            str(f) for f in sorted(against.rglob("*"))
+            if f.suffix.lower() in REFERENCE_SUFFIXES
+        ]
+        surface["next_action"] = (
+            "read the reference figures FIRST and write an explicit "
+            "convention list (colormaps, panel composition, annotations, "
+            "colorbars, fonts, scale bars), then " + surface["next_action"]
+        )
+    return surface
 
 
 def _print_survey(s: dict):
@@ -161,6 +180,9 @@ def _print_review(r: dict):
     print(f"Workspace:      {r['workspace']}")
     print(f"Figures:        {r['n_figures']} in {len(r['batches'])} "
           f"batch(es) of <= {r['batch_size']}")
+    if "reference_figures" in r:
+        print(f"References:     {len(r['reference_figures'])} figure(s) "
+              f"(paper-informed pass)")
     for i, b in enumerate(r["batches"], start=1):
         print(f"  batch {i}: {b[0]} .. {b[-1]}  ({len(b)} figures)")
     print("Edit surfaces:")
@@ -178,6 +200,8 @@ def main(argv=None) -> int:
         p.add_argument("workspace", help="visualization-workspace root")
         if mode == "review":
             p.add_argument("--batch", type=int, default=8)
+            p.add_argument("--against", default=None,
+                           help="reference-figure directory (paper-informed pass)")
     args = parser.parse_args(argv)
 
     root = Path(args.workspace).resolve()
@@ -186,7 +210,18 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 4
 
-    decision = survey(root) if args.mode == "survey" else review(root, args.batch)
+    against = None
+    if args.mode == "review" and args.against is not None:
+        against = Path(args.against).resolve()
+        if not (against.is_dir() and any(
+                f.suffix.lower() in REFERENCE_SUFFIXES
+                for f in against.rglob("*"))):
+            print(f"eyes: no reference figures (png/jpg) under: {against}",
+                  file=sys.stderr)
+            return 4
+
+    decision = (survey(root) if args.mode == "survey"
+                else review(root, args.batch, against))
     if args.json:
         print(json.dumps(decision, indent=2))
     elif args.mode == "survey":

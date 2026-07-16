@@ -28,13 +28,16 @@ def _make_workspace(root: Path) -> Path:
     scripts/beta has a never-rendered producer, and alpha also has an orphan
     images tree with no producer script."""
     alpha = root / "scripts" / "alpha"
+    alpha.mkdir(parents=True)
+    # producer first, figures after — the normal rendered state (a figure
+    # written before its script would nondeterministically flag STALE)
+    (alpha / "visualization.py").write_text("# producer\n")
     (alpha / "images" / "visualization" / "sub").mkdir(parents=True)
     (alpha / "images" / "visualization" / "a.png").write_bytes(b"png")
     (alpha / "images" / "visualization" / "sub" / "b.png").write_bytes(b"png")
     (alpha / "images" / "visualization" / "c.fits").write_bytes(b"fits")
     (alpha / "images" / "orphaned_visualization_run").mkdir()
     (alpha / "images" / "orphaned_visualization_run" / "d.png").write_bytes(b"png")
-    (alpha / "visualization.py").write_text("# producer\n")
     beta = root / "scripts" / "beta"
     beta.mkdir(parents=True)
     (beta / "visualization_jax.py").write_text("# producer, never run\n")
@@ -89,9 +92,37 @@ def test_review_surface_batches_and_schema(tmp_path):
     assert r["n_figures"] == 3
     assert [len(b) for b in r["batches"]] == [2, 1]
     assert set(r["note_schema"]) == {
-        "figure", "observation", "proposal", "surface", "accepted",
+        "figure", "observation", "proposal", "surface", "reference", "accepted",
     }
     assert set(r["edit_surfaces"]) == {"config", "plot_api", "script", "data"}
+    assert "reference_figures" not in r
+
+
+def test_review_against_reference_dir(tmp_path):
+    root = _make_workspace(tmp_path / "ws")
+    ref = tmp_path / "paper_figs"
+    (ref / "nested").mkdir(parents=True)
+    (ref / "fig1.png").write_bytes(b"png")
+    (ref / "nested" / "fig2.JPG").write_bytes(b"jpg")
+    (ref / "notes.txt").write_text("not a figure")
+    result = _run(["--json", "review", str(root), "--against", str(ref)])
+    assert result.returncode == 0, result.stderr
+    r = json.loads(result.stdout)
+    assert r["reference_figures"] == [
+        str(ref / "fig1.png"), str(ref / "nested" / "fig2.JPG"),
+    ]
+    assert r["next_action"].startswith("read the reference figures FIRST")
+    # review targets are unchanged — references are context, not batch items
+    assert r["n_figures"] == 3
+
+
+def test_review_against_empty_dir_exits_4(tmp_path):
+    root = _make_workspace(tmp_path / "ws")
+    ref = tmp_path / "empty"
+    ref.mkdir()
+    result = _run(["review", str(root), "--against", str(ref)])
+    assert result.returncode == 4
+    assert "no reference figures" in result.stderr
 
 
 def test_not_a_workspace_exits_4(tmp_path):
