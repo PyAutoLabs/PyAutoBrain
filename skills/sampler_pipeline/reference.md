@@ -113,7 +113,7 @@ table.
   the candidate on lensing use cases via `autolens_profiling` — the
   `/profile_likelihood` skill drives the sweep machinery; A100/HPC runs go
   through that repo's conventions.
-- Record durable findings in `PyAutoMemory/methods_wiki/concepts/
+- Record durable findings in `PyAutoMemory/wiki/methods/concepts/
   sampler-benchmarks.md` (internal; never cited in public output).
 
 ## Stage 3 — promotion: the PyAutoFit implementation
