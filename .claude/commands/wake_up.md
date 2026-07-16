@@ -1,0 +1,1 @@
+../../skills/wake_up/wake_up.md

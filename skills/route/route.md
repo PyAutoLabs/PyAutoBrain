@@ -19,7 +19,8 @@ Infer the work-type from the request using the taxonomy in
 | failing tests, readiness, "is it safe / green?" | `/health` |
 | a regression, crash, or wrong output | `/bug` |
 | restructuring with no behaviour change | `/refactor` |
-| documentation, examples, notebooks, tutorials | `/docs` |
+| authoring a workspace or HowTo example/tutorial | `/workspace` |
+| other documentation, notebooks, docstrings | `/docs` |
 | investigation, design, or scientific background | `/research` |
 
 Examples: *"Fix failing tests"* → `/bug` (or `/health` if it's a readiness sweep);
