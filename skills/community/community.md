@@ -16,21 +16,23 @@ docs: `bin/pyauto-brain help community`.
    bin/pyauto-brain community            # default mode
    ```
 
-   Emits a **CommunityScan**: open issues authored by non-self humans across
-   every `repos.yaml` repo, with awaiting-response detection (the
-   conversation's last word is not ours) ranked by waiting time. `/wake_up`
-   runs this same scan as its community step.
+   Emits a **CommunityScan**: open issues **and PRs** authored by non-self
+   humans across every `repos.yaml` repo, with awaiting-response detection
+   (the conversation's last word is not ours) ranked by waiting time, plus
+   open PRs with review requested from you. `/wake_up` runs this same scan
+   as its community step.
 
-2. **Triage** the issue the human picks:
+2. **Triage** the item the human picks:
 
    ```bash
-   bin/pyauto-brain community triage <url | owner/repo#N>
+   bin/pyauto-brain community triage <issue-or-PR url | owner/repo#N>
    ```
 
    Emits context-sufficiency signals (code block, traceback, versions,
    expected-vs-actual, data pointer), clarifying-question seeds for whatever
-   is missing, and the comment tail. The signals are heuristics — **you** read
-   the actual issue and judge.
+   is missing, and the comment tail; a PR ref adds the change-shape block
+   (draft, files, +/-, requested reviewers, mergeable state). The signals are
+   heuristics — **you** read the actual issue or PR and judge.
 
 3. **Converse — drafts only.** Based on your judgment:
    - **Actionable** → route into `/start_dev_for_user <url>` — it owns the
@@ -43,6 +45,9 @@ docs: `bin/pyauto-brain help community`.
    - **In-flight follow-ups** (reporter replied, milestone reached) → draft
      the update the same way; `/update_issue` posts progress from a dev
      session. Cadence: ~5 milestones for bugs, ~4 for features.
+   - **External PR / review request** → the review is yours with the human:
+     read the diff, draft the review comments for approval. Never route a
+     community PR through the ship-gate review faculty.
 
 ## Boundary
 
