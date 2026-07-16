@@ -6,10 +6,13 @@ Workspace Agent's Broca/Voice: that agent speaks through examples; this one
 hears the community). It reads the outside world's GitHub issues and emits
 deterministic surfaces the /community skill reasons over:
 
-  scan     every repos.yaml repo -> open issues raised by non-self humans,
-           with awaiting-response detection and waiting-time ranking
+  scan     every repos.yaml repo -> open issues AND pull requests raised by
+           non-self humans (awaiting-response detection, waiting-time
+           ranking) + open PRs with review requested from a self login
            (the /wake_up community sensory leg)
-  triage   one issue -> context-sufficiency signals + routing surface
+  triage   one issue or PR -> context-sufficiency signals + routing surface;
+           PR refs additionally carry the change-shape block (draft, files,
+           additions/deletions, requested reviewers, mergeable state)
            (the judgment — actionable vs ask-for-more — stays in the session)
 
 The conductor NEVER posts, labels or edits anything on GitHub and never writes
@@ -29,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +45,9 @@ SELF_LOGINS = [
 ]
 PRIMARY_ORG = "PyAutoLabs"
 SCAN_DETAIL_CAP = 30  # issues that get a per-issue last-commenter lookup
+# Pause between search-API calls — the scan makes up to six, and GitHub's
+# secondary rate limit trips on rapid bursts (hermetic tests set it to 0).
+SEARCH_PAUSE_S = float(os.environ.get("COMMUNITY_SEARCH_PAUSE", "2"))
 
 # Context signals a well-formed report tends to carry. Each is (key, ask) —
 # the ask is the clarifying-question seed the skill session redrafts in its
@@ -107,14 +114,23 @@ def days_since(iso):
     return round((datetime.now(timezone.utc) - then).total_seconds() / 86400, 1)
 
 
-def search_external_issues(qualifier):
-    q = f"{qualifier} is:issue is:open " + " ".join(
-        f"-author:{login}" for login in SELF_LOGINS
-    )
+def search_open(qualifier, kind, extra_quals=""):
+    """Open issues or PRs (`kind` = issue|pr) matching the qualifier; None on
+    a failed search."""
+    q = f"{qualifier} is:{kind} is:open"
+    if extra_quals:
+        q += f" {extra_quals}"
+    if SEARCH_PAUSE_S:
+        time.sleep(SEARCH_PAUSE_S)
     data = gh_json(["-X", "GET", "search/issues", "-f", f"q={q}", "-f", "per_page=50"])
     if data is None:
         return None
     return data.get("items", [])
+
+
+def search_external(qualifier, kind):
+    not_self = " ".join(f"-author:{login}" for login in SELF_LOGINS)
+    return search_open(qualifier, kind, not_self)
 
 
 def last_commenter(owner_repo, number):
@@ -130,48 +146,62 @@ def issue_repo(item):
     return "/".join(item.get("repository_url", "").split("/")[-2:])
 
 
+def _entry(item, kind):
+    return {
+        "type": kind,
+        "repo": issue_repo(item),
+        "number": item.get("number"),
+        "title": item.get("title", ""),
+        "author": (item.get("user") or {}).get("login"),
+        "url": item.get("html_url"),
+        "labels": [l.get("name") for l in item.get("labels", [])],
+        "comments": item.get("comments", 0),
+        "updated_at": item.get("updated_at"),
+        "waiting_days": days_since(item.get("updated_at")),
+        "last_actor": None,
+        "awaiting_response": None,
+    }
+
+
+def _searched(qualifiers, kind, degraded, external=True):
+    """Run one search per qualifier group, folding failures into `degraded`."""
+    entries = []
+    tag = kind if external else "review-requested"
+    for label, qualifier in qualifiers:
+        items = (
+            search_external(qualifier, kind)
+            if external
+            else search_open(qualifier, kind, "review-requested:" + SELF_LOGINS[0])
+        )
+        if items is None:
+            degraded.append(f"{label} {tag} search failed (gh auth? rate limit?)")
+            continue
+        entries += [_entry(i, kind) for i in items if not is_bot(i.get("user"))]
+    return entries
+
+
 def build_scan():
     homes = repo_homes()
     extra = [h for h in homes if not h.startswith(f"{PRIMARY_ORG}/")]
-
-    items, degraded = [], []
-    org_items = search_external_issues(f"org:{PRIMARY_ORG}")
-    if org_items is None:
-        degraded.append(f"org:{PRIMARY_ORG} search failed (gh auth? rate limit?)")
-    else:
-        items += org_items
+    qualifiers = [(f"org:{PRIMARY_ORG}", f"org:{PRIMARY_ORG}")]
     if extra:
-        extra_items = search_external_issues(" ".join(f"repo:{h}" for h in extra))
-        if extra_items is None:
-            degraded.append("non-org repo search failed")
-        else:
-            items += extra_items
+        qualifiers.append(("non-org", " ".join(f"repo:{h}" for h in extra)))
 
-    issues = []
-    for item in items:
-        if is_bot(item.get("user")):
-            continue
-        repo = issue_repo(item)
-        entry = {
-            "repo": repo,
-            "number": item.get("number"),
-            "title": item.get("title", ""),
-            "author": (item.get("user") or {}).get("login"),
-            "url": item.get("html_url"),
-            "labels": [l.get("name") for l in item.get("labels", [])],
-            "comments": item.get("comments", 0),
-            "updated_at": item.get("updated_at"),
-            "waiting_days": days_since(item.get("updated_at")),
-            "last_actor": None,
-            "awaiting_response": None,
-        }
-        issues.append(entry)
+    degraded = []
+    issues = _searched(qualifiers, "issue", degraded)
+    prs = _searched(qualifiers, "pr", degraded)
+    # Review requests target a self login regardless of author (a bot's PR
+    # asking for review is still ours to answer, so no external filter).
+    review_requested = _searched(qualifiers, "pr", degraded, external=False)
 
     # Awaiting-response = the conversation's last word is not ours. Cap the
-    # per-issue lookups; uncapped entries keep awaiting_response=None (unknown).
-    for entry in sorted(issues, key=lambda e: e["updated_at"] or "", reverse=True)[
-        :SCAN_DETAIL_CAP
-    ]:
+    # per-item lookups; uncapped entries keep awaiting_response=None (unknown).
+    # Uses issue-conversation comments (PR review-thread comments are a known
+    # v2 limit, recorded in AGENTS.md).
+    conversations = issues + prs
+    for entry in sorted(
+        conversations, key=lambda e: e["updated_at"] or "", reverse=True
+    )[:SCAN_DETAIL_CAP]:
         actor = (
             entry["author"]
             if entry["comments"] == 0
@@ -180,21 +210,25 @@ def build_scan():
         entry["last_actor"] = actor
         entry["awaiting_response"] = actor is not None and actor not in SELF_LOGINS
 
-    awaiting = [e for e in issues if e["awaiting_response"]]
+    awaiting = [e for e in conversations if e["awaiting_response"]]
     awaiting.sort(key=lambda e: e["waiting_days"] or 0, reverse=True)
     return {
         "self_logins": SELF_LOGINS,
         "org": PRIMARY_ORG,
         "extra_repos": extra,
         "open_external_issues": issues,
+        "open_external_prs": prs,
+        "awaiting_review": review_requested,
         "awaiting_response": awaiting,
         "counts": {
             "open_external": len(issues),
+            "open_external_prs": len(prs),
+            "awaiting_review": len(review_requested),
             "awaiting_response": len(awaiting),
         },
         "degraded": degraded,
         "next_action": (
-            "pick an issue -> `community triage <ref>` -> the /community session "
+            "pick an item -> `community triage <ref>` -> the /community session "
             "assesses context, drafts the reply for human approval, and routes "
             "actionable work via /start_dev_for_user; this surface posts nothing"
         ),
@@ -209,25 +243,52 @@ def print_scan(s):
     for d in s["degraded"]:
         print(f"DEGRADED:             {d}")
     c = s["counts"]
-    print(f"Open external issues: {c['open_external']}  (awaiting our response: {c['awaiting_response']})")
+    print(f"Open external:        {c['open_external']} issue(s), {c['open_external_prs']} PR(s)"
+          f"  (awaiting our response: {c['awaiting_response']})")
     for e in s["awaiting_response"]:
         days = f"{e['waiting_days']:.0f}d" if e["waiting_days"] is not None else "?"
-        print(f"  ! {e['repo']}#{e['number']} [{days} waiting] @{e['author']}: {e['title'][:70]}")
-    for e in s["open_external_issues"]:
+        kind = "PR " if e["type"] == "pr" else ""
+        print(f"  ! {kind}{e['repo']}#{e['number']} [{days} waiting] @{e['author']}: {e['title'][:70]}")
+    for e in s["open_external_issues"] + s["open_external_prs"]:
         if not e["awaiting_response"]:
             state = "ours-to-watch" if e["awaiting_response"] is False else "unchecked"
-            print(f"  - {e['repo']}#{e['number']} ({state}) @{e['author']}: {e['title'][:70]}")
+            kind = "PR " if e["type"] == "pr" else ""
+            print(f"  - {kind}{e['repo']}#{e['number']} ({state}) @{e['author']}: {e['title'][:70]}")
+    if s["awaiting_review"]:
+        print(f"Review requested:     {c['awaiting_review']}")
+        for e in s["awaiting_review"]:
+            print(f"  * {e['repo']}#{e['number']} @{e['author']}: {e['title'][:70]}")
     print(f"Next action:          {s['next_action']}")
 
 
 def parse_issue_ref(ref):
-    m = re.match(r"https?://github\.com/([^/]+/[^/]+)/issues/(\d+)", ref)
+    m = re.match(r"https?://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)", ref)
     if m:
         return m.group(1), int(m.group(2))
     m = re.match(r"([^/#\s]+/[^/#\s]+)#(\d+)$", ref)
     if m:
         return m.group(1), int(m.group(2))
-    fail(5, f"cannot parse issue ref '{ref}' — use a full URL or owner/repo#N")
+    fail(5, f"cannot parse ref '{ref}' — use a full issue/PR URL or owner/repo#N")
+
+
+def pr_block(owner_repo, number):
+    """The change-shape block for a PR ref; None when the pulls endpoint is
+    unreadable (surface degrades, never invents)."""
+    pr = gh_json([f"repos/{owner_repo}/pulls/{number}"])
+    if pr is None:
+        return None
+    return {
+        "draft": pr.get("draft"),
+        "changed_files": pr.get("changed_files"),
+        "additions": pr.get("additions"),
+        "deletions": pr.get("deletions"),
+        "mergeable_state": pr.get("mergeable_state"),
+        "requested_reviewers": [
+            (u or {}).get("login") for u in pr.get("requested_reviewers", [])
+        ],
+        "base": (pr.get("base") or {}).get("ref"),
+        "head": (pr.get("head") or {}).get("ref"),
+    }
 
 
 def build_triage(ref):
@@ -262,7 +323,10 @@ def build_triage(ref):
     ]
     last = tail[-1]["author"] if tail else (issue.get("user") or {}).get("login")
 
+    is_pr = "pull_request" in issue
     return {
+        "type": "pr" if is_pr else "issue",
+        "pr": pr_block(owner_repo, number) if is_pr else None,
         "repo": owner_repo,
         "number": number,
         "url": issue.get("html_url"),
@@ -276,7 +340,12 @@ def build_triage(ref):
         "signals_missing": missing,
         "comment_tail": tail,
         "awaiting_response": last not in SELF_LOGINS,
-        "route": f"/start_dev_for_user {issue.get('html_url')}",
+        "route": (
+            f"human review of PR {issue.get('html_url')} — session drafts the "
+            f"review comments (this is NOT the ship-gate review faculty)"
+            if is_pr
+            else f"/start_dev_for_user {issue.get('html_url')}"
+        ),
         "reminders": [
             "the session judges sufficiency — these signals are heuristics, not a verdict",
             "every outward comment is drafted and shown to the human before posting",
@@ -288,11 +357,18 @@ def build_triage(ref):
 
 
 def print_triage(t):
-    print(f"== CommunityTriage — {t['repo']}#{t['number']} ==")
+    kind = "PR" if t["type"] == "pr" else "issue"
+    print(f"== CommunityTriage — {t['repo']}#{t['number']} ({kind}) ==")
     print(f"Title:                {t['title']}")
     print(f"Author:               @{t['author']}"
           + (" (external)" if t["author_is_external"] else " (self)"))
     print(f"State:                {t['state']}   Labels: {', '.join(t['labels']) or '(none)'}")
+    if t["pr"]:
+        p = t["pr"]
+        reviewers = ", ".join(p["requested_reviewers"]) or "(none)"
+        print(f"PR shape:             {p['changed_files']} file(s), +{p['additions']}/-{p['deletions']}"
+              f"   draft={p['draft']}   mergeable={p['mergeable_state']}   {p['head']} -> {p['base']}")
+        print(f"Review requested:     {reviewers}")
     print(f"Awaiting response:    {t['awaiting_response']}")
     print("Context signals:")
     for key, ok in t["signals_present"].items():
@@ -316,7 +392,7 @@ def main():
     parser.add_argument("mode", nargs="?", default="scan",
                         help="scan (default) | triage <issue-ref>")
     parser.add_argument("ref", nargs="?", default=None,
-                        help="triage only: issue URL or owner/repo#N")
+                        help="triage only: issue/PR URL or owner/repo#N")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 

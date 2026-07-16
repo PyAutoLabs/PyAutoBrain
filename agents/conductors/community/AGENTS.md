@@ -2,7 +2,8 @@
 
 > **Tier: conductor** — a front-door agent you *drive*. The *Ears* — the
 > organism's receptive language function: it hears the community (user-filed
-> GitHub issues across every repo) and drafts what the organism says back; the
+> GitHub issues and pull requests across every repo) and drafts what the
+> organism says back; the
 > human remains the mouth. Wernicke to the Workspace Agent's Broca: that
 > *Voice* speaks to users through examples and tutorials, this agent
 > *comprehends and converses* — it reads an outsider's issue, judges whether
@@ -27,20 +28,22 @@ gates every outward message.
 
 | Mode | Surface | Consumed by |
 |------|---------|-------------|
-| `scan` *(default)* | every `PyAutoMind/repos.yaml` repo → open issues authored by non-self humans (bots filtered), with **awaiting-response** detection (the conversation's last word is not ours) ranked by waiting time | `/community` step 1; the `/wake_up` community sensory leg |
-| `triage <issue-ref>` | one issue → context-sufficiency signals (code block, traceback, versions, expected-vs-actual, data pointer), missing-signal clarifying-question seeds, comment tail, route | `/community` steps 2–3 |
+| `scan` *(default)* | every `PyAutoMind/repos.yaml` repo → open issues **and PRs** authored by non-self humans (bots filtered), with **awaiting-response** detection (the conversation's last word is not ours) ranked by waiting time, plus open PRs with **review requested** from a self login (any author) | `/community` step 1; the `/wake_up` community sensory leg |
+| `triage <ref>` | one issue or PR → context-sufficiency signals (code block, traceback, versions, expected-vs-actual, data pointer), missing-signal clarifying-question seeds, comment tail, route; a PR ref adds the **change-shape block** (draft, files, +/-, requested reviewers, mergeable state, head→base) | `/community` steps 2–3 |
 
 ```
 pyauto-brain community                    # scan: who is waiting on us?
 pyauto-brain community scan --json
-pyauto-brain community triage <url | owner/repo#N> [--json]
+pyauto-brain community triage <issue-or-PR url | owner/repo#N> [--json]
 ```
 
 Repo enumeration comes from `PyAutoMind/repos.yaml` (the body map) under
 `PYAUTO_ROOT`; the org is searched wholesale, non-org homes individually.
 GitHub access is the `gh` CLI — `COMMUNITY_GH` overrides the binary (hermetic
-tests), `COMMUNITY_SELF` the self logins (default `Jammy2211`). A failed
-search degrades honestly (`degraded:` in the surface), never silently.
+tests), `COMMUNITY_SELF` the self logins (default `Jammy2211`),
+`COMMUNITY_SEARCH_PAUSE` the inter-search sleep (default 2s — the scan makes
+up to six search calls and GitHub's secondary rate limit trips on bursts). A
+failed search degrades honestly (`degraded:` in the surface), never silently.
 
 ## Fundamental principles
 
@@ -79,17 +82,24 @@ search degrades honestly (`degraded:` in the surface), never silently.
   reporter-facing updates after routing.
 - **vs bug / feature** — they classify and plan the *work*; community manages
   the *relationship* with the person who reported it.
-- **vs health / hygiene / release** — no verdicts, no upkeep, no releases;
-  external PRs and review requests are out of scope for v1 (a staged
-  follow-up recorded here).
+- **vs health / hygiene / release** — no verdicts, no upkeep, no releases.
+- **vs the review faculty** — an external PR surfaced here routes to a
+  *human review with session-drafted comments*; the review faculty judges
+  only our own feature branches for the autonomous-ship gate, never
+  community PRs. Known v2 limit: awaiting-response reads PR *conversation*
+  comments — review-thread comments don't count as our reply yet.
 
 ## Capability audit — what the modes read
 
 - **GitHub search** (`gh api search/issues`): `org:PyAutoLabs` plus the
-  non-org homes from `repos.yaml`, `is:issue is:open -author:<self>`, bot
-  authors post-filtered.
-- **Issue comments** (`gh api repos/<o>/<r>/issues/<n>/comments`): last-actor
-  detection for awaiting-response (capped at 30 issues per scan) and the
-  triage comment tail.
+  non-org homes from `repos.yaml`; three passes per qualifier group —
+  `is:issue is:open -author:<self>`, `is:pr is:open -author:<self>`, and
+  `is:pr is:open review-requested:<self>` — bot authors post-filtered on the
+  external passes.
+- **Issue/PR conversation comments** (`gh api repos/<o>/<r>/issues/<n>/comments`):
+  last-actor detection for awaiting-response (capped at 30 items per scan)
+  and the triage comment tail.
+- **Pull detail** (`gh api repos/<o>/<r>/pulls/<n>`): the triage change-shape
+  block for PR refs.
 - **PyAutoMind `repos.yaml`**: the body map, parsed for `github:` homes
   (regex, stdlib-only — the Brain takes no yaml dependency).

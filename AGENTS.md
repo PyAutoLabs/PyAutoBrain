@@ -242,7 +242,7 @@ the `/<verb>` slash commands.
 | Verb | Purpose | Entrypoint |
 |------|---------|------------|
 | `intake` | Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev) | `bin/pyauto-brain intake` |
-| `community` | The ears — the organism's receptive function: scan/triage user-filed GitHub issues across the repos; drafts stay human-gated, dev work routes via start_dev_for_user (never posts) | `bin/pyauto-brain community` |
+| `community` | The ears — the organism's receptive function: scan/triage user-filed GitHub issues + PRs and review requests across the repos; drafts stay human-gated, dev work routes via start_dev_for_user (never posts) | `bin/pyauto-brain community` |
 | `feature` | Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev | `bin/pyauto-brain feature` |
 | `bug` | The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair | `bin/pyauto-brain bug` |
 | `refactor` | The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto | `bin/pyauto-brain refactor` |

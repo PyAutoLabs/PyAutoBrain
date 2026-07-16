@@ -12,11 +12,13 @@
 # labels, edits or writes anything.
 #
 # Usage:
-#   community.sh                       # scan (default): open external issues,
-#                                      #   awaiting-response ranking
+#   community.sh                       # scan (default): open external issues
+#                                      #   + PRs, awaiting-response ranking,
+#                                      #   review requests
 #   community.sh scan                  # same, explicit
-#   community.sh triage <issue-ref>    # one issue -> context-sufficiency surface
-#                                      #   (<issue-ref> = URL or owner/repo#N)
+#   community.sh triage <ref>          # one issue/PR -> context-sufficiency
+#                                      #   surface (+ PR change-shape block);
+#                                      #   <ref> = issue/PR URL or owner/repo#N
 #   community.sh ... --json            # machine-readable output
 
 set -uo pipefail
