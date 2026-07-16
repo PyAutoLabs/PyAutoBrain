@@ -1,5 +1,5 @@
 ---
-name: wake_up
+name: wake-up
 description: Start-of-day wake-up routine for the PyAuto workspace — sync every repo to main and clean generated cruft (local), then a gh-API status glance (overnight scheduled-run conclusions, version-pin drift, resume context) plus /health and /hygiene, ending in one prioritized digest. Runs on the CLI and on mobile Claude Code chat / Codex (auto-skips local-only steps when there is no workspace). Use when starting the day or asked for a morning status/cleanup pass.
 ---
 
