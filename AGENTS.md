@@ -144,6 +144,18 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   tool). One agent, two registers; the split trigger for a future HowTo agent
   is recorded in its AGENTS.md. Decision-only: never edits source, never
   writes files.
+- **`agents/conductors/eyes/`** — the *perceptive function*: the organism's
+  sense of its own appearance. Owns the render → present → critique →
+  delegate loop over a project's visualization surface via the gallery
+  contract (`scripts/<domain>/images/**` + `output/gallery/`; reference
+  instance `autolens_workspace_test`, epic #117). `survey` emits the
+  `EyesSurvey` (inventory, stale renders, never-rendered gaps, gallery
+  currency); `review` emits the `EyesReviewSurface` (ordered figure batches +
+  the critique-note schema mapping each accepted note to its edit surface:
+  workspace `config/visualize` yaml, library plot functions, producing
+  script, or data). Decision-only and repo-name-free in code (tenant
+  firewall): rendering stays in the workspace's `gallery_run.sh`; accepted
+  critiques route via intake → start_dev — it never edits plot source.
 - **`agents/conductors/profiling/`** — the *proprioceptive function*: the
   organism's sense of its own effort. Heart reads the vitals at rest; this
   agent runs the stress test — it owns the performance-data lifecycle with
@@ -247,6 +259,7 @@ the `/<verb>` slash commands.
 | `bug` | The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair | `bin/pyauto-brain bug` |
 | `refactor` | The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto | `bin/pyauto-brain refactor` |
 | `workspace` | The voice — the organism's expressive function: plan/survey workspace + HowTo example authorship (workspace\|howto registers) — WorkspaceDecision (never writes) | `bin/pyauto-brain workspace` |
+| `eyes` | The perceptive function — the organism's sense of its own appearance: survey/review a visualization workspace's figure surface, critiques route to intake/start_dev — EyesSurvey/EyesReviewSurface (never renders, never edits) | `bin/pyauto-brain eyes` |
 | `profiling` | The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision | `bin/pyauto-brain profiling` |
 | `hygiene` | The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision | `bin/pyauto-brain hygiene` |
 | `clone` | The Mitosis Agent (v0: decision only): partition the reference assistant, analyze the domain, emit the CloneDecision — never writes | `bin/pyauto-brain clone` |
@@ -287,6 +300,7 @@ the Brain routes it to the right agent; normal usage never says "PyAutoBrain".
 | `/health` | Health Agent loop → vitals → Heart | real conductor |
 | `/refactor` | Refactor Agent → `start_dev [--auto]` (default-safe) | real conductor |
 | `/workspace` | Workspace Agent → WorkspaceDecision → `start_dev` → `start_workspace` | real conductor |
+| `/eyes` | Eyes Agent → survey/render/review loop → accepted critiques file via `/intake` → `start_dev` | real conductor |
 | `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
 | `/route <text>` | infers the work-type and dispatches to one of the above | NL router |
 | `/wake_up` | sync + clean-slate (local) + gh-API glance (overnight runs, version drift, resume) + `/health`/`/hygiene` → digest; CLI + mobile/codex | composition door |

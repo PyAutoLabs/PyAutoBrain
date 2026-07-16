@@ -1,0 +1,38 @@
+# /eyes — look at, judge and update the organism's figures (via the Brain Eyes Agent)
+
+The **render → present → critique → delegate** loop over a project's
+visualization surface, via PyAutoBrain's **Eyes Agent** (the *perceptive
+function*). You never name the Brain; this command is the door.
+
+Shared routing context: `PyAutoBrain/skills/COMMANDS.md`. The default
+visualization workspace is **`autolens_workspace_test`** (the reference
+instance of the gallery contract from epic PyAutoBrain#117 Phase 1); pass a
+different workspace root to review another project.
+
+## Do
+
+1. **Survey** — `bin/pyauto-brain eyes survey <workspace-root>`: per-script
+   figure inventory, stale renders (producer script newer than its figures),
+   never-rendered gaps, gallery currency.
+2. **Render** what the survey flags, in the workspace itself:
+   `bash scripts/gallery/gallery_run.sh [<domain>|--all]` (ends in the
+   builder's own `--check`; `--all` adds the slow tier + JAX variants). Then
+   `python scripts/gallery/gallery_build.py --embed` and copy
+   `output/gallery/gallery_embedded.html` out (e.g. `towin`) for the human.
+3. **Review** — `bin/pyauto-brain eyes review <workspace-root>`: read each
+   figure batch directly (PNG reads in-session), collect the human's
+   critiques plus your own suggestions as notes against the emitted
+   `note_schema`, tagging each with its edit surface (`config` /
+   `plot_api` / `script` / `data`). A note is `accepted` only on explicit
+   human agreement.
+4. **Delegate** — one `/intake` prompt per coherent accepted change, then
+   `/start_dev` as usual (config + script surfaces → workspace PR; `plot_api`
+   → library PR). **Never edit plot source inside the review session.**
+
+## Boundary
+
+- The Eyes Agent decides and routes; the workspace renders; intake/start_dev
+  ship. No step edits plots directly from critique.
+- Paper-informed critique ("restyle to match this paper") is epic Phase 3 —
+  when asked for it today, gather the paper's figures as review context
+  manually and file the restyle as an ordinary intake prompt.

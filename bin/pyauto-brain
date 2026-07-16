@@ -16,6 +16,7 @@
 #   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
 #   pyauto-brain refactor [args]  (conductor) plan behaviour-preserving restructuring (default-safe)
 #   pyauto-brain workspace [args] (conductor) the Voice: plan/survey workspace + HowTo example authorship — WorkspaceDecision (writes nothing)
+#   pyauto-brain eyes    [args]   (conductor) the Eyes: survey/review a visualization workspace's figure surface — EyesSurvey/EyesReviewSurface (writes nothing)
 #   pyauto-brain profiling [args] (conductor) campaign/ingest/triage plans over the profiling workspace
 #   pyauto-brain hygiene [args]   (conductor) code-quality upkeep: perf/tidy/noise/deps/docs — HygieneDecision (modes staged)
 #   pyauto-brain clone   [args]   (conductor) v0: analyze a library+workspace against the reference assistant — CloneDecision (writes nothing)
@@ -53,6 +54,7 @@ declare -A AGENT_SCRIPT=(
   [bug]="$CONDUCTORS_DIR/bug/bug.sh"
   [refactor]="$CONDUCTORS_DIR/refactor/refactor.sh"
   [workspace]="$CONDUCTORS_DIR/workspace/workspace.sh"
+  [eyes]="$CONDUCTORS_DIR/eyes/eyes.sh"
   [profiling]="$CONDUCTORS_DIR/profiling/profiling.sh"
   [hygiene]="$CONDUCTORS_DIR/hygiene/hygiene.sh"
   [clone]="$CONDUCTORS_DIR/clone/clone.sh"
@@ -71,6 +73,7 @@ declare -A AGENT_DESC=(
   [bug]="The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair"
   [refactor]="The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto"
   [workspace]="The voice — the organism's expressive function: plan/survey workspace + HowTo example authorship (workspace|howto registers) — WorkspaceDecision (never writes)"
+  [eyes]="The perceptive function — the organism's sense of its own appearance: survey/review a visualization workspace's figure surface, critiques route to intake/start_dev — EyesSurvey/EyesReviewSurface (never renders, never edits)"
   [profiling]="The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision"
   [hygiene]="The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision"
   [clone]="The Mitosis Agent (v0: decision only): partition the reference assistant, analyze the domain, emit the CloneDecision — never writes"
@@ -84,7 +87,7 @@ declare -A AGENT_DESC=(
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
-CONDUCTOR_ORDER=(intake community feature bug refactor workspace profiling hygiene clone build release health)
+CONDUCTOR_ORDER=(intake community feature bug refactor workspace eyes profiling hygiene clone build release health)
 FACULTY_ORDER=(vitals review memory samplers)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
