@@ -75,6 +75,7 @@ test_witness:
   autoarray: PyAutoArray/test_autoarray
   autogalaxy: PyAutoGalaxy/test_autogalaxy
   autolens: PyAutoLens/test_autolens
+  pyautoreduce: PyAutoReduce/test_autoreduce
 
 # Release policy (NOT identity: the released set is a deliberate subset of
 # the body map's libraries — e.g. PyAutoReduce is not in the nightly matrix).
