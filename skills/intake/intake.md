@@ -17,7 +17,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    difficulty, autonomy or priority in conversation (this is the back-and-forth
    where scope, and therefore difficulty, is decided).
 3. When it looks right, re-run with **`--apply`** to write the prompt file into
-   PyAutoMind under `<work-type>/<target>/<name>.md` (or `triage/` if the
+   PyAutoMind under `draft/<work-type>/<target>/<name>.md` (or `draft/triage/` if the
    classification is genuinely unclear).
 
 Intake **files a prompt; it does not start development.** It is the step *before*

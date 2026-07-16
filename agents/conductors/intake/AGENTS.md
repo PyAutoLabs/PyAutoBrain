@@ -8,10 +8,10 @@
 > bug, refactor, docs — not just feature ideas.)
 
 It turns raw input — a text-vomit idea, a bug report, an `ideas.md` bullet — into
-a **formal, grouped, headed PyAutoMind prompt** under `<work-type>/<target>/<name>.md`.
+a **formal, grouped, headed PyAutoMind prompt** under `draft/<work-type>/<target>/<name>.md`.
 
 ```
-raw input  →  Intake Agent  →  PyAutoMind <work-type>/<target>/<name>.md
+raw input  →  Intake Agent  →  PyAutoMind draft/<work-type>/<target>/<name>.md
                                (Type / Target / Difficulty / Autonomy / Priority
                                 header — no YAML)  →  create_issue → start_dev
       consults ↘

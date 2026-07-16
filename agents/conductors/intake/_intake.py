@@ -7,7 +7,7 @@ bullet — into a **formal, grouped, headed PyAutoMind prompt** that the Feature
 Bug / … agents can then reason over. It sits strictly *before* create_issue /
 start_dev: it FILES a prompt, it does not start development.
 
-    raw input  ->  Intake Agent  ->  PyAutoMind <work-type>/<target>/<name>.md
+    raw input  ->  Intake Agent  ->  PyAutoMind draft/<work-type>/<target>/<name>.md
                                       (with a light Type/Target/Difficulty/…
                                        header — no YAML)
 
@@ -226,11 +226,11 @@ def analyse(text: str, source: str):
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
     if folder == "triage":
-        proposed = f"triage/{slug}.md"
+        proposed = f"draft/triage/{slug}.md"
     elif target != "?":
-        proposed = f"{folder}/{target}/{slug}.md"
+        proposed = f"draft/{folder}/{target}/{slug}.md"
     else:
-        proposed = f"triage/{slug}.md"
+        proposed = f"draft/triage/{slug}.md"
         folder = "triage"
 
     # `Type:` matches the destination folder (PyAutoMind convention). For a
@@ -335,16 +335,23 @@ def parse_header(text: str) -> dict:
     return fields
 
 
-def census(mind: Path) -> dict:
-    """Inventory every filed prompt — one record per `<work-type>/**/*.md`.
+def _prefix_match(path: str, prefix: str) -> bool:
+    """Match a census path against a user prefix, with or without `draft/`."""
+    sans = path[len("draft/"):] if path.startswith("draft/") else path
+    return path.startswith(prefix) or sans.startswith(prefix)
 
-    Read-only, always. Walks the WORK_TYPES folders (incl. `triage/`); `issued/`
-    prompts are already dispatched, so they are counted but not itemised. This is
-    the Mind *backlog* view — health belongs to the Heart, never here.
+
+def census(mind: Path) -> dict:
+    """Inventory every filed prompt — one record per `draft/<work-type>/**/*.md`.
+
+    Read-only, always. Walks the WORK_TYPES folders under `draft/` (incl.
+    `triage/`); `active/` prompts are already dispatched, so they are counted
+    but not itemised. This is the Mind *backlog* view — health belongs to the
+    Heart, never here.
     """
     records, hygiene = [], []
     for wt in WORK_TYPES:
-        folder = mind / wt
+        folder = mind / "draft" / wt
         if not folder.is_dir():
             continue
         for f in sorted(folder.rglob("*.md")):
@@ -357,9 +364,10 @@ def census(mind: Path) -> dict:
             records.append({
                 "path": str(rel),
                 "work_type": wt,
-                # Second folder = target repo/domain (authoritative — a header
-                # Target: is free prose and must not override the taxonomy).
-                "target": rel.parts[1] if len(rel.parts) > 2 else "-",
+                # Folder after the work-type = target repo/domain (authoritative
+                # — a header Target: is free prose and must not override the
+                # taxonomy). rel is draft/<work-type>/<target>/<name>.md.
+                "target": rel.parts[2] if len(rel.parts) > 3 else "-",
                 "title": _title(text),
                 "difficulty": header.get("difficulty", "-"),
                 "autonomy": header.get("autonomy", "-"),
@@ -377,11 +385,11 @@ def census(mind: Path) -> dict:
             out[r[key]] = out.get(r[key], 0) + 1
         return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
 
-    issued = mind / "issued"
+    active = mind / "active"
     return {
         "generated": _dt.date.today().isoformat(),
         "total": len(records),
-        "issued_count": sum(1 for _ in issued.glob("*.md")) if issued.is_dir() else 0,
+        "issued_count": sum(1 for _ in active.glob("*.md")) if active.is_dir() else 0,
         "by_work_type": _count("work_type"),
         "by_target": _count("target"),
         "by_difficulty": _count("difficulty"),
@@ -409,7 +417,7 @@ def render_dashboard(c: dict) -> str:
         f"{c['generated']} — regenerate, do not hand-edit -->",
         "",
         f"**{c['total']}** filed prompts in the backlog · **{c['issued_count']}** "
-        "already dispatched to issues (`issued/`). Backlog view only — organism "
+        "already dispatched to issues (`active/`). Backlog view only — organism "
         "health lives with the Heart (`/health`), not here.",
         "",
         "| Work-type | Prompts |",
@@ -519,7 +527,7 @@ def formalise(mind: Path, prefix: str = "", apply: bool = False) -> dict:
     c = census(mind)
     proposals, suggestions = [], []
     for r in c["records"]:
-        if prefix and not r["path"].startswith(prefix):
+        if prefix and not _prefix_match(r["path"], prefix):
             continue
         if not r["missing"]:
             continue
@@ -577,7 +585,7 @@ def emit_formalise(res: dict):
 # existing Status verbatim, so shipped work can still read "Status: planned" (the
 # PyAutoHeart M0-M5 cluster sat exactly like that). Reconcile cross-references
 # the backlog against the Mind's shipped-state records and RANKS suspects for a
-# human to retire. Read-only, always: retiring a prompt (moving it to issued/)
+# human to retire. Read-only, always: retiring a prompt (to the complete/ archive)
 # stays a human act, and the final verification — the target repo's git log /
 # merged PRs — stays out of scope by design.
 _STOPWORDS = frozenset(
@@ -598,10 +606,11 @@ def _tokens(s: str) -> set:
 def reconcile(mind: Path, prefix: str = "") -> dict:
     """Rank backlog prompts that look already-shipped, for a human to retire.
 
-    Four Mind-local signals per prompt: a complete.md line referencing its path
-    (follow-up wording downgrades it), a duplicate basename in issued/, token
-    overlap with a completed task's `## header`, and a hand-set Status the
-    formalise pass deliberately preserved. Never writes anything.
+    Mind-local signals per prompt: a legacy complete.md line referencing its
+    path (follow-up wording downgrades it), a duplicate basename in `active/`
+    or the `complete/` archive, token overlap with a completed task's header /
+    archive record, and a hand-set Status the formalise pass deliberately
+    preserved. Never writes anything.
     """
     c = census(mind)
     comp = mind / "complete.md"
@@ -609,13 +618,20 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
                   if comp.is_file() else [])
     headers = [(ln[3:].strip(), _tokens(ln[3:].replace("-", " ")))
                for ln in comp_lines if ln.startswith("## ")]
-    issued = mind / "issued"
-    issued_names = ({p.name for p in issued.glob("*.md")}
-                    if issued.is_dir() else set())
+    comp_dir = mind / "complete"
+    comp_files = ([p for p in comp_dir.rglob("*.md")
+                   if "archive" not in p.parts and p.name != "AGENTS.md"]
+                  if comp_dir.is_dir() else [])
+    comp_names = {p.name for p in comp_files}
+    headers += [(f"complete/{p.relative_to(comp_dir)}",
+                 _tokens(p.stem.replace("_", " "))) for p in comp_files]
+    active = mind / "active"
+    issued_names = ({p.name for p in active.glob("*.md")}
+                    if active.is_dir() else set())
 
     suspects = []
     for r in c["records"]:
-        if prefix and not r["path"].startswith(prefix):
+        if prefix and not _prefix_match(r["path"], prefix):
             continue
         path = r["path"]
         base = path.rsplit("/", 1)[-1]
@@ -631,7 +647,10 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
                 findings.append((kind, ln.strip()))
 
         if base in issued_names:
-            findings.append(("issued-duplicate", f"issued/{base} already exists"))
+            findings.append(("issued-duplicate", f"active/{base} already exists"))
+        if base in comp_names:
+            findings.append(("complete-duplicate",
+                             f"{base} already in the complete/ archive"))
 
         sig = _tokens(base.replace("_", " ")) | _tokens(r["title"])
         best = (0.0, "", set())
@@ -655,7 +674,7 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
 
         if findings:
             kinds = {k for k, _ in findings}
-            if "issued-duplicate" in kinds or "referenced" in kinds:
+            if kinds & {"issued-duplicate", "complete-duplicate", "referenced"}:
                 conf = "high"
             elif "topic-overlap" in kinds:
                 conf = "medium"
@@ -678,7 +697,8 @@ def emit_reconcile(res: dict):
     print(f"== Intake reconcile: {len(res['suspects'])} suspect(s) of "
           f"{res['scanned']} scanned ==")
     if not res["suspects"]:
-        print("  backlog reconciles clean against complete.md / issued/.")
+        print("  backlog reconciles clean against the complete/ archive, "
+              "complete.md and active/.")
     for s in res["suspects"]:
         print(f"[{s['confidence']:>6}] {s['path']}")
         for f in s["findings"]:
@@ -687,7 +707,7 @@ def emit_reconcile(res: dict):
                 ev = ev[:157] + "…"
             print(f"         {f['kind']}: {ev}")
     print("\nRetiring a prompt stays human: verify against the target repo's "
-          "git log / merged\nPRs, then move it to issued/ by hand.")
+          "git log / merged\nPRs, then retire it to the complete/ archive by hand.")
 
 
 # --- ideas.md scanning --------------------------------------------------------
