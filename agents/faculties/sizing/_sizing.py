@@ -164,6 +164,10 @@ def parse_prompt(path: Path, mind: Path):
         parts = rel.parts
     except ValueError:
         parts = path.parts
+    # Lifecycle layout (Mind #71): backlog prompts live under draft/ — the
+    # taxonomy folders (<work-type>/<target>/) sit below the state folder.
+    if parts and parts[0] == "draft":
+        parts = parts[1:]
     work_type = parts[0] if parts else "?"
     target = parts[1] if len(parts) > 1 else "?"
 
@@ -171,6 +175,14 @@ def parse_prompt(path: Path, mind: Path):
     # Keep only mentions that resolve to a repo we know — drops project refs
     # (@z_projects), bare libraries (@jax) and noise, so the repo count is real.
     repos = {m for m in mentions if m in KNOWN_REPOS}
+    # An intake-written header lists the resolved repos explicitly — trust it
+    # alongside @-mentions (bodies often name repos without the @ sigil).
+    header_block = re.search(r"^Repos:\n((?:- .+\n)+)", text, re.M)
+    if header_block:
+        for ln in header_block.group(1).splitlines():
+            r = normalise_repo(ln[1:].strip())
+            if r in KNOWN_REPOS:
+                repos.add(r)
     if target not in ("?", "workspaces") and target not in WORK_TYPES:
         t = normalise_repo(target)
         if t in KNOWN_REPOS:
