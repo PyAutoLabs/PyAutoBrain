@@ -36,17 +36,20 @@ from pathlib import Path
 PYAUTO_ROOT = Path(os.environ.get("PYAUTO_ROOT", Path.home() / "Code" / "PyAutoLabs"))
 
 SEED_SECTION = "## Assistant-as-template"
-SEED_MARKERS = (
-    "**Generic assistant infrastructure**",
-    "**PyAutoLens-specific content**",
-    "**Mixed**",
-)
 
-# Path-pattern translation of the reference's three named sets (first match
-# wins across GENERIC → DOMAIN → MIXED). Mirrors the prose of the
-# Assistant-as-template section; when the section names something new, add
-# its pattern here — unclassified files are how the gap surfaces.
-GENERIC_PATTERNS = [
+# The generic-vs-domain seam is OWNED BY THE REFERENCE ASSISTANT and differs
+# between references — a domain assistant (autolens_assistant) ships its domain
+# in `al_*` skills and a lensing-API `wiki/core/`, whereas the domain-agnostic
+# base (autofit_assistant) keeps `af_*` inference skills and a *statistics*
+# `wiki/core/` as GENERIC and leaves domain content to be grown. So each
+# supported reference names its own markers + path-pattern sets below; add a
+# profile when a new reference is used as a template. Within a profile the
+# first match wins across GENERIC → DOMAIN → MIXED; an uncovered reference file
+# is reported `unclassified` — deliberate pressure that keeps the boundary
+# notes complete (fix the reference or extend its profile; never guess here).
+
+# Framework/infrastructure shared by every assistant, regardless of domain.
+_SHARED_GENERIC = [
     "AGENTS.md", "CLAUDE.md", "LICENSE", ".gitignore", ".gitattributes",
     "Makefile", "__init__.py", "activate.sh", "version.txt",
     "CITATIONS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
@@ -58,30 +61,75 @@ GENERIC_PATTERNS = [
     "benchmarks/AGENTS.md",       # benchmark run/record contract
     ".github/*",                  # wiki-currency / citation workflows
     "wiki/README.md", "wiki/project/*",   # project wiki rules + profile template
-    "scripts/AGENTS.md", "scripts/CLAUDE.md",
+    "scripts/AGENTS.md", "scripts/CLAUDE.md", "scripts/README.md",
     # Harness mirrors of the generic machinery (.claude/, .gemini/):
     ".claude/hooks/*", ".claude/settings.json", ".gemini/*",
     ".claude/skills/_*", ".claude/skills/start-new-project*",
     ".claude/skills/contribute-upstream*",
 ]
-DOMAIN_PATTERNS = [
-    "skills/al_*.md",             # every al_* skill body
-    ".claude/skills/al_*.md",     # ... and their harness mirrors
-    "skills/init-slam.md", ".claude/skills/init-slam.md",  # SLAM = lensing
-    "wiki/core/*", "wiki/literature/*",
+
+# Domain content a newborn regenerates/stubs rather than copies blind, shared
+# by every reference (per-clone example data, science framing, HPC recipes).
+# NB: `wiki/literature/` is reference-specific — a real paper corpus (domain)
+# in a domain assistant, but the near-empty framework scaffold (generic) in the
+# domain-agnostic base — so each profile places it, not this shared set.
+_SHARED_DOMAIN = [
     "dataset/*",
-    "README.md",                  # science framing + the three example prompts
+    "README.md",                  # science framing + the example prompts
     "hpc/*",
     "benchmarks/prompts/*",       # prompt cards — a new domain writes its own
-    # Per-clone data: a newborn starts with empty runs/ and regenerates
-    # RESULTS.md (benchmark.py report) — never copied, so "regenerate or stub".
+    # A newborn starts with empty runs/ and regenerates RESULTS.md.
     "benchmarks/runs/*", "benchmarks/RESULTS.md",
 ]
-MIXED_PATTERNS = [
+
+_SHARED_MIXED = [
     "llms.txt", "llms-full.txt",
     "config/*",
     "benchmarks/README.md",       # protocol generic, benchmark table domain
 ]
+
+REFERENCE_PROFILES = {
+    # A domain assistant: its domain lives in `al_*` skills + a lensing-API
+    # `wiki/core/`, so those are DOMAIN (regenerated per clone).
+    "autolens_assistant": {
+        "markers": (
+            "**Generic assistant infrastructure**",
+            "**PyAutoLens-specific content**",
+            "**Mixed**",
+        ),
+        "generic": _SHARED_GENERIC,
+        "domain": [
+            "skills/al_*.md",             # every al_* skill body
+            ".claude/skills/al_*.md",     # ... and their harness mirrors
+            "skills/init-slam.md", ".claude/skills/init-slam.md",  # SLAM = lensing
+            "wiki/core/*",                # lensing-API reference
+            "wiki/literature/*",          # a shipped lensing paper corpus
+            *_SHARED_DOMAIN,
+        ],
+        "mixed": _SHARED_MIXED,
+        "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc"],
+    },
+    # The domain-agnostic base: `af_*` inference skills and the *statistics*
+    # `wiki/core/` are GENERIC infrastructure kept verbatim; only the example
+    # datasets, science framing and HPC recipes are domain content to regrow.
+    "autofit_assistant": {
+        "markers": (
+            "**Generic assistant infrastructure**",
+            "**Domain-specific content**",
+            "**Mixed**",
+        ),
+        "generic": [
+            *_SHARED_GENERIC,
+            "skills/af_*.md",             # generic inference skills
+            ".claude/skills/af_*.md",     # ... and their harness mirrors
+            "wiki/core/*",                # statistics/inference reference
+            "wiki/literature/*",          # the near-empty literature scaffold
+        ],
+        "domain": list(_SHARED_DOMAIN),
+        "mixed": _SHARED_MIXED,
+        "scaffold_dirs": ["dataset", "hpc"],
+    },
+}
 
 ACTIONS = {
     "generic": "copy (name substitutions only)",
@@ -124,16 +172,28 @@ def tracked_files(repo):
     return [line for line in out.stdout.splitlines() if line]
 
 
-def check_seed_section(reference_root):
+def reference_profile(reference_name):
+    profile = REFERENCE_PROFILES.get(reference_name)
+    if profile is None:
+        fail(4,
+             f"no clone profile for reference '{reference_name}' — supported "
+             f"references: {', '.join(sorted(REFERENCE_PROFILES))}. Add a "
+             "profile to REFERENCE_PROFILES (and an 'Assistant-as-template' "
+             "section to the reference's modes/maintainer.md) before cloning.")
+    return profile
+
+
+def check_seed_section(reference_root, profile):
     maintainer = reference_root / "modes" / "maintainer.md"
     if not maintainer.exists():
         fail(4, f"reference has no modes/maintainer.md ({maintainer})")
     text = maintainer.read_text(errors="replace")
-    if SEED_SECTION not in text or not all(m in text for m in SEED_MARKERS):
+    if SEED_SECTION not in text or not all(m in text for m in profile["markers"]):
         fail(4,
              "the reference's 'Assistant-as-template' section (the partition "
              "seed this agent reads) is missing or restructured — realign the "
-             "patterns in _clone.py with the reference before cloning")
+             "reference's profile in _clone.py with its maintainer.md before "
+             "cloning")
 
 
 def match_any(path, patterns):
@@ -143,14 +203,14 @@ def match_any(path, patterns):
     )
 
 
-def partition(reference_root):
+def partition(reference_root, profile):
     sets = {"generic": [], "domain": [], "mixed": [], "unclassified": []}
     for path in tracked_files(reference_root):
-        if match_any(path, GENERIC_PATTERNS):
+        if match_any(path, profile["generic"]):
             sets["generic"].append(path)
-        elif match_any(path, DOMAIN_PATTERNS):
+        elif match_any(path, profile["domain"]):
             sets["domain"].append(path)
-        elif match_any(path, MIXED_PATTERNS):
+        elif match_any(path, profile["mixed"]):
             sets["mixed"].append(path)
         else:
             sets["unclassified"].append(path)
@@ -208,13 +268,16 @@ def build_decision(args):
     workspace_root_ = repo_root(args.workspace)
     howto_root = repo_root(args.howto) if args.howto else None
     reference_root = repo_root(args.reference)
+    profile = reference_profile(args.reference)
 
-    check_seed_section(reference_root)
-    sets = partition(reference_root)
+    check_seed_section(reference_root, profile)
+    sets = partition(reference_root, profile)
 
     package = library_package(library_root)
     api = public_api(library_root, package)
-    target = f"{package}_assistant"
+    # A domain assistant's name comes from its domain (--target ic50_assistant),
+    # not its library; default to the library-derived name for back-compat.
+    target = args.target or f"{package}_assistant"
 
     risks = []
     if sets["unclassified"]:
@@ -319,19 +382,24 @@ def apply_seed(args, decision):
 
     reference_root = repo_root(args.reference)
     library_root = repo_root(args.library)
+    profile = reference_profile(args.reference)
     ref_pkg, ref_lib = reference_library(args.reference)
     target_pkg = library_package(library_root)
+    target = decision["target"]
 
-    sets = partition(reference_root)
+    sets = partition(reference_root, profile)
     if sets["unclassified"]:
         fail(4, "unclassified reference files — fix the boundary before a birth")
 
     plan = {
-        "target": decision["target"],
-        "owner": repo_owner(reference_root),
+        "target": target,
+        "owner": args.owner or repo_owner(reference_root),
         "reference_path": str(reference_root),
         "substitutions": [
-            # skill prefix first (al_ -> af_): package initials, e.g.
+            # repo identity first (most specific): the full assistant name,
+            # e.g. autofit_assistant -> ic50_assistant
+            [args.reference, target],
+            # skill prefix (al_ -> af_): package initials, e.g.
             # autolens -> al, autofit -> af
             [f"{ref_pkg[0]}{ref_pkg[4]}_", f"{target_pkg[0]}{target_pkg[4]}_"],
             [ref_lib, args.library],       # PyAutoLens -> PyAutoFit
@@ -340,7 +408,7 @@ def apply_seed(args, decision):
         "generic": sets["generic"],
         "mixed": sets["mixed"],
         "domain": sets["domain"],
-        "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc"],
+        "scaffold_dirs": profile["scaffold_dirs"],
     }
     plan_path = Path(tempfile.mkstemp(prefix="clone_plan_", suffix=".json")[1])
     plan_path.write_text(json.dumps(plan, indent=2))
@@ -364,6 +432,14 @@ def main():
     parser.add_argument("--howto", default=None, help="optional HowTo repo")
     parser.add_argument("--reference", default="autolens_assistant",
                         help="reference assistant repo (default: autolens_assistant)")
+    parser.add_argument("--target", default=None,
+                        help="newborn assistant name (e.g. ic50_assistant); "
+                             "default: <library-package>_assistant. A domain "
+                             "assistant's name comes from its domain, not its "
+                             "library, so set this when they differ.")
+    parser.add_argument("--owner", default=None,
+                        help="GitHub owner to create the newborn under "
+                             "(default: the reference's owner)")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--mode", choices=["lightweight-seed"], default=None,
                         help="the clone mode (mandatory with --apply; typing it "
