@@ -62,7 +62,7 @@ contract on day one.
 7. **Create your Memory from
    [PyAutoMemory-template](https://github.com/PyAutoLabs/PyAutoMemory-template)
    when you need it** — the wiki schema, bibliography tooling and citation
-   validation come wired, with one empty `example_wiki/` to copy per
+   validation come wired, plus a structure lint in CI, with one empty `wiki/example/` to copy per
    domain; the organism runs fine without it until your knowledge
    accumulates. Your assistant repo comes later still — grown by the clone
    agent once your project matures, never hand-built.
