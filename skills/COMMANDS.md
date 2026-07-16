@@ -1,6 +1,6 @@
 # PyAutoBrain command surface — shared reference
 
-The short verb commands (`/intake`, `/feature`, `/build`, `/health`, `/bug`,
+The short verb commands (`/intake`, `/community`, `/feature`, `/build`, `/health`, `/bug`,
 `/refactor`, `/workspace`, `/profiling`, `/hygiene`, `/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
 over the PyAutoBrain router (`bin/pyauto-brain`). This file is the shared context
 every command file points at, so each command body stays a few lines long.
@@ -30,6 +30,7 @@ readiness gate, or execution — those belong to the organs.
 | Command | Agent | Chain |
 |---------|-------|-------|
 | `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`); `census`/`dashboard` = backlog inventory / `PyAutoMind/dashboard.md` |
+| `/community` | Community Agent | `bin/pyauto-brain community` → scan/triage user-filed issues (read-only surfaces) → session drafts replies for human approval → `/start_dev_for_user` |
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/refactor` | Refactor Agent | `bin/pyauto-brain refactor` → `start_dev [--auto]` → `ship_*` (behaviour-preserving; default-safe) |
@@ -76,8 +77,9 @@ call, so the Brain is not bypassed):
   (`bin/clean_slate.sh`) → consult **`/health`** + **`/hygiene`**. **Everywhere
   (gh-API, so it runs on mobile Claude Code chat / Codex too):** an overnight
   scheduled-run sweep (`bin/overnight_status.sh`), a version-pin drift check
-  (`bin/version_drift.sh`), and resume-context (in-flight work + pending-release
-  PRs) → one prioritized digest. Auto-runs only the non-destructive steps;
+  (`bin/version_drift.sh`), a community scan (`bin/pyauto-brain community scan`
+  — external users awaiting a response), and resume-context (in-flight work +
+  pending-release PRs) → one prioritized digest. Auto-runs only the non-destructive steps;
   surfaces destructive cleanup for approval; on mobile/codex it skips the
   local-only steps. Interactive/terminal only (the automated morning webhooks are
   separate).

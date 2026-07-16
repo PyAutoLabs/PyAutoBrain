@@ -103,6 +103,16 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   the target, consults the sizing faculty and persists Difficulty/Autonomy/
   Priority into the header, and emits an `IntakeDecision`. Files a prompt only;
   never starts dev (the step *before* `create_issue`/`start_dev`).
+- **`agents/conductors/community/`** — the *Ears*: the organism's receptive
+  language function — it hears the community (user-filed GitHub issues across
+  every `repos.yaml` repo) and drafts what the organism says back; the human
+  remains the mouth. Wernicke to the Workspace Agent's Broca/Voice. Two
+  read-only modes: `scan` (open external issues + awaiting-response ranking —
+  also the `/wake_up` community sensory leg) and `triage <issue-ref>`
+  (context-sufficiency signals + clarifying-question seeds). The `/community`
+  session judges, drafts every outward reply for human approval, and routes
+  actionable work via `start_dev_for_user`; conversation state stays on
+  GitHub + `active.md`. Never posts, labels or writes anything.
 - **`agents/conductors/feature/`** — the *Growth Agent*: selects the next
   PyAutoMind `feature/*` task (or plans a named one), estimates difficulty,
   decides phasing, consults PyAutoMemory (and vitals for risky work), and emits
@@ -232,6 +242,7 @@ the `/<verb>` slash commands.
 | Verb | Purpose | Entrypoint |
 |------|---------|------------|
 | `intake` | Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev) | `bin/pyauto-brain intake` |
+| `community` | The ears — the organism's receptive function: scan/triage user-filed GitHub issues across the repos; drafts stay human-gated, dev work routes via start_dev_for_user (never posts) | `bin/pyauto-brain community` |
 | `feature` | Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev | `bin/pyauto-brain feature` |
 | `bug` | The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair | `bin/pyauto-brain bug` |
 | `refactor` | The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto | `bin/pyauto-brain refactor` |
@@ -269,6 +280,7 @@ the Brain routes it to the right agent; normal usage never says "PyAutoBrain".
 | Command | Routes to | Tier |
 |---------|-----------|------|
 | `/intake` | Intake Agent → files a PyAutoMind prompt (before `start_dev`) | real conductor |
+| `/community` | Community Agent → scan/triage user-filed issues → human-approved replies → `start_dev_for_user` | real conductor |
 | `/feature` | Feature Agent → `start_dev` | real conductor |
 | `/bug` | Bug Agent → `start_dev` (health mode → vitals + Heart issues) | real conductor |
 | `/build` | Build Agent → vitals → Heart → PyAutoBuild | real conductor |
