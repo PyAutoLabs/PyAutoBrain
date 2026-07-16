@@ -30,6 +30,7 @@ in the `/eyes` skill. Reference instance: `autolens_workspace_test`.
 |------|----------|-------|
 | `survey` | What figures exist, what is stale, what was never rendered, is the gallery current? | `EyesSurvey` — per-script inventory, stale/gap/orphan lists, gallery currency, next action |
 | `review` | What do I look at, in what order, and how do critiques become work? | `EyesReviewSurface` — ordered figure batches for the agentic read loop + the critique-note schema and edit-surface routing |
+| `review --against <dir>` | Paper-informed pass: how should these figures change to match this paper's conventions? | the same surface + `reference_figures` (the paper's extracted panels); notes then carry a `reference` |
 
 ## The loop (driven by the `/eyes` skill)
 
@@ -51,14 +52,20 @@ in the `/eyes` skill. Reference instance: `autolens_workspace_test`.
 - Decision-only, stdlib-only core: reads the filesystem, writes nothing.
 - Rendering and figure regeneration belong to the workspace; the conductor
   only tells you they are stale.
-- Paper-informed critique ("restyle to match this paper") is epic Phase 3 —
-  it will consult the memory faculty; not implemented here.
+- Paper-informed passes (`review --against`): the reference figures are
+  gathered by the session (PDF pages read directly, or panels extracted to a
+  directory) — the core never fetches anything. The reviewing session reads
+  the references FIRST and writes an explicit convention list (colormaps,
+  panel composition, critical-curve/caustic annotation, colorbar placement
+  and units, fonts, scale bars) before critiquing workspace figures against
+  it; the memory faculty is consulted for style precedent, and PyAutoMemory
+  citations never reach public output (privacy seam).
 
 ## Running
 
 ```bash
 bin/pyauto-brain eyes survey <workspace-root>
-bin/pyauto-brain eyes review <workspace-root> [--batch N]
+bin/pyauto-brain eyes review <workspace-root> [--batch N] [--against <reference-dir>]
 bin/pyauto-brain eyes --json survey <workspace-root>
 ```
 
