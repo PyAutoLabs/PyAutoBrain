@@ -67,6 +67,33 @@ def _mind_root(command: str, cwd: str) -> Path | None:
     return None
 
 
+def _clauses(command: str):
+    """Token-level clause split that respects quoting (v1.1).
+
+    v1.0 split clauses with a regex over the raw text, which cut inside
+    quoted commit messages and heredoc bodies — its first live firing was a
+    false positive on its own author's closeout command, minutes after
+    deployment. shlex with punctuation_chars keeps `&&`/`;`/`|` as tokens
+    while quoted strings (commit messages, gh comment bodies) stay single
+    tokens that cannot leak trigger words or swallow the `--`.
+    """
+    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lex.whitespace_split = True
+    clause: list[str] = []
+    try:
+        for tok in lex:
+            if tok and set(tok) <= set(";&|"):
+                if clause:
+                    yield clause
+                clause = []
+            else:
+                clause.append(tok)
+    except ValueError:
+        return  # unparseable (heredocs, unbalanced quotes) — fail open
+    if clause:
+        yield clause
+
+
 def check_command(command: str, cwd: str = "") -> str | None:
     """Return a denial reason, or None to allow."""
     if "PYAUTO_SKIP_MIND_GUARD=1" in command:
@@ -78,16 +105,14 @@ def check_command(command: str, cwd: str = "") -> str | None:
         return None
     root = _mind_root(command, cwd)
 
-    # Examine each `git ... commit ...` clause in the (possibly compound) command.
-    for clause in re.split(r"&&|\|\||;", command):
-        if not re.search(r"\bgit\b.*\bcommit\b", clause):
+    # Examine each clause of the (possibly compound) command at token level.
+    for tokens in _clauses(command):
+        if "git" not in tokens or "commit" not in tokens:
             continue
-        if "--amend" in clause or "--dry-run" in clause:
+        if tokens.index("git") > tokens.index("commit"):
             continue
-        try:
-            tokens = shlex.split(clause)
-        except ValueError:
-            return None  # unparseable — fail open
+        if "--amend" in tokens or "--dry-run" in tokens:
+            continue
         if "--" not in tokens:
             return (
                 "PyAutoMind is a SHARED checkout: concurrent sessions stage into "

@@ -77,3 +77,37 @@ def test_amend_and_dry_run_are_exempt(tmp_path):
     mind = tmp_path / "PyAutoMind"
     mind.mkdir()
     assert check_command(f'git -C {mind} commit --amend --no-edit') is None
+
+
+# --- v1.1: the two live false positives from the guard's first hour ------------
+
+def test_gh_comment_prose_does_not_trigger():
+    # First live firing: a `gh issue comment` whose BODY prose mentioned the
+    # trigger words. Quoted bodies are single tokens; no git-commit clause.
+    cmd = (
+        'gh issue comment 130 --repo X --body "the Mind commit guard denies '
+        'bare commits in the shared PyAutoMind checkout via git" '
+        "&& echo done"
+    )
+    assert check_command(cmd) is None
+
+
+def test_semicolon_inside_commit_message_keeps_pathspecs(tmp_path):
+    # Second live firing: a `;` INSIDE the quoted -m message made v1.0's raw
+    # regex split strand the `--` in the next pseudo-clause.
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    (mind / "active.md").write_text("x")
+    cmd = (
+        f'cd {mind} && git pull --ff-only -q && '
+        f'git commit -q -m "prompt: task complete; all phases complete" '
+        f"-- active.md && git push -q origin main"
+    )
+    assert check_command(cmd) is None
+
+
+def test_bare_commit_still_denied_in_compound_with_quotes(tmp_path):
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    cmd = f'cd {mind} && git commit -q -m "msg; with semicolon" && echo ok'
+    assert check_command(cmd) is not None
