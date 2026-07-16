@@ -11,7 +11,7 @@ command -v gh >/dev/null 2>&1 || { echo "gh not found — cannot fetch run statu
 
 # owner/repo:workflow-file  (owner defaults to PyAutoLabs when omitted). The
 # passive morning webhooks (morning_health / morning_status) are excluded —
-# /morning is their interactive complement, not a re-run of them.
+# /wake_up is their interactive complement, not a re-run of them.
 JOBS=(
   "PyAutoBrain:nightly-release.yml"
   "PyAutoHeart:heart-health.yml"

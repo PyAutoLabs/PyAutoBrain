@@ -92,7 +92,7 @@ exception to the release cap above — not a weakening of it.
   scheme derives it, `YYYY.M.D.1`); the interactive ask is unchanged for
   manual releases.
 - The human's role on this path: the kill switch, responding to pages
-  (any stop/red/anomaly notifies), and reviewing the morning digest of what
+  (any stop/red/anomaly notifies), and reviewing the `/wake_up` digest of what
   shipped.
 
 Revoking the grant is one act (unset `NIGHTLY_RELEASES`) and needs no

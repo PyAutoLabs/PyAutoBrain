@@ -264,7 +264,7 @@ the Brain routes it to the right agent; normal usage never says "PyAutoBrain".
 | `/refactor` | Refactor Agent → `start_dev [--auto]` (default-safe) | real conductor |
 | `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
 | `/route <text>` | infers the work-type and dispatches to one of the above | NL router |
-| `/morning` | sync + clean-slate (local) + gh-API glance (overnight runs, version drift, resume) + `/health`/`/hygiene` → digest; CLI + mobile/codex | composition door |
+| `/wake_up` | sync + clean-slate (local) + gh-API glance (overnight runs, version drift, resume) + `/health`/`/hygiene` → digest; CLI + mobile/codex | composition door |
 | `/brain <agent>` | raw `bin/pyauto-brain` passthrough | debug door |
 
 \* No dedicated Docs/Research conductor exists — those verbs route through the

@@ -1,4 +1,4 @@
-# /morning — start the day: sync, clean, and surface what needs you
+# /wake_up — start the day: sync, clean, and surface what needs you
 
 The human-driven start-of-day door. Run it each morning to bring the workspace to
 a clean, current, known-good state and get one prioritized digest of what needs
@@ -9,7 +9,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 ## Principle: compose, don't recompute
 
-Every signal here already has an owner. `/morning` **reads and orchestrates** — it
+Every signal here already has an owner. `/wake_up` **reads and orchestrates** — it
 never re-derives what `/health` (Heart's checks) or the automated morning webhooks
 already produce. Keep it a thin conductor.
 
@@ -22,7 +22,7 @@ never done automatically.
 
 ## Environment: local vs remote
 
-`/morning` runs on the CLI **and** on mobile Claude Code chat / Codex — which
+`/wake_up` runs on the CLI **and** on mobile Claude Code chat / Codex — which
 often have no local multi-repo checkout. Detect which:
 
 - **Local** — `$PYAUTO_ROOT` (default `~/Code/PyAutoLabs`) contains the sibling

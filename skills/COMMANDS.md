@@ -66,7 +66,7 @@ symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 own no agent and re-implement no reasoning (all judgment defers to the doors they
 call, so the Brain is not bypassed):
 
-- **`/morning`** — start-of-day routine. **Local:** sync every repo to main
+- **`/wake_up`** — start-of-day routine. **Local:** sync every repo to main
   (`bin/pull_all_main.sh`) → clean generated cruft, restoring shipped datasets
   (`bin/clean_slate.sh`) → consult **`/health`** + **`/hygiene`**. **Everywhere
   (gh-API, so it runs on mobile Claude Code chat / Codex too):** an overnight
