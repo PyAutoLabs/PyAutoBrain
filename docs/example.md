@@ -38,7 +38,7 @@ Development touched PyAutoArray and PyAutoGalaxy; the ship gate ran both
 test suites, the review faculty, and Heart's verdict; one PR landed per
 repo; the workspaces then gained a demonstration script in a follow-up
 workspace task. The registry recorded every state transition, and the task
-retired to `complete.md`.
+retired to its dated `complete/` record.
 
 That is the whole pitch: the input was a paragraph of intent, and every
 step from there — planning, isolation, testing, gating, releasing,

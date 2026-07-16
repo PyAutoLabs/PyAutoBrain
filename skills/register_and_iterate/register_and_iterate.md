@@ -58,8 +58,8 @@ derived task name is the filename stem with `_`→`-`
 
 ### 2. Check dependencies
 
-Parse the prompt's `__Depends on__` section; verify each appears in
-`PyAutoMind/complete.md`. If a dependency is missing, stop and tell the user
+Parse the prompt's `__Depends on__` section; verify each has a completion
+record under `PyAutoMind/complete/` (grep `complete/index.md`). If a dependency is missing, stop and tell the user
 which prompt to run first. **Do not** re-order the queue automatically.
 
 ### 3. Scaffold + iterate

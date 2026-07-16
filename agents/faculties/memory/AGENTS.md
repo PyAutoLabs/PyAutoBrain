@@ -4,7 +4,7 @@
 > *consult*, not a front door you drive. It *recalls what the organism knows*:
 > given a topic or question, it returns a **cited digest** — pointers into
 > PyAutoMemory's sub-wikis, `autolens_assistant`'s skills/wiki pages, and
-> Mind's operational history (`complete.md`) with matching snippets — and
+> Mind's operational history (the `complete/` records) with matching snippets — and
 > stops. It never dispatches, never mutates, never bulk-loads a wiki into
 > context.
 
@@ -23,7 +23,7 @@ synthesises. The digest is pointers + evidence, never wholesale content:
 memory.sh "delaunay regularization prior work"
   -> ranked pages (path · hit count · 1-2 matching snippet lines each)
      across: PyAutoMemory/<sub-wiki>/ · autolens_assistant/{skills,wiki}/ ·
-     PyAutoMind/complete.md sections
+     PyAutoMind/complete/ records
 ```
 
 - **No indexes, no embeddings, no new infra** — grep + the wikis' own
@@ -31,8 +31,8 @@ memory.sh "delaunay regularization prior work"
 - **No layout coupling** — sub-wikis are discovered at query time
   (`*_wiki/` directories); when Memory grows a wiki, the faculty sees it with
   no edits (the standing "do not couple to Memory's internal layout" rule).
-- Operational history stays Mind's: `complete.md` is *read* here as a recall
-  surface, but the boundary prose in ORGANISM.md is unchanged.
+- Operational history stays Mind's: the `complete/` records are *read* here as
+  a recall surface, but the boundary prose in ORGANISM.md is unchanged.
 
 ## Privacy seam (hard rule)
 

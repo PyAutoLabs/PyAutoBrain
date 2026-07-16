@@ -3,7 +3,7 @@
 # read-only reasoning capability). It recalls what the organism knows.
 #
 # Greps the knowledge surfaces — PyAutoMemory sub-wikis, autolens_assistant
-# skills/wiki, PyAutoMind complete.md — and emits a cited digest (ranked pages
+# skills/wiki, PyAutoMind complete/ records — and emits a cited digest (ranked pages
 # + matching snippets). The consulting agent reads only the listed pages and
 # synthesises. Read-only: never writes, never dumps whole pages, never invents
 # context when the surfaces are empty. Privacy seam: PyAutoMemory citations

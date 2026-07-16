@@ -97,10 +97,10 @@ SHIP_EOF
 )"
 ```
 
-4. Record completion in **both** lifecycle layers (issue #71): the ledger entry
-   **and** the prompt file, in lockstep.
+4. Record completion — the dated record **is** the ledger (issues #71/#81; the
+   monolithic `complete.md` was retired 2026-07-16).
 
-   **Ledger** — move the task from `active.md` to `complete.md`:
+   **Draft the rich completion body** to a temp file:
 
 ```markdown
 ## <task-name>
@@ -108,14 +108,16 @@ SHIP_EOF
 - completed: <YYYY-MM-DD>
 - library-pr: <library PR URL — if linked>
 - workspace-pr: <workspace PR URL(s)>
+- summary: <what landed, gotchas, follow-ups>
 ```
 
-   **Record** — write the paired dated record from the just-appended
-   `complete.md` entry, folding + removing the `active/` prompt (kept paired 1:1
-   by slug; `lifecycle.py check` enforces it):
+   **Write the record** (folds + removes the `active/` prompt), regenerate the
+   index, and drop the task's `active.md` entry (`lifecycle.py check` flags a
+   finished slug still present there):
 
 ```bash
-python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <YYYY-MM-DD> --prompt <active-filename> --apply
+python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <YYYY-MM-DD> --from-file <tmp> --prompt <active-filename> --apply
+python3 PyAutoMind/scripts/lifecycle.py index --apply
 ```
 
 Push Mind: `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.

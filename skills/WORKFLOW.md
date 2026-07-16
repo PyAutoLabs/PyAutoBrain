@@ -11,7 +11,7 @@ the individual skill files can stay short.
 The organs and boundaries are defined once in
 [`../ORGANISM.md`](../ORGANISM.md). What the workflow skills need to know on
 top of that: Mind owns the workflow **state** (`active.md` / `planned.md` /
-`complete.md`, the prompt taxonomy), and Build owns **no dev-workflow skills**
+the `complete/` records, the prompt taxonomy), and Build owns **no dev-workflow skills**
 — it is the release/packaging executor only.
 
 A workflow skill reasons through **Brain**, gates ship through **Heart**, records
@@ -97,7 +97,7 @@ execution tier — no manual model toggling.
 (`start_library`/`start_workspace`), release triage (`review_release`);
 identifying affected repos, drafting the commit message and full PR body
 (`## API Changes` / `## Scripts Changed`), workspace-impact analysis, the
-library-first merge gate, the merge decision, `active.md` / `complete.md`
+library-first merge gate, the merge decision, `active.md` / completion-record
 updates, and final issue comments. In `pre_build`: validating clean `main`,
 asking for the minor version, printing the summary.
 
@@ -202,13 +202,14 @@ shared task state, so any environment reads it and continues an in-flight task.
 Workflow skills read and write Mind state via **workspace-root-relative** paths
 that resolve from any sibling repo:
 
-- `PyAutoMind/active.md`, `PyAutoMind/planned.md`, `PyAutoMind/complete.md` (ledgers)
-- Prompt **files** advance `draft/ → active/ → complete/<YYYY>/<MM>/` in lockstep
-  with the ledgers; `PyAutoMind/scripts/lifecycle.py` owns the moves (`move`) and
-  drift-checks them (`check`). See `PyAutoMind/complete/AGENTS.md` (issue #71).
+- `PyAutoMind/active.md`, `PyAutoMind/planned.md` (live ledgers)
+- Prompt **files** advance `draft/ → active/ → complete/<YYYY>/<MM>/`; the dated
+  record IS the completion ledger (`complete.md` retired 2026-07-16, issue #81).
+  `PyAutoMind/scripts/lifecycle.py` owns the writes (`record`, `move`) and
+  drift-checks them (`check`). See `PyAutoMind/complete/AGENTS.md` (issues #71/#81).
 - `source PyAutoMind/scripts/prompt_sync.sh` → `prompt_sync_push "<msg>"` (commit+push registry)
 
-`active.md` task schema, `complete.md` schema, and the prompt taxonomy
+`active.md` task schema, the completion-record schema, and the prompt taxonomy
 (`draft/feature/<target>/`, `draft/bug/<target>/`, …) are documented in
 `PyAutoMind/README.md`. **Under `draft/`, the first folder is the work type, the
 second is the target repo/domain.**

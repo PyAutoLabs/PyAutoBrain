@@ -13,7 +13,7 @@ Memory is **pull-only, on demand**. No agent loads it automatically; the
 Brain's memory faculty consults it when a task is scientific, returning a
 cited digest (pages + snippets) rather than bulk content. Operational
 history — what the organism *did* — deliberately lives in the Mind
-(`complete.md`, issues), not here: Memory is what the domain says, Mind is
+(the `complete/` records, issues), not here: Memory is what the domain says, Mind is
 what the organism did.
 
 ## The pieces

@@ -16,7 +16,7 @@ organs plan, build, test and release it, and you make every judgment call.
 | **Brain** | PyAutoBrain | Figures out *how* — reasoning, planning, decomposition, routing; hosts the specialist agents. Owns **no state, no health checks, no execution mechanics**. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. `pyauto-heart readiness` is the **authoritative** GREEN/YELLOW/RED "is it safe to release?" gate. An observer: never writes into other repos, never triggers Build. |
 | **Hands** | PyAutoBuild | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
-| **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (`complete.md`, issues), not here. |
+| **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (the `complete/` records, issues), not here. |
 | **Gut** | PyAutoGut | Owns the lifecycle of *condemned self-material* — stale branches, stashes, dead code/tests. Holds each as a durable, recoverable git ref through a transit window and **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 
 The scientific libraries (PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy,

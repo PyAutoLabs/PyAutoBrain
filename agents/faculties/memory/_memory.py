@@ -3,7 +3,7 @@
 
 The **memory faculty** is a read-only opinion sink: given a topic/question, it
 greps the organism's knowledge surfaces — PyAutoMemory's sub-wikis,
-autolens_assistant's skills/wiki pages, and Mind's complete.md history — and
+autolens_assistant's skills/wiki pages, and Mind's complete/ records — and
 returns a **cited digest**: ranked pages with matching snippets. The consulting
 agent reads only the listed pages and synthesises; this script never dumps
 content, never writes, and builds no index.
@@ -41,8 +41,16 @@ def surfaces(memory: Path | None, assistant: Path | None, mind: Path | None):
             if root.is_dir():
                 for f in root.rglob("*.md"):
                     yield f"autolens_assistant/{sub}", assistant.parent, f
-    if mind and (mind / "complete.md").is_file():
-        yield "PyAutoMind/complete.md", mind.parent, mind / "complete.md"
+    comp = mind / "complete" if mind else None
+    if comp and comp.is_dir():
+        # the dated records are Mind's completion history (complete.md retired,
+        # issue #81); archive/ holds non-record material, index/AGENTS are meta
+        for f in comp.rglob("*.md"):
+            if f.name in ("index.md", "AGENTS.md"):
+                continue
+            if "archive" in f.relative_to(comp).parts:
+                continue
+            yield "PyAutoMind/complete", mind.parent, f
 
 
 def score_file(f: Path, terms: list[str]):

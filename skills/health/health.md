@@ -11,7 +11,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 |------------|--------------|---------------|
 | `/health` | The Brain **Health conductor** loop with you: assess (vitals → Heart) → triage → dispatch a validation leg → re-judge, until GREEN. | `bin/pyauto-brain health` |
 | `/health check` | One-shot **green-light sweep**: sync each repo's `main`, run library pytest + workspace smoke, report a pass/fail matrix. | `PyAutoHeart/skills/health_sweep/reference.md` |
-| `/health status` | **Active-work dashboard**: what's in flight across the repos (reads `active.md` / `planned.md` / `complete.md`), conflicts, idle repos. | `PyAutoHeart/skills/pyauto-status/reference.md` |
+| `/health status` | **Active-work dashboard**: what's in flight across the repos (reads `active.md` / `planned.md` / the `complete/` records), conflicts, idle repos. | `PyAutoHeart/skills/pyauto-status/reference.md` |
 | `/health full` | **Release-run dashboard**: what the last PyAutoBuild release-prep run produced (per-workspace pass/fail/timing, slowest scripts, failure tracebacks). | `PyAutoHeart/skills/pyauto-status-full/reference.md` |
 | `/health worktrees` | **Worktree/task dashboard**: every task worktree under `~/Code/PyAutoLabs-wt/`, cross-referenced with `active.md` — which parallel tasks are in flight and which repos each holds. | `PyAutoHeart/skills/worktree_status/reference.md` |
 

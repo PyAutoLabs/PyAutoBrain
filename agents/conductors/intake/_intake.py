@@ -592,8 +592,8 @@ _STOPWORDS = frozenset(
     "the a an of to in for and or is are be with on by via from into as at it "
     "this that use using make add new fix update support get set can we i you "
     "our my need should will when once each all its".split())
-# Wording in a complete.md reference line that marks the prompt as a deferred
-# follow-up (still open) rather than the shipped task itself.
+# Wording in a completion-record reference line that marks the prompt as a
+# deferred follow-up (still open) rather than the shipped task itself.
 _FOLLOWUP_WORDS = ("follow", "restore", "parked", "remain", "blocked", "later",
                    "next step", "next-step", "deferred")
 
@@ -606,23 +606,28 @@ def _tokens(s: str) -> set:
 def reconcile(mind: Path, prefix: str = "") -> dict:
     """Rank backlog prompts that look already-shipped, for a human to retire.
 
-    Mind-local signals per prompt: a legacy complete.md line referencing its
+    Mind-local signals per prompt: a completion-record line referencing its
     path (follow-up wording downgrades it), a duplicate basename in `active/`
     or the `complete/` archive, token overlap with a completed task's header /
     archive record, and a hand-set Status the formalise pass deliberately
     preserved. Never writes anything.
     """
     c = census(mind)
-    comp = mind / "complete.md"
-    comp_lines = (comp.read_text(encoding="utf-8", errors="replace").splitlines()
-                  if comp.is_file() else [])
-    headers = [(ln[3:].strip(), _tokens(ln[3:].replace("-", " ")))
-               for ln in comp_lines if ln.startswith("## ")]
     comp_dir = mind / "complete"
     comp_files = ([p for p in comp_dir.rglob("*.md")
-                   if "archive" not in p.parts and p.name != "AGENTS.md"]
+                   if "archive" not in p.parts
+                   and p.name not in ("AGENTS.md", "index.md")]
                   if comp_dir.is_dir() else [])
     comp_names = {p.name for p in comp_files}
+    # reference lines + `## <slug>` topic headers now live inside the dated
+    # records (the monolithic complete.md ledger was retired — issue #81)
+    comp_lines: list = []
+    for p in comp_files:
+        comp_lines.extend(
+            p.read_text(encoding="utf-8", errors="replace").splitlines())
+    headers = [(ln[3:].strip(), _tokens(ln[3:].replace("-", " ")))
+               for ln in comp_lines
+               if ln.startswith("## ") and ln[3:].strip() != "Original prompt"]
     headers += [(f"complete/{p.relative_to(comp_dir)}",
                  _tokens(p.stem.replace("_", " "))) for p in comp_files]
     active = mind / "active"
@@ -664,7 +669,7 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
         if best[0] >= 0.40 or len(best[2]) >= 3:
             score = best[0]
             findings.append(("topic-overlap",
-                             f"complete.md '## {best[1]}' "
+                             f"completion record '{best[1]}' "
                              f"(shared: {', '.join(sorted(best[2]))})"))
 
         if r["status"] not in ("-", "formalised"):
@@ -697,8 +702,8 @@ def emit_reconcile(res: dict):
     print(f"== Intake reconcile: {len(res['suspects'])} suspect(s) of "
           f"{res['scanned']} scanned ==")
     if not res["suspects"]:
-        print("  backlog reconciles clean against the complete/ archive, "
-              "complete.md and active/.")
+        print("  backlog reconciles clean against the complete/ records "
+              "and active/.")
     for s in res["suspects"]:
         print(f"[{s['confidence']:>6}] {s['path']}")
         for f in s["findings"]:

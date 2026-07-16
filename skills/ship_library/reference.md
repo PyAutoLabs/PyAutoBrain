@@ -132,19 +132,19 @@ Options (i) new scripts and (ii) migration both route to `/start_workspace`;
 **Progress (option i/ii) — workspace work to follow:** post a "Library PR
 Created" comment (PR URLs, "Next: /start_workspace", API-change summary), set the
 `active.md` status to `library-shipped, workspace-pending`, add `library-pr:`,
-push Mind. Do **not** move to `complete.md`.
+push Mind. Do **not** record completion yet.
 
 **Shipped (option iii passed):** offer to merge the library PR
 (`gh pr merge <n> --merge --auto`), post a "Shipped" comment (PRs, summary,
-optional session notes), then record completion in **both** lifecycle layers
-(issue #71) — the ledger entry **and** the dated record, kept paired 1:1 by slug:
-- **Ledger:** append the entry to `complete.md` (`## <slug>`, `issue`,
-  `completed: <date>`, `library-pr:`) and drop it from `active.md`.
-- **Record:** write the paired dated record and fold + remove the `active/`
-  prompt —
-  `python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <completed> --prompt <active-filename> --apply`
-  (writes `complete/<YYYY>/<MM>/<slug>.md` from the just-appended `complete.md`
-  entry; `lifecycle.py check` enforces the record ↔ `complete.md` pairing).
+optional session notes), then record completion — the dated record **is** the
+ledger (issues #71/#81; the monolithic `complete.md` was retired 2026-07-16):
+- **Draft the rich completion body** to a temp file — `## <slug>`, `issue`,
+  `completed: <date>`, `library-pr:`, then the summary/traps/notes bullets.
+- **Write the record** (folds + removes the `active/` prompt):
+  `python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <completed> --from-file <tmp> --prompt <active-filename> --apply`
+- **Regenerate the index:** `python3 PyAutoMind/scripts/lifecycle.py index --apply`
+- **Drop the task's `active.md` entry** (`lifecycle.py check` flags a finished
+  slug still present in `active.md`).
 
 Then push Mind with
 `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.

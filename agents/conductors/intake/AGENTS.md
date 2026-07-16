@@ -85,7 +85,7 @@ schema — light structure over free-form prose.
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
 | **dashboard** | `intake dashboard` | render the census as the Mind **backlog** page; `--apply` writes `PyAutoMind/dashboard.md` |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
-| **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs `complete.md` / `issued/`); always read-only — retiring stays human |
+| **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`); always read-only — retiring stays human |
 
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
@@ -101,7 +101,7 @@ moves or deletes a file.
 Reconcile exists because a prompt's `Status:` header is **not** a completeness
 signal — formalise preserves an existing Status verbatim, so shipped work can
 still read `Status: planned`. It cross-references each backlog prompt against
-`complete.md` (path references + `## header` topic overlap), `issued/`
+the `complete/` records (path references + `## header` topic overlap), `active/`
 basenames, and hand-set Status values, then ranks suspects (high/medium/low)
 with the evidence shown. The final verification — the target repo's git log /
 merged PRs — and the retirement itself stay human.
