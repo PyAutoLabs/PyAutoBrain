@@ -1,7 +1,7 @@
 # PyAutoBrain command surface — shared reference
 
 The short verb commands (`/intake`, `/feature`, `/build`, `/health`, `/bug`,
-`/refactor`, `/profiling`, `/hygiene`, `/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
+`/refactor`, `/workspace`, `/profiling`, `/hygiene`, `/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
 over the PyAutoBrain router (`bin/pyauto-brain`). This file is the shared context
 every command file points at, so each command body stays a few lines long.
 
@@ -33,6 +33,7 @@ readiness gate, or execution — those belong to the organs.
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/refactor` | Refactor Agent | `bin/pyauto-brain refactor` → `start_dev [--auto]` → `ship_*` (behaviour-preserving; default-safe) |
+| `/workspace` | Workspace Agent | `bin/pyauto-brain workspace` → WorkspaceDecision (plan/survey example authorship) → `start_dev` → `start_workspace` → `ship_workspace` |
 | `/profiling` | Profiling Agent | `bin/pyauto-brain profiling` → campaign/ingest/triage plans over the autolens_profiling workspace |
 | `/hygiene` | Hygiene Agent | `bin/pyauto-brain hygiene` → perf/tidy/noise/deps/docs upkeep plans; delegates fixes to refactor/bug/feature (modes staged) |
 | `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoBuild |
@@ -46,6 +47,10 @@ the Brain (via `start_dev` → Feature Agent), so nothing is bypassed:
 |---------|----------------------|
 | `/docs` | `docs/` |
 | `/research` | `research/` |
+
+(`/docs` remains the generic docs work-type entry; workspace/HowTo *example
+authorship* specifically now has a real conductor — the Workspace Agent,
+tier 1 above.)
 
 (`/refactor` graduated to a real conductor — the Refactor Agent,
 `agents/conductors/refactor/` — and now sits in tier 1 above.)

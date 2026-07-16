@@ -123,6 +123,17 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   formalises). The first conductor whose normal `--auto` mode is **`safe`**
   (the `refactor` work-type cap in [`AUTONOMY.md`](AUTONOMY.md)). Reuses the
   Feature Agent's core by import.
+- **`agents/conductors/workspace/`** — the *Voice*: the organism's expressive
+  function — how it speaks to practitioners (workspace examples) and teaches
+  first-time learners (the `howto` register). Reasons over workspace + HowTo
+  example authorship and emits a `WorkspaceDecision` — target repo, audience
+  register (`workspace`|`howto`), placement in the target's real `scripts/`
+  tree, the sibling example to mirror, prose tier, format checklist — that the
+  `start_dev → start_workspace → ship_workspace` flow consumes. A `survey`
+  mode inventories/diffs example catalogues (the newborn-workspace bootstrap
+  tool). One agent, two registers; the split trigger for a future HowTo agent
+  is recorded in its AGENTS.md. Decision-only: never edits source, never
+  writes files.
 - **`agents/conductors/profiling/`** — the *proprioceptive function*: the
   organism's sense of its own effort. Heart reads the vitals at rest; this
   agent runs the stress test — it owns the performance-data lifecycle with
@@ -224,6 +235,7 @@ the `/<verb>` slash commands.
 | `feature` | Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev | `bin/pyauto-brain feature` |
 | `bug` | The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair | `bin/pyauto-brain bug` |
 | `refactor` | The renewal function: plan behaviour-preserving restructuring — RefactorDecision; default-safe under --auto | `bin/pyauto-brain refactor` |
+| `workspace` | The voice — the organism's expressive function: plan/survey workspace + HowTo example authorship (workspace\|howto registers) — WorkspaceDecision (never writes) | `bin/pyauto-brain workspace` |
 | `profiling` | The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision | `bin/pyauto-brain profiling` |
 | `hygiene` | The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision | `bin/pyauto-brain hygiene` |
 | `clone` | The Mitosis Agent (v0: decision only): partition the reference assistant, analyze the domain, emit the CloneDecision — never writes | `bin/pyauto-brain clone` |
@@ -262,6 +274,7 @@ the Brain routes it to the right agent; normal usage never says "PyAutoBrain".
 | `/build` | Build Agent → vitals → Heart → PyAutoBuild | real conductor |
 | `/health` | Health Agent loop → vitals → Heart | real conductor |
 | `/refactor` | Refactor Agent → `start_dev [--auto]` (default-safe) | real conductor |
+| `/workspace` | Workspace Agent → WorkspaceDecision → `start_dev` → `start_workspace` | real conductor |
 | `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
 | `/route <text>` | infers the work-type and dispatches to one of the above | NL router |
 | `/wake_up` | sync + clean-slate (local) + gh-API glance (overnight runs, version drift, resume) + `/health`/`/hygiene` → digest; CLI + mobile/codex | composition door |
@@ -271,7 +284,10 @@ the Brain routes it to the right agent; normal usage never says "PyAutoBrain".
 Brain dev-flow with their PyAutoMind work-type fixed (still through the Brain,
 nothing bypassed). A dedicated conductor is added only on demonstrated need,
 never for symmetry — the Refactor Agent earned its promotion via the `ideas.md`
-backlog bullet, the skill's own recorded follow-up, and the autonomy series.
+backlog bullet, the skill's own recorded follow-up, and the autonomy series;
+the Workspace Agent earned its via the recurring post-library example work and
+the `autoreduce_workspace` birth (`/docs` remains the generic docs entry —
+workspace/HowTo *example authorship* specifically routes via `/workspace`).
 Every command routes **through** the Brain; none replaces it.
 
 The command bodies live in `skills/<verb>/<verb>.md`; thin `SKILL.md` wrappers
