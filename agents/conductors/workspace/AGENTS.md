@@ -38,8 +38,7 @@ an organism function.
 
 ## Modes
 
-Both modes are read-only; the agent writes nothing (the Clone Agent's v0
-boundary).
+Both modes are read-only; the agent writes nothing.
 
 - **plan** (default) — `pyauto-brain workspace "<raw text>"` or
   `pyauto-brain workspace <PyAutoMind prompt path>`: classifies the intent and

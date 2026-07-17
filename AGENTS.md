@@ -182,12 +182,15 @@ humans invoke identically, so behaviour isn't re-derived from prose each time.
   leg → re-judge — until Heart goes GREEN. Delegates all dispatch to the
   release conductor. Current scope is *validate + recommend*, checkpointing
   every dispatch; edit-in fixes are an explicit follow-up. (Skeleton.)
-- **`agents/conductors/clone/`** — the *Mitosis Agent* (**analysis-only v0** —
-  see its `DESIGN.md`): analyzes how to reproduce a mature domain assistant
-  (reference: `autolens_assistant`) into a new specialised assistant cell —
-  domain analysis, template-boundary partition, a `CloneDecision` with an
+- **`agents/conductors/clone/`** — the *Mitosis Agent* (see its `DESIGN.md`):
+  analyzes how to reproduce a mature domain assistant (reference:
+  `autolens_assistant`) into a new specialised assistant cell — domain analysis,
+  template-boundary partition, a `CloneDecision` with an
   exact-clone/sibling/seed question, generation delegated to Build, newborn
-  validation by Heart. Its current CLI emits the decision and writes nothing.
+  validation by Heart. Bare `clone` decides and writes nothing;
+  `--apply --mode lightweight-seed` hands the plan to Build's `clone_seed.py`,
+  which gives birth (private until Heart's publish gate). The other two clone
+  modes are v2 and refused.
 
 ### Faculties
 
@@ -262,7 +265,7 @@ the `/<verb>` slash commands.
 | `eyes` | The perceptive function — the organism's sense of its own appearance: survey/review a visualization workspace's figure surface, critiques route to intake/start_dev — EyesSurvey/EyesReviewSurface (never renders, never edits) | `bin/pyauto-brain eyes` |
 | `profiling` | The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision | `bin/pyauto-brain profiling` |
 | `hygiene` | The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision | `bin/pyauto-brain hygiene` |
-| `clone` | The Mitosis Agent (v0: decision only): partition the reference assistant, analyze the domain, emit the CloneDecision — never writes | `bin/pyauto-brain clone` |
+| `clone` | The Mitosis Agent: partition the reference assistant, analyze the domain, emit the CloneDecision; --apply --mode lightweight-seed delegates the seed birth to Build | `bin/pyauto-brain clone` |
 | `build` | Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild | `bin/pyauto-brain build` |
 | `release` | Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation; 'release nightly' is the scheduled-nightly driver | `bin/pyauto-brain release` |
 | `health` | The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green | `bin/pyauto-brain health` |
