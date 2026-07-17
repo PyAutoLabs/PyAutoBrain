@@ -42,6 +42,45 @@ def _git(repo: Path, *args: str) -> str:
     return out.stdout.strip() if out.returncode == 0 else ""
 
 
+# Load-bearing empirical claims: assertions about the change's *effect* that are
+# dangerous if wrong (a "no-op" that isn't; a "byte-identical" that differs).
+# The whole point of surfacing them is to ROUTE the reviewing agent to each one
+# so the adversarial "what would make this false, and what was run?" pass fires
+# by construction — not because the author remembered to run it. See
+# docs/agent_failure_modes.md item 6 (and A5/F3: real, confident, wrong claims).
+_CLAIM_RE = re.compile(
+    r"\b("
+    r"no[- ]?ops?|byte[- ]?identical|identical|unchanged|no change|"
+    r"does ?n['o]t (?:change|affect|touch|break)|"
+    r"proven|verified|no effect|equivalent|"
+    r"zero (?:diff|leak|regression|change)|0 diff|"
+    r"safe to (?:delete|merge|remove)|cannot (?:leak|break|affect)|"
+    r"guaranteed|behaviou?r[- ]preserving"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def load_bearing_claims(text: str, limit: int = 12) -> list[str]:
+    """Extract lines from commit-message bodies that assert a load-bearing
+    empirical claim. Returned for the reviewing agent to adversarially check;
+    the agent makes the final load-bearing/idle judgement."""
+    seen: set[str] = set()
+    claims: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("#*-> ").strip()
+        if len(line) < 8 or not _CLAIM_RE.search(line):
+            continue
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        claims.append(line if len(line) <= 200 else line[:197] + "...")
+        if len(claims) >= limit:
+            break
+    return claims
+
+
 def repo_surface(repo: Path) -> dict | None:
     """One repo's slice of the ReviewSurface, or None if there is no diff."""
     if not (repo / ".git").exists():
@@ -53,6 +92,7 @@ def repo_surface(repo: Path) -> dict | None:
     commits = _git(repo, "log", "--oneline", f"{base}..HEAD")
     if not commits:
         return None
+    claims = load_bearing_claims(_git(repo, "log", "--format=%B", f"{base}..HEAD"))
     files = _git(repo, "diff", "--name-status", f"{base}..HEAD").splitlines()
     stat = _git(repo, "diff", "--shortstat", f"{base}..HEAD")
     changed = [line.split("\t")[-1] for line in files if line.strip()]
@@ -74,6 +114,7 @@ def repo_surface(repo: Path) -> dict | None:
         "shortstat": stat,
         "files": files,
         "risk_flags": flags,
+        "claims_to_falsify": claims,
     }
 
 
@@ -139,8 +180,16 @@ def emit_human(surfaces: list[dict]) -> None:
             print(f"     {f}")
         if len(s["files"]) > 40:
             print(f"     ... and {len(s['files']) - 40} more")
+        claims = s.get("claims_to_falsify") or []
+        if claims:
+            print("   claims to falsify (adversarial pass — for EACH: what would")
+            print("   make it false, and what in the diff/run proves it isn't?):")
+            for c in claims:
+                print(f"     ? {c}")
     print("\nVerdict rubric: CLEAN (nothing must change) | FINDINGS (ranked,")
     print("file:line, failure scenario) | BLOCKED (could not review — say why).")
+    print("A load-bearing claim above with no falsified-by basis in the branch is")
+    print("a FINDING (unverified-claim) — see the faculty AGENTS.md.")
 
 
 def main(argv=None) -> int:

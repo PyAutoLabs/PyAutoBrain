@@ -49,8 +49,23 @@ Heart and the agent reasons over the verdict.
    effort** (correctness first, then reuse/simplification) and a **verify
    pass** — drive the affected flow end-to-end, not just tests (for
    doc/doctrine diffs: link resolution + single-source check instead).
+2a. **Adversarial claim pass** (docs/agent_failure_modes.md item 6). The
+   surface lists `claims to falsify` — load-bearing empirical assertions
+   lifted from the branch's commit messages ("no-op", "byte-identical",
+   "does not affect X", "proven"). For **each**, ask the adversarial question
+   the author should have: *what would make this false, and what in the diff
+   or a run actually shows it isn't?* This is enforced **here, by the reader**
+   — not a checklist the author is trusted to have run (documentation and
+   self-checklists are refuted mechanisms; a note about a trap did not stop
+   the trap). A load-bearing claim with no falsified-by basis in the branch
+   (no test, no measurement, no diff that demonstrates it) is a **FINDING**,
+   category `unverified-claim` — the author asserted an effect they did not
+   show. Scope it to genuinely load-bearing claims (an effect that, if wrong,
+   ships a bug); an idle turn of phrase is not a finding — say so and move on,
+   so the pass does not decay into rote noise.
 3. Map the outcome to the verdict: any unresolved must-fix → **FINDINGS**
-   (ranked list, file:line, failure scenario); nothing → **CLEAN**; could not
+   (ranked list, file:line, failure scenario) — including any
+   `unverified-claim` from step 2a; nothing → **CLEAN**; could not
    complete steps 1–2 → **BLOCKED** (say why).
 
 ## Run
