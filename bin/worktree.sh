@@ -26,7 +26,7 @@ PYAUTO_WT_ROOT="${PYAUTO_WT_ROOT:-$HOME/Code/PyAutoLabs-wt}"
 
 # Libraries that participate in PYTHONPATH. Order matters — it mirrors the
 # order in ~/.bashrc.
-PYAUTO_LIBS=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+PYAUTO_LIBS=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens PyAutoCTI)
 
 # _worktree_is_lib repo_name -> 0 if repo is a library, 1 otherwise
 _worktree_is_lib() {

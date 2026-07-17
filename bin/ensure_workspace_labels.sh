@@ -44,6 +44,9 @@ REPOS=(
     PyAutoLabs/PyAutoLens
     PyAutoLabs/PyAutoConf
     PyAutoLabs/PyAutoFit
+    PyAutoLabs/PyAutoCTI
+    PyAutoLabs/autocti_workspace
+    PyAutoLabs/autocti_workspace_test
 )
 
 if ! command -v gh >/dev/null 2>&1; then
