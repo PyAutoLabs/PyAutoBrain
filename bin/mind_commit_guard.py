@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shlex
 import sys
 from pathlib import Path
@@ -52,19 +51,6 @@ def _deny(reason: str) -> None:
         )
     )
     sys.exit(0)
-
-
-def _mind_root(command: str, cwd: str) -> Path | None:
-    """Best-effort resolution of the PyAutoMind checkout this command targets."""
-    m = re.search(r"(?:-C\s+|cd\s+)(\S*PyAutoMind)\b", command)
-    if m:
-        return Path(os.path.expanduser(m.group(1)))
-    if cwd and MIND_MARKER in cwd:
-        p = Path(cwd)
-        while p.name != MIND_MARKER and p != p.parent:
-            p = p.parent
-        return p if p.name == MIND_MARKER else None
-    return None
 
 
 def _clauses(command: str):
@@ -94,25 +80,72 @@ def _clauses(command: str):
         yield clause
 
 
+def _under_mind(path: Path) -> Path | None:
+    """If ``path`` is inside a PyAutoMind checkout, return that checkout root;
+    else None."""
+    p = path
+    while True:
+        if p.name == MIND_MARKER:
+            return p
+        if p == p.parent:
+            return None
+        p = p.parent
+
+
+def _cd_target(tokens: list[str], cur: Path | None) -> Path | None:
+    """New effective cwd after a ``cd`` clause, or ``cur`` if not a plain cd.
+
+    Honouring a leading ``cd`` is what fixes the v1.1 false positive: a command
+    that ``cd``s into PyAutoBuild before committing is NOT a Mind commit, even
+    when the session's ambient cwd (what the hook is handed) is PyAutoMind.
+    """
+    if not tokens or tokens[0] != "cd":
+        return cur
+    args = [t for t in tokens[1:] if not t.startswith("-")]
+    if not args:
+        return cur  # `cd` with no path → home; unknowable, keep current
+    dest = Path(os.path.expanduser(args[0]))
+    if dest.is_absolute() or cur is None:
+        return dest
+    return cur / dest
+
+
 def check_command(command: str, cwd: str = "") -> str | None:
     """Return a denial reason, or None to allow."""
     if "PYAUTO_SKIP_MIND_GUARD=1" in command:
         return None
     if "git" not in command or "commit" not in command:
         return None
-    # Only reason about commands that clearly target PyAutoMind.
+    # Cheap pre-filter: a Mind commit needs PyAutoMind named in the command
+    # (a `cd`/`git -C` path) or in the ambient cwd. If neither, nothing to do.
     if MIND_MARKER not in command and MIND_MARKER not in (cwd or ""):
         return None
-    root = _mind_root(command, cwd)
 
-    # Examine each clause of the (possibly compound) command at token level.
+    effective_cwd: Path | None = Path(cwd) if cwd else None
+
+    # Walk clauses in order, tracking cwd so `cd`s before a commit are honoured.
     for tokens in _clauses(command):
+        if tokens and tokens[0] == "cd":
+            effective_cwd = _cd_target(tokens, effective_cwd)
+            continue
         if "git" not in tokens or "commit" not in tokens:
             continue
         if tokens.index("git") > tokens.index("commit"):
             continue
         if "--amend" in tokens or "--dry-run" in tokens:
             continue
+        # Which repo does THIS commit target? `git -C <path>` wins; else the
+        # effective cwd. Only guard when that repo is a PyAutoMind checkout.
+        target_dir = effective_cwd
+        if "-C" in tokens:
+            ci = tokens.index("-C")
+            if ci + 1 < len(tokens):
+                cpath = Path(os.path.expanduser(tokens[ci + 1]))
+                target_dir = cpath if cpath.is_absolute() or effective_cwd is None else effective_cwd / cpath
+        mind_root = _under_mind(target_dir) if target_dir else None
+        if mind_root is None:
+            continue  # not a PyAutoMind commit — e.g. a PyAutoBuild worktree
+        root = mind_root
         if "--" not in tokens:
             return (
                 "PyAutoMind is a SHARED checkout: concurrent sessions stage into "
