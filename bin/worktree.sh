@@ -197,6 +197,42 @@ worktree_add_repo() {
 # Removes every real worktree under the task root, refuses if any is dirty or
 # has unpushed commits (unless PYAUTO_WT_FORCE=1), then removes the root and
 # its per-task cache dirs.
+# worktree_claim_is_stale <task-name> <worktree-root>
+# True (0) when PyAutoMind/active.md STILL claims <task-name> and every repo in
+# the worktree is on a branch already merged into origin/main — i.e. the work
+# is done but the claim was never released. docs/agent_failure_modes.md
+# mitigation 3 (F4: twice on 2026-07-16 a completed task's stale claim blocked
+# the next one, and the completion record went unwritten).
+# Fail-open by design: anything unknown (no active.md, unfetched origin/main,
+# squash-merged branch) returns 1 = "not stale" and the caller proceeds.
+worktree_claim_is_stale() {
+  local task="$1" root="$2"
+  local active="$PYAUTO_MAIN/PyAutoMind/active.md"
+  [[ -f "$active" ]] || return 1
+  grep -Eq "^## ${task}([[:space:]]|\$)" "$active" || return 1
+
+  local entry head saw_merged=0
+  for entry in "$root"/*; do
+    [[ -L "$entry" ]] && continue
+    [[ -e "$entry/.git" ]] || continue
+    # Unmerged (or unknowable: squash-merge, unfetched origin) → not stale.
+    git -C "$entry" merge-base --is-ancestor HEAD origin/main 2>/dev/null || return 1
+    head="$(git -C "$entry" rev-parse HEAD 2>/dev/null)" || return 1
+    # An ancestor of origin/main is NOT proof of a merge: a worktree created
+    # but never committed to also sits on one (its tip is just an old main
+    # commit). A branch that was actually MERGED (--merge / --no-ff) hangs off
+    # a merge commit's second parent, so it is absent from origin/main's
+    # first-parent chain. That is the discriminator; without it, abandoning a
+    # never-committed worktree would be refused — a false positive, and a
+    # noisy refusal trains bypass-by-default.
+    if git -C "$entry" rev-list --first-parent origin/main 2>/dev/null | grep -qx "$head"; then
+      continue          # never diverged from main → nothing to record here
+    fi
+    saw_merged=1
+  done
+  [[ "$saw_merged" == "1" ]]
+}
+
 worktree_remove() {
   local task="$1"
   if [[ -z "$task" ]]; then
@@ -225,6 +261,20 @@ worktree_remove() {
   if [[ ${#dirty_repos[@]} -gt 0 && "${PYAUTO_WT_FORCE:-0}" != "1" ]]; then
     echo "worktree_remove: refusing to remove — dirty repos: ${dirty_repos[*]}" >&2
     echo "  commit/stash your work, or set PYAUTO_WT_FORCE=1 to override." >&2
+    return 1
+  fi
+
+  # Stale-claim guard (docs/agent_failure_modes.md mitigation 3). Removing the
+  # worktree of a MERGED task whose active.md claim is still registered strands
+  # that claim: it blocks the next task on a phantom conflict and the
+  # completion record never gets written. Refuse rather than warn — a warning
+  # at this exact moment is precisely what failed twice on 2026-07-16.
+  if [[ "${PYAUTO_WT_FORCE:-0}" != "1" ]] && worktree_claim_is_stale "$task" "$root"; then
+    echo "worktree_remove: refusing to remove — '$task' is merged but PyAutoMind/active.md still claims it." >&2
+    echo "  Record the completion and release the claim FIRST:" >&2
+    echo "    python3 PyAutoMind/scripts/lifecycle.py record $task --date <YYYY-MM-DD> --from-file <body> [--prompt <file>] --apply" >&2
+    echo "    then drop the '## $task' entry from PyAutoMind/active.md and commit (explicit file pathspecs)." >&2
+    echo "  Abandoned or unmerged work: set PYAUTO_WT_FORCE=1 to override." >&2
     return 1
   fi
 
