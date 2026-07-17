@@ -79,6 +79,34 @@ def test_autofit_profile_classification(path, expected):
     assert _classify(path, clone.REFERENCE_PROFILES["autofit_assistant"]) == expected
 
 
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        # The euclid mode is a survey-specific *lensing* register — its skills
+        # and its own sub-wiki. A newborn grows whatever survey modes its own
+        # domain has, if any.
+        ("skills/euclid_model_lens.md", "domain"),
+        (".claude/skills/euclid_hpc_runs.md", "domain"),
+        ("wiki/euclid/index.md", "domain"),
+        ("wiki/euclid/entities/vis.md", "domain"),
+        ("wiki/euclid/bibliography/euclid.bib", "domain"),
+        # This assistant's own JOSS paper; a newborn writes its own.
+        ("paper/paper.md", "domain"),
+        ("paper/.gitignore", "domain"),
+        # Bundled science scripts are tied to a named lens...
+        ("scripts/model_cosmos_web_ring.py", "domain"),
+        ("scripts/prepare_cosmos_web_ring.py", "domain"),
+        # ...but scripts/'s own docs are framework, not science.
+        ("scripts/AGENTS.md", "generic"),
+        # .mcp.json only wires `autoassistant.mcp` — generic tooling, so the
+        # wiring carries no domain either and clones verbatim.
+        (".mcp.json", "generic"),
+    ],
+)
+def test_autolens_profile_classification(path, expected):
+    assert _classify(path, clone.REFERENCE_PROFILES["autolens_assistant"]) == expected
+
+
 def test_wiki_core_and_skills_flip_between_references():
     """The seam is reference-owned: wiki/core/ and the domain skills sit on
     opposite sides for the two references."""

@@ -85,9 +85,9 @@ call, so the Brain is not bypassed):
   local-only steps. Interactive/terminal only (the automated morning webhooks are
   separate).
 
-Codex skills also expose the remaining public CLI agents directly: the
-analysis-only `clone` conductor, the `release` conductor, and the read-only
-`vitals`, `review`, `memory`, and `samplers` faculties. They do not gain new
+Codex skills also expose the remaining public CLI agents directly: the `clone`
+conductor, the `release` conductor, and the read-only `vitals`, `review`,
+`memory`, and `samplers` faculties. They do not gain new
 slash commands; `brain` remains Claude's low-level passthrough.
 
 ## How these are installed

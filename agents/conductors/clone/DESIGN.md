@@ -1,9 +1,11 @@
-# Clone agent — design (not yet implemented)
+# Clone agent — design
 
-> **Status: v0 implemented** (analyze — decision only; PyAutoBrain#73). v1
-> (lightweight-seed births via Build) and v2 (differentiated siblings) remain
-> unimplemented; this document stays the agreed design they will be built
-> against. The operating summary is [`AGENTS.md`](AGENTS.md). Filed from
+> **Status: v0 + v1 implemented.** v0 = `analyze` (decision only;
+> PyAutoBrain#73). v1 = `--apply --mode lightweight-seed`, which hands the
+> generation plan to Build's `clone_seed.py` for the birth, gated by Heart's
+> newborn-validation publish checklist. v2 (differentiated siblings, `audit`
+> mode) remains unimplemented; this document stays the agreed design it will be
+> built against. The operating summary is [`AGENTS.md`](AGENTS.md). Filed from
 > `PyAutoMind/issued/clone_mitosis_agent.md` (PyAutoBrain #59).
 
 > **Tier: conductor** — a front-door agent you *drive*. Engineering name:
@@ -115,12 +117,13 @@ bad usage).
 
 ## Phased implementation (each phase = one future Mind prompt, filed when its predecessor nears shipping — never bulk-issued)
 
-1. **v0 — decision only.** `analyze` mode end-to-end: domain analysis,
+1. **v0 — decision only. SHIPPED.** `analyze` mode end-to-end: domain analysis,
    partition, generation plan, CloneDecision. No writer at all. Proves the
    reasoning on `PyAutoFit → autofit_assistant` as the dry-run case study.
-2. **v1 — seed births.** `--apply` for **lightweight-seed** via a PyAutoBuild
-   primitive (repo creation + generic-set copy + scaffolds). Heart gains the
-   newborn-validation checklist. First real birth: `autofit_assistant` seed.
+2. **v1 — seed births. SHIPPED.** `--apply` for **lightweight-seed** via a
+   PyAutoBuild primitive (`autobuild/clone_seed.py`: repo creation + generic-set
+   copy + scaffolds + the `PENDING.md` growth queue). Heart gained the
+   newborn-validation checklist (`PyAutoHeart/docs/newborn_validation.md`).
 3. **v2 — differentiated siblings.** Skill/wiki regeneration from the domain
    corpus (model-assisted, curated per the reference's `al_update_wiki`
    philosophy: generated drafts, human-reviewed PRs). `audit` mode lands here.

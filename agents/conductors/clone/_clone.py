@@ -58,6 +58,9 @@ _SHARED_GENERIC = [
     "skills/start-new-project*", "skills/contribute-upstream*",
     "sources.yaml", "sources/*",  # the source-registry pattern
     "autoassistant/*",            # API gate + wiki-currency + benchmark tooling
+    ".mcp.json",                  # wires the results-inspector MCP, which is
+                                  # `autoassistant.mcp` — generic tooling above,
+                                  # so the wiring carries no domain either
     "benchmarks/AGENTS.md",       # benchmark run/record contract
     ".github/*",                  # wiki-currency / citation workflows
     "wiki/README.md", "wiki/project/*",   # project wiki rules + profile template
@@ -102,8 +105,15 @@ REFERENCE_PROFILES = {
             "skills/al_*.md",             # every al_* skill body
             ".claude/skills/al_*.md",     # ... and their harness mirrors
             "skills/init-slam.md", ".claude/skills/init-slam.md",  # SLAM = lensing
+            # The euclid mode: a survey-specific pipeline register (its skills
+            # + its own sub-wiki). Lensing science throughout — a newborn grows
+            # whatever survey modes its own domain has, if any.
+            "skills/euclid_*.md", ".claude/skills/euclid_*.md",
+            "wiki/euclid/*",
             "wiki/core/*",                # lensing-API reference
             "wiki/literature/*",          # a shipped lensing paper corpus
+            "paper/*",                    # this assistant's own JOSS paper
+            "scripts/*.py",               # bundled science scripts (a named lens)
             *_SHARED_DOMAIN,
         ],
         "mixed": _SHARED_MIXED,
@@ -319,8 +329,10 @@ def build_decision(args):
         "validation_plan": VALIDATION_PLAN,
         "risks": risks or ["none identified"],
         "next_action": (
-            "human confirms the clone mode → v1 hands the plan to PyAutoBuild "
-            "(lightweight-seed first); v0 writes nothing"
+            "human confirms the clone mode + the repo-creation gate (name / "
+            "owner / visibility), then re-run with --apply --mode "
+            "lightweight-seed to hand the plan to Build (--no-push builds the "
+            "seed tree only); this run wrote nothing"
         ),
     }
 
