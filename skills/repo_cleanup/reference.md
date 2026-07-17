@@ -21,8 +21,19 @@ stashes=$(git -C "$repo_path" stash list)
 
 Per non-`main`/`master` local branch: ahead/behind origin
 (`git -C "$repo_path" rev-list --left-right --count <branch>...origin/<branch>`),
-ahead of `origin/main` (`rev-list --count origin/main..<branch>`), open PR?
-(`gh pr list --repo <owner>/<repo> --head <branch> --state open --json number,url --jq 'length'`).
+open PR? (`gh pr list --repo <owner>/<repo> --head <branch> --state open --json number,url --jq 'length'`),
+and — the load-bearing one for "is it safe to delete?" — **does it contribute
+any content not already in `origin/main`?** Use the blessed tool, never a
+hand-rolled ahead-count or `git cherry`/`merge-tree` one-off (those were wrong
+three times — docs/agent_failure_modes.md D1/D2):
+```bash
+source PyAutoBrain/bin/branch_contribution.sh
+branch_contribution "$repo_path" <branch> origin/main   # MERGED/ABSORBED = safe; CONTRIBUTES = keep/inspect; UNKNOWN = never delete
+```
+An ahead-count alone over-reports (a squash-/cherry-merged branch is "ahead" yet
+contributes nothing); `branch_contribution` distinguishes MERGED/ABSORBED (safe
+to condemn) from CONTRIBUTES (has unique content) and is honest about the one
+case git 2.34.1 cannot disambiguate (a multi-commit squash reads as CONTRIBUTES).
 Record per repo: current branch + dirty; full local branch list with ahead/behind
 + open-PR flag; `[gone]` upstreams; stash list (oldest first, subjects);
 prune candidates (`git remote prune --dry-run origin`).
