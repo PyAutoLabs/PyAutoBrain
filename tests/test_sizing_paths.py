@@ -17,15 +17,15 @@ from _sizing import parse_prompt  # noqa: E402
 HEADER = """# A task
 
 Type: bug
-Target: PyAutoBuild
+Target: PyAutoHands
 Repos:
-- PyAutoBuild
+- PyAutoHands
 Difficulty: small
 Autonomy: supervised
 Priority: normal
 Status: formalised
 
-Body mentioning @PyAutoBuild.
+Body mentioning @PyAutoHands.
 """
 
 
@@ -37,29 +37,29 @@ def _write(mind: Path, rel: str) -> Path:
 
 
 def test_draft_path_strips_state_folder(tmp_path):
-    p = _write(tmp_path, "draft/bug/pyautobuild/some_task.md")
+    p = _write(tmp_path, "draft/bug/pyautohands/some_task.md")
     out = parse_prompt(p, tmp_path)
     assert out["work_type"] == "bug"
-    assert out["target"] == "pyautobuild"
+    assert out["target"] == "pyautohands"
 
 
 def test_active_flat_path_falls_back_to_headers(tmp_path):
     p = _write(tmp_path, "active/some_task.md")
     out = parse_prompt(p, tmp_path)
     assert out["work_type"] == "bug"          # from Type: header
-    assert out["target"] == "pyautobuild"     # from Target: header
-    assert "pyautobuild" in out["repos"]
+    assert out["target"] == "pyautohands"     # from Target: header
+    assert "pyautohands" in out["repos"]
 
 
 def test_legacy_flat_taxonomy_path_still_resolves(tmp_path):
-    p = _write(tmp_path, "bug/pyautobuild/some_task.md")
+    p = _write(tmp_path, "bug/pyautohands/some_task.md")
     out = parse_prompt(p, tmp_path)
     assert out["work_type"] == "bug"
-    assert out["target"] == "pyautobuild"
+    assert out["target"] == "pyautohands"
 
 
 def test_header_never_overrides_a_valid_path_taxonomy(tmp_path):
-    # Path says refactor/workspaces; header says bug/PyAutoBuild — the path's
+    # Path says refactor/workspaces; header says bug/PyAutoHands — the path's
     # valid taxonomy wins (header is a fallback, not an override).
     p = _write(tmp_path, "draft/refactor/workspaces/some_task.md")
     out = parse_prompt(p, tmp_path)

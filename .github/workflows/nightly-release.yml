@@ -1,13 +1,13 @@
 name: Nightly Release
 
-# The scheduled-nightly release driver (PyAutoBuild/docs/nightly_release_design.md
+# The scheduled-nightly release driver (PyAutoHands/docs/nightly_release_design.md
 # §3) — the ONLY path authorised to ship a live PyPI release without a
 # per-release human, under PyAutoBrain/AUTONOMY.md's standing grant (2026-07-09).
 #
 # This workflow is a scheduler, nothing more: all sequencing, gating and
 # notification logic lives in agents/conductors/release/nightly.sh (testable
 # locally via `pyauto-brain release nightly`). Scheduling authority moved HERE
-# from PyAutoBuild's release.yml (whose cron was removed in the same change) —
+# from PyAutoHands's release.yml (whose cron was removed in the same change) —
 # Build executes releases, it does not decide when.
 #
 # Arming (design §9, all human acts, in order):

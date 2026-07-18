@@ -21,7 +21,7 @@ version:
 | Mind | PyAutoMind | what to do — intent, priorities, workflow state |
 | Brain | PyAutoBrain (this repo) | how to do it — reasoning, planning, routing |
 | Heart | PyAutoHeart | is it healthy — the release-readiness verdict |
-| Hands | PyAutoBuild | do it — packaging, tagging, PyPI releases |
+| Hands | PyAutoHands | do it — packaging, tagging, PyPI releases |
 | Memory | PyAutoMemory | what we know — long-term scientific knowledge |
 | Gut | PyAutoGut | what we shed — condemned branches, stashes and dead code, held recoverably then voided |
 

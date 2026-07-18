@@ -27,7 +27,7 @@ harness home:
   `review_release`, `audit_docs`, `cli_noise_clean`), plus the reference-only
   `/health` legs `health_sweep/`, `pyauto-status/`, `pyauto-status-full/` (driven
   by the Brain's `/health` door, not installed as standalone commands).
-- **`PyAutoBuild/skills/`** — release-execution skills **only** (`pre_build`).
+- **`PyAutoHands/skills/`** — release-execution skills **only** (`pre_build`).
   Build owns no dev-workflow skills; `ship_*` (Brain) only *call* its release step.
 - **`autolens_profiling/skills/`** — science-profiling skills (`profile_likelihood`).
 - **`admin_jammy/skills/`** — vestigial: hosts no skills; scanned only so an old

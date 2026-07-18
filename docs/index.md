@@ -69,3 +69,9 @@ adoption/guide
 adoption/config_surfaces
 example
 ```
+
+```{toctree}
+:hidden:
+
+agent_failure_modes
+```

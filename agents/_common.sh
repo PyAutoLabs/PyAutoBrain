@@ -32,7 +32,7 @@ resolve_heart() {
 }
 
 resolve_autobuild() {
-  _resolve_bin autobuild "$PYAUTO_ROOT/PyAutoBuild/bin/autobuild"
+  _resolve_bin autobuild "$PYAUTO_ROOT/PyAutoHands/bin/autobuild"
 }
 
 # _resolve_dir <env-var-name> <repo-name> — echo the path to a sibling PyAuto

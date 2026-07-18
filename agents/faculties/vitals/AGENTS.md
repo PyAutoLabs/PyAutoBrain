@@ -176,7 +176,7 @@ always adopted from Heart verbatim.
 
 ## Gate semantics (what the caller does next)
 
-- **GREEN** — the organism is healthy. PyAutoBuild/Hands may proceed
+- **GREEN** — the organism is healthy. PyAutoHands/Hands may proceed
   automatically.
 - **YELLOW** — mostly healthy. Work may proceed, but **human review is
   recommended** before release-grade actions.
@@ -184,7 +184,7 @@ always adopted from Heart verbatim.
   blocking issues are resolved.
 
 The faculty only ever returns the decision and its reasoning. Execution belongs to
-Hands/PyAutoBuild, which acts **only after** receiving this GREEN/YELLOW/RED
+Hands/PyAutoHands, which acts **only after** receiving this GREEN/YELLOW/RED
 decision — it never re-runs the checks or re-derives the gate.
 
 ## Hard boundaries

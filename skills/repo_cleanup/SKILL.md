@@ -18,7 +18,7 @@ dirty state — see "protection sets"), Brain *decides* what is safe to remove a
 *executes* the cleanup. That is why this is a Brain skill, not a Heart one —
 Heart is an observer that never mutates other repos, whereas removing
 branches/stashes is dev-workflow git execution (the same kind `ship_*` does).
-Cleanup is not release work, so it never touches PyAutoBuild. It reads the
+Cleanup is not release work, so it never touches PyAutoHands. It reads the
 PyAutoMind registry (`active.md`) to know what's claimed. Organ boundary +
 execution-environment model: [`../WORKFLOW.md`](../WORKFLOW.md).
 
@@ -55,7 +55,7 @@ this covers residue when that flow is skipped); the start_dev branch survey
 ## Scope
 
 **Always swept:** library canonical checkouts under `$PYAUTO_MAIN` (PyAutoConf,
-PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoBuild); workspaces incl.
+PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoHands); workspaces incl.
 `_test`/`_developer` variants (autofit/autogalaxy/autolens families, HowToLens);
 and worktree roots under `$PYAUTO_WT_ROOT`.
 

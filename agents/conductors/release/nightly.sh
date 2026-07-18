@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # agents/conductors/release/nightly.sh — the scheduled-nightly release driver.
 #
-# Implements the nightly sequence of PyAutoBuild/docs/nightly_release_design.md
+# Implements the nightly sequence of PyAutoHands/docs/nightly_release_design.md
 # (§3, steps 0-7): the ONLY path authorised to ship a live PyPI release without
 # a per-release human, under the AUTONOMY.md standing grant of 2026-07-09
 # (activity-gated, Heart-GREEN-gated, kill-switchable, loud on every outcome).
@@ -55,17 +55,17 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../../_common.sh"
 
-BRAIN_REPO="PyAutoLabs/PyAutoBuild"   # where release-blocker labels are curated first
+BRAIN_REPO="PyAutoLabs/PyAutoHands"   # where release-blocker labels are curated first
 ANCHOR_REPO="PyAutoLabs/PyAutoBrain"
 ANCHOR_VAR="NIGHTLY_LAST_WINDOW_END"
 # Release tags land on every library; one suffices. Which one is release
 # POLICY — read from config/policy.yaml (the declared config surface).
 TAG_REPO="$(python3 -c "import yaml, pathlib; print(yaml.safe_load((pathlib.Path('$HERE').parents[2] / 'config' / 'policy.yaml').read_text())['release']['tag_repo'])")"
-BUILD_REPO="PyAutoLabs/PyAutoBuild"
+BUILD_REPO="PyAutoLabs/PyAutoHands"
 RELEASE_WORKFLOW="release.yml"
 # Repos whose open `release-blocker` issues stop the night (the release-relevant
 # set from activity_gate.py plus the release/health organs).
-BLOCKER_EXTRA_REPOS=(PyAutoBuild PyAutoHeart)
+BLOCKER_EXTRA_REPOS=(PyAutoHands PyAutoHeart)
 
 DRY_RUN="${DRY_RUN:-true}"
 no_dispatch=0

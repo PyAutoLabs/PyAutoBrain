@@ -78,7 +78,7 @@ re-implement a Heart check. `bug.sh health` reads two complementary signals:
 
 For each finding `_bug.py` emits a first-pass **category hint** (real-bug / config /
 flaky / expected, from the issue title + labels); the reasoning layer confirms it and
-decides where the fix belongs (affected repo, PyAutoHeart, PyAutoBuild, PyAutoBrain).
+decides where the fix belongs (affected repo, PyAutoHeart, PyAutoHands, PyAutoBrain).
 Confirmed real defects become `PyAutoMind/bug/health_fixes/<name>.md` prompts and enter
 the normal workflow; flaky / expected findings are left to the Health conductor's loop.
 Validation after patching is always the vitals faculty (`pyauto-heart readiness` GREEN,
@@ -109,7 +109,7 @@ intent      → PyAutoMind   (bug/* prompts, bug/health_fixes/, active/planned s
 reasoning   → PyAutoBrain  (Bug Agent — this; reuses the Feature core)
 knowledge   → PyAutoMemory (recurring failures / prior fixes / flaky tests; cited, not invented)
 health      → PyAutoHeart  (via the vitals faculty + filed Heart issues; never re-implemented)
-execution   → PyAutoBuild  (via start_dev / ship_* — never run by this agent)
+execution   → PyAutoHands  (via start_dev / ship_* — never run by this agent)
 ```
 
 No execution, health-checking, or knowledge-authoring logic lives in the Bug Agent. It

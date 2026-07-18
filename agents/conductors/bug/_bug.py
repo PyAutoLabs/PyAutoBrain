@@ -35,7 +35,7 @@ import _feature as F  # noqa: E402
 # (the organs themselves), not library-source or workspace work.
 INFRA_TARGETS = {
     "pyautobrain": "PyAutoBrain", "pyautoheart": "PyAutoHeart",
-    "pyautobuild": "PyAutoBuild", "autobuild": "PyAutoBuild",
+    "pyautobuild": "PyAutoHands", "autobuild": "PyAutoHands",
     "pyautomind": "PyAutoMind", "pyautomemory": "PyAutoMemory",
 }
 

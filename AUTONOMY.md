@@ -80,7 +80,7 @@ exception to the release cap above — not a weakening of it.
 **Scope — the grant attaches to the schedule, not to the pipeline:**
 
 - It covers exactly the scheduled nightly driver defined in
-  `PyAutoBuild/docs/nightly_release_design.md`: activity-gated (quiet nights
+  `PyAutoHands/docs/nightly_release_design.md`: activity-gated (quiet nights
   skip, loudly), Heart-GREEN-gated (STALE/YELLOW/RED stop the run — on this
   path YELLOW is never acknowledged by anyone; there is no force input), and
   kill-switchable (the `NIGHTLY_RELEASES` repo var).

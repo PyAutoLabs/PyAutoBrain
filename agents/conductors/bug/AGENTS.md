@@ -32,7 +32,7 @@ decision. See [`BUG_TAXONOMY.md`](./BUG_TAXONOMY.md) for the full fix-locus rule
 ## It reasons; it does not build
 
 The Bug Agent never edits source, opens PRs, or runs builds — that is the existing
-`start_dev` / `ship_*` workflow (and PyAutoBuild at release). It never *runs* tests or
+`start_dev` / `ship_*` workflow (and PyAutoHands at release). It never *runs* tests or
 health checks either: reproduction means **identifying** the repro command or the Heart
 check, and validation is delegated to the vitals faculty. It emits a `BugDecision`; the
 workflow acts on it.
@@ -63,7 +63,7 @@ so (`rehome_suggestion`) instead of planning a fix.
 The bug can come from PyAutoHeart. `bug.sh health` gathers both signals and hands them
 to `_bug.py`, which emits a first-pass **category hint** per finding (real-bug / config /
 flaky / expected) that the reasoning layer confirms before deciding whether the fix
-belongs in the affected repo, PyAutoHeart, PyAutoBuild or PyAutoBrain:
+belongs in the affected repo, PyAutoHeart, PyAutoHands or PyAutoBrain:
 
 1. the **live vitals verdict** — via the vitals faculty (never Heart directly);
 2. the **filed PyAutoHeart issues** — `gh issue list --repo PyAutoLabs/PyAutoHeart`
@@ -121,7 +121,7 @@ clean seam, exactly as Release stayed a mode of Build. See
 
 ## What this agent must never do
 
-- Edit source, open PRs, or run builds — that is `start_dev` / `ship_*` / PyAutoBuild.
+- Edit source, open PRs, or run builds — that is `start_dev` / `ship_*` / PyAutoHands.
 - Run tests or health checks, or re-implement a PyAutoHeart check — consult the vitals
   faculty (`--check-health`) and let Heart measure.
 - Query PyAutoHeart directly — only the vitals faculty talks to the Heart organ.

@@ -1,6 +1,6 @@
 ---
 name: build
-description: Coordinate PyAuto build, deploy, or release execution through the PyAutoBrain Build Agent, including its vitals consultation and PyAutoBuild delegation. Use when the user asks to build, publish, deploy, or release.
+description: Coordinate PyAuto build, deploy, or release execution through the PyAutoBrain Build Agent, including its vitals consultation and PyAutoHands delegation. Use when the user asks to build, publish, deploy, or release.
 ---
 
 # Build

@@ -3,7 +3,7 @@
 
 analyze (default) is decision only. v1 adds `--apply --mode
 lightweight-seed`: the agent writes its generation plan as JSON and hands
-execution to PyAutoBuild's `clone_seed.py` primitive (repo creation
+execution to PyAutoHands's `clone_seed.py` primitive (repo creation
 PRIVATE-first; the newborn's publish gate is Heart's newborn-validation
 checklist). The agent itself still writes no repo and no GitHub state — the
 mandatory clone-mode question is answered by the human typing `--mode`.
@@ -425,7 +425,7 @@ def apply_seed(args, decision):
     plan_path = Path(tempfile.mkstemp(prefix="clone_plan_", suffix=".json")[1])
     plan_path.write_text(json.dumps(plan, indent=2))
 
-    seed_script = PYAUTO_ROOT / "PyAutoBuild" / "autobuild" / "clone_seed.py"
+    seed_script = PYAUTO_ROOT / "PyAutoHands" / "autobuild" / "clone_seed.py"
     if not seed_script.exists():
         fail(4, f"Build primitive not found: {seed_script}")
     cmd = [sys.executable, str(seed_script), str(plan_path)]

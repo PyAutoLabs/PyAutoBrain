@@ -14,7 +14,7 @@ PyAutoMind active/workspace_examples_agent.md):
   howto      narrative teaching for first-time learners (HowTo* repos)
 
 The format spec is never restated here — the decision points at the canonical
-sources (the sibling example script it names, PyAutoBuild's notebook
+sources (the sibling example script it names, PyAutoHands's notebook
 generation, WORKFLOW.md's tutorial-prose split).
 
 Stdlib-only. Exit codes: 0 decision · 4 inputs unresolvable · 5 bad usage.
@@ -208,7 +208,7 @@ def build_decision(args):
         "format_checklist": CHECKLIST_SHARED + CHECKLIST_REGISTER[register],
         "format_grounding": [
             "the sibling example script (structure is copied, never invented)",
-            "PyAutoBuild notebook generation (docstring cells -> .ipynb)",
+            "PyAutoHands notebook generation (docstring cells -> .ipynb)",
             "PyAutoBrain/skills/WORKFLOW.md — tutorial-prose split",
         ],
         "notes": notes,

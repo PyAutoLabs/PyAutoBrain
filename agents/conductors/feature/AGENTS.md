@@ -107,7 +107,7 @@ body, not the folder (per PyAutoMind `ROUTING.md`).
 ## What this agent must never do
 
 - Edit source, open PRs, or run builds itself — that is the Build Agent /
-  PyAutoBuild via `start_dev` / `ship_*`.
+  PyAutoHands via `start_dev` / `ship_*`.
 - Query PyAutoHeart directly — consult the vitals faculty (`--check-health`).
 - Invent scientific or architectural context when PyAutoMemory has material —
   cite the sub-wiki instead.

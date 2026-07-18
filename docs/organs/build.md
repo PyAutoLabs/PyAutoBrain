@@ -1,11 +1,11 @@
-# Hands — PyAutoBuild
+# Hands — PyAutoHands
 
 **What it owns:** execution of the release pipeline. Packaging, tagging,
 notebook generation from example scripts, workspace validation runs, and
 PyPI publication via `release.yml` — nightly, when there is new activity to
 ship.
 
-**Repo:** [PyAutoLabs/PyAutoBuild](https://github.com/PyAutoLabs/PyAutoBuild)
+**Repo:** [PyAutoLabs/PyAutoHands](https://github.com/PyAutoLabs/PyAutoHands)
 
 ## The boundary that matters
 

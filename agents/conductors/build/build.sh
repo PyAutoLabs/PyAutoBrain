@@ -2,14 +2,14 @@
 # agents/build/build.sh — the build agent (the 2nd canonical PyAutoBrain agent).
 #
 # The Build Agent is the executive / orchestration layer for execution work. It
-# does NOT build software itself — PyAutoBuild does. The Build Agent decides
-# whether building should happen, what to build, which PyAutoBuild capability to
-# invoke, and whether to proceed or stop. It reasons; PyAutoBuild executes.
+# does NOT build software itself — PyAutoHands does. The Build Agent decides
+# whether building should happen, what to build, which PyAutoHands capability to
+# invoke, and whether to proceed or stop. It reasons; PyAutoHands executes.
 #
 # Call chain (the Brain coordinating multiple organs):
 #
 #   Mind -> Build Agent -> vitals faculty -> Heart -> GREEN/YELLOW/RED
-#                       -> Build Agent -> PyAutoBuild (execute)
+#                       -> Build Agent -> PyAutoHands (execute)
 #
 # Note the consult step goes through the *sibling vitals faculty*, not Heart
 # directly: Brain agents consult one another (a society of reasoning agents),
@@ -42,7 +42,7 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../../_common.sh"
 
 # ----- mode -> allowed actions, default action, gate strictness -----
-# Actions are PyAutoBuild capabilities. The Build Agent calls them; it never
+# Actions are PyAutoHands capabilities. The Build Agent calls them; it never
 # reimplements them. Health-shim commands (verify_install, url_check, watch,
 # status, tick, fix) are deliberately NOT routable here — those are Heart's
 # surface, reached through the vitals faculty, never re-owned by Build.

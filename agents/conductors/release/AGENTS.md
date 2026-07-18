@@ -64,7 +64,7 @@ bin/pyauto-brain release rehearse --ingest <dir> --force   # accept a YELLOW
 ```
 
 Phase 1 emits the steps: `mcp__github__actions_run_trigger` on
-`PyAutoLabs/PyAutoBuild` `release.yml` with `{rehearsal: true}` (M1 mode) →
+`PyAutoLabs/PyAutoHands` `release.yml` with `{rehearsal: true}` (M1 mode) →
 poll `mcp__github__actions_get` to completion → download the
 `testpypi-rehearsal-version` artifact → `mcp__github__get_commit` each library's
 `main` HEAD into `commit_shas.json`. Phase 2 hands the artifacts to
@@ -142,7 +142,7 @@ but both originate from Stage 2, which stays authoritative by construction.
 
 - Re-derive or second-guess the readiness verdict (that is Heart's / the vitals faculty's job).
 - Run any packaging/tagging/publish step itself (that is Build's job).
-- Write into PyAutoHeart or PyAutoBuild repos.
+- Write into PyAutoHeart or PyAutoHands repos.
 
 ## What only this agent does (not the vitals faculty)
 

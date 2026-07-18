@@ -38,7 +38,7 @@ fi
 
 # `release nightly ...` is the scheduled-nightly driver — the activity-gated,
 # Heart-GREEN-gated unattended live-release path (design:
-# PyAutoBuild/docs/nightly_release_design.md; standing grant: ../../AUTONOMY.md).
+# PyAutoHands/docs/nightly_release_design.md; standing grant: ../../AUTONOMY.md).
 # Local runs default to dry-run; the cron lives in
 # .github/workflows/nightly-release.yml.
 if [[ "${1:-}" == "nightly" ]]; then

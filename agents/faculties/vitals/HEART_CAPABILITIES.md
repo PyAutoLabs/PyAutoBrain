@@ -27,7 +27,7 @@ reimplement inside Brain.
 - Worktree drift: `~/Code/PyAutoLabs-wt/` directories versus PyAutoMind
   `active.md` claims.
 - Script timing: per-script duration regressions against rolling baselines.
-- Test run: latest PyAutoBuild release-run report under
+- Test run: latest PyAutoHands release-run report under
   `test_results/latest/report.json`.
 - Version skew: workspace pinned versions versus installed libraries.
 - Generated/noise classification: dirty source files versus generated artifacts.
@@ -88,16 +88,16 @@ reimplement inside Brain.
 - Tests: `tests/`, expected to run quickly with stdlib + PyYAML only.
 - Docs / agent guidance: `README.md`, `AGENTS.md`, `CLAUDE.md`.
 
-## PyAutoBuild delegation audit
+## PyAutoHands delegation audit
 
-PyAutoBuild has been fully renamed onto the Heart/Brain names (no PyAutoPulse or
+PyAutoHands has been fully renamed onto the Heart/Brain names (no PyAutoPulse or
 PyAutoAgent references remain) and exposes health-shim commands such as
 `autobuild verify_install`, `autobuild url_check`, and `autobuild watch|status|tick|fix`.
 These delegate to the health authority rather than owning readiness logic.
 
 Decision: GREEN — the docs are renamed and the shims delegate only. Do not
 duplicate those checks in Brain. If any shim ever gains non-trivial readiness
-logic, migrate that logic to PyAutoHeart and leave only delegation in PyAutoBuild.
+logic, migrate that logic to PyAutoHeart and leave only delegation in PyAutoHands.
 
 ## vitals faculty decision policy
 

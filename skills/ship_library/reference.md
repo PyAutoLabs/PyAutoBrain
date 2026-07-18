@@ -112,7 +112,7 @@ grep -rn "<old_function_or_class>" \
   euclid_strong_lens_modeling_pipeline/scripts/ HowToLens/scripts/
 ```
 
-Also check `PyAutoBuild/autobuild/config/no_run.yaml` — a changed symbol used by
+Also check `PyAutoHands/autobuild/config/no_run.yaml` — a changed symbol used by
 a script listed there is a **hidden risk** (its release-pipeline integration
 test is disabled). Present a data-driven recommendation:
 
