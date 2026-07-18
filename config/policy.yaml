@@ -14,6 +14,7 @@ repo_aliases:
   pyautoconf: autoconf
   pyautogalaxy: autogalaxy
   pyautolens: autolens
+  pyautobuild: pyautohands  # back-compat: the Hands repo was renamed PyAutoBuild → PyAutoHands
 
 # Which body-map categories mean "library-flow" / "workspace-flow" /
 # "organism-infrastructure" to the sizing faculty; extra literal targets
