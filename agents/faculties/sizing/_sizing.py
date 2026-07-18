@@ -265,3 +265,52 @@ def estimate_difficulty(p: dict):
         "memory_context_required": bool(science),
     }
     return level, score, factors
+
+
+# --- runnable read-only entrypoint (parity with the other faculties) ---------
+# The heuristic above is a shared *substrate* imported by intake + feature; this
+# thin CLI lets a human (or `pyauto-brain sizing`) read the SizingSurface for one
+# prompt without dispatching anything. It writes nothing.
+
+
+def _main(argv=None):
+    import argparse
+    import json
+
+    ap = argparse.ArgumentParser(
+        description="Sizing faculty — the SizingSurface for one PyAutoMind prompt."
+    )
+    ap.add_argument("prompt", help="path to a PyAutoMind prompt (.md)")
+    ap.add_argument(
+        "--mind",
+        type=Path,
+        default=BODY_MAP_PATH.parent,
+        help="PyAutoMind root (defaults to the sibling checkout)",
+    )
+    ap.add_argument("--json", action="store_true", help="machine-readable output")
+    args = ap.parse_args(argv)
+
+    p = parse_prompt(Path(args.prompt).resolve(), args.mind.resolve())
+    level, score, factors = estimate_difficulty(p)
+    surface = {
+        "path": p["path"],
+        "work_type": p["work_type"],
+        "target": p["target"],
+        "repos": p["repos"],
+        "lines": p["lines"],
+        "words": p["words"],
+        "difficulty": {"level": level, "score": score, "factors": factors},
+    }
+    if args.json:
+        print(json.dumps(surface, indent=2))
+        return
+    print(f"SizingSurface: {p['path']}")
+    print(f"  work-type : {p['work_type']}")
+    print(f"  target    : {p['target']}")
+    print(f"  repos     : {', '.join(p['repos']) or '(none)'}")
+    print(f"  size      : {p['lines']} lines / {p['words']} words")
+    print(f"  difficulty: {level} (score {score})")
+
+
+if __name__ == "__main__":
+    _main()

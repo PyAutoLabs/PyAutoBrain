@@ -22,6 +22,7 @@ Canonical boundaries live in `PyAutoBrain/ORGANISM.md`; the full body map
 | **Heart** | PyAutoHeart | Health/readiness — the authoritative "is it safe to release?" verdict. |
 | **Memory** | PyAutoMemory | Long-term scientific/software/project knowledge (see science pointer below). |
 | **Gut** | PyAutoGut | Owns the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds it as durable, recoverable git refs through a transit window and voids it on a sweep. The storage mirror of Memory (retention vs release). |
+| **Nerves** | PyAutoConf | The Nerves — the configuration/serialization layer connecting workspace conventions to libraries (layered config, version handshake, test_mode), delivered as the `autoconf` package. |
 
 Call chain (always this order): **Brain → Heart (gate) → Build (execute)**. Brain agents are **conductors** (front-door; a human drives them; they decide *and* act) or **faculties** (read-only opinions the conductors consult; they judge and stop). New capability grows as a faculty, not a new organ, unless it owns state or effects no existing organ can.
 
@@ -95,139 +96,6 @@ Each agent is a directory with an `AGENTS.md` (what it reasons about + how to ru
 it) and a deterministic entrypoint script (`*.sh` / `*.py`) — the part CI and
 humans invoke identically, so behaviour isn't re-derived from prose each time.
 
-### Conductors
-
-- **`agents/conductors/intake/`** — the *Conception Agent*: turns raw input
-  (an idea, a bug report, an `ideas.md` bullet) into a formal PyAutoMind prompt
-  under `<work-type>/<target>/<name>.md` — classifies the work-type, resolves
-  the target, consults the sizing faculty and persists Difficulty/Autonomy/
-  Priority into the header, and emits an `IntakeDecision`. Files a prompt only;
-  never starts dev (the step *before* `create_issue`/`start_dev`).
-- **`agents/conductors/community/`** — the *Ears*: the organism's receptive
-  language function — it hears the community (user-filed GitHub issues across
-  every `repos.yaml` repo) and drafts what the organism says back; the human
-  remains the mouth. Wernicke to the Workspace Agent's Broca/Voice. Two
-  read-only modes: `scan` (open external issues + awaiting-response ranking —
-  also the `/wake_up` community sensory leg) and `triage <issue-ref>`
-  (context-sufficiency signals + clarifying-question seeds). The `/community`
-  session judges, drafts every outward reply for human approval, and routes
-  actionable work via `start_dev_for_user`; conversation state stays on
-  GitHub + `active.md`. Never posts, labels or writes anything.
-- **`agents/conductors/feature/`** — the *Growth Agent*: selects the next
-  PyAutoMind `feature/*` task (or plans a named one), estimates difficulty,
-  decides phasing, consults PyAutoMemory (and vitals for risky work), and emits
-  a `FeatureDecision` the `start_dev → ship_*` workflow consumes. Reasons only;
-  never edits source.
-- **`agents/conductors/bug/`** — the *Immune Agent*: classifies a bug,
-  regression, failing test or PyAutoHeart finding (severity/scope/type/
-  confidence), consults PyAutoMemory for recurring cases, decides **where the
-  fix belongs** (source-first; never degrade a user-facing workspace script),
-  and emits a `BugDecision` for `start_dev → ship_*`. Health mode reads the
-  live vitals verdict plus the filed Heart issues. Reuses the Feature Agent's
-  core; consults vitals, never Heart directly.
-- **`agents/conductors/refactor/`** — the *Renewal Agent*: plans
-  **behaviour-preserving** restructuring from `refactor/*` intent and emits a
-  `RefactorDecision` — invariant + witnessing test suites, a public-API guard
-  (suspect prompts re-route to `feature/`, never run at `safe`), and a
-  `candidates` miner over the backlog + `ideas.md` (files nothing; intake
-  formalises). The first conductor whose normal `--auto` mode is **`safe`**
-  (the `refactor` work-type cap in [`AUTONOMY.md`](AUTONOMY.md)). Reuses the
-  Feature Agent's core by import.
-- **`agents/conductors/workspace/`** — the *Voice*: the organism's expressive
-  function — how it speaks to practitioners (workspace examples) and teaches
-  first-time learners (the `howto` register). Reasons over workspace + HowTo
-  example authorship and emits a `WorkspaceDecision` — target repo, audience
-  register (`workspace`|`howto`), placement in the target's real `scripts/`
-  tree, the sibling example to mirror, prose tier, format checklist — that the
-  `start_dev → start_workspace → ship_workspace` flow consumes. A `survey`
-  mode inventories/diffs example catalogues (the newborn-workspace bootstrap
-  tool). One agent, two registers; the split trigger for a future HowTo agent
-  is recorded in its AGENTS.md. Decision-only: never edits source, never
-  writes files.
-- **`agents/conductors/eyes/`** — the *perceptive function*: the organism's
-  sense of its own appearance. Owns the render → present → critique →
-  delegate loop over a project's visualization surface via the gallery
-  contract (`scripts/<domain>/images/**` + `output/gallery/`; reference
-  instance `autolens_workspace_test`, epic #117). `survey` emits the
-  `EyesSurvey` (inventory, stale renders, never-rendered gaps, gallery
-  currency); `review` emits the `EyesReviewSurface` (ordered figure batches +
-  the critique-note schema mapping each accepted note to its edit surface:
-  workspace `config/visualize` yaml, library plot functions, producing
-  script, or data). Decision-only and repo-name-free in code (tenant
-  firewall): rendering stays in the workspace's `gallery_run.sh`; accepted
-  critiques route via intake → start_dev — it never edits plot source.
-- **`agents/conductors/profiling/`** — the *proprioceptive function*: the
-  organism's sense of its own effort. Heart reads the vitals at rest; this
-  agent runs the stress test — it owns the performance-data lifecycle with
-  `autolens_profiling` as its workspace. Three modes — `campaign` (diff the sweep grid against the
-  results tree, emit the tier's dispatch plan under the CPU-usability
-  policy), `ingest` (fresh probe JSONs → vram-table/pin/baseline plan) and
-  `triage` (classify Heart's `profiling_drift` findings: stale pin → re-pin;
-  library regression → `bug/` via intake). Reasons and delegates; never runs
-  sweeps or edits source; stdlib-only (reads the workspace via `ast`, never
-  imports it).
-- **`agents/conductors/build/`** — the executive function for execution work.
-  Consults the vitals faculty, reasons over the verdict, and on a healthy result
-  delegates to the appropriate PyAutoBuild capability. The canonical example of
-  the Brain coordinating *multiple* organs. Has `build` / `deploy` / `release`
-  modes — release is isolated as a mode now, with a clean seam to the release
-  conductor.
-- **`agents/conductors/release/`** — the release door and release-validation
-  orchestrator: `release rehearse` / `release validate` drive the TestPyPI
-  rehearsal and the full Stages 0–3 validation; plain `release` delegates the
-  readiness gate and execution to the Build Agent's release mode (one gate
-  implementation, not two).
-- **`agents/conductors/health/`** — the *clinician*: runs the health loop with
-  a human — assess (vitals) → triage → (on your go-ahead) dispatch a validation
-  leg → re-judge — until Heart goes GREEN. Delegates all dispatch to the
-  release conductor. Current scope is *validate + recommend*, checkpointing
-  every dispatch; edit-in fixes are an explicit follow-up. (Skeleton.)
-- **`agents/conductors/clone/`** — the *Mitosis Agent* (see its `DESIGN.md`):
-  analyzes how to reproduce a mature domain assistant (reference:
-  `autolens_assistant`) into a new specialised assistant cell — domain analysis,
-  template-boundary partition, a `CloneDecision` with an
-  exact-clone/sibling/seed question, generation delegated to Build, newborn
-  validation by Heart. Bare `clone` decides and writes nothing;
-  `--apply --mode lightweight-seed` hands the plan to Build's `clone_seed.py`,
-  which gives birth (private until Heart's publish gate). The other two clone
-  modes are v2 and refused.
-
-### Faculties
-
-- **`agents/faculties/vitals/`** — *reads the Heart's pulse*: adopts the
-  PyAutoHeart readiness verdict and explains it, mapping each reason to its
-  capability. The single component that talks to Heart; every conductor
-  consults it rather than querying Heart directly. Never dispatches or mutates.
-- **`agents/faculties/review/`** — *reviews the change*: prepares a feature
-  branch's ReviewSurface (diff, commits, risk flags) and defines the procedure
-  by which the reviewing agent maps it to a **CLEAN / FINDINGS / BLOCKED**
-  verdict — the automatic-review leg of the autonomous-ship gate
-  ([`AUTONOMY.md`](AUTONOMY.md)). Dev-workflow ship only: it never opines on
-  release readiness (Heart's, via vitals) and never fixes what it finds.
-- **`agents/faculties/memory/`** — *recalls what the organism knows*: given a
-  topic, returns a **cited digest** (ranked pages + snippets) over
-  PyAutoMemory's sub-wikis, `autolens_assistant`'s skills/wiki, and Mind's
-  `complete/` records. Grep-ranked at query time — no indexes, no layout
-  coupling, never a page dump; an empty digest is the honest answer. Privacy
-  seam: PyAutoMemory citations never reach public user-facing output.
-- **`agents/faculties/samplers/`** — *the motor faculty*: expertise in how the
-  organism moves through parameter space. Emits the **SamplerSurface** — an
-  inventory of the sampler script tiers (`searches_minimal` prototypes, the
-  removed-sampler archive, workspace_test integration scripts), the PyAutoFit
-  search catalogue, the minimal-tier benchmark record, and tier-gap findings —
-  and holds the judgment tables (sampler ↔ likelihood match, gradient/JAX
-  constraints, initialization chaining, promotion criteria). The
-  `skills/sampler_pipeline/` skill drives prototype → profile → promote with
-  this faculty's opinion; the science lives in `PyAutoMemory/methods_wiki`.
-  Never runs a sampler, never edits source.
-
-> **Build Agent vs. the release conductor — resolved.** The Build Agent's
-> release mode owns the **single** readiness-gate + execution path
-> (`build.sh --mode release` → `pre_build`). The release conductor owns
-> release-*validation* orchestration (`rehearse` / `validate`) and, for plain
-> releases, is a door that delegates through that mode. There is deliberately
-> no second gate implementation.
-
 New agents are added on **demonstrated need, never for symmetry**. Place by
 tier: a side-effecting decider you drive → `agents/conductors/<name>/`; a
 read-only opinion the conductors consult → `agents/faculties/<name>/`. Follow
@@ -236,6 +104,13 @@ deterministic entrypoint, and a capability audit of any organ it drives — the
 Feature Agent's `MIND_TAXONOMY.md` is that audit for the PyAutoMind/PyAutoMemory
 surface). Keep the conductor set small; prefer a faculty when the new thing
 only reasons.
+
+**Scaling invariant.** The per-agent roster is not maintained here. Adding an
+agent touches only `bin/pyauto-brain` (the registry) and the agent's own
+directory (`agents/<tier>/<name>/` with its `AGENTS.md` + entrypoint). The verb
+tables below are **generated** from that registry by
+`bin/install.sh --write-agents-surface` — never hand-edit this file's roster,
+and read each agent's own `AGENTS.md` for its full role.
 
 ## Running
 
@@ -278,6 +153,7 @@ the `/<verb>` slash commands.
 | `review` | Read-only: prepare the branch ReviewSurface — the reviewing agent maps it to CLEAN/FINDINGS/BLOCKED (the ship gate's review leg) | `bin/pyauto-brain review` |
 | `memory` | Read-only: recall what the organism knows — a cited digest over PyAutoMemory, autolens_assistant and Mind history | `bin/pyauto-brain memory` |
 | `samplers` | Read-only: the motor faculty — SamplerSurface digest over the sampler script tiers, the PyAutoFit search catalogue and the benchmark record | `bin/pyauto-brain samplers` |
+| `sizing` | Read-only: the SizingSurface — a difficulty estimate for a PyAutoMind prompt; the single heuristic the intake and feature conductors both consult | `bin/pyauto-brain sizing` |
 <!-- pyauto:commands:end -->
 
 Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install);
@@ -286,44 +162,22 @@ it resolves the sibling `pyauto-heart` and `autobuild` binaries from PATH or the
 
 ## The command surface (Brain implicit)
 
-The `bin/pyauto-brain <agent>` CLI above is the machinery; humans drive it through
-short verb commands in Claude Code or discoverable skills in Claude and Codex.
-The Brain stays **implicit** — you type a verb (or plain natural language) and
-the Brain routes it to the right agent; normal usage never says "PyAutoBrain".
-
-> **Users speak in short commands; PyAutoBrain performs the routing.**
-
-| Command | Routes to | Tier |
-|---------|-----------|------|
-| `/intake` | Intake Agent → files a PyAutoMind prompt (before `start_dev`) | real conductor |
-| `/community` | Community Agent → scan/triage user-filed issues → human-approved replies → `start_dev_for_user` | real conductor |
-| `/feature` | Feature Agent → `start_dev` | real conductor |
-| `/bug` | Bug Agent → `start_dev` (health mode → vitals + Heart issues) | real conductor |
-| `/build` | Build Agent → vitals → Heart → PyAutoBuild | real conductor |
-| `/health` | Health Agent loop → vitals → Heart | real conductor |
-| `/refactor` | Refactor Agent → `start_dev [--auto]` (default-safe) | real conductor |
-| `/workspace` | Workspace Agent → WorkspaceDecision → `start_dev` → `start_workspace` | real conductor |
-| `/eyes` | Eyes Agent → survey/render/review loop → accepted critiques file via `/intake` → `start_dev` | real conductor |
-| `/docs` `/research` | `start_dev` pre-tagged with the work-type | work-type entry* |
-| `/route <text>` | infers the work-type and dispatches to one of the above | NL router |
-| `/wake_up` | sync + clean-slate (local) + gh-API glance (overnight runs, version drift, resume) + `/health`/`/hygiene` → digest; CLI + mobile/codex | composition door |
-| `/brain <agent>` | raw `bin/pyauto-brain` passthrough | debug door |
-
-\* No dedicated Docs/Research conductor exists — those verbs route through the
-Brain dev-flow with their PyAutoMind work-type fixed (still through the Brain,
-nothing bypassed). A dedicated conductor is added only on demonstrated need,
-never for symmetry — the Refactor Agent earned its promotion via the `ideas.md`
-backlog bullet, the skill's own recorded follow-up, and the autonomy series;
-the Workspace Agent earned its via the recurring post-library example work and
-the `autoreduce_workspace` birth (`/docs` remains the generic docs entry —
-workspace/HowTo *example authorship* specifically routes via `/workspace`).
-Every command routes **through** the Brain; none replaces it.
+The verb table above is the machinery; humans drive it through short commands
+(`/intake`, `/feature`, …) in Claude Code, or discoverable skills in Claude and
+Codex. The Brain stays **implicit** — you type a verb, or plain natural language
+via `/route`, and it routes to the right agent; normal usage never says
+"PyAutoBrain". A few commands are compositions rather than single agents:
+`/docs` and `/research` route through the dev-flow with their PyAutoMind
+work-type fixed (no dedicated conductor — added only on demonstrated need, never
+for symmetry); `/wake_up` composes sync + `/health` + `/hygiene`; `/brain
+<agent>` is the raw passthrough. Every command routes **through** the Brain;
+none replaces it.
 
 The command bodies live in `skills/<verb>/<verb>.md`; thin `SKILL.md` wrappers
 make the same canonical workflows discoverable to skill-aware harnesses.
 `bin/install.sh` installs both surfaces without duplicating their bodies. Shared
-architecture prose is in [`skills/COMMANDS.md`](skills/COMMANDS.md). The
-work-type taxonomy the router and work-type entries use is `PyAutoMind/ROUTING.md`.
+architecture prose is in [`skills/COMMANDS.md`](skills/COMMANDS.md); the
+work-type taxonomy the router uses is `PyAutoMind/ROUTING.md`.
 
 <!-- repos_sync:history:begin -->
 ## Never rewrite history
