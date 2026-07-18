@@ -113,7 +113,7 @@ on-demand only (never the default scan, never a Heart tick).
   Consults the vitals faculty; never issues a health verdict.
 - **vs bug / refactor** — hygiene finds and prioritises debt and *delegates* the
   fix to them; they own the repair.
-- **vs build** — hygiene is upkeep, not release; it never touches PyAutoBuild.
+- **vs build** — hygiene is upkeep, not release; it never touches PyAutoHands.
 - **vs Gut (PyAutoGut)** — the `tidy`/`sweep` modes are the **hygiene → PyAutoGut
   drive seam**, mirroring the **Heart ↔ vitals** template: the organ *holds and
   voids*, this conductor *decides what to condemn and when to sweep* and owns none

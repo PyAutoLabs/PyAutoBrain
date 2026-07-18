@@ -1,7 +1,7 @@
 # Contributing
 
 The PyAutoScientist organs (PyAutoBrain, PyAutoMind, PyAutoHeart,
-PyAutoBuild, PyAutoMemory) are a **living reference implementation** — the
+PyAutoHands, PyAutoMemory) are a **living reference implementation** — the
 maintainer's daily working system, not a stable library.
 
 What that means in practice:

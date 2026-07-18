@@ -1,7 +1,7 @@
 """agents/conductors/release/activity_gate.py — the nightly activity gate.
 
 Pure decision logic for the scheduled-nightly release driver (nightly.sh),
-implementing design §4 of ``PyAutoBuild/docs/nightly_release_design.md``:
+implementing design §4 of ``PyAutoHands/docs/nightly_release_design.md``:
 
     qualifying activity = at least one commit on ``main``, in any of the
     release-relevant repos, since the last nightly outcome, that is not a

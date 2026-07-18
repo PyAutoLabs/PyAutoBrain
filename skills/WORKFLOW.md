@@ -27,7 +27,7 @@ skill never re-implements another organ's job.
 start_dev      →  Brain Feature Agent  →  Mind task  +  Memory context  →  plan  →  start_library/start_workspace
 ship_library   →  Brain dev-workflow   →  Brain vitals faculty  →  Heart (GREEN/YELLOW/RED)  →  commit / push / feature-PR
 ship_workspace →  Brain dev-workflow   →  Brain vitals faculty  →  Heart  →  commit / push / feature-PR
-release (later)→  Brain Build/Release Agent  →  Brain vitals faculty  →  Heart  →  PyAutoBuild (tag / notebooks / PyPI)
+release (later)→  Brain Build/Release Agent  →  Brain vitals faculty  →  Heart  →  PyAutoHands (tag / notebooks / PyPI)
 ```
 
 `ship_*` is **feature-development** work: the commit/push/feature-PR is the dev

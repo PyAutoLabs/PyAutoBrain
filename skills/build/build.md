@@ -2,7 +2,7 @@
 
 Route execution work through PyAutoBrain's **Build Agent**: it consults the
 read-only vitals faculty (→ Heart) and, only on a healthy verdict, delegates the
-building to PyAutoBuild. It decides *whether / what* to build; it does not build.
+building to PyAutoHands. It decides *whether / what* to build; it does not build.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
@@ -14,5 +14,5 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 - Surface the vitals verdict: **GREEN** → proceed; **YELLOW** → proceed only with
   explicit user acknowledgement; **RED** → stop and report.
 
-The Brain decides and PyAutoBuild executes — never re-derive the readiness gate
+The Brain decides and PyAutoHands executes — never re-derive the readiness gate
 here (that is Heart's, read via the vitals faculty).

@@ -1,7 +1,7 @@
 """tests/test_activity_gate.py — the nightly activity gate's decision logic.
 
 Pins the pipeline self-commit contract (design §4 of
-PyAutoBuild/docs/nightly_release_design.md): both exclusion signals are
+PyAutoHands/docs/nightly_release_design.md): both exclusion signals are
 pipeline-controlled, so a drift in release.yml's git identity or commit
 message prefix fails here instead of silently re-counting releases as
 activity.

@@ -64,7 +64,7 @@ rather than duplicating it:
 
 - the **sibling example script** the decision names — structure is copied from
   a living example, never invented;
-- **PyAutoBuild's notebook generation** — every top-level docstring becomes a
+- **PyAutoHands's notebook generation** — every top-level docstring becomes a
   markdown cell, which is what makes the docstring format load-bearing;
 - **`skills/WORKFLOW.md` tutorial-prose split** — example/howto prose is
   judgment-tier (the docstrings are the product); `*_workspace_test` scripts

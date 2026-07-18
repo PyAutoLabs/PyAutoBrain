@@ -84,8 +84,8 @@ REPO_DISPLAY = {
     "autoconf": "PyAutoConf", "autofit": "PyAutoFit", "autoarray": "PyAutoArray",
     "autogalaxy": "PyAutoGalaxy", "autolens": "PyAutoLens",
     "pyautomind": "PyAutoMind", "pyautobrain": "PyAutoBrain",
-    "pyautoheart": "PyAutoHeart", "pyautobuild": "PyAutoBuild",
-    "pyautomemory": "PyAutoMemory", "autobuild": "PyAutoBuild",
+    "pyautoheart": "PyAutoHeart", "pyautobuild": "PyAutoHands",
+    "pyautomemory": "PyAutoMemory", "autobuild": "PyAutoHands",
     "workspaces": "workspaces",
 }
 PRIORITY_HIGH = ["urgent", "asap", "blocker", "blocking", "critical", "important",

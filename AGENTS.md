@@ -3,7 +3,7 @@
 This file is for AI coding agents (Claude Code, Codex, Cursor, etc.) and humans
 discovering this repository. It is the canonical description of PyAutoBrain — the
 **reasoning layer** of the PyAuto organism — and of the Brain / Heart / Build
-boundary; PyAutoBuild and PyAutoHeart point back here.
+boundary; PyAutoHands and PyAutoHeart point back here.
 
 ## The organism map
 
@@ -18,7 +18,7 @@ Canonical boundaries live in `PyAutoBrain/ORGANISM.md`; the full body map
 |-------|------|------|
 | **Mind** | PyAutoMind | Intent, goals, priorities, workflow state; every task starts as a markdown prompt here. |
 | **Brain** | PyAutoBrain | Reasoning/orchestration layer; how work is decomposed and routed; the specialist agents. |
-| **Hands** | PyAutoBuild | Packaging, tagging, notebook generation, PyPI release execution. |
+| **Hands** | PyAutoHands | Packaging, tagging, notebook generation, PyPI release execution. |
 | **Heart** | PyAutoHeart | Health/readiness — the authoritative "is it safe to release?" verdict. |
 | **Memory** | PyAutoMemory | Long-term scientific/software/project knowledge (see science pointer below). |
 | **Gut** | PyAutoGut | Owns the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds it as durable, recoverable git refs through a transit window and voids it on a sweep. The storage mirror of Memory (retention vs release). |
@@ -40,7 +40,7 @@ the right points.
 
 PyAutoBrain owns **no state, no health checks, and no execution mechanics**. It
 only *reasons* and *delegates*: it asks PyAutoHeart whether the organism is
-healthy, decides whether and how to proceed, and tells PyAutoBuild to execute
+healthy, decides whether and how to proceed, and tells PyAutoHands to execute
 when it should.
 
 ## The organism
@@ -141,7 +141,7 @@ the `/<verb>` slash commands.
 | `profiling` | The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision | `bin/pyauto-brain profiling` |
 | `hygiene` | The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision | `bin/pyauto-brain hygiene` |
 | `clone` | The Mitosis Agent: partition the reference assistant, analyze the domain, emit the CloneDecision; --apply --mode lightweight-seed delegates the seed birth to Build | `bin/pyauto-brain clone` |
-| `build` | Coordinate execution: consult the vitals faculty, then delegate to PyAutoBuild | `bin/pyauto-brain build` |
+| `build` | Coordinate execution: consult the vitals faculty, then delegate to PyAutoHands | `bin/pyauto-brain build` |
 | `release` | Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation; 'release nightly' is the scheduled-nightly driver | `bin/pyauto-brain release` |
 | `health` | The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green | `bin/pyauto-brain health` |
 

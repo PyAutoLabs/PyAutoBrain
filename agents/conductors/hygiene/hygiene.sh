@@ -53,7 +53,7 @@ source "$HERE/../../_common.sh"
 # canonical checkouts there, never the worktree symlinks.
 ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
 LIB_REPOS=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
-ORG_REPOS=(PyAutoBrain PyAutoBuild PyAutoHeart PyAutoMind)
+ORG_REPOS=(PyAutoBrain PyAutoHands PyAutoHeart PyAutoMind)
 DOC_REPOS=(PyAutoFit PyAutoGalaxy PyAutoLens)
 
 # PyAutoGut drive seam (tidy/sweep). The conductor DECIDES and emits a plan; the

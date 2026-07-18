@@ -96,7 +96,7 @@ def _cd_target(tokens: list[str], cur: Path | None) -> Path | None:
     """New effective cwd after a ``cd`` clause, or ``cur`` if not a plain cd.
 
     Honouring a leading ``cd`` is what fixes the v1.1 false positive: a command
-    that ``cd``s into PyAutoBuild before committing is NOT a Mind commit, even
+    that ``cd``s into PyAutoHands before committing is NOT a Mind commit, even
     when the session's ambient cwd (what the hook is handed) is PyAutoMind.
     """
     if not tokens or tokens[0] != "cd":
@@ -144,7 +144,7 @@ def check_command(command: str, cwd: str = "") -> str | None:
                 target_dir = cpath if cpath.is_absolute() or effective_cwd is None else effective_cwd / cpath
         mind_root = _under_mind(target_dir) if target_dir else None
         if mind_root is None:
-            continue  # not a PyAutoMind commit — e.g. a PyAutoBuild worktree
+            continue  # not a PyAutoMind commit — e.g. a PyAutoHands worktree
         root = mind_root
         if "--" not in tokens:
             return (

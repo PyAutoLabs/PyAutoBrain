@@ -106,7 +106,7 @@ intent      → PyAutoMind   (feature/* prompts, active/planned/queue state)
 reasoning   → PyAutoBrain  (Feature Agent — this)
 knowledge   → PyAutoMemory (via direct file reads; cited, never invented)
 health      → PyAutoHeart  (via the vitals faculty, never queried directly)
-execution   → PyAutoBuild  (via start_dev / ship_* — never run by this agent)
+execution   → PyAutoHands  (via start_dev / ship_* — never run by this agent)
 ```
 
 No execution, health-checking, or knowledge-authoring logic lives in the Feature

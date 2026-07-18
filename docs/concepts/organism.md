@@ -12,7 +12,7 @@ it and adds the framework/instance distinction an adopter needs.
 | **Mind** | PyAutoMind | Decides *what* — intent, goals, priorities, workflow state, the prompt registry, and the body map (`repos.yaml`). |
 | **Brain** | PyAutoBrain | Figures out *how* — reasoning, planning, routing; hosts the specialist agents. Owns no state, no health checks, no execution mechanics. |
 | **Heart** | PyAutoHeart | Decides whether the organism is *healthy*. `pyauto-heart readiness` is the authoritative GREEN/YELLOW/RED release gate. An observer: never writes into other repos, never triggers a build. |
-| **Hands** | PyAutoBuild | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
+| **Hands** | PyAutoHands | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
 | **Memory** | PyAutoMemory | *Knows* — long-term domain knowledge: literature wikis, concepts, bibliographies. Pull-only; consulted, never load-bearing at runtime. |
 | **Gut** | PyAutoGut | *Sheds* — the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds each as a durable, recoverable git ref through a transit window, then **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 

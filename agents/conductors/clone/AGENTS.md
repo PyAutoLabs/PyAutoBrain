@@ -1,7 +1,7 @@
 # Clone Agent (the Mitosis Agent)
 
 > **Tier: conductor** — a front-door agent you *drive*. It decides **and**
-> delegates execution to PyAutoBuild. Bare `clone` is decision only: it emits
+> delegates execution to PyAutoHands. Bare `clone` is decision only: it emits
 > a CloneDecision and writes nothing. **`--apply --mode lightweight-seed` is
 > live** — it hands a generation plan to Build's `clone_seed.py`, which gives
 > birth; `exact-clone` and `differentiated-sibling` remain v2 and are refused.

@@ -23,7 +23,7 @@ ROOTS=(
   "$PYAUTO_ROOT/PyAutoMind/skills"
   "$PYAUTO_ROOT/PyAutoBrain/skills"
   "$PYAUTO_ROOT/PyAutoHeart/skills"
-  "$PYAUTO_ROOT/PyAutoBuild/skills"
+  "$PYAUTO_ROOT/PyAutoHands/skills"
   "$PYAUTO_ROOT/autolens_profiling/skills"
 )
 

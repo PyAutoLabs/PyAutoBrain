@@ -24,7 +24,7 @@ the reference.
 ```
 library + workspace [+ HowTo] + reference assistant
         →  Clone Agent  →  CloneDecision (dry run, always first)
-        →  --apply      →  PyAutoBuild executes repo creation + file generation
+        →  --apply      →  PyAutoHands executes repo creation + file generation
         →  PyAutoHeart validates the newborn assistant
 ```
 
@@ -32,7 +32,7 @@ library + workspace [+ HowTo] + reference assistant
 
 **The Clone Agent reasons about reproduction; it never gives birth itself.**
 It inspects, partitions, and plans — emitting a `CloneDecision` — and on
-`--apply` hands the generation plan to PyAutoBuild. It writes no repo, no
+`--apply` hands the generation plan to PyAutoHands. It writes no repo, no
 file, no GitHub state of its own. A clone is never an unreviewed act: the
 human answers the clone-mode question before anything is generated.
 
@@ -42,7 +42,7 @@ human answers the clone-mode question before anything is generated.
 |-------|-----------------|
 | **PyAutoMind** | stores the *intent* — the prompt that asks for the new assistant |
 | **PyAutoBrain** (this agent) | inspects the domain, partitions template vs domain content, plans — the `CloneDecision` |
-| **PyAutoBuild** (the Hands) | executes: repo creation, file generation, initial commit/push |
+| **PyAutoHands** (the Hands) | executes: repo creation, file generation, initial commit/push |
 | **PyAutoHeart** | validates the result — the newborn's own symbol audit, link sweep, wiki-currency, chat-surface smoke |
 | **PyAutoMemory** | supplies reusable architectural knowledge (assistant anatomy, prior CloneDecisions) — cited in the Decision, **never** copied into the public assistant (the privacy seam) |
 
@@ -108,7 +108,7 @@ What the partition means per set, for every clone mode:
 | Mode | Command | What it does |
 |------|---------|--------------|
 | **analyze** (default) | `clone <library> --workspace <repo> [--howto <repo>] [--reference <repo>]` | full dry run: domain analysis + partition + plan → CloneDecision; writes nothing |
-| **apply** | `clone --apply …` | after the human confirms the clone mode: hand the generation plan to PyAutoBuild, post the CloneDecision to the tracking issue |
+| **apply** | `clone --apply …` | after the human confirms the clone mode: hand the generation plan to PyAutoHands, post the CloneDecision to the tracking issue |
 | **audit** | `clone audit <assistant>` | re-partition an *existing* assistant against the current reference — drift report for already-born siblings |
 
 Writes only under `--apply`, and even then only via Build. Exit codes follow
@@ -121,7 +121,7 @@ bad usage).
    partition, generation plan, CloneDecision. No writer at all. Proves the
    reasoning on `PyAutoFit → autofit_assistant` as the dry-run case study.
 2. **v1 — seed births. SHIPPED.** `--apply` for **lightweight-seed** via a
-   PyAutoBuild primitive (`autobuild/clone_seed.py`: repo creation + generic-set
+   PyAutoHands primitive (`autobuild/clone_seed.py`: repo creation + generic-set
    copy + scaffolds + the `PENDING.md` growth queue). Heart gained the
    newborn-validation checklist (`PyAutoHeart/docs/newborn_validation.md`).
 3. **v2 — differentiated siblings.** Skill/wiki regeneration from the domain

@@ -1,9 +1,9 @@
-# PyAutoBuild capabilities known to the Build Agent
+# PyAutoHands capabilities known to the Build Agent
 
 This audit records the execution surface the PyAutoBrain Build Agent reasons over
-and **calls**. The agent must treat every item here as a PyAutoBuild capability,
+and **calls**. The agent must treat every item here as a PyAutoHands capability,
 not as logic to reimplement inside Brain. Source of truth: the `autobuild`
-dispatcher (`PyAutoBuild/bin/autobuild`) and `PyAutoBuild/CLAUDE.md`.
+dispatcher (`PyAutoHands/bin/autobuild`) and `PyAutoHands/CLAUDE.md`.
 
 ## Execution capabilities (the Build Agent calls these)
 
@@ -32,7 +32,7 @@ capabilities still *exist* and match the `autobuild` dispatcher and the
 `build.sh` allowlists exactly; the *Mode* column remains accurate as the
 allowlist of record. What changed is the driver. The workspace full-run →
 report → issue flow moved **out of `release.yml` into PyAutoHeart's
-`workspace-validation.yml`** (see `PyAutoBuild/docs/internals.md` and the
+`workspace-validation.yml`** (see `PyAutoHands/docs/internals.md` and the
 `release.yml` comment recording the removed `run_scripts` / `run_notebooks` /
 `analyze_results` jobs). Heart checks these primitives out from Build and reuses
 them directly — calling `run.py` / `run_python.py` / `script_matrix.py` /
@@ -50,8 +50,8 @@ per-workspace `config/build/{no_run,env_vars,copy_files,visualise_notebooks}.yam
 
 ## Boundary audit — execution vs. health
 
-PyAutoBuild is meant to be a **pure executor**: it runs no readiness checks of
-its own. Confirmed against `PyAutoBuild/CLAUDE.md` ("PyAutoBuild is the executor
+PyAutoHands is meant to be a **pure executor**: it runs no readiness checks of
+its own. Confirmed against `PyAutoHands/CLAUDE.md` ("PyAutoHands is the executor
 … it runs **no** release-readiness checks of its own").
 
 It does, however, still expose **health-shim commands** that delegate to the
@@ -65,32 +65,32 @@ health authority (PyAutoHeart):
 **refuses to route them** and points the caller at `pyauto-brain vitals <cmd>`
 instead. They belong to PyAutoHeart and are reached through the vitals faculty —
 never re-owned by the Build Agent, and never duplicated in Brain. No non-trivial
-readiness logic was found living *inside* PyAutoBuild itself (the shims only
+readiness logic was found living *inside* PyAutoHands itself (the shims only
 delegate); if any ever appears, migrate it to PyAutoHeart and leave only
-delegation in PyAutoBuild.
+delegation in PyAutoHands.
 
 This keeps the architecture clean:
 
 ```
 reasoning  → PyAutoBrain (Build Agent, vitals faculty)
 health     → PyAutoHeart (via the vitals faculty)
-execution  → PyAutoBuild (via the Build Agent)
+execution  → PyAutoHands (via the Build Agent)
 ```
 
 ## Naming resilience
 
-PyAutoBuild has been renamed onto the canonical **PyAutoHeart** / **PyAutoBrain**
+PyAutoHands has been renamed onto the canonical **PyAutoHeart** / **PyAutoBrain**
 names (the earlier **PyAutoPulse** / **PyAutoAgent** usages are gone). Regardless,
 the Build Agent reasons about *categories of capability* (execution vs. health),
-not fixed names, so any future rename in PyAutoBuild does not break it. When
-PyAutoBuild gains or renames an execution subcommand, update the table above; do
+not fixed names, so any future rename in PyAutoHands does not break it. When
+PyAutoHands gains or renames an execution subcommand, update the table above; do
 not encode the list anywhere the agent must re-derive at runtime beyond the
 per-mode allowlists in
 `build.sh`.
 
 ## Build Agent decision policy (recap)
 
-- **GREEN** — proceed; invoke the requested PyAutoBuild capability.
+- **GREEN** — proceed; invoke the requested PyAutoHands capability.
 - **YELLOW** — build mode proceeds with a warning; deploy/release require
   `--force`. An unknown verdict is treated as YELLOW.
 - **RED** — abort; surface Heart's blockers (via the vitals faculty) and do not

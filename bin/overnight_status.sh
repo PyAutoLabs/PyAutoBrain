@@ -16,7 +16,7 @@ JOBS=(
   "PyAutoBrain:nightly-release.yml"
   "PyAutoHeart:heart-health.yml"
   "PyAutoHeart:workspace-validation.yml"
-  "PyAutoBuild:python_matrix.yml"
+  "PyAutoHands:python_matrix.yml"
   "PyAutoMind:arxiv_papers.yml"
   "PyAutoMind:spawn_drift.yml"
   "autolens_assistant:wiki-currency.yml"

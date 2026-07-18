@@ -38,7 +38,7 @@ readiness gate, or execution — those belong to the organs.
 | `/eyes` | Eyes Agent | `bin/pyauto-brain eyes` → survey/review a visualization workspace's figures; render via its `gallery_run.sh`; accepted critiques → `/intake` → `start_dev` |
 | `/profiling` | Profiling Agent | `bin/pyauto-brain profiling` → campaign/ingest/triage plans over the autolens_profiling workspace |
 | `/hygiene` | Hygiene Agent | `bin/pyauto-brain hygiene` → perf/tidy/noise/deps/docs upkeep plans; delegates fixes to refactor/bug/feature (modes staged) |
-| `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoBuild |
+| `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoHands |
 | `/health` | Health Agent | `bin/pyauto-brain health` loop → vitals faculty → Heart → GREEN |
 
 **2. Work-type entries** — no dedicated conductor exists **yet**, so these route

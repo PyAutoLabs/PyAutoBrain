@@ -43,7 +43,7 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../../_common.sh"
 
 # The Build repo + workflow the rehearsal is dispatched against (M1).
-BUILD_REPO="PyAutoLabs/PyAutoBuild"
+BUILD_REPO="PyAutoLabs/PyAutoHands"
 RELEASE_WORKFLOW="release.yml"
 REHEARSAL_ARTIFACT="testpypi-rehearsal-version"
 # The 5 libraries whose main HEADs the rehearsal is built from; readiness

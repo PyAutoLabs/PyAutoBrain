@@ -1,25 +1,25 @@
 # Build agent
 
 > **Tier: conductor** — a front-door agent you *drive*. It decides *whether/what*
-> to build and drives execution, delegating the *building* to PyAutoBuild and the
+> to build and drives execution, delegating the *building* to PyAutoHands and the
 > *health decision* to the read-only vitals faculty. It acts; it does not measure.
 
 The second canonical **PyAutoBrain** reasoning agent, and the reference example
 of how the Brain coordinates *multiple* organs. It is the executive function for
 execution work: it owns the build *workflow* but delegates the *building* to
-PyAutoBuild and the *health decision* to the vitals faculty.
+PyAutoHands and the *health decision* to the vitals faculty.
 
 ```
 Mind  →  Build Agent  →  vitals faculty  →  Heart  →  GREEN/YELLOW/RED
-                      →  Build Agent  →  PyAutoBuild (execute)
+                      →  Build Agent  →  PyAutoHands (execute)
 ```
 
 ## Fundamental principle
 
-**The Build Agent does not build software itself — PyAutoBuild does.** The Build
+**The Build Agent does not build software itself — PyAutoHands does.** The Build
 Agent decides *whether* building should happen, *what* to build, *which*
-PyAutoBuild capability to invoke, and *whether to proceed or stop*. It reasons;
-PyAutoBuild executes. It must never duplicate PyAutoBuild functionality.
+PyAutoHands capability to invoke, and *whether to proceed or stop*. It reasons;
+PyAutoHands executes. It must never duplicate PyAutoHands functionality.
 
 ## Brain agents consult one another
 
@@ -32,12 +32,12 @@ tree is fit for a refactor; a Release Agent asking the Build Agent to package.
 
 ## Modes (one agent now, clean seam for a Release Agent later)
 
-Release is in scope today because PyAutoBuild currently owns release/build/deploy
+Release is in scope today because PyAutoHands currently owns release/build/deploy
 execution. It is isolated as its own **mode** so release-specific reasoning never
 bleeds into generic build execution, and can split into a dedicated Release Agent
 later with no churn to build mode.
 
-| Mode | Default action | Gate policy | Routes to (PyAutoBuild) |
+| Mode | Default action | Gate policy | Routes to (PyAutoHands) |
 |------|----------------|-------------|--------------------------|
 | `build` | `run_all` | lenient — GREEN/YELLOW proceed, RED aborts | `generate`, `run`, `run_python`, `run_all`, `script_matrix`, `aggregate_results`, `slow_skip_check`, `repro_command`, `bump_colab_urls` |
 | `deploy` | `generate` | cautious — GREEN proceeds, YELLOW needs `--force`, RED aborts | `generate`, `bump_colab_urls` |
@@ -55,7 +55,7 @@ An **unknown** verdict collapses to YELLOW — never silently GREEN.
 3. Consult the vitals faculty for the readiness verdict.
 4. Interpret it: **GREEN** proceed · **YELLOW** caution (proceed in build mode,
    else `--force`) · **RED** abort with blockers.
-5. Invoke the appropriate PyAutoBuild capability.
+5. Invoke the appropriate PyAutoHands capability.
 6. Emit a structured `BuildDecision`.
 
 ## Run
@@ -69,7 +69,7 @@ bin/pyauto-brain build --mode deploy --force generate
 bin/pyauto-brain build --mode release -- 2   # release mode; forward minor_version 2 to pre_build
 ```
 
-Anything after `--` is forwarded verbatim to the PyAutoBuild subcommand.
+Anything after `--` is forwarded verbatim to the PyAutoHands subcommand.
 
 Exit codes: `0` proceeded/delegated (or dry-run) · `2` yellow blocked (use
 `--force`) · `3` red blocked · `4` unknown/could-not-consult · `5` invalid
@@ -83,7 +83,7 @@ mode/action.
 {
   "agent": "build",
   "mode": "build|deploy|release",
-  "requested_action": "<PyAutoBuild capability>",
+  "requested_action": "<PyAutoHands capability>",
   "health_status": "green|yellow|red|unknown",
   "decision": "proceed|proceed-with-caution|abort",
   "execution_plan": ["autobuild <action> <args>"],
@@ -99,7 +99,7 @@ A future Python `BuildAgent().execute(...)` wrapper can return this same shape.
 
 ## What this agent must never do
 
-- Build, package, tag, or publish anything itself — that is PyAutoBuild's job.
+- Build, package, tag, or publish anything itself — that is PyAutoHands's job.
 - Query PyAutoHeart directly or re-derive a readiness verdict — consult the
   vitals faculty.
 - Re-own a health-shim command (`verify_install`, `url_check`, `watch`, `status`,
@@ -108,4 +108,4 @@ A future Python `BuildAgent().execute(...)` wrapper can return this same shape.
   release mode.
 
 See [`BUILD_CAPABILITIES.md`](./BUILD_CAPABILITIES.md) for the audit of every
-PyAutoBuild capability the agent calls, and the execution/health boundary.
+PyAutoHands capability the agent calls, and the execution/health boundary.

@@ -14,10 +14,10 @@
 #   - PyAutoMind/skills/    — registry-coupled skills (create_issue, handoff)
 #   - PyAutoBrain/skills/   — development-workflow skills (start_*/ship_*/…)
 #   - PyAutoHeart/skills/   — status / readiness / diagnostic skills
-#   - PyAutoBuild/skills/   — release-execution skills ONLY (pre_build)
+#   - PyAutoHands/skills/   — release-execution skills ONLY (pre_build)
 #   - autolens_profiling/skills/ — science-profiling skills (profile_likelihood)
 #
-# (PyAutoBuild's root is for its own release/packaging-execution skills only — it
+# (PyAutoHands's root is for its own release/packaging-execution skills only — it
 #  owns NO dev-workflow skills; the ship_* skills merely call its release step.)
 #
 # Auto-discovers surfaces in each root independently:
@@ -53,7 +53,7 @@ ADMIN_SKILLS_DIR="$PYAUTO_ROOT/admin_jammy/skills"
 MIND_SKILLS_DIR="$PYAUTO_ROOT/PyAutoMind/skills"
 BRAIN_SKILLS_DIR="$PYAUTO_ROOT/PyAutoBrain/skills"
 HEART_SKILLS_DIR="$PYAUTO_ROOT/PyAutoHeart/skills"
-BUILD_SKILLS_DIR="$PYAUTO_ROOT/PyAutoBuild/skills"
+BUILD_SKILLS_DIR="$PYAUTO_ROOT/PyAutoHands/skills"
 PROFILING_SKILLS_DIR="$PYAUTO_ROOT/autolens_profiling/skills"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -67,7 +67,7 @@ CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 # are skipped, so this runs in a partial/web checkout.
 COMMANDS_BEGIN="<!-- pyauto:commands:begin -->"
 COMMANDS_END="<!-- pyauto:commands:end -->"
-ORGAN_REPOS=(PyAutoMind PyAutoBrain PyAutoHeart PyAutoBuild PyAutoMemory)
+ORGAN_REPOS=(PyAutoMind PyAutoBrain PyAutoHeart PyAutoHands PyAutoMemory)
 
 # Emit the canonical command-surface block (identical in every organ) to stdout,
 # sourced from the agent registry in bin/pyauto-brain — the single source of
@@ -185,7 +185,7 @@ check_agents_surface() {
 # is checked out. The AGENTS.md command surface (above) still advertises the full
 # verb set + hosting organ. Generated + drift-checked — do not hand-edit these
 # dirs. Symlinks (single source = skills/), matching the user-level install.
-DISCOVERY_REPOS=(PyAutoMind PyAutoBrain PyAutoHeart PyAutoBuild autolens_profiling)
+DISCOVERY_REPOS=(PyAutoMind PyAutoBrain PyAutoHeart PyAutoHands autolens_profiling)
 DISCOVERY_DIRS=(.claude/commands .claude/skills .codex/skills)
 
 # Emit the (link<TAB>target) pairs a repo's committed discovery should contain,
@@ -385,7 +385,7 @@ install_from_dir "$ADMIN_SKILLS_DIR" "admin_jammy/skills/ — vestigial (hosts n
 install_from_dir "$MIND_SKILLS_DIR"  "PyAutoMind/skills/ — registry-coupled skills (Mind)"
 install_from_dir "$BRAIN_SKILLS_DIR" "PyAutoBrain/skills/ — development-workflow skills (Brain)"
 install_from_dir "$HEART_SKILLS_DIR" "PyAutoHeart/skills/ — status / readiness skills (Heart)"
-install_from_dir "$BUILD_SKILLS_DIR" "PyAutoBuild/skills/ — release-execution skills (Hands)"
+install_from_dir "$BUILD_SKILLS_DIR" "PyAutoHands/skills/ — release-execution skills (Hands)"
 install_from_dir "$PROFILING_SKILLS_DIR" "autolens_profiling/skills/ — science-profiling skills"
 
 # ---------- Summary ----------

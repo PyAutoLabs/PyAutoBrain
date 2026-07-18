@@ -113,13 +113,13 @@ def test_bare_commit_still_denied_in_compound_with_quotes(tmp_path):
     assert check_command(cmd) is not None
 
 
-# --- v1.2: honour a `cd` away from Mind (false positive on a PyAutoBuild commit) ---
+# --- v1.2: honour a `cd` away from Mind (false positive on a PyAutoHands commit) ---
 def test_cd_to_other_repo_before_commit_is_allowed():
     # The 2026-07-17 false positive: session cwd was PyAutoMind (what the hook
-    # is handed) but the command cd's to a PyAutoBuild worktree first. That is
+    # is handed) but the command cd's to a PyAutoHands worktree first. That is
     # NOT a Mind commit — a bare `git commit` there is fine.
     r = check_command(
-        'cd /home/x/wt/PyAutoBuild && git add a && git commit -m "m"',
+        'cd /home/x/wt/PyAutoHands && git add a && git commit -m "m"',
         cwd="/home/x/PyAutoMind",
     )
     assert r is None
@@ -127,7 +127,7 @@ def test_cd_to_other_repo_before_commit_is_allowed():
 
 def test_git_dash_C_to_other_repo_from_mind_cwd_is_allowed():
     r = check_command(
-        'git -C /home/x/wt/PyAutoBuild commit -m "m"', cwd="/home/x/PyAutoMind"
+        'git -C /home/x/wt/PyAutoHands commit -m "m"', cwd="/home/x/PyAutoMind"
     )
     assert r is None
 
@@ -141,6 +141,6 @@ def test_cd_into_mind_then_bare_commit_still_denied():
 
 def test_git_dash_C_into_mind_from_other_cwd_still_denied():
     r = check_command(
-        'git -C /home/x/PyAutoMind commit -m "m"', cwd="/home/x/wt/PyAutoBuild"
+        'git -C /home/x/PyAutoMind commit -m "m"', cwd="/home/x/wt/PyAutoHands"
     )
     assert r is not None
