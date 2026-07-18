@@ -33,6 +33,8 @@
 #   pyauto-brain memory  [args]   (faculty)   read-only: cited digest over the knowledge surfaces
 #   pyauto-brain samplers [args]  (faculty)   read-only: the SamplerSurface — sampler script tiers,
 #                                 PyAutoFit search catalogue, benchmark record, tier gaps
+#   pyauto-brain sizing  [args]   (faculty)   read-only: the SizingSurface — difficulty estimate for
+#                                 a PyAutoMind prompt (the heuristic intake + feature both consult)
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Renamed from `pyauto-agent`; the former back-compat shim has been removed now
@@ -65,6 +67,7 @@ declare -A AGENT_SCRIPT=(
   [review]="$FACULTIES_DIR/review/review.sh"
   [memory]="$FACULTIES_DIR/memory/memory.sh"
   [samplers]="$FACULTIES_DIR/samplers/samplers.sh"
+  [sizing]="$FACULTIES_DIR/sizing/sizing.sh"
 )
 declare -A AGENT_DESC=(
   [intake]="Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev)"
@@ -84,11 +87,12 @@ declare -A AGENT_DESC=(
   [review]="Read-only: prepare the branch ReviewSurface — the reviewing agent maps it to CLEAN/FINDINGS/BLOCKED (the ship gate's review leg)"
   [memory]="Read-only: recall what the organism knows — a cited digest over PyAutoMemory, autolens_assistant and Mind history"
   [samplers]="Read-only: the motor faculty — SamplerSurface digest over the sampler script tiers, the PyAutoFit search catalogue and the benchmark record"
+  [sizing]="Read-only: the SizingSurface — a difficulty estimate for a PyAutoMind prompt; the single heuristic the intake and feature conductors both consult"
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
 CONDUCTOR_ORDER=(intake community feature bug refactor workspace eyes profiling hygiene clone build release health)
-FACULTY_ORDER=(vitals review memory samplers)
+FACULTY_ORDER=(vitals review memory samplers sizing)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
 cmd_help() {

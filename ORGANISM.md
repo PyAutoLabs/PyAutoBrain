@@ -18,10 +18,16 @@ organs plan, build, test and release it, and you make every judgment call.
 | **Hands** | PyAutoBuild | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
 | **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (the `complete/` records, issues), not here. |
 | **Gut** | PyAutoGut | Owns the lifecycle of *condemned self-material* — stale branches, stashes, dead code/tests. Holds each as a durable, recoverable git ref through a transit window and **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
+| **Nerves** | PyAutoConf | The configuration/serialization layer (`autoconf`) — layered config with overrides, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. Connects the organism's conventions to every library; the base layer the scientific libraries all import. The seventh organ. |
 
-The scientific libraries (PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy,
-PyAutoLens) and the workspaces are **capabilities the organism uses, not
-organs**. The full inventory is `PyAutoMind/repos.yaml`.
+*Hands* and *Build* name the **same organ** (PyAutoBuild) throughout this
+document: the organ is the **Hands**, and *Build* is the call-chain step it
+performs. (The repo is still named `PyAutoBuild`; likewise `PyAutoConf` for the
+Nerves — the repo renames are a later, mechanical follow-up.)
+
+The scientific libraries (PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens) and
+the workspaces are **capabilities the organism uses, not organs**. The full
+inventory is `PyAutoMind/repos.yaml`.
 
 ## The call chain (always this order)
 
@@ -57,6 +63,8 @@ human types); let faculties multiply behind them.
 New capability grows as a **faculty** (cheap: one directory, one doc, one
 script), not as a repo. A new organ costs an `AGENTS.md`, a `CLAUDE.md` stub,
 install wiring, a body-map row and boundary prose — it must earn that by
-owning state or effects no existing organ can. Configuration/signalling
-belongs to the existing config surfaces; the human interaction layer is the
-command surface (`/route` + the verb commands), which is part of Brain.
+owning state or effects no existing organ can. Configuration/signalling is the
+one standing exception that already earned organ status: it is the **Nerves**
+(PyAutoConf), the base config/serialization layer every library imports — new
+config surfaces belong there, not in a new organ. The human interaction layer
+is the command surface (`/route` + the verb commands), which is part of Brain.
