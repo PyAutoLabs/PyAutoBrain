@@ -39,8 +39,8 @@ fi
 echo
 
 # repo:path — the coupled release-train stamps (libraries + user workspaces).
-# PyAutoCTI is intentionally excluded: it is not on the coupled train and
-# carries its own version line.
+# The charge-transfer (CTI) calibration stack is intentionally excluded: it is
+# not on the coupled train and carries its own version line.
 STAMPS=(
   "PyAutoNerves:autonerves/__init__.py"
   "PyAutoArray:autoarray/__init__.py"

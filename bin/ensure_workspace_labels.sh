@@ -42,7 +42,7 @@ REPOS=(
     PyAutoLabs/PyAutoArray
     PyAutoLabs/PyAutoGalaxy
     PyAutoLabs/PyAutoLens
-    PyAutoLabs/PyAutoConf
+    PyAutoLabs/PyAutoNerves
     PyAutoLabs/PyAutoFit
     PyAutoLabs/PyAutoCTI
     PyAutoLabs/autocti_workspace
