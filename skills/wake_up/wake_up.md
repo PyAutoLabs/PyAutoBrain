@@ -51,7 +51,10 @@ Run in order, then emit the digest.
    **remotely**, the overnight sweep's `heart-health` / `nightly-release`
    conclusions are the readiness/release signal.
 5. **Version drift** — `bash PyAutoBrain/bin/version_drift.sh`: version-stamp
-   consistency across libs + workspaces vs the latest release tag.
+   *consistency across the coupled libs + workspaces* (they should all carry the
+   same frozen stamp; the latest release tag is shown for context only, since
+   the committed source stamp is deliberately not bumped on release). A repo out
+   of step with its siblings is the real signal.
 6. **Community** — `bin/pyauto-brain community scan`: open issues raised by
    **other humans** (not you) across every repo, with awaiting-response
    ranking. Surface who is waiting and for how long; respond via
