@@ -26,12 +26,20 @@
 #            later split into its own PyAutoBrain Release Agent.
 #
 # Usage:
-#   build.sh [--mode build|deploy|release] [--force] [--dry-run] [--json]
-#            [<action>] [-- <args forwarded to autobuild>]
+#   build.sh [--mode build|deploy|release] [--force] [--accept-red=<reason>]...
+#            [--dry-run] [--json] [<action>] [-- <args forwarded to autobuild>]
 #
-#   --force     proceed on a YELLOW verdict (deploy/release). RED always blocks.
-#   --dry-run   reason + plan only; emit the BuildDecision, do not execute.
-#   --json      emit the BuildDecision as JSON only (machine-readable).
+#   --force            proceed on a YELLOW verdict (deploy/release).
+#   --accept-red=<r>   authorize proceeding despite the RED reason <r>. Repeatable.
+#                      Each <r> must match a readiness red_reason VERBATIM; any
+#                      RED reason not covered by an --accept-red still blocks, so
+#                      an override authorized for one problem never silently
+#                      waives a different one that appeared later. Heart's verdict
+#                      is NOT changed — it still reports RED; this records that a
+#                      human accepted those exact reasons. Never ambient: it must
+#                      be passed explicitly per invocation.
+#   --dry-run          reason + plan only; emit the BuildDecision, do not execute.
+#   --json             emit the BuildDecision as JSON only (machine-readable).
 #
 # Exit codes: 0 proceeded/delegated (or dry-run) · 2 yellow blocked (use
 # --force) · 3 red blocked · 4 unknown/could-not-consult · 5 invalid mode/action.
@@ -57,6 +65,7 @@ dry_run=0
 json_only=0
 action=""
 forward=()
+accept_red=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,6 +74,10 @@ while [[ $# -gt 0 ]]; do
       mode="$2"; shift 2 ;;
     --mode=*) mode="${1#*=}"; shift ;;
     --force) force=1; shift ;;
+    --accept-red)
+      [[ $# -ge 2 ]] || { echo "build agent: --accept-red needs a verbatim RED reason" >&2; exit 5; }
+      accept_red+=("$2"); shift 2 ;;
+    --accept-red=*) accept_red+=("${1#*=}"); shift ;;
     --dry-run) dry_run=1; shift ;;
     --json) json_only=1; shift ;;
     -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -114,8 +127,47 @@ warnings=() ; blockers=() ; follow_up=()
 
 case "$eff" in
   red)
-    decision="abort"; decision_code=3
-    blockers+=("PyAutoHeart reports RED. Resolve the blockers (see 'pyauto-brain vitals') before $mode work.")
+    if [[ ${#accept_red[@]} -eq 0 ]]; then
+      decision="abort"; decision_code=3
+      blockers+=("PyAutoHeart reports RED. Resolve the blockers (see 'pyauto-brain vitals') before $mode work.")
+      blockers+=("To authorize proceeding anyway, re-run quoting each RED reason verbatim: --accept-red=\"<reason>\".")
+    else
+      # Verbatim-match every current RED reason against the authorized set. An
+      # unmatched reason still blocks: an override is consent to SPECIFIC named
+      # problems, never a blanket bypass of whatever RED happens to be current.
+      _red_reasons=()
+      while IFS= read -r _r; do
+        [[ -n "$_r" ]] && _red_reasons+=("$_r")
+      done < <(consult_vitals_red_reasons)
+
+      _unaccepted=()
+      for _r in ${_red_reasons[@]+"${_red_reasons[@]}"}; do
+        _matched=0
+        for _a in ${accept_red[@]+"${accept_red[@]}"}; do
+          [[ "$_r" == "$_a" ]] && { _matched=1; break; }
+        done
+        [[ "$_matched" -eq 0 ]] && _unaccepted+=("$_r")
+      done
+
+      if [[ ${#_red_reasons[@]} -eq 0 ]]; then
+        # RED with no enumerable reasons: nothing to authorize against, so an
+        # override cannot be verified. Fail closed.
+        decision="abort"; decision_code=3
+        blockers+=("PyAutoHeart reports RED but returned no enumerable red_reasons; an --accept-red override cannot be verified. Failing closed.")
+      elif [[ ${#_unaccepted[@]} -gt 0 ]]; then
+        decision="abort"; decision_code=3
+        blockers+=("PyAutoHeart reports RED. ${#_unaccepted[@]} reason(s) are NOT covered by --accept-red:")
+        for _r in ${_unaccepted[@]+"${_unaccepted[@]}"}; do blockers+=("  - $_r"); done
+        blockers+=("Quote each verbatim with --accept-red=\"<reason>\" to authorize it, or resolve it.")
+      else
+        decision="proceed-with-override"; decision_code=0
+        warnings+=("RED OVERRIDDEN by explicit human authorization ($mode mode).")
+        warnings+=("Heart's verdict is UNCHANGED (still RED) — this is a recorded human decision, not a clean bill of health.")
+        warnings+=("Accepted RED reason(s):")
+        for _r in ${_red_reasons[@]+"${_red_reasons[@]}"}; do warnings+=("  - $_r"); done
+        follow_up+=("Record the accepted RED reason(s) in the release notes / release record so the artifact is self-documenting about what it shipped with.")
+      fi
+    fi
     ;;
   yellow)
     if [[ "$mode" == "build" ]]; then

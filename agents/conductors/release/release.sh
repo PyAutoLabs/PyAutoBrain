@@ -5,12 +5,17 @@
 #   release rehearse|validate      — release-VALIDATION orchestration, this
 #                                    conductor's own machinery (rehearse.sh /
 #                                    validate.sh).
-#   release [--force] [-- <args>]  — the release door: delegates the readiness
+#   release [--force] [--accept-red=<reason>]... [-- <args>]
+#                                  — the release door: delegates the readiness
 #                                    gate AND execution to the Build Agent's
 #                                    release mode (build.sh --mode release),
 #                                    the single gate implementation. GREEN
 #                                    proceeds, YELLOW needs --force, RED
-#                                    blocks; <args> forward to pre_build.
+#                                    blocks unless every current RED reason is
+#                                    authorized verbatim via --accept-red (an
+#                                    explicit, per-invocation human decision
+#                                    that does NOT alter Heart's verdict);
+#                                    <args> forward to pre_build.
 #
 # This conductor holds no second copy of the gate logic — one gate
 # implementation lives in the Build Agent; this door routes through it.
@@ -48,9 +53,14 @@ fi
 
 force=0
 forward=()
+accept_red=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) force=1; shift ;;
+    --accept-red)
+      [[ $# -ge 2 ]] || { echo "release conductor: --accept-red needs a verbatim RED reason" >&2; exit 5; }
+      accept_red+=("$2"); shift 2 ;;
+    --accept-red=*) accept_red+=("${1#*=}"); shift ;;
     --) shift; forward=("$@"); break ;;
     *) forward+=("$1"); shift ;;
   esac
@@ -63,4 +73,5 @@ echo "== release conductor: delegating gate + execution to the Build Agent (rele
 # a pass runs `autobuild pre_build` (which dispatches release.yml).
 args=(--mode release)
 [[ "$force" -eq 1 ]] && args+=(--force)
+for _a in ${accept_red[@]+"${accept_red[@]}"}; do args+=("--accept-red=$_a"); done
 exec bash "$HERE/../build/build.sh" "${args[@]}" -- "${forward[@]}"
