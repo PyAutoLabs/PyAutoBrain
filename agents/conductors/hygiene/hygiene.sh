@@ -52,7 +52,7 @@ source "$HERE/../../_common.sh"
 # PYAUTO_ROOT is exported/defaulted by _common.sh (~/Code/PyAutoLabs). Scan the
 # canonical checkouts there, never the worktree symlinks.
 ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
-LIB_REPOS=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+LIB_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 ORG_REPOS=(PyAutoBrain PyAutoHands PyAutoHeart PyAutoMind)
 DOC_REPOS=(PyAutoFit PyAutoGalaxy PyAutoLens)
 

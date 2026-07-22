@@ -81,7 +81,8 @@ TARGET_SIGNALS = _sizing_policy()["target_signals"]
 
 # Human-readable display name for the header's `Target:` line.
 REPO_DISPLAY = {
-    "autoconf": "PyAutoConf", "autofit": "PyAutoFit", "autoarray": "PyAutoArray",
+    "autonerves": "PyAutoNerves", "autoconf": "PyAutoNerves",  # autoconf = legacy alias
+    "autofit": "PyAutoFit", "autoarray": "PyAutoArray",
     "autogalaxy": "PyAutoGalaxy", "autolens": "PyAutoLens",
     "pyautomind": "PyAutoMind", "pyautobrain": "PyAutoBrain",
     "pyautoheart": "PyAutoHeart", "pyautobuild": "PyAutoHands",

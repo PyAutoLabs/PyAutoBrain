@@ -31,8 +31,8 @@ states the better category in `rehome_suggestion` rather than planning code.
 The `/start_library` ↔ `/start_workspace` split is decided from the `@RepoName`
 references in the **prompt body**, not the folder (per `ROUTING.md`).
 
-- **Libraries** (source): PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy,
-  PyAutoLens (`autoconf`, `autofit`, `autoarray`, `autogalaxy`, `autolens`;
+- **Libraries** (source): PyAutoNerves, PyAutoFit, PyAutoArray, PyAutoGalaxy,
+  PyAutoLens (`autonerves`, `autofit`, `autoarray`, `autogalaxy`, `autolens`;
   aliases `aa`/`af`/`ag`/`al`). API paths like `@aa.decorators.transform`
   resolve by their head token (`aa` → `autoarray`).
 - **Workspaces / tutorials / examples**: `autolens_workspace`(`_test`),
