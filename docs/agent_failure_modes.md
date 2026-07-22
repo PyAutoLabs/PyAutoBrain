@@ -95,6 +95,25 @@ Each: catalogue entries caught → why it fires at the decisive moment → cost
    check scoped to one repo; false-positive surface: deliberate multi-file
    registry commits, handled by listing the files (which is the desired
    behaviour anyway).
+
+   **Outcome (2026-07-22, v1.3) — the false-positive surface was the real
+   cost, and it was bigger than predicted.** Deployed as
+   `bin/mind_commit_guard.py`, the guard fired live **three times, every one a
+   false positive on its own author** (v1.0 a quoted `gh` body; v1.1 a `cd`
+   away from Mind; v1.2 a `cd` inside a `for`-loop body), against **zero
+   confirmed catches** of a real bad Mind commit — the `-- <files>` habit did
+   that work. Each FP came from the same place: attributing a commit to a repo
+   by parsing arbitrary shell. Since §4's own argument is that a noisy refusal
+   trains bypass-by-default, v1.3 narrows the guard to **deny only when
+   confident**: `_unattributable()` fails open on compounds (`for`/`while`/
+   `case`), subshells and brace groups, and any `cd` that is not
+   clause-leading. The two high-confidence denials (no `--` section; a
+   directory pathspec) are unchanged. Retiring the guard outright was
+   considered and rejected — the narrowed deny surface is cheap and still
+   covers the exact E1/F1 shape — but note the general lesson: **a refusal
+   whose trigger requires modelling an unbounded input space will spend its
+   budget on false positives.** Prefer refusals whose precondition is
+   *decidable* (mitigation 3's merged-branch check, which has true-positived).
 3. **Stale-claim auto-expiry (refusal-adjacent).** F4 shows completed tasks
    linger in `active.md` and block; the conflict guard catches it late but
    correctly. Cheaper at the source: `worktree_remove` (already the cleanup
