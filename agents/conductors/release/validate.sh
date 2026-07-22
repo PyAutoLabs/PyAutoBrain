@@ -84,7 +84,7 @@ INTEGRATE_WORKFLOW="workspace-validation.yml"
 INTEGRATE_ARTIFACT="release-stage-report"
 # The 5 libraries whose Stage-0 cleanliness/CI signals gate the whole run. Bare
 # names match heart state's repos.<name> keys and readiness' commit_shas keys.
-LIBRARIES=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+LIBRARIES=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 
 ref="main"
 minor=""

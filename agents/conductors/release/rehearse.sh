@@ -49,12 +49,12 @@ REHEARSAL_ARTIFACT="testpypi-rehearsal-version"
 # The 5 libraries whose main HEADs the rehearsal is built from; readiness
 # confirms the ingested report's commit_shas against these. Bare names here
 # are intentional: `commit_shas.json` keys (and heart/readiness.py's
-# _GATE_SHA_LIBS) are bare repo names, e.g. "PyAutoConf", not "owner/repo".
+# _GATE_SHA_LIBS) are bare repo names, e.g. "PyAutoNerves", not "owner/repo".
 # LIBRARIES_OWNER qualifies them ONLY for the get_commit MCP calls below
 # (same convention as BUILD_REPO) — all five libraries live under this one
 # GitHub org in this ecosystem, but qualifying explicitly removes any
 # ambiguity for the agent executing the emitted plan.
-LIBRARIES=(PyAutoConf PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+LIBRARIES=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 LIBRARIES_OWNER="PyAutoLabs"
 
 ref="main"
@@ -126,7 +126,7 @@ print(json.dumps({
     {"step": "capture-heads", "mcp_tool": "mcp__github__get_commit",
      "repos": [f"{owner}/{lib}" for lib in libs],
      "note": "write {repo: sha} of each library main HEAD to commit_shas.json in the dir, "
-             "keyed by the BARE repo name (e.g. PyAutoConf, not owner/repo) - "
+             "keyed by the BARE repo name (e.g. PyAutoNerves, not owner/repo) - "
              "matches heart/readiness.py commit_shas convention"},
     {"step": "next", "cmd": os.environ["NEXT_CMD"]},
   ],
@@ -157,7 +157,7 @@ Bash cannot call GitHub; execute these steps with Brain's MCP GitHub tools
 
 4. CAPTURE the current main HEAD sha of each library and write them as
    {bare_repo_name: sha} to <dir>/commit_shas.json (keys are bare names, e.g.
-   "PyAutoConf" — matches heart/readiness.py's commit_shas convention, NOT
+   "PyAutoNerves" — matches heart/readiness.py's commit_shas convention, NOT
    "owner/repo") — so Heart can confirm the report is for THIS source
    (readiness matches them against the live main HEADs):
      mcp__github__get_commit  for: ${LIBRARIES[*]/#/$LIBRARIES_OWNER/}
