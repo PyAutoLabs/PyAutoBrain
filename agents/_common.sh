@@ -138,3 +138,33 @@ except Exception:
 
 # Back-compat alias for the pre-rename name (faculty: health -> vitals).
 consult_health_agent_verdict() { consult_vitals_verdict "$@"; }
+
+# Print the readiness verdict's RED reason strings, one per line (empty if none
+# / unavailable). Used by the Build Agent's --accept-red override so a human can
+# authorize proceeding despite specific, named RED reasons. Reads the SAME
+# read-only faculty as consult_vitals_verdict — Heart's verdict is never
+# mutated; the override is a Brain-level, recorded decision.
+consult_vitals_red_reasons() {
+  local profile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --profile) profile="$2"; shift 2 ;;
+      --profile=*) profile="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+  local vitals
+  vitals="$(_agents_dir)/faculties/vitals/vitals.sh"
+  [[ -f "$vitals" ]] || return 0
+  local args=(readiness --json)
+  [[ -n "$profile" ]] && args+=(--profile "$profile")
+  bash "$vitals" "${args[@]}" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    for r in (json.load(sys.stdin).get("red_reasons") or []):
+        if str(r).strip():
+            print(str(r).strip())
+except Exception:
+    pass
+' 2>/dev/null
+}
