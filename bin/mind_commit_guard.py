@@ -21,6 +21,30 @@ Detection is textual + cheap filesystem checks; anything ambiguous is allowed
 (fail-open — a guard that misfires trains bypass-by-default). Escape hatch:
 ``PYAUTO_SKIP_MIND_GUARD=1`` in the environment or as a prefix in the command
 text (for the deliberate exceptional case, e.g. a bulk migration).
+
+v1.3 — fail open on shell this parser cannot attribute
+------------------------------------------------------
+Every live firing of this guard so far has been a false positive **on its own
+author**, and each came from the same root cause: it attributes a commit to a
+repo by parsing arbitrary shell, and the parser's model is ``cd X && git
+commit`` / ``git -C X commit``.
+
+  - v1.0 — regex clause split cut inside a quoted ``gh`` comment body.
+  - v1.1 — a ``cd`` away from Mind before committing was ignored (fixed v1.2).
+  - v1.2 — a ``cd`` inside a ``for``-loop *body* is not a clause-leading token,
+    so ``_cd_target`` never tracked it and the commit resolved to the ambient
+    Mind cwd.
+
+Three false positives, zero confirmed catches of a real bad Mind commit — the
+``-- <files>`` habit has done the actual work. Per
+``docs/agent_failure_modes.md`` §4 a noisy refusal trains bypass-by-default, so
+the guard is narrowed rather than patched again: **it may only DENY when it is
+confident**. When the command contains a construct the clause walk cannot
+follow — a ``for``/``while``/``until``/``case`` compound, a subshell or brace
+group, a function body, or a ``cd`` that is not a clause-leading token — the
+guard allows (see ``_unattributable``). The two high-confidence denials are
+unchanged: a ``git commit`` that unambiguously resolves to a Mind checkout with
+no ``--`` section, and a directory pathspec after ``--``.
 """
 
 from __future__ import annotations
@@ -80,6 +104,41 @@ def _clauses(command: str):
         yield clause
 
 
+# Shell keywords that open a compound the clause walk cannot follow: their
+# bodies are not clauses in this parser's sense, so a `cd` (or the commit
+# itself) inside one is attributed to the wrong repo.
+_COMPOUND_KEYWORDS = frozenset({"for", "while", "until", "select", "case", "esac", "function", "do", "done"})
+
+
+def _unattributable(command: str) -> bool:
+    """True when the command contains shell this parser cannot confidently
+    attribute to a repo — in which case the guard must allow (v1.3).
+
+    Three shapes, all of which produced a live false positive or would:
+
+    - a compound keyword (``for``/``while``/``case``/…): the body is not walked
+      as clauses, so a ``cd`` inside it is invisible (the v1.2 FP);
+    - a subshell ``(...)`` or brace group ``{...}``: same, plus the cwd change
+      is scoped to the group;
+    - a ``cd`` at a non-leading position in a clause: ``_cd_target`` only reads
+      ``tokens[0]``, so such a ``cd`` is silently dropped.
+
+    Quoted text (commit messages, ``gh`` bodies) is a single token by then, so
+    a message that merely *mentions* one of these words cannot trip it — and if
+    a token is ambiguous, the resolution is to allow, which is the safe
+    direction for a guard whose only justification is certainty.
+    """
+    for tokens in _clauses(command):
+        for i, tok in enumerate(tokens):
+            if tok in _COMPOUND_KEYWORDS:
+                return True
+            if tok in {"{", "}"} or "(" in tok or ")" in tok:
+                return True
+            if tok == "cd" and i != 0:
+                return True
+    return False
+
+
 def _under_mind(path: Path) -> Path | None:
     """If ``path`` is inside a PyAutoMind checkout, return that checkout root;
     else None."""
@@ -119,6 +178,11 @@ def check_command(command: str, cwd: str = "") -> str | None:
     # Cheap pre-filter: a Mind commit needs PyAutoMind named in the command
     # (a `cd`/`git -C` path) or in the ambient cwd. If neither, nothing to do.
     if MIND_MARKER not in command and MIND_MARKER not in (cwd or ""):
+        return None
+    # Only deny when confident (v1.3): shell the clause walk cannot attribute
+    # is allowed rather than guessed at — every historical false positive was a
+    # guess of this kind.
+    if _unattributable(command):
         return None
 
     effective_cwd: Path | None = Path(cwd) if cwd else None

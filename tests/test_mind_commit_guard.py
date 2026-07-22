@@ -144,3 +144,53 @@ def test_git_dash_C_into_mind_from_other_cwd_still_denied():
         'git -C /home/x/PyAutoMind commit -m "m"', cwd="/home/x/wt/PyAutoHands"
     )
     assert r is not None
+
+
+# --- v1.3: fail open on shell the clause walk cannot attribute --------------
+# Every live firing of the guard was a false positive on its own author. Each
+# of the three shapes below is allowed now; the narrow high-confidence denials
+# are re-asserted underneath so the narrowing cannot silently widen.
+
+
+def test_for_loop_with_inner_cd_is_allowed():
+    # The 3rd false positive (2026-07-17): the `cd` follows `do`, so it is not
+    # a clause-leading token and v1.2 resolved the commit to the ambient Mind
+    # cwd. These commits were all in workspace repos.
+    r = check_command(
+        'for r in autofit_workspace autolens_workspace; do cd /home/x/$r && '
+        'git commit -m "floors" -- config/general.yaml; done',
+        cwd="/home/x/PyAutoMind",
+    )
+    assert r is None
+
+
+def test_subshell_cd_then_commit_is_allowed():
+    r = check_command(
+        '(cd /home/x/wt/PyAutoHands && git commit -m "m")',
+        cwd="/home/x/PyAutoMind",
+    )
+    assert r is None
+
+
+def test_while_loop_commit_is_allowed():
+    r = check_command(
+        'while read -r f; do git commit -m "m" -- "$f"; done < list.txt',
+        cwd="/home/x/PyAutoMind",
+    )
+    assert r is None
+
+
+def test_compound_word_inside_quoted_message_does_not_fail_open(tmp_path):
+    # `for`/`done` inside a commit message are one shlex token, so they must
+    # NOT be read as compound keywords — the bare-commit denial still fires.
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    r = check_command(f'git -C {mind} commit -m "done waiting for the run"')
+    assert r is not None
+
+
+def test_simple_shapes_still_denied_after_v13(tmp_path):
+    mind = tmp_path / "PyAutoMind"
+    (mind / "active").mkdir(parents=True)
+    assert check_command(f'cd {mind} && git commit -m "m"') is not None
+    assert check_command(f'git -C {mind} commit -m "m" -- active/') is not None
