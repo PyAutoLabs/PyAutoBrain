@@ -414,8 +414,8 @@ def apply_seed(args, decision):
             # skill prefix (al_ -> af_): package initials, e.g.
             # autolens -> al, autofit -> af. Word-anchored: unanchored, this
             # two-letter rule also rewrites the `al_` inside `total_draws`,
-            # `external_shear` and `radial_minimum` (it did, in autocti_assistant
-            # — PyAutoBrain#150).
+            # `external_shear` and `radial_minimum` (it did, in a sibling
+            # assistant clone — PyAutoBrain#150).
             [f"{ref_pkg[0]}{ref_pkg[4]}_", f"{target_pkg[0]}{target_pkg[4]}_", "word"],
             [ref_lib, args.library],       # PyAutoLens -> PyAutoFit
             [ref_pkg, target_pkg],         # autolens -> autofit
