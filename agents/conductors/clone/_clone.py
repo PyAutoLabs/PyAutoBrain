@@ -425,7 +425,7 @@ def apply_seed(args, decision):
     plan_path = Path(tempfile.mkstemp(prefix="clone_plan_", suffix=".json")[1])
     plan_path.write_text(json.dumps(plan, indent=2))
 
-    seed_script = PYAUTO_ROOT / "PyAutoHands" / "autobuild" / "clone_seed.py"
+    seed_script = PYAUTO_ROOT / "PyAutoHands" / "autohands" / "clone_seed.py"
     if not seed_script.exists():
         fail(4, f"Build primitive not found: {seed_script}")
     cmd = [sys.executable, str(seed_script), str(plan_path)]

@@ -86,7 +86,8 @@ REPO_DISPLAY = {
     "autogalaxy": "PyAutoGalaxy", "autolens": "PyAutoLens",
     "pyautomind": "PyAutoMind", "pyautobrain": "PyAutoBrain",
     "pyautoheart": "PyAutoHeart", "pyautobuild": "PyAutoHands",
-    "pyautomemory": "PyAutoMemory", "autobuild": "PyAutoHands",
+    "pyautomemory": "PyAutoMemory", "autohands": "PyAutoHands",
+    "autobuild": "PyAutoHands",  # back-compat: the package was renamed autobuild -> autohands
     "workspaces": "workspaces",
 }
 PRIORITY_HIGH = ["urgent", "asap", "blocker", "blocking", "critical", "important",

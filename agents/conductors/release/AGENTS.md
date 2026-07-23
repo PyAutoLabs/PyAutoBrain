@@ -19,7 +19,7 @@ Brain  →  Heart (gate)  →  Build (execute)
 2. **The release door**: plain `release [--force]` delegates the readiness gate
    *and* execution to the Build Agent's release mode
    (`build.sh --mode release`), the **single** gate implementation — GREEN
-   proceeds, YELLOW needs `--force`, RED blocks; on a pass `autobuild
+   proceeds, YELLOW needs `--force`, RED blocks; on a pass `autohands
    pre_build` dispatches `release.yml`. This conductor holds no second copy of
    that gate.
 

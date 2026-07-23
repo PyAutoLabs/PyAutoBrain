@@ -86,7 +86,7 @@ mode/action.
   "requested_action": "<PyAutoHands capability>",
   "health_status": "green|yellow|red|unknown",
   "decision": "proceed|proceed-with-caution|abort",
-  "execution_plan": ["autobuild <action> <args>"],
+  "execution_plan": ["autohands <action> <args>"],
   "execution_summary": "<one line>",
   "warnings": ["..."],
   "blockers": ["..."],
