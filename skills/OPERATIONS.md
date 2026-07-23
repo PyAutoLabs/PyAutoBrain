@@ -33,7 +33,7 @@ gets rediscovered twice, it belongs here.
 
 ## Config and environment
 
-- **Smoke/env overrides live in `config/build/env_vars.yaml`**, not in
+- **Smoke/env overrides live in `config/build/profile_smoke.yaml`**, not in
   `os.environ` mutations inside scripts. Fix the override file.
 - **`PYAUTO_TEST_MODE` namespaces output under `output/test_mode/`.** Any
   manually composed output path must include that segment or asserts read the

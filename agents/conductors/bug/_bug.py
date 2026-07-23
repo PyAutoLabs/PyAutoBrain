@@ -178,7 +178,7 @@ def fix_locus(p: dict, factors: dict, cls: dict) -> dict:
     if wsp:
         if cls["type"] == "config-error":
             return {"locus": "workspace config (config/build/*.yaml)",
-                    "note": "use the sanctioned knobs (env_vars.yaml / no_run.yaml), "
+                    "note": "use the sanctioned knobs (profile_smoke.yaml / no_run.yaml), "
                             "never inline edits to the script body."}
         return {"locus": "workspace source-first (verify a library fix cannot generalise it)",
                 "note": "workspace scripts are documentation: only edit the script if the "

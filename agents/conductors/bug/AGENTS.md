@@ -25,7 +25,7 @@ documentation.** A fix that injects test env-vars, hard-codes a path, mutates
 reaction** — it damages what it exists to protect. So before proposing any patch the Bug
 Agent asks *where the fix belongs*, and strongly prefers a **general fix in library
 source**. It edits a workspace script only when the defect truly lives there, never in a
-way that reduces clarity; sanctioned knobs go through `config/build/env_vars.yaml` /
+way that reduces clarity; sanctioned knobs go through `config/build/profile_smoke.yaml` /
 `no_run.yaml`, not inline edits. This surfaces as the `Fix locus:` field of every
 decision. See [`BUG_TAXONOMY.md`](./BUG_TAXONOMY.md) for the full fix-locus rules.
 
