@@ -105,7 +105,7 @@ operational mechanics live in [`../../../skills/OPERATIONS.md`](../../../skills/
   library `output.yaml` keys need mirroring into workspace configs; CRLF
   files must keep their line endings (see OPERATIONS.md "Diff hygiene").
 - **Env mutation.** `os.environ` writes inside scripts where
-  `config/build/env_vars.yaml` is the override surface.
+  `config/build/profile_smoke.yaml` is the override surface.
 
 ## What this faculty must never do
 

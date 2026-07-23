@@ -46,7 +46,7 @@ now made visible in the table itself.
 Underlying implementation assets the agent never re-owns: `autohands/run_python.py`,
 `run.py`, `generate.py`, `script_matrix.py`, `aggregate_results.py`,
 `tag_and_merge.sh`, `build_util.py`, the `release.yml` GitHub workflow, and the
-per-workspace `config/build/{no_run,env_vars,visualise_notebooks}.yaml`.
+per-workspace `config/build/{no_run,profile_smoke,visualise_notebooks}.yaml`.
 
 ## Boundary audit — execution vs. health
 
