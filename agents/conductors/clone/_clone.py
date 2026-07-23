@@ -110,6 +110,9 @@ REFERENCE_PROFILES = {
             # whatever survey modes its own domain has, if any.
             "skills/euclid_*.md", ".claude/skills/euclid_*.md",
             "wiki/euclid/*",
+            "docs/*",                     # README figure assets (named-lens
+                                          # imagery + the script that renders
+                                          # it) — a newborn regrows its own
             "wiki/core/*",                # lensing-API reference
             "wiki/literature/*",          # a shipped lensing paper corpus
             "paper/*",                    # this assistant's own JOSS paper
