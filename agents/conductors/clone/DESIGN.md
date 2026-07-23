@@ -121,7 +121,7 @@ bad usage).
    partition, generation plan, CloneDecision. No writer at all. Proves the
    reasoning on `PyAutoFit → autofit_assistant` as the dry-run case study.
 2. **v1 — seed births. SHIPPED.** `--apply` for **lightweight-seed** via a
-   PyAutoHands primitive (`autobuild/clone_seed.py`: repo creation + generic-set
+   PyAutoHands primitive (`autohands/clone_seed.py`: repo creation + generic-set
    copy + scaffolds + the `PENDING.md` growth queue). Heart gained the
    newborn-validation checklist (`PyAutoHeart/docs/newborn_validation.md`).
 3. **v2 — differentiated siblings.** Skill/wiki regeneration from the domain

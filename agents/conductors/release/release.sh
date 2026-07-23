@@ -70,7 +70,7 @@ echo "== release conductor: delegating gate + execution to the Build Agent (rele
 
 # One gate implementation, not two: the Build Agent's release mode refreshes
 # health via the vitals faculty, applies GREEN / YELLOW(--force) / RED, and on
-# a pass runs `autobuild pre_build` (which dispatches release.yml).
+# a pass runs `autohands pre_build` (which dispatches release.yml).
 args=(--mode release)
 [[ "$force" -eq 1 ]] && args+=(--force)
 for _a in ${accept_red[@]+"${accept_red[@]}"}; do args+=("--accept-red=$_a"); done

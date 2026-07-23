@@ -18,7 +18,7 @@ work.
 
 ## The pieces
 
-- **`bin/autobuild`** — the single dispatcher; every operation is a
+- **`bin/autohands`** — the single dispatcher; every operation is a
   subcommand with `--help` (`pre_build`, `generate`, `run_all`,
   `tag_and_merge`, …).
 - **`pre_build.sh`** — the declarative heart of the pipeline: one
@@ -30,6 +30,6 @@ work.
 ## For an adopter
 
 Fork it. The pipeline mechanics are the framework; the `run_workspace`
-table in `pre_build.sh` and the small maps in `autobuild/*.py` (which
+table in `pre_build.sh` and the small maps in `autohands/*.py` (which
 workspaces to run, what to skip) are the declared config surfaces you
 rewrite for your own repos — see {doc}`../adoption/config_surfaces`.

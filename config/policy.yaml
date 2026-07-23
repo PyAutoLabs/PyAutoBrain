@@ -24,7 +24,7 @@ sizing_categories:
   workspace: [workspace, workspace_test, workspace_developer, howto, assistant, pipeline, project]
   organism: [organ]
 extra_workspace_targets: [workspaces]
-extra_organism_targets: [autobuild]
+extra_organism_targets: [autohands]
 
 # Keyword -> PyAutoMemory sub-wiki (also the science vocabulary difficulty
 # scoring keys off). Source of truth for the wiki list: PyAutoMemory/index.md.
@@ -58,7 +58,7 @@ target_signals:
   pyautomind: [pyautomind, the mind, prompt registry, active.md, planned.md,
                ideas.md, dashboard]
   pyautoheart: [heart, readiness, health check, vitals, green verdict]
-  pyautobuild: [autobuild, release.yml, notebook generation, the hands]
+  pyautobuild: [autohands, autobuild, release.yml, notebook generation, the hands]
 
 # Feature conductor: target -> the sub-wiki consulted by default.
 target_default_wiki:

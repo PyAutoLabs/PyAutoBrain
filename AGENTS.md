@@ -157,7 +157,7 @@ the `/<verb>` slash commands.
 <!-- pyauto:commands:end -->
 
 Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install);
-it resolves the sibling `pyauto-heart` and `autobuild` binaries from PATH or the
+it resolves the sibling `pyauto-heart` and `autohands` binaries from PATH or the
 `~/Code/PyAutoLabs/` checkouts.
 
 ## The command surface (Brain implicit)

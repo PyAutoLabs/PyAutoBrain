@@ -23,7 +23,7 @@ organs plan, build, test and release it, and you make every judgment call.
 *Hands* and *Build* name the **same organ** (PyAutoHands) throughout this
 document: the organ is the **Hands**, and *Build* is the call-chain step it
 performs. (The Hands repo was renamed PyAutoBuild → PyAutoHands; the *Build*
-call-chain shorthand and the `autobuild` package/CLI keep their names.
+call-chain shorthand and the `autohands` package/CLI keep their names.
 `PyAutoConf` likewise remains the Nerves repo's name, aligned with its
 `autoconf` package.)
 

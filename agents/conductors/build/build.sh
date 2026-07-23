@@ -27,7 +27,7 @@
 #
 # Usage:
 #   build.sh [--mode build|deploy|release] [--force] [--accept-red=<reason>]...
-#            [--dry-run] [--json] [<action>] [-- <args forwarded to autobuild>]
+#            [--dry-run] [--json] [<action>] [-- <args forwarded to autohands>]
 #
 #   --force            proceed on a YELLOW verdict (deploy/release).
 #   --accept-red=<r>   authorize proceeding despite the RED reason <r>. Repeatable.
@@ -193,7 +193,7 @@ case "$eff" in
 esac
 
 # ----- execution plan -----
-plan_cmd="autobuild $action"
+plan_cmd="autohands $action"
 [[ ${#forward[@]} -gt 0 ]] && plan_cmd+=" ${forward[*]}"
 plan=("$plan_cmd")
 
@@ -250,6 +250,6 @@ if [[ "$dry_run" -eq 1 ]]; then
   exit 0
 fi
 
-autobuild="$(resolve_autobuild)" || exit $?
+autohands="$(resolve_autohands)" || exit $?
 [[ "$json_only" -eq 1 ]] || echo "== exec: $plan_cmd =="
-exec "$autobuild" "$action" "${forward[@]}"
+exec "$autohands" "$action" "${forward[@]}"

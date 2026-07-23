@@ -92,7 +92,7 @@ reimplement inside Brain.
 
 PyAutoHands has been fully renamed onto the Heart/Brain names (no PyAutoPulse or
 PyAutoAgent references remain) and exposes health-shim commands such as
-`autobuild verify_install`, `autobuild url_check`, and `autobuild watch|status|tick|fix`.
+`autohands verify_install`, `autohands url_check`, and `autohands watch|status|tick|fix`.
 These delegate to the health authority rather than owning readiness logic.
 
 Decision: GREEN — the docs are renamed and the shims delegate only. Do not

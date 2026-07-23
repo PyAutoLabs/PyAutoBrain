@@ -35,7 +35,7 @@ def test_workspace_and_organism_sets():
     assert "howtolens" in _sizing.WORKSPACE_REPOS
     assert "workspaces" in _sizing.WORKSPACE_REPOS  # policy extra
     assert "pyautobrain" in _sizing.ORGANISM_REPOS
-    assert "autobuild" in _sizing.ORGANISM_REPOS    # policy extra
+    assert "autohands" in _sizing.ORGANISM_REPOS    # policy extra
     # the three sets stay disjoint — a repo must classify one way
     assert not (_sizing.LIBRARY_REPOS & _sizing.WORKSPACE_REPOS)
     assert not (_sizing.LIBRARY_REPOS & _sizing.ORGANISM_REPOS)

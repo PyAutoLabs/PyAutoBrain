@@ -15,7 +15,7 @@ framework organs is domain-free logic you pull from upstream.
 | `agents/conductors/release/` — the library tuple + `nightly.sh` | Brain | Which libraries the release path drives. |
 | `agents/faculties/memory/` — the wiki keyword map | Brain | Topic keywords → your Memory's sub-wikis. |
 | `heart/readiness.py` — `DEFAULT_LIBRARIES`; `heart/checks/version_skew.py` — the workspace→(library, package) map | Heart | The release-gate repo sets. |
-| `autobuild/run_all.py`, `autobuild/slow_skip_check.py`, navigator maps | Hands | Which workspaces the validation pipeline runs and skips. |
+| `autohands/run_all.py`, `autohands/slow_skip_check.py`, navigator maps | Hands | Which workspaces the validation pipeline runs and skips. |
 
 The honest state: some of these are clean policy files (Heart's
 `config/repos.yaml`), others are constant tables inside code files. A

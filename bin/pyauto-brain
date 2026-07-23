@@ -3,7 +3,7 @@
 #
 # PyAutoBrain is the reasoning layer of the PyAuto organism: it figures out HOW
 # work should be done and coordinates the organs that do it. The subcommand
-# pattern mirrors PyAutoHands/bin/autobuild and PyAutoHeart/bin/pyauto-heart so
+# pattern mirrors PyAutoHands/bin/autohands and PyAutoHeart/bin/pyauto-heart so
 # the CLIs feel the same. Agents live in two tiers under agents/:
 #
 #   agents/conductors/<name>/  — front-door agents a human DRIVES (they decide

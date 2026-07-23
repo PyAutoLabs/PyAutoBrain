@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # agents/_common.sh — shared helpers for PyAutoBrain's specialist agents.
 #
-# Resolves the sibling PyAuto organ CLIs (pyauto-heart, autobuild) the same way
-# the autobuild shim resolves them: prefer PATH, fall back to the sibling
+# Resolves the sibling PyAuto organ CLIs (pyauto-heart, autohands) the same way
+# the autohands shim resolves them: prefer PATH, fall back to the sibling
 # checkout under ~/Code/PyAutoLabs/. Nothing here is pip-installed.
 
 PYAUTO_ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
@@ -31,8 +31,8 @@ resolve_heart() {
   _resolve_bin pyauto-heart "$PYAUTO_ROOT/PyAutoHeart/bin/pyauto-heart"
 }
 
-resolve_autobuild() {
-  _resolve_bin autobuild "$PYAUTO_ROOT/PyAutoHands/bin/autobuild"
+resolve_autohands() {
+  _resolve_bin autohands "$PYAUTO_ROOT/PyAutoHands/bin/autohands"
 }
 
 # _resolve_dir <env-var-name> <repo-name> — echo the path to a sibling PyAuto
