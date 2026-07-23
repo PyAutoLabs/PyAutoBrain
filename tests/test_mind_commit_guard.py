@@ -157,7 +157,7 @@ def test_for_loop_with_inner_cd_is_allowed():
     # a clause-leading token and v1.2 resolved the commit to the ambient Mind
     # cwd. These commits were all in workspace repos.
     r = check_command(
-        'for r in autofit_workspace autolens_workspace; do cd /home/x/$r && '
+        'for r in alpha_workspace beta_workspace; do cd /home/x/$r && '
         'git commit -m "floors" -- config/general.yaml; done',
         cwd="/home/x/PyAutoMind",
     )
