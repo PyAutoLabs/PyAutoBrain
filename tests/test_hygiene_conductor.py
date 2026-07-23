@@ -214,6 +214,62 @@ def test_config_helper_recursive_key_diff(tmp_path):
     assert total == 2  # 'a.y' and 'c'
 
 
+def _fake_library(root, files):
+    """Write a fake PyAutoFit library config tree under `root`; `files` maps a
+    config-relative path to a trivial mapping."""
+    import yaml
+    for rel, data in files.items():
+        p = root / "PyAutoFit" / "autofit" / "config" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(yaml.safe_dump(data))
+
+
+def _fake_workspace(root, name, files):
+    import yaml
+    for rel, data in files.items():
+        p = root / name / "config" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(yaml.safe_dump(data))
+
+
+def test_orphan_files_flags_unmirrored_and_suppresses_owned(tmp_path):
+    """The core reachability contract: a workspace config file with no library
+    counterpart is an orphan (flagged), UNLESS it lives under an owned subtree
+    (build/, priors/). This is the grids.yaml / non_linear regression: the
+    library ships non_linear/GridSearch.yaml (kept) but not nest.yaml (flagged).
+    """
+    cfg = _load_config_helper()
+    _fake_library(tmp_path, {
+        "general.yaml": {"a": 1},
+        "non_linear/GridSearch.yaml": {"grid": 1},  # the LIVE non_linear file
+    })
+    _fake_workspace(tmp_path, "some_workspace", {
+        "general.yaml": {"a": 1},                    # shared -> this IS a mirror
+        "grids.yaml": {"radial_minimum": 1},         # orphan  -> FLAG (the 2025 bug)
+        "non_linear/nest.yaml": {"Nautilus": 1},     # orphan  -> FLAG (dead)
+        "non_linear/GridSearch.yaml": {"grid": 1},   # mirrored -> keep (live)
+        "build/env_vars.yaml": {"X": 1},             # owned by Hands -> suppress
+        "priors/MyClass.yaml": {"p": 1},             # user class prior -> suppress
+    })
+    total, detail = cfg.orphan_files(str(tmp_path))
+    assert total == 2, detail                        # grids.yaml + non_linear/nest.yaml
+    assert detail == ["some_workspace:2"]
+
+
+def test_orphan_files_skips_non_mirror_repos(tmp_path):
+    """A repo whose config/ shares nothing with the library set (an organ repo
+    like Brain/Heart with its own config) is not a mirror and is not scanned —
+    so its own files are never mis-flagged as orphans."""
+    cfg = _load_config_helper()
+    _fake_library(tmp_path, {"general.yaml": {"a": 1}})
+    _fake_workspace(tmp_path, "some_organ", {
+        "policy.yaml": {"own": 1},     # nothing shared with the library set
+        "internal.yaml": {"own": 2},
+    })
+    total, detail = cfg.orphan_files(str(tmp_path))
+    assert total == 0 and detail == []
+
+
 def test_help_lists_the_usage_block(tmp_path):
     r = _run(["--help"], tmp_path)
     assert r.returncode == 0
