@@ -15,7 +15,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
     "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
-    "packaging",
+    "packaging", "docstrings",
 }
 
 _PROFILE_TARGET = """
@@ -56,18 +56,19 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert doc["decision"] == "HygieneDecision"
     assert doc["mode"] == "default"
     assert {row["mode"] for row in doc["rows"]} == MODES
-    # the four pre-scan modes carry their kind; perf's timing is deferred in the
+    # Every pre-scan mode carries its kind; perf's timing is deferred in the
     # fast default scan (it spawns real imports).
     kinds = {row["mode"]: row.get("kind") for row in doc["rows"]}
     assert kinds["tidy"] == "debris"
     assert kinds["crlf"] == "debris" and kinds["artifacts"] == "debris"
     assert kinds["packaging"] == "debris"
+    assert kinds["docstrings"] == "finding"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
     assert kinds["config"] == "surface"
     assert kinds["noise"] == "advisory"
     perf = next(row for row in doc["rows"] if row["mode"] == "perf")
     assert perf["status"] == "deferred"
-    # nothing is staged any more — all five modes are live.
+    # Nothing is staged any more — all modes are live.
     assert all(row.get("status") != "staged" for row in doc["rows"])
 
 
@@ -89,6 +90,106 @@ def test_single_mode_json_round_trips(tmp_path):
 def _init_git_repo(path):
     path.mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(path)], check=True)
+
+
+def _write_docstring_fixture(root):
+    script = root / "demo_workspace" / "scripts" / "cases.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "\n".join(
+            [
+                '\"\"\"π first\"\"\"',
+                "",
+                "'''second'''",
+                '\"\"\"third\"\"\"',
+                'assigned = "ordinary string"',
+                '"ordinary expression"',
+                '\"\"\"after ordinary expression\"\"\"',
+                "separator_one = 1",
+                '\"\"\"before comment\"\"\"',
+                "# comments are not whitespace",
+                '\"\"\"after comment\"\"\"',
+                "separator_two = 2",
+                '\"\"\"inline one\"\"\"; \"\"\"inline two\"\"\"',
+                "def function():",
+                '    \"\"\"nested one\"\"\"',
+                '    \"\"\"nested two\"\"\"',
+                "class Example:",
+                '    \"\"\"nested class one\"\"\"',
+                '    \"\"\"nested class two\"\"\"',
+                "",
+            ]
+        )
+    )
+    return script
+
+
+def test_docstrings_reports_only_adjacent_top_level_triple_quoted_blocks(tmp_path):
+    _write_docstring_fixture(tmp_path)
+
+    result = _run(["docstrings", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["kind"] == "finding"
+    assert row["status"] == "finding"
+    assert row["count"] == 2
+    assert row["delegate"] == "/refactor"
+    assert row["parse_errors"] == []
+    assert [
+        (finding["first_end_line"], finding["second_line"])
+        for finding in row["findings"]
+    ] == [(1, 3), (3, 4)]
+
+
+def test_docstrings_human_output_includes_exact_locations(tmp_path):
+    _write_docstring_fixture(tmp_path)
+
+    result = _run(["docstrings"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "2 adjacent documentation boundaries in 1 file" in result.stdout
+    assert "demo_workspace/scripts/cases.py:1 -> 3" in result.stdout
+    assert "demo_workspace/scripts/cases.py:3 -> 4" in result.stdout
+    assert "route the mechanical merges to /refactor" in result.stdout
+
+
+def test_default_json_includes_docstring_finding_locations(tmp_path):
+    _write_docstring_fixture(tmp_path)
+
+    result = _run(["--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    rows = {row["mode"]: row for row in json.loads(result.stdout)["rows"]}
+    assert rows["docstrings"]["count"] == 2
+    assert len(rows["docstrings"]["findings"]) == 2
+
+
+def test_default_human_worklist_ranks_docstring_findings(tmp_path):
+    _write_docstring_fixture(tmp_path)
+
+    result = _run([], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "docstrings 2 findings" in result.stdout
+    assert "Recommended next: hygiene docstrings (2 items)" in result.stdout
+    assert "route exact findings to /refactor" in result.stdout
+
+
+def test_docstrings_parse_errors_keep_json_valid_and_mark_scan_partial(tmp_path):
+    script = tmp_path / "HowToBroken" / "scripts" / "broken.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("if True print('broken')\n")
+
+    result = _run(["docstrings", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["status"] == "partial"
+    assert row["count"] == 0
+    assert row["findings"] == []
+    assert row["parse_errors"][0]["repo"] == "HowToBroken"
+    assert row["parse_errors"][0]["file"] == "scripts/broken.py"
 
 
 def test_packaging_finds_only_ignored_untracked_root_products(tmp_path):

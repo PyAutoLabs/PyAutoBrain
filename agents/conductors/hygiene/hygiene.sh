@@ -15,6 +15,7 @@
 #   tidy  -> /repo_cleanup (Brain)         perf  -> /refactor (+ Heart timing legs)
 #   noise -> /cli_noise_clean (Heart)      deps  -> /dep_audit (Heart)
 #   docs  -> /audit_docs (Heart)           packaging -> clean_slate.sh (Brain)
+#   docstrings -> /refactor (exact findings; Hygiene remains read-only)
 # The three Heart skills are read-only observation skills — measurement lives in
 # Heart; hygiene routes and prioritises. perf's import timing runs in a
 # SUBPROCESS, so the conductor itself never imports the science/JAX stack.
@@ -29,6 +30,7 @@
 #   hygiene.sh deps            # dependency-cap pre-scan -> /dep_audit
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
 #   hygiene.sh crlf            # executable scripts w/ CRLF break on HPC (+ cosmetic .py) -> /refactor
+#   hygiene.sh docstrings      # adjacent top-level script documentation -> /refactor
 #   hygiene.sh config          # library config keys missing downstream -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh packaging       # ignored top-level *.egg-info/build dirs -> clean_slate.sh
@@ -40,7 +42,7 @@
 # synchronous per-item repo_cleanup interrogation); sweep runs the repo_cleanup
 # safety gates in batch against entries whose transit window has expired.
 #
-# All five modes are live. The fast default scan DEFERS perf's import timing (it
+# All modes are live. The fast default scan DEFERS perf's import timing (it
 # spawns real imports); run `hygiene perf` for it. Repos are read under
 # PYAUTO_ROOT (default ~/Code/PyAutoLabs); import timing uses HYGIENE_PYTHON
 # (default python3 — point it at the PyAuto venv to time the science libs).
@@ -75,11 +77,12 @@ PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
 read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy crlf artifacts packaging noise deps docs config)
+MODE_ORDER=(perf tidy crlf docstrings artifacts packaging noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
   [crlf]="/refactor"
+  [docstrings]="/refactor"
   [artifacts]="/repo_cleanup"
   [packaging]="PyAutoBrain/bin/clean_slate.sh --packaging"
   [noise]="/cli_noise_clean"
@@ -88,13 +91,15 @@ declare -A MODE_DELEGATE=(
   [config]="/refactor"
 )
 # A mode's pre-scan is one of a few kinds, which is what makes its count
-# comparable (or not): 'debris' finds directly-removable items and 'timing'
-# finds slow imports — both real, rankable counts; 'surface' only sizes the
+# comparable (or not): 'debris' finds directly-removable items, 'finding'
+# confirms a source-quality defect, and 'timing' finds slow imports — all three
+# are real, rankable counts; 'surface' only sizes the
 # audit (the real problems emerge when the delegated skill runs — the count is
-# NOT a problem count); 'advisory' has no cheap local signal. Only 'debris' and
-# 'timing' counts drive the ranking.
+# NOT a problem count); 'advisory' has no cheap local signal. Only 'debris',
+# 'finding', and 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
   [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris" [packaging]="debris"
+  [docstrings]="finding"
   [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
@@ -175,6 +180,14 @@ prescan_crlf() {
     cosmetic=$((cosmetic + py_n))
   done
   echo "${scripts}|${scripts} executable scripts w/ CRLF (BREAK on HPC — normalise + add .gitattributes eol=lf): ${sdetail}; ${cosmetic} library .py w/ CRLF (cosmetic — leave, or '* text=auto' going forward)"
+}
+
+# docstrings: confirmed adjacent module-level triple-quoted documentation
+# expressions in user-facing *_workspace and HowTo* scripts. The stdlib AST
+# helper provides the exact findings; this compact form feeds the default
+# ranked worklist without mutating any scanned repository.
+prescan_docstrings() {
+  python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --summary
 }
 
 # artifacts: tracked files that look like leaked generated outputs — anything
@@ -286,7 +299,8 @@ prescan() {
   case "$1" in
     perf) prescan_perf ;; tidy) prescan_tidy ;; deps) prescan_deps ;;
     docs) prescan_docs ;; noise) prescan_noise ;;
-    crlf) prescan_crlf ;; artifacts) prescan_artifacts ;;
+    crlf) prescan_crlf ;; docstrings) prescan_docstrings ;;
+    artifacts) prescan_artifacts ;;
     packaging) prescan_packaging ;; config) prescan_config ;;
   esac
 }
@@ -297,7 +311,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|config|artifacts|packaging) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|config|artifacts|packaging) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -471,6 +485,10 @@ emit_json_row() { # mode
     printf '{"mode":"perf","status":"deferred","hint":"run: pyauto-brain hygiene perf (import timings; skipped in the fast default scan)","delegate":"/refactor"}'
     return
   fi
+  if [[ "$m" == "docstrings" ]]; then
+    python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --json-row
+    return
+  fi
   local res count summary kind status
   res="$(prescan "$m")"; count="${res%%|*}"; summary="${res#*|}"; kind="${MODE_KIND[$m]}"
   if   [[ "$kind" == "advisory" || "$count" == "-1" ]]; then status="advisory"
@@ -506,6 +524,10 @@ render_delegate_line() { # mode
     printf '  %-9s %-9s → hygiene tidy condemns these into condemned.md (async); hygiene sweep voids past-due\n' "" ""
     return
   fi
+  if [[ "$m" == "docstrings" ]]; then
+    printf '  %-9s %-9s → route exact findings to /refactor; Hygiene never edits source\n' "" ""
+    return
+  fi
   if [[ "${MODE_KIND[$m]}" == "timing" ]]; then
     printf '  %-9s %-9s → route slow items to %s; slow tests/scripts → Heart script_timing/test_run\n' "" "" "${MODE_DELEGATE[$m]}"
   else
@@ -522,21 +544,28 @@ render_row() { # mode
   fi
   local res count summary kind tag
   res="$(prescan "$m")"; count="${res%%|*}"; summary="${res#*|}"; kind="${MODE_KIND[$m]}"
-  if   [[ "$kind" == "advisory" || "$count" == "-1" ]]; then tag="advisory"
+  if [[ "$m" == "docstrings" && "$summary" != *"; 0 parse errors" ]]; then tag="partial"
+  elif [[ "$kind" == "advisory" || "$count" == "-1" ]]; then tag="advisory"
   elif [[ "$kind" == "surface" ]]; then tag="surface"
   elif [[ "$count" == "0" ]]; then tag="clean"
   elif [[ "$kind" == "timing" ]]; then tag="${count} slow"
+  elif [[ "$kind" == "finding" ]]; then tag="${count} findings"
   else tag="${count} debris"; fi
   printf '  %-9s %-9s %s\n' "$m" "$tag" "$summary"
   render_delegate_line "$m"
 }
 
-if [[ "$mode" == "default" ]]; then
-  # Only 'debris' pre-scans yield a directly-actionable count (perf's timing is
-  # deferred here — too slow for the fast scan). Rank across all debris modes and
-  # recommend the one with the most removable items.
+if [[ "$mode" == "docstrings" ]]; then
+  echo "Confirmed adjacent top-level documentation blocks (read-only scan):"
+  python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT"
+  echo
+  echo "→ route the mechanical merges to /refactor; Hygiene never edits source."
+elif [[ "$mode" == "default" ]]; then
+  # 'debris' and 'finding' pre-scans yield directly-actionable counts (perf's
+  # timing is deferred here — too slow for the fast scan). Rank across them and
+  # recommend the mode with the largest confirmed workload.
   best=""; best_n=0
-  for m in tidy crlf artifacts packaging; do
+  for m in tidy crlf docstrings artifacts packaging; do
     local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
     if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
   done
@@ -546,7 +575,7 @@ if [[ "$mode" == "default" ]]; then
     echo "Recommended next: hygiene ${best} (${best_n} items), then run ${MODE_DELEGATE[$best]}."
     echo "  Then 'hygiene perf' for import timings; config/deps/docs/noise are periodic audits (surface only)."
   else
-    echo "Recommended next: no removable debris — run 'hygiene perf' for import timings, and config/deps/docs/noise audits periodically."
+    echo "Recommended next: no direct findings or removable debris — run 'hygiene perf' for import timings, and config/deps/docs/noise audits periodically."
   fi
   echo "Design: PyAutoMind research/pyautobrain/hygiene_agent_decision.md."
 else
