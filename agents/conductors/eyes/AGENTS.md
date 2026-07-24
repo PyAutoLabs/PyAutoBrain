@@ -5,7 +5,7 @@
 > render → present → critique → delegate loop over a project's visualization
 > surface. It consults the read-only memory faculty for style/paper context
 > like every conductor; it never renders (the workspace's own
-> `scripts/gallery/gallery_run.sh` does), never edits plot source, and
+> `gallery/gallery_run.sh` does), never edits plot source, and
 > delegates every accepted change via intake → start_dev.
 
 Grown from demonstrated need: the organism produces rich visualizations
@@ -35,7 +35,7 @@ in the `/eyes` skill. Reference instance: `autolens_workspace_test`.
 ## The loop (driven by the `/eyes` skill)
 
 1. `eyes survey <workspace>` — establish what needs (re)rendering.
-2. Render in the workspace: `bash scripts/gallery/gallery_run.sh` (`--all`
+2. Render in the workspace: `bash gallery/gallery_run.sh` (`--all`
    adds the slow tier + JAX variants), which ends in the gallery builder's
    own `--check`.
 3. Present: the embedded gallery for the human; the agent reads figure PNGs
