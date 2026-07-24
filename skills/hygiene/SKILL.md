@@ -1,6 +1,6 @@
 ---
 name: hygiene
-description: Audit and prioritise the organism's code-quality upkeep — slow tests/scripts/imports, CLI noise, dependency-cap drift, stale API docs, git debris — through the PyAutoBrain Hygiene Agent, which reasons and delegates fixes without editing source itself.
+description: Audit and prioritise the organism's code-quality upkeep — slow tests/scripts/imports, CLI noise, dependency-cap drift, stale API docs, git debris, and generated packaging debris — through the PyAutoBrain Hygiene Agent, which reasons and delegates fixes without editing source itself.
 ---
 
 # Hygiene

@@ -13,7 +13,10 @@ from pathlib import Path
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
-MODES = {"perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts"}
+MODES = {
+    "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
+    "packaging",
+}
 
 _PROFILE_TARGET = """
 def my_hot_function():
@@ -58,6 +61,7 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     kinds = {row["mode"]: row.get("kind") for row in doc["rows"]}
     assert kinds["tidy"] == "debris"
     assert kinds["crlf"] == "debris" and kinds["artifacts"] == "debris"
+    assert kinds["packaging"] == "debris"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
     assert kinds["config"] == "surface"
     assert kinds["noise"] == "advisory"
@@ -76,7 +80,44 @@ def test_single_mode_json_round_trips(tmp_path):
         doc = json.loads(r.stdout)
         assert doc["mode"] == mode
         assert doc["row"]["mode"] == mode
-        assert doc["row"]["delegate"].startswith("/")
+        if mode == "packaging":
+            assert doc["row"]["delegate"].endswith("bin/clean_slate.sh --packaging")
+        else:
+            assert doc["row"]["delegate"].startswith("/")
+
+
+def _init_git_repo(path):
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+
+
+def test_packaging_finds_only_ignored_untracked_root_products(tmp_path):
+    galaxy = tmp_path / "PyAutoGalaxy"
+    _init_git_repo(galaxy)
+    (galaxy / ".gitignore").write_text("*.egg-info/\nbuild/\n")
+    (galaxy / "autogalaxy.egg-info").mkdir()
+    (galaxy / "build").mkdir()
+    (galaxy / "src" / "build").mkdir(parents=True)  # nested: out of scope
+
+    fit = tmp_path / "PyAutoFit"
+    _init_git_repo(fit)
+    (fit / ".gitignore").write_text("build/\n")
+    (fit / "build").mkdir()
+    (fit / "build" / "tracked.txt").write_text("keep")
+    subprocess.run(
+        ["git", "-C", str(fit), "add", "-f", "build/tracked.txt"], check=True
+    )
+
+    array = tmp_path / "PyAutoArray"
+    _init_git_repo(array)
+    (array / "autoarray.egg-info").mkdir()  # not ignored: out of scope
+
+    r = _run(["packaging", "--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    row = json.loads(r.stdout)["row"]
+    assert row["count"] == 2
+    assert "PyAutoGalaxy:2" in row["summary"]
+    assert "PyAutoFit" not in row["summary"]
 
 
 def test_tidy_emits_an_async_condemn_plan(tmp_path):
