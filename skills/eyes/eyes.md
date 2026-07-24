@@ -15,9 +15,9 @@ different workspace root to review another project.
    figure inventory, stale renders (producer script newer than its figures),
    never-rendered gaps, gallery currency.
 2. **Render** what the survey flags, in the workspace itself:
-   `bash scripts/gallery/gallery_run.sh [<domain>|--all]` (ends in the
+   `bash gallery/gallery_run.sh [<domain>|--all]` (ends in the
    builder's own `--check`; `--all` adds the slow tier + JAX variants). Then
-   `python scripts/gallery/gallery_build.py --embed` and copy
+   `python gallery/gallery_build.py --embed` and copy
    `output/gallery/gallery_embedded.html` out (e.g. `towin`) for the human.
 3. **Review** — `bin/pyauto-brain eyes review <workspace-root>`: read each
    figure batch directly (PNG reads in-session), collect the human's

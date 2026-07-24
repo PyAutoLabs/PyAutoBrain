@@ -19,7 +19,7 @@ Modes:
                   reference context; notes may then carry a `reference`
 
 Decision-only, stdlib-only: reads the filesystem, writes nothing, renders
-nothing (rendering is the workspace's `scripts/gallery/gallery_run.sh`), and
+nothing (rendering is the workspace's `gallery/gallery_run.sh`), and
 never edits plot source — accepted critiques route to intake/start_dev.
 """
 
@@ -110,7 +110,7 @@ def survey(root: Path) -> dict:
         "stale_renders": [f"{r['domain']}/{r['script']}" for r in records
                           if r["stale"]],
         "gallery": gallery_status(root, records),
-        "next_action": ("run the workspace's scripts/gallery/gallery_run.sh "
+        "next_action": ("run the workspace's gallery/gallery_run.sh "
                         "for stale/missing renders, then `eyes review`"),
     }
 
