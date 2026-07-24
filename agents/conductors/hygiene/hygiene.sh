@@ -14,7 +14,7 @@
 # any execution to the owning skill:
 #   tidy  -> /repo_cleanup (Brain)         perf  -> /refactor (+ Heart timing legs)
 #   noise -> /cli_noise_clean (Heart)      deps  -> /dep_audit (Heart)
-#   docs  -> /audit_docs (Heart)
+#   docs  -> /audit_docs (Heart)           packaging -> clean_slate.sh (Brain)
 # The three Heart skills are read-only observation skills — measurement lives in
 # Heart; hygiene routes and prioritises. perf's import timing runs in a
 # SUBPROCESS, so the conductor itself never imports the science/JAX stack.
@@ -31,6 +31,7 @@
 #   hygiene.sh crlf            # executable scripts w/ CRLF break on HPC (+ cosmetic .py) -> /refactor
 #   hygiene.sh config          # library config keys missing downstream -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
+#   hygiene.sh packaging       # ignored top-level *.egg-info/build dirs -> clean_slate.sh
 #   hygiene.sh <mode> --json   # machine-readable HygieneDecision
 #
 # tidy + sweep are the PyAutoGut drive seam (the organ HOLDS and VOIDS; this
@@ -74,12 +75,13 @@ PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
 read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy crlf artifacts noise deps docs config)
+MODE_ORDER=(perf tidy crlf artifacts packaging noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
   [crlf]="/refactor"
   [artifacts]="/repo_cleanup"
+  [packaging]="PyAutoBrain/bin/clean_slate.sh --packaging"
   [noise]="/cli_noise_clean"
   [deps]="/dep_audit"
   [docs]="/audit_docs"
@@ -92,7 +94,7 @@ declare -A MODE_DELEGATE=(
 # NOT a problem count); 'advisory' has no cheap local signal. Only 'debris' and
 # 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
-  [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris"
+  [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris" [packaging]="debris"
   [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
@@ -193,6 +195,27 @@ prescan_artifacts() {
   echo "${total}|${total} tracked files look like leaked outputs/data: ${detail}(fix: gitignore + git rm --cached)"
 }
 
+# packaging: ignored, fully-untracked Python packaging products at repository
+# roots. The narrow depth + ignore + tracked-file guards deliberately exclude
+# nested domain directories named build and any directory that owns source.
+prescan_packaging() {
+  local total=0 detail="" dir repo candidate rel repo_count
+  for repo in "${LIB_REPOS[@]}"; do
+    dir="$ROOT/$repo"
+    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    repo_count=0
+    while IFS= read -r -d '' candidate; do
+      rel="${candidate#"$dir"/}"
+      git -C "$dir" check-ignore -q -- "$rel" 2>/dev/null || continue
+      [[ -z "$(git -C "$dir" ls-files -- "$rel" 2>/dev/null)" ]] || continue
+      total=$((total + 1)); repo_count=$((repo_count + 1))
+    done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d \
+      \( -name '*.egg-info' -o -name build \) -print0 2>/dev/null)
+    [[ "$repo_count" -gt 0 ]] && detail+="${repo}:${repo_count} "
+  done
+  echo "${total}|${total} ignored top-level library packaging directories (*.egg-info/build): ${detail}(clean: DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging, then run without DRY_RUN)"
+}
+
 # config: keys present in a library config yaml but missing from the matching
 # workspace config (the "mirror new library config keys downstream" chore).
 # Uses a stdlib+PyYAML helper for a recursive key diff; degrades if PyYAML absent.
@@ -263,7 +286,8 @@ prescan() {
   case "$1" in
     perf) prescan_perf ;; tidy) prescan_tidy ;; deps) prescan_deps ;;
     docs) prescan_docs ;; noise) prescan_noise ;;
-    crlf) prescan_crlf ;; artifacts) prescan_artifacts ;; config) prescan_config ;;
+    crlf) prescan_crlf ;; artifacts) prescan_artifacts ;;
+    packaging) prescan_packaging ;; config) prescan_config ;;
   esac
 }
 
@@ -273,7 +297,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|config|artifacts) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|config|artifacts|packaging) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -512,7 +536,7 @@ if [[ "$mode" == "default" ]]; then
   # deferred here — too slow for the fast scan). Rank across all debris modes and
   # recommend the one with the most removable items.
   best=""; best_n=0
-  for m in tidy crlf artifacts; do
+  for m in tidy crlf artifacts packaging; do
     local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
     if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
   done

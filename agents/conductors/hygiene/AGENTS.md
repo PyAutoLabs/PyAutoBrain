@@ -19,7 +19,7 @@ paired repo**, boundaries) recorded in PyAutoMind
 
 ## Modes
 
-All five modes are live. Each does a cheap, read-only local **pre-scan** and
+All modes are live. Each does a cheap, read-only local **pre-scan** and
 **delegates** the full audit + any execution to the owning skill — the conductor
 never runs a heavy audit and never mutates a repo. A pre-scan is one of a few
 kinds, which is what makes its count comparable (or not):
@@ -41,7 +41,8 @@ kinds, which is what makes its count comparable (or not):
 | `crlf` | executable scripts (`.sh` + shebang-`755` `.py`) with CRLF — the shebang breaks on Linux/HPC (**debris**, the ranked count); library `.py` CRLF is reported separately as *cosmetic* (Python reads it fine — don't mass-normalise) | `/refactor` + `.gitattributes eol=lf` |
 | `config` | library `config/*.yaml` keys missing from the matching workspace config — recursive diff (**surface**) | `/refactor` (mirror keys) |
 | `artifacts` | tracked files that look like leaked run outputs / stray data (under `output/`, or data-ext outside fixtures) (**debris**) | `/repo_cleanup` (gitignore + `git rm --cached`) |
-| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count debris mode (`tidy`/`crlf`/`artifacts`), then `hygiene perf`, then the periodic surface audits |
+| `packaging` | ignored, fully-untracked top-level `*.egg-info/` and `build/` directories in managed library repos (**debris**) | preview then run `PyAutoBrain/bin/clean_slate.sh --packaging`; repo-set, exact-name, root-depth and tracked-file guards apply |
+| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count debris mode (`tidy`/`crlf`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
 
 ```
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
@@ -55,6 +56,7 @@ pyauto-brain hygiene docs         # API-docs surface → /audit_docs
 pyauto-brain hygiene crlf         # CRLF .py files → /refactor
 pyauto-brain hygiene config       # library→workspace config drift → /refactor
 pyauto-brain hygiene artifacts    # tracked leaked outputs/data → /repo_cleanup
+pyauto-brain hygiene packaging    # ignored root packaging dirs → clean_slate.sh
 pyauto-brain hygiene <mode> --json
 ```
 
