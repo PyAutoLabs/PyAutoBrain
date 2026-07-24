@@ -79,12 +79,12 @@ def _module_literal(py_path: Path, name: str):
 
 
 def load_grid(ws: Path) -> list[tuple[str, str, tuple[str, ...]]]:
-    cells = _module_literal(ws / "likelihood_runtime" / "sweep.py", "CELLS")
+    cells = _module_literal(ws / "scripts" / "misc" / "likelihood_runtime" / "sweep.py", "CELLS")
     return cells or []
 
 
 def load_tables(ws: Path) -> dict[str, Any]:
-    cfg = ws / "vram" / "config.py"
+    cfg = ws / "scripts" / "misc" / "vram" / "config.py"
     return {
         "VMAP_BATCH": _module_literal(cfg, "VMAP_BATCH") or {},
         "VMAP_BATCH_SPARSE": _module_literal(cfg, "VMAP_BATCH_SPARSE") or {},
@@ -122,12 +122,12 @@ def campaign(ws: Path, tier: str) -> dict[str, Any]:
     dispatch: list[str]
     if tier == "local":
         dispatch = [
-            f"python3 likelihood_runtime/sweep.py --skip-gpu --skip-existing "
+            f"python3 scripts/misc/likelihood_runtime/sweep.py --skip-gpu --skip-existing "
             f"--per-run-timeout {DEFAULT_PER_RUN_TIMEOUT}",
-            "python3 likelihood_runtime/sweep.py --skip-gpu --skip-existing "
+            "python3 scripts/misc/likelihood_runtime/sweep.py --skip-gpu --skip-existing "
             f"--per-run-timeout {DEFAULT_PER_RUN_TIMEOUT} --sparse "
             "--only <imaging cells>",
-            "python3 likelihood_runtime/aggregate.py",
+            "python3 scripts/misc/likelihood_runtime/aggregate.py",
         ]
     else:
         submits = sorted(p.name for p in (ws / "hpc" / "batch_gpu").glob("submit_*"))
@@ -171,7 +171,7 @@ def ingest(ws: Path) -> dict[str, Any]:
     # reasoned over (e.g. the 2026-05 A100 probes whose recommendations the
     # table deliberately halved after cuFFT scratch failures — resurfacing
     # them would reintroduce the failure the halving fixed).
-    table_mtime = (ws / "vram" / "config.py").stat().st_mtime
+    table_mtime = (ws / "scripts" / "misc" / "vram" / "config.py").stat().st_mtime
     for p in sorted(runtime.rglob("vmap_probe_*.json")):
         if p.stat().st_mtime <= table_mtime:
             continue
@@ -214,11 +214,11 @@ def ingest(ws: Path) -> dict[str, Any]:
         "probe_updates": probes,
         "unpinned_results": unpinned,
         "steps": [
-            "apply probe_updates to vram/config.py (keep MB/replica comments) + bump PROVENANCE",
+            "apply probe_updates to scripts/misc/vram/config.py (keep MB/replica comments) + bump PROVENANCE",
             "pin unpinned_results per-instrument (each run printed its value; "
             "the JSON carries it under the script's likelihood/evidence key)",
-            "python3 scripts/build_baseline.py --name <BaselineName>",
-            "python3 scripts/build_readme.py && commit",
+            "python3 scripts/misc/tooling/build_baseline.py --name <BaselineName>",
+            "python3 scripts/misc/tooling/build_readme.py && commit",
         ],
         "next_action": (
             "nothing to ingest"
