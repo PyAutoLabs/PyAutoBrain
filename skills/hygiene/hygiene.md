@@ -19,7 +19,8 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    tracked leaked outputs/data; `packaging` = ignored, fully-untracked top-level
    `*.egg-info/` and `build/` directories in managed library repositories;
    `docstrings` = exact adjacent module-level triple-quoted documentation
-   boundaries in user-facing workspace and HowTo scripts.)
+   boundaries in user-facing workspace and HowTo root entry scripts and
+   `scripts/**/*.py` files.)
 2. Execute the emitted plan: run the named delegate — `/repo_cleanup` (git
    debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
    or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt

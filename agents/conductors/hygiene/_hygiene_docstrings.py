@@ -125,7 +125,11 @@ def scan(root: Path) -> tuple[list[Finding], list[ParseError], int]:
     repositories = repository_paths(root)
 
     for repository in repositories:
-        for path in sorted((repository / "scripts").rglob("*.py")):
+        script_paths = {
+            *repository.glob("*.py"),
+            *(repository / "scripts").rglob("*.py"),
+        }
+        for path in sorted(script_paths):
             relative = path.relative_to(repository).as_posix()
             try:
                 source = path.read_text(encoding="utf-8")

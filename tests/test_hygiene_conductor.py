@@ -142,6 +142,22 @@ def test_docstrings_reports_only_adjacent_top_level_triple_quoted_blocks(tmp_pat
     ] == [(1, 3), (3, 4)]
 
 
+def test_docstrings_includes_root_level_entry_scripts(tmp_path):
+    scripts = tmp_path / "demo_workspace" / "scripts"
+    scripts.mkdir(parents=True)
+    entry_script = tmp_path / "demo_workspace" / "start_here.py"
+    entry_script.write_text('"""first"""\n\n"""second"""\n')
+
+    result = _run(["docstrings", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["count"] == 1
+    assert row["findings"][0]["file"] == "start_here.py"
+    assert row["findings"][0]["first_end_line"] == 1
+    assert row["findings"][0]["second_line"] == 3
+
+
 def test_docstrings_human_output_includes_exact_locations(tmp_path):
     _write_docstring_fixture(tmp_path)
 
