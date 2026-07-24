@@ -28,7 +28,7 @@ reimplement inside Brain.
   `active.md` claims.
 - Script timing: per-script duration regressions against rolling baselines.
 - Test run: latest PyAutoHands release-run report under
-  `test_results/latest/report.json`.
+  `run_logs/latest/report.json`.
 - Version skew: workspace pinned versions versus installed libraries.
 - Generated/noise classification: dirty source files versus generated artifacts.
 
