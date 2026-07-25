@@ -42,8 +42,9 @@ resolves when its canonical form matches an indexed path exactly, as a path
 path), or as a glob. Explicit paths are tried against the repo root and against
 the referencing file's own directory. A reference prefixed with a sibling repo
 name or ``../`` is resolved in that sibling under PYAUTO_ROOT, and one prefixed
-with a library package name (``autofit/…``) in that library's checkout; when the
-sibling is not checked out the reference is skipped, never flagged — this tier
+with a library package or test-suite name (``autofit/…``, ``test_autolens/…``)
+in that library's checkout; when the sibling is not checked out the reference is
+skipped, never flagged — this tier
 never reports what it could not check.
 
 Suppressions (precision tuning)
@@ -102,14 +103,18 @@ FILE_NAME = re.compile(r"^[A-Za-z0-9_*][A-Za-z0-9_.*-]*\.(?:py|ipynb)$")
 RUNTIME_DIRECTORIES = frozenset({"output", "outputs", "dataset", "datasets"})
 # Directories never worth walking when indexing a repository.
 PRUNED_DIRECTORIES = frozenset({".git", ".ipynb_checkpoints", "__pycache__"})
-# Library package name -> the repository whose checkout contains it.
+# Library package (or its test suite) -> the repository whose checkout holds it.
 LIBRARY_REPOSITORIES = {
-    "autonerves": "PyAutoNerves",
-    "autofit": "PyAutoFit",
-    "autoarray": "PyAutoArray",
-    "autogalaxy": "PyAutoGalaxy",
-    "autolens": "PyAutoLens",
-    "autocti": "PyAutoCTI",
+    package: repository
+    for package, repository in (
+        ("autonerves", "PyAutoNerves"),
+        ("autofit", "PyAutoFit"),
+        ("autoarray", "PyAutoArray"),
+        ("autogalaxy", "PyAutoGalaxy"),
+        ("autolens", "PyAutoLens"),
+        ("autocti", "PyAutoCTI"),
+    )
+    for package in (package, f"test_{package}")
 }
 
 
