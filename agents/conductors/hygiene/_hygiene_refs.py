@@ -270,6 +270,13 @@ class Resolver:
                 directory = ""
             if target is None:
                 return None
+            # Re-check runtime roots AFTER a repo prefix strip: a sibling-
+            # qualified `autolens_workspace/dataset/...` is just as
+            # unresolvable-by-absence as a bare `dataset/...` (the folder is
+            # written at runtime), and checking only the pre-strip head let
+            # these through as false positives.
+            if path.split("/", 1)[0] in RUNTIME_DIRECTORIES:
+                return None
         check = target.has_directory if path.endswith("/") else target.has_file
         return bool(check(path) or (directory and check(f"{directory}/{path}")))
 
