@@ -10,7 +10,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 ## Do
 
 1. Run `bin/pyauto-brain hygiene [perf | tidy | noise | deps | docs | crlf |
-   docstrings | config | artifacts | packaging]` (no arg = pre-scan across modes → a ranked worklist;
+   docstrings | refs | config | artifacts | packaging]` (no arg = pre-scan across modes → a ranked worklist;
    perf's import timing is deferred there). This is a **dry run** — each mode
    does a cheap read-only pre-scan and emits a `HygieneDecision` naming the
    skill to run for the full audit. Nothing is executed or mutated. (`crlf` =
@@ -20,14 +20,19 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    `*.egg-info/` and `build/` directories in managed library repositories;
    `docstrings` = exact adjacent module-level triple-quoted documentation
    boundaries in user-facing workspace and HowTo root entry scripts and
-   `scripts/**/*.py` files.)
+   `scripts/**/*.py` files; `refs` = dead internal references — file/folder
+   paths quoted in workspace and HowTo prose whose target no longer exists
+   after a restructure.)
 2. Execute the emitted plan: run the named delegate — `/repo_cleanup` (git
    debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
    or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt
    is a judgement call, never automatic). For `packaging`, preview with
    `DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging`, then run it without `DRY_RUN` to
-   remove only the reported generated directories. For `docstrings`, route the
-   exact reported boundaries to `/refactor`; the Hygiene scan remains read-only.
+   remove only the reported generated directories. For `docstrings` and `refs`, route the
+   exact reported findings to `/refactor`; the Hygiene scan remains read-only.
+   A `refs` finding is the reference **as written** — judge the intended target
+   (a moved file, a file that became a directory, a reference meant for a
+   sibling repo) before re-pointing it.
    Source changes ship via `ship_library` / `ship_workspace`.
 
 The Hygiene Agent **reasons; it never edits source and never mutates a repo.**

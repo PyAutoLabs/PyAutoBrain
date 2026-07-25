@@ -26,7 +26,7 @@ kinds, which is what makes its count comparable (or not):
 
 - **debris** — finds directly-removable items; a real, rankable count (`tidy`).
 - **finding** — confirms a source-quality defect; a real, rankable count
-  (`docstrings`).
+  (`docstrings`, `refs`).
 - **timing** — measures import cost; a real, rankable count of *slow* imports (`perf`).
 - **surface** — only *sizes* the audit; the real problems emerge when the
   delegated skill runs, so the count is **not** a problem count (`deps`, `docs`).
@@ -42,10 +42,11 @@ kinds, which is what makes its count comparable (or not):
 | `docs` | `docs/api/*.rst` + `currentmodule` counts across the 3 doc repos (**surface**) | `/audit_docs` (Heart, imports) |
 | `crlf` | executable scripts (`.sh` + shebang-`755` `.py`) with CRLF — the shebang breaks on Linux/HPC (**debris**, the ranked count); library `.py` CRLF is reported separately as *cosmetic* (Python reads it fine — don't mass-normalise) | `/refactor` + `.gitattributes eol=lf` |
 | `docstrings` | consecutive module-level triple-quoted expressions separated only by whitespace in user-facing `*_workspace` and `HowTo*` root `*.py` entry scripts and `scripts/**/*.py` files (**finding**) | `/refactor` (mechanically merge each confirmed boundary) |
+| `refs` | file/folder references in user-facing `*_workspace` and `HowTo*` prose (`scripts/**/*.py` docstrings + comments, and the top-level README) whose target no longer exists — restructure debt no health sweep can see, since the scripts still run (**finding**) | `/refactor` (re-point each reference; judge the intended target) |
 | `config` | library `config/*.yaml` keys missing from the matching workspace config — recursive diff (**surface**) | `/refactor` (mirror keys) |
 | `artifacts` | tracked files that look like leaked run outputs / stray data (under `output/`, or data-ext outside fixtures) (**debris**) | `/repo_cleanup` (gitignore + `git rm --cached`) |
 | `packaging` | ignored, fully-untracked top-level `*.egg-info/` and `build/` directories in managed library repos (**debris**) | preview then run `PyAutoBrain/bin/clean_slate.sh --packaging`; repo-set, exact-name, root-depth and tracked-file guards apply |
-| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count direct mode (`tidy`/`crlf`/`docstrings`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
+| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count direct mode (`tidy`/`crlf`/`docstrings`/`refs`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
 
 ```
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
@@ -58,6 +59,7 @@ pyauto-brain hygiene deps         # dependency-cap surface → /dep_audit
 pyauto-brain hygiene docs         # API-docs surface → /audit_docs
 pyauto-brain hygiene crlf         # CRLF .py files → /refactor
 pyauto-brain hygiene docstrings   # adjacent top-level documentation → /refactor
+pyauto-brain hygiene refs         # dead internal references in workspace prose → /refactor
 pyauto-brain hygiene config       # library→workspace config drift → /refactor
 pyauto-brain hygiene artifacts    # tracked leaked outputs/data → /repo_cleanup
 pyauto-brain hygiene packaging    # ignored root packaging dirs → clean_slate.sh
