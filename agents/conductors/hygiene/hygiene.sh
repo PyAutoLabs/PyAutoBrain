@@ -199,9 +199,10 @@ prescan_artifacts() {
     dir="$ROOT/$repo"
     [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
     local leaked
-    leaked=$( { git -C "$dir" ls-files 2>/dev/null | grep -E '(^|/)outputs?/';
+    leaked=$( { git -C "$dir" ls-files 2>/dev/null | grep -E '(^|/)outputs?/' \
+                 | grep -vE '(^|/)\.gitignore$';
                git -C "$dir" ls-files -- '*.fits' '*.hdf5' '*.npy' '*.npz' '*.pkl' '*.pt' 2>/dev/null \
-                 | grep -vE '(^|/)(dataset|test_|files|output_test)/'; } | sort -u | wc -l | tr -d ' ')
+                 | grep -vE '(^|/)(dataset|test_[A-Za-z0-9_]*|files|output_test)/'; } | sort -u | wc -l | tr -d ' ')
     total=$((total + leaked))
     [[ "$leaked" -gt 0 ]] && detail+="${repo}:${leaked} "
   done
