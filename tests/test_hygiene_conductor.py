@@ -15,7 +15,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
     "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
-    "packaging", "docstrings",
+    "packaging", "docstrings", "optdeps",
 }
 
 _PROFILE_TARGET = """
@@ -63,6 +63,7 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert kinds["crlf"] == "debris" and kinds["artifacts"] == "debris"
     assert kinds["packaging"] == "debris"
     assert kinds["docstrings"] == "finding"
+    assert kinds["optdeps"] == "finding"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
     assert kinds["config"] == "surface"
     assert kinds["noise"] == "advisory"
@@ -433,3 +434,71 @@ def test_help_lists_the_usage_block(tmp_path):
     assert r.returncode == 0
     assert "hygiene.sh" in r.stdout
     assert "--json" in r.stdout
+
+
+def _write_optdeps_fixture(root):
+    """
+    A workspace with one script of each interesting kind:
+
+      unguarded.py   smoke-listed, constructs a gated API, no guard  -> FLAG
+      guarded.py     smoke-listed, constructs it, has the guard      -> clean
+      loose.py       NOT smoke-listed, constructs it, no guard       -> ignored
+      prose.py       smoke-listed, names it only in a doc block      -> ignored
+    """
+    ws = root / "autolens_workspace"
+    (ws / "scripts").mkdir(parents=True)
+    (ws / ".git").mkdir()
+    (ws / "smoke_tests.txt").write_text("unguarded.py\nguarded.py\nprose.py\n")
+
+    (ws / "scripts" / "unguarded.py").write_text(
+        "import autolens as al\n"
+        "d = al.Interferometer.from_fits(transformer_class=al.TransformerNUFFT)\n"
+    )
+    (ws / "scripts" / "guarded.py").write_text(
+        "import importlib.util, sys\n"
+        'if importlib.util.find_spec("nufftax") is None:\n'
+        '    print("Skipping"); sys.exit(0)\n'
+        "import autolens as al\n"
+        "d = al.Interferometer.from_fits(transformer_class=al.TransformerNUFFT)\n"
+    )
+    (ws / "scripts" / "loose.py").write_text(
+        "import autolens as al\nx = al.TransformerNUFFT\n"
+    )
+    (ws / "scripts" / "prose.py").write_text(
+        '"""\nWe describe TransformerNUFFT here but never build it.\n"""\nx = 1\n'
+    )
+    return ws
+
+
+def test_optdeps_flags_only_the_unguarded_smoke_listed_script(tmp_path):
+    _write_optdeps_fixture(tmp_path)
+
+    result = _run(["optdeps", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["count"] == 1
+    assert row["mode"] == "optdeps" and row["kind"] == "finding"
+    assert [f["script"] for f in row["findings"]] == ["unguarded.py"]
+    assert row["findings"][0]["dependency"] == "nufftax"
+
+
+def test_optdeps_is_clean_when_every_smoke_listed_script_is_guarded(tmp_path):
+    ws = _write_optdeps_fixture(tmp_path)
+    (ws / "smoke_tests.txt").write_text("guarded.py\nprose.py\n")
+
+    result = _run(["optdeps", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["count"] == 0 and row["status"] == "clean"
+
+
+def test_optdeps_findings_reach_the_default_worklist(tmp_path):
+    _write_optdeps_fixture(tmp_path)
+
+    result = _run([], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "optdeps   1 findings" in result.stdout
+    assert "route exact findings to /refactor" in result.stdout
