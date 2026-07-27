@@ -81,14 +81,19 @@ is_dataset_repo() {
 # Print each untracked path under dataset/ that a simulator script in this repo
 # writes. Expands git-clean's collapsed entries down to dataset/<type>/<name>
 # granularity so a wholly-untracked dataset/ tree is still judged per dataset.
+# Both directory spellings are in use: HowToLens uses scripts/simulator/
+# (singular), everything else scripts/**/simulators/ (plural) or a simulator*.py
+# filename. A spelling this misses yields zero scripts, which is indistinguishable
+# from "nothing to clean" — hence the empty-set warning at the call site.
+simulator_scripts() {
+    find "$1/scripts" -type f -name '*.py' \
+        \( -name 'simulator*' -o -path '*/simulator/*' -o -path '*/simulators/*' \) 2>/dev/null
+}
+
 simulated_datasets() {
     local repo="$1" path depth child type name matched
     local -a sims queue found
-    # Both directory spellings are in use: HowToLens uses scripts/simulator/
-    # (singular), everything else scripts/**/simulators/ (plural) or a
-    # simulator*.py filename. Missing one silently disables a whole repo.
-    mapfile -t sims < <(find "$repo/scripts" -type f -name '*.py' \
-        \( -name 'simulator*' -o -path '*/simulator/*' -o -path '*/simulators/*' \) 2>/dev/null)
+    mapfile -t sims < <(simulator_scripts "$repo")
     [ "${#sims[@]}" -eq 0 ] && return 0
 
     queue=()
@@ -148,6 +153,13 @@ for dir in */; do
 
         # 1b. Remove auto-simulated datasets, and flag oversized committed ones.
         if is_dataset_repo "$repo"; then
+            # An in-scope repo with no simulator scripts is almost certainly an
+            # unrecognised layout, not a repo with nothing to simulate — the two
+            # are otherwise indistinguishable (this is how scripts/simulator/
+            # went unnoticed in HowToLens). Say so rather than no-op in silence.
+            if [ "$(simulator_scripts "$repo" | wc -l)" -eq 0 ]; then
+                warn "WARNING: no simulator scripts found — dataset sweep disabled for this repo"
+            fi
             nsim=0; simkb=0
             while IFS= read -r rel; do
                 [ -n "$rel" ] || continue
