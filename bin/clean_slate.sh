@@ -31,11 +31,12 @@
 # problem. No intrinsic marker separates them from simulated data either — a
 # README or a tracer.json sits in both kinds.
 #
-# So a dataset is removed only when a simulator script in the SAME repo demonstrably
-# writes it: both its dataset type and its name appear as string literals in one
-# scripts/**/simulator*.py or scripts/**/simulators/*.py. Anything with no such
-# provenance is kept. The rule therefore errs toward keeping — datasets written by
-# start_here.py-style scripts survive, which is the safe direction.
+# So a dataset is removed only when a simulator script in the SAME repo
+# demonstrably writes it: both its dataset type and its name appear as string
+# literals in one scripts/**/simulator*.py, scripts/**/simulator/*.py or
+# scripts/**/simulators/*.py. Anything with no such provenance is kept. The rule
+# therefore errs toward keeping — datasets written by start_here.py-style scripts
+# survive, which is the safe direction.
 #
 # Workspace root: PYAUTO_ROOT (default ~/Code/PyAutoLabs).
 # Preview without changing anything:  DRY_RUN=1 clean_slate.sh
@@ -83,8 +84,11 @@ is_dataset_repo() {
 simulated_datasets() {
     local repo="$1" path depth child type name matched
     local -a sims queue found
+    # Both directory spellings are in use: HowToLens uses scripts/simulator/
+    # (singular), everything else scripts/**/simulators/ (plural) or a
+    # simulator*.py filename. Missing one silently disables a whole repo.
     mapfile -t sims < <(find "$repo/scripts" -type f -name '*.py' \
-        \( -name 'simulator*' -o -path '*/simulators/*' \) 2>/dev/null)
+        \( -name 'simulator*' -o -path '*/simulator/*' -o -path '*/simulators/*' \) 2>/dev/null)
     [ "${#sims[@]}" -eq 0 ] && return 0
 
     queue=()
