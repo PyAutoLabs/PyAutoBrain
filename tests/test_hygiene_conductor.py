@@ -15,7 +15,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
     "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
-    "packaging", "docstrings", "optdeps",
+    "packaging", "docstrings", "refs", "optdeps",
 }
 
 _PROFILE_TARGET = """
@@ -63,6 +63,7 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert kinds["crlf"] == "debris" and kinds["artifacts"] == "debris"
     assert kinds["packaging"] == "debris"
     assert kinds["docstrings"] == "finding"
+    assert kinds["refs"] == "finding"
     assert kinds["optdeps"] == "finding"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
     assert kinds["config"] == "surface"

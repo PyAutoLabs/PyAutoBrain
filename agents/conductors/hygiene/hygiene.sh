@@ -16,7 +16,8 @@
 #   noise -> /cli_noise_clean (Heart)      deps  -> /dep_audit (Heart)
 #   docs  -> /audit_docs (Heart)           packaging -> clean_slate.sh (Brain)
 #   docstrings -> /refactor (exact findings; Hygiene remains read-only)
-#   optdeps    -> /refactor (smoke-listed scripts missing a skip guard)
+#   refs  -> /refactor (dead internal references in workspace prose)
+#   optdeps -> /refactor (smoke-listed scripts missing an optional-dep skip guard)
 # The three Heart skills are read-only observation skills — measurement lives in
 # Heart; hygiene routes and prioritises. perf's import timing runs in a
 # SUBPROCESS, so the conductor itself never imports the science/JAX stack.
@@ -32,6 +33,7 @@
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
 #   hygiene.sh crlf            # executable scripts w/ CRLF break on HPC (+ cosmetic .py) -> /refactor
 #   hygiene.sh docstrings      # adjacent top-level script documentation -> /refactor
+#   hygiene.sh refs            # dead internal references in workspace prose -> /refactor
 #   hygiene.sh optdeps         # smoke-listed scripts w/ a gated API but no skip guard -> /refactor
 #   hygiene.sh config          # library config keys missing downstream -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
@@ -79,12 +81,13 @@ PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
 read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy crlf docstrings optdeps artifacts packaging noise deps docs config)
+MODE_ORDER=(perf tidy crlf docstrings refs optdeps artifacts packaging noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
   [crlf]="/refactor"
   [docstrings]="/refactor"
+  [refs]="/refactor"
   [optdeps]="/refactor"
   [artifacts]="/repo_cleanup"
   [packaging]="PyAutoBrain/bin/clean_slate.sh --packaging"
@@ -102,8 +105,7 @@ declare -A MODE_DELEGATE=(
 # 'finding', and 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
   [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris" [packaging]="debris"
-  [docstrings]="finding"
-  [optdeps]="finding"
+  [docstrings]="finding" [refs]="finding" [optdeps]="finding"
   [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
@@ -203,6 +205,17 @@ prescan_optdeps() {
   python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT" --summary
 }
 
+# refs: file/folder references in user-facing *_workspace and HowTo* prose
+# (script docstrings/comments + the top-level README) whose target no longer
+# exists. A restructure moves the target and the prose keeps the old name — the
+# scripts still run, so no health sweep can see it. The stdlib helper resolves
+# each reference against the checked-out repos (scripts/ and notebooks/ are one
+# namespace) and holds precision with documented suppressions; this compact form
+# feeds the default ranked worklist.
+prescan_refs() {
+  python3 "$HERE/_hygiene_refs.py" --root "$ROOT" --summary
+}
+
 # artifacts: tracked files that look like leaked generated outputs — anything
 # under a run-output dir (outputs?/, but NOT the output_test fixture dir) plus
 # stray data-ext files outside dataset/test fixtures. Should be gitignored.
@@ -212,9 +225,10 @@ prescan_artifacts() {
     dir="$ROOT/$repo"
     [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
     local leaked
-    leaked=$( { git -C "$dir" ls-files 2>/dev/null | grep -E '(^|/)outputs?/';
+    leaked=$( { git -C "$dir" ls-files 2>/dev/null | grep -E '(^|/)outputs?/' \
+                 | grep -vE '(^|/)\.gitignore$';
                git -C "$dir" ls-files -- '*.fits' '*.hdf5' '*.npy' '*.npz' '*.pkl' '*.pt' 2>/dev/null \
-                 | grep -vE '(^|/)(dataset|test_|files|output_test)/'; } | sort -u | wc -l | tr -d ' ')
+                 | grep -vE '(^|/)(dataset|test_[A-Za-z0-9_]*|files|output_test)/'; } | sort -u | wc -l | tr -d ' ')
     total=$((total + leaked))
     [[ "$leaked" -gt 0 ]] && detail+="${repo}:${leaked} "
   done
@@ -312,7 +326,7 @@ prescan() {
   case "$1" in
     perf) prescan_perf ;; tidy) prescan_tidy ;; deps) prescan_deps ;;
     docs) prescan_docs ;; noise) prescan_noise ;;
-    crlf) prescan_crlf ;; docstrings) prescan_docstrings ;;
+    crlf) prescan_crlf ;; docstrings) prescan_docstrings ;; refs) prescan_refs ;;
     optdeps) prescan_optdeps ;;
     artifacts) prescan_artifacts ;;
     packaging) prescan_packaging ;; config) prescan_config ;;
@@ -325,7 +339,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|optdeps|config|artifacts|packaging) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|refs|optdeps|config|artifacts|packaging) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -503,6 +517,10 @@ emit_json_row() { # mode
     python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --json-row
     return
   fi
+  if [[ "$m" == "refs" ]]; then
+    python3 "$HERE/_hygiene_refs.py" --root "$ROOT" --json-row
+    return
+  fi
   if [[ "$m" == "optdeps" ]]; then
     python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT" --json-row
     return
@@ -542,7 +560,7 @@ render_delegate_line() { # mode
     printf '  %-9s %-9s → hygiene tidy condemns these into condemned.md (async); hygiene sweep voids past-due\n' "" ""
     return
   fi
-  if [[ "$m" == "docstrings" || "$m" == "optdeps" ]]; then
+  if [[ "$m" == "docstrings" || "$m" == "refs" || "$m" == "optdeps" ]]; then
     printf '  %-9s %-9s → route exact findings to /refactor; Hygiene never edits source\n' "" ""
     return
   fi
@@ -573,20 +591,27 @@ render_row() { # mode
   render_delegate_line "$m"
 }
 
-if [[ "$mode" == "optdeps" ]]; then
-  echo "Smoke-listed scripts missing an optional-dependency skip guard (read-only scan):"
-  python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT"
-elif [[ "$mode" == "docstrings" ]]; then
+if [[ "$mode" == "docstrings" ]]; then
   echo "Confirmed adjacent top-level documentation blocks (read-only scan):"
   python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT"
   echo
   echo "→ route the mechanical merges to /refactor; Hygiene never edits source."
+elif [[ "$mode" == "refs" ]]; then
+  echo "Dead internal references in workspace prose (read-only scan):"
+  python3 "$HERE/_hygiene_refs.py" --root "$ROOT"
+  echo
+  echo "→ route the re-points to /refactor; Hygiene never edits source. Each finding is"
+  echo "  the reference AS WRITTEN — judge the intended target before repointing (a moved"
+  echo "  file, a file that became a directory, or a reference meant for a sibling repo)."
+elif [[ "$mode" == "optdeps" ]]; then
+  echo "Smoke-listed scripts missing an optional-dependency skip guard (read-only scan):"
+  python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT"
 elif [[ "$mode" == "default" ]]; then
   # 'debris' and 'finding' pre-scans yield directly-actionable counts (perf's
   # timing is deferred here — too slow for the fast scan). Rank across them and
   # recommend the mode with the largest confirmed workload.
   best=""; best_n=0
-  for m in tidy crlf docstrings optdeps artifacts packaging; do
+  for m in tidy crlf docstrings refs optdeps artifacts packaging; do
     local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
     if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
   done
