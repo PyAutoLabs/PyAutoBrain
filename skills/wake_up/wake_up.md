@@ -15,8 +15,11 @@ already produce. Keep it a thin conductor.
 
 ## Guardrail: auto only the safe steps
 
-Auto-run **only the non-destructive steps** (sync, clean-slate — both git-aware
-and reversible). Anything that deletes, edits, or bumps (stray cleanup, branch
+Auto-run **only the recoverable steps** (sync, clean-slate — both git-aware).
+Clean-slate does delete: untracked **regenerable** datasets, which the
+workspace's own scripts write back on demand, plus generated cruft. It never
+touches a tracked file, and datasets with no proven writer are reported, not
+removed. Anything else that deletes, edits, or bumps (stray cleanup, branch
 deletion, version bumps) is **surfaced in the digest for the human to approve**,
 never done automatically.
 
@@ -40,7 +43,10 @@ Run in order, then emit the digest.
    branch, ff-only; repos with real uncommitted work are skipped untouched. Note
    any left **off-main / dirty / behind / diverged**.
 2. **Clean slate** — `bash PyAutoBrain/bin/clean_slate.sh` (`DRY_RUN=1` to
-   preview). Restore shipped datasets, clear `output/`/`scratch/` cruft.
+   preview). Restore shipped datasets, delete untracked regenerable ones
+   (recreated on demand by the scripts that write them), clear
+   `output/`/`scratch/` cruft. Note any **orphan dataset** lines — kept, not
+   deleted, and waiting on a human call.
 
 ### Everywhere (gh-API — mobile/codex-safe)
 3. **Overnight sweep** — `bash PyAutoBrain/bin/overnight_status.sh`: latest
