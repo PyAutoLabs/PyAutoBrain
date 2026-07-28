@@ -117,7 +117,7 @@ gh api "repos/<owner>/<repo>/pulls/<pr>" --jq 'if .merged_at then "MERGED" else 
 | **B** weak evidence | a record exists but a leg fails | report only |
 | **C** deliberately open | annotation or `Status: issued` says so | never touch |
 | **D** in flight | claimed in `active.md` / `parked.md` | never touch |
-| **E** external | author not in the maintainer set | route to `/community` |
+| **E** external | author not in the maintainer set | route to `$community` |
 | **F** unreconciled | no record at all | the real backlog; sub-split by age |
 
 The maintainer set comes from `repos.yaml` ownership; everyone else is external.
@@ -138,7 +138,7 @@ Bucket A — Shipped, closable (record header + merged PR)
 Bucket B — Record exists, evidence incomplete (report only)
 Bucket C — Deliberately open (annotated in the record)
 Bucket D — In flight (active.md / parked.md)
-Bucket E — External, awaiting our reply  → /community
+Bucket E — External, awaiting our reply  → $community
 Bucket F — Unreconciled backlog (no record) — split: ancient / live / bot
 ```
 
@@ -183,7 +183,7 @@ Print the exact list and get approval before each destructive step.
      implemented) → **keep open**, and say so in the recap.
 
 3. **Buckets B, C, D, E** — no action. Report them so the next sweep does not
-   re-derive the same conclusions, and point bucket E at `/community`.
+   re-derive the same conclusions, and point bucket E at `$community`.
 
 ## Recap
 
@@ -242,7 +242,15 @@ wrong:
 
 The audit is pure `gh` + reading `PyAutoMind/`, so it runs anywhere `gh` is
 authenticated — including mobile Claude Code chat and Codex, where
-`/repo_cleanup` cannot run at all. No local library checkout is needed.
+`$repo-cleanup` cannot run at all. No local library checkout is needed.
+
+This is the harness-portable half of the pair, so keep it that way: no step may
+depend on a local library checkout, a Claude-only tool, or a `~/.claude` path.
+Commands in this file are plain `gh` + POSIX shell for exactly that reason.
+`bin/install.sh` installs the skill into `~/.claude/skills/issue_cleanup`,
+`~/.claude/commands/issue_cleanup.md` and `~/.codex/skills/issue-cleanup` (Codex
+takes the hyphenated `name:` from `SKILL.md`, which is why that frontmatter must
+stay hyphenated).
 
 The one degraded piece is the obsolescence probe in bucket F, which greps repo
 source: without a local checkout, use

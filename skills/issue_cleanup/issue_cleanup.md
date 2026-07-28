@@ -5,18 +5,23 @@ tracker**. Finds issues whose work has demonstrably shipped but which were never
 closed, separates them from issues that are deliberately open, still in flight,
 or owned by the community, and closes only what a human confirms.
 
+Run it as `$issue-cleanup` (`/issue_cleanup` in Claude) — it needs only an
+authenticated `gh` and a readable `PyAutoMind/`, so unlike `$repo-cleanup` it
+works on **any harness and any environment**, including mobile Claude Code chat
+and Codex, with no local library checkout.
+
 A **PyAutoBrain dev-workflow** hygiene skill — the issue-tracker counterpart to
-`/repo_cleanup`'s git-debris sweep. Like that skill it **reasons** about what is
+`$repo-cleanup`'s git-debris sweep. Like that skill it **reasons** about what is
 safe to close and then runs its own `gh` mechanics: it reads the PyAutoMind
 completion records to know what shipped, cross-checks GitHub for merged PRs, and
 executes the closes. Cleanup is not release work, so it never touches
 PyAutoHands. Organ boundary + execution-environment model:
 [`../WORKFLOW.md`](../WORKFLOW.md).
 
-**Distinct from:** `/repo_cleanup` (branches, refs, stashes, worktrees — git
-debris, never issues); `/community` (**external** users' issues awaiting *our
-reply* — this skill never touches those, it routes them there); `/create_issue`
-and `/update_issue` (single-issue primitives); `/hygiene` (code-quality debt, not
+**Distinct from:** `$repo-cleanup` (branches, refs, stashes, worktrees — git
+debris, never issues); `$community` (**external** users' issues awaiting *our
+reply* — this skill never touches those, it routes them there); `$create-issue`
+and `$update-issue` (single-issue primitives); `$hygiene` (code-quality debt, not
 the tracker).
 
 ## Why this needs care
@@ -65,7 +70,7 @@ why reconciling is worth doing at all.
 2. **Two independent evidence legs** before an issue is even *proposed* for
    closing: a completing header key in a record, **and** a merged PR.
 3. **Never close an external user's issue.** Author not in the maintainer set →
-   bucket E, routed to `/community`, never closed here.
+   bucket E, routed to `$community`, never closed here.
 4. **Never close anything claimed** in `PyAutoMind/active.md` / `parked.md`.
 5. **Age is not evidence.** A 2700-day issue may still be valid; probe whether
    the API or infrastructure it names still exists (see "Obsolescence" below).
@@ -135,7 +140,7 @@ named API or infrastructure still exists before proposing a close.
 - Bot-authored self-refreshing issues (`[url-check]`, `[heart-health]`) are
   recognised and excluded from staleness ranking — they are a live signal, not
   debris.
-- `/wake_up` runs the **audit half only** and reports counts in its digest;
+- `$wake-up` runs the **audit half only** and reports counts in its digest;
   every close still comes back through this skill's confirmation.
 - If a record's claim and GitHub disagree, trust GitHub for *state* and the
   record for *intent* — then reconcile, and say which one was stale.

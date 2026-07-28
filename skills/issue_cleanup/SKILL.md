@@ -10,7 +10,7 @@ Thin discovery wrapper. The canonical command body is
 the long-form detail (header taxonomy, evidence rules, dashboard layout,
 per-bucket execution, regression bar) is in [`reference.md`](reference.md).
 
-The issue-tracker counterpart to `/repo_cleanup`'s git-debris sweep: audit →
+The issue-tracker counterpart to `$repo-cleanup`'s git-debris sweep: audit →
 bucketed dashboard → per-bucket human confirmation → execute → recap.
 
 **Two things to know before running it:**
@@ -22,7 +22,7 @@ bucketed dashboard → per-bucket human confirmation → execute → recap.
   allowlist — a loose `*issue*:` match closes live follow-ups.
 - **Closing requires two independent evidence legs** (record header + merged
   PR) and always a human confirmation. The audit half is read-only and safe to
-  run unattended; `/wake_up` does exactly that and reports counts only.
+  run unattended; `$wake-up` does exactly that and reports counts only.
 
 Do not duplicate or reinterpret the workflow here — if it changes, edit
 `issue_cleanup.md`.
