@@ -85,6 +85,28 @@ call, so the Brain is not bypassed):
   local-only steps. Interactive/terminal only (the automated morning webhooks are
   separate).
 
+**5. Maintenance doors** — periodic sweeps that reason about accumulated debris
+and then execute their own cleanup after per-bucket human confirmation. They own
+no agent, but unlike the composition doors they *mutate*, so each is
+audit-first and confirmation-gated:
+
+- **`/repo_cleanup`** — git debris across the canonical checkouts and worktrees:
+  stale feature branches, `[gone]` tracking refs, stashes, dirty checkouts,
+  orphan worktrees. Local-dev only (needs the checkouts). The Hygiene Agent's
+  `tidy` mode is its front door; this skill is the executor.
+- **`/issue_cleanup`** — the GitHub **issue trackers**: audit every open issue
+  against the PyAutoMind completion records and merged PRs, bucket them
+  (shipped / weak evidence / deliberately open / in flight / external /
+  unreconciled), close only what a human confirms. Runs anywhere `gh` is
+  authenticated, including mobile/Codex. Closing needs **two independent
+  evidence legs**, and the record header *key* decides meaning — `issue:`
+  completes, `followup-issue:` / `parent-issue:` / `plan:` mean the record
+  *spawned* a still-open issue. `/wake_up` runs its audit half read-only.
+
+These two are complements, not overlaps: `/repo_cleanup` never touches issues,
+`/issue_cleanup` never touches git. Neither handles **external** users' issues —
+that is `/community`, whose drafts stay human-approved.
+
 Codex skills also expose the remaining public CLI agents directly: the `clone`
 conductor, the `release` conductor, and the read-only `vitals`, `review`,
 `memory`, and `samplers` faculties. They do not gain new
