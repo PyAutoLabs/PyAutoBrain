@@ -177,9 +177,17 @@ def fix_locus(p: dict, factors: dict, cls: dict) -> dict:
 
     if wsp:
         if cls["type"] == "config-error":
-            return {"locus": "workspace config (config/build/*.yaml)",
-                    "note": "use the sanctioned knobs (profile_smoke.yaml / no_run.yaml), "
-                            "never inline edits to the script body."}
+            return {"locus": "workspace config (config/build/*.yaml) — if the defect is "
+                             "environmental",
+                    "note": "prefer the sanctioned knobs (profile_smoke.yaml / no_run.yaml) "
+                            "when the wrong thing is the *environment* a script runs under. "
+                            "But `config-error` is matched on generic signals ('yaml', "
+                            "'config/build'), so a prompt that merely mentions a profile can "
+                            "land here: if the defect is a wrong value written in the script "
+                            "itself (hard-coded path, wrong simulator target, wrong constant), "
+                            "the script body IS the locus — no knob can reach it. Never *mask* "
+                            "a symptom in a script (injected env-vars, silent guards); do "
+                            "correct a value that is simply wrong."}
         return {"locus": "workspace source-first (verify a library fix cannot generalise it)",
                 "note": "workspace scripts are documentation: only edit the script if the "
                         "defect truly lives there, and never in a way that reduces clarity. "
