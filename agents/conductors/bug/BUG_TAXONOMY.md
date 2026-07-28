@@ -36,7 +36,7 @@ must not be degraded to squash a symptom. `fix_locus()` returns a locus + a caut
 |-----------|-------|------|
 | target is an organ (PyAutoBrain/Heart/Build/Mind/Memory) | **infrastructure** | fix the organ; keep the health/exec/reasoning boundaries intact. |
 | any **library** repo resolves | **library source (general fix)** | fix the class of failure at the source. If a workspace also appears, do **not** touch its scripts to mask it. |
-| **workspace** only, `config-error` | **workspace config** | use `config/build/profile_smoke.yaml` / `no_run.yaml` — never inline edits to the script body. |
+| **workspace** only, `config-error` | **workspace config** *if the defect is environmental* | prefer `config/build/profile_smoke.yaml` / `no_run.yaml` when the wrong thing is the *environment* a script runs under. `config-error` matches on generic signals (`yaml`, `config/build`), so a prompt that merely mentions a profile lands here — if the defect is a wrong value written in the script itself (hard-coded path, wrong simulator target, wrong constant), the **script body is the locus** and no knob can reach it. Never *mask* a symptom in a script; do correct a value that is simply wrong. |
 | **workspace** only, other type | **workspace source-first** | first ask whether the real defect is upstream in library source; edit the script only if the defect truly lives there, and never in a way that reduces clarity. |
 | nothing resolves | **unresolved** | locate the owning repo before deciding. |
 
