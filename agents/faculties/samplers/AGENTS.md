@@ -87,6 +87,34 @@ Promote a prototyped sampler only when **all** hold:
    must support the Analysis wrap, results/samples API, visualization and
    resumption — that is the expensive step the minimal tier exists to gate.
 
+## Judgment: the maturation lane (real-likelihood findings)
+
+Distinct from sampler promotion (minimal → PyAutoFit) is the **findings
+lane** for validating an already-promoted search on a new likelihood class —
+established by the pixelized-mesh MultiStartProdigy campaign
+(autolens_workspace_developer#117, 2026-07). Route work through these tiers
+and promote what matures:
+
+1. **Experiment** — `autolens_workspace_developer/searches_minimal/`:
+   hand-rolled harnesses, env-knob objectives, findings docs
+   (`*_findings.md`). This tier may bypass the `af` search wrapper to probe
+   mechanisms; its artifacts are the campaign record, not the product.
+2. **Mature** — `autolens_profiling/scripts/<dataset>/searches/<sampler>/`:
+   when a configuration *works*, it becomes a first-class cell on the
+   **library** `af` search via the searches framework (`misc/searches/`
+   model registry + per-cell knobs), with the *why it works and what was
+   learned* in the cell docstring + `misc/searches/README.md`. Never promote
+   `searches_minimal`-style hand-rolled loops.
+3. **User-facing** — `autolens_workspace/scripts/guides/modeling/searches.py`
+   (and siblings): the lessons at user altitude — which settings matter and
+   when, no campaign internals.
+
+A conductor planning search-validation work should name the target tier up
+front; `ship` routes all three repos through the normal workspace flow.
+(Surface gap, filed: this faculty's SamplerSurface scan reads only the
+autofit-side tiers — it does not yet see the autolens experiment/mature
+tiers above.)
+
 ## Where the knowledge lives (pointers, not copies)
 
 - **PyAutoFit search API** — `PyAutoFit:autofit/non_linear/search/`
@@ -107,7 +135,16 @@ Promote a prototyped sampler only when **all** hold:
   and Brain plans, but never into public user-facing output (the memory
   faculty's AGENTS.md is the rule's home).
 - **Profiling campaigns** — `autolens_profiling` (A100/HPC runs on real
-  lensing likelihoods).
+  lensing likelihoods); its `scripts/<dataset>/searches/<sampler>/` cells are
+  the mature tier of the findings lane above, driven by
+  `scripts/misc/searches/` (model registry, per-cell knobs, README with the
+  campaign knowledge).
+- **Real-likelihood search experiments** —
+  `autolens_workspace_developer/searches_minimal/` (findings docs:
+  `pix_prodigy_findings.md`, `lr_free_findings.md`,
+  `gradient_optimizer_findings.md`, …) — the experiment tier of the findings
+  lane; user-facing lessons land in
+  `autolens_workspace/scripts/guides/modeling/searches.py`.
 
 ## Run
 

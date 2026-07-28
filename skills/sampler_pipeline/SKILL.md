@@ -105,3 +105,10 @@ comparable row · converged · concrete win · implementation cost justified).
   ship gates.
 - Do not grow the smoke-test lists to exercise a new sampler; integration
   scripts live in `scripts/searches/` and are run on demand.
+- This pipeline promotes **samplers** (minimal tier → PyAutoFit). Validating
+  an already-promoted search on a new likelihood class runs the separate
+  **findings lane** (faculty AGENTS.md → "the maturation lane"): experiment
+  in `autolens_workspace_developer/searches_minimal/` → mature first-class
+  cells + knowledge in `autolens_profiling` → user lessons in the
+  `autolens_workspace` guides. Precedent: wsdev#117 (pixelized
+  MultiStartProdigy).
