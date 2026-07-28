@@ -66,6 +66,12 @@ Run in order, then emit the digest.
    ranking. Surface who is waiting and for how long; respond via
    **`/community`** (drafts are human-approved there — never auto-reply from
    the digest).
+6b. **Issue-tracker drift** — run the **audit half of `/issue_cleanup`**
+   (read-only, `gh` + `PyAutoMind/complete/`): how many issues are open, and how
+   many look shipped-but-still-open. Report the counts only — **never close
+   anything from the digest**; closing is `/issue_cleanup`'s own
+   confirmation-gated step. A rising shipped-but-open count means ship flows are
+   skipping their issue close.
 7. **Resume context** — pick up where you left off: in-flight / parked / queued
    work (`PyAutoMind/active.md`, `parked.md`, `queue.md`) + open **pending-release
    PRs** (`gh`); **locally** also worktrees with unpushed commits.
@@ -79,6 +85,8 @@ Emit one prioritized card:
 - ⚠️ **Drifted** — off-main / behind repos, version-pin mismatches.
 - 🔄 **Resume** — in-flight / parked tasks, open pending-release PRs.
 - 🧹 **Cleanable** — cleanup surfaced *for approval*: list it, never auto-act.
+  Includes the issue-tracker counts from step 6b (point at **`/issue_cleanup`**)
+  alongside the git debris (**`/repo_cleanup`**).
 - ✅ **Clear** — say so in one line.
 
 End with a one-line verdict — *"clear to work"* or *"N things need you"* — and, in
