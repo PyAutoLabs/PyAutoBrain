@@ -13,10 +13,16 @@ What is scanned
 The user-facing ``*_workspace`` and ``HowTo*`` repositories (same derivation as
 ``_hygiene_docstrings.py``: a repo counts once it has a ``scripts/`` directory,
 so an un-populated clone is skipped), reading ``scripts/**/*.py`` as whole text
-plus the top-level ``README.md``/``README.rst``. Whole-file text rather than an
-AST docstring walk is deliberate: these references live in docstrings *and* in
+plus every ``scripts/**/README.md``, every ``config/**/README.md``, and the
+top-level ``README.md``/``README.rst``. Whole-file text rather than an AST
+docstring walk is deliberate: these references live in docstrings *and* in
 ``#`` comments *and* in README prose, and a stray match inside code is filtered
 out by the reference patterns below far more cheaply than by tokenizing.
+
+The nested READMEs matter because each package documents its own contents there,
+so a restructure leaves a folder list describing the *old* shape while every
+script still runs — the exact blind spot that let ``autolens_workspace``'s root
+README advertise a ``slam_pipeline/`` directory long after it was gone.
 
 What counts as a reference
 --------------------------
@@ -27,8 +33,27 @@ when they are unambiguously a file or folder reference:
 * ``name.ipynb`` — a bare notebook name (nothing else in this prose is a
   ``.ipynb``, so bare notebook names stay high-precision);
 * ``some/path/`` — a multi-segment folder reference;
+* ``some/path`` — a multi-segment folder reference written *without* the
+  trailing slash, the dominant README idiom (``data_preparation/imaging``). Only
+  trusted when the repo index confirms one end names something real, so prose
+  that merely contains a slash (``bulge/disk``) is skipped, not flagged;
+* ``config/priors/light.yaml`` — a path-qualified ``.yaml``/``.rst`` file;
+* ``- `name`: what it holds`` — a **structure-list bullet**, the one idiom in
+  which a bare backticked word is reliably a path. See the calibration note
+  below, which is what keeps this rule from firing on parameter glossaries;
 * shell globs (``autolens_workspace/*/guides/over_sampling.ipynb``) — the
   workspace's own idiom for "scripts or notebooks", matched as a glob.
+
+Structure-list calibration
+--------------------------
+A markdown bullet list may enumerate folders *or* describe parameters, and a bare
+word alone cannot distinguish them. The list itself is the evidence: an
+extension-less bullet name is only trusted when at least ``STRUCTURE_LIST_QUORUM``
+names in the same contiguous block resolve, so a folder list with one stale entry
+reports it while a glossary — where nothing resolves — is skipped whole. Names
+carrying a file extension (``.yaml``/``.yml``/``.rst``/``.ipynb``) are
+unambiguous and bypass the quorum, which is what catches a ``config/`` README
+still inventorying deleted YAML.
 
 How a reference is resolved
 ---------------------------
@@ -74,6 +99,13 @@ Known residual false-positive classes (judge, do not auto-fix)
   dead **in the repo that contains it**; the fix is qualification.
 * A repo prefix with the wrong case (``autoCTI_workspace/…``) is reported —
   broken as written, cosmetic in impact.
+* A **dataset** path written without its ``dataset/`` prefix
+  (``autolens_workspace/imaging/multi/simple__no_lens_light``) is reported: the
+  runtime-directory suppression keys off the prefix, and without it the path is
+  genuinely wrong as written. The fix is qualification, not a restore.
+* An extension-less pair whose *tail* happens to name a real directory
+  (``light/mass``, where ``mass/`` exists under ``config/priors/``) can survive
+  the anchoring guard. Rare, and judged like any other finding.
 
 Read-only: this scanner never writes to a scanned repository.
 """
@@ -97,6 +129,23 @@ BARE_PATH_REFERENCE = re.compile(
 # it is prose or code, not a path).
 PATH_CHARACTERS = re.compile(r"^[A-Za-z0-9_.*/-]+$")
 FILE_NAME = re.compile(r"^[A-Za-z0-9_*][A-Za-z0-9_.*-]*\.(?:py|ipynb)$")
+# Path-qualified config/doc files (`config/priors/light.yaml`). Only meaningful
+# when the token carries a directory, so a bare `general.yaml` in prose is not
+# swept up here — the structure-list rule below owns that case.
+QUALIFIED_FILE_NAME = re.compile(r"^[A-Za-z0-9_*][A-Za-z0-9_.*-]*\.(?:ya?ml|rst)$")
+
+# A workspace structure list: ``- `name`: what it holds``. This bullet idiom is
+# how every workspace README documents its own folders, and it is the only place
+# a *bare* backticked word is reliably a path rather than prose, so the rule is
+# confined to it.
+STRUCTURE_BULLET = re.compile(r"^[ \t]*[-*][ \t]+`([^`\n]+)`[ \t]*:", re.MULTILINE)
+BARE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+# Extensions that make a bare structure-list name unambiguously a file (nothing
+# else in this prose is a `.yaml`), so they bypass the calibration below.
+BULLET_FILE_SUFFIXES = (".yaml", ".yml", ".rst", ".ipynb")
+# A bullet block is treated as a *structure* list only when at least this many
+# of its extension-less names resolve. See `structure_findings`.
+STRUCTURE_LIST_QUORUM = 2
 
 # Directory names whose contents are produced by a run, so their absence from a
 # checkout proves nothing about the reference.
@@ -179,13 +228,27 @@ def is_reference(text: str) -> bool:
     """Return whether a quoted span is a file/folder reference worth resolving."""
     if not text or not PATH_CHARACTERS.match(text):
         return False
+    # An absolute path names a filesystem outside the repo (an HPC scratch
+    # directory, a mount point) and can never be resolved against a checkout.
+    if text.startswith("/"):
+        return False
     if text.endswith("/"):
         # Multi-segment only: a lone `image/` names output structure, not a repo
         # directory (measured: that class is entirely false positives).
         return "/" in text.rstrip("/")
     name = text.rsplit("/", 1)[-1]
     if not FILE_NAME.match(name):
-        return False
+        if "/" not in text:
+            return False
+        # A path-qualified config/doc file (`config/priors/light.yaml`).
+        if QUALIFIED_FILE_NAME.match(name):
+            return True
+        # A multi-segment token whose last segment carries no extension is a
+        # directory reference written *without* a trailing slash — the dominant
+        # README idiom (`data_preparation/imaging`). Prose that merely contains a
+        # slash (`bulge/disk`) is filtered at resolution time by `_is_anchored`,
+        # which checks the reference against the repo index.
+        return "." not in name
     # Bare `name.py` is dominated by module/library names in prose; bare
     # `name.ipynb` is unambiguously a workspace notebook.
     return "/" in text or name.endswith(".ipynb")
@@ -221,12 +284,59 @@ def repository_paths(root: Path) -> list[Path]:
 
 def scanned_files(repository: Path) -> list[Path]:
     paths = sorted((repository / "scripts").rglob("*.py"))
+    # Nested README.md files carry the bulk of the folder-structure prose: each
+    # package documents its own contents, and a restructure leaves those lists
+    # pointing at the old shape. ``config/`` READMEs inventory the shipped YAML
+    # the same way.
+    paths += sorted((repository / "scripts").rglob("README.md"))
+    configuration = repository / "config"
+    if configuration.is_dir():
+        paths += sorted(configuration.rglob("README.md"))
     paths += [
         repository / name
         for name in ("README.md", "README.rst")
         if (repository / name).is_file()
     ]
     return paths
+
+
+def _is_anchored(target: "RepositoryIndex", path: str) -> bool:
+    """Whether an extension-less multi-segment token looks like a real path.
+
+    Prose uses a slash as shorthand too ("bulge/disk", "light/mass"), and those
+    must not be reported as dead paths. A genuine reference almost always has at
+    least one end matching something real — either the leading directory
+    (``data_preparation/imaging``) or, when the *head* is what drifted, the tail
+    (``sdvanced/modeling``, ``guide/advanced``, where a typo'd first segment is
+    the whole finding). Requiring both would miss precisely those.
+    """
+    head, tail = path.split("/", 1)[0], path.rsplit("/", 1)[-1]
+    return bool(
+        target.has_directory(head)
+        or target.has_directory(tail)
+        or target.has_file(f"{tail}.py")
+    )
+
+
+def _resolves_extensionless(
+    target: "RepositoryIndex", path: str, directory: str
+) -> bool:
+    """Resolve a reference carrying no file extension.
+
+    It may name a folder, or a file whose extension the prose dropped — the
+    workspace habit of writing "see ``features/pixelization/modeling``". The
+    index is canonical (``.ipynb`` folded to ``.py``), so ``.py`` is the only
+    suffix worth trying.
+    """
+    candidates = [path]
+    if directory:
+        candidates.append(f"{directory}/{path}")
+    return any(
+        target.has_directory(candidate)
+        or target.has_file(candidate)
+        or target.has_file(f"{candidate}.py")
+        for candidate in candidates
+    )
 
 
 class Resolver:
@@ -277,8 +387,86 @@ class Resolver:
             # these through as false positives.
             if path.split("/", 1)[0] in RUNTIME_DIRECTORIES:
                 return None
-        check = target.has_directory if path.endswith("/") else target.has_file
-        return bool(check(path) or (directory and check(f"{directory}/{path}")))
+        if path.endswith("/"):
+            check = target.has_directory
+            return bool(check(path) or (directory and check(f"{directory}/{path}")))
+        if "." in path.rsplit("/", 1)[-1]:
+            check = target.has_file
+            return bool(check(path) or (directory and check(f"{directory}/{path}")))
+        # Extension-less: either a folder, or a file whose extension the prose
+        # dropped ("see features/pixelization/modeling").
+        if "/" in path and not _is_anchored(target, path):
+            # Guard against prose that merely contains a slash ("bulge/disk"):
+            # at least one end must name something real. Reported as
+            # unresolvable rather than dead — never flag a guess.
+            return None
+        return _resolves_extensionless(target, path, directory)
+
+    def resolves_name(self, name: str, repo: str, directory: str) -> bool | None:
+        """Resolve a bare structure-list name as either a folder or a file."""
+        target = self.index(repo)
+        if target is None:
+            return None
+        if name in RUNTIME_DIRECTORIES:
+            return None
+        if "." in name:
+            return bool(
+                target.has_file(name)
+                or (directory and target.has_file(f"{directory}/{name}"))
+            )
+        return _resolves_extensionless(target, name, directory)
+
+
+def bullet_blocks(text: str, offsets: list[int]) -> list[list[tuple[int, str]]]:
+    """Group ``- `name`: …`` bullets into contiguous lists.
+
+    Bullets more than three lines apart belong to different lists (a heading or
+    a paragraph separates them); a wrapped bullet keeps its list intact.
+    """
+    blocks: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] = []
+    previous = None
+    for match in STRUCTURE_BULLET.finditer(text):
+        line = line_of(offsets, match.start())
+        if previous is not None and line - previous > 3:
+            blocks.append(current)
+            current = []
+        current.append((line, match.group(1).strip()))
+        previous = line
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def structure_findings(
+    resolver: Resolver, repo: str, directory: str, text: str, offsets: list[int]
+) -> list[tuple[int, str]]:
+    """Dead references among a markdown file's structure-list bullets.
+
+    A bare backticked word is only a path in this one idiom, and even here a
+    bullet list may describe parameters rather than folders. The list itself is
+    the calibration: extension-less names are trusted only when at least
+    ``STRUCTURE_LIST_QUORUM`` of that block's names actually resolve, so a
+    parameter glossary (where none resolve) is skipped whole. Names carrying a
+    file extension are unambiguous and bypass the quorum — which is what catches
+    a config README still inventorying deleted YAML.
+    """
+    findings: list[tuple[int, str]] = []
+    for block in bullet_blocks(text, offsets):
+        named = [(line, name) for line, name in block if BARE_NAME.match(name)]
+        resolved, unresolved = [], []
+        for line, name in named:
+            if name.endswith(BULLET_FILE_SUFFIXES):
+                if resolver.resolves_name(name, repo, directory) is False:
+                    findings.append((line, name))
+                continue
+            state = resolver.resolves_name(name, repo, directory)
+            if state is None:
+                continue
+            (resolved if state else unresolved).append((line, name))
+        if len(resolved) >= STRUCTURE_LIST_QUORUM:
+            findings.extend(unresolved)
+    return findings
 
 
 def findings_in_file(
@@ -314,7 +502,20 @@ def findings_in_file(
                     reference=reference,
                 )
             )
-    return findings
+
+    if path.suffix == ".md":
+        for line, name in structure_findings(
+            resolver, repository.name, directory, text, offsets
+        ):
+            if (line, name) in seen:
+                continue
+            seen.add((line, name))
+            findings.append(
+                Finding(
+                    repo=repository.name, file=relative, line=line, reference=name
+                )
+            )
+    return sorted(findings, key=lambda finding: (finding.line, finding.reference))
 
 
 def scan(root: Path) -> tuple[list[Finding], int, int]:

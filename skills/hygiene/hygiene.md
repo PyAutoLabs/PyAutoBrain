@@ -22,7 +22,9 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    boundaries in user-facing workspace and HowTo root entry scripts and
    `scripts/**/*.py` files; `refs` = dead internal references — file/folder
    paths quoted in workspace and HowTo prose whose target no longer exists
-   after a restructure.)
+   after a restructure, across `scripts/**/*.py`, every nested
+   `scripts/**/README.md` and `config/**/README.md`, and the top-level README,
+   including folder-structure bullet lists and slash-less relative paths.)
 2. Execute the emitted plan: run the named delegate — `/repo_cleanup` (git
    debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
    or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt
