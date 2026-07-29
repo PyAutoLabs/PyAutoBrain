@@ -633,6 +633,34 @@ def test_refs_suppresses_prose_slashes_and_absolute_paths(tmp_path):
     assert "imaging/modeling" not in found
 
 
+def test_refs_resolves_dot_directory_references(tmp_path):
+    workspace = tmp_path / "demo_workspace"
+    (workspace / "scripts").mkdir(parents=True)
+    (workspace / ".claude" / "skills").mkdir(parents=True)
+    # `.github/` exists but holds no `workflows/`, so the reference below is
+    # anchored (the guard will judge it) yet genuinely dead.
+    (workspace / ".github").mkdir()
+    (workspace / "README.md").write_text(
+        "\n".join(
+            [
+                "- `scripts`: example scripts.",
+                "See `.claude/skills` for agent skills and `.github/workflows` for CI.",
+                "",
+            ]
+        )
+    )
+
+    found = {f["reference"] for f in _refs_row(tmp_path)["findings"]}
+
+    # A leading dot must survive prefix-stripping. Before the fix, `lstrip("./")`
+    # ate it: `.claude/skills` became `claude/skills` and was reported dead even
+    # though it exists, and `.github/workflows` was reported under a mangled name.
+    assert ".claude/skills" not in found
+    assert ".github/workflows" in found
+    assert "github/workflows" not in found
+    assert "claude/skills" not in found
+
+
 def test_refs_findings_reach_the_default_worklist(tmp_path):
     _write_refs_fixture(tmp_path)
 

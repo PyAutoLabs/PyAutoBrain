@@ -361,9 +361,18 @@ class Resolver:
         target = self.index(repo)
         if target is None:
             return None
-        path = reference.lstrip("./")
-        while path.startswith("../"):
-            path = path[3:]
+        # Strip leading `./` and `../` as *prefixes*. `lstrip("./")` would strip
+        # the character set, silently mangling every reference to a dot-directory
+        # (`.claude/skills` -> `claude/skills`, `.github/workflows` ->
+        # `github/workflows`) and then reporting it as dead.
+        path = reference
+        while True:
+            if path.startswith("../"):
+                path = path[3:]
+            elif path.startswith("./"):
+                path = path[2:]
+            else:
+                break
         head = path.split("/", 1)[0]
         if head in RUNTIME_DIRECTORIES:
             return None
