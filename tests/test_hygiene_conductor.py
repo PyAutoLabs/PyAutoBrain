@@ -503,3 +503,141 @@ def test_optdeps_findings_reach_the_default_worklist(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "optdeps   1 findings" in result.stdout
     assert "route exact findings to /refactor" in result.stdout
+
+
+def _write_refs_fixture(root):
+    """A workspace whose READMEs drift from its real tree.
+
+    Real layout: scripts/{imaging/{data_preparation/,features/},guides/advanced/}
+    plus config/{general.yaml,priors/}.
+    """
+    workspace = root / "demo_workspace"
+    for folder in (
+        "scripts/imaging/data_preparation",
+        "scripts/imaging/features",
+        "scripts/guides/advanced",
+        "config/priors",
+    ):
+        (workspace / folder).mkdir(parents=True)
+    (workspace / "scripts/imaging/modeling.py").write_text("x = 1\n")
+    (workspace / "config/general.yaml").write_text("a: 1\n")
+
+    # Root README: a structure list whose quorum holds, with two dead entries.
+    (workspace / "README.md").write_text(
+        "\n".join(
+            [
+                "# Demo",
+                "",
+                "- `scripts`: example scripts.",
+                "- `config`: configuration files.",
+                "- `slam_pipeline`: the SLaM pipelines.",
+                "",
+            ]
+        )
+    )
+    # A parameter glossary — nothing resolves, so the whole block is skipped.
+    (workspace / "scripts/imaging/README.md").write_text(
+        "\n".join(
+            [
+                "- `intensity`: the brightness of the profile.",
+                "- `effective_radius`: the half-light radius.",
+                "- `sersic_index`: the concentration.",
+                "",
+            ]
+        )
+    )
+    # Reversed relative path + a typo'd leading segment; `modeling` resolves via
+    # the dropped-extension rule, and `bulge/disk` is prose, not a path.
+    (workspace / "scripts/guides/advanced/README.md").write_text(
+        "\n".join(
+            [
+                "The `data_preparation/imaging` folder prepares data.",
+                "The `guide/advanced` folder holds guides.",
+                "See `imaging/modeling` for the workflow.",
+                "A `bulge/disk` decomposition is standard.",
+                "Results land in `/hpc/data/username/output` on the cluster.",
+                "",
+            ]
+        )
+    )
+    # Config inventory listing YAML that is no longer shipped.
+    (workspace / "config/README.md").write_text(
+        "\n".join(
+            [
+                "- `general.yaml`: general settings.",
+                "- `mcmc.yaml`: MCMC settings.",
+                "",
+            ]
+        )
+    )
+    return workspace
+
+
+def _refs_row(tmp_path):
+    result = _run(["refs", "--json"], tmp_path)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)["row"]
+
+
+def test_refs_reports_dead_structure_list_entries(tmp_path):
+    _write_refs_fixture(tmp_path)
+
+    found = {(f["file"], f["reference"]) for f in _refs_row(tmp_path)["findings"]}
+
+    # `slam_pipeline` is dead; `scripts`/`config` resolve and form the quorum
+    # that proves this block is a structure list rather than prose.
+    assert ("README.md", "slam_pipeline") in found
+
+
+def test_refs_skips_bullet_lists_that_are_not_structure_lists(tmp_path):
+    _write_refs_fixture(tmp_path)
+
+    found = {f["reference"] for f in _refs_row(tmp_path)["findings"]}
+
+    # A parameter glossary: no name resolves, so the quorum is never met and the
+    # whole block is skipped rather than reported as three dead references.
+    assert {"intensity", "effective_radius", "sersic_index"}.isdisjoint(found)
+
+
+def test_refs_reports_config_yaml_that_is_no_longer_shipped(tmp_path):
+    _write_refs_fixture(tmp_path)
+
+    found = {(f["file"], f["reference"]) for f in _refs_row(tmp_path)["findings"]}
+
+    # An extension-bearing name bypasses the quorum — one dead entry beside one
+    # live one is still a finding.
+    assert ("config/README.md", "mcmc.yaml") in found
+    assert ("config/README.md", "general.yaml") not in found
+
+
+def test_refs_reports_slashless_directory_paths(tmp_path):
+    _write_refs_fixture(tmp_path)
+
+    found = {f["reference"] for f in _refs_row(tmp_path)["findings"]}
+
+    # Reversed order (real path is imaging/data_preparation) and a typo'd head.
+    assert "data_preparation/imaging" in found
+    assert "guide/advanced" in found
+
+
+def test_refs_suppresses_prose_slashes_and_absolute_paths(tmp_path):
+    _write_refs_fixture(tmp_path)
+
+    found = {f["reference"] for f in _refs_row(tmp_path)["findings"]}
+
+    # `bulge/disk` is prose shorthand, not a path; an absolute cluster path can
+    # never resolve against a checkout; `imaging/modeling` resolves through the
+    # dropped-extension rule (the file is modeling.py).
+    assert "bulge/disk" not in found
+    assert "/hpc/data/username/output" not in found
+    assert "imaging/modeling" not in found
+
+
+def test_refs_findings_reach_the_default_worklist(tmp_path):
+    _write_refs_fixture(tmp_path)
+
+    result = _run(["--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    rows = {row["mode"]: row for row in json.loads(result.stdout)["rows"]}
+    assert rows["refs"]["count"] == len(_refs_row(tmp_path)["findings"]) > 0
