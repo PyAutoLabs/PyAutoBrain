@@ -18,9 +18,9 @@
 #                        the testpypi-rehearsal-version artifact, capture each
 #                        library's main HEAD -> commit_shas.json. Reused AS-IS
 #                        from rehearse.sh (called into, not re-implemented).
-#   Stage 3 (integrate)  dispatch PyAutoHeart's workspace-validation.yml in
-#                        mode=release with the Stage-2 testpypi_version +
-#                        commit_shas, poll, download the release-stage-report.
+#   Stage 3 (integrate)  dispatch PyAutoHeart's release-integrate.yml channel
+#                        with the Stage-2 testpypi_version + commit_shas, poll,
+#                        download the release-stage-report.
 #   final ingest+verdict hand Stage 2's rehearsal.json/commit_shas.json AND
 #                        Stage 3's stage_report.json together to
 #                        `pyauto-heart validate --ingest`, then consult the
@@ -46,7 +46,7 @@
 #   # Phase B — once Stage 2 artifacts exist, emit the Stage 3 dispatch plan:
 #   validate.sh --stage3-plan <dir> [--ref main] [--json]
 #       reads testpypi_version + commit_shas from <dir>, emits the
-#       workspace-validation.yml mode=release plan; the agent runs it, then calls:
+#       release-integrate.yml dispatch plan; the agent runs it, then calls:
 #
 #   # Phase C — once Stage 3 artifacts exist, ingest everything + get the verdict:
 #   validate.sh --ingest <dir> [--commit-shas FILE] [--profile P] [--force] [--json]
@@ -60,7 +60,7 @@
 #
 # commit_shas authority. Stage 2's commit_shas.json (the library main HEADs the
 # Release Agent read straight from GitHub) is the SINGLE source of truth. Stage 3
-# merely echoes it back: the same JSON is passed as workspace-validation.yml's
+# merely echoes it back: the same JSON is passed as release-integrate.yml's
 # `commit_shas` input, which emit_release_report writes out and embeds into
 # stage_report.json. So the phase-C `--commit-shas` flag and the stage report's
 # embedded copy derive from the SAME file and cannot legitimately disagree.
@@ -76,11 +76,13 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../../_common.sh"
 
-# Stage 3 target: Heart's workspace-validation.yml (the M3 mode=release path).
-# Dispatched on Heart's own main (where the merged workflow lives) — the LIBRARY
-# source is pinned by the TestPyPI wheels + commit_shas input, not by this ref.
+# Stage 3 target: Heart's release-integrate.yml — the dedicated rehearsal
+# channel (the workflow IS mode=release; the continuous smoke channel is
+# workspace-smoke.yml and never mixes with this run history). Dispatched on
+# Heart's own main (where the merged workflow lives) — the LIBRARY source is
+# pinned by the TestPyPI wheels + commit_shas input, not by this ref.
 HEART_REPO="PyAutoLabs/PyAutoHeart"
-INTEGRATE_WORKFLOW="workspace-validation.yml"
+INTEGRATE_WORKFLOW="release-integrate.yml"
 INTEGRATE_ARTIFACT="release-stage-report"
 # The 5 libraries whose Stage-0 cleanliness/CI signals gate the whole run. Bare
 # names match heart state's repos.<name> keys and readiness' commit_shas keys.
@@ -186,7 +188,7 @@ version = find_version()
 shas = find_shas()
 if not isinstance(shas, dict):
     shas = {}
-# Compact single-line JSON string — the workspace-validation.yml commit_shas
+# Compact single-line JSON string — the release-integrate.yml commit_shas
 # input is a JSON *string* (default "{}").
 shas_json = json.dumps(shas, separators=(",", ":"), sort_keys=True)
 # Emit two NUL-free lines: version, then the shas JSON string.
@@ -212,11 +214,11 @@ print(shas_json)
     exit 1
   fi
 
-  # The inputs object for the workspace-validation.yml mode=release dispatch.
-  inputs="$(MODE=release VER="$testpypi_version" SHAS="$commit_shas_json" python3 -c '
+  # The inputs object for the release-integrate.yml dispatch (no mode input —
+  # the channel is the mode).
+  inputs="$(VER="$testpypi_version" SHAS="$commit_shas_json" python3 -c '
 import json, os
 print(json.dumps({
-  "mode": os.environ["MODE"],
   "testpypi_version": os.environ["VER"],
   "commit_shas": os.environ["SHAS"],
 }))

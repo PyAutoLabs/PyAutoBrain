@@ -51,7 +51,7 @@ Run in order, then emit the digest.
 ### Everywhere (gh-API — mobile/codex-safe)
 3. **Overnight sweep** — `bash PyAutoBrain/bin/overnight_status.sh`: latest
    scheduled-workflow conclusions (nightly-release, heart-health, matrix CI,
-   workspace-validation, wiki-currency, spawn-drift, arxiv). The "what ran while I
+   workspace-smoke, wiki-currency, spawn-drift, arxiv). The "what ran while I
    slept" glance — a failing `nightly-release` is your release-blocked signal.
 4. **Health & release** — **locally**, consult **`/health`** for the rich verdict;
    **remotely**, the overnight sweep's `heart-health` / `nightly-release`

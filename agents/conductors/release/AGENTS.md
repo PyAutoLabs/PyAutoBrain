@@ -113,8 +113,8 @@ bin/pyauto-brain release validate --ingest <dir> --force   # accept a YELLOW
 - **Stage 2 (rehearse)** is `rehearse.sh`'s phase-1 plan, reused verbatim via its
   `--next-plan-cmd` hook so its dispatch/poll/download/capture-heads plan stays
   defined in ONE place; only the "continue" step is redirected into phase B.
-- **Stage 3 (integrate)** dispatches PyAutoHeart's `workspace-validation.yml` in
-  `mode=release` with `testpypi_version` + `commit_shas` (a JSON *string*) read
+- **Stage 3 (integrate)** dispatches PyAutoHeart's `release-integrate.yml` channel
+  with `testpypi_version` + `commit_shas` (a JSON *string*) read
   from the Stage 2 artifacts, then downloads the `release-stage-report`
   (`stage_report.json`) **into the same dir** as the Stage 2 artifacts.
 - **Final ingest + verdict** delegates to `rehearse.sh --ingest` (reused

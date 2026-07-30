@@ -35,7 +35,7 @@ adapts with no edits. The local [`HEART_CAPABILITIES.md`](./HEART_CAPABILITIES.m
 is a human-readable cross-reference to that same surface.
 
 The capabilities Heart may report on (today) include: unit tests (`lib-tests`),
-workspace/integration validation (`workspace-validation` -> `test_run`), release
+workspace/integration validation (`workspace-smoke` -> `test_run`), release
 readiness (`readiness`), dependency/version consistency (`version_skew`), URL
 hygiene (`url_check`/`url_sweep`), repository cleanliness (`repo_state`/`noise`),
 CI status (`ci_status`), open PRs (`open_prs`), worktree drift, script timing,

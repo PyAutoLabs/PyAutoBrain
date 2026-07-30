@@ -51,8 +51,8 @@ reimplement inside Brain.
   the rehearsal, don't fix code); a failed
   stage → RED. It is exposed as the `validate` capability + `validation_report`
   signal in Heart's `health_agent/capabilities.yaml`.
-- **Heart is ingest-and-judge only** — it never dispatches `release.yml` or
-  `workspace-validation.yml`. Dispatching/polling/downloading the artifacts is the
+- **Heart is ingest-and-judge only** — it never dispatches `release.yml`,
+  `workspace-smoke.yml`, or `release-integrate.yml`. Dispatching/polling/downloading the artifacts is the
   **Release Agent's** job (`pyauto-brain release rehearse`), via MCP GitHub tools.
   The **vitals faculty stays read-only**: it reports the resulting verdict, it does
   not dispatch.

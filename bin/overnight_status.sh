@@ -15,7 +15,7 @@ command -v gh >/dev/null 2>&1 || { echo "gh not found — cannot fetch run statu
 JOBS=(
   "PyAutoBrain:nightly-release.yml"
   "PyAutoHeart:heart-health.yml"
-  "PyAutoHeart:workspace-validation.yml"
+  "PyAutoHeart:workspace-smoke.yml"
   "PyAutoHands:python_matrix.yml"
   "PyAutoMind:arxiv_papers.yml"
   "PyAutoMind:spawn_drift.yml"
