@@ -304,7 +304,16 @@ for k, v in (json.load(sys.stdin) or {}).items():
   gh run watch "$run_id" -R "$repo" --interval 60 --exit-status >/dev/null
   rc=$?
   LAST_RUN_URL="https://github.com/$repo/actions/runs/$run_id"
-  [[ $rc -ne 0 ]] && return 2
+  if [[ $rc -ne 0 ]]; then
+    # The report artifacts upload `if: always()`, so a FAILED run still carries
+    # the evidence of which scripts failed — fetch it so the page can name
+    # them. Best-effort: paging must never be blocked by a missing artifact.
+    if [[ -n "$artifact" ]]; then
+      gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" 2>/dev/null \
+        || echo "nightly: failed run's artifact '$artifact' not downloadable" >&2
+    fi
+    return 2
+  fi
   if [[ -n "$artifact" ]]; then
     gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" || return 3
   fi
@@ -362,7 +371,35 @@ s3_inputs="$(plan_field "$phase_b" "json.dumps(plan['steps'][0]['inputs'])")"
 s3_artifact="$(plan_field "$phase_b" "[s for s in plan['steps'] if s['step']=='download'][0]['artifact']")"
 
 if ! dispatch_and_await "$s3_repo" "$s3_wf" "$s3_inputs" "$s3_artifact" "$ART_DIR"; then
-  page "Stage 3 (release-fidelity integration) failed — <${LAST_RUN_URL:-$RUN_URL}|run>"
+  # Name the failing scripts straight from the downloaded stage report so the
+  # page is actionable without opening the run (no report → plain page).
+  detail="$(python3 - "$ART_DIR/stage_report.json" <<'PY' 2>/dev/null
+import json, sys
+
+try:
+    r = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+s = r.get("summary") or {}
+parts = [
+    f"{int(s.get(k, 0) or 0)} {k}" for k in ("failed", "timeout") if int(s.get(k, 0) or 0)
+]
+names = []
+for f in r.get("failures") or []:
+    tail = "/".join(str(f.get("script") or "").rstrip("/").split("/")[-2:])
+    names.append(f"{f.get('project')} {tail}")
+if not parts and not names:
+    sys.exit(0)
+line = ", ".join(parts) if parts else "failures"
+if names:
+    line += ": " + ", ".join(names[:3])
+    if len(names) > 3:
+        line += f", +{len(names) - 3} more"
+print(line)
+PY
+)"
+  page "Stage 3 (release-fidelity integration) failed — <${LAST_RUN_URL:-$RUN_URL}|run>${detail:+
+$detail}"
   exit 2
 fi
 
