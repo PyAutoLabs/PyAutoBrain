@@ -92,8 +92,8 @@ See [`reference.md`](reference.md) → "Library-first merge gate".
 ### 6. Complete the issue + Mind state
 
 Detect the issue, generate a session summary, post a "Shipped" comment, write
-the dated completion record (`lifecycle.py record`), drop the `active.md`
-entry, and push Mind. Templates in
+the dated completion record (`lifecycle.py record` — also refreshes the index
+and prunes the `active.md` entry), and push Mind. Templates in
 [`reference.md`](reference.md) → "Issue completion + Mind state".
 
 ## Notes

@@ -140,11 +140,10 @@ optional session notes), then record completion — the dated record **is** the
 ledger (issues #71/#81; the monolithic `complete.md` was retired 2026-07-16):
 - **Draft the rich completion body** to a temp file — `## <slug>`, `issue`,
   `completed: <date>`, `library-pr:`, then the summary/traps/notes bullets.
-- **Write the record** (folds + removes the `active/` prompt):
+- **Write the record** — one step: it folds + removes the `active/` prompt,
+  refreshes `complete/index.md`, and prunes the task's `active.md` section
+  (all the state `lifecycle.py check` drift-checks):
   `python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <completed> --from-file <tmp> --prompt <active-filename> --apply`
-- **Regenerate the index:** `python3 PyAutoMind/scripts/lifecycle.py index --apply`
-- **Drop the task's `active.md` entry** (`lifecycle.py check` flags a finished
-  slug still present in `active.md`).
 
 Then push Mind with
 `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.

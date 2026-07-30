@@ -111,13 +111,12 @@ SHIP_EOF
 - summary: <what landed, gotchas, follow-ups>
 ```
 
-   **Write the record** (folds + removes the `active/` prompt), regenerate the
-   index, and drop the task's `active.md` entry (`lifecycle.py check` flags a
-   finished slug still present there):
+   **Write the record** — one step: it folds + removes the `active/` prompt,
+   refreshes `complete/index.md`, and prunes the task's `active.md` section
+   (all the state `lifecycle.py check` drift-checks):
 
 ```bash
 python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <YYYY-MM-DD> --from-file <tmp> --prompt <active-filename> --apply
-python3 PyAutoMind/scripts/lifecycle.py index --apply
 ```
 
 Push Mind: `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.
