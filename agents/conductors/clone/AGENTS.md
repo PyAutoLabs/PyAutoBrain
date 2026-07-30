@@ -32,7 +32,12 @@ lightweight-seed) a human answers before any `--apply`.
 An unclassified file **blocks `--apply`** (exit 4) — deliberate pressure that
 keeps the boundary complete. The reference's own CI runs that check per-PR via
 `check_boundary.py`, so the author who adds a file classifies it rather than
-whoever next tries to give birth.
+whoever next tries to give birth. An assistant PR paired with a
+not-yet-merged Brain change may declare `Brain-ref: <branch-or-sha>` on its
+own line in the PR body — the workflow then runs the checker from that ref
+instead of `main`, so paired PRs can both be green before the ordered merge
+(PyAutoBrain#186); new cells inherit this from the reference's
+`clone-boundary.yml`.
 
 Hard rules (from DESIGN.md): never writes repos/files/GitHub state itself
 (birth is Build's — this agent hands over a plan); never copies domain content
