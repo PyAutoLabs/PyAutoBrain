@@ -44,6 +44,11 @@ def test_both_references_have_profiles():
         assert clone.SEED_SECTION == "## Assistant-as-template"
 
 
+def test_shared_ai_policy_is_generic_for_every_reference():
+    for profile in clone.REFERENCE_PROFILES.values():
+        assert _classify("AI_POLICY.md", profile) == "generic"
+
+
 def test_unknown_reference_fails_cleanly():
     with pytest.raises(SystemExit) as exc:
         clone.reference_profile("no_such_assistant")

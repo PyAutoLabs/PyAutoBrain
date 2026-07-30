@@ -52,7 +52,7 @@ SEED_SECTION = "## Assistant-as-template"
 _SHARED_GENERIC = [
     "AGENTS.md", "CLAUDE.md", "LICENSE", ".gitignore", ".gitattributes",
     "Makefile", "__init__.py", "activate.sh", "version.txt",
-    "CITATIONS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
+    "AI_POLICY.md", "CITATIONS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
     "modes/*",                    # Teacher/Assistant mode machinery
     "skills/_style.md", "skills/_bootstrap_skill.md", "skills/README.md",
     "skills/start-new-project*", "skills/contribute-upstream*",
