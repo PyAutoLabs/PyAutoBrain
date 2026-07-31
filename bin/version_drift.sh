@@ -38,18 +38,17 @@ else
 fi
 echo
 
-# repo:path — the coupled release-train stamps (libraries + user workspaces).
-# The charge-transfer (CTI) calibration stack is intentionally excluded: it is
-# not on the coupled train and carries its own version line.
+# repo:path — the coupled release-train stamps (libraries only). The
+# charge-transfer (CTI) calibration stack is intentionally excluded: it is
+# not on the coupled train and carries its own version line. Workspaces
+# carry no stamp since the floors-are-authoritative redesign dropped
+# version.txt (autolens_workspace db14538e).
 STAMPS=(
   "PyAutoNerves:autonerves/__init__.py"
   "PyAutoArray:autoarray/__init__.py"
   "PyAutoFit:autofit/__init__.py"
   "PyAutoGalaxy:autogalaxy/__init__.py"
   "PyAutoLens:autolens/__init__.py"
-  "autofit_workspace:version.txt"
-  "autogalaxy_workspace:version.txt"
-  "autolens_workspace:version.txt"
 )
 
 repos=()
