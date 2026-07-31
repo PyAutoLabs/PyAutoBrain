@@ -36,7 +36,9 @@ for job in "${JOBS[@]}"; do
     [[ "$repo" == */* ]] || repo="PyAutoLabs/$repo"
     read -r concl created < <(gh api "repos/$repo/actions/workflows/$wf/runs?per_page=1" \
         -q '.workflow_runs[0] | "\(.conclusion // .status) \(.created_at)"' 2>/dev/null)
-    if [ -z "${concl:-}" ] || [ "$concl" = "null null" ]; then
+    # No runs yet: workflow_runs[0] is null, so jq emits "null null" and
+    # read leaves concl="null" (created gets the second "null").
+    if [ -z "${concl:-}" ] || [ "$concl" = "null" ]; then
         printf '  –  %-42s no runs\n' "$repo/$wf"
         continue
     fi
