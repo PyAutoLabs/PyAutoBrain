@@ -315,10 +315,13 @@ def main() -> int:
             f"absent in mode=smoke"
         )
     print(
-        f"\nAdd each to the smoke install step in {WORKFLOW}, mirroring the "
-        "`autofit[optional]` line already there — prefer installing the declaring\n"
-        "library's [optional] extra over pinning the single package, so a future\n"
-        "addition to that extra is covered too.\n\n"
+        f"\nAdd each to the smoke install step in {WORKFLOW}.\n\n"
+        "PIN THE PACKAGE, don't add the declaring library's [optional] extra: this\n"
+        "leg installs PUBLISHED wheels, so a library extra resolves the RELEASED\n"
+        "metadata, which lags the source pyproject this scan reads. A stale pin in\n"
+        "that extra can silently downgrade a package the step pinned deliberately\n"
+        "(autoarray 2026.7.29.2[optional] pinning nufftax<0.5.0 did exactly that).\n"
+        "This scan is what covers future additions — that is why it exists.\n\n"
         "Do NOT skip-guard or park the failing script: it passes mode=release, so "
         "the script is correct and the install set is the defect. Route to /bug."
     )

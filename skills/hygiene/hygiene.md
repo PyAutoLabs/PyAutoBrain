@@ -41,8 +41,10 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    sibling repo) before re-pointing it. Route `optdeps` findings to `/refactor`
    too (add the skip guard), but route `extras` findings to `/bug`: a script
    that fails only in `mode=smoke` and **passes `mode=release`** is correct, so
-   the defect is the CI install set — add the missing install (prefer the
-   declaring library's whole `[optional]` extra). Never "fix" such a script by
+   the defect is the CI install set — add the missing install, pinning the
+   package itself rather than the declaring library's whole `[optional]` extra
+   (that leg installs published wheels, whose extras lag the source pyproject
+   and can silently downgrade a deliberate pin). Never "fix" such a script by
    skip-guarding or parking it; both silently delete coverage that release
    validation still depends on.
    Source changes ship via `ship_library` / `ship_workspace`.
