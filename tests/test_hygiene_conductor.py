@@ -15,7 +15,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
     "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
-    "packaging", "docstrings", "refs", "optdeps",
+    "packaging", "docstrings", "refs", "optdeps", "extras",
 }
 
 _PROFILE_TARGET = """
@@ -65,6 +65,7 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert kinds["docstrings"] == "finding"
     assert kinds["refs"] == "finding"
     assert kinds["optdeps"] == "finding"
+    assert kinds["extras"] == "finding"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
     assert kinds["config"] == "surface"
     assert kinds["noise"] == "advisory"
@@ -503,6 +504,141 @@ def test_optdeps_findings_reach_the_default_worklist(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "optdeps   1 findings" in result.stdout
     assert "route exact findings to /refactor" in result.stdout
+
+
+_SMOKE_WORKFLOW = """\
+jobs:
+  run_scripts:
+    steps:
+      - name: "Install third-party deps (libs run from source) [mode=smoke]"
+        if: needs.find_scripts.outputs.mode == 'smoke'
+        run: |
+          pip install "autolens[optional]"
+{extra_installs}\
+      - name: "Install TestPyPI wheels [mode=release]"
+        if: needs.find_scripts.outputs.mode == 'release'
+        run: |
+          pip install \\
+            "autoarray[optional]==$V" \\
+            "autolens[optional]==$V"
+"""
+
+_PYPROJECTS = {
+    # autonerves is the base layer; its [jax] extra is what the chain reaches.
+    "PyAutoNerves": """\
+[project]
+name = "autonerves"
+dependencies = []
+[project.optional-dependencies]
+jax = ["jax>=0.7"]
+optional = ["autonerves[jax]", "astropy>=5.0"]
+""",
+    # autoarray declares an optional dep NO sibling's chain reaches — the drift.
+    "PyAutoArray": """\
+[project]
+name = "autoarray"
+dependencies = ["autonerves"]
+[project.optional-dependencies]
+jax = ["autonerves[jax]"]
+optional = ["autoarray[jax]", "numba", "tfp-nightly==0.26.0.dev1"]
+""",
+    # autolens[optional] chains to autolens[jax] -> autonerves[jax]; it never
+    # reaches autoarray[optional], which is the whole point of the scan.
+    "PyAutoLens": """\
+[project]
+name = "autolens"
+dependencies = ["autoarray", "autonerves"]
+[project.optional-dependencies]
+jax = ["autonerves[jax]"]
+optional = ["autolens[jax]", "numba", "astropy>=5.0"]
+""",
+}
+
+
+def _write_extras_fixture(root, extra_installs=""):
+    """Library checkouts + a PyAutoHeart workflow whose smoke leg under-installs.
+
+    `numba` is reachable from `autolens[optional]`. `astropy` is declared
+    optional by TWO libraries — autonerves (not reached) and autolens (reached)
+    — so it must NOT be flagged; only a dependency no reached extra supplies is
+    drift. `tfp-nightly` is declared ONLY by `autoarray[optional]`, which the
+    chain never reaches -> FLAG.
+    """
+    for repo, body in _PYPROJECTS.items():
+        (root / repo).mkdir(parents=True, exist_ok=True)
+        (root / repo / "pyproject.toml").write_text(body)
+
+    workflow = root / "PyAutoHeart" / ".github" / "workflows"
+    workflow.mkdir(parents=True, exist_ok=True)
+    (workflow / "workspace-validation.yml").write_text(
+        _SMOKE_WORKFLOW.format(extra_installs=extra_installs)
+    )
+    return root
+
+
+def test_extras_flags_an_optional_dep_the_smoke_leg_never_installs(tmp_path):
+    _write_extras_fixture(tmp_path)
+
+    result = _run(["extras", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["count"] == 1
+    assert row["mode"] == "extras" and row["kind"] == "finding"
+    assert row["delegate"] == "/bug"
+    finding = row["findings"][0]
+    assert finding["dependency"] == "tfp-nightly"
+    assert finding["declared_by"] == ["autoarray[optional]"]
+
+
+def test_extras_is_clean_once_the_declaring_extra_is_installed(tmp_path):
+    # The house fix: install the declaring library's whole [optional] extra.
+    _write_extras_fixture(
+        tmp_path, extra_installs='          pip install "autoarray[optional]"\n'
+    )
+
+    result = _run(["extras", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["count"] == 0 and row["status"] == "clean"
+
+
+def test_extras_is_clean_when_the_single_package_is_pinned_directly(tmp_path):
+    # Pinning the one package also closes it (it just does not self-heal).
+    _write_extras_fixture(
+        tmp_path,
+        extra_installs='          pip install "tfp-nightly==0.26.0.dev1"\n',
+    )
+
+    result = _run(["extras", "--json"], tmp_path)
+
+    row = json.loads(result.stdout)["row"]
+    assert row["count"] == 0 and row["status"] == "clean"
+
+
+def test_extras_reports_not_scannable_without_the_workflow(tmp_path):
+    # Library checkouts but no PyAutoHeart workflow: report nothing rather than
+    # inventing findings — an absent workflow is not exposure drift.
+    for repo, body in _PYPROJECTS.items():
+        (tmp_path / repo).mkdir(parents=True, exist_ok=True)
+        (tmp_path / repo / "pyproject.toml").write_text(body)
+
+    result = _run(["extras", "--json"], tmp_path)
+
+    row = json.loads(result.stdout)["row"]
+    assert row["count"] == 0 and row["status"] == "clean"
+    assert "not scannable" in row["summary"]
+
+
+def test_extras_findings_reach_the_default_worklist(tmp_path):
+    _write_extras_fixture(tmp_path)
+
+    result = _run([], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "extras    1 findings" in result.stdout
+    assert "route the missing installs to /bug" in result.stdout
 
 
 def _write_refs_fixture(root):

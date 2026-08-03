@@ -18,6 +18,7 @@
 #   docstrings -> /refactor (exact findings; Hygiene remains read-only)
 #   refs  -> /refactor (dead internal references in workspace prose)
 #   optdeps -> /refactor (smoke-listed scripts missing an optional-dep skip guard)
+#   extras  -> /bug (optional deps a library declares that the smoke CI leg never installs)
 # The three Heart skills are read-only observation skills — measurement lives in
 # Heart; hygiene routes and prioritises. perf's import timing runs in a
 # SUBPROCESS, so the conductor itself never imports the science/JAX stack.
@@ -35,6 +36,7 @@
 #   hygiene.sh docstrings      # adjacent top-level script documentation -> /refactor
 #   hygiene.sh refs            # dead internal references in workspace prose -> /refactor
 #   hygiene.sh optdeps         # smoke-listed scripts w/ a gated API but no skip guard -> /refactor
+#   hygiene.sh extras          # optional deps declared by a library but missing from the smoke CI install -> /bug
 #   hygiene.sh config          # library config keys missing downstream -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh packaging       # ignored top-level *.egg-info/build dirs -> clean_slate.sh
@@ -81,7 +83,7 @@ PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
 read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy crlf docstrings refs optdeps artifacts packaging noise deps docs config)
+MODE_ORDER=(perf tidy crlf docstrings refs optdeps extras artifacts packaging noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
@@ -89,6 +91,7 @@ declare -A MODE_DELEGATE=(
   [docstrings]="/refactor"
   [refs]="/refactor"
   [optdeps]="/refactor"
+  [extras]="/bug"
   [artifacts]="/repo_cleanup"
   [packaging]="PyAutoBrain/bin/clean_slate.sh --packaging"
   [noise]="/cli_noise_clean"
@@ -105,7 +108,7 @@ declare -A MODE_DELEGATE=(
 # 'finding', and 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
   [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris" [packaging]="debris"
-  [docstrings]="finding" [refs]="finding" [optdeps]="finding"
+  [docstrings]="finding" [refs]="finding" [optdeps]="finding" [extras]="finding"
   [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
@@ -203,6 +206,16 @@ prescan_docstrings() {
 # smoke_tests.txt are never flagged — a real error is correct for a user.
 prescan_optdeps() {
   python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT" --summary
+}
+
+# extras: the complement of optdeps — an optional dependency a library DECLARES
+# (in its [optional] extra, which mode=release installs) that the
+# workspace-validation mode=smoke leg never installs. The extras chain reaches
+# each library's own [jax], never a sibling's [optional], so those have to be
+# hand-added and silently drift. The symptom is a script red in smoke and green
+# in release; the fix is always the install set, never the script.
+prescan_extras() {
+  python3 "$HERE/_hygiene_extras.py" --root "$ROOT" --summary
 }
 
 # refs: file/folder references in user-facing *_workspace and HowTo* prose
@@ -327,7 +340,7 @@ prescan() {
     perf) prescan_perf ;; tidy) prescan_tidy ;; deps) prescan_deps ;;
     docs) prescan_docs ;; noise) prescan_noise ;;
     crlf) prescan_crlf ;; docstrings) prescan_docstrings ;; refs) prescan_refs ;;
-    optdeps) prescan_optdeps ;;
+    optdeps) prescan_optdeps ;; extras) prescan_extras ;;
     artifacts) prescan_artifacts ;;
     packaging) prescan_packaging ;; config) prescan_config ;;
   esac
@@ -339,7 +352,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|refs|optdeps|config|artifacts|packaging) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|refs|optdeps|extras|config|artifacts|packaging) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -525,6 +538,10 @@ emit_json_row() { # mode
     python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT" --json-row
     return
   fi
+  if [[ "$m" == "extras" ]]; then
+    python3 "$HERE/_hygiene_extras.py" --root "$ROOT" --json-row
+    return
+  fi
   local res count summary kind status
   res="$(prescan "$m")"; count="${res%%|*}"; summary="${res#*|}"; kind="${MODE_KIND[$m]}"
   if   [[ "$kind" == "advisory" || "$count" == "-1" ]]; then status="advisory"
@@ -562,6 +579,10 @@ render_delegate_line() { # mode
   fi
   if [[ "$m" == "docstrings" || "$m" == "refs" || "$m" == "optdeps" ]]; then
     printf '  %-9s %-9s → route exact findings to /refactor; Hygiene never edits source\n' "" ""
+    return
+  fi
+  if [[ "$m" == "extras" ]]; then
+    printf '  %-9s %-9s → route the missing installs to /bug; fix the CI install set, never the script\n' "" ""
     return
   fi
   if [[ "${MODE_KIND[$m]}" == "timing" ]]; then
@@ -606,12 +627,15 @@ elif [[ "$mode" == "refs" ]]; then
 elif [[ "$mode" == "optdeps" ]]; then
   echo "Smoke-listed scripts missing an optional-dependency skip guard (read-only scan):"
   python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT"
+elif [[ "$mode" == "extras" ]]; then
+  echo "Optional dependencies the workspace-validation smoke leg never installs (read-only scan):"
+  python3 "$HERE/_hygiene_extras.py" --root "$ROOT"
 elif [[ "$mode" == "default" ]]; then
   # 'debris' and 'finding' pre-scans yield directly-actionable counts (perf's
   # timing is deferred here — too slow for the fast scan). Rank across them and
   # recommend the mode with the largest confirmed workload.
   best=""; best_n=0
-  for m in tidy crlf docstrings refs optdeps artifacts packaging; do
+  for m in tidy crlf docstrings refs optdeps extras artifacts packaging; do
     local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
     if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
   done
