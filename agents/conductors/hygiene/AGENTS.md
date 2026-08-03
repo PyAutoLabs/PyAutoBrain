@@ -26,7 +26,7 @@ kinds, which is what makes its count comparable (or not):
 
 - **debris** — finds directly-removable items; a real, rankable count (`tidy`).
 - **finding** — confirms a source-quality defect; a real, rankable count
-  (`docstrings`, `refs`).
+  (`docstrings`, `refs`, `optdeps`, `extras`).
 - **timing** — measures import cost; a real, rankable count of *slow* imports (`perf`).
 - **surface** — only *sizes* the audit; the real problems emerge when the
   delegated skill runs, so the count is **not** a problem count (`deps`, `docs`).
@@ -43,6 +43,8 @@ kinds, which is what makes its count comparable (or not):
 | `crlf` | executable scripts (`.sh` + shebang-`755` `.py`) with CRLF — the shebang breaks on Linux/HPC (**debris**, the ranked count); library `.py` CRLF is reported separately as *cosmetic* (Python reads it fine — don't mass-normalise) | `/refactor` + `.gitattributes eol=lf` |
 | `docstrings` | consecutive module-level triple-quoted expressions separated only by whitespace in user-facing `*_workspace` and `HowTo*` root `*.py` entry scripts and `scripts/**/*.py` files (**finding**) | `/refactor` (mechanically merge each confirmed boundary) |
 | `refs` | file/folder references in user-facing `*_workspace` and `HowTo*` prose (`scripts/**/*.py` docstrings + comments, every `scripts/**/README.md` and `config/**/README.md`, and the top-level README) whose target no longer exists — restructure debt no health sweep can see, since the scripts still run (**finding**). Covers the README idioms a `scripts/`-anchored matcher cannot see: structure-list bullets (``- `slam_pipeline`: ``), slash-less relative folder paths (`data_preparation/imaging`), and config YAML names | `/refactor` (re-point each reference; judge the intended target) |
+| `optdeps` | smoke-listed workspace scripts that construct an optional-dependency-gated API (`TransformerNUFFT` → `nufftax`) without the house `find_spec` skip guard, so they hard-fail the CI matrices that omit the extras (**finding**). AST-confirmed — prose mentions don't count; scripts outside `smoke_tests.txt` are never flagged | `/refactor` (add the skip guard) |
+| `extras` | the complement of `optdeps`: an optional dependency a library **declares** (in the `[optional]` extra `mode=release` installs) that the `workspace-validation.yml` **`mode=smoke`** leg never installs (**finding**). The extras chain only reaches each library's own `[jax]`, never a sibling's `[optional]`, so those need hand-adding and silently drift — the symptom is a script red in smoke and **green in release** | `/bug` (add the install; fix the install set, **never** the script) |
 | `config` | library `config/*.yaml` keys missing from the matching workspace config — recursive diff (**surface**) | `/refactor` (mirror keys) |
 | `artifacts` | tracked files that look like leaked run outputs / stray data (under `output/`, or data-ext outside fixtures) (**debris**) | `/repo_cleanup` (gitignore + `git rm --cached`) |
 | `packaging` | ignored, fully-untracked top-level `*.egg-info/` and `build/` directories in managed library repos (**debris**) | preview then run `PyAutoBrain/bin/clean_slate.sh --packaging`; repo-set, exact-name, root-depth and tracked-file guards apply |
@@ -60,6 +62,8 @@ pyauto-brain hygiene docs         # API-docs surface → /audit_docs
 pyauto-brain hygiene crlf         # CRLF .py files → /refactor
 pyauto-brain hygiene docstrings   # adjacent top-level documentation → /refactor
 pyauto-brain hygiene refs         # dead internal references in workspace prose → /refactor
+pyauto-brain hygiene optdeps      # smoke-listed scripts missing an optional-dep skip guard → /refactor
+pyauto-brain hygiene extras       # optional deps the smoke CI leg never installs → /bug
 pyauto-brain hygiene config       # library→workspace config drift → /refactor
 pyauto-brain hygiene artifacts    # tracked leaked outputs/data → /repo_cleanup
 pyauto-brain hygiene packaging    # ignored root packaging dirs → clean_slate.sh
