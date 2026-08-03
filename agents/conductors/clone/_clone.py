@@ -53,6 +53,9 @@ _SHARED_GENERIC = [
     "AGENTS.md", "CLAUDE.md", "LICENSE", ".gitignore", ".gitattributes",
     "Makefile", "__init__.py", "activate.sh", "version.txt",
     "AI_POLICY.md", "CITATIONS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
+    "AGENTS_CHAT.md",             # chat-mode counterpart of AGENTS.md: the same
+                                  # skeleton with the shell-dependent rules cut,
+                                  # so it clones on the same terms as AGENTS.md
     "modes/*",                    # Teacher/Assistant mode machinery
     "skills/_style.md", "skills/_bootstrap_skill.md", "skills/README.md",
     "skills/start-new-project*", "skills/contribute-upstream*",
@@ -87,6 +90,10 @@ _SHARED_DOMAIN = [
 
 _SHARED_MIXED = [
     "llms.txt", "llms-full.txt",
+    "llms-chat.txt",              # generated paste bundle: same seam as llms.txt
+    "FREE_TIER_SETUP.md",         # per-platform chat setup — the platform
+                                  # mechanics clone verbatim, the worked prompts
+                                  # and dataset names are domain
     "config/*",
     "benchmarks/README.md",       # protocol generic, benchmark table domain
 ]
@@ -117,10 +124,15 @@ REFERENCE_PROFILES = {
             "wiki/literature/*",          # a shipped lensing paper corpus
             "paper/*",                    # this assistant's own JOSS paper
             "scripts/*.py",               # bundled science scripts (a named lens)
+            # Generated chat knowledge pack: concatenated al_* skill bodies +
+            # wiki/core pages + a snapshot of the lensing stack's API surface.
+            # Every input is domain, so a newborn regenerates it from its own
+            # content (`make chat-bundle`) rather than copying this one.
+            "chat_pack/*",
             *_SHARED_DOMAIN,
         ],
         "mixed": _SHARED_MIXED,
-        "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc"],
+        "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc", "chat_pack"],
     },
     # The domain-agnostic base: `af_*` inference skills and the *statistics*
     # `wiki/core/` are GENERIC infrastructure kept verbatim; only the example
