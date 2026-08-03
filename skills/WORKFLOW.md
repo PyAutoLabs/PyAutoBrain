@@ -226,7 +226,7 @@ Build is reached only for the release/packaging step (PyPI/tags/notebooks).
 ## Repo → GitHub owner mapping
 
 <!-- repos_sync:begin -->
-All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/autofit_workspace_developer`, `Jammy2211/euclid_assistant`, `Jammy2211/admin_jammy`.
+All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/euclid_assistant`, `Jammy2211/admin_jammy`.
 
 **Library repos:** PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoReduce, PyAutoCTI.
 **Workspace repos:** autofit_workspace, autogalaxy_workspace, autolens_workspace, autocti_workspace, autofit_workspace_test, autogalaxy_workspace_test, autolens_workspace_test, autocti_workspace_test, HowToFit, HowToGalaxy, HowToLens, euclid_strong_lens_modeling_pipeline.
