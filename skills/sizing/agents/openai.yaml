@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sizing Faculty"
+  short_description: "Estimate how hard a PyAutoMind task is"
+  default_prompt: "Use $sizing to estimate the difficulty of a PyAutoMind prompt."
