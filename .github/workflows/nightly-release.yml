@@ -21,6 +21,25 @@ name: Nightly Release
 # checklist steps 2-3 were consciously waived; open release-blocker issues
 # (e.g. PyAutoBuild#126) still stop every night at step 3 until closed or
 # de-labelled. Pausing is one act: unset NIGHTLY_RELEASES.
+#
+# OUTCOME CONTRACT (2026-08-04). The driver's exit codes already distinguished
+# "a gate stopped the night" from "the driver broke", but this workflow flattened
+# every non-zero into a red run — so eight consecutive nights of the gate working
+# correctly looked identical to a broken driver, and the channel became one
+# nobody watched. The mapping is now explicit:
+#
+#   exit 0     shipped / skipped / dry-run   -> job SUCCESS
+#   exit 2|3   blocked at a gate, no release -> job SUCCESS + ::warning:: + the
+#                                               "Blocked at a gate" step below
+#   exit 1|*   driver error, night NOT judged -> job FAILURE
+#
+# Red is therefore reserved for "the driver itself is broken" — the one state
+# that needs a human to look at THIS workflow. A blocked night is a normal,
+# expected outcome: Slack carries which gate stopped it, and the run keeps a
+# named step + job summary so it is never silently green.
+#
+# `bin/overnight_status.sh` reads that step name to report a blocked night
+# distinctly in the morning glance — keep the step name in sync if it changes.
 
 on:
   schedule:
@@ -68,6 +87,7 @@ jobs:
         run: pip install --quiet pyyaml
 
       - name: Run the nightly driver
+        id: driver
         env:
           GH_TOKEN: ${{ secrets.PAT_PYAUTOLABS }}
           PYAUTO_RELEASE_WEBHOOK_URL: ${{ secrets.PYAUTO_RELEASE_WEBHOOK_URL }}
@@ -76,4 +96,46 @@ jobs:
           # (design §9; the kill switch is the NIGHTLY_RELEASES repo var).
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           PYAUTO_ROOT: ${{ github.workspace }}
-        run: bash agents/conductors/release/nightly.sh
+        # `set +e` first: the default shell is `bash -e`, which would abort on
+        # the driver's exit code before it can be classified (see OUTCOME
+        # CONTRACT above). This step never fails — the two steps below decide.
+        run: |
+          set +e
+          bash agents/conductors/release/nightly.sh
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          case "$rc" in
+            0)   echo "outcome=reported" >> "$GITHUB_OUTPUT" ;;
+            2|3) echo "outcome=blocked"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "outcome=driver-error" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # Named, not just annotated: overnight_status.sh keys the morning glance
+      # off this step, so a blocked night is never reported as a plain green.
+      - name: Blocked at a gate — no release was made
+        if: steps.driver.outputs.outcome == 'blocked'
+        run: |
+          echo "::warning title=Nightly release blocked::The driver stopped at a gate (exit ${{ steps.driver.outputs.rc }}); no release was made. This is the gate working — Slack carries which one."
+          {
+            echo "## ⏸ Blocked at a gate — no release was made"
+            echo
+            echo "The driver stopped deliberately (exit \`${{ steps.driver.outputs.rc }}\`):"
+            echo "\`2\` = a gate blocked the night, \`3\` = readiness was not GREEN."
+            echo
+            echo "This is the gate doing its job, not a driver fault, so the run is"
+            echo "green. The Slack page names which gate stopped it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Driver error — the night was NOT judged
+        if: steps.driver.outputs.outcome == 'driver-error'
+        run: |
+          echo "::error title=Nightly driver error::The driver failed with exit ${{ steps.driver.outputs.rc }} — the night was NOT judged and no gate verdict exists."
+          {
+            echo "## 🚨 Driver error — the night was NOT judged"
+            echo
+            echo "\`nightly.sh\` exited \`${{ steps.driver.outputs.rc }}\`, which is not a gate"
+            echo "outcome. No release was made AND no gate verdict was reached —"
+            echo "this workflow needs a human."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
