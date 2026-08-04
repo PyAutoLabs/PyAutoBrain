@@ -49,6 +49,12 @@
 #
 # Exit: 0 on a reported outcome (shipped / skipped / dry-run) — 2 blocked at a
 # gate (paged) — 3 not GREEN / preflight red (paged) — 1 driver error (paged).
+#
+# These codes are a CONTRACT, not just a status: .github/workflows/
+# nightly-release.yml maps 0/2/3 to a green run (a blocked night is the gate
+# working) and 1 to a red one (the driver itself broke, and the night was never
+# judged). Changing what a code means changes when a human is alarmed — keep the
+# workflow's OUTCOME CONTRACT block in step.
 
 set -uo pipefail
 
@@ -373,31 +379,9 @@ s3_artifact="$(plan_field "$phase_b" "[s for s in plan['steps'] if s['step']=='d
 if ! dispatch_and_await "$s3_repo" "$s3_wf" "$s3_inputs" "$s3_artifact" "$ART_DIR"; then
   # Name the failing scripts straight from the downloaded stage report so the
   # page is actionable without opening the run (no report → plain page).
-  detail="$(python3 - "$ART_DIR/stage_report.json" <<'PY' 2>/dev/null
-import json, sys
-
-try:
-    r = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)
-s = r.get("summary") or {}
-parts = [
-    f"{int(s.get(k, 0) or 0)} {k}" for k in ("failed", "timeout") if int(s.get(k, 0) or 0)
-]
-names = []
-for f in r.get("failures") or []:
-    tail = "/".join(str(f.get("script") or "").rstrip("/").split("/")[-2:])
-    names.append(f"{f.get('project')} {tail}")
-if not parts and not names:
-    sys.exit(0)
-line = ", ".join(parts) if parts else "failures"
-if names:
-    line += ": " + ", ".join(names[:3])
-    if len(names) > 3:
-        line += f", +{len(names) - 3} more"
-print(line)
-PY
-)"
+  # Lives in its own file, not a heredoc, so it carries a regression test:
+  # script failures and non-script legs (verify_install) count differently.
+  detail="$(python3 "$HERE/stage_failure_summary.py" "$ART_DIR/stage_report.json" 2>/dev/null)"
   page "Stage 3 (release-fidelity integration) failed — <${LAST_RUN_URL:-$RUN_URL}|run>${detail:+
 $detail}"
   exit 2
