@@ -513,44 +513,50 @@ jobs:
       - name: "Install third-party deps (libs run from source) [mode=smoke]"
         if: needs.find_scripts.outputs.mode == 'smoke'
         run: |
-          pip install "autolens[optional]"
+          pip install "top-layer[optional]"
 {extra_installs}\
       - name: "Install TestPyPI wheels [mode=release]"
         if: needs.find_scripts.outputs.mode == 'release'
         run: |
           pip install \\
-            "autoarray[optional]==$V" \\
-            "autolens[optional]==$V"
+            "base-layer[optional]==$V" \\
+            "mid-layer[optional]==$V" \\
+            "top-layer[optional]==$V"
 """
 
+# Keyed by CHECKOUT DIRECTORY, deliberately named nothing like the distribution
+# each one declares: the scan derives its library set from the [mode=release]
+# install step above and resolves each name through `project.name`, so a folder
+# name must not be able to influence the result. (Instance-free by the same
+# rule the tenant firewall applies to organ code.)
 _PYPROJECTS = {
-    # autonerves is the base layer; its [jax] extra is what the chain reaches.
-    "PyAutoNerves": """\
+    # the base layer; its [jax] extra is what the chain reaches.
+    "checkout_a": """\
 [project]
-name = "autonerves"
+name = "base-layer"
 dependencies = []
 [project.optional-dependencies]
 jax = ["jax>=0.7"]
-optional = ["autonerves[jax]", "astropy>=5.0"]
+optional = ["base-layer[jax]", "astropy>=5.0"]
 """,
-    # autoarray declares an optional dep NO sibling's chain reaches — the drift.
-    "PyAutoArray": """\
+    # mid-layer declares an optional dep NO sibling's chain reaches — the drift.
+    "checkout_b": """\
 [project]
-name = "autoarray"
-dependencies = ["autonerves"]
+name = "mid-layer"
+dependencies = ["base-layer"]
 [project.optional-dependencies]
-jax = ["autonerves[jax]"]
-optional = ["autoarray[jax]", "numba", "tfp-nightly==0.26.0.dev1"]
+jax = ["base-layer[jax]"]
+optional = ["mid-layer[jax]", "numba", "tfp-nightly==0.26.0.dev1"]
 """,
-    # autolens[optional] chains to autolens[jax] -> autonerves[jax]; it never
-    # reaches autoarray[optional], which is the whole point of the scan.
-    "PyAutoLens": """\
+    # top-layer[optional] chains to top-layer[jax] -> base-layer[jax]; it never
+    # reaches mid-layer[optional], which is the whole point of the scan.
+    "checkout_c": """\
 [project]
-name = "autolens"
-dependencies = ["autoarray", "autonerves"]
+name = "top-layer"
+dependencies = ["mid-layer", "base-layer"]
 [project.optional-dependencies]
-jax = ["autonerves[jax]"]
-optional = ["autolens[jax]", "numba", "astropy>=5.0"]
+jax = ["base-layer[jax]"]
+optional = ["top-layer[jax]", "numba", "astropy>=5.0"]
 """,
 }
 
@@ -558,10 +564,10 @@ optional = ["autolens[jax]", "numba", "astropy>=5.0"]
 def _write_extras_fixture(root, extra_installs=""):
     """Library checkouts + a PyAutoHeart workflow whose smoke leg under-installs.
 
-    `numba` is reachable from `autolens[optional]`. `astropy` is declared
-    optional by TWO libraries — autonerves (not reached) and autolens (reached)
+    `numba` is reachable from `top-layer[optional]`. `astropy` is declared
+    optional by TWO libraries — base-layer (not reached) and top-layer (reached)
     — so it must NOT be flagged; only a dependency no reached extra supplies is
-    drift. `tfp-nightly` is declared ONLY by `autoarray[optional]`, which the
+    drift. `tfp-nightly` is declared ONLY by `mid-layer[optional]`, which the
     chain never reaches -> FLAG.
     """
     for repo, body in _PYPROJECTS.items():
@@ -588,13 +594,34 @@ def test_extras_flags_an_optional_dep_the_smoke_leg_never_installs(tmp_path):
     assert row["delegate"] == "/bug"
     finding = row["findings"][0]
     assert finding["dependency"] == "tfp-nightly"
-    assert finding["declared_by"] == ["autoarray[optional]"]
+    assert finding["declared_by"] == ["mid-layer[optional]"]
+    # Named by the CHECKOUT the distribution was resolved to, not by any
+    # assumption about what that folder is called.
+    assert finding["repos"] == ["checkout_b"]
+
+
+def test_extras_resolves_libraries_by_distribution_not_by_folder(tmp_path):
+    # A checkout the [mode=release] step never installs is NOT a library, so its
+    # unreachable optional dep is none of this scan's business — even though it
+    # sits beside the real ones and declares the same shape of extra.
+    _write_extras_fixture(tmp_path)
+    outsider = tmp_path / "checkout_z"
+    outsider.mkdir()
+    (outsider / "pyproject.toml").write_text(
+        '[project]\nname = "not-a-library"\ndependencies = []\n'
+        '[project.optional-dependencies]\noptional = ["never-installed-pkg"]\n'
+    )
+
+    result = _run(["extras", "--json"], tmp_path)
+
+    row = json.loads(result.stdout)["row"]
+    assert [f["dependency"] for f in row["findings"]] == ["tfp-nightly"]
 
 
 def test_extras_is_clean_once_the_declaring_extra_is_installed(tmp_path):
     # The house fix: install the declaring library's whole [optional] extra.
     _write_extras_fixture(
-        tmp_path, extra_installs='          pip install "autoarray[optional]"\n'
+        tmp_path, extra_installs='          pip install "mid-layer[optional]"\n'
     )
 
     result = _run(["extras", "--json"], tmp_path)

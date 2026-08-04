@@ -31,6 +31,16 @@ roots, follow each PyAuto library's base ``dependencies`` and any requested
 extra, and collect every third-party distribution reached. Expected coverage is
 the union of every library's ``[optional]`` closure — the set ``mode=release``
 guarantees. The difference is the drift.
+
+*Which* libraries those are is DERIVED, never hard-coded: ``mode=release`` names
+them (it installs each one's ``[optional]`` extra), so the same workflow defines
+both sides of the comparison, and a library added to that leg is picked up here
+instead of silently falling out of the scan. Each distribution it names is
+resolved to a checkout by the ``project.name`` in that checkout's
+``pyproject.toml`` — folder names carry no meaning. This also keeps organ code
+free of tenant instance facts (the ``PyAutoMind/scripts/repos_sync.py`` tenant
+firewall), the same way ``PyAutoHeart/heart/checks/release_run.py`` derives its
+own release channel.
 """
 
 from __future__ import annotations
@@ -42,18 +52,16 @@ import sys
 import tomllib
 from pathlib import Path
 
-# The source libraries whose extras the workspace matrices install. Mirrors
-# hygiene.sh's LIB_REPOS.
-LIB_REPOS = ("PyAutoNerves", "PyAutoArray", "PyAutoFit", "PyAutoGalaxy", "PyAutoLens")
-
 # The extra mode=release installs for every library, and therefore the coverage
 # mode=smoke is expected to match.
 RELEASE_EXTRA = "optional"
 
 WORKFLOW = Path("PyAutoHeart/.github/workflows/workspace-validation.yml")
 
-# The install step whose requirement roots define the smoke leg's coverage.
+# The install step whose requirement roots define the smoke leg's coverage, and
+# the one that names the libraries (and therefore the coverage to match).
 SMOKE_STEP = re.compile(r"^\s*-\s*name:.*\[mode=smoke\]", re.IGNORECASE)
+RELEASE_STEP = re.compile(r"^\s*-\s*name:.*\[mode=release\]", re.IGNORECASE)
 NEXT_STEP = re.compile(r"^\s*-\s*name:")
 PIP_INSTALL = re.compile(r"\bpip\s+install\b(?P<rest>.*)$")
 # A requirement's distribution name and its optional extras: "autoarray[optional]",
@@ -76,25 +84,35 @@ def parse_requirement(token: str) -> tuple[str, tuple[str, ...]] | None:
     return canonical(match.group("name")), extras
 
 
-def libraries(root: Path) -> dict[str, dict]:
-    """Map canonical distribution name -> its parsed pyproject, for each checkout."""
-    found: dict[str, dict] = {}
-    for repo in LIB_REPOS:
-        pyproject = root / repo / "pyproject.toml"
-        if not pyproject.exists():
-            continue
+def libraries(root: Path) -> dict[str, tuple[str, dict]]:
+    """Map canonical distribution name -> (checkout dir, parsed pyproject).
+
+    The library set is whatever `mode=release` installs — see the module
+    docstring — so a checkout counts iff the distribution it DECLARES
+    (`project.name`) is one that step names. Directory names are never matched
+    against, which is what keeps the list derived rather than hard-coded.
+    """
+    declared = {name for name, _ in install_roots(root, RELEASE_STEP)}
+    if not declared:
+        return {}
+
+    found: dict[str, tuple[str, dict]] = {}
+    for checkout in sorted(p for p in root.iterdir() if p.is_dir()):
+        pyproject = checkout / "pyproject.toml"
         try:
             data = tomllib.loads(pyproject.read_text())
-        except (tomllib.TOMLDecodeError, UnicodeDecodeError):
-            continue  # a malformed pyproject is the packaging mode's problem
+        except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+            continue  # absent, unreadable, or malformed — the packaging mode's problem
         name = data.get("project", {}).get("name")
-        if name:
-            found[canonical(name)] = data
+        if name and canonical(name) in declared:
+            found[canonical(name)] = (checkout.name, data)
     return found
 
 
-def smoke_roots(root: Path) -> list[tuple[str, tuple[str, ...]]]:
-    """Requirement roots the smoke install step passes to pip, in order."""
+def install_roots(
+    root: Path, step: re.Pattern[str]
+) -> list[tuple[str, tuple[str, ...]]]:
+    """Requirement roots the given install step passes to pip, in order."""
     workflow = root / WORKFLOW
     if not workflow.exists():
         return []
@@ -103,7 +121,7 @@ def smoke_roots(root: Path) -> list[tuple[str, tuple[str, ...]]]:
     block: list[str] = []
     inside = False
     for line in lines:
-        if SMOKE_STEP.match(line):
+        if step.match(line):
             inside = True
             continue
         if inside and NEXT_STEP.match(line):
@@ -188,29 +206,26 @@ def closure(
 
 def missing(root: Path) -> tuple[list[dict], str | None]:
     """Return (findings, skip-reason). A skip-reason means nothing was scannable."""
-    libs = libraries(root)
-    if not libs:
-        return [], "no library checkouts under the scan root"
+    if not (root / WORKFLOW).exists():
+        return [], f"{WORKFLOW} is not present under the scan root"
 
-    roots = smoke_roots(root)
+    checkouts = libraries(root)
+    if not checkouts:
+        return [], (
+            f"no library checkout matches the [mode=release] install set in {WORKFLOW}"
+        )
+    # The closure only needs each library's metadata; the checkout dir is
+    # carried alongside so a finding can name the repo to fix.
+    libs = {name: data for name, (_, data) in checkouts.items()}
+
+    roots = install_roots(root, SMOKE_STEP)
     if not roots:
         return [], f"no smoke install step found in {WORKFLOW}"
 
     reached = closure(roots, libs)
 
     findings: list[dict] = []
-    for repo in LIB_REPOS:
-        pyproject = root / repo / "pyproject.toml"
-        if not pyproject.exists():
-            continue
-        # Resolve by the declared project name rather than the folder name.
-        try:
-            name = canonical(tomllib.loads(pyproject.read_text())["project"]["name"])
-        except (tomllib.TOMLDecodeError, UnicodeDecodeError, KeyError):
-            continue
-        data = libs.get(name)
-        if data is None:
-            continue
+    for name, (repo, data) in sorted(checkouts.items()):
         if RELEASE_EXTRA not in {
             canonical(key)
             for key in (data.get("project", {}).get("optional-dependencies", {}) or {})
