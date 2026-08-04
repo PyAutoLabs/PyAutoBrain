@@ -1,0 +1,64 @@
+name: Brain Tests
+
+# Brain's own unit suite — the reasoning layer's self-test. Until this existed,
+# PyAutoBrain PRs carried ZERO check runs (`docs.yml` is path-filtered to
+# `docs/**`, `nightly-release.yml` is a cron release scheduler), so ~190 tests
+# covering the conductors, faculties, worktree helpers, skill install and policy
+# seams ran in no CI at all and a Brain PR's only gate was whatever the
+# authoring session happened to run locally.
+#
+# Deliberately ONLY pytest. It must not run `pyauto-brain <agent>` against live
+# repos or reach the network — those need the full workspace and belong to the
+# scheduled health/nightly drivers, not a PR gate. The suite is stdlib + PyYAML
+# only, so it stays fast (~30s) and flake-free.
+#
+# TWO repos are checked out on purpose. PyAutoBrain alone cannot even COLLECT
+# the suite: `agents/faculties/sizing/_sizing.py` reads the body map
+# (`BRAIN_HOME.parent / "PyAutoMind" / "repos.yaml"`) at import time and is
+# deliberately strict, so `test_policy_seams.py` and `test_sizing_paths.py`
+# error out before a single test runs. Checking PyAutoMind out as a sibling
+# reproduces the workspace layout the code assumes. Both repos are public, so
+# the default GITHUB_TOKEN suffices — no PAT. No other sibling repo is needed
+# (verified by running the suite against exactly this two-repo layout).
+
+# One run per commit: PR events carry the CI; pushes only build main.
+# Superseded runs are cancelled on PR refs only — a cancelled main run would
+# read as red CI (cancelled is in Heart's FAILURE_CONCLUSIONS).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: brain-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Checkout PyAutoBrain
+        uses: actions/checkout@v4
+        with:
+          path: PyAutoBrain
+      # The body map `_sizing.py` imports. Pinned to main: this gate tests
+      # Brain against the CURRENT organism identity, the same pairing a local
+      # workspace has.
+      - name: Checkout PyAutoMind (the body map — required to import)
+        uses: actions/checkout@v4
+        with:
+          repository: PyAutoLabs/PyAutoMind
+          path: PyAutoMind
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (pytest + PyYAML — the whole dependency set)
+        run: pip install pytest PyYAML
+      - name: Run tests
+        working-directory: PyAutoBrain
+        run: pytest tests/ -q
