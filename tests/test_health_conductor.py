@@ -28,6 +28,11 @@ HEALTH_DOC = (HEALTH_DIR / "AGENTS.md").read_text()
 # free slot 1 (bash's own generic failure), because STALE passes the ship gate.
 EXIT_GREEN, EXIT_YELLOW, EXIT_RED, EXIT_UNKNOWN, EXIT_USAGE, EXIT_STALE = 0, 2, 3, 4, 5, 6
 
+# Reason strings are stubbed Heart output. The repo half of a "<repo>: <problem>"
+# reason is deliberately a NEUTRAL placeholder, never a real satellite repo name:
+# nothing here asserts on it (the conductor classifies by verdict and reason
+# text, not by who reported it), so a real name would be an instance fact the
+# tenant firewall counts against organ code for no test value.
 STALE_ONLY = {
     "verdict": "stale",
     "score": 75,
@@ -37,7 +42,7 @@ STALE_ONLY = {
     "stale_reasons": [
         "no release validation for current source",
         "install verification not run",
-        "PyAutoLens: status unknown",
+        "library-a: status unknown",
     ],
 }
 
@@ -174,9 +179,9 @@ def test_every_verdict_maps_to_a_distinct_exit_code(tmp_path):
         EXIT_GREEN: {"verdict": "green", "red_reasons": [], "yellow_reasons": [],
                      "stale_reasons": []},
         EXIT_YELLOW: {"verdict": "yellow", "red_reasons": [],
-                      "yellow_reasons": ["PyAutoFit: uncommitted changes"],
+                      "yellow_reasons": ["library-a: uncommitted changes"],
                       "stale_reasons": []},
-        EXIT_RED: {"verdict": "red", "red_reasons": ["PyAutoFit: CI failing on main"],
+        EXIT_RED: {"verdict": "red", "red_reasons": ["library-a: CI failing on main"],
                    "yellow_reasons": [], "stale_reasons": []},
         EXIT_UNKNOWN: {},
         EXIT_STALE: STALE_ONLY,
@@ -242,7 +247,7 @@ def test_red_still_dominates_a_stale_reason(tmp_path):
     never recommend a refresh while a blocker is open."""
     t, code = _triage(tmp_path, {
         "verdict": "red", "score": 40,
-        "red_reasons": ["PyAutoFit: CI failing on main"],
+        "red_reasons": ["library-a: CI failing on main"],
         "yellow_reasons": [],
         "stale_reasons": ["install verification not run"],
     })
@@ -254,7 +259,7 @@ def test_red_still_dominates_a_stale_reason(tmp_path):
 def test_yellow_real_warning_still_wins_over_a_stale_reason(tmp_path):
     t, code = _triage(tmp_path, {
         "verdict": "yellow", "score": 60, "red_reasons": [],
-        "yellow_reasons": ["PyAutoLens: uncommitted changes"],
+        "yellow_reasons": ["library-b: uncommitted changes"],
         "stale_reasons": ["install verification not run"],
     })
     assert code == EXIT_YELLOW
