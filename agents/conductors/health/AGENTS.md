@@ -40,7 +40,7 @@ mediation is the Brain reasoning layer on top of it. Each stage:
 
 ### Triage taxonomy
 
-`health.sh` classifies every readiness reason into one of three kinds and ranks
+`health.sh` classifies every readiness reason into one of four kinds and ranks
 them (most-blocking first). This is the split the loop reasons over:
 
 - **Real problems** — genuine health signals to act on now; they block green.
@@ -51,10 +51,23 @@ them (most-blocking first). This is the split the loop reasons over:
   behind, and version skew have **no** `fix` shortcut — those are human /
   Release-Agent work (e.g. landing a dev branch back to main), not a
   health-conductor dispatch.
+- **Evidence gaps** — every reason Heart files under its STALE freshness tier
+  (`stale_reasons`): nothing is known-bad, but some evidence is missing or
+  expired. Severity decides this, not the keyword class — the remedy is a fresh
+  **run** of the named check, never a code fix, which is exactly what separates
+  a stale reason from a yellow one. They *are* action items (unlike the accepted
+  baseline gaps below) and the triage cites the real refresh entry point:
+  `pyauto-brain release validate` (`validate` — the hard readiness gate, so it is
+  recommended ahead of the others), `pyauto-heart verify_install`
+  (`verify_install`), `pyauto-heart tick` (anything the <30s tick measures).
+  A capability with no known refresh entry point gets no command — named in
+  prose instead, never invented.
 - **Expected first-run gaps** — standing YELLOW unknowns you *accept*, not action
   items: "no test-run report" (`test_run`), "install verification not run"
   (`verify_install`), "no release validation for current source" (`validate`).
-  These are exactly what the `release validate` leg closes.
+  These are exactly what the `release validate` leg closes. (Heart files the same
+  three reasons under `stale_reasons` once it has the freshness tier — then they
+  arrive as **evidence gaps** above, and this bucket stays empty.)
 - **Advisory** — monitoring only; does not gate readiness (`worktree_drift`,
   `open_prs`, `url_check`).
 
@@ -72,6 +85,7 @@ Deterministically, given the adopted verdict and triage:
 | **GREEN** | none — a release conductor may proceed |
 | **RED** (real blockers) | resolve the top blocker; cite `pyauto-heart fix …` where one exists, else flag it as human/Release-Agent work. **Do not** dispatch a release while RED — the release preflight (Stage 0/1) aborts on it anyway |
 | **YELLOW**, a real warning present | clear the warning (cite its `fix`), then re-assess |
+| **STALE** (the freshness tier) | refresh the top evidence gap — `pyauto-brain release validate` when the release-validation report is one of them (the hard gate), else the capability's own refresh entry point. Nothing is known-bad, so this is never a code fix. A release still requires GREEN; the dev-ship gate (`AUTONOMY.md` leg 4) treats STALE as passing |
 | **YELLOW**, only baseline gaps | `pyauto-brain release validate` — the leg that flips "no release validation" and makes GREEN reachable |
 | **UNKNOWN** | `pyauto-brain vitals` to refresh, then re-run |
 
@@ -104,8 +118,13 @@ For just the raw read (no loop), consult the faculty directly:
 `bin/pyauto-brain vitals`.
 
 Exit codes mirror the adopted verdict so a caller (and the loop) can branch:
-`0` green · `2` yellow · `3` red · `4` unknown. A CLI usage error (unknown
-subcommand) exits `5`, kept distinct so misuse is never read as a real YELLOW.
+`0` green · `2` yellow · `3` red · `4` unknown · `6` stale. A CLI usage error
+(unknown subcommand) exits `5`, kept distinct so misuse is never read as a real
+YELLOW. STALE takes `6` rather than the free slot `1` for the same fail-safe
+reason: `1` is the shell's own generic failure, and STALE is the tier
+`AUTONOMY.md` leg 4 treats as **passing** the dev-ship gate — so a crash must
+never be readable as a passing verdict. That separation is the whole point: a
+machine caller can tell "Heart says STALE" from "Heart unreachable" (`4`).
 
 ## Prerequisites / caveats
 
