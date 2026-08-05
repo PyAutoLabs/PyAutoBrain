@@ -101,13 +101,25 @@ faculty every cycle.)
    - **Warnings** = every entry in `yellow_reasons` (caution / standing debt /
      unknowns). An *unknown* (missing report, library absent from snapshot) is a
      warning, never silently green.
+   - **Evidence gaps** = every entry in `stale_reasons` (the freshness tier).
+     Nothing is known-bad; the evidence is missing or expired, so the remedy is
+     **re-running** the named check, never a code fix. Keep them out of Warnings:
+     conflating the two is what trains ack-fatigue.
    Sanity-check coherence (e.g. a stale snapshot `ts`): if the data is too old or
    partial to trust, say so and downgrade confidence rather than overclaiming.
 
 4. **Determine overall readiness** by adopting Heart's `verdict`:
    - any `red_reasons` -> **RED**
    - else any `yellow_reasons` -> **YELLOW**
+   - else any `stale_reasons` -> **STALE**
    - else **GREEN**
+
+   Red dominates yellow, which dominates stale — the structural precedence in
+   `PyAutoHeart/heart/readiness.py`. A release still requires **GREEN** (STALE
+   blocks it exactly as YELLOW does), while the dev-ship gate (`AUTONOMY.md`
+   leg 4) treats STALE as **passing**, because an evidence gap is organism-scope,
+   not branch-scope. A verdict from an older Heart carries no `stale_reasons`
+   key at all and behaves exactly as before.
 
 5. **Explain and recommend.** Produce the structured report below. Recommendations
    should be actionable and, where Heart offers a remediation entry point, cite it
@@ -116,18 +128,22 @@ faculty every cycle.)
 
 ## Output schema
 
-Always emit this structure. The headline is the single word GREEN / YELLOW / RED.
+Always emit this structure. The headline is the single word GREEN / STALE /
+YELLOW / RED.
 
 ```
 ## Overall Health
 
-Status: <GREEN | YELLOW | RED>   (score <0-100>, snapshot <ts>)
+Status: <GREEN | STALE | YELLOW | RED>   (score <0-100>, snapshot <ts>)
 
 ### Summary
 <one or two sentences interpreting the verdict>
 
 ### Warnings
 - <yellow reason, mapped to its capability>   (or "None")
+
+### Evidence Gaps
+- <stale reason, mapped to its capability, with the check to re-run>   (or "None")
 
 ### Recommendations
 - <actionable next step, citing a `pyauto-heart fix ...` where applicable>   (or "None")
@@ -148,7 +164,7 @@ always adopted from Heart verbatim.
 - **Grouping.** When *ranking* reasons for triage and on the dashboard card,
   order by severity then capability — most-severe first — each mapped to its
   manifest capability. (The structured report keeps its fixed section order from
-  the Output schema above: Warnings, Recommendations, Blocking Issues.)
+  the Output schema above: Warnings, Evidence Gaps, Recommendations, Blocking Issues.)
 - **Unknown-CI tiles.** A repo whose required-workflow conclusion is
   unresolved on `main` HEAD is rendered by Heart as `CI in_progress` — an
   *unknown*, not an actively-running workflow, and it does **not** enter the
