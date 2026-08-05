@@ -431,6 +431,115 @@ def test_orphan_files_skips_non_mirror_repos(tmp_path):
     assert total == 0 and detail == []
 
 
+# --- config --detail: the routable view of both signals. ----------------------
+# The count alone cannot be routed to /refactor — these lock the fact that the
+# key paths and orphan paths are printed, AND that asking for them never moves
+# the default `count|summary` line the conductor's summary table parses.
+
+CONFIG_HELPER = (
+    BRAIN_HOME / "agents" / "conductors" / "hygiene" / "_hygiene_config.py"
+)
+
+
+def _run_config_helper(root, *args):
+    _load_config_helper()  # skips (SystemExit) if PyYAML absent
+    return subprocess.run(
+        [sys.executable, str(CONFIG_HELPER), "--root", str(root), *args],
+        capture_output=True, text=True,
+    )
+
+
+def _drifted_pair(root):
+    """A real PAIRS pair (PyAutoFit <-> autofit_workspace) with nested and
+    top-level key drift across two config files."""
+    _fake_library(root, {
+        "general.yaml": {"output": {"search_internal": 1}, "keep": 2},
+        "logging.yaml": {"total_files_open": 1},
+    })
+    _fake_workspace(root, "autofit_workspace", {
+        "general.yaml": {"output": {}, "keep": 2},   # missing output.search_internal
+        "logging.yaml": {},                          # missing total_files_open
+    })
+
+
+def test_config_detail_groups_drifted_keys_under_the_file_missing_them(tmp_path):
+    _drifted_pair(tmp_path)
+    r = _run_config_helper(tmp_path, "--detail")
+    assert r.returncode == 0, r.stderr
+    # The key paths themselves — the thing the count could not hand over.
+    assert "- output.search_internal" in r.stdout
+    assert "- total_files_open" in r.stdout
+    # ...each under the workspace file it is absent from, not a flat list.
+    general = r.stdout.index("autofit_workspace/config/general.yaml")
+    logging_ = r.stdout.index("autofit_workspace/config/logging.yaml")
+    assert general < r.stdout.index("- output.search_internal") < logging_
+    assert logging_ < r.stdout.index("- total_files_open")
+
+
+def test_config_detail_groups_orphan_files_under_their_repo(tmp_path):
+    """The orphan signal gets the same treatment, owner suppression intact."""
+    _fake_library(tmp_path, {
+        "general.yaml": {"a": 1},
+        "non_linear/GridSearch.yaml": {"grid": 1},
+    })
+    _fake_workspace(tmp_path, "some_workspace", {
+        "general.yaml": {"a": 1},                    # shared -> this IS a mirror
+        "grids.yaml": {"radial_minimum": 1},         # orphan -> named
+        "non_linear/nest.yaml": {"Nautilus": 1},     # orphan -> named
+        "non_linear/GridSearch.yaml": {"grid": 1},   # mirrored -> absent
+        "build/env_vars.yaml": {"X": 1},             # owned -> suppressed
+    })
+    r = _run_config_helper(tmp_path, "--detail")
+    assert r.returncode == 0, r.stderr
+    repo = r.stdout.index("some_workspace/config")
+    assert repo < r.stdout.index("- grids.yaml")
+    assert repo < r.stdout.index("- non_linear/nest.yaml")
+    assert "GridSearch.yaml" not in r.stdout   # has a library counterpart
+    assert "env_vars.yaml" not in r.stdout     # ORPHAN_OWNERS suppression
+
+
+def test_config_default_output_is_still_one_count_summary_line(tmp_path):
+    """The regression guard: `prescan_config` parses `${out%%|*}`, so adding
+    --detail must not add a line, a prefix, or a newline to the default."""
+    _drifted_pair(tmp_path)
+    r = _run_config_helper(tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == [
+        "2|2 library config keys absent downstream (review/mirror): "
+        "autofit_workspace:2"
+    ]
+
+
+def test_config_detail_on_a_clean_tree_reports_in_sync_and_lists_nothing(tmp_path):
+    r = _run_config_helper(tmp_path, "--detail")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "config in sync (no key drift or orphan files)"
+
+
+def test_hygiene_config_mode_hands_over_the_drifted_key_paths(tmp_path):
+    """The whole point: `hygiene config` must surface routable findings, not a
+    tally the operator has to re-derive by importing the module."""
+    _load_config_helper()  # skips (SystemExit) if PyYAML absent
+    _drifted_pair(tmp_path)
+    r = _run(["config"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert "output.search_internal" in r.stdout
+    assert "total_files_open" in r.stdout
+    assert "/refactor" in r.stdout
+
+
+def test_hygiene_config_json_row_is_unchanged_by_detail(tmp_path):
+    """The machine surface keeps reading the count line, not the detail."""
+    _load_config_helper()  # skips (SystemExit) if PyYAML absent
+    _drifted_pair(tmp_path)
+    r = _run(["config", "--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    row = json.loads(r.stdout)["row"]
+    assert row["mode"] == "config" and row["kind"] == "surface"
+    assert row["count"] == 2
+    assert "output.search_internal" not in row["summary"]
+
+
 def test_help_lists_the_usage_block(tmp_path):
     r = _run(["--help"], tmp_path)
     assert r.returncode == 0

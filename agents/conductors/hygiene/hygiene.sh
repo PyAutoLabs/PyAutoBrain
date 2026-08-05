@@ -37,7 +37,7 @@
 #   hygiene.sh refs            # dead internal references in workspace prose -> /refactor
 #   hygiene.sh optdeps         # smoke-listed scripts w/ a gated API but no skip guard -> /refactor
 #   hygiene.sh extras          # optional deps declared by a library but missing from the smoke CI install -> /bug
-#   hygiene.sh config          # library config keys missing downstream -> /refactor
+#   hygiene.sh config          # library config keys missing downstream + orphan config files -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh packaging       # ignored top-level *.egg-info/build dirs -> clean_slate.sh
 #   hygiene.sh <mode> --json   # machine-readable HygieneDecision
@@ -722,6 +722,15 @@ elif [[ "$mode" == "optdeps" ]]; then
 elif [[ "$mode" == "extras" ]]; then
   echo "Optional dependencies the workspace-validation smoke leg never installs (read-only scan):"
   python3 "$HERE/_hygiene_extras.py" --root "$ROOT"
+elif [[ "$mode" == "config" ]]; then
+  echo "Library config keys absent downstream + orphan config files (read-only scan):"
+  python3 "$HERE/_hygiene_config.py" --root "$ROOT" --detail \
+    || echo "config diff unavailable (PyYAML missing?)"
+  echo
+  echo "→ route the mirrors/removals to /refactor; Hygiene never edits source. This is a"
+  echo "  SURFACE signal — judge each item before acting: a workspace may omit a library"
+  echo "  key deliberately, and an orphan file may be read by something the library set"
+  echo "  does not encode (add its owner to ORPHAN_OWNERS rather than deleting it)."
 elif [[ "$mode" == "default" ]]; then
   # 'debris' and 'finding' pre-scans yield directly-actionable counts (perf's
   # timing is deferred here — too slow for the fast scan). Rank across them and
