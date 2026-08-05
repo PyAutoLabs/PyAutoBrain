@@ -122,9 +122,13 @@ prescan_tidy() {
     dir="$ROOT/$repo"
     [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
     scanned=$((scanned + 1))
-    local b s g
+    local b s g cur
+    # The branch HEAD points at is the one being WORKED ON — never debris.
+    cur=$(git -C "$dir" symbolic-ref --quiet --short HEAD 2>/dev/null)
+    local -a skip=(-e main -e master -e HEAD)
+    [[ -n "$cur" ]] && skip+=(-e "$cur")
     b=$(git -C "$dir" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null \
-          | grep -vxE 'main|master|HEAD' | wc -l | tr -d ' ')
+          | grep -vxF "${skip[@]}" | wc -l | tr -d ' ')
     s=$(git -C "$dir" stash list 2>/dev/null | wc -l | tr -d ' ')
     g=$(git -C "$dir" branch -vv 2>/dev/null | grep -c '\[gone\]' || true)
     branches=$((branches + b)); stashes=$((stashes + s)); gone=$((gone + g))
@@ -417,15 +421,21 @@ fi
 # status vs the default branch) and stashes across the managed checkouts. Echoes
 # TSV rows: "<repo>\t<type>\t<locator>\t<merged>".
 enumerate_condemn_candidates() {
-  local repo dir def br
+  local repo dir def br cur
   for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}"; do
     dir="$ROOT/$repo"
     [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
     def=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
     [[ -n "$def" ]] || def=main
+    # The branch HEAD points at is the one being WORKED ON — never condemn it.
+    # A freshly cut branch is an ancestor of origin/<def> until its first
+    # commit, so without this it always reads merged=yes and is recommended for
+    # straight delete: every agent session would be told to bin its own branch.
+    cur=$(git -C "$dir" symbolic-ref --quiet --short HEAD 2>/dev/null)
     while IFS= read -r br; do
       [[ -z "$br" ]] && continue
       case "$br" in main|master|HEAD|"$def") continue ;; esac
+      [[ -n "$cur" && "$br" == "$cur" ]] && continue
       local merged=no
       if git -C "$dir" merge-base --is-ancestor "$br" "origin/$def" 2>/dev/null \
          || git -C "$dir" merge-base --is-ancestor "$br" "$def" 2>/dev/null; then

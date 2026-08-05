@@ -345,7 +345,11 @@ class Resolver:
     def __init__(self, root: Path):
         self.root = root
         self.indexes: dict[str, RepositoryIndex] = {}
-        self.siblings = {path.name for path in root.iterdir() if path.is_dir()}
+        self.siblings = (
+            {path.name for path in root.iterdir() if path.is_dir()}
+            if root.is_dir()
+            else set()
+        )
         self.suppressed = 0
 
     def index(self, name: str) -> RepositoryIndex | None:
@@ -550,6 +554,20 @@ def summary_for(findings: list[Finding], repository_count: int, skipped: int) ->
 
 
 def row_for(root: Path) -> dict:
+    # An absent scan root is "nothing to say", not a crash. The extras and
+    # config modes already degrade this way; refs used to let the missing
+    # directory surface as a FileNotFoundError traceback, which in the default
+    # all-mode scan printed twice and buried the rest of the worklist.
+    if not root.is_dir():
+        return {
+            "mode": "refs",
+            "kind": "finding",
+            "status": "clean",
+            "count": 0,
+            "summary": f"not scannable here: {root} is not present",
+            "delegate": "/refactor",
+            "findings": [],
+        }
     findings, repository_count, skipped = scan(root)
     return {
         "mode": "refs",
