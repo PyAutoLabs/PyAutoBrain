@@ -32,22 +32,58 @@ kinds, which is what makes its count comparable (or not):
   delegated skill runs, so the count is **not** a problem count (`deps`, `docs`).
 - **advisory** — no cheap local signal at all (`noise`).
 
+A mode also carries a **status**, and one of them is not a count at all:
+**`unscanned`** means the mode read *no repository* — the scan root holds no
+managed checkout, or the body map could not be reached. It is reported instead
+of `clean` because a zero from "nothing was examined" and a zero from "nothing
+was wrong" are indistinguishable to a reader, and the first is not good news.
+
+## Which repositories it scans
+
+**Derived from the body map (`repos.yaml`), never listed here or in the script.**
+The conductor takes `library`, `organ` and `workspace` from the map via
+`_hygiene_repos.py`; adding a repo to the map adds it to the scan.
+
+This was a bash array once, and it drifted: five libraries where the map
+declared six, four organs of seven, and a CRLF count of **5** against a true
+**127**. The drift was invisible precisely because an unscanned repo yields no
+findings — the conductor reported clean and was believed. `repos_sync.py`'s
+`check_hygiene_coverage` now fails if the derived sets stop matching the map, or
+if a repo name is written back into a `*_REPOS=(…)` array.
+
+Two modes need a narrower set, and both read what a checkout **contains** rather
+than its category — because category alone gets it wrong. The config layer is an
+*organ* in the map yet ships a real distribution, so keying `deps` off
+`category: library` would silently drop it:
+
+| Set | Rule | Modes |
+|-----|------|-------|
+| code repos | `library` + `organ` | `tidy`, `deps`, `docs`, `packaging` |
+| scanned repos | code repos + `workspace` | `crlf`, `artifacts` |
+| ships a distribution | has a `pyproject.toml` | `deps` |
+| ships api docs | has a `docs/api/` tree | `docs` |
+
+The helper-backed modes (`docstrings`, `refs`, `optdeps`, `extras`, `config`)
+are **not** on this list: they discover their own targets by walking the scan
+root for workspace-shaped directories, so they can find material the map never
+names — and they keep reporting even when the repo-array modes are `unscanned`.
+
 | Mode | Pre-scan (kind) | Delegates to |
 |------|-----------------|--------------|
 | `perf` | dev-loop timing — prefers Heart's tracked timing legs when present (`import_time`, `unit_test_timing`, `workspace_testmode_timing`), else times `import <pkg>` per library in a **subprocess** (**timing**) | `/refactor` / `/bug` (+ Heart timing legs) |
 | `tidy` | git debris — stale branches, stashes, `[gone]` refs, dirty checkouts (**debris**) | **condemn** → files candidates into `condemned.md` async (PyAutoGut archives the fragile forms); no synchronous per-item gate |
 | `sweep` | reads `condemned.md`, classifies entries by their transit clock (**due** / pending / undated) | `pyauto-gut void` for past-due entries, behind the existing `repo_cleanup` safety gates |
 | `noise` | none — needs a pytest + workspace-script run (**advisory**) | `/cli_noise_clean` (Heart) |
-| `deps` | capped/pinned specifiers in library `pyproject.toml` (**surface**) | `/dep_audit` (Heart, hits PyPI) |
-| `docs` | `docs/api/*.rst` + `currentmodule` counts across the 3 doc repos (**surface**) | `/audit_docs` (Heart, imports) |
-| `crlf` | executable scripts (`.sh` + shebang-`755` `.py`) with CRLF — the shebang breaks on Linux/HPC (**debris**, the ranked count); library `.py` CRLF is reported separately as *cosmetic* (Python reads it fine — don't mass-normalise) | `/refactor` + `.gitattributes eol=lf` |
+| `deps` | capped/pinned specifiers in every managed repo that ships a `pyproject.toml` (**surface**) | `/dep_audit` (Heart, hits PyPI) |
+| `docs` | `docs/api/*.rst` + `currentmodule` counts across every managed repo shipping a `docs/api/` tree (**surface**) | `/audit_docs` (Heart, imports) |
+| `crlf` | executable scripts (`.sh` + shebang-`755` `.py`) with CRLF — the shebang breaks on Linux/HPC (**debris**, the ranked count); plain `.py` CRLF is reported separately as *cosmetic* (Python reads it fine — don't mass-normalise) | `/refactor` + `.gitattributes eol=lf` |
 | `docstrings` | consecutive module-level triple-quoted expressions separated only by whitespace in user-facing `*_workspace` and `HowTo*` root `*.py` entry scripts and `scripts/**/*.py` files (**finding**) | `/refactor` (mechanically merge each confirmed boundary) |
 | `refs` | file/folder references in user-facing `*_workspace` and `HowTo*` prose (`scripts/**/*.py` docstrings + comments, every `scripts/**/README.md` and `config/**/README.md`, and the top-level README) whose target no longer exists — restructure debt no health sweep can see, since the scripts still run (**finding**). Covers the README idioms a `scripts/`-anchored matcher cannot see: structure-list bullets (``- `slam_pipeline`: ``), slash-less relative folder paths (`data_preparation/imaging`), and config YAML names | `/refactor` (re-point each reference; judge the intended target) |
 | `optdeps` | smoke-listed workspace scripts that construct an optional-dependency-gated API (`TransformerNUFFT` → `nufftax`) without the house `find_spec` skip guard, so they hard-fail the CI matrices that omit the extras (**finding**). AST-confirmed — prose mentions don't count; scripts outside `smoke_tests.txt` are never flagged | `/refactor` (add the skip guard) |
 | `extras` | the complement of `optdeps`: an optional dependency a library **declares** (in the `[optional]` extra `mode=release` installs) that the `workspace-validation.yml` **`mode=smoke`** leg never installs (**finding**). The extras chain only reaches each library's own `[jax]`, never a sibling's `[optional]`, so those need hand-adding and silently drift — the symptom is a script red in smoke and **green in release** | `/bug` (add the install; fix the install set, **never** the script) |
 | `config` | library `config/*.yaml` keys missing from the matching workspace config — recursive diff (**surface**) | `/refactor` (mirror keys) |
 | `artifacts` | tracked files that look like leaked run outputs / stray data (under `output/`, or data-ext outside fixtures) (**debris**) | `/repo_cleanup` (gitignore + `git rm --cached`) |
-| `packaging` | ignored, fully-untracked top-level `*.egg-info/` and `build/` directories in managed library repos (**debris**) | preview then run `PyAutoBrain/bin/clean_slate.sh --packaging`; repo-set, exact-name, root-depth and tracked-file guards apply |
+| `packaging` | ignored, fully-untracked top-level `*.egg-info/` and `build/` directories in the managed code repos (**debris**) | preview then run `PyAutoBrain/bin/clean_slate.sh --packaging`; repo-set, exact-name, root-depth and tracked-file guards apply |
 | *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count direct mode (`tidy`/`crlf`/`docstrings`/`refs`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
 
 ```
