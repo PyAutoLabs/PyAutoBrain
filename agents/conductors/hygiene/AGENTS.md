@@ -14,8 +14,8 @@ Agent"), `cli_noise_clean`, `dep_audit` and `audit_docs` — plus recurring manu
 perf-hygiene work (slow unit tests, slow integration-mode scripts, import cost).
 This conductor unifies and prioritises them. Design decision (conductor, **no
 paired repo**, boundaries) recorded in PyAutoMind
-`research/pyautobrain/hygiene_agent_decision.md` and the founding prompt
-`feature/pyautobrain/hygiene_agent.md`.
+`complete/2026/07/hygiene-agent-decision.md`; the founding prompt is folded
+into `complete/2026/07/hygiene-agent.md`.
 
 ## Modes
 
@@ -172,7 +172,7 @@ on-demand only (never the default scan, never a Heart tick).
   transit date. The conductor stays a **planner** (never mutates a repo): it emits
   the plan, `pyauto-gut` archives/voids, and the existing `repo_cleanup` safety
   gates guard the sweep — there is no second gate. Design:
-  PyAutoMind `research/pyautobrain/pyautogut_organ_decision.md`.
+  PyAutoMind `complete/2026/07/pyautogut-organ-decision.md`.
 
 ## Capability audit — what `tidy`/`sweep` drive
 

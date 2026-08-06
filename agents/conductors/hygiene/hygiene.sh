@@ -759,7 +759,7 @@ elif [[ "$mode" == "default" ]]; then
   else
     echo "Recommended next: no direct findings or removable debris — run 'hygiene perf' for import timings, and config/deps/docs/noise audits periodically."
   fi
-  echo "Design: PyAutoMind research/pyautobrain/hygiene_agent_decision.md."
+  echo "Design: PyAutoMind complete/2026/07/hygiene-agent-decision.md."
 else
   render_row "$mode"
 fi
