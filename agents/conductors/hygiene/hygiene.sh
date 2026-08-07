@@ -186,7 +186,10 @@ prescan_tidy() {
     b=$(git -C "$dir" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null \
           | grep -vxE 'main|master|HEAD' | wc -l | tr -d ' ')
     s=$(git -C "$dir" stash list 2>/dev/null | wc -l | tr -d ' ')
-    g=$(git -C "$dir" branch -vv 2>/dev/null | grep -c '\[gone\]' || true)
+    # NOT `branch -vv | grep -c '[gone]'` — porcelain prints the upstream as
+    # `[origin/<branch>: gone]`, never the bare `[gone]`, so that grep counts 0
+    # unconditionally. `%(upstream:track)` prints the literal `[gone]` token.
+    g=$(git -C "$dir" for-each-ref --format='%(upstream:track)' refs/heads 2>/dev/null | grep -c '\[gone\]' || true)
     branches=$((branches + b)); stashes=$((stashes + s)); gone=$((gone + g))
     [[ -n "$(git -C "$dir" status --porcelain 2>/dev/null)" ]] && dirty=$((dirty + 1))
   done
