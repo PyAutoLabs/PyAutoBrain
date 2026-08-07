@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Read-only scanner for DEAD INTERNAL REFERENCES in workspace prose.
+"""Read-only scanner for FOLDER-LIST DRIFT in workspace prose.
+
+Two directions of the same defect, scanned together:
+
+* **dead references** — prose names a file or folder that no longer exists;
+* **undocumented folders** — a folder exists that its own parent README never
+  names (see ``documented_directories``).
+
+The rest of this docstring describes the dead-reference direction, which is the
+older and more intricate of the two.
 
 Workspace/HowTo scripts document themselves by pointing at their siblings —
 "see the ``modeling/start_here.ipynb`` example", "checkout
@@ -173,6 +182,7 @@ class Finding:
     file: str
     line: int
     reference: str
+    kind: str = "dead"
 
 
 def canonical(path: str) -> str:
@@ -527,6 +537,65 @@ def findings_in_file(
     return sorted(findings, key=lambda finding: (finding.line, finding.reference))
 
 
+def documented_directories(repository: Path) -> list[Finding]:
+    """Report example folders that their own parent README never mentions.
+
+    The inverse of the dead-reference scan above: that one starts from prose and
+    asks whether the target exists, this one starts from what exists and asks
+    whether any prose names it. Both directions are the same defect seen from
+    two ends — a folder list that has drifted from the tree — but they fail
+    apart. A package added without touching its parent README leaves every
+    reference resolving perfectly while the folder is invisible to a reader
+    browsing the list. ``interferometer/features/datacube`` sat unlisted that
+    way for three months (autolens_workspace#482), and the audit that found it
+    turned up thirteen more in the same repo.
+
+    Precision comes from the direction of travel: the candidates are real
+    directories read off the filesystem, so the "is this token a path or a
+    parameter name?" ambiguity that constrains the structure-list rule above
+    cannot arise here, and no quorum heuristic is needed. The mention test is
+    deliberately permissive in the other axis — a bare word-boundary search of
+    the whole README — so bold bullets (``- **`name`**``), trailing slashes
+    (``- `name/```) and plain prose all count as documenting the folder. Only a
+    folder named *nowhere at all* is reported.
+
+    A directory is a candidate only if it carries example content (a script,
+    notebook, or its own README); asset and output directories are skipped.
+    """
+    findings: list[Finding] = []
+    scripts = repository / "scripts"
+    if not scripts.is_dir():
+        return findings
+    for readme in sorted(scripts.rglob("README.md")):
+        try:
+            text = readme.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for child in sorted(readme.parent.iterdir()):
+            if not child.is_dir() or child.name in PRUNED_DIRECTORIES:
+                continue
+            if child.name.startswith((".", "__")):
+                continue
+            has_content = any(
+                any(child.rglob(pattern))
+                for pattern in ("*.py", "*.ipynb", "README.md")
+            )
+            if not has_content:
+                continue
+            if re.search(rf"\b{re.escape(child.name)}\b", text):
+                continue
+            findings.append(
+                Finding(
+                    repo=repository.name,
+                    file=readme.relative_to(repository).as_posix(),
+                    line=1,
+                    reference=f"{child.name}/ (folder exists, README never names it)",
+                    kind="orphan",
+                )
+            )
+    return findings
+
+
 def scan(root: Path) -> tuple[list[Finding], int, int]:
     resolver = Resolver(root)
     repositories = repository_paths(root)
@@ -535,6 +604,7 @@ def scan(root: Path) -> tuple[list[Finding], int, int]:
         resolver.indexes.setdefault(repository.name, RepositoryIndex(repository))
         for path in scanned_files(repository):
             findings.extend(findings_in_file(resolver, repository, path))
+        findings.extend(documented_directories(repository))
     return findings, len(repositories), resolver.suppressed
 
 
@@ -542,8 +612,11 @@ def summary_for(findings: list[Finding], repository_count: int, skipped: int) ->
     file_count = len({(finding.repo, finding.file) for finding in findings})
     affected = len({finding.repo for finding in findings})
     file_label = "file" if file_count == 1 else "files"
+    dead = sum(1 for finding in findings if finding.kind == "dead")
+    orphans = sum(1 for finding in findings if finding.kind == "orphan")
     return (
-        f"{len(findings)} dead internal references in {file_count} {file_label} "
+        f"{len(findings)} folder-list defects ({dead} dead references, "
+        f"{orphans} undocumented folders) in {file_count} {file_label} "
         f"across {affected}/{repository_count} repos; "
         f"{skipped} unresolvable refs skipped"
     )
@@ -569,7 +642,8 @@ def render_human(row: dict) -> None:
         if finding["repo"] != repo:
             repo = finding["repo"]
             print(f"  {repo}:")
-        print(f"    {finding['file']}:{finding['line']} -> {finding['reference']}")
+        arrow = "!!" if finding.get("kind") == "orphan" else "->"
+        print(f"    {finding['file']}:{finding['line']} {arrow} {finding['reference']}")
 
 
 def main() -> int:
