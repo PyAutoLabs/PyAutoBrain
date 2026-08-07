@@ -252,6 +252,31 @@ def test_tidy_emits_an_async_condemn_plan(tmp_path):
     assert "transit_days" in doc and "sweep_after" in doc
 
 
+def test_tidy_prescan_counts_gone_upstream_refs(tmp_path):
+    # Regression for #205: the counter used `git branch -vv | grep -c '[gone]'`,
+    # but porcelain prints the upstream as `[origin/<branch>: gone]`, never the
+    # bare `[gone]`, so the count was 0 unconditionally. The fixture is chosen
+    # to HAVE a gone ref — a green run on a tree with zero proves nothing.
+    fit = tmp_path / "PyAutoFit"
+    _init_git_repo(fit)
+    git = ["git", "-C", str(fit), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "init"], check=True)
+    # A branch whose configured upstream no longer exists on the remote — the
+    # `[gone]` state, without needing a live remote to push to and prune from.
+    subprocess.run([*git, "branch", "doomed"], check=True)
+    subprocess.run([*git, "remote", "add", "origin", str(tmp_path / "gone.git")], check=True)
+    subprocess.run([*git, "config", "branch.doomed.remote", "origin"], check=True)
+    subprocess.run([*git, "config", "branch.doomed.merge", "refs/heads/doomed"], check=True)
+
+    r = _run(["--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    tidy = next(row for row in json.loads(r.stdout)["rows"] if row["mode"] == "tidy")
+    # doomed is both the 1 stale branch and the 1 [gone] ref; the default
+    # branch is excluded from the stale count and has no upstream.
+    assert "1 [gone] refs" in tidy["summary"], tidy["summary"]
+    assert tidy["count"] == 2, tidy
+
+
 def test_sweep_classifies_manifest_entries_by_transit_clock(tmp_path):
     mind = tmp_path / "PyAutoMind"
     mind.mkdir()
