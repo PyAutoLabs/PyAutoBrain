@@ -16,7 +16,7 @@
 #   noise -> /cli_noise_clean (Heart)      deps  -> /dep_audit (Heart)
 #   docs  -> /audit_docs (Heart)           packaging -> clean_slate.sh (Brain)
 #   docstrings -> /refactor (exact findings; Hygiene remains read-only)
-#   refs  -> /refactor (dead internal references in workspace prose)
+#   refs  -> /refactor (folder-list drift in workspace prose: dead refs + undocumented folders)
 #   optdeps -> /refactor (smoke-listed scripts missing an optional-dep skip guard)
 #   extras  -> /bug (optional deps a library declares that the smoke CI leg never installs)
 # The three Heart skills are read-only observation skills — measurement lives in
@@ -34,7 +34,7 @@
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
 #   hygiene.sh crlf            # executable scripts w/ CRLF break on HPC (+ cosmetic .py) -> /refactor
 #   hygiene.sh docstrings      # adjacent top-level script documentation -> /refactor
-#   hygiene.sh refs            # dead internal references in workspace prose -> /refactor
+#   hygiene.sh refs            # folder-list drift in workspace prose -> /refactor
 #   hygiene.sh optdeps         # smoke-listed scripts w/ a gated API but no skip guard -> /refactor
 #   hygiene.sh extras          # optional deps declared by a library but missing from the smoke CI install -> /bug
 #   hygiene.sh config          # library config keys missing downstream + orphan config files -> /refactor
@@ -294,7 +294,9 @@ prescan_extras() {
 # scripts still run, so no health sweep can see it. The stdlib helper resolves
 # each reference against the checked-out repos (scripts/ and notebooks/ are one
 # namespace) and holds precision with documented suppressions; this compact form
-# feeds the default ranked worklist.
+# feeds the default ranked worklist. The same helper scans the inverse direction
+# — a folder that exists but whose own parent README never names it, which is how
+# a package can ship invisible to every reader browsing the folder list.
 prescan_refs() {
   python3 "$HERE/_hygiene_refs.py" --root "$ROOT" --summary
 }
@@ -713,12 +715,15 @@ if [[ "$mode" == "docstrings" ]]; then
   echo
   echo "→ route the mechanical merges to /refactor; Hygiene never edits source."
 elif [[ "$mode" == "refs" ]]; then
-  echo "Dead internal references in workspace prose (read-only scan):"
+  echo "Folder-list drift in workspace prose (read-only scan):"
   python3 "$HERE/_hygiene_refs.py" --root "$ROOT"
   echo
-  echo "→ route the re-points to /refactor; Hygiene never edits source. Each finding is"
+  echo "→ route the re-points to /refactor; Hygiene never edits source. A '->' finding is"
   echo "  the reference AS WRITTEN — judge the intended target before repointing (a moved"
   echo "  file, a file that became a directory, or a reference meant for a sibling repo)."
+  echo "  A '!!' finding is the inverse: the folder exists and the README never names it,"
+  echo "  so the fix is a new entry describing it, sourced from that folder's own README"
+  echo "  or a script docstring — never inferred from the folder name."
 elif [[ "$mode" == "optdeps" ]]; then
   echo "Smoke-listed scripts missing an optional-dependency skip guard (read-only scan):"
   python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT"
