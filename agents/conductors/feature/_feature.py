@@ -34,8 +34,8 @@ from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, REPO_ALIASES,
     KNOWN_REPOS, MEMORY_WIKIS, SCIENCE_KEYWORDS, RISK_KEYWORDS, AMBIGUITY_KEYWORDS,
     policy as _sizing_policy,
-    TEST_KEYWORDS, normalise_repo, parse_prompt, discover_prompts, estimate_difficulty,
-    _hits, _within,
+    TEST_KEYWORDS, normalise_repo, parse_prompt, discover_prompts,
+    empty_discovery_reason, estimate_difficulty, _hits, _within,
 )
 
 # Default sub-wiki to consult per library target when no keyword fires. Memory
@@ -331,7 +331,8 @@ def main(argv=None):
                                         or a.ambitious or a.impact) else "selection"
     ranked, total = select(mind, constraint, a.limit)
     if not ranked:
-        print("feature agent: no feature prompts found in PyAutoMind.", file=sys.stderr)
+        print(f"feature agent: no feature prompts to select from — "
+              f"{empty_discovery_reason(mind, 'feature')}", file=sys.stderr)
         return 4
 
     if a.as_json:

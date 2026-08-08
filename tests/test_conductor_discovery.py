@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "agents" / "conductors" / "feature"))
 sys.path.insert(0, str(ROOT / "agents" / "conductors" / "bug"))
 sys.path.insert(0, str(ROOT / "agents" / "conductors" / "refactor"))
 
-from _sizing import discover_prompts  # noqa: E402
+from _sizing import discover_prompts, empty_discovery_reason  # noqa: E402
 import _feature  # noqa: E402
 import _bug  # noqa: E402
 import _refactor  # noqa: E402
@@ -129,3 +129,65 @@ def test_refactor_backlog_is_non_empty_on_draft_layout(tmp_path):
     assert _refactor.candidates(_populated(tmp_path))["backlog"] == [
         "draft/refactor/pyautohands/ref.md"
     ]
+
+
+# --- empty_discovery_reason: an empty result must say WHICH empty it is -------
+# A flat "no prompts found" reads the same whether the backlog is bare or the
+# root is wrong. That ambiguity is what let the original bug survive four weeks,
+# so the three cases below must stay mutually distinguishable.
+def test_reason_flags_a_path_that_is_not_a_directory(tmp_path):
+    reason = empty_discovery_reason(tmp_path / "nope", "bug")
+    assert "not a directory" in reason
+
+
+def test_reason_flags_a_directory_that_is_not_a_mind(tmp_path):
+    (tmp_path / "random").mkdir()
+    reason = empty_discovery_reason(tmp_path / "random", "bug")
+    assert "does not look like a PyAutoMind checkout" in reason
+    assert "PYAUTO_MIND" in reason
+
+
+def test_reason_names_the_missing_work_type_and_lists_those_present(tmp_path):
+    _write(tmp_path, "draft/bug/pyautohands/one.md")
+    _write(tmp_path, "draft/feature/pyautohands/two.md", work_type="feature")
+    (tmp_path / "active.md").write_text("# Active Tasks\n")
+    reason = empty_discovery_reason(tmp_path, "refactor")
+    assert "no 'refactor' work-type folder" in reason
+    assert "work-types present: bug, feature" in reason
+
+
+def test_reason_reports_a_genuinely_empty_backlog(tmp_path):
+    (tmp_path / "draft" / "bug").mkdir(parents=True)
+    (tmp_path / "active.md").write_text("# Active Tasks\n")
+    reason = empty_discovery_reason(tmp_path, "bug")
+    assert "holds no prompts" in reason
+    assert "backlog genuinely empty" in reason
+
+
+def test_the_three_empty_causes_are_mutually_distinguishable(tmp_path):
+    not_a_mind = tmp_path / "random"
+    not_a_mind.mkdir()
+
+    missing_type = tmp_path / "mind_a"
+    _write(missing_type, "draft/bug/pyautohands/one.md")
+    (missing_type / "active.md").write_text("# Active Tasks\n")
+
+    bare = tmp_path / "mind_b"
+    (bare / "draft" / "bug").mkdir(parents=True)
+    (bare / "active.md").write_text("# Active Tasks\n")
+
+    reasons = {
+        empty_discovery_reason(not_a_mind, "bug"),
+        empty_discovery_reason(missing_type, "refactor"),
+        empty_discovery_reason(bare, "bug"),
+    }
+    assert len(reasons) == 3
+
+
+def test_a_freshly_spawned_mind_without_draft_is_still_a_mind(tmp_path):
+    """A Mind that has taken no work yet has active.md but no draft/ — that is
+    an empty backlog, not a bad path."""
+    (tmp_path / "active.md").write_text("# Active Tasks\n")
+    reason = empty_discovery_reason(tmp_path, "bug")
+    assert "does not look like a PyAutoMind checkout" not in reason
+    assert "no 'bug' work-type folder" in reason
