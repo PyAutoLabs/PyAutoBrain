@@ -34,7 +34,8 @@ from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, REPO_ALIASES,
     KNOWN_REPOS, MEMORY_WIKIS, SCIENCE_KEYWORDS, RISK_KEYWORDS, AMBIGUITY_KEYWORDS,
     policy as _sizing_policy,
-    TEST_KEYWORDS, normalise_repo, parse_prompt, estimate_difficulty, _hits, _within,
+    TEST_KEYWORDS, normalise_repo, parse_prompt, discover_prompts, estimate_difficulty,
+    _hits, _within,
 )
 
 # Default sub-wiki to consult per library target when no keyword fires. Memory
@@ -183,10 +184,7 @@ def analyse(p: dict):
 
 # --- task discovery + selection ----------------------------------------------
 def discover(mind: Path):
-    feat = mind / "feature"
-    if not feat.is_dir():
-        return []
-    return sorted(feat.rglob("*.md"))
+    return discover_prompts(mind, "feature")
 
 
 def _referenced_paths(mind: Path, *names):

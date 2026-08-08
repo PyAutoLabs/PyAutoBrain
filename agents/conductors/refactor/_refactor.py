@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "feature"))
 from _feature import analyse  # noqa: E402  (pulls _sizing onto the path too)
-from _sizing import parse_prompt, policy as _sizing_policy  # noqa: E402
+from _sizing import discover_prompts, parse_prompt, policy as _sizing_policy  # noqa: E402
 
 # Public-API-change smells: a "refactor" prompt matching these is suspect —
 # it belongs in feature/ (or bug/) and must not run at `safe`.
@@ -105,8 +105,7 @@ def decide(prompt_path: Path, mind: Path) -> dict:
 
 
 def discover(mind: Path) -> list[Path]:
-    root = mind / "refactor"
-    return sorted(root.rglob("*.md")) if root.is_dir() else []
+    return discover_prompts(mind, "refactor")
 
 
 def candidates(mind: Path) -> dict:
