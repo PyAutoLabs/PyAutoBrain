@@ -84,8 +84,11 @@ Update the task entry to record the worktree path and claimed repos:
   - PyAutoArray: feature/<task-name>
 ```
 
-The `worktree:` field is what `worktree_check_conflict` reads to detect
-collisions from other sessions. Then:
+The `  - <repo>` bullets under `repos:` are the claim — they are what
+`worktree_check_conflict` compares to detect collisions from other sessions
+(`worktree:` is reported alongside, but claims nothing on its own). Both
+`  - <repo>: <branch>` and `  - <repo> (<branch>)` parse; the branch is
+informational and may be omitted. Then:
 
 ```bash
 source PyAutoMind/scripts/prompt_sync.sh

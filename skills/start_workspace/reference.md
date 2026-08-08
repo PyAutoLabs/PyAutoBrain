@@ -76,6 +76,10 @@ the workspace repos, set `status: workspace-dev`, add `library-pr:`:
   - autofit_workspace: feature/<task-name>
 ```
 
+The `  - <repo>` bullets are the claim `worktree_check_conflict` reads. Both
+`  - <repo>: <branch>` and `  - <repo> (<branch>)` parse; the branch is
+informational and may be omitted.
+
 Standalone mode — same shape without `library-pr:` and with only workspace repos.
 Push with `prompt_sync_push "prompt: register <task-name> workspace repos in active.md"`.
 
