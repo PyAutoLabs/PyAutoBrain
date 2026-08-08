@@ -6,7 +6,7 @@ belongs**, and which **health inputs** it reads. It mirrors the Feature Agent's
 deterministic core by import (repo/target parsing, the difficulty heuristic, PyAutoMemory
 routing, in-flight down-ranking all live in `_feature.py`). The Bug Agent adds only the
 bug-specific reasoning in `_bug.py`. Sources of truth: `PyAutoMind/ROUTING.md`,
-`PyAutoBrain/AGENTS.md`, `agents/faculties/vitals/`, `PyAutoMind/bug/health_fixes/`.
+`PyAutoBrain/AGENTS.md`, `agents/faculties/vitals/`, `PyAutoMind/draft/bug/health_fixes/`.
 
 ## Classification (typing the threat)
 
@@ -79,7 +79,7 @@ re-implement a Heart check. `bug.sh health` reads two complementary signals:
 For each finding `_bug.py` emits a first-pass **category hint** (real-bug / config /
 flaky / expected, from the issue title + labels); the reasoning layer confirms it and
 decides where the fix belongs (affected repo, PyAutoHeart, PyAutoHands, PyAutoBrain).
-Confirmed real defects become `PyAutoMind/bug/health_fixes/<name>.md` prompts and enter
+Confirmed real defects become `PyAutoMind/draft/bug/health_fixes/<name>.md` prompts and enter
 the normal workflow; flaky / expected findings are left to the Health conductor's loop.
 Validation after patching is always the vitals faculty (`pyauto-heart readiness` GREEN,
 or acknowledged YELLOW), never a check re-run here.
@@ -105,7 +105,7 @@ small; don't multiply faculties prematurely), with this as the documented seam.
 ## Boundary audit — reasoning vs. health vs. execution
 
 ```
-intent      → PyAutoMind   (bug/* prompts, bug/health_fixes/, active/planned state)
+intent      → PyAutoMind   (draft/bug/* prompts, draft/bug/health_fixes/, active/planned state)
 reasoning   → PyAutoBrain  (Bug Agent — this; reuses the Feature core)
 knowledge   → PyAutoMemory (recurring failures / prior fixes / flaky tests; cited, not invented)
 health      → PyAutoHeart  (via the vitals faculty + filed Heart issues; never re-implemented)

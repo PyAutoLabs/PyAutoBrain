@@ -156,6 +156,41 @@ def _hits(text: str, keywords) -> list:
     return out
 
 
+def discover_prompts(mind: Path, work_type: str) -> list[Path]:
+    """Every backlog prompt of one work-type, across the Mind lifecycle layout.
+
+    The discovery counterpart to `parse_prompt`, and shared for the same reason:
+    three conductors (feature / bug / refactor) each held a private copy rooted
+    at the pre-#71 `mind/<work-type>/`, so from the day the split closed
+    (2026-07-13) all three selection modes silently returned "no prompts found"
+    against a live backlog.
+
+    Covers the two regimes that hold *backlog* prompts, mirroring `parse_prompt`:
+
+      - `draft/<work-type>/<target>/*.md` — the current layout (PyAutoMind#71);
+      - `<work-type>/<target>/*.md`       — legacy flat, pre-migration.
+
+    `active/` is deliberately NOT discovered: it is flat (so its paths carry no
+    work-type to filter on) and holds issued, in-flight work, whereas selection
+    answers "what should I start next". `complete/` — records, not backlog — is
+    excluded by construction, since neither root above can reach into it.
+    """
+    seen, out = set(), []
+    for root in (mind / "draft" / work_type, mind / work_type):
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*.md"):
+            # READMEs document a folder; they are never themselves tasks.
+            if p.name.lower() == "readme.md":
+                continue
+            key = p.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(p)
+    return sorted(out)
+
+
 def parse_prompt(path: Path, mind: Path):
     """Read a prompt file and extract structure: work-type, target, repos, body."""
     text = path.read_text(encoding="utf-8", errors="replace")

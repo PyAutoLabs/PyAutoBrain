@@ -9,7 +9,7 @@
 > behaviour-preserving by definition, so tests + the review faculty form a
 > near-complete gate.
 
-It reasons over `PyAutoMind/refactor/*` intent and produces a structured
+It reasons over `PyAutoMind/draft/refactor/*` intent and produces a structured
 **RefactorDecision** the standard workflow consumes:
 
 ```

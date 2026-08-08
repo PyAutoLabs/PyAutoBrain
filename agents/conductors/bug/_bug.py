@@ -302,8 +302,7 @@ def _next_action(d: dict) -> str:
 
 # --- discovery + selection (bug/**) ------------------------------------------
 def discover_bugs(mind: Path):
-    bug = mind / "bug"
-    return sorted(bug.rglob("*.md")) if bug.is_dir() else []
+    return F.discover_prompts(mind, "bug")
 
 
 def _referenced_bug_paths(mind: Path):
@@ -325,7 +324,7 @@ SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 def select_bug(mind: Path, constraint: dict, limit: int):
-    prompts = [p for p in discover_bugs(mind) if p.name.lower() != "readme.md"]
+    prompts = discover_bugs(mind)
     in_flight = _referenced_bug_paths(mind)
     rows = []
     for path in prompts:
@@ -418,8 +417,8 @@ def emit_health(mode: str, verdict: str, issues: list, mind: Path):
     print("== BugDecision (health-issue mode) ==")
     print(f"Mode:                 {mode}")
     print(f"Live vitals verdict:  {verdict.upper()}  (consulted via the vitals faculty)")
-    hf = mind / "bug" / "health_fixes"
-    print(f"Health-fix prompts:   {'present' if hf.is_dir() else 'absent'} at PyAutoMind/bug/health_fixes/")
+    hf = mind / "draft" / "bug" / "health_fixes"
+    print(f"Health-fix prompts:   {'present' if hf.is_dir() else 'absent'} at PyAutoMind/draft/bug/health_fixes/")
     if not issues:
         print("Filed PyAutoHeart issues: none open (or gh unavailable).")
     else:
@@ -429,7 +428,7 @@ def emit_health(mode: str, verdict: str, issues: list, mind: Path):
             print(f"  - #{it.get('number')}  {it.get('title','').strip()}")
             print(f"      hint: {hint_heart_category(it)}")
     print("Next action:          For each finding the hint marks a real defect, write a "
-          "PyAutoMind/bug/health_fixes/<name>.md prompt and run start_dev; leave "
+          "PyAutoMind/draft/bug/health_fixes/<name>.md prompt and run start_dev; leave "
           "flaky/expected findings for the Health conductor. Confirm with the vitals "
           "faculty (never query Heart directly).")
 
@@ -499,7 +498,7 @@ def main(argv=None):
                                         or a.ambitious or a.impact) else "selection"
     ranked, total = select_bug(mind, constraint, a.limit)
     if not ranked:
-        print("bug agent: no bug prompts found in PyAutoMind/bug/.", file=sys.stderr)
+        print("bug agent: no bug prompts found in PyAutoMind/draft/bug/.", file=sys.stderr)
         return 4
 
     if a.as_json:

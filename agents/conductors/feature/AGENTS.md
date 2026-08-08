@@ -41,7 +41,7 @@ it reasons over and the PyAutoMemory routing it uses.
 | Mode | Trigger | What it does |
 |------|---------|--------------|
 | **specific** | a task path is given | Read the named prompt, classify repos, consult memory, size it, decide phasing, and produce a `start_dev`-ready plan. |
-| **selection** | no task given | Scan `feature/**`, rank candidates, and recommend the best next task — **not** merely the first in a list; down-ranks in-flight work (from `active.md` / `planned.md`). |
+| **selection** | no task given | Scan `draft/feature/**` (legacy flat `feature/**` still resolves), rank candidates, and recommend the best next task — **not** merely the first in a list; down-ranks in-flight work (from `active.md` / `planned.md`). |
 | **difficulty-constrained** | `--difficulty` / `--model` / `--budget` / `--ambitious` / `--impact` | Estimate difficulty per task and select to match the constraint (easy/weak-model/limited-token → small; ambitious/strong-model → large; impact → high-leverage). |
 
 ## Difficulty & sizing
