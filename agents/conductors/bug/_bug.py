@@ -498,7 +498,8 @@ def main(argv=None):
                                         or a.ambitious or a.impact) else "selection"
     ranked, total = select_bug(mind, constraint, a.limit)
     if not ranked:
-        print("bug agent: no bug prompts found in PyAutoMind/draft/bug/.", file=sys.stderr)
+        print(f"bug agent: no bug prompts to select from — "
+              f"{F.empty_discovery_reason(mind, 'bug')}", file=sys.stderr)
         return 4
 
     if a.as_json:

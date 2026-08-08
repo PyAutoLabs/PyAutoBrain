@@ -191,6 +191,39 @@ def discover_prompts(mind: Path, work_type: str) -> list[Path]:
     return sorted(out)
 
 
+def empty_discovery_reason(mind: Path, work_type: str) -> str:
+    """Explain an empty `discover_prompts` result — is it a bare backlog or a bad root?
+
+    A flat "no prompts found" reads identically whether the backlog is genuinely
+    empty or discovery is pointed somewhere wrong. That ambiguity is what let
+    PyAutoBrain#211 survive four weeks: three conductors reported an empty
+    backlog while sitting on 87 prompts, and the message a broken root produced
+    was the message an empty backlog produced. Diagnosing the empty case is
+    therefore not cosmetic — it is the signal that bug lacked.
+
+    Diagnosis only; callers keep their own exit codes.
+    """
+    if not mind.is_dir():
+        return f"PyAutoMind path is not a directory: {mind}"
+
+    draft = mind / "draft"
+    # A Mind always carries its registry; `draft/` alone can be absent on a
+    # freshly-spawned one that has taken no work yet.
+    if not draft.is_dir() and not (mind / "active.md").is_file():
+        return (f"{mind} does not look like a PyAutoMind checkout "
+                f"(no draft/ and no active.md) — check PYAUTO_MIND")
+
+    roots = [r for r in (draft / work_type, mind / work_type) if r.is_dir()]
+    if not roots:
+        known = sorted(p.name for p in draft.iterdir() if p.is_dir()) if draft.is_dir() else []
+        have = f"; work-types present: {', '.join(known)}" if known else ""
+        return (f"no '{work_type}' work-type folder under {mind}/draft/ "
+                f"(nor a legacy flat {work_type}/){have}")
+
+    where = ", ".join(str(r.relative_to(mind)) for r in roots)
+    return f"{where} exists under {mind} but holds no prompts (backlog genuinely empty)"
+
+
 def parse_prompt(path: Path, mind: Path):
     """Read a prompt file and extract structure: work-type, target, repos, body."""
     text = path.read_text(encoding="utf-8", errors="replace")
