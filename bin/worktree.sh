@@ -314,7 +314,17 @@ worktree_list_claimed() {
     return 0
   fi
   awk '
+    # Claim rows are buffered and flushed at the end of each task entry:
+    # `worktree:` may appear either side of the `repos:` block, so it is not
+    # known when a repo bullet is read.
+    function flush(   i) {
+      for (i = 1; i <= n; i++) {
+        printf "%s\t%s\t%s\t%s\n", task, repos[i], branches[i], wt
+      }
+      n = 0
+    }
     /^## / {
+      flush()
       task = $2
       wt = "-"
       next
@@ -324,13 +334,32 @@ worktree_list_claimed() {
       next
     }
     /^  - [A-Za-z]/ {
-      # Matches lines like "  - PyAutoFit: feature/foo"
-      gsub(/^  - /, "")
-      split($0, parts, ": ")
-      repo = parts[1]
-      branch = parts[2]
-      printf "%s\t%s\t%s\t%s\n", task, repo, branch, wt
+      # Two schemas in the wild, both accepted:
+      #   "  - autolens_workspace (feature/foo)"  what every skill writes
+      #   "  - PyAutoFit: feature/foo"            the documented legacy form
+      # The branch is informational (it appears only in the conflict message
+      # and repo_cleanup CLAIMED pairs); the bare repo name is what the guard
+      # compares, so it must survive either shape.
+      line = $0
+      sub(/^  - /, "", line)
+      branch = ""
+      if (match(line, /: /)) {
+        repo = substr(line, 1, RSTART - 1)
+        branch = substr(line, RSTART + 2)
+      } else if (match(line, / *\(/)) {
+        repo = substr(line, 1, RSTART - 1)
+        branch = substr(line, RSTART)
+        sub(/^ *\(/, "", branch)
+        sub(/\)[^)]*$/, "", branch)
+      } else {
+        repo = line
+      }
+      sub(/[ \t]+$/, "", repo)
+      n++
+      repos[n] = repo
+      branches[n] = branch
     }
+    END { flush() }
   ' "$active"
 }
 
