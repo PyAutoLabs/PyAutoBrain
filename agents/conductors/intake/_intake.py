@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -598,11 +599,61 @@ _STOPWORDS = frozenset(
 # deferred follow-up (still open) rather than the shipped task itself.
 _FOLLOWUP_WORDS = ("follow", "restore", "parked", "remain", "blocked", "later",
                    "next step", "next-step", "deferred")
+# Wording that makes a reference line an assertion the work is DONE, rather than
+# a passing mention. `jax-substructure-simulator.md` opens "the 4
+# `jax_substructure/` prompts shipped to `main`" — that sentence resolves four
+# prompts, and is the difference between a citation and a completion claim.
+_SHIPPED_WORDS = ("shipped", "delivered", "merged", "completed", "closed out",
+                  "close-out", "landed", "is done", "now on main")
+#: A rare identifier says far more than a shared English word. Backticked
+#: snake_case / CamelCase with at least two segments — `chunk_size`,
+#: `_validate_convolve_over_sample_size`, `RectangularAdaptDensity`.
+_IDENT_RE = re.compile(
+    r"`([A-Za-z_][A-Za-z0-9_]*(?:_[A-Za-z0-9_]+)+"
+    r"|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+)`")
+#: An identifier in this many records or more is vocabulary, not evidence.
+_IDENT_COMMON_DF = 6
+#: Ditto for stem tokens: `jax` is in ~100 records and links nothing.
+_TOKEN_COMMON_DF = 12
+_W_SHIPPED = 7.0        # a record asserting the work is done — on its own
+                        # enough to qualify: `jax-substructure-simulator.md`
+                        # saying "the 4 prompts shipped to main" resolved four
+                        # prompts in one sentence, and nothing else flagged them.
+_W_IDENT = 2.0          # per shared rare identifier beyond the first
+_SUSPECT_THRESHOLD = 7.0
+_HIGH_THRESHOLD = 12.0
+# Tuned on the 2026-08-09 labelled set (PyAutoMind f25e154e, 148 prompts, five
+# findings independently confirmed against upstream source). Result:
+#
+#   BEFORE   96 of 148 flagged (65%) — 52 "high" — biggest find NOT flagged
+#   AFTER    31 of 148 flagged (21%) —  9 "high" — biggest find at rank 2
+#
+# Of the five findings, this ranker catches the two it can: the k x s series
+# (rare-token fan-out, rank 2) and the nufft chunking prompt (shared rare
+# identifiers). The other three are NOT ranker failures and must not be chased
+# by lowering the bar:
+#
+#   * the test-mode umbrella states its own exit condition, which is what
+#     PyAutoMind's `Closes-when:` header key grades — a different tool;
+#   * the split-guard prompt had NO completion record at all (its evidence sat
+#     inside a sibling PROMPT), so nothing Mind-local could see it;
+#   * the latent prompt left no Mind trace whatsoever — the fix shipped upstream
+#     without a record. Only reading the target repo finds that shape.
+#
+# Every attempt to force those three in cost precision without gaining truth:
+# a loose `<work-type>/<target>/` series match pulled the umbrella in at 31%
+# flagged, but also FALSELY flagged test_mode_bypass_ordered_assertion_ties off
+# references to four unrelated sibling prompts — a prompt the sweep confirmed is
+# NOT shipped, and exactly the mis-grade this tool must never make.
 
 
 def _tokens(s: str) -> set:
     return {w for w in re.findall(r"[a-z0-9]+", s.lower())
             if len(w) > 2 and w not in _STOPWORDS}
+
+
+def _idents(text: str) -> set:
+    return set(_IDENT_RE.findall(text))
 
 
 def reconcile(mind: Path, prefix: str = "") -> dict:
@@ -624,14 +675,31 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
     # reference lines + `## <slug>` topic headers now live inside the dated
     # records (the monolithic complete.md ledger was retired — issue #81)
     comp_lines: list = []
+    comp_bodies: dict = {}
     for p in comp_files:
-        comp_lines.extend(
-            p.read_text(encoding="utf-8", errors="replace").splitlines())
+        body = p.read_text(encoding="utf-8", errors="replace")
+        comp_bodies[p.name] = body
+        comp_lines.extend(body.splitlines())
+
+    # Document frequency over the records: how ORDINARY a token/identifier is.
+    # Without this every prompt matches on `jax`, `test`, `workspace` and the
+    # ranking is noise — the 2026-08-09 measurement flagged 96 of 148.
+    token_df: dict = {}
+    ident_df: dict = {}
+    for name, body in comp_bodies.items():
+        for w in _tokens(name.replace("-", " ").replace(".md", "")) | _tokens(body):
+            token_df[w] = token_df.get(w, 0) + 1
+        for i in _idents(body):
+            ident_df[i] = ident_df.get(i, 0) + 1
     headers = [(ln[3:].strip(), _tokens(ln[3:].replace("-", " ")))
                for ln in comp_lines
                if ln.startswith("## ") and ln[3:].strip() != "Original prompt"]
     headers += [(f"complete/{p.relative_to(comp_dir)}",
                  _tokens(p.stem.replace("_", " "))) for p in comp_files]
+    # Record STEMS specifically: a rare token appearing in several record stems
+    # is a phased series, which is a far stronger claim than one in their prose.
+    header_stems = [_tokens(p.stem.replace("-", " ")) for p in comp_files]
+    n_records = max(len(comp_files), 1)
     active = mind / "active"
     issued_names = ({p.name for p in active.glob("*.md")}
                     if active.is_dir() else set())
@@ -646,47 +714,107 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
         findings = []
         score = 0.0
 
+        # 1. A record line that NAMES this prompt and CLAIMS it is done. A bare
+        #    mention is not evidence — measured on the 2026-08-09 labelled set,
+        #    treating any reference as high confidence produced 52 of 148 highs
+        #    and buried the true positives.
+        # A record may resolve a whole FOLDER of prompts at once —
+        # `jax-substructure-simulator.md` opens "the 4 `jax_substructure/`
+        # prompts shipped to `main`", which retires four files in one sentence.
+        # But `<work-type>/<target>/` is also just a path prefix that every
+        # sibling reference contains, so matching it bare made a prompt "named"
+        # by any mention of its neighbours (measured: it falsely flagged
+        # test_mode_bypass_ordered_assertion_ties off references to four
+        # unrelated bug/autofit/ prompts). Require the line to be talking about
+        # the folder's prompts as a group.
+        series = f"{r['work_type']}/{r.get('target', '')}/"
         for ln in comp_lines:
-            if base in ln or sans_wt in ln:
-                kind = ("referenced-followup"
-                        if any(w in ln.lower() for w in _FOLLOWUP_WORDS)
-                        else "referenced")
-                findings.append((kind, ln.strip()))
+            low = ln.lower()
+            named = base in ln or sans_wt in ln
+            if not named and series in ln and "prompt" in low:
+                named = True
+            if not named:
+                continue
+            if any(w in low for w in _FOLLOWUP_WORDS):
+                findings.append(("referenced-followup", ln.strip()))
+            elif any(w in low for w in _SHIPPED_WORDS):
+                findings.append(("record-says-shipped", ln.strip()))
+                score += _W_SHIPPED
+            else:
+                # Evidence, not score. A record merely NAMING a prompt was the
+                # single biggest source of noise in the 2026-08-09 measurement:
+                # it alone produced 52 of 148 "high" verdicts and buried every
+                # true positive among them.
+                findings.append(("referenced", ln.strip()))
 
         if base in issued_names:
             findings.append(("issued-duplicate", f"active/{base} already exists"))
+            score += _W_SHIPPED
         if base in comp_names:
             findings.append(("complete-duplicate",
                              f"{base} already in the complete/ archive"))
+            score += _W_SHIPPED
 
+        # 2. Rare stem tokens, IDF-weighted, with a fan-out bonus. Raw Jaccard
+        #    missed the biggest find of the 2026-08-09 sweep:
+        #    `oversampling_kxs_coupling` against `kxs-core` scores 0.25, under
+        #    any workable threshold. The real signal is that ONE very rare token
+        #    (`kxs`, in 7 of 947 records) appears in SIX record stems — a series
+        #    that shipped in phases. Requiring two shared tokens, the obvious
+        #    first try, scores that case exactly 0.
         sig = _tokens(base.replace("_", " ")) | _tokens(r["title"])
-        best = (0.0, "", set())
-        for h, ht in headers:
-            if not sig or not ht:
+        tok_score, evidence, best_fan = 0.0, [], 0
+        for w in sig:
+            d = token_df.get(w, 0)
+            if not (0 < d <= _TOKEN_COMMON_DF):
                 continue
-            shared = sig & ht
-            j = len(shared) / len(sig | ht)
-            if (j, len(shared)) > (best[0], len(best[2])):
-                best = (j, h, shared)
-        if best[0] >= 0.40 or len(best[2]) >= 3:
-            score = best[0]
-            findings.append(("topic-overlap",
-                             f"completion record '{best[1]}' "
-                             f"(shared: {', '.join(sorted(best[2]))})"))
+            fan = sum(1 for st in header_stems if w in st)
+            if not fan:
+                continue
+            best_fan = max(best_fan, fan)
+            tok_score += math.log(n_records / d) * (2.0 if fan >= 3 else 1.0)
+            evidence.append(f"{w} ({d} records" +
+                            (f", {fan} in the stem" if fan >= 3 else "") + ")")
+        if tok_score:
+            score += tok_score
+            findings.append(("rare-topic-overlap",
+                             "rare tokens shared with the records: "
+                             + ", ".join(sorted(evidence))))
 
-        if r["status"] not in ("-", "formalised"):
+        # 3. Rare identifiers the prompt names, appearing in a record body. This
+        #    is what a human grader actually reads — `interferometer-jax-jit.md`
+        #    naming `chunk_size` resolves the nufft prompt in one sentence.
+        # census() deliberately does not carry the prompt body (it is serialised
+        # into the dashboard JSON); read it here instead.
+        try:
+            prompt_text = (mind / path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            prompt_text = ""
+        pid = {i for i in _idents(prompt_text)
+               if 0 < ident_df.get(i, 0) <= _IDENT_COMMON_DF}
+        if pid:
+            hits = {}
+            for p, body in comp_bodies.items():
+                shared = {i for i in pid if i in body}
+                if len(shared) >= 2:
+                    hits[p] = shared
+            if hits:
+                top = max(hits, key=lambda p: len(hits[p]))
+                n = len(hits[top])
+                score += _W_IDENT * (n - 1)   # 2 shared is weak, 7 is decisive
+                findings.append(("shared-identifiers",
+                                 f"record '{top}' names {n} of this prompt's "
+                                 f"identifiers: {', '.join(sorted(hits[top])[:5])}"))
+
+        # `Status:` alone is not evidence — it fired on every hand-set draft. Kept
+        # as context on prompts something else already flagged, never as a reason.
+        if score > 0 and r["status"] not in ("-", "formalised"):
             findings.append(("stale-status",
                              f"Status: {r['status']} — hand-set; verify against "
                              "shipped state"))
 
-        if findings:
-            kinds = {k for k, _ in findings}
-            if kinds & {"issued-duplicate", "complete-duplicate", "referenced"}:
-                conf = "high"
-            elif "topic-overlap" in kinds:
-                conf = "medium"
-            else:
-                conf = "low"       # follow-up reference / stale status only
+        if score >= _SUSPECT_THRESHOLD:
+            conf = "high" if score >= _HIGH_THRESHOLD else "medium"
             suspects.append({
                 "path": path, "title": r["title"], "confidence": conf,
                 "overlap_score": round(score, 2),
