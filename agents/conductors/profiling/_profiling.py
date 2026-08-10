@@ -57,6 +57,9 @@ FALLBACK_TRANSFORMS = ("jit", "grad", "vag", "vmap", "vmap_vag", "laxmap_vag", "
 
 # Fields a compile record needs before it can be placed on the grid at all.
 COMPILE_KEY_FIELDS = ("hardware", "dataset_class", "model_type", "instrument")
+# Absent *together*, these mark a record written by a sibling instrument sharing
+# the results tree rather than a corrupt probe record.
+COMPILE_IDENTITY_FIELDS = ("hardware", "dataset_class", "instrument")
 
 
 def workspace_root(explicit: str | None = None) -> Path:
@@ -247,16 +250,22 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
     covered: set[tuple[tuple[str, str, str | None], str]] = set()
     off_grid: dict[str, int] = {}
     other_hw: dict[str, int] = {}
+    foreign: dict[str, int] = {}
     malformed: list[dict[str, Any]] = []
 
     for rel, idx, rec in load_compile_corpus(ws):
-        if any(rec.get(f) in (None, "") for f in COMPILE_KEY_FIELDS):
+        absent = [f for f in COMPILE_KEY_FIELDS if rec.get(f) in (None, "")]
+        if set(absent) >= set(COMPILE_IDENTITY_FIELDS):
+            # Not corruption: jax_compile/ hosts sibling instruments
+            # (export_probe.py, trace_profile.py) that append their own schema
+            # into the SAME results/<hardware>/ tree. Missing the whole identity
+            # triple means "another instrument's record", and calling that
+            # malformed would send someone to fix a file that is working.
+            foreign[rel] = foreign.get(rel, 0) + 1
+            continue
+        if absent:
             malformed.append(
-                {
-                    "record": f"{rel}[{idx}]",
-                    "missing": [f for f in COMPILE_KEY_FIELDS if rec.get(f) in (None, "")],
-                    "tag": rec.get("tag"),
-                }
+                {"record": f"{rel}[{idx}]", "missing": absent, "tag": rec.get("tag")}
             )
             continue
         rec_tier = compile_tier_of(rec.get("hardware"))
@@ -314,6 +323,7 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
         "runs_missing": len(missing),
         "missing": missing,
         "off_grid": [{"cell": c, "records": n} for c, n in sorted(off_grid.items())],
+        "foreign_records": [{"file": f, "records": n} for f, n in sorted(foreign.items())],
         "other_hardware": [{"hardware": h, "records": n} for h, n in sorted(other_hw.items())],
         "malformed": malformed,
         "policy": (
@@ -481,6 +491,10 @@ def emit_human(d: dict[str, Any]) -> None:
             print("Other hardware (neither tier):")
             for o in d["other_hardware"]:
                 print(f"  {o['hardware']}: {o['records']} record(s)")
+        if d["foreign_records"]:
+            print("Sibling-instrument records (not probe.py's schema):")
+            for f in d["foreign_records"]:
+                print(f"  {f['file']}: {f['records']} record(s)")
         if d["malformed"]:
             print(f"Malformed records:    {len(d['malformed'])}")
             for m in d["malformed"][:10]:

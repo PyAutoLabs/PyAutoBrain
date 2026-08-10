@@ -123,19 +123,39 @@ def test_off_grid_records_are_reported_not_dropped(tmp_path):
     assert d["off_grid"] == [{"cell": "imaging/knn/hst", "records": 2}]
 
 
-def test_malformed_records_are_bucketed_with_their_location(tmp_path):
+def test_sibling_instrument_records_are_not_called_malformed(tmp_path):
+    """export_probe.py / trace_profile.py share the results tree with probe.py.
+
+    Their records lack the whole identity triple because they are a different
+    schema, not because they are corrupt — reporting them as malformed would
+    send someone to fix a file that is working correctly.
+    """
     ws = _workspace(tmp_path, {
         "local_cpu/export_probe.json": [
-            {"transform": "jit", "model_type": "mge", "tag": "census"},   # no hardware/class/instrument
-            _record(),
+            {"transform": "jit", "model_type": "mge", "tag": "census"},
+            {"transform": "vag", "model_type": "mge", "tag": "census"},
         ],
+        "local_cpu/mge.json": [_record()],
     })
     d = json.loads(_run(["campaign", "--axis", "compile", "--json"], ws).stdout)
 
+    assert d["malformed"] == []
+    assert d["foreign_records"] == [{"file": "local_cpu/export_probe.json", "records": 2}]
+    assert d["runs_done"] == 1, "the real probe record still counts"
+
+
+def test_a_genuinely_incomplete_probe_record_is_still_malformed(tmp_path):
+    """One field missing is corruption; the whole identity triple is a sibling."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_record(instrument=None), _record()],
+    })
+    d = json.loads(_run(["campaign", "--axis", "compile", "--json"], ws).stdout)
+
+    assert d["foreign_records"] == []
     assert len(d["malformed"]) == 1
     m = d["malformed"][0]
-    assert m["record"] == "local_cpu/export_probe.json[0]"
-    assert set(m["missing"]) == {"hardware", "dataset_class", "instrument"}
+    assert m["record"] == "local_cpu/mge.json[0]"
+    assert m["missing"] == ["instrument"]
     assert d["runs_done"] == 1, "the well-formed sibling record still counts"
 
 

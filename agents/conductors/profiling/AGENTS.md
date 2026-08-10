@@ -57,6 +57,12 @@ Records whose cell is not in the sweep grid (`knn`, `delaunay_matern`, the
 non-tier hardware in an **other-hardware** bucket. Both are real measurements —
 neither counts as grid coverage, and neither is silently dropped.
 
+`jax_compile/` also hosts sibling instruments (`export_probe.py`,
+`trace_profile.py`) that append their own schema into the same
+`results/<hardware>/` tree. Records missing the whole `(hardware, dataset_class,
+instrument)` identity triple are reported as **sibling-instrument** records, not
+as malformed — only a record missing *some* of its key fields is corruption.
+
 ## Fundamental principles
 
 - **The classification is the result** for CPU-unusable cells (the usability
