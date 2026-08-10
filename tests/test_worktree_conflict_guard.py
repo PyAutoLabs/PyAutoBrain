@@ -200,7 +200,37 @@ def test_entry_claiming_no_repos_yields_no_claims(tmp_path):
     assert _claims(tmp_path, NO_CLAIMS) == []
 
 
-def test_missing_active_md_yields_no_claims(tmp_path):
+def test_missing_active_md_reports_failure_rather_than_no_claims(tmp_path):
+    """A missing registry is NOT the same as "nothing is claimed".
+
+    This test previously asserted the opposite — `returncode == 0` with empty
+    output — and that pinned behaviour turned out to BE the defect (#225).
+    `worktree_check_conflict` consumes this function, so returning 0 meant a
+    session whose roots are not under `$PYAUTO_MAIN` got "no conflict" from a
+    guard that had read nothing. Empty output must never be mistaken for a
+    clean registry, so the listing now signals the failure in its exit code.
+    """
     proc = _run(tmp_path, None, "worktree_list_claimed")
+    assert proc.returncode != 0
+    assert proc.stdout == ""       # still emits no bogus rows
+
+
+def test_conflict_guard_fails_closed_when_the_registry_is_missing(tmp_path):
+    """The defect, at the level the skills actually call.
+
+    Documented in `start_dev` step 6 and `start_library` step 1, and its answer
+    decides whether a task may start — so "I could not check" has to stop the
+    caller, not wave it through.
+    """
+    proc = _run(tmp_path, None, "worktree_check_conflict some-task PyAutoFit")
+    assert proc.returncode != 0
+    assert "CANNOT VERIFY" in proc.stderr
+    assert "PYAUTO_MAIN" in proc.stderr      # names what to set
+
+
+def test_conflict_guard_can_be_forced_past_a_missing_registry(tmp_path):
+    """The escape hatch is explicit and loud — never the default."""
+    proc = _run(tmp_path, None,
+                "worktree_check_conflict --allow-missing-registry t PyAutoFit")
     assert proc.returncode == 0
-    assert proc.stdout == ""
+    assert "UNGUARDED" in proc.stderr
