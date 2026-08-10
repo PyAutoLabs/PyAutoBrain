@@ -75,6 +75,18 @@ PIN_FIELDS = COMPARABILITY_FIELDS + CELL_FIELDS
 COMPILE_DRIFT_RATIO = 2.0
 COMPILE_DRIFT_FLOOR_S = 1.0
 
+# A warm compile at >= this fraction of its own cold cost has effectively stopped
+# being warm. Not 1.0: a cache miss need not reproduce the cold time exactly.
+CACHE_REVERT_FRACTION = 0.5
+# A GPU compile up this much with no cold-scale match looks like autotune, whose
+# pathological case was a 17x cold-probe cost.
+AUTOTUNE_RATIO = 10.0
+# 1m load average at which a host is too busy for its compile timing to be trusted.
+HOST_LOAD_SUSPECT = 2.0
+
+# Classifications that need a human to do something. The rest are bookkeeping.
+ACTIONABLE_CLASSIFICATIONS = ("cache-regression", "autotune-regression", "library-regression")
+
 
 def workspace_root(explicit: str | None = None) -> Path:
     if explicit:
@@ -423,7 +435,7 @@ def ingest_compile(ws: Path) -> dict[str, Any]:
         if pin is None:
             if key not in seen:
                 seen.add(key)
-                unpinned.append({"record": f"{rel}[{idx}]", "pin": pin_key_str(key)})
+                unpinned.append({"record": f"{rel}[{idx}]", "pin": pin_key_str(key), "_key": key})
             continue
         # Only rows NEWER than the pin can be drift. Every warm row predating
         # the pin is the history the pin was chosen over — flagging those
@@ -450,6 +462,11 @@ def ingest_compile(ws: Path) -> dict[str, Any]:
                     "observed_s": got,
                     "ratio": round(ratio, 2),
                     "tag": rec.get("tag"),
+                    "_key": key,
+                    # Absent on records written before host_state existed; the
+                    # classifier treats None as "cannot rule host load in or out"
+                    # rather than as "the host was idle".
+                    "host_load": (rec.get("host_state") or {}).get("load_avg_1m"),
                 }
             )
 
@@ -551,6 +568,178 @@ def ingest(ws: Path) -> dict[str, Any]:
     }
 
 
+def _cold_reference(ws: Path) -> dict[tuple, float]:
+    """Slowest cold compile per (comparability-minus-cache_state, cell, transform).
+
+    The yardstick for "has the cache stopped being hit": a warm row that has
+    climbed back to its own cold scale is the regression this arc exists for.
+    Slowest rather than mean — the alarm should need the warm row to reach the
+    full cold cost, not merely an average a fast cold run drags down.
+    """
+    out: dict[tuple, float] = {}
+    fields = [f for f in PIN_FIELDS if f != "cache_state"]
+    for _rel, _idx, rec in load_compile_corpus(ws):
+        if rec.get("cache_state") != "cold":
+            continue
+        got = rec.get("compile_s")
+        if not isinstance(got, (int, float)):
+            continue
+        key = tuple(rec.get(f) for f in fields)
+        out[key] = max(out.get(key, 0.0), float(got))
+    return out
+
+
+def _classify_drift(row: dict[str, Any], cold: dict[tuple, float]) -> dict[str, Any]:
+    key = dict(zip(PIN_FIELDS, row["_key"]))
+    fields = [f for f in PIN_FIELDS if f != "cache_state"]
+    cold_ref = cold.get(tuple(key.get(f) for f in fields))
+    observed = row["observed_s"]
+
+    if cold_ref and observed >= CACHE_REVERT_FRACTION * cold_ref:
+        return {
+            "classification": "cache-regression",
+            "evidence": (
+                f"warm {observed}s has returned to its own cold scale ({cold_ref}s) — "
+                "the persistent cache is not being hit"
+            ),
+            "action": (
+                "config/stack, NOT the library: check jax_compilation_cache_dir is set and "
+                "writable, and that nothing overwrites XLA_FLAGS (PyAutoNerves#127)"
+            ),
+        }
+
+    if str(key.get("hardware", "")).startswith("local_gpu") and row["ratio"] >= AUTOTUNE_RATIO:
+        return {
+            "classification": "autotune-regression",
+            "evidence": (
+                f"GPU compile up {row['ratio']}x with no cold-scale match — the shape of "
+                "--xla_gpu_autotune_level=0 not reaching XLA"
+            ),
+            "action": (
+                "verify the flag actually reaches XLA first; the 2026-07-15 A/B was "
+                "invalidated for two months by XLA_FLAGS being clobbered at import"
+            ),
+        }
+
+    if row.get("host_load") is not None and row["host_load"] >= HOST_LOAD_SUSPECT:
+        return {
+            "classification": "host-load",
+            "evidence": (
+                f"1m load average {row['host_load']} on the measuring host — compile runs on "
+                "the host cores, and load alone has produced 7x errors in this corpus"
+            ),
+            "action": "NOT a regression until re-measured on an idle host; re-run warm",
+        }
+
+    return {
+        "classification": "library-regression",
+        "evidence": (
+            f"warm {observed}s vs pinned {row['pinned_s']}s ({row['ratio']}x) on an unchanged "
+            "key, with no cache, autotune or host-load explanation"
+        ),
+        "action": (
+            "file a bug/ prompt via intake against the library owning the likelihood — "
+            "profiling classifies and routes, it never debugs the library here"
+        ),
+    }
+
+
+def _classify_unpinned(key: tuple, pins: list[dict[str, Any]]) -> dict[str, Any]:
+    """An unpinned key differing from a pinned one in exactly ONE field is
+    explained by that field, not by a missing measurement."""
+    parts = dict(zip(PIN_FIELDS, key))
+    for pin in pins:
+        differing = [f for f in PIN_FIELDS if pin.get(f) != parts.get(f)]
+        if len(differing) != 1:
+            continue
+        field = differing[0]
+        if field == "jax_version":
+            return {
+                "classification": "expected-recompile",
+                "evidence": (
+                    f"same cell/transform pinned at jax {pin.get('jax_version')}; cache keys "
+                    "include the jax version, so a bump recompiles once BY DESIGN"
+                ),
+                "action": "re-pin at the new version — this is not drift",
+            }
+        if field in ("hardware", "hostname"):
+            return {
+                "classification": "new-machine",
+                "evidence": f"same cell/transform pinned on {pin.get(field)}",
+                "action": "pin it; compile times are never comparable across machines",
+            }
+        if field == "mixed_precision":
+            return {
+                "classification": "new-precision",
+                "evidence": "same cell/transform pinned at the other precision",
+                "action": "pin it",
+            }
+    return {
+        "classification": "new-cell",
+        "evidence": "no pin shares this cell/transform",
+        "action": "pin it: `update_pins.py --write`",
+    }
+
+
+def triage_compile(ws: Path) -> dict[str, Any]:
+    """Classify what `ingest --axis compile` found, and say what to do about it.
+
+    Phases 1-2 make compile drift visible; this makes it actionable. The
+    classification IS the deliverable — profiling records and routes, it never
+    adjudicates library correctness inside the profiling repo.
+    """
+    ing = ingest_compile(ws)
+    if ing.get("pins", 0) == 0:
+        return {
+            "agent": "profiling",
+            "mode": "triage",
+            "axis": "compile",
+            "findings": [],
+            "counts": {},
+            "next_action": ing.get("next_action"),
+        }
+
+    cold = _cold_reference(ws)
+    pins = load_pins(ws)
+    findings: list[dict[str, Any]] = []
+
+    for row in ing["drifted"]:
+        findings.append(
+            {
+                "finding": row["pin"],
+                "observed_s": row["observed_s"],
+                "pinned_s": row["pinned_s"],
+                **_classify_drift(row, cold),
+            }
+        )
+    for row in ing["unpinned"]:
+        findings.append({"finding": row["pin"], **_classify_unpinned(row["_key"], pins)})
+
+    counts: dict[str, int] = {}
+    for f in findings:
+        counts[f["classification"]] = counts.get(f["classification"], 0) + 1
+    actionable = [f for f in findings if f["classification"] in ACTIONABLE_CLASSIFICATIONS]
+
+    return {
+        "agent": "profiling",
+        "mode": "triage",
+        "axis": "compile",
+        "pins": ing["pins"],
+        "findings": findings,
+        "counts": counts,
+        "policy": (
+            "Every classification is made INSIDE one comparability key. A jax_version "
+            "bump is an expected recompile, never drift. Library findings are routed to "
+            "bug/ via intake and never debugged here."
+        ),
+        "next_action": (
+            "no compile findings — warm compile is where the pins say it is"
+            if not findings
+            else f"{len(findings)} finding(s); {len(actionable)} needing action"
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # triage
 # ---------------------------------------------------------------------------
@@ -604,6 +793,15 @@ def triage(ws: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # emit + main
 # ---------------------------------------------------------------------------
+
+
+def _strip_internal(obj):
+    """Drop `_`-prefixed plumbing (e.g. raw key tuples) from emitted decisions."""
+    if isinstance(obj, dict):
+        return {k: _strip_internal(v) for k, v in obj.items() if not k.startswith("_")}
+    if isinstance(obj, list):
+        return [_strip_internal(v) for v in obj]
+    return obj
 
 
 def emit_human(d: dict[str, Any]) -> None:
@@ -685,6 +883,17 @@ def emit_human(d: dict[str, Any]) -> None:
         print("Steps:")
         for s in d["steps"]:
             print(f"  - {s}")
+    elif d["mode"] == "triage" and d.get("axis") == "compile":
+        print(f"Compile pins:         {d.get('pins', 0)}")
+        print(f"Findings:             {len(d['findings'])}")
+        for c, n in sorted(d.get("counts", {}).items()):
+            print(f"  {c}: {n}")
+        for f in d["findings"]:
+            print(f"  [{f['classification']}] {f['finding']}")
+            print(f"    evidence: {f['evidence']}")
+            print(f"    -> {f['action']}")
+        if d.get("policy"):
+            print(f"Policy:               {d['policy']}")
     elif d["mode"] == "triage":
         print(f"Observed:             {d.get('observed')}")
         print(f"Findings:             {len(d['findings'])}")
@@ -711,17 +920,6 @@ def main(argv=None) -> int:
     # ingest/triage own the compile axis in later phases of the arc (pins, then
     # drift classification). Refusing now is deliberate: a mode that silently
     # ignored --axis would report runtime findings under a compile flag.
-    # triage owns the compile axis in phase 3 (drift CLASSIFICATION). Refusing
-    # is deliberate: a mode that silently ignored --axis would report runtime
-    # findings under a compile flag.
-    if a.axis == "compile" and a.mode == "triage":
-        print(
-            "profiling: --axis compile is not implemented for 'triage' yet "
-            "(campaign + ingest only; classification lands next)",
-            file=sys.stderr,
-        )
-        return 5
-
     ws = workspace_root(a.workspace)
     if not ws.is_dir():
         print(f"profiling: workspace not found: {ws}", file=sys.stderr)
@@ -732,8 +930,9 @@ def main(argv=None) -> int:
     elif a.mode == "ingest":
         d = ingest_compile(ws) if a.axis == "compile" else ingest(ws)
     else:
-        d = triage(ws)
+        d = triage_compile(ws) if a.axis == "compile" else triage(ws)
 
+    d = _strip_internal(d)
     print(json.dumps(d, indent=2)) if a.as_json else emit_human(d)
     return 0
 

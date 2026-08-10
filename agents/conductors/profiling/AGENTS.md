@@ -23,6 +23,7 @@ prompt, PyAutoMind `issued/profiling_agent.md`.
 | `ingest` | Which probe JSONs aren't in the vram tables yet, and which results have no pin? | table-update rows, pin list, baseline + dashboard steps |
 | `ingest --axis compile` | Which warm compile rows are unpinned, and which have drifted from their pin? | drifted rows (with pinned vs observed), unpinned keys, confirm/classify/re-pin steps |
 | `triage` | What do the pinned-drift findings mean? | per-finding classification: stale pin → re-pin here; library regression → `bug/` via intake |
+| `triage --axis compile` | What does the compile drift MEAN, and who owns it? | per-finding classification: cache / autotune / host-load / library regression, expected-recompile, new-machine, new-cell |
 
 ```
 pyauto-brain profiling                       # campaign, local tier
@@ -42,9 +43,8 @@ bucketed by **hardware**, with `mixed_precision` a separate field. The two
 vocabularies do not interchange, so the compile axis maps tiers itself rather
 than reusing `TIER_CONFIGS`.
 
-`--axis compile` serves `campaign` (coverage) and `ingest` (warm-pin drift);
-`triage` rejects it with exit 5 until drift classification lands, so a compile
-flag can never silently return a runtime answer.
+`--axis compile` serves all three modes: `campaign` (coverage), `ingest`
+(warm-pin drift) and `triage` (what the drift means).
 
 **Drift is deliberately hard to trigger.** A row counts only if it is *newer*
 than its pin, at least `2.0x` the pinned value, **and** at least `1.0 s` above it
@@ -105,11 +105,44 @@ as malformed — only a record missing *some* of its key fields is corruption.
   flagged by integration tests is hygiene's `perf` mode, not profiling's.
 - **vs build** — campaigns are not releases; `profile.yml`'s on-release runs
   stay CI/Build territory.
+- **release-validation script cost is NOT ours.** The compile axis was
+  originally proposed (PyAutoMind, 2026-07-14) to cover the release-validation
+  heavy scripts blowing the 300 s cap. That was declined on the hygiene boundary
+  above — script-suite cost is the developer loop, and it had already been moved
+  out of this agent's staged future modes once. Recorded here so the question is
+  not re-opened a third time.
+
+### Classifying compile drift
+
+`triage --axis compile` answers *who owns this*, which is the whole reason the
+axis exists — the persistent compilation cache and `--xla_gpu_autotune_level=0`
+are **settings**, so they can stop applying with nothing failing.
+
+| classification | signal | actionable |
+|---|---|---|
+| `cache-regression` | warm compile has returned to its own **cold** scale | yes — config/stack, never the library |
+| `autotune-regression` | GPU compile up ≥10× with no cold-scale match | yes — check the flag actually reaches XLA |
+| `host-load` | the measuring host's 1m load average was high | no — re-measure idle first |
+| `library-regression` | growth on an unchanged key with no other explanation | yes — route to `bug/` via intake |
+| `expected-recompile` | the key differs from a pin only by `jax_version` | no — cache keys include the version, so one recompile is by design |
+| `new-machine` / `new-precision` / `new-cell` | the key is simply unpinned | no — pin it |
+
+The cold-scale comparison is what makes `cache-regression` a *measurement*
+rather than a guess: 25 of 32 cell/transform keys in the corpus carry both a
+warm and a cold row, so the yardstick is real data from the same machine.
+
+Two categories the design deliberately does NOT have: drift caused by a
+`jax_version` bump or a changed host never reaches `triage` at all, because
+those are different comparability keys and `ingest` reports them as *unpinned*
+rather than drifted. They are classified here as bookkeeping so nothing
+vanishes, but they are never regressions.
 
 ## Future modes (staged in the founding prompt)
 
-JAX compilation-time profiling of likelihood functions. (Hunting
-generally-slow functions flagged by integration tests moved to the hygiene
-conductor's `perf` mode — that is developer-loop cost, not modelling speed.)
 A read-only profiling *faculty* (opine on regressions / optimization targets)
 splits out only on demonstrated consult demand.
+
+(Two things that were once staged here have moved. Hunting generally-slow
+functions flagged by integration tests is the hygiene conductor's `perf` mode —
+developer-loop cost, not modelling speed. JAX compilation-time profiling of
+likelihood functions is **built**, and is the `--axis compile` surface above.)

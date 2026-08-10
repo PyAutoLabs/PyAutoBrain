@@ -242,16 +242,13 @@ def test_bad_tier_is_an_error(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_compile_axis_is_refused_for_triage(tmp_path):
-    """Better a usage error than runtime findings reported under a compile flag.
-
-    `ingest` gained the axis with the pins; `triage` classifies drift and lands
-    with phase 3.
-    """
+def test_every_mode_serves_the_compile_axis(tmp_path):
+    """The arc is closed: campaign, ingest and triage all answer --axis compile."""
     ws = _workspace(tmp_path)
-    r = _run(["triage", "--axis", "compile"], ws)
-    assert r.returncode == 5, f"{r.stdout}{r.stderr}"
-    assert "not implemented" in r.stderr
+    for mode in ("campaign", "ingest", "triage"):
+        r = _run([mode, "--axis", "compile", "--json"], ws)
+        assert r.returncode == 0, f"{mode}: {r.stdout}{r.stderr}"
+        assert json.loads(r.stdout)["axis"] == "compile"
 
 
 def test_missing_workspace_exits_4(tmp_path):
@@ -435,13 +432,6 @@ def test_absent_pins_file_says_so_rather_than_reporting_all_clear(tmp_path):
     assert "update_pins.py" in d["next_action"]
 
 
-def test_triage_still_refuses_the_compile_axis(tmp_path):
-    ws = _workspace(tmp_path)
-    r = _run(["triage", "--axis", "compile"], ws)
-    assert r.returncode == 5
-    assert "not implemented" in r.stderr
-
-
 def test_brain_comparability_key_matches_the_workspace_definition(tmp_path):
     """The Brain mirrors pins.py rather than importing it (importing the
     workspace would drag the JAX stack in), so pin the two together."""
@@ -468,3 +458,152 @@ def test_brain_comparability_key_matches_the_workspace_definition(tmp_path):
 
     assert _profiling.COMPARABILITY_FIELDS == found["COMPARABILITY_FIELDS"]
     assert _profiling.CELL_FIELDS == found["CELL_FIELDS"]
+
+
+# ---------------------------------------------------------------------------
+# triage --axis compile (classification)
+# ---------------------------------------------------------------------------
+
+
+def _triage(ws):
+    r = _run(["triage", "--axis", "compile", "--json"], ws)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_warm_returning_to_its_cold_scale_is_a_cache_regression(tmp_path):
+    """The alarm the whole arc exists for."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [
+            _record(cache_state="cold", compile_s=117.0, hostname="laptop",
+                    transform="vag", timestamp="2026-06-01T00:00:00"),
+            _warm(compile_s=110.0),
+        ],
+    })
+    _pinned(ws, [_pin(compile_s=2.3)])
+    d = _triage(ws)
+
+    assert d["counts"] == {"cache-regression": 1}
+    f = d["findings"][0]
+    assert "cold scale" in f["evidence"]
+    assert "NOT the library" in f["action"]
+
+
+def test_growth_with_no_cold_scale_match_routes_to_the_library(tmp_path):
+    """Not everything slow is the cache; what is left over is a bug/ candidate."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [
+            _record(cache_state="cold", compile_s=117.0, hostname="laptop",
+                    transform="vag", timestamp="2026-06-01T00:00:00"),
+            _warm(compile_s=8.0),  # 3.5x the pin, nowhere near 117s
+        ],
+    })
+    _pinned(ws, [_pin(compile_s=2.3)])
+    d = _triage(ws)
+
+    assert d["counts"] == {"library-regression": 1}
+    assert "intake" in d["findings"][0]["action"]
+    assert "never debugs the library here" in d["findings"][0]["action"]
+
+
+def test_a_busy_host_is_not_a_regression(tmp_path):
+    """Compile runs on host cores; load alone has produced 7x errors here."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [
+            _warm(compile_s=8.0, host_state={"cpu_count": 8, "load_avg_1m": 14.0}),
+        ],
+    })
+    _pinned(ws, [_pin(compile_s=2.3)])
+    d = _triage(ws)
+
+    assert d["counts"] == {"host-load": 1}
+    assert "NOT a regression until re-measured" in d["findings"][0]["action"]
+
+
+def test_a_big_gpu_jump_reads_as_autotune(tmp_path):
+    ws = _workspace(tmp_path, {
+        "local_gpu_NVIDIA_A100_80GB_PCIe/mge.json": [
+            _warm(compile_s=50.0, hardware="local_gpu_NVIDIA_A100_80GB_PCIe"),
+        ],
+    })
+    _pinned(ws, [_pin(compile_s=2.3, hardware="local_gpu_NVIDIA_A100_80GB_PCIe")])
+    d = _triage(ws)
+
+    assert d["counts"] == {"autotune-regression": 1}
+    assert "XLA_FLAGS" in d["findings"][0]["action"]
+
+
+def test_a_jax_bump_is_an_expected_recompile_not_a_regression(tmp_path):
+    """Cache keys include the jax version, so a bump recompiles once BY DESIGN."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_warm(compile_s=117.0, jax_version="0.11.0")],
+    })
+    _pinned(ws, [_pin(compile_s=2.3, jax_version="0.10.2")])
+    d = _triage(ws)
+
+    assert d["counts"] == {"expected-recompile": 1}
+    f = d["findings"][0]
+    assert "BY DESIGN" in f["evidence"]
+    assert "not drift" in f["action"]
+
+
+def test_a_new_machine_is_classified_as_such(tmp_path):
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_warm(compile_s=9.0, hostname="euclid-ral-compute-22")],
+    })
+    _pinned(ws, [_pin(compile_s=2.3, hostname="laptop")])
+    d = _triage(ws)
+
+    assert d["counts"] == {"new-machine": 1}
+    assert "never comparable across machines" in d["findings"][0]["action"]
+
+
+def test_an_unrelated_cell_is_simply_new(tmp_path):
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_warm(compile_s=9.0, model_type="pixelization")],
+    })
+    _pinned(ws, [_pin(compile_s=2.3, model_type="mge")])
+    d = _triage(ws)
+    assert d["counts"] == {"new-cell": 1}
+
+
+def test_bookkeeping_classifications_do_not_count_as_actionable(tmp_path):
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_warm(compile_s=117.0, jax_version="0.11.0")],
+    })
+    _pinned(ws, [_pin(compile_s=2.3, jax_version="0.10.2")])
+    d = _triage(ws)
+    assert "1 finding(s); 0 needing action" in d["next_action"]
+
+
+def test_a_clean_corpus_reports_no_findings(tmp_path):
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=2.3)]})
+    _pinned(ws, [_pin(compile_s=2.3)])
+    d = _triage(ws)
+    assert d["findings"] == []
+    assert "no compile findings" in d["next_action"]
+
+
+def test_no_pins_says_so_rather_than_reporting_clean(tmp_path):
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm()]})
+    d = _triage(ws)
+    assert d["findings"] == []
+    assert "update_pins.py" in d["next_action"]
+
+
+def test_internal_plumbing_is_not_emitted(tmp_path):
+    """The raw key tuples are implementation detail, not part of the decision."""
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=117.0)]})
+    _pinned(ws, [_pin(compile_s=2.3)])
+    for mode in ("ingest", "triage"):
+        r = _run([mode, "--axis", "compile", "--json"], ws)
+        assert "_key" not in r.stdout, mode
+
+
+def test_triage_writes_nothing_to_the_workspace(tmp_path):
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=117.0)]})
+    _pinned(ws, [_pin(compile_s=2.3)])
+    before = {p: p.stat().st_mtime_ns for p in ws.rglob("*") if p.is_file()}
+    _triage(ws)
+    after = {p: p.stat().st_mtime_ns for p in ws.rglob("*") if p.is_file()}
+    assert before == after, "the conductor reasons and delegates; it never edits the workspace"
