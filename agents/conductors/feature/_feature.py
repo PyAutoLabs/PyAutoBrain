@@ -36,6 +36,7 @@ from _sizing import (  # noqa: E402
     policy as _sizing_policy,
     TEST_KEYWORDS, normalise_repo, parse_prompt, discover_prompts,
     empty_discovery_reason, estimate_difficulty, _hits, _within,
+    declared_blocked, priority_rank,
 )
 
 # Default sub-wiki to consult per library target when no keyword fires. Memory
@@ -158,8 +159,22 @@ def risks(level: str, factors: dict, workflow: str):
     return out
 
 
+def effective_difficulty(p: dict):
+    """(level, score, factors, derived_level) — the DECLARED level wins.
+
+    REFERENCE.md promises that the `Difficulty:` Intake persists is "the value
+    the Feature Agent later acts on", so a declared level overrides the
+    re-derived one. The derived score is kept: it still orders prompts within a
+    level, and the derived LEVEL is returned alongside so a disagreement can be
+    reported rather than silently resolved — the disagreement is evidence about
+    the heuristic and is worth seeing.
+    """
+    derived_level, score, factors = estimate_difficulty(p)
+    return p.get("declared_difficulty") or derived_level, score, factors, derived_level
+
+
 def analyse(p: dict):
-    level, score, factors = estimate_difficulty(p)
+    level, score, factors, derived_level = effective_difficulty(p)
     workflow, rehome = recommend_workflow(p, factors)
     mem = memory_context(p)
     phase, stubs = phase_decision(level, factors, p)
@@ -169,6 +184,14 @@ def analyse(p: dict):
         "target": p["target"],
         "repos_affected": p["repos"],
         "difficulty": level,
+        "difficulty_declared": p.get("declared_difficulty"),
+        "difficulty_derived": derived_level,
+        "difficulty_disagreement": (
+            p.get("declared_difficulty") is not None and derived_level != level
+        ),
+        "priority": p.get("priority"),
+        "status": p.get("status"),
+        "blocked": declared_blocked(p),
         "difficulty_score": score,
         "difficulty_factors": factors,
         "recommended_workflow": workflow,
@@ -207,13 +230,18 @@ def select(mind: Path, constraint: dict, limit: int):
     rows = []
     for path in prompts:
         p = parse_prompt(path, mind)
-        level, score, factors = estimate_difficulty(p)
+        level, score, factors, derived_level = effective_difficulty(p)
         impact = score + (2 if factors["library_and_workspace"] else 0) \
             + len(factors["scientific_complexity"])
         rows.append({
             "path": p["path"], "difficulty": level, "score": score,
             "impact": impact, "repos": p["repos"],
             "in_flight": p["path"] in in_flight,
+            "blocked": declared_blocked(p),
+            "priority": p.get("priority"),
+            "priority_rank": priority_rank(p),
+            "difficulty_declared": p.get("declared_difficulty"),
+            "difficulty_derived": derived_level,
             "factors": factors,
         })
 
@@ -225,15 +253,19 @@ def select(mind: Path, constraint: dict, limit: int):
     impact_pref = constraint.get("impact")
 
     def keyfn(r):
-        # Down-rank in-flight work so we never just resurface active tasks.
-        penalty = 100 if r["in_flight"] else 0
+        # A prompt that declares itself blocked sinks below everything, so it can
+        # never be the recommended pick — it stays listed, in its own band, so a
+        # human can still see it and override.
+        # Then: in-flight work is down-ranked so we never just resurface active
+        # tasks; then declared Priority:, which is an ordering input and not
+        # merely display; then the constraint's own difficulty term.
+        head = (200 if r["blocked"] else 0) + (100 if r["in_flight"] else 0)
+        prio = r["priority_rank"]
         if impact_pref:
-            return (penalty, -r["impact"])
+            return (head, prio, -r["impact"])
         if model == "strong" or constraint.get("ambitious"):
-            return (penalty, -r["score"])
-        if model == "weak" or budget or want in ("easy", "small"):
-            return (penalty, r["score"])
-        return (penalty, r["score"])  # default: easiest-first, stable
+            return (head, prio, -r["score"])
+        return (head, prio, r["score"])  # default: easiest-first, stable
 
     candidates = rows
     if want and want not in ("easy",):
@@ -255,7 +287,19 @@ def emit_human(mode: str, decision: dict):
     print(f"Mode:                 {mode}")
     print(f"Work-type / target:   {d['work_type']} / {d['target']}")
     print(f"Repos affected:       {', '.join(d['repos_affected']) or '(none resolved)'}")
-    print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
+    src = "declared" if d.get("difficulty_declared") else "derived"
+    print(f"Difficulty:           {d['difficulty']} ({src}, score {d['difficulty_score']})")
+    if d.get("difficulty_disagreement"):
+        # Surfaced, not silently resolved: the declared value governs, but the
+        # gap is evidence about the sizing heuristic and someone should see it.
+        print(f"  ! declared {d['difficulty_declared']} but derived "
+              f"{d['difficulty_derived']} — declared wins; disagreement worth a look")
+    if d.get("priority"):
+        print(f"Priority:             {d['priority']} (declared)")
+    if d.get("blocked"):
+        print(f"BLOCKED (declared):   {d['blocked']}")
+        print("                      gate state is NOT resolved here — "
+              "`lifecycle.py issues --drafts` checks it against GitHub")
     print(f"Recommended workflow: {d['recommended_workflow']}", end="")
     print(f"  [re-home as {d['rehome_suggestion']}/]" if d["rehome_suggestion"] else "")
     if d["memory_context"]:
@@ -279,6 +323,10 @@ def emit_human(mode: str, decision: dict):
 
 
 def _next_action(d: dict):
+    if d.get("blocked"):
+        return (f"Do NOT start — the prompt declares {d['blocked']}. Clear the gate "
+                f"(or correct the header) first; `lifecycle.py issues --drafts` "
+                f"resolves gate state against GitHub.")
     if d["rehome_suggestion"]:
         return f"Re-home this prompt under {d['rehome_suggestion']}/ and scope it before development."
     if d["phase_decision"] == "split-into-phases":
@@ -347,10 +395,24 @@ def main(argv=None):
     print(f"== Feature task {mode} ({total} feature prompts considered) ==")
     print("Shortlist (recommendation — apply priorities/dependencies/health on top):")
     for i, r in enumerate(ranked):
-        flag = "  [in-flight, down-ranked]" if r["in_flight"] else ""
+        flags = []
+        if r["blocked"]:
+            flags.append(f"BLOCKED — {r['blocked']}")
+        if r["in_flight"]:
+            flags.append("in-flight, down-ranked")
+        if r.get("priority") and r["priority"] != "normal":
+            flags.append(f"priority {r['priority']}")
+        if r.get("difficulty_declared") and r["difficulty_derived"] != r["difficulty"]:
+            flags.append(f"declared {r['difficulty_declared']} vs derived "
+                         f"{r['difficulty_derived']}")
+        flag = f"  [{'; '.join(flags)}]" if flags else ""
         print(f"  {i+1}. {r['path']}  [{r['difficulty']}, score {r['score']}, "
               f"impact {r['impact']}]{flag}")
     print()
+    if ranked[0]["blocked"]:
+        # Every candidate is blocked — say so instead of recommending one anyway.
+        print("NOTE: every shortlisted prompt declares itself blocked; the pick "
+              "below is shown for context and should NOT be started as-is.\n")
     chosen = parse_prompt(mind / ranked[0]["path"], mind)
     decision = analyse(chosen)
     print("Recommended pick (not merely the first prompt — ranked by the constraint):")
