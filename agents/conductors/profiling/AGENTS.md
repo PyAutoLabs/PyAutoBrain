@@ -21,6 +21,7 @@ prompt, PyAutoMind `issued/profiling_agent.md`.
 |------|----------|-------|
 | `campaign` | Which grid runs are done / CPU-unusable / missing on this tier, and how do I dispatch the rest? | dispatch plan (local sweep flags incl. the per-run timeout; A100 submit list) |
 | `ingest` | Which probe JSONs aren't in the vram tables yet, and which results have no pin? | table-update rows, pin list, baseline + dashboard steps |
+| `ingest --axis compile` | Which warm compile rows are unpinned, and which have drifted from their pin? | drifted rows (with pinned vs observed), unpinned keys, confirm/classify/re-pin steps |
 | `triage` | What do the pinned-drift findings mean? | per-finding classification: stale pin → re-pin here; library regression → `bug/` via intake |
 
 ```
@@ -41,9 +42,24 @@ bucketed by **hardware**, with `mixed_precision` a separate field. The two
 vocabularies do not interchange, so the compile axis maps tiers itself rather
 than reusing `TIER_CONFIGS`.
 
-`--axis compile` currently serves `campaign` (coverage); `ingest` and `triage`
-reject it with exit 5 until the compile pins land, so a compile flag can never
-silently return a runtime answer.
+`--axis compile` serves `campaign` (coverage) and `ingest` (warm-pin drift);
+`triage` rejects it with exit 5 until drift classification lands, so a compile
+flag can never silently return a runtime answer.
+
+**Drift is deliberately hard to trigger.** A row counts only if it is *newer*
+than its pin, at least `2.0x` the pinned value, **and** at least `1.0 s` above it
+in absolute terms. Rows predating the pin are the history the pin was chosen
+over — flagging them would report the improvement that set the pin as a
+regression. The ratio alone screams about sub-second cells where 100 ms of
+jitter is 3x; the absolute floor alone misses a cheap cell degrading by an order
+of magnitude. Both gates, generous, because host load alone has produced 7x
+errors in this corpus and an alarm that cries wolf gets ignored.
+
+Pins live in the workspace (`jax_compile/pins.json`) and are **sticky** — the
+workspace's `update_pins.py` will not move an existing pin without `--repin`. If
+pins auto-followed the newest measurement, re-deriving them after a cache
+regression would bake the regression in and the surveillance would report
+all-clear forever.
 
 **Compile timings are host-load-sensitive** — the first measurements in
 `jax_compile/README.md` were wrong by up to **7×** (851 s vs 117 s for the same

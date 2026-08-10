@@ -242,13 +242,16 @@ def test_bad_tier_is_an_error(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_compile_axis_is_refused_for_ingest_and_triage(tmp_path):
-    """Better a usage error than runtime findings reported under a compile flag."""
+def test_compile_axis_is_refused_for_triage(tmp_path):
+    """Better a usage error than runtime findings reported under a compile flag.
+
+    `ingest` gained the axis with the pins; `triage` classifies drift and lands
+    with phase 3.
+    """
     ws = _workspace(tmp_path)
-    for mode in ("ingest", "triage"):
-        r = _run([mode, "--axis", "compile"], ws)
-        assert r.returncode == 5, f"{mode}: {r.stdout}{r.stderr}"
-        assert "not implemented" in r.stderr
+    r = _run(["triage", "--axis", "compile"], ws)
+    assert r.returncode == 5, f"{r.stdout}{r.stderr}"
+    assert "not implemented" in r.stderr
 
 
 def test_missing_workspace_exits_4(tmp_path):
@@ -298,3 +301,170 @@ def test_cli_dispatcher_exposes_the_axis_flag(tmp_path):
     )
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["axis"] == "compile"
+
+
+# ---------------------------------------------------------------------------
+# ingest --axis compile (warm pins)
+# ---------------------------------------------------------------------------
+
+
+def _pinned(ws, pins):
+    (ws / "scripts" / "misc" / "jax_compile" / "pins.json").write_text(
+        json.dumps({"schema": 1, "pins": pins})
+    )
+
+
+def _pin(**kw):
+    base = {
+        "hardware": "local_cpu",
+        "hostname": "laptop",
+        "jax_version": "0.10.2",
+        "mixed_precision": False,
+        "cache_state": "warm",
+        "dataset_class": "imaging",
+        "model_type": "mge",
+        "instrument": "hst",
+        "transform": "vag",
+        "compile_s": 2.3,
+        "source_tag": "census-warm",
+        "source_timestamp": "2026-07-01T00:00:00",
+    }
+    base.update(kw)
+    return base
+
+
+def _warm(**kw):
+    base = {
+        "cache_state": "warm",
+        "hostname": "laptop",
+        "timestamp": "2026-08-01T00:00:00",
+        "transform": "vag",  # matches _pin's default, so the keys line up
+    }
+    base.update(kw)
+    return _record(**base)
+
+
+def test_a_warm_row_reverting_toward_cold_is_drift(tmp_path):
+    """The alarm the whole arc exists for: the cache stopped being hit."""
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=117.0)]})
+    _pinned(ws, [_pin(compile_s=2.3)])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+
+    assert len(d["drifted"]) == 1
+    x = d["drifted"][0]
+    assert (x["pinned_s"], x["observed_s"]) == (2.3, 117.0)
+    assert x["ratio"] > 50
+
+
+def test_rows_predating_the_pin_are_not_drift(tmp_path):
+    """The pin was CHOSEN over this history; flagging it reports the
+    improvement that set the pin as a regression."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_warm(compile_s=117.0, timestamp="2026-06-01T00:00:00")],
+    })
+    _pinned(ws, [_pin(compile_s=2.3, source_timestamp="2026-07-01T00:00:00")])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+    assert d["drifted"] == []
+
+
+def test_drift_never_pairs_across_the_comparability_key(tmp_path):
+    """A slow row on ANOTHER host/version/precision is not this pin's business."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [
+            _warm(compile_s=117.0, hostname="euclid-ral-compute-22"),
+            _warm(compile_s=117.0, jax_version="0.11.0"),
+            _warm(compile_s=117.0, mixed_precision=True),
+        ],
+    })
+    _pinned(ws, [_pin(compile_s=2.3)])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+
+    assert d["drifted"] == [], "cross-key rows must never be reported as drift"
+    assert len(d["unpinned"]) == 3, "they are unpinned keys of their own, not silence"
+
+
+def test_a_jax_version_bump_is_a_new_key_not_a_regression(tmp_path):
+    """Cache keys include the jax version, so a bump recompiles once BY DESIGN."""
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_warm(compile_s=117.0, jax_version="0.11.0")],
+    })
+    _pinned(ws, [_pin(compile_s=2.3, jax_version="0.10.2")])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+    assert d["drifted"] == []
+    assert len(d["unpinned"]) == 1
+
+
+def test_small_absolute_moves_on_cheap_cells_are_not_drift(tmp_path):
+    """0.05s -> 0.30s is 6x and completely uninteresting; the absolute floor
+    exists so sub-second jitter does not train people to ignore the alarm."""
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=0.30)]})
+    _pinned(ws, [_pin(compile_s=0.05)])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+    assert d["drifted"] == []
+
+
+def test_large_absolute_move_below_the_ratio_is_not_drift(tmp_path):
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=130.0)]})
+    _pinned(ws, [_pin(compile_s=100.0)])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+    assert d["drifted"] == []
+
+
+def test_cold_rows_are_never_compared_against_a_warm_pin(tmp_path):
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_record(cache_state="cold", compile_s=117.0, hostname="laptop")],
+    })
+    _pinned(ws, [_pin(compile_s=2.3)])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+    assert d["drifted"] == [] and d["unpinned"] == []
+
+
+def test_unpinned_warm_keys_are_reported_once_each(tmp_path):
+    ws = _workspace(tmp_path, {
+        "local_cpu/mge.json": [_warm(compile_s=2.0), _warm(compile_s=2.1)],
+    })
+    _pinned(ws, [])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+    assert d["next_action"].startswith("no compile pins")
+
+
+def test_absent_pins_file_says_so_rather_than_reporting_all_clear(tmp_path):
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm()]})
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+    assert d["pins"] == 0
+    assert "update_pins.py" in d["next_action"]
+
+
+def test_triage_still_refuses_the_compile_axis(tmp_path):
+    ws = _workspace(tmp_path)
+    r = _run(["triage", "--axis", "compile"], ws)
+    assert r.returncode == 5
+    assert "not implemented" in r.stderr
+
+
+def test_brain_comparability_key_matches_the_workspace_definition(tmp_path):
+    """The Brain mirrors pins.py rather than importing it (importing the
+    workspace would drag the JAX stack in), so pin the two together."""
+    import ast as _ast
+
+    ws = _workspace(tmp_path)
+    pins_py = ws / "scripts" / "misc" / "jax_compile" / "pins.py"
+    pins_py.write_text(
+        'COMPARABILITY_FIELDS = ("hardware", "hostname", "jax_version", '
+        '"mixed_precision", "cache_state")\n'
+        'CELL_FIELDS = ("dataset_class", "model_type", "instrument", "transform")\n'
+    )
+    tree = _ast.parse(pins_py.read_text())
+    found = {
+        t.id: _ast.literal_eval(n.value)
+        for n in tree.body
+        if isinstance(n, _ast.Assign)
+        for t in n.targets
+        if isinstance(t, _ast.Name)
+    }
+
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "profiling"))
+    import _profiling  # noqa: PLC0415
+
+    assert _profiling.COMPARABILITY_FIELDS == found["COMPARABILITY_FIELDS"]
+    assert _profiling.CELL_FIELDS == found["CELL_FIELDS"]
