@@ -300,6 +300,15 @@ tier), never by weakening leg 4.
   while Heart is RED.
 - **Never rewrite history** (`AGENTS.md` rules apply verbatim to autonomous
   runs).
+- **The Brain reads no network except one opt-in flag.** Every conductor and
+  faculty is stdlib-only and offline. The sole exception is
+  `intake reconcile --repo <target>` (PyAutoBrain#223), which makes a cached
+  shallow clone of the named repo to check whether identifiers a prompt names
+  already exist upstream. It is **read-only, opt-in and non-default**: without
+  the flag no clone, socket or subprocess is used, and a test detonates on any
+  attempt. It ranks prompts for human review in a `needs-review` band and never
+  emits a shipped verdict, so it retires nothing on its own. Any *further*
+  network surface in the Brain is a new decision, not covered by this line.
 - The `Autonomy:` header is a model's own estimate. The caps, the explicit
   `--auto` launch, and the calibration log are what make consuming it
   defensible — none of the three is optional.

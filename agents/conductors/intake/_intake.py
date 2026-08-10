@@ -26,6 +26,7 @@ import argparse
 import datetime as _dt
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -37,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "facultie
 from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
     RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, estimate_difficulty, _hits,
-    policy as _sizing_policy,
+    policy as _sizing_policy, BODY_MAP_PATH,
 )
 
 # --- work-type classification -------------------------------------------------
@@ -656,7 +657,202 @@ def _idents(text: str) -> set:
     return set(_IDENT_RE.findall(text))
 
 
-def reconcile(mind: Path, prefix: str = "") -> dict:
+# --- the upstream read (--repo) -------------------------------------------------
+# Leg 3 of the staleness work (PyAutoBrain#223). Everything above this line is
+# Mind-local: it cross-references `draft/` against `complete/` and `active/`.
+# That is structurally blind to two of the five findings the 2026-08-09 sweep
+# confirmed — one whose evidence sat in a sibling PROMPT rather than a record,
+# and one whose fix shipped upstream with NO record written at all. Re-ranking
+# cannot reach them; only reading the target repo can.
+#
+# THIS IS THE ONLY NETWORK ACCESS IN PyAutoBrain. Every other conductor and
+# faculty is stdlib-only and offline, and the default `reconcile` path stays
+# that way — `--repo` is strictly opt-in, and `test_default_path_is_offline`
+# pins it. The upstream read goes through the `source_reader` seam so the
+# hermetic tests never clone anything.
+#
+# What it must NEVER do is call a prompt shipped. `test_mode_bypass_ordered_
+# assertion_ties.md` names five identifiers and ALL FIVE are on PyAutoFit main,
+# yet the prompt is confirmed not shipped: main catches `exc.FitException` in
+# the TEST_MODE bypass — which looks exactly like the requested fix — but the
+# catch wraps only the likelihood call, while `model.instance_from_vector`
+# (where `check_assertions` actually raises) sits on the line BEFORE the `try`.
+# Presence of a name is not presence of the fix. So this leg contributes
+# evidence and a `needs-review` band, never a verdict.
+_W_UPSTREAM = 1.5       # per upstream identifier beyond the first. Deliberately
+                        # below _W_SHIPPED (7.0): an upstream hit must never on
+                        # its own carry a prompt into the top band, because the
+                        # trap above would ride it there.
+_UPSTREAM_MIN_IDENTS = 2   # one shared name is a coincidence, not a signal
+
+
+def _upstream_noise() -> set:
+    """Identifiers whose presence upstream says nothing about a prompt.
+
+    Two measured noise classes, from the first run against PyAutoFit:
+
+      * **Python builtins** — `TypeError` is in 37 files of PyAutoFit. A prompt
+        mentioning it has not thereby been shipped.
+      * **Repo names** — `autofit_workspace` (26 files), `autolens_workspace`.
+        Every repo names its siblings; that is vocabulary, not evidence.
+
+    Filtering by upstream file-spread instead was tried and rejected: the counts
+    do not separate. `instance_from_vector` (22 files) is a REAL signal and sits
+    right below `autofit_workspace` (26) which is noise, so any threshold that
+    drops the noise also drops one of the trap's own identifiers.
+    """
+    import builtins
+
+    return set(dir(builtins)) | set(KNOWN_REPOS)
+
+
+def _body_map_slugs() -> dict:
+    """normalised target -> `owner/repo`, from the Mind's body map.
+
+    repos.yaml is the single source of repo identity, and `normalise_repo`
+    already folds `PyAutoArray`/`pyautoarray`/`autoarray` together — reuse both
+    rather than adding a third mapping.
+    """
+    import yaml
+
+    data = yaml.safe_load(BODY_MAP_PATH.read_text())
+    out = {}
+    for name, spec in data["repos"].items():
+        slug = spec.get("github", "")
+        if slug:
+            out[normalise_repo(name)] = slug
+    return out
+
+
+def _target_candidates(mind: Path, target: str) -> list:
+    """Repos actually referenced by the prompts filed under `draft/**/<target>/`.
+
+    Used only to make the refusal below useful: `--repo priors` should say which
+    repos those six prompts are about, not just "no".
+    """
+    found = set()
+    for wt in WORK_TYPES:
+        folder = mind / "draft" / wt / target
+        if not folder.is_dir():
+            continue
+        for f in folder.rglob("*.md"):
+            text = f.read_text(encoding="utf-8", errors="replace")
+            for m in re.findall(r"@([A-Za-z_][A-Za-z0-9_]*)", text):
+                key = normalise_repo(m)
+                if key in KNOWN_REPOS:
+                    found.add(key)
+    return sorted(found)
+
+
+def resolve_repo(mind: Path, target: str) -> tuple:
+    """`target` -> (`owner/repo`, ""), or ("", <error>) if it is not one repo.
+
+    The second folder of a prompt path is a target *or domain*: `autoarray` is a
+    repo, but `workspaces`, `health_fixes`, `priors` and `graphical_ep` are topic
+    clusters spanning several. Those are among the LARGEST buckets in `draft/`
+    (`workspaces` alone is 23 prompts across four work-types), so guessing one
+    repo for them would produce confident nonsense over the biggest part of the
+    backlog. Refuse instead, and name the real candidates.
+    """
+    key = normalise_repo(target)
+    slugs = _body_map_slugs()
+    if key in slugs:
+        return slugs[key], ""
+    cands = _target_candidates(mind, target)
+    if cands:
+        hint = ("  the prompts filed under it reference: " + ", ".join(cands)
+                + "\n  re-run --repo with one of those.")
+    else:
+        hint = ("  no @RepoName references found in the prompts filed under it"
+                "\n  re-run --repo with a repo name from the body map.")
+    return "", (f"--repo {target!r} is not a single repository in the body map "
+                f"(PyAutoMind/repos.yaml).\n{hint}")
+
+
+def _clone_upstream(slug: str, cache: Path) -> tuple:
+    """Cached shallow clone of `slug`'s default branch -> (path, sha).
+
+    Plain `--depth 1`, NOT the `--filter=blob:none` treeless clone the parent
+    prompt suggested: this leg greps the source, and a treeless clone refetches
+    every blob on demand to answer that — a false economy. GIT_LFS_SKIP_SMUDGE
+    keeps an LFS-using repo from aborting at the smudge filter.
+    """
+    import subprocess
+
+    dest = cache / slug.replace("/", "__")
+    env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
+
+    def _git(*args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd, env=env,
+                              capture_output=True, text=True, timeout=600)
+
+    if (dest / ".git").is_dir():
+        _git("fetch", "--depth", "1", "origin", cwd=dest)
+        _git("reset", "--hard", "FETCH_HEAD", cwd=dest)
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        r = _git("clone", "--depth", "1",
+                 f"https://github.com/{slug}", str(dest))
+        if r.returncode != 0:
+            raise RuntimeError(f"clone of {slug} failed: {r.stderr.strip()}")
+    sha = _git("rev-parse", "HEAD", cwd=dest).stdout.strip()
+    return dest, sha
+
+
+def _grep_source(root: Path, idents: set) -> dict:
+    """ident -> ['<relpath>:<lineno>', …] over the source files under `root`.
+
+    One pass over the tree scoring every identifier at once: the alternative,
+    one grep per identifier per prompt, is O(prompts x idents) walks of the
+    same checkout.
+    """
+    if not idents:
+        return {}
+    pat = re.compile(r"\b(" + "|".join(re.escape(i) for i in sorted(idents))
+                     + r")\b")
+    hits: dict = {}
+    for f in root.rglob("*"):
+        if not f.is_file() or ".git" in f.parts:
+            continue
+        if f.suffix not in (".py", ".pyi", ".sh", ".yaml", ".yml", ".cfg",
+                            ".toml", ".rst", ".md", ".ipynb"):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not pat.search(text):
+            continue
+        rel = f.relative_to(root)
+        for n, line in enumerate(text.splitlines(), 1):
+            for m in pat.finditer(line):
+                hits.setdefault(m.group(1), [])
+                if len(hits[m.group(1)]) < 3:      # 3 lines is enough to judge
+                    hits[m.group(1)].append(f"{rel}:{n}")
+    return hits
+
+
+def upstream_reader(mind: Path, target: str, cache: Path = None):
+    """Build the `source_reader` seam for `reconcile(repo=…)`.
+
+    Returns `(reader, sha, slug, err)`. `reader(idents) -> {ident: [file:line]}`.
+    Kept separate from `reconcile` so the tests can inject a fake tree and stay
+    hermetic — nothing under `tests/` ever clones.
+    """
+    slug, err = resolve_repo(mind, target)
+    if err:
+        return None, "", "", err
+    cache = cache or Path(os.environ.get(
+        "PYAUTO_BRAIN_CACHE", Path.home() / ".pyauto-brain" / "upstream"))
+    try:
+        root, sha = _clone_upstream(slug, cache)
+    except Exception as exc:                      # network/git failure
+        return None, "", slug, f"could not read {slug}: {exc}"
+    return (lambda idents: _grep_source(root, idents)), sha, slug, ""
+
+
+def reconcile(mind: Path, prefix: str = "", source_reader=None,
+              upstream_meta: dict = None) -> dict:
     """Rank backlog prompts that look already-shipped, for a human to retire.
 
     Mind-local signals per prompt: a completion-record line referencing its
@@ -664,6 +860,12 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
     or the `complete/` archive, token overlap with a completed task's header /
     archive record, and a hand-set Status the formalise pass deliberately
     preserved. Never writes anything.
+
+    `source_reader` is the optional upstream leg (`--repo`): a callable taking
+    the identifiers a prompt names and returning `{ident: ['file:line', …]}`
+    from the target repo's source. It ADDS evidence and can raise a prompt into
+    the `needs-review` band; it never produces a shipped verdict, and it is
+    never consulted unless the caller passes it. Default: offline.
     """
     c = census(mind)
     comp_dir = mind / "complete"
@@ -703,6 +905,7 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
     active = mind / "active"
     issued_names = ({p.name for p in active.glob("*.md")}
                     if active.is_dir() else set())
+    _noise = _upstream_noise() if source_reader is not None else set()
 
     suspects = []
     for r in c["records"]:
@@ -806,43 +1009,91 @@ def reconcile(mind: Path, prefix: str = "") -> dict:
                                  f"record '{top}' names {n} of this prompt's "
                                  f"identifiers: {', '.join(sorted(hits[top])[:5])}"))
 
+        # 4. The upstream leg (--repo): identifiers this prompt names that are
+        #    ALREADY PRESENT in the target repo's source. This is the only leg
+        #    that can see a prompt with no Mind-side trace at all.
+        #
+        #    It deliberately does NOT add to `score`. Presence of a name is not
+        #    presence of the fix — test_mode_bypass_ordered_assertion_ties names
+        #    five identifiers, all five are upstream, and the prompt is NOT
+        #    shipped. Letting upstream hits feed `score` would carry exactly
+        #    that prompt into the `high` band and make the one mis-grade this
+        #    tool must never make. So upstream evidence gets its own weaker
+        #    band and its own ordering key, and can never inflate a Mind-local
+        #    verdict.
+        upstream_score = 0.0
+        if source_reader is not None:
+            all_ids = {i for i in _idents(prompt_text)
+                       if normalise_repo(i) not in _noise and i not in _noise}
+            up = source_reader(all_ids) if all_ids else {}
+            if len(up) >= _UPSTREAM_MIN_IDENTS:
+                upstream_score = _W_UPSTREAM * (len(up) - 1)
+                shown = sorted(up)[:5]
+                findings.append((
+                    "upstream-identifier-present",
+                    f"{len(up)} of this prompt's identifiers already exist "
+                    f"upstream: " + "; ".join(
+                        f"{i} ({up[i][0]})" for i in shown)))
+
         # `Status:` alone is not evidence — it fired on every hand-set draft. Kept
         # as context on prompts something else already flagged, never as a reason.
-        if score > 0 and r["status"] not in ("-", "formalised"):
+        if (score > 0 or upstream_score > 0) and r["status"] not in ("-", "formalised"):
             findings.append(("stale-status",
                              f"Status: {r['status']} — hand-set; verify against "
                              "shipped state"))
 
-        if score >= _SUSPECT_THRESHOLD:
-            conf = "high" if score >= _HIGH_THRESHOLD else "medium"
+        if score >= _SUSPECT_THRESHOLD or upstream_score > 0:
+            if score >= _HIGH_THRESHOLD:
+                conf = "high"
+            elif score >= _SUSPECT_THRESHOLD:
+                conf = "medium"
+            else:
+                # Upstream evidence only — the prompt has no Mind-side signal.
+                # This is the band leg 3 exists to produce.
+                conf = "needs-review"
             suspects.append({
                 "path": path, "title": r["title"], "confidence": conf,
+                "upstream_score": round(upstream_score, 2),
                 "overlap_score": round(score, 2),
                 "findings": [{"kind": k, "evidence": e} for k, e in findings],
             })
 
-    order = {"high": 0, "medium": 1, "low": 2}
-    suspects.sort(key=lambda s: (order[s["confidence"]],
-                                 -s["overlap_score"], s["path"]))
+    # `needs-review` sorts BELOW the Mind-local bands: an upstream name-match is
+    # weaker evidence than a record saying the work shipped, and the ordering
+    # should say so.
+    order = {"high": 0, "medium": 1, "low": 2, "needs-review": 3}
+    suspects.sort(key=lambda s: (order[s["confidence"]], -s["overlap_score"],
+                                 -s.get("upstream_score", 0.0), s["path"]))
     return {"generated": _dt.date.today().isoformat(), "scanned": c["total"],
-            "suspects": suspects}
+            "upstream": upstream_meta or {}, "suspects": suspects}
 
 
 def emit_reconcile(res: dict):
     print(f"== Intake reconcile: {len(res['suspects'])} suspect(s) of "
           f"{res['scanned']} scanned ==")
+    up = res.get("upstream") or {}
+    if up:
+        # The sha is what makes a verdict re-checkable: "these names were on
+        # main at THIS commit" is a claim someone can go and re-run.
+        print(f"   upstream: {up['slug']} @ {up['sha'][:12]} "
+              f"(read {up['when']})")
     if not res["suspects"]:
         print("  backlog reconciles clean against the complete/ records "
               "and active/.")
     for s in res["suspects"]:
-        print(f"[{s['confidence']:>6}] {s['path']}")
+        print(f"[{s['confidence']:>12}] {s['path']}")
         for f in s["findings"]:
             ev = f["evidence"]
             if len(ev) > 160:
                 ev = ev[:157] + "…"
-            print(f"         {f['kind']}: {ev}")
+            print(f"               {f['kind']}: {ev}")
     print("\nRetiring a prompt stays human: verify against the target repo's "
           "git log / merged\nPRs, then retire it to the complete/ archive by hand.")
+    if up:
+        print("`needs-review` means the prompt NAMES things that exist upstream "
+              "— NOT that it\nshipped. A fix can land next to the name without "
+              "being the fix the prompt asks for;\nread the cited lines before "
+              "retiring anything.")
 
 
 # --- ideas.md scanning --------------------------------------------------------
@@ -941,6 +1192,11 @@ def main(argv=None):
                                           "already-shipped (always read-only)")
     rc.add_argument("prefix", nargs="?", default="",
                     help="only reconcile prompts under this path prefix")
+    rc.add_argument("--repo", default="",
+                    help="ALSO read this target repo's source for identifiers "
+                         "the prompts name (the only leg that sees prompts with "
+                         "no Mind-side trace). Opt-in: the default path makes no "
+                         "network access. Ranks for review; never says shipped.")
 
     a = ap.parse_args(argv)
     mind = Path(a.mind)
@@ -954,7 +1210,16 @@ def main(argv=None):
         if a.apply:
             print("intake reconcile is read-only — retiring prompts stays "
                   "human (--apply ignored).", file=sys.stderr)
-        res = reconcile(mind, prefix=a.prefix)
+        reader, meta = None, None
+        if a.repo:
+            reader, sha, slug, err = upstream_reader(mind, a.repo)
+            if err:
+                print(f"intake reconcile: {err}", file=sys.stderr)
+                return 5
+            meta = {"slug": slug, "sha": sha,
+                    "when": _dt.date.today().isoformat()}
+        res = reconcile(mind, prefix=a.prefix, source_reader=reader,
+                        upstream_meta=meta)
         print(json.dumps(res, indent=2)) if a.as_json else emit_reconcile(res)
         return 0
 

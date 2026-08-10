@@ -86,6 +86,7 @@ schema — light structure over free-form prose.
 | **dashboard** | `intake dashboard` | render the census as the Mind **backlog** page; `--apply` writes `PyAutoMind/dashboard.md` |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`); always read-only — retiring stays human |
+| **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source for identifiers the prompts name — the one signal that sees a prompt with no Mind-side trace. Opt-in; the default path is offline |
 
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
@@ -105,6 +106,30 @@ the `complete/` records (path references + `## header` topic overlap), `active/`
 basenames, and hand-set Status values, then ranks suspects (high/medium/low)
 with the evidence shown. The final verification — the target repo's git log /
 merged PRs — and the retirement itself stay human.
+
+`--repo <target>` adds the **upstream leg**: identifiers a prompt names that
+already exist in the target repo's source, cited as `file:line`, in their own
+weaker `needs-review` band. It is the only signal that reaches a prompt with no
+Mind-side trace at all — the 2026-08-09 sweep confirmed two such findings, one
+whose evidence sat in a sibling *prompt* and one whose fix shipped with no
+completion record ever written.
+
+It never produces a shipped verdict, and upstream hits are scored on their own
+key so they cannot inflate a Mind-local band. The reason is a measured trap:
+`test_mode_bypass_ordered_assertion_ties.md` names five identifiers, all five
+are on PyAutoFit `main`, and the prompt is **not** shipped — the upstream catch
+wraps only the likelihood call while the raising line sits before the `try`.
+Presence of a name is not presence of the fix.
+
+**This is the only network access in PyAutoBrain.** Every other conductor and
+faculty is stdlib-only and offline, and the default `reconcile` path stays that
+way — a test detonates on any socket or subprocess use when `--repo` is absent.
+A target that is not one repo (`workspaces`, `health_fixes`, `priors`,
+`graphical_ep` — topic clusters, and among the largest buckets in `draft/`) is
+**refused** with exit `5` naming the real candidates, never silently guessed.
+Clones are cached shallow (`--depth 1`) under `$PYAUTO_BRAIN_CACHE`
+(default `~/.pyauto-brain/upstream`), and the resolved sha is printed so a
+verdict is re-checkable.
 
 ## Machine sources (one staging surface)
 
