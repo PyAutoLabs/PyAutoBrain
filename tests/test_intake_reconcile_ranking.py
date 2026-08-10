@@ -192,3 +192,144 @@ def test_suspects_carry_their_evidence_and_a_band(tmp_path):
     assert s["confidence"] in ("high", "medium")
     assert s["findings"] and all(f["kind"] and f["evidence"] for f in s["findings"])
     assert any(f["kind"] == "record-says-shipped" for f in s["findings"])
+
+
+# --------------------------------------------------------------------------- #
+# leg 3 — the upstream read (--repo), PyAutoBrain#223
+#
+# Everything above is Mind-local. Leg 3 adds the one signal that can see a
+# prompt with NO Mind-side trace: identifiers it names that already exist in the
+# target repo's source. These tests inject a fake source tree through the
+# `source_reader` seam, so this file stays hermetic — nothing here clones.
+# --------------------------------------------------------------------------- #
+def _reader(table):
+    """Fake `source_reader`: {ident: [file:line]} for idents in `table`."""
+    return lambda idents: {i: table[i] for i in idents if i in table}
+
+
+def test_upstream_presence_never_produces_a_shipped_verdict(tmp_path):
+    """THE acceptance criterion, in miniature.
+
+    `test_mode_bypass_ordered_assertion_ties.md` names five identifiers and ALL
+    FIVE are on PyAutoFit main — yet the prompt is confirmed NOT shipped: main
+    catches `exc.FitException` in the TEST_MODE bypass, which looks exactly like
+    the requested fix, but the catch wraps only the likelihood call while
+    `model.instance_from_vector` (where `check_assertions` raises) sits on the
+    line BEFORE the `try`.
+
+    A matcher that scored presence as shipped would rank this `high` and be
+    wrong. It must land in the weak band, carrying its evidence.
+    """
+    idents = ["FitException", "check_assertions", "ignore_assertions",
+              "instance_for_arguments", "instance_from_vector"]
+    body = "# Ordered assertion ties\n\n" + "\n".join(f"- `{i}`" for i in idents)
+    root = _mind(tmp_path, {"bug/gearbox/ordered_ties.md": body}, {})
+    res = _intake.reconcile(
+        root, source_reader=_reader({i: [f"src/{i}.py:1"] for i in idents}))
+
+    s = [x for x in res["suspects"]
+         if x["path"] == "draft/bug/gearbox/ordered_ties.md"]
+    assert s, "a prompt whose identifiers are all upstream must be surfaced"
+    assert s[0]["confidence"] == "needs-review"
+    assert s[0]["confidence"] != "high"
+    assert any(f["kind"] == "upstream-identifier-present" for f in s[0]["findings"])
+
+
+def test_upstream_evidence_cannot_inflate_a_mind_local_band(tmp_path):
+    """The structural defence behind the test above: upstream hits are scored on
+    their own key and never added to `overlap_score`, so no number of them can
+    push a prompt up into `high`."""
+    idents = [f"`_gearbox_part_{i}`" for i in range(9)]
+    root = _mind(tmp_path,
+                 {"bug/gearbox/ordered_ties.md": "# Ties\n\n" + "\n".join(idents)},
+                 {})
+    table = {f"_gearbox_part_{i}": [f"src/p{i}.py:1"] for i in range(9)}
+    res = _intake.reconcile(root, source_reader=_reader(table))
+    s = res["suspects"][0]
+    assert s["confidence"] == "needs-review"
+    assert s["overlap_score"] == 0.0        # Mind-local score untouched
+    assert s["upstream_score"] > 0.0
+
+
+def test_one_upstream_identifier_is_not_a_signal(tmp_path):
+    """A single shared name is a coincidence — the same bar the Mind-local
+    identifier leg sets at two."""
+    root = _mind(tmp_path,
+                 {"bug/gearbox/ordered_ties.md": "# Ties\n\n`_lone_helper`\n"}, {})
+    res = _intake.reconcile(
+        root, source_reader=_reader({"_lone_helper": ["src/a.py:1"]}))
+    assert _paths(res) == set()
+
+
+def test_builtins_and_repo_names_are_not_upstream_evidence(tmp_path):
+    """Measured noise from the first real run: `TypeError` is in 37 files of
+    PyAutoFit and `autofit_workspace` in 26. Every repo names its siblings and
+    every codebase raises builtins; neither says a prompt shipped.
+
+    Filtering on upstream file-spread instead was tried and rejected — the
+    counts do not separate (`instance_from_vector` is a real signal at 22 files,
+    just under `autofit_workspace` at 26)."""
+    body = "# Noise only\n\n`TypeError`\n`autofit_workspace`\n`autolens_workspace`\n"
+    root = _mind(tmp_path, {"bug/gearbox/noise_only.md": body}, {})
+    res = _intake.reconcile(root, source_reader=_reader({
+        "TypeError": ["src/a.py:1"],
+        "autofit_workspace": ["README.md:6"],
+        "autolens_workspace": ["README.md:7"],
+    }))
+    assert _paths(res) == set()
+
+
+def test_default_path_makes_no_network_access(tmp_path, monkeypatch):
+    """PyAutoBrain is otherwise stdlib-only and offline. `--repo` is opt-in, and
+    the default path must stay provably offline — so detonate on any attempt to
+    clone or open a socket when no reader was passed."""
+    import socket
+    import subprocess
+
+    def _boom(*a, **k):
+        raise AssertionError("default reconcile path attempted network access")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    monkeypatch.setattr(socket, "socket", _boom)
+    root = _mind(
+        tmp_path,
+        {"bug/flywheel/sprocket_wobble.md": "# Sprocket wobble\n\nIt wobbles.\n"},
+        {"gadget-alignment.md": "## gadget-alignment\n- notes: sprocket_wobble.md "
+                                "shipped to main.\n"},
+    )
+    assert _intake.reconcile(root)["suspects"]       # ran, and stayed offline
+
+
+def test_upstream_mode_still_never_writes(tmp_path):
+    """The read-only contract holds on the new leg too."""
+    root = _mind(tmp_path,
+                 {"bug/gearbox/ordered_ties.md": "# Ties\n\n`_a_helper`\n`_b_helper`\n"},
+                 {})
+    before = {p: p.read_bytes() for p in root.rglob("*.md")}
+    _intake.reconcile(root, source_reader=_reader(
+        {"_a_helper": ["src/a.py:1"], "_b_helper": ["src/b.py:2"]}))
+    assert {p: p.read_bytes() for p in root.rglob("*.md")} == before
+
+
+def test_a_multi_repo_target_is_refused_not_guessed(tmp_path):
+    """`workspaces`, `health_fixes`, `priors` and `graphical_ep` are topic
+    clusters, not repos — and among the largest buckets in draft/. Guessing one
+    repo for them would produce confident nonsense over the biggest part of the
+    backlog."""
+    root = _mind(tmp_path,
+                 {"bug/health_fixes/a_broken_thing.md":
+                  "# Broken\n\nSee @PyAutoFit/autofit/x.py and @PyAutoArray/y.py\n"},
+                 {})
+    slug, err = _intake.resolve_repo(root, "health_fixes")
+    assert slug == ""
+    assert "not a single repository" in err
+    assert "autofit" in err and "autoarray" in err     # names the real candidates
+
+
+def test_a_real_repo_target_resolves_to_its_slug(tmp_path):
+    """The other side of the same door: a genuine target resolves via the body
+    map, through the same `normalise_repo` aliases the sizing faculty uses."""
+    for target in ("autofit", "PyAutoFit", "pyautofit"):
+        slug, err = _intake.resolve_repo(tmp_path, target)
+        assert err == ""
+        assert slug == "PyAutoLabs/PyAutoFit"

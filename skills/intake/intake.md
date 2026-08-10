@@ -44,6 +44,14 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   hand-set `Status:` is a signal, never proof). Always read-only: verify each
   suspect against the target repo's git log / merged PRs, then retire it to the
   `complete/` archive by hand (it is already done).
+- `bin/pyauto-brain intake reconcile --repo <target> [prefix]` — **also** reads
+  `<target>`'s source for identifiers the prompts name, citing `file:line` in a
+  weaker `needs-review` band. This is the only signal that reaches a prompt with
+  no Mind-side trace, and it is the Brain's only network access — opt-in, cached
+  shallow clone, still read-only. It never says *shipped*: a name can exist
+  upstream without the prompt's fix existing, so read the cited lines before
+  retiring anything. A target that is not one repo (`workspaces`, `priors`, …)
+  is refused with the real candidates named, never guessed.
 
 ## Boundary
 
