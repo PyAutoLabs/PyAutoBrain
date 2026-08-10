@@ -44,12 +44,36 @@ it reasons over and the PyAutoMemory routing it uses.
 | **selection** | no task given | Scan `draft/feature/**` (legacy flat `feature/**` still resolves), rank candidates, and recommend the best next task — **not** merely the first in a list; down-ranks in-flight work (from `active.md` / `planned.md`). |
 | **difficulty-constrained** | `--difficulty` / `--model` / `--budget` / `--ambitious` / `--impact` | Estimate difficulty per task and select to match the constraint (easy/weak-model/limited-token → small; ambitious/strong-model → large; impact → high-leverage). |
 
+## The declared header wins
+
+A prompt's metadata header (PyAutoMind `REFERENCE.md`, "Optional metadata
+header") is **read, not decoration**:
+
+| Key | Effect on the ranker |
+|---|---|
+| `Difficulty:` | Overrides the derived level. Intake persists it from this same sizing faculty, so it *is* the value this agent acts on; a declared/derived disagreement is reported, never silently resolved. |
+| `Priority:` | Orders the shortlist (`high` → `normal` → `low`), above the difficulty term. |
+| `Status: blocked` | Sinks the prompt below everything and bars it from being the recommended pick. |
+| `Blocked-by:` | Same, on its own — an unresolved gate reads as blocked. |
+
+Blocked prompts stay **listed, in their own band**, so a human can see and
+override; they are never recommended. Gate *state* is not resolved here — this
+agent is offline. `PyAutoMind/scripts/lifecycle.py issues --drafts` checks the
+refs against GitHub and is the tool that says a `Blocked-by:` has cleared.
+
+Keys inside fenced code blocks are documentation and are ignored, so a prompt may
+quote another's header without inheriting it.
+
 ## Difficulty & sizing
 
-Difficulty is a transparent heuristic (`small | medium | large | too-large`) over
+When nothing is declared, difficulty is a transparent heuristic
+(`small | medium | large | too-large`) over
 repos affected, prompt size, scientific complexity, architectural risk, test
 burden, and whether memory context / human judgement is required. The factor
-breakdown is in every decision so the reasoning layer can adjust.
+breakdown is in every decision so the reasoning layer can adjust. Note the
+prompt-size term: a prompt grows as it accumulates findings, so a long,
+well-documented prompt can derive `too-large` for work that is not — which is
+exactly what a declared `Difficulty:` is for.
 
 Sizing then drives the **phase decision**:
 

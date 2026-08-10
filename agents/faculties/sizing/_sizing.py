@@ -224,6 +224,90 @@ def empty_discovery_reason(mind: Path, work_type: str) -> str:
     return f"{where} exists under {mind} but holds no prompts (backlog genuinely empty)"
 
 
+# --- the declared metadata header -------------------------------------------
+#
+# PyAutoMind/REFERENCE.md ("Optional metadata header") defines these keys and
+# states the contract this parser exists to honour: Intake persists `Difficulty:`
+# "so the value shown up front is the one the Feature Agent later acts on".
+# Parsing them here — beside the derivation — keeps declared and derived in one
+# place, and gives the bug/refactor conductors the same reading for free.
+DIFFICULTY_LEVELS = ("small", "medium", "large", "too-large")
+# `medium` is not a documented Priority: value but occurs in the live backlog;
+# read it as normal rather than dropping the prompt's stated intent.
+PRIORITY_RANK = {"high": 0, "normal": 1, "medium": 1, "low": 2}
+DEFAULT_PRIORITY_RANK = 1
+
+_HEADER_KEY_RE = re.compile(
+    r"^\s*(difficulty|status|priority|blocked-by|closes-when)\s*:\s*(.+?)\s*$", re.I
+)
+
+
+def _strip_trailing_comment(value: str) -> str:
+    """Header values may carry a trailing `# note` (the live backlog does, e.g.
+    `Blocked-by: PyAutoFit#1334   # WP1 gate (MERGED)`). Split on ` #` so a
+    `Repo#123` ref — which has no space before the hash — survives intact."""
+    return value.split(" #", 1)[0].strip()
+
+
+def declared_header(text: str) -> dict:
+    """The header keys a prompt *declares*, as opposed to what we infer.
+
+    Fenced blocks are documentation, not declarations — a prompt that quotes
+    another prompt's header in a ```-block (the bug prompt for this very fix
+    does exactly that) must not be read as declaring it. Same rule, and the
+    same reason, as PyAutoMind `lifecycle.py:draft_gate_refs`.
+    """
+    out = {"declared_difficulty": None, "status": None,
+           "priority": None, "blocked_by": [], "closes_when": []}
+    in_fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = _HEADER_KEY_RE.match(line)
+        if not m:
+            continue
+        key, value = m.group(1).lower(), _strip_trailing_comment(m.group(2))
+        if not value:
+            continue
+        if key == "difficulty":
+            v = value.lower()
+            if v in DIFFICULTY_LEVELS and out["declared_difficulty"] is None:
+                out["declared_difficulty"] = v
+        elif key == "status" and out["status"] is None:
+            out["status"] = value.lower()
+        elif key == "priority" and out["priority"] is None:
+            out["priority"] = value.lower()
+        elif key == "blocked-by":
+            out["blocked_by"].append(value)
+        elif key == "closes-when":
+            out["closes_when"].append(value)
+    return out
+
+
+def priority_rank(p: dict) -> int:
+    return PRIORITY_RANK.get(p.get("priority") or "", DEFAULT_PRIORITY_RANK)
+
+
+def declared_blocked(p: dict):
+    """Why the prompt declares itself un-startable, or None.
+
+    Deliberately conservative: this faculty is offline, so it cannot resolve
+    whether a `Blocked-by:` gate has since closed — that is
+    `PyAutoMind/scripts/lifecycle.py issues --drafts`, which talks to GitHub. An
+    unresolved gate therefore reads as blocked. Being wrongly held back is cheap
+    and visible (the prompt is still listed, in its own band); being wrongly
+    recommended is the failure this exists to stop.
+    """
+    if (p.get("status") or "") == "blocked":
+        return "Status: blocked"
+    if p.get("blocked_by"):
+        return "Blocked-by: " + "; ".join(p["blocked_by"])
+    return None
+
+
 def parse_prompt(path: Path, mind: Path):
     """Read a prompt file and extract structure: work-type, target, repos, body."""
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -282,6 +366,7 @@ def parse_prompt(path: Path, mind: Path):
         "text": text,
         "lines": text.count("\n") + 1,
         "words": len(text.split()),
+        **declared_header(text),
     }
 
 
