@@ -300,9 +300,7 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
                 + f" --transforms {','.join(tfs)} --cache-dir <dir> --tag <cold|warm>"
             )
     else:
-        submits = sorted(p.name for p in (compile_dir(ws) / "hpc").glob("submit_*")) or sorted(
-            p.name for p in (ws / "hpc" / "batch_gpu").glob("submit_*")
-        )
+        submits = sorted(p.name for p in (ws / "hpc" / "batch_gpu").glob("submit_*"))
         dispatch = [f"sbatch hpc/batch_gpu/{s}  (on the RAL checkout, post-pull)" for s in submits]
 
     return {
