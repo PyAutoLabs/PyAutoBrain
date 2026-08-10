@@ -25,13 +25,25 @@ samplers.sh [--json]
             archive (autofit_workspace_developer/searches)
             integration (autofit_workspace_test/scripts/searches)
             promoted (PyAutoFit autofit/non_linear/search/<group>/<module>)
+  -> the findings maturation lane (below):
+            experiment probes   (autolens_workspace_developer/searches_minimal)
+            experiment findings (the same tier's *_findings.md, name + verdict)
+            mature              (autolens_profiling — one row per
+                                 sampler/dataset_class/model_type cell)
   -> the latest minimal-tier benchmark table (output/comparison.txt)
   -> tier gaps: prototyped-never-promoted, promoted-never-integration-tested
 ```
 
 Surfaces are resolved as sibling checkouts (`PYAUTO_FIT`,
-`PYAUTO_FIT_DEVELOPER`, `PYAUTO_FIT_TEST` override); absent ones are
+`PYAUTO_FIT_DEVELOPER`, `PYAUTO_FIT_TEST`, `PYAUTO_LENS_DEVELOPER`,
+`PYAUTO_PROFILING` override); absent ones are
 reported, never fatal. Exit codes: `0` digest · `4` no surface · `5` usage.
+
+A mature-tier cell is read from its leaf's `run_search(sampler=,
+dataset_class=, model_type=)` declaration, **not** from its path — the two
+disagree on the live tree (the `cluster/searches/*/mge.py` leaves declare the
+`group` dataset class), and the declaration is what the runner acts on. The
+lane tiers are inventory only; they feed no `gaps` rule.
 
 ## Judgment: matching sampler to likelihood
 
@@ -111,9 +123,10 @@ and promote what matures:
 
 A conductor planning search-validation work should name the target tier up
 front; `ship` routes all three repos through the normal workspace flow.
-(Surface gap, filed: this faculty's SamplerSurface scan reads only the
-autofit-side tiers — it does not yet see the autolens experiment/mature
-tiers above.)
+The SamplerSurface scan covers tiers 1 and 2 directly (see above), so the
+digest answers "where does this search x likelihood sit in the lane —
+experimented, matured, or neither". Tier 3 is user-facing prose and is read,
+not inventoried.
 
 ## Where the knowledge lives (pointers, not copies)
 
