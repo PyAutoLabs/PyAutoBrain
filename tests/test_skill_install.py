@@ -45,11 +45,33 @@ def test_local_skill_links_resolve():
     assert broken == []
 
 
+def _pyauto_root(tmp_path):
+    """A fixture PYAUTO_ROOT whose `PyAutoBrain/` is this checkout.
+
+    Without this the installer falls back to `DEFAULT_PYAUTO_ROOT`
+    (`bin/../..`, i.e. this repo's grandparent) and looks for
+    `<grandparent>/PyAutoBrain/skills`. That resolves only when the checkout
+    happens to be *named* `PyAutoBrain` and sits one level under the root —
+    true on a laptop, false for a clone at any other path (a cloud session
+    cloning to `pyautobrain` finds nothing, so the Brain skills are never
+    scanned and the assertions below have nothing to assert on).
+
+    Pinning the root makes these tests depend on the installer's behaviour
+    rather than on where the repo happens to be checked out. Same pattern as
+    `test_invalid_codex_name_does_not_suppress_claude_surfaces` below.
+    """
+    root = tmp_path / "PyAutoLabs"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "PyAutoBrain").symlink_to(BRAIN_HOME, target_is_directory=True)
+    return root
+
+
 def test_installer_keeps_commands_and_installs_both_skill_homes(tmp_path):
     claude_home = tmp_path / "claude"
     codex_home = tmp_path / "codex"
     env = os.environ | {
         "HOME": str(tmp_path / "home"),
+        "PYAUTO_ROOT": str(_pyauto_root(tmp_path)),
         "CLAUDE_HOME": str(claude_home),
         "CODEX_HOME": str(codex_home),
     }
@@ -85,6 +107,7 @@ def test_installer_preserves_non_symlink_destinations(tmp_path):
     marker.write_text("keep\n")
     env = os.environ | {
         "HOME": str(tmp_path / "home"),
+        "PYAUTO_ROOT": str(_pyauto_root(tmp_path)),
         "CLAUDE_HOME": str(claude_home),
         "CODEX_HOME": str(codex_home),
     }

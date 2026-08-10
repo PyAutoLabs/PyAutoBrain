@@ -105,6 +105,8 @@ PyAutoMind. Shared organ boundary and the execution-environment model are in
 
    This prints one line per `(task, repo, branch, worktree_path)` quadruple currently registered in `active.md`. For each affected repo the new plan wants to touch, check whether a different task already claims it via a `worktree:` field. If so, flag it as a **hard conflict** — the new task cannot start until the other one ships.
 
+   **The guard fails closed (#225).** `worktree_check_conflict` resolves `active.md` under `$PYAUTO_MAIN` (default `$HOME/Code/PyAutoLabs`). When it cannot find the registry it exits **3** with `CANNOT VERIFY`, rather than reporting "no conflict" from a read that never happened — outside local-dev, set `PYAUTO_MAIN` to the directory holding your PyAutoMind checkout. `--allow-missing-registry` proceeds **unguarded** and says so; use it only when you have confirmed by other means that nothing else claims the repos. Exit `1` is a real conflict; `0` is genuinely clear.
+
    Then, for each affected repo, also run:
    ```bash
    git -C <repo_path> branch --sort=-committerdate | head -5
