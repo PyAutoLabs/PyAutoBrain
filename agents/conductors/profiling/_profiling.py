@@ -61,6 +61,20 @@ COMPILE_KEY_FIELDS = ("hardware", "dataset_class", "model_type", "instrument")
 # the results tree rather than a corrupt probe record.
 COMPILE_IDENTITY_FIELDS = ("hardware", "dataset_class", "instrument")
 
+# Mirrors autolens_profiling/scripts/misc/jax_compile/pins.py. Duplicated rather
+# than imported for the same reason the grid is read via ast: importing the
+# workspace would drag the JAX stack into the Brain. Kept honest by a test that
+# reads the workspace's own definition.
+COMPARABILITY_FIELDS = ("hardware", "hostname", "jax_version", "mixed_precision", "cache_state")
+CELL_FIELDS = ("dataset_class", "model_type", "instrument", "transform")
+PIN_FIELDS = COMPARABILITY_FIELDS + CELL_FIELDS
+
+# Drift thresholds. Generous on purpose: host load alone has produced 7x errors
+# in this corpus, so a tight bound would flag a busy laptop as a regression and
+# teach people to ignore the alarm.
+COMPILE_DRIFT_RATIO = 2.0
+COMPILE_DRIFT_FLOOR_S = 1.0
+
 
 def workspace_root(explicit: str | None = None) -> Path:
     if explicit:
@@ -138,6 +152,31 @@ def load_compile_corpus(ws: Path) -> "list[tuple[str, int, dict[str, Any]]]":
             if isinstance(rec, dict):
                 out.append((rel, i, rec))
     return out
+
+
+def load_pins(ws: Path) -> list[dict[str, Any]]:
+    """The workspace's warm-compile pins (`jax_compile/pins.json`)."""
+    path = compile_dir(ws) / "pins.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+    pins = data.get("pins") if isinstance(data, dict) else data
+    return [p for p in pins if isinstance(p, dict)] if isinstance(pins, list) else []
+
+
+def pin_key_str(key: tuple) -> str:
+    parts = dict(zip(PIN_FIELDS, key))
+    cell = "/".join(
+        str(parts[f]) for f in ("dataset_class", "model_type", "instrument") if parts.get(f)
+    )
+    return (
+        f"{cell} [{parts.get('transform')}] "
+        f"@ {parts.get('hardware')}/{parts.get('hostname')} jax{parts.get('jax_version')}"
+        f"{' mp' if parts.get('mixed_precision') else ''} {parts.get('cache_state')}"
+    )
 
 
 def compile_tier_of(hardware: str | None) -> str:
@@ -341,6 +380,106 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
     }
 
 
+def ingest_compile(ws: Path) -> dict[str, Any]:
+    """Which warm compile rows are unpinned, and which have drifted from a pin.
+
+    The surveillance the arc exists for: the persistent cache and
+    `--xla_gpu_autotune_level=0` are *settings*, so a config drift or an
+    `XLA_FLAGS` clobber puts the worst case back with nothing failing.
+
+    Every comparison here happens strictly inside one comparability key. Rows
+    from different hardware, hosts, jax versions, precisions or cache states are
+    never paired — that is not conservatism, it is the difference between a
+    signal and noise: compile timings are host-load-sensitive to a measured 7x,
+    and a `jax_version` bump recompiles once BY DESIGN rather than regressing.
+    """
+    pins = load_pins(ws)
+    if not pins:
+        return {
+            "agent": "profiling",
+            "mode": "ingest",
+            "axis": "compile",
+            "pins": 0,
+            "unpinned": [],
+            "drifted": [],
+            "next_action": (
+                "no compile pins — run `python3 scripts/misc/jax_compile/update_pins.py --write` "
+                "in autolens_profiling first"
+            ),
+        }
+
+    by_key = {tuple(p.get(f) for f in PIN_FIELDS): p for p in pins}
+    unpinned: list[dict[str, Any]] = []
+    drifted: list[dict[str, Any]] = []
+    seen: set[tuple] = set()
+
+    for rel, idx, rec in load_compile_corpus(ws):
+        if rec.get("cache_state") != "warm" or "compile_s" not in rec:
+            continue
+        key = tuple(rec.get(f) for f in PIN_FIELDS)
+        if any(k in (None, "") for k in key if k is not False):
+            continue
+        pin = by_key.get(key)
+        if pin is None:
+            if key not in seen:
+                seen.add(key)
+                unpinned.append({"record": f"{rel}[{idx}]", "pin": pin_key_str(key)})
+            continue
+        # Only rows NEWER than the pin can be drift. Every warm row predating
+        # the pin is the history the pin was chosen over — flagging those
+        # reports the improvement that set the pin as though it were a
+        # regression, which is how an alarm earns its way into being ignored.
+        if str(rec.get("timestamp") or "") <= str(pin.get("source_timestamp") or ""):
+            continue
+        expected, got = pin.get("compile_s"), rec.get("compile_s")
+        if not isinstance(expected, (int, float)) or not isinstance(got, (int, float)):
+            continue
+        if expected <= 0:
+            continue
+        ratio = got / expected
+        # Both gates, deliberately. The ratio alone screams about sub-second
+        # cells where a 100 ms jitter is 3x; the absolute delta alone misses a
+        # cheap cell degrading by an order of magnitude. Generous because host
+        # load alone has produced 7x errors in this corpus.
+        if ratio >= COMPILE_DRIFT_RATIO and abs(got - expected) >= COMPILE_DRIFT_FLOOR_S:
+            drifted.append(
+                {
+                    "record": f"{rel}[{idx}]",
+                    "pin": pin_key_str(key),
+                    "pinned_s": expected,
+                    "observed_s": got,
+                    "ratio": round(ratio, 2),
+                    "tag": rec.get("tag"),
+                }
+            )
+
+    return {
+        "agent": "profiling",
+        "mode": "ingest",
+        "axis": "compile",
+        "pins": len(pins),
+        "unpinned": unpinned,
+        "drifted": drifted,
+        "policy": (
+            f"Drift = a warm row NEWER than its pin, >= {COMPILE_DRIFT_RATIO}x the "
+            f"pinned value AND >= {COMPILE_DRIFT_FLOOR_S}s absolute, compared ONLY "
+            f"within {'/'.join(COMPARABILITY_FIELDS)}. Cross-key pairs and rows "
+            "predating the pin are never a regression."
+        ),
+        "steps": [
+            "re-run the drifted cell warm to confirm it is not host load "
+            "(check the record's host_state against the pin's)",
+            "if confirmed, classify it — `pyauto-brain profiling triage --axis compile`",
+            "pin the unpinned rows: `python3 scripts/misc/jax_compile/update_pins.py --write`",
+        ],
+        "next_action": (
+            "compile pins current — no warm drift"
+            if not drifted and not unpinned
+            else f"{len(drifted)} drifted, {len(unpinned)} unpinned warm key(s)"
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # ingest
 # ---------------------------------------------------------------------------
@@ -517,6 +656,21 @@ def emit_human(d: dict[str, Any]) -> None:
         print("Dispatch plan:")
         for s in d["dispatch_plan"]:
             print(f"  - {s}")
+    elif d["mode"] == "ingest" and d.get("axis") == "compile":
+        print(f"Compile pins:         {d['pins']}")
+        print(f"Drifted:              {len(d['drifted'])}")
+        for x in d["drifted"][:10]:
+            print(
+                f"  {x['pin']}: pinned {x['pinned_s']}s -> observed "
+                f"{x['observed_s']}s ({x['ratio']}x, tag={x['tag']!r})"
+            )
+        print(f"Unpinned warm keys:   {len(d['unpinned'])}")
+        for x in d["unpinned"][:10]:
+            print(f"  {x['pin']}")
+        if d.get("policy"):
+            print(f"Policy:               {d['policy']}")
+        for s in d.get("steps", []):
+            print(f"  - {s}")
     elif d["mode"] == "ingest":
         print(f"Provenance:           {d['provenance']}")
         print(f"Probe updates:        {len(d['probe_updates'])}")
@@ -557,10 +711,13 @@ def main(argv=None) -> int:
     # ingest/triage own the compile axis in later phases of the arc (pins, then
     # drift classification). Refusing now is deliberate: a mode that silently
     # ignored --axis would report runtime findings under a compile flag.
-    if a.axis == "compile" and a.mode != "campaign":
+    # triage owns the compile axis in phase 3 (drift CLASSIFICATION). Refusing
+    # is deliberate: a mode that silently ignored --axis would report runtime
+    # findings under a compile flag.
+    if a.axis == "compile" and a.mode == "triage":
         print(
-            f"profiling: --axis compile is not implemented for {a.mode!r} yet "
-            "(campaign only; ingest/triage land with the compile pins)",
+            "profiling: --axis compile is not implemented for 'triage' yet "
+            "(campaign + ingest only; classification lands next)",
             file=sys.stderr,
         )
         return 5
@@ -573,7 +730,7 @@ def main(argv=None) -> int:
     if a.mode == "campaign":
         d = campaign_compile(ws, a.tier) if a.axis == "compile" else campaign(ws, a.tier)
     elif a.mode == "ingest":
-        d = ingest(ws)
+        d = ingest_compile(ws) if a.axis == "compile" else ingest(ws)
     else:
         d = triage(ws)
 
