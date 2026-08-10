@@ -1080,13 +1080,18 @@ def emit_reconcile(res: dict):
     if not res["suspects"]:
         print("  backlog reconciles clean against the complete/ records "
               "and active/.")
+    # Column width follows the widest band actually present, so the default
+    # (Mind-local) run stays byte-identical to what it printed before the
+    # upstream leg existed — only a run that emits `needs-review` widens.
+    width = max((len(s["confidence"]) for s in res["suspects"]), default=6)
+    width = max(width, 6)
     for s in res["suspects"]:
-        print(f"[{s['confidence']:>12}] {s['path']}")
+        print(f"[{s['confidence']:>{width}}] {s['path']}")
         for f in s["findings"]:
             ev = f["evidence"]
             if len(ev) > 160:
                 ev = ev[:157] + "…"
-            print(f"               {f['kind']}: {ev}")
+            print(f"{' ' * (width + 3)}{f['kind']}: {ev}")
     print("\nRetiring a prompt stays human: verify against the target repo's "
           "git log / merged\nPRs, then retire it to the complete/ archive by hand.")
     if up:
