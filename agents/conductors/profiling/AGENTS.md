@@ -31,6 +31,38 @@ pyauto-brain profiling triage
 pyauto-brain profiling <mode> --json
 ```
 
+### The measurement axes
+
+`--axis runtime` (the default) is steady-state per-call cost, filed under
+`results/runtime/` and bucketed by sweep **config** name (`local_cpu_fp64`,
+`local_cpu_mp`, …). `--axis compile` is the one-off cost — trace, XLA compile,
+first call — filed under `scripts/misc/jax_compile/results/<hardware>/` and
+bucketed by **hardware**, with `mixed_precision` a separate field. The two
+vocabularies do not interchange, so the compile axis maps tiers itself rather
+than reusing `TIER_CONFIGS`.
+
+`--axis compile` currently serves `campaign` (coverage); `ingest` and `triage`
+reject it with exit 5 until the compile pins land, so a compile flag can never
+silently return a runtime answer.
+
+**Compile timings are host-load-sensitive** — the first measurements in
+`jax_compile/README.md` were wrong by up to **7×** (851 s vs 117 s for the same
+compile) purely from host load, because XLA compiles on the host cores. Rows are
+comparable only within `(hardware, jax_version, mixed_precision, cache state)`.
+`campaign --axis compile` therefore reports **coverage only** and never compares
+two timings; comparison waits on the pins.
+
+Records whose cell is not in the sweep grid (`knn`, `delaunay_matern`, the
+`datacube_img*` multi-band classes) are reported in an **off-grid** bucket, and
+non-tier hardware in an **other-hardware** bucket. Both are real measurements —
+neither counts as grid coverage, and neither is silently dropped.
+
+`jax_compile/` also hosts sibling instruments (`export_probe.py`,
+`trace_profile.py`) that append their own schema into the same
+`results/<hardware>/` tree. Records missing the whole `(hardware, dataset_class,
+instrument)` identity triple are reported as **sibling-instrument** records, not
+as malformed — only a record missing *some* of its key fields is corruption.
+
 ## Fundamental principles
 
 - **The classification is the result** for CPU-unusable cells (the usability

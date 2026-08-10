@@ -51,6 +51,16 @@ TIER_CONFIGS = {
 }
 DEFAULT_PER_RUN_TIMEOUT = 3600
 
+# Only used when jax_compile/probe.py cannot be read; the live list is taken
+# from the instrument itself (see load_transforms).
+FALLBACK_TRANSFORMS = ("jit", "grad", "vag", "vmap", "vmap_vag", "laxmap_vag", "pyloop_vag")
+
+# Fields a compile record needs before it can be placed on the grid at all.
+COMPILE_KEY_FIELDS = ("hardware", "dataset_class", "model_type", "instrument")
+# Absent *together*, these mark a record written by a sibling instrument sharing
+# the results tree rather than a corrupt probe record.
+COMPILE_IDENTITY_FIELDS = ("hardware", "dataset_class", "instrument")
+
 
 def workspace_root(explicit: str | None = None) -> Path:
     if explicit:
@@ -90,6 +100,64 @@ def load_tables(ws: Path) -> dict[str, Any]:
         "VMAP_BATCH_SPARSE": _module_literal(cfg, "VMAP_BATCH_SPARSE") or {},
         "PROVENANCE": _module_literal(cfg, "PROVENANCE") or {},
     }
+
+
+def compile_dir(ws: Path) -> Path:
+    return ws / "scripts" / "misc" / "jax_compile"
+
+
+def load_transforms(ws: Path) -> tuple[str, ...]:
+    """probe.py's transform axis, read from the workspace rather than copied.
+
+    The list is a module-level literal in `jax_compile/probe.py`, so the same
+    ast route `load_grid` uses keeps the Brain from drifting out of sync with
+    the instrument. `FALLBACK_TRANSFORMS` only covers probe.py being absent."""
+    got = _module_literal(compile_dir(ws) / "probe.py", "TRANSFORMS")
+    return tuple(got) if got else FALLBACK_TRANSFORMS
+
+
+def load_compile_corpus(ws: Path) -> "list[tuple[str, int, dict[str, Any]]]":
+    """(relative-path, index-in-file, record) for every compile probe record.
+
+    Each `results/<hardware>/<model_type>.json` is an append-only LIST of flat
+    records. Unreadable or non-list files are skipped the way `ingest` already
+    skips malformed probe JSON — a corrupt file must not take the mode down."""
+    root = compile_dir(ws) / "results"
+    out: list[tuple[str, int, dict[str, Any]]] = []
+    if not root.is_dir():
+        return out
+    for p in sorted(root.glob("*/*.json")):
+        try:
+            data = json.loads(p.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, list):
+            continue
+        rel = str(p.relative_to(root))
+        for i, rec in enumerate(data):
+            if isinstance(rec, dict):
+                out.append((rel, i, rec))
+    return out
+
+
+def compile_tier_of(hardware: str | None) -> str:
+    """Which campaign tier a compile record belongs to.
+
+    Deliberately NOT `TIER_CONFIGS`: that keys off sweep *config* names which
+    fold precision into the name (`local_cpu_fp64` / `local_cpu_mp`), whereas a
+    compile record carries a raw `hardware` string plus a SEPARATE
+    `mixed_precision` bool. Reusing the runtime map would mis-bucket every row.
+
+    `other` is a real answer, not a fallback: the corpus holds RTX-2060 rows
+    that belong to neither tier, and folding them into one would misreport
+    coverage on hardware nobody asked about."""
+    if not hardware:
+        return "other"
+    if hardware == "local_cpu":
+        return "local"
+    if "A100" in hardware:
+        return "a100"
+    return "other"
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +221,122 @@ def campaign(ws: Path, tier: str) -> dict[str, Any]:
             "all runs accounted for — proceed to ingest"
             if not missing
             else f"dispatch the {tier} plan ({len(missing)} runs outstanding)"
+        ),
+    }
+
+
+def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
+    """Coverage of the jax_compile corpus against the science grid.
+
+    Answers "how much of the grid has compile data on this tier", which nothing
+    did before: the compile corpus and the runtime grid live in separate trees
+    with no cross-reference. Read-only, like every campaign — it never runs
+    probe.py, it emits the invocations a human would run.
+    """
+    if tier not in TIER_CONFIGS:
+        return {"agent": "profiling", "mode": "campaign", "error": f"unknown tier {tier!r}"}
+
+    grid = load_grid(ws)
+    transforms = load_transforms(ws)
+    on_grid = {
+        (cls, model, inst)
+        for cls, model, instruments in grid
+        for inst in (instruments or (None,))
+    }
+
+    # A record is placed by its OWN (dataset_class, model_type, instrument), not
+    # by its path: results are filed under <hardware>/<model_type>, which drops
+    # the class and the instrument entirely.
+    covered: set[tuple[tuple[str, str, str | None], str]] = set()
+    off_grid: dict[str, int] = {}
+    other_hw: dict[str, int] = {}
+    foreign: dict[str, int] = {}
+    malformed: list[dict[str, Any]] = []
+
+    for rel, idx, rec in load_compile_corpus(ws):
+        absent = [f for f in COMPILE_KEY_FIELDS if rec.get(f) in (None, "")]
+        if set(absent) >= set(COMPILE_IDENTITY_FIELDS):
+            # Not corruption: jax_compile/ hosts sibling instruments
+            # (export_probe.py, trace_profile.py) that append their own schema
+            # into the SAME results/<hardware>/ tree. Missing the whole identity
+            # triple means "another instrument's record", and calling that
+            # malformed would send someone to fix a file that is working.
+            foreign[rel] = foreign.get(rel, 0) + 1
+            continue
+        if absent:
+            malformed.append(
+                {"record": f"{rel}[{idx}]", "missing": absent, "tag": rec.get("tag")}
+            )
+            continue
+        rec_tier = compile_tier_of(rec.get("hardware"))
+        if rec_tier != tier:
+            if rec_tier == "other":
+                other_hw[str(rec["hardware"])] = other_hw.get(str(rec["hardware"]), 0) + 1
+            continue
+        cell = (rec["dataset_class"], rec["model_type"], rec["instrument"])
+        cell_id = "/".join(str(k) for k in cell)
+        if cell not in on_grid:
+            # Real measurements, not noise: knn / delaunay_matern are mesh
+            # variants from the Prodigy census, and the datacube_img* classes
+            # are the multi-band compile experiment. Reported, never counted as
+            # grid coverage and never silently dropped.
+            off_grid[cell_id] = off_grid.get(cell_id, 0) + 1
+            continue
+        covered.add((cell, str(rec.get("transform"))))
+
+    done: list[str] = []
+    missing: list[str] = []
+    missing_by_cell: dict[tuple[str, str, str | None], list[str]] = {}
+    for cls, model, instruments in grid:
+        for inst in instruments or (None,):
+            cell = (cls, model, inst)
+            cell_id = f"{cls}/{model}/{inst}" if inst else f"{cls}/{model}"
+            for tf in transforms:
+                run_id = f"{cell_id} [{tf}]"
+                if (cell, tf) in covered:
+                    done.append(run_id)
+                else:
+                    missing.append(run_id)
+                    missing_by_cell.setdefault(cell, []).append(tf)
+
+    dispatch: list[str] = []
+    if tier == "local":
+        for (cls, model, inst), tfs in sorted(missing_by_cell.items(), key=lambda kv: str(kv[0])):
+            dispatch.append(
+                f"python3 scripts/misc/jax_compile/probe.py --dataset-class {cls} "
+                f"--model-type {model}"
+                + (f" --instrument {inst}" if inst else "")
+                + f" --transforms {','.join(tfs)} --cache-dir <dir> --tag <cold|warm>"
+            )
+    else:
+        submits = sorted(p.name for p in (ws / "hpc" / "batch_gpu").glob("submit_*"))
+        dispatch = [f"sbatch hpc/batch_gpu/{s}  (on the RAL checkout, post-pull)" for s in submits]
+
+    return {
+        "agent": "profiling",
+        "mode": "campaign",
+        "axis": "compile",
+        "tier": tier,
+        "transforms": list(transforms),
+        "grid_cells": len(on_grid),
+        "runs_done": len(done),
+        "runs_missing": len(missing),
+        "missing": missing,
+        "off_grid": [{"cell": c, "records": n} for c, n in sorted(off_grid.items())],
+        "foreign_records": [{"file": f, "records": n} for f, n in sorted(foreign.items())],
+        "other_hardware": [{"hardware": h, "records": n} for h, n in sorted(other_hw.items())],
+        "malformed": malformed,
+        "policy": (
+            "Compile timings are host-load-sensitive (the first measurements were "
+            "wrong by up to 7x from host load alone), so rows are only comparable "
+            "within (hardware, jax_version, mixed_precision, cache state). This "
+            "mode reports COVERAGE only — it never compares two timings."
+        ),
+        "dispatch_plan": dispatch,
+        "next_action": (
+            "compile grid fully covered on this tier"
+            if not missing
+            else f"dispatch the {tier} compile plan ({len(missing)} cell/transform runs outstanding)"
         ),
     }
 
@@ -288,7 +472,38 @@ def emit_human(d: dict[str, Any]) -> None:
     if d.get("error"):
         print(f"ERROR: {d['error']}")
         return
-    if d["mode"] == "campaign":
+    if d["mode"] == "campaign" and d.get("axis") == "compile":
+        print(f"Tier:                 {d['tier']}")
+        print(f"Transforms:           {', '.join(d['transforms'])}")
+        print(
+            f"Cell/transform runs:  {d['runs_done']} done · {d['runs_missing']} missing "
+            f"({d['grid_cells']} grid cells × {len(d['transforms'])} transforms)"
+        )
+        for r in d["missing"][:10]:
+            print(f"  missing: {r}")
+        if len(d["missing"]) > 10:
+            print(f"  ... +{len(d['missing']) - 10} more")
+        if d["off_grid"]:
+            print("Off-grid records (real measurements, not grid cells):")
+            for o in d["off_grid"]:
+                print(f"  {o['cell']}: {o['records']} record(s)")
+        if d["other_hardware"]:
+            print("Other hardware (neither tier):")
+            for o in d["other_hardware"]:
+                print(f"  {o['hardware']}: {o['records']} record(s)")
+        if d["foreign_records"]:
+            print("Sibling-instrument records (not probe.py's schema):")
+            for f in d["foreign_records"]:
+                print(f"  {f['file']}: {f['records']} record(s)")
+        if d["malformed"]:
+            print(f"Malformed records:    {len(d['malformed'])}")
+            for m in d["malformed"][:10]:
+                print(f"  {m['record']}: missing {', '.join(m['missing'])} (tag={m['tag']!r})")
+        print(f"Policy:               {d['policy']}")
+        print("Dispatch plan:")
+        for s in d["dispatch_plan"]:
+            print(f"  - {s}")
+    elif d["mode"] == "campaign":
         print(f"Tier:                 {d['tier']}")
         print(
             f"Runs:                 {d['runs_done']} done · "
@@ -329,9 +544,26 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="profiling")
     ap.add_argument("mode", nargs="?", default="campaign", choices=["campaign", "ingest", "triage"])
     ap.add_argument("--tier", default="local", help="campaign tier: local | a100")
+    ap.add_argument(
+        "--axis",
+        default="runtime",
+        choices=["runtime", "compile"],
+        help="what is measured: runtime (steady-state per-call cost) | compile (jax_compile probe)",
+    )
     ap.add_argument("--workspace", default=None, help="override the autolens_profiling path")
     ap.add_argument("--json", action="store_true", dest="as_json")
     a = ap.parse_args(argv)
+
+    # ingest/triage own the compile axis in later phases of the arc (pins, then
+    # drift classification). Refusing now is deliberate: a mode that silently
+    # ignored --axis would report runtime findings under a compile flag.
+    if a.axis == "compile" and a.mode != "campaign":
+        print(
+            f"profiling: --axis compile is not implemented for {a.mode!r} yet "
+            "(campaign only; ingest/triage land with the compile pins)",
+            file=sys.stderr,
+        )
+        return 5
 
     ws = workspace_root(a.workspace)
     if not ws.is_dir():
@@ -339,7 +571,7 @@ def main(argv=None) -> int:
         return 4
 
     if a.mode == "campaign":
-        d = campaign(ws, a.tier)
+        d = campaign_compile(ws, a.tier) if a.axis == "compile" else campaign(ws, a.tier)
     elif a.mode == "ingest":
         d = ingest(ws)
     else:
