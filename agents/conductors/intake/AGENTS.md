@@ -83,7 +83,7 @@ schema — light structure over free-form prose.
 | **classify** | `intake "<text>"` / `intake classify --file P` | classify one raw input; `--apply` writes the prompt |
 | **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
-| **dashboard** | `intake dashboard` | render the census as the Mind **backlog** page; `--apply` writes `PyAutoMind/dashboard.md` |
+| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, parked, planned, backlog; `--apply` writes `PyAutoMind/dashboard.md`, `--check` exits 1 on drift |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`); always read-only — retiring stays human |
 | **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source for identifiers the prompts name — the one signal that sees a prompt with no Mind-side trace. Opt-in; the default path is offline |
@@ -160,8 +160,9 @@ bin/pyauto-brain intake --apply classify --file tmp/raw.md         # write the p
 bin/pyauto-brain intake ideas                                      # scan ideas.md (dry-run)
 bin/pyauto-brain intake --apply ideas                              # write them + mark bullets
 bin/pyauto-brain intake census                                     # backlog inventory (read-only)
-bin/pyauto-brain intake dashboard                                  # backlog page to stdout (dry-run)
+bin/pyauto-brain intake dashboard                                  # task page to stdout (dry-run)
 bin/pyauto-brain intake --apply dashboard                          # write PyAutoMind/dashboard.md
+bin/pyauto-brain intake dashboard --check                          # exit 1 if the committed page has drifted
 bin/pyauto-brain intake formalise                                  # propose retroactive headers (dry-run)
 bin/pyauto-brain intake --apply formalise bug/                     # write them, only under bug/
 bin/pyauto-brain intake reconcile                                  # rank shipped-but-stale suspects (read-only)
