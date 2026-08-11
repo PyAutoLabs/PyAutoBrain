@@ -29,9 +29,13 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
 - `bin/pyauto-brain intake census` — read-only inventory of every filed prompt
   (counts by work-type/target/difficulty/priority + hygiene flags for headerless
   legacy prompts). `--json` for the full records.
-- `bin/pyauto-brain intake dashboard` — renders the census as the Mind
-  **backlog** page; dry-run prints it, `--apply` writes
-  `PyAutoMind/dashboard.md` (commit via `prompt_sync_push`). Backlog only —
+- `bin/pyauto-brain intake dashboard` — renders the census as the Mind **task**
+  page (`PyAutoMind/dashboard.md`, linked from that repo's README): the picks
+  worth starting now, then in flight / parked / planned / the whole backlog.
+  Dry-run prints it, `--apply` writes it (commit via `prompt_sync_push`),
+  `--check` exits 1 if the committed page has drifted — PyAutoMind's
+  `dashboard_refresh.yml` self-heals that on pushes to main, so regenerate it
+  by hand only when you want the page current in the same commit. Tasks only —
   organism *health* is `/health`, not this page.
 - `bin/pyauto-brain intake formalise [prefix]` — retroactively headers the
   prompts census flags (word-vomit is intent, not defect): derives the missing

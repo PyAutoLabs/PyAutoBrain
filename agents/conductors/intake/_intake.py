@@ -345,13 +345,66 @@ def _prefix_match(path: str, prefix: str) -> bool:
     return path.startswith(prefix) or sans.startswith(prefix)
 
 
-def census(mind: Path) -> dict:
-    """Inventory every filed prompt — one record per `draft/<work-type>/**/*.md`.
+# The registry files (`active.md`, `parked.md`, `planned.md`) are the Mind's
+# record of work that is no longer merely filed: an H2 slug per task, then
+# `- key: value` bullets (REFERENCE.md "active.md schema"). Values run to
+# paragraphs of prose, so the dashboard takes the first line of each and
+# truncates — the registry file itself stays the full record.
+_REG_HEAD = re.compile(r"^##\s+(\S.*?)\s*$")
+_REG_FIELD = re.compile(r"^-\s+([a-z][a-z-]*):\s*(.*)$")
+_ISSUE_URL = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
 
-    Read-only, always. Walks the WORK_TYPES folders under `draft/` (incl.
-    `triage/`); `active/` prompts are already dispatched, so they are counted
-    but not itemised. This is the Mind *backlog* view — health belongs to the
-    Heart, never here.
+
+def parse_registry(path: Path) -> list:
+    """Parse one registry file into `[{slug, issue, issue_no, status, prompt}]`.
+
+    Tolerant by design: these files are hand-edited by many sessions, so an
+    entry missing every field still yields a record (a slug alone is the task
+    name a human picks from). Absent file -> empty list.
+    """
+    if not path.is_file():
+        return []
+    entries, cur = [], None
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        head = _REG_HEAD.match(line)
+        if head:
+            cur = {"slug": head.group(1), "issue": "", "issue_no": "",
+                   "status": "", "prompt": ""}
+            entries.append(cur)
+            continue
+        if cur is None:
+            continue
+        field = _REG_FIELD.match(line)
+        if not field:
+            continue
+        key, value = field.group(1), field.group(2).strip()
+        if key in ("issue", "status", "prompt") and not cur[key]:
+            cur[key] = value
+            if key == "issue":
+                # The value often trails prose ("…/issues/20 (build gated)"),
+                # so link the matched URL, never the whole field.
+                m = _ISSUE_URL.search(value)
+                if m:
+                    cur["issue"], cur["issue_no"] = m.group(0), m.group(1)
+    return entries
+
+
+def _clip(text: str, limit: int = 130) -> str:
+    """First line of a registry value, clipped at a word boundary."""
+    text = text.strip().splitlines()[0].strip() if text.strip() else ""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" .,;:—-") + "…"
+
+
+def census(mind: Path) -> dict:
+    """Inventory the Mind's work — filed prompts plus the registry's live rows.
+
+    Read-only, always. The backlog leg walks the WORK_TYPES folders under
+    `draft/` (incl. `triage/`), one record per prompt file. The registry leg
+    itemises what has left the backlog: `active/` prompts (issued — an open
+    GitHub issue), and the `parked.md` / `planned.md` rows. This is the Mind's
+    *work* view — health belongs to the Heart, never here.
     """
     records, hygiene = [], []
     for wt in WORK_TYPES:
@@ -389,16 +442,49 @@ def census(mind: Path) -> dict:
             out[r[key]] = out.get(r[key], 0) + 1
         return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
 
+    parked = parse_registry(mind / "parked.md")
+    planned = parse_registry(mind / "planned.md")
+    # A registry row may name the prompt it drives (`- prompt: active/x.md`);
+    # that is the only reliable issue link for an issued prompt, since an issue
+    # URL in the prose body is as likely to be a cross-reference as the task's
+    # own issue.
+    by_prompt = {}
+    for e in parse_registry(mind / "active.md") + parked + planned:
+        if e["prompt"] and e["prompt"] not in by_prompt:
+            by_prompt[e["prompt"]] = e
+
+    in_flight = []
     active = mind / "active"
+    for f in sorted(active.glob("*.md")) if active.is_dir() else []:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        rel = str(f.relative_to(mind))
+        header = parse_header(text)
+        row = by_prompt.get(rel, {})
+        in_flight.append({
+            "path": rel,
+            "title": _title(text),
+            "target": header.get("target", "-"),
+            "priority": header.get("priority", "-"),
+            "issue": row.get("issue", ""),
+            "issue_no": row.get("issue_no", ""),
+            # The registry row only. A prompt's own `Status:` header is written
+            # at conception ("filed"/"formalised") and is stale the moment the
+            # task is issued, so it would report the opposite of live state.
+            "status": row.get("status", ""),
+        })
+
     return {
         "generated": _dt.date.today().isoformat(),
         "total": len(records),
-        "issued_count": sum(1 for _ in active.glob("*.md")) if active.is_dir() else 0,
+        "issued_count": len(in_flight),
         "by_work_type": _count("work_type"),
         "by_target": _count("target"),
         "by_difficulty": _count("difficulty"),
         "by_priority": _count("priority"),
         "records": records,
+        "in_flight": in_flight,
+        "parked": parked,
+        "planned": planned,
         "hygiene": hygiene,
     }
 
@@ -407,44 +493,150 @@ def _cell(value: str) -> str:
     return str(value).replace("|", "\\|")
 
 
-def render_dashboard(c: dict) -> str:
-    """Render the census as the Mind backlog page (`dashboard.md`).
+def _label(value: str) -> str:
+    """Link text for a markdown bullet, made safe to render.
 
-    Backlog only, by design: no readiness verdicts, no test state — that is the
-    Heart's dashboard (`/health`). Links are repo-root-relative so the page
-    renders cleanly on GitHub.
+    Brackets would end the link early, and a stray `<!--` (some untriaged
+    prompts open with an HTML comment, which `_title` faithfully reports) would
+    comment out the rest of the page in GitHub's renderer.
     """
+    value = str(value).replace("<!--", "").replace("-->", "").strip()
+    return value.replace("[", r"\[").replace("]", r"\]") or "Untitled"
+
+
+# Pick order. The dashboard exists to be *chosen from*, so every list is sorted
+# most-pickable first: urgent before routine, small before enormous. Unknown
+# (`-`, the headerless prompts) sorts last rather than being hidden.
+PRIORITY_RANK = {"high": 0, "medium": 1, "normal": 2, "low": 3}
+DIFFICULTY_RANK = {"small": 0, "medium": 1, "large": 2, "too-large": 3}
+PICK_LIST_MAX = 12
+# Live GitHub views, for the half of this page a static file cannot hold: the
+# issues themselves. Org-wide searches, so a new repo needs no edit here.
+GH_SEARCH = "https://github.com/search?q=org%3APyAutoLabs+is%3A{kind}+is%3Aopen&type={kind}s"
+
+
+def _pick_key(r: dict) -> tuple:
+    return (PRIORITY_RANK.get(r["priority"], 9),
+            DIFFICULTY_RANK.get(r["difficulty"], 9),
+            r["target"], r["path"])
+
+
+def _bullet(r: dict) -> str:
+    """One backlog prompt as a bullet — the phone-readable unit of this page.
+
+    A bullet wraps; a five-column table does not. GitHub's mobile view scrolls
+    wide tables sideways, which makes a 133-row backlog unusable on a phone,
+    so the metadata rides after an em dash instead of in columns.
+    """
+    facets = " · ".join(x for x in (r["target"], r["difficulty"],
+                                    r["autonomy"], r["priority"]) if x != "-")
+    return f"- [{_label(r['title'])}]({r['path']})" + (f" — {facets}" if facets else "")
+
+
+def render_dashboard(c: dict) -> str:
+    """Render the census as the Mind's task page (`dashboard.md`).
+
+    Tasks only, by design: no readiness verdicts, no test state — that is the
+    Heart's dashboard (`/health`). Two rules shape the layout: it must be
+    *pickable* (the top of the page answers "what should I do now?", not "how
+    many prompts are there?"), and it must read on a phone (bullets over wide
+    tables, long sections behind `<details>`). Links are repo-root-relative so
+    they resolve in GitHub's web and mobile markdown views alike.
+    """
+    records = sorted(c["records"], key=_pick_key)
     L = [
-        "# PyAutoMind backlog dashboard",
+        "# PyAutoMind task dashboard",
         "",
         f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
         f"{c['generated']} — regenerate, do not hand-edit -->",
         "",
-        f"**{c['total']}** filed prompts in the backlog · **{c['issued_count']}** "
-        "already dispatched to issues (`active/`). Backlog view only — organism "
-        "health lives with the Heart (`/health`), not here.",
+        "Every task the Mind is holding, on one page: what is in flight, what "
+        "is parked, and the whole backlog to pick from. Pick a line, then run "
+        "`/start_dev <prompt-path>` to start it.",
         "",
-        "| Work-type | Prompts |",
-        "|-----------|--------:|",
+        "Tasks only — the organism's health lives with the Heart (`/health`), "
+        "not here.",
+        "",
+        "| Where | Count |",
+        "|-------|------:|",
+        f"| [In flight](#in-flight) (`active/`) | {c['issued_count']} |",
+        f"| [Parked](#parked) (`parked.md`) | {len(c['parked'])} |",
+        f"| [Planned](#planned) (`planned.md`) | {len(c['planned'])} |",
+        f"| [Backlog](#backlog) (`draft/`) | {c['total']} |",
+        "",
+        f"Live on GitHub: [open issues]({GH_SEARCH.format(kind='issue')}) · "
+        f"[open pull requests]({GH_SEARCH.format(kind='pr')})",
+        "",
+        "## Start here",
+        "",
     ]
-    L += [f"| {wt} | {n} |" for wt, n in c["by_work_type"].items()]
-    for wt in c["by_work_type"]:
-        rows = [r for r in c["records"] if r["work_type"] == wt]
-        rows.sort(key=lambda r: (r["target"], r["path"]))
-        L += ["", f"## {wt} ({len(rows)})", "",
-              "| Prompt | Target | Difficulty | Autonomy | Priority |",
-              "|--------|--------|------------|----------|----------|"]
-        L += [f"| [{_cell(r['title'])}]({r['path']}) | {r['target']} "
-              f"| {r['difficulty']} | {r['autonomy']} | {r['priority']} |"
-              for r in rows]
+
+    high = [r for r in records if r["priority"] == "high"]
+    quick = [r for r in records
+             if r["difficulty"] == "small" and r["autonomy"] == "safe"]
+    for title, note, rows in (
+        ("Highest priority", "filed as `high`", high),
+        ("Quick wins", "small enough, and safe enough to run unattended", quick),
+    ):
+        shown = rows[:PICK_LIST_MAX]
+        more = f" — showing {len(shown)} of {len(rows)}" if len(rows) > len(shown) else ""
+        L += [f"**{title}** ({note}){more}", ""]
+        L += [_bullet(r) for r in shown] or ["- _(none right now)_"]
+        L += [""]
+
+    L += ["## In flight", "",
+          "Issued — each has an open GitHub issue and usually a branch. The "
+          "full record for each is in [`active.md`](active.md).", ""]
+    for r in c["in_flight"]:
+        issue = f" — [issue #{r['issue_no']}]({r['issue']})" if r["issue_no"] else ""
+        status = f" — {_clip(r['status'])}" if r["status"] else ""
+        L.append(f"- [{_label(r['title'])}]({r['path']}){issue}{status}")
+    L += ([] if c["in_flight"] else ["- _(nothing in flight)_"]) + [""]
+
+    for key, heading, blurb in (
+        ("parked", "Parked", "Started or scoped, not currently in flight — "
+                             "resume by moving the row back to `active.md`. "
+                             "Full detail in [`parked.md`](parked.md)."),
+        ("planned", "Planned", "Scoped but not started; some are not yet prompt "
+                               "files. Full detail in [`planned.md`](planned.md)."),
+    ):
+        rows = c[key]
+        L += [f"## {heading}", "", blurb, "",
+              "<details>", f"<summary><b>{len(rows)}</b> task(s)</summary>", ""]
+        for e in rows:
+            issue = f" — [issue #{e['issue_no']}]({e['issue']})" if e["issue_no"] else ""
+            status = f" — {_clip(e['status'])}" if e["status"] else ""
+            L.append(f"- **{_label(e['slug'])}**{issue}{status}")
+        L += ([] if rows else ["- _(none)_"]) + ["", "</details>", ""]
+
+    L += [f"## Backlog", "",
+          f"**{c['total']}** filed prompts, not started. Each section is sorted "
+          "most-pickable first (priority, then size).", ""]
+    for wt, n in c["by_work_type"].items():
+        rows = [r for r in records if r["work_type"] == wt]
+        L += ["<details>", f"<summary><b>{wt}</b> — {n}</summary>", ""]
+        L += [_bullet(r) for r in rows]
+        L += ["", "</details>", ""]
+
     if c["hygiene"]:
-        L += ["", "## Hygiene", "",
+        L += ["## Hygiene", "",
               f"{len(c['hygiene'])} prompt(s) without a metadata header — they "
-              "show `-` above. Re-home or re-run intake on them when touched.", "",
+              "show no facets above. Re-home or re-run intake on them when "
+              "touched.", "",
               "<details>", "<summary>Headerless prompts</summary>", ""]
         L += [f"- `{h.split(' — ')[0]}`" for h in c["hygiene"]]
         L += ["", "</details>"]
-    return "\n".join(L) + "\n"
+    return "\n".join(L).rstrip("\n") + "\n"
+
+
+def _dashboard_body(page: str) -> str:
+    """The page minus its generation stamp — what `--check` compares.
+
+    The stamp changes every day the generator runs; comparing it would make
+    every re-render look like drift and the self-heal push a daily commit.
+    """
+    return "\n".join(l for l in page.splitlines()
+                     if not l.startswith("<!-- generated by"))
 
 
 def emit_census(c: dict):
@@ -455,6 +647,8 @@ def emit_census(c: dict):
 
     print("== Mind census ==")
     print(f"Filed prompts:   {c['total']}   (already issued: {c['issued_count']})")
+    print(f"Registry:        in flight {c['issued_count']} · parked "
+          f"{len(c['parked'])} · planned {len(c['planned'])}")
     print(f"By work-type:    {_fmt(c['by_work_type'])}")
     print(f"By target:       {_fmt(c['by_target'], top=8)}")
     print(f"By difficulty:   {_fmt(c['by_difficulty'])}")
@@ -1184,8 +1378,12 @@ def main(argv=None):
 
     sub.add_parser("census", help="inventory all filed prompts (always read-only)")
 
-    sub.add_parser("dashboard", help="render the census as the Mind backlog page; "
-                                     "--apply writes dashboard.md")
+    db = sub.add_parser("dashboard", help="render the census as the Mind task "
+                                          "page; --apply writes dashboard.md")
+    db.add_argument("--check", action="store_true",
+                    help="exit 1 if the committed dashboard.md has drifted from "
+                         "what this run renders (the generation date is ignored, "
+                         "so a re-render on an unchanged Mind is not drift)")
 
     fm = sub.add_parser("formalise", help="retroactively header the backlog "
                                           "prompts census flags; --apply writes")
@@ -1236,6 +1434,15 @@ def main(argv=None):
     if a.cmd == "dashboard":
         c = census(mind)
         page = render_dashboard(c)
+        if a.check:
+            target = mind / "dashboard.md"
+            on_disk = target.read_text(encoding="utf-8") if target.is_file() else ""
+            if _dashboard_body(on_disk) == _dashboard_body(page):
+                print("dashboard.md is current")
+                return 0
+            print("dashboard.md is stale — regenerate with "
+                  "`pyauto-brain intake dashboard --apply`", file=sys.stderr)
+            return 1
         written = None
         if a.apply:
             (mind / "dashboard.md").write_text(page, encoding="utf-8")
