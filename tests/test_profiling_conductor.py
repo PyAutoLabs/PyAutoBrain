@@ -1,8 +1,12 @@
 """Contract tests for the profiling conductor's CLI footing.
 
-Hermetic: every test builds a synthetic `autolens_profiling` fixture in a temp
+Hermetic: every test builds a synthetic `profiling_workspace` fixture in a temp
 dir and passes it via `--workspace`, so the assertions never depend on the state
-of the real checkout (whose corpus grows every campaign).
+of the real checkout (whose corpus grows every campaign). The fixture directory
+name is deliberately NOT the real workspace's: every invocation passes
+`--workspace` explicitly (proving the override is honoured), so a real repo name
+here would be an instance fact in organ code — the tenant firewall's concern
+(PyAutoMind/scripts/repos_sync.py) — for no test value.
 
 Profiling was the only conductor without a test file when the compile axis was
 added; the runtime-axis cases here exist to hold that surface still while the
@@ -60,7 +64,7 @@ def _record(**kw):
 
 
 def _workspace(tmp_path, records_by_file=None):
-    ws = tmp_path / "autolens_profiling"
+    ws = tmp_path / "profiling_workspace"
     lr = ws / "scripts" / "misc" / "likelihood_runtime"
     lr.mkdir(parents=True)
     (lr / "sweep.py").write_text(FIXTURE_CELLS)

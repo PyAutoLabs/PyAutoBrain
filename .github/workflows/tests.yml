@@ -7,19 +7,26 @@ name: Brain Tests
 # seams ran in no CI at all and a Brain PR's only gate was whatever the
 # authoring session happened to run locally.
 #
-# Deliberately ONLY pytest. It must not run `pyauto-brain <agent>` against live
-# repos or reach the network — those need the full workspace and belong to the
-# scheduled health/nightly drivers, not a PR gate. The suite is stdlib + PyYAML
-# only, so it stays fast (~30s) and flake-free.
+# pytest plus ONE drift leg. The suite must not run `pyauto-brain <agent>`
+# against live repos or reach the network — those need the full workspace and
+# belong to the scheduled health/nightly drivers, not a PR gate. The suite is
+# stdlib + PyYAML only, so it stays fast (~30s) and flake-free. The one
+# non-pytest step is the tenant-firewall gate (PyAutoMind#198): every firewall
+# finding to date merged through a green PR because no PR CI ran the check, so
+# the leg a Brain PR can cause is verified here, in the PR that authors it.
+# `--only` keeps Mind-side legs (map blocks, registries) from reddening Brain
+# PRs on drift Brain cannot cause; organs not checked out (Heart, Hands) are
+# skipped by the check itself, so this gates exactly Brain.
 #
 # TWO repos are checked out on purpose. PyAutoBrain alone cannot even COLLECT
 # the suite: `agents/faculties/sizing/_sizing.py` reads the body map
 # (`BRAIN_HOME.parent / "PyAutoMind" / "repos.yaml"`) at import time and is
 # deliberately strict, so `test_policy_seams.py` and `test_sizing_paths.py`
 # error out before a single test runs. Checking PyAutoMind out as a sibling
-# reproduces the workspace layout the code assumes. Both repos are public, so
-# the default GITHUB_TOKEN suffices — no PAT. No other sibling repo is needed
-# (verified by running the suite against exactly this two-repo layout).
+# reproduces the workspace layout the code assumes — the same layout the
+# firewall gate's `--root` needs. Both repos are public, so the default
+# GITHUB_TOKEN suffices — no PAT. No other sibling repo is needed (verified by
+# running the suite against exactly this two-repo layout).
 
 # One run per commit: PR events carry the CI; pushes only build main.
 # Superseded runs are cancelled on PR refs only — a cancelled main run would
@@ -62,3 +69,8 @@ jobs:
       - name: Run tests
         working-directory: PyAutoBrain
         run: pytest tests/ -q
+      - name: Tenant firewall (instance facts stay in declared config surfaces)
+        run: >
+          python3 PyAutoMind/scripts/repos_sync.py --check
+          --only "tenant firewall (organ code)"
+          --root "$GITHUB_WORKSPACE"
