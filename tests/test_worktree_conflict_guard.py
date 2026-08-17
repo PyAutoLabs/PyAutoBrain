@@ -6,12 +6,12 @@ reads `worktree_list_claimed`, whose awk was written for the schema the
 start_library/start_workspace references still document:
 
     - repos:
-      - PyAutoFit: feature/foo
+      - RepoA: feature/foo
 
 Every writer drifted to the paren form instead:
 
     - repos:
-      - autolens_workspace (feature/foo)
+      - RepoB (feature/foo)
 
 which the `": "` split swallowed whole, so `repo` never equalled the requested
 repo name and the guard exited 0 for every task. The parser now accepts both
@@ -28,13 +28,19 @@ from pathlib import Path
 
 WORKTREE_SH = Path(__file__).resolve().parents[1] / "bin" / "worktree.sh"
 
+# Fixture repo names are deliberately synthetic (RepoA…RepoG): the awk in
+# worktree.sh does plain string compares and validates against no repo list,
+# so a real name here would be an instance fact in organ code — the tenant
+# firewall's concern (PyAutoMind/scripts/repos_sync.py) — for no test value.
+# Keep them synthetic.
+
 PAREN = """# Active Tasks
 
 ## paren-task
 - issue: http://x
 - worktree: ~/wt/paren-task
 - repos:
-  - autolens_workspace (feature/paren-task)
+  - RepoB (feature/paren-task)
 """
 
 COLON = """# Active Tasks
@@ -43,7 +49,7 @@ COLON = """# Active Tasks
 - issue: http://y
 - worktree: ~/wt/colon-task
 - repos:
-  - PyAutoFit: feature/colon-task
+  - RepoA: feature/colon-task
 """
 
 # `repos:` before `worktree:` — both orderings occur in the real ledger.
@@ -51,7 +57,7 @@ REPOS_FIRST = """# Active Tasks
 
 ## rbw-task
 - repos:
-  - PyAutoArray (feature/rbw-task)
+  - RepoC (feature/rbw-task)
 - worktree: ~/wt/rbw-task
 """
 
@@ -61,24 +67,24 @@ TWO_CLAIMS = """# Active Tasks
 ## first-task
 - worktree: ~/wt/first-task
 - repos:
-  - autolens_workspace (feature/first-task)
+  - RepoB (feature/first-task)
 
 ## second-task
 - worktree: ~/wt/second-task
 - repos:
-  - autolens_workspace (feature/second-task)
+  - RepoB (feature/second-task)
 """
 
 # Both shapes carry trailing notes in the real ledger, and some claims name no
 # branch at all. Sampled from active.md history: 258 claim lines, 162 colon-form,
-# 139 paren-form, plus bare names like `  - PyAutoReduce`.
+# 139 paren-form, plus bare names like `  - RepoG`.
 ANNOTATED = """# Active Tasks
 
 ## annotated-task
 - worktree: ~/wt/annotated-task
 - repos:
-  - HowToFit: feature/howto-smoke (base 65e8fbd == origin/main)
-  - PyAutoReduce
+  - RepoF: feature/howto-smoke (base 65e8fbd == origin/main)
+  - RepoG
 """
 
 # A task that claims nothing — the `repos-none-claimed:` shape live entries use.
@@ -120,14 +126,14 @@ def _claims(tmp_path: Path, active_body: str) -> list[list[str]]:
 # --- the regression: the paren form is what every writer emits ----------------
 
 def test_paren_form_claim_conflicts(tmp_path):
-    proc = _run(tmp_path, PAREN, "worktree_check_conflict new-task autolens_workspace")
+    proc = _run(tmp_path, PAREN, "worktree_check_conflict new-task RepoB")
     assert proc.returncode == 1, "paren-form claim did not register as a conflict"
     assert "paren-task" in proc.stderr
 
 
 def test_paren_form_repo_is_bare(tmp_path):
     task, repo, branch, wt = _claims(tmp_path, PAREN)[0]
-    assert repo == "autolens_workspace"
+    assert repo == "RepoB"
     assert branch == "feature/paren-task"
     assert wt == "~/wt/paren-task"
 
@@ -135,14 +141,14 @@ def test_paren_form_repo_is_bare(tmp_path):
 # --- back-compat: the documented colon form must keep working -----------------
 
 def test_colon_form_claim_conflicts(tmp_path):
-    proc = _run(tmp_path, COLON, "worktree_check_conflict new-task PyAutoFit")
+    proc = _run(tmp_path, COLON, "worktree_check_conflict new-task RepoA")
     assert proc.returncode == 1
     assert "colon-task" in proc.stderr
 
 
 def test_colon_form_repo_is_bare(tmp_path):
     task, repo, branch, wt = _claims(tmp_path, COLON)[0]
-    assert repo == "PyAutoFit"
+    assert repo == "RepoA"
     assert branch == "feature/colon-task"
 
 
@@ -152,12 +158,12 @@ def test_worktree_captured_when_repos_precede_it(tmp_path):
     # The awk set `wt` on sight, so a `repos:` block above `worktree:` emitted
     # "-" and repo_cleanup lost the worktree path for that claim.
     task, repo, branch, wt = _claims(tmp_path, REPOS_FIRST)[0]
-    assert repo == "PyAutoArray"
+    assert repo == "RepoC"
     assert wt == "~/wt/rbw-task", "worktree: must be captured regardless of field order"
 
 
 def test_worktree_does_not_leak_between_tasks(tmp_path):
-    body = REPOS_FIRST + "\n## later-task\n- repos:\n  - PyAutoLens (feature/later)\n"
+    body = REPOS_FIRST + "\n## later-task\n- repos:\n  - RepoD (feature/later)\n"
     rows = {r[0]: r for r in _claims(tmp_path, body)}
     assert rows["later-task"][3] == "-", "a task with no worktree: must not inherit one"
 
@@ -165,33 +171,33 @@ def test_worktree_does_not_leak_between_tasks(tmp_path):
 # --- the guard's own contract -------------------------------------------------
 
 def test_task_does_not_conflict_with_itself(tmp_path):
-    proc = _run(tmp_path, PAREN, "worktree_check_conflict paren-task autolens_workspace")
+    proc = _run(tmp_path, PAREN, "worktree_check_conflict paren-task RepoB")
     assert proc.returncode == 0, proc.stderr
 
 
 def test_unclaimed_repo_does_not_conflict(tmp_path):
-    proc = _run(tmp_path, PAREN, "worktree_check_conflict new-task PyAutoGalaxy")
+    proc = _run(tmp_path, PAREN, "worktree_check_conflict new-task RepoE")
     assert proc.returncode == 0, proc.stderr
 
 
 def test_conflict_names_every_claiming_task(tmp_path):
-    proc = _run(tmp_path, TWO_CLAIMS, "worktree_check_conflict new-task autolens_workspace")
+    proc = _run(tmp_path, TWO_CLAIMS, "worktree_check_conflict new-task RepoB")
     assert proc.returncode == 1
     assert "first-task" in proc.stderr
     assert "second-task" in proc.stderr
 
 
 def test_trailing_note_does_not_corrupt_repo(tmp_path):
-    # `  - HowToFit: feature/howto-smoke (base 65e8fbd == origin/main)` — the
+    # `  - RepoF: feature/howto-smoke (base 65e8fbd == origin/main)` — the
     # repo name is what the guard compares, so the note must not reach it.
     rows = {r[1]: r for r in _claims(tmp_path, ANNOTATED)}
-    assert set(rows) == {"HowToFit", "PyAutoReduce"}
-    assert rows["HowToFit"][2].startswith("feature/howto-smoke")
+    assert set(rows) == {"RepoF", "RepoG"}
+    assert rows["RepoF"][2].startswith("feature/howto-smoke")
 
 
 def test_claim_without_a_branch_still_claims(tmp_path):
-    # `  - PyAutoReduce` with no branch is a real shape; it must still conflict.
-    proc = _run(tmp_path, ANNOTATED, "worktree_check_conflict new-task PyAutoReduce")
+    # `  - RepoG` with no branch is a real shape; it must still conflict.
+    proc = _run(tmp_path, ANNOTATED, "worktree_check_conflict new-task RepoG")
     assert proc.returncode == 1
     assert "annotated-task" in proc.stderr
 
@@ -222,7 +228,7 @@ def test_conflict_guard_fails_closed_when_the_registry_is_missing(tmp_path):
     decides whether a task may start — so "I could not check" has to stop the
     caller, not wave it through.
     """
-    proc = _run(tmp_path, None, "worktree_check_conflict some-task PyAutoFit")
+    proc = _run(tmp_path, None, "worktree_check_conflict some-task RepoA")
     assert proc.returncode != 0
     assert "CANNOT VERIFY" in proc.stderr
     assert "PYAUTO_MAIN" in proc.stderr      # names what to set
@@ -231,6 +237,6 @@ def test_conflict_guard_fails_closed_when_the_registry_is_missing(tmp_path):
 def test_conflict_guard_can_be_forced_past_a_missing_registry(tmp_path):
     """The escape hatch is explicit and loud — never the default."""
     proc = _run(tmp_path, None,
-                "worktree_check_conflict --allow-missing-registry t PyAutoFit")
+                "worktree_check_conflict --allow-missing-registry t RepoA")
     assert proc.returncode == 0
     assert "UNGUARDED" in proc.stderr

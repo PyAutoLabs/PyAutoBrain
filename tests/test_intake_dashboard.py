@@ -104,10 +104,14 @@ def test_every_backlog_prompt_is_a_bullet_not_a_wide_table_row(tmp_path):
 # --------------------------------------------------------------------------- #
 # in flight: the issue link is the registry's, and the status is live
 # --------------------------------------------------------------------------- #
+# The issue URLs are deliberately synthetic (ExampleOrg/Widgets): the dashboard
+# regex captures whole URLs and never inspects the owner, so a real GitHub
+# owner here would be an instance fact in organ code — the tenant firewall's
+# concern (PyAutoMind/scripts/repos_sync.py) — for no test value.
 ACTIVE_MD = """# Active Tasks
 
 ## widget-rework
-- issue: https://github.com/PyAutoLabs/Widgets/issues/42 (opened after the spike)
+- issue: https://github.com/ExampleOrg/Widgets/issues/42 (opened after the spike)
 - status: library-dev — branch pushed, awaiting review
 - prompt: active/widget_rework.md
 """
@@ -118,7 +122,7 @@ def test_in_flight_links_the_registry_issue_and_its_live_status(tmp_path):
                  active={"widget_rework.md": _prompt("Widget rework")},
                  registries={"active.md": ACTIVE_MD})
     flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
-    assert "[issue #42](https://github.com/PyAutoLabs/Widgets/issues/42)" in flight, \
+    assert "[issue #42](https://github.com/ExampleOrg/Widgets/issues/42)" in flight, \
         "the link must be the matched URL, not the field's trailing prose"
     assert "(opened after the spike)" not in flight
     assert "library-dev" in flight
@@ -129,7 +133,7 @@ def test_in_flight_links_the_registry_issue_and_its_live_status(tmp_path):
 def test_in_flight_prompt_with_no_registry_row_claims_no_issue(tmp_path):
     """Silence beats a wrong link: prose issue URLs are usually cross-references."""
     body = _prompt("Orphan task") + \
-        "\nFollow-up to https://github.com/PyAutoLabs/Widgets/issues/7 (unrelated).\n"
+        "\nFollow-up to https://github.com/ExampleOrg/Widgets/issues/7 (unrelated).\n"
     mind = _mind(tmp_path, active={"orphan.md": body})
     flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
     assert "Orphan task" in flight
