@@ -94,6 +94,10 @@ _SHARED_MIXED = [
     "FREE_TIER_SETUP.md",         # per-platform chat setup — the platform
                                   # mechanics clone verbatim, the worked prompts
                                   # and dataset names are domain
+    "CHOOSING_YOUR_AI_TOOL.md",   # the other half of that free-tier chat
+                                  # surface: which tool to use and how to set it
+                                  # up clones verbatim, the domain naming and
+                                  # worked examples do not
     "config/*",
     "benchmarks/README.md",       # protocol generic, benchmark table domain
 ]
