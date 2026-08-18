@@ -62,7 +62,8 @@ what the human validates instead of the pre-approval they didn't give:
 - Effective level: safe (header: <level>, cap: <work-type> → <cap>)
 - Plan: on the issue (#<n>), written at start, unmodified since
 - Gate: tests <pass counts / n-a + why> · smoke <result / n-a + why> ·
-  review CLEAN · Heart <GREEN | YELLOW within launch ack>
+  review CLEAN <+ one disposition per lifted claim, when the surface lifted
+  any — faculty AGENTS.md step 2a> · Heart <GREEN | YELLOW within launch ack>
 - [ ] Human: plan sound in hindsight?
 - [ ] Human: diff matches plan (no scope creep)?
 - [ ] Human: merge, amend, or reject — then log the outcome

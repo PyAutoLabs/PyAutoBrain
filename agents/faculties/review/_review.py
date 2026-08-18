@@ -190,6 +190,12 @@ def emit_human(surfaces: list[dict]) -> None:
     print("file:line, failure scenario) | BLOCKED (could not review — say why).")
     print("A load-bearing claim above with no falsified-by basis in the branch is")
     print("a FINDING (unverified-claim) — see the faculty AGENTS.md.")
+    if any(s.get("claims_to_falsify") for s in surfaces):
+        print("Record ONE disposition line per lifted claim in the verdict:")
+        print('  claim: "<lifted line>" -> basis-cited: <test/measurement/diff>'
+              " | idle | FINDING (unverified-claim)")
+        print("A CLEAN over a non-empty claims surface without dispositions is")
+        print("malformed evidence, not CLEAN (faculty AGENTS.md step 2a).")
 
 
 def main(argv=None) -> int:

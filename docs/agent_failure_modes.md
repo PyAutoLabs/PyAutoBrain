@@ -179,9 +179,11 @@ Each: catalogue entries caught → why it fires at the decisive moment → cost
    agent's verdict gains a one-line disposition per lifted claim
    (basis-cited / idle / finding) recorded in the ship evidence, so a rote
    pass becomes visible ledger drift per this doc's own ranking (detecting
-   beats reminding). Filed: PyAutoMind
-   `draft/feature/pyautobrain/review_claim_dispositions.md`; full numbers in
-   PyAutoMind `complete/2026/08/falsified-by-checkpoint-efficacy-review.md`.
+   beats reminding). Implemented 2026-08-18: faculty AGENTS.md step 2a + the
+   surface epilogue + the AUTONOMY.md review leg + the ship evidence format
+   (record: PyAutoMind `complete/2026/08/review-claim-dispositions.md`); full
+   numbers in PyAutoMind
+   `complete/2026/08/falsified-by-checkpoint-efficacy-review.md`.
 
 ## 6. The memory system, attacked honestly
 

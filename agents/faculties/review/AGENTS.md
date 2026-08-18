@@ -62,11 +62,21 @@ Heart and the agent reasons over the verdict.
    category `unverified-claim` — the author asserted an effect they did not
    show. Scope it to genuinely load-bearing claims (an effect that, if wrong,
    ships a bug); an idle turn of phrase is not a finding — say so and move on,
-   so the pass does not decay into rote noise.
+   so the pass does not decay into rote noise. **Record a disposition per
+   claim**: the verdict carries one line per lifted claim —
+   `claim: "<lifted line>" → basis-cited: <the test/measurement/diff that shows it> | idle | FINDING (unverified-claim)`
+   — written by the reviewer at verdict time, never by the author. This is
+   what makes the pass auditable: the 2026-08-18 efficacy review
+   (`docs/agent_failure_modes.md` item 6 Outcome) found that across 22 ship
+   gates a healthy pass and a skipped one wrote the identical ledger row.
+   An empty surface requires nothing.
 3. Map the outcome to the verdict: any unresolved must-fix → **FINDINGS**
    (ranked list, file:line, failure scenario) — including any
    `unverified-claim` from step 2a; nothing → **CLEAN**; could not
-   complete steps 1–2 → **BLOCKED** (say why).
+   complete steps 1–2 → **BLOCKED** (say why). A CLEAN over a non-empty
+   `claims to falsify` surface **must** carry the step-2a disposition lines —
+   without them the evidence is malformed, not CLEAN (the ship-checkpoint
+   reader can see the omission; that is the reader-enforcement).
 
 ## Run
 
