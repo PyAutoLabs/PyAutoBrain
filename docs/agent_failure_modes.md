@@ -146,6 +146,43 @@ Each: catalogue entries caught → why it fires at the decisive moment → cost
    ship; failure mode: rote compliance — mitigate by keeping it to
    load-bearing claims only. **Trial it; measure whether it goes rote.**
 
+   **Outcome (2026-08-18, the committed ~10-ship efficacy review) — not
+   proven rote; proven unobservable, which is its own finding.** Shipped
+   2026-07-17 (PyAutoBrain#140) as the review faculty's `claims to falsify`
+   surface + step-2a `unverified-claim` finding — reader-enforced as
+   designed, but note that on autonomous ships the "reader" is the branch's
+   own author (`review self-CLEAN` in the ledger). Across the 22 ship gates
+   with a review leg since go-live (21 autonomy-log rows 2026-07-17→08-01
+   plus one August cloud-session faculty run): `unverified-claim` findings
+   raised: **0**; records showing the claim pass demonstrably exercised:
+   **2** (2026-07-21 interpolator-aggregator-test-mode — the "no-op outside
+   test mode" claim checked against its off-switch test; the 2026-08
+   autohands-firewall-allowlist cloud run). The other ~20 verdicts are bare
+   "review CLEAN" — a healthy pass and a rote one write the identical ledger
+   row, exactly the failure signature this trial was supposed to look for.
+   The instrument itself is healthy: probe claims lift 3/3 and the 5 pinning
+   tests are green (re-validated 2026-08-18), and over the two organism
+   repos' real merged history since go-live it fires on 13/50 (Brain) and
+   3/66 (Mind) merge messages — neither always-empty nor saturated.
+   `verified` does most of the lifting (17/26 lines) and mostly lifts the
+   author's *evidence* sentence, not a bare claim: shipped messages in this
+   window conspicuously carry "Verified by/against <probe>" inline, so the
+   zero finding rate is at least partly deterrence, not only
+   non-engagement. Idle-phrasing scoping holds at the level that matters (no
+   changelog chatter lifted; residual false positives — mid-sentence wrap
+   fragments, narrative `identical`/`unchanged` — cost seconds and carry no
+   bypass pressure, unlike F5's refusal class). The one confirmed-wrong
+   load-bearing claim in the window (the 2026-07-27 "5 siblings" count,
+   falsified by an external Codex review) lived in an issue comment —
+   outside the commit-message surface this stage reads. **Verdict: keep,
+   vocabulary unchanged; close the observability gap** — the reviewing
+   agent's verdict gains a one-line disposition per lifted claim
+   (basis-cited / idle / finding) recorded in the ship evidence, so a rote
+   pass becomes visible ledger drift per this doc's own ranking (detecting
+   beats reminding). Filed: PyAutoMind
+   `draft/feature/pyautobrain/review_claim_dispositions.md`; full numbers in
+   PyAutoMind `complete/2026/08/falsified-by-checkpoint-efficacy-review.md`.
+
 ## 6. The memory system, attacked honestly
 
 The day's evidence cuts both ways. Failures: B1, B2, and F1's note that did
@@ -193,7 +230,9 @@ mitigation 6 targets exactly the boundary-crossing moment.
   one line, highest ratio. 2 (Mind commit guard) and 3 (claim expiry): small
   tasks, file on approval. 4–5: mine the conductors, file individually.
   6 (falsified-by lines): trial on the next ship series, review whether it
-  went rote after ~10 ships.
+  went rote after ~10 ships — **done 2026-08-18**, see item 6's Outcome
+  (verdict: keep + per-claim disposition lines; the review itself was
+  PyAutoMind `complete/2026/08/falsified-by-checkpoint-efficacy-review.md`).
 - Whether F5's API-gate false-positive class warrants a scope fix (only scan
   arguments that are Python code, not path strings) — small, filed
   separately.
