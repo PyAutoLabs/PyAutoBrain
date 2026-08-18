@@ -158,7 +158,10 @@ applicability rule so "n/a" is a stated fact, never an assumption:
    feel stronger.
 3. **Review** — review-faculty verdict **CLEAN**
    (`agents/faculties/review/AGENTS.md`). FINDINGS → resolve and re-review, or
-   park to a human checkpoint; BLOCKED → park.
+   park to a human checkpoint; BLOCKED → park. When the surface lifted any
+   `claims to falsify`, CLEAN carries one disposition line per claim
+   (basis-cited / idle / finding — faculty AGENTS.md step 2a); a bare CLEAN
+   over a non-empty claims surface is malformed evidence, not CLEAN.
 4. **Heart** — verdict **GREEN** or **STALE**, or **YELLOW whose reason set is
    contained in the set the human acknowledged at launch**. Heart observes
    organism state, not the branch (the audit confirmed its legs never see
