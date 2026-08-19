@@ -147,6 +147,56 @@ def test_registry_entry_without_fields_still_lists(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# copy blocks: every task carries a paste-ready message that routes Claude
+# --------------------------------------------------------------------------- #
+COPY_SUMMARY = "<summary>📋 copy for Claude</summary>"
+
+
+def test_backlog_and_picks_carry_a_start_dev_copy_block(tmp_path):
+    """GitHub's copy button lives on fenced code blocks — the one clipboard a
+    static page has, and the whole point of the block on a phone."""
+    mind = _mind(tmp_path, drafts={
+        "bug/widgets/one.md": _prompt("Bug one", priority="high")})
+    page = _page(mind)
+    fence = "  ```\n  /start_dev draft/bug/widgets/one.md\n  ```"
+    head, backlog = page.split("## In flight")[0], page.split("## Backlog")[1]
+    assert fence in head and COPY_SUMMARY in head, \
+        "the Start-here picks must carry the copy block"
+    assert fence in backlog and COPY_SUMMARY in backlog, \
+        "backlog bullets must carry the copy block"
+
+
+def test_in_flight_copy_block_targets_the_active_prompt(tmp_path):
+    mind = _mind(tmp_path, active={"widget_rework.md": _prompt("Widget rework")})
+    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    assert "  /start_dev active/widget_rework.md" in flight
+
+
+def test_registry_row_copy_block_prefers_its_prompt_path(tmp_path):
+    """A parked row naming its prompt gets `/start_dev`; a bare slug has no
+    start_dev target, so it routes as free prose instead."""
+    mind = _mind(tmp_path, registries={"parked.md": (
+        "# Parked\n\n## with-prompt\n- prompt: active/widget_rework.md\n"
+        "\n## lonely-slug\n")})
+    parked = _page(mind).split("## Parked")[1].split("## Planned")[0]
+    assert "  /start_dev active/widget_rework.md" in parked
+    assert ("  /route resume the parked PyAutoMind task lonely-slug — "
+            "its record is in parked.md") in parked
+
+
+def test_copy_details_never_swallow_the_next_bullet(tmp_path):
+    """GitHub's renderer treats lines after `</details>` as raw HTML until a
+    blank line — a bullet directly beneath one would vanish from the page."""
+    mind = _mind(tmp_path, drafts={
+        "bug/widgets/one.md": _prompt("Bug one"),
+        "bug/widgets/two.md": _prompt("Bug two"),
+    }, active={"a.md": _prompt("A"), "b.md": _prompt("B")})
+    page = _page(mind)
+    assert "</details>\n-" not in page
+    assert "</details>\n  <details>" not in page
+
+
+# --------------------------------------------------------------------------- #
 # rendering safety
 # --------------------------------------------------------------------------- #
 def test_a_prompt_titled_with_an_html_comment_cannot_swallow_the_page(tmp_path):

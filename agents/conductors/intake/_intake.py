@@ -521,6 +521,43 @@ def _pick_key(r: dict) -> tuple:
             r["target"], r["path"])
 
 
+def _copy_lines(payload: str) -> list:
+    """A collapsed copy block nested under a task's bullet.
+
+    The page is read on GitHub (often a phone), where the only clipboard
+    affordance static markdown can offer is the copy button GitHub renders on
+    fenced code blocks. So every task carries one, holding the exact message
+    that routes Claude to the task (`/start_dev <prompt-path>`) — tap to
+    expand, tap to copy, paste into a Claude Code chat. Collapsed behind
+    `<details>` so each task still reads as one line. The two-space indent
+    keeps the block inside the bullet's list item; the blank lines around the
+    fence and after `</details>` are what make GitHub's renderer treat the
+    fence as markdown and the next bullet as a new list item rather than raw
+    HTML — do not remove them.
+    """
+    return ["  <details><summary>📋 copy for Claude</summary>",
+            "",
+            "  ```",
+            f"  {payload}",
+            "  ```",
+            "",
+            "  </details>"]
+
+
+def _task_item(head: str, payload: str) -> str:
+    """One task — the bullet line plus its collapsed copy block."""
+    return "\n".join([head] + _copy_lines(payload))
+
+
+def _items(chunks: list) -> list:
+    """Blank-separate multi-line task items so each `</details>` HTML block
+    ends before the next bullet starts (see `_copy_lines`)."""
+    out = []
+    for chunk in chunks:
+        out += [chunk, ""]
+    return out[:-1] if out else []
+
+
 def _bullet(r: dict) -> str:
     """One backlog prompt as a bullet — the phone-readable unit of this page.
 
@@ -530,7 +567,8 @@ def _bullet(r: dict) -> str:
     """
     facets = " · ".join(x for x in (r["target"], r["difficulty"],
                                     r["autonomy"], r["priority"]) if x != "-")
-    return f"- [{_label(r['title'])}]({r['path']})" + (f" — {facets}" if facets else "")
+    head = f"- [{_label(r['title'])}]({r['path']})" + (f" — {facets}" if facets else "")
+    return _task_item(head, f"/start_dev {r['path']}")
 
 
 def render_dashboard(c: dict) -> str:
@@ -540,7 +578,9 @@ def render_dashboard(c: dict) -> str:
     Heart's dashboard (`/health`). Two rules shape the layout: it must be
     *pickable* (the top of the page answers "what should I do now?", not "how
     many prompts are there?"), and it must read on a phone (bullets over wide
-    tables, long sections behind `<details>`). Links are repo-root-relative so
+    tables, long sections behind `<details>`, and a collapsed copy block under
+    every task so picking one from a phone is copy → paste into a Claude chat,
+    not retyping a path — see `_copy_lines`). Links are repo-root-relative so
     they resolve in GitHub's web and mobile markdown views alike.
     """
     records = sorted(c["records"], key=_pick_key)
@@ -552,7 +592,9 @@ def render_dashboard(c: dict) -> str:
         "",
         "Every task the Mind is holding, on one page: what is in flight, what "
         "is parked, and the whole backlog to pick from. Pick a line, then run "
-        "`/start_dev <prompt-path>` to start it.",
+        "`/start_dev <prompt-path>` to start it. On a phone, tap **📋 copy "
+        "for Claude** under a task, copy the block, and paste it into a "
+        "Claude Code chat to route Claude straight to that task.",
         "",
         "Tasks only — the organism's health lives with the Heart (`/health`), "
         "not here.",
@@ -581,33 +623,48 @@ def render_dashboard(c: dict) -> str:
         shown = rows[:PICK_LIST_MAX]
         more = f" — showing {len(shown)} of {len(rows)}" if len(rows) > len(shown) else ""
         L += [f"**{title}** ({note}){more}", ""]
-        L += [_bullet(r) for r in shown] or ["- _(none right now)_"]
+        L += _items([_bullet(r) for r in shown]) or ["- _(none right now)_"]
         L += [""]
 
     L += ["## In flight", "",
           "Issued — each has an open GitHub issue and usually a branch. The "
           "full record for each is in [`active.md`](active.md).", ""]
+    flight = []
     for r in c["in_flight"]:
         issue = f" — [issue #{r['issue_no']}]({r['issue']})" if r["issue_no"] else ""
         status = f" — {_clip(r['status'])}" if r["status"] else ""
-        L.append(f"- [{_label(r['title'])}]({r['path']}){issue}{status}")
-    L += ([] if c["in_flight"] else ["- _(nothing in flight)_"]) + [""]
+        flight.append(_task_item(
+            f"- [{_label(r['title'])}]({r['path']}){issue}{status}",
+            f"/start_dev {r['path']}"))
+    L += _items(flight) or ["- _(nothing in flight)_"]
+    L += [""]
 
-    for key, heading, blurb in (
-        ("parked", "Parked", "Started or scoped, not currently in flight — "
-                             "resume by moving the row back to `active.md`. "
-                             "Full detail in [`parked.md`](parked.md)."),
-        ("planned", "Planned", "Scoped but not started; some are not yet prompt "
-                               "files. Full detail in [`planned.md`](planned.md)."),
+    for key, heading, verb, blurb in (
+        ("parked", "Parked", "resume",
+         "Started or scoped, not currently in flight — "
+         "resume by moving the row back to `active.md`. "
+         "Full detail in [`parked.md`](parked.md)."),
+        ("planned", "Planned", "start",
+         "Scoped but not started; some are not yet prompt "
+         "files. Full detail in [`planned.md`](planned.md)."),
     ):
         rows = c[key]
         L += [f"## {heading}", "", blurb, "",
               "<details>", f"<summary><b>{len(rows)}</b> task(s)</summary>", ""]
+        items = []
         for e in rows:
             issue = f" — [issue #{e['issue_no']}]({e['issue']})" if e["issue_no"] else ""
             status = f" — {_clip(e['status'])}" if e["status"] else ""
-            L.append(f"- **{_label(e['slug'])}**{issue}{status}")
-        L += ([] if rows else ["- _(none)_"]) + ["", "</details>", ""]
+            # A registry row may name its prompt file; without one there is no
+            # start_dev target, so route the slug as free prose instead.
+            prompt = (e["prompt"].split() or [""])[0]
+            payload = (f"/start_dev {prompt}" if prompt.endswith(".md") else
+                       f"/route {verb} the {key} PyAutoMind task "
+                       f"{e['slug']} — its record is in {key}.md")
+            items.append(_task_item(
+                f"- **{_label(e['slug'])}**{issue}{status}", payload))
+        L += _items(items) or ["- _(none)_"]
+        L += ["", "</details>", ""]
 
     L += [f"## Backlog", "",
           f"**{c['total']}** filed prompts, not started. Each section is sorted "
@@ -615,7 +672,7 @@ def render_dashboard(c: dict) -> str:
     for wt, n in c["by_work_type"].items():
         rows = [r for r in records if r["work_type"] == wt]
         L += ["<details>", f"<summary><b>{wt}</b> — {n}</summary>", ""]
-        L += [_bullet(r) for r in rows]
+        L += _items([_bullet(r) for r in rows])
         L += ["", "</details>", ""]
 
     if c["hygiene"]:
