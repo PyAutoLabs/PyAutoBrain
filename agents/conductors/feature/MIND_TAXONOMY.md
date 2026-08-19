@@ -67,11 +67,11 @@ context when memory has material. Sub-wikis (source: `PyAutoMemory/index.md`):
 
 | Sub-wiki | Domain | Triggered by (examples) |
 |----------|--------|--------------------------|
-| `lensing_wiki/` | strong gravitational lensing | lens, deflection, source reconstruction, subhalo, time delay, cosmography, SLACS/TDCOSMO |
-| `smbh_wiki/` | supermassive black holes | black hole, SMBH, binary, recoil, NANOGrav |
-| `cti_wiki/` | charge-transfer inefficiency | CTI, trap, arctic, VIS calibration |
-| `methods_wiki/` | statistical / computational methods | Bayesian, sampler, JAX, NUFFT, SBI, graphical models, deep learning |
-| `galaxies_wiki/` | galaxy formation & evolution | bulge/disk, MGE, morphology, IFU, kinematics |
+| `wiki/lensing/` | strong gravitational lensing | lens, deflection, source reconstruction, subhalo, time delay, cosmography, SLACS/TDCOSMO |
+| `wiki/smbh/` | supermassive black holes | black hole, SMBH, binary, recoil, NANOGrav |
+| `wiki/cti/` | charge-transfer inefficiency | CTI, trap, arctic, VIS calibration |
+| `wiki/methods/` | statistical / computational methods | Bayesian, sampler, JAX, NUFFT, SBI, graphical models, deep learning |
+| `wiki/galaxies/` | galaxy formation & evolution | bulge/disk, MGE, morphology, IFU, kinematics |
 
 Library targets also pull a default sub-wiki (`autolens`→lensing,
 `autogalaxy`→galaxies, `autofit`/`autoarray`/`autoconf`→methods). PyAutoMemory is

@@ -26,21 +26,22 @@ sizing_categories:
 extra_workspace_targets: [workspaces]
 extra_organism_targets: [autohands]
 
-# Keyword -> PyAutoMemory sub-wiki (also the science vocabulary difficulty
-# scoring keys off). Source of truth for the wiki list: PyAutoMemory/index.md.
+# Keyword -> PyAutoMemory sub-wiki (the wiki/<domain>/ layout; also the science
+# vocabulary the difficulty scoring keys off). Source of truth for the wiki
+# list: PyAutoMemory/index.md.
 memory_wikis:
-  lensing_wiki: [lens, deflection, source reconstruction, caustic, einstein,
+  lensing: [lens, deflection, source reconstruction, caustic, einstein,
                  subhalo, substructure, time delay, cosmography, shear,
                  multipole, mass sheet, slacs, tdcosmo, h0licow, macromodel]
-  smbh_wiki: [black hole, smbh, binary, recoil, nanograv,
+  smbh: [black hole, smbh, binary, recoil, nanograv,
               gravitational wave background]
-  cti_wiki: [charge transfer, cti, trap, arctic, vis calibration]
-  methods_wiki: [bayesian, sampler, nautilus, dynesty, emcee, mcmc,
+  cti: [charge transfer, cti, trap, arctic, vis calibration]
+  methods: [bayesian, sampler, nautilus, dynesty, emcee, mcmc,
                  nested sampling, likelihood, jax, nufft, interpolat,
                  graphical model, expectation propagation, deep learning, sbi,
                  simulation based inference, probabilistic, optimis, gradient,
                  regularis]
-  galaxies_wiki: [galaxy formation, bulge, disk, morphology, mge, stellar halo,
+  galaxies: [galaxy formation, bulge, disk, morphology, mge, stellar halo,
                   ifu, kinematic, elliptical, cosmos]
 
 # Intake keyword -> target repo routing signals.
@@ -62,11 +63,13 @@ target_signals:
 
 # Feature conductor: target -> the sub-wiki consulted by default.
 target_default_wiki:
-  autolens: lensing_wiki
-  autogalaxy: galaxies_wiki
-  autofit: methods_wiki
-  autoarray: methods_wiki
-  autoconf: methods_wiki
+  autolens: lensing
+  autogalaxy: galaxies
+  autofit: methods
+  autoarray: methods
+  autoconf: methods     # legacy name — the Nerves repo was PyAutoConf
+  autonerves: methods
+  pyautonerves: methods
 
 # Refactor conductor: normalised repo -> the test dir that witnesses
 # behaviour preservation.

@@ -2,11 +2,16 @@
 """agents/faculties/memory/_memory.py — the recall substrate.
 
 The **memory faculty** is a read-only opinion sink: given a topic/question, it
-greps the organism's knowledge surfaces — PyAutoMemory's sub-wikis,
-autolens_assistant's skills/wiki pages, and Mind's complete/ records — and
-returns a **cited digest**: ranked pages with matching snippets. The consulting
-agent reads only the listed pages and synthesises; this script never dumps
-content, never writes, and builds no index.
+greps the organism's knowledge surfaces — PyAutoMemory's sub-wikis and its
+root entry pages (index.md, reading-queue.md, bibliography/README.md, the
+wiki schema), autolens_assistant's skills/wiki pages, and Mind's complete/
+records — and returns a **cited digest**: ranked pages with matching
+snippets. The consulting agent reads only the listed pages and synthesises;
+this script never dumps content, never writes, and builds no index.
+
+Deliberately NOT a surface: ``bibliography/*.bib`` — the canonical BibTeX
+file is far over ``MAX_FILE_BYTES`` and raw entries are metadata, not digest
+text; ``bibliography/README.md`` carries the workflow instead.
 
 Exit codes: 0 digest · 4 no hits or no surface · 5 usage.
 """
@@ -32,6 +37,15 @@ def terms_of(query: str) -> list[str]:
 def surfaces(memory: Path | None, assistant: Path | None, mind: Path | None):
     """Yield (surface-name, root, md-file) triples, discovered at query time."""
     if memory and memory.is_dir():
+        # The repo's own entry surfaces: the hand-written index, the reading
+        # queue, the bibliography workflow, and the wiki schema. Without
+        # these the front door PyAutoMemory/AGENTS.md points every agent at
+        # ("index first") was invisible to this faculty (PyAutoBrain#239).
+        for rel in ("index.md", "reading-queue.md",
+                    "bibliography/README.md", "wiki/CLAUDE.md"):
+            f = memory / rel
+            if f.is_file():
+                yield "PyAutoMemory/root", memory, f
         # wiki/<domain>/ is the current layout; root-level *_wiki/ is the
         # pre-2026-07 layout, kept for older checkouts and forks.
         wikis = sorted(d for d in memory.glob("wiki/*") if d.is_dir())

@@ -48,8 +48,10 @@ def test_aliases_normalise_known_mentions():
 
 def test_memory_wikis_route_science_vocabulary():
     wikis = _sizing.MEMORY_WIKIS
-    assert "lens" in wikis["lensing_wiki"]
-    assert "sampler" in wikis["methods_wiki"]
+    # Keys are the wiki/<domain>/ names (the *_wiki root layout is retired).
+    assert "lens" in wikis["lensing"]
+    assert "sampler" in wikis["methods"]
+    assert not any(k.endswith("_wiki") for k in wikis)
     assert _sizing.SCIENCE_KEYWORDS  # derived, non-empty
 
 
@@ -65,7 +67,9 @@ def test_feature_default_wiki_loads():
     sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "feature"))
     import _feature
 
-    assert _feature.TARGET_DEFAULT_WIKI["autolens"] == "lensing_wiki"
+    assert _feature.TARGET_DEFAULT_WIKI["autolens"] == "lensing"
+    # The Nerves rename is covered both ways (legacy autoconf + autonerves).
+    assert _feature.TARGET_DEFAULT_WIKI["autonerves"] == "methods"
 
 
 def test_refactor_test_witness_loads():

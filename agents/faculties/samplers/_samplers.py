@@ -217,7 +217,7 @@ def digest(autofit, developer, test, lens_developer=None, profiling=None) -> dic
         "instruction": "reason with agents/faculties/samplers/AGENTS.md "
                        "(sampler<->likelihood match, gradients/JAX, "
                        "initialization chaining); the science lives in "
-                       "PyAutoMemory/methods_wiki — internal use only, "
+                       "PyAutoMemory/wiki/methods — internal use only, "
                        "citations never reach public output",
     }
     minimal = integration = []
