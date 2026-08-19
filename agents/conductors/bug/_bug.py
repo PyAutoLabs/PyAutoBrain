@@ -377,7 +377,7 @@ def emit_human(mode: str, d: dict):
     if d["memory_context"]:
         print("Relevant context (PyAutoMemory — consult, do not invent):")
         for wiki, kws in d["memory_context"].items():
-            print(f"  - {wiki}/index.md  ({', '.join(kws)})")
+            print(f"  - PyAutoMemory/wiki/{wiki}/index.md  ({', '.join(kws)})")
     else:
         print("Relevant context:     none matched")
     print(f"Fix locus:            {d['fix_locus']['locus']}")

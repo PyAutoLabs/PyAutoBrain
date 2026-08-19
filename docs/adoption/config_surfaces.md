@@ -13,7 +13,7 @@ framework organs is domain-free logic you pull from upstream.
 | `agents/faculties/sizing/_sizing.py` | Brain | The library/workspace repo sets and aliases used to size and route tasks. |
 | `agents/conductors/intake/_intake.py` — `TARGET_SIGNALS` | Brain | Keyword → target-repo routing for raw ideas. |
 | `agents/conductors/release/` — the library tuple + `nightly.sh` | Brain | Which libraries the release path drives. |
-| `agents/faculties/memory/` — the wiki keyword map | Brain | Topic keywords → your Memory's sub-wikis. |
+| `config/policy.yaml` — `memory_wikis` + `target_default_wiki` | Brain | Topic keywords → your Memory's sub-wikis (`wiki/<domain>/`), consumed by the sizing faculty and the feature/bug conductors. |
 | `heart/readiness.py` — `DEFAULT_LIBRARIES`; `heart/checks/version_skew.py` — the workspace→(library, package) map | Heart | The release-gate repo sets. |
 | `autohands/run_all.py`, `autohands/slow_skip_check.py`, navigator maps | Hands | Which workspaces the validation pipeline runs and skips. |
 

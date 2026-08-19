@@ -140,7 +140,7 @@ not inventoried.
   (prototypes + `_metrics.py` + `output/comparison.txt`),
   `autofit_workspace_developer/searches/` (removed-sampler archive),
   `autofit_workspace_test/scripts/searches/` (integration scripts).
-- **The science** — `PyAutoMemory/methods_wiki`:
+- **The science** — `PyAutoMemory/wiki/methods`:
   `concepts/hamiltonian-monte-carlo.md`, `concepts/gpu-nested-sampling.md`,
   `concepts/initialization-chaining.md`, `concepts/sampler-benchmarks.md`
   (the campaign record), `concepts/nested-sampling.md`. **Privacy seam:**
