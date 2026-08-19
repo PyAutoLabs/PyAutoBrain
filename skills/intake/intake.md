@@ -35,7 +35,9 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   Every task renders as one collapsed row whose leading 📋 toggle hides a
   code fence (GitHub's copy button) holding the `/start_dev <prompt-path>`
   message that routes Claude to that task — the phone path from the page
-  into a session.
+  into a session. `--apply` also writes `dashboard.html`, the one-tap-copy
+  twin GitHub Pages serves (real clipboard buttons; PyAutoMind's
+  `pages_dashboard.yml` deploys it), with links derived from `repos.yaml`.
   Dry-run prints it, `--apply` writes it (commit via `prompt_sync_push`),
   `--check` exits 1 if the committed page has drifted — PyAutoMind's
   `dashboard_refresh.yml` self-heals that on pushes to main, so regenerate it

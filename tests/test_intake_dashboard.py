@@ -236,6 +236,57 @@ def test_copy_details_never_swallow_the_next_row(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# the HTML twin: real one-tap copy buttons, served by GitHub Pages
+# --------------------------------------------------------------------------- #
+# The org is fictional for the same tenant-firewall reason as the issue URLs:
+# renderers read the GitHub home from repos.yaml, never from organ code.
+REPOS_YAML = "repos:\n  PyAutoMind:\n    github: ExampleOrg/PyAutoMind\n"
+
+
+def _html(mind: Path) -> str:
+    return _intake.render_dashboard_html(_intake.census(mind))
+
+
+def test_html_task_has_a_copy_button_holding_the_command(tmp_path):
+    mind = _mind(tmp_path, drafts={"bug/widgets/one.md": _prompt("Bug one")})
+    html = _html(mind)
+    assert ('<button class="copy" data-cmd="/start_dev '
+            'draft/bug/widgets/one.md"') in html
+    assert "navigator.clipboard.writeText" in html, \
+        "the page must carry its own clipboard script — that is its point"
+
+
+def test_html_links_use_the_github_home_from_repos_yaml(tmp_path):
+    """Pages serves the file away from the repo blobs, so links must be
+    absolute — and the org comes from repos.yaml, never organ code."""
+    mind = _mind(tmp_path, drafts={"bug/widgets/one.md": _prompt("Bug one")},
+                 registries={"repos.yaml": REPOS_YAML})
+    html = _html(mind)
+    assert ('<a href="https://github.com/ExampleOrg/PyAutoMind/blob/main/'
+            'draft/bug/widgets/one.md">Bug one</a>') in html
+
+
+def test_markdown_page_points_at_the_pages_twin_only_when_home_known(tmp_path):
+    mind = _mind(tmp_path, drafts={"bug/widgets/one.md": _prompt("Bug one")},
+                 registries={"repos.yaml": REPOS_YAML})
+    assert "https://exampleorg.github.io/PyAutoMind/" in _page(mind)
+    bare = _mind(tmp_path / "bare", drafts={"bug/widgets/x.md": _prompt("X")})
+    assert "github.io" not in _page(bare), \
+        "a Mind without repos.yaml must not invent a Pages link"
+
+
+def test_check_covers_the_html_twin(tmp_path, capsys):
+    mind = _mind(tmp_path, drafts={"bug/widgets/one.md": _prompt("Bug one")})
+    assert _intake.main(["--mind", str(mind), "--apply", "dashboard"]) == 0
+    html = mind / "dashboard.html"
+    html.write_text(
+        html.read_text(encoding="utf-8").replace("Bug one", "Bug gone"),
+        encoding="utf-8")
+    assert _intake.main(["--mind", str(mind), "dashboard", "--check"]) == 1
+    assert "dashboard.html" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- #
 # rendering safety
 # --------------------------------------------------------------------------- #
 def test_a_prompt_titled_with_an_html_comment_cannot_swallow_the_page(tmp_path):
