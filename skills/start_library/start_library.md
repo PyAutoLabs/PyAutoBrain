@@ -1,6 +1,6 @@
 # Start Library: Set Up Library Development
 
-Set up the development environment for **library source-code** work (PyAutoConf,
+Set up the development environment for **library source-code** work (PyAutoNerves,
 PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens). Assumes `/start_dev` already
 registered the task in `PyAutoMind/active.md`.
 
