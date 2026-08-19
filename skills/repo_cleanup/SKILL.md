@@ -54,7 +54,7 @@ this covers residue when that flow is skipped); the start_dev branch survey
 
 ## Scope
 
-**Always swept:** library canonical checkouts under `$PYAUTO_MAIN` (PyAutoConf,
+**Always swept:** library canonical checkouts under `$PYAUTO_MAIN` (PyAutoNerves,
 PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoHands); workspaces incl.
 `_test`/`_developer` variants (autofit/autogalaxy/autolens families, HowToLens);
 and worktree roots under `$PYAUTO_WT_ROOT`.

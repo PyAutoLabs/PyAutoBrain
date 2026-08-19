@@ -1,6 +1,6 @@
 # Ship Library: Gate, Test, PR
 
-Ship source-library changes (PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy,
+Ship source-library changes (PyAutoNerves, PyAutoFit, PyAutoArray, PyAutoGalaxy,
 PyAutoLens) for every library repo touched by the task. This is
 **feature-development** work — the commit/push/feature-PR is the dev workflow's
 own execution, gated by Heart. It is **not** a Build task (Build is

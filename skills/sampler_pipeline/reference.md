@@ -19,7 +19,7 @@ Given a GitHub URL, before writing any adapter code:
    example (e.g. nessai routes users to a `nessai-bilby` plugin), go to the
    docs site and examples dir — never guess an API from the package name.
 2. **Dependency-compatibility check** against the installed stack *before*
-   `pip install`: Python floor, JAX pin overlap with PyAutoConf's `[jax]`
+   `pip install`: Python floor, JAX pin overlap with PyAutoNerves's `[jax]`
    floor/ceiling, and heavyweight extras (a PyTorch-core sampler like nessai
    brings CUDA-pinning risk beside the JAX stack). Under-declared floors are
    real (the nufftax lesson) — check what the code imports, not just
