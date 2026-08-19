@@ -453,11 +453,19 @@ def census(mind: Path) -> dict:
         if e["prompt"] and e["prompt"] not in by_prompt:
             by_prompt[e["prompt"]] = e
 
+    # A parked task's prompt file legitimately stays in active/ (parked.md
+    # holds "started, then parked" work), so a bare active/ glob would list it
+    # under BOTH In flight and Parked — inflating the in-flight count with
+    # tasks that are deliberately not in flight.
+    parked_prompts = {e["prompt"] for e in parked if e["prompt"]}
+
     in_flight = []
     active = mind / "active"
     for f in sorted(active.glob("*.md")) if active.is_dir() else []:
         text = f.read_text(encoding="utf-8", errors="replace")
         rel = str(f.relative_to(mind))
+        if rel in parked_prompts:
+            continue
         header = parse_header(text)
         row = by_prompt.get(rel, {})
         in_flight.append({

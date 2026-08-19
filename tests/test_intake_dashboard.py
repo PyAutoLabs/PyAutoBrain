@@ -130,6 +130,33 @@ def test_in_flight_links_the_registry_issue_and_its_live_status(tmp_path):
         "a prompt's conception-time Status: is stale once issued — never show it"
 
 
+def test_parked_prompt_still_in_active_is_not_listed_in_flight(tmp_path):
+    """A parked task's prompt file legitimately stays in active/ (parked.md
+    holds started-then-parked work), so the in-flight list must exclude it —
+    otherwise the same task renders under BOTH In flight and Parked and the
+    in-flight count inflates with tasks deliberately not in flight."""
+    mind = _mind(
+        tmp_path,
+        active={"widget_rework.md": _prompt("Widget rework"),
+                "gadget_polish.md": _prompt("Gadget polish")},
+        registries={
+            "active.md": ("# Active\n\n## gadget-polish\n"
+                          "- prompt: active/gadget_polish.md\n"),
+            "parked.md": ("# Parked\n\n## widget-rework\n"
+                          "- prompt: active/widget_rework.md\n"
+                          "- parked: deliberate deferral\n"),
+        },
+    )
+    page = _page(mind)
+    flight = page.split("## In flight")[1].split("## Parked")[0]
+    assert "gadget_polish.md" in flight
+    assert "widget_rework.md" not in flight, \
+        "a parked prompt must not double-list as in flight"
+    parked = page.split("## Parked")[1].split("## Planned")[0]
+    assert "widget_rework.md" in parked
+    assert "| [In flight](#in-flight) (`active/`) | 1 |" in page
+
+
 def test_in_flight_prompt_with_no_registry_row_claims_no_issue(tmp_path):
     """Silence beats a wrong link: prose issue URLs are usually cross-references."""
     body = _prompt("Orphan task") + \
