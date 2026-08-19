@@ -4,7 +4,7 @@
 
 # PyAutoBrain
 
-[![PyAutoScientist GitHub](https://img.shields.io/badge/%E2%9A%9B%EF%B8%8F%20PyAutoScientist-GitHub-181717?style=for-the-badge)](https://github.com/PyAutoLabs/PyAutoScientist) [![PyAutoScientist ReadTheDocs](https://img.shields.io/badge/%F0%9F%93%96%20PyAutoScientist-ReadTheDocs-8CA1AF?style=for-the-badge)](https://pyautoscientist.readthedocs.io)
+[![PyAutoScientist GitHub](https://img.shields.io/badge/%E2%9A%9B%EF%B8%8F%20PyAutoScientist-GitHub-181717?style=flat-square)](https://github.com/PyAutoLabs/PyAutoScientist) [![PyAutoScientist ReadTheDocs](https://img.shields.io/badge/%F0%9F%93%96%20PyAutoScientist-ReadTheDocs-8CA1AF?style=flat-square)](https://pyautoscientist.readthedocs.io)
 
 The reasoning layer of the PyAuto organism. Brain figures out *how* work
 gets done: it classifies incoming tasks, plans them, and routes them to
