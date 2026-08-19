@@ -85,16 +85,18 @@ def test_quick_wins_are_small_and_safe_only(tmp_path):
     assert "Safe but large" not in quick
 
 
-def test_every_backlog_prompt_is_a_bullet_not_a_wide_table_row(tmp_path):
-    """Wide tables scroll sideways on a phone; bullets wrap. Pin the shape."""
+def test_every_backlog_prompt_is_one_collapsed_row_not_a_wide_table(tmp_path):
+    """Wide tables scroll sideways on a phone; rows wrap. Pin the shape: one
+    `<details>` per task whose summary is `📋 <linked title> — facets`."""
     mind = _mind(tmp_path, drafts={
         "bug/widgets/one.md": _prompt("Bug one"),
         "feature/widgets/two.md": _prompt("Feature two"),
     })
     page = _page(mind)
     backlog = page.split("## Backlog")[1]
-    assert "- [Bug one](draft/bug/widgets/one.md)" in backlog
-    assert "- [Feature two](draft/feature/widgets/two.md)" in backlog
+    assert ('<details><summary>📋 <a href="draft/bug/widgets/one.md">'
+            "Bug one</a> — ") in backlog
+    assert '<a href="draft/feature/widgets/two.md">Feature two</a>' in backlog
     # The only table on the page is the 2-column where/count summary.
     assert backlog.count("|") == 0, "the backlog must not render as tables"
     assert "<summary><b>bug</b> — 1</summary>" in backlog, \
@@ -122,7 +124,8 @@ def test_in_flight_links_the_registry_issue_and_its_live_status(tmp_path):
                  active={"widget_rework.md": _prompt("Widget rework")},
                  registries={"active.md": ACTIVE_MD})
     flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
-    assert "[issue #42](https://github.com/ExampleOrg/Widgets/issues/42)" in flight, \
+    assert ('<a href="https://github.com/ExampleOrg/Widgets/issues/42">'
+            "issue #42</a>") in flight, \
         "the link must be the matched URL, not the field's trailing prose"
     assert "(opened after the spike)" not in flight
     assert "library-dev" in flight
@@ -170,33 +173,42 @@ def test_in_flight_prompt_with_no_registry_row_claims_no_issue(tmp_path):
 def test_registry_entry_without_fields_still_lists(tmp_path):
     mind = _mind(tmp_path, registries={"parked.md": "# Parked\n\n## lonely-slug\n"})
     parked = _page(mind).split("## Parked")[1].split("## Planned")[0]
-    assert "**lonely-slug**" in parked
+    assert "<b>lonely-slug</b>" in parked
 
 
 # --------------------------------------------------------------------------- #
-# copy blocks: every task carries a paste-ready message that routes Claude
+# copy blocks: every task row's 📋 toggle hides a paste-ready message
 # --------------------------------------------------------------------------- #
-COPY_SUMMARY = "<summary>📋 copy for Claude</summary>"
-
-
 def test_backlog_and_picks_carry_a_start_dev_copy_block(tmp_path):
     """GitHub's copy button lives on fenced code blocks — the one clipboard a
-    static page has, and the whole point of the block on a phone."""
+    static page has, and the whole point of the row's hidden body on a phone."""
     mind = _mind(tmp_path, drafts={
         "bug/widgets/one.md": _prompt("Bug one", priority="high")})
     page = _page(mind)
-    fence = "  ```\n  /start_dev draft/bug/widgets/one.md\n  ```"
+    fence = "```\n/start_dev draft/bug/widgets/one.md\n```"
     head, backlog = page.split("## In flight")[0], page.split("## Backlog")[1]
-    assert fence in head and COPY_SUMMARY in head, \
+    assert fence in head and "<details><summary>📋 " in head, \
         "the Start-here picks must carry the copy block"
-    assert fence in backlog and COPY_SUMMARY in backlog, \
-        "backlog bullets must carry the copy block"
+    assert fence in backlog and "<details><summary>📋 " in backlog, \
+        "backlog rows must carry the copy block"
+
+
+def test_task_row_is_one_line_with_no_repeated_label(tmp_path):
+    """The 📋 toggle rides at the left of the task text on the SAME line —
+    an extra 'copy for Claude' line per task doubled the page's height."""
+    mind = _mind(tmp_path, drafts={
+        "bug/widgets/one.md": _prompt("Bug one", priority="high")})
+    page = _page(mind)
+    assert "copy for Claude" not in page
+    assert ('<details><summary>📋 <a href="draft/bug/widgets/one.md">'
+            "Bug one</a>") in page, \
+        "the summary line must open with 📋 then the task text"
 
 
 def test_in_flight_copy_block_targets_the_active_prompt(tmp_path):
     mind = _mind(tmp_path, active={"widget_rework.md": _prompt("Widget rework")})
     flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
-    assert "  /start_dev active/widget_rework.md" in flight
+    assert "\n/start_dev active/widget_rework.md\n" in flight
 
 
 def test_registry_row_copy_block_prefers_its_prompt_path(tmp_path):
@@ -206,21 +218,21 @@ def test_registry_row_copy_block_prefers_its_prompt_path(tmp_path):
         "# Parked\n\n## with-prompt\n- prompt: active/widget_rework.md\n"
         "\n## lonely-slug\n")})
     parked = _page(mind).split("## Parked")[1].split("## Planned")[0]
-    assert "  /start_dev active/widget_rework.md" in parked
-    assert ("  /route resume the parked PyAutoMind task lonely-slug — "
-            "its record is in parked.md") in parked
+    assert "\n/start_dev active/widget_rework.md\n" in parked
+    assert ("\n/route resume the parked PyAutoMind task lonely-slug — "
+            "its record is in parked.md\n") in parked
 
 
-def test_copy_details_never_swallow_the_next_bullet(tmp_path):
+def test_copy_details_never_swallow_the_next_row(tmp_path):
     """GitHub's renderer treats lines after `</details>` as raw HTML until a
-    blank line — a bullet directly beneath one would vanish from the page."""
+    blank line — a row directly beneath one would vanish from the page."""
     mind = _mind(tmp_path, drafts={
         "bug/widgets/one.md": _prompt("Bug one"),
         "bug/widgets/two.md": _prompt("Bug two"),
     }, active={"a.md": _prompt("A"), "b.md": _prompt("B")})
     page = _page(mind)
+    assert "</details>\n<details>" not in page
     assert "</details>\n-" not in page
-    assert "</details>\n  <details>" not in page
 
 
 # --------------------------------------------------------------------------- #
@@ -237,12 +249,16 @@ def test_a_prompt_titled_with_an_html_comment_cannot_swallow_the_page(tmp_path):
     assert "Visible after the comment" in page
 
 
-def test_bracketed_title_does_not_break_the_link(tmp_path):
+def test_title_markup_survives_the_html_summary(tmp_path):
+    """Summaries are HTML: brackets pass through untouched, raw angle brackets
+    are escaped, and a title's `code` span renders as <code> (GitHub does not
+    process markdown inside <summary>)."""
     mind = _mind(tmp_path, drafts={
-        "bug/widgets/b.md": _prompt("[JAX] fails on [gpu]", priority="high")})
+        "bug/widgets/b.md": _prompt("[JAX] `grad(x)` fails on x<0",
+                                    priority="high")})
     page = _page(mind)
-    assert r"\[JAX\] fails on \[gpu\]" in page
-    assert "(draft/bug/widgets/b.md)" in page
+    assert ('<a href="draft/bug/widgets/b.md">'
+            "[JAX] <code>grad(x)</code> fails on x&lt;0</a>") in page
 
 
 # --------------------------------------------------------------------------- #

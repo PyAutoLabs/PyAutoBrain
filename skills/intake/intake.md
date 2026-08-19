@@ -32,9 +32,10 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
 - `bin/pyauto-brain intake dashboard` — renders the census as the Mind **task**
   page (`PyAutoMind/dashboard.md`, linked from that repo's README): the picks
   worth starting now, then in flight / parked / planned / the whole backlog.
-  Every task carries a collapsed **📋 copy for Claude** block (GitHub's
-  code-fence copy button) holding the `/start_dev <prompt-path>` message that
-  routes Claude to that task — the phone path from the page into a session.
+  Every task renders as one collapsed row whose leading 📋 toggle hides a
+  code fence (GitHub's copy button) holding the `/start_dev <prompt-path>`
+  message that routes Claude to that task — the phone path from the page
+  into a session.
   Dry-run prints it, `--apply` writes it (commit via `prompt_sync_push`),
   `--check` exits 1 if the committed page has drifted — PyAutoMind's
   `dashboard_refresh.yml` self-heals that on pushes to main, so regenerate it

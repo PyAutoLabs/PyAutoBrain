@@ -501,15 +501,20 @@ def _cell(value: str) -> str:
     return str(value).replace("|", "\\|")
 
 
-def _label(value: str) -> str:
-    """Link text for a markdown bullet, made safe to render.
+def _summary_label(value: str) -> str:
+    """Task text rendered inside a `<summary>` — HTML, not markdown.
 
-    Brackets would end the link early, and a stray `<!--` (some untriaged
-    prompts open with an HTML comment, which `_title` faithfully reports) would
-    comment out the rest of the page in GitHub's renderer.
+    GitHub does not process markdown inside `<summary>`, so the text is
+    HTML-escaped and the one markdown idiom Mind titles actually use —
+    `code` spans — is translated to `<code>` tags by hand. Comment markers
+    (some untriaged prompts open with `<!--`, which `_title` faithfully
+    reports) are stripped rather than escaped: rendered literally they would
+    just be noise in the row.
     """
     value = str(value).replace("<!--", "").replace("-->", "").strip()
-    return value.replace("[", r"\[").replace("]", r"\]") or "Untitled"
+    value = (value.replace("&", "&amp;").replace("<", "&lt;")
+             .replace(">", "&gt;")) or "Untitled"
+    return re.sub(r"`([^`]+)`", r"<code>\1</code>", value)
 
 
 # Pick order. The dashboard exists to be *chosen from*, so every list is sorted
@@ -529,37 +534,33 @@ def _pick_key(r: dict) -> tuple:
             r["target"], r["path"])
 
 
-def _copy_lines(payload: str) -> list:
-    """A collapsed copy block nested under a task's bullet.
+def _task_row(summary: str, payload: str) -> str:
+    """One task as a single collapsed row: `▸ 📋 <task text>`.
 
     The page is read on GitHub (often a phone), where the only clipboard
     affordance static markdown can offer is the copy button GitHub renders on
-    fenced code blocks. So every task carries one, holding the exact message
-    that routes Claude to the task (`/start_dev <prompt-path>`) — tap to
-    expand, tap to copy, paste into a Claude Code chat. Collapsed behind
-    `<details>` so each task still reads as one line. The two-space indent
-    keeps the block inside the bullet's list item; the blank lines around the
-    fence and after `</details>` are what make GitHub's renderer treat the
-    fence as markdown and the next bullet as a new list item rather than raw
-    HTML — do not remove them.
+    fenced code blocks. So every task row is a `<details>` whose summary IS
+    the task line — the 📋 toggle sits at the left of the text, costing no
+    extra line and no repeated label — and whose hidden body is the fenced
+    message that routes Claude to the task: tap the row, tap copy, paste into
+    a Claude Code chat. The blank lines around the fence and after
+    `</details>` are what make GitHub's renderer treat the fence as markdown
+    and the next row as a new element rather than raw HTML — do not remove
+    them. The summary is HTML (see `_summary_label`); markdown would not
+    render there.
     """
-    return ["  <details><summary>📋 copy for Claude</summary>",
-            "",
-            "  ```",
-            f"  {payload}",
-            "  ```",
-            "",
-            "  </details>"]
-
-
-def _task_item(head: str, payload: str) -> str:
-    """One task — the bullet line plus its collapsed copy block."""
-    return "\n".join([head] + _copy_lines(payload))
+    return "\n".join([f"<details><summary>📋 {summary}</summary>",
+                      "",
+                      "```",
+                      payload,
+                      "```",
+                      "",
+                      "</details>"])
 
 
 def _items(chunks: list) -> list:
-    """Blank-separate multi-line task items so each `</details>` HTML block
-    ends before the next bullet starts (see `_copy_lines`)."""
+    """Blank-separate task rows so each `</details>` HTML block ends before
+    the next row starts (see `_task_row`)."""
     out = []
     for chunk in chunks:
         out += [chunk, ""]
@@ -567,16 +568,21 @@ def _items(chunks: list) -> list:
 
 
 def _bullet(r: dict) -> str:
-    """One backlog prompt as a bullet — the phone-readable unit of this page.
+    """One backlog prompt as a row — the phone-readable unit of this page.
 
-    A bullet wraps; a five-column table does not. GitHub's mobile view scrolls
+    A row wraps; a five-column table does not. GitHub's mobile view scrolls
     wide tables sideways, which makes a 133-row backlog unusable on a phone,
-    so the metadata rides after an em dash instead of in columns.
+    so the metadata rides after an em dash instead of in columns. The title is
+    an `<a>` because the row lives in a `<summary>`; its href is repo-root-
+    relative, which resolves correctly from the page's own blob URL.
     """
-    facets = " · ".join(x for x in (r["target"], r["difficulty"],
-                                    r["autonomy"], r["priority"]) if x != "-")
-    head = f"- [{_label(r['title'])}]({r['path']})" + (f" — {facets}" if facets else "")
-    return _task_item(head, f"/start_dev {r['path']}")
+    facets = " · ".join(_summary_label(x) for x in
+                        (r["target"], r["difficulty"],
+                         r["autonomy"], r["priority"]) if x != "-")
+    head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
+    if facets:
+        head += f" — {facets}"
+    return _task_row(head, f"/start_dev {r['path']}")
 
 
 def render_dashboard(c: dict) -> str:
@@ -585,11 +591,12 @@ def render_dashboard(c: dict) -> str:
     Tasks only, by design: no readiness verdicts, no test state — that is the
     Heart's dashboard (`/health`). Two rules shape the layout: it must be
     *pickable* (the top of the page answers "what should I do now?", not "how
-    many prompts are there?"), and it must read on a phone (bullets over wide
-    tables, long sections behind `<details>`, and a collapsed copy block under
-    every task so picking one from a phone is copy → paste into a Claude chat,
-    not retyping a path — see `_copy_lines`). Links are repo-root-relative so
-    they resolve in GitHub's web and mobile markdown views alike.
+    many prompts are there?"), and it must read on a phone (rows over wide
+    tables, long sections behind `<details>`, and every task a single
+    collapsed row whose 📋 toggle hides its copy block, so picking one from a
+    phone is copy → paste into a Claude chat, not retyping a path — see
+    `_task_row`). Links are repo-root-relative so they resolve from the
+    page's GitHub blob URL.
     """
     records = sorted(c["records"], key=_pick_key)
     L = [
@@ -600,9 +607,9 @@ def render_dashboard(c: dict) -> str:
         "",
         "Every task the Mind is holding, on one page: what is in flight, what "
         "is parked, and the whole backlog to pick from. Pick a line, then run "
-        "`/start_dev <prompt-path>` to start it. On a phone, tap **📋 copy "
-        "for Claude** under a task, copy the block, and paste it into a "
-        "Claude Code chat to route Claude straight to that task.",
+        "`/start_dev <prompt-path>` to start it. On a phone, tap a task's 📋 "
+        "to reveal that command, copy it, and paste it into a Claude Code "
+        "chat to route Claude straight to the task.",
         "",
         "Tasks only — the organism's health lives with the Heart (`/health`), "
         "not here.",
@@ -639,11 +646,12 @@ def render_dashboard(c: dict) -> str:
           "full record for each is in [`active.md`](active.md).", ""]
     flight = []
     for r in c["in_flight"]:
-        issue = f" — [issue #{r['issue_no']}]({r['issue']})" if r["issue_no"] else ""
-        status = f" — {_clip(r['status'])}" if r["status"] else ""
-        flight.append(_task_item(
-            f"- [{_label(r['title'])}]({r['path']}){issue}{status}",
-            f"/start_dev {r['path']}"))
+        head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
+        if r["issue_no"]:
+            head += f" — <a href=\"{r['issue']}\">issue #{r['issue_no']}</a>"
+        if r["status"]:
+            head += f" — {_summary_label(_clip(r['status']))}"
+        flight.append(_task_row(head, f"/start_dev {r['path']}"))
     L += _items(flight) or ["- _(nothing in flight)_"]
     L += [""]
 
@@ -661,16 +669,18 @@ def render_dashboard(c: dict) -> str:
               "<details>", f"<summary><b>{len(rows)}</b> task(s)</summary>", ""]
         items = []
         for e in rows:
-            issue = f" — [issue #{e['issue_no']}]({e['issue']})" if e["issue_no"] else ""
-            status = f" — {_clip(e['status'])}" if e["status"] else ""
+            head = f"<b>{_summary_label(e['slug'])}</b>"
+            if e["issue_no"]:
+                head += f" — <a href=\"{e['issue']}\">issue #{e['issue_no']}</a>"
+            if e["status"]:
+                head += f" — {_summary_label(_clip(e['status']))}"
             # A registry row may name its prompt file; without one there is no
             # start_dev target, so route the slug as free prose instead.
             prompt = (e["prompt"].split() or [""])[0]
             payload = (f"/start_dev {prompt}" if prompt.endswith(".md") else
                        f"/route {verb} the {key} PyAutoMind task "
                        f"{e['slug']} — its record is in {key}.md")
-            items.append(_task_item(
-                f"- **{_label(e['slug'])}**{issue}{status}", payload))
+            items.append(_task_row(head, payload))
         L += _items(items) or ["- _(none)_"]
         L += ["", "</details>", ""]
 
