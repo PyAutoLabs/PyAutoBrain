@@ -483,6 +483,7 @@ def census(mind: Path) -> dict:
 
     return {
         "generated": _dt.date.today().isoformat(),
+        "home": _mind_home(mind),
         "total": len(records),
         "issued_count": len(in_flight),
         "by_work_type": _count("work_type"),
@@ -499,6 +500,28 @@ def census(mind: Path) -> dict:
 
 def _cell(value: str) -> str:
     return str(value).replace("|", "\\|")
+
+
+def _mind_home(mind: Path) -> str:
+    """The Mind repo's GitHub home (`https://github.com/<org>/PyAutoMind`).
+
+    Read from `repos.yaml` — the single source of repo identity — so no
+    tenant org name is baked into organ code (the tenant-firewall rule: a
+    fork's Mind carries its own org there). Empty string when unknown; the
+    renderers then degrade to relative links and skip the Pages pointer.
+    """
+    f = mind / "repos.yaml"
+    if not f.is_file():
+        return ""
+    m = re.search(r"^\s{2}PyAutoMind:\s*\n\s+github:\s*([^\s#]+)",
+                  f.read_text(encoding="utf-8", errors="replace"), re.M)
+    return f"https://github.com/{m.group(1)}" if m else ""
+
+
+def _pages_url(home: str) -> str:
+    """The GitHub Pages site URL for a repo home, `''` when underivable."""
+    m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
+    return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
 
 
 def _summary_label(value: str) -> str:
@@ -567,6 +590,19 @@ def _items(chunks: list) -> list:
     return out[:-1] if out else []
 
 
+def _registry_payload(e: dict, key: str, verb: str) -> str:
+    """The copy payload for a parked/planned registry row.
+
+    A registry row may name its prompt file; without one there is no
+    start_dev target, so route the slug as free prose instead.
+    """
+    prompt = (e["prompt"].split() or [""])[0]
+    if prompt.endswith(".md"):
+        return f"/start_dev {prompt}"
+    return (f"/route {verb} the {key} PyAutoMind task "
+            f"{e['slug']} — its record is in {key}.md")
+
+
 def _bullet(r: dict) -> str:
     """One backlog prompt as a row — the phone-readable unit of this page.
 
@@ -611,6 +647,12 @@ def render_dashboard(c: dict) -> str:
         "to reveal that command, copy it, and paste it into a Claude Code "
         "chat to route Claude straight to the task.",
         "",
+    ]
+    pages = _pages_url(c.get("home", ""))
+    if pages:
+        L += [f"Reading on a phone? The [one-tap copy version]({pages}) puts "
+              "the command on your clipboard with a single tap of 📋.", ""]
+    L += [
         "Tasks only — the organism's health lives with the Heart (`/health`), "
         "not here.",
         "",
@@ -674,13 +716,7 @@ def render_dashboard(c: dict) -> str:
                 head += f" — <a href=\"{e['issue']}\">issue #{e['issue_no']}</a>"
             if e["status"]:
                 head += f" — {_summary_label(_clip(e['status']))}"
-            # A registry row may name its prompt file; without one there is no
-            # start_dev target, so route the slug as free prose instead.
-            prompt = (e["prompt"].split() or [""])[0]
-            payload = (f"/start_dev {prompt}" if prompt.endswith(".md") else
-                       f"/route {verb} the {key} PyAutoMind task "
-                       f"{e['slug']} — its record is in {key}.md")
-            items.append(_task_row(head, payload))
+            items.append(_task_row(head, _registry_payload(e, key, verb)))
         L += _items(items) or ["- _(none)_"]
         L += ["", "</details>", ""]
 
@@ -702,6 +738,176 @@ def render_dashboard(c: dict) -> str:
         L += [f"- `{h.split(' — ')[0]}`" for h in c["hygiene"]]
         L += ["", "</details>"]
     return "\n".join(L).rstrip("\n") + "\n"
+
+
+_HTML_CSS = """\
+:root{color-scheme:light dark;--bg:#fff;--fg:#1f2328;--muted:#59636e;
+ --line:#d1d9e0;--btn:#f6f8fa;--ok:#1a7f37;--accent:#0969da}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#f0f6fc;
+ --muted:#9198a1;--line:#3d444d;--btn:#151b23;--ok:#3fb950;--accent:#4493f8}}
+*{box-sizing:border-box}
+body{margin:0 auto;max-width:44rem;padding:1rem 1rem 4rem;background:var(--bg);
+ color:var(--fg);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",
+ Helvetica,Arial,sans-serif}
+h1{font-size:1.35rem;margin:.4rem 0}
+h2{font-size:1.15rem;margin-top:2rem;border-bottom:1px solid var(--line);
+ padding-bottom:.3rem}
+h3{font-size:1rem;margin:1.2rem 0 .2rem}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.muted{color:var(--muted)}
+.facets{color:var(--muted);font-size:.85em}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
+ background:var(--btn);padding:.1em .3em;border-radius:4px}
+.task{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem 0;
+ border-bottom:1px solid var(--line)}
+.task p{margin:.25rem 0 0;flex:1;overflow-wrap:anywhere}
+button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
+ border:1px solid var(--line);border-radius:8px;background:var(--btn);
+ cursor:pointer;color:var(--fg)}
+button.copy.ok{color:var(--ok);border-color:var(--ok)}
+details{margin:.5rem 0}
+summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+"""
+
+# One tap on 📋 → the command is on the clipboard; the button flashes ✓. The
+# textarea path covers browsers without the async clipboard API.
+_HTML_JS = """\
+async function copyCmd(b){
+  const cmd=b.dataset.cmd;
+  try{await navigator.clipboard.writeText(cmd);}
+  catch(e){const t=document.createElement("textarea");t.value=cmd;
+    document.body.appendChild(t);t.select();document.execCommand("copy");
+    t.remove();}
+  b.textContent="\\u2713";b.classList.add("ok");
+  setTimeout(()=>{b.textContent="\\ud83d\\udccb";b.classList.remove("ok");},1200);}
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button.copy");if(b)copyCmd(b);});
+"""
+
+
+def _attr(value: str) -> str:
+    """Escape a string for a double-quoted HTML attribute."""
+    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _html_task(text_html: str, payload: str) -> str:
+    """One task row on the HTML page: a real copy button, then the text."""
+    return (f'<div class="task"><button class="copy" '
+            f'data-cmd="{_attr(payload)}" aria-label="Copy the Claude '
+            f'command">📋</button><p>{text_html}</p></div>')
+
+
+def render_dashboard_html(c: dict) -> str:
+    """Render the census as `dashboard.html` — the one-tap-copy twin.
+
+    Same content as `render_dashboard`, different constraint: this page is
+    served by GitHub Pages (see PyAutoMind's `pages_dashboard.yml`), so it may
+    carry the JavaScript that GitHub's markdown rendering strips — a real
+    copy-to-clipboard button per task, which the markdown page cannot have (in
+    the GitHub mobile app fenced blocks offer no copy affordance at all). Links
+    are absolute (from the census `home`) because Pages serves this file away
+    from the repo blobs; with no home they fall back to relative paths. The
+    Hygiene section stays markdown-only — this page exists to pick from, not
+    to audit. Self-contained by design: inline CSS/JS, no external assets.
+    """
+    records = sorted(c["records"], key=_pick_key)
+    home = c.get("home", "")
+    blob = f"{home}/blob/main/" if home else ""
+
+    def link(path, text_html):
+        return f'<a href="{_attr(blob + path)}">{text_html}</a>'
+
+    def record_row(r):
+        text = link(r["path"], _summary_label(r["title"]))
+        facets = " · ".join(_summary_label(x) for x in
+                            (r["target"], r["difficulty"],
+                             r["autonomy"], r["priority"]) if x != "-")
+        if facets:
+            text += f' — <span class="facets">{facets}</span>'
+        return _html_task(text, f"/start_dev {r['path']}")
+
+    H = [
+        "<!doctype html>",
+        '<html lang="en">',
+        "<head>",
+        '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        "<title>PyAutoMind task dashboard</title>",
+        f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
+        f"{c['generated']} — regenerate, do not hand-edit -->",
+        f"<style>{_HTML_CSS}</style>",
+        "</head>",
+        "<body>",
+        "<h1>📋 PyAutoMind task dashboard</h1>",
+        "<p>Every task the Mind is holding. Tap a task's 📋 and its "
+        "<code>/start_dev</code> command is on your clipboard — paste it into "
+        "a Claude Code chat to route Claude straight to that task.</p>",
+        f'<p class="muted">In flight {c["issued_count"]} · '
+        f'Parked {len(c["parked"])} · Planned {len(c["planned"])} · '
+        f'Backlog {c["total"]}'
+        + (f' · {link("dashboard.md", "markdown version")}' if home else "")
+        + "</p>",
+        "<h2>Start here</h2>",
+    ]
+
+    high = [r for r in records if r["priority"] == "high"]
+    quick = [r for r in records
+             if r["difficulty"] == "small" and r["autonomy"] == "safe"]
+    for title, note, rows in (
+        ("Highest priority", "filed as high", high),
+        ("Quick wins", "small enough, and safe enough to run unattended", quick),
+    ):
+        shown = rows[:PICK_LIST_MAX]
+        more = (f" — showing {len(shown)} of {len(rows)}"
+                if len(rows) > len(shown) else "")
+        H += [f'<h3>{title} <span class="facets">({note}){more}</span></h3>']
+        H += [record_row(r) for r in shown] or ['<p class="muted">(none right now)</p>']
+
+    H += ["<h2>In flight</h2>",
+          '<p class="muted">Issued — each has an open GitHub issue and '
+          "usually a branch.</p>"]
+    for r in c["in_flight"]:
+        text = link(r["path"], _summary_label(r["title"]))
+        if r["issue_no"]:
+            text += f' — <a href="{_attr(r["issue"])}">issue #{r["issue_no"]}</a>'
+        if r["status"]:
+            text += (f' — <span class="facets">'
+                     f'{_summary_label(_clip(r["status"]))}</span>')
+        H.append(_html_task(text, f"/start_dev {r['path']}"))
+    if not c["in_flight"]:
+        H.append('<p class="muted">(nothing in flight)</p>')
+
+    for key, heading, verb in (("parked", "Parked", "resume"),
+                               ("planned", "Planned", "start")):
+        rows = c[key]
+        H += [f"<h2>{heading}</h2>", "<details>",
+              f"<summary>{len(rows)} task(s)</summary>"]
+        for e in rows:
+            text = f"<b>{_summary_label(e['slug'])}</b>"
+            if e["issue_no"]:
+                text += (f' — <a href="{_attr(e["issue"])}">'
+                         f'issue #{e["issue_no"]}</a>')
+            if e["status"]:
+                text += (f' — <span class="facets">'
+                         f'{_summary_label(_clip(e["status"]))}</span>')
+            H.append(_html_task(text, _registry_payload(e, key, verb)))
+        if not rows:
+            H.append('<p class="muted">(none)</p>')
+        H.append("</details>")
+
+    H += ["<h2>Backlog</h2>",
+          f'<p class="muted">{c["total"]} filed prompts, not started — '
+          "sorted most-pickable first (priority, then size).</p>"]
+    for wt, n in c["by_work_type"].items():
+        rows = [r for r in records if r["work_type"] == wt]
+        H += ["<details>", f"<summary>{wt} — {n}</summary>"]
+        H += [record_row(r) for r in rows]
+        H += ["</details>"]
+
+    H += [f"<script>{_HTML_JS}</script>", "</body>", "</html>"]
+    return "\n".join(H) + "\n"
 
 
 def _dashboard_body(page: str) -> str:
@@ -1454,7 +1660,8 @@ def main(argv=None):
     sub.add_parser("census", help="inventory all filed prompts (always read-only)")
 
     db = sub.add_parser("dashboard", help="render the census as the Mind task "
-                                          "page; --apply writes dashboard.md")
+                                          "page; --apply writes dashboard.md "
+                                          "+ its one-tap-copy dashboard.html")
     db.add_argument("--check", action="store_true",
                     help="exit 1 if the committed dashboard.md has drifted from "
                          "what this run renders (the generation date is ignored, "
@@ -1508,29 +1715,39 @@ def main(argv=None):
 
     if a.cmd == "dashboard":
         c = census(mind)
-        page = render_dashboard(c)
+        # Two renderings of one census: the markdown page GitHub renders in
+        # the repo, and its one-tap-copy HTML twin GitHub Pages serves.
+        pages = {"dashboard.md": render_dashboard(c),
+                 "dashboard.html": render_dashboard_html(c)}
         if a.check:
-            target = mind / "dashboard.md"
-            on_disk = target.read_text(encoding="utf-8") if target.is_file() else ""
-            if _dashboard_body(on_disk) == _dashboard_body(page):
-                print("dashboard.md is current")
+            stale = []
+            for name, want in pages.items():
+                target = mind / name
+                on_disk = (target.read_text(encoding="utf-8")
+                           if target.is_file() else "")
+                if _dashboard_body(on_disk) != _dashboard_body(want):
+                    stale.append(name)
+            if not stale:
+                print("dashboard.md + dashboard.html are current")
                 return 0
-            print("dashboard.md is stale — regenerate with "
+            print(f"{' + '.join(stale)} stale — regenerate with "
                   "`pyauto-brain intake dashboard --apply`", file=sys.stderr)
             return 1
         written = None
         if a.apply:
-            (mind / "dashboard.md").write_text(page, encoding="utf-8")
-            written = "dashboard.md"
+            for name, want in pages.items():
+                (mind / name).write_text(want, encoding="utf-8")
+            written = " + ".join(pages)
         if a.as_json:
             summary = {k: v for k, v in c.items() if k != "records"}
-            print(json.dumps({"census": summary, "page": page, "written": written},
-                             indent=2))
+            print(json.dumps({"census": summary, "page": pages["dashboard.md"],
+                              "html": pages["dashboard.html"],
+                              "written": written}, indent=2))
         elif written:
             print(f"Wrote: {written} ({c['total']} prompts, "
                   f"{len(c['hygiene'])} hygiene flag(s))")
         else:
-            print(page, end="")
+            print(pages["dashboard.md"], end="")
         return 0
 
     if a.cmd == "classify":
