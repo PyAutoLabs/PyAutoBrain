@@ -823,6 +823,7 @@ a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 .muted{color:var(--muted)}
 .facets{color:var(--muted);font-size:.85em}
+.mdsrc{font-size:.85em}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
  background:var(--btn);padding:.1em .3em;border-radius:4px}
 .task{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem 0;
@@ -934,7 +935,7 @@ def render_dashboard_html(c: dict) -> str:
     def h2(title, src):
         # Every section links the markdown file it is rendered from — the
         # registry file is the full record, the page is the view.
-        a = (f' <a class="facets" href="{_attr(blob + src)}">markdown '
+        a = (f' <a class="mdsrc" href="{_attr(blob + src)}">markdown '
              "version</a>") if blob else ""
         return f"<h2>{title}{a}</h2>"
 
