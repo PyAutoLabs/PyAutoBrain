@@ -16,6 +16,8 @@
 #   noise -> /cli_noise_clean (Heart)      deps  -> /dep_audit (Heart)
 #   docs  -> /audit_docs (Heart)           packaging -> clean_slate.sh (Brain)
 #   docstrings -> /refactor (exact findings; Hygiene remains read-only)
+#   escapes -> /refactor (LaTeX eaten by string escapes; the SILENT class has no
+#              diagnostic at all, so a warning-only sweep reports a false clean)
 #   refs  -> /refactor (folder-list drift in workspace prose: dead refs + undocumented folders)
 #   optdeps -> /refactor (smoke-listed scripts missing an optional-dep skip guard)
 #   extras  -> /bug (optional deps a library declares that the smoke CI leg never installs)
@@ -34,6 +36,7 @@
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
 #   hygiene.sh crlf            # executable scripts w/ CRLF break on HPC (+ cosmetic .py) -> /refactor
 #   hygiene.sh docstrings      # adjacent top-level script documentation -> /refactor
+#   hygiene.sh escapes         # LaTeX damaged by string escapes (warned + SILENT) -> /refactor
 #   hygiene.sh refs            # folder-list drift in workspace prose -> /refactor
 #   hygiene.sh optdeps         # smoke-listed scripts w/ a gated API but no skip guard -> /refactor
 #   hygiene.sh extras          # optional deps declared by a library but missing from the smoke CI install -> /bug
@@ -143,12 +146,13 @@ PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
 read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy crlf docstrings refs optdeps extras artifacts packaging noise deps docs config)
+MODE_ORDER=(perf tidy crlf docstrings escapes refs optdeps extras artifacts packaging noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
   [crlf]="/refactor"
   [docstrings]="/refactor"
+  [escapes]="/refactor"
   [refs]="/refactor"
   [optdeps]="/refactor"
   [extras]="/bug"
@@ -168,7 +172,7 @@ declare -A MODE_DELEGATE=(
 # 'finding', and 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
   [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris" [packaging]="debris"
-  [docstrings]="finding" [refs]="finding" [optdeps]="finding" [extras]="finding"
+  [docstrings]="finding" [escapes]="finding" [refs]="finding" [optdeps]="finding" [extras]="finding"
   [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
@@ -267,6 +271,17 @@ prescan_crlf() {
 # ranked worklist without mutating any scanned repository.
 prescan_docstrings() {
   python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --summary
+}
+
+# escapes: LaTeX in non-raw docstrings eaten by Python's escape handling, in
+# TWO classes. `\s`/`\l` are escapes Python does not recognise -- it warns.
+# `\t` in `\theta`, `\f` in `\frac`, `\r` in `\rm` are escapes it DOES
+# recognise: the value is corrupted and NOTHING is emitted, so a warning-only
+# sweep reports a clean repo. The helper also collects DeprecationWarning as
+# well as SyntaxWarning -- invalid escapes are only the latter on 3.12+, so a
+# SyntaxWarning-only sweep returns a vacuous zero on 3.11.
+prescan_escapes() {
+  python3 "$HERE/_hygiene_escapes.py" --root "$ROOT" --summary
 }
 
 # optdeps: smoke-listed workspace scripts that construct an optional-dependency
@@ -417,6 +432,7 @@ prescan() {
     perf) prescan_perf ;; tidy) prescan_tidy ;; deps) prescan_deps ;;
     docs) prescan_docs ;; noise) prescan_noise ;;
     crlf) prescan_crlf ;; docstrings) prescan_docstrings ;; refs) prescan_refs ;;
+    escapes) prescan_escapes ;;
     optdeps) prescan_optdeps ;; extras) prescan_extras ;;
     artifacts) prescan_artifacts ;;
     packaging) prescan_packaging ;; config) prescan_config ;;
@@ -429,7 +445,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|refs|optdeps|extras|config|artifacts|packaging) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|escapes|refs|optdeps|extras|config|artifacts|packaging) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -615,6 +631,10 @@ emit_json_row() { # mode
     python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --json-row
     return
   fi
+  if [[ "$m" == "escapes" ]]; then
+    python3 "$HERE/_hygiene_escapes.py" --root "$ROOT" --json-row
+    return
+  fi
   if [[ "$m" == "refs" ]]; then
     python3 "$HERE/_hygiene_refs.py" --root "$ROOT" --json-row
     return
@@ -709,7 +729,14 @@ render_row() { # mode
   render_delegate_line "$m"
 }
 
-if [[ "$mode" == "docstrings" ]]; then
+if [[ "$mode" == "escapes" ]]; then
+  echo "LaTeX damaged by Python string escapes (read-only scan):"
+  python3 "$HERE/_hygiene_escapes.py" --root "$ROOT"
+  echo
+  echo "→ the fix is an r-prefix on the enclosing docstring, NOT doubling the"
+  echo "  backslashes (which would leak into the rendered notebook prose)."
+  echo "→ route to /refactor; Hygiene never edits source."
+elif [[ "$mode" == "docstrings" ]]; then
   echo "Confirmed adjacent top-level documentation blocks (read-only scan):"
   python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT"
   echo
@@ -744,7 +771,7 @@ elif [[ "$mode" == "default" ]]; then
   # timing is deferred here — too slow for the fast scan). Rank across them and
   # recommend the mode with the largest confirmed workload.
   best=""; best_n=0
-  for m in tidy crlf docstrings refs optdeps extras artifacts packaging; do
+  for m in tidy crlf docstrings escapes refs optdeps extras artifacts packaging; do
     local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
     if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
   done

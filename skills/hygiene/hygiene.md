@@ -10,7 +10,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 ## Do
 
 1. Run `bin/pyauto-brain hygiene [perf | tidy | noise | deps | docs | crlf |
-   docstrings | refs | optdeps | extras | config | artifacts | packaging]` (no arg = pre-scan across modes → a ranked worklist;
+   docstrings | escapes | refs | optdeps | extras | config | artifacts | packaging]` (no arg = pre-scan across modes → a ranked worklist;
    perf's import timing is deferred there). This is a **dry run** — each mode
    does a cheap read-only pre-scan and emits a `HygieneDecision` naming the
    skill to run for the full audit. Nothing is executed or mutated. (`crlf` =
@@ -20,7 +20,13 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    `*.egg-info/` and `build/` directories in managed library repositories;
    `docstrings` = exact adjacent module-level triple-quoted documentation
    boundaries in user-facing workspace and HowTo root entry scripts and
-   `scripts/**/*.py` files; `refs` = dead internal references — file/folder
+   `scripts/**/*.py` files; `escapes` = LaTeX in non-raw docstrings eaten by
+   Python's escape handling, counted in TWO classes — the `\s`/`\l` ones that
+   warn, and the `\t`-in-`\theta` / `\f`-in-`\frac` ones that corrupt the
+   value with NO diagnostic at all, so a warning-only sweep reports a clean
+   repo (files with only silent damage are marked, and both SyntaxWarning and
+   DeprecationWarning are collected since invalid escapes are only the former
+   on 3.12+); `refs` = dead internal references — file/folder
    paths quoted in workspace and HowTo prose whose target no longer exists
    after a restructure, across `scripts/**/*.py`, every nested
    `scripts/**/README.md` and `config/**/README.md`, and the top-level README,
@@ -34,7 +40,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt
    is a judgement call, never automatic). For `packaging`, preview with
    `DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging`, then run it without `DRY_RUN` to
-   remove only the reported generated directories. For `docstrings` and `refs`, route the
+   remove only the reported generated directories. For `docstrings`, `escapes` and `refs`, route the
    exact reported findings to `/refactor`; the Hygiene scan remains read-only.
    A `refs` finding is the reference **as written** — judge the intended target
    (a moved file, a file that became a directory, a reference meant for a

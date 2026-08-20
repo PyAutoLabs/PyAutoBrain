@@ -15,7 +15,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
     "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
-    "packaging", "docstrings", "refs", "optdeps", "extras",
+    "packaging", "docstrings", "escapes", "refs", "optdeps", "extras",
 }
 
 _PROFILE_TARGET = """
@@ -63,6 +63,7 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert kinds["crlf"] == "debris" and kinds["artifacts"] == "debris"
     assert kinds["packaging"] == "debris"
     assert kinds["docstrings"] == "finding"
+    assert kinds["escapes"] == "finding"
     assert kinds["refs"] == "finding"
     assert kinds["optdeps"] == "finding"
     assert kinds["extras"] == "finding"
@@ -1119,3 +1120,101 @@ def test_an_explicit_body_map_override_is_authoritative(tmp_path):
 
     assert result.returncode == 3
     assert names == []
+
+
+# --- escapes: LaTeX eaten by Python's string-escape handling ------------------
+
+
+def _write_escapes_fixture(tmp_path):
+    """Four scripts covering both damage classes and both non-findings.
+
+    `silent_only` is the important one: it emits NO diagnostic of any kind, so
+    a warning-driven scan reports it clean while its docstring value is already
+    corrupted.
+    """
+    scripts = tmp_path / "demo_workspace" / "scripts"
+    scripts.mkdir(parents=True)
+
+    # `\t` in `\theta` and `\f` in `\frac` are escapes Python RECOGNISES: the
+    # value silently becomes TAB + "heta_E". Zero warnings.
+    (scripts / "silent_only.py").write_text(
+        '"""\nEinstein radius $\\theta_E$ and $\\frac{a}{b}$.\n"""\nx = 1\n'
+    )
+    # `\s` and `\l` are NOT recognised: kept literal, but warned about.
+    (scripts / "warned_only.py").write_text(
+        '"""\nDispersion $\\sigma$ and $\\lambda$.\n"""\nx = 1\n'
+    )
+    # Already raw: the escape never happened.
+    (scripts / "clean_raw.py").write_text(
+        'r"""\nEinstein radius $\\theta_E$.\n"""\nx = 1\n'
+    )
+    # A DELIBERATE newline, not a mangled macro — must never be flagged.
+    (scripts / "deliberate.py").write_text('print("\\nreal newline")\n')
+    return scripts
+
+
+def test_escapes_reports_warned_and_silent_classes_separately(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    result = _run(["escapes", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["kind"] == "finding"
+    assert row["status"] == "finding"
+    assert row["delegate"] == "/refactor"
+    assert row["parse_errors"] == []
+
+    # `warned` counts warnings; `silent` counts corrupted LITERALS, so one
+    # docstring carrying both `\theta` and `\frac` is a single silent hit.
+    found = {f["file"]: (f["warned"], f["silent"]) for f in row["findings"]}
+    assert found == {
+        "scripts/silent_only.py": (0, 1),
+        "scripts/warned_only.py": (1, 0),
+    }
+
+
+def test_escapes_ignores_raw_docstrings_and_deliberate_escapes(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    row = json.loads(_run(["escapes", "--json"], tmp_path).stdout)["row"]
+
+    flagged = {finding["file"] for finding in row["findings"]}
+    # An `r"""` docstring is already correct, and `print("\nreal newline")`
+    # wants its newline — raw-ifying that one would be the regression.
+    assert "scripts/clean_raw.py" not in flagged
+    assert "scripts/deliberate.py" not in flagged
+
+
+def test_escapes_summary_marks_files_a_warning_only_sweep_would_miss(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    row = json.loads(_run(["escapes", "--json"], tmp_path).stdout)["row"]
+
+    # The silent-only count is the whole reason this mode exists: a sweep
+    # driven by warnings alone reports `silent_only.py` as clean.
+    assert "1 file(s) have ONLY silent damage" in row["summary"]
+
+
+def test_escapes_human_output_names_the_silent_only_file(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    result = _run(["escapes"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "scripts/silent_only.py: 0 warned, 1 silent  <- silent only" in result.stdout
+    # The fix is the `r` prefix, NOT doubling backslashes (which would leak
+    # into the rendered notebook prose).
+    assert "r-prefix" in result.stdout
+
+
+def test_escapes_clean_repo_reports_no_findings(tmp_path):
+    scripts = tmp_path / "demo_workspace" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "fine.py").write_text('r"""\nAll LaTeX is raw: $\\theta_E$.\n"""\nx = 1\n')
+
+    row = json.loads(_run(["escapes", "--json"], tmp_path).stdout)["row"]
+
+    assert row["status"] == "clean"
+    assert row["count"] == 0
+    assert row["findings"] == []

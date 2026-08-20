@@ -26,7 +26,7 @@ kinds, which is what makes its count comparable (or not):
 
 - **debris** — finds directly-removable items; a real, rankable count (`tidy`).
 - **finding** — confirms a source-quality defect; a real, rankable count
-  (`docstrings`, `refs`, `optdeps`, `extras`).
+  (`docstrings`, `escapes`, `refs`, `optdeps`, `extras`).
 - **timing** — measures import cost; a real, rankable count of *slow* imports (`perf`).
 - **surface** — only *sizes* the audit; the real problems emerge when the
   delegated skill runs, so the count is **not** a problem count (`deps`, `docs`).
@@ -63,7 +63,8 @@ than its category — because category alone gets it wrong. The config layer is 
 | ships a distribution | has a `pyproject.toml` | `deps` |
 | ships api docs | has a `docs/api/` tree | `docs` |
 
-The helper-backed modes (`docstrings`, `refs`, `optdeps`, `extras`, `config`)
+The helper-backed modes (`docstrings`, `escapes`, `refs`, `optdeps`, `extras`,
+`config`)
 are **not** on this list: they discover their own targets by walking the scan
 root for workspace-shaped directories, so they can find material the map never
 names — and they keep reporting even when the repo-array modes are `unscanned`.
@@ -78,13 +79,14 @@ names — and they keep reporting even when the repo-array modes are `unscanned`
 | `docs` | `docs/api/*.rst` + `currentmodule` counts across every managed repo shipping a `docs/api/` tree (**surface**) | `/audit_docs` (Heart, imports) |
 | `crlf` | executable scripts (`.sh` + shebang-`755` `.py`) with CRLF — the shebang breaks on Linux/HPC (**debris**, the ranked count); plain `.py` CRLF is reported separately as *cosmetic* (Python reads it fine — don't mass-normalise) | `/refactor` + `.gitattributes eol=lf` |
 | `docstrings` | consecutive module-level triple-quoted expressions separated only by whitespace in user-facing `*_workspace` and `HowTo*` root `*.py` entry scripts and `scripts/**/*.py` files (**finding**) | `/refactor` (mechanically merge each confirmed boundary) |
+| `escapes` | LaTeX in non-raw docstrings eaten by Python's escape handling in user-facing `*_workspace` and `HowTo*` `scripts/**/*.py`, in **two** classes (**finding**). `\s`/`\l`/`\[` are escapes Python does not recognise: it keeps them literal but warns. `\t` in `\theta`, `\f` in `\frac`, `\r` in `\rm`, `\b` in `\beta` are escapes it **does** recognise: the value is silently corrupted (`\theta_E` becomes TAB + `heta_E`) with **no diagnostic of any kind**, so a warning-only sweep reports a clean repo over a corrupted one. Both classes are counted separately and files with **only** silent damage are marked, because those are exactly the ones a warning sweep misses. The scan collects `DeprecationWarning` as well as `SyntaxWarning`: invalid escapes are only the latter on Python 3.12+, so a `SyntaxWarning`-only sweep returns a vacuous zero on 3.11 that is indistinguishable from "already fixed" | `/refactor` (prefix `r` on the enclosing docstring — **not** doubling the backslashes, which would leak into the rendered notebook prose) |
 | `refs` | file/folder references in user-facing `*_workspace` and `HowTo*` prose (`scripts/**/*.py` docstrings + comments, every `scripts/**/README.md` and `config/**/README.md`, and the top-level README) whose target no longer exists — restructure debt no health sweep can see, since the scripts still run (**finding**). Covers the README idioms a `scripts/`-anchored matcher cannot see: structure-list bullets (``- `slam_pipeline`: ``), slash-less relative folder paths (`data_preparation/imaging`), and config YAML names. Scans the **inverse direction** too: a folder that exists but whose own parent README never names it — a package can ship fully working, with every reference resolving, and still be invisible to a reader browsing the folder list (`interferometer/features/datacube` sat unlisted for three months) | `/refactor` (re-point each dead reference; add an entry for each undocumented folder, sourced from that folder's own README or a script docstring) |
 | `optdeps` | smoke-listed workspace scripts that construct an optional-dependency-gated API (`TransformerNUFFT` → `nufftax`) without the house `find_spec` skip guard, so they hard-fail the CI matrices that omit the extras (**finding**). AST-confirmed — prose mentions don't count; scripts outside `smoke_tests.txt` are never flagged | `/refactor` (add the skip guard) |
 | `extras` | the complement of `optdeps`: an optional dependency a library **declares** (in the `[optional]` extra `mode=release` installs) that the `workspace-validation.yml` **`mode=smoke`** leg never installs (**finding**). The extras chain only reaches each library's own `[jax]`, never a sibling's `[optional]`, so those need hand-adding and silently drift — the symptom is a script red in smoke and **green in release** | `/bug` (add the install; fix the install set, **never** the script) |
 | `config` | library `config/*.yaml` keys missing from the matching workspace config — recursive diff (**surface**) | `/refactor` (mirror keys) |
 | `artifacts` | tracked files that look like leaked run outputs / stray data (under `output/`, or data-ext outside fixtures) (**debris**) | `/repo_cleanup` (gitignore + `git rm --cached`) |
 | `packaging` | ignored, fully-untracked top-level `*.egg-info/` and `build/` directories in the managed code repos (**debris**) | preview then run `PyAutoBrain/bin/clean_slate.sh --packaging`; repo-set, exact-name, root-depth and tracked-file guards apply |
-| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count direct mode (`tidy`/`crlf`/`docstrings`/`refs`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
+| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count direct mode (`tidy`/`crlf`/`docstrings`/`escapes`/`refs`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
 
 ```
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
@@ -97,6 +99,7 @@ pyauto-brain hygiene deps         # dependency-cap surface → /dep_audit
 pyauto-brain hygiene docs         # API-docs surface → /audit_docs
 pyauto-brain hygiene crlf         # CRLF .py files → /refactor
 pyauto-brain hygiene docstrings   # adjacent top-level documentation → /refactor
+pyauto-brain hygiene escapes      # LaTeX eaten by string escapes (warned + SILENT) → /refactor
 pyauto-brain hygiene refs         # folder-list drift in workspace prose → /refactor
 pyauto-brain hygiene optdeps      # smoke-listed scripts missing an optional-dep skip guard → /refactor
 pyauto-brain hygiene extras       # optional deps the smoke CI leg never installs → /bug
