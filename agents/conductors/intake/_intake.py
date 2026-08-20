@@ -389,6 +389,64 @@ def parse_registry(path: Path) -> list:
     return entries
 
 
+# `epics.md` — the Mind's registry of long-running multi-phase programmes.
+# Same H2-slug + `- key: value` shape as active.md, but the fields differ:
+# `ledger:` names the epic's canonical state file (may live in another repo),
+# `title:`/`status:`/`notes:` are display prose. The dashboard's job is only
+# to hand a session enough to WORK OUT where the epic stands — the ledger
+# stays the single source of truth.
+_EPIC_FIELDS = ("title", "ledger", "status", "notes")
+
+
+def parse_epics(path: Path) -> list:
+    """Parse `epics.md` into `[{slug, title, ledger, status, notes}]`.
+
+    Tolerant like parse_registry: a slug alone still yields a record; absent
+    file -> empty list (a freshly-spawned Mind has no epics).
+    """
+    if not path.is_file():
+        return []
+    entries, cur = [], None
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        head = _REG_HEAD.match(line)
+        if head:
+            cur = {"slug": head.group(1)}
+            cur.update({k: "" for k in _EPIC_FIELDS})
+            entries.append(cur)
+            continue
+        if cur is None:
+            continue
+        field = _REG_FIELD.match(line)
+        if field and field.group(1) in _EPIC_FIELDS and not cur[field.group(1)]:
+            cur[field.group(1)] = field.group(2).strip()
+    return entries
+
+
+def _epic_prompt(e: dict) -> str:
+    """The one-tap resume prompt: work out where the epic is, then continue.
+
+    Deliberately a procedure, not a snapshot — any phase/issue state baked in
+    here would go stale the moment the epic advances, which is exactly the
+    problem the button exists to solve."""
+    name = e.get("title") or e.get("slug", "this")
+    ledger = e.get("ledger", "")
+    parts = [f"Continue the '{name}' epic."]
+    if ledger:
+        parts.append(
+            f"Its canonical state lives in {ledger} — read that ledger (and "
+            "any DECISIONS/RESULTS files beside it) first.")
+    parts.append(
+        "Cross-check this epic's entry in PyAutoMind/epics.md, any related "
+        "rows in PyAutoMind/active.md, and the referenced repos' open issues "
+        "and PRs, to work out the last completed phase and what is currently "
+        "in flight. Then pick the next logical step and continue it through "
+        "the normal workflow (/start_dev — filing the phase's prompt first "
+        "if none exists), updating the ledger as the work advances.")
+    if e.get("notes"):
+        parts.append(f"Note: {e['notes']}")
+    return " ".join(parts)
+
+
 def _clip(text: str, limit: int = 130) -> str:
     """First line of a registry value, clipped at a word boundary."""
     text = text.strip().splitlines()[0].strip() if text.strip() else ""
@@ -492,6 +550,7 @@ def census(mind: Path) -> dict:
         "by_priority": _count("priority"),
         "records": records,
         "in_flight": in_flight,
+        "epics": parse_epics(mind / "epics.md"),
         "parked": parked,
         "planned": planned,
         "hygiene": hygiene,
@@ -687,6 +746,23 @@ def render_dashboard(c: dict) -> str:
     L += _items(flight) or ["- _(nothing in flight)_"]
     L += [""]
 
+    if c.get("epics"):
+        L += ["## Epics", "",
+              "Long-running multi-phase programmes. Each 📋 prompt has Claude "
+              "read the epic's ledger, work out where it stands, and continue "
+              "from the next logical point — no hunting for the paired issue. "
+              "Full record in [`epics.md`](epics.md).", ""]
+        items = []
+        for e in c["epics"]:
+            head = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
+            if e.get("ledger"):
+                head += f" — ledger: `{e['ledger']}`"
+            if e.get("status"):
+                head += f" — {_summary_label(_clip(e['status']))}"
+            items.append(_task_row(head, _epic_prompt(e)))
+        L += _items(items)
+        L += [""]
+
     for key, heading, verb, blurb in (
         ("parked", "Parked", "resume",
          "Started or scoped, not currently in flight — "
@@ -855,7 +931,14 @@ def render_dashboard_html(c: dict) -> str:
         H += [f'<h3>{title} <span class="facets">({note}){more}</span></h3>']
         H += [record_row(r) for r in shown] or ['<p class="muted">(none right now)</p>']
 
-    H += ["<h2>In flight</h2>",
+    def h2(title, src):
+        # Every section links the markdown file it is rendered from — the
+        # registry file is the full record, the page is the view.
+        a = (f' <a class="facets" href="{_attr(blob + src)}">markdown '
+             "version</a>") if blob else ""
+        return f"<h2>{title}{a}</h2>"
+
+    H += [h2("In flight", "active.md"),
           '<p class="muted">Issued — each has an open GitHub issue and '
           "usually a branch.</p>"]
     for r in c["in_flight"]:
@@ -869,10 +952,25 @@ def render_dashboard_html(c: dict) -> str:
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')
 
+    if c.get("epics"):
+        H += [h2("Epics", "epics.md"),
+              '<p class="muted">Long-running multi-phase programmes — 📋 '
+              "copies a prompt that works out where the epic stands from its "
+              "ledger and continues it from the next logical point.</p>"]
+        for e in c["epics"]:
+            text = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
+            if e.get("ledger"):
+                text += (f' — <span class="facets">ledger: '
+                         f"<code>{_attr(e['ledger'])}</code></span>")
+            if e.get("status"):
+                text += (f' — <span class="facets">'
+                         f'{_summary_label(_clip(e["status"]))}</span>')
+            H.append(_html_task(text, _epic_prompt(e)))
+
     for key, heading, verb in (("parked", "Parked", "resume"),
                                ("planned", "Planned", "start")):
         rows = c[key]
-        H += [f"<h2>{heading}</h2>", "<details>",
+        H += [h2(heading, f"{key}.md"), "<details>",
               f"<summary>{len(rows)} task(s)</summary>"]
         for e in rows:
             text = f"<b>{_summary_label(e['slug'])}</b>"
@@ -887,7 +985,7 @@ def render_dashboard_html(c: dict) -> str:
             H.append('<p class="muted">(none)</p>')
         H.append("</details>")
 
-    H += ["<h2>Backlog</h2>",
+    H += [h2("Backlog", "draft").replace("/blob/main/draft", "/tree/main/draft"),
           f'<p class="muted">{c["total"]} filed prompts, not started — '
           "sorted most-pickable first (priority, then size).</p>"]
     for wt, n in c["by_work_type"].items():

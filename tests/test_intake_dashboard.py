@@ -334,3 +334,45 @@ def test_check_ignores_the_generation_stamp_but_sees_content_drift(tmp_path, cap
 def test_check_on_a_missing_dashboard_is_drift(tmp_path):
     mind = _mind(tmp_path, drafts={"bug/widgets/one.md": _prompt("Bug one")})
     assert _intake.main(["--mind", str(mind), "dashboard", "--check"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# epics: long-running programmes resume from their ledger, not a paired issue
+# --------------------------------------------------------------------------- #
+_EPICS = """# Epics
+
+## jax-profiling
+- title: JAX inference programme
+- ledger: autolens_profiling/results/notes/inference/PROGRAMME.md
+- notes: slices ship as autolens_profiling issues/PRs, not Mind prompts
+
+## bare-epic
+"""
+
+
+def test_epics_section_sits_under_in_flight_with_a_resume_prompt(tmp_path):
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS})
+    page = _page(mind)
+    assert page.index("## In flight") < page.index("## Epics") < page.index("## Parked")
+    epics = page.split("## Epics")[1].split("## Parked")[0]
+    assert "JAX inference programme" in epics
+    assert "PROGRAMME.md" in epics
+    # The copy payload is a procedure — work out the state, then continue.
+    assert "work out the last completed phase" in epics
+    assert "/start_dev" in epics
+    # A slug-only entry still lists (tolerant, like the other registries).
+    assert "bare-epic" in epics
+
+
+def test_no_epics_file_means_no_epics_section(tmp_path):
+    page = _page(_mind(tmp_path, active={"one.md": _prompt("Solo task")}))
+    assert "## Epics" not in page, "a spawned Mind without epics.md stays clean"
+
+
+def test_html_sections_link_their_markdown_source(tmp_path):
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS,
+                                       "repos.yaml": REPOS_YAML})
+    html = _html(mind)
+    for src in ("active.md", "epics.md", "parked.md", "planned.md"):
+        assert f'/blob/main/{src}">markdown version</a>' in html, src
+    assert '/tree/main/draft">markdown version</a>' in html
