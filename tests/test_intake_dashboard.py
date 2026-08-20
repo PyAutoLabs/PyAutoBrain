@@ -343,8 +343,8 @@ _EPICS = """# Epics
 
 ## jax-profiling
 - title: JAX inference programme
-- ledger: autolens_profiling/results/notes/inference/PROGRAMME.md
-- notes: slices ship as autolens_profiling issues/PRs, not Mind prompts
+- ledger: widgets/results/notes/inference/PROGRAMME.md
+- notes: slices ship as widgets issues/PRs, not Mind prompts
 
 ## bare-epic
 """
