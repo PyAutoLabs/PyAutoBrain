@@ -323,16 +323,27 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
 # so every field is optional — absence is reported, never fatal.
 HEADER_FIELDS = ("type", "target", "difficulty", "autonomy", "priority", "status")
 
+# `Fix:`-anchored PR reference in a draft prompt's body — the idiom a session
+# writes when it fixes the bug but forgets to advance the prompt's lifecycle
+# (the 2026-08-21 numba psf_weighted_data case: fixed + merged overnight,
+# still advertised as top-priority backlog). Line-anchored so a prompt merely
+# *citing* a PR as context is never flagged.
+_FIX_PR_RE = re.compile(r"^Fix:.*(?:PR\s*#\d+|/pull/\d+)",
+                        re.MULTILINE | re.IGNORECASE)
+
 
 def parse_header(text: str) -> dict:
     """Extract the light metadata header (`Field: value` lines) from a prompt.
 
     Only scans the top of the file so a stray "Status:" deep in prose does not
     fire; first occurrence of each field wins. No YAML — the blessed convention.
+    `Epic:`/`Phase:` are optional epic-membership fields (dashboard grouping);
+    they are not in HEADER_FIELDS, so their absence is never header hygiene.
     """
     fields = {}
     for line in text.splitlines()[:30]:
-        m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status):\s*(\S.*)",
+        m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
+                     r"Epic|Phase):\s*(\S.*)",
                      line.strip())
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
@@ -464,7 +475,7 @@ def census(mind: Path) -> dict:
     GitHub issue), and the `parked.md` / `planned.md` rows. This is the Mind's
     *work* view — health belongs to the Heart, never here.
     """
-    records, hygiene = [], []
+    records, hygiene, drift = [], [], []
     for wt in WORK_TYPES:
         folder = mind / "draft" / wt
         if not folder.is_dir():
@@ -476,6 +487,10 @@ def census(mind: Path) -> dict:
             rel = f.relative_to(mind)
             header = parse_header(text)
             missing = [h for h in HEADER_FIELDS if h not in header]
+            try:
+                phase = int(header.get("phase", ""))
+            except ValueError:
+                phase = None
             records.append({
                 "path": str(rel),
                 "work_type": wt,
@@ -488,11 +503,16 @@ def census(mind: Path) -> dict:
                 "autonomy": header.get("autonomy", "-"),
                 "priority": header.get("priority", "-"),
                 "status": header.get("status", "-"),
+                "epic": header.get("epic", ""),
+                "phase": phase,
                 "header": header,
                 "missing": missing,
             })
             if len(missing) == len(HEADER_FIELDS):
                 hygiene.append(f"{rel} — no metadata header (pre-dates intake)")
+            if _FIX_PR_RE.search(text):
+                drift.append(f"{rel} — body records a fix PR, but the prompt "
+                             "never left draft/ (reconcile its lifecycle)")
 
     def _count(key):
         out = {}
@@ -554,6 +574,7 @@ def census(mind: Path) -> dict:
         "parked": parked,
         "planned": planned,
         "hygiene": hygiene,
+        "drift": drift,
     }
 
 
@@ -677,6 +698,30 @@ def _bullet(r: dict) -> str:
     return _task_row(head, f"/start_dev {r['path']}")
 
 
+def _epic_members(c: dict) -> dict:
+    """Backlog prompts grouped by their `Epic:` header slug, phase-ordered.
+
+    Members are worked in order *through the epic*, so the dashboard pulls
+    them out of the pick lists and work-type sections and shows them only
+    inside their epic's group. Phase-less members sort after phased ones by
+    filename. A member naming a slug that is not in `epics.md` still groups —
+    a typo shows up on the page instead of silently rendering standalone.
+    """
+    groups: dict = {}
+    for r in c["records"]:
+        if r.get("epic"):
+            groups.setdefault(r["epic"], []).append(r)
+    for rows in groups.values():
+        rows.sort(key=lambda r: (r["phase"] is None,
+                                 r["phase"] if r["phase"] is not None else 0,
+                                 r["path"]))
+    return groups
+
+
+EPIC_ORDER_CAUTION = ("Members are worked in order through the epic's ledger "
+                      "— continue the epic rather than starting one standalone.")
+
+
 def render_dashboard(c: dict) -> str:
     """Render the census as the Mind's task page (`dashboard.md`).
 
@@ -715,12 +760,21 @@ def render_dashboard(c: dict) -> str:
         f"| [Planned](#planned) (`planned.md`) | {len(c['planned'])} |",
         f"| [Backlog](#backlog) (`draft/`) | {c['total']} |",
         "",
-        "## Start here",
-        "",
     ]
+    if c.get("drift"):
+        L += ["> ⚠️ **Needs lifecycle reconciliation** — these draft prompts "
+              "record a fix PR in their body: the work looks done, but the "
+              "prompt never advanced, so it still renders as backlog:", ""]
+        L += [f"> - `{d}`" for d in c["drift"]]
+        L += [""]
+    L += ["## Start here", ""]
 
-    high = [r for r in records if r["priority"] == "high"]
-    quick = [r for r in records
+    # Epic members never appear in the pick lists or the work-type sections —
+    # they are worked in order through their epic (bottom of the page).
+    members = _epic_members(c)
+    standalone = [r for r in records if not r.get("epic")]
+    high = [r for r in standalone if r["priority"] == "high"]
+    quick = [r for r in standalone
              if r["difficulty"] == "small" and r["autonomy"] == "safe"]
     for title, note, rows in (
         ("Highest priority", "filed as `high`", high),
@@ -746,23 +800,6 @@ def render_dashboard(c: dict) -> str:
     L += _items(flight) or ["- _(nothing in flight)_"]
     L += [""]
 
-    if c.get("epics"):
-        L += ["## Epics", "",
-              "Long-running multi-phase programmes. Each 📋 prompt has Claude "
-              "read the epic's ledger, work out where it stands, and continue "
-              "from the next logical point — no hunting for the paired issue. "
-              "Full record in [`epics.md`](epics.md).", ""]
-        items = []
-        for e in c["epics"]:
-            head = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
-            if e.get("ledger"):
-                head += f" — ledger: `{e['ledger']}`"
-            if e.get("status"):
-                head += f" — {_summary_label(_clip(e['status']))}"
-            items.append(_task_row(head, _epic_prompt(e)))
-        L += _items(items)
-        L += [""]
-
     for key, heading, verb, blurb in (
         ("parked", "Parked", "resume",
          "Started or scoped, not currently in flight — "
@@ -786,14 +823,55 @@ def render_dashboard(c: dict) -> str:
         L += _items(items) or ["- _(none)_"]
         L += ["", "</details>", ""]
 
+    n_members = sum(len(v) for v in members.values())
+    member_note = (f" **{n_members}** of them belong to an epic and are "
+                   "listed only under [Epics](#epics) below."
+                   if n_members else "")
     L += [f"## Backlog", "",
           f"**{c['total']}** filed prompts, not started. Each section is sorted "
-          "most-pickable first (priority, then size).", ""]
-    for wt, n in c["by_work_type"].items():
-        rows = [r for r in records if r["work_type"] == wt]
-        L += ["<details>", f"<summary><b>{wt}</b> — {n}</summary>", ""]
+          f"most-pickable first (priority, then size).{member_note}", ""]
+    for wt in c["by_work_type"]:
+        rows = [r for r in standalone if r["work_type"] == wt]
+        if not rows:
+            continue
+        L += ["<details>", f"<summary><b>{wt}</b> — {len(rows)}</summary>", ""]
         L += _items([_bullet(r) for r in rows])
         L += ["", "</details>", ""]
+
+    # Epics live at the bottom, whole: each epic's resume prompt sits with its
+    # queued member prompts, grouped and phase-ordered, so nobody picks a
+    # member standalone out of order from a work-type section above.
+    known = {e["slug"] for e in c.get("epics") or []}
+    stray = [s for s in members if s not in known]
+    if c.get("epics") or stray:
+        L += ["## Epics", "",
+              "Long-running multi-phase programmes. Each epic's 📋 prompt has "
+              "Claude read its ledger, work out where it stands, and continue "
+              f"from the next logical point. {EPIC_ORDER_CAUTION} "
+              "Full record in [`epics.md`](epics.md).", ""]
+        for e in c.get("epics") or []:
+            rows = members.get(e["slug"], [])
+            head = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
+            if e.get("ledger"):
+                head += f" — ledger: `{e['ledger']}`"
+            if e.get("status"):
+                head += f" — {_summary_label(_clip(e['status']))}"
+            resume = _task_row(head, _epic_prompt(e))
+            if not rows:
+                L += _items([resume]) + [""]
+                continue
+            L += ["<details>",
+                  f"<summary><b>{_summary_label(e.get('title') or e['slug'])}"
+                  f"</b> — {len(rows)} queued prompt(s), in order</summary>", ""]
+            L += _items([resume] + [_bullet(r) for r in rows])
+            L += ["", "</details>", ""]
+        for slug in stray:
+            rows = members[slug]
+            L += ["<details>",
+                  f"<summary><b>{_summary_label(slug)}</b> — {len(rows)} "
+                  "queued prompt(s) — ⚠️ not in `epics.md`</summary>", ""]
+            L += _items([_bullet(r) for r in rows])
+            L += ["", "</details>", ""]
 
     if c["hygiene"]:
         L += ["## Hygiene", "",
@@ -916,11 +994,18 @@ def render_dashboard_html(c: dict) -> str:
         f'Backlog {c["total"]}'
         + (f' · {link("dashboard.md", "markdown version")}' if home else "")
         + "</p>",
-        "<h2>Start here</h2>",
     ]
+    if c.get("drift"):
+        H += ['<p>⚠️ <b>Needs lifecycle reconciliation</b> — draft prompts '
+              "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
+        H += [f"<li><code>{_attr(d)}</code></li>" for d in c["drift"]]
+        H += ["</ul>"]
+    H += ["<h2>Start here</h2>"]
 
-    high = [r for r in records if r["priority"] == "high"]
-    quick = [r for r in records
+    members = _epic_members(c)
+    standalone = [r for r in records if not r.get("epic")]
+    high = [r for r in standalone if r["priority"] == "high"]
+    quick = [r for r in standalone
              if r["difficulty"] == "small" and r["autonomy"] == "safe"]
     for title, note, rows in (
         ("Highest priority", "filed as high", high),
@@ -953,21 +1038,6 @@ def render_dashboard_html(c: dict) -> str:
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')
 
-    if c.get("epics"):
-        H += [h2("Epics", "epics.md"),
-              '<p class="muted">Long-running multi-phase programmes — 📋 '
-              "copies a prompt that works out where the epic stands from its "
-              "ledger and continues it from the next logical point.</p>"]
-        for e in c["epics"]:
-            text = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
-            if e.get("ledger"):
-                text += (f' — <span class="facets">ledger: '
-                         f"<code>{_attr(e['ledger'])}</code></span>")
-            if e.get("status"):
-                text += (f' — <span class="facets">'
-                         f'{_summary_label(_clip(e["status"]))}</span>')
-            H.append(_html_task(text, _epic_prompt(e)))
-
     for key, heading, verb in (("parked", "Parked", "resume"),
                                ("planned", "Planned", "start")):
         rows = c[key]
@@ -986,14 +1056,54 @@ def render_dashboard_html(c: dict) -> str:
             H.append('<p class="muted">(none)</p>')
         H.append("</details>")
 
+    n_members = sum(len(v) for v in members.values())
+    member_note = (f" {n_members} of them belong to an epic and are listed "
+                   "only under Epics below." if n_members else "")
     H += [h2("Backlog", "draft").replace("/blob/main/draft", "/tree/main/draft"),
           f'<p class="muted">{c["total"]} filed prompts, not started — '
-          "sorted most-pickable first (priority, then size).</p>"]
-    for wt, n in c["by_work_type"].items():
-        rows = [r for r in records if r["work_type"] == wt]
-        H += ["<details>", f"<summary>{wt} — {n}</summary>"]
+          f"sorted most-pickable first (priority, then size).{member_note}</p>"]
+    for wt in c["by_work_type"]:
+        rows = [r for r in standalone if r["work_type"] == wt]
+        if not rows:
+            continue
+        H += ["<details>", f"<summary>{wt} — {len(rows)}</summary>"]
         H += [record_row(r) for r in rows]
         H += ["</details>"]
+
+    known = {e["slug"] for e in c.get("epics") or []}
+    stray = [s for s in members if s not in known]
+    if c.get("epics") or stray:
+        H += [h2("Epics", "epics.md"),
+              '<p class="muted">Long-running multi-phase programmes — 📋 '
+              "copies a prompt that works out where the epic stands from its "
+              f"ledger and continues it from the next logical point. "
+              f"{EPIC_ORDER_CAUTION}</p>"]
+        for e in c.get("epics") or []:
+            rows = members.get(e["slug"], [])
+            text = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
+            if e.get("ledger"):
+                text += (f' — <span class="facets">ledger: '
+                         f"<code>{_attr(e['ledger'])}</code></span>")
+            if e.get("status"):
+                text += (f' — <span class="facets">'
+                         f'{_summary_label(_clip(e["status"]))}</span>')
+            resume = _html_task(text, _epic_prompt(e))
+            if not rows:
+                H.append(resume)
+                continue
+            H += ["<details>",
+                  f"<summary>{_summary_label(e.get('title') or e['slug'])} — "
+                  f"{len(rows)} queued prompt(s), in order</summary>",
+                  resume]
+            H += [record_row(r) for r in rows]
+            H += ["</details>"]
+        for slug in stray:
+            rows = members[slug]
+            H += ["<details>",
+                  f"<summary>{_summary_label(slug)} — {len(rows)} queued "
+                  "prompt(s) — ⚠️ not in epics.md</summary>"]
+            H += [record_row(r) for r in rows]
+            H += ["</details>"]
 
     H += [f"<script>{_HTML_JS}</script>", "</body>", "</html>"]
     return "\n".join(H) + "\n"
