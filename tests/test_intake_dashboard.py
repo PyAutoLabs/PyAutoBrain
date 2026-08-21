@@ -350,11 +350,13 @@ _EPICS = """# Epics
 """
 
 
-def test_epics_section_sits_under_in_flight_with_a_resume_prompt(tmp_path):
+def test_epics_section_sits_at_the_bottom_with_a_resume_prompt(tmp_path):
+    """Epics group at the bottom — after the Backlog, so members and their
+    programme read as one unit rather than scattering through the page."""
     mind = _mind(tmp_path, registries={"epics.md": _EPICS})
     page = _page(mind)
-    assert page.index("## In flight") < page.index("## Epics") < page.index("## Parked")
-    epics = page.split("## Epics")[1].split("## Parked")[0]
+    assert page.index("## Backlog") < page.index("## Epics")
+    epics = page.split("## Epics")[1]
     assert "JAX inference programme" in epics
     assert "PROGRAMME.md" in epics
     # The copy payload is a procedure — work out the state, then continue.
@@ -362,6 +364,80 @@ def test_epics_section_sits_under_in_flight_with_a_resume_prompt(tmp_path):
     assert "/start_dev" in epics
     # A slug-only entry still lists (tolerant, like the other registries).
     assert "bare-epic" in epics
+
+
+def _epic_prompt_body(title, epic, phase=None, priority="high"):
+    phase_line = f"Phase: {phase}\n" if phase is not None else ""
+    return (f"# {title}\n\nType: feature\nTarget: widgets\n"
+            f"Difficulty: medium\nAutonomy: supervised\nPriority: {priority}\n"
+            f"Status: formalised\nEpic: jax-profiling\n{phase_line}\nBody.\n")
+
+
+def test_epic_members_leave_the_pick_lists_and_work_type_sections(tmp_path):
+    """An `Epic:` member must be workable only through its epic — never
+    pickable standalone from Start here or a work-type dropdown, whatever its
+    priority says."""
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS}, drafts={
+        "feature/widgets/phase_two.md": _epic_prompt_body("Phase two", "jax-profiling", 2),
+        "feature/widgets/phase_one.md": _epic_prompt_body("Phase one", "jax-profiling", 1),
+        "feature/widgets/loner.md": _prompt("Standalone thing", priority="high"),
+    })
+    page = _page(mind)
+    epics_at = page.index("## Epics")
+    body, epics = page[:epics_at], page[epics_at:]
+    assert "Phase one" not in body and "Phase two" not in body
+    assert "Standalone thing" in body
+    # Grouped under the epic, phase order, with the resume prompt first and
+    # the start-in-order caution present.
+    assert epics.index("work out the last completed phase") \
+        < epics.index("Phase one") < epics.index("Phase two")
+    assert "2 queued prompt(s), in order" in epics
+    assert "in order through the epic" in epics
+    # The Backlog header points at where the members went.
+    assert "belong to an epic" in body
+
+
+def test_phaseless_members_sort_after_phased_by_filename(tmp_path):
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS}, drafts={
+        "feature/widgets/b_unphased.md": _epic_prompt_body("B unphased", "jax-profiling"),
+        "feature/widgets/a_unphased.md": _epic_prompt_body("A unphased", "jax-profiling"),
+        "feature/widgets/last_phase.md": _epic_prompt_body("The phased one", "jax-profiling", 7),
+    })
+    epics = _page(mind).split("## Epics")[1]
+    assert epics.index("The phased one") < epics.index("A unphased") \
+        < epics.index("B unphased")
+
+
+def test_a_member_of_an_unregistered_epic_still_groups_loudly(tmp_path):
+    """A typo'd or unfiled slug must not silently return the member to the
+    standalone backlog — it groups under the stray slug with a warning."""
+    body = _prompt("Orphan phase").replace("Status: formalised",
+                                           "Status: formalised\nEpic: no-such-epic")
+    mind = _mind(tmp_path, drafts={"feature/widgets/orphan.md": body})
+    page = _page(mind)
+    assert "## Epics" in page
+    epics = page.split("## Epics")[1]
+    assert "Orphan phase" in epics and "not in `epics.md`" in epics
+    assert "Orphan phase" not in page.split("## Epics")[0]
+
+
+# --------------------------------------------------------------------------- #
+# drift: a fixed-but-never-advanced draft must not masquerade as backlog
+# --------------------------------------------------------------------------- #
+def test_a_draft_recording_a_fix_pr_is_flagged_for_reconciliation(tmp_path):
+    body = _prompt("Numba-style bug") + \
+        "\n## Root cause\n\nFix: @PyAutoThing PR #456 (branch x) — merged.\n"
+    mind = _mind(tmp_path, drafts={"bug/widgets/fixed_bug.md": body})
+    page = _page(mind)
+    assert "Needs lifecycle reconciliation" in page
+    assert "bug/widgets/fixed_bug.md" in page.split("## Start here")[0]
+
+
+def test_a_prompt_merely_citing_a_pr_is_not_drift(tmp_path):
+    body = _prompt("Cites context") + \
+        "\nBackground: superseded by workspace PR #60, see also pull/152.\n"
+    mind = _mind(tmp_path, drafts={"bug/widgets/cites.md": body})
+    assert "Needs lifecycle reconciliation" not in _page(mind)
 
 
 def test_no_epics_file_means_no_epics_section(tmp_path):
