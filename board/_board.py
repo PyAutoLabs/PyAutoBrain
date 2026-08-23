@@ -428,8 +428,10 @@ def sparkline(history):
 
 
 def collect_doors():
-    """The conductor/faculty roster, read from the dispatcher registry itself
-    (bin/pyauto-brain is the single source; never a second copy here)."""
+    """EVERY door, from the two single sources: the dispatcher registry
+    (conductors + faculties — all the agents) and skills/*/SKILL.md (the
+    non-agent doors: compositions, dev-flow entries, ship/cleanup workflows).
+    Never a second hand-written roster."""
     script = (
         f'source "{BRAIN_HOME}/bin/pyauto-brain"; '
         'for v in "${CONDUCTOR_ORDER[@]}"; do printf "conductor\\t%s\\t%s\\n" "$v" "${AGENT_DESC[$v]}"; done; '
@@ -445,6 +447,20 @@ def collect_doors():
         parts = line.split("\t", 2)
         if len(parts) == 3:
             doors.append({"tier": parts[0], "verb": parts[1], "desc": parts[2]})
+    agent_verbs = {d["verb"] for d in doors}
+    # board (this page) and wake_up (superseded BY this page) stay off the
+    # roster on purpose.
+    skip = agent_verbs | {"board", "wake_up"}
+    for skill in sorted((BRAIN_HOME / "skills").glob("*/SKILL.md")):
+        verb = skill.parent.name
+        if verb in skip:
+            continue
+        m = re.search(r"^description:\s*(.+)$", skill.read_text(encoding="utf-8"),
+                      re.M)
+        desc = m.group(1).strip() if m else ""
+        # First sentence only — the SKILL.md carries the full contract.
+        desc = re.split(r"(?<=[.!?]) ", desc, maxsplit=1)[0][:140]
+        doors.append({"tier": "skill", "verb": verb, "desc": desc})
     return doors
 
 
@@ -996,12 +1012,21 @@ def render_html(data):
     doors = data["doors"]
     if doors:
         H.append("<h2>🚪 All doors</h2>")
-        H.append("<details><summary>every conductor and faculty</summary>")
+        H.append("<details><summary>every agent and workflow door</summary>")
         for d in doors:
+            if d["tier"] == "skill":
+                continue
             tier = '<span class="muted"> (faculty)</span>' \
                 if d["tier"] == "faculty" else ""
             H.append(_row(f'<b>/{esc(d["verb"])}</b>{tier} — {esc(d["desc"])}',
                           f"/{d['verb']}"))
+        skills = [d for d in doors if d["tier"] == "skill"]
+        if skills:
+            H.append('<p class="muted">Workflow doors — compositions and '
+                     'dev-flow entries, no agent of their own:</p>')
+            for d in skills:
+                H.append(_row(f'<b>/{esc(d["verb"])}</b> — {esc(d["desc"])}',
+                              f"/{d['verb']}"))
         H.append("</details>")
 
     if data["degraded"]:

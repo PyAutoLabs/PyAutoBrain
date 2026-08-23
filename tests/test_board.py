@@ -245,10 +245,17 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     assert s["open_issues"] == 42
     # Community section reuses the Ears' scan surface wholesale.
     assert s["community"]["counts"]["awaiting_response"] == 0
-    # The doors roster comes from the dispatcher registry, both tiers.
+    # The doors roster covers every agent (dispatcher registry, both tiers)
+    # AND every workflow door (skills/ minus the agents).
     verbs = {d["verb"] for d in s["doors"]}
     assert {"intake", "health", "vitals"} <= verbs
-    assert "board" not in verbs  # surfaces are not agents
+    skill_verbs = {d["verb"] for d in s["doors"] if d["tier"] == "skill"}
+    assert {"route", "prm", "start_dev", "issue_cleanup"} <= skill_verbs
+    for d in s["doors"]:
+        if d["tier"] == "skill":
+            assert d["desc"], d["verb"]  # frontmatter description parsed
+    assert "board" not in verbs    # the page never lists itself
+    assert "wake_up" not in verbs  # superseded BY this page
     # Sibling boards resolved against the pages base.
     assert s["boards"]["heart"].endswith("/PyAutoHeart/")
 
