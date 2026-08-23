@@ -59,6 +59,29 @@ dispatch renders `--apply` output and deploys it to GitHub Pages (page +
 `badge.json` + `board.json` + `board.md`). Nothing is committed to the repo —
 the board is served, not stored, so a daily refresh makes no commit noise.
 
+## Look (`_theme.py`)
+
+`board/_theme.py` is the one place that answers *what does a one-tap board
+look like* — the stylesheet, the hero, the facet pills, the family footer.
+Presentation only: no state, no collection, no policy. It is shared, not
+copied: this board and the Mind dashboard (rendered by the intake conductor)
+both import it, so a change to the look lands on the whole family at once
+rather than drifting page by page.
+
+Each organ has an accent sampled from its own logo, and every board opens
+with a dark hero reproducing that logo's wordmark — white `PyAuto`, the organ
+name in its accent, the logo's tagline underneath. Below the hero the page
+goes back to being a plain readable document, because these are lists people
+scan on a phone before breakfast.
+
+Colour is information, never decoration: the accent is organ identity; pills
+are task facets, toned so that only the *exception* is coloured (`supervised`
+is 9 of 10 prompts in the Mind, so it stays neutral — tinting it would paint
+the backlog and say nothing); `ok`/`warn`/`bad` stay reserved for verdict
+semantics. `ORGANS` holds the palette — `mind` and `brain` are sampled from
+the real logo files, the other four are placeholders in the right hue family,
+to be confirmed against each logo when that renderer adopts the theme.
+
 ## Configuration
 
 Instance vocabulary lives in `config/policy.yaml` under `board:` (the declared
