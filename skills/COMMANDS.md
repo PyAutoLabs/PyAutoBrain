@@ -85,6 +85,15 @@ call, so the Brain is not bypassed):
   local-only steps. Interactive/terminal only (the automated morning webhooks are
   separate).
 
+- **`/prm`** — the wrap-up shortcut: *"PR, CI green, then merge"*. Watches a
+  feature PR's checks until **every** workflow run and **every** matrix leg for
+  the head sha is green, merges in library-first order, then hands back to the
+  `ship_*` completion steps (Shipped comment, `lifecycle.py record`, cleanup).
+  Three keystrokes for the sentence the human types at the end of nearly every
+  task. Owns no gate of its own — it refuses on red/pending/conflicting and on an
+  unmerged upstream library PR, and asks before closing the issue. Pure `gh`, so
+  it runs on the CLI, mobile Claude Code chat and Codex alike.
+
 **5. Maintenance doors** — periodic sweeps that reason about accumulated debris
 and then execute their own cleanup after per-bucket human confirmation. They own
 no agent, but unlike the composition doors they *mutate*, so each is

@@ -99,5 +99,8 @@ and prunes the `active.md` entry), and push Mind. Templates in
 ## Notes
 
 - Workspace scripts/notebooks/configs only — never library source.
+- If CI is still running when step 5 arrives, [`/prm`](../prm/prm.md) is the door
+  that waits for every run/leg, merges behind the library-first gate, and comes
+  back to step 6.
 - Only edit `scripts/`; notebooks are regenerated.
 - Never skip the readiness gate or the library-first merge gate.
