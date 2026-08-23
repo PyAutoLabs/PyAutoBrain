@@ -112,7 +112,8 @@ next human (or queued) launch.
 
 - This skill ships **library source only** — workspace scripts/notebooks go
   through `/ship_workspace`.
-- Waiting on CI before the merge is [`/prm`](../prm/prm.md) — the wrap-up door
-  that judges every run/leg, merges in library-first order, and returns here for
-  the completion steps.
+- Waiting on CI before the merge is [`/prm`](../prm/prm.md) — the close-out door
+  that judges every run/leg, merges in library-first order, then runs this
+  skill's completion contract itself (Shipped comment, issue closed, Mind record,
+  worktree + branches removed).
 - Never skip the readiness gate; never `--no-verify`; fix the underlying issue.

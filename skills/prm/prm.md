@@ -1,8 +1,10 @@
 # /prm — PR, CI green, then merge
 
-The end-of-task shortcut for "PR CI green then merge" — three keystrokes instead
-of the sentence. It watches the feature PR's checks, merges the moment they are
-genuinely green, and finishes the ship (Mind record, issue comment, cleanup).
+The end-of-task shortcut for "PR CI green then merge" — and the **full task
+close-out**: the last thing you type for a task. It watches the feature PR's
+checks, merges the moment they are genuinely green, then closes the task out
+completely — issue closed, PyAutoMind moved `active/` → `complete/`, worktree
+removed, branches deleted — and hands back a ledger of what it did.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 gh mechanics + snippets: [`reference.md`](reference.md).
@@ -90,18 +92,54 @@ Green on every leg → merge, in this order:
 Never force, never override a protection, never rewrite history. If a merge is
 refused by GitHub, report the reason verbatim and stop.
 
-### 5. Finish the ship
+### 5. Close the task out
 
-Hand back to the ship skills' completion steps — do not re-invent them:
+Typing `/prm` authorizes the whole close-out — merge **and** issue close **and**
+cleanup. Run all of it without asking again; the only questions are the guards in
+step 6. Order is forced by the tooling, so do not reorder:
 
-- Post the "Shipped" comment on the issue (templates: `../ship_library/reference.md`
-  → "Issue comments + Mind state").
-- Write the dated completion record — `PyAutoMind/scripts/lifecycle.py record`
-  (also refreshes the index and prunes the `active.md` entry) — and push Mind.
-- **Ask before closing the issue.** Merging is what `/prm` was typed for; closing
-  is a separate decision the human makes.
-- **Local only:** offer the post-merge cleanup (worktree removal, local branch
-  deletion) per the ship skills; on mobile/codex note it as still pending.
+1. **Prove every branch merged, per repo.** The task may have shipped in waves —
+   a completion record is a write-up, not a merge receipt. For each repo the task
+   claims, `merge-base --is-ancestor origin/feature/<task> origin/main` and
+   `rev-list --count origin/main..origin/feature/<task>` (want 0). Any repo with
+   unmerged commits and no open PR → **stop the close-out** and report it; a
+   half-merged task must not be recorded complete.
+2. **Issue** — post the "Shipped" comment (template: `../ship_library/reference.md`
+   → "Issue comments + Mind state"), then close it. `gh issue close` is broken in
+   this gh; use the REST path in [`reference.md`](reference.md).
+3. **Mind: `active/` → `complete/`** — draft the completion body, then
+   `lifecycle.py record <slug> --date … --from-file … --prompt <bare-filename>
+   --apply`. The `--prompt` argument is a **bare filename**; a path silently
+   no-ops. Verify all three effects (record has `## Original prompt`, the
+   `active/` prompt is gone, the `## <task>` entry left `active.md`), run
+   `lifecycle.py check`, then commit and push Mind — on `main`, and note that
+   `prompt_sync_push` stages `-A`, so check for unrelated work first.
+4. **Worktree** — `worktree_remove <task>` (source `bin/worktree.sh`, `PYAUTO_MAIN`
+   set), never `rm -rf`. It refuses on a dirty repo and on a claim still
+   registered in `active.md` — which is exactly why step 3 comes first.
+5. **Branches** — delete the remote `feature/<task>` per proven-merged repo, plus
+   any local branch left in the canonical checkout. Never delete a branch whose
+   merge you did not prove in sub-step 1.
+6. **Report the ledger** — PRs merged, issue closed, record path, `active.md`
+   released, worktree removed, branches deleted, and anything skipped.
+
+**Remote (mobile/codex):** sub-steps 1, 2 and 5 run over `gh`/`git ls-remote` as
+usual. Mind (3) works if PyAutoMind is checked out; otherwise say the record is
+pending. The worktree (4) is local-only — name it as outstanding rather than
+implying it ran.
+
+### 6. The only guards that stop you
+
+Stop and report instead of pressing on when:
+
+- a branch in the task is **unmerged** with no open PR (step 5.1) — the waves trap;
+- `worktree_remove` **refuses** (dirty repo, stale claim) — fix the cause, never
+  `PYAUTO_WT_FORCE=1` your way past it;
+- the worktree holds **gitignored data products** (reduced datasets, caches,
+  `output/` fits) — removal destroys them and they may not be cheaply
+  re-derivable. List them with sizes and **ask once**: delete, or keep the
+  worktree and finish everything else. This is the one question `/prm` asks, and
+  only when such files exist.
 
 ## Notes
 
@@ -111,3 +149,5 @@ Hand back to the ship skills' completion steps — do not re-invent them:
   red Heart is not something a merge shortcut may re-judge.
 - Under a `--auto` workflow run, merge stays human: `/prm` is a human-typed door
   and is never invoked by the autonomous queue.
+- A task with no issue, no Mind prompt, or no worktree (a direct wiring change,
+  say) simply skips those sub-steps and says so — it is not an error.
