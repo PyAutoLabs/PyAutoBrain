@@ -482,15 +482,32 @@ def _recent_mind(root, n_records=0, month="08"):
         })
 
 
-def test_recent_merges_every_state_into_one_dated_feed(tmp_path):
+def test_recent_merges_every_live_state_into_one_dated_feed(tmp_path):
     """Recency is orthogonal to state, so it is the one question no other
     section on the page can answer."""
-    page = _page(_recent_mind(tmp_path, n_records=3))
+    page = _page(_recent_mind(tmp_path))
     recent = page.split("## Recent")[1]
-    for slug in ("sprocket-calibration", "flywheel-balance", "gearbox-survey",
-                 "shipped-00"):
-        assert slug in recent or slug.replace("-", " ") in recent.lower()
+    for slug in ("Sprocket calibration", "flywheel-balance", "gearbox-survey"):
+        assert slug in recent
     assert "| Date | Event | Task |" in recent
+
+
+def test_shipped_work_is_not_in_the_feed(tmp_path):
+    """The `complete/` ledger is a thousand records deep and ships ~200 a
+    month, so including it made this a list of receipts — twenty things nobody
+    can act on, on the page whose whole job is work in hand."""
+    mind = _recent_mind(tmp_path, n_records=40)
+    rows = _intake.census(mind)["recent"]
+    assert len(rows) == 3
+    assert not any("shipped" in r["title"] for r in rows)
+    assert "shipped-00" not in _page(mind)
+
+
+def test_the_complete_ledger_is_never_opened(tmp_path):
+    """Not merely filtered out afterwards — a 20-row table of live work must
+    not read a thousand records to render."""
+    assert not hasattr(_intake, "completed_records")
+    assert "completed" not in _intake.census(_recent_mind(tmp_path, n_records=5))
 
 
 def test_recent_names_the_event_each_date_records(tmp_path):
@@ -515,18 +532,6 @@ def test_recent_sits_after_the_backlog_and_before_the_epics(tmp_path):
     (mind / "epics.md").write_text(_EPICS, encoding="utf-8")
     page = _page(mind)
     assert page.index("## Backlog") < page.index("## Recent") < page.index("## Epics")
-
-
-def test_a_busy_ledger_never_crowds_live_work_out_of_the_feed(tmp_path):
-    """A straight date sort on a Mind that ships 200 records a month is 20
-    receipts and no work. Live tasks are selected first; records fill the
-    rest — otherwise the dates on active tasks would be invisible on the very
-    page they were added for."""
-    rows = _intake.census(_recent_mind(tmp_path, n_records=40))["recent"]
-    assert len(rows) == _intake.RECENT_MAX
-    live = [r for r in rows if r["live"]]
-    assert {r["title"] for r in live} == {"Sprocket calibration",
-                                          "flywheel-balance", "gearbox-survey"}
 
 
 def test_an_undated_task_is_absent_rather_than_sorted_to_the_bottom(tmp_path):
@@ -575,15 +580,6 @@ def test_a_date_in_another_fields_prose_does_not_count_as_a_date(tmp_path):
     assert _intake.census(mind)["recent"] == []
 
 
-def test_a_record_without_a_completed_field_still_dates_by_its_folder(tmp_path):
-    """A fifth of the ledger states its date in prose. The month folder the
-    lifecycle engine filed it into is coarse but never wrong about the month,
-    and the alternative is dropping those records out of the feed."""
-    mind = _mind(tmp_path, complete={
-        "2026/07/legacy_record.md": "Shipped one July afternoon.\n"})
-    assert _intake.census(mind)["recent"][0]["date"] == "2026-07"
-
-
 def test_the_html_twin_carries_the_same_feed_with_real_copy_buttons(tmp_path):
     html = _intake.render_dashboard_html(_intake.census(_recent_mind(tmp_path)))
     assert "<h2>Recent" in html
@@ -591,17 +587,6 @@ def test_the_html_twin_carries_the_same_feed_with_real_copy_buttons(tmp_path):
         if "<h2>Epics" in html else True
     assert '<table class="recent">' in html
     assert 'data-cmd="/start_dev active/sprocket_calibration.md"' in html
-
-
-def test_the_completed_scan_does_not_read_the_whole_ledger(tmp_path):
-    """1000+ records is the bulk of the Mind; a 20-row table must not open all
-    of them on every render."""
-    mind = _mind(tmp_path, complete={
-        f"2026/{m:02d}/rec-{m}-{i:02d}.md": _record(f"rec-{m}-{i}", f"2026-{m:02d}-01")
-        for m in range(1, 9) for i in range(30)})
-    scanned = _intake.completed_records(mind)
-    assert len(scanned) < 240
-    assert scanned[0]["date"] == "2026-08-01"
 
 
 def test_a_live_row_wears_its_date_where_the_task_is(tmp_path):

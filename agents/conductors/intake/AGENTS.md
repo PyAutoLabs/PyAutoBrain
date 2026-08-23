@@ -89,15 +89,18 @@ schema — light structure over free-form prose.
 | **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source for identifiers the prompts name — the one signal that sees a prompt with no Mind-side trace. Opt-in; the default path is offline |
 
 **Recent** is the one section laid out by *date* rather than by state: the 20
-newest task events merged across every bucket — issued, parked, filed,
-completed — sitting between the Backlog and the Epics. Every other section
-answers "what should I do now?"; recency is orthogonal to state, so none of
-them can answer "what has been happening?". Dates come from the registry key
-that names the event (`issued:` / `parked:` / `filed:`, PyAutoMind REFERENCE.md
-"Task dates"), a prompt's own `Issued:` header, or a record's `completed:`.
-Live work is selected first and completions fill the rest — on a Mind that
-ships two hundred records a month a straight date sort is twenty receipts and
-no work.
+newest events on the **work in hand** — issued, parked, filed — merged across
+the live buckets and sitting between the Backlog and the Epics. Every other
+section answers "what should I do now?"; recency is orthogonal to state, so
+none of them can answer "what has been happening?". Dates come from the
+registry key that names the event (`issued:` / `parked:` / `filed:`, PyAutoMind
+REFERENCE.md "Task dates") or a prompt's own `Issued:` header.
+
+Shipped work is deliberately **not** in the feed and `complete/` is never
+opened to render it: the ledger is a thousand records deep and takes ~200 a
+month, so including it made the table a list of receipts — twenty things nobody
+can act on, on the page whose whole job is work in hand. `complete/index.md` is
+where shipped work is read.
 
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy

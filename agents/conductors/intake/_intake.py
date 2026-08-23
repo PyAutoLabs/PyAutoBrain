@@ -492,33 +492,22 @@ def _clip(text: str, limit: int = 130) -> str:
 
 # --- the recent feed -----------------------------------------------------------
 # The dashboard answers "what should I do now?" everywhere else on the page.
-# This one section answers "what has been happening?" — the single question a
-# task page laid out by STATE cannot answer, because a task's recency is
-# orthogonal to which bucket it sits in. Merging the buckets by date puts the
-# week's issuing, parking and shipping in one place, which is also the fastest
-# way to spot a Mind that has drifted (three weeks of `filed` and nothing
-# `completed` is visible at a glance and invisible section by section).
+# This one section answers "what has been happening to the work in hand?" — the
+# single question a task page laid out by STATE cannot answer, because a task's
+# recency is orthogonal to which bucket it sits in. Merging the buckets by date
+# puts the week's issuing, parking and filing in one place.
+#
+# Live work ONLY. The `complete/` ledger is not in this feed: it is a thousand
+# records deep and ships ~200 a month, so including it made the table a list of
+# receipts — twenty things nobody can act on, on the page whose whole job is
+# work in hand. `complete/index.md` is where shipped work is read.
 RECENT_MAX = 20
-
-# How many month folders of `complete/` to open. The records are the bulk of
-# the Mind (1000+ files), and only the newest handful can reach a 20-row feed,
-# so the scan is bounded by folder rather than reading the whole ledger on
-# every render. Two months is comfortably more than 20 records in practice;
-# the scan widens on its own if they are not.
-RECENT_MONTHS = 2
-
-# Records open with their fields (`- completed: …`) but the ledger is a decade
-# of hand-written prose, so a fifth of them say it another way. Read the head
-# of the file only: a date deep in a narrative is something the task mentions,
-# not when it shipped.
-_RECORD_HEAD_BYTES = 4096
-_RECORD_DATE = re.compile(r"^-\s+(completed|shipped):\s*(.*)$", re.MULTILINE)
 
 # The verb each event reads as in the feed. Past tense throughout — every row
 # is something that already happened.
 EVENT_LABEL = {"issued": "issued", "registered": "issued", "started": "started",
                "planned": "planned", "filed": "filed", "parked": "parked",
-               "found": "found", "completed": "completed", "shipped": "completed"}
+               "found": "found"}
 
 
 def _anchor(heading: str) -> str:
@@ -526,108 +515,38 @@ def _anchor(heading: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", heading.lower()).strip("-")
 
 
-def _record_date(path: Path, text: str) -> str:
-    """The day a completion record's task shipped.
-
-    `completed:`/`shipped:` when the record states one; otherwise the record's
-    own `complete/<YYYY>/<MM>/` folder, which the lifecycle engine files it
-    into by completion month — coarse, but never wrong about the month, and
-    the alternative is dropping a fifth of the ledger out of the feed."""
-    m = _RECORD_DATE.search(text)
-    if m:
-        d = _ISO_DATE.search(m.group(2))
-        if d:
-            return d.group(1)
-    parts = path.parts
-    if len(parts) >= 3 and parts[-3].isdigit() and parts[-2].isdigit():
-        return f"{parts[-3]}-{parts[-2]}"
-    return ""
-
-
-def completed_records(mind: Path, months: int = RECENT_MONTHS,
-                      want: int = RECENT_MAX) -> list:
-    """The newest completion records, newest first — `[{date, slug, path}]`.
-
-    Walks `complete/<YYYY>/<MM>/` newest-first and stops one month after it has
-    enough, so the whole ledger is never read to render a 20-row table. A month
-    is opened whole: records inside one are unordered, and a record can carry a
-    date from the month before it was filed under."""
-    root = mind / "complete"
-    if not root.is_dir():
-        return []
-    folders = sorted(
-        (d for y in root.iterdir() if y.is_dir() and y.name.isdigit()
-         for d in y.iterdir() if d.is_dir() and d.name.isdigit()),
-        key=lambda d: (d.parent.name, d.name), reverse=True)
-    out, opened = [], 0
-    for folder in folders:
-        opened += 1
-        for f in folder.glob("*.md"):
-            text = f.read_text(encoding="utf-8", errors="replace")[:_RECORD_HEAD_BYTES]
-            out.append({"date": _record_date(f, text),
-                        "slug": f.stem,
-                        "path": str(f.relative_to(mind))})
-        if opened >= months and len(out) >= want:
-            break
-    out.sort(key=lambda r: r["date"], reverse=True)
-    return out
-
-
 def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
-    """The Mind's newest task events, newest first — `[{date, event, title, …}]`.
+    """The newest events on the work in hand, newest first.
 
     One row per task, not per event: a task that was filed and later issued
     appears once, on its latest date (which is what `_entry_date` already picks
     per entry).
 
-    **Live work is never crowded out by shipped work.** A straight date sort
-    would be all completions — this Mind ships ~200 records a month, so the
-    twenty newest dates in it are twenty records — and the one thing the feed
-    must show is the work still in hand. So the rows are *selected* live-first
-    (in flight, parked, planned), completions fill whatever room is left, and
-    the selected set is then sorted by date like any other feed. On a quiet
-    Mind that changes nothing; on a busy one it is the difference between a
-    table of work and a table of receipts.
-
     Undated rows are absent rather than sorted to the bottom: `lifecycle.py
     dates` is where a missing date gets reported, and padding this table with
     unknowns would bury the answer it exists to give.
     """
-    live, done = [], []
+    events = []
     for r in c.get("in_flight") or []:
         if r.get("date"):
-            live.append({"date": r["date"], "event": r.get("event") or "issued",
-                         "title": r["title"], "path": r["path"], "live": True,
-                         "payload": f"/start_dev {r['path']}"})
+            events.append({"date": r["date"], "event": r.get("event") or "issued",
+                           "title": r["title"], "path": r["path"],
+                           "payload": f"/start_dev {r['path']}"})
     for key, verb in (("parked", "resume"), ("planned", "start")):
         for e in c.get(key) or []:
             if e.get("date"):
-                live.append({"date": e["date"],
-                             "event": e.get("event") or key,
-                             "title": e["slug"],
-                             # The entry's own heading anchor — a registry file
-                             # is long enough that landing at its top is not
-                             # the same as landing on the task.
-                             "path": f"{key}.md#{_anchor(e['slug'])}",
-                             "live": True,
-                             "payload": _registry_payload(e, key, verb)})
-    for r in c.get("completed") or []:
-        if r.get("date"):
-            done.append({"date": r["date"], "event": "completed",
-                         "title": r["slug"], "path": r["path"], "live": False,
-                         "payload": f"/memory recall the completed PyAutoMind "
-                                    f"task {r['slug']} — its record is "
-                                    f"{r['path']}"})
-
-    def _newest(rows):
-        return sorted(rows, key=lambda e: (e["date"], e["title"]), reverse=True)
-
-    chosen = _newest(live)[:limit]
-    chosen += _newest(done)[:max(0, limit - len(chosen))]
-    chosen = _newest(chosen)
-    for e in chosen:
+                events.append({"date": e["date"],
+                               "event": e.get("event") or key,
+                               "title": e["slug"],
+                               # The entry's own heading anchor — a registry
+                               # file is long enough that landing at its top is
+                               # not the same as landing on the task.
+                               "path": f"{key}.md#{_anchor(e['slug'])}",
+                               "payload": _registry_payload(e, key, verb)})
+    events.sort(key=lambda e: (e["date"], e["title"]), reverse=True)
+    for e in events:
         e["event"] = EVENT_LABEL.get(e["event"], e["event"])
-    return chosen
+    return events[:limit]
 
 
 def census(mind: Path) -> dict:
@@ -749,7 +668,6 @@ def census(mind: Path) -> dict:
         "hygiene": hygiene,
         "drift": drift,
     }
-    c["completed"] = completed_records(mind)
     c["recent"] = recent_events(c)
     return c
 
@@ -895,11 +813,12 @@ def _epic_members(c: dict) -> dict:
 
 
 RECENT_BLURB = (
-    "The Mind's most recent {n} task events, newest first — what was issued, "
-    "parked, filed and shipped, in one place. Every other section on this page "
-    "is laid out by state, which is exactly why none of them can answer "
-    "\u201cwhat has been happening?\u201d. Work still in hand is listed "
-    "first-class here; completed records fill whatever room is left.")
+    "The {n} newest things to happen to the work in hand, newest first — "
+    "issued, parked, filed. Every other section on this page is laid out by "
+    "state, which is exactly why none of them can answer \u201cwhat has been "
+    "happening?\u201d. Shipped work is not here: it is read from "
+    "`complete/index.md`, and a thousand records deep it would crowd out "
+    "everything anyone can still act on.")
 
 
 def _dated(row: dict) -> str:
@@ -1056,8 +975,8 @@ def render_dashboard(c: dict) -> str:
               "|------|-------|------|"]
         L += [f"| {r['date']} | {r['event']} | {_cell(_recent_link(r))} |"
               for r in recent]
-        L += ["", "_Dates come from each task's registry entry and each record's "
-              "`completed:` — `lifecycle.py dates` reports anything undated._", ""]
+        L += ["", "_Dates come from each task's registry entry — "
+              "`lifecycle.py dates` reports anything undated._", ""]
 
     # Epics live at the bottom, whole: each epic's resume prompt sits with its
     # queued member prompts, grouped and phase-ordered, so nobody picks a
