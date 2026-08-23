@@ -728,6 +728,29 @@ def _pages_url(home: str) -> str:
     return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
 
 
+def _board_links(home: str) -> list:
+    """The cross-board footer nav every one-tap board carries: (name, url)
+    pairs for the sibling boards, from PyAutoBrain's declared config surface
+    (config/policy.yaml `board: boards:`), skipping this page's own entry.
+
+    Stdlib regex on the one-pair-per-line block, not yaml — this renderer
+    also runs bare in PyAutoMind's dashboard_refresh workflow, which installs
+    nothing. The owner comes from the census home, so no org is named here.
+    """
+    m = re.match(r"https://github\.com/([^/]+)/", home or "")
+    policy = Path(__file__).resolve().parents[3] / "config" / "policy.yaml"
+    if not m or not policy.is_file():
+        return []
+    owner = m.group(1).lower()
+    block = re.search(r"^  boards:\n((?:    \w+: \S+\n)+)",
+                      policy.read_text(encoding="utf-8"), re.M)
+    if not block:
+        return []
+    pairs = re.findall(r"^    (\w+): (\S+)$", block.group(1), re.M)
+    return [(name, f"https://{owner}.github.io/{repo}/")
+            for name, repo in pairs if name != "mind"]
+
+
 def _summary_label(value: str) -> str:
     """Task text rendered inside a `<summary>` — HTML, not markdown.
 
@@ -1091,6 +1114,10 @@ def render_dashboard(c: dict) -> str:
               "<details>", "<summary>Headerless prompts</summary>", ""]
         L += [f"- `{h.split(' — ')[0]}`" for h in c["hygiene"]]
         L += ["", "</details>"]
+
+    boards = _board_links(c.get("home", ""))
+    if boards:
+        L += ["", "Boards: " + " · ".join(f"[{n}]({u})" for n, u in boards)]
     return "\n".join(L).rstrip("\n") + "\n"
 
 
@@ -1372,6 +1399,10 @@ def render_dashboard_html(c: dict) -> str:
             H += [record_row(r) for r in rows]
             H += ["</details>"]
 
+    boards = _board_links(home)
+    if boards:
+        nav = " · ".join(f'<a href="{_attr(u)}">{n}</a>' for n, u in boards)
+        H.append(f'<p class="muted">Boards: {nav}</p>')
     H += [f"<script>{_HTML_JS}</script>", "</body>", "</html>"]
     return "\n".join(H) + "\n"
 
