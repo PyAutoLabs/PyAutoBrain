@@ -41,6 +41,16 @@ from _sizing import (  # noqa: E402
     policy as _sizing_policy, BODY_MAP_PATH,
 )
 
+# The shared board theme: the one place that answers "what does a one-tap board
+# look like". Presentation only — the stylesheet, the hero, the pills — so this
+# page and the Brain board are visibly the same family (board/_theme.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "board"))
+from _theme import (  # noqa: E402
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
+)
+
+THEME_ORGAN = "mind"  # whose logo this page wears
+
 # --- work-type classification -------------------------------------------------
 # Keyword signals per work-type. The classifier scores each type by keyword hits
 # (word-boundary prefix match via _sizing._hits) and picks the strongest; ties /
@@ -104,6 +114,41 @@ def _slug(text: str, maxwords: int = 7) -> str:
     return slug[:48].strip("_") or "untitled"
 
 
+# Words that must never be the last one in a truncated title. A cut landing
+# on "the" or "which" reads as a rendering bug rather than a summary — the
+# page said "kernel-CDF numba fast path (the" for months.
+_DANGLING = {
+    "a", "an", "and", "are", "as", "at", "but", "by", "can", "for", "from",
+    "if", "in", "into", "is", "it", "its", "of", "on", "or", "our", "over",
+    "one", "other", "per", "so", "than", "that", "the", "their", "then",
+    "this", "to", "up", "via", "we", "what", "when", "which", "while",
+    "with", "without",
+}
+TITLE_WORDS = 12
+
+
+def _shorten(words: list) -> str:
+    """`words` cut to a title, ending somewhere a reader can stop.
+
+    Trailing function words are dropped, an orphaned opening bracket is
+    dropped with the fragment it opened, and an unpaired backtick is dropped
+    so the code span cannot bleed into the rest of the page. An ellipsis
+    marks that there was more — a silent cut is indistinguishable from a
+    title that simply ends badly.
+    """
+    kept = list(words[:TITLE_WORDS])
+    while kept and kept[-1].lower().strip("(,;:—-") in _DANGLING:
+        kept.pop()
+    out = " ".join(kept).rstrip(" ,;:—-([{")
+    if out.count("(") > out.count(")"):
+        out = out[:out.rindex("(")].rstrip(" ,;:—-")
+    if out.count("`") % 2:
+        out = out[:out.rindex("`")].rstrip(" ,;:—-")
+    # Every guard above can eat the whole thing (a title that opens with a
+    # bracket, say) — fall back to the plain cut rather than to nothing.
+    return (out or " ".join(words[:TITLE_WORDS])) + "…"
+
+
 def _title(text: str) -> str:
     """First markdown heading, else first non-empty line, trimmed to a title."""
     for line in text.splitlines():
@@ -111,9 +156,12 @@ def _title(text: str) -> str:
         if not s:
             continue
         s = s.lstrip("#").strip().rstrip(":").rstrip(".")
-        # Keep it title-length: first sentence / ~10 words.
+        # Keep it title-length: first sentence / ~12 words.
         s = re.split(r"(?<=[a-z])[.?!]\s", s)[0]
-        return " ".join(s.split()[:10]) or "Untitled"
+        words = s.split()
+        if not words:
+            return "Untitled"
+        return " ".join(words) if len(words) <= TITLE_WORDS else _shorten(words)
     return "Untitled"
 
 
@@ -1121,63 +1169,10 @@ def render_dashboard(c: dict) -> str:
     return "\n".join(L).rstrip("\n") + "\n"
 
 
-_HTML_CSS = """\
-:root{color-scheme:light dark;--bg:#fff;--fg:#1f2328;--muted:#59636e;
- --line:#d1d9e0;--btn:#f6f8fa;--ok:#1a7f37;--accent:#0969da}
-@media(prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#f0f6fc;
- --muted:#9198a1;--line:#3d444d;--btn:#151b23;--ok:#3fb950;--accent:#4493f8}}
-*{box-sizing:border-box}
-body{margin:0 auto;max-width:44rem;padding:1rem 1rem 4rem;background:var(--bg);
- color:var(--fg);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",
- Helvetica,Arial,sans-serif}
-h1{font-size:1.35rem;margin:.4rem 0}
-h2{font-size:1.15rem;margin-top:2rem;border-bottom:1px solid var(--line);
- padding-bottom:.3rem}
-h3{font-size:1rem;margin:1.2rem 0 .2rem}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
-.muted{color:var(--muted)}
-.facets{color:var(--muted);font-size:.85em}
-.mdsrc{font-size:.85em}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
- background:var(--btn);padding:.1em .3em;border-radius:4px}
-.task{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem 0;
- border-bottom:1px solid var(--line)}
-.task p{margin:.25rem 0 0;flex:1;overflow-wrap:anywhere}
-button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
- border:1px solid var(--line);border-radius:8px;background:var(--btn);
- cursor:pointer;color:var(--fg)}
-button.copy.ok{color:var(--ok);border-color:var(--ok)}
-details{margin:.5rem 0}
-summary{cursor:pointer;font-weight:600;padding:.4rem 0}
-table.recent{width:100%;border-collapse:collapse;font-size:.95em}
-table.recent td{border-bottom:1px solid var(--line);padding:.45rem .4rem .45rem 0;
- vertical-align:top;overflow-wrap:anywhere}
-table.recent td.when{white-space:nowrap;color:var(--muted);font-variant-numeric:
- tabular-nums}
-table.recent td.what{white-space:nowrap;color:var(--muted);font-size:.85em;
- padding-top:.58rem}
-table.recent td.pick{width:2.6rem;padding-right:0}
-table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
-button.more{display:block;width:100%;margin:.6rem 0;padding:.5rem;
- border:1px solid var(--line);border-radius:8px;background:var(--btn);
- color:var(--muted);cursor:pointer;font:inherit;font-size:.9em}
-button.more:hover{color:var(--fg)}
-"""
-
-# One tap on 📋 → the command is on the clipboard; the button flashes ✓. The
-# textarea path covers browsers without the async clipboard API.
-_HTML_JS = """\
-async function copyCmd(b){
-  const cmd=b.dataset.cmd;
-  try{await navigator.clipboard.writeText(cmd);}
-  catch(e){const t=document.createElement("textarea");t.value=cmd;
-    document.body.appendChild(t);t.select();document.execCommand("copy");
-    t.remove();}
-  b.textContent="\\u2713";b.classList.add("ok");
-  setTimeout(()=>{b.textContent="\\ud83d\\udccb";b.classList.remove("ok");},1200);}
-document.addEventListener("click",e=>{
-  const b=e.target.closest("button.copy");if(b)copyCmd(b);});
+# The dashboard-only half of the page script: the shared clipboard
+# handler lives in the board theme, this reveals the Recent feed a page
+# at a time.
+_MORE_JS = """\
 // Recent shows one page and reveals the next on each tap of the \u2026 button,
 // which retires itself once the feed is exhausted. Every row is already in the
 // DOM, so this never re-renders or re-sorts anything.
@@ -1227,12 +1222,10 @@ def render_dashboard_html(c: dict) -> str:
         return f'<a href="{_attr(blob + path)}">{text_html}</a>'
 
     def record_row(r):
-        text = link(r["path"], _summary_label(r["title"]))
-        facets = " · ".join(_summary_label(x) for x in
-                            (r["target"], r["difficulty"],
-                             r["autonomy"], r["priority"]) if x != "-")
-        if facets:
-            text += f' — <span class="facets">{facets}</span>'
+        text = link(r["path"], _summary_label(r["title"])) + pills(
+            *(_summary_label(x) for x in (r["target"], r["difficulty"],
+                                          r["autonomy"], r["priority"])),
+            work_type=r["work_type"])
         return _html_task(text, f"/start_dev {r['path']}")
 
     H = [
@@ -1244,21 +1237,22 @@ def render_dashboard_html(c: dict) -> str:
         "<title>PyAutoMind Dashboard</title>",
         f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
         f"{c['generated']} — regenerate, do not hand-edit -->",
-        f"<style>{_HTML_CSS}</style>",
+        f"<style>{_theme_css(THEME_ORGAN)}</style>",
         "</head>",
         "<body>",
-        "<h1>📋 PyAutoMind Dashboard</h1>",
-        "<p>Every task the Mind is holding. Tap a task's 📋 and its "
-        "<code>/start_dev</code> command is on your clipboard — paste it into "
-        "a Claude Code chat to route Claude straight to that task. "
-        '<a href="#recent">Recent</a> is the same work by date — what has been '
-        "happening rather than what to do next.</p>",
-        f'<p class="muted">In flight {c["issued_count"]} · '
-        f'Parked {len(c["parked"])} · Planned {len(c["planned"])} · '
-        f'Backlog {c["total"]}'
-        + (f' · {link("dashboard.md", "markdown version")}' if home else "")
-        + "</p>",
+        hero(THEME_ORGAN, "Dashboard",
+             "Every task the Mind is holding. Tap a task's 📋 and its "
+             "<code>/start_dev</code> command is on your clipboard — paste it "
+             "into a Claude Code chat to route Claude straight to that task. "
+             '<a href="#recent">Recent</a> is the same work by date — what has '
+             "been happening rather than what to do next."),
+        # The four numbers a human wants before reading a single row.
+        stats((c["issued_count"], "In flight"), (len(c["parked"]), "Parked"),
+              (len(c["planned"]), "Planned"), (c["total"], "Backlog")),
     ]
+    if home:
+        H.append(f'<p class="muted mdsrc">'
+                 f'{link("dashboard.md", "markdown version")}</p>')
     if c.get("drift"):
         H += ['<p>⚠️ <b>Needs lifecycle reconciliation</b> — draft prompts '
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
@@ -1399,11 +1393,10 @@ def render_dashboard_html(c: dict) -> str:
             H += [record_row(r) for r in rows]
             H += ["</details>"]
 
-    boards = _board_links(home)
-    if boards:
-        nav = " · ".join(f'<a href="{_attr(u)}">{n}</a>' for n, u in boards)
-        H.append(f'<p class="muted">Boards: {nav}</p>')
-    H += [f"<script>{_HTML_JS}</script>", "</body>", "</html>"]
+    footer = boards_footer(dict(_board_links(home)), THEME_ORGAN)
+    if footer:
+        H.append(footer)
+    H += [f"<script>{_THEME_JS}{_MORE_JS}</script>", "</body>", "</html>"]
     return "\n".join(H) + "\n"
 
 

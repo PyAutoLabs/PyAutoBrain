@@ -368,9 +368,11 @@ def test_boards_footer_lists_the_family_without_self(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures())
     page = _run(["--html"], tmp_path, stub).stdout
     footer = page[page.rindex("Boards:"):]
+    # Each sibling is a chip tagged with its organ key (which is also what
+    # tints it — board/_theme.py); the label is the organ's display name.
     for name in ("mind", "heart", "hands", "memory", "organism"):
-        assert f">{name}</a>" in footer, name
-    assert ">brain</a>" not in footer  # a board never links itself
+        assert f'data-organ="{name}"' in footer, name
+    assert 'data-organ="brain"' not in footer  # a board never links itself
 
 
 def test_heart_blockers_render_with_their_own_prompts(tmp_path):
