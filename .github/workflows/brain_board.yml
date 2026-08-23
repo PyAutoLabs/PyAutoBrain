@@ -28,6 +28,13 @@ on:
   schedule:
     - cron: "30 5 * * *"
   workflow_dispatch:
+  # A dev-box publish (`pyauto-brain board publish`, usually morning.sh's
+  # last step) pushes state/devbox_board.json to main — republish so the
+  # board shows this morning's local observations a minute later.
+  push:
+    branches: [main]
+    paths:
+      - "state/devbox_board.json"
 
 permissions:
   contents: read

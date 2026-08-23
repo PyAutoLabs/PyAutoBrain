@@ -14,9 +14,18 @@
 #   board.sh --badge         # badge.json (the cross-board headline contract)
 #   board.sh --apply [--out DIR]   # write index.html + badge.json +
 #                                  #   board.json + board.md (default _site/)
+#   board.sh publish [--dry-run] [--no-hygiene]
+#                            # dev-box leg (_publish.py): distill hygiene +
+#                            #   worktree state into state/devbox_board.json
+#                            #   and push it (morning.sh's last step)
 
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+if [[ "${1:-}" == "publish" ]]; then
+  shift
+  exec python3 "$HERE/_publish.py" "$@"
+fi
 
 exec python3 "$HERE/_board.py" "$@"

@@ -173,6 +173,7 @@ def collect_overnight(jobs, org, degraded):
             continue
         conclusion = run.get("conclusion") or run.get("status")
         blocked = False
+        blocked_reason = None
         if conclusion == "success" and run.get("id"):
             jobs_json = gh_json([f"repos/{repo}/actions/runs/{run['id']}/jobs"])
             for j in (jobs_json or {}).get("jobs", []):
@@ -180,6 +181,14 @@ def collect_overnight(jobs, org, degraded):
                     if (step.get("conclusion") == "success"
                             and str(step.get("name", "")).startswith(BLOCKED_STEP_PREFIX)):
                         blocked = True
+                        # The blocked step's ::warning annotation names why —
+                        # surface it here so the morning glance needs no click.
+                        anns = gh_json(
+                            [f"repos/{repo}/check-runs/{j.get('id')}/annotations"])
+                        for a in anns or []:
+                            if "blocked" in str(a.get("title", "")).lower():
+                                blocked_reason = str(a.get("message", ""))[:200]
+                                break
         rows.append({
             "repo": repo,
             "workflow": wf,
@@ -187,19 +196,47 @@ def collect_overnight(jobs, org, degraded):
             "age_h": age_h(run.get("created_at")),
             "url": run.get("html_url"),
             "blocked": blocked,
+            "blocked_reason": blocked_reason,
         })
     return rows
 
 
-def fetch_badge(pages_base, repo):
-    """A sibling board's published badge.json — the cross-board headline
-    contract ({label, message, color}). None when unreachable."""
-    url = f"{pages_base}/{repo}/badge.json"
+def _fetch_json(url):
     try:
         with urllib.request.urlopen(url, timeout=15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, json.JSONDecodeError, ValueError, OSError):
         return None
+
+
+def fetch_badge(pages_base, repo):
+    """A sibling board's published badge.json — the cross-board headline
+    contract ({label, message, color}). None when unreachable."""
+    return _fetch_json(f"{pages_base}/{repo}/badge.json")
+
+
+HEART_BLOCKER_CAP = 5
+
+
+def fetch_heart_blockers(pages_base, repo, degraded):
+    """The Heart board's published machine surface (board.json, schema v2):
+    structured blockers, each already carrying its own /bug prompt — rendered
+    here verbatim, never re-derived. [] when the surface is unreachable or
+    carries no blockers (a GREEN morning)."""
+    board = _fetch_json(f"{pages_base}/{repo}/board.json")
+    if board is None:
+        degraded.append("readiness: Heart board.json unreachable "
+                        "(blockers shown on the Heart board only)")
+        return []
+    blockers = board.get("blockers") or []
+    return [{
+        "text": str(b.get("text", ""))[:160],
+        "severity": b.get("severity"),
+        "repo": b.get("repo"),
+        "repo_url": b.get("repo_url"),
+        "run_url": b.get("run_url"),
+        "prompt": b.get("prompt"),
+    } for b in blockers[:HEART_BLOCKER_CAP]]
 
 
 def collect_versions(stamps, org, reference_repo, degraded):
@@ -323,6 +360,73 @@ def collect_open_issues(org, degraded):
     return res.get("total_count")
 
 
+# Dev-box observations (state/devbox_board.json, pushed by `board publish` —
+# usually via bin/morning.sh) are honest only with an age: fresh under 48h,
+# shown stale up to 7d, then dropped with a re-run hint.
+DEVBOX_FILE = Path(os.environ.get(
+    "BOARD_DEVBOX_FILE", BRAIN_HOME / "state" / "devbox_board.json"))
+DEVBOX_FRESH_H = 48
+DEVBOX_EXPIRE_H = 24 * 7
+
+
+def collect_devbox():
+    """The committed dev-box distillation: hygiene worklist rows + worktree
+    state — the two morning signals a cloud render cannot observe itself."""
+    if not DEVBOX_FILE.is_file():
+        return None
+    try:
+        payload = json.loads(DEVBOX_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    hours = age_h(payload.get("ts"))
+    if hours is None or hours > DEVBOX_EXPIRE_H:
+        return None
+    payload["age_h"] = hours
+    payload["stale"] = hours > DEVBOX_FRESH_H
+    return payload
+
+
+AUTONOMY_ROW_CAP = 5
+
+
+def collect_autonomy():
+    """The tail of the Mind's autonomy calibration log — what ran unattended
+    lately and how it ended (read verbatim; the log stays the record)."""
+    log = PYAUTO_ROOT / "PyAutoMind" / "autonomy_log.md"
+    if not log.is_file():
+        return []
+    rows = re.findall(
+        r"^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|"
+        r"[^|]*\|\s*([^|]+?)\s*\|",
+        log.read_text(encoding="utf-8"), re.M)
+    return [{"date": d, "task": t[:70], "level": lvl, "outcome": o}
+            for d, t, lvl, o in rows[-AUTONOMY_ROW_CAP:]]
+
+
+HISTORY_CAP = 30
+
+
+def updated_history(prev_board, need_you, today):
+    """Self-carrying trend: yesterday's published board.json hands its history
+    forward; today's count is appended (one entry per date, newest last)."""
+    history = list((prev_board or {}).get("history") or [])
+    history = [h for h in history
+               if isinstance(h, dict) and h.get("date") != today]
+    history.append({"date": today, "need_you": need_you})
+    return history[-HISTORY_CAP:]
+
+
+def sparkline(history):
+    """The last fortnight of 'N need you' as unicode blocks ('' if <2 days)."""
+    values = [int(h.get("need_you", 0)) for h in history][-14:]
+    if len(values) < 2:
+        return ""
+    peak = max(max(values), 1)
+    blocks = "▁▂▃▄▅▆▇█"
+    return "".join(blocks[min((v * (len(blocks) - 1) + peak - 1) // peak,
+                              len(blocks) - 1)] for v in values)
+
+
 def collect_doors():
     """The conductor/faculty roster, read from the dispatcher registry itself
     (bin/pyauto-brain is the single source; never a second copy here)."""
@@ -353,10 +457,14 @@ def collect():
     pages_base = os.environ.get(
         "BOARD_PAGES_BASE", f"https://{org.lower()}.github.io")
     degraded = []
+    board_family = board_cfg.get("boards") or {}
+    heart_repo = board_cfg.get("heart_board", "PyAutoHeart")
     overnight = collect_overnight(board_cfg.get("overnight_jobs", []), org, degraded)
-    heart = fetch_badge(pages_base, board_cfg.get("heart_board", "PyAutoHeart"))
+    heart = fetch_badge(pages_base, heart_repo)
     if heart is None:
         degraded.append("readiness: Heart board badge unreachable")
+    heart_blockers = fetch_heart_blockers(pages_base, heart_repo, degraded)
+    hands = fetch_badge(pages_base, board_family.get("hands", "PyAutoHands"))
     versions = collect_versions(
         board_cfg.get("version_stamps", []), org,
         board_cfg.get("reference_release_repo"), degraded)
@@ -364,20 +472,31 @@ def collect():
     resume = collect_resume(org, degraded)
     open_issues = collect_open_issues(org, degraded)
     boards = {name: f"{pages_base}/{repo}/"
-              for name, repo in (board_cfg.get("boards") or {}).items()}
-    return {
-        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+              for name, repo in board_family.items()}
+    now = datetime.now(timezone.utc)
+    data = {
+        "generated": now.strftime("%Y-%m-%d %H:%M UTC"),
         "org": org,
         "overnight": overnight,
         "heart": heart,
+        "heart_blockers": heart_blockers,
+        "hands": hands,
         "versions": versions,
         "community": community,
         "resume": resume,
         "open_issues": open_issues,
+        "devbox": collect_devbox(),
+        "autonomy": collect_autonomy(),
         "doors": collect_doors(),
         "boards": boards,
         "degraded": degraded,
     }
+    # The trend hands itself forward through the published board.json.
+    prev = _fetch_json(f"{pages_base}/{board_family.get('brain', 'PyAutoBrain')}/board.json")
+    blocking, attention = verdict(data)
+    data["history"] = updated_history(
+        prev, len(blocking) + len(attention), now.strftime("%Y-%m-%d"))
+    return data
 
 
 # --------------------------------------------------------------- verdict ----
@@ -448,6 +567,7 @@ def render_md(data):
     """The terminal/GitHub digest — the same prioritized card /wake_up used
     to emit, generated instead of assembled."""
     blocking, attention = verdict(data)
+    spark = sparkline(data.get("history") or [])
     L = [
         "# PyAutoBrain Board",
         "",
@@ -456,7 +576,8 @@ def render_md(data):
         "",
         f"**{headline(data)}**"
         + (f" — {len(blocking)} blocking, {len(attention)} for attention"
-           if blocking or attention else ""),
+           if blocking or attention else "")
+        + (f" · trend `{spark}`" if spark else ""),
         "",
         f"Morning sync (local, terminal): `{MORNING_CMD}`",
         "",
@@ -470,13 +591,26 @@ def render_md(data):
         if r["url"]:
             line += f" — [run]({r['url']})"
         L.append(line)
+        if r.get("blocked_reason"):
+            L.append(f"  - {r['blocked_reason']}")
     L.append("")
-    L.append("## ❤️ Readiness")
+    L.append("## ❤️ Readiness & release")
     if data["heart"]:
         L.append(f"- Heart verdict: **{data['heart'].get('message', '?')}** — "
                  f"[board]({data['boards'].get('heart', '')}) · re-run via `/health`")
     else:
         L.append("- Heart board unreachable — consult `/health` directly")
+    for b in data.get("heart_blockers") or []:
+        sev = f"[{b['severity']}] " if b.get("severity") else ""
+        line = f"  - {sev}{b['text']}"
+        if b.get("run_url"):
+            line += f" — [run]({b['run_url']})"
+        L.append(line)
+        if b.get("prompt"):
+            L.append(f"    - `{b['prompt']}`")
+    if data.get("hands"):
+        L.append(f"- Shipped: **{data['hands'].get('message', '?')}** — "
+                 f"[Hands board]({data['boards'].get('hands', '')})")
     L.append("")
     v = data["versions"]
     L.append("## 🏷️ Version consistency")
@@ -543,6 +677,32 @@ def render_md(data):
     L.append("- `/hygiene` — code-quality debt sweep (local)")
     L.append("- `/repo_cleanup` — stale branches / stashes / dirty checkouts (local)")
     L.append("")
+    devbox = data.get("devbox")
+    if devbox:
+        stale = " — STALE, re-run `bash PyAutoBrain/bin/morning.sh`" \
+            if devbox.get("stale") else ""
+        L.append(f"## 🖥️ Dev box (observed {age_label(devbox['age_h'])} "
+                 f"ago via morning.sh{stale})")
+        for row in devbox.get("hygiene", {}).get("rows", []):
+            if row.get("status") in ("clean", "unscanned", "deferred", "advisory"):
+                continue
+            summary = str(row.get("summary", ""))[:140]
+            L.append(f"- {row.get('mode')}: {summary} → `{row.get('delegate')}`")
+        for wt in devbox.get("worktrees", []):
+            bits = [wt.get("branch") or "?"]
+            if wt.get("ahead"):
+                bits.append(f"{wt['ahead']} unpushed")
+            if wt.get("dirty"):
+                bits.append("dirty")
+            if wt.get("stashes"):
+                bits.append(f"{wt['stashes']} stash(es)")
+            L.append(f"- worktree {wt.get('repo')}: {' · '.join(bits)}")
+        L.append("")
+    if data.get("autonomy"):
+        L.append("## 🤖 Autonomous runs (latest — the calibration log's tail)")
+        for a in data["autonomy"]:
+            L.append(f"- {a['date']} — {a['task']} — {a['outcome']}")
+        L.append("")
     if data["degraded"]:
         L.append("## Degraded")
         L += [f"- {d}" for d in data["degraded"]]
@@ -642,8 +802,13 @@ def render_html(data):
         "Claude Code chat; ⌨ rows are terminal commands.</p>",
     ]
     verdict_cls = "bad" if blocking else ("warn" if attention else "ok")
+    spark = sparkline(data.get("history") or [])
+    spark_html = (f'<span class="muted" title="need-you count, last '
+                  f'{min(len(data.get("history") or []), 14)} days"> · trend '
+                  f'{esc(spark)}</span>') if spark else ""
     H.append(f'<p><b class="{verdict_cls}">{esc(headline(data))}</b>'
-             f'<span class="muted"> — generated {esc(data["generated"])}</span></p>')
+             f'<span class="muted"> — generated {esc(data["generated"])}</span>'
+             f'{spark_html}</p>')
     H.append("<h2>⌨ Morning sync (local)</h2>")
     H.append(_row(
         "Sync every repo to main + clean generated cruft — run in a terminal "
@@ -657,9 +822,11 @@ def render_html(data):
         if r["conclusion"] is None:
             H.append(_plain(f'<span class="muted">–</span> {name} — no runs'))
         elif r["blocked"]:
+            reason = (f'<br><span class="muted">{esc(r["blocked_reason"])}</span>'
+                      if r.get("blocked_reason") else "")
             H.append(_plain(
                 f'<span class="warn">⏸</span> {name} — blocked at a gate, no '
-                f'change made ({age_label(r["age_h"])}){link}'))
+                f'change made ({age_label(r["age_h"])}){link}{reason}'))
         elif r["conclusion"] == "success":
             H.append(_plain(f'<span class="ok">✓</span> {name} — success '
                             f'({age_label(r["age_h"])}){link}'))
@@ -670,7 +837,7 @@ def render_html(data):
                 f"/bug overnight: {r['repo']}/{r['workflow']} concluded "
                 f"{r['conclusion']} — {r['url'] or 'no run url'}"))
 
-    H.append("<h2>❤️ Readiness</h2>")
+    H.append("<h2>❤️ Readiness &amp; release</h2>")
     heart_url = data["boards"].get("heart", "")
     if data["heart"]:
         msg = data["heart"].get("message", "?")
@@ -682,6 +849,24 @@ def render_html(data):
     else:
         H.append(_row("Heart board unreachable — consult the clinician "
                       "directly.", "/health"))
+    for b in data.get("heart_blockers") or []:
+        sev_cls = "bad" if b.get("severity") == "red" else "warn"
+        sev = (f'<span class="{sev_cls}">[{esc(b["severity"])}]</span> '
+               if b.get("severity") else "")
+        links = "".join(
+            f' <a href="{_attr(url)}">{label} ↗</a>'
+            for label, url in (("repo", b.get("repo_url")),
+                               ("run", b.get("run_url"))) if url)
+        text = f'{sev}{esc(b["text"])}{links}'
+        if b.get("prompt"):
+            H.append(_row(text, b["prompt"]))
+        else:
+            H.append(_plain(text))
+    if data.get("hands"):
+        hands_url = data["boards"].get("hands", "")
+        H.append(_plain(
+            f'Shipped: <b>{esc(data["hands"].get("message", "?"))}</b> — '
+            f'<a href="{_attr(hands_url)}">Hands board ↗</a>'))
 
     v = data["versions"]
     H.append("<h2>🏷️ Version consistency</h2>")
@@ -772,6 +957,41 @@ def render_html(data):
                   "drift (runs locally).", "/hygiene"))
     H.append(_row("Stale branches, stashes, dirty checkouts (runs locally).",
                   "/repo_cleanup"))
+
+    devbox = data.get("devbox")
+    if devbox:
+        stale = (' — <span class="warn">STALE</span>'
+                 if devbox.get("stale") else "")
+        H.append(f'<h2>🖥️ Dev box <span class="muted">(observed '
+                 f'{age_label(devbox["age_h"])} ago via morning.sh{stale})</span></h2>')
+        if devbox.get("stale"):
+            H.append(_row("Refresh the dev-box observation — run in a "
+                          "terminal at the workspace root.", MORNING_CMD,
+                          term=True))
+        for row in devbox.get("hygiene", {}).get("rows", []):
+            if row.get("status") in ("clean", "unscanned", "deferred", "advisory"):
+                continue
+            summary = esc(str(row.get("summary", ""))[:140])
+            H.append(_row(f'<b>{esc(str(row.get("mode")))}</b>: {summary}',
+                          str(row.get("delegate") or "/hygiene")))
+        for wt in devbox.get("worktrees", []):
+            bits = [esc(str(wt.get("branch") or "?"))]
+            if wt.get("ahead"):
+                bits.append(f'{wt["ahead"]} unpushed')
+            if wt.get("dirty"):
+                bits.append("dirty")
+            if wt.get("stashes"):
+                bits.append(f'{wt["stashes"]} stash(es)')
+            H.append(_plain(f'worktree <b>{esc(str(wt.get("repo")))}</b> — '
+                            f'{" · ".join(bits)}'))
+
+    if data.get("autonomy"):
+        H.append('<h2>🤖 Autonomous runs <span class="muted">(the calibration '
+                 "log's tail)</span></h2>")
+        for a in data["autonomy"]:
+            H.append(_plain(
+                f'<span class="muted">{esc(a["date"])}</span> '
+                f'{esc(a["task"])} — <b>{esc(a["outcome"])}</b>'))
 
     doors = data["doors"]
     if doors:

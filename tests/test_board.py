@@ -16,6 +16,7 @@ from config/policy.yaml `board:`, the declared config surface.
 import base64
 import json
 import os
+import re
 import stat
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -25,8 +26,34 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SURFACE_KEYS = {
-    "generated", "org", "overnight", "heart", "versions", "community",
-    "resume", "open_issues", "doors", "boards", "degraded",
+    "generated", "org", "overnight", "heart", "heart_blockers", "hands",
+    "versions", "community", "resume", "open_issues", "devbox", "autonomy",
+    "doors", "boards", "degraded", "history",
+}
+
+AUTONOMY_LOG = """\
+# Autonomy calibration log
+
+| date | task | effective level | gates | outcome |
+|------|------|-----------------|-------|---------|
+| 2026-08-01 | first-task (#1) | safe | tests pass | merged-unchanged |
+| 2026-08-02 | second-task (#2) | supervised | tests pass | amended |
+"""
+
+HEART_BOARD_JSON = {
+    "schema_version": 2,
+    "blockers": [{
+        "text": "RepoA: nightly smoke red",
+        "severity": "red",
+        "repo": "RepoA",
+        "repo_url": "https://example.invalid/RepoA",
+        "run_url": "https://example.invalid/run/9",
+        "prompt": "/bug Heart board: RepoA nightly smoke red — https://example.invalid/run/9",
+    }],
+}
+
+BRAIN_PREV_BOARD_JSON = {
+    "history": [{"date": "2026-08-20", "need_you": 3}],
 }
 
 REPOS_YAML = """\
@@ -82,6 +109,7 @@ def _default_fixtures(**overrides):
             "html_url": "https://example.invalid/pr/5",
         }]},
         "issue_count.json": {"total_count": 42},
+        "annotations.json": [],
         "comm_issues.json": EMPTY_SEARCH,
         "comm_prs.json": EMPTY_SEARCH,
         "comments.json": [],
@@ -100,6 +128,7 @@ def _fabricate(tmp_path, fixtures):
     (mind / "active" / "some_task.md").write_text("# Fix the fixture widget\n")
     (mind / "queue.md").write_text(
         "# Queue\n\ndraft/feature/repoa/one.md\ndraft/feature/repoa/two.md\n")
+    (mind / "autonomy_log.md").write_text(AUTONOMY_LOG)
 
     # One badge per sibling board named in the declared config surface —
     # read from policy.yaml so no board repo name is hardcoded here.
@@ -114,6 +143,14 @@ def _fabricate(tmp_path, fixtures):
         (pages / board_repo / "badge.json").write_text(json.dumps({
             "schemaVersion": 1, "label": board_repo.lower(),
             "message": "GREEN", "color": "brightgreen"}))
+    # The Heart's machine surface (structured blockers) and the Brain's own
+    # previous page (the self-carrying trend history).
+    (pages / board_cfg["heart_board"] / "board.json").write_text(
+        json.dumps(HEART_BOARD_JSON))
+    brain_repo = (board_cfg.get("boards") or {}).get("brain", "PyAutoBrain")
+    (pages / brain_repo).mkdir(parents=True, exist_ok=True)
+    (pages / brain_repo / "board.json").write_text(
+        json.dumps(BRAIN_PREV_BOARD_JSON))
 
     fixture_dir = tmp_path / "fixtures"
     fixture_dir.mkdir()
@@ -127,6 +164,7 @@ for arg in "$@"; do
   case "$arg" in
     repos/*/actions/workflows/*)      cat "{fixture_dir}/runs.json"; exit 0 ;;
     repos/*/actions/runs/*/jobs)      cat "{fixture_dir}/jobs.json"; exit 0 ;;
+    repos/*/check-runs/*/annotations) cat "{fixture_dir}/annotations.json"; exit 0 ;;
     repos/*/contents/*)               cat "{fixture_dir}/contents.json"; exit 0 ;;
     repos/*/releases/latest)          cat "{fixture_dir}/release.json"; exit 0 ;;
     search/issues?q=*pending-release*) cat "{fixture_dir}/pending.json"; exit 0 ;;
@@ -149,6 +187,8 @@ def _run(args, tmp_path, stub):
         "PYAUTO_ROOT": str(tmp_path),
         "BOARD_GH": str(stub),
         "BOARD_PAGES_BASE": f"file://{tmp_path}/pages",
+        # Isolated from any devbox observation committed to this checkout.
+        "BOARD_DEVBOX_FILE": str(tmp_path / "devbox_board.json"),
         "COMMUNITY_GH": str(stub),
         "COMMUNITY_SEARCH_PAUSE": "0",
     }
@@ -176,7 +216,7 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     assert s["overnight"], "policy overnight_jobs rendered no rows"
     for row in s["overnight"]:
         assert set(row) == {"repo", "workflow", "conclusion", "age_h", "url",
-                            "blocked"}
+                            "blocked", "blocked_reason"}
         assert row["repo"].startswith("ExampleOrg/")
         assert row["conclusion"] == "success"
     # Versions: every stamp resolves to the fixture, so consensus + no drift.
@@ -184,8 +224,17 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     assert v["consensus"] == VERSION
     assert v["drift"] == 0
     assert v["reference"] == VERSION
-    # Heart headline via the file:// badge (the cross-board contract).
+    # Heart headline via the file:// badge (the cross-board contract), plus
+    # the structured blockers from its published machine surface, verbatim.
     assert s["heart"]["message"] == "GREEN"
+    assert s["heart_blockers"] == HEART_BOARD_JSON["blockers"]
+    assert s["hands"]["message"] == "GREEN"
+    # Autonomy strip: the log's tail, and the self-carrying trend history.
+    assert [a["task"] for a in s["autonomy"]] == [
+        "first-task (#1)", "second-task (#2)"]
+    assert s["history"][0] == {"date": "2026-08-20", "need_you": 3}
+    assert len(s["history"]) == 2 and s["history"][1]["need_you"] == 0
+    assert s["devbox"] is None  # no observation published in this fixture
     # Resume: the Mind's own generated counts + the task file + the queue.
     assert s["resume"]["counts"]["In flight"] == 1
     assert s["resume"]["counts"]["Backlog"] == 152
@@ -313,6 +362,167 @@ def test_boards_footer_lists_the_family_without_self(tmp_path):
     for name in ("mind", "heart", "hands", "memory", "organism"):
         assert f">{name}</a>" in footer, name
     assert ">brain</a>" not in footer  # a board never links itself
+
+
+def test_heart_blockers_render_with_their_own_prompts(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    page = _run(["--html"], tmp_path, stub).stdout
+    blocker = HEART_BOARD_JSON["blockers"][0]
+    # The Heart's own /bug prompt is the chip payload — never re-derived.
+    assert f'data-cmd="{blocker["prompt"]}"' in page
+    assert "nightly smoke red" in page
+    md = _run([], tmp_path, stub).stdout
+    assert blocker["prompt"] in md
+    assert "Shipped: **GREEN**" in md  # the Hands headline joined the section
+
+
+def test_blocked_gate_annotation_renders_inline(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "jobs.json": {"jobs": [{"id": 77, "steps": [
+            {"name": "Blocked at a gate — no release made",
+             "conclusion": "success"}]}]},
+        "annotations.json": [
+            {"title": "Nightly release blocked",
+             "message": "The driver stopped at a gate (exit 3); no release "
+                        "was made.",
+             "annotation_level": "warning"}]}))
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert "The driver stopped at a gate (exit 3)" in page
+
+
+def _devbox_payload(ts):
+    return {
+        "schema": 1,
+        "ts": ts,
+        "hygiene": {"rows": [
+            {"mode": "artifacts", "status": "debris", "count": 4,
+             "summary": "4 generated packaging leftovers across 2 repos",
+             "delegate": "/repo_cleanup"},
+            {"mode": "crlf", "status": "clean", "count": 0,
+             "summary": "clean", "delegate": "/refactor"},
+        ]},
+        "worktrees": [
+            {"repo": "RepoA", "branch": "feature/x", "ahead": 2,
+             "dirty": False, "stashes": 1}],
+    }
+
+
+def test_devbox_observation_renders_age_stamped(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=5)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    (tmp_path / "devbox_board.json").write_text(
+        json.dumps(_devbox_payload(fresh)))
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert "Dev box" in page and "5h" in page
+    assert "packaging leftovers" in page
+    assert 'data-cmd="/repo_cleanup"' in page  # the row's own delegate door
+    assert "<b>crlf</b>" not in page  # clean rows are not rendered
+    assert "feature/x" in page and "2 unpushed" in page
+
+
+def test_expired_devbox_observation_is_dropped(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    old = (datetime.now(timezone.utc) - timedelta(days=9)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    (tmp_path / "devbox_board.json").write_text(
+        json.dumps(_devbox_payload(old)))
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    assert s["devbox"] is None
+
+
+# ----------------------------------------------------------------- publish --
+
+
+def _publish_env(tmp_path, hygiene_json=None):
+    """A fabricated Brain repo (with a bare origin), workspace, and stub
+    hygiene entrypoint for board publish."""
+    workspace = tmp_path / "ws"
+    dirty_repo = workspace / "RepoA"
+    dirty_repo.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(dirty_repo)], check=True)
+    (dirty_repo / "f.txt").write_text("x")
+    subprocess.run(["git", "-C", str(dirty_repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(dirty_repo), "-c", "user.email=t@t",
+                    "-c", "user.name=t", "commit", "-qm", "seed"], check=True)
+    subprocess.run(["git", "-C", str(dirty_repo), "checkout", "-qb",
+                    "feature/task"], check=True)
+
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)],
+                   check=True)
+    brain = tmp_path / "brainrepo"
+    subprocess.run(["git", "clone", "-q", str(origin), str(brain)], check=True)
+    (brain / "seed.txt").write_text("seed")
+    subprocess.run(["git", "-C", str(brain), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(brain), "-c", "user.email=t@t",
+                    "-c", "user.name=t", "commit", "-qm", "seed"], check=True)
+    subprocess.run(["git", "-C", str(brain), "push", "-q", "-u", "origin",
+                    "main"], check=True)
+
+    hyg = tmp_path / "hygiene_stub.sh"
+    home = os.path.expanduser("~")
+    default_decision = {"decision": "HygieneDecision", "rows": [
+        {"mode": "artifacts", "kind": "debris", "status": "debris", "count": 2,
+         "summary": f"2 leftovers under {home}/Code somewhere",
+         "delegate": "/repo_cleanup"}]}
+    hyg.write_text("#!/usr/bin/env bash\ncat <<'EOF'\n"
+                   + json.dumps(hygiene_json or default_decision)
+                   + "\nEOF\n")
+    hyg.chmod(hyg.stat().st_mode | stat.S_IEXEC)
+
+    return {
+        **os.environ,
+        "PYAUTO_ROOT": str(workspace),
+        "BOARD_PUBLISH_REPO": str(brain),
+        "BOARD_DEVBOX_FILE": str(brain / "state" / "devbox_board.json"),
+        "BOARD_HYGIENE_CMD": str(hyg),
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+    }, brain, origin
+
+
+def test_publish_dry_run_distills_and_scrubs(tmp_path):
+    env, brain, _origin = _publish_env(tmp_path)
+    r = subprocess.run([str(BRAIN), "board", "publish", "--dry-run"],
+                       capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(r.stdout)
+    assert payload["schema"] == 1
+    # Worktree scan sees the off-main repo; only names travel.
+    assert payload["worktrees"][0]["repo"] == "RepoA"
+    assert payload["worktrees"][0]["branch"] == "feature/task"
+    # The hygiene summary's home path was collapsed before leaving the box.
+    summary = payload["hygiene"]["rows"][0]["summary"]
+    assert os.path.expanduser("~") not in summary
+    assert "~/Code" in summary
+    # Dry run wrote nothing.
+    assert not (brain / "state" / "devbox_board.json").exists()
+
+
+def test_publish_commits_and_pushes_to_main_only(tmp_path):
+    env, brain, origin = _publish_env(tmp_path)
+    r = subprocess.run([str(BRAIN), "board", "publish", "--no-hygiene"],
+                       capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    # The observation landed on the bare origin's main.
+    shown = subprocess.run(
+        ["git", "-C", str(origin), "show", "main:state/devbox_board.json"],
+        capture_output=True, text=True)
+    assert shown.returncode == 0
+    assert json.loads(shown.stdout)["worktrees"][0]["repo"] == "RepoA"
+    assert "hygiene" not in json.loads(shown.stdout)  # --no-hygiene
+    # Re-publishing an identical observation pushes nothing new.
+    r2 = subprocess.run([str(BRAIN), "board", "publish", "--no-hygiene"],
+                        capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert "nothing to push" in r2.stdout
+    # Off main, publish refuses (guard against feature-branch commits).
+    subprocess.run(["git", "-C", str(brain), "checkout", "-qb", "other"],
+                   check=True)
+    r3 = subprocess.run([str(BRAIN), "board", "publish", "--no-hygiene"],
+                        capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert r3.returncode == 2
+    assert "main only" in r3.stderr
 
 
 # --------------------------------------------------------------- read-only --
