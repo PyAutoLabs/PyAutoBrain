@@ -16,6 +16,9 @@
 #   bash PyAutoBrain/bin/morning.sh --no-publish  # skip the dev-box publish
 #   DRY_RUN=1 bash PyAutoBrain/bin/morning.sh  # preview clean-slate only
 #
+# To run overnight automatically (so the board is fresh on waking), schedule
+# it on this machine once: bash PyAutoBrain/bin/morning_timer.sh install
+#
 # Both steps are the recoverable, git-aware ones /wake_up auto-ran (its
 # guardrail): sync skips any repo with real uncommitted work; clean-slate
 # deletes only untracked REGENERABLE artifacts and reports orphans instead of

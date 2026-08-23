@@ -17,7 +17,9 @@ for the organism's morning and general starting point: what ran overnight, the
 Heart's readiness headline, who in the community is waiting on a reply, what
 to resume, and the upkeep doors — each actionable row with a one-tap 📋
 copy-for-Claude command. Regenerated each morning; the local sync/clean leg is
-one terminal command, `bash bin/morning.sh`.
+one terminal command, `bash bin/morning.sh` — or schedule it overnight on the
+dev box with `bash bin/morning_timer.sh install`, so the board is already
+fresh when you wake.
 
 ## How PyAutoBrain works
 
