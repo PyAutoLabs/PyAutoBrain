@@ -1,96 +1,45 @@
-# /wake_up — start the day: sync, clean, and surface what needs you
+# /wake_up — superseded by the Brain board (kept as the fallback door)
 
-The human-driven start-of-day door. Run it each morning to bring the workspace to
-a clean, current, known-good state and get one prioritized digest of what needs
-your attention. A **composition** skill — it drives existing doors and the `bin/`
-scripts; it owns no state and reasons about nothing new.
+**The morning routine no longer runs through this skill.** It is now:
 
-Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
+1. **Terminal** (local, not a Claude chat): `bash PyAutoBrain/bin/morning.sh` —
+   the sync + clean-slate leg (ff-only pull of every repo, git-aware cleanup of
+   regenerable artifacts). `--digest` appends the board's markdown digest.
+2. **The Brain board** — `https://<org>.github.io/PyAutoBrain/` (rendered by
+   `board/_board.py`, refreshed each morning by `brain_board.yml`, also linked
+   from the README): overnight scheduled-run conclusions, the Heart's
+   readiness headline, version-stamp consistency, community conversations
+   awaiting a reply, resume context (in-flight/parked/queued + pending-release
+   PRs), and the upkeep doors — each actionable row carrying its one-tap 📋
+   Claude payload (`/bug …`, `/health`, `/community triage …`,
+   `/start_dev …`, `/prm …`, `/issue_cleanup`, `/hygiene`, `/repo_cleanup`).
 
-## Principle: compose, don't recompute
+Everything this skill used to assemble interactively lives on that page, on
+the same "compose, don't recompute" principle: the board reads what the organs
+already publish and never re-derives a verdict. `pyauto-brain board` prints
+the identical digest in a terminal when a page is not at hand.
 
-Every signal here already has an owner. `/wake_up` **reads and orchestrates** — it
-never re-derives what `/health` (Heart's checks) or the automated morning webhooks
-already produce. Keep it a thin conductor.
+## When invoked anyway
 
-## Guardrail: auto only the safe steps
+`/wake_up` stays a working door, for a stale board or a no-browser session:
 
-Auto-run **only the recoverable steps** (sync, clean-slate — both git-aware).
-Clean-slate does delete: untracked **regenerable** datasets, which the
-workspace's own scripts write back on demand, plus generated cruft. It never
-touches a tracked file, and datasets with no proven writer are reported, not
-removed. Anything else that deletes, edits, or bumps (stray cleanup, branch
-deletion, version bumps) is **surfaced in the digest for the human to approve**,
-never done automatically.
+1. **Local sync/clean** — run `bash PyAutoBrain/bin/morning.sh` (auto-run is
+   safe: both steps are the recoverable, git-aware ones — sync skips repos
+   with real uncommitted work; clean-slate deletes only untracked regenerable
+   artifacts and reports orphan datasets instead of removing them). Skip with
+   a one-line note when there is no local workspace (mobile/codex).
+2. **The digest** — run `bin/pyauto-brain board` and relay its markdown digest
+   (it needs only an authenticated `gh`; degraded sections are listed
+   honestly). If the board CLI cannot run, fall back to the underlying
+   scripts it composes: `bin/overnight_status.sh`, `bin/version_drift.sh`,
+   `pyauto-brain community scan`.
+3. **Anything actionable** routes through the same doors the board's chips
+   name — never auto-reply to the community, never close issues, never delete
+   from the digest; those stay `/community`, `/issue_cleanup`,
+   `/repo_cleanup`'s own human-gated jobs.
 
-## Environment: local vs remote
+Deeper local-only reads the board deliberately leaves to their own doors:
+`/health` for the clinician's rich verdict, `/hygiene` for the upkeep sweep.
 
-`/wake_up` runs on the CLI **and** on mobile Claude Code chat / Codex — which
-often have no local multi-repo checkout. Detect which:
-
-- **Local** — `$PYAUTO_ROOT` (default `~/Code/PyAutoLabs`) contains the sibling
-  repos (e.g. both `PyAutoMind/` and `PyAutoLens/` are present). Run everything.
-- **Remote (mobile/codex)** — they are not. **Skip the local-only steps** (sync,
-  clean-slate, worktree scan, `/hygiene`) with a one-line note, and run the
-  gh-API status glance below — it needs only an authenticated `gh`.
-
-## The routine
-
-Run in order, then emit the digest.
-
-### Local-only (skip on mobile/codex)
-1. **Sync** — `bash PyAutoBrain/bin/pull_all_main.sh`. Every repo → its default
-   branch, ff-only; repos with real uncommitted work are skipped untouched. Note
-   any left **off-main / dirty / behind / diverged**.
-2. **Clean slate** — `bash PyAutoBrain/bin/clean_slate.sh` (`DRY_RUN=1` to
-   preview). Restore shipped datasets, delete untracked regenerable ones
-   (recreated on demand by the scripts that write them), clear
-   `output/`/`scratch/` cruft. Note any **orphan dataset** lines — kept, not
-   deleted, and waiting on a human call.
-
-### Everywhere (gh-API — mobile/codex-safe)
-3. **Overnight sweep** — `bash PyAutoBrain/bin/overnight_status.sh`: latest
-   scheduled-workflow conclusions (nightly-release, heart-health, matrix CI,
-   workspace-smoke, wiki-currency, spawn-drift, arxiv). The "what ran while I
-   slept" glance — a failing `nightly-release` is your release-blocked signal.
-4. **Health & release** — **locally**, consult **`/health`** for the rich verdict;
-   **remotely**, the overnight sweep's `heart-health` / `nightly-release`
-   conclusions are the readiness/release signal.
-5. **Version drift** — `bash PyAutoBrain/bin/version_drift.sh`: version-stamp
-   *consistency across the coupled libs + workspaces* (they should all carry the
-   same frozen stamp; the latest release tag is shown for context only, since
-   the committed source stamp is deliberately not bumped on release). A repo out
-   of step with its siblings is the real signal.
-6. **Community** — `bin/pyauto-brain community scan`: open issues raised by
-   **other humans** (not you) across every repo, with awaiting-response
-   ranking. Surface who is waiting and for how long; respond via
-   **`/community`** (drafts are human-approved there — never auto-reply from
-   the digest).
-6b. **Issue-tracker drift** — run the **audit half of `/issue_cleanup`**
-   (read-only, `gh` + `PyAutoMind/complete/`): how many issues are open, and how
-   many look shipped-but-still-open. Report the counts only — **never close
-   anything from the digest**; closing is `/issue_cleanup`'s own
-   confirmation-gated step. A rising shipped-but-open count means ship flows are
-   skipping their issue close.
-7. **Resume context** — pick up where you left off: in-flight / parked / queued
-   work (`PyAutoMind/active.md`, `parked.md`, `queue.md`) + open **pending-release
-   PRs** (`gh`); **locally** also worktrees with unpushed commits.
-8. **Hygiene** *(local)* — consult **`/hygiene`** for cleanup candidates.
-
-### Digest
-Emit one prioritized card:
-- 🚨 **Blocking** — release blocked, RED readiness, failing overnight jobs / CI.
-- 💬 **Community** — external users awaiting a response (issue, author, days
-  waiting); point at **`/community`**, never draft replies in the digest.
-- ⚠️ **Drifted** — off-main / behind repos, version-pin mismatches.
-- 🔄 **Resume** — in-flight / parked tasks, open pending-release PRs.
-- 🧹 **Cleanable** — cleanup surfaced *for approval*: list it, never auto-act.
-  Includes the issue-tracker counts from step 6b (point at **`/issue_cleanup`**)
-  alongside the git debris (**`/repo_cleanup`**).
-- ✅ **Clear** — say so in one line.
-
-End with a one-line verdict — *"clear to work"* or *"N things need you"* — and, in
-remote mode, append *"(remote: local sync/clean/hygiene skipped)"*.
-
-Interactive/terminal only — the automated morning Slack webhooks are separate and
-unchanged.
+Interactive/terminal only — the automated morning Slack webhooks
+(morning_health / morning_status) are separate and unchanged.

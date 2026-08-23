@@ -12,13 +12,20 @@ classifies each task, plans it, and routes it to specialist agents — and it
 delegates everything else: it holds no state (the Mind's job), runs no health
 checks (the Heart's), and never releases anything itself (the Hands').
 
+See the **[PyAutoBrain Dashboard](https://pyautolabs.github.io/PyAutoBrain/)**
+for the organism's morning and general starting point: what ran overnight, the
+Heart's readiness headline, who in the community is waiting on a reply, what
+to resume, and the upkeep doors — each actionable row with a one-tap 📋
+copy-for-Claude command. Regenerated each morning; the local sync/clean leg is
+one terminal command, `bash bin/morning.sh`.
+
+## How PyAutoBrain works
+
 You drive it in plain English, through short slash commands in a Claude Code
 chat: `/intake` to file an idea, `/start_dev` to begin a task, `/health` for a
 check-up — or just `/route <what you want>` and the Brain picks the right
 door. The full command surface (13 conductors + 5 faculties) is the generated
 table in [AGENTS.md](AGENTS.md).
-
-## How PyAutoBrain works
 
 1. **A task arrives.** Usually from the Mind's backlog — pick a task on the
    [PyAutoMind dashboard](https://pyautolabs.github.io/PyAutoMind/) and paste

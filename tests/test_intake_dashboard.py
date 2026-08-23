@@ -33,9 +33,14 @@ def _prompt(title, difficulty="medium", autonomy="supervised", priority="normal"
             f"Priority: {priority}\nStatus: {status}\n\nBody prose.\n")
 
 
-def _mind(root: Path, drafts=None, active=None, registries=None) -> Path:
+def _mind(root: Path, drafts=None, active=None, registries=None,
+          complete=None) -> Path:
     for rel, body in (drafts or {}).items():
         p = root / "draft" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    for rel, body in (complete or {}).items():
+        p = root / "complete" / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
     for name, body in (active or {}).items():
@@ -452,3 +457,267 @@ def test_html_sections_link_their_markdown_source(tmp_path):
     for src in ("active.md", "epics.md", "parked.md", "planned.md"):
         assert f'/blob/main/{src}">markdown version</a>' in html, src
     assert '/tree/main/draft">markdown version</a>' in html
+
+
+# --------------------------------------------------------------------------- #
+# recent: the one section laid out by date rather than by state
+# --------------------------------------------------------------------------- #
+def _record(slug, date):
+    return f"## {slug}\n- completed: {date}\n- summary: it shipped.\n"
+
+
+def _recent_mind(root, n_records=0, month="08"):
+    """A Mind with one task in each live state plus `n_records` completions."""
+    return _mind(
+        root,
+        active={"sprocket_calibration.md": _prompt("Sprocket calibration")},
+        complete={f"2026/{month}/shipped-{i:02d}.md": _record(f"shipped-{i:02d}",
+                                                              f"2026-{month}-2{i % 10}")
+                  for i in range(n_records)},
+        registries={
+            "active.md": "## sprocket-calibration\n- issued: 2026-08-19\n"
+                         "- prompt: active/sprocket_calibration.md\n",
+            "parked.md": "## flywheel-balance\n- parked: 2026-08-18 — deferred\n",
+            "planned.md": "## gearbox-survey\n- filed: 2026-07-01\n",
+        })
+
+
+def test_recent_merges_every_live_state_into_one_dated_feed(tmp_path):
+    """Recency is orthogonal to state, so it is the one question no other
+    section on the page can answer."""
+    page = _page(_recent_mind(tmp_path))
+    recent = page.split("## Recent")[1]
+    for slug in ("Sprocket calibration", "flywheel-balance", "gearbox-survey"):
+        assert slug in recent
+    assert "| Date | Event | Task |" in recent
+
+
+def test_shipped_work_is_not_in_the_feed(tmp_path):
+    """The `complete/` ledger is a thousand records deep and ships ~200 a
+    month, so including it made this a list of receipts — twenty things nobody
+    can act on, on the page whose whole job is work in hand."""
+    mind = _recent_mind(tmp_path, n_records=40)
+    rows = _intake.census(mind)["recent"]
+    assert len(rows) == 3
+    assert not any("shipped" in r["title"] for r in rows)
+    assert "shipped-00" not in _page(mind)
+
+
+def test_the_complete_ledger_is_never_opened(tmp_path):
+    """Not merely filtered out afterwards — a 20-row table of live work must
+    not read a thousand records to render."""
+    assert not hasattr(_intake, "completed_records")
+    assert "completed" not in _intake.census(_recent_mind(tmp_path, n_records=5))
+
+
+def test_recent_names_the_event_each_date_records(tmp_path):
+    """A bare date says nothing; `parked` / `issued` / `filed` says what
+    happened — the whole reason the registry key is the event name."""
+    rows = _intake.census(_recent_mind(tmp_path))["recent"]
+    assert {r["title"]: r["event"] for r in rows} == {
+        "Sprocket calibration": "issued",
+        "flywheel-balance": "parked",
+        "gearbox-survey": "filed",
+    }
+
+
+def test_recent_is_newest_first(tmp_path):
+    rows = _intake.census(_recent_mind(tmp_path))["recent"]
+    assert [r["date"] for r in rows] == sorted(
+        (r["date"] for r in rows), reverse=True)
+
+
+def test_recent_sits_after_the_backlog_and_before_the_epics(tmp_path):
+    mind = _recent_mind(tmp_path)
+    (mind / "epics.md").write_text(_EPICS, encoding="utf-8")
+    page = _page(mind)
+    assert page.index("## Backlog") < page.index("## Recent") < page.index("## Epics")
+
+
+def test_an_undated_task_is_absent_rather_than_sorted_to_the_bottom(tmp_path):
+    """`lifecycle.py dates` is where a missing date gets reported; padding the
+    feed with unknowns would bury the answer it exists to give."""
+    mind = _mind(tmp_path, registries={
+        "planned.md": "## gearbox-survey\n- status: planned\n"})
+    assert _intake.census(mind)["recent"] == []
+    assert "## Recent" not in _page(mind)
+
+
+def test_recent_links_a_registry_row_to_its_own_entry_not_the_file_top(tmp_path):
+    """parked.md is long enough that landing at its top is not the same as
+    landing on the task."""
+    page = _page(_recent_mind(tmp_path))
+    assert 'href="parked.md#flywheel-balance"' in page
+
+
+def test_an_in_flight_prompt_can_be_dated_by_its_own_header(tmp_path):
+    """The prompt's `Issued:` header is its own copy of the registry date, so
+    an orphan (no row claims it) still dates rather than dropping out."""
+    body = _prompt("Sprocket calibration").replace(
+        "Status: formalised", "Status: formalised\nIssued: 2026-08-19")
+    rows = _intake.census(
+        _mind(tmp_path, active={"sprocket_calibration.md": body}))["recent"]
+    assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]
+
+
+def test_a_registry_date_beats_the_prompts_own_copy(tmp_path):
+    """The registry row is the live record; the header is the fallback."""
+    body = _prompt("Sprocket calibration").replace(
+        "Status: formalised", "Status: formalised\nIssued: 2026-07-01")
+    mind = _mind(tmp_path, active={"sprocket_calibration.md": body},
+                 registries={"active.md": "## sprocket-calibration\n"
+                                          "- issued: 2026-08-19\n"
+                                          "- prompt: active/sprocket_calibration.md\n"})
+    assert _intake.census(mind)["recent"][0]["date"] == "2026-08-19"
+
+
+def test_a_date_in_another_fields_prose_does_not_count_as_a_date(tmp_path):
+    """`- issue: …/1501 (issued 2026-08-19)` is the un-parseable habit the
+    convention replaced — reading it back would re-legitimise it."""
+    mind = _mind(tmp_path, registries={
+        "planned.md": "## gearbox-survey\n"
+                      "- issue: https://example.invalid/issues/1 (filed 2026-08-19)\n"})
+    assert _intake.census(mind)["recent"] == []
+
+
+def test_the_html_twin_carries_the_same_feed_with_real_copy_buttons(tmp_path):
+    html = _intake.render_dashboard_html(_intake.census(_recent_mind(tmp_path)))
+    assert "<h2>Recent" in html
+    assert html.index("Backlog") < html.index("<h2>Recent") < html.index("<h2>Epics") \
+        if "<h2>Epics" in html else True
+    assert '<table class="recent">' in html
+    assert 'data-cmd="/start_dev active/sprocket_calibration.md"' in html
+
+
+def test_a_live_row_wears_its_date_where_the_task_is(tmp_path):
+    """A status line reads very differently against a row issued yesterday
+    than against one issued in May, so the date rides on the row too — not
+    only down in the Recent feed."""
+    page = _page(_recent_mind(tmp_path))
+    flight = page.split("## In flight")[1].split("## Parked")[0]
+    assert "issued 2026-08-19" in flight
+    assert "parked 2026-08-18" in page.split("## Parked")[1].split("## Planned")[0]
+    assert "filed 2026-07-01" in page.split("## Planned")[1].split("## Backlog")[0]
+
+
+def test_an_undated_row_gets_no_placeholder(tmp_path):
+    """`lifecycle.py dates` reports the gap; the page must not invent one."""
+    mind = _mind(tmp_path, active={"sprocket_calibration.md": _prompt("Sprocket")},
+                 registries={"active.md": "## sprocket-calibration\n"
+                                          "- prompt: active/sprocket_calibration.md\n"})
+    row = _page(mind).split("## In flight")[1].split("<details>")[1]
+    assert "—" not in row.split("</summary>")[0]
+
+
+# --------------------------------------------------------------------------- #
+# recent: fifty deep, ten on screen
+# --------------------------------------------------------------------------- #
+def _many(root, n):
+    """A Mind whose planned.md holds `n` dated tasks, newest first by slug."""
+    return _mind(root, registries={"planned.md": "".join(
+        f"## task-{i:03d}\n- filed: 2026-01-01\n\n" for i in range(n))})
+
+
+def test_the_feed_runs_deeper_than_the_page(tmp_path):
+    """Fifty is what the feed HOLDS; ten is what it SHOWS."""
+    rows = _intake.census(_many(tmp_path, 80))["recent"]
+    assert len(rows) == _intake.RECENT_MAX == 50
+    assert _intake.RECENT_PAGE == 10
+
+
+def test_markdown_shows_one_page_then_nests_the_rest(tmp_path):
+    """GitHub strips the JS the Pages twin uses, so the markdown page reveals
+    with `<details>` — nested, so each tap shows the next page and leaves
+    another one behind it."""
+    page = _page(_many(tmp_path, 80))
+    section = page.split("## Recent")[1]
+    before = section.split("<details>")[0]
+    assert before.count("| 2026-01-01 |") == 10
+    assert section.count("<details>") == 4
+    assert "… 10 more (40 left)" in section
+    assert "… 10 more (10 left)" in section
+
+
+def test_each_revealed_page_carries_its_own_table_header(tmp_path):
+    """A markdown table cannot span an HTML block boundary — without a header
+    per page the reveal is a headerless slab of pipes."""
+    section = _page(_many(tmp_path, 80)).split("## Recent")[1]
+    assert section.count("| Date | Event | Task |") == 5
+
+
+def test_a_feed_that_fits_on_one_page_has_no_reveal(tmp_path):
+    page = _page(_many(tmp_path, 6))
+    section = page.split("## Recent")[1]
+    assert "<details>" not in section
+    assert "…" not in section
+    assert "opens the next" not in section
+
+
+def test_html_hides_the_overflow_rows_and_offers_a_button(tmp_path):
+    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
+    section = html.split("<h2>Recent")[1]
+    assert section.count("<tr>") == 10
+    assert section.count("<tr hidden>") == 40
+    assert '<button class="more" data-page="10">… 10 more (40 left)</button>' in section
+
+
+def test_html_ships_every_row_so_a_reader_without_js_sees_the_feed(tmp_path):
+    """Hidden, not absent: with JS off the whole feed is there rather than ten
+    rows and a dead button."""
+    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
+    section = html.split("<h2>Recent")[1]
+    assert section.count("<tr") == 50
+
+
+def test_the_html_blurb_renders_its_code_spans(tmp_path):
+    """The blurb is shared with the markdown page; its backticks would
+    otherwise print literally here."""
+    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
+    assert "<code>complete/index.md</code>" in html
+    assert "`complete/index.md`" not in html
+
+
+# --------------------------------------------------------------------------- #
+# recent: the backlog is most of the work
+# --------------------------------------------------------------------------- #
+def test_a_dated_draft_is_in_the_feed(tmp_path):
+    """The backlog is the largest pool of work the Mind holds, so a feed that
+    skipped it saw almost none of what has been happening."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/sprocket.md":
+            _prompt("Sprocket work").replace("Status: formalised",
+                                             "Status: formalised\nFiled: 2026-08-20")})
+    rows = _intake.census(mind)["recent"]
+    assert [(r["date"], r["event"], r["title"]) for r in rows] == [
+        ("2026-08-20", "filed", "Sprocket work")]
+    assert rows[0]["payload"] == "/start_dev draft/feature/widgets/sprocket.md"
+
+
+def test_an_undated_draft_stays_out(tmp_path):
+    mind = _mind(tmp_path, drafts={"feature/widgets/sprocket.md": _prompt("S")})
+    assert _intake.census(mind)["recent"] == []
+
+
+def test_an_epic_member_is_not_offered_standalone_in_the_feed(tmp_path):
+    """Members are worked in order through their epic — every other pick list
+    on the page excludes them, and a Recent row hands out a `/start_dev`."""
+    member = _epic_prompt_body("Phase one", "jax-profiling", phase=1).replace(
+        "Status: formalised", "Status: formalised\nFiled: 2026-08-20")
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS},
+                 drafts={"feature/widgets/phase_one.md": member,
+                         "feature/widgets/loose.md":
+                             _prompt("Loose end").replace(
+                                 "Status: formalised",
+                                 "Status: formalised\nFiled: 2026-08-21")})
+    assert [r["title"] for r in _intake.census(mind)["recent"]] == ["Loose end"]
+
+
+def test_issued_beats_filed_on_a_prompt_carrying_both(tmp_path):
+    """An issued prompt keeps the `Filed:` it had as a draft; the later, more
+    specific event is the one the feed reports."""
+    body = _prompt("Sprocket").replace(
+        "Status: formalised",
+        "Status: formalised\nFiled: 2026-07-01\nIssued: 2026-08-19")
+    rows = _intake.census(
+        _mind(tmp_path, active={"sprocket.md": body}))["recent"]
+    assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]

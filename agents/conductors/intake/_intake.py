@@ -338,12 +338,14 @@ def parse_header(text: str) -> dict:
     Only scans the top of the file so a stray "Status:" deep in prose does not
     fire; first occurrence of each field wins. No YAML — the blessed convention.
     `Epic:`/`Phase:` are optional epic-membership fields (dashboard grouping);
-    they are not in HEADER_FIELDS, so their absence is never header hygiene.
+    `Filed:`/`Issued:` are the prompt's own date, keyed by the state it was in
+    when that happened (PyAutoMind REFERENCE.md "Task dates"). None are in
+    HEADER_FIELDS, so their absence is never header hygiene.
     """
     fields = {}
     for line in text.splitlines()[:30]:
         m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
-                     r"Epic|Phase):\s*(\S.*)",
+                     r"Issued|Filed|Epic|Phase):\s*(\S.*)",
                      line.strip())
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
@@ -364,6 +366,37 @@ def _prefix_match(path: str, prefix: str) -> bool:
 _REG_HEAD = re.compile(r"^##\s+(\S.*?)\s*$")
 _REG_FIELD = re.compile(r"^-\s+([a-z][a-z-]*):\s*(.*)$")
 _ISSUE_URL = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
+_ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+# The Mind dates a task the moment it leaves the backlog (PyAutoMind
+# REFERENCE.md "Task dates"). The KEY names the event, so a merged feed can say
+# what each date means; most-specific event first, so a task that was filed and
+# later issued dates from its issue. A date sitting in some other field's prose
+# is deliberately not read — that is the un-parseable habit the convention
+# replaced.
+DATE_KEYS = ("issued", "registered", "started", "planned", "filed", "parked",
+             "found", "completed", "shipped")
+
+
+def _header_date(header: dict) -> str:
+    """A prompt's own date from its `Issued:` / `Filed:` header, else ''.
+
+    `Issued:` wins when a prompt carries both — it is the later, more specific
+    event, and an issued prompt keeps the `Filed:` it had as a draft."""
+    for key in ("issued", "filed"):
+        m = _ISO_DATE.search(header.get(key) or "")
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _entry_date(fields: dict) -> tuple:
+    """(date, event) for a registry entry, or ('', '') when it carries none."""
+    for key in DATE_KEYS:
+        m = _ISO_DATE.search(fields.get(key) or "")
+        if m:
+            return m.group(1), key
+    return "", ""
 
 
 def parse_registry(path: Path) -> list:
@@ -380,7 +413,8 @@ def parse_registry(path: Path) -> list:
         head = _REG_HEAD.match(line)
         if head:
             cur = {"slug": head.group(1), "issue": "", "issue_no": "",
-                   "status": "", "prompt": ""}
+                   "status": "", "prompt": "", "fields": {},
+                   "date": "", "event": ""}
             entries.append(cur)
             continue
         if cur is None:
@@ -389,6 +423,7 @@ def parse_registry(path: Path) -> list:
         if not field:
             continue
         key, value = field.group(1), field.group(2).strip()
+        cur["fields"].setdefault(key, value)
         if key in ("issue", "status", "prompt") and not cur[key]:
             cur[key] = value
             if key == "issue":
@@ -397,6 +432,8 @@ def parse_registry(path: Path) -> list:
                 m = _ISSUE_URL.search(value)
                 if m:
                     cur["issue"], cur["issue_no"] = m.group(0), m.group(1)
+    for e in entries:
+        e["date"], e["event"] = _entry_date(e["fields"])
     return entries
 
 
@@ -466,6 +503,80 @@ def _clip(text: str, limit: int = 130) -> str:
     return text[:limit].rsplit(" ", 1)[0].rstrip(" .,;:—-") + "…"
 
 
+# --- the recent feed -----------------------------------------------------------
+# The dashboard answers "what should I do now?" everywhere else on the page.
+# This one section answers "what has been happening to the work in hand?" — the
+# single question a task page laid out by STATE cannot answer, because a task's
+# recency is orthogonal to which bucket it sits in. Merging the buckets by date
+# puts the week's issuing, parking and filing in one place.
+#
+# Live work ONLY. The `complete/` ledger is not in this feed: it is a thousand
+# records deep and ships ~200 a month, so including it made the table a list of
+# receipts — twenty things nobody can act on, on the page whose whole job is
+# work in hand. `complete/index.md` is where shipped work is read.
+# How deep the feed goes, and how much of it is on screen at once. The table
+# is a glance, not a log: ten rows answer "what has been happening?" without
+# pushing the Epics below a scroll, and the rest is one tap away — so a quiet
+# week still shows a fortnight of context and a busy one does not bury it.
+RECENT_MAX = 50
+RECENT_PAGE = 10
+
+# The verb each event reads as in the feed. Past tense throughout — every row
+# is something that already happened.
+EVENT_LABEL = {"issued": "issued", "registered": "issued", "started": "started",
+               "planned": "planned", "filed": "filed", "parked": "parked",
+               "found": "found"}
+
+
+def _anchor(heading: str) -> str:
+    """GitHub's heading anchor for an `## <slug>` registry entry."""
+    return re.sub(r"[^a-z0-9-]+", "-", heading.lower()).strip("-")
+
+
+def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
+    """The newest events on the work in hand, newest first.
+
+    One row per task, not per event: a task that was filed and later issued
+    appears once, on its latest date (which is what `_entry_date` already picks
+    per entry).
+
+    Undated rows are absent rather than sorted to the bottom: `lifecycle.py
+    dates` is where a missing date gets reported, and padding this table with
+    unknowns would bury the answer it exists to give.
+    """
+    events = []
+    for r in c.get("in_flight") or []:
+        if r.get("date"):
+            events.append({"date": r["date"], "event": r.get("event") or "issued",
+                           "title": r["title"], "path": r["path"],
+                           "payload": f"/start_dev {r['path']}"})
+    # The backlog is the LARGEST pool of work the Mind holds — 150 prompts
+    # against a handful of live rows — so a feed that skipped it could see
+    # almost none of what has been happening. Epic members stay out, as they do
+    # in every pick list on the page: they are worked in order through their
+    # epic, and a Recent row hands out a standalone `/start_dev`.
+    for r in c.get("records") or []:
+        if r.get("date") and not r.get("epic"):
+            events.append({"date": r["date"], "event": "filed",
+                           "title": r["title"], "path": r["path"],
+                           "payload": f"/start_dev {r['path']}"})
+    for key, verb in (("parked", "resume"), ("planned", "start")):
+        for e in c.get(key) or []:
+            if e.get("date"):
+                events.append({"date": e["date"],
+                               "event": e.get("event") or key,
+                               "title": e["slug"],
+                               # The entry's own heading anchor — a registry
+                               # file is long enough that landing at its top is
+                               # not the same as landing on the task.
+                               "path": f"{key}.md#{_anchor(e['slug'])}",
+                               "payload": _registry_payload(e, key, verb)})
+    events.sort(key=lambda e: (e["date"], e["title"]), reverse=True)
+    for e in events:
+        e["event"] = EVENT_LABEL.get(e["event"], e["event"])
+    return events[:limit]
+
+
 def census(mind: Path) -> dict:
     """Inventory the Mind's work — filed prompts plus the registry's live rows.
 
@@ -505,6 +616,9 @@ def census(mind: Path) -> dict:
                 "status": header.get("status", "-"),
                 "epic": header.get("epic", ""),
                 "phase": phase,
+                # `Filed:` normally; `Issued:` only on a prompt that has been
+                # issued and moved back, which is still the later event.
+                "date": _header_date(header),
                 "header": header,
                 "missing": missing,
             })
@@ -546,11 +660,19 @@ def census(mind: Path) -> dict:
             continue
         header = parse_header(text)
         row = by_prompt.get(rel, {})
+        # The registry row is the live record, so its date wins; the prompt's
+        # own `Issued:` header is the fallback that keeps an orphan (no row
+        # claims it) dated rather than dropping it out of the recent feed.
+        date, event = row.get("date", ""), row.get("event", "")
+        if not date:
+            date, event = _header_date(header), "issued"
         in_flight.append({
             "path": rel,
             "title": _title(text),
             "target": header.get("target", "-"),
             "priority": header.get("priority", "-"),
+            "date": date,
+            "event": event,
             "issue": row.get("issue", ""),
             "issue_no": row.get("issue_no", ""),
             # The registry row only. A prompt's own `Status:` header is written
@@ -559,7 +681,7 @@ def census(mind: Path) -> dict:
             "status": row.get("status", ""),
         })
 
-    return {
+    c = {
         "generated": _dt.date.today().isoformat(),
         "home": _mind_home(mind),
         "total": len(records),
@@ -576,6 +698,8 @@ def census(mind: Path) -> dict:
         "hygiene": hygiene,
         "drift": drift,
     }
+    c["recent"] = recent_events(c)
+    return c
 
 
 def _cell(value: str) -> str:
@@ -602,6 +726,29 @@ def _pages_url(home: str) -> str:
     """The GitHub Pages site URL for a repo home, `''` when underivable."""
     m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
     return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
+
+
+def _board_links(home: str) -> list:
+    """The cross-board footer nav every one-tap board carries: (name, url)
+    pairs for the sibling boards, from PyAutoBrain's declared config surface
+    (config/policy.yaml `board: boards:`), skipping this page's own entry.
+
+    Stdlib regex on the one-pair-per-line block, not yaml — this renderer
+    also runs bare in PyAutoMind's dashboard_refresh workflow, which installs
+    nothing. The owner comes from the census home, so no org is named here.
+    """
+    m = re.match(r"https://github\.com/([^/]+)/", home or "")
+    policy = Path(__file__).resolve().parents[3] / "config" / "policy.yaml"
+    if not m or not policy.is_file():
+        return []
+    owner = m.group(1).lower()
+    block = re.search(r"^  boards:\n((?:    \w+: \S+\n)+)",
+                      policy.read_text(encoding="utf-8"), re.M)
+    if not block:
+        return []
+    pairs = re.findall(r"^    (\w+): (\S+)$", block.group(1), re.M)
+    return [(name, f"https://{owner}.github.io/{repo}/")
+            for name, repo in pairs if name != "mind"]
 
 
 def _summary_label(value: str) -> str:
@@ -718,6 +865,77 @@ def _epic_members(c: dict) -> dict:
     return groups
 
 
+RECENT_BLURB = (
+    "The {n} newest things to happen to the work in hand, newest first — "
+    "issued, parked, filed. Every other section on this page is laid out by "
+    "state, which is exactly why none of them can answer \u201cwhat has been "
+    "happening?\u201d. Shipped work is not here: it is read from "
+    "`complete/index.md`, and a thousand records deep it would crowd out "
+    "everything anyone can still act on.")
+
+RECENT_PAGING_NOTE = (
+    " Showing the newest {page}; \u2026 opens the next {page}.")
+
+
+def _dated(row: dict) -> str:
+    """`— issued 2026-08-19`, the facet every live task row now carries.
+
+    The date is worth showing where the task IS, not only in the Recent feed:
+    a status line reads very differently against a row issued yesterday than
+    against one issued in May. Empty for an undated row rather than a
+    placeholder — `lifecycle.py dates` is where the gap gets reported."""
+    if not row.get("date"):
+        return ""
+    event = EVENT_LABEL.get(row.get("event", ""), row.get("event") or "dated")
+    return f" — {event} {row['date']}"
+
+
+def _recent_blurb(rows: list) -> str:
+    """The section's prose — the paging sentence only when there IS paging."""
+    text = RECENT_BLURB.format(n=len(rows))
+    if len(rows) > RECENT_PAGE:
+        text += RECENT_PAGING_NOTE.format(page=RECENT_PAGE)
+    return text
+
+
+RECENT_TABLE_HEAD = ["| Date | Event | Task |", "|------|-------|------|"]
+
+
+def _recent_rows(rows: list) -> list:
+    return [f"| {r['date']} | {r['event']} | {_cell(_recent_link(r))} |"
+            for r in rows]
+
+
+def _recent_pages(rows: list, page: int = RECENT_PAGE) -> list:
+    """The feed as nested `<details>`: a page on screen, the rest one tap in.
+
+    GitHub strips the JavaScript the Pages twin uses for this, so the markdown
+    page reveals with the one interactive element it does render — `<details>`,
+    NESTED, so each tap shows the next page and leaves another `…` behind it.
+    Sibling blocks would let a reader open page 4 without page 3, which is not
+    what "show me more" means when the list is ordered by date.
+
+    Each page carries its own header row: a markdown table cannot span an HTML
+    block boundary, so the alternative is a headerless slab of pipes. The blank
+    lines are load-bearing — without them GitHub treats the table as raw text
+    inside the `<details>` (same rule as `_task_row`).
+    """
+    head, rest = rows[:page], rows[page:]
+    block = RECENT_TABLE_HEAD + _recent_rows(head)
+    if not rest:
+        return block
+    shown = min(page, len(rest))
+    return block + ["",
+                    f"<details><summary>… {shown} more "
+                    f"({len(rest)} left)</summary>",
+                    ""] + _recent_pages(rest, page) + ["", "</details>"]
+
+
+def _recent_link(e: dict) -> str:
+    """The task cell of a Recent row — its title, linked to where it lives."""
+    return f"<a href=\"{e['path']}\">{_summary_label(_clip(e['title'], 70))}</a>"
+
+
 EPIC_ORDER_CAUTION = ("Members are worked in order through the epic's ledger "
                       "— continue the epic rather than starting one standalone.")
 
@@ -751,7 +969,9 @@ def render_dashboard(c: dict) -> str:
     L += [
         "Every task the Mind is holding, on one page: what is in flight, what "
         "is parked, and the whole backlog to pick from. Pick a task and run "
-        "its `/start_dev` command in a Claude Code chat to start it.",
+        "its `/start_dev` command in a Claude Code chat to start it. "
+        "[Recent](#recent) is the same work by date — what has been happening "
+        "rather than what to do next.",
         "",
         "| Where | Count |",
         "|-------|------:|",
@@ -794,6 +1014,7 @@ def render_dashboard(c: dict) -> str:
         head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
         if r["issue_no"]:
             head += f" — <a href=\"{r['issue']}\">issue #{r['issue_no']}</a>"
+        head += _dated(r)
         if r["status"]:
             head += f" — {_summary_label(_clip(r['status']))}"
         flight.append(_task_row(head, f"/start_dev {r['path']}"))
@@ -817,6 +1038,7 @@ def render_dashboard(c: dict) -> str:
             head = f"<b>{_summary_label(e['slug'])}</b>"
             if e["issue_no"]:
                 head += f" — <a href=\"{e['issue']}\">issue #{e['issue_no']}</a>"
+            head += _dated(e)
             if e["status"]:
                 head += f" — {_summary_label(_clip(e['status']))}"
             items.append(_task_row(head, _registry_payload(e, key, verb)))
@@ -837,6 +1059,17 @@ def render_dashboard(c: dict) -> str:
         L += ["<details>", f"<summary><b>{wt}</b> — {len(rows)}</summary>", ""]
         L += _items([_bullet(r) for r in rows])
         L += ["", "</details>", ""]
+
+    # Recency is orthogonal to state, so it gets its own table rather than a
+    # column on any section above. A table, not the page's usual copy rows:
+    # this section is read, not picked from — the task's own section is where
+    # it is picked up.
+    recent = c.get("recent") or []
+    if recent:
+        L += ["## Recent", "", _recent_blurb(recent), ""]
+        L += _recent_pages(recent)
+        L += ["", "_Dates come from each task's registry entry — "
+              "`lifecycle.py dates` reports anything undated._", ""]
 
     # Epics live at the bottom, whole: each epic's resume prompt sits with its
     # queued member prompts, grouped and phase-ordered, so nobody picks a
@@ -881,6 +1114,10 @@ def render_dashboard(c: dict) -> str:
               "<details>", "<summary>Headerless prompts</summary>", ""]
         L += [f"- `{h.split(' — ')[0]}`" for h in c["hygiene"]]
         L += ["", "</details>"]
+
+    boards = _board_links(c.get("home", ""))
+    if boards:
+        L += ["", "Boards: " + " · ".join(f"[{n}]({u})" for n, u in boards)]
     return "\n".join(L).rstrip("\n") + "\n"
 
 
@@ -913,6 +1150,19 @@ button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
 button.copy.ok{color:var(--ok);border-color:var(--ok)}
 details{margin:.5rem 0}
 summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+table.recent{width:100%;border-collapse:collapse;font-size:.95em}
+table.recent td{border-bottom:1px solid var(--line);padding:.45rem .4rem .45rem 0;
+ vertical-align:top;overflow-wrap:anywhere}
+table.recent td.when{white-space:nowrap;color:var(--muted);font-variant-numeric:
+ tabular-nums}
+table.recent td.what{white-space:nowrap;color:var(--muted);font-size:.85em;
+ padding-top:.58rem}
+table.recent td.pick{width:2.6rem;padding-right:0}
+table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
+button.more{display:block;width:100%;margin:.6rem 0;padding:.5rem;
+ border:1px solid var(--line);border-radius:8px;background:var(--btn);
+ color:var(--muted);cursor:pointer;font:inherit;font-size:.9em}
+button.more:hover{color:var(--fg)}
 """
 
 # One tap on 📋 → the command is on the clipboard; the button flashes ✓. The
@@ -928,6 +1178,18 @@ async function copyCmd(b){
   setTimeout(()=>{b.textContent="\\ud83d\\udccb";b.classList.remove("ok");},1200);}
 document.addEventListener("click",e=>{
   const b=e.target.closest("button.copy");if(b)copyCmd(b);});
+// Recent shows one page and reveals the next on each tap of the \u2026 button,
+// which retires itself once the feed is exhausted. Every row is already in the
+// DOM, so this never re-renders or re-sorts anything.
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button.more");if(!b)return;
+  const t=document.querySelector("table.recent");if(!t)return;
+  const hidden=[...t.querySelectorAll("tr[hidden]")];
+  const page=Number(b.dataset.page)||10;
+  hidden.slice(0,page).forEach(r=>r.removeAttribute("hidden"));
+  const left=hidden.length-Math.min(page,hidden.length);
+  if(left<=0){b.remove();return;}
+  b.textContent="\u2026 "+Math.min(page,left)+" more ("+left+" left)";});
 """
 
 
@@ -988,7 +1250,9 @@ def render_dashboard_html(c: dict) -> str:
         "<h1>📋 PyAutoMind Dashboard</h1>",
         "<p>Every task the Mind is holding. Tap a task's 📋 and its "
         "<code>/start_dev</code> command is on your clipboard — paste it into "
-        "a Claude Code chat to route Claude straight to that task.</p>",
+        "a Claude Code chat to route Claude straight to that task. "
+        '<a href="#recent">Recent</a> is the same work by date — what has been '
+        "happening rather than what to do next.</p>",
         f'<p class="muted">In flight {c["issued_count"]} · '
         f'Parked {len(c["parked"])} · Planned {len(c["planned"])} · '
         f'Backlog {c["total"]}'
@@ -1031,6 +1295,8 @@ def render_dashboard_html(c: dict) -> str:
         text = link(r["path"], _summary_label(r["title"]))
         if r["issue_no"]:
             text += f' — <a href="{_attr(r["issue"])}">issue #{r["issue_no"]}</a>'
+        if r.get("date"):
+            text += f'<span class="facets">{_dated(r)}</span>'
         if r["status"]:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
@@ -1048,6 +1314,8 @@ def render_dashboard_html(c: dict) -> str:
             if e["issue_no"]:
                 text += (f' — <a href="{_attr(e["issue"])}">'
                          f'issue #{e["issue_no"]}</a>')
+            if e.get("date"):
+                text += f'<span class="facets">{_dated(e)}</span>'
             if e["status"]:
                 text += (f' — <span class="facets">'
                          f'{_summary_label(_clip(e["status"]))}</span>')
@@ -1069,6 +1337,32 @@ def render_dashboard_html(c: dict) -> str:
         H += ["<details>", f"<summary>{wt} — {len(rows)}</summary>"]
         H += [record_row(r) for r in rows]
         H += ["</details>"]
+
+    recent = c.get("recent") or []
+    if recent:
+        H += ['<a id="recent"></a>' + h2("Recent", "dashboard.md#recent"),
+              # `_summary_label` turns the blurb's `code` spans into <code>;
+              # markdown backticks render literally on this page.
+              f'<p class="muted">{_summary_label(_recent_blurb(recent))}</p>',
+              '<table class="recent">']
+        for i, r in enumerate(recent):
+            # Every row ships in the DOM; the ones past the first page start
+            # hidden, so revealing them is a flag flip rather than a re-render
+            # — and a reader with JS off sees the whole feed rather than ten
+            # rows and a dead button.
+            H += ["<tr hidden>" if i >= RECENT_PAGE else "<tr>",
+                  f'<td class="when">{r["date"]}</td>',
+                  f'<td class="what">{_summary_label(r["event"])}</td>',
+                  f'<td>{link(r["path"], _summary_label(_clip(r["title"], 70)))}</td>',
+                  f'<td class="pick"><button class="copy" '
+                  f'data-cmd="{_attr(r["payload"])}" aria-label="Copy the '
+                  f'Claude command">📋</button></td>',
+                  "</tr>"]
+        H += ["</table>"]
+        rest = len(recent) - RECENT_PAGE
+        if rest > 0:
+            H += [f'<button class="more" data-page="{RECENT_PAGE}">'
+                  f'… {min(RECENT_PAGE, rest)} more ({rest} left)</button>']
 
     known = {e["slug"] for e in c.get("epics") or []}
     stray = [s for s in members if s not in known]
@@ -1105,6 +1399,10 @@ def render_dashboard_html(c: dict) -> str:
             H += [record_row(r) for r in rows]
             H += ["</details>"]
 
+    boards = _board_links(home)
+    if boards:
+        nav = " · ".join(f'<a href="{_attr(u)}">{n}</a>' for n, u in boards)
+        H.append(f'<p class="muted">Boards: {nav}</p>')
     H += [f"<script>{_HTML_JS}</script>", "</body>", "</html>"]
     return "\n".join(H) + "\n"
 
