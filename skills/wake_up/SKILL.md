@@ -1,11 +1,12 @@
 ---
 name: wake-up
-description: Start-of-day wake-up routine for the PyAuto workspace — sync every repo to main and clean generated cruft (local), then a gh-API status glance (overnight scheduled-run conclusions, version-pin drift, resume context) plus /health and /hygiene, ending in one prioritized digest. Runs on the CLI and on mobile Claude Code chat / Codex (auto-skips local-only steps when there is no workspace). Use when starting the day or asked for a morning status/cleanup pass.
+description: Superseded morning door — the routine now lives on the Brain board (Pages) plus the local `bin/morning.sh` sync/clean command. Invoked anyway, it runs that local leg and relays `pyauto-brain board`'s digest. Use only when the board is stale or unreachable, or the user explicitly asks for /wake_up.
 ---
 
 # Wake Up
 
-Follow [`wake_up.md`](wake_up.md) exactly. Composition skill — drive the existing
-doors (`/health`, `/hygiene`) and the `bin/` scripts; auto-run only the
-non-destructive steps and surface everything destructive for approval. It is
-**environment-aware**: full routine locally, gh-API status glance on mobile/codex.
+Follow [`wake_up.md`](wake_up.md) exactly. The morning routine is now the
+**Brain board** (`https://<org>.github.io/PyAutoBrain/`) plus one terminal
+command (`bash PyAutoBrain/bin/morning.sh`); this skill is the fallback that
+runs the same legs interactively. Auto-run only the non-destructive steps and
+surface everything destructive for approval.

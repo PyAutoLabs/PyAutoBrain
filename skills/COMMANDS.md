@@ -73,17 +73,16 @@ symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 own no agent and re-implement no reasoning (all judgment defers to the doors they
 call, so the Brain is not bypassed):
 
-- **`/wake_up`** — start-of-day routine. **Local:** sync every repo to main
-  (`bin/pull_all_main.sh`) → clean generated cruft, restoring shipped datasets
-  (`bin/clean_slate.sh`) → consult **`/health`** + **`/hygiene`**. **Everywhere
-  (gh-API, so it runs on mobile Claude Code chat / Codex too):** an overnight
-  scheduled-run sweep (`bin/overnight_status.sh`), a version-pin drift check
-  (`bin/version_drift.sh`), a community scan (`bin/pyauto-brain community scan`
-  — external users awaiting a response), and resume-context (in-flight work +
-  pending-release PRs) → one prioritized digest. Auto-runs only the non-destructive steps;
-  surfaces destructive cleanup for approval; on mobile/codex it skips the
-  local-only steps. Interactive/terminal only (the automated morning webhooks are
-  separate).
+- **`/wake_up`** — **superseded by the Brain board** (the generated morning
+  surface `board/_board.py` renders and `brain_board.yml` publishes to Pages:
+  overnight sweep, readiness headline, version consistency, community scan,
+  resume context, upkeep doors — each row a one-tap 📋 payload). The local leg
+  is one terminal command, `bin/morning.sh` (sync via `bin/pull_all_main.sh` +
+  clean via `bin/clean_slate.sh`). Invoked anyway, the skill runs that local
+  leg and relays `pyauto-brain board`'s digest — the fallback for a stale or
+  unreachable board. Auto-runs only the non-destructive steps; surfaces
+  destructive cleanup for approval. Interactive/terminal only (the automated
+  morning webhooks are separate).
 
 - **`/prm`** — the wrap-up shortcut: *"PR, CI green, then merge"*. Watches a
   feature PR's checks until **every** workflow run and **every** matrix leg for
@@ -110,7 +109,8 @@ audit-first and confirmation-gated:
   authenticated, including mobile/Codex. Closing needs **two independent
   evidence legs**, and the record header *key* decides meaning — `issue:`
   completes, `followup-issue:` / `parent-issue:` / `plan:` mean the record
-  *spawned* a still-open issue. `/wake_up` runs its audit half read-only.
+  *spawned* a still-open issue. The Brain board surfaces the open-issue count
+  and points here; the audit itself stays this door's job.
 
 These two are complements, not overlaps: `/repo_cleanup` never touches issues,
 `/issue_cleanup` never touches git. Neither handles **external** users' issues —

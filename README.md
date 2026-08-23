@@ -18,6 +18,13 @@ check-up — or just `/route <what you want>` and the Brain picks the right
 door. The full command surface (13 conductors + 5 faculties) is the generated
 table in [AGENTS.md](AGENTS.md).
 
+Start the day on the **[Brain board](https://pyautolabs.github.io/PyAutoBrain/)**
+— the organism's operational dashboard, regenerated each morning: what ran
+overnight, the Heart's readiness headline, who in the community is waiting on
+a reply, what to resume, and the upkeep doors, each with a one-tap 📋
+copy-for-Claude command. The local sync/clean leg is one terminal command,
+`bash bin/morning.sh`.
+
 ## How PyAutoBrain works
 
 1. **A task arrives.** Usually from the Mind's backlog — pick a task on the

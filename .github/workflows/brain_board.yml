@@ -1,0 +1,78 @@
+name: Brain Board
+
+# Publishes the Brain's operational board — the organism's morning door — to
+# this repo's GitHub Pages URL: the page (index.html), its badge.json (the
+# cross-board headline contract the umbrella router consumes), the raw
+# board.json, and the markdown twin board.md.
+#
+# The board replaces the interactive /wake_up skill: everything that skill
+# assembled by driving doors in sequence (overnight scheduled-run sweep, the
+# Heart's readiness headline, version-stamp consistency, the community scan,
+# resume context from the Mind, the upkeep doors) is collected here on a
+# schedule and rendered with one-tap copy-for-Claude payloads. The renderer is
+# board/_board.py; its vocabulary is config/policy.yaml `board:`.
+#
+# Unlike the Mind dashboard (self-healed into the repo, because its state IS
+# the repo), nothing here is committed: the board's data is time-varying, so
+# it is served from the Pages artifact only — a daily refresh makes no commit
+# noise and can never drift against a repo copy.
+#
+# Cadence: 05:30 UTC daily — after the 02:00 nightly release driver and the
+# Heart's 05:00 heart-health refresh (which rewrites the badge this board
+# reads), before the human's morning. GitHub cron jitters 0–3 h under load,
+# so the page stamps its own generation time and every consumer should trust
+# that stamp over the schedule. workflow_dispatch is the manual refresh
+# (also what a human taps when the board says it is stale).
+
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: PyAutoBrain
+      # The board composes, it does not recompute: the community scan reads
+      # the body map (repos.yaml) and the resume section reads the registry +
+      # the Mind's own generated dashboard counts, so the Mind is checked out
+      # as a sibling — the same two-repo layout tests.yml uses.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/PyAutoMind
+          path: PyAutoMind
+      - name: render the board
+        env:
+          PYAUTO_ROOT: ${{ github.workspace }}
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 PyAutoBrain/board/_board.py --apply --out _site
+      # enablement: true creates the Pages site on first run where the token
+      # may (Mind/Heart precedent); where it may not (the Hands hit "Resource
+      # not accessible by integration"), the site must be created once
+      # out-of-band: gh api -X POST repos/<owner>/PyAutoBrain/pages -f build_type=workflow
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

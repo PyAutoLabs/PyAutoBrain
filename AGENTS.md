@@ -169,10 +169,17 @@ via `/route`, and it routes to the right agent; normal usage never says
 "PyAutoBrain". A few commands are compositions rather than single agents:
 `/docs` and `/research` route through the dev-flow with their PyAutoMind
 work-type fixed (no dedicated conductor — added only on demonstrated need, never
-for symmetry); `/wake_up` composes sync + `/health` + `/hygiene`; `/prm` composes the
+for symmetry); `/prm` composes the
 end-of-task wrap-up (CI green → merge → `ship_*` completion); `/brain
 <agent>` is the raw passthrough. Every command routes **through** the Brain;
 none replaces it.
+
+The morning routine is not a command at all: the **Brain board**
+(`board/_board.py`, published to the Brain's GitHub Pages URL each morning by
+`brain_board.yml`) carries what `/wake_up` used to assemble — overnight runs,
+readiness, community, resume, upkeep — as one-tap 📋 payloads, and
+`bin/morning.sh` is the local sync/clean leg you run in a terminal.
+`/wake_up` remains only as the fallback door when the board is unreachable.
 
 The command bodies live in `skills/<verb>/<verb>.md`; thin `SKILL.md` wrappers
 make the same canonical workflows discoverable to skill-aware harnesses.
