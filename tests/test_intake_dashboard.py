@@ -675,3 +675,49 @@ def test_the_html_blurb_renders_its_code_spans(tmp_path):
     html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
     assert "<code>complete/index.md</code>" in html
     assert "`complete/index.md`" not in html
+
+
+# --------------------------------------------------------------------------- #
+# recent: the backlog is most of the work
+# --------------------------------------------------------------------------- #
+def test_a_dated_draft_is_in_the_feed(tmp_path):
+    """The backlog is the largest pool of work the Mind holds, so a feed that
+    skipped it saw almost none of what has been happening."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/sprocket.md":
+            _prompt("Sprocket work").replace("Status: formalised",
+                                             "Status: formalised\nFiled: 2026-08-20")})
+    rows = _intake.census(mind)["recent"]
+    assert [(r["date"], r["event"], r["title"]) for r in rows] == [
+        ("2026-08-20", "filed", "Sprocket work")]
+    assert rows[0]["payload"] == "/start_dev draft/feature/widgets/sprocket.md"
+
+
+def test_an_undated_draft_stays_out(tmp_path):
+    mind = _mind(tmp_path, drafts={"feature/widgets/sprocket.md": _prompt("S")})
+    assert _intake.census(mind)["recent"] == []
+
+
+def test_an_epic_member_is_not_offered_standalone_in_the_feed(tmp_path):
+    """Members are worked in order through their epic — every other pick list
+    on the page excludes them, and a Recent row hands out a `/start_dev`."""
+    member = _epic_prompt_body("Phase one", "jax-profiling", phase=1).replace(
+        "Status: formalised", "Status: formalised\nFiled: 2026-08-20")
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS},
+                 drafts={"feature/widgets/phase_one.md": member,
+                         "feature/widgets/loose.md":
+                             _prompt("Loose end").replace(
+                                 "Status: formalised",
+                                 "Status: formalised\nFiled: 2026-08-21")})
+    assert [r["title"] for r in _intake.census(mind)["recent"]] == ["Loose end"]
+
+
+def test_issued_beats_filed_on_a_prompt_carrying_both(tmp_path):
+    """An issued prompt keeps the `Filed:` it had as a draft; the later, more
+    specific event is the one the feed reports."""
+    body = _prompt("Sprocket").replace(
+        "Status: formalised",
+        "Status: formalised\nFiled: 2026-07-01\nIssued: 2026-08-19")
+    rows = _intake.census(
+        _mind(tmp_path, active={"sprocket.md": body}))["recent"]
+    assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]

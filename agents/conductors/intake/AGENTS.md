@@ -90,7 +90,11 @@ schema — light structure over free-form prose.
 
 **Recent** is the one section laid out by *date* rather than by state: the 50
 newest events on the **work in hand** — issued, parked, filed — merged across
-the live buckets and sitting between the Backlog and the Epics. It *holds* 50
+every live bucket (the `draft/` backlog included, which is most of them:
+150 prompts against a handful of registry rows) and sitting between the Backlog
+and the Epics. Epic members stay out, as they do in every pick list on the
+page — they are worked in order through their epic, and a Recent row hands out
+a standalone `/start_dev`. It *holds* 50
 and *shows* 10 (`RECENT_MAX` / `RECENT_PAGE`): the table is a glance, not a
 log, so the rest is one tap away — a `…` button on the Pages twin, and nested
 `<details>` on the markdown page, which GitHub renders where it strips the
