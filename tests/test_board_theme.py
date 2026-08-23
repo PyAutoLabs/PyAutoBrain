@@ -96,6 +96,27 @@ def test_pills_tone_the_exception_and_leave_the_default_neutral():
     assert 'class="pill g"' in _theme.pills("-", "small", "safe", "low")
 
 
+def test_the_work_type_leads_and_carries_a_glyph_not_a_colour():
+    row = _theme.pills("autoarray", "small", work_type="bug")
+    assert row.index('class="pill w"') < row.index("autoarray")
+    assert _theme.WORK_TYPE_GLYPHS["bug"] in row
+    # Colour stays reserved for judgement — the category is not one.
+    assert '"pill w y"' not in row
+
+
+def test_triage_is_the_one_work_type_that_asks_for_attention():
+    # `triage` means nobody has classified this yet, which is a real call to
+    # action rather than a category.
+    assert 'class="pill w y"' in _theme.pills("autoarray", work_type="triage")
+
+
+def test_every_work_type_in_the_taxonomy_has_a_glyph():
+    sizing = BRAIN_HOME / "agents" / "faculties" / "sizing"
+    sys.path.insert(0, str(sizing))
+    import _sizing  # noqa: E402
+    assert set(_sizing.WORK_TYPES) == set(_theme.WORK_TYPE_GLYPHS)
+
+
 def test_pills_escape_their_values_and_vanish_when_empty():
     assert _theme.pills("-", "-", "-", "-") == ""
     assert "&lt;b&gt;" in _theme.pills("<b>")

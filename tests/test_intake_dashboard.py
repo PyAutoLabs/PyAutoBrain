@@ -305,6 +305,41 @@ def test_a_prompt_titled_with_an_html_comment_cannot_swallow_the_page(tmp_path):
     assert "Visible after the comment" in page
 
 
+def test_a_long_title_is_cut_where_a_reader_can_stop(tmp_path):
+    """A silent cut is indistinguishable from a title that just ends badly —
+    the page read "kernel-CDF numba fast path (the" for months. Long titles
+    now end on a real word and say that there was more."""
+    # The plain cut would land on "... convolution kernels for".
+    assert _intake._title(
+        "Numba CPU likelihood phase 2 kernel-CDF numba fast path convolution "
+        "kernels for the batched dataset"
+    ) == "Numba CPU likelihood phase 2 kernel-CDF numba fast path convolution "\
+         "kernels…"
+    # An orphaned bracket goes with the fragment it opened.
+    assert _intake._title(
+        "Rectangular mesh split Bilinear fast CPU default versus RTU "
+        "(advanced GPU backend variant)"
+    ) == "Rectangular mesh split Bilinear fast CPU default versus RTU…"
+    # An unpaired backtick would let the code span bleed into the page.
+    assert _intake._title(
+        "Give PyAutoFit searches a proper `seed today because no search can "
+        "set it now"
+    ) == "Give PyAutoFit searches a proper…"
+
+
+def test_a_short_title_is_left_exactly_alone(tmp_path):
+    assert _intake._title("Fix the mask edge case") == "Fix the mask edge case"
+    assert not _intake._title("Fix the mask edge case").endswith("…")
+
+
+def test_the_dashboard_row_shows_the_work_type(tmp_path):
+    """The facet `draft/` is organised around, and the one the page never
+    showed — carried as a glyph so colour stays reserved for judgement."""
+    mind = _mind(tmp_path, drafts={"bug/widgets/b.md": _prompt("Bug one")})
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    assert '<span class="pill w">🐛 bug</span>' in html
+
+
 def test_title_markup_survives_the_html_summary(tmp_path):
     """Summaries are HTML: brackets pass through untouched, raw angle brackets
     are escaped, and a title's `code` span renders as <code> (GitHub does not

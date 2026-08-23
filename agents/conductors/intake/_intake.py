@@ -114,6 +114,41 @@ def _slug(text: str, maxwords: int = 7) -> str:
     return slug[:48].strip("_") or "untitled"
 
 
+# Words that must never be the last one in a truncated title. A cut landing
+# on "the" or "which" reads as a rendering bug rather than a summary — the
+# page said "kernel-CDF numba fast path (the" for months.
+_DANGLING = {
+    "a", "an", "and", "are", "as", "at", "but", "by", "can", "for", "from",
+    "if", "in", "into", "is", "it", "its", "of", "on", "or", "our", "over",
+    "one", "other", "per", "so", "than", "that", "the", "their", "then",
+    "this", "to", "up", "via", "we", "what", "when", "which", "while",
+    "with", "without",
+}
+TITLE_WORDS = 12
+
+
+def _shorten(words: list) -> str:
+    """`words` cut to a title, ending somewhere a reader can stop.
+
+    Trailing function words are dropped, an orphaned opening bracket is
+    dropped with the fragment it opened, and an unpaired backtick is dropped
+    so the code span cannot bleed into the rest of the page. An ellipsis
+    marks that there was more — a silent cut is indistinguishable from a
+    title that simply ends badly.
+    """
+    kept = list(words[:TITLE_WORDS])
+    while kept and kept[-1].lower().strip("(,;:—-") in _DANGLING:
+        kept.pop()
+    out = " ".join(kept).rstrip(" ,;:—-([{")
+    if out.count("(") > out.count(")"):
+        out = out[:out.rindex("(")].rstrip(" ,;:—-")
+    if out.count("`") % 2:
+        out = out[:out.rindex("`")].rstrip(" ,;:—-")
+    # Every guard above can eat the whole thing (a title that opens with a
+    # bracket, say) — fall back to the plain cut rather than to nothing.
+    return (out or " ".join(words[:TITLE_WORDS])) + "…"
+
+
 def _title(text: str) -> str:
     """First markdown heading, else first non-empty line, trimmed to a title."""
     for line in text.splitlines():
@@ -121,9 +156,12 @@ def _title(text: str) -> str:
         if not s:
             continue
         s = s.lstrip("#").strip().rstrip(":").rstrip(".")
-        # Keep it title-length: first sentence / ~10 words.
+        # Keep it title-length: first sentence / ~12 words.
         s = re.split(r"(?<=[a-z])[.?!]\s", s)[0]
-        return " ".join(s.split()[:10]) or "Untitled"
+        words = s.split()
+        if not words:
+            return "Untitled"
+        return " ".join(words) if len(words) <= TITLE_WORDS else _shorten(words)
     return "Untitled"
 
 
@@ -1186,7 +1224,8 @@ def render_dashboard_html(c: dict) -> str:
     def record_row(r):
         text = link(r["path"], _summary_label(r["title"])) + pills(
             *(_summary_label(x) for x in (r["target"], r["difficulty"],
-                                          r["autonomy"], r["priority"])))
+                                          r["autonomy"], r["priority"])),
+            work_type=r["work_type"])
         return _html_task(text, f"/start_dev {r['path']}")
 
     H = [

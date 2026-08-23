@@ -27,11 +27,12 @@ Colour carries meaning, never decoration:
 * **ok / warn / bad** stay reserved for the verdict semantics they already
   carry on the Heart-style boards.
 
-`ORGANS` is the palette table. `mind` and `brain` are sampled from the actual
-logo files in those repos; the other four are placeholders in the right hue
-family — confirm each against that organ's logo when its renderer adopts this
-module. Every accent is checked for >= 4.5:1 contrast against its own
-background (light on `#fff`, dark on `#0d1117`).
+`ORGANS` is the palette table. Five of the six are sampled from the actual
+logo files — the glyph colour and the wordmark's own tagline, straight off
+`logo.png` in each organ's repo. The umbrella (PyAutoScientist) has no logo,
+so its accent and tagline are designed to sit in the family instead. Every
+accent is checked for >= 4.5:1 contrast against its own background (light on
+`#fff`, dark on `#0d1117`).
 """
 
 # ---------------------------------------------------------------- palette ---
@@ -45,7 +46,7 @@ ORGANS = {
         "repo": "PyAutoMind", "organ": "Mind",
         "glyph": "\U0001f4cb", "tagline": "Intent. Priority. Flow.",
         "ink_light": "#0a7d72", "ink_dark": "#2ee6cf", "glow": "#00d1ba",
-        "hero": ("#0a3f39", "#000807"),
+        "hero": ("#0a3f39", "#000000"),
     },
     "brain": {
         "repo": "PyAutoBrain", "organ": "Brain",
@@ -53,28 +54,30 @@ ORGANS = {
         "ink_light": "#2159c9", "ink_dark": "#6f9dff", "glow": "#4d8bff",
         "hero": ("#1b2a6b", "#000312"),
     },
-    # --- placeholders: the hue family is right, the exact values are not ----
     "heart": {
         "repo": "PyAutoHeart", "organ": "Heart",
-        "glyph": "❤️", "tagline": "Sense. Gate. Report.",
-        "ink_light": "#c0243a", "ink_dark": "#ff7b7b", "glow": "#ff5a63",
-        "hero": ("#5c1220", "#0d0305"),
+        "glyph": "❤️", "tagline": "Check. Validate. Protect.",
+        "ink_light": "#b50f1a", "ink_dark": "#ff6b73", "glow": "#ff1c28",
+        "hero": ("#4a0a10", "#000000"),
     },
     "hands": {
         "repo": "PyAutoHands", "organ": "Hands",
-        "glyph": "\U0001f6e0️", "tagline": "Package. Tag. Release.",
-        "ink_light": "#a15c07", "ink_dark": "#f0b45c", "glow": "#f5a623",
-        "hero": ("#5c3a08", "#0d0803"),
+        "glyph": "\U0001f6e0️", "tagline": "Build. Execute. Deliver.",
+        "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
+        "hero": ("#4a2c00", "#000000"),
     },
     "memory": {
         "repo": "PyAutoMemory", "organ": "Memory",
-        "glyph": "\U0001f4da", "tagline": "Recall. Cite. Ground.",
-        "ink_light": "#6d3fd6", "ink_dark": "#b795ff", "glow": "#a06bff",
-        "hero": ("#2f1d66", "#050310"),
+        "glyph": "\U0001f4da", "tagline": "Remember. Learn. Evolve.",
+        "ink_light": "#6b34d6", "ink_dark": "#b37eff", "glow": "#b37eff",
+        "hero": ("#2e1a5c", "#000000"),
     },
+    # The umbrella is the one board with no logo to sample: the accent and
+    # the tagline are designed to sit in the family rather than read off a
+    # file. Replace both from the logo if PyAutoScientist ever grows one.
     "organism": {
         "repo": "PyAutoScientist", "organ": "Scientist",
-        "glyph": "\U0001f9ec", "tagline": "One organism. Many organs.",
+        "glyph": "\U0001f9ec", "tagline": "Describe. Build. Release.",
         "ink_light": "#0b6fa4", "ink_dark": "#5ec7f5", "glow": "#38bdf8",
         "hero": ("#0c3f5c", "#00070d"),
     },
@@ -172,6 +175,9 @@ summary::marker{color:var(--accent)}
  color:var(--accent)}
 .pill+.pill{margin-left:.28rem}
 .pill.n{border-color:var(--line);background:var(--btn);color:var(--muted)}
+.pill.w{border-color:transparent;background:var(--btn);color:var(--muted);
+ font-size:.7em;letter-spacing:.09em;text-transform:uppercase}
+.pill.w.y{color:var(--warn);border-color:var(--warn);background:transparent}
 .pill.g{border-color:var(--ok);background:transparent;color:var(--ok)}
 .pill.y{border-color:var(--warn);background:transparent;color:var(--warn)}
 .pill.r{border-color:var(--bad);background:transparent;color:var(--bad)}
@@ -259,11 +265,36 @@ _TONES = {
 }
 
 
-def pills(*values):
-    """Facet values as a pill row. The first value is the target repo/domain
-    — it gets the organ accent, because it is identity, not judgement; the
-    rest take their tone from `_TONES`, defaulting to neutral."""
-    out, first = [], True
+# The PyAutoMind work-type taxonomy, one glyph each. The work type is what
+# `draft/` is organised around and the one facet the boards never showed; a
+# glyph carries it without spending colour, which is reserved for judgement.
+WORK_TYPE_GLYPHS = {
+    "feature": "✨", "bug": "\U0001f41b", "refactor": "♻️",
+    "docs": "\U0001f4d6", "test": "\U0001f9ea", "release": "\U0001f680",
+    "maintenance": "\U0001f9f9", "research": "\U0001f52c",
+    "experiment": "⚗️", "triage": "❓",
+}
+
+
+def pills(*values, work_type=None):
+    """Facet values as a pill row.
+
+    `work_type` leads when given — it is the category the whole taxonomy is
+    built on, so it reads first, as a glyph plus a quiet uppercase tag rather
+    than another coloured chip. `triage` is the exception: it means *nobody
+    has classified this yet*, which is a real call to action.
+
+    Of the positional values the first is the target repo/domain — it gets
+    the organ accent, because it is identity, not judgement; the rest take
+    their tone from `_TONES`, defaulting to neutral.
+    """
+    out = []
+    if work_type and work_type != "-":
+        glyph = WORK_TYPE_GLYPHS.get(work_type, "")
+        tone = " y" if work_type == "triage" else ""
+        out.append(f'<span class="pill w{tone}">{glyph} {_esc(work_type)}'
+                   f'</span>')
+    first = True
     for v in values:
         if not v or v == "-":
             continue
