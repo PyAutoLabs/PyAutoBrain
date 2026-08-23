@@ -160,9 +160,20 @@ def main(argv=None):
         return 2
 
     DEVBOX_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if DEVBOX_FILE.exists() and DEVBOX_FILE.read_text() == text:
-        print("board publish: devbox observation already current — nothing to push")
-        return 0
+    # Idempotence ignores the timestamp: an unchanged observation must not
+    # bump the file (and re-trigger brain_board.yml) just because the clock
+    # moved between two runs.
+    if DEVBOX_FILE.exists():
+        try:
+            prev = json.loads(DEVBOX_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            prev = None
+        if prev is not None and \
+                {k: v for k, v in prev.items() if k != "ts"} == \
+                {k: v for k, v in payload.items() if k != "ts"}:
+            print("board publish: devbox observation already current — "
+                  "nothing to push")
+            return 0
     DEVBOX_FILE.write_text(text)
 
     rel = os.path.relpath(DEVBOX_FILE, PUBLISH_REPO)
