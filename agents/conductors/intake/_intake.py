@@ -337,14 +337,15 @@ def parse_header(text: str) -> dict:
 
     Only scans the top of the file so a stray "Status:" deep in prose does not
     fire; first occurrence of each field wins. No YAML — the blessed convention.
-    `Epic:`/`Phase:` are optional epic-membership fields (dashboard grouping)
-    and `Issued:` is the prompt's own copy of its registry date; none are in
+    `Epic:`/`Phase:` are optional epic-membership fields (dashboard grouping);
+    `Filed:`/`Issued:` are the prompt's own date, keyed by the state it was in
+    when that happened (PyAutoMind REFERENCE.md "Task dates"). None are in
     HEADER_FIELDS, so their absence is never header hygiene.
     """
     fields = {}
     for line in text.splitlines()[:30]:
         m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
-                     r"Issued|Epic|Phase):\s*(\S.*)",
+                     r"Issued|Filed|Epic|Phase):\s*(\S.*)",
                      line.strip())
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
@@ -375,6 +376,18 @@ _ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 # replaced.
 DATE_KEYS = ("issued", "registered", "started", "planned", "filed", "parked",
              "found", "completed", "shipped")
+
+
+def _header_date(header: dict) -> str:
+    """A prompt's own date from its `Issued:` / `Filed:` header, else ''.
+
+    `Issued:` wins when a prompt carries both — it is the later, more specific
+    event, and an issued prompt keeps the `Filed:` it had as a draft."""
+    for key in ("issued", "filed"):
+        m = _ISO_DATE.search(header.get(key) or "")
+        if m:
+            return m.group(1)
+    return ""
 
 
 def _entry_date(fields: dict) -> tuple:
@@ -537,6 +550,16 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
             events.append({"date": r["date"], "event": r.get("event") or "issued",
                            "title": r["title"], "path": r["path"],
                            "payload": f"/start_dev {r['path']}"})
+    # The backlog is the LARGEST pool of work the Mind holds — 150 prompts
+    # against a handful of live rows — so a feed that skipped it could see
+    # almost none of what has been happening. Epic members stay out, as they do
+    # in every pick list on the page: they are worked in order through their
+    # epic, and a Recent row hands out a standalone `/start_dev`.
+    for r in c.get("records") or []:
+        if r.get("date") and not r.get("epic"):
+            events.append({"date": r["date"], "event": "filed",
+                           "title": r["title"], "path": r["path"],
+                           "payload": f"/start_dev {r['path']}"})
     for key, verb in (("parked", "resume"), ("planned", "start")):
         for e in c.get(key) or []:
             if e.get("date"):
@@ -593,6 +616,9 @@ def census(mind: Path) -> dict:
                 "status": header.get("status", "-"),
                 "epic": header.get("epic", ""),
                 "phase": phase,
+                # `Filed:` normally; `Issued:` only on a prompt that has been
+                # issued and moved back, which is still the later event.
+                "date": _header_date(header),
                 "header": header,
                 "missing": missing,
             })
@@ -639,8 +665,7 @@ def census(mind: Path) -> dict:
         # claims it) dated rather than dropping it out of the recent feed.
         date, event = row.get("date", ""), row.get("event", "")
         if not date:
-            m = _ISO_DATE.search(header.get("issued", ""))
-            date, event = (m.group(1), "issued") if m else ("", "")
+            date, event = _header_date(header), "issued"
         in_flight.append({
             "path": rel,
             "title": _title(text),
