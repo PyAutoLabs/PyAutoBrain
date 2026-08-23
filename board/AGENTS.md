@@ -16,13 +16,19 @@ copy-for-Claude payload:
 | Section | Signal owner | One-tap payload |
 |---------|--------------|-----------------|
 | ⌨ Morning sync | `bin/morning.sh` (local) | the terminal command itself |
-| 🌙 Overnight | scheduled workflows (`config/policy.yaml board: overnight_jobs`) | `/bug … — <run url>` on failures |
-| ❤️ Readiness | the Heart board's `badge.json` (cross-board contract) | `/health` |
+| 🌙 Overnight | scheduled workflows (`config/policy.yaml board: overnight_jobs`); a ⏸ blocked gate's ::warning annotation is rendered inline | `/bug … — <run url>` on failures |
+| ❤️ Readiness & release | the Heart board's `badge.json` + `board.json` (structured blockers, each carrying its OWN `/bug` prompt — rendered verbatim, never re-derived) and the Hands badge | `/health`, the blockers' own prompts |
 | 🏷️ Version consistency | the coupled-set stamps (`board: version_stamps`) | `/bug version drift: …` |
-| 💬 Community | the Ears (`community scan`, reused wholesale) | `/community`, `/community triage <ref>` |
+| 💬 Community | the Ears (`community scan`, reused wholesale) — every open conversation gets a row | `/community`, `/community triage <ref>` |
 | 🔄 Resume | the Mind's registry + generated counts; pending-release PRs | `/start_dev …`, `/prm <url>` |
 | 🧹 Upkeep | open-issue count; the cleanup doors | `/issue_cleanup`, `/hygiene`, `/repo_cleanup` |
+| 🖥️ Dev box | `state/devbox_board.json` — hygiene pre-scan rows + worktree state, pushed by `board publish` (morning.sh's last step); age-stamped, stale at 48h, dropped after 7d | each hygiene row's own delegate door |
+| 🤖 Autonomous runs | the tail of the Mind's `autonomy_log.md`, verbatim | — |
 | 🚪 All doors | `bin/pyauto-brain`'s own registry (never a second copy) | `/<verb>` |
+
+The header also carries a **trend sparkline** — the "N need you" count per
+day, handed forward through the published `board.json` itself (no commits, no
+extra state: each render reads yesterday's page, appends today, caps at 30).
 
 **Compose, don't recompute** — the board re-derives nothing. The community
 section imports the community conductor's `build_scan()`; the resume counts
@@ -41,6 +47,10 @@ bin/pyauto-brain board                # markdown digest in the terminal
 bin/pyauto-brain board --html         # the one-tap page
 bin/pyauto-brain board --badge        # the cross-board headline contract
 bin/pyauto-brain board --apply        # write _site/ (what brain_board.yml serves)
+bin/pyauto-brain board publish        # dev-box leg: distill hygiene + worktree
+                                      #   state into state/devbox_board.json and
+                                      #   push (morning.sh runs this for you;
+                                      #   --dry-run prints, --no-hygiene is fast)
 ```
 
 Publishing is `.github/workflows/brain_board.yml`: a morning cron plus manual
