@@ -337,13 +337,14 @@ def parse_header(text: str) -> dict:
 
     Only scans the top of the file so a stray "Status:" deep in prose does not
     fire; first occurrence of each field wins. No YAML — the blessed convention.
-    `Epic:`/`Phase:` are optional epic-membership fields (dashboard grouping);
-    they are not in HEADER_FIELDS, so their absence is never header hygiene.
+    `Epic:`/`Phase:` are optional epic-membership fields (dashboard grouping)
+    and `Issued:` is the prompt's own copy of its registry date; none are in
+    HEADER_FIELDS, so their absence is never header hygiene.
     """
     fields = {}
     for line in text.splitlines()[:30]:
         m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
-                     r"Epic|Phase):\s*(\S.*)",
+                     r"Issued|Epic|Phase):\s*(\S.*)",
                      line.strip())
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
@@ -364,6 +365,25 @@ def _prefix_match(path: str, prefix: str) -> bool:
 _REG_HEAD = re.compile(r"^##\s+(\S.*?)\s*$")
 _REG_FIELD = re.compile(r"^-\s+([a-z][a-z-]*):\s*(.*)$")
 _ISSUE_URL = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
+_ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+# The Mind dates a task the moment it leaves the backlog (PyAutoMind
+# REFERENCE.md "Task dates"). The KEY names the event, so a merged feed can say
+# what each date means; most-specific event first, so a task that was filed and
+# later issued dates from its issue. A date sitting in some other field's prose
+# is deliberately not read — that is the un-parseable habit the convention
+# replaced.
+DATE_KEYS = ("issued", "registered", "started", "planned", "filed", "parked",
+             "found", "completed", "shipped")
+
+
+def _entry_date(fields: dict) -> tuple:
+    """(date, event) for a registry entry, or ('', '') when it carries none."""
+    for key in DATE_KEYS:
+        m = _ISO_DATE.search(fields.get(key) or "")
+        if m:
+            return m.group(1), key
+    return "", ""
 
 
 def parse_registry(path: Path) -> list:
@@ -380,7 +400,8 @@ def parse_registry(path: Path) -> list:
         head = _REG_HEAD.match(line)
         if head:
             cur = {"slug": head.group(1), "issue": "", "issue_no": "",
-                   "status": "", "prompt": ""}
+                   "status": "", "prompt": "", "fields": {},
+                   "date": "", "event": ""}
             entries.append(cur)
             continue
         if cur is None:
@@ -389,6 +410,7 @@ def parse_registry(path: Path) -> list:
         if not field:
             continue
         key, value = field.group(1), field.group(2).strip()
+        cur["fields"].setdefault(key, value)
         if key in ("issue", "status", "prompt") and not cur[key]:
             cur[key] = value
             if key == "issue":
@@ -397,6 +419,8 @@ def parse_registry(path: Path) -> list:
                 m = _ISSUE_URL.search(value)
                 if m:
                     cur["issue"], cur["issue_no"] = m.group(0), m.group(1)
+    for e in entries:
+        e["date"], e["event"] = _entry_date(e["fields"])
     return entries
 
 
@@ -464,6 +488,146 @@ def _clip(text: str, limit: int = 130) -> str:
     if len(text) <= limit:
         return text
     return text[:limit].rsplit(" ", 1)[0].rstrip(" .,;:—-") + "…"
+
+
+# --- the recent feed -----------------------------------------------------------
+# The dashboard answers "what should I do now?" everywhere else on the page.
+# This one section answers "what has been happening?" — the single question a
+# task page laid out by STATE cannot answer, because a task's recency is
+# orthogonal to which bucket it sits in. Merging the buckets by date puts the
+# week's issuing, parking and shipping in one place, which is also the fastest
+# way to spot a Mind that has drifted (three weeks of `filed` and nothing
+# `completed` is visible at a glance and invisible section by section).
+RECENT_MAX = 20
+
+# How many month folders of `complete/` to open. The records are the bulk of
+# the Mind (1000+ files), and only the newest handful can reach a 20-row feed,
+# so the scan is bounded by folder rather than reading the whole ledger on
+# every render. Two months is comfortably more than 20 records in practice;
+# the scan widens on its own if they are not.
+RECENT_MONTHS = 2
+
+# Records open with their fields (`- completed: …`) but the ledger is a decade
+# of hand-written prose, so a fifth of them say it another way. Read the head
+# of the file only: a date deep in a narrative is something the task mentions,
+# not when it shipped.
+_RECORD_HEAD_BYTES = 4096
+_RECORD_DATE = re.compile(r"^-\s+(completed|shipped):\s*(.*)$", re.MULTILINE)
+
+# The verb each event reads as in the feed. Past tense throughout — every row
+# is something that already happened.
+EVENT_LABEL = {"issued": "issued", "registered": "issued", "started": "started",
+               "planned": "planned", "filed": "filed", "parked": "parked",
+               "found": "found", "completed": "completed", "shipped": "completed"}
+
+
+def _anchor(heading: str) -> str:
+    """GitHub's heading anchor for an `## <slug>` registry entry."""
+    return re.sub(r"[^a-z0-9-]+", "-", heading.lower()).strip("-")
+
+
+def _record_date(path: Path, text: str) -> str:
+    """The day a completion record's task shipped.
+
+    `completed:`/`shipped:` when the record states one; otherwise the record's
+    own `complete/<YYYY>/<MM>/` folder, which the lifecycle engine files it
+    into by completion month — coarse, but never wrong about the month, and
+    the alternative is dropping a fifth of the ledger out of the feed."""
+    m = _RECORD_DATE.search(text)
+    if m:
+        d = _ISO_DATE.search(m.group(2))
+        if d:
+            return d.group(1)
+    parts = path.parts
+    if len(parts) >= 3 and parts[-3].isdigit() and parts[-2].isdigit():
+        return f"{parts[-3]}-{parts[-2]}"
+    return ""
+
+
+def completed_records(mind: Path, months: int = RECENT_MONTHS,
+                      want: int = RECENT_MAX) -> list:
+    """The newest completion records, newest first — `[{date, slug, path}]`.
+
+    Walks `complete/<YYYY>/<MM>/` newest-first and stops one month after it has
+    enough, so the whole ledger is never read to render a 20-row table. A month
+    is opened whole: records inside one are unordered, and a record can carry a
+    date from the month before it was filed under."""
+    root = mind / "complete"
+    if not root.is_dir():
+        return []
+    folders = sorted(
+        (d for y in root.iterdir() if y.is_dir() and y.name.isdigit()
+         for d in y.iterdir() if d.is_dir() and d.name.isdigit()),
+        key=lambda d: (d.parent.name, d.name), reverse=True)
+    out, opened = [], 0
+    for folder in folders:
+        opened += 1
+        for f in folder.glob("*.md"):
+            text = f.read_text(encoding="utf-8", errors="replace")[:_RECORD_HEAD_BYTES]
+            out.append({"date": _record_date(f, text),
+                        "slug": f.stem,
+                        "path": str(f.relative_to(mind))})
+        if opened >= months and len(out) >= want:
+            break
+    out.sort(key=lambda r: r["date"], reverse=True)
+    return out
+
+
+def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
+    """The Mind's newest task events, newest first — `[{date, event, title, …}]`.
+
+    One row per task, not per event: a task that was filed and later issued
+    appears once, on its latest date (which is what `_entry_date` already picks
+    per entry).
+
+    **Live work is never crowded out by shipped work.** A straight date sort
+    would be all completions — this Mind ships ~200 records a month, so the
+    twenty newest dates in it are twenty records — and the one thing the feed
+    must show is the work still in hand. So the rows are *selected* live-first
+    (in flight, parked, planned), completions fill whatever room is left, and
+    the selected set is then sorted by date like any other feed. On a quiet
+    Mind that changes nothing; on a busy one it is the difference between a
+    table of work and a table of receipts.
+
+    Undated rows are absent rather than sorted to the bottom: `lifecycle.py
+    dates` is where a missing date gets reported, and padding this table with
+    unknowns would bury the answer it exists to give.
+    """
+    live, done = [], []
+    for r in c.get("in_flight") or []:
+        if r.get("date"):
+            live.append({"date": r["date"], "event": r.get("event") or "issued",
+                         "title": r["title"], "path": r["path"], "live": True,
+                         "payload": f"/start_dev {r['path']}"})
+    for key, verb in (("parked", "resume"), ("planned", "start")):
+        for e in c.get(key) or []:
+            if e.get("date"):
+                live.append({"date": e["date"],
+                             "event": e.get("event") or key,
+                             "title": e["slug"],
+                             # The entry's own heading anchor — a registry file
+                             # is long enough that landing at its top is not
+                             # the same as landing on the task.
+                             "path": f"{key}.md#{_anchor(e['slug'])}",
+                             "live": True,
+                             "payload": _registry_payload(e, key, verb)})
+    for r in c.get("completed") or []:
+        if r.get("date"):
+            done.append({"date": r["date"], "event": "completed",
+                         "title": r["slug"], "path": r["path"], "live": False,
+                         "payload": f"/memory recall the completed PyAutoMind "
+                                    f"task {r['slug']} — its record is "
+                                    f"{r['path']}"})
+
+    def _newest(rows):
+        return sorted(rows, key=lambda e: (e["date"], e["title"]), reverse=True)
+
+    chosen = _newest(live)[:limit]
+    chosen += _newest(done)[:max(0, limit - len(chosen))]
+    chosen = _newest(chosen)
+    for e in chosen:
+        e["event"] = EVENT_LABEL.get(e["event"], e["event"])
+    return chosen
 
 
 def census(mind: Path) -> dict:
@@ -546,11 +710,20 @@ def census(mind: Path) -> dict:
             continue
         header = parse_header(text)
         row = by_prompt.get(rel, {})
+        # The registry row is the live record, so its date wins; the prompt's
+        # own `Issued:` header is the fallback that keeps an orphan (no row
+        # claims it) dated rather than dropping it out of the recent feed.
+        date, event = row.get("date", ""), row.get("event", "")
+        if not date:
+            m = _ISO_DATE.search(header.get("issued", ""))
+            date, event = (m.group(1), "issued") if m else ("", "")
         in_flight.append({
             "path": rel,
             "title": _title(text),
             "target": header.get("target", "-"),
             "priority": header.get("priority", "-"),
+            "date": date,
+            "event": event,
             "issue": row.get("issue", ""),
             "issue_no": row.get("issue_no", ""),
             # The registry row only. A prompt's own `Status:` header is written
@@ -559,7 +732,7 @@ def census(mind: Path) -> dict:
             "status": row.get("status", ""),
         })
 
-    return {
+    c = {
         "generated": _dt.date.today().isoformat(),
         "home": _mind_home(mind),
         "total": len(records),
@@ -576,6 +749,9 @@ def census(mind: Path) -> dict:
         "hygiene": hygiene,
         "drift": drift,
     }
+    c["completed"] = completed_records(mind)
+    c["recent"] = recent_events(c)
+    return c
 
 
 def _cell(value: str) -> str:
@@ -718,6 +894,32 @@ def _epic_members(c: dict) -> dict:
     return groups
 
 
+RECENT_BLURB = (
+    "The Mind's most recent {n} task events, newest first — what was issued, "
+    "parked, filed and shipped, in one place. Every other section on this page "
+    "is laid out by state, which is exactly why none of them can answer "
+    "\u201cwhat has been happening?\u201d. Work still in hand is listed "
+    "first-class here; completed records fill whatever room is left.")
+
+
+def _dated(row: dict) -> str:
+    """`— issued 2026-08-19`, the facet every live task row now carries.
+
+    The date is worth showing where the task IS, not only in the Recent feed:
+    a status line reads very differently against a row issued yesterday than
+    against one issued in May. Empty for an undated row rather than a
+    placeholder — `lifecycle.py dates` is where the gap gets reported."""
+    if not row.get("date"):
+        return ""
+    event = EVENT_LABEL.get(row.get("event", ""), row.get("event") or "dated")
+    return f" — {event} {row['date']}"
+
+
+def _recent_link(e: dict) -> str:
+    """The task cell of a Recent row — its title, linked to where it lives."""
+    return f"<a href=\"{e['path']}\">{_summary_label(_clip(e['title'], 70))}</a>"
+
+
 EPIC_ORDER_CAUTION = ("Members are worked in order through the epic's ledger "
                       "— continue the epic rather than starting one standalone.")
 
@@ -751,7 +953,9 @@ def render_dashboard(c: dict) -> str:
     L += [
         "Every task the Mind is holding, on one page: what is in flight, what "
         "is parked, and the whole backlog to pick from. Pick a task and run "
-        "its `/start_dev` command in a Claude Code chat to start it.",
+        "its `/start_dev` command in a Claude Code chat to start it. "
+        "[Recent](#recent) is the same work by date — what has been happening "
+        "rather than what to do next.",
         "",
         "| Where | Count |",
         "|-------|------:|",
@@ -794,6 +998,7 @@ def render_dashboard(c: dict) -> str:
         head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
         if r["issue_no"]:
             head += f" — <a href=\"{r['issue']}\">issue #{r['issue_no']}</a>"
+        head += _dated(r)
         if r["status"]:
             head += f" — {_summary_label(_clip(r['status']))}"
         flight.append(_task_row(head, f"/start_dev {r['path']}"))
@@ -817,6 +1022,7 @@ def render_dashboard(c: dict) -> str:
             head = f"<b>{_summary_label(e['slug'])}</b>"
             if e["issue_no"]:
                 head += f" — <a href=\"{e['issue']}\">issue #{e['issue_no']}</a>"
+            head += _dated(e)
             if e["status"]:
                 head += f" — {_summary_label(_clip(e['status']))}"
             items.append(_task_row(head, _registry_payload(e, key, verb)))
@@ -837,6 +1043,21 @@ def render_dashboard(c: dict) -> str:
         L += ["<details>", f"<summary><b>{wt}</b> — {len(rows)}</summary>", ""]
         L += _items([_bullet(r) for r in rows])
         L += ["", "</details>", ""]
+
+    # Recency is orthogonal to state, so it gets its own table rather than a
+    # column on any section above. A table, not the page's usual copy rows:
+    # this section is read, not picked from — the task's own section is where
+    # it is picked up.
+    recent = c.get("recent") or []
+    if recent:
+        L += ["## Recent", "",
+              RECENT_BLURB.format(n=len(recent)), "",
+              "| Date | Event | Task |",
+              "|------|-------|------|"]
+        L += [f"| {r['date']} | {r['event']} | {_cell(_recent_link(r))} |"
+              for r in recent]
+        L += ["", "_Dates come from each task's registry entry and each record's "
+              "`completed:` — `lifecycle.py dates` reports anything undated._", ""]
 
     # Epics live at the bottom, whole: each epic's resume prompt sits with its
     # queued member prompts, grouped and phase-ordered, so nobody picks a
@@ -913,6 +1134,15 @@ button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
 button.copy.ok{color:var(--ok);border-color:var(--ok)}
 details{margin:.5rem 0}
 summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+table.recent{width:100%;border-collapse:collapse;font-size:.95em}
+table.recent td{border-bottom:1px solid var(--line);padding:.45rem .4rem .45rem 0;
+ vertical-align:top;overflow-wrap:anywhere}
+table.recent td.when{white-space:nowrap;color:var(--muted);font-variant-numeric:
+ tabular-nums}
+table.recent td.what{white-space:nowrap;color:var(--muted);font-size:.85em;
+ padding-top:.58rem}
+table.recent td.pick{width:2.6rem;padding-right:0}
+table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
 """
 
 # One tap on 📋 → the command is on the clipboard; the button flashes ✓. The
@@ -988,7 +1218,9 @@ def render_dashboard_html(c: dict) -> str:
         "<h1>📋 PyAutoMind Dashboard</h1>",
         "<p>Every task the Mind is holding. Tap a task's 📋 and its "
         "<code>/start_dev</code> command is on your clipboard — paste it into "
-        "a Claude Code chat to route Claude straight to that task.</p>",
+        "a Claude Code chat to route Claude straight to that task. "
+        '<a href="#recent">Recent</a> is the same work by date — what has been '
+        "happening rather than what to do next.</p>",
         f'<p class="muted">In flight {c["issued_count"]} · '
         f'Parked {len(c["parked"])} · Planned {len(c["planned"])} · '
         f'Backlog {c["total"]}'
@@ -1031,6 +1263,8 @@ def render_dashboard_html(c: dict) -> str:
         text = link(r["path"], _summary_label(r["title"]))
         if r["issue_no"]:
             text += f' — <a href="{_attr(r["issue"])}">issue #{r["issue_no"]}</a>'
+        if r.get("date"):
+            text += f'<span class="facets">{_dated(r)}</span>'
         if r["status"]:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
@@ -1048,6 +1282,8 @@ def render_dashboard_html(c: dict) -> str:
             if e["issue_no"]:
                 text += (f' — <a href="{_attr(e["issue"])}">'
                          f'issue #{e["issue_no"]}</a>')
+            if e.get("date"):
+                text += f'<span class="facets">{_dated(e)}</span>'
             if e["status"]:
                 text += (f' — <span class="facets">'
                          f'{_summary_label(_clip(e["status"]))}</span>')
@@ -1069,6 +1305,22 @@ def render_dashboard_html(c: dict) -> str:
         H += ["<details>", f"<summary>{wt} — {len(rows)}</summary>"]
         H += [record_row(r) for r in rows]
         H += ["</details>"]
+
+    recent = c.get("recent") or []
+    if recent:
+        H += ['<a id="recent"></a>' + h2("Recent", "dashboard.md#recent"),
+              f'<p class="muted">{RECENT_BLURB.format(n=len(recent))}</p>',
+              '<table class="recent">']
+        for r in recent:
+            H += ["<tr>",
+                  f'<td class="when">{r["date"]}</td>',
+                  f'<td class="what">{_summary_label(r["event"])}</td>',
+                  f'<td>{link(r["path"], _summary_label(_clip(r["title"], 70)))}</td>',
+                  f'<td class="pick"><button class="copy" '
+                  f'data-cmd="{_attr(r["payload"])}" aria-label="Copy the '
+                  f'Claude command">📋</button></td>',
+                  "</tr>"]
+        H += ["</table>"]
 
     known = {e["slug"] for e in c.get("epics") or []}
     stray = [s for s in members if s not in known]
