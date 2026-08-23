@@ -88,9 +88,13 @@ schema — light structure over free-form prose.
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`); always read-only — retiring stays human |
 | **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source for identifiers the prompts name — the one signal that sees a prompt with no Mind-side trace. Opt-in; the default path is offline |
 
-**Recent** is the one section laid out by *date* rather than by state: the 20
+**Recent** is the one section laid out by *date* rather than by state: the 50
 newest events on the **work in hand** — issued, parked, filed — merged across
-the live buckets and sitting between the Backlog and the Epics. Every other
+the live buckets and sitting between the Backlog and the Epics. It *holds* 50
+and *shows* 10 (`RECENT_MAX` / `RECENT_PAGE`): the table is a glance, not a
+log, so the rest is one tap away — a `…` button on the Pages twin, and nested
+`<details>` on the markdown page, which GitHub renders where it strips the
+script. Every other
 section answers "what should I do now?"; recency is orthogonal to state, so
 none of them can answer "what has been happening?". Dates come from the
 registry key that names the event (`issued:` / `parked:` / `filed:`, PyAutoMind

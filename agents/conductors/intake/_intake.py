@@ -501,7 +501,12 @@ def _clip(text: str, limit: int = 130) -> str:
 # records deep and ships ~200 a month, so including it made the table a list of
 # receipts — twenty things nobody can act on, on the page whose whole job is
 # work in hand. `complete/index.md` is where shipped work is read.
-RECENT_MAX = 20
+# How deep the feed goes, and how much of it is on screen at once. The table
+# is a glance, not a log: ten rows answer "what has been happening?" without
+# pushing the Epics below a scroll, and the rest is one tap away — so a quiet
+# week still shows a fortnight of context and a busy one does not bury it.
+RECENT_MAX = 50
+RECENT_PAGE = 10
 
 # The verb each event reads as in the feed. Past tense throughout — every row
 # is something that already happened.
@@ -820,6 +825,9 @@ RECENT_BLURB = (
     "`complete/index.md`, and a thousand records deep it would crowd out "
     "everything anyone can still act on.")
 
+RECENT_PAGING_NOTE = (
+    " Showing the newest {page}; \u2026 opens the next {page}.")
+
 
 def _dated(row: dict) -> str:
     """`— issued 2026-08-19`, the facet every live task row now carries.
@@ -832,6 +840,47 @@ def _dated(row: dict) -> str:
         return ""
     event = EVENT_LABEL.get(row.get("event", ""), row.get("event") or "dated")
     return f" — {event} {row['date']}"
+
+
+def _recent_blurb(rows: list) -> str:
+    """The section's prose — the paging sentence only when there IS paging."""
+    text = RECENT_BLURB.format(n=len(rows))
+    if len(rows) > RECENT_PAGE:
+        text += RECENT_PAGING_NOTE.format(page=RECENT_PAGE)
+    return text
+
+
+RECENT_TABLE_HEAD = ["| Date | Event | Task |", "|------|-------|------|"]
+
+
+def _recent_rows(rows: list) -> list:
+    return [f"| {r['date']} | {r['event']} | {_cell(_recent_link(r))} |"
+            for r in rows]
+
+
+def _recent_pages(rows: list, page: int = RECENT_PAGE) -> list:
+    """The feed as nested `<details>`: a page on screen, the rest one tap in.
+
+    GitHub strips the JavaScript the Pages twin uses for this, so the markdown
+    page reveals with the one interactive element it does render — `<details>`,
+    NESTED, so each tap shows the next page and leaves another `…` behind it.
+    Sibling blocks would let a reader open page 4 without page 3, which is not
+    what "show me more" means when the list is ordered by date.
+
+    Each page carries its own header row: a markdown table cannot span an HTML
+    block boundary, so the alternative is a headerless slab of pipes. The blank
+    lines are load-bearing — without them GitHub treats the table as raw text
+    inside the `<details>` (same rule as `_task_row`).
+    """
+    head, rest = rows[:page], rows[page:]
+    block = RECENT_TABLE_HEAD + _recent_rows(head)
+    if not rest:
+        return block
+    shown = min(page, len(rest))
+    return block + ["",
+                    f"<details><summary>… {shown} more "
+                    f"({len(rest)} left)</summary>",
+                    ""] + _recent_pages(rest, page) + ["", "</details>"]
 
 
 def _recent_link(e: dict) -> str:
@@ -969,12 +1018,8 @@ def render_dashboard(c: dict) -> str:
     # it is picked up.
     recent = c.get("recent") or []
     if recent:
-        L += ["## Recent", "",
-              RECENT_BLURB.format(n=len(recent)), "",
-              "| Date | Event | Task |",
-              "|------|-------|------|"]
-        L += [f"| {r['date']} | {r['event']} | {_cell(_recent_link(r))} |"
-              for r in recent]
+        L += ["## Recent", "", _recent_blurb(recent), ""]
+        L += _recent_pages(recent)
         L += ["", "_Dates come from each task's registry entry — "
               "`lifecycle.py dates` reports anything undated._", ""]
 
@@ -1062,6 +1107,10 @@ table.recent td.what{white-space:nowrap;color:var(--muted);font-size:.85em;
  padding-top:.58rem}
 table.recent td.pick{width:2.6rem;padding-right:0}
 table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
+button.more{display:block;width:100%;margin:.6rem 0;padding:.5rem;
+ border:1px solid var(--line);border-radius:8px;background:var(--btn);
+ color:var(--muted);cursor:pointer;font:inherit;font-size:.9em}
+button.more:hover{color:var(--fg)}
 """
 
 # One tap on 📋 → the command is on the clipboard; the button flashes ✓. The
@@ -1077,6 +1126,18 @@ async function copyCmd(b){
   setTimeout(()=>{b.textContent="\\ud83d\\udccb";b.classList.remove("ok");},1200);}
 document.addEventListener("click",e=>{
   const b=e.target.closest("button.copy");if(b)copyCmd(b);});
+// Recent shows one page and reveals the next on each tap of the \u2026 button,
+// which retires itself once the feed is exhausted. Every row is already in the
+// DOM, so this never re-renders or re-sorts anything.
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button.more");if(!b)return;
+  const t=document.querySelector("table.recent");if(!t)return;
+  const hidden=[...t.querySelectorAll("tr[hidden]")];
+  const page=Number(b.dataset.page)||10;
+  hidden.slice(0,page).forEach(r=>r.removeAttribute("hidden"));
+  const left=hidden.length-Math.min(page,hidden.length);
+  if(left<=0){b.remove();return;}
+  b.textContent="\u2026 "+Math.min(page,left)+" more ("+left+" left)";});
 """
 
 
@@ -1228,10 +1289,16 @@ def render_dashboard_html(c: dict) -> str:
     recent = c.get("recent") or []
     if recent:
         H += ['<a id="recent"></a>' + h2("Recent", "dashboard.md#recent"),
-              f'<p class="muted">{RECENT_BLURB.format(n=len(recent))}</p>',
+              # `_summary_label` turns the blurb's `code` spans into <code>;
+              # markdown backticks render literally on this page.
+              f'<p class="muted">{_summary_label(_recent_blurb(recent))}</p>',
               '<table class="recent">']
-        for r in recent:
-            H += ["<tr>",
+        for i, r in enumerate(recent):
+            # Every row ships in the DOM; the ones past the first page start
+            # hidden, so revealing them is a flag flip rather than a re-render
+            # — and a reader with JS off sees the whole feed rather than ten
+            # rows and a dead button.
+            H += ["<tr hidden>" if i >= RECENT_PAGE else "<tr>",
                   f'<td class="when">{r["date"]}</td>',
                   f'<td class="what">{_summary_label(r["event"])}</td>',
                   f'<td>{link(r["path"], _summary_label(_clip(r["title"], 70)))}</td>',
@@ -1240,6 +1307,10 @@ def render_dashboard_html(c: dict) -> str:
                   f'Claude command">📋</button></td>',
                   "</tr>"]
         H += ["</table>"]
+        rest = len(recent) - RECENT_PAGE
+        if rest > 0:
+            H += [f'<button class="more" data-page="{RECENT_PAGE}">'
+                  f'… {min(RECENT_PAGE, rest)} more ({rest} left)</button>']
 
     known = {e["slug"] for e in c.get("epics") or []}
     stray = [s for s in members if s not in known]
