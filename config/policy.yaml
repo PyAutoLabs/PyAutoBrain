@@ -113,8 +113,13 @@ board:
     - PyAutoLens:autolens/__init__.py
   reference_release_repo: PyAutoLens
   heart_board: PyAutoHeart
+  # The full one-tap board family (the cross-board footer nav every board
+  # carries; each renderer skips its own entry). Parsed by board/_board.py
+  # (yaml) and by the Mind renderer's footer (stdlib regex on this block —
+  # keep one `name: Repo` pair per line).
   boards:
     mind: PyAutoMind
+    brain: PyAutoBrain
     heart: PyAutoHeart
     hands: PyAutoHands
     memory: PyAutoMemory

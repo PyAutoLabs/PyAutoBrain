@@ -502,11 +502,22 @@ def render_md(data):
                  f"{counts['open_external_prs']} external PR(s) open — "
                  f"**{counts['awaiting_response']} awaiting our reply** "
                  "(respond via `/community`; never auto-reply)")
+        awaiting_keys = {(e["repo"], e["number"]) for e in c["awaiting_response"]}
         for e in c["awaiting_response"]:
             days = (f"{e['waiting_days']:.0f}d"
                     if e.get("waiting_days") is not None else "?")
-            L.append(f"  - {e['repo']}#{e['number']} [{days} waiting] "
-                     f"@{e['author']}: {e['title'][:70]}")
+            L.append(f"  - `/community triage {e['repo']}#{e['number']}` "
+                     f"[{days} waiting] @{e['author']}: {e['title'][:70]}")
+        for e in c["open_external_issues"] + c["open_external_prs"]:
+            if (e["repo"], e["number"]) in awaiting_keys:
+                continue
+            note = ("ours to watch" if e.get("awaiting_response") is False
+                    else "unchecked")
+            L.append(f"  - `/community triage {e['repo']}#{e['number']}` "
+                     f"[{note}] @{e['author']}: {e['title'][:70]}")
+        for e in c["awaiting_review"]:
+            L.append(f"  - `/community triage {e['repo']}#{e['number']}` "
+                     f"[review requested] @{e['author']}: {e['title'][:70]}")
     else:
         L.append("- scan unavailable — run `/community` for the live surface")
     L.append("")
@@ -536,8 +547,9 @@ def render_md(data):
         L.append("## Degraded")
         L += [f"- {d}" for d in data["degraded"]]
         L.append("")
-    L.append(f"Boards: " + " · ".join(
-        f"[{name}]({url})" for name, url in data["boards"].items()))
+    L.append("Boards: " + " · ".join(
+        f"[{name}]({url})" for name, url in data["boards"].items()
+        if name != "brain"))
     L.append("")
     return "\n".join(L)
 
@@ -701,17 +713,33 @@ def render_html(data):
             f'<b>{counts["awaiting_response"]} awaiting our reply</b>. '
             'Replies stay human-gated in <code>/community</code>.',
             "/community"))
+
+        def community_row(e, note_html):
+            """Every conversation gets its own one-tap triage chip."""
+            url = e.get("url") or ""
+            title = esc(e.get("title", "")[:80])
+            kind = "PR " if e.get("type") == "pr" else ""
+            link = f'<a href="{_attr(url)}">{esc(e["repo"])}#{e["number"]}</a>' \
+                if url else f'{esc(e["repo"])}#{e["number"]}'
+            return _row(
+                f'{kind}{link} {note_html} @{esc(e["author"])}: {title}',
+                f"/community triage {e['repo']}#{e['number']}")
+
+        awaiting_keys = {(e["repo"], e["number"]) for e in c["awaiting_response"]}
         for e in c["awaiting_response"]:
             days = (f"{e['waiting_days']:.0f}d"
                     if e.get("waiting_days") is not None else "?")
-            url = e.get("url") or ""
-            title = esc(e.get("title", "")[:80])
-            link = f'<a href="{_attr(url)}">{esc(e["repo"])}#{e["number"]}</a>' \
-                if url else f'{esc(e["repo"])}#{e["number"]}'
-            H.append(_row(
-                f'{link} <span class="muted">[{days} waiting]</span> '
-                f'@{esc(e["author"])}: {title}',
-                f"/community triage {e['repo']}#{e['number']}"))
+            H.append(community_row(
+                e, f'<span class="warn">[{days} waiting]</span>'))
+        for e in c["open_external_issues"] + c["open_external_prs"]:
+            if (e["repo"], e["number"]) in awaiting_keys:
+                continue
+            note = ("ours to watch" if e.get("awaiting_response") is False
+                    else "unchecked")
+            H.append(community_row(e, f'<span class="muted">[{note}]</span>'))
+        for e in c["awaiting_review"]:
+            H.append(community_row(
+                e, '<span class="warn">[review requested]</span>'))
     else:
         H.append(_row("Scan unavailable — run the Ears directly.", "/community"))
 
@@ -762,7 +790,8 @@ def render_html(data):
             H.append(_plain(f'<span class="warn">{esc(d)}</span>'))
 
     nav = " · ".join(f'<a href="{_attr(url)}">{esc(name)}</a>'
-                     for name, url in data["boards"].items())
+                     for name, url in data["boards"].items()
+                     if name != "brain")
     H.append(f'<p class="muted">Boards: {nav}</p>')
     H += [f"<script>{_HTML_JS}</script>", "</body>", "</html>"]
     return "\n".join(H) + "\n"

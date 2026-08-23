@@ -276,6 +276,45 @@ def test_apply_writes_the_four_pages_files(tmp_path):
     assert badge["label"] == "brain"
 
 
+def _community_item(repo, number, login, title, comments=0):
+    return {
+        "number": number,
+        "title": title,
+        "user": {"login": login, "type": "User"},
+        "html_url": f"https://github.com/{repo}/issues/{number}",
+        "labels": [],
+        "comments": comments,
+        "updated_at": "2026-07-10T00:00:00Z",
+        "repository_url": f"https://api.github.com/repos/{repo}",
+    }
+
+
+def test_every_community_conversation_gets_its_own_chip(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "comm_issues.json": {"items": [
+            _community_item("ExampleOrg/RepoA", 7, "some_user",
+                            "lens model crashes"),
+            _community_item("ExampleOrg/RepoB", 9, "other_user",
+                            "docs question", comments=2),
+        ]}}))
+    page = _run(["--html"], tmp_path, stub).stdout
+    # One 📋 triage chip per conversation — awaiting-reply and watched alike.
+    assert 'data-cmd="/community triage ExampleOrg/RepoA#7"' in page
+    assert 'data-cmd="/community triage ExampleOrg/RepoB#9"' in page
+    md = _run([], tmp_path, stub).stdout
+    assert "`/community triage ExampleOrg/RepoA#7`" in md
+    assert "`/community triage ExampleOrg/RepoB#9`" in md
+
+
+def test_boards_footer_lists_the_family_without_self(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    page = _run(["--html"], tmp_path, stub).stdout
+    footer = page[page.rindex("Boards:"):]
+    for name in ("mind", "heart", "hands", "memory", "organism"):
+        assert f">{name}</a>" in footer, name
+    assert ">brain</a>" not in footer  # a board never links itself
+
+
 # --------------------------------------------------------------- read-only --
 
 
