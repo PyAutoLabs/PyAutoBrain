@@ -27,12 +27,14 @@ Colour carries meaning, never decoration:
 * **ok / warn / bad** stay reserved for the verdict semantics they already
   carry on the Heart-style boards.
 
-`ORGANS` is the palette table. Five of the six are sampled from the actual
-logo files — the glyph colour and the wordmark's own tagline, straight off
-`logo.png` in each organ's repo. The umbrella (PyAutoScientist) has no logo,
-so its accent and tagline are designed to sit in the family instead. Every
-accent is checked for >= 4.5:1 contrast against its own background (light on
-`#fff`, dark on `#0d1117`).
+`ORGANS` is the palette table, keyed by the same board names as
+`config/policy.yaml` `board: boards:` — that mapping is the declared config
+surface an adopting fork replaces, so no repo is named here. Five of the six
+palettes are sampled from the actual logo files: the glyph colour and the
+wordmark's own tagline, straight off `logo.png` in each organ's repo. The
+umbrella board has no logo, so its accent and tagline are designed to sit in
+the family instead. Every accent is checked for >= 4.5:1 contrast against
+its own background (light on `#fff`, dark on `#0d1117`).
 """
 
 # ---------------------------------------------------------------- palette ---
@@ -43,40 +45,40 @@ accent is checked for >= 4.5:1 contrast against its own background (light on
 #        vignette: a tinted lift behind the wordmark falling to near-black.
 ORGANS = {
     "mind": {
-        "repo": "PyAutoMind", "organ": "Mind",
+        "organ": "Mind",
         "glyph": "\U0001f4cb", "tagline": "Intent. Priority. Flow.",
         "ink_light": "#0a7d72", "ink_dark": "#2ee6cf", "glow": "#00d1ba",
         "hero": ("#0a3f39", "#000000"),
     },
     "brain": {
-        "repo": "PyAutoBrain", "organ": "Brain",
+        "organ": "Brain",
         "glyph": "\U0001f9e0", "tagline": "Reason. Plan. Decide.",
         "ink_light": "#2159c9", "ink_dark": "#6f9dff", "glow": "#4d8bff",
         "hero": ("#1b2a6b", "#000312"),
     },
     "heart": {
-        "repo": "PyAutoHeart", "organ": "Heart",
+        "organ": "Heart",
         "glyph": "❤️", "tagline": "Check. Validate. Protect.",
         "ink_light": "#b50f1a", "ink_dark": "#ff6b73", "glow": "#ff1c28",
         "hero": ("#4a0a10", "#000000"),
     },
     "hands": {
-        "repo": "PyAutoHands", "organ": "Hands",
+        "organ": "Hands",
         "glyph": "\U0001f6e0️", "tagline": "Build. Execute. Deliver.",
         "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
         "hero": ("#4a2c00", "#000000"),
     },
     "memory": {
-        "repo": "PyAutoMemory", "organ": "Memory",
+        "organ": "Memory",
         "glyph": "\U0001f4da", "tagline": "Remember. Learn. Evolve.",
         "ink_light": "#6b34d6", "ink_dark": "#b37eff", "glow": "#b37eff",
         "hero": ("#2e1a5c", "#000000"),
     },
     # The umbrella is the one board with no logo to sample: the accent and
     # the tagline are designed to sit in the family rather than read off a
-    # file. Replace both from the logo if PyAutoScientist ever grows one.
+    # file. Replace both from the logo if that repo ever grows one.
     "organism": {
-        "repo": "PyAutoScientist", "organ": "Scientist",
+        "organ": "Scientist",
         "glyph": "\U0001f9ec", "tagline": "Describe. Build. Release.",
         "ink_light": "#0b6fa4", "ink_dark": "#5ec7f5", "glow": "#38bdf8",
         "hero": ("#0c3f5c", "#00070d"),

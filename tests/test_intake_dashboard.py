@@ -322,9 +322,9 @@ def test_a_long_title_is_cut_where_a_reader_can_stop(tmp_path):
     ) == "Rectangular mesh split Bilinear fast CPU default versus RTU…"
     # An unpaired backtick would let the code span bleed into the page.
     assert _intake._title(
-        "Give PyAutoFit searches a proper `seed today because no search can "
+        "Give every fitted search a proper `seed today because no search can "
         "set it now"
-    ) == "Give PyAutoFit searches a proper…"
+    ) == "Give every fitted search a proper…"
 
 
 def test_a_short_title_is_left_exactly_alone(tmp_path):

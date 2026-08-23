@@ -30,7 +30,7 @@ def test_every_declared_board_has_a_complete_palette_entry():
     for key in POLICY_BOARDS:
         assert key in _theme.ORGANS, key
         o = _theme.ORGANS[key]
-        for field in ("repo", "organ", "glyph", "tagline",
+        for field in ("organ", "glyph", "tagline",
                       "ink_light", "ink_dark", "glow", "hero"):
             assert o.get(field), f"{key}.{field}"
         assert len(o["hero"]) == 2
