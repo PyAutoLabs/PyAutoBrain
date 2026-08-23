@@ -170,7 +170,8 @@ via `/route`, and it routes to the right agent; normal usage never says
 `/docs` and `/research` route through the dev-flow with their PyAutoMind
 work-type fixed (no dedicated conductor — added only on demonstrated need, never
 for symmetry); `/prm` composes the
-end-of-task wrap-up (CI green → merge → `ship_*` completion); `/brain
+end-of-task close-out (CI green → merge → issue closed → Mind `active/` →
+`complete/` → worktree and branches removed); `/brain
 <agent>` is the raw passthrough. Every command routes **through** the Brain;
 none replaces it.
 

@@ -60,8 +60,13 @@ gh pr view $pr -R $repo --json state,mergeable,mergeStateStatus,reviewDecision,s
   `DIRTY` → conflicts. Only `CLEAN` merges without a human decision.
 - `mergeable`: `CONFLICTING` stops the run regardless of check colour.
 
-An empty run list is not green — it means no workflow fired for that sha (a
-docs-only path filter, a skipped event, or Actions being down). Say which.
+An empty run list is not green — it means no workflow fired for that sha. The
+usual causes, in order of likelihood: **the PR is `CONFLICTING`/`DIRTY`**, so
+GitHub cannot build the merge ref and no `pull_request` run is created (observed
+2026-08-23 on this very skill's PR — merge `main` in, and the runs appear on the
+new head); a path filter excluded the change; the branch's workflow only fires on
+`main`; or Actions is degraded. Say which one it is rather than reporting
+"no failures".
 
 ## A red leg: grab the log *now*
 
@@ -94,16 +99,110 @@ The library-first gate is `../ship_workspace/reference.md` → "Library-first me
 gate": a workspace PR linked to an upstream library PR may only merge once that
 PR reads `MERGED`. There is no workaround — not `--auto`, not `--admin`.
 
-## Finishing
+## The close-out
 
-Completion is the ship skills' contract, unchanged:
+### 1. Prove every branch merged (before recording anything)
 
-- "Shipped" comment template → `../ship_library/reference.md` → "Issue comments +
-  Mind state".
-- `python3 PyAutoMind/scripts/lifecycle.py record --prompt <bare-filename>` —
-  the argument is the **bare prompt filename**, not a path — then commit and push
-  Mind (on `main`, and check that first).
-- Closing the issue is a separate human decision: ask, don't assume.
-- Local post-merge cleanup (worktree removal, local + remote branch deletion) →
-  the `ship_library` / `ship_workspace` cleanup sections. On mobile/Codex, say
-  it is still pending rather than pretending it ran.
+A `complete/` record is a write-up, not a merge receipt — a task that shipped in
+waves gets its record on the first wave while later branches keep living on
+origin. Prove it per repo, never from the record and never from a clean
+`git status`:
+
+```bash
+git -C <repo> fetch origin --quiet
+git merge-base --is-ancestor origin/feature/<task> origin/main && echo MERGED || echo UNMERGED
+git rev-list --count origin/main..origin/feature/<task>          # want 0
+```
+
+`UNMERGED` with no open PR → stop the close-out and report which repo. Squash
+merges break `--is-ancestor`; fall back to the PR's `state=MERGED`.
+
+### 2. Issue: comment, then close
+
+`gh issue close` prints its usage string and exits non-zero in this gh (2.4.0) —
+use the REST path:
+
+```bash
+gh issue comment <n> -R <owner>/<repo> --body "$(cat <<'EOF'
+## Shipped
+<summary, PR links, what changed>
+EOF
+)"
+gh api -X PATCH repos/<owner>/<repo>/issues/<n> -f state=closed --jq .state   # → "closed"
+```
+
+### 3. Mind: active/ → complete/
+
+```bash
+cd $PYAUTO_MAIN/PyAutoMind
+git rev-parse --abbrev-ref HEAD          # must be main — check BEFORE writing
+python3 scripts/lifecycle.py record <slug>   --date <YYYY-MM-DD> --from-file <body.md> --prompt <prompt.md> --apply
+```
+
+`--prompt` takes a **bare filename** (it resolves as `active/<prompt>`); a path
+like `active/foo.md` becomes `active/active/foo.md`, **exits 0 anyway**, and
+leaves you with a record missing `## Original prompt` plus an orphan in
+`active/`. Success prints `(+folds active/<name>)`. Verify all three effects —
+none of them is announced on failure:
+
+```bash
+grep -c "## Original prompt" complete/<YYYY>/<MM>/<slug>.md   # want 1
+ls active/<prompt>.md                                         # want "No such file"
+grep -n "^## <task>" active.md                                # want no match
+python3 scripts/lifecycle.py check                            # want clean exit
+```
+
+Then commit + push. `prompt_sync_push` runs `git add -A`, so check for unrelated
+work first and use explicit pathspecs if any exists:
+
+```bash
+git status --short                                            # unrelated work?
+source scripts/prompt_sync.sh && prompt_sync_push "complete: <task>"
+```
+
+### 4. Worktree
+
+Removal deletes the whole task root — **including gitignored `output/`,
+`cache/`, and downloaded data** that only live there (a reduced dataset + a
+55-frame archive cache were destroyed this way on 2026-07-09). Look before you
+remove, and ask once if anything real is there:
+
+```bash
+root=${PYAUTO_WT_ROOT:-$HOME/Code/PyAutoLabs-wt}/<task>    # worktree_root_path
+du -sh "$root"/*/output "$root"/*/cache 2>/dev/null
+git -C "$root/<repo>" status --porcelain --ignored | grep '^!!' | head -20
+```
+
+Then remove it properly — never `rm -rf`:
+
+```bash
+export PYAUTO_MAIN=$HOME/Code/PyAutoLabs
+source PyAutoBrain/bin/worktree.sh && worktree_remove <task>
+```
+
+It **refuses** on a dirty repo, and on a merged task whose `active.md` claim is
+still registered — that refusal means step 3 has not finished, so fix the cause.
+`PYAUTO_WT_FORCE=1` exists for abandoned/unmerged work only; a close-out never
+needs it. A `PyAutoLabs-wt/<task>/` dir whose worktrees are already gone survives as a shell
+of symlinks + `activate.sh` and `git worktree list` will not name it — a
+directory listing is the only way to find it.
+
+### 5. Branches
+
+Local branches go with the worktree; the remote ones do not:
+
+```bash
+git -C <repo> push origin --delete feature/<task>
+git -C <repo> branch -d feature/<task>        # if one survives in the canonical checkout
+git -C <repo> fetch --prune
+```
+
+Only branches proven merged in step 1. `git ls-remote --heads origin feature/<task>`
+is the ground truth that the delete landed.
+
+### 6. The ledger
+
+Report, per line: PR(s) merged (URL + `MERGED`), issue closed (number + state),
+record path under `complete/<YYYY>/<MM>/`, `active.md` claim released, worktree
+removed, branches deleted, and **anything skipped** with the reason. A close-out
+that quietly skipped a step reads exactly like one that finished.
