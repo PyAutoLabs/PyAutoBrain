@@ -1,0 +1,1 @@
+../../skills/board/board.md
