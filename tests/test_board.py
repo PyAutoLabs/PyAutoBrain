@@ -245,10 +245,17 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     assert s["open_issues"] == 42
     # Community section reuses the Ears' scan surface wholesale.
     assert s["community"]["counts"]["awaiting_response"] == 0
-    # The doors roster comes from the dispatcher registry, both tiers.
+    # The doors roster covers every agent (dispatcher registry, both tiers)
+    # AND every workflow door (skills/ minus the agents).
     verbs = {d["verb"] for d in s["doors"]}
     assert {"intake", "health", "vitals"} <= verbs
-    assert "board" not in verbs  # surfaces are not agents
+    skill_verbs = {d["verb"] for d in s["doors"] if d["tier"] == "skill"}
+    assert {"route", "prm", "start_dev", "issue_cleanup"} <= skill_verbs
+    for d in s["doors"]:
+        if d["tier"] == "skill":
+            assert d["desc"], d["verb"]  # frontmatter description parsed
+    assert "board" not in verbs    # the page never lists itself
+    assert "wake_up" not in verbs  # superseded BY this page
     # Sibling boards resolved against the pages base.
     assert s["boards"]["heart"].endswith("/PyAutoHeart/")
 
@@ -512,10 +519,19 @@ def test_publish_commits_and_pushes_to_main_only(tmp_path):
     assert shown.returncode == 0
     assert json.loads(shown.stdout)["worktrees"][0]["repo"] == "RepoA"
     assert "hygiene" not in json.loads(shown.stdout)  # --no-hygiene
-    # Re-publishing an identical observation pushes nothing new.
+    # Re-publishing an identical observation pushes nothing new — and the
+    # comparison ignores the timestamp by design (an unchanged observation
+    # must not re-trigger the board just because the clock moved).
     r2 = subprocess.run([str(BRAIN), "board", "publish", "--no-hygiene"],
                         capture_output=True, text=True, env=env, cwd=tmp_path)
     assert "nothing to push" in r2.stdout
+    state_file = brain / "state" / "devbox_board.json"
+    stored = json.loads(state_file.read_text())
+    stored["ts"] = "2020-01-01T00:00:00Z"
+    state_file.write_text(json.dumps(stored, indent=2, sort_keys=True) + "\n")
+    r2b = subprocess.run([str(BRAIN), "board", "publish", "--no-hygiene"],
+                         capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert "nothing to push" in r2b.stdout
     # Off main, publish refuses (guard against feature-branch commits).
     subprocess.run(["git", "-C", str(brain), "checkout", "-qb", "other"],
                    check=True)
