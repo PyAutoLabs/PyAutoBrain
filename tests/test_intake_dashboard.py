@@ -33,9 +33,14 @@ def _prompt(title, difficulty="medium", autonomy="supervised", priority="normal"
             f"Priority: {priority}\nStatus: {status}\n\nBody prose.\n")
 
 
-def _mind(root: Path, drafts=None, active=None, registries=None) -> Path:
+def _mind(root: Path, drafts=None, active=None, registries=None,
+          complete=None) -> Path:
     for rel, body in (drafts or {}).items():
         p = root / "draft" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    for rel, body in (complete or {}).items():
+        p = root / "complete" / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
     for name, body in (active or {}).items():
@@ -452,3 +457,168 @@ def test_html_sections_link_their_markdown_source(tmp_path):
     for src in ("active.md", "epics.md", "parked.md", "planned.md"):
         assert f'/blob/main/{src}">markdown version</a>' in html, src
     assert '/tree/main/draft">markdown version</a>' in html
+
+
+# --------------------------------------------------------------------------- #
+# recent: the one section laid out by date rather than by state
+# --------------------------------------------------------------------------- #
+def _record(slug, date):
+    return f"## {slug}\n- completed: {date}\n- summary: it shipped.\n"
+
+
+def _recent_mind(root, n_records=0, month="08"):
+    """A Mind with one task in each live state plus `n_records` completions."""
+    return _mind(
+        root,
+        active={"sprocket_calibration.md": _prompt("Sprocket calibration")},
+        complete={f"2026/{month}/shipped-{i:02d}.md": _record(f"shipped-{i:02d}",
+                                                              f"2026-{month}-2{i % 10}")
+                  for i in range(n_records)},
+        registries={
+            "active.md": "## sprocket-calibration\n- issued: 2026-08-19\n"
+                         "- prompt: active/sprocket_calibration.md\n",
+            "parked.md": "## flywheel-balance\n- parked: 2026-08-18 — deferred\n",
+            "planned.md": "## gearbox-survey\n- filed: 2026-07-01\n",
+        })
+
+
+def test_recent_merges_every_state_into_one_dated_feed(tmp_path):
+    """Recency is orthogonal to state, so it is the one question no other
+    section on the page can answer."""
+    page = _page(_recent_mind(tmp_path, n_records=3))
+    recent = page.split("## Recent")[1]
+    for slug in ("sprocket-calibration", "flywheel-balance", "gearbox-survey",
+                 "shipped-00"):
+        assert slug in recent or slug.replace("-", " ") in recent.lower()
+    assert "| Date | Event | Task |" in recent
+
+
+def test_recent_names_the_event_each_date_records(tmp_path):
+    """A bare date says nothing; `parked` / `issued` / `filed` says what
+    happened — the whole reason the registry key is the event name."""
+    rows = _intake.census(_recent_mind(tmp_path))["recent"]
+    assert {r["title"]: r["event"] for r in rows} == {
+        "Sprocket calibration": "issued",
+        "flywheel-balance": "parked",
+        "gearbox-survey": "filed",
+    }
+
+
+def test_recent_is_newest_first(tmp_path):
+    rows = _intake.census(_recent_mind(tmp_path))["recent"]
+    assert [r["date"] for r in rows] == sorted(
+        (r["date"] for r in rows), reverse=True)
+
+
+def test_recent_sits_after_the_backlog_and_before_the_epics(tmp_path):
+    mind = _recent_mind(tmp_path)
+    (mind / "epics.md").write_text(_EPICS, encoding="utf-8")
+    page = _page(mind)
+    assert page.index("## Backlog") < page.index("## Recent") < page.index("## Epics")
+
+
+def test_a_busy_ledger_never_crowds_live_work_out_of_the_feed(tmp_path):
+    """A straight date sort on a Mind that ships 200 records a month is 20
+    receipts and no work. Live tasks are selected first; records fill the
+    rest — otherwise the dates on active tasks would be invisible on the very
+    page they were added for."""
+    rows = _intake.census(_recent_mind(tmp_path, n_records=40))["recent"]
+    assert len(rows) == _intake.RECENT_MAX
+    live = [r for r in rows if r["live"]]
+    assert {r["title"] for r in live} == {"Sprocket calibration",
+                                          "flywheel-balance", "gearbox-survey"}
+
+
+def test_an_undated_task_is_absent_rather_than_sorted_to_the_bottom(tmp_path):
+    """`lifecycle.py dates` is where a missing date gets reported; padding the
+    feed with unknowns would bury the answer it exists to give."""
+    mind = _mind(tmp_path, registries={
+        "planned.md": "## gearbox-survey\n- status: planned\n"})
+    assert _intake.census(mind)["recent"] == []
+    assert "## Recent" not in _page(mind)
+
+
+def test_recent_links_a_registry_row_to_its_own_entry_not_the_file_top(tmp_path):
+    """parked.md is long enough that landing at its top is not the same as
+    landing on the task."""
+    page = _page(_recent_mind(tmp_path))
+    assert 'href="parked.md#flywheel-balance"' in page
+
+
+def test_an_in_flight_prompt_can_be_dated_by_its_own_header(tmp_path):
+    """The prompt's `Issued:` header is its own copy of the registry date, so
+    an orphan (no row claims it) still dates rather than dropping out."""
+    body = _prompt("Sprocket calibration").replace(
+        "Status: formalised", "Status: formalised\nIssued: 2026-08-19")
+    rows = _intake.census(
+        _mind(tmp_path, active={"sprocket_calibration.md": body}))["recent"]
+    assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]
+
+
+def test_a_registry_date_beats_the_prompts_own_copy(tmp_path):
+    """The registry row is the live record; the header is the fallback."""
+    body = _prompt("Sprocket calibration").replace(
+        "Status: formalised", "Status: formalised\nIssued: 2026-07-01")
+    mind = _mind(tmp_path, active={"sprocket_calibration.md": body},
+                 registries={"active.md": "## sprocket-calibration\n"
+                                          "- issued: 2026-08-19\n"
+                                          "- prompt: active/sprocket_calibration.md\n"})
+    assert _intake.census(mind)["recent"][0]["date"] == "2026-08-19"
+
+
+def test_a_date_in_another_fields_prose_does_not_count_as_a_date(tmp_path):
+    """`- issue: …/1501 (issued 2026-08-19)` is the un-parseable habit the
+    convention replaced — reading it back would re-legitimise it."""
+    mind = _mind(tmp_path, registries={
+        "planned.md": "## gearbox-survey\n"
+                      "- issue: https://example.invalid/issues/1 (filed 2026-08-19)\n"})
+    assert _intake.census(mind)["recent"] == []
+
+
+def test_a_record_without_a_completed_field_still_dates_by_its_folder(tmp_path):
+    """A fifth of the ledger states its date in prose. The month folder the
+    lifecycle engine filed it into is coarse but never wrong about the month,
+    and the alternative is dropping those records out of the feed."""
+    mind = _mind(tmp_path, complete={
+        "2026/07/legacy_record.md": "Shipped one July afternoon.\n"})
+    assert _intake.census(mind)["recent"][0]["date"] == "2026-07"
+
+
+def test_the_html_twin_carries_the_same_feed_with_real_copy_buttons(tmp_path):
+    html = _intake.render_dashboard_html(_intake.census(_recent_mind(tmp_path)))
+    assert "<h2>Recent" in html
+    assert html.index("Backlog") < html.index("<h2>Recent") < html.index("<h2>Epics") \
+        if "<h2>Epics" in html else True
+    assert '<table class="recent">' in html
+    assert 'data-cmd="/start_dev active/sprocket_calibration.md"' in html
+
+
+def test_the_completed_scan_does_not_read_the_whole_ledger(tmp_path):
+    """1000+ records is the bulk of the Mind; a 20-row table must not open all
+    of them on every render."""
+    mind = _mind(tmp_path, complete={
+        f"2026/{m:02d}/rec-{m}-{i:02d}.md": _record(f"rec-{m}-{i}", f"2026-{m:02d}-01")
+        for m in range(1, 9) for i in range(30)})
+    scanned = _intake.completed_records(mind)
+    assert len(scanned) < 240
+    assert scanned[0]["date"] == "2026-08-01"
+
+
+def test_a_live_row_wears_its_date_where_the_task_is(tmp_path):
+    """A status line reads very differently against a row issued yesterday
+    than against one issued in May, so the date rides on the row too — not
+    only down in the Recent feed."""
+    page = _page(_recent_mind(tmp_path))
+    flight = page.split("## In flight")[1].split("## Parked")[0]
+    assert "issued 2026-08-19" in flight
+    assert "parked 2026-08-18" in page.split("## Parked")[1].split("## Planned")[0]
+    assert "filed 2026-07-01" in page.split("## Planned")[1].split("## Backlog")[0]
+
+
+def test_an_undated_row_gets_no_placeholder(tmp_path):
+    """`lifecycle.py dates` reports the gap; the page must not invent one."""
+    mind = _mind(tmp_path, active={"sprocket_calibration.md": _prompt("Sprocket")},
+                 registries={"active.md": "## sprocket-calibration\n"
+                                          "- prompt: active/sprocket_calibration.md\n"})
+    row = _page(mind).split("## In flight")[1].split("<details>")[1]
+    assert "—" not in row.split("</summary>")[0]

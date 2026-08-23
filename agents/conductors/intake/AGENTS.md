@@ -83,10 +83,21 @@ schema — light structure over free-form prose.
 | **classify** | `intake "<text>"` / `intake classify --file P` | classify one raw input; `--apply` writes the prompt |
 | **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
-| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, parked, planned, backlog; `--apply` writes `PyAutoMind/dashboard.md`, `--check` exits 1 on drift |
+| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, parked, planned, backlog, recent, epics; `--apply` writes `PyAutoMind/dashboard.md`, `--check` exits 1 on drift |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`); always read-only — retiring stays human |
 | **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source for identifiers the prompts name — the one signal that sees a prompt with no Mind-side trace. Opt-in; the default path is offline |
+
+**Recent** is the one section laid out by *date* rather than by state: the 20
+newest task events merged across every bucket — issued, parked, filed,
+completed — sitting between the Backlog and the Epics. Every other section
+answers "what should I do now?"; recency is orthogonal to state, so none of
+them can answer "what has been happening?". Dates come from the registry key
+that names the event (`issued:` / `parked:` / `filed:`, PyAutoMind REFERENCE.md
+"Task dates"), a prompt's own `Issued:` header, or a record's `completed:`.
+Live work is selected first and completions fill the rest — on a Mind that
+ships two hundred records a month a straight date sort is twenty receipts and
+no work.
 
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
