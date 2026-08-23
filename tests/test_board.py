@@ -27,8 +27,8 @@ BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SURFACE_KEYS = {
     "generated", "org", "overnight", "heart", "heart_blockers", "hands",
-    "versions", "community", "resume", "open_issues", "devbox", "autonomy",
-    "doors", "boards", "degraded", "history",
+    "versions", "community", "resume", "open_issues", "hygiene", "devbox",
+    "autonomy", "doors", "boards", "degraded", "history",
 }
 
 AUTONOMY_LOG = """\
@@ -181,7 +181,7 @@ exit 1
     return stub
 
 
-def _run(args, tmp_path, stub):
+def _run(args, tmp_path, stub, env_extra=None):
     env = {
         **os.environ,
         "PYAUTO_ROOT": str(tmp_path),
@@ -192,6 +192,8 @@ def _run(args, tmp_path, stub):
         "COMMUNITY_GH": str(stub),
         "COMMUNITY_SEARCH_PAUSE": "0",
     }
+    env.pop("BOARD_HYGIENE_SCAN", None)  # scans are opt-in per test
+    env.update(env_extra or {})
     return subprocess.run(
         [str(BRAIN), "board", *args],
         capture_output=True, text=True, env=env, cwd=tmp_path,
@@ -426,6 +428,43 @@ def test_devbox_observation_renders_age_stamped(tmp_path):
     assert 'data-cmd="/repo_cleanup"' in page  # the row's own delegate door
     assert "<b>crlf</b>" not in page  # clean rows are not rendered
     assert "feature/x" in page and "2 unpushed" in page
+
+
+def _hygiene_stub(tmp_path):
+    hyg = tmp_path / "hygiene_stub.sh"
+    decision = {"decision": "HygieneDecision", "repos_declared": 14,
+                "repos_present": 12, "rows": [
+                    {"mode": "deps", "kind": "surface", "status": "debris",
+                     "count": 3, "summary": "3 dependency caps trail the floor",
+                     "delegate": "/bug"},
+                    {"mode": "crlf", "kind": "debris", "status": "clean",
+                     "count": 0, "summary": "clean", "delegate": "/refactor"}]}
+    hyg.write_text("#!/usr/bin/env bash\ncat <<'EOF'\n"
+                   + json.dumps(decision) + "\nEOF\n")
+    hyg.chmod(hyg.stat().st_mode | stat.S_IEXEC)
+    return hyg
+
+
+def test_cloud_hygiene_scan_renders_and_supersedes_devbox_rows(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    (tmp_path / "devbox_board.json").write_text(
+        json.dumps(_devbox_payload(fresh)))
+    env = {"BOARD_HYGIENE_SCAN": "1",
+           "BOARD_HYGIENE_CMD": str(_hygiene_stub(tmp_path))}
+    page = _run(["--html"], tmp_path, stub, env_extra=env).stdout
+    # The cloud scan is its own section, honest about coverage, chips = the
+    # rows' own delegate doors; clean rows stay quiet.
+    assert "Hygiene" in page and "12/14" in page
+    assert "dependency caps trail the floor" in page
+    assert 'data-cmd="/bug"' in page
+    # The dev-box section keeps only what the cloud cannot see: worktrees.
+    assert "packaging leftovers" not in page
+    assert "feature/x" in page
+    # Without the env, the scan never runs (terminal digests stay instant).
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    assert s["hygiene"] is None
 
 
 def test_expired_devbox_observation_is_dropped(tmp_path):

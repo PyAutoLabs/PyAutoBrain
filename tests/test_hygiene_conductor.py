@@ -49,6 +49,19 @@ def _run(args, root, extra=None):
     )
 
 
+def test_json_stays_parseable_when_a_helper_crashes(tmp_path):
+    """A NONEXISTENT scan root crashes the helper-backed pre-scans (listdir).
+    That must degrade to per-mode `error` rows — the Brain board's cloud
+    render parses this document, so one crashed helper may never corrupt it
+    (it did: bare helper failures emitted empty rows, leaving `,,`)."""
+    r = _run(["--json"], tmp_path / "does_not_exist")
+    assert r.returncode == 0, r.stderr
+    doc = json.loads(r.stdout)  # the contract under test
+    by_mode = {row["mode"]: row for row in doc["rows"]}
+    assert by_mode["refs"]["status"] == "error"
+    assert "pyauto-brain hygiene refs" in by_mode["refs"]["summary"]
+
+
 def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     r = _run(["--json"], tmp_path)
     assert r.returncode == 0, r.stderr

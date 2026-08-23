@@ -627,26 +627,25 @@ emit_json_row() { # mode
       "$m" "${MODE_KIND[$m]}" "${UNSCANNED_REASON//\"/\\\"}" "${MODE_DELEGATE[$m]}"
     return
   fi
-  if [[ "$m" == "docstrings" ]]; then
-    python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --json-row
-    return
-  fi
-  if [[ "$m" == "escapes" ]]; then
-    python3 "$HERE/_hygiene_escapes.py" --root "$ROOT" --json-row
-    return
-  fi
-  if [[ "$m" == "refs" ]]; then
-    python3 "$HERE/_hygiene_refs.py" --root "$ROOT" --json-row
-    return
-  fi
-  if [[ "$m" == "optdeps" ]]; then
-    python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT" --json-row
-    return
-  fi
-  if [[ "$m" == "extras" ]]; then
-    python3 "$HERE/_hygiene_extras.py" --root "$ROOT" --json-row
-    return
-  fi
+  # Helper-backed rows: a crashing helper must degrade to an error ROW, never
+  # corrupt the enclosing document — the Brain board's cloud render parses
+  # this output, and one bad row would blank the whole hygiene section.
+  helper_row() { # helper-module mode
+    local out
+    if out="$(python3 "$HERE/$1" --root "$ROOT" --json-row 2>/dev/null)" \
+        && [[ -n "$out" ]] \
+        && python3 -c 'import json,sys; json.loads(sys.argv[1])' "$out" 2>/dev/null; then
+      printf '%s' "$out"
+    else
+      printf '{"mode":"%s","kind":"%s","status":"error","count":null,"summary":"helper failed — run: pyauto-brain hygiene %s","delegate":"%s"}' \
+        "$2" "${MODE_KIND[$2]}" "$2" "${MODE_DELEGATE[$2]}"
+    fi
+  }
+  if [[ "$m" == "docstrings" ]]; then helper_row _hygiene_docstrings.py docstrings; return; fi
+  if [[ "$m" == "escapes"    ]]; then helper_row _hygiene_escapes.py escapes; return; fi
+  if [[ "$m" == "refs"       ]]; then helper_row _hygiene_refs.py refs; return; fi
+  if [[ "$m" == "optdeps"    ]]; then helper_row _hygiene_optdeps.py optdeps; return; fi
+  if [[ "$m" == "extras"     ]]; then helper_row _hygiene_extras.py extras; return; fi
   local res count summary kind status
   res="$(prescan "$m")"; count="${res%%|*}"; summary="${res#*|}"; kind="${MODE_KIND[$m]}"
   if   [[ "$kind" == "advisory" || "$count" == "-1" ]]; then status="advisory"
