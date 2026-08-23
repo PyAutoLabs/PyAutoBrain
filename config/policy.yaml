@@ -88,3 +88,34 @@ release:
                    autofit_workspace, autogalaxy_workspace, autolens_workspace,
                    HowToFit, HowToGalaxy, HowToLens]
   tag_repo: PyAutoLabs/PyAutoLens
+
+# The Brain board (board/_board.py) — the operational surface's vocabulary:
+# which scheduled workflows the overnight sweep reads, which stamps the
+# version-consistency check compares, and where the sibling one-tap boards
+# live. Owner/org is derived from the Mind's body map at runtime, so entries
+# here are repo-relative unless a home lies outside the primary org.
+# overnight_jobs mirrors bin/overnight_status.sh (its CLI complement) — keep
+# the two lists in step until the script reads this block too.
+board:
+  overnight_jobs:
+    - PyAutoBrain:nightly-release.yml
+    - PyAutoHeart:heart-health.yml
+    - PyAutoHeart:workspace-smoke.yml
+    - PyAutoHands:python_matrix.yml
+    - PyAutoMind:arxiv_papers.yml
+    - PyAutoMind:spawn_drift.yml
+    - autolens_assistant:wiki-currency.yml
+  version_stamps:
+    - PyAutoNerves:autonerves/__init__.py
+    - PyAutoArray:autoarray/__init__.py
+    - PyAutoFit:autofit/__init__.py
+    - PyAutoGalaxy:autogalaxy/__init__.py
+    - PyAutoLens:autolens/__init__.py
+  reference_release_repo: PyAutoLens
+  heart_board: PyAutoHeart
+  boards:
+    mind: PyAutoMind
+    heart: PyAutoHeart
+    hands: PyAutoHands
+    memory: PyAutoMemory
+    organism: PyAutoScientist
