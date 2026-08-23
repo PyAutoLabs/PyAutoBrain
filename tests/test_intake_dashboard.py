@@ -607,3 +607,71 @@ def test_an_undated_row_gets_no_placeholder(tmp_path):
                                           "- prompt: active/sprocket_calibration.md\n"})
     row = _page(mind).split("## In flight")[1].split("<details>")[1]
     assert "—" not in row.split("</summary>")[0]
+
+
+# --------------------------------------------------------------------------- #
+# recent: fifty deep, ten on screen
+# --------------------------------------------------------------------------- #
+def _many(root, n):
+    """A Mind whose planned.md holds `n` dated tasks, newest first by slug."""
+    return _mind(root, registries={"planned.md": "".join(
+        f"## task-{i:03d}\n- filed: 2026-01-01\n\n" for i in range(n))})
+
+
+def test_the_feed_runs_deeper_than_the_page(tmp_path):
+    """Fifty is what the feed HOLDS; ten is what it SHOWS."""
+    rows = _intake.census(_many(tmp_path, 80))["recent"]
+    assert len(rows) == _intake.RECENT_MAX == 50
+    assert _intake.RECENT_PAGE == 10
+
+
+def test_markdown_shows_one_page_then_nests_the_rest(tmp_path):
+    """GitHub strips the JS the Pages twin uses, so the markdown page reveals
+    with `<details>` — nested, so each tap shows the next page and leaves
+    another one behind it."""
+    page = _page(_many(tmp_path, 80))
+    section = page.split("## Recent")[1]
+    before = section.split("<details>")[0]
+    assert before.count("| 2026-01-01 |") == 10
+    assert section.count("<details>") == 4
+    assert "… 10 more (40 left)" in section
+    assert "… 10 more (10 left)" in section
+
+
+def test_each_revealed_page_carries_its_own_table_header(tmp_path):
+    """A markdown table cannot span an HTML block boundary — without a header
+    per page the reveal is a headerless slab of pipes."""
+    section = _page(_many(tmp_path, 80)).split("## Recent")[1]
+    assert section.count("| Date | Event | Task |") == 5
+
+
+def test_a_feed_that_fits_on_one_page_has_no_reveal(tmp_path):
+    page = _page(_many(tmp_path, 6))
+    section = page.split("## Recent")[1]
+    assert "<details>" not in section
+    assert "…" not in section
+    assert "opens the next" not in section
+
+
+def test_html_hides_the_overflow_rows_and_offers_a_button(tmp_path):
+    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
+    section = html.split("<h2>Recent")[1]
+    assert section.count("<tr>") == 10
+    assert section.count("<tr hidden>") == 40
+    assert '<button class="more" data-page="10">… 10 more (40 left)</button>' in section
+
+
+def test_html_ships_every_row_so_a_reader_without_js_sees_the_feed(tmp_path):
+    """Hidden, not absent: with JS off the whole feed is there rather than ten
+    rows and a dead button."""
+    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
+    section = html.split("<h2>Recent")[1]
+    assert section.count("<tr") == 50
+
+
+def test_the_html_blurb_renders_its_code_spans(tmp_path):
+    """The blurb is shared with the markdown page; its backticks would
+    otherwise print literally here."""
+    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
+    assert "<code>complete/index.md</code>" in html
+    assert "`complete/index.md`" not in html
