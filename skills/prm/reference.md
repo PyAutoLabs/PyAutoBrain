@@ -60,8 +60,13 @@ gh pr view $pr -R $repo --json state,mergeable,mergeStateStatus,reviewDecision,s
   `DIRTY` → conflicts. Only `CLEAN` merges without a human decision.
 - `mergeable`: `CONFLICTING` stops the run regardless of check colour.
 
-An empty run list is not green — it means no workflow fired for that sha (a
-docs-only path filter, a skipped event, or Actions being down). Say which.
+An empty run list is not green — it means no workflow fired for that sha. The
+usual causes, in order of likelihood: **the PR is `CONFLICTING`/`DIRTY`**, so
+GitHub cannot build the merge ref and no `pull_request` run is created (observed
+2026-08-23 on this very skill's PR — merge `main` in, and the runs appear on the
+new head); a path filter excluded the change; the branch's workflow only fires on
+`main`; or Actions is degraded. Say which one it is rather than reporting
+"no failures".
 
 ## A red leg: grab the log *now*
 
