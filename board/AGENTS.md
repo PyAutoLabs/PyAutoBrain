@@ -22,7 +22,8 @@ copy-for-Claude payload:
 | 💬 Community | the Ears (`community scan`, reused wholesale) — every open conversation gets a row | `/community`, `/community triage <ref>` |
 | 🔄 Resume | the Mind's registry + generated counts; pending-release PRs | `/start_dev …`, `/prm <url>` |
 | 🧹 Upkeep | open-issue count; the cleanup doors | `/issue_cleanup`, `/hygiene`, `/repo_cleanup` |
-| 🖥️ Dev box | `state/devbox_board.json` — hygiene pre-scan rows + worktree state, pushed by `board publish` (morning.sh's last step); age-stamped, stale at 48h, dropped after 7d | each hygiene row's own delegate door |
+| 🧼 Hygiene | the hygiene conductor's own `--json` pre-scan, run IN this render (BOARD_HYGIENE_SCAN=1; brain_board.yml checks out the body-map scan set blobless+sparse first) — no machine involved | each row's own delegate door |
+| 🖥️ Dev box | `state/devbox_board.json` — worktree state (unpushed/dirty/stashes — the one thing only the dev box can see; its hygiene rows render only when no cloud scan ran), pushed by `board publish` (morning.sh's last step); age-stamped, stale at 48h, dropped after 7d | — |
 | 🤖 Autonomous runs | the tail of the Mind's `autonomy_log.md`, verbatim | — |
 | 🚪 All doors | `bin/pyauto-brain`'s own registry (never a second copy) | `/<verb>` |
 

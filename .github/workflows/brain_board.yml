@@ -65,11 +65,48 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/PyAutoMind
           path: PyAutoMind
+      # Hygiene runs IN THE CLOUD: check out the conductor's scan set
+      # (libraries + organs + workspaces, from the body map) so its --json
+      # pre-scan needs no dev box at all. Blobless clones + a sparse checkout
+      # of text/code files keep the big workspace datasets off the runner;
+      # a repo that fails to clone is simply absent — hygiene reports
+      # repos_present honestly rather than pretending it scanned everything.
+      - name: check out the hygiene scan set (blobless + sparse)
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'EOF'
+          import subprocess, yaml
+          from pathlib import Path
+          repos = yaml.safe_load(Path("PyAutoMind/repos.yaml").read_text())["repos"]
+          for name, meta in sorted(repos.items()):
+              if meta.get("category") not in ("library", "organ", "workspace"):
+                  continue
+              if Path(name).exists():
+                  continue
+              home = meta.get("github")
+              if not home:
+                  continue
+              url = f"https://github.com/{home}"
+              try:
+                  subprocess.run(["git", "clone", "--quiet", "--depth", "1",
+                                  "--filter=blob:none", "--no-checkout",
+                                  url, name], check=True, timeout=300)
+                  subprocess.run(["git", "-C", name, "sparse-checkout", "set",
+                                  "--no-cone", "*.py", "*.ipynb", "*.rst",
+                                  "*.md", "*.txt", "*.yaml", "*.yml", "*.toml",
+                                  "*.cfg", "*.ini", "*.sh", ".gitattributes"],
+                                 check=True, timeout=60)
+                  subprocess.run(["git", "-C", name, "checkout", "--quiet"],
+                                 check=True, timeout=600)
+              except (subprocess.CalledProcessError,
+                      subprocess.TimeoutExpired) as e:
+                  print(f"::warning::scan checkout skipped {name}: {e}")
+          EOF
       - name: render the board
         env:
           PYAUTO_ROOT: ${{ github.workspace }}
+          BOARD_HYGIENE_SCAN: "1"
         run: |
-          python3 -m pip install --quiet pyyaml
           python3 PyAutoBrain/board/_board.py --apply --out _site
       # enablement: true creates the Pages site on first run where the token
       # may (Mind/Heart precedent); where it may not (the Hands hit "Resource

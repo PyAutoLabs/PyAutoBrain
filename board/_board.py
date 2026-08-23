@@ -360,6 +360,46 @@ def collect_open_issues(org, degraded):
     return res.get("total_count")
 
 
+# The board is cloud-first: with BOARD_HYGIENE_SCAN=1 (set by brain_board.yml,
+# whose checkout step clones the body-map scan set) the collect runs the
+# hygiene conductor's own fast pre-scan right here, so hygiene needs no
+# machine at all. Opt-in by env because a terminal `pyauto-brain board`
+# digest should stay instant.
+HYGIENE_CMD = os.environ.get(
+    "BOARD_HYGIENE_CMD",
+    str(BRAIN_HOME / "agents" / "conductors" / "hygiene" / "hygiene.sh"))
+
+# Rows in these states carry nothing actionable for the morning glance.
+HYGIENE_QUIET_STATUSES = ("clean", "unscanned", "deferred", "advisory")
+
+
+def collect_hygiene(degraded):
+    """The hygiene conductor's --json pre-scan, run in THIS render (cloud or
+    local — wherever the scan set is checked out). None when not enabled."""
+    if os.environ.get("BOARD_HYGIENE_SCAN") != "1":
+        return None
+    try:
+        r = subprocess.run(["bash", HYGIENE_CMD, "--json"],
+                           capture_output=True, text=True, timeout=900)
+        decision = json.loads(r.stdout) if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        decision = None
+    if decision is None:
+        degraded.append("hygiene: pre-scan failed — rows unavailable this render")
+        return None
+    return {
+        "repos_present": decision.get("repos_present"),
+        "repos_declared": decision.get("repos_declared"),
+        "rows": [{
+            "mode": row.get("mode"),
+            "status": row.get("status"),
+            "count": row.get("count"),
+            "summary": str(row.get("summary", ""))[:200],
+            "delegate": row.get("delegate"),
+        } for row in decision.get("rows", [])],
+    }
+
+
 # Dev-box observations (state/devbox_board.json, pushed by `board publish` —
 # usually via bin/morning.sh) are honest only with an age: fresh under 48h,
 # shown stale up to 7d, then dropped with a re-run hint.
@@ -501,6 +541,7 @@ def collect():
         "community": community,
         "resume": resume,
         "open_issues": open_issues,
+        "hygiene": collect_hygiene(degraded),
         "devbox": collect_devbox(),
         "autonomy": collect_autonomy(),
         "doors": collect_doors(),
@@ -690,20 +731,37 @@ def render_md(data):
     if data["open_issues"] is not None:
         L.append(f"- {data['open_issues']} open issue(s) org-wide — reconcile "
                  "via `/issue_cleanup` (closing stays confirmation-gated)")
-    L.append("- `/hygiene` — code-quality debt sweep (local)")
+    L.append("- `/hygiene` — code-quality debt sweep")
     L.append("- `/repo_cleanup` — stale branches / stashes / dirty checkouts (local)")
     L.append("")
+    hygiene = data.get("hygiene")
+    if hygiene:
+        L.append(f"## 🧼 Hygiene (scanned this render — "
+                 f"{hygiene.get('repos_present')}/{hygiene.get('repos_declared')} "
+                 "repos present)")
+        flagged = [r for r in hygiene["rows"]
+                   if r.get("status") not in HYGIENE_QUIET_STATUSES]
+        if flagged:
+            for row in flagged:
+                summary = str(row.get("summary", ""))[:140]
+                L.append(f"- {row.get('mode')}: {summary} → `{row.get('delegate')}`")
+        else:
+            L.append("- nothing flagged")
+        L.append("")
     devbox = data.get("devbox")
     if devbox:
         stale = " — STALE, re-run `bash PyAutoBrain/bin/morning.sh`" \
             if devbox.get("stale") else ""
         L.append(f"## 🖥️ Dev box (observed {age_label(devbox['age_h'])} "
                  f"ago via morning.sh{stale})")
-        for row in devbox.get("hygiene", {}).get("rows", []):
-            if row.get("status") in ("clean", "unscanned", "deferred", "advisory"):
-                continue
-            summary = str(row.get("summary", ""))[:140]
-            L.append(f"- {row.get('mode')}: {summary} → `{row.get('delegate')}`")
+        # The cloud scan supersedes the dev box's hygiene rows; only the
+        # worktree state (unknowable from the cloud) still needs this vantage.
+        if not hygiene:
+            for row in devbox.get("hygiene", {}).get("rows", []):
+                if row.get("status") in HYGIENE_QUIET_STATUSES:
+                    continue
+                summary = str(row.get("summary", ""))[:140]
+                L.append(f"- {row.get('mode')}: {summary} → `{row.get('delegate')}`")
         for wt in devbox.get("worktrees", []):
             bits = [wt.get("branch") or "?"]
             if wt.get("ahead"):
@@ -970,9 +1028,24 @@ def render_html(data):
     H.append(_row(f"{issue_note}reconcile the trackers (closing stays "
                   "confirmation-gated).", "/issue_cleanup"))
     H.append(_row("Code-quality debt sweep — slow tests, CLI noise, dep-cap "
-                  "drift (runs locally).", "/hygiene"))
+                  "drift (the Hygiene section below is its scan).", "/hygiene"))
     H.append(_row("Stale branches, stashes, dirty checkouts (runs locally).",
                   "/repo_cleanup"))
+
+    hygiene = data.get("hygiene")
+    if hygiene:
+        H.append(f'<h2>🧼 Hygiene <span class="muted">(scanned this render — '
+                 f'{hygiene.get("repos_present")}/{hygiene.get("repos_declared")} '
+                 "repos present)</span></h2>")
+        flagged = [r for r in hygiene["rows"]
+                   if r.get("status") not in HYGIENE_QUIET_STATUSES]
+        if flagged:
+            for row in flagged:
+                summary = esc(str(row.get("summary", ""))[:140])
+                H.append(_row(f'<b>{esc(str(row.get("mode")))}</b>: {summary}',
+                              str(row.get("delegate") or "/hygiene")))
+        else:
+            H.append(_plain('<span class="ok">✓</span> nothing flagged'))
 
     devbox = data.get("devbox")
     if devbox:
@@ -984,12 +1057,15 @@ def render_html(data):
             H.append(_row("Refresh the dev-box observation — run in a "
                           "terminal at the workspace root.", MORNING_CMD,
                           term=True))
-        for row in devbox.get("hygiene", {}).get("rows", []):
-            if row.get("status") in ("clean", "unscanned", "deferred", "advisory"):
-                continue
-            summary = esc(str(row.get("summary", ""))[:140])
-            H.append(_row(f'<b>{esc(str(row.get("mode")))}</b>: {summary}',
-                          str(row.get("delegate") or "/hygiene")))
+        # Cloud hygiene supersedes the dev box's hygiene rows; the worktree
+        # state below is the one thing only this vantage can see.
+        if not hygiene:
+            for row in devbox.get("hygiene", {}).get("rows", []):
+                if row.get("status") in HYGIENE_QUIET_STATUSES:
+                    continue
+                summary = esc(str(row.get("summary", ""))[:140])
+                H.append(_row(f'<b>{esc(str(row.get("mode")))}</b>: {summary}',
+                              str(row.get("delegate") or "/hygiene")))
         for wt in devbox.get("worktrees", []):
             bits = [esc(str(wt.get("branch") or "?"))]
             if wt.get("ahead"):
