@@ -75,6 +75,14 @@ name in its accent, the logo's tagline underneath. Below the hero the page
 goes back to being a plain readable document, because these are lists people
 scan on a phone before breakfast.
 
+*A phone before breakfast* is a size, not a mood: the sheet makes wrapping the
+page **default** (`overflow-wrap` on `body`, inherited), so a run URL or a
+dotted test id in markup the theme has never seen — an organ's own reasons
+list, details block or footer — cannot push the page sideways. A board that
+needs a column on one line (`white-space:nowrap`) still may; what it must not
+do is re-declare the wrap per component, which is how the family drifted into
+one page that scrolled and one that did not.
+
 Colour is information, never decoration: the accent is organ identity; pills
 are row facets, toned so that only the *exception* is coloured (`supervised`
 is 9 of 10 prompts in the Mind, so it stays neutral — tinting it would paint
