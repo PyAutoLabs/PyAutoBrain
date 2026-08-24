@@ -52,7 +52,7 @@ from pathlib import Path
 # this page and the Mind dashboard are visibly the same family.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _theme import (  # noqa: E402
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
 )
 
 THEME_ORGAN = "brain"  # whose logo this page wears
@@ -228,6 +228,10 @@ def fetch_badge(pages_base, repo):
 HEART_BLOCKER_CAP = 5
 PERF_FLAGGED_CAP = 5
 
+# A conversation waiting on us this long stops being amber. The Ears own the
+# triage; this is only the tone the morning glance gives the wait.
+COMMUNITY_STALE_DAYS = 7
+
 
 def fetch_heart_board(pages_base, repo, degraded):
     """The Heart board's published machine surface (board.json, schema v2) —
@@ -297,7 +301,10 @@ def extract_heart_performance(board, board_url=""):
     morning headline: the few worst flagged rows — hang/kill events first,
     then slowed gates, then SLOW no_run markers that were never measured —
     each carrying its OWN prompt, rendered verbatim like the blockers, plus
-    the counts behind them.
+    the counts behind them. Each row keeps the bucket it came from as `kind`
+    (event / slowed / never measured) — the classification this function
+    already makes, surfaced so the render can tone it rather than re-read the
+    sentence.
 
     None when the block is absent: an older Heart publish simply renders no
     section (an unreachable board.json is already a degraded row). Measurement
@@ -328,6 +335,7 @@ def extract_heart_performance(board, board_url=""):
                      + (f" after {took}" if took else ""))[:160],
             "url": e.get("run_url"),
             "prompt": e.get("prompt"),
+            "kind": "event",
         })
     for g in warn:
         bits = []
@@ -345,6 +353,7 @@ def extract_heart_performance(board, board_url=""):
                      + (f" — {' · '.join(bits)}" if bits else ""))[:160],
             "url": g.get("actions_url"),
             "prompt": g.get("prompt"),
+            "kind": "slowed",
         })
     for r in unmeasured:
         since = f" since {r['date']}" if r.get("date") else ""
@@ -353,6 +362,7 @@ def extract_heart_performance(board, board_url=""):
                      f"{since}, never measured")[:160],
             "url": r.get("url"),
             "prompt": r.get("prompt"),
+            "kind": "never measured",
         })
     return {
         "flagged": flagged[:PERF_FLAGGED_CAP],
@@ -423,10 +433,57 @@ def collect_community(degraded):
     return None
 
 
+# The Mind's prompt header, as the intake conductor writes it: `Type:`,
+# `Target:`, `Difficulty:`, `Autonomy:`, `Priority:`. Read, never derived —
+# an unheaded prompt yields no facets and renders as a bare row.
+_FACET_LINE = re.compile(
+    r"(Type|Target|Difficulty|Autonomy|Priority):\s*(\S.*?)\s*$")
+FACET_KEYS = ("type", "target", "difficulty", "autonomy", "priority")
+# The header opens the file (a `# title` and a blank line may precede it), and
+# the intake conductor writes its fields together. So: a block that starts
+# late, or that is a single `Priority:` line, is prose — not a header.
+FACET_HEADER_LINES = 8
+FACET_MIN_FIELDS = 2
+
+
+def prompt_facets(text):
+    """The header facets of one Mind prompt — the header block, and only it.
+
+    The board shows an in-flight task with the same pills the Mind dashboard
+    gives it, so a task looks like itself on both pages.
+
+    The block is the run of lines around the first field line: a `# title`
+    above it, `Status:`/`Repos:`/`Milestone:` lines beside it, and the blank
+    line that closes it. Reading stops there, so a `Priority:` written into
+    the prose below is discussion, not the header the Mind maintains — and a
+    lone field line, or one that starts well down the file, is prose too.
+    An unheaded prompt yields nothing and renders as a bare row: no pill here
+    is ever a guess.
+    """
+    found, started = {}, False
+    for n, line in enumerate(text.splitlines()):
+        m = _FACET_LINE.match(line)
+        if m:
+            if not started and n >= FACET_HEADER_LINES:
+                break
+            started = True
+            found.setdefault(m.group(1).lower(), m.group(2))
+        elif started and not line.strip():
+            break
+    if len(found) < FACET_MIN_FIELDS:
+        found = {}
+    # `target` keeps the header's own casing — it is a repo name, and the
+    # Mind writes it as one. The rest are a closed vocabulary the pill tones
+    # and the work-type glyphs are keyed on, so they normalise.
+    return {k: (found.get(k, "") if k == "target"
+                else found.get(k, "").lower()) for k in FACET_KEYS}
+
+
 def collect_resume(org, degraded):
     """Resume context: the Mind's own generated counts (dashboard.md header —
-    compose, don't recompute), the task files on deck, the queue length, and
-    open pending-release PRs."""
+    compose, don't recompute), the task files on deck (each with the header
+    facets the Mind already gave it), the queue length, and open
+    pending-release PRs."""
     mind = PYAUTO_ROOT / "PyAutoMind"
     counts = {}
     tasks = []
@@ -444,12 +501,14 @@ def collect_resume(org, degraded):
             for f in sorted(active.glob("*.md")):
                 if f.name == "AGENTS.md":
                     continue
+                body = f.read_text(encoding="utf-8")
                 title = f.stem
-                for line in f.read_text(encoding="utf-8").splitlines():
+                for line in body.splitlines():
                     if line.startswith("# "):
                         title = line[2:].strip()
                         break
-                tasks.append({"path": f"active/{f.name}", "title": title})
+                tasks.append({"path": f"active/{f.name}", "title": title,
+                              "facets": prompt_facets(body)})
         queue = mind / "queue.md"
         if queue.is_file():
             queue_len = sum(
@@ -957,6 +1016,50 @@ def _plain(text_html):
     return f'<div class="task"><p>{text_html}</p></div>'
 
 
+def section_counts(data):
+    """`(number, label)` pairs for the header strip — one per section that can
+    ask something of a human, in the order those sections appear.
+
+    A source that could not be read contributes `–`, never a zero: the strip
+    is read before the rows and must not promise a quiet morning the board
+    cannot see.
+    """
+    # Red as `verdict()` counts it: a gate that stopped on purpose is amber
+    # there, so it is not red here either.
+    red = sum(1 for r in data["overnight"]
+              if r["conclusion"] not in (None, "success") and not r["blocked"])
+    blockers = len(data.get("heart_blockers") or []) if data["heart"] else "–"
+    community = data["community"]
+    awaiting = (community["counts"]["awaiting_response"]
+                if community else "–")
+    issues = data["open_issues"] if data["open_issues"] is not None else "–"
+    return [(red, "Overnight red"), (blockers, "Blockers"),
+            (awaiting, "Awaiting"), (len(data["resume"]["tasks"]), "In flight"),
+            (issues, "Open issues")]
+
+
+def _verdict_tone(message):
+    """A sibling board's headline, toned. GREEN goes, RED stops, anything
+    else — including a word this end has never seen — asks for a look."""
+    return "g" if message.startswith("GREEN") else (
+        "r" if message.startswith("RED") else "y")
+
+
+def _hygiene_row(row):
+    """One hygiene finding: the summary reads, the mode and status pill."""
+    summary = html.escape(str(row.get("summary", ""))[:140])
+    return summary + pills((str(row.get("mode") or "?"), ""),
+                           (str(row.get("status") or ""), "y"))
+
+
+# The autonomy log's two judgement columns. Colour marks the exception: the
+# level a task ran at only matters when it was unusually free or unusually
+# gated, and `merged-unchanged` is what four in five rows say — tinting the
+# ordinary outcome would paint the whole log and tell no one anything.
+_LEVEL_TONES = {"safe": "g", "human-required": "r"}
+_OUTCOME_TONES = {"amended": "y", "rejected": "r", "reverted": "r"}
+
+
 # The html twin. Self-contained by the same contract as the Mind dashboard —
 # no external assets, inline style and script only, one copy button per
 # actionable row — and dressed by the shared board theme, so this page and
@@ -992,6 +1095,11 @@ def render_html(data):
     H.append(f'<p class="verdict {verdict_cls}"><b>{esc(headline(data))}</b>'
              f'<span class="muted">generated {esc(data["generated"])}</span>'
              f'{spark_html}</p>')
+    # The five numbers a human wants before reading a row — one per section
+    # that can ask something of them, so the strip doubles as a contents
+    # page. `–` where a source was unreachable: an absent count is never a
+    # zero here, the same contract the rows keep.
+    H.append(stats(*section_counts(data)))
     H.append("<h2>⌨ Morning sync (local)</h2>")
     H.append(_row(
         "Sync every repo to main + clean generated cruft — run in a terminal "
@@ -1000,56 +1108,64 @@ def render_html(data):
 
     H.append("<h2>🌙 Overnight</h2>")
     for r in data["overnight"]:
-        name = f"{esc(r['repo'])}/{esc(r['workflow'])}"
+        # The workflow is the row's subject; its repo and its conclusion are
+        # facets, so they read as pills — the repo in the organ accent
+        # (identity) and the conclusion in its verdict tone.
         link = f' — <a href="{_attr(r["url"])}">run ↗</a>' if r["url"] else ""
+        age = (f' <span class="muted">({age_label(r["age_h"])})</span>'
+               if r["conclusion"] is not None else "")
+        subject = f'<b>{esc(r["workflow"])}</b>{age}{link}'
+        failed = r["conclusion"] not in (None, "success")
         if r["conclusion"] is None:
-            H.append(_plain(f'<span class="muted">–</span> {name} — no runs'))
+            state, tone, reason = "no runs", "n", ""
         elif r["blocked"]:
-            reason = (f'<br><span class="muted">{esc(r["blocked_reason"])}</span>'
-                      if r.get("blocked_reason") else "")
-            H.append(_plain(
-                f'<span class="warn">⏸</span> {name} — blocked at a gate, no '
-                f'change made ({age_label(r["age_h"])}){link}{reason}'))
-        elif r["conclusion"] == "success":
-            H.append(_plain(f'<span class="ok">✓</span> {name} — success '
-                            f'({age_label(r["age_h"])}){link}'))
+            state, tone = "blocked at a gate", "y"
+            reason = ('<br><span class="muted">no change made — '
+                      f'{esc(r["blocked_reason"])}</span>'
+                      if r.get("blocked_reason") else
+                      '<br><span class="muted">no change made</span>')
+        elif not failed:
+            state, tone, reason = "success", "g", ""
         else:
-            H.append(_row(
-                f'<span class="bad">✗</span> {name} — {esc(r["conclusion"])} '
-                f'({age_label(r["age_h"])}){link}',
-                f"/bug overnight: {r['repo']}/{r['workflow']} concluded "
-                f"{r['conclusion']} — {r['url'] or 'no run url'}"))
+            state, tone, reason = r["conclusion"], "r", ""
+        # pills() escapes its own values; only the hand-built html above is
+        # escaped here.
+        text = subject + reason + pills((r["repo"], ""), (state, tone))
+        if failed and not r["blocked"]:
+            H.append(_row(text, f"/bug overnight: {r['repo']}/{r['workflow']} "
+                                f"concluded {r['conclusion']} — "
+                                f"{r['url'] or 'no run url'}"))
+        else:
+            H.append(_plain(text))
 
     H.append("<h2>❤️ Readiness &amp; release</h2>")
     heart_url = data["boards"].get("heart", "")
     if data["heart"]:
         msg = data["heart"].get("message", "?")
-        cls = "ok" if msg.startswith("GREEN") else (
-            "bad" if msg.startswith("RED") else "warn")
         H.append(_row(
-            f'Heart verdict: <b class="{cls}">{esc(msg)}</b> — '
-            f'<a href="{_attr(heart_url)}">Heart board ↗</a>', "/health"))
+            f'Heart verdict — <a href="{_attr(heart_url)}">Heart board ↗</a>'
+            + pills((msg, _verdict_tone(msg))), "/health"))
     else:
         H.append(_row("Heart board unreachable — consult the clinician "
-                      "directly.", "/health"))
+                      "directly." + pills(("unreachable", "y")), "/health"))
     for b in data.get("heart_blockers") or []:
-        sev_cls = "bad" if b.get("severity") == "red" else "warn"
-        sev = (f'<span class="{sev_cls}">[{esc(b["severity"])}]</span> '
-               if b.get("severity") else "")
+        sev = b.get("severity")
         links = "".join(
             f' <a href="{_attr(url)}">{label} ↗</a>'
             for label, url in (("repo", b.get("repo_url")),
                                ("run", b.get("run_url"))) if url)
-        text = f'{sev}{esc(b["text"])}{links}'
+        text = (f'{esc(b["text"])}{links}'
+                + pills((sev, "r" if sev == "red" else "y")))
         if b.get("prompt"):
             H.append(_row(text, b["prompt"]))
         else:
             H.append(_plain(text))
     if data.get("hands"):
         hands_url = data["boards"].get("hands", "")
+        shipped = data["hands"].get("message", "?")
         H.append(_plain(
-            f'Shipped: <b>{esc(data["hands"].get("message", "?"))}</b> — '
-            f'<a href="{_attr(hands_url)}">Hands board ↗</a>'))
+            f'Shipped — <a href="{_attr(hands_url)}">Hands board ↗</a>'
+            + pills((shipped, _verdict_tone(shipped)))))
 
     # The Heart's test-performance block, rendered as it arrived — the rows
     # carry their own prompts, this end never re-derives one.
@@ -1060,7 +1176,11 @@ def render_html(data):
             for f in perf["flagged"]:
                 link = (f' <a href="{_attr(f["url"])}">run ↗</a>'
                         if f.get("url") else "")
-                text = f'{esc(f["text"])}{link}'
+                # The sentence is the Heart's, verbatim; the pill is the
+                # bucket it arrived in, so severity is scannable.
+                kind = f.get("kind") or ""
+                text = (f'{esc(f["text"])}{link}'
+                        + pills((kind, "r" if kind == "event" else "y")))
                 if f.get("prompt"):
                     H.append(_row(text, f["prompt"]))
                 else:
@@ -1068,22 +1188,23 @@ def render_html(data):
         else:
             timings_url = perf.get("board_url") or heart_url
             H.append(_plain(
-                f'<span class="ok">✓</span> {perf.get("gates_total", 0)} gates '
-                f'timed · nothing flagged — '
-                f'<a href="{_attr(timings_url)}">full timings ↗</a>'))
+                f'{perf.get("gates_total", 0)} gates timed — '
+                f'<a href="{_attr(timings_url)}">full timings ↗</a>'
+                + pills(("nothing flagged", "g"))))
 
     v = data["versions"]
     H.append("<h2>🏷️ Version consistency</h2>")
     if v["consensus"] and v["drift"] == 0:
-        H.append(_plain(f'<span class="ok">✓</span> consistent at '
-                        f'<code>{esc(v["consensus"])}</code> across the coupled set'))
+        H.append(_plain(
+            f'The coupled set agrees at <code>{esc(v["consensus"])}</code>'
+            + pills(("consistent", "g"))))
     elif v["consensus"]:
         for r in v["stamps"]:
             if not r["ok"]:
                 H.append(_row(
-                    f'<span class="bad">✗</span> {esc(r["repo"])} '
                     f'<code>{esc(r["version"] or "?")}</code> ≠ consensus '
-                    f'<code>{esc(v["consensus"])}</code>',
+                    f'<code>{esc(v["consensus"])}</code>'
+                    + pills((r["repo"], ""), ("drift", "r")),
                     f"/bug version drift: {r['repo']} stamp {r['version']} is "
                     f"out of step with the coupled-set consensus {v['consensus']}"))
     else:
@@ -1097,38 +1218,44 @@ def render_html(data):
     if c:
         counts = c["counts"]
         H.append(_row(
-            f'{counts["open_external"]} external issue(s), '
-            f'{counts["open_external_prs"]} external PR(s) open — '
-            f'<b>{counts["awaiting_response"]} awaiting our reply</b>. '
-            'Replies stay human-gated in <code>/community</code>.',
+            'Replies stay human-gated in <code>/community</code>.'
+            + pills((f'{counts["open_external"]} issue(s)', ""),
+                    (f'{counts["open_external_prs"]} PR(s)', "n"),
+                    (f'{counts["awaiting_response"]} awaiting our reply',
+                     "y" if counts["awaiting_response"] else "g")),
             "/community"))
 
-        def community_row(e, note_html):
-            """Every conversation gets its own one-tap triage chip."""
+        def community_row(e, note, tone):
+            """Every conversation gets its own one-tap triage chip.
+
+            The conversation's kind leads the pills in the accent — it is what
+            this row *is* — and the note takes the tone of how long someone
+            has been waiting on us.
+            """
             url = e.get("url") or ""
             title = esc(e.get("title", "")[:80])
-            kind = "PR " if e.get("type") == "pr" else ""
+            kind = "PR" if e.get("type") == "pr" else "issue"
             link = f'<a href="{_attr(url)}">{esc(e["repo"])}#{e["number"]}</a>' \
                 if url else f'{esc(e["repo"])}#{e["number"]}'
             return _row(
-                f'{kind}{link} {note_html} @{esc(e["author"])}: {title}',
+                f'{link} @{esc(e["author"])}: {title}'
+                + pills((kind, ""), (note, tone)),
                 f"/community triage {e['repo']}#{e['number']}")
 
         awaiting_keys = {(e["repo"], e["number"]) for e in c["awaiting_response"]}
         for e in c["awaiting_response"]:
-            days = (f"{e['waiting_days']:.0f}d"
-                    if e.get("waiting_days") is not None else "?")
+            waited = e.get("waiting_days")
+            days = f"{waited:.0f}d waiting" if waited is not None else "waiting"
             H.append(community_row(
-                e, f'<span class="warn">[{days} waiting]</span>'))
+                e, days, "r" if (waited or 0) >= COMMUNITY_STALE_DAYS else "y"))
         for e in c["open_external_issues"] + c["open_external_prs"]:
             if (e["repo"], e["number"]) in awaiting_keys:
                 continue
             note = ("ours to watch" if e.get("awaiting_response") is False
                     else "unchecked")
-            H.append(community_row(e, f'<span class="muted">[{note}]</span>'))
+            H.append(community_row(e, note, "n"))
         for e in c["awaiting_review"]:
-            H.append(community_row(
-                e, '<span class="warn">[review requested]</span>'))
+            H.append(community_row(e, "review requested", "y"))
     else:
         H.append(_row("Scan unavailable — run the Ears directly.", "/community"))
 
@@ -1136,31 +1263,46 @@ def render_html(data):
     counts = data["resume"]["counts"]
     mind_url = data["boards"].get("mind", "")
     if counts:
-        joined = " · ".join(f"{esc(k)} {n}" for k, n in counts.items())
-        H.append(_plain(f'{joined} — pick from the '
-                        f'<a href="{_attr(mind_url)}">Mind board ↗</a>'))
+        H.append(_plain(
+            f'Pick from the <a href="{_attr(mind_url)}">Mind board ↗</a>'
+            + pills(*[(f"{k} {n}", "" if i == 0 else "n")
+                      for i, (k, n) in enumerate(counts.items())])))
     for t in data["resume"]["tasks"]:
-        H.append(_row(f'<code>{esc(t["path"])}</code> — {esc(t["title"][:80])}',
-                      f"/start_dev {t['path']}"))
+        # An in-flight task wears the header facets the Mind gave it, so it
+        # looks like itself on both pages — same pills, same order.
+        facets = t.get("facets") or {}
+        H.append(_row(
+            f'{esc(t["title"][:80])} <code>{esc(t["path"])}</code>'
+            + pills(facets.get("target"), facets.get("difficulty"),
+                    facets.get("autonomy"), facets.get("priority"),
+                    work_type=facets.get("type")),
+            f"/start_dev {t['path']}"))
     pending = data["resume"]["pending_prs"]
     if pending:
         for p in pending:
             H.append(_row(
-                f'pending-release <a href="{_attr(p["url"])}">'
-                f'{esc(p["repo"])}#{p["number"]}</a> — {esc(p["title"][:70])}',
+                f'<a href="{_attr(p["url"])}">{esc(p["repo"])}#{p["number"]}'
+                f'</a> — {esc(p["title"][:70])}'
+                + pills(("pending-release", "y")),
                 f"/prm {p['url']}"))
     elif pending is not None:
         H.append(_plain('<span class="muted">no pending-release PRs open</span>'))
 
     H.append("<h2>🧹 Upkeep</h2>")
+    # Standing invitations rather than state, so the one pill each carries is
+    # the door it routes to — what the 📋 puts on the clipboard, visible
+    # without tapping it.
     issue_note = (f"{data['open_issues']} open issue(s) org-wide — "
                   if data["open_issues"] is not None else "")
-    H.append(_row(f"{issue_note}reconcile the trackers (closing stays "
-                  "confirmation-gated).", "/issue_cleanup"))
-    H.append(_row("Code-quality debt sweep — slow tests, CLI noise, dep-cap "
-                  "drift (the Hygiene section below is its scan).", "/hygiene"))
-    H.append(_row("Stale branches, stashes, dirty checkouts (runs locally).",
-                  "/repo_cleanup"))
+    for text, door in (
+        (f"{issue_note}reconcile the trackers (closing stays "
+         "confirmation-gated).", "/issue_cleanup"),
+        ("Code-quality debt sweep — slow tests, CLI noise, dep-cap drift "
+         "(the Hygiene section below is its scan).", "/hygiene"),
+        ("Stale branches, stashes, dirty checkouts (runs locally).",
+         "/repo_cleanup"),
+    ):
+        H.append(_row(text + pills((door, "")), door))
 
     hygiene = data.get("hygiene")
     if hygiene:
@@ -1171,11 +1313,11 @@ def render_html(data):
                    if r.get("status") not in HYGIENE_QUIET_STATUSES]
         if flagged:
             for row in flagged:
-                summary = esc(str(row.get("summary", ""))[:140])
-                H.append(_row(f'<b>{esc(str(row.get("mode")))}</b>: {summary}',
+                H.append(_row(_hygiene_row(row),
                               str(row.get("delegate") or "/hygiene")))
         else:
-            H.append(_plain('<span class="ok">✓</span> nothing flagged'))
+            H.append(_plain("Every mode came back clean"
+                            + pills(("nothing flagged", "g"))))
 
     devbox = data.get("devbox")
     if devbox:
@@ -1193,19 +1335,20 @@ def render_html(data):
             for row in devbox.get("hygiene", {}).get("rows", []):
                 if row.get("status") in HYGIENE_QUIET_STATUSES:
                     continue
-                summary = esc(str(row.get("summary", ""))[:140])
-                H.append(_row(f'<b>{esc(str(row.get("mode")))}</b>: {summary}',
+                H.append(_row(_hygiene_row(row),
                               str(row.get("delegate") or "/hygiene")))
         for wt in devbox.get("worktrees", []):
-            bits = [esc(str(wt.get("branch") or "?"))]
+            # Unpushed work and a dirty tree are the things that lose work;
+            # a stash is a note to self. Tone them accordingly.
+            facets = [(str(wt.get("repo")), ""),
+                      (str(wt.get("branch") or "?"), "n")]
             if wt.get("ahead"):
-                bits.append(f'{wt["ahead"]} unpushed')
+                facets.append((f'{wt["ahead"]} unpushed', "y"))
             if wt.get("dirty"):
-                bits.append("dirty")
+                facets.append(("dirty", "y"))
             if wt.get("stashes"):
-                bits.append(f'{wt["stashes"]} stash(es)')
-            H.append(_plain(f'worktree <b>{esc(str(wt.get("repo")))}</b> — '
-                            f'{" · ".join(bits)}'))
+                facets.append((f'{wt["stashes"]} stash(es)', "n"))
+            H.append(_plain("worktree" + pills(*facets)))
 
     if data.get("autonomy"):
         H.append('<h2>🤖 Autonomous runs <span class="muted">(the calibration '
@@ -1213,7 +1356,9 @@ def render_html(data):
         for a in data["autonomy"]:
             H.append(_plain(
                 f'<span class="muted">{esc(a["date"])}</span> '
-                f'{esc(a["task"])} — <b>{esc(a["outcome"])}</b>'))
+                f'{esc(a["task"])}'
+                + pills((a["level"], _LEVEL_TONES.get(a["level"], "n")),
+                        (a["outcome"], _OUTCOME_TONES.get(a["outcome"], "n")))))
 
     doors = data["doors"]
     if doors:
@@ -1222,17 +1367,20 @@ def render_html(data):
         for d in doors:
             if d["tier"] == "skill":
                 continue
-            tier = '<span class="muted"> (faculty)</span>' \
-                if d["tier"] == "faculty" else ""
-            H.append(_row(f'<b>/{esc(d["verb"])}</b>{tier} — {esc(d["desc"])}',
-                          f"/{d['verb']}"))
+            # The tier is the one thing that changes what a door does to the
+            # world: a conductor acts, a faculty only opines. Accent the
+            # actors; leave the read-only ones quiet.
+            H.append(_row(
+                f'<b>/{esc(d["verb"])}</b> — {esc(d["desc"])}'
+                + pills((d["tier"], "" if d["tier"] == "conductor" else "n")),
+                f"/{d['verb']}"))
         skills = [d for d in doors if d["tier"] == "skill"]
         if skills:
             H.append('<p class="muted">Workflow doors — compositions and '
                      'dev-flow entries, no agent of their own:</p>')
             for d in skills:
-                H.append(_row(f'<b>/{esc(d["verb"])}</b> — {esc(d["desc"])}',
-                              f"/{d['verb']}"))
+                H.append(_row(f'<b>/{esc(d["verb"])}</b> — {esc(d["desc"])}'
+                              + pills(("workflow", "n")), f"/{d['verb']}"))
         H.append("</details>")
 
     if data["degraded"]:

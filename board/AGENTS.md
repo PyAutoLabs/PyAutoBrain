@@ -76,12 +76,24 @@ goes back to being a plain readable document, because these are lists people
 scan on a phone before breakfast.
 
 Colour is information, never decoration: the accent is organ identity; pills
-are task facets, toned so that only the *exception* is coloured (`supervised`
+are row facets, toned so that only the *exception* is coloured (`supervised`
 is 9 of 10 prompts in the Mind, so it stays neutral — tinting it would paint
 the backlog and say nothing); `ok`/`warn`/`bad` stay reserved for verdict
-semantics. `ORGANS` holds the palette — `mind` and `brain` are sampled from
-the real logo files, the other four are placeholders in the right hue family,
-to be confirmed against each logo when that renderer adopts the theme.
+semantics. `ORGANS` holds the palette — five of the six are sampled from the
+real logo files; the umbrella board has no logo to sample, so its accent and
+tagline are designed to sit in the family instead.
+
+**This board's own facets.** Every row here says what it is in the same
+vocabulary the Mind dashboard uses. The accent is what the row *is* — the
+repo a workflow belongs to, the kind of a community conversation, the target
+of an in-flight task, a door that acts (a conductor) rather than one that only
+opines. A tone is what the row *says*: a conclusion, a Heart verdict, a
+version stamp off consensus, how long someone has waited on a reply. An
+in-flight task is the one row that composes rather than invents — it reads
+the `Type:`/`Target:`/`Difficulty:`/`Autonomy:`/`Priority:` header the Mind
+already wrote, so a task looks like itself on both pages. Above the sections,
+a header strip carries one number per section that can ask something of a
+human; a source that could not be read counts `–`, never a zero.
 
 ## Configuration
 

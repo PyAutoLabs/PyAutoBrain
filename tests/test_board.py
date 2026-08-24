@@ -173,7 +173,20 @@ def _fabricate(tmp_path, fixtures, heart_board=None):
     (mind / "active").mkdir(parents=True)
     (mind / "repos.yaml").write_text(REPOS_YAML)
     (mind / "dashboard.md").write_text(DASHBOARD_MD)
-    (mind / "active" / "some_task.md").write_text("# Fix the fixture widget\n")
+    # The shape the intake conductor writes: a title, a blank line, then the
+    # header block — `Status:` included, which is not a board facet.
+    (mind / "active" / "some_task.md").write_text(
+        "# Fix the fixture widget\n"
+        "\n"
+        "Type: bug\n"
+        "Target: RepoA\n"
+        "Difficulty: large\n"
+        "Autonomy: supervised\n"
+        "Priority: high\n"
+        "Status: formalised\n"
+        "\n"
+        "The body, which mentions Priority: low to prove only the header "
+        "block is read.\n")
     (mind / "queue.md").write_text(
         "# Queue\n\ndraft/feature/repoa/one.md\ndraft/feature/repoa/two.md\n")
     (mind / "autonomy_log.md").write_text(AUTONOMY_LOG)
@@ -288,8 +301,10 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     # Resume: the Mind's own generated counts + the task file + the queue.
     assert s["resume"]["counts"]["In flight"] == 1
     assert s["resume"]["counts"]["Backlog"] == 152
-    assert s["resume"]["tasks"] == [
-        {"path": "active/some_task.md", "title": "Fix the fixture widget"}]
+    assert s["resume"]["tasks"] == [{
+        "path": "active/some_task.md", "title": "Fix the fixture widget",
+        "facets": {"type": "bug", "target": "RepoA", "difficulty": "large",
+                   "autonomy": "supervised", "priority": "high"}}]
     assert s["resume"]["queue_len"] == 2
     assert s["resume"]["pending_prs"][0]["repo"] == "ExampleOrg/RepoA"
     assert s["open_issues"] == 42
@@ -369,6 +384,85 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert 'data-cmd="bash PyAutoBrain/bin/morning.sh"' in page
     # The doors roster is on the page.
     assert 'data-cmd="/intake"' in page
+
+
+# --------------------------------------------------------------- the look --
+# The page dresses in the shared theme's vocabulary (board/_theme.py): the
+# accent is identity, a tone is judgement. These assert that each section
+# spends colour on a FACET rather than on decoration — a row's repo, its
+# state, its tier — so the board is scannable rather than merely blue.
+
+
+def test_the_header_strip_counts_every_section_that_can_ask_something(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "runs.json": _run_json("failure")}))
+    page = _run(["--html"], tmp_path, stub).stdout
+    for label in ("Overnight red", "Blockers", "Awaiting", "In flight",
+                  "Open issues"):
+        assert f"<span>{label}</span>" in page
+    # Seven overnight jobs all red in this fixture, one in-flight task, and
+    # the org issue count straight off the search.
+    assert "<b>7</b><span>Overnight red</span>" in page
+    assert "<b>1</b><span>In flight</span>" in page
+    assert "<b>42</b><span>Open issues</span>" in page
+
+
+def test_an_unreadable_source_counts_as_a_dash_not_a_zero(tmp_path):
+    """The strip is read before the rows; it must not promise a quiet morning
+    the board could not actually see."""
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "issue_count.json": {}, "comm_issues.json": {}, "comm_prs.json": {}}))
+    page = _run(["--html"], tmp_path, stub, {"BOARD_PAGES_BASE": "file:///nope"}).stdout
+    assert "<b>–</b><span>Blockers</span>" in page
+    assert "<b>–</b><span>Open issues</span>" in page
+    assert "<b>0</b><span>Open issues</span>" not in page
+
+
+def test_an_overnight_row_wears_its_repo_and_its_conclusion(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "runs.json": _run_json("failure")}))
+    page = _run(["--html"], tmp_path, stub).stdout
+    # The repo is identity, so it takes the accent; the conclusion is a
+    # judgement, so it takes a tone.
+    assert '<span class="pill">ExampleOrg/PyAutoBrain</span>' in page
+    assert '<span class="pill r">failure</span>' in page
+    green = _run(["--html"], tmp_path,
+                 _fabricate(tmp_path / "green", _default_fixtures())).stdout
+    assert '<span class="pill g">success</span>' in green
+
+
+def test_an_in_flight_task_wears_the_minds_own_facets(tmp_path):
+    """A task looks like itself on both pages: the board reads the header the
+    Mind wrote and renders the same pills the Mind dashboard gives it."""
+    stub = _fabricate(tmp_path, _default_fixtures())
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert '<span class="pill w">🐛 bug</span>' in page
+    assert '<span class="pill">RepoA</span>' in page       # target = identity
+    assert '<span class="pill y">large</span>' in page     # judgement = tone
+    assert '<span class="pill r">high</span>' in page
+    assert '<span class="pill n">supervised</span>' in page  # the default
+
+
+def test_a_pill_is_never_a_guess():
+    """No header, a lone field line, or one that starts well down the file:
+    prose, not a header. A row with nothing to say wears nothing."""
+    import sys
+    sys.path.insert(0, str(BRAIN_HOME / "board"))
+    from _board import FACET_KEYS, prompt_facets  # noqa: E402
+    blank = dict.fromkeys(FACET_KEYS, "")
+    assert prompt_facets("# Just a title\n\nSome prose.\n") == blank
+    assert prompt_facets("# t\n\nprose\n\nPriority: low\n") == blank
+    assert prompt_facets("\n" * 9 + "Type: bug\nPriority: high\n") == blank
+    # A partial header is still a header.
+    assert prompt_facets("Type: bug\nPriority: high\n")["priority"] == "high"
+
+
+def test_a_door_is_accented_only_when_it_acts(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert '<span class="pill">conductor</span>' in page
+    assert '<span class="pill n">faculty</span>' in page
+    assert '<span class="pill n">workflow</span>' in page
 
 
 def test_apply_writes_the_four_pages_files(tmp_path):
@@ -478,8 +572,10 @@ def test_nothing_flagged_renders_one_quiet_row(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures(),
                       {**HEART_BOARD_JSON, "performance": quiet})
     page = _run(["--html"], tmp_path, stub).stdout
-    assert "2 gates timed · nothing flagged" in page
+    assert "2 gates timed" in page
+    assert '<span class="pill g">nothing flagged</span>' in page
     assert "full timings ↗" in page
+    # The markdown twin has no pills, so it keeps saying it in words.
     assert "2 gates timed · nothing flagged" in _run([], tmp_path, stub).stdout
 
 
@@ -503,7 +599,8 @@ def test_a_malformed_performance_block_never_breaks_the_render(tmp_path):
                         "no_run": {"rows": [{"repo": "RepoA"}, "junk"]}}})
     r = _run(["--html"], tmp_path, stub)
     assert r.returncode == 0, r.stderr
-    assert "0 gates timed · nothing flagged" in r.stdout
+    assert "0 gates timed" in r.stdout
+    assert '<span class="pill g">nothing flagged</span>' in r.stdout
 
 
 def test_blocked_gate_annotation_renders_inline(tmp_path):

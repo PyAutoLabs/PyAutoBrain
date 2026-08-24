@@ -490,6 +490,14 @@ def pills(*values, work_type=None):
     Of the positional values the first is the target repo/domain — it gets
     the organ accent, because it is identity, not judgement; the rest take
     their tone from `_TONES`, defaulting to neutral.
+
+    `_TONES` is the *Mind's* facet vocabulary (a prompt's difficulty, autonomy
+    and priority). A board whose rows carry different facets — a workflow
+    conclusion, a Heart verdict, a version stamp — says its own tone by
+    passing `(value, tone)` instead of a bare string, rather than growing that
+    table with words it does not share. The tone is a class from the sheet:
+    `g`/`y`/`r` for go/caution/handle-with-care, `n` for neutral, `""` for the
+    organ accent.
     """
     out = []
     if work_type and work_type != "-":
@@ -499,9 +507,14 @@ def pills(*values, work_type=None):
                    f'</span>')
     first = True
     for v in values:
+        tone = None
+        if isinstance(v, tuple):
+            v, tone = v
         if not v or v == "-":
             continue
-        cls = "pill" if first else f'pill {_TONES.get(v, "n")}'
+        if tone is None:
+            tone = "" if first else _TONES.get(v, "n")
+        cls = f"pill {tone}".rstrip()
         out.append(f'<span class="{cls}">{_esc(v)}</span>')
         first = False
     return f'<span class="tags">{"".join(out)}</span>' if out else ""
