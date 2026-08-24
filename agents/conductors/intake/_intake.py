@@ -379,6 +379,14 @@ HEADER_FIELDS = ("type", "target", "difficulty", "autonomy", "priority", "status
 _FIX_PR_RE = re.compile(r"^Fix:.*(?:PR\s*#\d+|/pull/\d+)",
                         re.MULTILINE | re.IGNORECASE)
 
+# The other half of the same failure: a session finishes the work, writes the
+# outcome into the prompt's own `Status:` header — `shipped`, `superseded`,
+# `absorbed` — and then leaves the file in `draft/`, where it keeps rendering as
+# pickable backlog. Read off the parsed header (not the body) so a prompt that
+# merely *describes* shipped sibling work is never flagged.
+DONE_STATUSES = ("shipped", "superseded", "absorbed", "complete", "completed",
+                 "done", "retired")
+
 
 def parse_header(text: str) -> dict:
     """Extract the light metadata header (`Field: value` lines) from a prompt.
@@ -398,6 +406,19 @@ def parse_header(text: str) -> dict:
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
     return fields
+
+
+def _done_status(header: dict) -> str:
+    """The first word of a `Status:` header that declares the work finished.
+
+    Returns `""` for a status that is merely *about* finished work (`phases 1-3
+    SHIPPED; phase 4 open`, `split (phases 1-2 SHIPPED; phase 3 open)`): only a
+    status that *opens* on a done-word means the prompt itself is spent. Empty
+    string is falsey, so callers read as a plain condition.
+    """
+    first = header.get("status", "").strip().lower().lstrip("*_`").split()
+    return first[0].rstrip(":;,.") if first and \
+        first[0].rstrip(":;,.") in DONE_STATUSES else ""
 
 
 def _prefix_match(path: str, prefix: str) -> bool:
@@ -675,6 +696,10 @@ def census(mind: Path) -> dict:
             if _FIX_PR_RE.search(text):
                 drift.append(f"{rel} — body records a fix PR, but the prompt "
                              "never left draft/ (reconcile its lifecycle)")
+            elif _done_status(header):
+                drift.append(f"{rel} — its own `Status:` says "
+                             f"{_done_status(header)}, but the prompt never "
+                             "left draft/ (reconcile its lifecycle)")
 
     def _count(key):
         out = {}
@@ -827,6 +852,50 @@ def _pick_key(r: dict) -> tuple:
     return (PRIORITY_RANK.get(r["priority"], 9),
             DIFFICULTY_RANK.get(r["difficulty"], 9),
             r["target"], r["path"])
+
+
+# --- freshness banner ----------------------------------------------------------
+# The page is only as current as the files it is generated from, and the way it
+# goes wrong is asymmetric: `dashboard_refresh.yml` self-heals a stale *render*
+# on every push to main, but nothing self-heals a stale *prompt* — a task that
+# shipped without its prompt advancing to complete/ keeps rendering as pickable
+# backlog until a human reconciles it. So the banner states the generation date
+# and hands over the whole reconcile-then-regenerate chore as one copyable
+# message, in the same 📋 idiom as every task row.
+REFRESH_PAYLOAD = """\
+Bring the PyAutoMind dashboard up to date. Work in the PyAutoMind checkout:
+
+1. `git fetch origin && git status`. If behind `origin/main`, `git pull --ff-only`
+   before touching anything.
+2. `python3 scripts/lifecycle.py check`, `orphans`, and `index --check`. Fix
+   whatever drift they report.
+3. Reconcile finished work — this is the part nothing automates. For every prompt
+   under `draft/` and `active/`, decide whether it is already done: a `Status:`
+   header saying shipped/superseded/absorbed, a merged PR named in its body, or a
+   record in `complete/` whose scope already covers it (check `complete/index.md`
+   and grep the dated buckets). Treat a same-subject record as evidence, not
+   proof — read both and confirm the scope really matches before retiring a
+   prompt.
+4. For each one that IS done, write its record and retire the prompt:
+   `python3 scripts/lifecycle.py record <slug> --date <YYYY-MM-DD> --from-file
+   <body> --apply`, where <body> ends with `## Original prompt` followed by the
+   prompt's full text. Then `git rm` the prompt file and repoint every
+   cross-reference to it (grep the slug across `draft/`, `active/`, `epics.md`
+   and the registry files).
+5. Regenerate the page: `pyauto-brain intake --apply dashboard`. Never hand-edit
+   `dashboard.md` or `dashboard.html` — they are generated.
+6. Commit and push to `main`, so `dashboard_refresh.yml` agrees with the tree.
+
+Report what you retired, what you deliberately left in the backlog and why, and
+anything you could not verify."""
+
+REFRESH_BLURB = (
+    "generated from `active/`, `draft/` and the registry files, so it is only "
+    "as current as they are. `dashboard_refresh.yml` re-renders it on every "
+    "push to `main` — that heals a stale page, but not a stale prompt: a task "
+    "that shipped without its prompt advancing to `complete/` keeps rendering "
+    "here as pickable backlog. Reconciling those is the refresh below."
+)
 
 
 def _task_row(summary: str, payload: str) -> str:
@@ -1021,6 +1090,11 @@ def render_dashboard(c: dict) -> str:
         "[Recent](#recent) is the same work by date — what has been happening "
         "rather than what to do next.",
         "",
+        f"> **Last updated {c['generated']}.** This page is {REFRESH_BLURB}",
+        "",
+        _task_row("<b>Refresh this page</b> — reconcile finished prompts, "
+                  "then regenerate", REFRESH_PAYLOAD),
+        "",
         "| Where | Count |",
         "|-------|------:|",
         f"| [In flight](#in-flight) (`active/`) | {c['issued_count']} |",
@@ -1172,6 +1246,15 @@ def render_dashboard(c: dict) -> str:
 # The dashboard-only half of the page script: the shared clipboard
 # handler lives in the board theme, this reveals the Recent feed a page
 # at a time.
+# The freshness banner is a dashboard-only element (no other organ board carries
+# one), so its rule lives here rather than in the shared theme.
+_FRESH_CSS = """\
+.fresh{margin:0 0 1.2rem;padding:.7rem .9rem .4rem;border:1px solid var(--edge);
+ border-radius:11px;background:var(--tint)}
+.fresh>p{margin:0 0 .3rem}
+.fresh .task{border-bottom:0}
+"""
+
 _MORE_JS = """\
 // Recent shows one page and reveals the next on each tap of the \u2026 button,
 // which retires itself once the feed is exhausted. Every row is already in the
@@ -1186,6 +1269,17 @@ document.addEventListener("click",e=>{
   if(left<=0){b.remove();return;}
   b.textContent="\u2026 "+Math.min(page,left)+" more ("+left+" left)";});
 """
+
+
+def _md_inline(text: str) -> str:
+    """Render the inline markdown this module authors (`code` spans only) as HTML.
+
+    The freshness blurb is written once and rendered on both pages; the markdown
+    page takes it verbatim, this turns its backticks into `<code>` so the HTML
+    twin does not print them literally. Deliberately not a markdown parser —
+    it handles exactly the one construct the blurb uses.
+    """
+    return re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
 
 
 def _attr(value: str) -> str:
@@ -1237,7 +1331,7 @@ def render_dashboard_html(c: dict) -> str:
         "<title>PyAutoMind Dashboard</title>",
         f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
         f"{c['generated']} — regenerate, do not hand-edit -->",
-        f"<style>{_theme_css(THEME_ORGAN)}</style>",
+        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}</style>",
         "</head>",
         "<body>",
         hero(THEME_ORGAN, "Dashboard",
@@ -1250,6 +1344,11 @@ def render_dashboard_html(c: dict) -> str:
         stats((c["issued_count"], "In flight"), (len(c["parked"]), "Parked"),
               (len(c["planned"]), "Planned"), (c["total"], "Backlog")),
     ]
+    H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b> '
+          f'This page is {_md_inline(REFRESH_BLURB)}</p>',
+          _html_task("<b>Refresh this page</b> — reconcile finished prompts, "
+                     "then regenerate", REFRESH_PAYLOAD),
+          "</div>"]
     if home:
         H.append(f'<p class="muted mdsrc">'
                  f'{link("dashboard.md", "markdown version")}</p>')
