@@ -11,12 +11,18 @@ is **presentation only**: no state, no collection, no policy. Renderers
 import it and ask for the stylesheet, the hero and the small components; they
 keep owning what goes in the rows.
 
-The design in one line: *the page wears its organ's logo*. Each organ has an
-accent taken from its logo's glyph colour, and every board opens with a dark
-hero reproducing that logo's wordmark — white `PyAuto`, accent-coloured organ
-name, letterspaced tagline underneath, inside the logo's ring. Below the hero
-the page returns to a plain readable document, because these are lists people
-scan on a phone before breakfast, not dashboards to admire.
+The design in one line: *the page wears its organ's logo*. Every board opens
+with a dark hero that redraws the logo it sits under: the organ's own mark in
+line art, the wordmark (white `PyAuto`, the organ name in its accent), the
+hairline-and-dot rule, and the letterspaced tagline. Below the hero the page
+returns to a plain readable document, because these are lists people scan on
+a phone before breakfast, not dashboards to admire.
+
+The mark is **drawn, not borrowed**. An emoji stood in for it at first, which
+read as a cartoon beside the real logo — 🧠 is not the Brain's circuit brain.
+`MARKS` holds each logo's glyph as inline SVG line art traced off the file:
+it inherits the accent, stays sharp at any size, and costs ~1KB in the one
+page that uses it, where the 80-150KB `logo.png` would be most of the page.
 
 Colour carries meaning, never decoration:
 
@@ -30,8 +36,9 @@ Colour carries meaning, never decoration:
 `ORGANS` is the palette table, keyed by the same board names as
 `config/policy.yaml` `board: boards:` — that mapping is the declared config
 surface an adopting fork replaces, so no repo is named here. Five of the six
-palettes are sampled from the actual logo files: the glyph colour and the
-wordmark's own tagline, straight off `logo.png` in each organ's repo. The
+palettes are sampled from the actual logo files: the mark, the glyph colour
+and the wordmark's own tagline, straight off `logo.png` in each organ's repo.
+The
 umbrella board has no logo, so its accent and tagline are designed to sit in
 the family instead. Every accent is checked for >= 4.5:1 contrast against
 its own background (light on `#fff`, dark on `#0d1117`).
@@ -41,48 +48,213 @@ its own background (light on `#fff`, dark on `#0d1117`).
 # ink_light / ink_dark: the accent as *text*, per colour scheme.
 # glow:  the logo's own glyph colour — used only on the dark hero, where it
 #        needs to sing rather than pass a contrast check against white.
+# glow2: the far end of the wordmark's gradient, for the two logos that set
+#        their organ name in one (Brain runs blue → violet, Memory violet →
+#        purple). Omitted where the logo's wordmark is a flat colour.
 # hero:  (lift, base) — the hero's radial gradient, echoing each logo's
 #        vignette: a tinted lift behind the wordmark falling to near-black.
 ORGANS = {
     "mind": {
         "organ": "Mind",
-        "glyph": "\U0001f4cb", "tagline": "Intent. Priority. Flow.",
+        "tagline": "Intent. Priority. Flow.",
         "ink_light": "#0a7d72", "ink_dark": "#2ee6cf", "glow": "#00d1ba",
-        "hero": ("#0a3f39", "#000000"),
+        "hero": ("#07302b", "#000000"),
     },
     "brain": {
         "organ": "Brain",
-        "glyph": "\U0001f9e0", "tagline": "Reason. Plan. Decide.",
+        "tagline": "Reason. Plan. Decide.",
         "ink_light": "#2159c9", "ink_dark": "#6f9dff", "glow": "#4d8bff",
-        "hero": ("#1b2a6b", "#000312"),
+        "glow2": "#a855f7",
+        "hero": ("#16234f", "#000312"),
     },
     "heart": {
         "organ": "Heart",
-        "glyph": "❤️", "tagline": "Check. Validate. Protect.",
+        "tagline": "Check. Validate. Protect.",
         "ink_light": "#b50f1a", "ink_dark": "#ff6b73", "glow": "#ff1c28",
-        "hero": ("#4a0a10", "#000000"),
+        "hero": ("#37080d", "#000000"),
     },
     "hands": {
         "organ": "Hands",
-        "glyph": "\U0001f6e0️", "tagline": "Build. Execute. Deliver.",
+        "tagline": "Build. Execute. Deliver.",
         "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
-        "hero": ("#4a2c00", "#000000"),
+        "hero": ("#372100", "#000000"),
     },
     "memory": {
         "organ": "Memory",
-        "glyph": "\U0001f4da", "tagline": "Remember. Learn. Evolve.",
+        "tagline": "Remember. Learn. Evolve.",
         "ink_light": "#6b34d6", "ink_dark": "#b37eff", "glow": "#b37eff",
-        "hero": ("#2e1a5c", "#000000"),
+        "glow2": "#8b5cf6",
+        "hero": ("#221345", "#000000"),
     },
     # The umbrella is the one board with no logo to sample: the accent and
     # the tagline are designed to sit in the family rather than read off a
     # file. Replace both from the logo if that repo ever grows one.
     "organism": {
         "organ": "Scientist",
-        "glyph": "\U0001f9ec", "tagline": "Describe. Build. Release.",
+        "tagline": "Describe. Build. Release.",
         "ink_light": "#0b6fa4", "ink_dark": "#5ec7f5", "glow": "#38bdf8",
-        "hero": ("#0c3f5c", "#00070d"),
+        "hero": ("#092e43", "#00070d"),
     },
+}
+
+
+# ----------------------------------------------------------------- marks ---
+# Each organ's logo glyph, traced off `logo.png` as line art on a 48x48 grid:
+# a ring (closed, or left open where the logo opens it), the glyph inside it,
+# and the small filled nodes the family's drawing style uses. Stroke colour
+# is inherited, so one mark serves the hero, light mode and dark mode alike.
+#
+# Why drawn rather than embedded: the boards are self-contained single files
+# read on phones over mobile data. The logos are 80-150KB of PNG each; these
+# are ~1KB of path data, stay sharp on any screen, and take the accent.
+# Keep them that way — a mark is a logo's glyph in line art, not a rendering.
+MARKS = {
+    # Mind — a left-facing head profile, a check inside the skull, three
+    # node-tipped signal lines leaving the back of the head, inside a ring.
+    "mind": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<path d="M20.2,37.6 L20.2,33.6 '
+        'C20.2,32.4 19.4,31.6 18.4,30.8 '
+        'C16.8,29.6 15.8,28.2 15.6,26.6 '
+        'C15.5,25.6 14.9,25.2 13.9,24.9 '
+        'C12.6,24.5 12.3,23.7 13.0,22.7 '
+        'C13.8,21.6 14.5,20.6 14.6,19.4 '
+        'C15.0,15.4 18.2,12.2 22.4,11.8 '
+        'C27.2,11.3 31.6,14.6 32.3,19.2 '
+        'C32.8,22.4 31.6,25.0 30.6,27.0 '
+        'C29.9,28.4 29.6,29.6 29.6,31.2 '
+        'L29.6,37.6"/>'
+        '<circle cx="24.6" cy="19.6" r="4.4"/>'
+        '<path d="M22.5,19.7 L24.0,21.3 L26.8,18.1"/>'
+        '<path d="M34.2,16.5 L38.8,16.5 M35.2,21.0 L39.4,21.0 '
+        'M33.6,25.5 L37.2,25.5"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="40.1" cy="16.5" r="1.4"/>'
+        '<circle cx="40.7" cy="21.0" r="1.4"/>'
+        '<circle cx="38.5" cy="25.5" r="1.4"/></g>'
+    ),
+    # Brain — a circuit brain: two lobed hemispheres either side of a spine,
+    # each branching into elbowed, node-tipped traces, inside a ring.
+    "brain": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<path d="M24,12.6 C22.2,10.6 19.2,10.2 17.4,11.6 '
+        'C16.2,12.5 15.6,13.9 15.7,15.3 '
+        'C13.6,15.6 12.0,17.2 11.8,19.2 '
+        'C11.6,20.6 12.1,21.9 13.0,22.9 '
+        'C11.7,24.0 11.2,25.8 11.8,27.4 '
+        'C12.4,29.0 13.9,30.0 15.5,30.1 '
+        'C15.7,32.1 17.2,33.8 19.2,34.2 '
+        'C20.9,34.6 22.7,34.0 24.0,32.8"/>'
+        '<path d="M24,12.6 C25.8,10.6 28.8,10.2 30.6,11.6 '
+        'C31.8,12.5 32.4,13.9 32.3,15.3 '
+        'C34.4,15.6 36.0,17.2 36.2,19.2 '
+        'C36.4,20.6 35.9,21.9 35.0,22.9 '
+        'C36.3,24.0 36.8,25.8 36.2,27.4 '
+        'C35.6,29.0 34.1,30.0 32.5,30.1 '
+        'C32.3,32.1 30.8,33.8 28.8,34.2 '
+        'C27.1,34.6 25.3,34.0 24.0,32.8"/>'
+        '<path d="M24,12.6 L24,32.8"/>'
+        '<path d="M24,16.6 L20.2,16.6 L20.2,13.4 '
+        'M24,21.8 L16.6,21.8 L16.6,18.4 '
+        'M24,26.4 L18.0,26.4 L18.0,29.6 '
+        'M24,30.4 L21.2,30.4 L21.2,32.8 '
+        'M24,16.6 L27.8,16.6 L27.8,13.4 '
+        'M24,21.8 L31.4,21.8 L31.4,18.4 '
+        'M24,26.4 L30.0,26.4 L30.0,29.6 '
+        'M24,30.4 L26.8,30.4 L26.8,32.8"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="24" cy="11.6" r="1.4"/>'
+        '<circle cx="20.2" cy="13.4" r="1.3"/>'
+        '<circle cx="16.6" cy="18.4" r="1.3"/>'
+        '<circle cx="18.0" cy="29.6" r="1.3"/>'
+        '<circle cx="21.2" cy="32.8" r="1.2"/>'
+        '<circle cx="27.8" cy="13.4" r="1.3"/>'
+        '<circle cx="31.4" cy="18.4" r="1.3"/>'
+        '<circle cx="30.0" cy="29.6" r="1.3"/>'
+        '<circle cx="26.8" cy="32.8" r="1.2"/>'
+        '<circle cx="24" cy="33.8" r="1.4"/></g>'
+    ),
+    # Heart — a heart outline crossed by an ECG trace, with the check badge
+    # sitting in the ring's lower-right gap.
+    "heart": (
+        '<path d="M30.4,43.4 A20.4,20.4 0 1 1 43.2,31.0"/>'
+        '<path d="M24.0,34.5 L15.3,25.8 '
+        'A5.8,5.8 0 0 1 15.3,17.7 '
+        'A5.8,5.8 0 0 1 23.4,17.7 L24.0,18.3 L24.6,17.7 '
+        'A5.8,5.8 0 0 1 32.7,17.7 '
+        'A5.8,5.8 0 0 1 32.7,25.8 Z"/>'
+        '<path d="M12.6,23.2 L16.6,23.2 L18.2,19.0 L20.8,27.6 '
+        'L22.8,21.4 L24.4,24.6 L34.6,24.6"/>'
+        '<circle cx="34.6" cy="34.4" r="6.6"/>'
+        '<path d="M31.6,34.4 L33.9,36.8 L37.9,32.0"/>'
+    ),
+    # Hands — an open palm offering a gear, speed lines behind the cuff,
+    # inside a ring left open at the lower-left where the lines enter.
+    "hands": (
+        '<path d="M12.2,38.8 A20.4,20.4 0 1 1 20.0,43.4"/>'
+        '<path d="M27.0,12.8 L27.7,11.2 L29.4,11.7 L29.3,13.4 L30.1,14.1 '
+        'L31.7,13.5 L32.6,15.0 L31.3,16.1 L31.4,17.2 L33.0,17.9 L32.5,19.6 '
+        'L30.8,19.5 L30.1,20.3 L30.7,21.9 L29.2,22.8 L28.1,21.5 L27.0,21.6 '
+        'L26.3,23.2 L24.6,22.7 L24.7,21.0 L23.9,20.3 L22.3,20.9 L21.4,19.4 '
+        'L22.7,18.3 L22.6,17.2 L21.0,16.5 L21.5,14.8 L23.2,14.9 L23.9,14.1 '
+        'L23.3,12.5 L24.8,11.6 L25.9,12.9 Z"/>'
+        '<circle cx="27.0" cy="17.2" r="2.5"/>'
+        '<path d="M16.2,30.4 C18.6,35.0 23.8,37.8 29.4,37.0 '
+        'C33.2,36.4 36.6,34.4 38.8,31.4 '
+        'C39.7,30.2 39.1,28.7 37.7,28.5 '
+        'C36.7,28.4 35.9,28.9 35.2,29.5 L32.2,31.9 '
+        'C29.2,34.0 25.0,34.0 21.6,32.0 Z"/>'
+        '<path d="M16.2,30.4 L11.2,33.0 L14.2,38.4 L19.4,35.6"/>'
+        '<circle cx="14.6" cy="34.6" r="1" fill="currentColor" stroke="none"/>'
+        '<path d="M3.8,26.2 L11.6,26.2 M2.2,30.4 L8.6,30.4 '
+        'M5.0,34.6 L9.4,34.6"/>'
+    ),
+    # Memory — an open book with a node-tree growing out of its spine and a
+    # scatter of stars, under an arc open at the bottom.
+    "memory": (
+        '<path d="M10.6,37.6 A20.4,20.4 0 1 1 37.4,37.6"/>'
+        '<path d="M24.0,28.2 C20.7,25.5 15.6,24.4 9.6,24.9 '
+        'L9.6,37.8 C15.6,37.3 20.7,38.4 24.0,41.1 '
+        'C27.3,38.4 32.4,37.3 38.4,37.8 '
+        'L38.4,24.9 C32.4,24.4 27.3,25.5 24.0,28.2 Z"/>'
+        '<path d="M24.0,28.2 L24.0,41.1"/>'
+        '<path d="M13.0,28.6 C15.6,28.7 17.9,29.2 19.8,30.1 '
+        'M13.0,30.7 C15.6,30.8 17.9,31.3 19.8,32.2 '
+        'M13.0,32.8 C15.6,32.9 17.9,33.4 19.8,34.3 '
+        'M35.0,28.6 C32.4,28.7 30.1,29.2 28.2,30.1 '
+        'M35.0,30.7 C32.4,30.8 30.1,31.3 28.2,32.2 '
+        'M35.0,32.8 C32.4,32.9 30.1,33.4 28.2,34.3"/>'
+        '<path d="M24.0,28.0 L24.0,12.6 M24.0,19.0 L19.6,16.2 '
+        'M24.0,23.6 L17.6,20.2 M24.0,19.0 L28.4,16.2 '
+        'M24.0,23.6 L30.4,20.2"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="24" cy="11.4" r="1.5"/>'
+        '<circle cx="19.2" cy="16.0" r="1.3"/>'
+        '<circle cx="17.2" cy="20.0" r="1.3"/>'
+        '<circle cx="28.8" cy="16.0" r="1.3"/>'
+        '<circle cx="30.8" cy="20.0" r="1.3"/></g>'
+        '<path d="M12.6,14.6 Q12.6,17.0 10.2,17.0 Q12.6,17.0 12.6,19.4 '
+        'Q12.6,17.0 15.0,17.0 Q12.6,17.0 12.6,14.6 Z"/>'
+        '<path d="M35.4,13.0 Q35.4,15.2 33.2,15.2 Q35.4,15.2 35.4,17.4 '
+        'Q35.4,15.2 37.6,15.2 Q35.4,15.2 35.4,13.0 Z"/>'
+        '<path d="M15.8,21.8 Q15.8,23.4 14.2,23.4 Q15.8,23.4 15.8,25.0 '
+        'Q15.8,23.4 17.4,23.4 Q15.8,23.4 15.8,21.8 Z"/>'
+    ),
+    # Umbrella — no logo to sample, so the family language (ring, line-art,
+    # node dots) applied to the double helix the board already carried.
+    "organism": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<path d="M17.0,9.8 C17.0,15.9 31.0,18.3 31.0,24.0 '
+        'C31.0,29.7 17.0,32.1 17.0,38.2"/>'
+        '<path d="M31.0,9.8 C31.0,15.9 17.0,18.3 17.0,24.0 '
+        'C17.0,29.7 31.0,32.1 31.0,38.2"/>'
+        '<path d="M18.6,13.6 L29.4,13.6 M16.9,18.4 L31.1,18.4 '
+        'M16.9,29.6 L31.1,29.6 M18.6,34.4 L29.4,34.4"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="17" cy="9.8" r="1.4"/><circle cx="31" cy="9.8" r="1.4"/>'
+        '<circle cx="17" cy="38.2" r="1.4"/><circle cx="31" cy="38.2" r="1.4"/>'
+        '</g>'
+    ),
 }
 
 import html as _html
@@ -100,6 +272,18 @@ def organ(key):
     return ORGANS.get(key, ORGANS["organism"])
 
 
+def mark(key):
+    """The organ's logo glyph as an inline SVG, drawn in the current colour.
+
+    Unknown keys fall back with `organ()`, so an adopting fork's board wears
+    the umbrella's mark rather than rendering an empty ring.
+    """
+    art = MARKS.get(key) or MARKS["organism"]
+    return ('<svg class="mark" viewBox="0 0 48 48" fill="none" '
+            'stroke="currentColor" stroke-width="1.3" stroke-linecap="round" '
+            f'stroke-linejoin="round" aria-hidden="true">{art}</svg>')
+
+
 # -------------------------------------------------------------------- css ---
 # One stylesheet, two colour schemes, one substituted accent. Kept in the
 # same dense hand-wrapped style as the renderers that inline it: this ships
@@ -108,7 +292,8 @@ _CSS = """\
 :root{color-scheme:light dark;--bg:#fff;--fg:#1f2328;--muted:#59636e;
  --line:#d8dee4;--btn:#f6f8fa;--ok:#1a7f37;--warn:#9a6700;--bad:#d1242f;
  --accent:%(ink_light)s;--tint:%(ink_light)s14;--edge:%(ink_light)s3d;
- --hero-lift:%(hero_lift)s;--hero-base:%(hero_base)s;--glow:%(glow)s}
+ --hero-lift:%(hero_lift)s;--hero-base:%(hero_base)s;--glow:%(glow)s;
+ --glow2:%(glow2)s}
 @media(prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#f0f6fc;
  --muted:#9198a1;--line:#2c333c;--btn:#151b23;--ok:#3fb950;--warn:#d29922;
  --bad:#f85149;--accent:%(ink_dark)s;--tint:%(ink_dark)s1f;
@@ -127,23 +312,37 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
 /* --- hero: the logo, rendered as type ---------------------------------- */
 .hero{margin:0 -1rem 1.4rem;padding:2.1rem 1.4rem 1.7rem;position:relative;
  overflow:hidden;text-align:center;color:#fff;background:var(--hero-base);
- background-image:radial-gradient(105%% 130%% at 50%% -25%%,
-  var(--hero-lift) 0%%,var(--hero-base) 68%%)}
+ background-image:radial-gradient(78%% 104%% at 50%% 14%%,
+  var(--hero-lift) 0%%,var(--hero-base) 72%%)}
 @media(min-width:46rem){.hero{margin:1rem 0 1.6rem;border-radius:16px}}
 .hero::after{content:"";position:absolute;left:12%%;right:12%%;bottom:0;
  height:2px;background:linear-gradient(90deg,transparent,var(--glow),
  transparent);opacity:.75}
-.orb{display:inline-flex;align-items:center;justify-content:center;
- width:3.1rem;height:3.1rem;margin-bottom:.85rem;border-radius:50%%;
- font-size:1.45rem;line-height:1;border:1.5px solid var(--glow);
- background:radial-gradient(circle,#ffffff14 0%%,transparent 70%%);
- box-shadow:0 0 22px -4px var(--glow)}
+/* The mark carries its own ring, so the frame is light and glow only —
+   the logos set their glyph on black with a halo, not in a chip. */
+.orb{display:block;width:5.6rem;height:5.6rem;margin:0 auto .75rem;
+ color:var(--glow);filter:drop-shadow(0 0 9px %(glow)s7a)}
+.orb svg{display:block;width:100%%;height:100%%}
 .hero h1{margin:0;font-size:1.85rem;line-height:1.1;font-weight:700;
  letter-spacing:-.022em;color:#fff}
-.hero h1 b{color:var(--glow);font-weight:700}
+/* Two wordmarks run their organ name as a gradient; for the rest --glow2
+   repeats --glow, so the same rule paints a flat colour. */
+.hero h1 b{font-weight:700;color:var(--glow);
+ background:linear-gradient(96deg,var(--glow),var(--glow2));
+ -webkit-background-clip:text;background-clip:text}
+@supports(-webkit-background-clip:text){
+ .hero h1 b{-webkit-text-fill-color:transparent}}
 .hero .kind{display:block;margin-top:.5rem;font-size:.66rem;font-weight:600;
  letter-spacing:.26em;text-transform:uppercase;color:#ffffffa6}
-.hero .tag{margin:.85rem 0 0;font-size:.63rem;font-weight:600;
+/* The hairline with a lit dot at its centre: every logo separates wordmark
+   from tagline with one, and it is the detail that reads as "same mark". */
+.hero .rule{position:relative;width:11.5rem;height:1px;margin:1rem auto .75rem;
+ background:linear-gradient(90deg,transparent,var(--glow),transparent);
+ opacity:.7}
+.hero .rule::after{content:"";position:absolute;left:50%%;top:50%%;
+ width:.4rem;height:.4rem;margin:-.2rem 0 0 -.2rem;border-radius:50%%;
+ background:var(--glow);box-shadow:0 0 7px 1px var(--glow)}
+.hero .tag{margin:0;font-size:.63rem;font-weight:600;
  letter-spacing:.3em;text-transform:uppercase;color:var(--glow);opacity:.9}
 .lede{margin:0 0 .9rem}
 /* --- sections ---------------------------------------------------------- */
@@ -231,7 +430,8 @@ def css(key):
     o = organ(key)
     lift, base = o["hero"]
     sheet = _CSS % {"ink_light": o["ink_light"], "ink_dark": o["ink_dark"],
-                    "glow": o["glow"], "hero_lift": lift, "hero_base": base}
+                    "glow": o["glow"], "glow2": o.get("glow2", o["glow"]),
+                    "hero_lift": lift, "hero_base": base}
     chips = "".join(_CHIP % {"sel": f'.boards a[data-organ="{k}"]',
                              "light": v["ink_light"], "dark": v["ink_dark"]}
                     for k, v in ORGANS.items())
@@ -240,16 +440,17 @@ def css(key):
 
 # ------------------------------------------------------------- components ---
 def hero(key, kind, lede_html=""):
-    """The masthead: the organ's logo re-drawn as type.
+    """The masthead: the organ's logo re-drawn — mark, wordmark, rule, tagline.
 
     `kind` is what this page *is* under the wordmark ("Dashboard", "Board"),
     so the mark stays the organ's and the page keeps its own name.
     """
     o = organ(key)
     lede = f'<p class="lede">{lede_html}</p>' if lede_html else ""
-    return (f'<header class="hero"><span class="orb">{o["glyph"]}</span>'
+    return (f'<header class="hero"><span class="orb">{mark(key)}</span>'
             f'<h1>{WORD}<b>{o["organ"]}</b>'
             f'<span class="kind">{kind}</span></h1>'
+            f'<div class="rule"></div>'
             f'<p class="tag">{o["tagline"]}</p></header>{lede}')
 
 

@@ -30,10 +30,13 @@ def test_every_declared_board_has_a_complete_palette_entry():
     for key in POLICY_BOARDS:
         assert key in _theme.ORGANS, key
         o = _theme.ORGANS[key]
-        for field in ("organ", "glyph", "tagline",
+        for field in ("organ", "tagline",
                       "ink_light", "ink_dark", "glow", "hero"):
             assert o.get(field), f"{key}.{field}"
         assert len(o["hero"]) == 2
+        # The mark is the logo's own glyph; a board without one would render
+        # an empty ring where its logo should be.
+        assert key in _theme.MARKS, key
 
 
 def _luminance(hex_colour):
@@ -71,11 +74,30 @@ def test_each_board_wears_its_own_accent():
     assert _theme.ORGANS["mind"]["glow"] not in brain
 
 
+def test_every_mark_is_line_art_that_takes_the_accent():
+    # The marks replaced emoji precisely so they inherit the organ colour and
+    # stay sharp; a hard-coded fill or a stray emoji would undo both.
+    for key, art in _theme.MARKS.items():
+        assert "currentColor" in art or "<circle" in art, key
+        assert not re.search(r"[\U0001F300-\U0001FAFF]", art), key
+    svg = _theme.mark("brain")
+    assert svg.startswith("<svg") and 'stroke="currentColor"' in svg
+
+
+def test_the_hero_draws_the_mark_not_a_character():
+    html = _theme.hero("mind", "Dashboard")
+    assert _theme.MARKS["mind"] in html
+    # wordmark, then the logo's hairline-and-dot rule, then the tagline
+    assert html.index("PyAuto") < html.index('class="rule"')
+    assert html.index('class="rule"') < html.index(_theme.ORGANS["mind"]["tagline"])
+
+
 def test_an_unknown_organ_still_renders():
     # An adopting fork with a board we have no palette for gets the umbrella's
     # look, never a KeyError mid-render.
     assert _theme.css("no-such-organ")
     assert "<header" in _theme.hero("no-such-organ", "Board")
+    assert _theme.MARKS["organism"] in _theme.hero("no-such-organ", "Board")
 
 
 def test_the_hero_reproduces_the_logo_wordmark():
