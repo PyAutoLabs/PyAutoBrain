@@ -31,10 +31,18 @@ on:
   # A dev-box publish (`pyauto-brain board publish`, usually morning.sh's
   # last step) pushes state/devbox_board.json to main — republish so the
   # board shows this morning's local observations a minute later.
+  #
+  # And whenever the page's own code changes. Merging a renderer or theme
+  # change used to leave the published board on yesterday's HTML until the
+  # next 05:30 cron, so the repo said one thing and the live page showed
+  # another — the emoji-vs-mark gap of #262 was visible for hours after it
+  # was fixed. The board is cheap to rebuild; rebuild it when it changes.
   push:
     branches: [main]
     paths:
       - "state/devbox_board.json"
+      - "board/**"
+      - "config/policy.yaml"
 
 permissions:
   contents: read
