@@ -317,6 +317,13 @@ a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 .muted{color:var(--muted)}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+/* A bare list is page text, not a quotation. The UA's 40px indent steps it in
+   from every other block on the page — measured on the Heart board, the
+   evidence-gap bullets started at x=56 against a 16px body margin, which
+   reads as a stray inset column on a phone. The lists that are layout rather
+   than prose (.stats, .boards, ul.det) set their own padding and win on
+   specificity. */
+ul,ol{padding-left:1.15rem}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
  background:var(--btn);border:1px solid var(--line);padding:.05em .35em;
  border-radius:5px}

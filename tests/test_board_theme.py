@@ -240,3 +240,14 @@ def test_a_row_stacks_on_a_phone_so_the_text_gets_the_width():
                       re.S).group(0).replace("\n ", "")
     assert "table.recent td{display:block;width:auto" in stack
     assert "table.recent td:not([class]){flex:1 0 100%" in stack
+
+
+def test_a_bare_list_lines_up_with_the_rest_of_the_page():
+    """The UA's 40px list indent steps a bare `<ul>` in from every other block
+    — measured on the Heart board, the evidence-gap bullets sat at x=56
+    against a 16px body margin, reading as a stray inset column on a phone."""
+    css = _theme.css("mind")
+    assert "ul,ol{padding-left:1.15rem}" in css
+    # The lists that are layout rather than prose keep their own zero.
+    assert re.search(r"\.stats\{[^}]*padding:0", css, re.S)
+    assert re.search(r"\.boards\{[^}]*padding:0", css, re.S)
