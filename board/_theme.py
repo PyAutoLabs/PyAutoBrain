@@ -299,9 +299,20 @@ _CSS = """\
  --bad:#f85149;--accent:%(ink_dark)s;--tint:%(ink_dark)s1f;
  --edge:%(ink_dark)s47}}
 *{box-sizing:border-box}
+/* Wrapping is the page DEFAULT, not a per-component opt-in. These boards are
+   read on phones, and every one of them prints run URLs, dotted test ids and
+   long file paths — a single unbreakable token in any element a renderer adds
+   itself (a reasons list, a footer, a details block) spills past the right
+   edge and gives the WHOLE page a horizontal scroll. `overflow-wrap` is
+   inherited, so setting it here covers markup this module has never seen.
+   The three max-width/overflow rules do the same job for the things that
+   cannot be wrapped: an image, a table, a code block. */
 body{margin:0 auto;max-width:44rem;padding:0 1rem 4rem;background:var(--bg);
  color:var(--fg);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",
- Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%%}
+ Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%%;
+ overflow-wrap:anywhere}
+img,svg,table{max-width:100%%}
+pre{overflow-x:auto}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 .muted{color:var(--muted)}
@@ -353,7 +364,7 @@ h3{font-size:.98rem;margin:1.3rem 0 .2rem;font-weight:650;color:var(--accent)}
 .task{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem .35rem;
  margin:0 -.35rem;border-bottom:1px solid var(--line);border-radius:7px}
 .task:hover{background:var(--tint)}
-.task p{margin:.25rem 0 0;flex:1;overflow-wrap:anywhere}
+.task p{margin:.25rem 0 0;flex:1}
 button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
  border:1px solid var(--line);border-radius:9px;background:var(--btn);
  cursor:pointer;color:var(--fg);transition:border-color .12s,color .12s}
@@ -402,7 +413,7 @@ summary::marker{color:var(--accent)}
 /* --- tables ------------------------------------------------------------ */
 table.recent{width:100%%;border-collapse:collapse;font-size:.95em}
 table.recent td{border-bottom:1px solid var(--line);
- padding:.45rem .4rem .45rem 0;vertical-align:top;overflow-wrap:anywhere}
+ padding:.45rem .4rem .45rem 0;vertical-align:top}
 table.recent tr:hover td{background:var(--tint)}
 table.recent td.when{white-space:nowrap;color:var(--muted);
  font-variant-numeric:tabular-nums}

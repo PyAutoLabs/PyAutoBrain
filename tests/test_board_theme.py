@@ -174,3 +174,35 @@ def test_boards_footer_skips_self_and_tags_each_sibling():
 def test_stats_render_pairs_and_vanish_when_empty():
     assert _theme.stats() == ""
     assert "<b>3</b><span>In flight</span>" in _theme.stats((3, "In flight"))
+
+
+# --- the phone invariant: nothing may push the page sideways ---------------
+# These boards are read on a phone before breakfast. A single unbreakable
+# token — a run URL, a dotted test id, a workspace script path — used to
+# spill past the right edge and give the WHOLE page a horizontal scroll,
+# because wrapping was declared per component (`.task p`, `table.recent td`)
+# and every organ's own markup (a reasons list, a details block, a footer)
+# missed out. The guard belongs on `body`, where it is inherited by markup
+# this module has never seen.
+
+
+def test_wrapping_is_the_page_default_not_a_per_component_opt_in():
+    css = _theme.css("mind")
+    body = re.search(r"^body\{(.*?)\}", css, re.S | re.M).group(1)
+    assert "overflow-wrap:anywhere" in body.replace("\n ", "")
+
+
+def test_the_things_that_cannot_wrap_are_bounded_instead():
+    # An image, a table or a code block has no soft wrap opportunity to take;
+    # each is held inside the column or given its own scroller.
+    css = _theme.css("mind")
+    assert "img,svg,table{max-width:100%}" in css
+    assert "pre{overflow-x:auto}" in css
+
+
+def test_no_component_rule_re_declares_the_wrap():
+    """One place, not seven — a component that sets its own wrap is a rule
+    that will be forgotten by the next board that adds a list."""
+    css = re.sub(r"/\*.*?\*/", "", _theme.css("mind"), flags=re.S)
+    body_rule = re.search(r"^body\{.*?\}", css, re.S | re.M).group(0)
+    assert css.replace(body_rule, "").count("overflow-wrap") == 0
