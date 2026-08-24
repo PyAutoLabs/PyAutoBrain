@@ -55,15 +55,17 @@ Proposed path · Header (the block written verbatim) · Risks · Next action
 - **Difficulty** — from the shared `agents/faculties/sizing/` faculty, **persisted
   into the header**, because scope is decided during the intake back-and-forth.
   The Feature Agent later *trusts* this number rather than recomputing a divergent
-  one. A difficulty **declared in the raw text** (`Difficulty: large`, or the
-  `ideas.md` house style `Difficulty large, supervised.`) **wins** over the
-  estimate: the author knows the scope, the heuristic only sees words. The
-  IntakeDecision reports which one it used (`difficulty_source`) and what the
-  heuristic would have said, and the declaration is kept out of the derived
-  title/slug. Declarations are read from prose only — a quoted `Difficulty:`
-  inside a code fence or backticks is not one.
+  one. A difficulty **declared in the raw input** — a pasted header block, or the
+  `ideas.md` house style `Difficulty large, supervised.` — **wins** over the
+  estimate, via the faculty's shared `effective_difficulty`: the author knows the
+  scope, and the heuristic's biggest input is length, which is a bad size proxy
+  (a prompt is long when it carries a design, not when the work is large). The
+  IntakeDecision reports which one it used (`difficulty_source`) and the level
+  the heuristic derived, and the declaration is kept out of the derived
+  title/slug. A `Difficulty:` quoted inside a code fence or backticks is
+  documentation, not a declaration.
 - **Autonomy** (`safe|supervised|human-required`) and **Priority**
-  (`low|normal|high`) — the "can an agent safely handle this?" and "how urgent?" questions; a declared value wins here too.
+  (`low|normal|high`) — the "can an agent safely handle this?" and "how urgent?" questions; a declared value wins here too, as does a declared `Type:` over the prose classifier.
   inputs, written into the header.
 
 **`too-large` means decompose, never dispatch.** A prompt sized `too-large` is

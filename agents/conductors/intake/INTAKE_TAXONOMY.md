@@ -63,8 +63,10 @@ Primary-folder preference when several resolve: library repo → organism repo �
 ## 4. Difficulty, autonomy, priority (the header inputs)
 
 - **Difficulty** (`small|medium|large|too-large`) — the shared sizing faculty's
-  `estimate_difficulty`, the *same* function the Feature Agent uses. Persisted so
-  the number is decided once, at conception, when scope is freshest.
+  `effective_difficulty`: `estimate_difficulty` (the *same* heuristic the Feature
+  Agent uses) unless the input DECLARES a level, which wins. Persisted so the
+  number is decided once, at conception, when scope is freshest — and a
+  declaration is exactly the author correcting a heuristic that weights length.
 - **Autonomy** (`safe|supervised|human-required`) — `human-required` when the
   work needs a design decision and no repo resolved; `supervised` for
   architectural risk / large / multi-repo; `safe` otherwise.

@@ -86,9 +86,13 @@ or acknowledged YELLOW), never a check re-run here.
 
 ## Difficulty & selection (reused, severity-weighted)
 
-Difficulty is the Feature Agent's heuristic verbatim (`F.estimate_difficulty` — repos
-affected, prompt size, scientific complexity, architectural risk, test burden, memory
-context; thresholds `≤2 small · ≤5 medium · ≤9 large · >9 too-large`). Selection scans
+Difficulty is the sizing faculty's heuristic verbatim, read through its precedence
+rule (`F.effective_difficulty` — repos affected, prompt size, scientific complexity,
+architectural risk, test burden, memory context; thresholds `≤2 small · ≤5 medium ·
+≤9 large · >9 too-large`), so a `Difficulty:` the prompt DECLARES wins and the derived
+level is reported alongside it. A declared `Type: bug` likewise blocks a prose-keyword
+re-home suggestion: the author already answered that question, and a defect report
+legitimately says "refactor" or "documentation" while describing a crash. Selection scans
 `bug/**` (excluding `README.md`), down-ranks paths referenced in `active.md` /
 `planned.md`, and ranks **severity-first** by default and under `--impact` (a bug list is
 a triage queue); `--difficulty easy` / `--budget` / `--model weak` flip to smallest-first

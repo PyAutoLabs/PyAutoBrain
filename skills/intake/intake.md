@@ -15,9 +15,10 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    write. Nothing is created.
 2. Review the `IntakeDecision` with the user — correct the work-type, target,
    difficulty, autonomy or priority in conversation (this is the back-and-forth
-   where scope, and therefore difficulty, is decided). A difficulty/autonomy/
-   priority the raw text already declares is taken as written — the decision
-   marks it `(declared)` and shows what the heuristic would have estimated.
+   where scope, and therefore difficulty, is decided). A `Type:`/`Difficulty:`/
+   `Autonomy:`/`Priority:` the raw input already declares is taken as written —
+   the decision marks it `(declared)` and shows the level the heuristic derived,
+   so a disagreement stays visible instead of being silently resolved.
 3. When it looks right, re-run with **`--apply`** to write the prompt file into
    PyAutoMind under `draft/<work-type>/<target>/<name>.md` (or `draft/triage/` if the
    classification is genuinely unclear).

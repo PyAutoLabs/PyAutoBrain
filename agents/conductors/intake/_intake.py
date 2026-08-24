@@ -39,7 +39,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
-    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, estimate_difficulty, _hits,
+    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, declared_header,
+    declared_inline, effective_difficulty, strip_declarations, _hits,
     policy as _sizing_policy, BODY_MAP_PATH,
 )
 
@@ -108,80 +109,6 @@ PRIORITY_HIGH = ["urgent", "asap", "blocker", "blocking", "critical", "important
                  "high priority", "must fix", "regression"]
 PRIORITY_LOW = ["someday", "nice to have", "eventually", "low priority", "minor",
                 "when there is time", "backlog"]
-
-
-# --- human-declared header fields ---------------------------------------------
-# Raw input often states its own scope: the ideas.md house style ends a bullet
-# with "Difficulty large, supervised.", and a pasted bug report may carry a
-# "Priority: high" line. A human who has thought about the work is better
-# evidence than a keyword heuristic that only sees words, so a declaration
-# WINS over the estimate here. The sizing faculty stays the pure estimator —
-# the override belongs to the agent that owns the header (this one).
-#
-# Declarations are read only from prose: fenced blocks and inline code spans are
-# masked out first, so a prompt *quoting* `Difficulty: large` (a repro, a
-# transcript) does not silently re-size itself.
-_DIFFICULTY_ALT = r"too[-\s]large|small|medium|large"
-_AUTONOMY_ALT = r"human[-\s]required|supervised|safe"
-_PRIORITY_ALT = r"high|normal|low"
-# Between key and value: a colon/equals, "is", or nothing at all ("Difficulty large").
-_DECL_SEP = r"\s*(?::|=|\bis\b)?\s*"
-_DECLARATION = re.compile(
-    rf"\bdifficulty{_DECL_SEP}({_DIFFICULTY_ALT})\b"
-    rf"(?:\s*[,/&]?\s*(?:and\s+)?({_AUTONOMY_ALT})\b)?"
-    rf"|\bautonomy{_DECL_SEP}({_AUTONOMY_ALT})\b"
-    rf"|\bpriority{_DECL_SEP}({_PRIORITY_ALT})\b",
-    re.IGNORECASE)
-_CODE_SPAN = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
-
-
-def _mask_code(text: str) -> str:
-    """`text` with code spans blanked to spaces (offsets and lines preserved)."""
-    return _CODE_SPAN.sub(lambda m: re.sub(r"\S", " ", m.group(0)), text)
-
-
-def _declared_fields(text: str):
-    """(fields, spans) — the header fields the human stated in the raw text.
-
-    First declaration of each field wins; `spans` are its offsets in `text` so
-    the clause can be kept out of the derived title/slug.
-    """
-    fields, spans = {}, []
-    for m in _DECLARATION.finditer(_mask_code(text)):
-        difficulty, trailing_autonomy, autonomy, priority = m.groups()
-        if difficulty:
-            fields.setdefault("difficulty", _norm_level(difficulty))
-        if trailing_autonomy or autonomy:
-            fields.setdefault("autonomy", _norm_level(trailing_autonomy or autonomy))
-        if priority:
-            fields.setdefault("priority", _norm_level(priority))
-        spans.append(m.span())
-    return fields, spans
-
-
-def _norm_level(value: str) -> str:
-    """"Too Large" / "human required" -> the canonical hyphenated header value."""
-    return re.sub(r"[\s-]+", "-", value.strip().lower())
-
-
-def _strip_declarations(text: str, spans: list) -> str:
-    """`text` with the declaration clauses removed — for title derivation only.
-
-    The prompt body itself stays verbatim (word-vomit is intent); this exists so
-    "Fix the docstring. Difficulty: large." does not title the task — and name
-    the file — after its own difficulty declaration.
-    """
-    if not spans:
-        return text
-    chars = list(text)
-    for start, end in spans:
-        chars[start:end] = " " * (end - start)
-    out = "".join(chars)
-    # Tidy the punctuation the removed clause left stranded (title use only).
-    out = re.sub(r"[ \t]+", " ", out)
-    out = re.sub(r"\s+([.,;:])", r"\1", out)
-    out = re.sub(r"([.,;:])(\s*[.,;:])+", r"\1", out)
-    return out if re.search(r"\w", out) else text
 
 
 def _slug(text: str, maxwords: int = 7) -> str:
@@ -338,23 +265,35 @@ def infer_autonomy(level: str, factors: dict) -> str:
 def analyse(text: str, source: str):
     """Classify raw text into a full IntakeDecision (never writes)."""
     repos = _repos_in(text)
+    # What the input DECLARES outranks what its prose merely suggests — the same
+    # rule the feature and bug conductors apply (the faculty owns it). Raw
+    # conception input may carry a full header block (a pasted prompt) or state
+    # a key mid-sentence, so both readers run; header lines win a tie.
+    inline, decl_spans = declared_inline(text)
+    header = declared_header(text)
+    declared = {k: v for k, v in {
+        "difficulty": header["declared_difficulty"] or inline.get("difficulty"),
+        "autonomy": header["declared_autonomy"] or inline.get("autonomy"),
+        "priority": header["priority"] or inline.get("priority"),
+        "type": header["declared_type"] or inline.get("type"),
+    }.items() if v}
+
     work_type, confidence, type_hits = classify_work_type(text)
+    if declared.get("type"):
+        work_type, confidence = declared["type"], "high"
     target, target_display, repos = infer_target(text, repos)
 
     # Build a prompt-shaped dict the shared sizing faculty understands.
     p = {"text": text, "repos": repos, "words": len(text.split()),
-         "target": target, "work_type": work_type}
-    estimated, score, factors = estimate_difficulty(p)
+         "target": target, "work_type": work_type,
+         "declared_difficulty": declared.get("difficulty")}
+    level, score, factors, estimated = effective_difficulty(p)
 
-    # A human declaration outranks the estimate (see "human-declared header
-    # fields"); the estimate is kept alongside it so the review can see both.
-    declared, decl_spans = _declared_fields(text)
-    level = declared.get("difficulty", estimated)
     autonomy = declared.get("autonomy") or infer_autonomy(level, factors)
     priority = declared.get("priority") or infer_priority(text)
     workflow = infer_workflow(target, repos)
 
-    title = _title(_strip_declarations(text, decl_spans))
+    title = _title(strip_declarations(text, decl_spans))
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
     if folder == "triage":
@@ -375,6 +314,7 @@ def analyse(text: str, source: str):
         "title": title,
         "work_type": work_type,
         "classification_confidence": confidence,
+        "work_type_source": "declared" if declared.get("type") else "inferred",
         "type_signals": type_hits,
         "target": target,
         "target_display": target_display,
@@ -382,7 +322,11 @@ def analyse(text: str, source: str):
         "difficulty": level,
         "difficulty_score": score,
         "difficulty_factors": factors,
-        "difficulty_estimated": estimated,
+        "difficulty_declared": declared.get("difficulty"),
+        "difficulty_derived": estimated,
+        "difficulty_disagreement": (
+            "difficulty" in declared and estimated != level
+        ),
         "difficulty_source": "declared" if "difficulty" in declared else "estimated",
         "autonomy": autonomy,
         "autonomy_source": "declared" if "autonomy" in declared else "inferred",
@@ -1638,12 +1582,18 @@ def _derive_fields(text: str, work_type: str, target: str) -> dict:
     tgt = normalise_repo(target) if target != "-" else "?"
     if tgt in KNOWN_REPOS and tgt not in repos:
         repos = sorted(set(repos) | {tgt})
-    p = {"text": text, "repos": repos, "words": len(text.split()),
-         "target": target, "work_type": work_type}
-    level, _score, factors = estimate_difficulty(p)
     # Same precedence as conception: what the author already stated wins.
-    declared, _spans = _declared_fields(text)
-    level = declared.get("difficulty", level)
+    inline, _spans = declared_inline(text)
+    header = declared_header(text)
+    declared = {k: v for k, v in {
+        "difficulty": header["declared_difficulty"] or inline.get("difficulty"),
+        "autonomy": header["declared_autonomy"] or inline.get("autonomy"),
+        "priority": header["priority"] or inline.get("priority"),
+    }.items() if v}
+    p = {"text": text, "repos": repos, "words": len(text.split()),
+         "target": target, "work_type": work_type,
+         "declared_difficulty": declared.get("difficulty")}
+    level, _score, factors, _derived = effective_difficulty(p)
     return {
         "type": work_type,
         "target": REPO_DISPLAY.get(tgt, target if target != "-" else "?"),
@@ -2311,12 +2261,14 @@ def emit_human(d: dict):
     print("== IntakeDecision ==")
     print(f"Source:               {d['source']}")
     print(f"Title:                {d['title']}")
-    print(f"Work-type:            {d['work_type']}  (confidence: {d['classification_confidence']})")
+    wt_mark = ("declared" if d.get("work_type_source") == "declared"
+               else f"confidence: {d['classification_confidence']}")
+    print(f"Work-type:            {d['work_type']}  ({wt_mark})")
     print(f"Target:               {d['target_display']}")
     print(f"Repos resolved:       {', '.join(d['repos_affected']) or '(none)'}")
     if d.get("difficulty_source") == "declared":
-        print(f"Difficulty:           {d['difficulty']} (declared; heuristic said "
-              f"{d['difficulty_estimated']}, score {d['difficulty_score']})")
+        print(f"Difficulty:           {d['difficulty']} (declared; heuristic derived "
+              f"{d['difficulty_derived']}, score {d['difficulty_score']})")
     else:
         print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
     for field in ("autonomy", "priority"):

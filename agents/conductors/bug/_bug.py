@@ -242,9 +242,18 @@ def health_validation(workflow: str, factors: dict) -> str:
 
 
 def re_home_check(p: dict) -> str | None:
-    """If a bug/ prompt is really a feature/refactor/docs/research task, say so."""
+    """If a bug/ prompt is really a feature/refactor/docs/research task, say so.
+
+    A prompt that DECLARES `Type: bug` is never re-homed on prose keywords: the
+    author already answered this question, and prose is the weaker signal (a bug
+    report legitimately says "refactor", "documentation" or "design decision"
+    while describing a defect). Same family as the difficulty leg — derive from
+    prose, but never over a declared header key (PyAutoBrain#217, #274).
+    """
     wt = p["work_type"]
     if wt != "bug":
+        return None
+    if (p.get("declared_type") or "") == "bug":
         return None
     text = p["text"].lower()
     # A genuine defect signal keeps it a bug even if other words also fire.
@@ -264,7 +273,7 @@ def re_home_check(p: dict) -> str | None:
 
 
 def analyse_bug(p: dict, heart_check: str | None = None) -> dict:
-    level, score, factors = F.estimate_difficulty(p)
+    level, score, factors, derived_level = F.effective_difficulty(p)
     cls = classify(p, factors)
     workflow = recommended_workflow(p, factors)
     mishome = re_home_check(p)
@@ -283,6 +292,11 @@ def analyse_bug(p: dict, heart_check: str | None = None) -> dict:
         "recommended_workflow": workflow,
         "rehome_suggestion": mishome,
         "difficulty": level,
+        "difficulty_declared": p.get("declared_difficulty"),
+        "difficulty_derived": derived_level,
+        "difficulty_disagreement": (
+            p.get("declared_difficulty") is not None and derived_level != level
+        ),
         "difficulty_score": score,
         "difficulty_factors": factors,
         "health_validation": health_validation(workflow, factors),
@@ -329,7 +343,7 @@ def select_bug(mind: Path, constraint: dict, limit: int):
     rows = []
     for path in prompts:
         p = F.parse_prompt(path, mind)
-        level, score, factors = F.estimate_difficulty(p)
+        level, score, factors, _derived = F.effective_difficulty(p)
         cls = classify(p, factors)
         rows.append({
             "path": p["path"], "difficulty": level, "score": score,
@@ -385,7 +399,11 @@ def emit_human(mode: str, d: dict):
     print(f"Fix strategy:         {d['fix_strategy']}")
     print(f"Recommended workflow: {d['recommended_workflow']}", end="")
     print(f"  [re-home as {d['rehome_suggestion']}/]" if d["rehome_suggestion"] else "")
-    print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
+    if d.get("difficulty_disagreement"):
+        print(f"Difficulty:           {d['difficulty']} (declared; heuristic derived "
+              f"{d['difficulty_derived']}, score {d['difficulty_score']})")
+    else:
+        print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
     print(f"Health validation:    {d['health_validation']}")
     print("Risks:")
     for r in d["risks"]:
