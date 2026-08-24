@@ -837,3 +837,31 @@ def test_missing_mind_degrades_honestly(tmp_path):
     assert any("community" in d for d in s["degraded"])
     assert any("resume" in d for d in s["degraded"])
     assert s["resume"]["tasks"] == []
+
+
+# ------------------------------------------------------- the autonomy chips --
+
+
+def test_a_judgement_cell_becomes_a_chip_sized_label(tmp_path):
+    """The log writes its two judgement columns as `<verdict> (<why>)`, because
+    it is a record read as a table. A pill cannot wrap, so the whole sentence
+    used to render as one chip a thousand pixels wide — the board scrolled
+    sideways on a phone, and the tone lookups (which key off the bare verdict)
+    silently fell through to neutral on every such row."""
+    log = AUTONOMY_LOG + (
+        "| 2026-08-03 | third-task (#3) "
+        "| safe (feature medium cap; same resumed acknowledged launch and "
+        "campaign merge authorization) | tests pass "
+        "| merged-unchanged (RepoA#535 merge b9d9927f; issue left open) |\n"
+        "| 2026-08-04 | fourth-task (#4) "
+        "| human-authorized merge after accepted smoke exception and "
+        "independent review | tests pass | amended |\n")
+    stub = _fabricate(tmp_path, _default_fixtures())
+    (tmp_path / "PyAutoMind" / "autonomy_log.md").write_text(log)
+    page = _run(["--html"], tmp_path, stub).stdout
+    # The verdict is the chip; the why stays in the log.
+    assert '<span class="pill g">safe</span>' in page
+    assert '<span class="pill n">merged-unchanged</span>' in page
+    assert "campaign merge authorization" not in page
+    # No parenthetical to cut? Then the head is elided, never left full length.
+    assert '"pill n">human-authorized merge afte…</span>' in page

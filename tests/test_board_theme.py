@@ -206,3 +206,17 @@ def test_no_component_rule_re_declares_the_wrap():
     css = re.sub(r"/\*.*?\*/", "", _theme.css("mind"), flags=re.S)
     body_rule = re.search(r"^body\{.*?\}", css, re.S | re.M).group(0)
     assert css.replace(body_rule, "").count("overflow-wrap") == 0
+
+
+def test_a_pill_is_bounded_because_nowrap_is_outside_the_wrap_guard():
+    """`white-space:nowrap` is what makes a chip read as a chip, and it is the
+    one thing `body{overflow-wrap}` cannot reach. A board that hands a pill a
+    sentence must get an ellipsis, not a chip wider than the phone."""
+    rule = re.search(r"^\.pill\{.*?\}", _theme.css("mind"), re.S | re.M).group(0)
+    flat = rule.replace("\n ", "")
+    assert "max-width:100%" in flat
+    assert "overflow:hidden" in flat
+    assert "text-overflow:ellipsis" in flat
+    # overflow:hidden moves an inline-block's baseline to its bottom edge, so
+    # the old optical nudge would drop every chip half a line.
+    assert "vertical-align:bottom" in flat

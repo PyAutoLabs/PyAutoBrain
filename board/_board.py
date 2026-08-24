@@ -613,6 +613,23 @@ def collect_devbox():
 AUTONOMY_ROW_CAP = 5
 
 
+def _judgement_chip(value, cap=28):
+    """The log's two judgement cells, as a chip-sized label.
+
+    The log writes them as `<verdict> (<why>)` — "safe (feature medium cap;
+    same resumed acknowledged launch ...)" — because it is a record, read as a
+    table. A pill is not a table cell: it cannot wrap, so the whole sentence
+    became one chip a thousand pixels wide and the board scrolled sideways on
+    a phone. The verdict is the part that belongs on a chip; the why stays in
+    the log, which is where the row's link sends you.
+
+    It also restores the colour: `_LEVEL_TONES`/`_OUTCOME_TONES` key off the
+    bare verdict, so every one of these rows was silently rendering neutral.
+    """
+    head = value.split(" (", 1)[0].strip()
+    return head if len(head) <= cap else head[:cap - 1].rstrip() + "\u2026"
+
+
 def collect_autonomy():
     """The tail of the Mind's autonomy calibration log — what ran unattended
     lately and how it ended (read verbatim; the log stays the record)."""
@@ -623,7 +640,8 @@ def collect_autonomy():
         r"^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|"
         r"[^|]*\|\s*([^|]+?)\s*\|",
         log.read_text(encoding="utf-8"), re.M)
-    return [{"date": d, "task": t[:70], "level": lvl, "outcome": o}
+    return [{"date": d, "task": t[:70],
+             "level": _judgement_chip(lvl), "outcome": _judgement_chip(o)}
             for d, t, lvl, o in rows[-AUTONOMY_ROW_CAP:]]
 
 
