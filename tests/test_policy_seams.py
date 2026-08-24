@@ -97,37 +97,90 @@ def test_refactor_test_witness_loads():
         assert _sizing.normalise_repo(mention) in _refactor.TEST_WITNESS, mention
 
 
-def test_release_policy_loads():
-    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "release"))
-    import activity_gate
+# Repos allowed to have no witness row, with the reason. An entry here is a
+# statement that the repo has no test suite — not a licence to skip one.
+WITNESS_EXEMPT = {
+    "PyAutoGut": "no test suite (bin/ + docs only, verified at PyAutoBrain#269)",
+}
 
-    assert "PyAutoLens" in activity_gate.RELEASE_RELEVANT_REPOS
-    assert "PyAutoMind" not in activity_gate.RELEASE_RELEVANT_REPOS
 
+def test_every_library_and_organ_is_witnessed():
+    """PyAutoBrain#269: a tested repo missing from the map reads as untested.
 
-def test_release_relevant_repos_all_exist_in_the_body_map():
-    """The drift guard PyAutoBrain#267 was missing.
-
-    ``nightly.sh`` fetches ``repos/<org>/$repo/commits`` for every name in
-    this list verbatim. A repo renamed in the body map but not here leaves the
-    gate polling a name that only a GitHub rename redirect could answer — which
-    is how ``PyAutoConf`` survived the Nerves rename. Pin the set to identity.
+    ``behaviour_preservation`` reports any repo absent from ``test_witness`` as
+    ``unwitnessed`` and advises "strengthen tests first". For a repo that has a
+    suite that advice is wrong, and it is wrong silently — which is how one
+    library and five organs went unnoticed until the #267 rename work looked.
+    Pin coverage to the body map so a new library or organ cannot be added
+    without either a witness row or a reasoned exemption.
     """
-    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "release"))
-    import activity_gate
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "refactor"))
+    import _refactor
 
-    known = set(_sizing._body_map_categories())
-    unknown = [r for r in activity_gate.RELEASE_RELEVANT_REPOS if r not in known]
-    assert not unknown, f"not in PyAutoMind/repos.yaml: {unknown}"
-
-
-def test_nightly_tag_repo_resolves():
-    here = BRAIN_HOME / "agents" / "conductors" / "release"
-    out = subprocess.run(
-        [sys.executable, "-c",
-         "import yaml, pathlib; print(yaml.safe_load((pathlib.Path("
-         f"'{here}').parents[2] / 'config' / 'policy.yaml').read_text())"
-         "['release']['tag_repo'])"],
-        capture_output=True, text=True,
+    cats = _sizing._body_map_categories()
+    missing = [
+        name for name, cat in cats.items()
+        if cat in ("library", "organ")
+        and name not in WITNESS_EXEMPT
+        and _sizing.normalise_repo(name) not in _refactor.TEST_WITNESS
+    ]
+    assert not missing, (
+        "library/organ repos with no test_witness row — add the row, or add the "
+        f"repo to WITNESS_EXEMPT with its reason: {missing}"
     )
-    assert out.returncode == 0 and "/" in out.stdout
+
+
+def test_witness_exemptions_are_still_real_repos():
+    """An exemption for a repo that left the body map is stale, not a waiver."""
+    cats = _sizing._body_map_categories()
+    stale = [name for name in WITNESS_EXEMPT if name not in cats]
+    assert not stale, f"WITNESS_EXEMPT names repos not in the body map: {stale}"
+
+
+def test_every_witness_key_is_what_its_repo_normalises_to():
+    """A row keyed on something the normaliser never produces is a dead row.
+
+    That is exactly what ``autoconf: PyAutoConf/test_autoconf`` had become
+    (PyAutoBrain#267): reachable only through a stale alias, pointing at a repo
+    path that no longer existed, and invisible because nothing checked the key
+    against the repo it names. Derive the expectation from the row's own value
+    so this holds for any body map, not just ours.
+    """
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "refactor"))
+    import _refactor
+
+    wrong = {
+        key: witness
+        for key, witness in _refactor.TEST_WITNESS.items()
+        if _sizing.normalise_repo(witness.split("/")[0]) != key
+    }
+    assert not wrong, (
+        "test_witness rows whose key is not what their repo normalises to — "
+        f"the conductor can never look them up: {wrong}"
+    )
+
+
+def test_witness_repos_resolve_from_the_package_spelling_too():
+    """Prompts name a library by its package, not by its repo.
+
+    Where a witness row's repo ships a package — inferable from the row itself,
+    since a ``<Repo>/test_<package>`` value names one and a ``<Repo>/tests``
+    value does not — both spellings must reach the same key, or which one the
+    prompt happened to use silently decides whether the witness resolves
+    (PyAutoBrain#268, #269).
+    """
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "refactor"))
+    import _refactor
+
+    split = {}
+    for key, witness in _refactor.TEST_WITNESS.items():
+        repo, _, test_dir = witness.partition("/")
+        if not test_dir.startswith("test_"):
+            continue  # organ suite in a plain `tests/` dir — no package spelling
+        package = test_dir[len("test_"):]
+        if _sizing.normalise_repo(package) != key:
+            split[repo] = (package, _sizing.normalise_repo(package), key)
+    assert not split, (
+        "package spelling normalises to a different key than the repo spelling "
+        f"— add a repo_aliases entry joining them: {split}"
+    )
