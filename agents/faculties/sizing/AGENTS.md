@@ -12,6 +12,21 @@ A PyAutoBrain read-only reasoning faculty. It owns the organism's single
 difficulty heuristic so the number is defined **once** and shared, never
 recomputed by a divergent copy.
 
+It also owns the **precedence rule** over that heuristic. `estimate_difficulty`
+derives; `effective_difficulty` reconciles — a **declared** `Difficulty:` wins,
+and the derived level comes back alongside it so a disagreement is reported
+rather than silently resolved (the disagreement is evidence about the
+heuristic). `declared_header` reads the keys a filed prompt declares
+(`Type:`/`Difficulty:`/`Autonomy:`/`Priority:`/`Status:`/`Blocked-by:`);
+`declared_inline` reads the same keys out of unheadered conception prose — the
+`ideas.md` idiom `Difficulty large, supervised.` included. Neither reads a
+fenced block: a prompt quoting a header is documenting it, not declaring it.
+
+The rule lives here rather than in each conductor because it was re-implemented
+per conductor three times and forgotten twice — the ranker (#217), the Bug Agent
+and Intake (#274) all derived over a declared key. One heuristic, one
+reconciliation, every conductor.
+
 ## Who consults it
 
 - The **Intake Agent** (`agents/conductors/intake/`) sizes a task at

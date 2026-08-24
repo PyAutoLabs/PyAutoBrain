@@ -12,6 +12,15 @@ hard the work is. Both conductors that reason over Mind intent consult it:
     header, so the number you see up front is the same one the Feature Agent
     acts on later.
 
+`estimate_difficulty` is the heuristic; `effective_difficulty` is the PRECEDENCE
+RULE over it — a difficulty the author DECLARED wins, with the derived level
+returned alongside so a disagreement stays visible. The rule lives here, not in
+the conductors: each conductor that reconciled it for itself was one more chance
+to forget, and three of them did (PyAutoBrain#217, then #274). `declared_header`
+reads the keys a filed prompt declares; `declared_inline` reads the same keys out
+of unheadered conception prose. Neither reads a code fence — a prompt QUOTING a
+header is documenting it, not declaring it.
+
 Keeping the heuristic here — one definition, imported by both — is the whole
 point: a value Intake persists that the Feature Agent silently recomputed with a
 divergent copy would be a drift bug. This module therefore also owns the shared
@@ -232,13 +241,15 @@ def empty_discovery_reason(mind: Path, work_type: str) -> str:
 # Parsing them here — beside the derivation — keeps declared and derived in one
 # place, and gives the bug/refactor conductors the same reading for free.
 DIFFICULTY_LEVELS = ("small", "medium", "large", "too-large")
+AUTONOMY_LEVELS = ("safe", "supervised", "human-required")
 # `medium` is not a documented Priority: value but occurs in the live backlog;
 # read it as normal rather than dropping the prompt's stated intent.
 PRIORITY_RANK = {"high": 0, "normal": 1, "medium": 1, "low": 2}
 DEFAULT_PRIORITY_RANK = 1
 
 _HEADER_KEY_RE = re.compile(
-    r"^\s*(difficulty|status|priority|blocked-by|closes-when)\s*:\s*(.+?)\s*$", re.I
+    r"^\s*(difficulty|type|autonomy|status|priority|blocked-by|closes-when)"
+    r"\s*:\s*(.+?)\s*$", re.I
 )
 
 
@@ -257,7 +268,8 @@ def declared_header(text: str) -> dict:
     does exactly that) must not be read as declaring it. Same rule, and the
     same reason, as PyAutoMind `lifecycle.py:draft_gate_refs`.
     """
-    out = {"declared_difficulty": None, "status": None,
+    out = {"declared_difficulty": None, "declared_type": None,
+           "declared_autonomy": None, "status": None,
            "priority": None, "blocked_by": [], "closes_when": []}
     in_fence = False
     for line in text.splitlines():
@@ -276,6 +288,14 @@ def declared_header(text: str) -> dict:
             v = value.lower()
             if v in DIFFICULTY_LEVELS and out["declared_difficulty"] is None:
                 out["declared_difficulty"] = v
+        elif key == "type":
+            v = value.lower()
+            if v in WORK_TYPES and out["declared_type"] is None:
+                out["declared_type"] = v
+        elif key == "autonomy":
+            v = _norm_level(value)
+            if v in AUTONOMY_LEVELS and out["declared_autonomy"] is None:
+                out["declared_autonomy"] = v
         elif key == "status" and out["status"] is None:
             out["status"] = value.lower()
         elif key == "priority" and out["priority"] is None:
@@ -285,6 +305,83 @@ def declared_header(text: str) -> dict:
         elif key == "closes-when":
             out["closes_when"].append(value)
     return out
+
+
+# --- declarations in unstructured prose ---------------------------------------
+# `declared_header` reads header LINES, which is what a filed prompt carries.
+# Conception input has no header yet: the ideas.md house style ends a bullet
+# with "Difficulty large, supervised.", and a pasted report writes
+# "… Difficulty: medium." mid-sentence. Same precedence, a looser reader — kept
+# here beside the header reader so "what counts as a declaration" is defined
+# once for every conductor.
+_DIFFICULTY_ALT = r"too[-\s]large|small|medium|large"
+_AUTONOMY_ALT = r"human[-\s]required|supervised|safe"
+_PRIORITY_ALT = r"high|normal|low"
+_TYPE_ALT = "|".join(sorted(WORK_TYPES, key=len, reverse=True))
+# Between key and value: a colon/equals, "is", or nothing ("Difficulty large").
+_DECL_SEP = r"\s*(?::|=|\bis\b)?\s*"
+_DECLARATION = re.compile(
+    rf"\bdifficulty{_DECL_SEP}({_DIFFICULTY_ALT})\b"
+    rf"(?:\s*[,/&]?\s*(?:and\s+)?({_AUTONOMY_ALT})\b)?"
+    rf"|\bautonomy{_DECL_SEP}({_AUTONOMY_ALT})\b"
+    rf"|\bpriority{_DECL_SEP}({_PRIORITY_ALT})\b"
+    rf"|\btype{_DECL_SEP}({_TYPE_ALT})\b",
+    re.IGNORECASE)
+_CODE_SPAN = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+
+
+def _mask_code(text: str) -> str:
+    """`text` with code spans blanked to spaces (offsets and lines preserved)."""
+    return _CODE_SPAN.sub(lambda m: re.sub(r"\S", " ", m.group(0)), text)
+
+
+def _norm_level(value: str) -> str:
+    """"Too Large" / "human required" -> the canonical hyphenated header value."""
+    return re.sub(r"[\s-]+", "-", value.strip().lower())
+
+
+def declared_inline(text: str):
+    """(fields, spans) — declarations made in prose, for unheadered raw input.
+
+    Fenced blocks and inline code spans are masked first: a prompt that *quotes*
+    a `Difficulty:` line (a repro, a transcript — the bug prompt for this very
+    fix does exactly that) is documenting, not declaring. Same rule as
+    `declared_header`. First declaration of each key wins; `spans` are its
+    offsets in `text`, so a caller can keep the clause out of a derived title.
+    """
+    fields, spans = {}, []
+    for m in _DECLARATION.finditer(_mask_code(text)):
+        difficulty, trailing_autonomy, autonomy, priority, work_type = m.groups()
+        if difficulty:
+            fields.setdefault("difficulty", _norm_level(difficulty))
+        if trailing_autonomy or autonomy:
+            fields.setdefault("autonomy", _norm_level(trailing_autonomy or autonomy))
+        if priority:
+            fields.setdefault("priority", _norm_level(priority))
+        if work_type:
+            fields.setdefault("type", work_type.lower())
+        spans.append(m.span())
+    return fields, spans
+
+
+def strip_declarations(text: str, spans: list) -> str:
+    """`text` with the declaration clauses removed — for title derivation only.
+
+    The prompt body itself stays verbatim (word-vomit is intent); this exists so
+    "Fix the docstring. Difficulty: large." does not title the task — and name
+    the file — after its own difficulty declaration.
+    """
+    if not spans:
+        return text
+    chars = list(text)
+    for start, end in spans:
+        chars[start:end] = " " * (end - start)
+    out = "".join(chars)
+    # Tidy the punctuation the removed clause left stranded (title use only).
+    out = re.sub(r"[ \t]+", " ", out)
+    out = re.sub(r"\s+([.,;:])", r"\1", out)
+    out = re.sub(r"([.,;:])(\s*[.,;:])+", r"\1", out)
+    return out if re.search(r"\w", out) else text
 
 
 def priority_rank(p: dict) -> int:
@@ -418,6 +515,28 @@ def estimate_difficulty(p: dict):
         "memory_context_required": bool(science),
     }
     return level, score, factors
+
+
+def effective_difficulty(p: dict):
+    """(level, score, factors, derived_level) — the DECLARED level wins.
+
+    The single precedence rule, defined here rather than per conductor. Three
+    conductors size a prompt (feature, bug, intake) and each one that re-derived
+    difficulty while ignoring `declared_difficulty` shipped the same bug
+    (PyAutoBrain#217, then #274) — one heuristic with three reconciliations is
+    three chances to forget one.
+
+    REFERENCE.md promises that the `Difficulty:` Intake persists is "the value
+    the Feature Agent later acts on", so a declared level overrides the
+    re-derived one. Length is the heuristic's biggest input and a bad size proxy
+    — a prompt is long when it carries a design, not when the work is large —
+    which is exactly what declaring a level exists to correct. The derived score
+    is kept (it still orders prompts within a level) and the derived LEVEL is
+    returned alongside, so a disagreement is reported rather than silently
+    resolved: it is evidence about the heuristic and worth seeing.
+    """
+    derived_level, score, factors = estimate_difficulty(p)
+    return p.get("declared_difficulty") or derived_level, score, factors, derived_level
 
 
 # --- runnable read-only entrypoint (parity with the other faculties) ---------

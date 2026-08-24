@@ -16,7 +16,9 @@ dev now); intake infers a work-type and *files a prompt* (defers). Low-confidenc
 classification lands in `triage/` — the existing unclassified bucket, reused not
 reinvented. Difficulty is OWNED here (scope is decided during the intake
 back-and-forth) and persisted into the header via the shared sizing faculty, so
-the Feature Agent later trusts the same number.
+the Feature Agent later trusts the same number — unless the author already
+declared one in the raw text, which outranks the estimate (see "human-declared
+header fields").
 
 Stdlib only. Writes ONLY under --apply; every other path is read-only.
 """
@@ -37,7 +39,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
-    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, estimate_difficulty, _hits,
+    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, declared_header,
+    declared_inline, effective_difficulty, strip_declarations, _hits,
     policy as _sizing_policy, BODY_MAP_PATH,
 )
 
@@ -262,19 +265,35 @@ def infer_autonomy(level: str, factors: dict) -> str:
 def analyse(text: str, source: str):
     """Classify raw text into a full IntakeDecision (never writes)."""
     repos = _repos_in(text)
+    # What the input DECLARES outranks what its prose merely suggests — the same
+    # rule the feature and bug conductors apply (the faculty owns it). Raw
+    # conception input may carry a full header block (a pasted prompt) or state
+    # a key mid-sentence, so both readers run; header lines win a tie.
+    inline, decl_spans = declared_inline(text)
+    header = declared_header(text)
+    declared = {k: v for k, v in {
+        "difficulty": header["declared_difficulty"] or inline.get("difficulty"),
+        "autonomy": header["declared_autonomy"] or inline.get("autonomy"),
+        "priority": header["priority"] or inline.get("priority"),
+        "type": header["declared_type"] or inline.get("type"),
+    }.items() if v}
+
     work_type, confidence, type_hits = classify_work_type(text)
+    if declared.get("type"):
+        work_type, confidence = declared["type"], "high"
     target, target_display, repos = infer_target(text, repos)
 
     # Build a prompt-shaped dict the shared sizing faculty understands.
     p = {"text": text, "repos": repos, "words": len(text.split()),
-         "target": target, "work_type": work_type}
-    level, score, factors = estimate_difficulty(p)
+         "target": target, "work_type": work_type,
+         "declared_difficulty": declared.get("difficulty")}
+    level, score, factors, estimated = effective_difficulty(p)
 
-    autonomy = infer_autonomy(level, factors)
-    priority = infer_priority(text)
+    autonomy = declared.get("autonomy") or infer_autonomy(level, factors)
+    priority = declared.get("priority") or infer_priority(text)
     workflow = infer_workflow(target, repos)
 
-    title = _title(text)
+    title = _title(strip_declarations(text, decl_spans))
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
     if folder == "triage":
@@ -295,6 +314,7 @@ def analyse(text: str, source: str):
         "title": title,
         "work_type": work_type,
         "classification_confidence": confidence,
+        "work_type_source": "declared" if declared.get("type") else "inferred",
         "type_signals": type_hits,
         "target": target,
         "target_display": target_display,
@@ -302,12 +322,21 @@ def analyse(text: str, source: str):
         "difficulty": level,
         "difficulty_score": score,
         "difficulty_factors": factors,
+        "difficulty_declared": declared.get("difficulty"),
+        "difficulty_derived": estimated,
+        "difficulty_disagreement": (
+            "difficulty" in declared and estimated != level
+        ),
+        "difficulty_source": "declared" if "difficulty" in declared else "estimated",
         "autonomy": autonomy,
+        "autonomy_source": "declared" if "autonomy" in declared else "inferred",
         "priority": priority,
+        "priority_source": "declared" if "priority" in declared else "inferred",
+        "declared_fields": declared,
         "workflow": workflow,
         "proposed_path": proposed,
         "header": header,
-        "risks": _risks(level, factors, confidence, target),
+        "risks": _risks(level, factors, confidence, target, declared, estimated),
         "next_action": _next_action(proposed, confidence),
     }
 
@@ -322,8 +351,16 @@ def _render_header(title, work_type, target_display, repos, level, autonomy, pri
     return "\n".join(lines)
 
 
-def _risks(level, factors, confidence, target):
+def _risks(level, factors, confidence, target, declared=None, estimated=None):
     out = []
+    declared = declared or {}
+    if "difficulty" in declared and declared["difficulty"] != estimated:
+        out.append(f"Difficulty {declared['difficulty']} declared in the raw text "
+                   f"— it overrides the heuristic estimate ({estimated}).")
+    for field in ("autonomy", "priority"):
+        if field in declared:
+            out.append(f"{field.capitalize()} {declared[field]} declared in the raw "
+                       f"text — taken as written, not inferred.")
     if confidence == "low":
         out.append("Low classification confidence — filed to triage/ for a human "
                    "to re-home once the work type is clear.")
@@ -1545,15 +1582,24 @@ def _derive_fields(text: str, work_type: str, target: str) -> dict:
     tgt = normalise_repo(target) if target != "-" else "?"
     if tgt in KNOWN_REPOS and tgt not in repos:
         repos = sorted(set(repos) | {tgt})
+    # Same precedence as conception: what the author already stated wins.
+    inline, _spans = declared_inline(text)
+    header = declared_header(text)
+    declared = {k: v for k, v in {
+        "difficulty": header["declared_difficulty"] or inline.get("difficulty"),
+        "autonomy": header["declared_autonomy"] or inline.get("autonomy"),
+        "priority": header["priority"] or inline.get("priority"),
+    }.items() if v}
     p = {"text": text, "repos": repos, "words": len(text.split()),
-         "target": target, "work_type": work_type}
-    level, _score, factors = estimate_difficulty(p)
+         "target": target, "work_type": work_type,
+         "declared_difficulty": declared.get("difficulty")}
+    level, _score, factors, _derived = effective_difficulty(p)
     return {
         "type": work_type,
         "target": REPO_DISPLAY.get(tgt, target if target != "-" else "?"),
         "difficulty": level,
-        "autonomy": infer_autonomy(level, factors),
-        "priority": infer_priority(text),
+        "autonomy": declared.get("autonomy") or infer_autonomy(level, factors),
+        "priority": declared.get("priority") or infer_priority(text),
         "status": "formalised",
     }
 
@@ -2215,12 +2261,19 @@ def emit_human(d: dict):
     print("== IntakeDecision ==")
     print(f"Source:               {d['source']}")
     print(f"Title:                {d['title']}")
-    print(f"Work-type:            {d['work_type']}  (confidence: {d['classification_confidence']})")
+    wt_mark = ("declared" if d.get("work_type_source") == "declared"
+               else f"confidence: {d['classification_confidence']}")
+    print(f"Work-type:            {d['work_type']}  ({wt_mark})")
     print(f"Target:               {d['target_display']}")
     print(f"Repos resolved:       {', '.join(d['repos_affected']) or '(none)'}")
-    print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
-    print(f"Autonomy:             {d['autonomy']}")
-    print(f"Priority:             {d['priority']}")
+    if d.get("difficulty_source") == "declared":
+        print(f"Difficulty:           {d['difficulty']} (declared; heuristic derived "
+              f"{d['difficulty_derived']}, score {d['difficulty_score']})")
+    else:
+        print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
+    for field in ("autonomy", "priority"):
+        mark = " (declared)" if d.get(f"{field}_source") == "declared" else ""
+        print(f"{field.capitalize() + ':':<22}{d[field]}{mark}")
     print(f"Workflow:             {d['workflow']}")
     print(f"Proposed path:        {d['proposed_path']}")
     print("Header to be written:")
