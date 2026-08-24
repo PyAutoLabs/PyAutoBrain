@@ -381,9 +381,17 @@ summary::marker{color:var(--accent)}
 /* --- facet pills: the backlog, scannable by colour --------------------- */
 .facets{color:var(--muted);font-size:.85em}
 .tags{display:block;margin-top:.32rem;line-height:1.9}
-.pill{display:inline-block;padding:.06em .5em;border-radius:999px;
+/* A pill is a LABEL, and a label that will not fit is elided, never allowed
+   to push the page sideways. `nowrap` is what makes a chip read as a chip, so
+   it is also the one thing the page-wide wrap guard above cannot reach: an
+   over-long value (a board handing a whole log sentence to a facet) used to
+   run a chip a thousand pixels wide. The row's prose carries the meaning; the
+   chip carries the word. `vertical-align:bottom` because `overflow:hidden`
+   moves an inline-block's baseline to its bottom edge. */
+.pill{display:inline-block;max-width:100%%;padding:.06em .5em;border-radius:999px;
  font-size:.74em;font-weight:650;letter-spacing:.015em;white-space:nowrap;
- vertical-align:.09em;border:1px solid var(--edge);background:var(--tint);
+ overflow:hidden;text-overflow:ellipsis;
+ vertical-align:bottom;border:1px solid var(--edge);background:var(--tint);
  color:var(--accent)}
 .pill+.pill{margin-left:.28rem}
 .pill.n{border-color:var(--line);background:var(--btn);color:var(--muted)}
