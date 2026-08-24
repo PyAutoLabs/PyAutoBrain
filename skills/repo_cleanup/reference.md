@@ -125,5 +125,8 @@ open PR that are merged to `main`
 (`gh api repos/<owner>/<repo>/compare/main...<branch>` → `ahead_by == 0`) as
 **candidates** only. Do not delete remotely; recommend running on a local-dev
 checkout to complete the sweep (which re-audits against local state). Skip
-stash/dirty sections. Owner mapping: PyAutoConf/PyAutoFit → `rhayes777`, else
-`Jammy2211`.
+stash/dirty sections. Resolve each repo's `<owner>/<repo>` from the `github:`
+field in `PyAutoMind/repos.yaml` (the body map is the single source of repo
+identity) — do not assume a default owner. Nearly every repo is under
+`PyAutoLabs/`; the pre-migration `rhayes777/` and `Jammy2211/` homes are gone
+bar the two the body map still records.

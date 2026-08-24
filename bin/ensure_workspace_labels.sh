@@ -15,10 +15,9 @@
 #
 # Exits 0 on success, 1 if any API call fails.
 #
-# Repos with non-PyAutoLabs orgs:
-#   - Jammy2211/euclid_strong_lens_modeling_pipeline
-#   - rhayes777/PyAutoConf, rhayes777/PyAutoFit
-# All others are under PyAutoLabs/.
+# Every repo below is under PyAutoLabs/ — the pre-migration rhayes777/ and
+# Jammy2211/ homes are gone. Owners come from the body map's `github:` field
+# (PyAutoMind/repos.yaml); never hardcode a legacy owner default.
 
 set -euo pipefail
 

@@ -205,7 +205,7 @@ REFRESH_CMD = {
 }
 
 def repo_of(reason):
-    # "PyAutoConf: on branch ..." -> "PyAutoConf"; else None.
+    # "PyAutoNerves: on branch ..." -> "PyAutoNerves"; else None.
     m = re.match(r"\s*([A-Za-z0-9_\-]+)\s*:", reason)
     return m.group(1) if m else None
 

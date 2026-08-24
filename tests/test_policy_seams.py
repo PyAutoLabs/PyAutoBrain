@@ -46,6 +46,17 @@ def test_aliases_normalise_known_mentions():
     assert _sizing.normalise_repo("PyAutoFit") == "autofit"
 
 
+def test_nerves_spellings_share_one_canonical_key():
+    # PyAutoBrain#267: before the rename cleanup `@PyAutoConf` normalised to
+    # `autoconf` and `@PyAutoNerves` to `pyautonerves` — two dead keys for one
+    # repo, neither of them in the body map. All four spellings must land on the
+    # single key the policy maps are written against.
+    for mention in ("PyAutoNerves", "@autonerves", "PyAutoConf", "@autoconf"):
+        assert _sizing.normalise_repo(mention) == "autonerves", mention
+    # ...and that key must be a repo the organism actually knows about.
+    assert "autonerves" in _sizing.KNOWN_REPOS
+
+
 def test_memory_wikis_route_science_vocabulary():
     wikis = _sizing.MEMORY_WIKIS
     # Keys are the wiki/<domain>/ names (the *_wiki root layout is retired).
@@ -68,7 +79,9 @@ def test_feature_default_wiki_loads():
     import _feature
 
     assert _feature.TARGET_DEFAULT_WIKI["autolens"] == "lensing"
-    # The Nerves rename is covered both ways (legacy autoconf + autonerves).
+    # The Nerves repo resolves under every spelling, via the alias table rather
+    # than duplicate wiki rows (PyAutoBrain#267).
+    assert _feature.TARGET_DEFAULT_WIKI[_sizing.normalise_repo("PyAutoConf")] == "methods"
     assert _feature.TARGET_DEFAULT_WIKI["autonerves"] == "methods"
 
 
@@ -77,6 +90,11 @@ def test_refactor_test_witness_loads():
     import _refactor
 
     assert _refactor.TEST_WITNESS["autofit"] == "PyAutoFit/test_autofit"
+    # PyAutoBrain#267: the Nerves suite is real (test_autonerves, 157 tests), so
+    # a refactor touching it must not be reported `[unwitnessed: pyautonerves]`.
+    assert _refactor.TEST_WITNESS["autonerves"] == "PyAutoNerves/test_autonerves"
+    for mention in ("PyAutoNerves", "@autonerves", "PyAutoConf"):
+        assert _sizing.normalise_repo(mention) in _refactor.TEST_WITNESS, mention
 
 
 def test_release_policy_loads():
@@ -85,6 +103,22 @@ def test_release_policy_loads():
 
     assert "PyAutoLens" in activity_gate.RELEASE_RELEVANT_REPOS
     assert "PyAutoMind" not in activity_gate.RELEASE_RELEVANT_REPOS
+
+
+def test_release_relevant_repos_all_exist_in_the_body_map():
+    """The drift guard PyAutoBrain#267 was missing.
+
+    ``nightly.sh`` fetches ``repos/<org>/$repo/commits`` for every name in
+    this list verbatim. A repo renamed in the body map but not here leaves the
+    gate polling a name that only a GitHub rename redirect could answer — which
+    is how ``PyAutoConf`` survived the Nerves rename. Pin the set to identity.
+    """
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "release"))
+    import activity_gate
+
+    known = set(_sizing._body_map_categories())
+    unknown = [r for r in activity_gate.RELEASE_RELEVANT_REPOS if r not in known]
+    assert not unknown, f"not in PyAutoMind/repos.yaml: {unknown}"
 
 
 def test_nightly_tag_repo_resolves():
