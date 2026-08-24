@@ -11,9 +11,11 @@ repo_aliases:
   al: autolens
   pyautoarray: autoarray
   pyautofit: autofit
-  pyautoconf: autoconf
   pyautogalaxy: autogalaxy
   pyautolens: autolens
+  pyautonerves: autonerves
+  autoconf: autonerves      # back-compat: the Nerves package was renamed autoconf → autonerves
+  pyautoconf: autonerves    # back-compat: the Nerves repo was renamed PyAutoConf → PyAutoNerves
   pyautobuild: pyautohands  # back-compat: the Hands repo was renamed PyAutoBuild → PyAutoHands
 
 # Which body-map categories mean "library-flow" / "workspace-flow" /
@@ -67,14 +69,12 @@ target_default_wiki:
   autogalaxy: galaxies
   autofit: methods
   autoarray: methods
-  autoconf: methods     # legacy name — the Nerves repo was PyAutoConf
-  autonerves: methods
-  pyautonerves: methods
+  autonerves: methods   # the PyAutoConf/autoconf spellings alias here
 
 # Refactor conductor: normalised repo -> the test dir that witnesses
 # behaviour preservation.
 test_witness:
-  autoconf: PyAutoConf/test_autoconf
+  autonerves: PyAutoNerves/test_autonerves
   autofit: PyAutoFit/test_autofit
   autoarray: PyAutoArray/test_autoarray
   autogalaxy: PyAutoGalaxy/test_autogalaxy
@@ -84,7 +84,7 @@ test_witness:
 # Release policy (NOT identity: the released set is a deliberate subset of
 # the body map's libraries — e.g. PyAutoReduce is not in the nightly matrix).
 release:
-  relevant_repos: [PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens,
+  relevant_repos: [PyAutoNerves, PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens,
                    autofit_workspace, autogalaxy_workspace, autolens_workspace,
                    HowToFit, HowToGalaxy, HowToLens]
   tag_repo: PyAutoLabs/PyAutoLens

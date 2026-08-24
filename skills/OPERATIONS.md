@@ -38,7 +38,7 @@ gets rediscovered twice, it belongs here.
 - **`PYAUTO_TEST_MODE` namespaces output under `output/test_mode/`.** Any
   manually composed output path must include that segment or asserts read the
   wrong tree.
-- **autoconf lowercases YAML dict keys** (`muJy` → `mujy`). Keep config keys
+- **autonerves lowercases YAML dict keys** (`muJy` → `mujy`). Keep config keys
   and the registries that read them snake-case-lowercase from the start.
 - **New library `output.yaml` keys need mirroring** into each workspace's
   config copy — workspace configs override library defaults, so a key added
