@@ -139,8 +139,24 @@ def test_every_work_type_in_the_taxonomy_has_a_glyph():
     assert set(_sizing.WORK_TYPES) == set(_theme.WORK_TYPE_GLYPHS)
 
 
+def test_a_board_may_name_its_own_pill_tone():
+    """`_TONES` is the Mind's facet vocabulary. A board whose rows carry other
+    facets — a workflow conclusion, a Heart verdict — says its tone rather
+    than teaching that table words the Mind never uses."""
+    row = _theme.pills(("ExampleOrg/RepoA", ""), ("failure", "r"))
+    assert '<span class="pill">ExampleOrg/RepoA</span>' in row
+    assert '<span class="pill r">failure</span>' in row
+    # An explicit tone wins over the table, in both directions.
+    assert '<span class="pill n">high</span>' in _theme.pills(
+        ("autoarray", ""), ("high", "n"))
+    # Bare strings are untouched: first is identity, the rest look themselves up.
+    assert _theme.pills("autoarray", "high") == _theme.pills(
+        ("autoarray", ""), ("high", "r"))
+
+
 def test_pills_escape_their_values_and_vanish_when_empty():
     assert _theme.pills("-", "-", "-", "-") == ""
+    assert _theme.pills(("-", "r"), ("", "g")) == ""
     assert "&lt;b&gt;" in _theme.pills("<b>")
 
 
