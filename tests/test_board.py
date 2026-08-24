@@ -26,9 +26,9 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SURFACE_KEYS = {
-    "generated", "org", "overnight", "heart", "heart_blockers", "hands",
-    "versions", "community", "resume", "open_issues", "hygiene", "devbox",
-    "autonomy", "doors", "boards", "degraded", "history",
+    "generated", "org", "overnight", "heart", "heart_blockers", "performance",
+    "hands", "versions", "community", "resume", "open_issues", "hygiene",
+    "devbox", "autonomy", "doors", "boards", "degraded", "history",
 }
 
 AUTONOMY_LOG = """\
@@ -40,6 +40,43 @@ AUTONOMY_LOG = """\
 | 2026-08-02 | second-task (#2) | supervised | tests pass | amended |
 """
 
+HEART_PERFORMANCE = {
+    "schema": 1,
+    "gates": [
+        {"repo": "RepoA", "workflow": "Smoke Tests", "median_s": 612.0,
+         "pr_median_s": 640.0, "max_s": 745.0, "runs_counted": 14,
+         "state": "warn", "spark": "▁▂▄▅",
+         "actions_url": "https://example.invalid/RepoA/actions",
+         "prompt": "/bug smoke gate RepoA: median 9m12s over 14 runs, was 7m"},
+        {"repo": "RepoB", "workflow": "Unit Tests", "median_s": 61.0,
+         "max_s": 74.0, "runs_counted": 12, "state": "ok", "prompt": None,
+         "actions_url": "https://example.invalid/RepoB/actions"},
+    ],
+    "history": [],
+    # No hang events by default: the shared fixture is the all-green morning
+    # the verdict tests assert against. HEART_BOARD_WITH_EVENT adds one.
+    "events": [],
+    "no_run": {
+        "totals": {"slow": 21, "needs_fix": 4, "permanent": 46,
+                   "unmeasured_slow": 7},
+        "repos": [],
+        "rows": [{"repo": "RepoA", "entry": "scripts/x.py", "marker": "SLOW",
+                  "date": "2026-07-14", "measured": False,
+                  "prompt": "/bug no_run: RepoA scripts/x.py SLOW since "
+                            "2026-07-14 with no measurement — retime it"}],
+    },
+}
+
+HEART_PERFORMANCE_EVENT = {
+    "kind": "timed_out",
+    "repo": "RepoA",
+    "workflow": "Smoke Tests",
+    "run_url": "https://example.invalid/run/12",
+    "duration_s": 300,
+    "prompt": "/bug kill timer: RepoA Smoke Tests TIMEOUT (300s) on "
+              "https://example.invalid/run/12",
+}
+
 HEART_BOARD_JSON = {
     "schema_version": 2,
     "blockers": [{
@@ -50,7 +87,17 @@ HEART_BOARD_JSON = {
         "run_url": "https://example.invalid/run/9",
         "prompt": "/bug Heart board: RepoA nightly smoke red — https://example.invalid/run/9",
     }],
+    # Additive to schema v2 — an older Heart publish simply omits it.
+    "performance": HEART_PERFORMANCE,
 }
+
+HEART_BOARD_WITH_EVENT = {
+    **HEART_BOARD_JSON,
+    "performance": {**HEART_PERFORMANCE, "events": [HEART_PERFORMANCE_EVENT]},
+}
+
+HEART_BOARD_NO_PERFORMANCE = {
+    k: v for k, v in HEART_BOARD_JSON.items() if k != "performance"}
 
 BRAIN_PREV_BOARD_JSON = {
     "history": [{"date": "2026-08-20", "need_you": 3}],
@@ -118,9 +165,10 @@ def _default_fixtures(**overrides):
     return fx
 
 
-def _fabricate(tmp_path, fixtures):
+def _fabricate(tmp_path, fixtures, heart_board=None):
     """A PYAUTO_ROOT with a fabricated Mind, file:// sibling-board badges, and
-    a stub gh serving per-endpoint fixture JSON, logging every invocation."""
+    a stub gh serving per-endpoint fixture JSON, logging every invocation.
+    `heart_board` overrides the Heart's published machine surface."""
     mind = tmp_path / "PyAutoMind"
     (mind / "active").mkdir(parents=True)
     (mind / "repos.yaml").write_text(REPOS_YAML)
@@ -146,7 +194,7 @@ def _fabricate(tmp_path, fixtures):
     # The Heart's machine surface (structured blockers) and the Brain's own
     # previous page (the self-carrying trend history).
     (pages / board_cfg["heart_board"] / "board.json").write_text(
-        json.dumps(HEART_BOARD_JSON))
+        json.dumps(heart_board if heart_board is not None else HEART_BOARD_JSON))
     brain_repo = (board_cfg.get("boards") or {}).get("brain", "PyAutoBrain")
     (pages / brain_repo).mkdir(parents=True, exist_ok=True)
     (pages / brain_repo / "board.json").write_text(
@@ -385,6 +433,77 @@ def test_heart_blockers_render_with_their_own_prompts(tmp_path):
     md = _run([], tmp_path, stub).stdout
     assert blocker["prompt"] in md
     assert "Shipped: **GREEN**" in md  # the Hands headline joined the section
+
+
+def test_test_performance_rows_carry_their_own_prompts(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_WITH_EVENT)
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    perf = s["performance"]
+    assert (perf["gates_total"], perf["gates_warn"], perf["events"]) == (2, 1, 1)
+    assert perf["no_run_totals"]["unmeasured_slow"] == 7
+    assert perf["board_url"].endswith("/PyAutoHeart/")
+    # Worst first: the hang event, then the slowed gate, then the SLOW marker
+    # nobody ever measured. A healthy gate is not a row.
+    assert [f["prompt"] for f in perf["flagged"]] == [
+        HEART_PERFORMANCE_EVENT["prompt"],
+        HEART_PERFORMANCE["gates"][0]["prompt"],
+        HEART_PERFORMANCE["no_run"]["rows"][0]["prompt"],
+    ]
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert "⏱ Test performance" in page
+    # Every row's chip is the Heart's own prompt, verbatim — never re-derived.
+    for f in perf["flagged"]:
+        assert f'data-cmd="{f["prompt"]}"' in page
+    assert 'href="https://example.invalid/run/12"' in page
+    assert "Unit Tests" not in page  # the ok gate carries nothing to act on
+    md = _run([], tmp_path, stub).stdout
+    assert "## ⏱ Test performance" in md
+    for f in perf["flagged"]:
+        assert f"`{f['prompt']}`" in md
+
+
+def test_a_hang_event_is_attention_not_blocking(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_WITH_EVENT)
+    badge = json.loads(_run(["--badge"], tmp_path, stub).stdout)
+    # Timing rows stay advisory; a run that hung is a morning fact.
+    assert badge["color"] == "orange"
+    assert badge["message"] == "1 need you"
+    assert "🚨 Blocking" not in _run([], tmp_path, stub).stdout
+
+
+def test_nothing_flagged_renders_one_quiet_row(tmp_path):
+    quiet = {**HEART_PERFORMANCE,
+             "gates": [{**g, "state": "ok"} for g in HEART_PERFORMANCE["gates"]],
+             "no_run": {**HEART_PERFORMANCE["no_run"], "rows": []}}
+    stub = _fabricate(tmp_path, _default_fixtures(),
+                      {**HEART_BOARD_JSON, "performance": quiet})
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert "2 gates timed · nothing flagged" in page
+    assert "full timings ↗" in page
+    assert "2 gates timed · nothing flagged" in _run([], tmp_path, stub).stdout
+
+
+def test_heart_board_without_performance_renders_no_section(tmp_path):
+    """An older Heart publish: no section, and NOT a degraded row."""
+    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_NO_PERFORMANCE)
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    assert s["performance"] is None
+    assert s["heart_blockers"] == HEART_BOARD_JSON["blockers"]  # untouched
+    assert not any("performance" in d or "board.json unreachable" in d
+                   for d in s["degraded"])
+    assert "Test performance" not in _run(["--html"], tmp_path, stub).stdout
+    assert "Test performance" not in _run([], tmp_path, stub).stdout
+
+
+def test_a_malformed_performance_block_never_breaks_the_render(tmp_path):
+    """The producer is a sibling organ — field drift costs a row, not a page."""
+    stub = _fabricate(tmp_path, _default_fixtures(), {
+        **HEART_BOARD_JSON,
+        "performance": {"gates": "not-a-list", "events": None,
+                        "no_run": {"rows": [{"repo": "RepoA"}, "junk"]}}})
+    r = _run(["--html"], tmp_path, stub)
+    assert r.returncode == 0, r.stderr
+    assert "0 gates timed · nothing flagged" in r.stdout
 
 
 def test_blocked_gate_annotation_renders_inline(tmp_path):

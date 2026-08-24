@@ -226,19 +226,25 @@ def fetch_badge(pages_base, repo):
 
 
 HEART_BLOCKER_CAP = 5
+PERF_FLAGGED_CAP = 5
 
 
-def fetch_heart_blockers(pages_base, repo, degraded):
-    """The Heart board's published machine surface (board.json, schema v2):
-    structured blockers, each already carrying its own /bug prompt — rendered
-    here verbatim, never re-derived. [] when the surface is unreachable or
-    carries no blockers (a GREEN morning)."""
+def fetch_heart_board(pages_base, repo, degraded):
+    """The Heart board's published machine surface (board.json, schema v2) —
+    ONE read, two consumers (the blockers and the performance block below).
+    None when unreachable; the degraded row is recorded here, once."""
     board = _fetch_json(f"{pages_base}/{repo}/board.json")
     if board is None:
         degraded.append("readiness: Heart board.json unreachable "
                         "(blockers shown on the Heart board only)")
-        return []
-    blockers = board.get("blockers") or []
+    return board
+
+
+def extract_heart_blockers(board):
+    """The structured blockers, each already carrying its own /bug prompt —
+    rendered here verbatim, never re-derived. [] when the surface is
+    unreachable or carries no blockers (a GREEN morning)."""
+    blockers = (board or {}).get("blockers") or []
     return [{
         "text": str(b.get("text", ""))[:160],
         "severity": b.get("severity"),
@@ -247,6 +253,115 @@ def fetch_heart_blockers(pages_base, repo, degraded):
         "run_url": b.get("run_url"),
         "prompt": b.get("prompt"),
     } for b in blockers[:HEART_BLOCKER_CAP]]
+
+
+def fetch_heart_blockers(pages_base, repo, degraded):
+    """Fetch-and-extract in one call (the blockers-only door)."""
+    return extract_heart_blockers(fetch_heart_board(pages_base, repo, degraded))
+
+
+def _as_list(value):
+    return value if isinstance(value, list) else []
+
+
+def _as_dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _num(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def secs_label(seconds):
+    """Seconds -> a compact duration (`9m12s`, `45s`); '' when unreadable."""
+    s = _num(seconds)
+    if s is None:
+        return ""
+    s = int(round(s))
+    return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
+
+
+def _perf_where(row):
+    """The row's identity — `RepoA/Smoke Tests`, `RepoA/scripts/x.py` — from
+    whichever of the producer's keys are present."""
+    repo = str(row.get("repo") or "").strip()
+    what = str(row.get("workflow") or row.get("entry") or "").strip()
+    return "/".join(b for b in (repo, what) if b) or "?"
+
+
+def extract_heart_performance(board, board_url=""):
+    """The Heart board's additive `performance` block, compacted to the
+    morning headline: the few worst flagged rows — hang/kill events first,
+    then slowed gates, then SLOW no_run markers that were never measured —
+    each carrying its OWN prompt, rendered verbatim like the blockers, plus
+    the counts behind them.
+
+    None when the block is absent: an older Heart publish simply renders no
+    section (an unreachable board.json is already a degraded row). Measurement
+    lives in the Heart; this end only reads it, so every access is a .get with
+    a default — a producer-side rename costs a field, never the render."""
+    perf = _as_dict(board).get("performance")
+    if not isinstance(perf, dict):
+        return None
+    gates = [g for g in _as_list(perf.get("gates")) if isinstance(g, dict)]
+    events = [e for e in _as_list(perf.get("events")) if isinstance(e, dict)]
+    no_run = _as_dict(perf.get("no_run"))
+    rows = [r for r in _as_list(no_run.get("rows")) if isinstance(r, dict)]
+
+    warn = [g for g in gates if str(g.get("state", "")).lower() == "warn"]
+    warn.sort(key=lambda g: _num(g.get("median_s")) or 0.0, reverse=True)
+    # A SLOW marker is not evidence of slowness: the ones with no measurement
+    # behind them are the worst rows here, oldest first.
+    unmeasured = [r for r in rows if not r.get("measured")
+                  and str(r.get("marker", "")).upper() == "SLOW"]
+    unmeasured.sort(key=lambda r: str(r.get("date") or ""))
+
+    flagged = []
+    for e in events:
+        kind = str(e.get("kind") or "event").replace("_", " ")
+        took = secs_label(e.get("duration_s"))
+        flagged.append({
+            "text": (f"{kind}: {_perf_where(e)}"
+                     + (f" after {took}" if took else ""))[:160],
+            "url": e.get("run_url"),
+            "prompt": e.get("prompt"),
+        })
+    for g in warn:
+        bits = []
+        for label, key in (("median", "median_s"), ("PR", "pr_median_s"),
+                           ("max", "max_s")):
+            value = secs_label(g.get(key))
+            if value:
+                bits.append(f"{label} {value}")
+        if g.get("runs_counted"):
+            bits.append(f"{g['runs_counted']} runs")
+        if g.get("spark"):
+            bits.append(str(g["spark"]))
+        flagged.append({
+            "text": (f"{_perf_where(g)} slowed"
+                     + (f" — {' · '.join(bits)}" if bits else ""))[:160],
+            "url": g.get("actions_url"),
+            "prompt": g.get("prompt"),
+        })
+    for r in unmeasured:
+        since = f" since {r['date']}" if r.get("date") else ""
+        flagged.append({
+            "text": (f"{_perf_where(r)} {str(r.get('marker') or 'SLOW')}"
+                     f"{since}, never measured")[:160],
+            "url": r.get("url"),
+            "prompt": r.get("prompt"),
+        })
+    return {
+        "flagged": flagged[:PERF_FLAGGED_CAP],
+        "gates_total": len(gates),
+        "gates_warn": len(warn),
+        "events": len(events),
+        "no_run_totals": _as_dict(no_run.get("totals")),
+        "board_url": board_url,
+    }
 
 
 def collect_versions(stamps, org, reference_repo, degraded):
@@ -529,7 +644,12 @@ def collect():
     heart = fetch_badge(pages_base, heart_repo)
     if heart is None:
         degraded.append("readiness: Heart board badge unreachable")
-    heart_blockers = fetch_heart_blockers(pages_base, heart_repo, degraded)
+    # One read of the Heart's machine surface, two consumers: the blockers
+    # and the test-performance block.
+    heart_board = fetch_heart_board(pages_base, heart_repo, degraded)
+    heart_blockers = extract_heart_blockers(heart_board)
+    performance = extract_heart_performance(
+        heart_board, f"{pages_base}/{heart_repo}/")
     hands = fetch_badge(pages_base, board_family.get("hands", "PyAutoHands"))
     versions = collect_versions(
         board_cfg.get("version_stamps", []), org,
@@ -546,6 +666,7 @@ def collect():
         "overnight": overnight,
         "heart": heart,
         "heart_blockers": heart_blockers,
+        "performance": performance,
         "hands": hands,
         "versions": versions,
         "community": community,
@@ -584,6 +705,12 @@ def verdict(data):
         blocking.append(f"Heart verdict {heart_msg}")
     elif heart_msg and not heart_msg.startswith("GREEN"):
         attention.append(f"Heart verdict {heart_msg}")
+    # Timing rows are advisory, never gating — but a run that hung or was
+    # killed is a morning fact, so it joins the attention tier.
+    events = (data.get("performance") or {}).get("events") or 0
+    if events:
+        attention.append(f"{events} CI hang event(s) flagged on the "
+                         "test-performance surface")
     if data["versions"]["drift"]:
         attention.append(f"{data['versions']['drift']} version stamp(s) off consensus")
     waiting = ((data["community"] or {}).get("counts") or {}).get("awaiting_response", 0)
@@ -679,6 +806,21 @@ def render_md(data):
         L.append(f"- Shipped: **{data['hands'].get('message', '?')}** — "
                  f"[Hands board]({data['boards'].get('hands', '')})")
     L.append("")
+    perf = data.get("performance")
+    if perf is not None:
+        L.append("## ⏱ Test performance")
+        if perf.get("flagged"):
+            for f in perf["flagged"]:
+                line = f"- {f['text']}"
+                if f.get("url"):
+                    line += f" — [run]({f['url']})"
+                L.append(line)
+                if f.get("prompt"):
+                    L.append(f"  - `{f['prompt']}`")
+        else:
+            L.append(f"- ✓ {perf.get('gates_total', 0)} gates timed · nothing "
+                     f"flagged — [full timings]({perf.get('board_url', '')})")
+        L.append("")
     v = data["versions"]
     L.append("## 🏷️ Version consistency")
     if v["consensus"]:
@@ -908,6 +1050,27 @@ def render_html(data):
         H.append(_plain(
             f'Shipped: <b>{esc(data["hands"].get("message", "?"))}</b> — '
             f'<a href="{_attr(hands_url)}">Hands board ↗</a>'))
+
+    # The Heart's test-performance block, rendered as it arrived — the rows
+    # carry their own prompts, this end never re-derives one.
+    perf = data.get("performance")
+    if perf is not None:
+        H.append("<h2>⏱ Test performance</h2>")
+        if perf.get("flagged"):
+            for f in perf["flagged"]:
+                link = (f' <a href="{_attr(f["url"])}">run ↗</a>'
+                        if f.get("url") else "")
+                text = f'{esc(f["text"])}{link}'
+                if f.get("prompt"):
+                    H.append(_row(text, f["prompt"]))
+                else:
+                    H.append(_plain(text))
+        else:
+            timings_url = perf.get("board_url") or heart_url
+            H.append(_plain(
+                f'<span class="ok">✓</span> {perf.get("gates_total", 0)} gates '
+                f'timed · nothing flagged — '
+                f'<a href="{_attr(timings_url)}">full timings ↗</a>'))
 
     v = data["versions"]
     H.append("<h2>🏷️ Version consistency</h2>")

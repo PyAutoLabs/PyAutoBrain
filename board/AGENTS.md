@@ -18,6 +18,7 @@ copy-for-Claude payload:
 | ⌨ Morning sync | `bin/morning.sh` (local) | the terminal command itself |
 | 🌙 Overnight | scheduled workflows (`config/policy.yaml board: overnight_jobs`); a ⏸ blocked gate's ::warning annotation is rendered inline | `/bug … — <run url>` on failures |
 | ❤️ Readiness & release | the Heart board's `badge.json` + `board.json` (structured blockers, each carrying its OWN `/bug` prompt — rendered verbatim, never re-derived) and the Hands badge | `/health`, the blockers' own prompts |
+| ⏱ Test performance | the Heart board's published `performance` block — rendered verbatim, never re-derived | each row's own prompt |
 | 🏷️ Version consistency | the coupled-set stamps (`board: version_stamps`) | `/bug version drift: …` |
 | 💬 Community | the Ears (`community scan`, reused wholesale) — every open conversation gets a row | `/community`, `/community triage <ref>` |
 | 🔄 Resume | the Mind's registry + generated counts; pending-release PRs | `/start_dev …`, `/prm <url>` |
