@@ -1,0 +1,122 @@
+{
+  "hygiene": {
+    "rows": [
+      {
+        "count": null,
+        "delegate": "/refactor",
+        "mode": "perf",
+        "status": "deferred",
+        "summary": ""
+      },
+      {
+        "count": 1,
+        "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
+        "mode": "tidy",
+        "status": "debris",
+        "summary": "13/13 code repos: 1 stale branches, 0 stashes, 0 [gone] refs, 0 dirty checkouts"
+      },
+      {
+        "count": 0,
+        "delegate": "/refactor",
+        "mode": "crlf",
+        "status": "clean",
+        "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 17/18 scanned repos"
+      },
+      {
+        "count": 2,
+        "delegate": "/refactor",
+        "mode": "docstrings",
+        "status": "finding",
+        "summary": "2 adjacent documentation boundaries in 2 files across 2/7 repos; 0 parse errors"
+      },
+      {
+        "count": 1,
+        "delegate": "/refactor",
+        "mode": "escapes",
+        "status": "finding",
+        "summary": "1 script(s) across 7 repo(s) with LaTeX damaged by string escapes: 2 warned, 1 silent (0 file(s) have ONLY silent damage, which a warning-only sweep would miss); 0 read error(s)"
+      },
+      {
+        "count": 5,
+        "delegate": "/refactor",
+        "mode": "refs",
+        "status": "finding",
+        "summary": "5 folder-list defects (5 dead references, 0 undocumented folders) in 1 file across 1/7 repos; 284 unresolvable refs skipped"
+      },
+      {
+        "count": 0,
+        "delegate": "/refactor",
+        "mode": "optdeps",
+        "status": "clean",
+        "summary": "clean: every smoke-listed script using a gated API has its skip guard"
+      },
+      {
+        "count": 0,
+        "delegate": "/bug",
+        "mode": "extras",
+        "status": "clean",
+        "summary": "clean: the smoke install set reaches every dependency the libraries declare optional"
+      },
+      {
+        "count": 0,
+        "delegate": "/repo_cleanup",
+        "mode": "artifacts",
+        "status": "clean",
+        "summary": "0 tracked files look like leaked outputs/data across 17/18 scanned repos: (fix: gitignore + git rm --cached)"
+      },
+      {
+        "count": 0,
+        "delegate": "PyAutoBrain/bin/clean_slate.sh --packaging",
+        "mode": "packaging",
+        "status": "clean",
+        "summary": "0 ignored top-level packaging directories (*.egg-info/build) across 13/13 code repos present: (clean: DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging, then run without DRY_RUN)"
+      },
+      {
+        "count": null,
+        "delegate": "/cli_noise_clean",
+        "mode": "noise",
+        "status": "advisory",
+        "summary": "no cheap local signal \u2014 runs pytest + workspace scripts (PYAUTO_TEST_MODE=2)"
+      },
+      {
+        "count": 38,
+        "delegate": "/dep_audit",
+        "mode": "deps",
+        "status": "surface",
+        "summary": "38 capped/pinned specifiers across 8 pyproject.toml (13/13 code repos present)"
+      },
+      {
+        "count": 81,
+        "delegate": "/audit_docs",
+        "mode": "docs",
+        "status": "surface",
+        "summary": "33 api .rst files, 81 currentmodule directives across 4 repos with docs/api (13/13 code repos present)"
+      },
+      {
+        "count": 19,
+        "delegate": "/refactor",
+        "mode": "config",
+        "status": "surface",
+        "summary": "19 library config keys absent downstream (review/mirror): autofit_workspace:3 autogalaxy_workspace:15 autolens_workspace:1"
+      }
+    ]
+  },
+  "schema": 1,
+  "ts": "2026-08-24T14:17:40Z",
+  "worktrees": [
+    {
+      "ahead": 0,
+      "branch": "main",
+      "dirty": true,
+      "repo": "admin_jammy",
+      "stashes": 0
+    },
+    {
+      "ahead": 0,
+      "branch": "main",
+      "dirty": false,
+      "repo": "autolens_profiling",
+      "stashes": 1
+    }
+  ]
+}
