@@ -10,7 +10,9 @@ hard the work is. Both conductors that reason over Mind intent consult it:
   - the **Intake Agent** (`agents/conductors/intake/`) sizes a task at
     *conception* time and persists the estimate into the prompt's `Difficulty:`
     header, so the number you see up front is the same one the Feature Agent
-    acts on later.
+    acts on later. (Intake owns the header, so a difficulty the author declared
+    in the raw text overrides this estimate *there* — never in here: this
+    module stays the pure estimator.)
 
 Keeping the heuristic here — one definition, imported by both — is the whole
 point: a value Intake persists that the Feature Agent silently recomputed with a

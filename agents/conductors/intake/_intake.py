@@ -16,7 +16,9 @@ dev now); intake infers a work-type and *files a prompt* (defers). Low-confidenc
 classification lands in `triage/` — the existing unclassified bucket, reused not
 reinvented. Difficulty is OWNED here (scope is decided during the intake
 back-and-forth) and persisted into the header via the shared sizing faculty, so
-the Feature Agent later trusts the same number.
+the Feature Agent later trusts the same number — unless the author already
+declared one in the raw text, which outranks the estimate (see "human-declared
+header fields").
 
 Stdlib only. Writes ONLY under --apply; every other path is read-only.
 """
@@ -106,6 +108,80 @@ PRIORITY_HIGH = ["urgent", "asap", "blocker", "blocking", "critical", "important
                  "high priority", "must fix", "regression"]
 PRIORITY_LOW = ["someday", "nice to have", "eventually", "low priority", "minor",
                 "when there is time", "backlog"]
+
+
+# --- human-declared header fields ---------------------------------------------
+# Raw input often states its own scope: the ideas.md house style ends a bullet
+# with "Difficulty large, supervised.", and a pasted bug report may carry a
+# "Priority: high" line. A human who has thought about the work is better
+# evidence than a keyword heuristic that only sees words, so a declaration
+# WINS over the estimate here. The sizing faculty stays the pure estimator —
+# the override belongs to the agent that owns the header (this one).
+#
+# Declarations are read only from prose: fenced blocks and inline code spans are
+# masked out first, so a prompt *quoting* `Difficulty: large` (a repro, a
+# transcript) does not silently re-size itself.
+_DIFFICULTY_ALT = r"too[-\s]large|small|medium|large"
+_AUTONOMY_ALT = r"human[-\s]required|supervised|safe"
+_PRIORITY_ALT = r"high|normal|low"
+# Between key and value: a colon/equals, "is", or nothing at all ("Difficulty large").
+_DECL_SEP = r"\s*(?::|=|\bis\b)?\s*"
+_DECLARATION = re.compile(
+    rf"\bdifficulty{_DECL_SEP}({_DIFFICULTY_ALT})\b"
+    rf"(?:\s*[,/&]?\s*(?:and\s+)?({_AUTONOMY_ALT})\b)?"
+    rf"|\bautonomy{_DECL_SEP}({_AUTONOMY_ALT})\b"
+    rf"|\bpriority{_DECL_SEP}({_PRIORITY_ALT})\b",
+    re.IGNORECASE)
+_CODE_SPAN = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+
+
+def _mask_code(text: str) -> str:
+    """`text` with code spans blanked to spaces (offsets and lines preserved)."""
+    return _CODE_SPAN.sub(lambda m: re.sub(r"\S", " ", m.group(0)), text)
+
+
+def _declared_fields(text: str):
+    """(fields, spans) — the header fields the human stated in the raw text.
+
+    First declaration of each field wins; `spans` are its offsets in `text` so
+    the clause can be kept out of the derived title/slug.
+    """
+    fields, spans = {}, []
+    for m in _DECLARATION.finditer(_mask_code(text)):
+        difficulty, trailing_autonomy, autonomy, priority = m.groups()
+        if difficulty:
+            fields.setdefault("difficulty", _norm_level(difficulty))
+        if trailing_autonomy or autonomy:
+            fields.setdefault("autonomy", _norm_level(trailing_autonomy or autonomy))
+        if priority:
+            fields.setdefault("priority", _norm_level(priority))
+        spans.append(m.span())
+    return fields, spans
+
+
+def _norm_level(value: str) -> str:
+    """"Too Large" / "human required" -> the canonical hyphenated header value."""
+    return re.sub(r"[\s-]+", "-", value.strip().lower())
+
+
+def _strip_declarations(text: str, spans: list) -> str:
+    """`text` with the declaration clauses removed — for title derivation only.
+
+    The prompt body itself stays verbatim (word-vomit is intent); this exists so
+    "Fix the docstring. Difficulty: large." does not title the task — and name
+    the file — after its own difficulty declaration.
+    """
+    if not spans:
+        return text
+    chars = list(text)
+    for start, end in spans:
+        chars[start:end] = " " * (end - start)
+    out = "".join(chars)
+    # Tidy the punctuation the removed clause left stranded (title use only).
+    out = re.sub(r"[ \t]+", " ", out)
+    out = re.sub(r"\s+([.,;:])", r"\1", out)
+    out = re.sub(r"([.,;:])(\s*[.,;:])+", r"\1", out)
+    return out if re.search(r"\w", out) else text
 
 
 def _slug(text: str, maxwords: int = 7) -> str:
@@ -268,13 +344,17 @@ def analyse(text: str, source: str):
     # Build a prompt-shaped dict the shared sizing faculty understands.
     p = {"text": text, "repos": repos, "words": len(text.split()),
          "target": target, "work_type": work_type}
-    level, score, factors = estimate_difficulty(p)
+    estimated, score, factors = estimate_difficulty(p)
 
-    autonomy = infer_autonomy(level, factors)
-    priority = infer_priority(text)
+    # A human declaration outranks the estimate (see "human-declared header
+    # fields"); the estimate is kept alongside it so the review can see both.
+    declared, decl_spans = _declared_fields(text)
+    level = declared.get("difficulty", estimated)
+    autonomy = declared.get("autonomy") or infer_autonomy(level, factors)
+    priority = declared.get("priority") or infer_priority(text)
     workflow = infer_workflow(target, repos)
 
-    title = _title(text)
+    title = _title(_strip_declarations(text, decl_spans))
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
     if folder == "triage":
@@ -302,12 +382,17 @@ def analyse(text: str, source: str):
         "difficulty": level,
         "difficulty_score": score,
         "difficulty_factors": factors,
+        "difficulty_estimated": estimated,
+        "difficulty_source": "declared" if "difficulty" in declared else "estimated",
         "autonomy": autonomy,
+        "autonomy_source": "declared" if "autonomy" in declared else "inferred",
         "priority": priority,
+        "priority_source": "declared" if "priority" in declared else "inferred",
+        "declared_fields": declared,
         "workflow": workflow,
         "proposed_path": proposed,
         "header": header,
-        "risks": _risks(level, factors, confidence, target),
+        "risks": _risks(level, factors, confidence, target, declared, estimated),
         "next_action": _next_action(proposed, confidence),
     }
 
@@ -322,8 +407,16 @@ def _render_header(title, work_type, target_display, repos, level, autonomy, pri
     return "\n".join(lines)
 
 
-def _risks(level, factors, confidence, target):
+def _risks(level, factors, confidence, target, declared=None, estimated=None):
     out = []
+    declared = declared or {}
+    if "difficulty" in declared and declared["difficulty"] != estimated:
+        out.append(f"Difficulty {declared['difficulty']} declared in the raw text "
+                   f"— it overrides the heuristic estimate ({estimated}).")
+    for field in ("autonomy", "priority"):
+        if field in declared:
+            out.append(f"{field.capitalize()} {declared[field]} declared in the raw "
+                       f"text — taken as written, not inferred.")
     if confidence == "low":
         out.append("Low classification confidence — filed to triage/ for a human "
                    "to re-home once the work type is clear.")
@@ -1548,12 +1641,15 @@ def _derive_fields(text: str, work_type: str, target: str) -> dict:
     p = {"text": text, "repos": repos, "words": len(text.split()),
          "target": target, "work_type": work_type}
     level, _score, factors = estimate_difficulty(p)
+    # Same precedence as conception: what the author already stated wins.
+    declared, _spans = _declared_fields(text)
+    level = declared.get("difficulty", level)
     return {
         "type": work_type,
         "target": REPO_DISPLAY.get(tgt, target if target != "-" else "?"),
         "difficulty": level,
-        "autonomy": infer_autonomy(level, factors),
-        "priority": infer_priority(text),
+        "autonomy": declared.get("autonomy") or infer_autonomy(level, factors),
+        "priority": declared.get("priority") or infer_priority(text),
         "status": "formalised",
     }
 
@@ -2218,9 +2314,14 @@ def emit_human(d: dict):
     print(f"Work-type:            {d['work_type']}  (confidence: {d['classification_confidence']})")
     print(f"Target:               {d['target_display']}")
     print(f"Repos resolved:       {', '.join(d['repos_affected']) or '(none)'}")
-    print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
-    print(f"Autonomy:             {d['autonomy']}")
-    print(f"Priority:             {d['priority']}")
+    if d.get("difficulty_source") == "declared":
+        print(f"Difficulty:           {d['difficulty']} (declared; heuristic said "
+              f"{d['difficulty_estimated']}, score {d['difficulty_score']})")
+    else:
+        print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
+    for field in ("autonomy", "priority"):
+        mark = " (declared)" if d.get(f"{field}_source") == "declared" else ""
+        print(f"{field.capitalize() + ':':<22}{d[field]}{mark}")
     print(f"Workflow:             {d['workflow']}")
     print(f"Proposed path:        {d['proposed_path']}")
     print("Header to be written:")

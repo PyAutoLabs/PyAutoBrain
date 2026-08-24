@@ -16,7 +16,9 @@ recomputed by a divergent copy.
 
 - The **Intake Agent** (`agents/conductors/intake/`) sizes a task at
   *conception* time and persists the estimate into the prompt's `Difficulty:`
-  header — the number you see up front.
+  header — the number you see up front, unless the author declared their own in
+  the raw text (that override lives in intake, which owns the header; this
+  faculty stays a pure estimator).
 - The **Feature Agent** (`agents/conductors/feature/`) sizes a task at
   *selection / planning* time and acts on that same estimate.
 
