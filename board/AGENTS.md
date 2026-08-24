@@ -71,17 +71,22 @@ rather than drifting page by page.
 
 Each organ has an accent sampled from its own logo, and every board opens
 with a dark hero reproducing that logo's wordmark — white `PyAuto`, the organ
-name in its accent, the logo's tagline underneath. Below the hero the page
-goes back to being a plain readable document, because these are lists people
-scan on a phone before breakfast.
+name in its accent, the logo's tagline underneath. Below the hero the organ
+keeps speaking: the accent is the page's **type colour**, so section
+headings, disclosure summaries, code spans and the emphasised head of a row
+are all in the organ's hue. Only the running prose stays near-black, because
+these are lists people scan on a phone before breakfast.
 
-Colour is information, never decoration: the accent is organ identity; pills
-are task facets, toned so that only the *exception* is coloured (`supervised`
-is 9 of 10 prompts in the Mind, so it stays neutral — tinting it would paint
-the backlog and say nothing); `ok`/`warn`/`bad` stay reserved for verdict
-semantics. `ORGANS` holds the palette — `mind` and `brain` are sampled from
-the real logo files, the other four are placeholders in the right hue family,
-to be confirmed against each logo when that renderer adopts the theme.
+Colour does two jobs, and the stylistic one never overwrites the semantic
+one: the accent is organ identity; pills are task facets, toned so that only
+the *exception* is coloured (`supervised` is 9 of 10 prompts in the Mind, so
+it stays neutral — tinting it would paint the backlog and say nothing);
+`ok`/`warn`/`bad` stay reserved for verdict semantics. The reservation is
+literal — the accent rule is `b:not([class])`, so anything carrying a
+semantic class keeps the colour that class means. `ORGANS` holds the palette
+— `mind` and `brain` are sampled from the real logo files, the other four are
+placeholders in the right hue family, to be confirmed against each logo when
+that renderer adopts the theme.
 
 ## Configuration
 

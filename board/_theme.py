@@ -14,9 +14,10 @@ keep owning what goes in the rows.
 The design in one line: *the page wears its organ's logo*. Every board opens
 with a dark hero that redraws the logo it sits under: the organ's own mark in
 line art, the wordmark (white `PyAuto`, the organ name in its accent), the
-hairline-and-dot rule, and the letterspaced tagline. Below the hero the page
-returns to a plain readable document, because these are lists people scan on
-a phone before breakfast, not dashboards to admire.
+hairline-and-dot rule, and the letterspaced tagline. Below the hero the organ
+keeps speaking: the accent runs on through the page's *type* rather than
+stopping at the masthead. Body copy stays plain, because these are lists
+people scan on a phone before breakfast, not dashboards to admire.
 
 The mark is **drawn, not borrowed**. An emoji stood in for it at first, which
 read as a cartoon beside the real logo — 🧠 is not the Brain's circuit brain.
@@ -24,14 +25,26 @@ read as a cartoon beside the real logo — 🧠 is not the Brain's circuit brain
 it inherits the accent, stays sharp at any size, and costs ~1KB in the one
 page that uses it, where the 80-150KB `logo.png` would be most of the page.
 
-Colour carries meaning, never decoration:
+The accent is the page's **type colour**, not merely its link colour: the
+things that give a page its shape — section headings, disclosure summaries,
+code spans, the emphasised head of a row — are all set in the organ's hue, so
+a board reads as its organ from top to bottom instead of as grey GitHub
+chrome under a coloured masthead. Only the running prose stays near-black.
 
-* the **accent** is organ identity — one hue per board, used for links,
-  section rules, stats and the hero;
+Colour is doing two jobs at once now, and the decorative one never overwrites
+the semantic one:
+
+* the **accent** is organ identity — links, headings, summaries, code, the
+  section rules, the stats and the hero;
 * **pills** are the task facets (target, difficulty, autonomy, priority), so
   a backlog can be scanned by colour instead of read word by word;
 * **ok / warn / bad** stay reserved for the verdict semantics they already
   carry on the Heart-style boards.
+
+That reservation is literal in the stylesheet: the accent rule is
+`b:not([class])`, so an element carrying a semantic class — `ok`, `warn`,
+`bad`, `muted`, a pill tone — keeps the colour that class means, and only
+unclassed emphasis takes the organ's hue.
 
 `ORGANS` is the palette table, keyed by the same board names as
 `config/policy.yaml` `board: boards:` — that mapping is the declared config
@@ -304,11 +317,18 @@ body{margin:0 auto;max-width:44rem;padding:0 1rem 4rem;background:var(--bg);
  Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%%}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
+/* The accent is the page's *type* colour, not just its link colour: the
+   things that give a page its shape — headings, disclosure summaries, code
+   spans, the emphasised head of a row — are all set in the organ's hue, so
+   the page reads as its organ instead of as grey GitHub chrome. Semantics
+   are untouched: anything carrying a class (ok/warn/bad, the pills, muted)
+   keeps the colour that class means. */
+b:not([class]),strong:not([class]){color:var(--accent)}
 .muted{color:var(--muted)}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
- background:var(--btn);border:1px solid var(--line);padding:.05em .35em;
- border-radius:5px}
+ color:var(--accent);background:var(--tint);border:1px solid var(--edge);
+ padding:.05em .35em;border-radius:5px}
 /* --- hero: the logo, rendered as type ---------------------------------- */
 .hero{margin:0 -1rem 1.4rem;padding:2.1rem 1.4rem 1.7rem;position:relative;
  overflow:hidden;text-align:center;color:#fff;background:var(--hero-base);
@@ -347,16 +367,25 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
 .lede{margin:0 0 .9rem}
 /* --- sections ---------------------------------------------------------- */
 h2{font-size:1.1rem;margin:2.1rem 0 .3rem;padding:0 0 .35rem;font-weight:650;
- border-bottom:2px solid var(--edge)}
+ position:relative;color:var(--accent);border-bottom:2px solid var(--edge)}
+/* The hero's lit rule, quieted and reused: the hairline under a section
+   starts at full accent and fades into the edge tone. Purely the ::after,
+   so a browser that skips it still gets the plain hairline. */
+h2::after{content:"";position:absolute;left:0;bottom:-2px;width:44%%;height:2px;
+ background:linear-gradient(90deg,var(--accent),var(--accent) 15%%,transparent)}
+h2 a{color:inherit}
+/* The heading is the accent; its parenthetical stays a quiet aside rather
+   than competing at the same weight. */
+h2 .muted{font-weight:400}
 h3{font-size:.98rem;margin:1.3rem 0 .2rem;font-weight:650;color:var(--accent)}
 /* --- rows -------------------------------------------------------------- */
 .task{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem .35rem;
  margin:0 -.35rem;border-bottom:1px solid var(--line);border-radius:7px}
-.task:hover{background:var(--tint)}
+.task:hover{background:var(--tint);box-shadow:inset 2px 0 0 var(--accent)}
 .task p{margin:.25rem 0 0;flex:1;overflow-wrap:anywhere}
 button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
- border:1px solid var(--line);border-radius:9px;background:var(--btn);
- cursor:pointer;color:var(--fg);transition:border-color .12s,color .12s}
+ border:1px solid var(--edge);border-radius:9px;background:var(--tint);
+ cursor:pointer;color:var(--accent);transition:border-color .12s,color .12s}
 button.copy:hover{border-color:var(--accent);color:var(--accent)}
 button.copy.ok{color:var(--ok);border-color:var(--ok);background:transparent}
 button.copy.term{font-size:.95rem}
@@ -365,7 +394,7 @@ button.more{display:block;width:100%%;margin:.7rem 0;padding:.55rem;
  color:var(--muted);cursor:pointer;font:inherit;font-size:.9em}
 button.more:hover{color:var(--accent);border-style:solid}
 details{margin:.5rem 0}
-summary{cursor:pointer;font-weight:600;padding:.4rem 0}
+summary{cursor:pointer;font-weight:600;padding:.4rem 0;color:var(--accent)}
 summary::marker{color:var(--accent)}
 /* --- facet pills: the backlog, scannable by colour --------------------- */
 .facets{color:var(--muted);font-size:.85em}
@@ -390,7 +419,7 @@ summary::marker{color:var(--accent)}
 .stats b{display:block;font-size:1.15rem;line-height:1.2;color:var(--accent);
  font-variant-numeric:tabular-nums}
 .stats span{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;
- color:var(--muted)}
+ color:var(--accent);opacity:.75}
 /* --- verdict banner ---------------------------------------------------- */
 .verdict{margin:0 0 1rem;padding:.7rem .85rem;border-radius:10px;
  border:1px solid var(--line);border-left:4px solid var(--muted);
@@ -399,6 +428,9 @@ summary::marker{color:var(--accent)}
 .verdict.warn{border-left-color:var(--warn)}
 .verdict.bad{border-left-color:var(--bad)}
 .verdict b{display:block;font-size:1.02rem}
+.verdict.ok b{color:var(--ok)}
+.verdict.warn b{color:var(--warn)}
+.verdict.bad b{color:var(--bad)}
 /* --- tables ------------------------------------------------------------ */
 table.recent{width:100%%;border-collapse:collapse;font-size:.95em}
 table.recent td{border-bottom:1px solid var(--line);
@@ -406,8 +438,8 @@ table.recent td{border-bottom:1px solid var(--line);
 table.recent tr:hover td{background:var(--tint)}
 table.recent td.when{white-space:nowrap;color:var(--muted);
  font-variant-numeric:tabular-nums}
-table.recent td.what{white-space:nowrap;color:var(--muted);font-size:.85em;
- padding-top:.58rem}
+table.recent td.what{white-space:nowrap;color:var(--accent);font-size:.85em;
+ padding-top:.58rem;opacity:.8}
 table.recent td.pick{width:2.6rem;padding-right:0}
 table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
 /* --- the family footer: one chip per sibling board, in its own colour --- */
