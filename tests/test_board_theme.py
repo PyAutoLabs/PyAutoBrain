@@ -220,3 +220,23 @@ def test_a_pill_is_bounded_because_nowrap_is_outside_the_wrap_guard():
     # overflow:hidden moves an inline-block's baseline to its bottom edge, so
     # the old optical nudge would drop every chip half a line.
     assert "vertical-align:bottom" in flat
+
+
+def test_the_narrow_screen_stack_never_reveals_the_paged_feed():
+    """`display:flex` on a row outranks the UA sheet's `[hidden]{display:none}`,
+    so a bare `table.recent tr` selector would unhide every row the Recent
+    feed pages behind its '… more' button — 50 rows instead of 10."""
+    css = _theme.css("mind")
+    stack = re.search(r"@media\(max-width:34rem\)\{.*?\n\}", css, re.S).group(0)
+    assert "table.recent tr:not([hidden]){display:flex" in stack.replace("\n ", "")
+    assert "table.recent tr{display:flex" not in css
+
+
+def test_a_row_stacks_on_a_phone_so_the_text_gets_the_width():
+    """Four columns on a 375px screen left the text 187px and ran each entry
+    down the right as a ribbon; below 34rem the meta leads and the text takes
+    a full-width line of its own."""
+    stack = re.search(r"@media\(max-width:34rem\)\{.*?\n\}", _theme.css("mind"),
+                      re.S).group(0).replace("\n ", "")
+    assert "table.recent td{display:block;width:auto" in stack
+    assert "table.recent td:not([class]){flex:1 0 100%" in stack

@@ -429,6 +429,23 @@ table.recent td.what{white-space:nowrap;color:var(--muted);font-size:.85em;
  padding-top:.58rem}
 table.recent td.pick{width:2.6rem;padding-right:0}
 table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
+/* On a phone a four-column row is not a row, it is a ribbon. Measured at a
+   375px viewport: the meta columns took 156px and the text was left 187 — half
+   the screen — so every entry wrapped into a tall thin column down the right
+   while the meta cells sat beside it as empty height. Below 34rem the row
+   stacks: the meta reads as one small header line with the button at its end,
+   and the text takes the full width underneath. */
+@media(max-width:34rem){
+ /* `:not([hidden])` is load-bearing: `display:flex` here outranks the UA
+    sheet's `[hidden]{display:none}`, which would reveal the whole paged
+    Recent feed at once. */
+ table.recent tr:not([hidden]){display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .5rem;
+  padding:.5rem 0;border-bottom:1px solid var(--line)}
+ table.recent td{display:block;width:auto;border-bottom:0;padding:0}
+ table.recent td.what{padding-top:0}
+ table.recent td.pick{width:auto;margin-left:auto}
+ table.recent td:not([class]){flex:1 0 100%%;margin-top:.15rem}
+}
 /* --- the family footer: one chip per sibling board, in its own colour --- */
 .boards{display:flex;flex-wrap:wrap;gap:.4rem;margin:2.4rem 0 0;padding:0;
  list-style:none;border-top:1px solid var(--line);padding-top:1rem}
