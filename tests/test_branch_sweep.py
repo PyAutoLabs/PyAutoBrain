@@ -1,0 +1,161 @@
+"""tests/test_branch_sweep.py — what the sweep REFUSES to delete.
+
+branch_sweep.sh is the one PyAuto script whose job is irreversible from the
+branch's point of view, and it runs unattended on Actions where nobody sees the
+dashboard before it acts. Its value is therefore not the deletions — those are
+one `git push --delete` — but the four gates that keep a branch out of the
+delete set. Each gate gets a known-answer repo here, in the spirit of
+test_branch_contribution.py: a gate that silently stopped working would look
+exactly like a clean sweep.
+
+The gates, and what breaking each one would cost:
+
+  main / default branch     the repo
+  archive/condemned/*       PyAutoGut's recovery path — these refs ARE the
+                            backup for condemned work, so voiding one early
+                            destroys the only copy
+  open PR heads             someone's in-flight review
+  unproven CONTRIBUTES      unmerged work, gone
+
+`gh` is stubbed: the script refuses to run without it (it cannot rule out open
+PRs blind), and these tests pin that refusal too.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+TOOL = Path(__file__).resolve().parents[1] / "bin" / "branch_sweep.sh"
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+    ).stdout
+
+
+def _commit(repo: Path, name: str, body: str, message: str) -> None:
+    (repo / name).write_text(body)
+    _git(repo, "add", name)
+    _git(repo, "commit", "-qm", message)
+
+
+@pytest.fixture
+def world(tmp_path: Path):
+    """An origin with one branch per verdict, and a clone that sweeps it."""
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(origin)], check=True)
+    _git(origin, "config", "user.email", "t@t")
+    _git(origin, "config", "user.name", "t")
+    _git(origin, "config", "receive.denyDeleteCurrent", "ignore")
+    _commit(origin, "f", "base", "base")
+
+    # merged: folded into main, so main contains its tip
+    _git(origin, "checkout", "-q", "-b", "merged")
+    _commit(origin, "m", "m", "merged work")
+    _git(origin, "checkout", "-q", "main")
+    _git(origin, "merge", "-q", "--no-ff", "merged", "-m", "Merge merged")
+
+    # unmerged: unique content main has never seen
+    _git(origin, "checkout", "-q", "-b", "unmerged", "main")
+    _commit(origin, "u", "u", "unmerged work")
+
+    # an open PR's head, and a Gut transit ref — both fully merged, so ONLY
+    # their protection can keep them out of the delete set
+    for name in ("open-pr-head", "archive/condemned/something"):
+        _git(origin, "checkout", "-q", "-b", name, "main")
+    _git(origin, "checkout", "-q", "main")
+
+    clone = tmp_path / "clone"
+    subprocess.run(
+        ["git", "clone", "-q", str(origin), str(clone)], check=True
+    )
+    _git(clone, "config", "user.email", "t@t")
+    _git(clone, "config", "user.name", "t")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == "auth" ]]; then exit 0; fi\n'
+        'if [[ "$1" == "api" ]]; then exit 0; fi\n'
+        'echo "open-pr-head"\n'
+        "exit 0\n"
+    )
+    (bin_dir / "gh").chmod(0o755)
+    return clone, origin, bin_dir
+
+
+def _gh_free_path(tmp_path: Path) -> str:
+    """A PATH with everything the script needs except `gh`.
+
+    Emptying PATH would remove bash too and prove nothing, so link in the tools
+    the script actually calls and leave `gh` out.
+    """
+    lean = tmp_path / "nogh"
+    lean.mkdir(exist_ok=True)
+    for tool in ("bash", "git", "sed", "awk", "grep", "sort", "head", "cut", "tr"):
+        found = shutil.which(tool)
+        if found and not (lean / tool).exists():
+            (lean / tool).symlink_to(found)
+    return str(lean)
+
+
+def _sweep(clone: Path, bin_dir: Path | None, mode: str = "audit") -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    if bin_dir is not None:
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    else:
+        env["PATH"] = _gh_free_path(clone.parent)
+    return subprocess.run(
+        ["bash", str(TOOL), "--repo", str(clone), "--owner", "o", "--name", "n",
+         "--mode", mode],
+        capture_output=True, text=True, env=env, timeout=120,
+    )
+
+
+def test_audit_classifies_every_branch(world):
+    clone, _, bin_dir = world
+    out = _sweep(clone, bin_dir).stdout
+    assert "merged\tMERGED" in out
+    assert "unmerged\tunmerged" in out
+    assert "open-pr-head\topen-pr" in out
+    assert "archive/condemned/something\tgut-transit-ref" in out
+
+
+def test_audit_never_deletes(world):
+    clone, origin, bin_dir = world
+    before = _git(origin, "for-each-ref", "--format=%(refname)", "refs/heads")
+    assert _sweep(clone, bin_dir, mode="audit").returncode == 0
+    assert _git(origin, "for-each-ref", "--format=%(refname)", "refs/heads") == before
+
+
+def test_delete_removes_only_the_contained_branch(world):
+    clone, origin, bin_dir = world
+    assert _sweep(clone, bin_dir, mode="delete").returncode == 0
+    remaining = _git(origin, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    remaining = set(remaining.split())
+    assert "merged" not in remaining, "a contained branch should have been swept"
+    # every gate held
+    assert {"main", "unmerged", "open-pr-head", "archive/condemned/something"} <= remaining
+
+
+def test_refuses_to_run_without_gh(world):
+    """Blind to open PRs means blind to in-flight work: refuse, do not guess."""
+    clone, _, _ = world
+    proc = _sweep(clone, None)
+    assert proc.returncode == 1
+    assert "gh not found" in proc.stderr
+
+
+def test_rejects_unknown_mode(world):
+    clone, _, bin_dir = world
+    proc = _sweep(clone, bin_dir, mode="purge")
+    assert proc.returncode == 1
+    assert "must be 'audit' or 'delete'" in proc.stderr
