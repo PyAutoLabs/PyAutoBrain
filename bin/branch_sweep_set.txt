@@ -1,0 +1,51 @@
+# branch_sweep_set.txt — which repos the org-wide branch sweep may touch.
+#
+# This is POLICY, so it lives in the Brain. PyAutoMind/repos.yaml is the body
+# map — repo *identity* (GitHub home, category, role) — and deliberately holds
+# no per-organ policy. "Which repos may have branches deleted" is exactly the
+# kind of decision repos.yaml's own header says to keep with the organ that
+# owns it.
+#
+# The set mirrors skills/repo_cleanup/SKILL.md "Scope". Keep the two in step:
+# the skill is the prose, this file is what actually executes.
+#
+# Format: one `owner/repo` per line. `#` comments and blank lines ignored.
+#
+# DELIBERATELY ABSENT, and why — do not add these without a human decision:
+#
+#   euclid_strong_lens_modeling_pipeline   on the skill's Never-touched list
+#   autolens_assistant                     on the skill's Never-touched list
+#   z_projects* / z_staging / bad / priors not in the body map; never swept
+#   Jammy2211/*                            different owner; PAT scope unverified
+#   *_assistant (autocti/autofit/autogalaxy) science workspaces, not dev repos
+#   PyAutoScientist, pyautolabs.github.io  publication surfaces, swept by hand
+#
+# PyAutoMind and PyAutoBrain are absent on purpose too: each hosts its own
+# branch_sweep.yml and sweeps itself with its own GITHUB_TOKEN. Listing them
+# here would give the same repo two sweepers with different credentials.
+
+# --- libraries -----------------------------------------------------------
+PyAutoLabs/PyAutoNerves
+PyAutoLabs/PyAutoFit
+PyAutoLabs/PyAutoArray
+PyAutoLabs/PyAutoGalaxy
+PyAutoLabs/PyAutoLens
+PyAutoLabs/PyAutoHands
+
+# --- workspaces ----------------------------------------------------------
+PyAutoLabs/autofit_workspace
+PyAutoLabs/autogalaxy_workspace
+PyAutoLabs/autolens_workspace
+PyAutoLabs/autocti_workspace
+PyAutoLabs/autoreduce_workspace
+
+# --- workspace variants --------------------------------------------------
+PyAutoLabs/autofit_workspace_test
+PyAutoLabs/autogalaxy_workspace_test
+PyAutoLabs/autolens_workspace_test
+PyAutoLabs/autocti_workspace_test
+PyAutoLabs/autofit_workspace_developer
+PyAutoLabs/autolens_workspace_developer
+
+# --- tutorials -----------------------------------------------------------
+PyAutoLabs/HowToLens

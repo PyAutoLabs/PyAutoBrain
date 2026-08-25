@@ -134,10 +134,26 @@ workflow `GITHUB_TOKEN` that does have `contents: write`:
    exactly as for Bucket B locally.
 4. Re-dispatch with `mode: delete` (add `limit` for a first cautious batch).
 
-`branch_sweep.yml` currently exists in **PyAutoMind** and **PyAutoBrain**. For a
-repo without it, say so and offer to add it rather than falling back to
-hand-deletion — the file is repo-independent (it reads `github.repository`), so
-adding it is a copy.
+`branch_sweep.yml` currently exists in **PyAutoMind** and **PyAutoBrain**, which
+sweep themselves with their own `GITHUB_TOKEN`.
+
+**Every other repo in Scope** is swept centrally instead, by PyAutoBrain's
+`branch_sweep_all.yml` over `bin/branch_sweep_set.txt` using `PAT_PYAUTOLABS`.
+Same dispatch/poll/report loop, with `repos` naming the targets. Two things
+about it are not negotiable from the chat side:
+
+- **`mode: delete` refuses to run without an explicit `repos` list.** There is
+  no sweep-everything button; the all-repos path is audit-only. Dispatch the
+  audit, show the human the per-repo split, then name the repos to act on.
+- **A target outside `branch_sweep_set.txt` fails the whole run**, including a
+  run that also names valid repos. Widening the set is a reviewed change to
+  that file, never a dispatch input.
+
+That per-repo human read replaces the local sweep's *"never enumerate
+origin-only collaborator branches"* rule, which a workflow cannot honour —
+every branch it sees is origin-only. The libraries and workspaces take pull
+requests from outside contributors, so do not shortcut it. (Fork PRs are
+unaffected: their heads live in the fork.)
 
 **The setting that makes this mostly unnecessary.** A repo whose merged PR heads
 survive has *Settings → General → "Automatically delete head branches"* off.
