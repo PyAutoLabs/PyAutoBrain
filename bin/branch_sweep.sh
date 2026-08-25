@@ -219,17 +219,36 @@ if [[ "$MODE" == "audit" ]]; then
 fi
 
 # --- delete ------------------------------------------------------------------
-deleted=0 failed=0 n=0
+# Two things learned the hard way on the first org-wide delete run, where 99
+# pushes failed and the log recorded nothing but the word FAILED 99 times:
+#
+#   * KEEP THE ERROR. `push >/dev/null 2>&1` throws away the one piece of
+#     information a failure carries. A run that cannot say why it failed is
+#     barely better than one that failed silently.
+#   * STOP EARLY. Delete permission is a property of the credential, not of
+#     the branch, so the first few failures already answer the question for
+#     all of them. Grinding through 99 doomed pushes just buries the reason
+#     and burns the API budget.
+deleted=0 failed=0 n=0 streak=0
 for entry in "${safe[@]}"; do
     b="${entry%%	*}"
     if [[ "$LIMIT" -gt 0 && "$n" -ge "$LIMIT" ]]; then
         echo "  (limit $LIMIT reached — $(( ${#safe[@]} - n )) left for the next run)"; break
     fi
     n=$((n + 1))
-    if g push origin --delete "$b" >/dev/null 2>&1; then
-        echo "  deleted  $b"; deleted=$((deleted + 1))
+    if err=$(g push origin --delete "$b" 2>&1); then
+        echo "  deleted  $b"; deleted=$((deleted + 1)); streak=0
     else
-        echo "  FAILED   $b"; failed=$((failed + 1))
+        reason=$(grep -iEm1 'error|fatal|denied|forbidden|protected' <<<"$err" | sed 's/^remote: *//;s/[[:space:]]*$//')
+        echo "  FAILED   $b — ${reason:-no error text returned}"
+        failed=$((failed + 1)); streak=$((streak + 1))
+        if [[ "$streak" -ge 3 ]]; then
+            echo
+            echo "  Stopping: $streak deletions in a row failed for the same credential."
+            echo "  That is a permission property, not a per-branch one — the remaining"
+            echo "  $(( ${#safe[@]} - n )) would fail identically. Nothing has been deleted."
+            break
+        fi
     fi
 done
 echo
