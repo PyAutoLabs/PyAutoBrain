@@ -1,7 +1,7 @@
 name: Branch Sweep (org-wide)
 
-# The same sweep as branch_sweep.yml, run from the Brain across the repos in
-# bin/branch_sweep_set.txt instead of against this repo alone.
+# The same sweep as branch_sweep.yml, run from the Brain across the organism's
+# development repos instead of against this repo alone.
 #
 # WHY CENTRAL. A repo's own GITHUB_TOKEN reaches only that repo, so a per-repo
 # sweeper means one workflow file per repo — 19 of them, drifting apart the
@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       repos:
-        description: "Space/comma-separated owner/repo list. Empty = every repo in branch_sweep_set.txt (audit only)."
+        description: "Space/comma-separated owner/repo list. Empty = every sweepable repo (audit only)."
         type: string
         default: ""
       mode:
@@ -58,10 +58,22 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out PyAutoBrain (sweep logic + repo set)
+      - name: Check out PyAutoBrain (sweep logic)
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: Check out PyAutoMind (the body map the targets derive from)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/PyAutoMind
+          path: .mind
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pyyaml
 
       - name: Resolve targets and enforce the delete gate
         id: plan
@@ -80,7 +92,14 @@ jobs:
             exit 1
           fi
 
-          allowed=$(grep -vE '^\s*(#|$)' bin/branch_sweep_set.txt | xargs)
+          # Derived from the body map, never listed here — see
+          # bin/branch_sweep_targets.py for why naming repos in organ code is
+          # the leak the tenant firewall exists to catch.
+          allowed=$(python3 bin/branch_sweep_targets.py .mind/repos.yaml | xargs)
+          if [ -z "$allowed" ]; then
+            echo "::error::no sweepable repos derived from the body map — refusing to continue."
+            exit 1
+          fi
           if [ -z "$requested" ]; then
             targets="$allowed"
           else
@@ -88,8 +107,10 @@ jobs:
             for r in $requested; do
               case " $allowed " in
                 *" $r "*) targets="$targets $r" ;;
-                *) echo "::error::'$r' is not in bin/branch_sweep_set.txt."
-                   echo "::error::Add it there in a reviewed change if it should be sweepable."
+                *) echo "::error::'$r' is not a sweepable repo."
+                   echo "::error::Sweepability comes from its category in the body map"
+                   echo "::error::(PyAutoMind/repos.yaml) plus bin/branch_sweep_targets.py."
+                   echo "::error::Changing either is a reviewed change, not a dispatch input."
                    exit 1 ;;
               esac
             done

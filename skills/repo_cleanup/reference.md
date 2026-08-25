@@ -137,17 +137,26 @@ workflow `GITHUB_TOKEN` that does have `contents: write`:
 `branch_sweep.yml` currently exists in **PyAutoMind** and **PyAutoBrain**, which
 sweep themselves with their own `GITHUB_TOKEN`.
 
-**Every other repo in Scope** is swept centrally instead, by PyAutoBrain's
-`branch_sweep_all.yml` over `bin/branch_sweep_set.txt` using `PAT_PYAUTOLABS`.
-Same dispatch/poll/report loop, with `repos` naming the targets. Two things
-about it are not negotiable from the chat side:
+**Every other development repo** is swept centrally instead, by PyAutoBrain's
+`branch_sweep_all.yml` using `PAT_PYAUTOLABS`. Same dispatch/poll/report loop,
+with `repos` naming the targets. Two things about it are not negotiable from
+the chat side:
 
 - **`mode: delete` refuses to run without an explicit `repos` list.** There is
   no sweep-everything button; the all-repos path is audit-only. Dispatch the
   audit, show the human the per-repo split, then name the repos to act on.
-- **A target outside `branch_sweep_set.txt` fails the whole run**, including a
-  run that also names valid repos. Widening the set is a reviewed change to
-  that file, never a dispatch input.
+- **A target the body map does not make sweepable fails the whole run**,
+  including a run that also names valid repos. Widening the set is a reviewed
+  change, never a dispatch input.
+
+Which repos those are is **derived, never listed**: `bin/branch_sweep_targets.py`
+reads `PyAutoMind/repos.yaml` and takes the development categories (organ,
+library, workspace, workspace_test, workspace_developer, howto), dropping the
+Mind and the Brain by organ role because they sweep themselves. The skill's
+Never-touched repos fall out with their categories — `autolens_assistant` is an
+`assistant`, `euclid_strong_lens_modeling_pipeline` a `pipeline` — so no rule
+names them twice. Brain code may not name satellite repos at all (the tenant
+firewall enforces this; a hardcoded list was written first and rejected).
 
 That per-repo human read replaces the local sweep's *"never enumerate
 origin-only collaborator branches"* rule, which a workflow cannot honour —
