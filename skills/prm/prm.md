@@ -3,8 +3,9 @@
 The end-of-task shortcut for "PR CI green then merge" — and the **full task
 close-out**: the last thing you type for a task. It watches the feature PR's
 checks, merges the moment they are genuinely green, then closes the task out
-completely — issue closed, PyAutoMind moved `active/` → `complete/`, worktree
-removed, branches deleted — and hands back a ledger of what it did.
+completely — issue closed, PyAutoMind moved `active/` → `complete/`, the Mind's
+`dashboard.md` reconciled and regenerated, worktree removed, branches deleted —
+and hands back a ledger of what it did.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 gh mechanics + snippets: [`reference.md`](reference.md).
@@ -15,8 +16,11 @@ Every rule here already has an owner. The merge gates belong to
 [`../ship_library/ship_library.md`](../ship_library/ship_library.md) and
 [`../ship_workspace/ship_workspace.md`](../ship_workspace/ship_workspace.md)
 (library-first gate, issue completion, Mind state); the verdict belongs to GitHub
-Actions. `/prm` only sequences them. It never re-runs the readiness gate, never
-edits code to make a check pass, and never opens a PR — that is `/ship_*`.
+Actions; the lifecycle moves belong to `PyAutoMind/scripts/lifecycle.py` and the
+dashboard render to [`../intake/intake.md`](../intake/intake.md). `/prm` only
+sequences them. It never re-runs the readiness gate, never edits code to make a
+check pass, never opens a PR — that is `/ship_*` — and never hand-writes a
+generated page.
 
 ## Usage
 
@@ -122,27 +126,87 @@ step 6. Order is forced by the tooling, so do not reorder:
    `lifecycle.py record <slug> --date … --from-file … --prompt <bare-filename>
    --apply`. The `--prompt` argument is a **bare filename**; a path silently
    no-ops. Verify all three effects (record has `## Original prompt`, the
-   `active/` prompt is gone, the `## <task>` entry left `active.md`), run
-   `lifecycle.py check`, then commit and push Mind — on `main`, and note that
-   `prompt_sync_push` stages `-A`, so check for unrelated work first.
-4. **Worktree** — `worktree_remove <task>` (source `bin/worktree.sh`, `PYAUTO_MAIN`
+   `active/` prompt is gone, the `## <task>` entry left `active.md`).
+
+   **Record the scope you merged, not the scope you filed.** Where the merged
+   PRs cover only part of what the prompt asked for — one phase of a campaign,
+   three of five findings — neither recording the whole prompt complete nor
+   leaving the whole prompt in `active/` is true. Record what shipped, and
+   re-file the remainder as a fresh `draft/<work-type>/<target>/` prompt whose
+   header points back at the record. A prompt recorded whole on a partial merge
+   is exactly what puts a half-done task on the dashboard as pickable backlog.
+4. **Mind: leave the page true** — the close-out is not finished when the claim
+   is released; it is finished when `dashboard.md` stops offering this work.
+   `dashboard_refresh.yml` self-heals a stale *render*, never a stale *prompt*,
+   so this leg belongs to `/prm` and to nothing else — skipping it is how
+   shipped and half-shipped tasks accumulate on the page.
+
+   Legs 1 and 2 are judgement and may find nothing. **Leg 3 is a command, and it
+   runs on every close-out that touched Mind at all** — including the ordinary
+   one where the sweep is clean and no sibling is retired. Moving a prompt
+   `active/` → `complete/` changes the page by itself; a close-out that recorded
+   the task and did not re-render has left the page wrong. There is no "nothing
+   changed" exit from leg 3, only a `--check` that says the render is current.
+
+   1. **Sweep what this task is named in.** Grep the slug and the prompt
+      filename across `draft/`, `active/`, `epics.md` and the registry files.
+      Repoint or remove every hit the merge falsified: a `blocked-by:` this PR
+      unblocked, an epic phase now done, a `superseded-by:` chain that now ends
+      in a record.
+   2. **Reconcile the neighbourhood.** Run `pyauto-brain intake reconcile
+      draft/<work-type>/<target>` over the folder the shipped prompt came from,
+      plus any folder the merged diff lands in — folder-scoped it is a handful
+      of prompts, not the 130-odd of the whole backlog. Then: **proof retires,
+      resemblance reports.** A sibling the merge provably covers — its issue
+      closed by this PR, its scope inside the record you just wrote, a merged PR
+      named in its own body — gets its own record and `git rm` under the same
+      `/prm` authorization. One that merely *looks* alike gets a ledger line
+      naming it and the `/intake reconcile` door; never retire on resemblance,
+      and never turn this sweep into a second question (step 6 owns the only one).
+   3. **Regenerate — always.** Two commands, in this order, no condition on
+      either:
+
+      ```bash
+      pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
+      pyauto-brain intake dashboard --check     # must print "…are current"
+      ```
+
+      Never hand-edit `dashboard.md` / `dashboard.html`. Commit the render
+      **with** the record, in one commit: the workflow's heal commit is made
+      with `GITHUB_TOKEN`, which triggers no other workflow and has to
+      re-dispatch `pages_dashboard.yml` by hand, so a self-healed page reaches
+      Pages later than a correctly-committed one — and heals nothing you retired
+      in 1 and 2.
+
+   Then `lifecycle.py check` and push Mind — on `main`, and note that
+   `prompt_sync_push` stages `-A`, so check for unrelated work first. The push
+   is not the end of the leg: `git show --stat HEAD` must name `dashboard.md`
+   and `dashboard.html` alongside the record, or leg 3 did not happen.
+5. **Worktree** — `worktree_remove <task>` (source `bin/worktree.sh`, `PYAUTO_MAIN`
    set), never `rm -rf`. It refuses on a dirty repo and on a claim still
    registered in `active.md` — which is exactly why step 3 comes first.
-5. **Branches** — delete the remote `feature/<task>` per proven-merged repo, plus
+6. **Branches** — delete the remote `feature/<task>` per proven-merged repo, plus
    any local branch left in the canonical checkout. Never delete a branch whose
    merge you did not prove in sub-step 1. **Where the environment cannot delete
    remote refs** (proxied web session, above), this sub-step does not exist:
    attempt nothing, and report nothing about it. `/repo_cleanup` finds those
    branches on origin by itself, so silence here loses nothing.
-6. **Report the ledger** — PRs merged, issue closed, record path, `active.md`
-   released, worktree removed, branches deleted, and anything skipped. Branches
-   are simply absent from the ledger where sub-step 5 did not apply.
+7. **Report the ledger** — PRs merged, issue closed, record path, `active.md`
+   released, **dashboard regenerated** (plus any sibling prompt retired, and any
+   suspect left standing with its `/intake reconcile` prefix), worktree removed,
+   branches deleted, and anything skipped. Branches are simply absent from the
+   ledger where sub-step 6 did not apply. The dashboard line is not optional
+   prose: if you cannot write it, leg 4.3 did not run — go back and run it.
 
 **Remote (mobile/codex):** sub-steps 1 and 2 run over `gh`/`git ls-remote` as
 usual. Mind (3) works if PyAutoMind is checked out; otherwise say the record is
-pending. The worktree (4) is local-only — name it as outstanding rather than
-implying it ran. Branches (5) delete normally from mobile and Codex; a proxied
-web session drops the sub-step silently.
+pending. The dashboard leg (4) needs **both** checkouts — the state is Mind's,
+the renderer is Brain's; with only Mind, do its sweep and reconcile legs and say
+the render
+is left to `dashboard_refresh.yml`; with neither, say the whole leg is pending
+rather than implying the page is true. The worktree (5) is local-only — name it
+as outstanding rather than implying it ran. Branches (6) delete normally from
+mobile and Codex; a proxied web session drops the sub-step silently.
 
 ### 6. The only guards that stop you
 
@@ -166,4 +230,8 @@ Stop and report instead of pressing on when:
 - Under a `--auto` workflow run, merge stays human: `/prm` is a human-typed door
   and is never invoked by the autonomous queue.
 - A task with no issue, no Mind prompt, or no worktree (a direct wiring change,
-  say) simply skips those sub-steps and says so — it is not an error.
+  say) simply skips those sub-steps and says so — it is not an error. That
+  licence does **not** extend to the dashboard regen: it is skippable only where
+  the close-out wrote nothing to Mind at all. Re-rendering an already-current
+  tree is a no-op that leaves `git status` clean, so when in doubt, run it —
+  the cheap mistake is the redundant render, not the stale page.
