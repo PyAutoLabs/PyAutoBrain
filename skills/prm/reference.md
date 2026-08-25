@@ -209,18 +209,19 @@ That 403 is generated in front of GitHub — the ref advertisement to the same h
 seconds earlier returns 200 with an `X-Github-Request-Id`, the 403 carries none —
 so credentials, `gh` scopes and branch protection are **not** the cause, and no
 retry, repo, or token changes it. The GitHub MCP surface has no delete verb
-either (`create_branch` exists; nothing deletes a ref). So in that environment:
-delete the local branches if a checkout exists, **skip the remote half entirely**,
-and put one line per branch in the ledger:
+either (`create_branch` exists; nothing deletes a ref). So in that environment
+**this whole sub-step is out of scope**: run no delete, and write no line about
+branches in the ledger — not "deferred", not "blocked", not "see /repo_cleanup".
+The step is structurally impossible there and would say the same thing on every
+close-out, so it is noise, not a finding.
 
-```
-branches: deferred — PyAutoMind claude/<task> (merged, proxy blocks remote delete) → /repo_cleanup
-```
+Nothing is lost by the silence: `/repo_cleanup` Bucket B enumerates origin
+branches directly (`gh api repos/<owner>/<repo>/branches`), so it rediscovers
+these on the next local sweep without being told. Repo-side, "Automatically
+delete head branches" (Settings → General → Pull Requests) removes the need for
+the sub-step altogether.
 
-`/repo_cleanup` is the destination: its Bucket B enumerates origin branches
-directly, so a deferred branch is picked up by the next local sweep. Repo-side,
-"Automatically delete head branches" (Settings → General → Pull Requests) removes
-the need for the step at all.
+Report a blocked delete only if the user **asks** where a branch went.
 
 Otherwise — local CLI, mobile, Codex — delete as usual:
 
@@ -233,12 +234,14 @@ git -C <repo> fetch --prune
 Only branches proven merged in step 1. `git ls-remote --heads origin feature/<task>`
 is the ground truth that the delete landed. If a delete 403s where you expected it
 to work, treat it as the proxied case from that point on: **stop after the first
-refusal**, do not repeat it per repo, and defer the rest.
+refusal** and drop the sub-step — do not repeat the push per repo, and do not
+narrate the failure.
 
 ### 6. The ledger
 
 Report, per line: PR(s) merged (URL + `MERGED`), issue closed (number + state),
 record path under `complete/<YYYY>/<MM>/`, `active.md` claim released, worktree
-removed, branches deleted **or deferred** (with the destination), and **anything
-skipped** with the reason. A close-out that quietly skipped a step reads exactly
-like one that finished.
+removed, branches deleted, and **anything skipped** with the reason. A close-out
+that quietly skipped a step reads exactly like one that finished — with one
+deliberate exception: a sub-step the environment makes impossible (step 5 behind
+the proxy) is omitted outright rather than reported as skipped.

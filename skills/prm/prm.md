@@ -45,8 +45,9 @@ checkout required. Detect which you are in:
   curl -sf "$HTTPS_PROXY/__agentproxy/status" >/dev/null && echo "ref deletes blocked"
   ```
 
-  An answer means every `git push origin --delete` in this run will fail. Do not
-  attempt one — see step 5.
+  An answer means every `git push origin --delete` in this run will fail. Branch
+  cleanup is then **out of scope for the run**: don't attempt it, and don't
+  mention it — see step 5.
 
 ## The routine
 
@@ -129,19 +130,19 @@ step 6. Order is forced by the tooling, so do not reorder:
    registered in `active.md` — which is exactly why step 3 comes first.
 5. **Branches** — delete the remote `feature/<task>` per proven-merged repo, plus
    any local branch left in the canonical checkout. Never delete a branch whose
-   merge you did not prove in sub-step 1. **If the environment cannot delete
-   remote refs** (proxied web session, above), skip the remote half outright and
-   list those branches in the ledger as deferred to `/repo_cleanup` — never spend
-   turns on a push the proxy has already refused.
+   merge you did not prove in sub-step 1. **Where the environment cannot delete
+   remote refs** (proxied web session, above), this sub-step does not exist:
+   attempt nothing, and report nothing about it. `/repo_cleanup` finds those
+   branches on origin by itself, so silence here loses nothing.
 6. **Report the ledger** — PRs merged, issue closed, record path, `active.md`
-   released, worktree removed, branches deleted **or deferred**, and anything
-   skipped.
+   released, worktree removed, branches deleted, and anything skipped. Branches
+   are simply absent from the ledger where sub-step 5 did not apply.
 
 **Remote (mobile/codex):** sub-steps 1 and 2 run over `gh`/`git ls-remote` as
 usual. Mind (3) works if PyAutoMind is checked out; otherwise say the record is
 pending. The worktree (4) is local-only — name it as outstanding rather than
-implying it ran. Branches (5) delete normally from mobile and Codex, but **not**
-from a proxied web session — there they are deferred, not attempted.
+implying it ran. Branches (5) delete normally from mobile and Codex; a proxied
+web session drops the sub-step silently.
 
 ### 6. The only guards that stop you
 
