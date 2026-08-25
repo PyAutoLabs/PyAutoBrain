@@ -189,7 +189,40 @@ directory listing is the only way to find it.
 
 ### 5. Branches
 
-Local branches go with the worktree; the remote ones do not:
+Local branches go with the worktree; the remote ones do not. **First establish
+whether this environment may delete remote refs at all** — one probe, once per
+run, before any repo:
+
+```bash
+curl -sf "$HTTPS_PROXY/__agentproxy/status" >/dev/null && echo "ref deletes blocked"
+```
+
+An answer means a proxied web session (Claude Code on the web). There, a ref
+deletion dies on the `git-receive-pack` POST:
+
+```
+error: RPC failed; HTTP 403 curl 22 The requested URL returned error: 403
+send-pack: unexpected disconnect while reading sideband packet
+```
+
+That 403 is generated in front of GitHub — the ref advertisement to the same host
+seconds earlier returns 200 with an `X-Github-Request-Id`, the 403 carries none —
+so credentials, `gh` scopes and branch protection are **not** the cause, and no
+retry, repo, or token changes it. The GitHub MCP surface has no delete verb
+either (`create_branch` exists; nothing deletes a ref). So in that environment:
+delete the local branches if a checkout exists, **skip the remote half entirely**,
+and put one line per branch in the ledger:
+
+```
+branches: deferred — PyAutoMind claude/<task> (merged, proxy blocks remote delete) → /repo_cleanup
+```
+
+`/repo_cleanup` is the destination: its Bucket B enumerates origin branches
+directly, so a deferred branch is picked up by the next local sweep. Repo-side,
+"Automatically delete head branches" (Settings → General → Pull Requests) removes
+the need for the step at all.
+
+Otherwise — local CLI, mobile, Codex — delete as usual:
 
 ```bash
 git -C <repo> push origin --delete feature/<task>
@@ -198,11 +231,14 @@ git -C <repo> fetch --prune
 ```
 
 Only branches proven merged in step 1. `git ls-remote --heads origin feature/<task>`
-is the ground truth that the delete landed.
+is the ground truth that the delete landed. If a delete 403s where you expected it
+to work, treat it as the proxied case from that point on: **stop after the first
+refusal**, do not repeat it per repo, and defer the rest.
 
 ### 6. The ledger
 
 Report, per line: PR(s) merged (URL + `MERGED`), issue closed (number + state),
 record path under `complete/<YYYY>/<MM>/`, `active.md` claim released, worktree
-removed, branches deleted, and **anything skipped** with the reason. A close-out
-that quietly skipped a step reads exactly like one that finished.
+removed, branches deleted **or deferred** (with the destination), and **anything
+skipped** with the reason. A close-out that quietly skipped a step reads exactly
+like one that finished.
