@@ -152,6 +152,96 @@ grep -n "^## <task>" active.md                                # want no match
 python3 scripts/lifecycle.py check                            # want clean exit
 ```
 
+Do **not** commit yet — the dashboard leg below belongs in the same commit.
+
+`lifecycle.py check` will not catch the partial-ship case: it compares
+`active.md` slugs against `complete/` records and knows nothing about how much
+of a prompt's scope the merge actually covered. That judgement is yours. Where
+the merge covered part of it, write the record for the shipped part and re-file
+the rest before committing:
+
+```bash
+# the remainder, as a fresh backlog prompt pointing back at the record
+cat > draft/<work-type>/<target>/<remainder>.md <<'EOF'
+# <remainder title>
+
+- Status: split out of `<slug>` at close-out — phases 1-2 shipped in
+  `complete/<YYYY>/<MM>/<slug>.md` (<PR links>); this is what remains.
+...
+EOF
+```
+
+### 4. Mind: leave the page true
+
+`dashboard.md` / `dashboard.html` are generated from `draft/`, `active/` and the
+registry files. `dashboard_refresh.yml` re-renders them on any push touching
+those paths, so the *render* self-heals — but a prompt the merge finished and
+nobody retired renders faithfully, as pickable backlog. That is the drift this
+step exists for, and `intake reconcile` measures it: the whole-backlog run on
+2026-08-25 ranked **24 suspects of 138 scanned** while the page itself was
+current.
+
+**Sweep what this task is named in** — the merge falsifies more than its own
+prompt:
+
+```bash
+cd $PYAUTO_MAIN/PyAutoMind
+grep -rn "<slug>\|<prompt-filename>" draft/ active/ epics.md \
+     active.md planned.md parked.md condemned.md
+```
+
+Repoint or remove each hit: a `blocked-by:` this PR unblocked, an epic phase now
+done, a `superseded-by:` chain that now ends in a record.
+
+**Reconcile the neighbourhood** — folder-scoped, not whole-backlog. Both are
+fast (~5s bare, <1s scoped); the cost is *adjudication*, not runtime. The bare
+run hands you 24 suspects spanning work this task never touched, none of which
+`/prm` has proof for — a backlog chore, and incompatible with running to the end
+without asking. A folder is the handful this merge could plausibly have
+finished:
+
+```bash
+BRAIN=$PYAUTO_MAIN/PyAutoBrain/agents/conductors/intake/_intake.py
+python3 "$BRAIN" --mind . reconcile draft/<work-type>/<target>
+```
+
+It is **read-only by design**: `--apply` is ignored with *"intake reconcile is
+read-only — retiring prompts stays human"*, and the emit closes with the same
+rule. Under `/prm` that human authorization is the typed `/prm` — but it extends
+only as far as *proof*:
+
+| Evidence | Action |
+|---|---|
+| The sibling's issue was closed by this PR (`Closes #N`), or its scope sits inside the record you just wrote, or its own body names a now-merged PR | Write its record (`lifecycle.py record …`), `git rm` the prompt, repoint references |
+| `shared-identifiers` / `rare-topic-overlap` / `stale-status` only | Leave it filed; name it in the ledger with the prefix to re-run |
+
+`record` serves a `draft/` prompt too, with one catch: `--prompt` resolves under
+`active/` only, so the fold does not happen — append the draft's full text under
+a `## Original prompt` heading in the `--from-file` body yourself, then `git rm`
+the draft. Everything else (`complete/index.md`, the `active.md` prune) is
+folded into `record` already.
+
+**Why this is a skill step and not a `record` step.** Two chores that used to sit
+here were folded into `lifecycle.py record` precisely because a separate step was
+easy to forget — `complete/index.md` and the `active.md` prune, both after their
+own drift-alarm email storms. The dashboard cannot follow them: the state is
+Mind's but the renderer is Brain's (`agents/conductors/intake/_intake.py`), and a
+Mind script importing a Brain module inverts the organ boundary — which is why
+`dashboard_refresh.yml` checks out both repos to do it. So the render stays a
+step someone has to take, and `/prm` is the door that takes it.
+
+**Regenerate, and commit the render with the record:**
+
+```bash
+python3 "$BRAIN" --mind . --apply dashboard      # writes dashboard.md + dashboard.html
+python3 "$BRAIN" --mind . dashboard --check      # "…are current"; exit 1 = drift
+python3 scripts/lifecycle.py check
+```
+
+`--check` exits **1** for drift and anything higher for a renderer failure
+(Brain/Mind version skew) — a non-1 code is not a stale page, so read the
+message rather than re-rendering.
+
 Then commit + push. `prompt_sync_push` runs `git add -A`, so check for unrelated
 work first and use explicit pathspecs if any exists:
 
@@ -160,7 +250,13 @@ git status --short                                            # unrelated work?
 source scripts/prompt_sync.sh && prompt_sync_push "complete: <task>"
 ```
 
-### 4. Worktree
+One commit carrying the record, the retirements and the regenerated pages is the
+goal. The workflow's fallback is strictly worse: its heal commit is made with
+`GITHUB_TOKEN`, which triggers no other workflow, so it must dispatch
+`pages_dashboard.yml` itself for the Pages site to catch up — and it can only
+heal the render, never the retirements from the sweep above.
+
+### 5. Worktree
 
 Removal deletes the whole task root — **including gitignored `output/`,
 `cache/`, and downloaded data** that only live there (a reduced dataset + a
@@ -187,7 +283,7 @@ needs it. A `PyAutoLabs-wt/<task>/` dir whose worktrees are already gone survive
 of symlinks + `activate.sh` and `git worktree list` will not name it — a
 directory listing is the only way to find it.
 
-### 5. Branches
+### 6. Branches
 
 Local branches go with the worktree; the remote ones do not. **First establish
 whether this environment may delete remote refs at all** — one probe, once per
@@ -237,11 +333,22 @@ to work, treat it as the proxied case from that point on: **stop after the first
 refusal** and drop the sub-step — do not repeat the push per repo, and do not
 narrate the failure.
 
-### 6. The ledger
+### 7. The ledger
 
 Report, per line: PR(s) merged (URL + `MERGED`), issue closed (number + state),
-record path under `complete/<YYYY>/<MM>/`, `active.md` claim released, worktree
-removed, branches deleted, and **anything skipped** with the reason. A close-out
-that quietly skipped a step reads exactly like one that finished — with one
-deliberate exception: a sub-step the environment makes impossible (step 5 behind
-the proxy) is omitted outright rather than reported as skipped.
+record path under `complete/<YYYY>/<MM>/`, `active.md` claim released, the
+dashboard regenerated (and any sibling prompt retired, and any suspect left
+standing with the prefix to re-run), worktree removed, branches deleted, and
+**anything skipped** with the reason. A close-out that quietly skipped a step
+reads exactly like one that finished — with one deliberate exception: a sub-step
+the environment makes impossible (step 6 behind the proxy) is omitted outright
+rather than reported as skipped.
+
+The dashboard lines carry the drift, so give them numbers rather than a verb:
+
+```
+dashboard: regenerated (dashboard.md + dashboard.html, same commit as the record)
+  retired:  draft/bug/priors/15_transformed_message_logpdf_jacobian.md — PyAutoFit#1498 merged, scope inside this record
+  standing: draft/bug/priors/14_replace_transform_stack_with_bijectors.md — resemblance only
+            → /intake reconcile draft/bug/priors
+```
