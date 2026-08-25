@@ -22,6 +22,25 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 3. When it looks right, re-run with **`--apply`** to write the prompt file into
    PyAutoMind under `draft/<work-type>/<target>/<name>.md` (or `draft/triage/` if the
    classification is genuinely unclear).
+4. **Regenerate the dashboard and commit both together.** `--apply` writes the
+   prompt file and nothing else — it runs no git — so the filing is not finished
+   until the page that offers the task is rebuilt:
+
+   ```bash
+   cd $PYAUTO_MAIN/PyAutoMind
+   pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
+   pyauto-brain intake dashboard --check     # must print "…are current"
+   source scripts/prompt_sync.sh && prompt_sync_push "intake: file <name>"
+   ```
+
+   One commit carrying the prompt **and** the regenerated pages. This is not
+   optional tidying: the dashboard is how a task is picked up — tap 📋, get
+   `/start_dev <path>` — so a prompt filed without it is invisible on the phone
+   path until `dashboard_refresh.yml` heals the render and `pages_dashboard.yml`
+   redeploys. Filing a prompt nobody can find yet is the failure this step
+   exists to prevent. Re-rendering an already-current tree is a no-op, so there
+   is nothing to weigh up: run it on every `--apply`, including `formalise` and
+   the `ideas` sweep, which change the page the same way.
 
 Intake **files a prompt; it does not start development.** It is the step *before*
 `/start_dev`. Once the prompt is written, `/start_dev <path>` routes it into the
@@ -42,15 +61,18 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   twin GitHub Pages serves (real clipboard buttons; PyAutoMind's
   `pages_dashboard.yml` deploys it), with links derived from `repos.yaml`.
   Dry-run prints it, `--apply` writes it (commit via `prompt_sync_push`),
-  `--check` exits 1 if the committed page has drifted — PyAutoMind's
-  `dashboard_refresh.yml` self-heals that on pushes to main, so regenerate it
-  by hand only when you want the page current in the same commit. Tasks only —
-  organism *health* is `/health`, not this page.
+  `--check` exits 1 if the committed page has drifted. PyAutoMind's
+  `dashboard_refresh.yml` self-heals a stale **render** on pushes to main — that
+  is a backstop for a page nobody rebuilt, not a reason to skip step 4 above:
+  it lands a later bot commit and has to re-dispatch `pages_dashboard.yml`
+  itself, so the Pages page (the one people actually tap) lags until it does.
+  Regenerate in the same commit as the change. Tasks only — organism *health*
+  is `/health`, not this page.
 - `bin/pyauto-brain intake formalise [prefix]` — retroactively headers the
   prompts census flags (word-vomit is intent, not defect): derives the missing
   fields, inserts them in place with all prose verbatim, reports re-home
   suggestions instead of ever moving files. Dry-run proposes; `--apply` writes
-  (then regenerate the dashboard).
+  (then regenerate the dashboard and commit it with the change, per step 4).
 - `bin/pyauto-brain intake reconcile [prefix]` — ranks backlog (`draft/`)
   prompts that look already-shipped (cross-referenced against the `complete/`
   records — the sole completion ledger since `complete.md` retired, #81 — and `active/`; a stale
