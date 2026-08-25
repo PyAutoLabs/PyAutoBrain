@@ -139,7 +139,14 @@ step 6. Order is forced by the tooling, so do not reorder:
    is released; it is finished when `dashboard.md` stops offering this work.
    `dashboard_refresh.yml` self-heals a stale *render*, never a stale *prompt*,
    so this leg belongs to `/prm` and to nothing else — skipping it is how
-   shipped and half-shipped tasks accumulate on the page:
+   shipped and half-shipped tasks accumulate on the page.
+
+   Legs 1 and 2 are judgement and may find nothing. **Leg 3 is a command, and it
+   runs on every close-out that touched Mind at all** — including the ordinary
+   one where the sweep is clean and no sibling is retired. Moving a prompt
+   `active/` → `complete/` changes the page by itself; a close-out that recorded
+   the task and did not re-render has left the page wrong. There is no "nothing
+   changed" exit from leg 3, only a `--check` that says the render is current.
 
    1. **Sweep what this task is named in.** Grep the slug and the prompt
       filename across `draft/`, `active/`, `epics.md` and the registry files.
@@ -156,15 +163,25 @@ step 6. Order is forced by the tooling, so do not reorder:
       `/prm` authorization. One that merely *looks* alike gets a ledger line
       naming it and the `/intake reconcile` door; never retire on resemblance,
       and never turn this sweep into a second question (step 6 owns the only one).
-   3. **Regenerate.** `pyauto-brain intake --apply dashboard` — never hand-edit
-      `dashboard.md` / `dashboard.html`. Commit the render **with** the record,
-      in one commit: the workflow's heal commit is made with `GITHUB_TOKEN`,
-      which triggers no other workflow and has to re-dispatch
-      `pages_dashboard.yml` by hand, so a self-healed page reaches Pages later
-      than a correctly-committed one — and heals nothing you retired in 1 and 2.
+   3. **Regenerate — always.** Two commands, in this order, no condition on
+      either:
+
+      ```bash
+      pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
+      pyauto-brain intake dashboard --check     # must print "…are current"
+      ```
+
+      Never hand-edit `dashboard.md` / `dashboard.html`. Commit the render
+      **with** the record, in one commit: the workflow's heal commit is made
+      with `GITHUB_TOKEN`, which triggers no other workflow and has to
+      re-dispatch `pages_dashboard.yml` by hand, so a self-healed page reaches
+      Pages later than a correctly-committed one — and heals nothing you retired
+      in 1 and 2.
 
    Then `lifecycle.py check` and push Mind — on `main`, and note that
-   `prompt_sync_push` stages `-A`, so check for unrelated work first.
+   `prompt_sync_push` stages `-A`, so check for unrelated work first. The push
+   is not the end of the leg: `git show --stat HEAD` must name `dashboard.md`
+   and `dashboard.html` alongside the record, or leg 3 did not happen.
 5. **Worktree** — `worktree_remove <task>` (source `bin/worktree.sh`, `PYAUTO_MAIN`
    set), never `rm -rf`. It refuses on a dirty repo and on a claim still
    registered in `active.md` — which is exactly why step 3 comes first.
@@ -178,7 +195,8 @@ step 6. Order is forced by the tooling, so do not reorder:
    released, **dashboard regenerated** (plus any sibling prompt retired, and any
    suspect left standing with its `/intake reconcile` prefix), worktree removed,
    branches deleted, and anything skipped. Branches are simply absent from the
-   ledger where sub-step 6 did not apply.
+   ledger where sub-step 6 did not apply. The dashboard line is not optional
+   prose: if you cannot write it, leg 4.3 did not run — go back and run it.
 
 **Remote (mobile/codex):** sub-steps 1 and 2 run over `gh`/`git ls-remote` as
 usual. Mind (3) works if PyAutoMind is checked out; otherwise say the record is
@@ -212,4 +230,8 @@ Stop and report instead of pressing on when:
 - Under a `--auto` workflow run, merge stays human: `/prm` is a human-typed door
   and is never invoked by the autonomous queue.
 - A task with no issue, no Mind prompt, or no worktree (a direct wiring change,
-  say) simply skips those sub-steps and says so — it is not an error.
+  say) simply skips those sub-steps and says so — it is not an error. That
+  licence does **not** extend to the dashboard regen: it is skippable only where
+  the close-out wrote nothing to Mind at all. Re-rendering an already-current
+  tree is a no-op that leaves `git status` clean, so when in doubt, run it —
+  the cheap mistake is the redundant render, not the stale page.

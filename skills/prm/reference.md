@@ -230,13 +230,23 @@ Mind script importing a Brain module inverts the organ boundary — which is why
 `dashboard_refresh.yml` checks out both repos to do it. So the render stays a
 step someone has to take, and `/prm` is the door that takes it.
 
-**Regenerate, and commit the render with the record:**
+**Regenerate, and commit the render with the record.** Unconditional — the
+sweep and the reconcile above may both come back empty, this does not:
+`lifecycle.py record` alone changes what the page shows.
 
 ```bash
 python3 "$BRAIN" --mind . --apply dashboard      # writes dashboard.md + dashboard.html
 python3 "$BRAIN" --mind . dashboard --check      # "…are current"; exit 1 = drift
 python3 scripts/lifecycle.py check
 ```
+
+Or through the router, identically — `pyauto-brain intake --apply dashboard` and
+`pyauto-brain intake dashboard --check`; use whichever the environment resolves.
+
+Running it on an already-current tree is a **no-op**: the renderer rewrites both
+files byte-identically and `git status` stays clean, so there is never a reason
+to guess whether it is needed. `--apply` prints
+`Wrote: dashboard.md + dashboard.html (<n> prompts, <n> hygiene flag(s))`.
 
 `--check` exits **1** for drift and anything higher for a renderer failure
 (Brain/Mind version skew) — a non-1 code is not a stale page, so read the
@@ -248,7 +258,12 @@ work first and use explicit pathspecs if any exists:
 ```bash
 git status --short                                            # unrelated work?
 source scripts/prompt_sync.sh && prompt_sync_push "complete: <task>"
+git show --stat HEAD                                          # names dashboard.md + dashboard.html?
 ```
+
+That last line is the leg's own check: a close-out commit that does not carry
+`dashboard.md` and `dashboard.html` beside the record did not regenerate, and
+the ledger's dashboard line would be a claim you cannot back.
 
 One commit carrying the record, the retirements and the regenerated pages is the
 goal. The workflow's fallback is strictly worse: its heal commit is made with
