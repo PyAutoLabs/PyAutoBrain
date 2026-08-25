@@ -256,7 +256,24 @@ def extract_heart_blockers(board):
         "repo_url": b.get("repo_url"),
         "run_url": b.get("run_url"),
         "prompt": b.get("prompt"),
+        # An evidence gap also arrives with the command that re-runs its check
+        # (Heart board.json v3); absent on other severities and on an older
+        # Heart publish. Forwarded verbatim, like everything else here.
+        "command": b.get("command"),
     } for b in blockers[:HEART_BLOCKER_CAP]]
+
+
+def extract_heart_plan(board):
+    """The Heart's whole-tier remedy — one payload that closes every current
+    evidence gap ({count, command, prompt}). Rendered here verbatim; the Brain
+    never derives a remedy of its own. None when nothing is stale, or when the
+    surface predates the field."""
+    plan = (board or {}).get("stale_plan")
+    if not isinstance(plan, dict) or not plan.get("prompt"):
+        return None
+    return {"count": plan.get("count"),
+            "command": plan.get("command"),
+            "prompt": str(plan["prompt"])}
 
 
 def fetch_heart_blockers(pages_base, repo, degraded):
@@ -725,6 +742,7 @@ def collect():
     # and the test-performance block.
     heart_board = fetch_heart_board(pages_base, heart_repo, degraded)
     heart_blockers = extract_heart_blockers(heart_board)
+    heart_plan = extract_heart_plan(heart_board)
     performance = extract_heart_performance(
         heart_board, f"{pages_base}/{heart_repo}/")
     hands = fetch_badge(pages_base, board_family.get("hands", "PyAutoHands"))
@@ -743,6 +761,7 @@ def collect():
         "overnight": overnight,
         "heart": heart,
         "heart_blockers": heart_blockers,
+        "heart_plan": heart_plan,
         "performance": performance,
         "hands": hands,
         "versions": versions,
@@ -871,12 +890,20 @@ def render_md(data):
                  f"[board]({data['boards'].get('heart', '')}) · re-run via `/health`")
     else:
         L.append("- Heart board unreachable — consult `/health` directly")
+    plan = data.get("heart_plan")
+    if plan:
+        # The gaps are worth one line, not N: the Heart already wrote the plan
+        # that closes all of them, and `fix stale` prints it in a terminal.
+        clear = f"`{plan['command']}`" if plan.get("command") else "`pyauto-heart fix stale`"
+        L.append(f"- Evidence gaps: {plan.get('count', '?')} — clear them all: {clear}")
     for b in data.get("heart_blockers") or []:
         sev = f"[{b['severity']}] " if b.get("severity") else ""
         line = f"  - {sev}{b['text']}"
         if b.get("run_url"):
             line += f" — [run]({b['run_url']})"
         L.append(line)
+        if b.get("command"):
+            L.append(f"    - `{b['command']}`")
         if b.get("prompt"):
             L.append(f"    - `{b['prompt']}`")
     if data.get("hands"):
@@ -1166,6 +1193,15 @@ def render_html(data):
     else:
         H.append(_row("Heart board unreachable — consult the clinician "
                       "directly." + pills(("unreachable", "y")), "/health"))
+    plan = data.get("heart_plan")
+    if plan:
+        # One tap for the whole stale tier, above the gaps it closes: the
+        # Claude prompt always, the shell chain when the Heart could offer one.
+        H.append(_row(f'Clear all {plan.get("count", "?")} evidence gaps — one prompt'
+                      + pills(("stale", "y")), plan["prompt"]))
+        if plan.get("command"):
+            H.append(_row("… or the command chain that re-runs every check",
+                          plan["command"], term=True))
     for b in data.get("heart_blockers") or []:
         sev = b.get("severity")
         links = "".join(

@@ -124,7 +124,10 @@ faculty every cycle.)
 5. **Explain and recommend.** Produce the structured report below. Recommendations
    should be actionable and, where Heart offers a remediation entry point, cite it
    (`pyauto-heart fix ci <repo>`, `fix dirty <repo>`, `fix drift`,
-   `fix timing <project>`). Do not invent fixes Heart cannot support.
+   `fix timing <project>`). For an evidence gap the entry point is
+   `fix stale`: it prints the check that closes each gap and the one plan that
+   closes them all — quote those, do not compose your own. Do not invent fixes
+   Heart cannot support.
 
 ## Output schema
 
@@ -143,7 +146,8 @@ Status: <GREEN | STALE | YELLOW | RED>   (score <0-100>, snapshot <ts>)
 - <yellow reason, mapped to its capability>   (or "None")
 
 ### Evidence Gaps
-- <stale reason, mapped to its capability, with the check to re-run>   (or "None")
+- <stale reason, mapped to its capability, with the check to re-run — the
+  command Heart publishes for it, never one you invented>   (or "None")
 
 ### Recommendations
 - <actionable next step, citing a `pyauto-heart fix ...` where applicable>   (or "None")
