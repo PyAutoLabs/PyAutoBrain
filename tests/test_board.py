@@ -14,6 +14,7 @@ from config/policy.yaml `board:`, the declared config surface.
 """
 
 import base64
+import html
 import json
 import os
 import re
@@ -26,7 +27,8 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SURFACE_KEYS = {
-    "generated", "org", "overnight", "heart", "heart_blockers", "performance",
+    "generated", "org", "overnight", "heart", "heart_blockers", "heart_plan",
+    "performance",
     "hands", "versions", "community", "resume", "open_issues", "hygiene",
     "devbox", "autonomy", "doors", "boards", "degraded", "history",
 }
@@ -78,7 +80,7 @@ HEART_PERFORMANCE_EVENT = {
 }
 
 HEART_BOARD_JSON = {
-    "schema_version": 2,
+    "schema_version": 3,
     "blockers": [{
         "text": "RepoA: nightly smoke red",
         "severity": "red",
@@ -86,6 +88,9 @@ HEART_BOARD_JSON = {
         "repo_url": "https://example.invalid/RepoA",
         "run_url": "https://example.invalid/run/9",
         "prompt": "/bug Heart board: RepoA nightly smoke red — https://example.invalid/run/9",
+        # v3: a stale row carries the command that re-runs its check; a red
+        # one has no such remedy — the fix is code, not a re-run.
+        "command": None,
     }],
     # Additive to schema v2 — an older Heart publish simply omits it.
     "performance": HEART_PERFORMANCE,
@@ -527,6 +532,63 @@ def test_heart_blockers_render_with_their_own_prompts(tmp_path):
     md = _run([], tmp_path, stub).stdout
     assert blocker["prompt"] in md
     assert "Shipped: **GREEN**" in md  # the Hands headline joined the section
+
+
+HEART_BOARD_STALE = {
+    "schema_version": 3,
+    "blockers": [
+        {"text": "install verification not run", "severity": "stale",
+         "repo": None, "repo_url": None, "run_url": None,
+         "command": "pyauto-heart verify_install --report-json",
+         "prompt": "/health run `pyauto-heart verify_install --report-json` — …"},
+        {"text": "no release validation for current source", "severity": "stale",
+         "repo": None, "repo_url": None, "run_url": None, "command": None,
+         "prompt": "/health dispatch a release rehearsal with `/release rehearse` — …"},
+    ],
+    "stale_plan": {
+        "count": 2,
+        "command": None,
+        "prompt": "/health clear the Heart's 2 evidence gap(s) — …\n1. …\n2. …",
+    },
+}
+
+
+def test_a_stale_heart_offers_the_one_plan_that_clears_every_gap(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_STALE)
+    page = _run(["--html"], tmp_path, stub).stdout
+    plan = HEART_BOARD_STALE["stale_plan"]
+
+    # The Heart's own plan is the chip payload — the Brain never derives one.
+    assert html.escape(plan["prompt"], quote=True) in page
+    assert "Clear all 2 evidence gaps" in page
+    # Each gap still arrives with the command that closes it, forwarded whole.
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    assert [b["command"] for b in s["heart_blockers"]] == [
+        "pyauto-heart verify_install --report-json", None]
+    assert s["heart_plan"]["count"] == 2
+    # The digest spends one line on the tier, not one per gap.
+    md = _run([], tmp_path, stub).stdout
+    assert "Evidence gaps: 2 — clear them all: `pyauto-heart fix stale`" in md
+
+
+def test_a_plan_with_a_command_chain_offers_the_terminal_door(tmp_path):
+    chain = "pyauto-heart verify_install --report-json && pyauto-heart tick"
+    board = {**HEART_BOARD_STALE,
+             "stale_plan": {**HEART_BOARD_STALE["stale_plan"], "command": chain}}
+    stub = _fabricate(tmp_path, _default_fixtures(), board)
+
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert f'data-cmd="{html.escape(chain, quote=True)}"' in page
+    assert "copy term" in page          # the ⌨ terminal chip, not the 📋 one
+    md = _run([], tmp_path, stub).stdout
+    assert f"clear them all: `{chain}`" in md
+
+
+def test_a_heart_board_without_a_plan_renders_none(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())   # no stale_plan published
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    assert s["heart_plan"] is None
+    assert "Evidence gaps:" not in _run([], tmp_path, stub).stdout
 
 
 def test_test_performance_rows_carry_their_own_prompts(tmp_path):
