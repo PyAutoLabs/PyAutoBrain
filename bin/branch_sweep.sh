@@ -66,17 +66,39 @@ done
     echo "branch_sweep: --mode must be 'audit' or 'delete' (got '$MODE')" >&2; exit 1
 }
 
+g() { git -C "$REPO" "$@"; }
+
+# --- prerequisites, before anything is touched -------------------------------
+# Checked up front, and deliberately before the fetches below: without gh we
+# cannot see open PRs, so we would refuse to sweep anyway — and refusing after
+# rewriting the caller's clone (an unshallow is not free and not undoable)
+# would be a rude way to say no.
+command -v gh >/dev/null 2>&1 || {
+    echo "branch_sweep: gh not found — cannot rule out open PRs, refusing to sweep" >&2
+    exit 1
+}
+open_prs=$(gh pr list --repo "$OWNER/$NAME" --state open --limit 500 \
+               --json headRefName --jq '.[].headRefName' 2>/dev/null)
+if [[ -z "$open_prs" ]] && ! gh auth status >/dev/null 2>&1; then
+    echo "branch_sweep: gh is not authenticated — cannot rule out open PRs" >&2
+    exit 1
+fi
+
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=branch_contribution.sh
 source "$here/branch_contribution.sh"
-
-g() { git -C "$REPO" "$@"; }
 
 # --- history the verdicts depend on -----------------------------------------
 # A shallow clone makes every ancestry question wrong in the same direction:
 # nothing looks contained, so a MERGED branch reports CONTRIBUTES and the sweep
 # silently protects everything. Deepen before asking anything.
-if [[ -f "$(g rev-parse --git-dir)/shallow" ]]; then
+#
+# Ask git the question directly. Testing for a `shallow` file under
+# `rev-parse --git-dir` does NOT work: with `-C` that path comes back relative
+# to *our* cwd, not the repo's, so the answer is really "is the process's own
+# directory a shallow clone?" — which on an Actions runner (whose checkout is
+# shallow by default) is a confident yes about entirely the wrong repository.
+if [[ "$(g rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
     echo "→ unshallowing (verdicts are meaningless on a truncated history)"
     g fetch --unshallow --quiet origin || { echo "branch_sweep: unshallow failed" >&2; exit 1; }
 fi
@@ -85,20 +107,6 @@ g fetch --prune --quiet origin || { echo "branch_sweep: fetch failed" >&2; exit 
 g fetch --quiet origin '+refs/pull/*/head:refs/remotes/pr/*' 2>/dev/null || true
 g rev-parse --verify --quiet "$BASE^{commit}" >/dev/null || {
     echo "branch_sweep: base '$BASE' not found" >&2; exit 1; }
-
-# --- protection set: open PR heads ------------------------------------------
-open_prs=""
-if command -v gh >/dev/null 2>&1; then
-    open_prs=$(gh pr list --repo "$OWNER/$NAME" --state open --limit 500 \
-                   --json headRefName --jq '.[].headRefName' 2>/dev/null)
-    if [[ -z "$open_prs" ]] && ! gh auth status >/dev/null 2>&1; then
-        echo "branch_sweep: gh is not authenticated — cannot rule out open PRs" >&2
-        exit 1
-    fi
-else
-    echo "branch_sweep: gh not found — cannot rule out open PRs, refusing to sweep" >&2
-    exit 1
-fi
 
 # --- PR tip index: branch tip SHA -> PR numbers ------------------------------
 declare -A PR_FOR_SHA

@@ -100,7 +100,8 @@ def _gh_free_path(tmp_path: Path) -> str:
     """
     lean = tmp_path / "nogh"
     lean.mkdir(exist_ok=True)
-    for tool in ("bash", "git", "sed", "awk", "grep", "sort", "head", "cut", "tr"):
+    for tool in ("bash", "git", "sed", "awk", "grep", "sort", "head", "cut", "tr",
+                 "dirname", "basename", "cat", "wc", "env", "uniq"):
         found = shutil.which(tool)
         if found and not (lean / tool).exists():
             (lean / tool).symlink_to(found)
