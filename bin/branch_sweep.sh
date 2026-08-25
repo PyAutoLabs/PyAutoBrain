@@ -182,7 +182,13 @@ while read -r b; do
             fi ;;
         *) keep+=("$b	$word") ;;   # UNKNOWN is never safe
     esac
-done < <(g for-each-ref --format='%(refname:short)' refs/remotes/origin | sed 's|^origin/||')
+    # Full refnames, not `:short`. Git abbreviates refs/remotes/origin/HEAD to
+    # bare `origin`, which survives an `origin/` strip and a `!= HEAD` guard,
+    # then reads as a branch named "origin" with verdict UNKNOWN — a symbolic
+    # ref rendered as an unmerged branch. Harmless (UNKNOWN is never deletable)
+    # but it is a null result dressed as a finding, which is the D1 mistake.
+done < <(g for-each-ref --format='%(refname)' refs/remotes/origin \
+           | sed 's|^refs/remotes/origin/||')
 
 echo
 echo "Branch sweep — $OWNER/$NAME (mode: $MODE, base: $BASE)"
