@@ -1,0 +1,171 @@
+name: Branch Sweep (org-wide)
+
+# The same sweep as branch_sweep.yml, run from the Brain across the organism's
+# development repos instead of against this repo alone.
+#
+# WHY CENTRAL. A repo's own GITHUB_TOKEN reaches only that repo, so a per-repo
+# sweeper means one workflow file per repo — 19 of them, drifting apart the
+# moment one is edited. PAT_PYAUTOLABS already exists for exactly this kind of
+# cross-repo work (spawn_drift.yml and arxiv_papers.yml use it), so the sweep
+# is written once here and pointed at each repo in turn.
+#
+# THE GATE IS STRUCTURAL, NOT PROCEDURAL. Deleting branches across 19 repos on
+# one click is not something a report should be able to talk you into, so:
+#
+#   * `mode: delete` REQUIRES an explicit `repos` list. There is no
+#     delete-everything form of this workflow — the "all repos" path is
+#     audit-only, enforced below, not merely discouraged in a runbook.
+#   * The scheduled run is audit-only, like the per-repo sweeper.
+#
+# That matters more here than in a solo repo. PyAutoFit, PyAutoArray,
+# PyAutoGalaxy, PyAutoLens and the workspaces take pull requests from outside
+# contributors. The per-repo skill's rule for that ("never enumerate
+# origin-only collaborator branches") cannot hold in a workflow, where every
+# branch is origin-only — so a human reading the audit per repo IS the
+# substitute for it. Do not automate that step away.
+#
+# Fork PRs are unaffected either way: their heads live in the fork, not here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: "Space/comma-separated owner/repo list. Empty = every sweepable repo (audit only)."
+        type: string
+        default: ""
+      mode:
+        description: "audit = report only · delete = remove (requires an explicit repos list)"
+        type: choice
+        options: [audit, delete]
+        default: audit
+      limit:
+        description: "Max branches to delete per repo (0 = no cap). Ignored in audit mode."
+        type: string
+        default: "0"
+  schedule:
+    # Weekly, audit-only. Staggered an hour after the per-repo sweepers so the
+    # two do not contend for the same API budget.
+    - cron: "40 5 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-sweep-all
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PyAutoBrain (sweep logic)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check out PyAutoMind (the body map the targets derive from)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/PyAutoMind
+          path: .mind
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pyyaml
+
+      - name: Resolve targets and enforce the delete gate
+        id: plan
+        run: |
+          set -euo pipefail
+          mode='${{ inputs.mode }}'
+          [ '${{ github.event_name }}' = 'workflow_dispatch' ] || mode=audit
+          mode="${mode:-audit}"
+
+          requested=$(printf '%s' '${{ inputs.repos }}' | tr ',' ' ' | xargs || true)
+
+          if [ "$mode" = "delete" ] && [ -z "$requested" ]; then
+            echo "::error::mode=delete requires an explicit repos list."
+            echo "::error::Sweeping every repo in one unattended run is not a supported operation —"
+            echo "::error::run mode=audit first, read it, then name the repos to act on."
+            exit 1
+          fi
+
+          # Derived from the body map, never listed here — see
+          # bin/branch_sweep_targets.py for why naming repos in organ code is
+          # the leak the tenant firewall exists to catch.
+          allowed=$(python3 bin/branch_sweep_targets.py .mind/repos.yaml | xargs)
+          if [ -z "$allowed" ]; then
+            echo "::error::no sweepable repos derived from the body map — refusing to continue."
+            exit 1
+          fi
+          if [ -z "$requested" ]; then
+            targets="$allowed"
+          else
+            targets=""
+            for r in $requested; do
+              case " $allowed " in
+                *" $r "*) targets="$targets $r" ;;
+                *) echo "::error::'$r' is not a sweepable repo."
+                   echo "::error::Sweepability comes from its category in the body map"
+                   echo "::error::(PyAutoMind/repos.yaml) plus bin/branch_sweep_targets.py."
+                   echo "::error::Changing either is a reviewed change, not a dispatch input."
+                   exit 1 ;;
+              esac
+            done
+          fi
+
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "targets=$(echo $targets)" >> "$GITHUB_OUTPUT"
+          echo "Mode: $mode"
+          echo "Targets:"; for t in $targets; do echo "  $t"; done
+
+      - name: Sweep each repo
+        env:
+          # Cross-repo work needs more reach than this repo's GITHUB_TOKEN has.
+          GH_TOKEN: ${{ secrets.PAT_PYAUTOLABS }}
+          PAT: ${{ secrets.PAT_PYAUTOLABS }}
+        run: |
+          set -uo pipefail
+          mode='${{ steps.plan.outputs.mode }}'
+          targets='${{ steps.plan.outputs.targets }}'
+
+          if [ -z "${PAT:-}" ]; then
+            echo "::error::PAT_PYAUTOLABS is not set — cannot reach sibling repos."
+            exit 1
+          fi
+
+          echo "## Branch sweep (org-wide) — \`$mode\`" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for slug in $targets; do
+            name="${slug##*/}"
+            echo "::group::$slug"
+            # Full history: containment is an ancestry question and a shallow
+            # clone answers it wrong in the safe-looking direction.
+            if ! git clone --quiet "https://x-access-token:${PAT}@github.com/${slug}.git" "work/$name"; then
+              echo "::warning::clone failed for $slug — skipping"
+              printf '### %s\n\n_clone failed — skipped_\n\n' "$slug" >> "$GITHUB_STEP_SUMMARY"
+              failed=1; echo "::endgroup::"; continue
+            fi
+
+            bin/branch_sweep.sh \
+              --repo "$PWD/work/$name" \
+              --owner "${slug%%/*}" \
+              --name "$name" \
+              --mode "$mode" \
+              --limit '${{ inputs.limit || 0 }}' 2>&1 | tee "work/$name.log" || failed=1
+
+            {
+              printf '### %s\n\n```\n' "$slug"
+              cat "work/$name.log"
+              printf '```\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            # The clone carries a credentialed remote; do not leave it lying about.
+            rm -rf "work/$name"
+            echo "::endgroup::"
+          done
+
+          [ "$failed" -eq 0 ] || { echo "::error::one or more repos failed — see the groups above"; exit 1; }
