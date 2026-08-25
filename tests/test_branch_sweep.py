@@ -193,6 +193,58 @@ def test_a_legacy_trunk_is_protected_even_when_fully_merged(tmp_path):
     assert "master" in remaining, "a legacy trunk must never be swept"
 
 
+def _readonly_origin(tmp_path: Path):
+    """A world whose origin refuses ref deletion, like a read-only credential."""
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(origin)], check=True)
+    _git(origin, "config", "user.email", "t@t")
+    _git(origin, "config", "user.name", "t")
+    _commit(origin, "f", "base", "base")
+    for i in range(5):
+        _git(origin, "branch", f"spent{i}")           # all contained in main
+    # the closest local stand-in for "this credential may not delete refs"
+    _git(origin, "config", "receive.denyDeletes", "true")
+
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text('#!/usr/bin/env bash\nexit 0\n')
+    (bin_dir / "gh").chmod(0o755)
+    return clone, origin, bin_dir
+
+
+def test_a_failed_delete_reports_why(tmp_path):
+    """`FAILED <branch>` with no reason is barely better than silence.
+
+    The first org-wide delete run failed 99 times and recorded nothing but the
+    word FAILED, because the push was redirected to /dev/null. The error text
+    is the only thing a failure carries; keep it.
+    """
+    clone, _, bin_dir = _readonly_origin(tmp_path)
+    out = _sweep(clone, bin_dir, mode="delete").stdout
+    assert "FAILED" in out
+    assert "no error text returned" not in out, "the push error was swallowed"
+    assert "denyDeletes" in out or "denied" in out.lower() or "error" in out.lower()
+
+
+def test_repeated_delete_failures_stop_early(tmp_path):
+    """Delete permission belongs to the credential, not the branch.
+
+    Once a few in a row fail the answer is known for all of them, so grinding
+    through the rest only buries the reason.
+    """
+    clone, origin, bin_dir = _readonly_origin(tmp_path)
+    proc = _sweep(clone, bin_dir, mode="delete")
+    assert proc.returncode == 2, "a run where nothing could be deleted must not report success"
+    assert "Stopping:" in proc.stdout
+    # stopped after the streak rather than attempting all five
+    assert proc.stdout.count("FAILED") == 3
+    remaining = set(_git(origin, "for-each-ref", "--format=%(refname:short)", "refs/heads").split())
+    assert {f"spent{i}" for i in range(5)} <= remaining, "nothing should have been deleted"
+
+
 def test_refuses_to_run_without_gh(world):
     """Blind to open PRs means blind to in-flight work: refuse, do not guess."""
     clone, _, _ = world
