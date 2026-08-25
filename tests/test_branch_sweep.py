@@ -130,6 +130,22 @@ def test_audit_classifies_every_branch(world):
     assert "archive/condemned/something\tgut-transit-ref" in out
 
 
+def test_symbolic_head_is_not_reported_as_a_branch(world):
+    """refs/remotes/origin/HEAD must not surface as a branch called "origin".
+
+    Git abbreviates that ref to bare `origin`, which slips past an `origin/`
+    strip and a `!= HEAD` guard and then lands in KEEP with verdict UNKNOWN —
+    a symbolic ref rendered as unmerged work. It was never deletable, so the
+    cost is a wrong count and a reader misled about what is outstanding.
+    """
+    clone, _, bin_dir = world
+    out = _sweep(clone, bin_dir).stdout
+    assert "origin\tUNKNOWN" not in out
+    assert "\n  origin\t" not in out
+    # the real answer for this fixture, with nothing invented alongside it
+    assert "1 unmerged" in out
+
+
 def test_audit_never_deletes(world):
     clone, origin, bin_dir = world
     before = _git(origin, "for-each-ref", "--format=%(refname)", "refs/heads")
