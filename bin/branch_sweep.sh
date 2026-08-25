@@ -19,7 +19,7 @@
 # view, so the safety gates from skills/repo_cleanup/SKILL.md are enforced here
 # rather than assumed of the caller:
 #
-#   * `main` / the default branch                       — never a candidate
+#   * `main`, `master`, and the default branch          — never a candidate
 #   * `archive/condemned/*`                             — PyAutoGut transit refs;
 #     voiding these before their sweep-after date destroys the recovery path
 #     the Gut exists to provide. The Gut voids them, not us.
@@ -156,10 +156,21 @@ default_branch=$(g symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/
 default_branch="${default_branch#origin/}"
 default_branch="${default_branch:-main}"
 
+# Trunk names are protected whether or not they are THIS repo's default.
+# A repo migrated main<-master keeps the old trunk as an ordinary branch, and
+# once it is fully contained in main the sweep would happily delete it —
+# breaking every stale clone, bookmark and doc that still points at it. The
+# skill's own recipe has always excluded both names (`grep -vE
+# '^(main|master)$'`); protecting only the default silently dropped half of
+# that. Found by the first org-wide audit, where one repo's `master` survived
+# on unique content alone.
+is_trunk() { [[ "$1" == "$default_branch" || "$1" == "main" || "$1" == "master" ]]; }
+
 # --- classify ----------------------------------------------------------------
 safe=() keep=() protected=()
 while read -r b; do
-    [[ -n "$b" && "$b" != "HEAD" && "$b" != "$default_branch" ]] || continue
+    [[ -n "$b" && "$b" != "HEAD" ]] || continue
+    is_trunk "$b" && continue
     case "$b" in
         archive/condemned/*) protected+=("$b	gut-transit-ref"); continue ;;
     esac
