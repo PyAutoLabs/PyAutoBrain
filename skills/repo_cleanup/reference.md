@@ -158,6 +158,31 @@ Never-touched repos fall out with their categories — `autolens_assistant` is a
 names them twice. Brain code may not name satellite repos at all (the tenant
 firewall enforces this; a hardcoded list was written first and rejected).
 
+## Branches that must not simply be deleted
+
+A branch the sweep classes as *unmerged* is not automatically live work. It may
+be history that `main` no longer contains and nothing else pins — the 2026-08-25
+org-wide audit found one: a `master` carrying 442 commits from 2021-2022,
+orphaned by a later "history reset", sharing **no common ancestor** with `main`
+and referenced by no tag. Deleting that is not cleanup, it is loss.
+
+Tell the two apart before proposing anything:
+
+```bash
+git merge-base origin/main origin/<branch>   # exit 1 + no output = disjoint histories
+git tag --contains $(git rev-parse origin/<branch>)   # empty = nothing else pins it
+```
+
+Disjoint or unpinned → route it to the Gut instead of the delete bucket:
+dispatch `branch_archive.yml` (PyAutoBrain) with `repo`, `branch`, `name`, and
+`delete_after`. It archives via `pyauto-gut archive`, **verifies the ref landed
+on the Gut with a fresh `ls-remote`**, and only then deletes the source branch —
+never on the strength of the push's own exit code.
+
+It does not file the `condemned.md` entry. That is Mind state and a judgement:
+material like original project history should be held **undated** (no
+`sweep-after`), so no later sweep ever voids it.
+
 That per-repo human read replaces the local sweep's *"never enumerate
 origin-only collaborator branches"* rule, which a workflow cannot honour —
 every branch it sees is origin-only. The libraries and workspaces take pull
