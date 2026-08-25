@@ -163,6 +163,36 @@ def test_delete_removes_only_the_contained_branch(world):
     assert {"main", "unmerged", "open-pr-head", "archive/condemned/something"} <= remaining
 
 
+def test_a_legacy_trunk_is_protected_even_when_fully_merged(tmp_path):
+    """`master` after a main<-master migration is not an ordinary branch.
+
+    It is protected on NAME, not on containment: once folded into main it looks
+    exactly like spent work, and deleting it breaks every stale clone, bookmark
+    and doc still pointing at it. The first org-wide audit found a repo whose
+    `master` survived only because it happened to carry unique content — luck,
+    not a gate.
+    """
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(origin)], check=True)
+    _git(origin, "config", "user.email", "t@t")
+    _git(origin, "config", "user.name", "t")
+    _commit(origin, "f", "base", "base")
+    # a legacy trunk fully contained in main — indistinguishable from spent work
+    _git(origin, "branch", "master")
+
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text('#!/usr/bin/env bash\nexit 0\n')
+    (bin_dir / "gh").chmod(0o755)
+
+    assert _sweep(clone, bin_dir, mode="delete").returncode == 0
+    remaining = set(_git(origin, "for-each-ref", "--format=%(refname:short)", "refs/heads").split())
+    assert "master" in remaining, "a legacy trunk must never be swept"
+
+
 def test_refuses_to_run_without_gh(world):
     """Blind to open PRs means blind to in-flight work: refuse, do not guess."""
     clone, _, _ = world
