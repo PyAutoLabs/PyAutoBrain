@@ -63,6 +63,19 @@ and worktree roots under `$PYAUTO_WT_ROOT`.
 `euclid_strong_lens_modeling_pipeline`, `autolens_assistant`, and anything not
 listed above. Skip any entry that is missing, not a git repo, or a bare symlink.
 
+## Where this runs
+
+**Local session (laptop CLI):** the full sweep below — canonical checkouts,
+worktrees, stashes, the lot.
+
+**Cloud session (phone, claude.ai/code):** there is no local tree, and the
+session credential **cannot delete a remote ref** (`git push origin --delete`
+returns 403; the GitHub tool surface has no delete-ref call). Do not attempt it
+and do not report the cleanup as blocked — **dispatch the repo's own
+`branch_sweep.yml`**, which runs the same gates under a `contents: write`
+`GITHUB_TOKEN`. Recipe: [`reference.md`](reference.md) → "Execution
+environments". Branch buckets only; stashes and worktrees stay laptop-only.
+
 ## Steps
 
 ### 1. Setup
@@ -108,5 +121,8 @@ Format: [`reference.md`](reference.md) → "Recap".
 - Skip missing / non-git / detached-HEAD repos with a one-line note.
 - Never skip hooks, never force-push — these are read/prune/delete operations only.
 - Suggest `/health worktrees` first if unsure whether tasks are in flight.
-- Execution-environment fallback (remote-audit-only when there's no local tree)
-  is in [`reference.md`](reference.md).
+- A repo that still accumulates merged PR heads has **"Automatically delete head
+  branches" off** (Settings → General). Say so once — that setting prevents the
+  backlog this skill exists to clear, and no sweep substitutes for it.
+- Cloud-session routing (dispatch `branch_sweep.yml` rather than pushing
+  deletes) is in [`reference.md`](reference.md) → "Execution environments".

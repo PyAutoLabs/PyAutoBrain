@@ -116,17 +116,39 @@ List anything the user opted to keep so the next sweep resumes from there.
 
 ## Execution environments
 
-In a web-github / analysis-only session (no local checkout) destructive git ops
-are unavailable — degrade to a **remote audit only**: skip all `git -C`; for each
-in-scope repo enumerate remote branches
-(`gh api repos/<owner>/<repo>/branches --jq '.[].name' --paginate`), cross-check
-open PRs (`gh pr list --head <branch> --state open`), and report branches with no
-open PR that are merged to `main`
-(`gh api repos/<owner>/<repo>/compare/main...<branch>` → `ahead_by == 0`) as
-**candidates** only. Do not delete remotely; recommend running on a local-dev
-checkout to complete the sweep (which re-audits against local state). Skip
-stash/dirty sections. Resolve each repo's `<owner>/<repo>` from the `github:`
+A cloud session (phone, claude.ai/code) has no local tree **and cannot delete a
+remote ref**: `git push origin --delete` returns 403 for the session credential
+— the proxy is not the blocker, it logs no relay failure — and the GitHub tool
+surface exposed to those sessions has no delete-ref call. Try it once and you
+have learned nothing the next session does not already know; do not retry, and
+do not route around it.
+
+Instead **dispatch the repo's own sweep**, which runs the same gates under a
+workflow `GITHUB_TOKEN` that does have `contents: write`:
+
+1. `mcp__github__actions_run_trigger` → `run_workflow`, `workflow_id:
+   branch_sweep.yml`, `ref: main`, `inputs: {mode: audit}`.
+2. Poll `mcp__github__actions_list` → `list_workflow_runs` for that workflow;
+   read the finished run's summary (its step summary carries the full report).
+3. Show the user the contained / unmerged / protected split and get approval
+   exactly as for Bucket B locally.
+4. Re-dispatch with `mode: delete` (add `limit` for a first cautious batch).
+
+`branch_sweep.yml` currently exists in **PyAutoMind** and **PyAutoBrain**. For a
+repo without it, say so and offer to add it rather than falling back to
+hand-deletion — the file is repo-independent (it reads `github.repository`), so
+adding it is a copy.
+
+**The setting that makes this mostly unnecessary.** A repo whose merged PR heads
+survive has *Settings → General → "Automatically delete head branches"* off.
+That single toggle removes each head at merge and stops the backlog forming;
+this sweep is the backstop for what predates it, for branches pushed without a
+PR, and for heads whose PR closed unmerged. Claude cannot set it (no
+repo-settings tool) — flag it for the human once, then move on.
+
+Whichever environment: resolve each repo's `<owner>/<repo>` from the `github:`
 field in `PyAutoMind/repos.yaml` (the body map is the single source of repo
 identity) — do not assume a default owner. Nearly every repo is under
 `PyAutoLabs/`; the pre-migration `rhayes777/` and `Jammy2211/` homes are gone
-bar the two the body map still records.
+bar the two the body map still records. Stash and dirty-checkout buckets have no
+cloud equivalent — skip them and say so.
