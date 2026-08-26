@@ -5,6 +5,12 @@ holds the collection commands, the record header taxonomy, the evidence rules,
 the dashboard layout, the per-bucket execution recipes, the recap, and the
 execution-environment fallback.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Collect open issues
 
 Resolve the repo list and owners from `PyAutoMind/repos.yaml`. For each repo:

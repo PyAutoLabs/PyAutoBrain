@@ -54,13 +54,15 @@
 #   ORPHAN       no writer found — kept and REPORTED, so a human can look.
 # Deletion requires positive evidence; every uncertainty lands on ORPHAN.
 #
-# Workspace root: PYAUTO_ROOT (default ~/Code/PyAutoLabs).
+# Workspace root: PYAUTO_ROOT (bin/_pyauto_root.sh — the directory holding
+# the organ checkouts, derived from this one; ~/Code/PyAutoLabs last).
 # Preview without changing anything:  DRY_RUN=1 clean_slate.sh
 # Packaging products only:            clean_slate.sh --packaging
 
 set -u
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_pyauto_root.sh"
+ROOT="$PYAUTO_ROOT"
 cd "$ROOT" || { echo "workspace root not found: $ROOT" >&2; exit 1; }
 DRY_RUN="${DRY_RUN:-0}"
 tag=""; [ "$DRY_RUN" = 1 ] && tag="[dry-run] "

@@ -24,6 +24,12 @@ reply* — this skill never touches those, it routes them there); `$create-issue
 and `$update-issue` (single-issue primitives); `$hygiene` (code-quality debt, not
 the tracker).
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Why this needs care
 
 The obvious rule — *"a PyAutoMind `complete/` record references this issue, so

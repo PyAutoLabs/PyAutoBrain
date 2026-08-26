@@ -4,6 +4,12 @@ Mechanics for [`prm.md`](prm.md). Lazy-loaded: read it when you actually run the
 step. `gh` in this workspace is old (2.4.0) — it has **no `gh search`** and some
 newer flags are absent, so everything below sticks to `gh pr` / `gh api`.
 
+> **GitHub surface.** These are the `gh` mechanics. A Claude Code remote
+> session has no `gh` and reaches GitHub through the `mcp__github__*` tools
+> instead — each snippet below names an *operation* that
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md) maps onto its MCP equivalent.
+> Probe once (`command -v gh`) and read this page through that lens.
+
 ## Resolving the PR
 
 ```bash

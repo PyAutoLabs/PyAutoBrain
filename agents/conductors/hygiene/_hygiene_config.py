@@ -46,6 +46,17 @@ import glob
 import os
 import sys
 
+# The one workspace-root resolver, shared with bin/_pyauto_root.sh, so a
+# remote session (checkouts under /home/user, $HOME=/root) prescans the same
+# tree a developer box does instead of an empty one.
+sys.path.insert(0, os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))))
+import _pyauto_root  # noqa: E402
+
+
+def _default_root() -> str:
+    return str(_pyauto_root.pyauto_root())
+
 try:
     import yaml
 except Exception:
@@ -243,7 +254,10 @@ def main() -> int:
         description="Config drift prescan for the hygiene conductor: library "
                     "config keys absent downstream, and workspace config files "
                     "with no library counterpart.")
-    ap.add_argument("--root", default=os.path.expanduser("~/Code/PyAutoLabs"))
+    ap.add_argument("--root", default=_default_root(),
+                    help="workspace root holding the organ checkouts "
+                         "(default: PYAUTO_ROOT, else the parent of this "
+                         "PyAutoBrain checkout)")
     ap.add_argument("--detail", action="store_true",
                     help="list every drifted key path and orphan file, grouped "
                          "by the config file / repo it belongs to. Default is "

@@ -11,6 +11,12 @@ Workflow entry point — worktree/branch setup is the dev workflow's own
 helpers, execution-environment model, and registry paths. Verbose formats live in
 [`reference.md`](reference.md).
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Steps
 
 ### 1. Conflict guard

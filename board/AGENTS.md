@@ -115,3 +115,33 @@ board links). The org/owner is derived from the Mind's body map
 Env: `PYAUTO_ROOT` (workspace root holding `PyAutoMind/`), `BOARD_GH`
 (the gh binary; hermetic tests point it at a stub), `BOARD_PAGES_BASE`
 (sibling-board base URL; tests point it at `file://` fixtures).
+
+## Reading the board in a remote session
+
+A Claude Code remote session (web/mobile) cannot reach either of the board's
+data sources by default:
+
+- **`gh` is not installed.** The overnight sweep, the version stamps, the
+  community scan and the pending-release search all run through it. Without it
+  they cannot ask — which is not the same as asking and getting nothing, and
+  the render now says so (`could not read`, never `no runs`).
+- **The sibling Pages boards are refused by the egress policy.** The proxy
+  answers `403` to `CONNECT` for `<org>.github.io`, so `board.json` and
+  `badge.json` — the Heart's readiness surface among them — are unreadable.
+  Retrying never helps; the reason is named in the Degraded section rather than
+  reported as a flake. Where the sibling repo is checked out, the board falls
+  back to its local `board/board.json`.
+
+So a remote render is expected to be partial. It carries a **⚠️ Degraded
+render** banner above the sections, a per-leg reason at the foot, a headline
+qualified with `partial view (N legs unread)`, and a grey badge rather than a
+green one — a green badge is only ever emitted by a render that read
+everything and found nothing wrong.
+
+To get a complete board in a remote session, the environment needs outbound
+access to the Pages host. That is environment configuration on claude.ai
+(**Settings → the environment's network policy**), not something this repo can
+set: add `<org>.github.io`, and `objects.githubusercontent.com` if you also
+want CI artifacts to be downloadable rather than rebuilt locally. `gh` itself
+is not installable in that image — drive GitHub through the MCP tools instead
+(`skills/GITHUB_ACCESS.md`).

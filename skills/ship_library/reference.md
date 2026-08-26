@@ -4,6 +4,12 @@ Factored out of `ship_library.md`. The body skill is authoritative for the flow;
 this file holds the verbatim PR format, the API-Changes rules, and the
 workspace-impact analysis.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Writing the `## API Changes` section (judgement — stays in the reasoning model)
 
 Analyse **all** commits on the branch and the full diff against the base branch.

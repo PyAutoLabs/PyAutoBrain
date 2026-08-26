@@ -246,11 +246,18 @@ def test_repeated_delete_failures_stop_early(tmp_path):
 
 
 def test_refuses_to_run_without_gh(world):
-    """Blind to open PRs means blind to in-flight work: refuse, do not guess."""
+    """Blind to open PRs means blind to in-flight work: refuse, do not guess.
+
+    The refusal must also say what to do instead. A remote session has no `gh`
+    at all, so "gh not found" alone reads as a broken machine rather than the
+    wrong surface — the message names the alternative and where it is mapped.
+    """
     clone, _, _ = world
     proc = _sweep(clone, None)
     assert proc.returncode == 1
-    assert "gh not found" in proc.stderr
+    assert "refusing to sweep" in proc.stderr
+    assert "gh" in proc.stderr
+    assert "GITHUB_ACCESS.md" in proc.stderr
 
 
 def test_rejects_unknown_mode(world):

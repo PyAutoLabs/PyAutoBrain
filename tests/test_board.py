@@ -283,8 +283,11 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     # Overnight rows: one per policy job, owner defaulted onto the derived org.
     assert s["overnight"], "policy overnight_jobs rendered no rows"
     for row in s["overnight"]:
+        # `unreadable` distinguishes "asked, no runs" from "could not ask" —
+        # without it a board that cannot reach GitHub renders every row as
+        # "no runs", which is a claim it has not earned.
         assert set(row) == {"repo", "workflow", "conclusion", "age_h", "url",
-                            "blocked", "blocked_reason"}
+                            "blocked", "blocked_reason", "unreadable"}
         assert row["repo"].startswith("ExampleOrg/")
         assert row["conclusion"] == "success"
     # Versions: every stamp resolves to the fixture, so consensus + no drift.

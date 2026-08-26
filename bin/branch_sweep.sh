@@ -73,8 +73,10 @@ g() { git -C "$REPO" "$@"; }
 # cannot see open PRs, so we would refuse to sweep anyway — and refusing after
 # rewriting the caller's clone (an unshallow is not free and not undoable)
 # would be a rude way to say no.
-command -v gh >/dev/null 2>&1 || {
-    echo "branch_sweep: gh not found — cannot rule out open PRs, refusing to sweep" >&2
+. "$(dirname "${BASH_SOURCE[0]}")/_gh.sh"
+have_gh || {
+    echo "branch_sweep: cannot rule out open PRs, refusing to sweep" >&2
+    require_gh branch_sweep
     exit 1
 }
 open_prs=$(gh pr list --repo "$OWNER/$NAME" --state open --limit 500 \

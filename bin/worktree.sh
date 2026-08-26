@@ -21,8 +21,9 @@
 
 set -o pipefail
 
-PYAUTO_MAIN="${PYAUTO_MAIN:-$HOME/Code/PyAutoLabs}"
-PYAUTO_WT_ROOT="${PYAUTO_WT_ROOT:-$HOME/Code/PyAutoLabs-wt}"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_pyauto_root.sh"
+PYAUTO_MAIN="${PYAUTO_MAIN:-$PYAUTO_ROOT}"
+PYAUTO_WT_ROOT="${PYAUTO_WT_ROOT:-${PYAUTO_MAIN}-wt}"
 
 # Libraries that participate in PYTHONPATH. Order matters — it mirrors the
 # order in ~/.bashrc.
@@ -379,8 +380,8 @@ worktree_list_claimed() {
 # Exits 3 when the registry cannot be resolved — see below.
 #
 # THIS GUARD FAILS CLOSED. It used to return 0 when `active.md` could not be
-# found, which meant a cloud/web/CI session (where the roots are not under the
-# default $HOME/Code/PyAutoLabs) got "no conflict" from a guard that had read
+# found, which meant a cloud/web/CI session (where the roots were not under the
+# then-default $HOME/Code/PyAutoLabs) got "no conflict" from a guard that had read
 # nothing. That is worse than no guard, because the workflow documents this
 # call and the skills act on its answer: two sessions could each be told the
 # same repo was free. It now reports the failure and returns non-zero, so the

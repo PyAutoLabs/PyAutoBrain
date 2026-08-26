@@ -15,6 +15,12 @@ the organ boundary, the Feature Agent, Memory consultation and the
 execution-environment model. Tone rules, comment templates and registry formats
 are in [`reference.md`](reference.md) (`PyAutoBrain/skills/start_dev_for_user/reference.md`).
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Usage
 
 ```

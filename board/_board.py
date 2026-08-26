@@ -58,9 +58,14 @@ from _theme import (  # noqa: E402
 THEME_ORGAN = "brain"  # whose logo this page wears
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-# Default workspace root = the checkout's parent (the standard sibling layout
-# the sizing faculty also assumes) — no instance path named here.
-PYAUTO_ROOT = Path(os.environ.get("PYAUTO_ROOT", BRAIN_HOME.parent))
+# Workspace root via the one shared resolver (agents/_pyauto_root.py, mirrored
+# by bin/_pyauto_root.sh) — no instance path named here. ROOT_REASON records
+# which rule produced it, so a degraded leg can say whether it found nothing or
+# looked in the wrong tree.
+sys.path.insert(0, str(BRAIN_HOME / "agents"))
+import _pyauto_root  # noqa: E402
+
+PYAUTO_ROOT, ROOT_REASON = _pyauto_root.workspace_root_reason()
 GH = os.environ.get("BOARD_GH", "gh")
 POLICY_PATH = BRAIN_HOME / "config" / "policy.yaml"
 
@@ -176,10 +181,16 @@ def collect_overnight(jobs, org, degraded):
         run = (runs or {}).get("workflow_runs") or [None]
         run = run[0]
         if run is None:
-            if runs is None:
+            # "no runs" and "could not ask" are different facts and must not
+            # render the same. Without gh (a remote session has none) every
+            # workflow reported "no runs" — a claim about the world, from a
+            # board that had never been able to query it.
+            unreadable = runs is None
+            if unreadable:
                 degraded.append(f"overnight: could not read {repo}/{wf}")
             rows.append({"repo": repo, "workflow": wf, "conclusion": None,
-                         "age_h": None, "url": None, "blocked": False})
+                         "age_h": None, "url": None, "blocked": False,
+                         "blocked_reason": None, "unreadable": unreadable})
             continue
         conclusion = run.get("conclusion") or run.get("status")
         blocked = False
@@ -207,15 +218,42 @@ def collect_overnight(jobs, org, degraded):
             "url": run.get("html_url"),
             "blocked": blocked,
             "blocked_reason": blocked_reason,
+            "unreadable": False,
         })
     return rows
 
 
-def _fetch_json(url):
+def _fetch_reason(exc):
+    """Why a published surface could not be read, in the reader's terms.
+
+    "unreachable" covers two very different situations and the difference is
+    the actionable part: a transient network failure is worth retrying, while
+    an egress policy that refuses the host will refuse it every time until
+    someone adds it to the environment's allowlist. A remote session hits the
+    second — the sibling boards are GitHub Pages, and the proxy answers 403 to
+    CONNECT for that host — so the board reported "unreachable" every morning
+    for a reason no amount of retrying would change.
+    """
+    code = getattr(exc, "code", None)
+    reason = str(getattr(exc, "reason", exc))
+    if code in (403, 407) or "403" in reason or "CONNECT" in reason.upper():
+        return ("blocked by this environment's network policy — add the Pages "
+                "host to the environment allowlist (see board/AGENTS.md)")
+    if isinstance(exc, (json.JSONDecodeError, ValueError)):
+        return "served content that is not the expected JSON"
+    if "timed out" in reason.lower():
+        return "timed out"
+    return f"unreachable ({reason[:80]})"
+
+
+def _fetch_json(url, why=None):
+    """Parsed JSON, or None. `why` (a one-element list) receives the reason."""
     try:
         with urllib.request.urlopen(url, timeout=15) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, json.JSONDecodeError, ValueError, OSError):
+    except (urllib.error.URLError, json.JSONDecodeError, ValueError, OSError) as e:
+        if why is not None:
+            why.append(_fetch_reason(e))
         return None
 
 
@@ -233,15 +271,39 @@ PERF_FLAGGED_CAP = 5
 COMMUNITY_STALE_DAYS = 7
 
 
+def _local_published_json(repo, name):
+    """The same surface from a sibling checkout, when one is here.
+
+    The published copy is authoritative, but a session that cannot reach it and
+    *does* hold the checkout can still answer from the tree rather than
+    reporting nothing.
+    """
+    for rel in (Path("board") / name, Path("docs") / name, Path(name)):
+        candidate = PYAUTO_ROOT / repo / rel
+        try:
+            if candidate.is_file():
+                return json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+    return None
+
+
 def fetch_heart_board(pages_base, repo, degraded):
     """The Heart board's published machine surface (board.json, schema v2) —
     ONE read, two consumers (the blockers and the performance block below).
     None when unreachable; the degraded row is recorded here, once."""
-    board = _fetch_json(f"{pages_base}/{repo}/board.json")
-    if board is None:
-        degraded.append("readiness: Heart board.json unreachable "
-                        "(blockers shown on the Heart board only)")
-    return board
+    why = []
+    board = _fetch_json(f"{pages_base}/{repo}/board.json", why)
+    if board is not None:
+        return board
+    board = _local_published_json(repo, "board.json")
+    if board is not None:
+        degraded.append(f"readiness: published Heart board {why[0] if why else 'unreachable'}; "
+                        f"read the local {repo} checkout instead")
+        return board
+    degraded.append(f"readiness: Heart board.json {why[0] if why else 'unreachable'} "
+                    "(blockers shown on the Heart board only)")
+    return None
 
 
 def extract_heart_blockers(board):
@@ -816,9 +878,21 @@ def verdict(data):
 
 
 def headline(data):
+    """The one line a reader acts on — qualified by how much was actually read.
+
+    "clear to work" is a claim of knowledge, and a board whose legs could not
+    be queried has none. A remote session (no gh, Pages blocked by the egress
+    policy) rendered every section empty and still headlined "clear to work" in
+    brightgreen: the strongest possible all-clear, from a board that had asked
+    nothing. Absence of findings is not a finding.
+    """
     blocking, attention = verdict(data)
     n = len(blocking) + len(attention)
-    return "clear to work" if n == 0 else f"{n} need you"
+    core = "clear to work" if n == 0 else f"{n} need you"
+    unread = len(data.get("degraded") or [])
+    if unread:
+        core += f" · partial view ({unread} leg{'s' if unread != 1 else ''} unread)"
+    return core
 
 
 def badge_color(data):
@@ -827,6 +901,10 @@ def badge_color(data):
         return "red"
     if attention:
         return "orange"
+    # Nothing found AND nothing unread is the only green. Nothing found because
+    # nothing could be asked is grey, not green.
+    if data.get("degraded"):
+        return "lightgrey"
     return "brightgreen"
 
 
@@ -844,6 +922,8 @@ def render_badge(data):
 
 
 def _overnight_line(r):
+    if r.get("unreadable"):
+        return f"? {r['repo']}/{r['workflow']} — could not read (see Degraded)"
     if r["conclusion"] is None:
         return f"– {r['repo']}/{r['workflow']} — no runs"
     if r["blocked"]:
@@ -872,6 +952,16 @@ def render_md(data):
         f"Morning sync (local, terminal): `{MORNING_CMD}`",
         "",
     ]
+    # A partial board that looks whole is worse than a short one: a reader who
+    # cannot see that three legs failed will read their silence as good news.
+    # The detail stays at the foot; this says up front how much to trust.
+    if data["degraded"]:
+        L += [
+            f"> ⚠️ **Degraded render — {len(data['degraded'])} leg(s) could not be "
+            "read.** Sections below may be incomplete; see **Degraded** at the "
+            "foot for which and why.",
+            "",
+        ]
     if blocking:
         L.append("## 🚨 Blocking")
         L += [f"- {b}" for b in blocking] + [""]
@@ -1161,7 +1251,9 @@ def render_html(data):
                if r["conclusion"] is not None else "")
         subject = f'<b>{esc(r["workflow"])}</b>{age}{link}'
         failed = r["conclusion"] not in (None, "success")
-        if r["conclusion"] is None:
+        if r.get("unreadable"):
+            state, tone, reason = "could not read", "y", ""
+        elif r["conclusion"] is None:
             state, tone, reason = "no runs", "n", ""
         elif r["blocked"]:
             state, tone = "blocked at a gate", "y"

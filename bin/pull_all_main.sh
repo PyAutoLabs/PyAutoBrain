@@ -8,12 +8,13 @@
 # repo that still has tracked local modifications after that — i.e. real work —
 # is skipped and left completely untouched. Untracked files never block a pull.
 #
-# Workspace root: PYAUTO_ROOT (default ~/Code/PyAutoLabs) — override to point at
+# Workspace root: PYAUTO_ROOT (bin/_pyauto_root.sh) — override to point at
 # a different checkout, mirroring bin/pyauto-brain's sibling resolution.
 
 set -u
 
-ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_pyauto_root.sh"
+ROOT="$PYAUTO_ROOT"
 cd "$ROOT" || { echo "workspace root not found: $ROOT" >&2; exit 1; }
 
 for dir in */; do
