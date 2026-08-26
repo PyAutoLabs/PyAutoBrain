@@ -68,6 +68,31 @@ def test_css_substitutes_every_placeholder():
     assert "prefers-color-scheme:dark" in sheet
 
 
+def test_the_accent_is_the_pages_type_colour_not_only_its_link_colour():
+    # The organ is meant to carry on past the masthead: the elements that give
+    # a page its shape are all set in the accent, so a board reads as its
+    # organ top to bottom rather than as grey chrome under a coloured hero.
+    sheet = _theme.css("brain")
+    for rule in ("h2{", "h3{", "summary{", "code{"):
+        block = sheet[sheet.index(rule):sheet.index("}", sheet.index(rule))]
+        assert "color:var(--accent)" in block, rule
+    # …and unclassed emphasis — the head of a row, a count, a label.
+    assert "b:not([class]),strong:not([class]){color:var(--accent)}" in sheet
+
+
+def test_a_semantic_class_keeps_its_own_colour_against_the_accent():
+    # The accent is the *default* type colour, never an override: the rule is
+    # class-guarded, so ok/warn/bad and the pills still say what they mean.
+    sheet = _theme.css("brain")
+    assert "b:not([class])" in sheet and "b{color:var(--accent)}" not in sheet
+    for cls, var in ((".ok", "--ok"), (".warn", "--warn"), (".bad", "--bad")):
+        assert f"{cls}{{color:var({var})}}" in sheet, cls
+    # The verdict banner's headline says its verdict in the verdict's colour,
+    # at a specificity the unclassed-bold rule cannot reach.
+    for tone in ("ok", "warn", "bad"):
+        assert f".verdict.{tone} b{{color:var(--{tone})}}" in sheet
+
+
 def test_each_board_wears_its_own_accent():
     mind, brain = _theme.css("mind"), _theme.css("brain")
     assert _theme.ORGANS["brain"]["glow"] not in mind

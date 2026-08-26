@@ -71,9 +71,11 @@ rather than drifting page by page.
 
 Each organ has an accent sampled from its own logo, and every board opens
 with a dark hero reproducing that logo's wordmark — white `PyAuto`, the organ
-name in its accent, the logo's tagline underneath. Below the hero the page
-goes back to being a plain readable document, because these are lists people
-scan on a phone before breakfast.
+name in its accent, the logo's tagline underneath. Below the hero the organ
+keeps speaking: the accent is the page's **type colour**, so section
+headings, disclosure summaries, code spans and the emphasised head of a row
+are all in the organ's hue. Only the running prose stays near-black, because
+these are lists people scan on a phone before breakfast.
 
 *A phone before breakfast* is a size, not a mood: the sheet makes wrapping the
 page **default** (`overflow-wrap` on `body`, inherited), so a run URL or a
@@ -102,6 +104,16 @@ the `Type:`/`Target:`/`Difficulty:`/`Autonomy:`/`Priority:` header the Mind
 already wrote, so a task looks like itself on both pages. Above the sections,
 a header strip carries one number per section that can ask something of a
 human; a source that could not be read counts `–`, never a zero.
+
+The accent is the page's **type colour**, not merely its link colour: the
+things that give a page its shape — section headings, disclosure summaries,
+code spans, the emphasised head of a row — are set in the organ's hue, so a
+board reads as its organ from top to bottom instead of as grey GitHub chrome
+under a coloured masthead. Only the running prose stays near-black. That
+reservation is literal in the stylesheet: the accent rule is `b:not([class])`,
+so an element carrying a semantic class — `ok`, `warn`, `bad`, `muted`, a pill
+tone — keeps the colour that class means, and only unclassed emphasis takes
+the organ's hue.
 
 ## Configuration
 
