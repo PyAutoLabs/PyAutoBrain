@@ -32,16 +32,27 @@ Sweeping them centrally too would put two sweepers on one repo with different
 credentials. "Mind" and "Brain" are organism roles present in any fork, so
 naming them here is not an instance fact.
 
-The self-sweeping exclusion is the *sweep's* boundary, not the body map's, so
-a second consumer can ask for it back. `--include-self-sweeping` yields every
-development repo including the Mind and the Brain — what the repo-settings
-sweep wants, because "delete the head branch on merge" is a per-repo setting
-that has to be on in those two as much as anywhere else, and no second sweeper
-collides over a settings PATCH.
+## The second consumer reads the body map for its *complement*
+
+`repo_settings.yml` turns on "delete the head branch on merge". It used to take
+a widened version of the set above, and that was wrong in a way the category
+boundary cannot fix: a repo is created *before* anyone registers it in the body
+map, so a body-map-derived sweep is structurally blind to exactly the repos
+that most need the setting. It now enumerates the organisation from the GitHub
+API instead, where a new repo appears the moment it exists.
+
+What that enumeration *cannot* see is a body-map repo under some other owner.
+`--outside-owner <owner>` yields those, and only those — the complement of the
+org listing. It applies **no category filter**, deliberately: the org
+enumeration has none either, so filtering the complement would be a boundary
+that exists on one side of the union and not the other. (In practice the
+categories that end up outside an organisation's own account are the personal
+ones, which the category set above excludes — so filtering here would yield
+nothing at all and silently drop the repos this flag exists to find.)
 
 Usage:
     branch_sweep_targets.py <path-to-repos.yaml>   # one owner/repo per line
-    branch_sweep_targets.py --include-self-sweeping <path-to-repos.yaml>
+    branch_sweep_targets.py --outside-owner <owner> <path-to-repos.yaml>
 """
 
 from __future__ import annotations
@@ -61,32 +72,48 @@ SWEEPABLE_CATEGORIES = frozenset(
 SELF_SWEEPING_ORGANS = frozenset({"Mind", "Brain"})
 
 
-def targets(body_map: dict, include_self_sweeping: bool = False) -> list[str]:
-    """The development `owner/repo` slugs, in body-map order.
-
-    `include_self_sweeping` keeps the organs that host their own branch
-    sweeper. Only the branch sweep needs them dropped (two sweepers on one
-    repo would contend); a consumer that flips a repo setting does not.
-    """
+def targets(body_map: dict) -> list[str]:
+    """The development `owner/repo` slugs, in body-map order."""
     out = []
     for entry in body_map["repos"].values():
         if entry.get("category") not in SWEEPABLE_CATEGORIES:
             continue
-        if not include_self_sweeping and entry.get("organ") in SELF_SWEEPING_ORGANS:
+        if entry.get("organ") in SELF_SWEEPING_ORGANS:
             continue
         out.append(entry["github"])
     return out
 
 
+def outside_owner(body_map: dict, owner: str) -> list[str]:
+    """Body-map slugs whose owner is not `owner`, in body-map order.
+
+    The complement of a `GET /orgs/<owner>/repos` listing: what a settings
+    sweep would miss if it trusted the API enumeration alone. No category
+    filter — see the module docstring for why that asymmetry is deliberate.
+    """
+    return [
+        entry["github"]
+        for entry in body_map["repos"].values()
+        if entry["github"].split("/", 1)[0] != owner
+    ]
+
+
 def main(argv: list[str]) -> int:
     args = argv[1:]
-    include_self_sweeping = False
-    if "--include-self-sweeping" in args:
-        include_self_sweeping = True
-        args = [a for a in args if a != "--include-self-sweeping"]
+    owner = None
+    if "--outside-owner" in args:
+        i = args.index("--outside-owner")
+        # The flag needs a value, and the value must not be the body-map path
+        # arriving by accident — a missing value would otherwise swallow it and
+        # report "no repos outside <path>", which reads as a clean empty run.
+        if i + 1 >= len(args) or args[i + 1].startswith("-"):
+            print("branch_sweep_targets: --outside-owner needs an owner", file=sys.stderr)
+            return 2
+        owner = args[i + 1]
+        args = args[:i] + args[i + 2 :]
     if len(args) != 1 or args[0].startswith("-"):
         print(
-            f"usage: {Path(argv[0]).name} [--include-self-sweeping] <path-to-repos.yaml>",
+            f"usage: {Path(argv[0]).name} [--outside-owner <owner>] <path-to-repos.yaml>",
             file=sys.stderr,
         )
         return 2
@@ -96,7 +123,9 @@ def main(argv: list[str]) -> int:
     if not path.is_file():
         print(f"branch_sweep_targets: no body map at {path}", file=sys.stderr)
         return 1
-    for slug in targets(yaml.safe_load(path.read_text()), include_self_sweeping):
+    body_map = yaml.safe_load(path.read_text())
+    slugs = outside_owner(body_map, owner) if owner is not None else targets(body_map)
+    for slug in slugs:
         print(slug)
     return 0
 
