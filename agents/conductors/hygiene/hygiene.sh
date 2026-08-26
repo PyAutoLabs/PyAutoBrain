@@ -16,7 +16,9 @@
 #   noise -> /cli_noise_clean (Heart)      deps  -> /dep_audit (Heart)
 #   docs  -> /audit_docs (Heart)           packaging -> clean_slate.sh (Brain)
 #   docstrings -> /refactor (exact findings; Hygiene remains read-only)
-#   refs  -> /refactor (dead internal references in workspace prose)
+#   escapes -> /refactor (LaTeX eaten by string escapes; the SILENT class has no
+#              diagnostic at all, so a warning-only sweep reports a false clean)
+#   refs  -> /refactor (folder-list drift in workspace prose: dead refs + undocumented folders)
 #   optdeps -> /refactor (smoke-listed scripts missing an optional-dep skip guard)
 #   extras  -> /bug (optional deps a library declares that the smoke CI leg never installs)
 # The three Heart skills are read-only observation skills — measurement lives in
@@ -34,10 +36,11 @@
 #   hygiene.sh docs            # API-docs pre-scan -> /audit_docs
 #   hygiene.sh crlf            # executable scripts w/ CRLF break on HPC (+ cosmetic .py) -> /refactor
 #   hygiene.sh docstrings      # adjacent top-level script documentation -> /refactor
-#   hygiene.sh refs            # dead internal references in workspace prose -> /refactor
+#   hygiene.sh escapes         # LaTeX damaged by string escapes (warned + SILENT) -> /refactor
+#   hygiene.sh refs            # folder-list drift in workspace prose -> /refactor
 #   hygiene.sh optdeps         # smoke-listed scripts w/ a gated API but no skip guard -> /refactor
 #   hygiene.sh extras          # optional deps declared by a library but missing from the smoke CI install -> /bug
-#   hygiene.sh config          # library config keys missing downstream -> /refactor
+#   hygiene.sh config          # library config keys missing downstream + orphan config files -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh packaging       # ignored top-level *.egg-info/build dirs -> clean_slate.sh
 #   hygiene.sh <mode> --json   # machine-readable HygieneDecision
@@ -50,20 +53,80 @@
 #
 # All modes are live. The fast default scan DEFERS perf's import timing (it
 # spawns real imports); run `hygiene perf` for it. Repos are read under
-# PYAUTO_ROOT (default ~/Code/PyAutoLabs); import timing uses HYGIENE_PYTHON
-# (default python3 — point it at the PyAuto venv to time the science libs).
+# PYAUTO_ROOT (defaulted by _common.sh) and WHICH repos comes from the body map,
+# never from a list here; import timing uses HYGIENE_PYTHON (default python3 —
+# point it at the PyAuto venv to time the science libs). A scan that sees no
+# checkouts reports `unscanned`, never `clean`.
 
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../../_common.sh"
 
-# PYAUTO_ROOT is exported/defaulted by _common.sh (~/Code/PyAutoLabs). Scan the
-# canonical checkouts there, never the worktree symlinks.
-ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
-LIB_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
-ORG_REPOS=(PyAutoBrain PyAutoHands PyAutoHeart PyAutoMind)
-DOC_REPOS=(PyAutoFit PyAutoGalaxy PyAutoLens)
+# PYAUTO_ROOT is exported/defaulted by _common.sh. Scan the canonical checkouts
+# there, never the worktree symlinks.
+ROOT="$PYAUTO_ROOT"
+
+# The scanned repo sets are DERIVED from the organism's body map (the Mind's
+# repos.yaml — the single source of repo identity), never written out here. A
+# hardcoded list drifts as the organism grows and the drift is INVISIBLE: a repo
+# that is never scanned produces no findings, so the conductor reports a clean
+# bill of health it has not earned. repos_sync.py's hygiene-coverage check fails
+# if these stop matching the map, or if a repo name is written back into an
+# array literal.
+#
+#   LIB_REPOS  the science libraries        ORG_REPOS  the organism's own repos
+#   WS_REPOS   the user-facing workspaces
+#
+# BODY_MAP_OK separates "no repos DECLARED" (map unreachable) from "no repos
+# PRESENT" (scan root empty) — both must report `unscanned`, never `clean`.
+_body_map() { python3 "$HERE/_hygiene_repos.py" --category "$1" 2>/dev/null; }
+mapfile -t LIB_REPOS < <(_body_map library)
+mapfile -t ORG_REPOS < <(_body_map organ)
+mapfile -t WS_REPOS  < <(_body_map workspace)
+BODY_MAP_OK=1
+[[ ${#LIB_REPOS[@]} -eq 0 && ${#ORG_REPOS[@]} -eq 0 ]] && BODY_MAP_OK=0
+
+# CODE_REPOS — every repo the organism maintains as code (libraries + organs).
+# SCAN_REPOS — those plus the user-facing workspaces, for the modes that read
+# example scripts and prose as well as source.
+CODE_REPOS=("${LIB_REPOS[@]}" "${ORG_REPOS[@]}")
+SCAN_REPOS=("${CODE_REPOS[@]}" "${WS_REPOS[@]}")
+
+# `deps` and `docs` each want a narrower set than "code repo", and both take it
+# from what the checkout actually CONTAINS rather than from a category — because
+# category alone gets it wrong. The config layer is an ORGAN in the body map yet
+# ships a real distribution, so keying `deps` off `category: library` would
+# silently drop it: the very bug this change repairs, re-created one line down.
+# `docs` was pinned to three named repos and so never noticed a fourth acquiring
+# Sphinx docs. Presence is the honest test in both cases.
+repo_is_checked_out() { [[ -d "$ROOT/$1/.git" || -f "$ROOT/$1/.git" ]]; }
+repo_ships_distribution() { [[ -f "$ROOT/$1/pyproject.toml" ]]; }
+repo_ships_api_docs() { [[ -d "$ROOT/$1/docs/api" ]]; }
+
+# MANAGED_PRESENT — how many declared repos are actually checked out under
+# $ROOT. Zero means the repo-array modes saw NOTHING, and their counts would be
+# 0 for that reason alone. Reporting that as `clean` is the same failure as
+# reporting half the organism as clean, so they report `unscanned` + the reason.
+#
+# ARRAY_MODES is exactly the set this applies to: the modes that iterate the
+# derived arrays. The helper-backed modes (docstrings/refs/optdeps/extras/config)
+# DISCOVER their targets by walking $ROOT for workspace-shaped directories, so
+# they can legitimately find material the body map never names — suppressing
+# them here would hide real findings.
+ARRAY_MODES=" tidy crlf artifacts deps docs packaging "
+mode_reads_repo_arrays() { [[ "$ARRAY_MODES" == *" $1 "* ]]; }
+
+MANAGED_PRESENT=0
+for _repo in "${SCAN_REPOS[@]}"; do
+  repo_is_checked_out "$_repo" && MANAGED_PRESENT=$((MANAGED_PRESENT + 1))
+done
+UNSCANNED_REASON=""
+if [[ "$BODY_MAP_OK" -eq 0 ]]; then
+  UNSCANNED_REASON="body map unreachable — the Mind checkout was not found (set PYAUTO_MIND)"
+elif [[ "$MANAGED_PRESENT" -eq 0 ]]; then
+  UNSCANNED_REASON="no managed checkouts under the scan root $ROOT (set PYAUTO_ROOT)"
+fi
 
 # PyAutoGut drive seam (tidy/sweep). The conductor DECIDES and emits a plan; the
 # organ entrypoint performs the archive/void. GUT_CMD is referenced in the
@@ -81,14 +144,15 @@ CONDEMN_TRANSIT_DAYS="${HYGIENE_CONDEMN_TRANSIT_DAYS:-30}"
 # fast stdlib modules); HYGIENE_PERF_THRESHOLD (s) is the slow cutoff.
 PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
-read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
+read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autonerves autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy crlf docstrings refs optdeps extras artifacts packaging noise deps docs config)
+MODE_ORDER=(perf tidy crlf docstrings escapes refs optdeps extras artifacts packaging noise deps docs config)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
   [crlf]="/refactor"
   [docstrings]="/refactor"
+  [escapes]="/refactor"
   [refs]="/refactor"
   [optdeps]="/refactor"
   [extras]="/bug"
@@ -108,7 +172,7 @@ declare -A MODE_DELEGATE=(
 # 'finding', and 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
   [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris" [packaging]="debris"
-  [docstrings]="finding" [refs]="finding" [optdeps]="finding" [extras]="finding"
+  [docstrings]="finding" [escapes]="finding" [refs]="finding" [optdeps]="finding" [extras]="finding"
   [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
@@ -118,9 +182,9 @@ declare -A MODE_KIND=(
 # tracking refs, dirty trees. The prioritisable count is the total debris.
 prescan_tidy() {
   local branches=0 stashes=0 gone=0 dirty=0 scanned=0 repo dir
-  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}"; do
+  for repo in "${CODE_REPOS[@]}"; do
     dir="$ROOT/$repo"
-    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    repo_is_checked_out "$repo" || continue
     scanned=$((scanned + 1))
     local b s g cur
     # The branch HEAD points at is the one being WORKED ON — never debris.
@@ -130,42 +194,51 @@ prescan_tidy() {
     b=$(git -C "$dir" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null \
           | grep -vxF "${skip[@]}" | wc -l | tr -d ' ')
     s=$(git -C "$dir" stash list 2>/dev/null | wc -l | tr -d ' ')
-    g=$(git -C "$dir" branch -vv 2>/dev/null | grep -c '\[gone\]' || true)
+    # NOT `branch -vv | grep -c '[gone]'` — porcelain prints the upstream as
+    # `[origin/<branch>: gone]`, never the bare `[gone]`, so that grep counts 0
+    # unconditionally. `%(upstream:track)` prints the literal `[gone]` token.
+    g=$(git -C "$dir" for-each-ref --format='%(upstream:track)' refs/heads 2>/dev/null | grep -c '\[gone\]' || true)
     branches=$((branches + b)); stashes=$((stashes + s)); gone=$((gone + g))
     [[ -n "$(git -C "$dir" status --porcelain 2>/dev/null)" ]] && dirty=$((dirty + 1))
   done
   local total=$((branches + stashes + gone + dirty))
-  echo "${total}|${scanned} repos: ${branches} stale branches, ${stashes} stashes, ${gone} [gone] refs, ${dirty} dirty checkouts"
+  echo "${total}|${scanned}/${#CODE_REPOS[@]} code repos: ${branches} stale branches, ${stashes} stashes, ${gone} [gone] refs, ${dirty} dirty checkouts"
 }
 
-# deps: count capped dependency specifiers (<, <=, ==) in library pyproject.toml.
-# A cheap "how many caps could be stale" signal; /dep_audit does the PyPI compare.
+# deps: count capped dependency specifiers (<, <=, ==) in every managed repo
+# that ships a distribution. A cheap "how many caps could be stale" signal;
+# /dep_audit does the PyPI compare.
 prescan_deps() {
-  local caps=0 files=0 repo pj
-  for repo in "${LIB_REPOS[@]}"; do
+  local caps=0 files=0 scanned=0 repo pj
+  for repo in "${CODE_REPOS[@]}"; do
+    repo_is_checked_out "$repo" || continue
+    scanned=$((scanned + 1))
+    repo_ships_distribution "$repo" || continue
     pj="$ROOT/$repo/pyproject.toml"
-    [[ -f "$pj" ]] || continue
     files=$((files + 1))
     local c
     c=$(grep -oE '[<>=!~]=?[[:space:]]*[0-9]' "$pj" 2>/dev/null | grep -cE '<|==' || true)
     caps=$((caps + c))
   done
-  echo "${caps}|${caps} capped/pinned specifiers across ${files} library pyproject.toml"
+  echo "${caps}|${caps} capped/pinned specifiers across ${files} pyproject.toml (${scanned}/${#CODE_REPOS[@]} code repos present)"
 }
 
-# docs: count docs/api/*.rst files and currentmodule directives in the doc repos.
-# /audit_docs does the actual import validation.
+# docs: count docs/api/*.rst files and currentmodule directives in every managed
+# repo that ships an api docs tree. /audit_docs does the actual import validation.
 prescan_docs() {
-  local rst=0 cm=0 repo d
-  for repo in "${DOC_REPOS[@]}"; do
+  local rst=0 cm=0 doc_repos=0 scanned=0 repo d
+  for repo in "${CODE_REPOS[@]}"; do
+    repo_is_checked_out "$repo" || continue
+    scanned=$((scanned + 1))
+    repo_ships_api_docs "$repo" || continue
+    doc_repos=$((doc_repos + 1))
     d="$ROOT/$repo/docs/api"
-    [[ -d "$d" ]] || continue
     local n c
     n=$(find "$d" -maxdepth 1 -name '*.rst' 2>/dev/null | wc -l | tr -d ' ')
     c=$(grep -rhE '^\s*\.\.\s+currentmodule::' "$d" 2>/dev/null | wc -l | tr -d ' ')
     rst=$((rst + n)); cm=$((cm + c))
   done
-  echo "${cm}|${rst} api .rst files, ${cm} currentmodule directives across ${#DOC_REPOS[@]} repos"
+  echo "${cm}|${rst} api .rst files, ${cm} currentmodule directives across ${doc_repos} repos with docs/api (${scanned}/${#CODE_REPOS[@]} code repos present)"
 }
 
 # crlf: CRLF line endings, split by severity. The count that MATTERS is
@@ -175,10 +248,11 @@ prescan_docs() {
 # ranked, since mass-normalising it is a big diff for zero functional gain
 # (the real fix there is `.gitattributes * text=auto`, going forward).
 prescan_crlf() {
-  local scripts=0 cosmetic=0 sdetail="" repo dir sh_n exe_list exe_n py_n
-  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}" autolens_workspace autogalaxy_workspace autofit_workspace; do
+  local scripts=0 cosmetic=0 scanned=0 sdetail="" repo dir sh_n exe_list exe_n py_n
+  for repo in "${SCAN_REPOS[@]}"; do
     dir="$ROOT/$repo"
-    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    repo_is_checked_out "$repo" || continue
+    scanned=$((scanned + 1))
     # .sh with CRLF (all shell scripts break)
     sh_n=$(git -C "$dir" grep -Il $'\r$' -- '*.sh' 2>/dev/null | wc -l | tr -d ' ')
     # executable .py (mode 755 — run directly, so a CRLF shebang breaks)
@@ -192,7 +266,7 @@ prescan_crlf() {
     py_n=$(git -C "$dir" grep -Il $'\r$' -- '*.py' 2>/dev/null | wc -l | tr -d ' ')
     cosmetic=$((cosmetic + py_n))
   done
-  echo "${scripts}|${scripts} executable scripts w/ CRLF (BREAK on HPC — normalise + add .gitattributes eol=lf): ${sdetail}; ${cosmetic} library .py w/ CRLF (cosmetic — leave, or '* text=auto' going forward)"
+  echo "${scripts}|${scripts} executable scripts w/ CRLF (BREAK on HPC — normalise + add .gitattributes eol=lf): ${sdetail}; ${cosmetic} .py w/ CRLF (cosmetic — leave, or '* text=auto' going forward) across ${scanned}/${#SCAN_REPOS[@]} scanned repos"
 }
 
 # docstrings: confirmed adjacent module-level triple-quoted documentation
@@ -201,6 +275,17 @@ prescan_crlf() {
 # ranked worklist without mutating any scanned repository.
 prescan_docstrings() {
   python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --summary
+}
+
+# escapes: LaTeX in non-raw docstrings eaten by Python's escape handling, in
+# TWO classes. `\s`/`\l` are escapes Python does not recognise -- it warns.
+# `\t` in `\theta`, `\f` in `\frac`, `\r` in `\rm` are escapes it DOES
+# recognise: the value is corrupted and NOTHING is emitted, so a warning-only
+# sweep reports a clean repo. The helper also collects DeprecationWarning as
+# well as SyntaxWarning -- invalid escapes are only the latter on 3.12+, so a
+# SyntaxWarning-only sweep returns a vacuous zero on 3.11.
+prescan_escapes() {
+  python3 "$HERE/_hygiene_escapes.py" --root "$ROOT" --summary
 }
 
 # optdeps: smoke-listed workspace scripts that construct an optional-dependency
@@ -228,7 +313,9 @@ prescan_extras() {
 # scripts still run, so no health sweep can see it. The stdlib helper resolves
 # each reference against the checked-out repos (scripts/ and notebooks/ are one
 # namespace) and holds precision with documented suppressions; this compact form
-# feeds the default ranked worklist.
+# feeds the default ranked worklist. The same helper scans the inverse direction
+# — a folder that exists but whose own parent README never names it, which is how
+# a package can ship invisible to every reader browsing the folder list.
 prescan_refs() {
   python3 "$HERE/_hygiene_refs.py" --root "$ROOT" --summary
 }
@@ -237,10 +324,11 @@ prescan_refs() {
 # under a run-output dir (outputs?/, but NOT the output_test fixture dir) plus
 # stray data-ext files outside dataset/test fixtures. Should be gitignored.
 prescan_artifacts() {
-  local total=0 detail="" repo dir n
-  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}" autolens_workspace autogalaxy_workspace autofit_workspace; do
+  local total=0 scanned=0 detail="" repo dir n
+  for repo in "${SCAN_REPOS[@]}"; do
     dir="$ROOT/$repo"
-    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    repo_is_checked_out "$repo" || continue
+    scanned=$((scanned + 1))
     local leaked
     leaked=$( { git -C "$dir" ls-files 2>/dev/null | grep -E '(^|/)outputs?/' \
                  | grep -vE '(^|/)\.gitignore$';
@@ -249,17 +337,21 @@ prescan_artifacts() {
     total=$((total + leaked))
     [[ "$leaked" -gt 0 ]] && detail+="${repo}:${leaked} "
   done
-  echo "${total}|${total} tracked files look like leaked outputs/data: ${detail}(fix: gitignore + git rm --cached)"
+  echo "${total}|${total} tracked files look like leaked outputs/data across ${scanned}/${#SCAN_REPOS[@]} scanned repos: ${detail}(fix: gitignore + git rm --cached)"
 }
 
 # packaging: ignored, fully-untracked Python packaging products at repository
 # roots. The narrow depth + ignore + tracked-file guards deliberately exclude
 # nested domain directories named build and any directory that owns source.
+# Deliberately NOT filtered to repos that ship a pyproject.toml: the existing
+# guards already establish that a hit is a packaging product, and requiring the
+# manifest would only narrow detection.
 prescan_packaging() {
-  local total=0 detail="" dir repo candidate rel repo_count
-  for repo in "${LIB_REPOS[@]}"; do
+  local total=0 scanned=0 detail="" dir repo candidate rel repo_count
+  for repo in "${CODE_REPOS[@]}"; do
     dir="$ROOT/$repo"
-    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    repo_is_checked_out "$repo" || continue
+    scanned=$((scanned + 1))
     repo_count=0
     while IFS= read -r -d '' candidate; do
       rel="${candidate#"$dir"/}"
@@ -270,7 +362,7 @@ prescan_packaging() {
       \( -name '*.egg-info' -o -name build \) -print0 2>/dev/null)
     [[ "$repo_count" -gt 0 ]] && detail+="${repo}:${repo_count} "
   done
-  echo "${total}|${total} ignored top-level library packaging directories (*.egg-info/build): ${detail}(clean: DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging, then run without DRY_RUN)"
+  echo "${total}|${total} ignored top-level packaging directories (*.egg-info/build) across ${scanned}/${#CODE_REPOS[@]} code repos present: ${detail}(clean: DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging, then run without DRY_RUN)"
 }
 
 # config: keys present in a library config yaml but missing from the matching
@@ -344,6 +436,7 @@ prescan() {
     perf) prescan_perf ;; tidy) prescan_tidy ;; deps) prescan_deps ;;
     docs) prescan_docs ;; noise) prescan_noise ;;
     crlf) prescan_crlf ;; docstrings) prescan_docstrings ;; refs) prescan_refs ;;
+    escapes) prescan_escapes ;;
     optdeps) prescan_optdeps ;; extras) prescan_extras ;;
     artifacts) prescan_artifacts ;;
     packaging) prescan_packaging ;; config) prescan_config ;;
@@ -356,7 +449,7 @@ mode="default"; json=0; profile_script=""; expect_script=0
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|refs|optdeps|extras|config|artifacts|packaging) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|escapes|refs|optdeps|extras|config|artifacts|packaging) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -422,9 +515,9 @@ fi
 # TSV rows: "<repo>\t<type>\t<locator>\t<merged>".
 enumerate_condemn_candidates() {
   local repo dir def br cur
-  for repo in "${LIB_REPOS[@]}" "${ORG_REPOS[@]}"; do
+  for repo in "${CODE_REPOS[@]}"; do
     dir="$ROOT/$repo"
-    [[ -d "$dir/.git" || -f "$dir/.git" ]] || continue
+    repo_is_checked_out "$repo" || continue
     def=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
     [[ -n "$def" ]] || def=main
     # The branch HEAD points at is the one being WORKED ON — never condemn it.
@@ -536,36 +629,49 @@ emit_json_row() { # mode
     printf '{"mode":"perf","status":"deferred","hint":"run: pyauto-brain hygiene perf (import timings; skipped in the fast default scan)","delegate":"/refactor"}'
     return
   fi
-  if [[ "$m" == "docstrings" ]]; then
-    python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT" --json-row
+  # A repo-array mode that saw no repositories reports `unscanned`, NOT `clean`.
+  # Its count would be 0 for want of anything to count, and a consumer cannot
+  # tell the two apart from a zero alone.
+  if [[ -n "$UNSCANNED_REASON" ]] && mode_reads_repo_arrays "$m"; then
+    printf '{"mode":"%s","kind":"%s","status":"unscanned","count":null,"repos_present":0,"reason":"%s","delegate":"%s"}' \
+      "$m" "${MODE_KIND[$m]}" "${UNSCANNED_REASON//\"/\\\"}" "${MODE_DELEGATE[$m]}"
     return
   fi
-  if [[ "$m" == "refs" ]]; then
-    python3 "$HERE/_hygiene_refs.py" --root "$ROOT" --json-row
-    return
-  fi
-  if [[ "$m" == "optdeps" ]]; then
-    python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT" --json-row
-    return
-  fi
-  if [[ "$m" == "extras" ]]; then
-    python3 "$HERE/_hygiene_extras.py" --root "$ROOT" --json-row
-    return
-  fi
+  # Helper-backed rows: a crashing helper must degrade to an error ROW, never
+  # corrupt the enclosing document — the Brain board's cloud render parses
+  # this output, and one bad row would blank the whole hygiene section.
+  helper_row() { # helper-module mode
+    local out
+    if out="$(python3 "$HERE/$1" --root "$ROOT" --json-row 2>/dev/null)" \
+        && [[ -n "$out" ]] \
+        && python3 -c 'import json,sys; json.loads(sys.argv[1])' "$out" 2>/dev/null; then
+      printf '%s' "$out"
+    else
+      printf '{"mode":"%s","kind":"%s","status":"error","count":null,"summary":"helper failed — run: pyauto-brain hygiene %s","delegate":"%s"}' \
+        "$2" "${MODE_KIND[$2]}" "$2" "${MODE_DELEGATE[$2]}"
+    fi
+  }
+  if [[ "$m" == "docstrings" ]]; then helper_row _hygiene_docstrings.py docstrings; return; fi
+  if [[ "$m" == "escapes"    ]]; then helper_row _hygiene_escapes.py escapes; return; fi
+  if [[ "$m" == "refs"       ]]; then helper_row _hygiene_refs.py refs; return; fi
+  if [[ "$m" == "optdeps"    ]]; then helper_row _hygiene_optdeps.py optdeps; return; fi
+  if [[ "$m" == "extras"     ]]; then helper_row _hygiene_extras.py extras; return; fi
   local res count summary kind status
   res="$(prescan "$m")"; count="${res%%|*}"; summary="${res#*|}"; kind="${MODE_KIND[$m]}"
   if   [[ "$kind" == "advisory" || "$count" == "-1" ]]; then status="advisory"
   elif [[ "$kind" == "surface" ]]; then status="surface"
   elif [[ "$count" == "0" ]]; then status="clean"
   else status="$kind"; fi   # debris | timing
-  printf '{"mode":"%s","kind":"%s","status":"%s","count":%s,"summary":"%s","delegate":"%s"}' \
+  printf '{"mode":"%s","kind":"%s","status":"%s","count":%s,"repos_present":%s,"summary":"%s","delegate":"%s"}' \
     "$m" "$kind" "$status" "$([[ "$count" == "-1" ]] && echo null || echo "$count")" \
-    "${summary//\"/\\\"}" "${MODE_DELEGATE[$m]}"
+    "$MANAGED_PRESENT" "${summary//\"/\\\"}" "${MODE_DELEGATE[$m]}"
 }
 
 if [[ "$json" -eq 1 ]]; then
   if [[ "$mode" == "default" ]]; then
-    printf '{"decision":"HygieneDecision","mode":"default","rows":['
+    printf '{"decision":"HygieneDecision","mode":"default","scan_root":"%s","repos_declared":%s,"repos_present":%s,%s"rows":[' \
+      "${ROOT//\"/\\\"}" "${#SCAN_REPOS[@]}" "$MANAGED_PRESENT" \
+      "$([[ -n "$UNSCANNED_REASON" ]] && printf '"unscanned_reason":"%s",' "${UNSCANNED_REASON//\"/\\\"}")"
     sep=""
     for m in "${MODE_ORDER[@]}"; do printf '%s' "$sep"; emit_json_row "$m"; sep=","; done
     printf ']}\n'
@@ -580,6 +686,12 @@ echo "== HygieneDecision =="
 echo "The hygiene conductor pre-scans code-quality debt (read-only) and delegates the"
 echo "audit + fix to the owning skill — it never mutates a repo itself."
 echo
+if [[ -n "$UNSCANNED_REASON" ]]; then
+  echo "!! SCANNED 0 REPOS — every 'unscanned' row below means nothing was LOOKED AT,"
+  echo "   not that the organism is clean:"
+  echo "   $UNSCANNED_REASON"
+  echo
+fi
 
 render_delegate_line() { # mode
   local m="$1"
@@ -609,6 +721,10 @@ render_row() { # mode
     render_delegate_line "$m"
     return
   fi
+  if [[ -n "$UNSCANNED_REASON" ]] && mode_reads_repo_arrays "$m"; then
+    printf '  %-9s %-9s %s\n' "$m" "unscanned" "no repository was read — $UNSCANNED_REASON"
+    return
+  fi
   local res count summary kind tag
   res="$(prescan "$m")"; count="${res%%|*}"; summary="${res#*|}"; kind="${MODE_KIND[$m]}"
   if [[ "$m" == "docstrings" && "$summary" != *"; 0 parse errors" ]]; then tag="partial"
@@ -622,42 +738,72 @@ render_row() { # mode
   render_delegate_line "$m"
 }
 
-if [[ "$mode" == "docstrings" ]]; then
+if [[ "$mode" == "escapes" ]]; then
+  echo "LaTeX damaged by Python string escapes (read-only scan):"
+  python3 "$HERE/_hygiene_escapes.py" --root "$ROOT"
+  echo
+  echo "→ the fix is an r-prefix on the enclosing docstring, NOT doubling the"
+  echo "  backslashes (which would leak into the rendered notebook prose)."
+  echo "→ route to /refactor; Hygiene never edits source."
+elif [[ "$mode" == "docstrings" ]]; then
   echo "Confirmed adjacent top-level documentation blocks (read-only scan):"
   python3 "$HERE/_hygiene_docstrings.py" --root "$ROOT"
   echo
   echo "→ route the mechanical merges to /refactor; Hygiene never edits source."
 elif [[ "$mode" == "refs" ]]; then
-  echo "Dead internal references in workspace prose (read-only scan):"
+  echo "Folder-list drift in workspace prose (read-only scan):"
   python3 "$HERE/_hygiene_refs.py" --root "$ROOT"
   echo
-  echo "→ route the re-points to /refactor; Hygiene never edits source. Each finding is"
+  echo "→ route the re-points to /refactor; Hygiene never edits source. A '->' finding is"
   echo "  the reference AS WRITTEN — judge the intended target before repointing (a moved"
   echo "  file, a file that became a directory, or a reference meant for a sibling repo)."
+  echo "  A '!!' finding is the inverse: the folder exists and the README never names it,"
+  echo "  so the fix is a new entry describing it, sourced from that folder's own README"
+  echo "  or a script docstring — never inferred from the folder name."
 elif [[ "$mode" == "optdeps" ]]; then
   echo "Smoke-listed scripts missing an optional-dependency skip guard (read-only scan):"
   python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT"
 elif [[ "$mode" == "extras" ]]; then
   echo "Optional dependencies the workspace-validation smoke leg never installs (read-only scan):"
   python3 "$HERE/_hygiene_extras.py" --root "$ROOT"
+elif [[ "$mode" == "config" ]]; then
+  echo "Library config keys absent downstream + orphan config files (read-only scan):"
+  python3 "$HERE/_hygiene_config.py" --root "$ROOT" --detail \
+    || echo "config diff unavailable (PyYAML missing?)"
+  echo
+  echo "→ route the mirrors/removals to /refactor; Hygiene never edits source. This is a"
+  echo "  SURFACE signal — judge each item before acting: a workspace may omit a library"
+  echo "  key deliberately, and an orphan file may be read by something the library set"
+  echo "  does not encode (add its owner to ORPHAN_OWNERS rather than deleting it)."
 elif [[ "$mode" == "default" ]]; then
   # 'debris' and 'finding' pre-scans yield directly-actionable counts (perf's
   # timing is deferred here — too slow for the fast scan). Rank across them and
   # recommend the mode with the largest confirmed workload.
   best=""; best_n=0
-  for m in tidy crlf docstrings refs optdeps extras artifacts packaging; do
+  for m in tidy crlf docstrings escapes refs optdeps extras artifacts packaging; do
     local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
     if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
   done
   for m in "${MODE_ORDER[@]}"; do render_row "$m"; done
   echo
   if [[ -n "$best" ]]; then
+    # Real findings still lead, even when the repo-array modes scanned nothing —
+    # the helper-backed modes discover their own targets, so their findings are
+    # genuine. The caveat says the RANKING is partial, not that the work is.
     echo "Recommended next: hygiene ${best} (${best_n} items), then run ${MODE_DELEGATE[$best]}."
     echo "  Then 'hygiene perf' for import timings; config/deps/docs/noise are periodic audits (surface only)."
+    if [[ -n "$UNSCANNED_REASON" ]]; then
+      echo "  CAVEAT: the repo-array modes scanned 0 of ${#SCAN_REPOS[@]} declared repos, so this"
+      echo "  ranking is partial — ${UNSCANNED_REASON}."
+    fi
+  elif [[ -n "$UNSCANNED_REASON" ]]; then
+    echo "Recommended next: fix the scan first — this is NOT a clean bill of health."
+    echo "  The repo-array modes scanned 0 of ${#SCAN_REPOS[@]} declared repos under $ROOT:"
+    echo "  ${UNSCANNED_REASON}."
   else
     echo "Recommended next: no direct findings or removable debris — run 'hygiene perf' for import timings, and config/deps/docs/noise audits periodically."
   fi
-  echo "Design: PyAutoMind research/pyautobrain/hygiene_agent_decision.md."
+  echo "Design: PyAutoMind complete/2026/07/hygiene-agent-decision.md."
 else
   render_row "$mode"
 fi

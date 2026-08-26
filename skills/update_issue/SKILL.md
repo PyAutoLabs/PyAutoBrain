@@ -10,6 +10,12 @@ is part of the development cycle (the `start_*` → `ship_*` lifecycle;
 `start_dev_for_user` calls it at milestones). It reads the PyAutoMind registry to
 find the active issue. Organ boundary: [`../WORKFLOW.md`](../WORKFLOW.md).
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Usage
 
 ```

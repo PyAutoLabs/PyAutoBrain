@@ -15,7 +15,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
     "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
-    "packaging", "docstrings", "refs", "optdeps", "extras",
+    "packaging", "docstrings", "escapes", "refs", "optdeps", "extras",
 }
 
 _PROFILE_TARGET = """
@@ -49,6 +49,19 @@ def _run(args, root, extra=None):
     )
 
 
+def test_json_stays_parseable_when_a_helper_crashes(tmp_path):
+    """A NONEXISTENT scan root crashes the helper-backed pre-scans (listdir).
+    That must degrade to per-mode `error` rows — the Brain board's cloud
+    render parses this document, so one crashed helper may never corrupt it
+    (it did: bare helper failures emitted empty rows, leaving `,,`)."""
+    r = _run(["--json"], tmp_path / "does_not_exist")
+    assert r.returncode == 0, r.stderr
+    doc = json.loads(r.stdout)  # the contract under test
+    by_mode = {row["mode"]: row for row in doc["rows"]}
+    assert by_mode["refs"]["status"] == "error"
+    assert "pyauto-brain hygiene refs" in by_mode["refs"]["summary"]
+
+
 def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     r = _run(["--json"], tmp_path)
     assert r.returncode == 0, r.stderr
@@ -63,6 +76,7 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert kinds["crlf"] == "debris" and kinds["artifacts"] == "debris"
     assert kinds["packaging"] == "debris"
     assert kinds["docstrings"] == "finding"
+    assert kinds["escapes"] == "finding"
     assert kinds["refs"] == "finding"
     assert kinds["optdeps"] == "finding"
     assert kinds["extras"] == "finding"
@@ -252,6 +266,31 @@ def test_tidy_emits_an_async_condemn_plan(tmp_path):
     assert "transit_days" in doc and "sweep_after" in doc
 
 
+def test_tidy_prescan_counts_gone_upstream_refs(tmp_path):
+    # Regression for #205: the counter used `git branch -vv | grep -c '[gone]'`,
+    # but porcelain prints the upstream as `[origin/<branch>: gone]`, never the
+    # bare `[gone]`, so the count was 0 unconditionally. The fixture is chosen
+    # to HAVE a gone ref — a green run on a tree with zero proves nothing.
+    fit = tmp_path / "PyAutoFit"
+    _init_git_repo(fit)
+    git = ["git", "-C", str(fit), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "init"], check=True)
+    # A branch whose configured upstream no longer exists on the remote — the
+    # `[gone]` state, without needing a live remote to push to and prune from.
+    subprocess.run([*git, "branch", "doomed"], check=True)
+    subprocess.run([*git, "remote", "add", "origin", str(tmp_path / "gone.git")], check=True)
+    subprocess.run([*git, "config", "branch.doomed.remote", "origin"], check=True)
+    subprocess.run([*git, "config", "branch.doomed.merge", "refs/heads/doomed"], check=True)
+
+    r = _run(["--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    tidy = next(row for row in json.loads(r.stdout)["rows"] if row["mode"] == "tidy")
+    # doomed is both the 1 stale branch and the 1 [gone] ref; the default
+    # branch is excluded from the stale count and has no upstream.
+    assert "1 [gone] refs" in tidy["summary"], tidy["summary"]
+    assert tidy["count"] == 2, tidy
+
+
 def test_sweep_classifies_manifest_entries_by_transit_clock(tmp_path):
     mind = tmp_path / "PyAutoMind"
     mind.mkdir()
@@ -429,6 +468,115 @@ def test_orphan_files_skips_non_mirror_repos(tmp_path):
     })
     total, detail = cfg.orphan_files(str(tmp_path))
     assert total == 0 and detail == []
+
+
+# --- config --detail: the routable view of both signals. ----------------------
+# The count alone cannot be routed to /refactor — these lock the fact that the
+# key paths and orphan paths are printed, AND that asking for them never moves
+# the default `count|summary` line the conductor's summary table parses.
+
+CONFIG_HELPER = (
+    BRAIN_HOME / "agents" / "conductors" / "hygiene" / "_hygiene_config.py"
+)
+
+
+def _run_config_helper(root, *args):
+    _load_config_helper()  # skips (SystemExit) if PyYAML absent
+    return subprocess.run(
+        [sys.executable, str(CONFIG_HELPER), "--root", str(root), *args],
+        capture_output=True, text=True,
+    )
+
+
+def _drifted_pair(root):
+    """A real PAIRS pair (PyAutoFit <-> autofit_workspace) with nested and
+    top-level key drift across two config files."""
+    _fake_library(root, {
+        "general.yaml": {"output": {"search_internal": 1}, "keep": 2},
+        "logging.yaml": {"total_files_open": 1},
+    })
+    _fake_workspace(root, "autofit_workspace", {
+        "general.yaml": {"output": {}, "keep": 2},   # missing output.search_internal
+        "logging.yaml": {},                          # missing total_files_open
+    })
+
+
+def test_config_detail_groups_drifted_keys_under_the_file_missing_them(tmp_path):
+    _drifted_pair(tmp_path)
+    r = _run_config_helper(tmp_path, "--detail")
+    assert r.returncode == 0, r.stderr
+    # The key paths themselves — the thing the count could not hand over.
+    assert "- output.search_internal" in r.stdout
+    assert "- total_files_open" in r.stdout
+    # ...each under the workspace file it is absent from, not a flat list.
+    general = r.stdout.index("autofit_workspace/config/general.yaml")
+    logging_ = r.stdout.index("autofit_workspace/config/logging.yaml")
+    assert general < r.stdout.index("- output.search_internal") < logging_
+    assert logging_ < r.stdout.index("- total_files_open")
+
+
+def test_config_detail_groups_orphan_files_under_their_repo(tmp_path):
+    """The orphan signal gets the same treatment, owner suppression intact."""
+    _fake_library(tmp_path, {
+        "general.yaml": {"a": 1},
+        "non_linear/GridSearch.yaml": {"grid": 1},
+    })
+    _fake_workspace(tmp_path, "some_workspace", {
+        "general.yaml": {"a": 1},                    # shared -> this IS a mirror
+        "grids.yaml": {"radial_minimum": 1},         # orphan -> named
+        "non_linear/nest.yaml": {"Nautilus": 1},     # orphan -> named
+        "non_linear/GridSearch.yaml": {"grid": 1},   # mirrored -> absent
+        "build/env_vars.yaml": {"X": 1},             # owned -> suppressed
+    })
+    r = _run_config_helper(tmp_path, "--detail")
+    assert r.returncode == 0, r.stderr
+    repo = r.stdout.index("some_workspace/config")
+    assert repo < r.stdout.index("- grids.yaml")
+    assert repo < r.stdout.index("- non_linear/nest.yaml")
+    assert "GridSearch.yaml" not in r.stdout   # has a library counterpart
+    assert "env_vars.yaml" not in r.stdout     # ORPHAN_OWNERS suppression
+
+
+def test_config_default_output_is_still_one_count_summary_line(tmp_path):
+    """The regression guard: `prescan_config` parses `${out%%|*}`, so adding
+    --detail must not add a line, a prefix, or a newline to the default."""
+    _drifted_pair(tmp_path)
+    r = _run_config_helper(tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == [
+        "2|2 library config keys absent downstream (review/mirror): "
+        "autofit_workspace:2"
+    ]
+
+
+def test_config_detail_on_a_clean_tree_reports_in_sync_and_lists_nothing(tmp_path):
+    r = _run_config_helper(tmp_path, "--detail")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "config in sync (no key drift or orphan files)"
+
+
+def test_hygiene_config_mode_hands_over_the_drifted_key_paths(tmp_path):
+    """The whole point: `hygiene config` must surface routable findings, not a
+    tally the operator has to re-derive by importing the module."""
+    _load_config_helper()  # skips (SystemExit) if PyYAML absent
+    _drifted_pair(tmp_path)
+    r = _run(["config"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert "output.search_internal" in r.stdout
+    assert "total_files_open" in r.stdout
+    assert "/refactor" in r.stdout
+
+
+def test_hygiene_config_json_row_is_unchanged_by_detail(tmp_path):
+    """The machine surface keeps reading the count line, not the detail."""
+    _load_config_helper()  # skips (SystemExit) if PyYAML absent
+    _drifted_pair(tmp_path)
+    r = _run(["config", "--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    row = json.loads(r.stdout)["row"]
+    assert row["mode"] == "config" and row["kind"] == "surface"
+    assert row["count"] == 2
+    assert "output.search_internal" not in row["summary"]
 
 
 def test_help_lists_the_usage_block(tmp_path):
@@ -920,3 +1068,254 @@ def test_default_scan_survives_a_missing_root(tmp_path):
     assert "Traceback" not in result.stderr
     rows = {row["mode"]: row for row in json.loads(result.stdout)["rows"]}
     assert rows["refs"]["count"] == 0
+
+
+# --- Body-map-derived coverage -------------------------------------------------
+#
+# The conductor scans repositories, so WHICH repositories must come from the body
+# map rather than from arrays in the script. It used to come from arrays, and they
+# drifted: five libraries where the map declared six, four organs of seven, and a
+# CRLF count of 5 against a true 127. Nothing caught it, because a repo that is
+# never scanned produces no findings and reads as clean.
+#
+# These tests name no repository. That is deliberate on two counts: a literal here
+# would be an instance fact in an organ test (the tenant firewall's concern), and
+# a test that hardcodes the very list under test can only ever agree with itself.
+
+HELPER = BRAIN_HOME / "agents" / "conductors" / "hygiene" / "_hygiene_repos.py"
+
+
+def _derived(category, root=None, parser="auto", mind=None):
+    env = {**os.environ}
+    if root is not None:
+        env["PYAUTO_ROOT"] = str(root)
+    if mind is not None:
+        env["PYAUTO_MIND"] = str(mind)
+    result = subprocess.run(
+        [sys.executable, str(HELPER), "--category", category, "--parser", parser],
+        capture_output=True, text=True, env=env,
+    )
+    return result, [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def _manifest_categories():
+    """The declared sets, read straight from the body map."""
+    import yaml
+
+    path = BRAIN_HOME.parent / "PyAutoMind" / "repos.yaml"
+    if not path.is_file():
+        return None
+    data = yaml.safe_load(path.read_text())
+    grouped = {}
+    for name, entry in data["repos"].items():
+        grouped.setdefault(entry["category"], set()).add(name)
+    return grouped
+
+
+def test_derived_repo_sets_equal_the_body_map(tmp_path):
+    declared = _manifest_categories()
+    if declared is None:
+        return  # body map not checked out here; the drift check owns this leg
+    for category in ("library", "organ", "workspace"):
+        result, names = _derived(category, tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert set(names) == declared[category], category
+
+
+def test_the_pyyaml_free_reader_agrees_with_the_body_map(tmp_path):
+    # The fallback runs only where PyYAML is absent, so nothing else would ever
+    # catch it silently dropping a repo — the exact shape of the original bug.
+    declared = _manifest_categories()
+    if declared is None:
+        return
+    for category in ("library", "organ", "workspace"):
+        result, names = _derived(category, tmp_path, parser="minimal")
+        assert result.returncode == 0, result.stderr
+        assert set(names) == declared[category], category
+
+
+def test_crlf_covers_every_library_the_body_map_declares(tmp_path):
+    # One checkout per declared library, each with a single CRLF .py. The count
+    # must equal the number of libraries: any repo the conductor fails to derive
+    # is one this assertion misses. No library is named here — that is the point.
+    _, libraries = _derived("library", tmp_path)
+    assert libraries, "body map returned no libraries"
+    for name in libraries:
+        repo = tmp_path / name
+        _init_git_repo(repo)
+        (repo / "mod.py").write_bytes(b"x = 1\r\ny = 2\r\n")
+        subprocess.run(["git", "-C", str(repo), "add", "-f", "mod.py"], check=True)
+
+    row = json.loads(_run(["crlf", "--json"], tmp_path).stdout)["row"]
+
+    assert row["status"] != "unscanned"
+    assert f"{len(libraries)} .py w/ CRLF" in row["summary"]
+
+
+ARRAY_MODES = {"tidy", "crlf", "artifacts", "deps", "docs", "packaging"}
+
+
+def test_repo_array_modes_report_unscanned_not_clean_on_an_empty_root(tmp_path):
+    # A zero from "nothing was scanned" and a zero from "nothing was wrong" are
+    # indistinguishable to a consumer, so the first must not be called `clean`.
+    rows = {row["mode"]: row for row in json.loads(_run(["--json"], tmp_path).stdout)["rows"]}
+
+    for mode in ARRAY_MODES:
+        assert rows[mode]["status"] == "unscanned", mode
+        assert rows[mode]["count"] is None, mode
+        assert rows[mode]["repos_present"] == 0, mode
+        assert "no managed checkouts" in rows[mode]["reason"], mode
+
+
+def test_an_empty_root_is_reported_in_the_default_envelope_and_banner(tmp_path):
+    doc = json.loads(_run(["--json"], tmp_path).stdout)
+    assert doc["repos_present"] == 0
+    assert doc["repos_declared"] > 0
+    assert "no managed checkouts" in doc["unscanned_reason"]
+
+    human = _run([], tmp_path).stdout
+    assert "SCANNED 0 REPOS" in human
+    assert "NOT a clean bill of health" in human
+
+
+def test_helper_backed_modes_still_report_findings_on_an_empty_root(tmp_path):
+    # docstrings/refs/optdeps/extras discover their own targets by walking the
+    # root, so they can legitimately find material the body map never names.
+    # Suppressing them alongside the repo-array modes would hide real findings.
+    _write_docstring_fixture(tmp_path)
+
+    rows = {row["mode"]: row for row in json.loads(_run(["--json"], tmp_path).stdout)["rows"]}
+
+    assert rows["docstrings"]["status"] != "unscanned"
+    assert rows["docstrings"]["count"] > 0
+    assert "Recommended next: hygiene docstrings" in _run([], tmp_path).stdout
+
+
+def test_an_unreachable_body_map_reports_unscanned_rather_than_clean(tmp_path):
+    # Pointed at a directory holding no body map: the conductor knows of no
+    # repository at all, which must not read as a clean organism.
+    mind = tmp_path / "no-map"
+    mind.mkdir()
+    root = tmp_path / "root"
+    root.mkdir()
+
+    result = subprocess.run(
+        [str(BRAIN), "hygiene", "crlf", "--json"],
+        capture_output=True, text=True,
+        env={**os.environ, "PYAUTO_ROOT": str(root), "PYAUTO_MIND": str(mind)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["status"] == "unscanned"
+    assert "body map unreachable" in row["reason"]
+
+
+def test_an_explicit_body_map_override_is_authoritative(tmp_path):
+    # Falling through to a sibling checkout would scan a different organism than
+    # the operator named, and silently.
+    mind = tmp_path / "no-map"
+    mind.mkdir()
+
+    result, names = _derived("library", tmp_path, mind=mind)
+
+    assert result.returncode == 3
+    assert names == []
+
+
+# --- escapes: LaTeX eaten by Python's string-escape handling ------------------
+
+
+def _write_escapes_fixture(tmp_path):
+    """Four scripts covering both damage classes and both non-findings.
+
+    `silent_only` is the important one: it emits NO diagnostic of any kind, so
+    a warning-driven scan reports it clean while its docstring value is already
+    corrupted.
+    """
+    scripts = tmp_path / "demo_workspace" / "scripts"
+    scripts.mkdir(parents=True)
+
+    # `\t` in `\theta` and `\f` in `\frac` are escapes Python RECOGNISES: the
+    # value silently becomes TAB + "heta_E". Zero warnings.
+    (scripts / "silent_only.py").write_text(
+        '"""\nEinstein radius $\\theta_E$ and $\\frac{a}{b}$.\n"""\nx = 1\n'
+    )
+    # `\s` and `\l` are NOT recognised: kept literal, but warned about.
+    (scripts / "warned_only.py").write_text(
+        '"""\nDispersion $\\sigma$ and $\\lambda$.\n"""\nx = 1\n'
+    )
+    # Already raw: the escape never happened.
+    (scripts / "clean_raw.py").write_text(
+        'r"""\nEinstein radius $\\theta_E$.\n"""\nx = 1\n'
+    )
+    # A DELIBERATE newline, not a mangled macro — must never be flagged.
+    (scripts / "deliberate.py").write_text('print("\\nreal newline")\n')
+    return scripts
+
+
+def test_escapes_reports_warned_and_silent_classes_separately(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    result = _run(["escapes", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)["row"]
+    assert row["kind"] == "finding"
+    assert row["status"] == "finding"
+    assert row["delegate"] == "/refactor"
+    assert row["parse_errors"] == []
+
+    # `warned` counts warnings; `silent` counts corrupted LITERALS, so one
+    # docstring carrying both `\theta` and `\frac` is a single silent hit.
+    found = {f["file"]: (f["warned"], f["silent"]) for f in row["findings"]}
+    assert found == {
+        "scripts/silent_only.py": (0, 1),
+        "scripts/warned_only.py": (1, 0),
+    }
+
+
+def test_escapes_ignores_raw_docstrings_and_deliberate_escapes(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    row = json.loads(_run(["escapes", "--json"], tmp_path).stdout)["row"]
+
+    flagged = {finding["file"] for finding in row["findings"]}
+    # An `r"""` docstring is already correct, and `print("\nreal newline")`
+    # wants its newline — raw-ifying that one would be the regression.
+    assert "scripts/clean_raw.py" not in flagged
+    assert "scripts/deliberate.py" not in flagged
+
+
+def test_escapes_summary_marks_files_a_warning_only_sweep_would_miss(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    row = json.loads(_run(["escapes", "--json"], tmp_path).stdout)["row"]
+
+    # The silent-only count is the whole reason this mode exists: a sweep
+    # driven by warnings alone reports `silent_only.py` as clean.
+    assert "1 file(s) have ONLY silent damage" in row["summary"]
+
+
+def test_escapes_human_output_names_the_silent_only_file(tmp_path):
+    _write_escapes_fixture(tmp_path)
+
+    result = _run(["escapes"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "scripts/silent_only.py: 0 warned, 1 silent  <- silent only" in result.stdout
+    # The fix is the `r` prefix, NOT doubling backslashes (which would leak
+    # into the rendered notebook prose).
+    assert "r-prefix" in result.stdout
+
+
+def test_escapes_clean_repo_reports_no_findings(tmp_path):
+    scripts = tmp_path / "demo_workspace" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "fine.py").write_text('r"""\nAll LaTeX is raw: $\\theta_E$.\n"""\nx = 1\n')
+
+    row = json.loads(_run(["escapes", "--json"], tmp_path).stdout)["row"]
+
+    assert row["status"] == "clean"
+    assert row["count"] == 0
+    assert row["findings"] == []

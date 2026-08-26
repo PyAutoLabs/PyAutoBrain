@@ -72,7 +72,7 @@ json_flag=()
 # --- health-issue mode: the two health inputs --------------------------------
 # (1) the live vitals verdict (via the vitals faculty, never Heart directly), and
 # (2) the durable findings Heart *filed* as GitHub issues. Both feed _bug.py, which
-# classifies each and routes real defects to PyAutoMind/bug/health_fixes/.
+# classifies each and routes real defects to PyAutoMind/draft/bug/health_fixes/.
 if [[ "${forward[0]}" == "health" ]]; then
   # Diagnostics go to stderr so stdout stays pure (valid JSON under --json).
   echo "== bug agent: health-issue mode ==" >&2

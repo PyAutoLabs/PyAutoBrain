@@ -27,6 +27,13 @@
 #   intake reconcile [prefix]    rank backlog prompts that look already-shipped
 #                                (vs the complete/ records / active/); always read-only —
 #                                retiring a prompt stays human
+#     --repo <target>            ALSO read <target>'s source for identifiers the
+#                                prompts name — the only signal that sees a prompt
+#                                with no Mind-side trace. Opt-in: without it no
+#                                network access happens. Ranks for review in a
+#                                `needs-review` band; never says shipped. A target
+#                                that is not one repo (workspaces, priors, …) is
+#                                refused, not guessed.
 #
 # Flags (place before the subcommand; both default OFF):
 #   --apply    write the formal prompt file(s) / dashboard.md; else dry-run only

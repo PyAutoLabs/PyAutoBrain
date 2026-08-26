@@ -22,15 +22,19 @@
 # reference tag is skipped and the consensus check runs on the local stamps.
 
 set -u
-ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_pyauto_root.sh"
+ROOT="$PYAUTO_ROOT"
 OWNER=PyAutoLabs
 VERPAT='[0-9]{4}\.[0-9]+\.[0-9]+\.[0-9]+'
 
-have_gh=0
-command -v gh >/dev/null 2>&1 && have_gh=1
+. "$(dirname "${BASH_SOURCE[0]}")/_gh.sh"
+# An installed-but-unauthenticated gh fails per call, which reads like a
+# network flake; have_gh checks both so the fallback is chosen up front.
+gh_ok=0
+have_gh && gh_ok=1
 
 ref=""
-[ "$have_gh" -eq 1 ] && ref=$(gh api "repos/$OWNER/PyAutoLens/releases/latest" -q .tag_name 2>/dev/null)
+[ "$gh_ok" -eq 1 ] && ref=$(gh api "repos/$OWNER/PyAutoLens/releases/latest" -q .tag_name 2>/dev/null)
 if [ -n "$ref" ]; then
     echo "reference (latest PyAutoLens release, for context): $ref"
 else
@@ -38,7 +42,10 @@ else
 fi
 echo
 
-# repo:path — the coupled release-train stamps (libraries only). The
+# repo:path — the coupled release-train stamps (libraries only). The Brain
+# board renders this same check on Pages (board/_board.py reads the list from
+# config/policy.yaml `board: version_stamps`) — keep the two lists in step
+# until this script reads that block too. The
 # charge-transfer (CTI) calibration stack is intentionally excluded: it is
 # not on the coupled train and carries its own version line. Workspaces
 # carry no stamp since the floors-are-authoritative redesign dropped
@@ -57,7 +64,7 @@ for s in "${STAMPS[@]}"; do
     repo="${s%%:*}"; path="${s#*:}"
     if [ -f "$ROOT/$repo/$path" ]; then
         v=$(grep -oE "$VERPAT" "$ROOT/$repo/$path" 2>/dev/null | head -1)
-    elif [ "$have_gh" -eq 1 ]; then
+    elif [ "$gh_ok" -eq 1 ]; then
         v=$(gh api "repos/$OWNER/$repo/contents/$path" -q '.content' 2>/dev/null \
             | base64 -d 2>/dev/null | grep -oE "$VERPAT" | head -1)
     else

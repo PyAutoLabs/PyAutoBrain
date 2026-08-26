@@ -18,13 +18,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-WT_BASE = Path.home() / "Code" / "PyAutoLabs-wt"
+# The one workspace-root resolver, shared with bin/_pyauto_root.sh, so a
+# remote session (checkouts under /home/user, $HOME=/root) resolves the same
+# tree a developer box does.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import _pyauto_root  # noqa: E402
+
+WT_BASE = _pyauto_root.pyauto_wt_root()
 
 # Paths that smell like public API / behaviour when changed — flags only,
 # the reviewing agent judges.
@@ -125,9 +130,7 @@ def in_place_repos(task: str) -> list[Path]:
     lines), never the bare 2-space claims other tooling reads — an in-place
     entry lists its repos there and the checkouts live at the workspace root.
     """
-    pyauto_root = Path(os.environ.get(
-        "PYAUTO_ROOT", Path.home() / "Code" / "PyAutoLabs"
-    ))
+    pyauto_root = _pyauto_root.pyauto_root()
     active = pyauto_root / "PyAutoMind" / "active.md"
     if not active.exists():
         return []
@@ -190,11 +193,19 @@ def emit_human(surfaces: list[dict]) -> None:
     print("file:line, failure scenario) | BLOCKED (could not review — say why).")
     print("A load-bearing claim above with no falsified-by basis in the branch is")
     print("a FINDING (unverified-claim) — see the faculty AGENTS.md.")
+    if any(s.get("claims_to_falsify") for s in surfaces):
+        print("Record ONE disposition line per lifted claim in the verdict:")
+        print('  claim: "<lifted line>" -> basis-cited: <test/measurement/diff>'
+              " | idle | FINDING (unverified-claim)")
+        print("A CLEAN over a non-empty claims surface without dispositions is")
+        print("malformed evidence, not CLEAN (faculty AGENTS.md step 2a).")
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="review")
-    ap.add_argument("--task", default="", help="task worktree name under ~/Code/PyAutoLabs-wt/")
+    ap.add_argument("--task", default="",
+                    help="task worktree name under the workspace worktree root "
+                         f"({WT_BASE})")
     ap.add_argument("--repo", action="append", default=[], help="explicit repo checkout path")
     ap.add_argument("--json", action="store_true", dest="as_json")
     a = ap.parse_args(argv)

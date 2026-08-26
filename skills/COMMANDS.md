@@ -73,17 +73,36 @@ symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 own no agent and re-implement no reasoning (all judgment defers to the doors they
 call, so the Brain is not bypassed):
 
-- **`/wake_up`** — start-of-day routine. **Local:** sync every repo to main
-  (`bin/pull_all_main.sh`) → clean generated cruft, restoring shipped datasets
-  (`bin/clean_slate.sh`) → consult **`/health`** + **`/hygiene`**. **Everywhere
-  (gh-API, so it runs on mobile Claude Code chat / Codex too):** an overnight
-  scheduled-run sweep (`bin/overnight_status.sh`), a version-pin drift check
-  (`bin/version_drift.sh`), a community scan (`bin/pyauto-brain community scan`
-  — external users awaiting a response), and resume-context (in-flight work +
-  pending-release PRs) → one prioritized digest. Auto-runs only the non-destructive steps;
-  surfaces destructive cleanup for approval; on mobile/codex it skips the
-  local-only steps. Interactive/terminal only (the automated morning webhooks are
-  separate).
+- **`/wake_up`** — **superseded by the Brain board** (the generated morning
+  surface `board/_board.py` renders and `brain_board.yml` publishes to Pages:
+  overnight sweep, readiness headline, version consistency, community scan,
+  resume context, upkeep doors — each row a one-tap 📋 payload). The local leg
+  is one terminal command, `bin/morning.sh` (sync via `bin/pull_all_main.sh` +
+  clean via `bin/clean_slate.sh`). Invoked anyway, the skill runs that local
+  leg and relays `pyauto-brain board`'s digest — the fallback for a stale or
+  unreachable board. Auto-runs only the non-destructive steps; surfaces
+  destructive cleanup for approval. Interactive/terminal only (the automated
+  morning webhooks are separate).
+
+- **`/prm`** — the wrap-up door and **full task close-out**: *"PR, CI green, then
+  merge"* — the last thing a human types for a task. Watches the feature PR's
+  checks until **every** workflow run and **every** matrix leg for the head sha is
+  green, merges in library-first order, then closes the task out end to end:
+  Shipped comment, issue closed, `lifecycle.py record` moving the prompt
+  `active/` → `complete/` (claim released, Mind pushed), the Mind's
+  `dashboard.md` reconciled and regenerated in that same commit,
+  `worktree_remove`, merged branches deleted, and a ledger of what it did.
+  Typing `/prm` authorizes all of it, so it does not stop to ask again. The
+  dashboard leg is the one thing here nothing else covers: `dashboard_refresh.yml`
+  self-heals a stale *render*, never a prompt the merge finished and nobody
+  retired, so a close-out that skips it is how shipped and half-shipped tasks
+  pile up on the page as pickable backlog. Owns no gate of its own — it refuses on
+  red/pending/conflicting checks, an unmerged upstream library PR, an unmerged
+  sibling branch (the shipped-in-waves trap), or a `worktree_remove` refusal, and
+  asks exactly once before deleting a worktree holding irreplaceable data
+  products. Mostly `gh`, so the merge/issue half runs on the CLI, mobile Claude
+  Code chat and Codex alike; the worktree half is local-only and is reported as
+  outstanding elsewhere.
 
 **5. Maintenance doors** — periodic sweeps that reason about accumulated debris
 and then execute their own cleanup after per-bucket human confirmation. They own
@@ -101,7 +120,8 @@ audit-first and confirmation-gated:
   authenticated, including mobile/Codex. Closing needs **two independent
   evidence legs**, and the record header *key* decides meaning — `issue:`
   completes, `followup-issue:` / `parent-issue:` / `plan:` mean the record
-  *spawned* a still-open issue. `/wake_up` runs its audit half read-only.
+  *spawned* a still-open issue. The Brain board surfaces the open-issue count
+  and points here; the audit itself stays this door's job.
 
 These two are complements, not overlaps: `/repo_cleanup` never touches issues,
 `/issue_cleanup` never touches git. Neither handles **external** users' issues —

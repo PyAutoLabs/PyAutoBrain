@@ -28,12 +28,20 @@ import argparse
 import ast
 import fnmatch
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
-PYAUTO_ROOT = Path(os.environ.get("PYAUTO_ROOT", Path.home() / "Code" / "PyAutoLabs"))
+# Workspace root via the one shared resolver (agents/_pyauto_root.py, mirrored
+# by bin/_pyauto_root.sh): PYAUTO_ROOT, else beside this checkout, else the
+# developer box. Naming an absolute workspace path as the *default* here
+# resolved into
+# a non-existent tree in a remote session and reported empty rather than
+# failing.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import _pyauto_root  # noqa: E402
+
+PYAUTO_ROOT = _pyauto_root.pyauto_root()
 
 SEED_SECTION = "## Assistant-as-template"
 
@@ -94,6 +102,10 @@ _SHARED_MIXED = [
     "FREE_TIER_SETUP.md",         # per-platform chat setup — the platform
                                   # mechanics clone verbatim, the worked prompts
                                   # and dataset names are domain
+    "CHOOSING_YOUR_AI_TOOL.md",   # the other half of that free-tier chat
+                                  # surface: which tool to use and how to set it
+                                  # up clones verbatim, the domain naming and
+                                  # worked examples do not
     "config/*",
     "benchmarks/README.md",       # protocol generic, benchmark table domain
 ]

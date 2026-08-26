@@ -49,9 +49,16 @@
 #   health.sh -h|--help       # this header
 #
 # Exit codes mirror the ADOPTED verdict so a caller (and the loop) can branch:
-#   0 green · 2 yellow · 3 red · 4 unknown. A CLI usage error (unknown
+#   0 green · 2 yellow · 3 red · 4 unknown · 6 stale. A CLI usage error (unknown
 # subcommand) exits 5 — kept distinct from the verdict codes so misuse is never
 # read as a real YELLOW.
+#
+# STALE takes 6 rather than the free slot 1 for the same fail-safe reason: the
+# shell's own generic failure is 1 (a missing `_common.sh`, a failed `readlink`),
+# and STALE is the tier AUTONOMY.md leg 4 treats as PASSING the dev-ship gate —
+# so a crash must never be readable as a passing verdict. 6 sits outside the 0-5
+# block and is never produced by bash or python here, which is what lets a
+# machine caller tell "Heart says STALE" from "Heart unreachable" (4).
 
 set -uo pipefail
 
@@ -123,6 +130,10 @@ score = r.get("score")
 ts = r.get("ts")
 red = list(r.get("red_reasons") or [])
 yellow = list(r.get("yellow_reasons") or [])
+# The Heart freshness tier (PyAutoHeart/heart/readiness.py): nothing known-bad,
+# some evidence missing or expired. A Heart that predates the tier emits no
+# stale_reasons key at all, so this degrades to [] and behaves as before.
+stale = list(r.get("stale_reasons") or [])
 
 # Optional: the set of capability ids Heart advertises, so triage stays honest
 # about the surface it maps to (reason over categories present in the manifest,
@@ -144,6 +155,8 @@ if mpath and os.path.isfile(mpath):
 
 # Reason -> (capability, kind) by CATEGORY of signal. kind is one of:
 #   real-problem  a genuine health signal to act on now (gates green)
+#   evidence-gap  a STALE-tier reason: the evidence is missing or expired and the
+#                 remedy is RE-RUNNING the named check, never fixing code
 #   baseline-gap  an expected first-run unknown you accept (standing YELLOW)
 #   advisory      monitoring only; does not gate readiness
 # fix_topic is the `pyauto-heart fix <topic>` class IFF Heart offers one for that
@@ -166,12 +179,33 @@ RULES = [
     (re.compile(r"\burl\b",                          re.I), "url_check",      "advisory",     None),
 ]
 
-# Rank buckets: lower sorts first (most blocking first).
-KIND_RANK = {"real-problem": 0, "advisory": 2, "baseline-gap": 3}
-SEV_RANK = {"red": 0, "yellow": 1}
+# Rank buckets: lower sorts first (most blocking first). An evidence-gap ranks
+# below a real problem but above the accepted baseline gaps: it is actionable
+# (re-run the check) and it is what stands between the organism and GREEN.
+KIND_RANK = {"real-problem": 0, "evidence-gap": 1, "advisory": 2, "baseline-gap": 3}
+SEV_RANK = {"red": 0, "yellow": 1, "stale": 2}
+
+# capability -> the REAL entry point that refreshes that evidence. Only genuine
+# commands appear here (the same discipline as the fix topics above: never invent
+# one). A capability absent from this map yields command None, and the
+# recommendation names the check to re-run in prose instead.
+REFRESH_CMD = {
+    # the release-validation report is a hard readiness gate; refreshing it is a
+    # DELEGATED leg (the release conductor owns the MCP GitHub boundary).
+    "validate": "pyauto-brain release validate",
+    "verify_install": "pyauto-heart verify_install",
+    # everything the <30s tick measures is refreshed by re-ticking Heart.
+    "repo_state": "pyauto-heart tick",
+    "version_skew": "pyauto-heart tick",
+    "worktree_drift": "pyauto-heart tick",
+    "script_timing": "pyauto-heart tick",
+    "ci_status": "pyauto-heart tick",
+    "open_prs": "pyauto-heart tick",
+    "unknown": "pyauto-heart tick",
+}
 
 def repo_of(reason):
-    # "PyAutoConf: on branch ..." -> "PyAutoConf"; else None.
+    # "PyAutoNerves: on branch ..." -> "PyAutoNerves"; else None.
     m = re.match(r"\s*([A-Za-z0-9_\-]+)\s*:", reason)
     return m.group(1) if m else None
 
@@ -184,7 +218,7 @@ def classify(reason, severity):
     return "unknown", ("real-problem" if severity == "red" else "baseline-gap"), None
 
 items = []
-for severity, reasons in (("red", red), ("yellow", yellow)):
+for severity, reasons in (("red", red), ("yellow", yellow), ("stale", stale)):
     for reason in reasons:
         cap, kind, fix_topic = classify(reason, severity)
         # Severity wins over the keyword class: anything Heart put in red_reasons
@@ -194,6 +228,12 @@ for severity, reasons in (("red", red), ("yellow", yellow)):
         # and a real problem, even though both map to the `validate` capability.)
         if severity == "red" and kind != "real-problem":
             kind = "real-problem"
+        # The same rule on the freshness axis: anything Heart put in
+        # stale_reasons is an evidence gap by definition, whatever the keyword
+        # class says. Its remedy is re-running the check, so it is an action item
+        # -- NOT one of the standing baseline gaps you accept.
+        elif severity == "stale":
+            kind = "evidence-gap"
         repo = repo_of(reason)
         fix_cmd = None
         if fix_topic:
@@ -210,8 +250,13 @@ for severity, reasons in (("red", red), ("yellow", yellow)):
             "capability": cap,
             "capability_known": (cap in known_caps) if known_caps else None,
             "kind": kind,
-            "blocks_green": severity == "red" or kind == "real-problem",
+            # An evidence-gap blocks green too: a release requires GREEN, and
+            # re-running the named check is precisely the path back to it.
+            "blocks_green": severity == "red" or kind in ("real-problem", "evidence-gap"),
             "fix": fix_cmd,
+            # Only an evidence gap carries a refresh entry point (None when the
+            # capability has no known one -- never invented).
+            "refresh": REFRESH_CMD.get(cap) if kind == "evidence-gap" else None,
         })
 
 items.sort(key=lambda it: (KIND_RANK.get(it["kind"], 4),
@@ -220,6 +265,7 @@ items.sort(key=lambda it: (KIND_RANK.get(it["kind"], 4),
 
 blockers = [it for it in items if it["severity"] == "red"]
 warn_real = [it for it in items if it["severity"] == "yellow" and it["kind"] == "real-problem"]
+evidence = [it for it in items if it["kind"] == "evidence-gap"]
 gaps = [it for it in items if it["kind"] == "baseline-gap"]
 advisory = [it for it in items if it["kind"] == "advisory"]
 
@@ -264,6 +310,40 @@ elif warn_real:
            "headline": "YELLOW — a genuine warning to act on: " + reason,
            "detail": "Maps to the " + cap + " capability. Clear it, then re-assess.",
            "checkpoint": CHECKPOINT}
+elif verdict == "stale" or evidence:
+    # The freshness tier. Nothing is known-bad; some evidence is missing or
+    # expired, and the remedy is to RE-RUN the named check, never to fix code.
+    # Prefer the release-validation gap when there is one: it is the hard
+    # readiness gate, so refreshing it is the leg that makes GREEN reachable.
+    t = top([it for it in evidence if it["capability"] == "validate"]) or top(evidence)
+    if t is None:
+        rec = {"action": "refresh-evidence", "command": "pyauto-heart tick",
+               "headline": ("STALE — Heart reports an evidence gap but named no "
+                            "reason. Re-tick and re-assess."),
+               "detail": ("Nothing is known-bad. STALE means evidence is missing "
+                          "or expired, so the remedy is a fresh run of the check, "
+                          "not a code fix."),
+               "checkpoint": CHECKPOINT}
+    else:
+        cap = t["capability"]
+        cmd = t["refresh"]
+        detail = ("Maps to the " + cap + " capability. Nothing is known-bad: "
+                  "STALE means the evidence is missing or expired, so the remedy "
+                  "is a fresh RUN of that check, never a code fix. ")
+        if cmd is None:
+            detail += ("Heart exposes no refresh entry point for " + cap + " — "
+                       "re-run that check at its own source, then re-assess. ")
+        elif cap == "validate":
+            detail += ("This is the hard readiness gate (Stages 0-3: TestPyPI "
+                       "rehearsal + wheel integration -> Heart ingests -> "
+                       "re-judge), DELEGATED to the release conductor, which owns "
+                       "the MCP GitHub boundary. ")
+        detail += ("A release still requires GREEN; the dev-ship gate "
+                   "(AUTONOMY.md leg 4) treats STALE as passing, because an "
+                   "evidence gap is organism-scope, not branch-scope.")
+        rec = {"action": "refresh-evidence", "command": cmd,
+               "headline": "STALE — refresh the expired evidence: " + t["reason"],
+               "detail": detail, "checkpoint": CHECKPOINT}
 elif gaps or verdict == "yellow":
     # Pure baseline gaps: the classic first-run YELLOW. The one leg that closes
     # the release-validation gap and makes GREEN reachable is release validate.
@@ -291,6 +371,7 @@ print(json.dumps({
     "counts": {
         "blockers": len(blockers),
         "warnings_real": len(warn_real),
+        "evidence_gaps": len(evidence),
         "expected_gaps": len(gaps),
         "advisory": len(advisory),
     },
@@ -306,6 +387,10 @@ _exit_code_for() {
     green) return 0 ;;
     yellow) return 2 ;;
     red) return 3 ;;
+    # 6, not the free slot 1: bash itself exits 1 on a generic failure, and STALE
+    # PASSES the dev-ship gate — a crash must never be readable as a pass. See
+    # the exit-code table in this file's header.
+    stale) return 6 ;;
     *) return 4 ;;
   esac
 }
@@ -325,6 +410,7 @@ head += ") --"
 print(head)
 print("   " + str(c["blockers"]) + " blocker(s) · "
       + str(c["warnings_real"]) + " real warning(s) · "
+      + str(c.get("evidence_gaps", 0)) + " evidence gap(s) · "
       + str(c["expected_gaps"]) + " expected first-run gap(s) · "
       + str(c["advisory"]) + " advisory")
 print()
@@ -335,14 +421,17 @@ def show(title, kinds):
         return
     print(title)
     for it in rows:
-        mark = "✗" if it["severity"] == "red" else "!"
+        # ? is the freshness glyph: unlike ✗/! it asserts nothing about the
+        # evidence, only that it is missing or expired.
+        mark = {"red": "✗", "stale": "?"}.get(it["severity"], "!")
         line = "  " + mark + " [" + it["capability"] + "] " + it["reason"]
-        if it.get("fix"):
-            line += "   -> " + it["fix"]
+        if it.get("fix") or it.get("refresh"):
+            line += "   -> " + (it.get("fix") or it.get("refresh"))
         print(line)
     print()
 
 show("Real problems (act on — these block green):", {"real-problem"})
+show("Evidence gaps (re-run the named check — nothing is known-bad):", {"evidence-gap"})
 show("Expected first-run gaps (standing YELLOW — accept, not action items):", {"baseline-gap"})
 show("Advisory (monitoring only — does not gate readiness):", {"advisory"})
 

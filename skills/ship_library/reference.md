@@ -4,6 +4,12 @@ Factored out of `ship_library.md`. The body skill is authoritative for the flow;
 this file holds the verbatim PR format, the API-Changes rules, and the
 workspace-impact analysis.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Writing the `## API Changes` section (judgement — stays in the reasoning model)
 
 Analyse **all** commits on the branch and the full diff against the base branch.
@@ -62,7 +68,8 @@ what the human validates instead of the pre-approval they didn't give:
 - Effective level: safe (header: <level>, cap: <work-type> → <cap>)
 - Plan: on the issue (#<n>), written at start, unmodified since
 - Gate: tests <pass counts / n-a + why> · smoke <result / n-a + why> ·
-  review CLEAN · Heart <GREEN | YELLOW within launch ack>
+  review CLEAN <+ one disposition per lifted claim, when the surface lifted
+  any — faculty AGENTS.md step 2a> · Heart <GREEN | YELLOW within launch ack>
 - [ ] Human: plan sound in hindsight?
 - [ ] Human: diff matches plan (no scope creep)?
 - [ ] Human: merge, amend, or reject — then log the outcome

@@ -58,3 +58,32 @@ def test_verified_and_safe_to_delete_are_claims():
     claims = load_bearing_claims(text)
     j = " ".join(claims).lower()
     assert "verified" in j and "safe to delete" in j and "zero diff" in j
+
+
+def test_emit_human_demands_dispositions_when_claims_lifted(capsys):
+    from _review import emit_human
+
+    surface = {
+        "repo": "PyAutoDemo", "path": "/tmp/x", "branch": "feature/x",
+        "base": "abc123def456", "commits_ahead": 1, "commits": ["abc fix"],
+        "shortstat": "1 file changed", "files": ["M\tf.py"],
+        "risk_flags": [], "claims_to_falsify": ["This change is a no-op for CI."],
+    }
+    emit_human([surface])
+    out = capsys.readouterr().out
+    assert "ONE disposition line per lifted claim" in out
+    assert "malformed evidence" in out
+
+
+def test_emit_human_no_disposition_demand_on_empty_surface(capsys):
+    from _review import emit_human
+
+    surface = {
+        "repo": "PyAutoDemo", "path": "/tmp/x", "branch": "feature/x",
+        "base": "abc123def456", "commits_ahead": 1, "commits": ["abc fix"],
+        "shortstat": "1 file changed", "files": ["M\tf.py"],
+        "risk_flags": [], "claims_to_falsify": [],
+    }
+    emit_human([surface])
+    out = capsys.readouterr().out
+    assert "disposition" not in out.lower()

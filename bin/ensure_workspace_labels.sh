@@ -15,10 +15,9 @@
 #
 # Exits 0 on success, 1 if any API call fails.
 #
-# Repos with non-PyAutoLabs orgs:
-#   - Jammy2211/euclid_strong_lens_modeling_pipeline
-#   - rhayes777/PyAutoConf, rhayes777/PyAutoFit
-# All others are under PyAutoLabs/.
+# Every repo below is under PyAutoLabs/ — the pre-migration rhayes777/ and
+# Jammy2211/ homes are gone. Owners come from the body map's `github:` field
+# (PyAutoMind/repos.yaml); never hardcode a legacy owner default.
 
 set -euo pipefail
 
@@ -49,8 +48,11 @@ REPOS=(
     PyAutoLabs/autocti_workspace_test
 )
 
-if ! command -v gh >/dev/null 2>&1; then
-    echo "ensure_workspace_labels: 'gh' CLI not installed; skipping label sweep." >&2
+. "$(dirname "${BASH_SOURCE[0]}")/_gh.sh"
+if ! have_gh; then
+    echo "ensure_workspace_labels: skipping label sweep — $(gh_unavailable_reason)." >&2
+    echo "  Run it where gh is available, or apply the labels via the MCP surface" >&2
+    echo "  (PyAutoBrain/skills/GITHUB_ACCESS.md)." >&2
     exit 0
 fi
 

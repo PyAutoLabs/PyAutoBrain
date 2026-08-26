@@ -26,7 +26,7 @@ Read `agents/faculties/samplers/AGENTS.md` for the judgment tables (sampler ↔
 likelihood match, gradient/JAX constraints, initialization chaining, promotion
 criteria). If the candidate is already prototyped or promoted, resume at the
 right stage instead of starting over. The deeper science is in
-`PyAutoMemory/methods_wiki` (`hamiltonian-monte-carlo`, `gpu-nested-sampling`,
+`PyAutoMemory/wiki/methods` (`hamiltonian-monte-carlo`, `gpu-nested-sampling`,
 `initialization-chaining`, `sampler-benchmarks`) — internal use only; its
 citations never reach public user-facing output.
 
@@ -72,7 +72,7 @@ The prototype contract (what makes its row comparable):
 - If the candidate targets real likelihoods (lensing MGE / pixelization /
   interferometer), extend to `autolens_profiling` use-case runs before any
   promotion argument — the 1D Gaussian alone never justifies promotion.
-- Record durable findings in `PyAutoMemory/methods_wiki` (update
+- Record durable findings in `PyAutoMemory/wiki/methods` (update
   `concepts/sampler-benchmarks.md`).
 
 ## 3. Promote (or archive)

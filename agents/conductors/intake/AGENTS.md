@@ -55,9 +55,17 @@ Proposed path · Header (the block written verbatim) · Risks · Next action
 - **Difficulty** — from the shared `agents/faculties/sizing/` faculty, **persisted
   into the header**, because scope is decided during the intake back-and-forth.
   The Feature Agent later *trusts* this number rather than recomputing a divergent
-  one.
+  one. A difficulty **declared in the raw input** — a pasted header block, or the
+  `ideas.md` house style `Difficulty large, supervised.` — **wins** over the
+  estimate, via the faculty's shared `effective_difficulty`: the author knows the
+  scope, and the heuristic's biggest input is length, which is a bad size proxy
+  (a prompt is long when it carries a design, not when the work is large). The
+  IntakeDecision reports which one it used (`difficulty_source`) and the level
+  the heuristic derived, and the declaration is kept out of the derived
+  title/slug. A `Difficulty:` quoted inside a code fence or backticks is
+  documentation, not a declaration.
 - **Autonomy** (`safe|supervised|human-required`) and **Priority**
-  (`low|normal|high`) — the "can an agent safely handle this?" and "how urgent?"
+  (`low|normal|high`) — the "can an agent safely handle this?" and "how urgent?" questions; a declared value wins here too, as does a declared `Type:` over the prose classifier.
   inputs, written into the header.
 
 **`too-large` means decompose, never dispatch.** A prompt sized `too-large` is
@@ -83,9 +91,32 @@ schema — light structure over free-form prose.
 | **classify** | `intake "<text>"` / `intake classify --file P` | classify one raw input; `--apply` writes the prompt |
 | **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
-| **dashboard** | `intake dashboard` | render the census as the Mind **backlog** page; `--apply` writes `PyAutoMind/dashboard.md` |
+| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, parked, planned, backlog, recent, epics; `--apply` writes `PyAutoMind/dashboard.md`, `--check` exits 1 on drift |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`); always read-only — retiring stays human |
+| **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source for identifiers the prompts name — the one signal that sees a prompt with no Mind-side trace. Opt-in; the default path is offline |
+
+**Recent** is the one section laid out by *date* rather than by state: the 50
+newest events on the **work in hand** — issued, parked, filed — merged across
+every live bucket (the `draft/` backlog included, which is most of them:
+150 prompts against a handful of registry rows) and sitting between the Backlog
+and the Epics. Epic members stay out, as they do in every pick list on the
+page — they are worked in order through their epic, and a Recent row hands out
+a standalone `/start_dev`. It *holds* 50
+and *shows* 10 (`RECENT_MAX` / `RECENT_PAGE`): the table is a glance, not a
+log, so the rest is one tap away — a `…` button on the Pages twin, and nested
+`<details>` on the markdown page, which GitHub renders where it strips the
+script. Every other
+section answers "what should I do now?"; recency is orthogonal to state, so
+none of them can answer "what has been happening?". Dates come from the
+registry key that names the event (`issued:` / `parked:` / `filed:`, PyAutoMind
+REFERENCE.md "Task dates") or a prompt's own `Issued:` header.
+
+Shipped work is deliberately **not** in the feed and `complete/` is never
+opened to render it: the ledger is a thousand records deep and takes ~200 a
+month, so including it made the table a list of receipts — twenty things nobody
+can act on, on the page whose whole job is work in hand. `complete/index.md` is
+where shipped work is read.
 
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
@@ -105,6 +136,30 @@ the `complete/` records (path references + `## header` topic overlap), `active/`
 basenames, and hand-set Status values, then ranks suspects (high/medium/low)
 with the evidence shown. The final verification — the target repo's git log /
 merged PRs — and the retirement itself stay human.
+
+`--repo <target>` adds the **upstream leg**: identifiers a prompt names that
+already exist in the target repo's source, cited as `file:line`, in their own
+weaker `needs-review` band. It is the only signal that reaches a prompt with no
+Mind-side trace at all — the 2026-08-09 sweep confirmed two such findings, one
+whose evidence sat in a sibling *prompt* and one whose fix shipped with no
+completion record ever written.
+
+It never produces a shipped verdict, and upstream hits are scored on their own
+key so they cannot inflate a Mind-local band. The reason is a measured trap:
+`test_mode_bypass_ordered_assertion_ties.md` names five identifiers, all five
+are on PyAutoFit `main`, and the prompt is **not** shipped — the upstream catch
+wraps only the likelihood call while the raising line sits before the `try`.
+Presence of a name is not presence of the fix.
+
+**This is the only network access in PyAutoBrain.** Every other conductor and
+faculty is stdlib-only and offline, and the default `reconcile` path stays that
+way — a test detonates on any socket or subprocess use when `--repo` is absent.
+A target that is not one repo (`workspaces`, `health_fixes`, `priors`,
+`graphical_ep` — topic clusters, and among the largest buckets in `draft/`) is
+**refused** with exit `5` naming the real candidates, never silently guessed.
+Clones are cached shallow (`--depth 1`) under `$PYAUTO_BRAIN_CACHE`
+(default `~/.pyauto-brain/upstream`), and the resolved sha is printed so a
+verdict is re-checkable.
 
 ## Machine sources (one staging surface)
 
@@ -135,8 +190,9 @@ bin/pyauto-brain intake --apply classify --file tmp/raw.md         # write the p
 bin/pyauto-brain intake ideas                                      # scan ideas.md (dry-run)
 bin/pyauto-brain intake --apply ideas                              # write them + mark bullets
 bin/pyauto-brain intake census                                     # backlog inventory (read-only)
-bin/pyauto-brain intake dashboard                                  # backlog page to stdout (dry-run)
+bin/pyauto-brain intake dashboard                                  # task page to stdout (dry-run)
 bin/pyauto-brain intake --apply dashboard                          # write PyAutoMind/dashboard.md
+bin/pyauto-brain intake dashboard --check                          # exit 1 if the committed page has drifted
 bin/pyauto-brain intake formalise                                  # propose retroactive headers (dry-run)
 bin/pyauto-brain intake --apply formalise bug/                     # write them, only under bug/
 bin/pyauto-brain intake reconcile                                  # rank shipped-but-stale suspects (read-only)

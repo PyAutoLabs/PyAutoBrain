@@ -15,11 +15,14 @@
 # but something a human should read.
 
 set -u
-command -v gh >/dev/null 2>&1 || { echo "gh not found — cannot fetch run status" >&2; exit 1; }
+. "$(dirname "${BASH_SOURCE[0]}")/_gh.sh"
+have_gh || { echo "overnight_status: cannot fetch run status" >&2; require_gh overnight_status; exit 1; }
 
 # owner/repo:workflow-file  (owner defaults to PyAutoLabs when omitted). The
-# passive morning webhooks (morning_health / morning_status) are excluded —
-# /wake_up is their interactive complement, not a re-run of them.
+# passive morning webhooks (morning_health / morning_status) are excluded.
+# The Brain board renders this same sweep on Pages (board/_board.py reads the
+# list from config/policy.yaml `board: overnight_jobs`) — keep the two lists
+# in step until this script reads that block too.
 JOBS=(
   "PyAutoBrain:nightly-release.yml"
   "PyAutoHeart:heart-health.yml"

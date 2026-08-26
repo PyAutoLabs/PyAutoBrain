@@ -1,0 +1,253 @@
+"""Contract tests for `board/_theme.py` — the shared look of the one-tap
+board family.
+
+The theme is presentation-only, so these do not assert pixels: they pin the
+things a renderer relies on and a careless edit silently breaks. Chiefly that
+the family stays a *family* (every organ styled, every board wearing its own
+accent) and that colour keeps meaning something (the exception is tinted, the
+default is not).
+"""
+
+import re
+import sys
+from pathlib import Path
+
+BRAIN_HOME = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BRAIN_HOME / "board"))
+
+import _theme  # noqa: E402
+
+# The board family declared in config/policy.yaml — the theme must dress all
+# of it, not just the two boards that adopted it first.
+POLICY_BOARDS = re.findall(
+    r"^    (\w+): \S+$",
+    re.search(r"^  boards:\n((?:    \w+: \S+\n)+)",
+              (BRAIN_HOME / "config" / "policy.yaml").read_text(),
+              re.M).group(1), re.M)
+
+
+def test_every_declared_board_has_a_complete_palette_entry():
+    for key in POLICY_BOARDS:
+        assert key in _theme.ORGANS, key
+        o = _theme.ORGANS[key]
+        for field in ("organ", "tagline",
+                      "ink_light", "ink_dark", "glow", "hero"):
+            assert o.get(field), f"{key}.{field}"
+        assert len(o["hero"]) == 2
+        # The mark is the logo's own glyph; a board without one would render
+        # an empty ring where its logo should be.
+        assert key in _theme.MARKS, key
+
+
+def _luminance(hex_colour):
+    parts = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+           for c in parts]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _contrast(a, b):
+    hi, lo = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_every_accent_is_readable_on_its_own_background():
+    # These pages are read outdoors on phones. An accent that fails here is
+    # a link nobody can see, not a matter of taste.
+    for key, o in _theme.ORGANS.items():
+        assert _contrast(o["ink_light"], "#ffffff") >= 4.5, f"{key} light"
+        assert _contrast(o["ink_dark"], "#0d1117") >= 4.5, f"{key} dark"
+
+
+def test_css_substitutes_every_placeholder():
+    sheet = _theme.css("mind")
+    # A stray %(...)s means a renderer would ship a broken stylesheet.
+    assert not re.search(r"%\([a-z_]+\)s", sheet)
+    assert _theme.ORGANS["mind"]["ink_light"] in sheet
+    assert _theme.ORGANS["mind"]["ink_dark"] in sheet
+    assert "prefers-color-scheme:dark" in sheet
+
+
+def test_each_board_wears_its_own_accent():
+    mind, brain = _theme.css("mind"), _theme.css("brain")
+    assert _theme.ORGANS["brain"]["glow"] not in mind
+    assert _theme.ORGANS["mind"]["glow"] not in brain
+
+
+def test_every_mark_is_line_art_that_takes_the_accent():
+    # The marks replaced emoji precisely so they inherit the organ colour and
+    # stay sharp; a hard-coded fill or a stray emoji would undo both.
+    for key, art in _theme.MARKS.items():
+        assert "currentColor" in art or "<circle" in art, key
+        assert not re.search(r"[\U0001F300-\U0001FAFF]", art), key
+    svg = _theme.mark("brain")
+    assert svg.startswith("<svg") and 'stroke="currentColor"' in svg
+
+
+def test_the_hero_draws_the_mark_not_a_character():
+    html = _theme.hero("mind", "Dashboard")
+    assert _theme.MARKS["mind"] in html
+    # wordmark, then the logo's hairline-and-dot rule, then the tagline
+    assert html.index("PyAuto") < html.index('class="rule"')
+    assert html.index('class="rule"') < html.index(_theme.ORGANS["mind"]["tagline"])
+
+
+def test_an_unknown_organ_still_renders():
+    # An adopting fork with a board we have no palette for gets the umbrella's
+    # look, never a KeyError mid-render.
+    assert _theme.css("no-such-organ")
+    assert "<header" in _theme.hero("no-such-organ", "Board")
+    assert _theme.MARKS["organism"] in _theme.hero("no-such-organ", "Board")
+
+
+def test_the_hero_reproduces_the_logo_wordmark():
+    page = _theme.hero("mind", "Dashboard", "lede text")
+    assert f'{_theme.WORD}<b>{_theme.ORGANS["mind"]["organ"]}</b>' in page
+    assert _theme.ORGANS["mind"]["tagline"] in page
+    assert "Dashboard" in page and "lede text" in page
+
+
+def test_pills_tone_the_exception_and_leave_the_default_neutral():
+    row = _theme.pills("autoarray", "small", "supervised", "normal")
+    # `supervised` and `normal` are what almost every prompt says — tinting
+    # them would colour the whole backlog and tell a reader nothing.
+    assert row.count('class="pill n"') == 3
+    assert '<span class="pill">autoarray</span>' in row  # target = identity
+    flagged = _theme.pills("autoarray", "too-large", "human-required", "high")
+    assert flagged.count('class="pill r"') == 3
+    assert 'class="pill g"' in _theme.pills("-", "small", "safe", "low")
+
+
+def test_the_work_type_leads_and_carries_a_glyph_not_a_colour():
+    row = _theme.pills("autoarray", "small", work_type="bug")
+    assert row.index('class="pill w"') < row.index("autoarray")
+    assert _theme.WORK_TYPE_GLYPHS["bug"] in row
+    # Colour stays reserved for judgement — the category is not one.
+    assert '"pill w y"' not in row
+
+
+def test_triage_is_the_one_work_type_that_asks_for_attention():
+    # `triage` means nobody has classified this yet, which is a real call to
+    # action rather than a category.
+    assert 'class="pill w y"' in _theme.pills("autoarray", work_type="triage")
+
+
+def test_every_work_type_in_the_taxonomy_has_a_glyph():
+    sizing = BRAIN_HOME / "agents" / "faculties" / "sizing"
+    sys.path.insert(0, str(sizing))
+    import _sizing  # noqa: E402
+    assert set(_sizing.WORK_TYPES) == set(_theme.WORK_TYPE_GLYPHS)
+
+
+def test_a_board_may_name_its_own_pill_tone():
+    """`_TONES` is the Mind's facet vocabulary. A board whose rows carry other
+    facets — a workflow conclusion, a Heart verdict — says its tone rather
+    than teaching that table words the Mind never uses."""
+    row = _theme.pills(("ExampleOrg/RepoA", ""), ("failure", "r"))
+    assert '<span class="pill">ExampleOrg/RepoA</span>' in row
+    assert '<span class="pill r">failure</span>' in row
+    # An explicit tone wins over the table, in both directions.
+    assert '<span class="pill n">high</span>' in _theme.pills(
+        ("autoarray", ""), ("high", "n"))
+    # Bare strings are untouched: first is identity, the rest look themselves up.
+    assert _theme.pills("autoarray", "high") == _theme.pills(
+        ("autoarray", ""), ("high", "r"))
+
+
+def test_pills_escape_their_values_and_vanish_when_empty():
+    assert _theme.pills("-", "-", "-", "-") == ""
+    assert _theme.pills(("-", "r"), ("", "g")) == ""
+    assert "&lt;b&gt;" in _theme.pills("<b>")
+
+
+def test_boards_footer_skips_self_and_tags_each_sibling():
+    links = {k: f"https://example.invalid/{k}/" for k in _theme.ORGANS}
+    footer = _theme.boards_footer(links, "mind")
+    assert 'data-organ="mind"' not in footer
+    for key in _theme.ORGANS:
+        if key != "mind":
+            assert f'data-organ="{key}"' in footer
+            # …and the chip is tinted by that organ's own accent.
+            assert f'.boards a[data-organ="{key}"]' in _theme.css("mind")
+
+
+def test_stats_render_pairs_and_vanish_when_empty():
+    assert _theme.stats() == ""
+    assert "<b>3</b><span>In flight</span>" in _theme.stats((3, "In flight"))
+
+
+# --- the phone invariant: nothing may push the page sideways ---------------
+# These boards are read on a phone before breakfast. A single unbreakable
+# token — a run URL, a dotted test id, a workspace script path — used to
+# spill past the right edge and give the WHOLE page a horizontal scroll,
+# because wrapping was declared per component (`.task p`, `table.recent td`)
+# and every organ's own markup (a reasons list, a details block, a footer)
+# missed out. The guard belongs on `body`, where it is inherited by markup
+# this module has never seen.
+
+
+def test_wrapping_is_the_page_default_not_a_per_component_opt_in():
+    css = _theme.css("mind")
+    body = re.search(r"^body\{(.*?)\}", css, re.S | re.M).group(1)
+    assert "overflow-wrap:anywhere" in body.replace("\n ", "")
+
+
+def test_the_things_that_cannot_wrap_are_bounded_instead():
+    # An image, a table or a code block has no soft wrap opportunity to take;
+    # each is held inside the column or given its own scroller.
+    css = _theme.css("mind")
+    assert "img,svg,table{max-width:100%}" in css
+    assert "pre{overflow-x:auto}" in css
+
+
+def test_no_component_rule_re_declares_the_wrap():
+    """One place, not seven — a component that sets its own wrap is a rule
+    that will be forgotten by the next board that adds a list."""
+    css = re.sub(r"/\*.*?\*/", "", _theme.css("mind"), flags=re.S)
+    body_rule = re.search(r"^body\{.*?\}", css, re.S | re.M).group(0)
+    assert css.replace(body_rule, "").count("overflow-wrap") == 0
+
+
+def test_a_pill_is_bounded_because_nowrap_is_outside_the_wrap_guard():
+    """`white-space:nowrap` is what makes a chip read as a chip, and it is the
+    one thing `body{overflow-wrap}` cannot reach. A board that hands a pill a
+    sentence must get an ellipsis, not a chip wider than the phone."""
+    rule = re.search(r"^\.pill\{.*?\}", _theme.css("mind"), re.S | re.M).group(0)
+    flat = rule.replace("\n ", "")
+    assert "max-width:100%" in flat
+    assert "overflow:hidden" in flat
+    assert "text-overflow:ellipsis" in flat
+    # overflow:hidden moves an inline-block's baseline to its bottom edge, so
+    # the old optical nudge would drop every chip half a line.
+    assert "vertical-align:bottom" in flat
+
+
+def test_the_narrow_screen_stack_never_reveals_the_paged_feed():
+    """`display:flex` on a row outranks the UA sheet's `[hidden]{display:none}`,
+    so a bare `table.recent tr` selector would unhide every row the Recent
+    feed pages behind its '… more' button — 50 rows instead of 10."""
+    css = _theme.css("mind")
+    stack = re.search(r"@media\(max-width:34rem\)\{.*?\n\}", css, re.S).group(0)
+    assert "table.recent tr:not([hidden]){display:flex" in stack.replace("\n ", "")
+    assert "table.recent tr{display:flex" not in css
+
+
+def test_a_row_stacks_on_a_phone_so_the_text_gets_the_width():
+    """Four columns on a 375px screen left the text 187px and ran each entry
+    down the right as a ribbon; below 34rem the meta leads and the text takes
+    a full-width line of its own."""
+    stack = re.search(r"@media\(max-width:34rem\)\{.*?\n\}", _theme.css("mind"),
+                      re.S).group(0).replace("\n ", "")
+    assert "table.recent td{display:block;width:auto" in stack
+    assert "table.recent td:not([class]){flex:1 0 100%" in stack
+
+
+def test_a_bare_list_lines_up_with_the_rest_of_the_page():
+    """The UA's 40px list indent steps a bare `<ul>` in from every other block
+    — measured on the Heart board, the evidence-gap bullets sat at x=56
+    against a 16px body margin, reading as a stray inset column on a phone."""
+    css = _theme.css("mind")
+    assert "ul,ol{padding-left:1.15rem}" in css
+    # The lists that are layout rather than prose keep their own zero.
+    assert re.search(r"\.stats\{[^}]*padding:0", css, re.S)
+    assert re.search(r"\.boards\{[^}]*padding:0", css, re.S)

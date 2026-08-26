@@ -26,7 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "feature"))
 from _feature import analyse  # noqa: E402  (pulls _sizing onto the path too)
-from _sizing import parse_prompt, policy as _sizing_policy  # noqa: E402
+from _sizing import (  # noqa: E402
+    discover_prompts, empty_discovery_reason, parse_prompt, policy as _sizing_policy,
+)
 
 # Public-API-change smells: a "refactor" prompt matching these is suspect —
 # it belongs in feature/ (or bug/) and must not run at `safe`.
@@ -105,8 +107,7 @@ def decide(prompt_path: Path, mind: Path) -> dict:
 
 
 def discover(mind: Path) -> list[Path]:
-    root = mind / "refactor"
-    return sorted(root.rglob("*.md")) if root.is_dir() else []
+    return discover_prompts(mind, "refactor")
 
 
 def candidates(mind: Path) -> dict:
@@ -183,7 +184,8 @@ def main(argv=None) -> int:
     else:
         backlog = discover(mind)
         if not backlog:
-            print("refactor: no prompts under refactor/ — try 'candidates'",
+            print(f"refactor: no refactor prompts to select from — "
+                  f"{empty_discovery_reason(mind, 'refactor')} — try 'candidates'",
                   file=sys.stderr)
             return 4
         decisions = [decide(p, mind) for p in backlog]

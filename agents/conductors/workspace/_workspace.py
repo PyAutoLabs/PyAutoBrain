@@ -24,12 +24,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
-PYAUTO_ROOT = Path(os.environ.get("PYAUTO_ROOT", Path.home() / "Code" / "PyAutoLabs"))
+# Workspace root via the one shared resolver (agents/_pyauto_root.py, mirrored
+# by bin/_pyauto_root.sh): PYAUTO_ROOT, else beside this checkout, else the
+# developer box. Naming an absolute workspace path as the *default* here
+# resolved into
+# a non-existent tree in a remote session and reported empty rather than
+# failing.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import _pyauto_root  # noqa: E402
+
+PYAUTO_ROOT = _pyauto_root.pyauto_root()
 
 # Library package -> (workspace repo, HowTo repo). PyAutoReduce's workspace is
 # being born (the founding demonstrated-need case); it has no HowTo yet.

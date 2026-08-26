@@ -4,6 +4,12 @@ Factored out of `SKILL.md`. The body is authoritative for the flow; this holds
 the audit commands, the dashboard layout, the per-bucket execution recipes, the
 recap, and the execution-environment fallback.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Audit canonical checkouts
 
 For each in-scope repo at `$PYAUTO_MAIN/<repo>`:
@@ -116,14 +122,107 @@ List anything the user opted to keep so the next sweep resumes from there.
 
 ## Execution environments
 
-In a web-github / analysis-only session (no local checkout) destructive git ops
-are unavailable — degrade to a **remote audit only**: skip all `git -C`; for each
-in-scope repo enumerate remote branches
-(`gh api repos/<owner>/<repo>/branches --jq '.[].name' --paginate`), cross-check
-open PRs (`gh pr list --head <branch> --state open`), and report branches with no
-open PR that are merged to `main`
-(`gh api repos/<owner>/<repo>/compare/main...<branch>` → `ahead_by == 0`) as
-**candidates** only. Do not delete remotely; recommend running on a local-dev
-checkout to complete the sweep (which re-audits against local state). Skip
-stash/dirty sections. Owner mapping: PyAutoConf/PyAutoFit → `rhayes777`, else
-`Jammy2211`.
+A cloud session (phone, claude.ai/code) has no local tree **and cannot delete a
+remote ref**: `git push origin --delete` returns 403 for the session credential
+— the proxy is not the blocker, it logs no relay failure — and the GitHub tool
+surface exposed to those sessions has no delete-ref call. Try it once and you
+have learned nothing the next session does not already know; do not retry, and
+do not route around it.
+
+Worse, you may not even learn *that*. Git prints the 403 to stderr and then
+finishes with `Everything up-to-date` and **exit status 0**, so a caller reading
+the tail or the exit code sees a successful delete of a branch that is still on
+origin. Never treat a `--delete` push here as evidence of anything;
+`git ls-remote --heads origin <branch>` is the only ground truth.
+
+Instead **dispatch the repo's own sweep**, which runs the same gates under a
+workflow `GITHUB_TOKEN` that does have `contents: write`:
+
+1. `mcp__github__actions_run_trigger` → `run_workflow`, `workflow_id:
+   branch_sweep.yml`, `ref: main`, `inputs: {mode: audit}`.
+2. Poll `mcp__github__actions_list` → `list_workflow_runs` for that workflow;
+   read the finished run's summary (its step summary carries the full report).
+3. Show the user the contained / unmerged / protected split and get approval
+   exactly as for Bucket B locally.
+4. Re-dispatch with `mode: delete` (add `limit` for a first cautious batch).
+
+`branch_sweep.yml` currently exists in **PyAutoMind** and **PyAutoBrain**, which
+sweep themselves with their own `GITHUB_TOKEN`.
+
+**Every other development repo** is swept centrally instead, by PyAutoBrain's
+`branch_sweep_all.yml` using `PAT_PYAUTOLABS`. Same dispatch/poll/report loop,
+with `repos` naming the targets. Two things about it are not negotiable from
+the chat side:
+
+- **`mode: delete` refuses to run without an explicit `repos` list.** There is
+  no sweep-everything button; the all-repos path is audit-only. Dispatch the
+  audit, show the human the per-repo split, then name the repos to act on.
+- **A target the body map does not make sweepable fails the whole run**,
+  including a run that also names valid repos. Widening the set is a reviewed
+  change, never a dispatch input.
+
+Which repos those are is **derived, never listed**: `bin/branch_sweep_targets.py`
+reads `PyAutoMind/repos.yaml` and takes the development categories (organ,
+library, workspace, workspace_test, workspace_developer, howto), dropping the
+Mind and the Brain by organ role because they sweep themselves. The skill's
+Never-touched repos fall out with their categories — `autolens_assistant` is an
+`assistant`, `euclid_strong_lens_modeling_pipeline` a `pipeline` — so no rule
+names them twice. Brain code may not name satellite repos at all (the tenant
+firewall enforces this; a hardcoded list was written first and rejected).
+
+That boundary is this sweep's alone. `repo_settings.yml` no longer shares it:
+flipping `delete_branch_on_merge` is not deleting a ref, and a body-map-derived
+target set could never see a repo in the window between its creation and its
+registration — so it lists the organisation from the GitHub API instead, and
+uses `--outside-owner` only for the body-map repos an org listing cannot
+return.
+
+## Branches that must not simply be deleted
+
+A branch the sweep classes as *unmerged* is not automatically live work. It may
+be history that `main` no longer contains and nothing else pins — the 2026-08-25
+org-wide audit found one: a `master` carrying 442 commits from 2021-2022,
+orphaned by a later "history reset", sharing **no common ancestor** with `main`
+and referenced by no tag. Deleting that is not cleanup, it is loss.
+
+Tell the two apart before proposing anything:
+
+```bash
+git merge-base origin/main origin/<branch>   # exit 1 + no output = disjoint histories
+git tag --contains $(git rev-parse origin/<branch>)   # empty = nothing else pins it
+```
+
+Disjoint or unpinned → route it to the Gut instead of the delete bucket:
+dispatch `branch_archive.yml` (PyAutoBrain) with `repo`, `branch`, `name`, and
+`delete_after`. It archives via `pyauto-gut archive`, **verifies the ref landed
+on the Gut with a fresh `ls-remote`**, and only then deletes the source branch —
+never on the strength of the push's own exit code.
+
+It does not file the `condemned.md` entry. That is Mind state and a judgement:
+material like original project history should be held **undated** (no
+`sweep-after`), so no later sweep ever voids it.
+
+That per-repo human read replaces the local sweep's *"never enumerate
+origin-only collaborator branches"* rule, which a workflow cannot honour —
+every branch it sees is origin-only. The libraries and workspaces take pull
+requests from outside contributors, so do not shortcut it. (Fork PRs are
+unaffected: their heads live in the fork.)
+
+**The setting that makes this mostly unnecessary.** A repo whose merged PR heads
+survive has *Settings → General → "Automatically delete head branches"* off.
+That single toggle removes each head at merge and stops the backlog forming;
+this sweep is the backstop for what predates it, for branches pushed without a
+PR, and for heads whose PR closed unmerged. There is no repo-settings *tool*,
+but there is a workflow: dispatch **`repo_settings.yml`** in PyAutoBrain (mode
+`apply`) and it turns the setting on across every development repo in the body
+map, including any added since. It also runs weekly, so a repo born after today
+is corrected without anyone noticing it drifted. Report a repo it lists as
+`refused (needs admin)` to the human — that is a PAT scope, not something to
+retry.
+
+Whichever environment: resolve each repo's `<owner>/<repo>` from the `github:`
+field in `PyAutoMind/repos.yaml` (the body map is the single source of repo
+identity) — do not assume a default owner. Nearly every repo is under
+`PyAutoLabs/`; the pre-migration `rhayes777/` and `Jammy2211/` homes are gone
+bar the two the body map still records. Stash and dirty-checkout buckets have no
+cloud equivalent — skip them and say so.

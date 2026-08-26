@@ -35,6 +35,8 @@
 #                                 PyAutoFit search catalogue, benchmark record, tier gaps
 #   pyauto-brain sizing  [args]   (faculty)   read-only: the SizingSurface — difficulty estimate for
 #                                 a PyAutoMind prompt (the heuristic intake + feature both consult)
+#   pyauto-brain board   [args]   (surface)   render the operational board — the morning
+#                                 page brain_board.yml publishes (md/html/json/badge)
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Renamed from `pyauto-agent`; the former back-compat shim has been removed now
@@ -44,6 +46,8 @@ set -u
 
 _self="$(readlink -f "${BASH_SOURCE[0]}")"
 BRAIN_HOME="$(cd "$(dirname "$_self")/.." && pwd)"
+# The one workspace-root resolver (also sourced by agents/_common.sh).
+. "$BRAIN_HOME/bin/_pyauto_root.sh"
 AGENTS_DIR="$BRAIN_HOME/agents"
 
 CONDUCTORS_DIR="$AGENTS_DIR/conductors"
@@ -95,6 +99,14 @@ CONDUCTOR_ORDER=(intake community feature bug refactor workspace eyes profiling 
 FACULTY_ORDER=(vitals review memory samplers sizing)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 
+# Surfaces — generated pages, not agents (they neither act nor opine, they
+# show). Dispatchable and help-able like agents, but kept out of the
+# CONDUCTOR/FACULTY orders so the generated cross-organ command-surface block
+# (install.sh --write-agents-surface) is untouched.
+AGENT_SCRIPT[board]="$BRAIN_HOME/board/board.sh"
+AGENT_DESC[board]="The operational board — render the morning surface (overnight runs, readiness, community, resume, upkeep) as md/html/json/badge; published to Pages by brain_board.yml"
+SURFACE_ORDER=(board)
+
 cmd_help() {
   if [[ $# -gt 0 ]]; then
     local name="$1"
@@ -131,7 +143,39 @@ EOF
     printf '    %-10s %s\n' "$name" "${AGENT_DESC[$name]}"
   done
   echo
+  # Surfaces are listed as prose, not roster rows: the skill-install tests
+  # treat every 4-space roster row as a public AGENT (wrapper + generated
+  # cross-organ surface-block entry), and a surface is neither tier.
+  echo "Surfaces (generated pages — read-only renders, not agents):"
+  local surface
+  for surface in "${SURFACE_ORDER[@]}"; do
+    printf '  %s — %s\n' "$surface" "${AGENT_DESC[$surface]}"
+  done
+  echo
   echo "Run 'pyauto-brain help <agent>' for that agent's full docs."
+}
+
+# Every verb runs through here, which makes this the one place guaranteed to
+# execute in a remote session — so it is where the session environment gets
+# guaranteed too.
+#
+# The SessionStart hook is the proper mechanism and does the work; but Claude
+# Code registers project hooks from the session's project directory, and a
+# session holding several organs clones them side by side *under* that
+# directory. The project directory is then their parent: not a repo, no
+# `.claude/`, no hook registered. Multi-repo sessions therefore came up on the
+# container's Python 3.11 — below this organism's floor and below every CI leg,
+# with mypy and flake8 judging code against 3.11 rules.
+#
+# Idempotent and ~0.2s warm, so this is cheap insurance rather than a gate: a
+# missing or failing bootstrap never blocks a verb.
+ensure_session_environment() {
+  [[ "${CLAUDE_CODE_REMOTE:-}" == "true" ]] || return 0
+  [[ -z "${PYAUTO_SKIP_BOOTSTRAP:-}" ]] || return 0
+  local boot
+  boot="$PYAUTO_ROOT/PyAutoMind/scripts/session_bootstrap.sh"
+  [[ -x "$boot" ]] || return 0
+  bash "$boot" >/dev/null 2>&1 || true
 }
 
 main() {
@@ -144,6 +188,7 @@ main() {
       ;;
   esac
   shift
+  ensure_session_environment
   local script="${AGENT_SCRIPT[$sub]:-}"
   if [[ -z "$script" || ! -f "$script" ]]; then
     echo "pyauto-brain: unknown agent '$sub'" >&2

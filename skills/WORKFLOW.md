@@ -223,13 +223,20 @@ Task worktrees keep parallel work isolated (`PyAutoBrain/bin/worktree.sh`):
 **dev workflow's own git mechanics** — feature-development work, **not** Build.
 Build is reached only for the release/packaging step (PyPI/tags/notebooks).
 
+`worktree_check_conflict` **fails closed**: it reads `active.md` under
+`$PYAUTO_MAIN` (default `$HOME/Code/PyAutoLabs`) and exits `3` with
+`CANNOT VERIFY` when that registry cannot be resolved, instead of reporting
+"no conflict" from a read that never happened (#225). In `web-github` / `ci-only`
+environments set `PYAUTO_MAIN` to the directory holding the PyAutoMind checkout,
+or pass `--allow-missing-registry` to proceed knowingly unguarded.
+
 ## Repo → GitHub owner mapping
 
 <!-- repos_sync:begin -->
 All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/euclid_assistant`, `Jammy2211/admin_jammy`.
 
 **Library repos:** PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoReduce, PyAutoCTI.
-**Workspace repos:** autofit_workspace, autogalaxy_workspace, autolens_workspace, autocti_workspace, autofit_workspace_test, autogalaxy_workspace_test, autolens_workspace_test, autocti_workspace_test, HowToFit, HowToGalaxy, HowToLens, euclid_strong_lens_modeling_pipeline.
+**Workspace repos:** autofit_workspace, autogalaxy_workspace, autolens_workspace, autocti_workspace, autoreduce_workspace, autofit_workspace_test, autogalaxy_workspace_test, autolens_workspace_test, autocti_workspace_test, HowToFit, HowToGalaxy, HowToLens, euclid_strong_lens_modeling_pipeline.
 
 Generated from `PyAutoMind/repos.yaml`; edit there, then run `python3 PyAutoMind/scripts/repos_sync.py --write`.
 <!-- repos_sync:end -->

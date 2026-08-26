@@ -1,6 +1,6 @@
 # Ship Library: Gate, Test, PR
 
-Ship source-library changes (PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy,
+Ship source-library changes (PyAutoNerves, PyAutoFit, PyAutoArray, PyAutoGalaxy,
 PyAutoLens) for every library repo touched by the task. This is
 **feature-development** work — the commit/push/feature-PR is the dev workflow's
 own execution, gated by Heart. It is **not** a Build task (Build is
@@ -14,6 +14,12 @@ Workflow entry point — not an agent. Read [`../WORKFLOW.md`](../WORKFLOW.md) f
 the organ boundary, the readiness gate, and the execution-environment model.
 PR format, the execution contract, and the impact analysis are in
 [`reference.md`](reference.md).
+
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
 
 ## Steps
 
@@ -112,4 +118,8 @@ next human (or queued) launch.
 
 - This skill ships **library source only** — workspace scripts/notebooks go
   through `/ship_workspace`.
+- Waiting on CI before the merge is [`/prm`](../prm/prm.md) — the close-out door
+  that judges every run/leg, merges in library-first order, then runs this
+  skill's completion contract itself (Shipped comment, issue closed, Mind record,
+  worktree + branches removed).
 - Never skip the readiness gate; never `--no-verify`; fix the underlying issue.

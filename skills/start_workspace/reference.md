@@ -3,6 +3,12 @@
 Factored out of `start_workspace.md`. The body skill is authoritative for the
 flow; this file holds the verbatim impact-report and registry formats.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Linked-mode API-change impact
 
 When a "Library PR Created" comment exists on the issue, fetch the upstream
@@ -75,6 +81,10 @@ the workspace repos, set `status: workspace-dev`, add `library-pr:`:
   - PyAutoFit: feature/<task-name>
   - autofit_workspace: feature/<task-name>
 ```
+
+The `  - <repo>` bullets are the claim `worktree_check_conflict` reads. Both
+`  - <repo>: <branch>` and `  - <repo> (<branch>)` parse; the branch is
+informational and may be omitted.
 
 Standalone mode — same shape without `library-pr:` and with only workspace repos.
 Push with `prompt_sync_push "prompt: register <task-name> workspace repos in active.md"`.

@@ -4,6 +4,12 @@ Factored out of `start_dev_for_user.md` (read by repo path
 `PyAutoBrain/skills/start_dev_for_user/reference.md`). Holds the tone rules,
 comment templates, registry formats, and the forward-compatibility note.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Tone rules (every comment on a `user-facing: true` task)
 
 - First/second person, contractions allowed — a polite teammate, not a status bot.

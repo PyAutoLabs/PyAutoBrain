@@ -15,6 +15,12 @@ entry point, not an agent. Read [`../WORKFLOW.md`](../WORKFLOW.md) for the organ
 boundary, readiness gate and execution-environment model; PR format, merge gate
 and issue/Mind formats are in [`reference.md`](reference.md).
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Steps
 
 ### 1. Identify affected workspace repos (Mind)
@@ -99,5 +105,8 @@ and prunes the `active.md` entry), and push Mind. Templates in
 ## Notes
 
 - Workspace scripts/notebooks/configs only — never library source.
+- If CI is still running when step 5 arrives, [`/prm`](../prm/prm.md) is the door
+  that waits for every run/leg, merges behind the library-first gate, and then
+  performs step 6 plus the post-merge cleanup itself.
 - Only edit `scripts/`; notebooks are regenerated.
 - Never skip the readiness gate or the library-first merge gate.

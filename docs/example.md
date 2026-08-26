@@ -10,7 +10,7 @@ replaces every name below with your own.
 
 The live `repos.yaml` declares ~25 repos. The load-bearing categories:
 
-- **Libraries:** PyAutoConf (shared config), PyAutoFit (Bayesian
+- **Libraries:** PyAutoNerves (shared config), PyAutoFit (Bayesian
   inference), PyAutoArray (data structures), PyAutoGalaxy (galaxy
   modelling), PyAutoLens (strong lensing), PyAutoReduce (data reduction) —
   a dependency chain released to PyPI nightly when there is new activity.

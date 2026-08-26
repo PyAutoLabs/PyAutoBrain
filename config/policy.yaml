@@ -4,17 +4,47 @@
 # categories at runtime; nothing here duplicates the body map).
 
 # Normalise an @-mention or folder name to a canonical target key.
+#
+# THE CANONICAL-KEY RULE: one repo, one key — the package the repo SHIPS where it
+# ships one, the repo name where it does not. So the libraries key bare
+# (`autofit`), and the organs, which ship no package, key by repo name
+# (`pyautobrain`); Nerves is the organ that ships one, so it keys `autonerves`.
+# The asymmetry is not arbitrary: it is what prompts actually write.
+#
+# MOST OF THIS TABLE IS NO LONGER WRITTEN HERE. The bare/prefixed/package join is
+# DERIVED from the body map at runtime (`_sizing._derived_aliases`), keyed off the
+# `package:` field in PyAutoMind/repos.yaml. It had to be: this table was hand-kept
+# while the known-target set was derived, so the two drifted silently and the gap
+# surfaced only as a wrong-but-plausible conductor message — four repos in a row
+# (PyAutoBrain#267, #269, #287). A row below that CONTRADICTS the derivation now
+# raises rather than quietly winning.
+#
+# What is left is what a body map cannot know:
 repo_aliases:
+  # 1. Short forms. Prompts write `@aa.decorators.to_vector_yx`, and no field in
+  #    the body map says so.
   aa: autoarray
   af: autofit
   ag: autogalaxy
   al: autolens
+  # 2. Pre-rename spellings. The body map records what the organism is called
+  #    TODAY; these keep the archived Mind prompts routing to the repo they now
+  #    name.
+  autoconf: autonerves      # back-compat: the Nerves package was renamed
+  pyautoconf: autonerves    # back-compat: the Nerves repo was renamed
+  pyautobuild: pyautohands  # back-compat: the Hands repo was renamed PyAutoBuild → PyAutoHands
+  # 3. The library rows the derivation would otherwise produce, kept as the
+  #    fallback for a body map that predates `package:` — an adopting fork, or
+  #    this repo's own CI, which pins the sibling Mind checkout to `main`.
+  #    `canonical_key` reads them only when no `package:` is declared, so they
+  #    are dead weight the moment one is, and can be deleted then.
   pyautoarray: autoarray
   pyautofit: autofit
-  pyautoconf: autoconf
   pyautogalaxy: autogalaxy
   pyautolens: autolens
-  pyautobuild: pyautohands  # back-compat: the Hands repo was renamed PyAutoBuild → PyAutoHands
+  pyautonerves: autonerves
+  pyautocti: autocti
+  pyautoreduce: autoreduce
 
 # Which body-map categories mean "library-flow" / "workspace-flow" /
 # "organism-infrastructure" to the sizing faculty; extra literal targets
@@ -24,23 +54,28 @@ sizing_categories:
   workspace: [workspace, workspace_test, workspace_developer, howto, assistant, pipeline, project]
   organism: [organ]
 extra_workspace_targets: [workspaces]
-extra_organism_targets: [autohands]
+# Empty since PyAutoBrain#287: `autohands` was declared here because the bare
+# organ spellings were not derived. They are now (every spelling of every
+# body-map repo is), so a literal here would be redundant — the block stays as
+# the seam a fork uses for a target its body map does not carry.
+extra_organism_targets: []
 
-# Keyword -> PyAutoMemory sub-wiki (also the science vocabulary difficulty
-# scoring keys off). Source of truth for the wiki list: PyAutoMemory/index.md.
+# Keyword -> PyAutoMemory sub-wiki (the wiki/<domain>/ layout; also the science
+# vocabulary the difficulty scoring keys off). Source of truth for the wiki
+# list: PyAutoMemory/index.md.
 memory_wikis:
-  lensing_wiki: [lens, deflection, source reconstruction, caustic, einstein,
+  lensing: [lens, deflection, source reconstruction, caustic, einstein,
                  subhalo, substructure, time delay, cosmography, shear,
                  multipole, mass sheet, slacs, tdcosmo, h0licow, macromodel]
-  smbh_wiki: [black hole, smbh, binary, recoil, nanograv,
+  smbh: [black hole, smbh, binary, recoil, nanograv,
               gravitational wave background]
-  cti_wiki: [charge transfer, cti, trap, arctic, vis calibration]
-  methods_wiki: [bayesian, sampler, nautilus, dynesty, emcee, mcmc,
+  cti: [charge transfer, cti, trap, arctic, vis calibration]
+  methods: [bayesian, sampler, nautilus, dynesty, emcee, mcmc,
                  nested sampling, likelihood, jax, nufft, interpolat,
                  graphical model, expectation propagation, deep learning, sbi,
                  simulation based inference, probabilistic, optimis, gradient,
                  regularis]
-  galaxies_wiki: [galaxy formation, bulge, disk, morphology, mge, stellar halo,
+  galaxies: [galaxy formation, bulge, disk, morphology, mge, stellar halo,
                   ifu, kinematic, elliptical, cosmos]
 
 # Intake keyword -> target repo routing signals.
@@ -62,26 +97,76 @@ target_signals:
 
 # Feature conductor: target -> the sub-wiki consulted by default.
 target_default_wiki:
-  autolens: lensing_wiki
-  autogalaxy: galaxies_wiki
-  autofit: methods_wiki
-  autoarray: methods_wiki
-  autoconf: methods_wiki
+  autolens: lensing
+  autogalaxy: galaxies
+  autofit: methods
+  autoarray: methods
+  autonerves: methods   # the PyAutoConf/autoconf spellings alias here
 
-# Refactor conductor: normalised repo -> the test dir that witnesses
-# behaviour preservation.
+# Refactor conductor: normalised repo -> the test dir that witnesses behaviour
+# preservation. Keyed by the canonical key repo_aliases resolves to: the bare
+# package name where the repo ships one, the repo name where it does not.
+# Every library and organ in the body map needs a row here or an entry in the
+# test's WITNESS_EXEMPT — a missing row makes the conductor advise "strengthen
+# tests first" for a repo that is already tested.
 test_witness:
-  autoconf: PyAutoConf/test_autoconf
+  # libraries (package name is canonical)
   autofit: PyAutoFit/test_autofit
   autoarray: PyAutoArray/test_autoarray
   autogalaxy: PyAutoGalaxy/test_autogalaxy
   autolens: PyAutoLens/test_autolens
-  pyautoreduce: PyAutoReduce/test_autoreduce
+  autocti: PyAutoCTI/test_autocti
+  autoreduce: PyAutoReduce/test_autoreduce
+  # organs (repo name is canonical; Nerves ships a package, so it keys bare)
+  autonerves: PyAutoNerves/test_autonerves
+  pyautobrain: PyAutoBrain/tests
+  pyautoheart: PyAutoHeart/tests
+  pyautohands: PyAutoHands/tests
+  pyautomemory: PyAutoMemory/tests
+  pyautomind: PyAutoMind/tests
+  # PyAutoGut has no test suite — deliberately absent, so the conductor's
+  # "strengthen tests first" advice is correct there rather than noise.
 
 # Release policy (NOT identity: the released set is a deliberate subset of
 # the body map's libraries — e.g. PyAutoReduce is not in the nightly matrix).
 release:
-  relevant_repos: [PyAutoConf, PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens,
+  relevant_repos: [PyAutoNerves, PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens,
                    autofit_workspace, autogalaxy_workspace, autolens_workspace,
                    HowToFit, HowToGalaxy, HowToLens]
   tag_repo: PyAutoLabs/PyAutoLens
+
+# The Brain board (board/_board.py) — the operational surface's vocabulary:
+# which scheduled workflows the overnight sweep reads, which stamps the
+# version-consistency check compares, and where the sibling one-tap boards
+# live. Owner/org is derived from the Mind's body map at runtime, so entries
+# here are repo-relative unless a home lies outside the primary org.
+# overnight_jobs mirrors bin/overnight_status.sh (its CLI complement) — keep
+# the two lists in step until the script reads this block too.
+board:
+  overnight_jobs:
+    - PyAutoBrain:nightly-release.yml
+    - PyAutoHeart:heart-health.yml
+    - PyAutoHeart:workspace-smoke.yml
+    - PyAutoHands:python_matrix.yml
+    - PyAutoMind:arxiv_papers.yml
+    - PyAutoMind:spawn_drift.yml
+    - autolens_assistant:wiki-currency.yml
+  version_stamps:
+    - PyAutoNerves:autonerves/__init__.py
+    - PyAutoArray:autoarray/__init__.py
+    - PyAutoFit:autofit/__init__.py
+    - PyAutoGalaxy:autogalaxy/__init__.py
+    - PyAutoLens:autolens/__init__.py
+  reference_release_repo: PyAutoLens
+  heart_board: PyAutoHeart
+  # The full one-tap board family (the cross-board footer nav every board
+  # carries; each renderer skips its own entry). Parsed by board/_board.py
+  # (yaml) and by the Mind renderer's footer (stdlib regex on this block —
+  # keep one `name: Repo` pair per line).
+  boards:
+    mind: PyAutoMind
+    brain: PyAutoBrain
+    heart: PyAutoHeart
+    hands: PyAutoHands
+    memory: PyAutoMemory
+    organism: PyAutoScientist

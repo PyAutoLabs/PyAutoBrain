@@ -69,7 +69,7 @@ belongs in the affected repo, PyAutoHeart, PyAutoHands or PyAutoBrain:
 2. the **filed PyAutoHeart issues** — `gh issue list --repo PyAutoLabs/PyAutoHeart`
    (`$PYAUTO_HEART_REPO` overridable), the durable findings Heart authored.
 
-Findings hinted as real defects become `PyAutoMind/bug/health_fixes/<name>.md` prompts
+Findings hinted as real defects become `PyAutoMind/draft/bug/health_fixes/<name>.md` prompts
 (its README already cites Heart issue #27); flaky/expected findings are left to the
 Health conductor.
 

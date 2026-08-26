@@ -21,8 +21,9 @@
 
 set -o pipefail
 
-PYAUTO_MAIN="${PYAUTO_MAIN:-$HOME/Code/PyAutoLabs}"
-PYAUTO_WT_ROOT="${PYAUTO_WT_ROOT:-$HOME/Code/PyAutoLabs-wt}"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_pyauto_root.sh"
+PYAUTO_MAIN="${PYAUTO_MAIN:-$PYAUTO_ROOT}"
+PYAUTO_WT_ROOT="${PYAUTO_WT_ROOT:-${PYAUTO_MAIN}-wt}"
 
 # Libraries that participate in PYTHONPATH. Order matters — it mirrors the
 # order in ~/.bashrc.
@@ -306,15 +307,35 @@ worktree_remove() {
 # Used by conflict-guard steps. A task is "claimed" if its entry has a
 # `worktree:` field; legacy non-worktree tasks are emitted with worktree-path
 # set to the literal string "-".
-worktree_list_claimed() {
+# worktree_registry_path
+# Echoes the resolved PyAutoMind/active.md, or returns 3 (printing nothing) when
+# it cannot be found. Split out so a caller can tell "nothing is claimed" apart
+# from "I could not read the registry" — see worktree_check_conflict.
+worktree_registry_path() {
   local active="$PYAUTO_MAIN/PyAutoMind/active.md"
   # Back-compat: fall back to the pre-rename PyAutoPrompt/ path if present.
   [[ -f "$active" ]] || active="$PYAUTO_MAIN/PyAutoPrompt/active.md"
-  if [[ ! -f "$active" ]]; then
-    return 0
-  fi
+  [[ -f "$active" ]] || return 3
+  printf '%s\n' "$active"
+}
+
+worktree_list_claimed() {
+  local active
+  # Returns 3, NOT 0, when the registry is unreadable — empty output must never
+  # be mistaken for "nothing is claimed".
+  active="$(worktree_registry_path)" || return 3
   awk '
+    # Claim rows are buffered and flushed at the end of each task entry:
+    # `worktree:` may appear either side of the `repos:` block, so it is not
+    # known when a repo bullet is read.
+    function flush(   i) {
+      for (i = 1; i <= n; i++) {
+        printf "%s\t%s\t%s\t%s\n", task, repos[i], branches[i], wt
+      }
+      n = 0
+    }
     /^## / {
+      flush()
       task = $2
       wt = "-"
       next
@@ -324,23 +345,70 @@ worktree_list_claimed() {
       next
     }
     /^  - [A-Za-z]/ {
-      # Matches lines like "  - PyAutoFit: feature/foo"
-      gsub(/^  - /, "")
-      split($0, parts, ": ")
-      repo = parts[1]
-      branch = parts[2]
-      printf "%s\t%s\t%s\t%s\n", task, repo, branch, wt
+      # Two schemas in the wild, both accepted:
+      #   "  - autolens_workspace (feature/foo)"  what every skill writes
+      #   "  - PyAutoFit: feature/foo"            the documented legacy form
+      # The branch is informational (it appears only in the conflict message
+      # and repo_cleanup CLAIMED pairs); the bare repo name is what the guard
+      # compares, so it must survive either shape.
+      line = $0
+      sub(/^  - /, "", line)
+      branch = ""
+      if (match(line, /: /)) {
+        repo = substr(line, 1, RSTART - 1)
+        branch = substr(line, RSTART + 2)
+      } else if (match(line, / *\(/)) {
+        repo = substr(line, 1, RSTART - 1)
+        branch = substr(line, RSTART)
+        sub(/^ *\(/, "", branch)
+        sub(/\)[^)]*$/, "", branch)
+      } else {
+        repo = line
+      }
+      sub(/[ \t]+$/, "", repo)
+      n++
+      repos[n] = repo
+      branches[n] = branch
     }
+    END { flush() }
   ' "$active"
 }
 
-# worktree_check_conflict <task-name> <repo1> [repo2 ...]
+# worktree_check_conflict [--allow-missing-registry] <task-name> <repo1> [repo2 ...]
 # Exits 0 if none of the requested repos are claimed by a different task.
 # Exits 1 and prints the conflicts to stderr otherwise.
+# Exits 3 when the registry cannot be resolved — see below.
+#
+# THIS GUARD FAILS CLOSED. It used to return 0 when `active.md` could not be
+# found, which meant a cloud/web/CI session (where the roots were not under the
+# then-default $HOME/Code/PyAutoLabs) got "no conflict" from a guard that had read
+# nothing. That is worse than no guard, because the workflow documents this
+# call and the skills act on its answer: two sessions could each be told the
+# same repo was free. It now reports the failure and returns non-zero, so the
+# caller stops instead of proceeding on a green light it never earned.
 worktree_check_conflict() {
+  local allow_missing=0
+  if [[ "${1:-}" == "--allow-missing-registry" ]]; then
+    allow_missing=1
+    shift
+  fi
   local task="$1"
   shift
   local want repo existing_task existing_repo existing_branch existing_wt rc=0
+
+  if ! worktree_registry_path >/dev/null; then
+    if (( allow_missing )); then
+      echo "worktree_check_conflict: no registry under \$PYAUTO_MAIN — proceeding UNGUARDED (--allow-missing-registry)" >&2
+      return 0
+    fi
+    echo "worktree_check_conflict: CANNOT VERIFY — no active.md found." >&2
+    echo "  tried: $PYAUTO_MAIN/PyAutoMind/active.md" >&2
+    echo "         $PYAUTO_MAIN/PyAutoPrompt/active.md" >&2
+    echo "  PYAUTO_MAIN=${PYAUTO_MAIN:-<unset>}" >&2
+    echo "  Set PYAUTO_MAIN to the directory holding your PyAutoMind checkout," >&2
+    echo "  or pass --allow-missing-registry to proceed without the guard." >&2
+    return 3
+  fi
   for want in "$@"; do
     while IFS=$'\t' read -r existing_task existing_repo existing_branch existing_wt; do
       if [[ "$existing_repo" == "$want" && "$existing_task" != "$task" ]]; then

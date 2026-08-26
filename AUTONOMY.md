@@ -158,7 +158,10 @@ applicability rule so "n/a" is a stated fact, never an assumption:
    feel stronger.
 3. **Review** — review-faculty verdict **CLEAN**
    (`agents/faculties/review/AGENTS.md`). FINDINGS → resolve and re-review, or
-   park to a human checkpoint; BLOCKED → park.
+   park to a human checkpoint; BLOCKED → park. When the surface lifted any
+   `claims to falsify`, CLEAN carries one disposition line per claim
+   (basis-cited / idle / finding — faculty AGENTS.md step 2a); a bare CLEAN
+   over a non-empty claims surface is malformed evidence, not CLEAN.
 4. **Heart** — verdict **GREEN** or **STALE**, or **YELLOW whose reason set is
    contained in the set the human acknowledged at launch**. Heart observes
    organism state, not the branch (the audit confirmed its legs never see
@@ -300,6 +303,15 @@ tier), never by weakening leg 4.
   while Heart is RED.
 - **Never rewrite history** (`AGENTS.md` rules apply verbatim to autonomous
   runs).
+- **The Brain reads no network except one opt-in flag.** Every conductor and
+  faculty is stdlib-only and offline. The sole exception is
+  `intake reconcile --repo <target>` (PyAutoBrain#223), which makes a cached
+  shallow clone of the named repo to check whether identifiers a prompt names
+  already exist upstream. It is **read-only, opt-in and non-default**: without
+  the flag no clone, socket or subprocess is used, and a test detonates on any
+  attempt. It ranks prompts for human review in a `needs-review` band and never
+  emits a shipped verdict, so it retires nothing on its own. Any *further*
+  network surface in the Brain is a new decision, not covered by this line.
 - The `Autonomy:` header is a model's own estimate. The caps, the explicit
   `--auto` launch, and the calibration log are what make consuming it
   defensible — none of the three is optional.

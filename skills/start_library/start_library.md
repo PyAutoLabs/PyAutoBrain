@@ -1,6 +1,6 @@
 # Start Library: Set Up Library Development
 
-Set up the development environment for **library source-code** work (PyAutoConf,
+Set up the development environment for **library source-code** work (PyAutoNerves,
 PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens). Assumes `/start_dev` already
 registered the task in `PyAutoMind/active.md`.
 
@@ -8,6 +8,12 @@ Workflow entry point — the worktree/branch setup is the dev workflow's own
 **feature-dev** git mechanics (not Build, which is release-only) and the task
 state is **Mind**. Read [`../WORKFLOW.md`](../WORKFLOW.md) for the organ boundary,
 the worktree helpers, the execution-environment model, and the registry paths.
+
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
 
 ## Steps
 
@@ -84,8 +90,11 @@ Update the task entry to record the worktree path and claimed repos:
   - PyAutoArray: feature/<task-name>
 ```
 
-The `worktree:` field is what `worktree_check_conflict` reads to detect
-collisions from other sessions. Then:
+The `  - <repo>` bullets under `repos:` are the claim — they are what
+`worktree_check_conflict` compares to detect collisions from other sessions
+(`worktree:` is reported alongside, but claims nothing on its own). Both
+`  - <repo>: <branch>` and `  - <repo> (<branch>)` parse; the branch is
+informational and may be omitted. Then:
 
 ```bash
 source PyAutoMind/scripts/prompt_sync.sh

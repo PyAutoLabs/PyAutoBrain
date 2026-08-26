@@ -242,9 +242,18 @@ def health_validation(workflow: str, factors: dict) -> str:
 
 
 def re_home_check(p: dict) -> str | None:
-    """If a bug/ prompt is really a feature/refactor/docs/research task, say so."""
+    """If a bug/ prompt is really a feature/refactor/docs/research task, say so.
+
+    A prompt that DECLARES `Type: bug` is never re-homed on prose keywords: the
+    author already answered this question, and prose is the weaker signal (a bug
+    report legitimately says "refactor", "documentation" or "design decision"
+    while describing a defect). Same family as the difficulty leg — derive from
+    prose, but never over a declared header key (PyAutoBrain#217, #274).
+    """
     wt = p["work_type"]
     if wt != "bug":
+        return None
+    if (p.get("declared_type") or "") == "bug":
         return None
     text = p["text"].lower()
     # A genuine defect signal keeps it a bug even if other words also fire.
@@ -264,7 +273,7 @@ def re_home_check(p: dict) -> str | None:
 
 
 def analyse_bug(p: dict, heart_check: str | None = None) -> dict:
-    level, score, factors = F.estimate_difficulty(p)
+    level, score, factors, derived_level = F.effective_difficulty(p)
     cls = classify(p, factors)
     workflow = recommended_workflow(p, factors)
     mishome = re_home_check(p)
@@ -283,6 +292,11 @@ def analyse_bug(p: dict, heart_check: str | None = None) -> dict:
         "recommended_workflow": workflow,
         "rehome_suggestion": mishome,
         "difficulty": level,
+        "difficulty_declared": p.get("declared_difficulty"),
+        "difficulty_derived": derived_level,
+        "difficulty_disagreement": (
+            p.get("declared_difficulty") is not None and derived_level != level
+        ),
         "difficulty_score": score,
         "difficulty_factors": factors,
         "health_validation": health_validation(workflow, factors),
@@ -302,8 +316,7 @@ def _next_action(d: dict) -> str:
 
 # --- discovery + selection (bug/**) ------------------------------------------
 def discover_bugs(mind: Path):
-    bug = mind / "bug"
-    return sorted(bug.rglob("*.md")) if bug.is_dir() else []
+    return F.discover_prompts(mind, "bug")
 
 
 def _referenced_bug_paths(mind: Path):
@@ -325,12 +338,12 @@ SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 def select_bug(mind: Path, constraint: dict, limit: int):
-    prompts = [p for p in discover_bugs(mind) if p.name.lower() != "readme.md"]
+    prompts = discover_bugs(mind)
     in_flight = _referenced_bug_paths(mind)
     rows = []
     for path in prompts:
         p = F.parse_prompt(path, mind)
-        level, score, factors = F.estimate_difficulty(p)
+        level, score, factors, _derived = F.effective_difficulty(p)
         cls = classify(p, factors)
         rows.append({
             "path": p["path"], "difficulty": level, "score": score,
@@ -378,7 +391,7 @@ def emit_human(mode: str, d: dict):
     if d["memory_context"]:
         print("Relevant context (PyAutoMemory — consult, do not invent):")
         for wiki, kws in d["memory_context"].items():
-            print(f"  - {wiki}/index.md  ({', '.join(kws)})")
+            print(f"  - PyAutoMemory/wiki/{wiki}/index.md  ({', '.join(kws)})")
     else:
         print("Relevant context:     none matched")
     print(f"Fix locus:            {d['fix_locus']['locus']}")
@@ -386,7 +399,11 @@ def emit_human(mode: str, d: dict):
     print(f"Fix strategy:         {d['fix_strategy']}")
     print(f"Recommended workflow: {d['recommended_workflow']}", end="")
     print(f"  [re-home as {d['rehome_suggestion']}/]" if d["rehome_suggestion"] else "")
-    print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
+    if d.get("difficulty_disagreement"):
+        print(f"Difficulty:           {d['difficulty']} (declared; heuristic derived "
+              f"{d['difficulty_derived']}, score {d['difficulty_score']})")
+    else:
+        print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
     print(f"Health validation:    {d['health_validation']}")
     print("Risks:")
     for r in d["risks"]:
@@ -418,8 +435,8 @@ def emit_health(mode: str, verdict: str, issues: list, mind: Path):
     print("== BugDecision (health-issue mode) ==")
     print(f"Mode:                 {mode}")
     print(f"Live vitals verdict:  {verdict.upper()}  (consulted via the vitals faculty)")
-    hf = mind / "bug" / "health_fixes"
-    print(f"Health-fix prompts:   {'present' if hf.is_dir() else 'absent'} at PyAutoMind/bug/health_fixes/")
+    hf = mind / "draft" / "bug" / "health_fixes"
+    print(f"Health-fix prompts:   {'present' if hf.is_dir() else 'absent'} at PyAutoMind/draft/bug/health_fixes/")
     if not issues:
         print("Filed PyAutoHeart issues: none open (or gh unavailable).")
     else:
@@ -429,7 +446,7 @@ def emit_health(mode: str, verdict: str, issues: list, mind: Path):
             print(f"  - #{it.get('number')}  {it.get('title','').strip()}")
             print(f"      hint: {hint_heart_category(it)}")
     print("Next action:          For each finding the hint marks a real defect, write a "
-          "PyAutoMind/bug/health_fixes/<name>.md prompt and run start_dev; leave "
+          "PyAutoMind/draft/bug/health_fixes/<name>.md prompt and run start_dev; leave "
           "flaky/expected findings for the Health conductor. Confirm with the vitals "
           "faculty (never query Heart directly).")
 
@@ -499,7 +516,8 @@ def main(argv=None):
                                         or a.ambitious or a.impact) else "selection"
     ranked, total = select_bug(mind, constraint, a.limit)
     if not ranked:
-        print("bug agent: no bug prompts found in PyAutoMind/bug/.", file=sys.stderr)
+        print(f"bug agent: no bug prompts to select from — "
+              f"{F.empty_discovery_reason(mind, 'bug')}", file=sys.stderr)
         return 4
 
     if a.as_json:
