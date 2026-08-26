@@ -84,6 +84,14 @@ jobs:
           MODE: ${{ inputs.mode }}
         run: |
           set -uo pipefail
+          # GitHub runs this block as `bash -e`. That is wrong for this script:
+          # its whole design is to survive a per-repo failure and REPORT it, and
+          # the read below sends stderr to /dev/null, so under -e the first
+          # unreadable repo aborted the run with no output at all — the
+          # unreadable branch and the in-org/out-of-org split never executed.
+          # Disabled explicitly rather than with `|| true` on one line, because
+          # the hazard applies to every guarded command here, not just that one.
+          set +e
           mode="${MODE:-apply}"
 
           if [ -z "${GH_TOKEN:-}" ]; then
@@ -135,7 +143,7 @@ jobs:
               *)
                 echo "::warning::$slug — could not read the setting (repo missing, or the PAT cannot see it)"
                 echo "| \`$slug\` | $scope | ? | **unreadable** |" >> "$GITHUB_STEP_SUMMARY"
-                [ "$hard" -eq 1 ] && failed=1
+                if [ "$hard" -eq 1 ]; then failed=1; fi
                 return ;;
             esac
 
@@ -156,7 +164,7 @@ jobs:
               # imply. Widening a PAT is a human decision, not a retry.
               echo "::warning::$slug — PATCH refused; the PAT needs admin on this repo"
               echo "| \`$slug\` | $scope | off | **refused (needs admin)** |" >> "$GITHUB_STEP_SUMMARY"
-              [ "$hard" -eq 1 ] && failed=1
+              if [ "$hard" -eq 1 ]; then failed=1; fi
             fi
           }
 
