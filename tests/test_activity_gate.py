@@ -140,5 +140,17 @@ def test_anchor_validator():
 def test_release_relevant_set_is_the_design_set():
     # Design §4: 5 libraries + 3 workspaces + 3 HowTo repos.
     assert len(activity_gate.RELEASE_RELEVANT_REPOS) == 11
-    for repo in ("PyAutoConf", "autolens_workspace", "HowToFit"):
+    for repo in ("PyAutoNerves", "autolens_workspace", "HowToFit"):
         assert repo in activity_gate.RELEASE_RELEVANT_REPOS
+    # The pre-rename name must not linger: nightly.sh fetches
+    # `repos/<org>/$repo/commits` for each entry verbatim, so the gate must
+    # never depend on GitHub answering the old name via a rename redirect.
+    assert "PyAutoConf" not in activity_gate.RELEASE_RELEVANT_REPOS
+
+
+def test_nerves_commit_qualifies_the_night():
+    # The rename acceptance criterion (PyAutoBrain#267): a commit on the Nerves
+    # repo must COUNT as qualifying activity under the name the driver fetches.
+    v = activity_gate.judge({"PyAutoNerves": [commit()]})
+    assert v["active"] is True
+    assert v["counts"]["PyAutoNerves"] == 1

@@ -15,6 +15,12 @@ the organ boundary, the readiness gate, and the execution-environment model.
 PR format, the execution contract, and the impact analysis are in
 [`reference.md`](reference.md).
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Steps
 
 ### 1. Identify affected repos (Mind)

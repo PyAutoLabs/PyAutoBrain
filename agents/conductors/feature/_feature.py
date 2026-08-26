@@ -35,7 +35,7 @@ from _sizing import (  # noqa: E402
     KNOWN_REPOS, MEMORY_WIKIS, SCIENCE_KEYWORDS, RISK_KEYWORDS, AMBIGUITY_KEYWORDS,
     policy as _sizing_policy,
     TEST_KEYWORDS, normalise_repo, parse_prompt, discover_prompts,
-    empty_discovery_reason, estimate_difficulty, _hits, _within,
+    effective_difficulty, empty_discovery_reason, _hits, _within,
     declared_blocked, priority_rank,
 )
 
@@ -157,20 +157,6 @@ def risks(level: str, factors: dict, workflow: str):
     if not out:
         out.append("Low risk; standard review applies.")
     return out
-
-
-def effective_difficulty(p: dict):
-    """(level, score, factors, derived_level) — the DECLARED level wins.
-
-    REFERENCE.md promises that the `Difficulty:` Intake persists is "the value
-    the Feature Agent later acts on", so a declared level overrides the
-    re-derived one. The derived score is kept: it still orders prompts within a
-    level, and the derived LEVEL is returned alongside so a disagreement can be
-    reported rather than silently resolved — the disagreement is evidence about
-    the heuristic and is worth seeing.
-    """
-    derived_level, score, factors = estimate_difficulty(p)
-    return p.get("declared_difficulty") or derived_level, score, factors, derived_level
 
 
 def analyse(p: dict):

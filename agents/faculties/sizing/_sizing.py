@@ -12,6 +12,15 @@ hard the work is. Both conductors that reason over Mind intent consult it:
     header, so the number you see up front is the same one the Feature Agent
     acts on later.
 
+`estimate_difficulty` is the heuristic; `effective_difficulty` is the PRECEDENCE
+RULE over it — a difficulty the author DECLARED wins, with the derived level
+returned alongside so a disagreement stays visible. The rule lives here, not in
+the conductors: each conductor that reconciled it for itself was one more chance
+to forget, and three of them did (PyAutoBrain#217, then #274). `declared_header`
+reads the keys a filed prompt declares; `declared_inline` reads the same keys out
+of unheadered conception prose. Neither reads a code fence — a prompt QUOTING a
+header is documenting it, not declaring it.
+
 Keeping the heuristic here — one definition, imported by both — is the whole
 point: a value Intake persists that the Feature Agent silently recomputed with a
 divergent copy would be a drift bug. This module therefore also owns the shared
@@ -69,28 +78,178 @@ def policy() -> dict:
     return _POLICY_CACHE
 
 
+_BODY_MAP_CACHE: dict = {}
+
+
+def _body_map_specs() -> dict:
+    """repo name -> its full body-map spec (the single source of repo identity).
+
+    Cached: every call site below reads it, and it is a file the process never
+    writes.
+    """
+    if not _BODY_MAP_CACHE:
+        import yaml
+
+        _BODY_MAP_CACHE.update(yaml.safe_load(BODY_MAP_PATH.read_text())["repos"])
+    return _BODY_MAP_CACHE
+
+
 def _body_map_categories() -> dict:
     """repo name -> category, from the body map (the single source of repo
     identity)."""
-    import yaml
+    return {name: spec["category"] for name, spec in _body_map_specs().items()}
 
-    data = yaml.safe_load(BODY_MAP_PATH.read_text())
-    return {name: spec["category"] for name, spec in data["repos"].items()}
+
+# --- the canonical-key rule (PyAutoBrain#287) --------------------------------
+# One repo, one key. A prompt may spell a repo three ways — `@PyAutoFit`,
+# `@autofit`, `PyAutoFit/` — and every one of them has to reach the SAME key, or
+# whichever spelling the author happened to type silently decides whether the
+# policy maps (test_witness, target_default_wiki, ...) resolve. Seven repos hit
+# that split before it was closed here — one at #267, two more at #269, and the
+# bare organ spellings plus one project repo at #287.
+#
+# THE RULE (first written down at #269, now executable): the canonical key is
+# the package the repo SHIPS where it ships one, and the repo name where it does
+# not. That asymmetry is not arbitrary — it is what prompts actually write. A
+# library is named by its import (`@autofit`); an organ ships no package, so the
+# only name it has is the repo's (`@PyAutoBrain`).
+#
+# The authority for "does it ship a package" is the body map's `package:` field —
+# repo identity, declared once, where identity lives.
+
+
+def _hand_aliases() -> dict:
+    """The alias rows a body map cannot derive.
+
+    Two kinds only: the short forms prompts use for the libraries (`aa`, `af`),
+    and the pre-rename spellings that keep ~150 archived Mind prompts routing to
+    the repo they now name (`pyautobuild` -> the Hands, and the Nerves repo's
+    former name). Neither is inferable from a body map that records only what
+    the organism is called TODAY.
+    """
+    return policy()["repo_aliases"]
+
+
+def canonical_key(name: str, spec: dict | None = None) -> str:
+    """The one key every spelling of body-map repo `name` must reach."""
+    if spec is None:
+        spec = _body_map_specs().get(name, {})
+    package = spec.get("package")
+    if package:
+        return package.lower()
+    # Fallback for a body map that predates `package:` (an adopting fork, or
+    # this repo's own CI, which pins the sibling Mind checkout to `main`): the
+    # hand table still carries the library rows, so the answer is the same one
+    # `package:` gives. Kept deliberately — it is what lets the Brain half of
+    # #287 stand alone instead of going red until the Mind half merges.
+    low = name.lower()
+    return _hand_aliases().get(low, low)
+
+
+def spellings_of(name: str, spec: dict | None = None) -> set:
+    """Every form of `name` that `_target_sets` registers as a known target.
+
+    The repo name, the `PyAuto`-stripped bare form, and the package it ships.
+    These are the spellings a guard must prove all reach one key; they are NOT
+    every string that could mention the repo (an org-qualified path like
+    `@<org>/<repo>` is handled by `normalise_repo`'s truncation).
+    """
+    if spec is None:
+        spec = _body_map_specs().get(name, {})
+    low = name.lower()
+    out = {low}
+    if low.startswith("pyauto"):
+        out.add(low[2:])
+    if spec.get("package"):
+        out.add(spec["package"].lower())
+    return out
+
+
+def unreachable_repos() -> dict:
+    """Body-map repos an @-mention can never name -> why.
+
+    ``normalise_repo`` truncates at the first ``.`` or ``/`` (so `@aa.decorators`
+    and an org-qualified `@<org>/<repo>` path both resolve to their head token).
+    A repo whose NAME contains one of those separators therefore cannot survive
+    normalisation, and registering it as a known target would be a lie: nothing
+    could ever resolve to it. Aliasing the truncated head instead would be worse
+    than the lie — where the head happens to be the ORG's own name, every
+    org-qualified mention would start resolving to that one repo.
+
+    Derived from the names themselves, so it stays right for any body map rather
+    than being a hand-kept exclusion list (PyAutoBrain#287).
+    """
+    return {
+        name: "name contains a '.' or '/', which normalise_repo truncates — "
+              "no @-mention can reach it"
+        for name in _body_map_specs()
+        if re.split(r"[./]", name, maxsplit=1)[0] != name
+    }
+
+
+def _derived_aliases() -> dict:
+    """Every registered spelling of every body-map repo -> its canonical key.
+
+    This is the half of ``repo_aliases`` that must NOT be typed by hand. The
+    known-target set was always derived from the body map while the alias table
+    was maintained by hand, so the two drifted silently and the gap surfaced only
+    as a wrong-but-plausible conductor message — "strengthen tests first" for a
+    repo with a full suite (PyAutoBrain#267, #269, #287). Deriving the join means
+    a repo added to the body map arrives with its spellings already joined.
+    """
+    grouping = policy()["sizing_categories"]
+    registered = {cat for kinds in grouping.values() for cat in kinds}
+    unreachable = unreachable_repos()
+    out = {}
+    for name, spec in _body_map_specs().items():
+        if spec["category"] not in registered or name in unreachable:
+            continue
+        canonical = canonical_key(name, spec)
+        for spelling in spellings_of(name, spec):
+            out[spelling] = canonical
+    return out
+
+
+def _repo_aliases() -> dict:
+    """The effective alias table: derived join + the rows only a human can know.
+
+    A hand row that CONTRADICTS the derivation is drift, and drift in this table
+    is exactly what #287 is about — so it raises here rather than quietly
+    winning. A hand row the derivation does not cover (a short form, a rename)
+    passes through untouched.
+    """
+    derived = _derived_aliases()
+    hand = _hand_aliases()
+    conflicts = {
+        alias: (derived[alias], hand[alias])
+        for alias in hand
+        if alias in derived and hand[alias] != derived[alias]
+    }
+    if conflicts:
+        raise ValueError(
+            "config/policy.yaml repo_aliases contradicts the body map "
+            "(alias -> (derived, hand)): "
+            f"{conflicts}. The body map's `package:` field is the authority for "
+            "a repo's canonical key; fix the hand row or the package name."
+        )
+    return {**derived, **hand}
 
 
 def _target_sets() -> tuple[set, set, set]:
-    cats = _body_map_categories()
+    specs = _body_map_specs()
     pol = policy()
     grouping = pol["sizing_categories"]
+    unreachable = unreachable_repos()
 
     def names_for(kind):
         wanted = set(grouping[kind])
         out = set()
-        for name, cat in cats.items():
-            if cat in wanted:
-                out.add(name.lower())
-                if name.lower().startswith("pyauto"):
-                    out.add(name.lower()[2:])  # PyAutoFit -> autofit package form
+        for name, spec in specs.items():
+            # An unreachable repo is deliberately NOT registered: a known target
+            # nothing can resolve to is the same silent lie as a split spelling.
+            if spec["category"] in wanted and name not in unreachable:
+                out |= spellings_of(name, spec)
+                out.add(canonical_key(name, spec))
         return out
 
     libraries = names_for("library")
@@ -99,13 +258,15 @@ def _target_sets() -> tuple[set, set, set]:
     return libraries, workspaces, organism
 
 
+# Normalise an @-mention or folder name to a canonical key. Built before the
+# target sets because `canonical_key`'s pre-`package:` fallback reads the hand
+# table, and the sets register the canonical key it returns.
+REPO_ALIASES = _repo_aliases()
+
 # Targets that are source *libraries* (work classifies as library vs workspace),
 # workspaces/tutorials/example repos, and the organism's own organs — all
 # derived from the body map's categories per the policy's grouping.
 LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS = _target_sets()
-
-# Normalise an @-mention or folder name to a canonical key.
-REPO_ALIASES = policy()["repo_aliases"]
 
 # --- PyAutoMemory sub-wiki routing (shared science vocabulary) ----------------
 # Map keywords -> the PyAutoMemory sub-wiki that holds relevant context. This is
@@ -232,13 +393,15 @@ def empty_discovery_reason(mind: Path, work_type: str) -> str:
 # Parsing them here — beside the derivation — keeps declared and derived in one
 # place, and gives the bug/refactor conductors the same reading for free.
 DIFFICULTY_LEVELS = ("small", "medium", "large", "too-large")
+AUTONOMY_LEVELS = ("safe", "supervised", "human-required")
 # `medium` is not a documented Priority: value but occurs in the live backlog;
 # read it as normal rather than dropping the prompt's stated intent.
 PRIORITY_RANK = {"high": 0, "normal": 1, "medium": 1, "low": 2}
 DEFAULT_PRIORITY_RANK = 1
 
 _HEADER_KEY_RE = re.compile(
-    r"^\s*(difficulty|status|priority|blocked-by|closes-when)\s*:\s*(.+?)\s*$", re.I
+    r"^\s*(difficulty|type|autonomy|status|priority|blocked-by|closes-when)"
+    r"\s*:\s*(.+?)\s*$", re.I
 )
 
 
@@ -257,7 +420,8 @@ def declared_header(text: str) -> dict:
     does exactly that) must not be read as declaring it. Same rule, and the
     same reason, as PyAutoMind `lifecycle.py:draft_gate_refs`.
     """
-    out = {"declared_difficulty": None, "status": None,
+    out = {"declared_difficulty": None, "declared_type": None,
+           "declared_autonomy": None, "status": None,
            "priority": None, "blocked_by": [], "closes_when": []}
     in_fence = False
     for line in text.splitlines():
@@ -276,6 +440,14 @@ def declared_header(text: str) -> dict:
             v = value.lower()
             if v in DIFFICULTY_LEVELS and out["declared_difficulty"] is None:
                 out["declared_difficulty"] = v
+        elif key == "type":
+            v = value.lower()
+            if v in WORK_TYPES and out["declared_type"] is None:
+                out["declared_type"] = v
+        elif key == "autonomy":
+            v = _norm_level(value)
+            if v in AUTONOMY_LEVELS and out["declared_autonomy"] is None:
+                out["declared_autonomy"] = v
         elif key == "status" and out["status"] is None:
             out["status"] = value.lower()
         elif key == "priority" and out["priority"] is None:
@@ -285,6 +457,83 @@ def declared_header(text: str) -> dict:
         elif key == "closes-when":
             out["closes_when"].append(value)
     return out
+
+
+# --- declarations in unstructured prose ---------------------------------------
+# `declared_header` reads header LINES, which is what a filed prompt carries.
+# Conception input has no header yet: the ideas.md house style ends a bullet
+# with "Difficulty large, supervised.", and a pasted report writes
+# "… Difficulty: medium." mid-sentence. Same precedence, a looser reader — kept
+# here beside the header reader so "what counts as a declaration" is defined
+# once for every conductor.
+_DIFFICULTY_ALT = r"too[-\s]large|small|medium|large"
+_AUTONOMY_ALT = r"human[-\s]required|supervised|safe"
+_PRIORITY_ALT = r"high|normal|low"
+_TYPE_ALT = "|".join(sorted(WORK_TYPES, key=len, reverse=True))
+# Between key and value: a colon/equals, "is", or nothing ("Difficulty large").
+_DECL_SEP = r"\s*(?::|=|\bis\b)?\s*"
+_DECLARATION = re.compile(
+    rf"\bdifficulty{_DECL_SEP}({_DIFFICULTY_ALT})\b"
+    rf"(?:\s*[,/&]?\s*(?:and\s+)?({_AUTONOMY_ALT})\b)?"
+    rf"|\bautonomy{_DECL_SEP}({_AUTONOMY_ALT})\b"
+    rf"|\bpriority{_DECL_SEP}({_PRIORITY_ALT})\b"
+    rf"|\btype{_DECL_SEP}({_TYPE_ALT})\b",
+    re.IGNORECASE)
+_CODE_SPAN = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+
+
+def _mask_code(text: str) -> str:
+    """`text` with code spans blanked to spaces (offsets and lines preserved)."""
+    return _CODE_SPAN.sub(lambda m: re.sub(r"\S", " ", m.group(0)), text)
+
+
+def _norm_level(value: str) -> str:
+    """"Too Large" / "human required" -> the canonical hyphenated header value."""
+    return re.sub(r"[\s-]+", "-", value.strip().lower())
+
+
+def declared_inline(text: str):
+    """(fields, spans) — declarations made in prose, for unheadered raw input.
+
+    Fenced blocks and inline code spans are masked first: a prompt that *quotes*
+    a `Difficulty:` line (a repro, a transcript — the bug prompt for this very
+    fix does exactly that) is documenting, not declaring. Same rule as
+    `declared_header`. First declaration of each key wins; `spans` are its
+    offsets in `text`, so a caller can keep the clause out of a derived title.
+    """
+    fields, spans = {}, []
+    for m in _DECLARATION.finditer(_mask_code(text)):
+        difficulty, trailing_autonomy, autonomy, priority, work_type = m.groups()
+        if difficulty:
+            fields.setdefault("difficulty", _norm_level(difficulty))
+        if trailing_autonomy or autonomy:
+            fields.setdefault("autonomy", _norm_level(trailing_autonomy or autonomy))
+        if priority:
+            fields.setdefault("priority", _norm_level(priority))
+        if work_type:
+            fields.setdefault("type", work_type.lower())
+        spans.append(m.span())
+    return fields, spans
+
+
+def strip_declarations(text: str, spans: list) -> str:
+    """`text` with the declaration clauses removed — for title derivation only.
+
+    The prompt body itself stays verbatim (word-vomit is intent); this exists so
+    "Fix the docstring. Difficulty: large." does not title the task — and name
+    the file — after its own difficulty declaration.
+    """
+    if not spans:
+        return text
+    chars = list(text)
+    for start, end in spans:
+        chars[start:end] = " " * (end - start)
+    out = "".join(chars)
+    # Tidy the punctuation the removed clause left stranded (title use only).
+    out = re.sub(r"[ \t]+", " ", out)
+    out = re.sub(r"\s+([.,;:])", r"\1", out)
+    out = re.sub(r"([.,;:])(\s*[.,;:])+", r"\1", out)
+    return out if re.search(r"\w", out) else text
 
 
 def priority_rank(p: dict) -> int:
@@ -418,6 +667,28 @@ def estimate_difficulty(p: dict):
         "memory_context_required": bool(science),
     }
     return level, score, factors
+
+
+def effective_difficulty(p: dict):
+    """(level, score, factors, derived_level) — the DECLARED level wins.
+
+    The single precedence rule, defined here rather than per conductor. Three
+    conductors size a prompt (feature, bug, intake) and each one that re-derived
+    difficulty while ignoring `declared_difficulty` shipped the same bug
+    (PyAutoBrain#217, then #274) — one heuristic with three reconciliations is
+    three chances to forget one.
+
+    REFERENCE.md promises that the `Difficulty:` Intake persists is "the value
+    the Feature Agent later acts on", so a declared level overrides the
+    re-derived one. Length is the heuristic's biggest input and a bad size proxy
+    — a prompt is long when it carries a design, not when the work is large —
+    which is exactly what declaring a level exists to correct. The derived score
+    is kept (it still orders prompts within a level) and the derived LEVEL is
+    returned alongside, so a disagreement is reported rather than silently
+    resolved: it is evidence about the heuristic and worth seeing.
+    """
+    derived_level, score, factors = estimate_difficulty(p)
+    return p.get("declared_difficulty") or derived_level, score, factors, derived_level
 
 
 # --- runnable read-only entrypoint (parity with the other faculties) ---------

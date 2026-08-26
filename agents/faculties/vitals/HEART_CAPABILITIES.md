@@ -17,7 +17,10 @@ reimplement inside Brain.
 - `pyauto-heart watch [seconds]` / `live` — continuous monitoring daemon.
 - `pyauto-heart stop` / `stop --all` — daemon lifecycle control.
 - `pyauto-heart fix <topic>` — emits a context bundle/invocation for remediation;
-  it must not mutate other repos directly.
+  it must not mutate other repos directly. `fix stale` is the freshness door:
+  the current evidence gaps, the check that closes each, and the ONE plan
+  (prompt, plus a command chain where every gap has one) that closes them all —
+  the same payloads the board's ⌨/📋 chips carry.
 
 ## Continuous checks in Heart
 

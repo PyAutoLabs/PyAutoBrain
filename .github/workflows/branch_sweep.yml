@@ -1,0 +1,100 @@
+name: Branch Sweep
+
+# Deletes feature branches whose content is already in `main`, and reports the
+# ones it will not touch.
+#
+# WHY A WORKFLOW AND NOT THE SESSION. A cloud Claude session — the phone, or
+# claude.ai/code — can audit branches perfectly well but cannot remove one:
+# `git push origin --delete` returns 403 for the session credential, and the
+# GitHub tool surface those sessions get has no delete-ref call at all. So
+# branch cleanup was a laptop-only chore, and it showed: 233 branches across
+# Mind and Brain by 2026-08-25, 188 of them provably spent, because nothing
+# deletes a merged head automatically.
+#
+# A workflow's GITHUB_TOKEN is a *different* credential, and this repo already
+# trusts it with `contents: write` (dashboard_refresh.yml commits to main with
+# it). Running the sweep here means any surface that can dispatch a workflow
+# can drive the cleanup — including a chat on a phone.
+#
+# THIS IS THE BACKSTOP, NOT THE FIX. The primary fix is the repo setting
+# Settings → General → "Automatically delete head branches", which removes each
+# PR head at merge and prevents the pile-up in the first place. This workflow
+# exists for the backlog that predates it, for branches pushed without a PR,
+# and for heads whose PR was closed unmerged.
+#
+# The safety gates (never `main`, never `archive/condemned/*` Gut transit refs,
+# never an open PR's head, never a branch git cannot prove is contained) live
+# in the script, not here — see PyAutoBrain/bin/branch_sweep.sh and
+# PyAutoBrain/skills/repo_cleanup/SKILL.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "audit = report only · delete = actually remove"
+        type: choice
+        options: [audit, delete]
+        default: audit
+      limit:
+        description: "Max branches to delete (0 = no cap). Ignored in audit mode."
+        type: string
+        default: "0"
+  schedule:
+    # Weekly, audit-only: keeps the backlog visible without ever acting
+    # unattended. Deletion always requires someone to dispatch it.
+    - cron: "10 4 * * 0"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: branch-sweep-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repo (full history)
+        uses: actions/checkout@v4
+        with:
+          # Containment is an ancestry question: on a shallow clone every
+          # branch looks unmerged, so the sweep would protect everything and
+          # quietly do nothing. The script re-checks and deepens if needed.
+          fetch-depth: 0
+
+      - name: Check out PyAutoBrain (the sweep logic lives there)
+        uses: actions/checkout@v4
+        with:
+          repository: PyAutoLabs/PyAutoBrain
+          path: .brain
+          fetch-depth: 1
+
+      - name: Sweep
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          # A scheduled run never deletes, whatever anyone edits into the cron.
+          mode='${{ inputs.mode }}'
+          if [ '${{ github.event_name }}' != 'workflow_dispatch' ]; then
+            mode=audit
+          fi
+          mode="${mode:-audit}"
+
+          .brain/bin/branch_sweep.sh \
+            --repo "$GITHUB_WORKSPACE" \
+            --owner '${{ github.repository_owner }}' \
+            --name '${{ github.event.repository.name }}' \
+            --mode "$mode" \
+            --limit '${{ inputs.limit || 0 }}' 2>&1 | tee sweep.log
+
+          # The run summary is the readable surface on a phone.
+          {
+            echo "## Branch sweep — \`$mode\`"
+            echo
+            echo '```'
+            cat sweep.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

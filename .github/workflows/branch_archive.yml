@@ -1,0 +1,202 @@
+name: Branch Archive (to the Gut)
+
+# Move a branch that must NOT simply be deleted into PyAutoGut, then remove it
+# from the repo it came from.
+#
+# WHY THIS IS NOT THE SWEEP. branch_sweep deletes branches whose content is
+# provably already in main — spent work, recoverable from main forever. This is
+# the opposite case: a branch worth keeping precisely BECAUSE main does not
+# contain it. The motivating example is PyAutoHands' `master`, 442 commits from
+# 2021-2022 orphaned by a 2023 "history reset", sharing no ancestor with main
+# and pinned by no tag. Deleting it would have made those commits unreachable.
+#
+# So the two must never share a code path: the sweep's question is "is this
+# already in main?", and this workflow's is "is this safely in the Gut yet?".
+#
+# THE ORDERING IS THE WHOLE POINT. Archive, VERIFY the ref exists on the Gut
+# remote, and only then delete. Not archive-and-assume: a push that reports
+# success but lands nothing, or lands under a different name, would otherwise
+# be followed by an irreversible delete. The verification is a separate
+# `ls-remote` against the Gut, not a reading of the push's own exit code.
+#
+# The archive itself is delegated to `pyauto-gut archive`, not reimplemented
+# here. PyAutoGut is the organ that holds and voids; the Brain only drives it
+# (the Heart ↔ vitals template). Reimplementing the push would put the Gut's
+# namespace convention in two places.
+#
+# Filing the condemned.md entry is deliberately NOT done here — that index is
+# Mind state, written by the hygiene conductor's condemn pass with a human
+# deciding the transit clock. Some material (original project history) should
+# be held indefinitely rather than swept, and that is a judgement, not a step.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "owner/repo the branch lives in (must be a sweepable repo)"
+        type: string
+        required: true
+      branch:
+        description: "Branch to archive, e.g. master"
+        type: string
+        required: true
+      name:
+        description: "Name under archive/condemned/ in the Gut, e.g. pyautohands-pre-2023-history"
+        type: string
+        required: true
+      delete_after:
+        description: "Delete the source branch once the archive is verified"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PyAutoBrain (target policy)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check out PyAutoMind (the body map)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/PyAutoMind
+          path: .mind
+          fetch-depth: 1
+
+      - name: Check out PyAutoGut (the organ that holds)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/PyAutoGut
+          path: .gut
+          fetch-depth: 1
+          # Load-bearing. With the default (true), checkout writes an
+          # `http.https://github.com/.extraheader` auth header into this
+          # clone's config, and that header WINS over credentials embedded in
+          # a remote URL. The archive push then goes out as
+          # github-actions[bot] — which has no access to a sibling repo — and
+          # fails 403 no matter what `git remote set-url` was told. Leaving it
+          # on cost one run to discover; the dry run caught it before any
+          # delete, which is the only reason that was cheap.
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet pyyaml
+
+      - name: Archive, verify, then delete
+        env:
+          PAT: ${{ secrets.PAT_PYAUTOLABS }}
+        run: |
+          set -euo pipefail
+          repo='${{ inputs.repo }}'
+          branch='${{ inputs.branch }}'
+          name='${{ inputs.name }}'
+          owner='${{ github.repository_owner }}'
+
+          [ -n "${PAT:-}" ] || { echo "::error::PAT_PYAUTOLABS is not set."; exit 1; }
+
+          # Same boundary as the sweep: a repo the body map does not class as a
+          # development repo is not one this may touch.
+          allowed=$(python3 bin/branch_sweep_targets.py .mind/repos.yaml | xargs)
+          case " $allowed " in
+            *" $repo "*) ;;
+            *) echo "::error::'$repo' is not a sweepable repo — see bin/branch_sweep_targets.py."; exit 1 ;;
+          esac
+
+          # The archive name lands in a shared namespace; keep it a plain slug
+          # so it cannot climb out of archive/condemned/ or collide by accident.
+          case "$name" in
+            *[!a-zA-Z0-9._-]*|""|.*) echo "::error::archive name must be a plain slug (a-z 0-9 . _ -)."; exit 1 ;;
+          esac
+
+          src="https://x-access-token:${PAT}@github.com/${repo}.git"
+          gut="https://x-access-token:${PAT}@github.com/${owner}/PyAutoGut.git"
+          ref="refs/heads/archive/condemned/${name}"
+
+          # Refuse to delete a repo's default branch, whatever it is called.
+          default=$(git ls-remote --symref "$src" HEAD | sed -n 's|^ref: refs/heads/\([^\t]*\)\tHEAD|\1|p')
+          if [ "$branch" = "$default" ]; then
+            echo "::error::'$branch' is the default branch of $repo. Refusing."
+            exit 1
+          fi
+
+          git config --global user.email "actions@github.com"
+          git config --global user.name  "PyAuto Branch Archive"
+
+          echo "::group::Fetch $repo@$branch"
+          cd .gut
+          git remote set-url origin "$gut"
+          git fetch --quiet "$src" "refs/heads/${branch}:refs/heads/__to_archive__"
+          sha=$(git rev-parse __to_archive__)
+          count=$(git rev-list --count __to_archive__)
+          echo "  $repo@$branch = $sha ($count commits)"
+          echo "::endgroup::"
+
+          echo "::group::Archive into the Gut"
+          # Confirm no inherited credential is about to hijack the push. An
+          # extraheader here means the archive would go out as the workflow
+          # identity instead of the PAT — the 403 that cost run #1.
+          if git config --local --get-regexp 'http\..*\.extraheader' >/dev/null 2>&1; then
+            echo "::error::the Gut checkout carries a persisted credential; it would override the PAT."
+            exit 1
+          fi
+          # The Gut owns its own namespace and its own refusal-to-overwrite.
+          PYAUTO_GUT_REMOTE=origin bin/pyauto-gut archive __to_archive__ "$name"
+          echo "::endgroup::"
+
+          echo "::group::Verify the archive actually landed"
+          # Deliberately a fresh question to the remote, not the push's exit
+          # code: the delete below is irreversible and must not rest on an
+          # assumption about what just happened.
+          landed=$(git ls-remote origin "$ref" | awk '{print $1}')
+          if [ -z "$landed" ]; then
+            echo "::error::$ref is not on the Gut after the push. NOT deleting anything."
+            exit 1
+          fi
+          if [ "$landed" != "$sha" ]; then
+            echo "::error::$ref is $landed on the Gut but the branch was $sha. NOT deleting anything."
+            exit 1
+          fi
+          echo "  verified $ref = $landed"
+          echo "::endgroup::"
+
+          {
+            echo "## Archived to the Gut"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| source | \`$repo@$branch\` |"
+            echo "| commits | $count |"
+            echo "| sha | \`$sha\` |"
+            echo "| archive-ref | \`$ref\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ '${{ inputs.delete_after }}' != 'true' ]; then
+            echo "delete_after not set — the source branch is untouched."
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "_Source branch left in place (\`delete_after\` was not set)._" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "::group::Delete $repo@$branch"
+          git push "$src" --delete "$branch"
+          echo "  deleted $repo@$branch"
+          echo "::endgroup::"
+
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Source branch deleted. Recover with:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "pyauto-gut recover $name" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Now file the \`condemned.md\` entry in PyAutoMind — this workflow does not." >> "$GITHUB_STEP_SUMMARY"

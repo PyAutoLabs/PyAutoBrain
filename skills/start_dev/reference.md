@@ -4,6 +4,12 @@ Long-form templates and procedures factored out of `start_dev.md` to keep the
 primary skill concise. The body skill is authoritative for the flow; this file
 holds the verbatim formats it points at.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Issue body
 
 The issue body is assembled and created by the Mind primitive `/create_issue`

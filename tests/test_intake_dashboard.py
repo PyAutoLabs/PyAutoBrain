@@ -11,6 +11,7 @@ about the renderer, not about whatever backlog happens to be checked out.
 """
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -480,6 +481,74 @@ def test_a_prompt_merely_citing_a_pr_is_not_drift(tmp_path):
     assert "Needs lifecycle reconciliation" not in _page(mind)
 
 
+def test_a_draft_whose_own_status_says_shipped_is_flagged(tmp_path):
+    """The commonest way a finished task keeps advertising itself as backlog:
+    the shipping session writes the outcome into the prompt's `Status:` header
+    and leaves the file in `draft/`."""
+    mind = _mind(tmp_path, drafts={
+        "bug/widgets/done.md": _prompt("Already fixed",
+                                       status="shipped 2026-08-24 (#277)")})
+    page = _page(mind)
+    assert "Needs lifecycle reconciliation" in page
+    head = page.split("## Start here")[0]
+    assert "bug/widgets/done.md" in head and "shipped" in head
+
+
+def test_superseded_and_absorbed_statuses_are_drift_too(tmp_path):
+    for status in ("superseded by the epic", "ABSORBED 2026-08-10", "retired"):
+        mind = _mind(tmp_path / status.split()[0],
+                     drafts={"bug/widgets/x.md": _prompt("Spent", status=status)})
+        assert "Needs lifecycle reconciliation" in _page(mind), status
+
+
+def test_a_partly_shipped_status_is_not_drift(tmp_path):
+    """A tracker reporting *some* phases shipped is still live work — only a
+    status that OPENS on a done-word means the prompt itself is spent."""
+    for status in ("phases 1-3 SHIPPED; phase 4 open",
+                   "split (phases 1-2 SHIPPED 2026-08-23; phase 3 open)",
+                   "in progress — core landed, real-data swap-in remains"):
+        mind = _mind(tmp_path / status.split()[0],
+                     drafts={"bug/widgets/x.md": _prompt("Live", status=status)})
+        assert "Needs lifecycle reconciliation" not in _page(mind), status
+
+
+# --------------------------------------------------------------------------- #
+# freshness: the page says how current it is, and hands over its own refresh
+# --------------------------------------------------------------------------- #
+def test_the_page_states_when_it_was_generated_and_why_that_can_lie(tmp_path):
+    mind = _mind(tmp_path, drafts={"bug/widgets/x.md": _prompt("A task")})
+    c = _intake.census(mind)
+    page = _intake.render_dashboard(c)
+    banner = page.split("| Where | Count |")[0]
+    assert f"Last updated {c['generated']}" in banner
+    # the distinction that matters: a self-healing render is not a fresh backlog
+    assert "dashboard_refresh.yml" in banner and "stale prompt" in banner
+
+
+def test_the_refresh_banner_is_a_copyable_instruction_not_a_bare_command(tmp_path):
+    mind = _mind(tmp_path, drafts={"bug/widgets/x.md": _prompt("A task")})
+    banner = _page(mind).split("| Where | Count |")[0]
+    assert "📋" in banner, "the banner uses the same one-tap idiom as a task row"
+    for step in ("lifecycle.py record", "git pull --ff-only",
+                 "pyauto-brain intake --apply dashboard"):
+        assert step in banner, step
+    assert "never hand-edit" in banner.lower()
+
+
+def test_the_html_twin_carries_the_banner_with_a_real_copy_button(tmp_path):
+    mind = _mind(tmp_path, drafts={"bug/widgets/x.md": _prompt("A task")})
+    c = _intake.census(mind)
+    html = _intake.render_dashboard_html(c)
+    fresh = html.split('<div class="fresh">')[1].split("</div>")[0]
+    assert f"Last updated {c['generated']}" in fresh
+    assert 'button class="copy"' in fresh and "data-cmd=" in fresh
+    # backticks are markdown; the blurb must render them as code spans, while
+    # the copy payload keeps its own verbatim (see _prose)
+    assert "<code>draft/</code>" in _prose(fresh) and "`draft/`" not in _prose(fresh)
+    assert "`git pull --ff-only`" in fresh, "the payload is copied, not rendered"
+    assert ".fresh{" in html, "the banner ships its own rule, not the shared theme"
+
+
 def test_no_epics_file_means_no_epics_section(tmp_path):
     page = _page(_mind(tmp_path, active={"one.md": _prompt("Solo task")}))
     assert "## Epics" not in page, "a spawned Mind without epics.md stays clean"
@@ -704,10 +773,20 @@ def test_html_ships_every_row_so_a_reader_without_js_sees_the_feed(tmp_path):
     assert section.count("<tr") == 50
 
 
+def _prose(html: str) -> str:
+    """The page minus every copy payload.
+
+    A `data-cmd` attribute is a clipboard literal — the message a human pastes
+    into a Claude chat — so it legitimately carries markdown that the page must
+    NOT render. Assertions about how the page *reads* have to exclude it.
+    """
+    return re.sub(r'data-cmd="[^"]*"', "data-cmd=\"\"", html)
+
+
 def test_the_html_blurb_renders_its_code_spans(tmp_path):
     """The blurb is shared with the markdown page; its backticks would
     otherwise print literally here."""
-    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
+    html = _prose(_intake.render_dashboard_html(_intake.census(_many(tmp_path, 80))))
     assert "<code>complete/index.md</code>" in html
     assert "`complete/index.md`" not in html
 

@@ -164,8 +164,24 @@ def test_every_work_type_in_the_taxonomy_has_a_glyph():
     assert set(_sizing.WORK_TYPES) == set(_theme.WORK_TYPE_GLYPHS)
 
 
+def test_a_board_may_name_its_own_pill_tone():
+    """`_TONES` is the Mind's facet vocabulary. A board whose rows carry other
+    facets — a workflow conclusion, a Heart verdict — says its tone rather
+    than teaching that table words the Mind never uses."""
+    row = _theme.pills(("ExampleOrg/RepoA", ""), ("failure", "r"))
+    assert '<span class="pill">ExampleOrg/RepoA</span>' in row
+    assert '<span class="pill r">failure</span>' in row
+    # An explicit tone wins over the table, in both directions.
+    assert '<span class="pill n">high</span>' in _theme.pills(
+        ("autoarray", ""), ("high", "n"))
+    # Bare strings are untouched: first is identity, the rest look themselves up.
+    assert _theme.pills("autoarray", "high") == _theme.pills(
+        ("autoarray", ""), ("high", "r"))
+
+
 def test_pills_escape_their_values_and_vanish_when_empty():
     assert _theme.pills("-", "-", "-", "-") == ""
+    assert _theme.pills(("-", "r"), ("", "g")) == ""
     assert "&lt;b&gt;" in _theme.pills("<b>")
 
 
@@ -183,3 +199,80 @@ def test_boards_footer_skips_self_and_tags_each_sibling():
 def test_stats_render_pairs_and_vanish_when_empty():
     assert _theme.stats() == ""
     assert "<b>3</b><span>In flight</span>" in _theme.stats((3, "In flight"))
+
+
+# --- the phone invariant: nothing may push the page sideways ---------------
+# These boards are read on a phone before breakfast. A single unbreakable
+# token — a run URL, a dotted test id, a workspace script path — used to
+# spill past the right edge and give the WHOLE page a horizontal scroll,
+# because wrapping was declared per component (`.task p`, `table.recent td`)
+# and every organ's own markup (a reasons list, a details block, a footer)
+# missed out. The guard belongs on `body`, where it is inherited by markup
+# this module has never seen.
+
+
+def test_wrapping_is_the_page_default_not_a_per_component_opt_in():
+    css = _theme.css("mind")
+    body = re.search(r"^body\{(.*?)\}", css, re.S | re.M).group(1)
+    assert "overflow-wrap:anywhere" in body.replace("\n ", "")
+
+
+def test_the_things_that_cannot_wrap_are_bounded_instead():
+    # An image, a table or a code block has no soft wrap opportunity to take;
+    # each is held inside the column or given its own scroller.
+    css = _theme.css("mind")
+    assert "img,svg,table{max-width:100%}" in css
+    assert "pre{overflow-x:auto}" in css
+
+
+def test_no_component_rule_re_declares_the_wrap():
+    """One place, not seven — a component that sets its own wrap is a rule
+    that will be forgotten by the next board that adds a list."""
+    css = re.sub(r"/\*.*?\*/", "", _theme.css("mind"), flags=re.S)
+    body_rule = re.search(r"^body\{.*?\}", css, re.S | re.M).group(0)
+    assert css.replace(body_rule, "").count("overflow-wrap") == 0
+
+
+def test_a_pill_is_bounded_because_nowrap_is_outside_the_wrap_guard():
+    """`white-space:nowrap` is what makes a chip read as a chip, and it is the
+    one thing `body{overflow-wrap}` cannot reach. A board that hands a pill a
+    sentence must get an ellipsis, not a chip wider than the phone."""
+    rule = re.search(r"^\.pill\{.*?\}", _theme.css("mind"), re.S | re.M).group(0)
+    flat = rule.replace("\n ", "")
+    assert "max-width:100%" in flat
+    assert "overflow:hidden" in flat
+    assert "text-overflow:ellipsis" in flat
+    # overflow:hidden moves an inline-block's baseline to its bottom edge, so
+    # the old optical nudge would drop every chip half a line.
+    assert "vertical-align:bottom" in flat
+
+
+def test_the_narrow_screen_stack_never_reveals_the_paged_feed():
+    """`display:flex` on a row outranks the UA sheet's `[hidden]{display:none}`,
+    so a bare `table.recent tr` selector would unhide every row the Recent
+    feed pages behind its '… more' button — 50 rows instead of 10."""
+    css = _theme.css("mind")
+    stack = re.search(r"@media\(max-width:34rem\)\{.*?\n\}", css, re.S).group(0)
+    assert "table.recent tr:not([hidden]){display:flex" in stack.replace("\n ", "")
+    assert "table.recent tr{display:flex" not in css
+
+
+def test_a_row_stacks_on_a_phone_so_the_text_gets_the_width():
+    """Four columns on a 375px screen left the text 187px and ran each entry
+    down the right as a ribbon; below 34rem the meta leads and the text takes
+    a full-width line of its own."""
+    stack = re.search(r"@media\(max-width:34rem\)\{.*?\n\}", _theme.css("mind"),
+                      re.S).group(0).replace("\n ", "")
+    assert "table.recent td{display:block;width:auto" in stack
+    assert "table.recent td:not([class]){flex:1 0 100%" in stack
+
+
+def test_a_bare_list_lines_up_with_the_rest_of_the_page():
+    """The UA's 40px list indent steps a bare `<ul>` in from every other block
+    — measured on the Heart board, the evidence-gap bullets sat at x=56
+    against a 16px body margin, reading as a stray inset column on a phone."""
+    css = _theme.css("mind")
+    assert "ul,ol{padding-left:1.15rem}" in css
+    # The lists that are layout rather than prose keep their own zero.
+    assert re.search(r"\.stats\{[^}]*padding:0", css, re.S)
+    assert re.search(r"\.boards\{[^}]*padding:0", css, re.S)

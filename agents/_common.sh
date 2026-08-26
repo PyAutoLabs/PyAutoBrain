@@ -3,9 +3,15 @@
 #
 # Resolves the sibling PyAuto organ CLIs (pyauto-heart, autohands) the same way
 # the autohands shim resolves them: prefer PATH, fall back to the sibling
-# checkout under ~/Code/PyAutoLabs/. Nothing here is pip-installed.
-
-PYAUTO_ROOT="${PYAUTO_ROOT:-$HOME/Code/PyAutoLabs}"
+# checkout under the workspace root. Nothing here is pip-installed.
+#
+# The root itself comes from bin/_pyauto_root.sh — the one resolver, which
+# derives it from this checkout's own location and names no absolute path at
+# all. Hardcoding a developer-box path here made every agent that
+# sources this file resolve into a non-existent directory in a Claude Code
+# remote session ($HOME=/root, checkouts under /home/user) and report empty
+# rather than fail.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../bin/_pyauto_root.sh"
 
 # _resolve_bin <command-name> <fallback-path> — echo a runnable invocation or
 # print an install hint to stderr and return 127.
@@ -48,8 +54,11 @@ _resolve_dir() {
   # (organs are typically cloned side by side), so check it first.
   local brain_parent
   brain_parent="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+  # $PYAUTO_ROOT already resolves to the checkout parent on a developer box,
+  # so the old instance-named entry here was redundant as well as wrong
+  # anywhere else.
   for c in "$brain_parent/$repo" "$PYAUTO_ROOT/$repo" "$HOME/$repo" \
-           "$HOME/Code/$repo" "$HOME/Code/PyAutoLabs/$repo"; do
+           "$HOME/Code/$repo"; do
     if [[ -d "$c" ]]; then printf '%s' "$c"; return 0; fi
   done
   echo "pyauto-brain: '$repo' checkout not found (set $var, or clone it beside PyAutoBrain / under $PYAUTO_ROOT)" >&2

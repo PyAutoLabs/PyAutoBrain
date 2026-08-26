@@ -74,7 +74,7 @@ context when memory has material. Sub-wikis (source: `PyAutoMemory/index.md`):
 | `wiki/galaxies/` | galaxy formation & evolution | bulge/disk, MGE, morphology, IFU, kinematics |
 
 Library targets also pull a default sub-wiki (`autolens`→lensing,
-`autogalaxy`→galaxies, `autofit`/`autoarray`/`autoconf`→methods). PyAutoMemory is
+`autogalaxy`→galaxies, `autofit`/`autoarray`/`autonerves`→methods). PyAutoMemory is
 **optional**: if the checkout is absent the agent still names the sub-wikis to
 read, degrading gracefully rather than failing.
 

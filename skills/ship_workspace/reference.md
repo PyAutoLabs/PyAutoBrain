@@ -3,6 +3,12 @@
 Factored out of `ship_workspace.md`. The body skill is authoritative for the
 flow; this file holds the PR format, the merge gate, and the issue/Mind formats.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## PR body format
 
 The PR body **MUST** include a `## Scripts Changed` section.

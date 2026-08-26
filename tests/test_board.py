@@ -14,6 +14,7 @@ from config/policy.yaml `board:`, the declared config surface.
 """
 
 import base64
+import html
 import json
 import os
 import re
@@ -26,7 +27,8 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SURFACE_KEYS = {
-    "generated", "org", "overnight", "heart", "heart_blockers", "performance",
+    "generated", "org", "overnight", "heart", "heart_blockers", "heart_plan",
+    "performance",
     "hands", "versions", "community", "resume", "open_issues", "hygiene",
     "devbox", "autonomy", "doors", "boards", "degraded", "history",
 }
@@ -78,7 +80,7 @@ HEART_PERFORMANCE_EVENT = {
 }
 
 HEART_BOARD_JSON = {
-    "schema_version": 2,
+    "schema_version": 3,
     "blockers": [{
         "text": "RepoA: nightly smoke red",
         "severity": "red",
@@ -86,6 +88,9 @@ HEART_BOARD_JSON = {
         "repo_url": "https://example.invalid/RepoA",
         "run_url": "https://example.invalid/run/9",
         "prompt": "/bug Heart board: RepoA nightly smoke red — https://example.invalid/run/9",
+        # v3: a stale row carries the command that re-runs its check; a red
+        # one has no such remedy — the fix is code, not a re-run.
+        "command": None,
     }],
     # Additive to schema v2 — an older Heart publish simply omits it.
     "performance": HEART_PERFORMANCE,
@@ -173,7 +178,20 @@ def _fabricate(tmp_path, fixtures, heart_board=None):
     (mind / "active").mkdir(parents=True)
     (mind / "repos.yaml").write_text(REPOS_YAML)
     (mind / "dashboard.md").write_text(DASHBOARD_MD)
-    (mind / "active" / "some_task.md").write_text("# Fix the fixture widget\n")
+    # The shape the intake conductor writes: a title, a blank line, then the
+    # header block — `Status:` included, which is not a board facet.
+    (mind / "active" / "some_task.md").write_text(
+        "# Fix the fixture widget\n"
+        "\n"
+        "Type: bug\n"
+        "Target: RepoA\n"
+        "Difficulty: large\n"
+        "Autonomy: supervised\n"
+        "Priority: high\n"
+        "Status: formalised\n"
+        "\n"
+        "The body, which mentions Priority: low to prove only the header "
+        "block is read.\n")
     (mind / "queue.md").write_text(
         "# Queue\n\ndraft/feature/repoa/one.md\ndraft/feature/repoa/two.md\n")
     (mind / "autonomy_log.md").write_text(AUTONOMY_LOG)
@@ -265,8 +283,11 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     # Overnight rows: one per policy job, owner defaulted onto the derived org.
     assert s["overnight"], "policy overnight_jobs rendered no rows"
     for row in s["overnight"]:
+        # `unreadable` distinguishes "asked, no runs" from "could not ask" —
+        # without it a board that cannot reach GitHub renders every row as
+        # "no runs", which is a claim it has not earned.
         assert set(row) == {"repo", "workflow", "conclusion", "age_h", "url",
-                            "blocked", "blocked_reason"}
+                            "blocked", "blocked_reason", "unreadable"}
         assert row["repo"].startswith("ExampleOrg/")
         assert row["conclusion"] == "success"
     # Versions: every stamp resolves to the fixture, so consensus + no drift.
@@ -288,8 +309,10 @@ def test_json_surface_is_complete_and_derives_org(tmp_path):
     # Resume: the Mind's own generated counts + the task file + the queue.
     assert s["resume"]["counts"]["In flight"] == 1
     assert s["resume"]["counts"]["Backlog"] == 152
-    assert s["resume"]["tasks"] == [
-        {"path": "active/some_task.md", "title": "Fix the fixture widget"}]
+    assert s["resume"]["tasks"] == [{
+        "path": "active/some_task.md", "title": "Fix the fixture widget",
+        "facets": {"type": "bug", "target": "RepoA", "difficulty": "large",
+                   "autonomy": "supervised", "priority": "high"}}]
     assert s["resume"]["queue_len"] == 2
     assert s["resume"]["pending_prs"][0]["repo"] == "ExampleOrg/RepoA"
     assert s["open_issues"] == 42
@@ -371,6 +394,85 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert 'data-cmd="/intake"' in page
 
 
+# --------------------------------------------------------------- the look --
+# The page dresses in the shared theme's vocabulary (board/_theme.py): the
+# accent is identity, a tone is judgement. These assert that each section
+# spends colour on a FACET rather than on decoration — a row's repo, its
+# state, its tier — so the board is scannable rather than merely blue.
+
+
+def test_the_header_strip_counts_every_section_that_can_ask_something(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "runs.json": _run_json("failure")}))
+    page = _run(["--html"], tmp_path, stub).stdout
+    for label in ("Overnight red", "Blockers", "Awaiting", "In flight",
+                  "Open issues"):
+        assert f"<span>{label}</span>" in page
+    # Seven overnight jobs all red in this fixture, one in-flight task, and
+    # the org issue count straight off the search.
+    assert "<b>7</b><span>Overnight red</span>" in page
+    assert "<b>1</b><span>In flight</span>" in page
+    assert "<b>42</b><span>Open issues</span>" in page
+
+
+def test_an_unreadable_source_counts_as_a_dash_not_a_zero(tmp_path):
+    """The strip is read before the rows; it must not promise a quiet morning
+    the board could not actually see."""
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "issue_count.json": {}, "comm_issues.json": {}, "comm_prs.json": {}}))
+    page = _run(["--html"], tmp_path, stub, {"BOARD_PAGES_BASE": "file:///nope"}).stdout
+    assert "<b>–</b><span>Blockers</span>" in page
+    assert "<b>–</b><span>Open issues</span>" in page
+    assert "<b>0</b><span>Open issues</span>" not in page
+
+
+def test_an_overnight_row_wears_its_repo_and_its_conclusion(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "runs.json": _run_json("failure")}))
+    page = _run(["--html"], tmp_path, stub).stdout
+    # The repo is identity, so it takes the accent; the conclusion is a
+    # judgement, so it takes a tone.
+    assert '<span class="pill">ExampleOrg/PyAutoBrain</span>' in page
+    assert '<span class="pill r">failure</span>' in page
+    green = _run(["--html"], tmp_path,
+                 _fabricate(tmp_path / "green", _default_fixtures())).stdout
+    assert '<span class="pill g">success</span>' in green
+
+
+def test_an_in_flight_task_wears_the_minds_own_facets(tmp_path):
+    """A task looks like itself on both pages: the board reads the header the
+    Mind wrote and renders the same pills the Mind dashboard gives it."""
+    stub = _fabricate(tmp_path, _default_fixtures())
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert '<span class="pill w">🐛 bug</span>' in page
+    assert '<span class="pill">RepoA</span>' in page       # target = identity
+    assert '<span class="pill y">large</span>' in page     # judgement = tone
+    assert '<span class="pill r">high</span>' in page
+    assert '<span class="pill n">supervised</span>' in page  # the default
+
+
+def test_a_pill_is_never_a_guess():
+    """No header, a lone field line, or one that starts well down the file:
+    prose, not a header. A row with nothing to say wears nothing."""
+    import sys
+    sys.path.insert(0, str(BRAIN_HOME / "board"))
+    from _board import FACET_KEYS, prompt_facets  # noqa: E402
+    blank = dict.fromkeys(FACET_KEYS, "")
+    assert prompt_facets("# Just a title\n\nSome prose.\n") == blank
+    assert prompt_facets("# t\n\nprose\n\nPriority: low\n") == blank
+    assert prompt_facets("\n" * 9 + "Type: bug\nPriority: high\n") == blank
+    # A partial header is still a header.
+    assert prompt_facets("Type: bug\nPriority: high\n")["priority"] == "high"
+
+
+def test_a_door_is_accented_only_when_it_acts(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert '<span class="pill">conductor</span>' in page
+    assert '<span class="pill n">faculty</span>' in page
+    assert '<span class="pill n">workflow</span>' in page
+
+
 def test_apply_writes_the_four_pages_files(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures())
     out = tmp_path / "site"
@@ -435,6 +537,63 @@ def test_heart_blockers_render_with_their_own_prompts(tmp_path):
     assert "Shipped: **GREEN**" in md  # the Hands headline joined the section
 
 
+HEART_BOARD_STALE = {
+    "schema_version": 3,
+    "blockers": [
+        {"text": "install verification not run", "severity": "stale",
+         "repo": None, "repo_url": None, "run_url": None,
+         "command": "pyauto-heart verify_install --report-json",
+         "prompt": "/health run `pyauto-heart verify_install --report-json` — …"},
+        {"text": "no release validation for current source", "severity": "stale",
+         "repo": None, "repo_url": None, "run_url": None, "command": None,
+         "prompt": "/health dispatch a release rehearsal with `/release rehearse` — …"},
+    ],
+    "stale_plan": {
+        "count": 2,
+        "command": None,
+        "prompt": "/health clear the Heart's 2 evidence gap(s) — …\n1. …\n2. …",
+    },
+}
+
+
+def test_a_stale_heart_offers_the_one_plan_that_clears_every_gap(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_STALE)
+    page = _run(["--html"], tmp_path, stub).stdout
+    plan = HEART_BOARD_STALE["stale_plan"]
+
+    # The Heart's own plan is the chip payload — the Brain never derives one.
+    assert html.escape(plan["prompt"], quote=True) in page
+    assert "Clear all 2 evidence gaps" in page
+    # Each gap still arrives with the command that closes it, forwarded whole.
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    assert [b["command"] for b in s["heart_blockers"]] == [
+        "pyauto-heart verify_install --report-json", None]
+    assert s["heart_plan"]["count"] == 2
+    # The digest spends one line on the tier, not one per gap.
+    md = _run([], tmp_path, stub).stdout
+    assert "Evidence gaps: 2 — clear them all: `pyauto-heart fix stale`" in md
+
+
+def test_a_plan_with_a_command_chain_offers_the_terminal_door(tmp_path):
+    chain = "pyauto-heart verify_install --report-json && pyauto-heart tick"
+    board = {**HEART_BOARD_STALE,
+             "stale_plan": {**HEART_BOARD_STALE["stale_plan"], "command": chain}}
+    stub = _fabricate(tmp_path, _default_fixtures(), board)
+
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert f'data-cmd="{html.escape(chain, quote=True)}"' in page
+    assert "copy term" in page          # the ⌨ terminal chip, not the 📋 one
+    md = _run([], tmp_path, stub).stdout
+    assert f"clear them all: `{chain}`" in md
+
+
+def test_a_heart_board_without_a_plan_renders_none(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())   # no stale_plan published
+    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
+    assert s["heart_plan"] is None
+    assert "Evidence gaps:" not in _run([], tmp_path, stub).stdout
+
+
 def test_test_performance_rows_carry_their_own_prompts(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_WITH_EVENT)
     s = json.loads(_run(["--json"], tmp_path, stub).stdout)
@@ -478,8 +637,10 @@ def test_nothing_flagged_renders_one_quiet_row(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures(),
                       {**HEART_BOARD_JSON, "performance": quiet})
     page = _run(["--html"], tmp_path, stub).stdout
-    assert "2 gates timed · nothing flagged" in page
+    assert "2 gates timed" in page
+    assert '<span class="pill g">nothing flagged</span>' in page
     assert "full timings ↗" in page
+    # The markdown twin has no pills, so it keeps saying it in words.
     assert "2 gates timed · nothing flagged" in _run([], tmp_path, stub).stdout
 
 
@@ -503,7 +664,8 @@ def test_a_malformed_performance_block_never_breaks_the_render(tmp_path):
                         "no_run": {"rows": [{"repo": "RepoA"}, "junk"]}}})
     r = _run(["--html"], tmp_path, stub)
     assert r.returncode == 0, r.stderr
-    assert "0 gates timed · nothing flagged" in r.stdout
+    assert "0 gates timed" in r.stdout
+    assert '<span class="pill g">nothing flagged</span>' in r.stdout
 
 
 def test_blocked_gate_annotation_renders_inline(tmp_path):
@@ -740,3 +902,31 @@ def test_missing_mind_degrades_honestly(tmp_path):
     assert any("community" in d for d in s["degraded"])
     assert any("resume" in d for d in s["degraded"])
     assert s["resume"]["tasks"] == []
+
+
+# ------------------------------------------------------- the autonomy chips --
+
+
+def test_a_judgement_cell_becomes_a_chip_sized_label(tmp_path):
+    """The log writes its two judgement columns as `<verdict> (<why>)`, because
+    it is a record read as a table. A pill cannot wrap, so the whole sentence
+    used to render as one chip a thousand pixels wide — the board scrolled
+    sideways on a phone, and the tone lookups (which key off the bare verdict)
+    silently fell through to neutral on every such row."""
+    log = AUTONOMY_LOG + (
+        "| 2026-08-03 | third-task (#3) "
+        "| safe (feature medium cap; same resumed acknowledged launch and "
+        "campaign merge authorization) | tests pass "
+        "| merged-unchanged (RepoA#535 merge b9d9927f; issue left open) |\n"
+        "| 2026-08-04 | fourth-task (#4) "
+        "| human-authorized merge after accepted smoke exception and "
+        "independent review | tests pass | amended |\n")
+    stub = _fabricate(tmp_path, _default_fixtures())
+    (tmp_path / "PyAutoMind" / "autonomy_log.md").write_text(log)
+    page = _run(["--html"], tmp_path, stub).stdout
+    # The verdict is the chip; the why stays in the log.
+    assert '<span class="pill g">safe</span>' in page
+    assert '<span class="pill n">merged-unchanged</span>' in page
+    assert "campaign merge authorization" not in page
+    # No parenthetical to cut? Then the head is elided, never left full length.
+    assert '"pill n">human-authorized merge afte…</span>' in page

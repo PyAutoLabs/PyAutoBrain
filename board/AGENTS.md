@@ -17,7 +17,7 @@ copy-for-Claude payload:
 |---------|--------------|-----------------|
 | ⌨ Morning sync | `bin/morning.sh` (local) | the terminal command itself |
 | 🌙 Overnight | scheduled workflows (`config/policy.yaml board: overnight_jobs`); a ⏸ blocked gate's ::warning annotation is rendered inline | `/bug … — <run url>` on failures |
-| ❤️ Readiness & release | the Heart board's `badge.json` + `board.json` (structured blockers, each carrying its OWN `/bug` prompt — rendered verbatim, never re-derived) and the Hands badge | `/health`, the blockers' own prompts |
+| ❤️ Readiness & release | the Heart board's `badge.json` + `board.json` (structured blockers, each carrying its OWN `/bug` prompt — or, for an evidence gap, the `command` that re-runs its check — plus `stale_plan`, the one payload that closes every gap; all rendered verbatim, never re-derived) and the Hands badge | `/health`, the plan's prompt or command chain, the blockers' own prompts |
 | ⏱ Test performance | the Heart board's published `performance` block — rendered verbatim, never re-derived | each row's own prompt |
 | 🏷️ Version consistency | the coupled-set stamps (`board: version_stamps`) | `/bug version drift: …` |
 | 💬 Community | the Ears (`community scan`, reused wholesale) — every open conversation gets a row | `/community`, `/community triage <ref>` |
@@ -77,16 +77,43 @@ headings, disclosure summaries, code spans and the emphasised head of a row
 are all in the organ's hue. Only the running prose stays near-black, because
 these are lists people scan on a phone before breakfast.
 
-Colour does two jobs, and the stylistic one never overwrites the semantic
-one: the accent is organ identity; pills are task facets, toned so that only
-the *exception* is coloured (`supervised` is 9 of 10 prompts in the Mind, so
-it stays neutral — tinting it would paint the backlog and say nothing);
-`ok`/`warn`/`bad` stay reserved for verdict semantics. The reservation is
-literal — the accent rule is `b:not([class])`, so anything carrying a
-semantic class keeps the colour that class means. `ORGANS` holds the palette
-— `mind` and `brain` are sampled from the real logo files, the other four are
-placeholders in the right hue family, to be confirmed against each logo when
-that renderer adopts the theme.
+*A phone before breakfast* is a size, not a mood: the sheet makes wrapping the
+page **default** (`overflow-wrap` on `body`, inherited), so a run URL or a
+dotted test id in markup the theme has never seen — an organ's own reasons
+list, details block or footer — cannot push the page sideways. A board that
+needs a column on one line (`white-space:nowrap`) still may; what it must not
+do is re-declare the wrap per component, which is how the family drifted into
+one page that scrolled and one that did not.
+
+Colour is information, never decoration: the accent is organ identity; pills
+are row facets, toned so that only the *exception* is coloured (`supervised`
+is 9 of 10 prompts in the Mind, so it stays neutral — tinting it would paint
+the backlog and say nothing); `ok`/`warn`/`bad` stay reserved for verdict
+semantics. `ORGANS` holds the palette — five of the six are sampled from the
+real logo files; the umbrella board has no logo to sample, so its accent and
+tagline are designed to sit in the family instead.
+
+**This board's own facets.** Every row here says what it is in the same
+vocabulary the Mind dashboard uses. The accent is what the row *is* — the
+repo a workflow belongs to, the kind of a community conversation, the target
+of an in-flight task, a door that acts (a conductor) rather than one that only
+opines. A tone is what the row *says*: a conclusion, a Heart verdict, a
+version stamp off consensus, how long someone has waited on a reply. An
+in-flight task is the one row that composes rather than invents — it reads
+the `Type:`/`Target:`/`Difficulty:`/`Autonomy:`/`Priority:` header the Mind
+already wrote, so a task looks like itself on both pages. Above the sections,
+a header strip carries one number per section that can ask something of a
+human; a source that could not be read counts `–`, never a zero.
+
+The accent is the page's **type colour**, not merely its link colour: the
+things that give a page its shape — section headings, disclosure summaries,
+code spans, the emphasised head of a row — are set in the organ's hue, so a
+board reads as its organ from top to bottom instead of as grey GitHub chrome
+under a coloured masthead. Only the running prose stays near-black. That
+reservation is literal in the stylesheet: the accent rule is `b:not([class])`,
+so an element carrying a semantic class — `ok`, `warn`, `bad`, `muted`, a pill
+tone — keeps the colour that class means, and only unclassed emphasis takes
+the organ's hue.
 
 ## Configuration
 
@@ -100,3 +127,48 @@ board links). The org/owner is derived from the Mind's body map
 Env: `PYAUTO_ROOT` (workspace root holding `PyAutoMind/`), `BOARD_GH`
 (the gh binary; hermetic tests point it at a stub), `BOARD_PAGES_BASE`
 (sibling-board base URL; tests point it at `file://` fixtures).
+
+## Reading the board in a remote session
+
+A Claude Code remote session (web/mobile) cannot reach either of the board's
+data sources by default:
+
+- **`gh` is not installed.** The overnight sweep, the version stamps, the
+  community scan and the pending-release search all run through it. Without it
+  they cannot ask — which is not the same as asking and getting nothing, and
+  the render now says so (`could not read`, never `no runs`).
+- **The sibling Pages boards are refused by the egress policy.** The proxy
+  answers `403` to `CONNECT` for `<org>.github.io`, so `board.json` and
+  `badge.json` — the Heart's readiness surface among them — are unreadable.
+  Retrying never helps; the reason is named in the Degraded section rather than
+  reported as a flake. Where the sibling repo is checked out, the board falls
+  back to its local `board/board.json`.
+
+So a remote render is expected to be partial. It carries a **⚠️ Degraded
+render** banner above the sections, a per-leg reason at the foot, a headline
+qualified with `partial view (N legs unread)`, and a grey badge rather than a
+green one — a green badge is only ever emitted by a render that read
+everything and found nothing wrong.
+
+To get a complete board in a remote session, the environment needs outbound
+access to the Pages host. That is cloud-environment configuration on claude.ai,
+not something this repo can set: open the environment selector at
+`claude.ai/code` (the cloud icon above the message box), edit the environment,
+set **Network access** to **Custom**, and add `*.github.io` — keeping **Also
+include default list of common package managers** checked, or the session loses
+PyPI and GitHub too. It takes effect on the next session, not the running one.
+
+Two hosts worth knowing about while you are there:
+
+- `*.blob.core.windows.net` — where GitHub Actions stores run artifacts and
+  logs. Blocked by default, which is why a workflow's own drift report could
+  not be downloaded and the run had to be reproduced locally instead
+  (`PyAutoMind/complete/2026/08/wiki-currency-baseline-drift.md`). It is a
+  broad entry: all of Azure Blob Storage, not just GitHub's buckets.
+- `objects.githubusercontent.com` and `raw.githubusercontent.com` are already
+  in the default Trusted list — they need no entry.
+
+The allowlist is per environment; there is no organization-level one, so an
+environment you add later starts from the defaults again. And none of this
+installs `gh` — that is not in the image at all, so GitHub still goes through
+the MCP tools (`skills/GITHUB_ACCESS.md`).

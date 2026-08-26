@@ -144,7 +144,7 @@ CONDEMN_TRANSIT_DAYS="${HYGIENE_CONDEMN_TRANSIT_DAYS:-30}"
 # fast stdlib modules); HYGIENE_PERF_THRESHOLD (s) is the slow cutoff.
 PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
-read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autoconf autofit autoarray autogalaxy autolens}"
+read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autonerves autofit autoarray autogalaxy autolens}"
 
 MODE_ORDER=(perf tidy crlf docstrings escapes refs optdeps extras artifacts packaging noise deps docs config)
 declare -A MODE_DELEGATE=(

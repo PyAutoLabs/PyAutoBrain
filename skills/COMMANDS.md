@@ -89,9 +89,14 @@ call, so the Brain is not bypassed):
   checks until **every** workflow run and **every** matrix leg for the head sha is
   green, merges in library-first order, then closes the task out end to end:
   Shipped comment, issue closed, `lifecycle.py record` moving the prompt
-  `active/` → `complete/` (claim released, Mind pushed), `worktree_remove`, merged
-  branches deleted, and a ledger of what it did. Typing `/prm` authorizes all of
-  it, so it does not stop to ask again. Owns no gate of its own — it refuses on
+  `active/` → `complete/` (claim released, Mind pushed), the Mind's
+  `dashboard.md` reconciled and regenerated in that same commit,
+  `worktree_remove`, merged branches deleted, and a ledger of what it did.
+  Typing `/prm` authorizes all of it, so it does not stop to ask again. The
+  dashboard leg is the one thing here nothing else covers: `dashboard_refresh.yml`
+  self-heals a stale *render*, never a prompt the merge finished and nobody
+  retired, so a close-out that skips it is how shipped and half-shipped tasks
+  pile up on the page as pickable backlog. Owns no gate of its own — it refuses on
   red/pending/conflicting checks, an unmerged upstream library PR, an unmerged
   sibling branch (the shipped-in-waves trap), or a `worktree_remove` refusal, and
   asks exactly once before deleting a worktree holding irreplaceable data

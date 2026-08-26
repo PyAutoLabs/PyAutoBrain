@@ -312,9 +312,20 @@ _CSS = """\
  --bad:#f85149;--accent:%(ink_dark)s;--tint:%(ink_dark)s1f;
  --edge:%(ink_dark)s47}}
 *{box-sizing:border-box}
+/* Wrapping is the page DEFAULT, not a per-component opt-in. These boards are
+   read on phones, and every one of them prints run URLs, dotted test ids and
+   long file paths — a single unbreakable token in any element a renderer adds
+   itself (a reasons list, a footer, a details block) spills past the right
+   edge and gives the WHOLE page a horizontal scroll. `overflow-wrap` is
+   inherited, so setting it here covers markup this module has never seen.
+   The three max-width/overflow rules do the same job for the things that
+   cannot be wrapped: an image, a table, a code block. */
 body{margin:0 auto;max-width:44rem;padding:0 1rem 4rem;background:var(--bg);
  color:var(--fg);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",
- Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%%}
+ Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%%;
+ overflow-wrap:anywhere}
+img,svg,table{max-width:100%%}
+pre{overflow-x:auto}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
 /* The accent is the page's *type* colour, not just its link colour: the
@@ -326,6 +337,13 @@ a:hover{text-decoration:underline}
 b:not([class]),strong:not([class]){color:var(--accent)}
 .muted{color:var(--muted)}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+/* A bare list is page text, not a quotation. The UA's 40px indent steps it in
+   from every other block on the page — measured on the Heart board, the
+   evidence-gap bullets started at x=56 against a 16px body margin, which
+   reads as a stray inset column on a phone. The lists that are layout rather
+   than prose (.stats, .boards, ul.det) set their own padding and win on
+   specificity. */
+ul,ol{padding-left:1.15rem}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
  color:var(--accent);background:var(--tint);border:1px solid var(--edge);
  padding:.05em .35em;border-radius:5px}
@@ -382,7 +400,7 @@ h3{font-size:.98rem;margin:1.3rem 0 .2rem;font-weight:650;color:var(--accent)}
 .task{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem .35rem;
  margin:0 -.35rem;border-bottom:1px solid var(--line);border-radius:7px}
 .task:hover{background:var(--tint);box-shadow:inset 2px 0 0 var(--accent)}
-.task p{margin:.25rem 0 0;flex:1;overflow-wrap:anywhere}
+.task p{margin:.25rem 0 0;flex:1}
 button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
  border:1px solid var(--edge);border-radius:9px;background:var(--tint);
  cursor:pointer;color:var(--accent);transition:border-color .12s,color .12s}
@@ -399,9 +417,17 @@ summary::marker{color:var(--accent)}
 /* --- facet pills: the backlog, scannable by colour --------------------- */
 .facets{color:var(--muted);font-size:.85em}
 .tags{display:block;margin-top:.32rem;line-height:1.9}
-.pill{display:inline-block;padding:.06em .5em;border-radius:999px;
+/* A pill is a LABEL, and a label that will not fit is elided, never allowed
+   to push the page sideways. `nowrap` is what makes a chip read as a chip, so
+   it is also the one thing the page-wide wrap guard above cannot reach: an
+   over-long value (a board handing a whole log sentence to a facet) used to
+   run a chip a thousand pixels wide. The row's prose carries the meaning; the
+   chip carries the word. `vertical-align:bottom` because `overflow:hidden`
+   moves an inline-block's baseline to its bottom edge. */
+.pill{display:inline-block;max-width:100%%;padding:.06em .5em;border-radius:999px;
  font-size:.74em;font-weight:650;letter-spacing:.015em;white-space:nowrap;
- vertical-align:.09em;border:1px solid var(--edge);background:var(--tint);
+ overflow:hidden;text-overflow:ellipsis;
+ vertical-align:bottom;border:1px solid var(--edge);background:var(--tint);
  color:var(--accent)}
 .pill+.pill{margin-left:.28rem}
 .pill.n{border-color:var(--line);background:var(--btn);color:var(--muted)}
@@ -434,7 +460,7 @@ summary::marker{color:var(--accent)}
 /* --- tables ------------------------------------------------------------ */
 table.recent{width:100%%;border-collapse:collapse;font-size:.95em}
 table.recent td{border-bottom:1px solid var(--line);
- padding:.45rem .4rem .45rem 0;vertical-align:top;overflow-wrap:anywhere}
+ padding:.45rem .4rem .45rem 0;vertical-align:top}
 table.recent tr:hover td{background:var(--tint)}
 table.recent td.when{white-space:nowrap;color:var(--muted);
  font-variant-numeric:tabular-nums}
@@ -442,6 +468,23 @@ table.recent td.what{white-space:nowrap;color:var(--accent);font-size:.85em;
  padding-top:.58rem;opacity:.8}
 table.recent td.pick{width:2.6rem;padding-right:0}
 table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
+/* On a phone a four-column row is not a row, it is a ribbon. Measured at a
+   375px viewport: the meta columns took 156px and the text was left 187 — half
+   the screen — so every entry wrapped into a tall thin column down the right
+   while the meta cells sat beside it as empty height. Below 34rem the row
+   stacks: the meta reads as one small header line with the button at its end,
+   and the text takes the full width underneath. */
+@media(max-width:34rem){
+ /* `:not([hidden])` is load-bearing: `display:flex` here outranks the UA
+    sheet's `[hidden]{display:none}`, which would reveal the whole paged
+    Recent feed at once. */
+ table.recent tr:not([hidden]){display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .5rem;
+  padding:.5rem 0;border-bottom:1px solid var(--line)}
+ table.recent td{display:block;width:auto;border-bottom:0;padding:0}
+ table.recent td.what{padding-top:0}
+ table.recent td.pick{width:auto;margin-left:auto}
+ table.recent td:not([class]){flex:1 0 100%%;margin-top:.15rem}
+}
 /* --- the family footer: one chip per sibling board, in its own colour --- */
 .boards{display:flex;flex-wrap:wrap;gap:.4rem;margin:2.4rem 0 0;padding:0;
  list-style:none;border-top:1px solid var(--line);padding-top:1rem}
@@ -522,6 +565,14 @@ def pills(*values, work_type=None):
     Of the positional values the first is the target repo/domain — it gets
     the organ accent, because it is identity, not judgement; the rest take
     their tone from `_TONES`, defaulting to neutral.
+
+    `_TONES` is the *Mind's* facet vocabulary (a prompt's difficulty, autonomy
+    and priority). A board whose rows carry different facets — a workflow
+    conclusion, a Heart verdict, a version stamp — says its own tone by
+    passing `(value, tone)` instead of a bare string, rather than growing that
+    table with words it does not share. The tone is a class from the sheet:
+    `g`/`y`/`r` for go/caution/handle-with-care, `n` for neutral, `""` for the
+    organ accent.
     """
     out = []
     if work_type and work_type != "-":
@@ -531,9 +582,14 @@ def pills(*values, work_type=None):
                    f'</span>')
     first = True
     for v in values:
+        tone = None
+        if isinstance(v, tuple):
+            v, tone = v
         if not v or v == "-":
             continue
-        cls = "pill" if first else f'pill {_TONES.get(v, "n")}'
+        if tone is None:
+            tone = "" if first else _TONES.get(v, "n")
+        cls = f"pill {tone}".rstrip()
         out.append(f'<span class="{cls}">{_esc(v)}</span>')
         first = False
     return f'<span class="tags">{"".join(out)}</span>' if out else ""

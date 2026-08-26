@@ -16,7 +16,9 @@ dev now); intake infers a work-type and *files a prompt* (defers). Low-confidenc
 classification lands in `triage/` — the existing unclassified bucket, reused not
 reinvented. Difficulty is OWNED here (scope is decided during the intake
 back-and-forth) and persisted into the header via the shared sizing faculty, so
-the Feature Agent later trusts the same number.
+the Feature Agent later trusts the same number — unless the author already
+declared one in the raw text, which outranks the estimate (see "human-declared
+header fields").
 
 Stdlib only. Writes ONLY under --apply; every other path is read-only.
 """
@@ -37,8 +39,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
     WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
-    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, estimate_difficulty, _hits,
+    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, declared_header,
+    declared_inline, effective_difficulty, strip_declarations, _hits,
     policy as _sizing_policy, BODY_MAP_PATH,
+    _body_map_specs as _sizing_specs,
 )
 
 # The shared board theme: the one place that answers "what does a one-tap board
@@ -92,16 +96,28 @@ TYPE_PRECEDENCE = ["bug", "test", "docs", "refactor", "release", "maintenance",
 TARGET_SIGNALS = _sizing_policy()["target_signals"]
 
 # Human-readable display name for the header's `Target:` line.
-REPO_DISPLAY = {
-    "autonerves": "PyAutoNerves", "autoconf": "PyAutoNerves",  # autoconf = legacy alias
-    "autofit": "PyAutoFit", "autoarray": "PyAutoArray",
-    "autogalaxy": "PyAutoGalaxy", "autolens": "PyAutoLens",
-    "pyautomind": "PyAutoMind", "pyautobrain": "PyAutoBrain",
-    "pyautoheart": "PyAutoHeart", "pyautobuild": "PyAutoHands",
-    "pyautomemory": "PyAutoMemory", "autohands": "PyAutoHands",
-    "autobuild": "PyAutoHands",  # back-compat: the package was renamed autobuild -> autohands
-    "workspaces": "workspaces",
-}
+#
+# Derived from the body map, which already holds every repo's name in its real
+# capitalisation — a hand-kept copy here would be the same drift #287 closed in
+# the alias table one map over, and it already had the beginnings of it: keys the
+# router could reach (`pyautohands`, and the CTI/Reduce libraries) had no row, so
+# a header came out as `Target: pyautohands`. Only the rows a body map cannot
+# know are written out: the pre-rename spellings and the workspace bucket.
+def _repo_display() -> dict:
+    out = {
+        normalise_repo(name): name
+        for name in _sizing_specs()
+    }
+    out.update({
+        "autoconf": out.get("autonerves", "autonerves"),      # pre-rename spelling
+        "pyautobuild": out.get("pyautohands", "pyautohands"),  # pre-rename spelling
+        "autobuild": out.get("pyautohands", "pyautohands"),    # pre-rename package
+        "workspaces": "workspaces",                            # a bucket, not a repo
+    })
+    return out
+
+
+REPO_DISPLAY = _repo_display()
 PRIORITY_HIGH = ["urgent", "asap", "blocker", "blocking", "critical", "important",
                  "high priority", "must fix", "regression"]
 PRIORITY_LOW = ["someday", "nice to have", "eventually", "low priority", "minor",
@@ -262,19 +278,35 @@ def infer_autonomy(level: str, factors: dict) -> str:
 def analyse(text: str, source: str):
     """Classify raw text into a full IntakeDecision (never writes)."""
     repos = _repos_in(text)
+    # What the input DECLARES outranks what its prose merely suggests — the same
+    # rule the feature and bug conductors apply (the faculty owns it). Raw
+    # conception input may carry a full header block (a pasted prompt) or state
+    # a key mid-sentence, so both readers run; header lines win a tie.
+    inline, decl_spans = declared_inline(text)
+    header = declared_header(text)
+    declared = {k: v for k, v in {
+        "difficulty": header["declared_difficulty"] or inline.get("difficulty"),
+        "autonomy": header["declared_autonomy"] or inline.get("autonomy"),
+        "priority": header["priority"] or inline.get("priority"),
+        "type": header["declared_type"] or inline.get("type"),
+    }.items() if v}
+
     work_type, confidence, type_hits = classify_work_type(text)
+    if declared.get("type"):
+        work_type, confidence = declared["type"], "high"
     target, target_display, repos = infer_target(text, repos)
 
     # Build a prompt-shaped dict the shared sizing faculty understands.
     p = {"text": text, "repos": repos, "words": len(text.split()),
-         "target": target, "work_type": work_type}
-    level, score, factors = estimate_difficulty(p)
+         "target": target, "work_type": work_type,
+         "declared_difficulty": declared.get("difficulty")}
+    level, score, factors, estimated = effective_difficulty(p)
 
-    autonomy = infer_autonomy(level, factors)
-    priority = infer_priority(text)
+    autonomy = declared.get("autonomy") or infer_autonomy(level, factors)
+    priority = declared.get("priority") or infer_priority(text)
     workflow = infer_workflow(target, repos)
 
-    title = _title(text)
+    title = _title(strip_declarations(text, decl_spans))
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
     if folder == "triage":
@@ -295,6 +327,7 @@ def analyse(text: str, source: str):
         "title": title,
         "work_type": work_type,
         "classification_confidence": confidence,
+        "work_type_source": "declared" if declared.get("type") else "inferred",
         "type_signals": type_hits,
         "target": target,
         "target_display": target_display,
@@ -302,12 +335,21 @@ def analyse(text: str, source: str):
         "difficulty": level,
         "difficulty_score": score,
         "difficulty_factors": factors,
+        "difficulty_declared": declared.get("difficulty"),
+        "difficulty_derived": estimated,
+        "difficulty_disagreement": (
+            "difficulty" in declared and estimated != level
+        ),
+        "difficulty_source": "declared" if "difficulty" in declared else "estimated",
         "autonomy": autonomy,
+        "autonomy_source": "declared" if "autonomy" in declared else "inferred",
         "priority": priority,
+        "priority_source": "declared" if "priority" in declared else "inferred",
+        "declared_fields": declared,
         "workflow": workflow,
         "proposed_path": proposed,
         "header": header,
-        "risks": _risks(level, factors, confidence, target),
+        "risks": _risks(level, factors, confidence, target, declared, estimated),
         "next_action": _next_action(proposed, confidence),
     }
 
@@ -322,8 +364,16 @@ def _render_header(title, work_type, target_display, repos, level, autonomy, pri
     return "\n".join(lines)
 
 
-def _risks(level, factors, confidence, target):
+def _risks(level, factors, confidence, target, declared=None, estimated=None):
     out = []
+    declared = declared or {}
+    if "difficulty" in declared and declared["difficulty"] != estimated:
+        out.append(f"Difficulty {declared['difficulty']} declared in the raw text "
+                   f"— it overrides the heuristic estimate ({estimated}).")
+    for field in ("autonomy", "priority"):
+        if field in declared:
+            out.append(f"{field.capitalize()} {declared[field]} declared in the raw "
+                       f"text — taken as written, not inferred.")
     if confidence == "low":
         out.append("Low classification confidence — filed to triage/ for a human "
                    "to re-home once the work type is clear.")
@@ -379,6 +429,14 @@ HEADER_FIELDS = ("type", "target", "difficulty", "autonomy", "priority", "status
 _FIX_PR_RE = re.compile(r"^Fix:.*(?:PR\s*#\d+|/pull/\d+)",
                         re.MULTILINE | re.IGNORECASE)
 
+# The other half of the same failure: a session finishes the work, writes the
+# outcome into the prompt's own `Status:` header — `shipped`, `superseded`,
+# `absorbed` — and then leaves the file in `draft/`, where it keeps rendering as
+# pickable backlog. Read off the parsed header (not the body) so a prompt that
+# merely *describes* shipped sibling work is never flagged.
+DONE_STATUSES = ("shipped", "superseded", "absorbed", "complete", "completed",
+                 "done", "retired")
+
 
 def parse_header(text: str) -> dict:
     """Extract the light metadata header (`Field: value` lines) from a prompt.
@@ -398,6 +456,19 @@ def parse_header(text: str) -> dict:
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
     return fields
+
+
+def _done_status(header: dict) -> str:
+    """The first word of a `Status:` header that declares the work finished.
+
+    Returns `""` for a status that is merely *about* finished work (`phases 1-3
+    SHIPPED; phase 4 open`, `split (phases 1-2 SHIPPED; phase 3 open)`): only a
+    status that *opens* on a done-word means the prompt itself is spent. Empty
+    string is falsey, so callers read as a plain condition.
+    """
+    first = header.get("status", "").strip().lower().lstrip("*_`").split()
+    return first[0].rstrip(":;,.") if first and \
+        first[0].rstrip(":;,.") in DONE_STATUSES else ""
 
 
 def _prefix_match(path: str, prefix: str) -> bool:
@@ -675,6 +746,10 @@ def census(mind: Path) -> dict:
             if _FIX_PR_RE.search(text):
                 drift.append(f"{rel} — body records a fix PR, but the prompt "
                              "never left draft/ (reconcile its lifecycle)")
+            elif _done_status(header):
+                drift.append(f"{rel} — its own `Status:` says "
+                             f"{_done_status(header)}, but the prompt never "
+                             "left draft/ (reconcile its lifecycle)")
 
     def _count(key):
         out = {}
@@ -827,6 +902,50 @@ def _pick_key(r: dict) -> tuple:
     return (PRIORITY_RANK.get(r["priority"], 9),
             DIFFICULTY_RANK.get(r["difficulty"], 9),
             r["target"], r["path"])
+
+
+# --- freshness banner ----------------------------------------------------------
+# The page is only as current as the files it is generated from, and the way it
+# goes wrong is asymmetric: `dashboard_refresh.yml` self-heals a stale *render*
+# on every push to main, but nothing self-heals a stale *prompt* — a task that
+# shipped without its prompt advancing to complete/ keeps rendering as pickable
+# backlog until a human reconciles it. So the banner states the generation date
+# and hands over the whole reconcile-then-regenerate chore as one copyable
+# message, in the same 📋 idiom as every task row.
+REFRESH_PAYLOAD = """\
+Bring the PyAutoMind dashboard up to date. Work in the PyAutoMind checkout:
+
+1. `git fetch origin && git status`. If behind `origin/main`, `git pull --ff-only`
+   before touching anything.
+2. `python3 scripts/lifecycle.py check`, `orphans`, and `index --check`. Fix
+   whatever drift they report.
+3. Reconcile finished work — this is the part nothing automates. For every prompt
+   under `draft/` and `active/`, decide whether it is already done: a `Status:`
+   header saying shipped/superseded/absorbed, a merged PR named in its body, or a
+   record in `complete/` whose scope already covers it (check `complete/index.md`
+   and grep the dated buckets). Treat a same-subject record as evidence, not
+   proof — read both and confirm the scope really matches before retiring a
+   prompt.
+4. For each one that IS done, write its record and retire the prompt:
+   `python3 scripts/lifecycle.py record <slug> --date <YYYY-MM-DD> --from-file
+   <body> --apply`, where <body> ends with `## Original prompt` followed by the
+   prompt's full text. Then `git rm` the prompt file and repoint every
+   cross-reference to it (grep the slug across `draft/`, `active/`, `epics.md`
+   and the registry files).
+5. Regenerate the page: `pyauto-brain intake --apply dashboard`. Never hand-edit
+   `dashboard.md` or `dashboard.html` — they are generated.
+6. Commit and push to `main`, so `dashboard_refresh.yml` agrees with the tree.
+
+Report what you retired, what you deliberately left in the backlog and why, and
+anything you could not verify."""
+
+REFRESH_BLURB = (
+    "generated from `active/`, `draft/` and the registry files, so it is only "
+    "as current as they are. `dashboard_refresh.yml` re-renders it on every "
+    "push to `main` — that heals a stale page, but not a stale prompt: a task "
+    "that shipped without its prompt advancing to `complete/` keeps rendering "
+    "here as pickable backlog. Reconciling those is the refresh below."
+)
 
 
 def _task_row(summary: str, payload: str) -> str:
@@ -1021,6 +1140,11 @@ def render_dashboard(c: dict) -> str:
         "[Recent](#recent) is the same work by date — what has been happening "
         "rather than what to do next.",
         "",
+        f"> **Last updated {c['generated']}.** This page is {REFRESH_BLURB}",
+        "",
+        _task_row("<b>Refresh this page</b> — reconcile finished prompts, "
+                  "then regenerate", REFRESH_PAYLOAD),
+        "",
         "| Where | Count |",
         "|-------|------:|",
         f"| [In flight](#in-flight) (`active/`) | {c['issued_count']} |",
@@ -1172,6 +1296,15 @@ def render_dashboard(c: dict) -> str:
 # The dashboard-only half of the page script: the shared clipboard
 # handler lives in the board theme, this reveals the Recent feed a page
 # at a time.
+# The freshness banner is a dashboard-only element (no other organ board carries
+# one), so its rule lives here rather than in the shared theme.
+_FRESH_CSS = """\
+.fresh{margin:0 0 1.2rem;padding:.7rem .9rem .4rem;border:1px solid var(--edge);
+ border-radius:11px;background:var(--tint)}
+.fresh>p{margin:0 0 .3rem}
+.fresh .task{border-bottom:0}
+"""
+
 _MORE_JS = """\
 // Recent shows one page and reveals the next on each tap of the \u2026 button,
 // which retires itself once the feed is exhausted. Every row is already in the
@@ -1186,6 +1319,17 @@ document.addEventListener("click",e=>{
   if(left<=0){b.remove();return;}
   b.textContent="\u2026 "+Math.min(page,left)+" more ("+left+" left)";});
 """
+
+
+def _md_inline(text: str) -> str:
+    """Render the inline markdown this module authors (`code` spans only) as HTML.
+
+    The freshness blurb is written once and rendered on both pages; the markdown
+    page takes it verbatim, this turns its backticks into `<code>` so the HTML
+    twin does not print them literally. Deliberately not a markdown parser —
+    it handles exactly the one construct the blurb uses.
+    """
+    return re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
 
 
 def _attr(value: str) -> str:
@@ -1237,7 +1381,7 @@ def render_dashboard_html(c: dict) -> str:
         "<title>PyAutoMind Dashboard</title>",
         f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
         f"{c['generated']} — regenerate, do not hand-edit -->",
-        f"<style>{_theme_css(THEME_ORGAN)}</style>",
+        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}</style>",
         "</head>",
         "<body>",
         hero(THEME_ORGAN, "Dashboard",
@@ -1250,6 +1394,11 @@ def render_dashboard_html(c: dict) -> str:
         stats((c["issued_count"], "In flight"), (len(c["parked"]), "Parked"),
               (len(c["planned"]), "Planned"), (c["total"], "Backlog")),
     ]
+    H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b> '
+          f'This page is {_md_inline(REFRESH_BLURB)}</p>',
+          _html_task("<b>Refresh this page</b> — reconcile finished prompts, "
+                     "then regenerate", REFRESH_PAYLOAD),
+          "</div>"]
     if home:
         H.append(f'<p class="muted mdsrc">'
                  f'{link("dashboard.md", "markdown version")}</p>')
@@ -1446,15 +1595,24 @@ def _derive_fields(text: str, work_type: str, target: str) -> dict:
     tgt = normalise_repo(target) if target != "-" else "?"
     if tgt in KNOWN_REPOS and tgt not in repos:
         repos = sorted(set(repos) | {tgt})
+    # Same precedence as conception: what the author already stated wins.
+    inline, _spans = declared_inline(text)
+    header = declared_header(text)
+    declared = {k: v for k, v in {
+        "difficulty": header["declared_difficulty"] or inline.get("difficulty"),
+        "autonomy": header["declared_autonomy"] or inline.get("autonomy"),
+        "priority": header["priority"] or inline.get("priority"),
+    }.items() if v}
     p = {"text": text, "repos": repos, "words": len(text.split()),
-         "target": target, "work_type": work_type}
-    level, _score, factors = estimate_difficulty(p)
+         "target": target, "work_type": work_type,
+         "declared_difficulty": declared.get("difficulty")}
+    level, _score, factors, _derived = effective_difficulty(p)
     return {
         "type": work_type,
         "target": REPO_DISPLAY.get(tgt, target if target != "-" else "?"),
         "difficulty": level,
-        "autonomy": infer_autonomy(level, factors),
-        "priority": infer_priority(text),
+        "autonomy": declared.get("autonomy") or infer_autonomy(level, factors),
+        "priority": declared.get("priority") or infer_priority(text),
         "status": "formalised",
     }
 
@@ -2116,12 +2274,19 @@ def emit_human(d: dict):
     print("== IntakeDecision ==")
     print(f"Source:               {d['source']}")
     print(f"Title:                {d['title']}")
-    print(f"Work-type:            {d['work_type']}  (confidence: {d['classification_confidence']})")
+    wt_mark = ("declared" if d.get("work_type_source") == "declared"
+               else f"confidence: {d['classification_confidence']}")
+    print(f"Work-type:            {d['work_type']}  ({wt_mark})")
     print(f"Target:               {d['target_display']}")
     print(f"Repos resolved:       {', '.join(d['repos_affected']) or '(none)'}")
-    print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
-    print(f"Autonomy:             {d['autonomy']}")
-    print(f"Priority:             {d['priority']}")
+    if d.get("difficulty_source") == "declared":
+        print(f"Difficulty:           {d['difficulty']} (declared; heuristic derived "
+              f"{d['difficulty_derived']}, score {d['difficulty_score']})")
+    else:
+        print(f"Difficulty:           {d['difficulty']} (score {d['difficulty_score']})")
+    for field in ("autonomy", "priority"):
+        mark = " (declared)" if d.get(f"{field}_source") == "declared" else ""
+        print(f"{field.capitalize() + ':':<22}{d[field]}{mark}")
     print(f"Workflow:             {d['workflow']}")
     print(f"Proposed path:        {d['proposed_path']}")
     print("Header to be written:")
