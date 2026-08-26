@@ -1,6 +1,6 @@
 # PyAuto workflow skills — shared reference
 
-The `start_*` / `ship_*` / `run_queue` skills are the
+The `start_*` / `ship_*` skills are the
 **development-workflow entry points** of the PyAuto organism. They are *not*
 independent reasoning systems: each one is a thin entry point that delegates to
 the organs. This file is the shared context every workflow skill points at, so

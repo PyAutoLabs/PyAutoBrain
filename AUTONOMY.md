@@ -323,9 +323,5 @@ tier), never by weakening leg 4.
 - `ship_library` / `ship_workspace` — the four-leg gate at step 4, stop at
   PR-open, validation checklist, calibration append; the RED-handling step
   points here for the human-authorized corrective-PR exception.
-- `run_queue` — the generic queue loop: launching it is the batch's `--auto`
-  activation; per-entry effective-level dispatch, `PARKED` checkpointing, RED
-  stops the run. Task-type-specific queues layer domain gates on top of it and
-  reference the general sections here.
 
 Skills must link here rather than copying the tables.

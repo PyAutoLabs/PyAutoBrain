@@ -20,8 +20,7 @@ harness home:
 - **`PyAutoMind/skills/`** — registry-coupled skills (`create_issue`).
 - **`PyAutoBrain/skills/`** — development-workflow skills (`start_dev`,
   `start_dev_for_user`, `start_library`, `start_workspace`,
-  `ship_library`, `ship_workspace`, `run_queue`, `repo_cleanup`,
-  `update_issue`).
+  `ship_library`, `ship_workspace`, `repo_cleanup`, `update_issue`).
 - **`PyAutoHeart/skills/`** — status / readiness / validation skills
   (`worktree_status`, `smoke_test`, `dep_audit`, `verify_install`,
   `review_release`, `audit_docs`, `cli_noise_clean`), plus the reference-only
