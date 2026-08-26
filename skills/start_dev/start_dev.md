@@ -10,7 +10,9 @@ This is a **workflow entry point, not an agent** — classification, planning an
 risk judgement belong to Brain. Read
 [`../WORKFLOW.md`](../WORKFLOW.md) first: it defines the organ boundary, the
 Brain-agent entry points, Memory consultation, the execution-environment model,
-and the Mind registry paths used below.
+the **model-delegation ladder** (Fable > Opus > Sonnet — a Fable session plans
+here and delegates all execution to Opus), and the Mind registry paths used
+below.
 
 > **GitHub surface.** The `gh` commands below name the *operation*, not
 > necessarily the command: a Claude Code remote session has no `gh` and

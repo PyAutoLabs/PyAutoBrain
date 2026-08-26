@@ -108,9 +108,9 @@ doctrine edit; removing this section is the doctrine edit that retires it.
 
 ## Checkpoint-and-continue (`supervised`)
 
-The operational mechanics of the levels-table behaviour, generalised from
-`register_and_iterate`'s proven contract (its "writes a clear question and
-stops … auto-advances between tasks"):
+The operational mechanics of the levels-table behaviour: a run writes a
+clear question and stops at a judgment gate, and auto-advances between tasks
+otherwise.
 
 - **Trigger** — any judgment gate the levels table marks as a question for
   `supervised`: ship sign-off, a scope/design fork the plan didn't settle, an
@@ -131,8 +131,8 @@ stops … auto-advances between tasks"):
   environment reads `active.md`, finds `awaiting-input` + the question
   pointer, and continues from the recorded state.
 - **Hard blockers** are not questions — a thing that cannot work is written
-  up per the prompt's fallback clause and the task parks as blocked, exactly
-  as `register_and_iterate` does today.
+  up per the prompt's fallback clause and the task parks as blocked; it never
+  becomes a question for the human to answer.
 
 Ship sign-off and merge park the *task*, never bypass the gate —
 checkpoint-and-continue frees the human's session, not the checkpoint.
@@ -325,8 +325,7 @@ tier), never by weakening leg 4.
   points here for the human-authorized corrective-PR exception.
 - `run_queue` — the generic queue loop: launching it is the batch's `--auto`
   activation; per-entry effective-level dispatch, `PARKED` checkpointing, RED
-  stops the run.
-- `register_and_iterate` — the pytree instance of `run_queue`, and the origin
-  of checkpoint-and-continue; its gates reference the general sections here.
+  stops the run. Task-type-specific queues layer domain gates on top of it and
+  reference the general sections here.
 
 Skills must link here rather than copying the tables.
