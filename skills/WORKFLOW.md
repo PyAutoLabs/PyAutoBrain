@@ -1,6 +1,6 @@
 # PyAuto workflow skills — shared reference
 
-The `start_*` / `ship_*` / `register_and_iterate` skills are the
+The `start_*` / `ship_*` / `run_queue` skills are the
 **development-workflow entry points** of the PyAuto organism. They are *not*
 independent reasoning systems: each one is a thin entry point that delegates to
 the organs. This file is the shared context every workflow skill points at, so
@@ -78,20 +78,43 @@ file and `PyAutoBrain/AGENTS.md`, and note that the agent was emulated.
 The workflow skills split work across **capability tiers**, not named models or
 harness-specific tool names, so the doctrine survives model access changing:
 
-- **Judgment tier** — the strongest reasoning model available to the session.
-  Planning, orchestration, risk judgment, and anything user-facing.
-- **Execution tier** — a fast, lower-cost model for mechanical shell/git phases,
-  delegated through the harness's subagent mechanism when available.
+- **Judgment tier** — the session model itself. Planning, orchestration, risk
+  judgment, and anything user-facing. Never delegated, never handed *up*.
+- **Execution tier** — the next model down the ladder, delegated through the
+  harness's subagent mechanism when available.
+
+**Capability ladder (strongest first): Fable > Opus > Sonnet.** The tiers are
+resolved from the model the session is actually running on — do not assume the
+session is Opus:
+
+| Session model | Judgment tier (in-session) | Execution tier (subagents) |
+|---------------|----------------------------|----------------------------|
+| **Fable** | Fable — the architect: all planning and decomposition | **Opus** — *all* remaining work |
+| **Opus** | Opus | Sonnet |
+| **Sonnet** | Sonnet | Sonnet (nothing below; run inline) |
+
+A **Fable session is the architect**. It plans, decomposes, judges and talks to
+the user, then hands *every* execution phase to Opus subagents
+(`Agent(model="opus", …)`) — not only the mechanical shell/git steps listed
+below, but implementation, edits, tests and tutorial prose too. An Opus session
+behaves as it always has: it implements in-session and delegates only the
+mechanical phases to Sonnet.
 
 The main session stays on the judgment tier; bulk execution moves to the
-execution tier — no manual model toggling.
+execution tier — no manual model toggling, and no waiting to be told which
+model to use.
 
-**Delegated (mechanical phase only):**
+**Delegated (mechanical phase — the floor, always delegated at any tier):**
 
 - `ship_library` — step 3 (test, commit, push, open PR).
 - `ship_workspace` — step 3 (commit, push, smoke test, open PR, cross-reference).
 - `pre_build` — step 2 (format, generate, version bump, stage, commit, push,
   dispatch workflow).
+
+From a **Fable** session this list is a floor, not a ceiling: delegate the
+implementation phases (`start_library` / `start_workspace` source edits, script
+authoring, test writing, fix loops) to Opus as well, one subagent per coherent
+phase, using the same prompt contract below.
 
 **Stays in the judgment tier:** planning (`start_dev`), environment setup
 (`start_library`/`start_workspace`), release triage (`review_release`);
@@ -119,16 +142,17 @@ asking for the minor version, printing the summary.
 **Tutorial-prose split** (separate from skill delegation — depends on what the
 reader is there to learn):
 
-- **Judgment tier** for narrative science-teaching scripts where the
+- **Fable or Opus** for narrative science-teaching scripts where the
   docstrings/comments are the product: tutorials in `autofit_workspace`,
   `autogalaxy_workspace`, `autolens_workspace` (`overview_*`, `start_here.py`,
-  `howto*`). Execution-tier models drift to generic textbook phrasing and miss
-  domain framing here.
-- **Execution tier** for code-heavy, doc-light scripts where comments are short
+  `howto*`). Sonnet drifts to generic textbook phrasing and misses domain
+  framing here, so prose never goes below Opus — a Fable session may delegate
+  it to an Opus subagent, an Opus session keeps it in-session.
+- **Sonnet** for code-heavy, doc-light scripts where comments are short
   API-usage notes: `*_workspace_test`, `euclid_strong_lens_modeling_pipeline`
   glue, and developer/regression/smoke/parity scripts.
 - Heuristic: *"is the reader here to learn science, or to exercise code?"*
-  Science → judgment tier. Code → execution tier.
+  Science → Fable/Opus. Code → Sonnet.
 
 ## Consult Memory before substantial planning
 

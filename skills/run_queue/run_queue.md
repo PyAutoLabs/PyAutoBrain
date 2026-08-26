@@ -3,9 +3,8 @@
 Work through a queue of **PyAutoMind prompts** unattended, running each through
 the standard dev lifecycle (`start_dev → start_library/start_workspace →
 ship_*`) at that task's **effective autonomy level**, checkpointing questions,
-auto-advancing, and ending with one batch report. This is the generic loop
-extracted from `register_and_iterate` (the pytree instance, which now delegates
-here); the autonomy semantics are the contract's —
+auto-advancing, and ending with one batch report. The autonomy semantics are
+the contract's —
 [`../../AUTONOMY.md`](../../AUTONOMY.md) — never restated.
 
 **Tier note (settled):** a *skill*, not a conductor — the consult DAG forbids a
@@ -63,10 +62,9 @@ never park-and-continue past RED).
 
 ## Instances
 
-- **`register_and_iterate`** — the pytree PoC instance: adds the scaffold
-  pattern, offending-type classification and its domain judgment gates on top
-  of this loop. New task-type-specific queues follow the same shape: a thin
-  skill that adds domain gates + scaffolds, and delegates the loop here.
+None at present. A task-type-specific queue is a thin skill that adds its
+domain gates and scaffolds on top of this loop and delegates the loop itself
+here — never a fork of it.
 
 ## Hard rules
 
