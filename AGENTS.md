@@ -204,6 +204,37 @@ make the same canonical workflows discoverable to skill-aware harnesses.
 architecture prose is in [`skills/COMMANDS.md`](skills/COMMANDS.md); the
 work-type taxonomy the router uses is `PyAutoMind/ROUTING.md`.
 
+## Chat register: concise by default
+
+The default register for **chat replies** is concise — every harness and every
+session (Claude Code CLI, web, mobile; Codex; Cursor). A reply is the smallest
+thing that answers the question and says what changed. It is not a report on the
+work.
+
+- **Answer first.** Lead with the answer, the verdict, or what you did. No
+  preamble, no restatement of the request, no summary of the summary.
+- **A few lines is the default length.** One line is a good answer. Prose
+  paragraphs, file-by-file inventories and "what I did / why / next steps"
+  scaffolding are opt-in, not the baseline.
+- **Don't narrate the work.** Skip the tool-by-tool commentary, the list of
+  files read, and any recap of a diff the human can read on the branch or PR.
+- **Link, don't paste.** Point at the file, the issue, the PR, the prompt under
+  `PyAutoMind/draft/`; quote only the lines being discussed.
+
+Four things are never compressed: a **plan awaiting approval**, a **decision
+surface** a human must judge, a **failure or blocker** (say exactly what broke
+and where), and anything the human **asked to have explained**. Brevity is not a
+licence to drop the detail a decision needs.
+
+The escape hatch is a word — "expand", "in full", "explain" — and it applies to
+that reply, not the session; the register comes back on the next turn.
+
+Agent output is not chat and keeps its defined shape: a `*Decision`, a
+`ReviewSurface`, a vitals verdict, the board digest are structured artefacts
+this register does not trim. It governs the prose around them. On Claude Code
+the same default can also be pinned per-tool with an output style, but the
+register above is the portable one — it travels with the repo to every harness.
+
 <!-- repos_sync:history:begin -->
 ## Never rewrite history
 
