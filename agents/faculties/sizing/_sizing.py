@@ -78,28 +78,178 @@ def policy() -> dict:
     return _POLICY_CACHE
 
 
+_BODY_MAP_CACHE: dict = {}
+
+
+def _body_map_specs() -> dict:
+    """repo name -> its full body-map spec (the single source of repo identity).
+
+    Cached: every call site below reads it, and it is a file the process never
+    writes.
+    """
+    if not _BODY_MAP_CACHE:
+        import yaml
+
+        _BODY_MAP_CACHE.update(yaml.safe_load(BODY_MAP_PATH.read_text())["repos"])
+    return _BODY_MAP_CACHE
+
+
 def _body_map_categories() -> dict:
     """repo name -> category, from the body map (the single source of repo
     identity)."""
-    import yaml
+    return {name: spec["category"] for name, spec in _body_map_specs().items()}
 
-    data = yaml.safe_load(BODY_MAP_PATH.read_text())
-    return {name: spec["category"] for name, spec in data["repos"].items()}
+
+# --- the canonical-key rule (PyAutoBrain#287) --------------------------------
+# One repo, one key. A prompt may spell a repo three ways — `@PyAutoFit`,
+# `@autofit`, `PyAutoFit/` — and every one of them has to reach the SAME key, or
+# whichever spelling the author happened to type silently decides whether the
+# policy maps (test_witness, target_default_wiki, ...) resolve. Seven repos hit
+# that split before it was closed here — one at #267, two more at #269, and the
+# bare organ spellings plus one project repo at #287.
+#
+# THE RULE (first written down at #269, now executable): the canonical key is
+# the package the repo SHIPS where it ships one, and the repo name where it does
+# not. That asymmetry is not arbitrary — it is what prompts actually write. A
+# library is named by its import (`@autofit`); an organ ships no package, so the
+# only name it has is the repo's (`@PyAutoBrain`).
+#
+# The authority for "does it ship a package" is the body map's `package:` field —
+# repo identity, declared once, where identity lives.
+
+
+def _hand_aliases() -> dict:
+    """The alias rows a body map cannot derive.
+
+    Two kinds only: the short forms prompts use for the libraries (`aa`, `af`),
+    and the pre-rename spellings that keep ~150 archived Mind prompts routing to
+    the repo they now name (`pyautobuild` -> the Hands, and the Nerves repo's
+    former name). Neither is inferable from a body map that records only what
+    the organism is called TODAY.
+    """
+    return policy()["repo_aliases"]
+
+
+def canonical_key(name: str, spec: dict | None = None) -> str:
+    """The one key every spelling of body-map repo `name` must reach."""
+    if spec is None:
+        spec = _body_map_specs().get(name, {})
+    package = spec.get("package")
+    if package:
+        return package.lower()
+    # Fallback for a body map that predates `package:` (an adopting fork, or
+    # this repo's own CI, which pins the sibling Mind checkout to `main`): the
+    # hand table still carries the library rows, so the answer is the same one
+    # `package:` gives. Kept deliberately — it is what lets the Brain half of
+    # #287 stand alone instead of going red until the Mind half merges.
+    low = name.lower()
+    return _hand_aliases().get(low, low)
+
+
+def spellings_of(name: str, spec: dict | None = None) -> set:
+    """Every form of `name` that `_target_sets` registers as a known target.
+
+    The repo name, the `PyAuto`-stripped bare form, and the package it ships.
+    These are the spellings a guard must prove all reach one key; they are NOT
+    every string that could mention the repo (an org-qualified path like
+    `@<org>/<repo>` is handled by `normalise_repo`'s truncation).
+    """
+    if spec is None:
+        spec = _body_map_specs().get(name, {})
+    low = name.lower()
+    out = {low}
+    if low.startswith("pyauto"):
+        out.add(low[2:])
+    if spec.get("package"):
+        out.add(spec["package"].lower())
+    return out
+
+
+def unreachable_repos() -> dict:
+    """Body-map repos an @-mention can never name -> why.
+
+    ``normalise_repo`` truncates at the first ``.`` or ``/`` (so `@aa.decorators`
+    and an org-qualified `@<org>/<repo>` path both resolve to their head token).
+    A repo whose NAME contains one of those separators therefore cannot survive
+    normalisation, and registering it as a known target would be a lie: nothing
+    could ever resolve to it. Aliasing the truncated head instead would be worse
+    than the lie — where the head happens to be the ORG's own name, every
+    org-qualified mention would start resolving to that one repo.
+
+    Derived from the names themselves, so it stays right for any body map rather
+    than being a hand-kept exclusion list (PyAutoBrain#287).
+    """
+    return {
+        name: "name contains a '.' or '/', which normalise_repo truncates — "
+              "no @-mention can reach it"
+        for name in _body_map_specs()
+        if re.split(r"[./]", name, 1)[0] != name
+    }
+
+
+def _derived_aliases() -> dict:
+    """Every registered spelling of every body-map repo -> its canonical key.
+
+    This is the half of ``repo_aliases`` that must NOT be typed by hand. The
+    known-target set was always derived from the body map while the alias table
+    was maintained by hand, so the two drifted silently and the gap surfaced only
+    as a wrong-but-plausible conductor message — "strengthen tests first" for a
+    repo with a full suite (PyAutoBrain#267, #269, #287). Deriving the join means
+    a repo added to the body map arrives with its spellings already joined.
+    """
+    grouping = policy()["sizing_categories"]
+    registered = {cat for kinds in grouping.values() for cat in kinds}
+    unreachable = unreachable_repos()
+    out = {}
+    for name, spec in _body_map_specs().items():
+        if spec["category"] not in registered or name in unreachable:
+            continue
+        canonical = canonical_key(name, spec)
+        for spelling in spellings_of(name, spec):
+            out[spelling] = canonical
+    return out
+
+
+def _repo_aliases() -> dict:
+    """The effective alias table: derived join + the rows only a human can know.
+
+    A hand row that CONTRADICTS the derivation is drift, and drift in this table
+    is exactly what #287 is about — so it raises here rather than quietly
+    winning. A hand row the derivation does not cover (a short form, a rename)
+    passes through untouched.
+    """
+    derived = _derived_aliases()
+    hand = _hand_aliases()
+    conflicts = {
+        alias: (derived[alias], hand[alias])
+        for alias in hand
+        if alias in derived and hand[alias] != derived[alias]
+    }
+    if conflicts:
+        raise ValueError(
+            "config/policy.yaml repo_aliases contradicts the body map "
+            "(alias -> (derived, hand)): "
+            f"{conflicts}. The body map's `package:` field is the authority for "
+            "a repo's canonical key; fix the hand row or the package name."
+        )
+    return {**derived, **hand}
 
 
 def _target_sets() -> tuple[set, set, set]:
-    cats = _body_map_categories()
+    specs = _body_map_specs()
     pol = policy()
     grouping = pol["sizing_categories"]
+    unreachable = unreachable_repos()
 
     def names_for(kind):
         wanted = set(grouping[kind])
         out = set()
-        for name, cat in cats.items():
-            if cat in wanted:
-                out.add(name.lower())
-                if name.lower().startswith("pyauto"):
-                    out.add(name.lower()[2:])  # PyAutoFit -> autofit package form
+        for name, spec in specs.items():
+            # An unreachable repo is deliberately NOT registered: a known target
+            # nothing can resolve to is the same silent lie as a split spelling.
+            if spec["category"] in wanted and name not in unreachable:
+                out |= spellings_of(name, spec)
+                out.add(canonical_key(name, spec))
         return out
 
     libraries = names_for("library")
@@ -108,13 +258,15 @@ def _target_sets() -> tuple[set, set, set]:
     return libraries, workspaces, organism
 
 
+# Normalise an @-mention or folder name to a canonical key. Built before the
+# target sets because `canonical_key`'s pre-`package:` fallback reads the hand
+# table, and the sets register the canonical key it returns.
+REPO_ALIASES = _repo_aliases()
+
 # Targets that are source *libraries* (work classifies as library vs workspace),
 # workspaces/tutorials/example repos, and the organism's own organs — all
 # derived from the body map's categories per the policy's grouping.
 LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS = _target_sets()
-
-# Normalise an @-mention or folder name to a canonical key.
-REPO_ALIASES = policy()["repo_aliases"]
 
 # --- PyAutoMemory sub-wiki routing (shared science vocabulary) ----------------
 # Map keywords -> the PyAutoMemory sub-wiki that holds relevant context. This is
