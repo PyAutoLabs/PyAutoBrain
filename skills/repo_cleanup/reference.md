@@ -170,6 +170,13 @@ Never-touched repos fall out with their categories — `autolens_assistant` is a
 names them twice. Brain code may not name satellite repos at all (the tenant
 firewall enforces this; a hardcoded list was written first and rejected).
 
+That boundary is this sweep's alone. `repo_settings.yml` no longer shares it:
+flipping `delete_branch_on_merge` is not deleting a ref, and a body-map-derived
+target set could never see a repo in the window between its creation and its
+registration — so it lists the organisation from the GitHub API instead, and
+uses `--outside-owner` only for the body-map repos an org listing cannot
+return.
+
 ## Branches that must not simply be deleted
 
 A branch the sweep classes as *unmerged* is not automatically live work. It may

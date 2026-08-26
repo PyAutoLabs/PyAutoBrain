@@ -130,6 +130,6 @@ Format: [`reference.md`](reference.md) → "Recap".
 - A repo that still accumulates merged PR heads has **"Automatically delete head
   branches" off** (Settings → General). That setting prevents the backlog this
   skill exists to clear, and no sweep substitutes for it — dispatch
-  `repo_settings.yml` (mode `apply`) to turn it on body-map-wide, then move on.
+  `repo_settings.yml` (mode `apply`) to turn it on org-wide, then move on.
 - Cloud-session routing (dispatch `branch_sweep.yml` rather than pushing
   deletes) is in [`reference.md`](reference.md) → "Execution environments".

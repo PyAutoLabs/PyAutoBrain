@@ -1,7 +1,7 @@
 name: Repo Settings
 
-# Turns on "Automatically delete head branches" across the organism's
-# development repos, and reports any repo where it is off.
+# Turns on "Automatically delete head branches" across the organism's repos,
+# and reports any repo where it is off.
 #
 # WHY THIS EXISTS. Branch cleanup was written as a close-out step: /prm deletes
 # the head once the PR merges. That step cannot run in a cloud Claude session —
@@ -14,14 +14,23 @@ name: Repo Settings
 # workflow is the fix: with the setting on, GitHub removes each head at merge
 # and no session credential is involved at all. It is a *per-repo* setting with
 # no org-wide default, so something has to visit each repo — that something is
-# here, driven off the body map, rather than a browser tab per repo.
+# here rather than a browser tab per repo.
+#
+# WHY IT ENUMERATES THE ORG RATHER THAN THE BODY MAP. It derived its targets
+# from the body map first, and that was blind in exactly the wrong place: a
+# repo is created *before* anyone registers it, so the repos most in need of
+# the setting were the ones the sweep could not see — along with any repo whose
+# category the body map excludes for the branch sweep's sake, a boundary drawn
+# around *deleting refs* that has no bearing on flipping a boolean. Listing the
+# organisation instead means a new repo is covered the run after it exists, and
+# no category question arises. `--outside-owner` supplies the complement: the
+# body-map repos under some other account, which an org listing cannot return.
 #
 # WHY THE SCHEDULE APPLIES RATHER THAN AUDITS. Unlike the branch sweep, this
 # deletes nothing: it flips a boolean whose effect starts at the *next* merge,
 # and it is one click to undo. Left as audit-only it would report the same
 # drift every week and rely on someone acting on it — which is the failure this
-# is meant to end. A repo added to the body map after today is corrected on the
-# next run, the same way dashboard_refresh.yml self-heals a stale page.
+# is meant to end.
 
 on:
   workflow_dispatch:
@@ -47,12 +56,12 @@ jobs:
   settings:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out PyAutoBrain (the target derivation lives here)
+      - name: Check out PyAutoBrain (the complement derivation lives here)
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Check out the Mind (the body map the targets derive from)
+      - name: Check out the Mind (the body map the complement derives from)
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/PyAutoMind
@@ -69,71 +78,94 @@ jobs:
           # A repo's own GITHUB_TOKEN reaches only that repo, and this setting
           # needs admin on each one. Same credential the org-wide sweep uses.
           GH_TOKEN: ${{ secrets.PAT_PYAUTOLABS }}
+          # Passed as env rather than interpolated into the script below, so a
+          # value containing shell metacharacters cannot become shell.
+          ORG: ${{ github.repository_owner }}
+          MODE: ${{ inputs.mode }}
         run: |
           set -uo pipefail
-          mode='${{ inputs.mode }}'
-          mode="${mode:-apply}"
+          mode="${MODE:-apply}"
 
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "::error::PAT_PYAUTOLABS is not set — cannot reach sibling repos."
             exit 1
           fi
 
-          # Every development repo, the self-sweeping organs included: the
-          # setting is per-repo and they merge pull requests like anything else.
-          targets=$(python3 bin/branch_sweep_targets.py --include-self-sweeping .mind/repos.yaml)
-          if [ -z "$targets" ]; then
-            echo "::error::no repos derived from the body map — refusing to continue."
+          # Every repo in the organisation, archived ones excluded: an archived
+          # repo takes no merges, and PATCHing one fails.
+          in_org=$(gh api --paginate "orgs/$ORG/repos?per_page=100" \
+                     --jq '.[] | select(.archived == false) | .full_name')
+          if [ -z "$in_org" ]; then
+            # Distinguishable from "nothing to do": an empty listing means the
+            # PAT lost org read, and sweeping nothing would look like success.
+            echo "::error::listed no repos in $ORG — refusing to continue."
             exit 1
           fi
+
+          # The complement: body-map repos an org listing cannot return.
+          outside=$(python3 bin/branch_sweep_targets.py --outside-owner "$ORG" .mind/repos.yaml)
 
           {
             echo "## Automatically delete head branches — \`$mode\`"
             echo
-            echo "| Repo | Before | Action |"
-            echo "|---|---|---|"
+            echo "| Repo | Scope | Before | Action |"
+            echo "|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
 
           failed=0 changed=0 already=0
-          for slug in $targets; do
+
+          visit() {
+            slug="$1" scope="$2"
+            # Out-of-org repos sit under a personal account. The org PAT's
+            # admin scope there is unverified by design, so a refusal is
+            # expected and must not redden a weekly unattended run; in-org, the
+            # same refusal is a real finding.
+            case "$scope" in
+              in-org) hard=1 ;;
+              *)      hard=0 ;;
+            esac
+
             before=$(gh api "repos/$slug" --jq '.delete_branch_on_merge' 2>/dev/null)
             case "$before" in
               true)
                 already=$((already + 1))
-                echo "| \`$slug\` | on | — |" >> "$GITHUB_STEP_SUMMARY"
-                continue ;;
+                echo "| \`$slug\` | $scope | on | — |" >> "$GITHUB_STEP_SUMMARY"
+                return ;;
               false) ;;
               *)
                 echo "::warning::$slug — could not read the setting (repo missing, or the PAT cannot see it)"
-                echo "| \`$slug\` | ? | **unreadable** |" >> "$GITHUB_STEP_SUMMARY"
-                failed=1
-                continue ;;
+                echo "| \`$slug\` | $scope | ? | **unreadable** |" >> "$GITHUB_STEP_SUMMARY"
+                [ "$hard" -eq 1 ] && failed=1
+                return ;;
             esac
 
             if [ "$mode" = "audit" ]; then
-              echo "| \`$slug\` | off | would enable |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| \`$slug\` | $scope | off | would enable |" >> "$GITHUB_STEP_SUMMARY"
               changed=$((changed + 1))
-              continue
+              return
             fi
 
             # -F, not -f: the API wants a JSON boolean, not the string "true".
             if gh api -X PATCH "repos/$slug" -F delete_branch_on_merge=true --silent 2>/dev/null; then
               echo "✓ $slug — enabled"
-              echo "| \`$slug\` | off | **enabled** |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| \`$slug\` | $scope | off | **enabled** |" >> "$GITHUB_STEP_SUMMARY"
               changed=$((changed + 1))
             else
               # The read succeeded, so this is a permission ceiling, not a typo:
               # changing a repo setting needs admin, which read access does not
-              # imply. Widening the PAT is a human decision, not a retry.
+              # imply. Widening a PAT is a human decision, not a retry.
               echo "::warning::$slug — PATCH refused; the PAT needs admin on this repo"
-              echo "| \`$slug\` | off | **refused (needs admin)** |" >> "$GITHUB_STEP_SUMMARY"
-              failed=1
+              echo "| \`$slug\` | $scope | off | **refused (needs admin)** |" >> "$GITHUB_STEP_SUMMARY"
+              [ "$hard" -eq 1 ] && failed=1
             fi
-          done
+          }
+
+          for slug in $in_org; do visit "$slug" in-org; done
+          for slug in $outside; do visit "$slug" outside; done
 
           {
             echo
             echo "$already already on · $changed $([ "$mode" = audit ] && echo 'to enable' || echo 'enabled')"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          [ "$failed" -eq 0 ] || { echo "::error::one or more repos could not be read or set — see the table"; exit 1; }
+          [ "$failed" -eq 0 ] || { echo "::error::one or more repos in $ORG could not be read or set — see the table"; exit 1; }
