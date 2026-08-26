@@ -139,9 +139,24 @@ green one — a green badge is only ever emitted by a render that read
 everything and found nothing wrong.
 
 To get a complete board in a remote session, the environment needs outbound
-access to the Pages host. That is environment configuration on claude.ai
-(**Settings → the environment's network policy**), not something this repo can
-set: add `<org>.github.io`, and `objects.githubusercontent.com` if you also
-want CI artifacts to be downloadable rather than rebuilt locally. `gh` itself
-is not installable in that image — drive GitHub through the MCP tools instead
-(`skills/GITHUB_ACCESS.md`).
+access to the Pages host. That is cloud-environment configuration on claude.ai,
+not something this repo can set: open the environment selector at
+`claude.ai/code` (the cloud icon above the message box), edit the environment,
+set **Network access** to **Custom**, and add `*.github.io` — keeping **Also
+include default list of common package managers** checked, or the session loses
+PyPI and GitHub too. It takes effect on the next session, not the running one.
+
+Two hosts worth knowing about while you are there:
+
+- `*.blob.core.windows.net` — where GitHub Actions stores run artifacts and
+  logs. Blocked by default, which is why a workflow's own drift report could
+  not be downloaded and the run had to be reproduced locally instead
+  (`PyAutoMind/complete/2026/08/wiki-currency-baseline-drift.md`). It is a
+  broad entry: all of Azure Blob Storage, not just GitHub's buckets.
+- `objects.githubusercontent.com` and `raw.githubusercontent.com` are already
+  in the default Trusted list — they need no entry.
+
+The allowlist is per environment; there is no organization-level one, so an
+environment you add later starts from the defaults again. And none of this
+installs `gh` — that is not in the image at all, so GitHub still goes through
+the MCP tools (`skills/GITHUB_ACCESS.md`).
