@@ -982,6 +982,70 @@ def test_refs_findings_reach_the_default_worklist(tmp_path):
     assert rows["refs"]["count"] == len(_refs_row(tmp_path)["findings"]) > 0
 
 
+def _init_git_repo_with_branch(path, branch, default="main"):
+    """A checkout whose HEAD is `branch`, cut from an unpushed `default`.
+
+    Mirrors the state every agent session starts in: the working branch exists
+    locally, shares its tip with the default branch, and has no commits of its
+    own yet.
+    """
+    _init_git_repo(path)
+    run = lambda *a: subprocess.run(  # noqa: E731
+        ["git", "-C", str(path), *a], check=True, capture_output=True
+    )
+    run("config", "user.email", "t@example.com")
+    run("config", "user.name", "t")
+    run("checkout", "-q", "-b", default)
+    (path / "f.txt").write_text("x\n")
+    run("add", "f.txt")
+    run("commit", "-q", "-m", "base")
+    run("checkout", "-q", "-b", branch)
+
+
+def test_tidy_never_condemns_the_checked_out_branch(tmp_path):
+    # Regression: a freshly cut agent branch is an ancestor of the default
+    # branch until its first commit, so it reads merged=yes. Without a HEAD
+    # guard the conductor recommends "straight delete" of the branch the
+    # session is actively working on.
+    _init_git_repo_with_branch(
+        tmp_path / "PyAutoBrain", "claude/some-agent-run-abc123"
+    )
+
+    result = _run(["tidy", "--json"], tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    doc = json.loads(result.stdout)
+    assert [c["locator"] for c in doc["candidates"]] == []
+
+
+def test_tidy_prescan_does_not_count_the_checked_out_branch(tmp_path):
+    # The same guard on the counting leg, so the ranked worklist and the
+    # condemn plan cannot disagree about what is debris.
+    _init_git_repo_with_branch(
+        tmp_path / "PyAutoBrain", "claude/some-agent-run-abc123"
+    )
+
+    result = _run(["--json"], tmp_path)
+    rows = {row["mode"]: row for row in json.loads(result.stdout)["rows"]}
+    assert rows["tidy"]["count"] == 0
+    assert "0 stale branches" in rows["tidy"]["summary"]
+
+
+def test_tidy_still_condemns_a_branch_that_is_not_checked_out(tmp_path):
+    # The guard is narrow: only HEAD is spared, not every merged branch.
+    repo = tmp_path / "PyAutoBrain"
+    _init_git_repo_with_branch(repo, "claude/some-agent-run-abc123")
+    subprocess.run(
+        ["git", "-C", str(repo), "branch", "feature/spent"],
+        check=True,
+        capture_output=True,
+    )
+
+    doc = json.loads(_run(["tidy", "--json"], tmp_path).stdout)
+
+    assert [c["locator"] for c in doc["candidates"]] == ["feature/spent"]
+
+
 # --- Body-map-derived coverage -------------------------------------------------
 #
 # The conductor scans repositories, so WHICH repositories must come from the body
