@@ -42,6 +42,7 @@ from _sizing import (  # noqa: E402
     RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, declared_header,
     declared_inline, effective_difficulty, strip_declarations, _hits,
     policy as _sizing_policy, BODY_MAP_PATH,
+    _body_map_specs as _sizing_specs,
 )
 
 # The shared board theme: the one place that answers "what does a one-tap board
@@ -95,16 +96,28 @@ TYPE_PRECEDENCE = ["bug", "test", "docs", "refactor", "release", "maintenance",
 TARGET_SIGNALS = _sizing_policy()["target_signals"]
 
 # Human-readable display name for the header's `Target:` line.
-REPO_DISPLAY = {
-    "autonerves": "PyAutoNerves", "autoconf": "PyAutoNerves",  # autoconf = legacy alias
-    "autofit": "PyAutoFit", "autoarray": "PyAutoArray",
-    "autogalaxy": "PyAutoGalaxy", "autolens": "PyAutoLens",
-    "pyautomind": "PyAutoMind", "pyautobrain": "PyAutoBrain",
-    "pyautoheart": "PyAutoHeart", "pyautobuild": "PyAutoHands",
-    "pyautomemory": "PyAutoMemory", "autohands": "PyAutoHands",
-    "autobuild": "PyAutoHands",  # back-compat: the package was renamed autobuild -> autohands
-    "workspaces": "workspaces",
-}
+#
+# Derived from the body map, which already holds every repo's name in its real
+# capitalisation — a hand-kept copy here would be the same drift #287 closed in
+# the alias table one map over, and it already had the beginnings of it: keys the
+# router could reach (`pyautohands`, and the CTI/Reduce libraries) had no row, so
+# a header came out as `Target: pyautohands`. Only the rows a body map cannot
+# know are written out: the pre-rename spellings and the workspace bucket.
+def _repo_display() -> dict:
+    out = {
+        normalise_repo(name): name
+        for name in _sizing_specs()
+    }
+    out.update({
+        "autoconf": out.get("autonerves", "autonerves"),      # pre-rename spelling
+        "pyautobuild": out.get("pyautohands", "pyautohands"),  # pre-rename spelling
+        "autobuild": out.get("pyautohands", "pyautohands"),    # pre-rename package
+        "workspaces": "workspaces",                            # a bucket, not a repo
+    })
+    return out
+
+
+REPO_DISPLAY = _repo_display()
 PRIORITY_HIGH = ["urgent", "asap", "blocker", "blocking", "critical", "important",
                  "high priority", "must fix", "regression"]
 PRIORITY_LOW = ["someday", "nice to have", "eventually", "low priority", "minor",

@@ -4,11 +4,40 @@
 # categories at runtime; nothing here duplicates the body map).
 
 # Normalise an @-mention or folder name to a canonical target key.
+#
+# THE CANONICAL-KEY RULE: one repo, one key — the package the repo SHIPS where it
+# ships one, the repo name where it does not. So the libraries key bare
+# (`autofit`), and the organs, which ship no package, key by repo name
+# (`pyautobrain`); Nerves is the organ that ships one, so it keys `autonerves`.
+# The asymmetry is not arbitrary: it is what prompts actually write.
+#
+# MOST OF THIS TABLE IS NO LONGER WRITTEN HERE. The bare/prefixed/package join is
+# DERIVED from the body map at runtime (`_sizing._derived_aliases`), keyed off the
+# `package:` field in PyAutoMind/repos.yaml. It had to be: this table was hand-kept
+# while the known-target set was derived, so the two drifted silently and the gap
+# surfaced only as a wrong-but-plausible conductor message — four repos in a row
+# (PyAutoBrain#267, #269, #287). A row below that CONTRADICTS the derivation now
+# raises rather than quietly winning.
+#
+# What is left is what a body map cannot know:
 repo_aliases:
+  # 1. Short forms. Prompts write `@aa.decorators.to_vector_yx`, and no field in
+  #    the body map says so.
   aa: autoarray
   af: autofit
   ag: autogalaxy
   al: autolens
+  # 2. Pre-rename spellings. The body map records what the organism is called
+  #    TODAY; these keep the archived Mind prompts routing to the repo they now
+  #    name.
+  autoconf: autonerves      # back-compat: the Nerves package was renamed
+  pyautoconf: autonerves    # back-compat: the Nerves repo was renamed
+  pyautobuild: pyautohands  # back-compat: the Hands repo was renamed PyAutoBuild → PyAutoHands
+  # 3. The library rows the derivation would otherwise produce, kept as the
+  #    fallback for a body map that predates `package:` — an adopting fork, or
+  #    this repo's own CI, which pins the sibling Mind checkout to `main`.
+  #    `canonical_key` reads them only when no `package:` is declared, so they
+  #    are dead weight the moment one is, and can be deleted then.
   pyautoarray: autoarray
   pyautofit: autofit
   pyautogalaxy: autogalaxy
@@ -16,10 +45,6 @@ repo_aliases:
   pyautonerves: autonerves
   pyautocti: autocti
   pyautoreduce: autoreduce
-  autohands: pyautohands    # organs have no package, so the repo name is canonical
-  autoconf: autonerves      # back-compat: the Nerves package was renamed autoconf → autonerves
-  pyautoconf: autonerves    # back-compat: the Nerves repo was renamed PyAutoConf → PyAutoNerves
-  pyautobuild: pyautohands  # back-compat: the Hands repo was renamed PyAutoBuild → PyAutoHands
 
 # Which body-map categories mean "library-flow" / "workspace-flow" /
 # "organism-infrastructure" to the sizing faculty; extra literal targets
@@ -29,7 +54,11 @@ sizing_categories:
   workspace: [workspace, workspace_test, workspace_developer, howto, assistant, pipeline, project]
   organism: [organ]
 extra_workspace_targets: [workspaces]
-extra_organism_targets: [autohands]
+# Empty since PyAutoBrain#287: `autohands` was declared here because the bare
+# organ spellings were not derived. They are now (every spelling of every
+# body-map repo is), so a literal here would be redundant — the block stays as
+# the seam a fork uses for a target its body map does not carry.
+extra_organism_targets: []
 
 # Keyword -> PyAutoMemory sub-wiki (the wiki/<domain>/ layout; also the science
 # vocabulary the difficulty scoring keys off). Source of truth for the wiki

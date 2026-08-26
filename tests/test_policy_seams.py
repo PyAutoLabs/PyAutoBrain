@@ -35,7 +35,9 @@ def test_workspace_and_organism_sets():
     assert "howtolens" in _sizing.WORKSPACE_REPOS
     assert "workspaces" in _sizing.WORKSPACE_REPOS  # policy extra
     assert "pyautobrain" in _sizing.ORGANISM_REPOS
-    assert "autohands" in _sizing.ORGANISM_REPOS    # policy extra
+    # Derived since PyAutoBrain#287 — every spelling of every body-map repo is
+    # registered, so this no longer needs an `extra_organism_targets` literal.
+    assert "autohands" in _sizing.ORGANISM_REPOS
     # the three sets stay disjoint — a repo must classify one way
     assert not (_sizing.LIBRARY_REPOS & _sizing.WORKSPACE_REPOS)
     assert not (_sizing.LIBRARY_REPOS & _sizing.ORGANISM_REPOS)
@@ -184,3 +186,164 @@ def test_witness_repos_resolve_from_the_package_spelling_too():
         "package spelling normalises to a different key than the repo spelling "
         f"— add a repo_aliases entry joining them: {split}"
     )
+
+
+# --- the alias/known-target seam (PyAutoBrain#287) ---------------------------
+#
+# The three guards below close the defect class the witness-map guards above
+# only closed one instance of. `repo_aliases` was HAND-MAINTAINED while the
+# known-target set is DERIVED from the body map, so the two drifted silently and
+# the gap surfaced only as a wrong-but-plausible conductor message. Seven repos
+# hit it in sequence — one at #267, two more at #269, then the organs and a
+# project repo at #287. These pin the *class*: a repo may not split across two
+# keys, an alias may not point at a key nothing is filed under, and the body
+# map's `package:` must agree with the witness map.
+#
+# Every repo name here is derived from the body map, never typed: the tenant
+# firewall allows only three literals in this file, and a guard that hardcoded
+# names would stop holding for an adopting fork the moment its body map differed.
+
+
+def _sizing_category_repos():
+    """Body-map repos the sizing sets actually register, by name -> canonical key."""
+    specs = _sizing._body_map_specs()
+    grouping = _sizing.policy()["sizing_categories"]
+    registered = {c for kinds in grouping.values() for c in kinds}
+    unreachable = _sizing.unreachable_repos()
+    return {
+        name: _sizing.canonical_key(name, spec)
+        for name, spec in specs.items()
+        if spec["category"] in registered and name not in unreachable
+    }
+
+
+def test_no_repo_splits_across_two_keys():
+    """Every spelling of a registered repo must reach ONE key, and that key must
+    itself be a known target.
+
+    This is the #287 defect stated directly. `_target_sets` registers both
+    `pyautobrain` and `autobrain` as known targets, but only the prefixed one was
+    filed under, so `@autobrain` resolved to a live target with no witness row:
+    `pyauto-brain refactor` advised "strengthen tests first" for the best-tested
+    repo in the organism, and `pyauto-brain intake` filed `Target: autobrain`, a
+    folder that does not exist.
+    """
+    split = {}
+    for name, canonical in _sizing_category_repos().items():
+        keys = {s: _sizing.normalise_repo(s) for s in _sizing.spellings_of(name)}
+        if set(keys.values()) != {canonical}:
+            split[name] = keys
+        elif canonical not in _sizing.KNOWN_REPOS:
+            split[name] = f"canonical key {canonical!r} is not a known target"
+    assert not split, (
+        "repos whose spellings do not all reach one known-target key — the "
+        f"spelling a prompt happens to use decides whether routing works: {split}"
+    )
+
+
+def test_no_alias_points_at_a_key_nothing_is_filed_under():
+    """An alias whose VALUE is not a canonical key is a dead end.
+
+    That is what `pyautoconf: autoconf` had become (#267): both spellings of one
+    repo resolved, to two keys, neither of which was anything. Checking values
+    (not just keys, as the witness guards do) catches the next one at the source
+    map rather than in whichever consumer notices first.
+    """
+    canonical = set(_sizing_category_repos().values())
+    extras = set(_sizing.policy()["extra_workspace_targets"])
+    extras |= set(_sizing.policy()["extra_organism_targets"])
+    dead = {
+        alias: target
+        for alias, target in _sizing.REPO_ALIASES.items()
+        if target not in canonical
+        and _sizing.normalise_repo(target) not in canonical
+        and target not in extras
+    }
+    assert not dead, (
+        "repo_aliases rows pointing at a key no body-map repo is filed under "
+        f"— routing through them reaches nothing: {dead}"
+    )
+
+
+def test_body_map_package_agrees_with_the_witness_map():
+    """The body map's `package:` and the witness map must corroborate each other.
+
+    A `<Repo>/test_<pkg>` witness row names the package that repo ships; so does
+    `repos.yaml`. Two independent statements of one fact are only worth having if
+    something compares them — #269 verified every witness row by reading each
+    repo's own tree, and this pins the body map to that verified evidence rather
+    than to a second, unchecked transcription.
+
+    ALL-OR-NOTHING, not lockstep. A body map that declares NO package anywhere
+    simply predates the field (this repo's CI pins the sibling Mind checkout to
+    `main`, and an adopting fork may never adopt it) — absence is an older map,
+    not a contradiction, so there is nothing to compare and the guard stands
+    down. Once the map declares even one, every witness row that names a package
+    must have one: a PARTIALLY declared map is the drift this exists to catch,
+    and is what a new library added without its `package:` would look like.
+    """
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "refactor"))
+    import _refactor
+
+    specs = _sizing._body_map_specs()
+    if not any("package" in spec for spec in specs.values()):
+        return  # a body map from before the field existed — nothing to corroborate
+
+    disagree = {}
+    for key, witness in _refactor.TEST_WITNESS.items():
+        repo, _, test_dir = witness.partition("/")
+        declared = specs.get(repo, {}).get("package")
+        if test_dir.startswith("test_"):
+            witnessed = test_dir[len("test_"):]
+            if declared != witnessed:
+                disagree[repo] = f"repos.yaml package={declared!r}, witness names {witnessed!r}"
+        elif declared is not None:
+            disagree[repo] = (
+                f"repos.yaml declares package={declared!r} but the witness row is "
+                f"{witness!r} — a plain tests/ dir names no package"
+            )
+    assert not disagree, (
+        "body map and witness map disagree about which package a repo ships: "
+        f"{disagree}"
+    )
+
+
+def test_unreachable_repos_are_excluded_rather_than_half_registered():
+    """The acceptance criterion's other branch: deliberately NOT registered.
+
+    ``normalise_repo`` truncates at the first ``.``/``/``, so a repo whose name
+    carries one can never be reached by an @-mention. The tempting fix — alias
+    the truncated head — is worse than the gap: where that head is the ORG's own
+    name, every org-qualified ``@<org>/<repo>`` mention would resolve to that one
+    repo. Excluding such a repo is therefore the deliberate choice, and this pins
+    BOTH halves of it: it is out of the known targets, and the org-qualified path
+    it would have hijacked still does not resolve to it.
+    """
+    for name in _sizing.unreachable_repos():
+        assert name not in _sizing.KNOWN_REPOS, name
+        head = name.split(".")[0].split("/")[0]
+        assert _sizing.normalise_repo(head) not in _sizing.KNOWN_REPOS, (
+            f"the truncated head of {name!r} resolves to a known target — an "
+            "org-qualified mention would be hijacked by it"
+        )
+
+
+def test_canonical_keys_survive_a_body_map_without_package():
+    """The Brain half must stand alone against a Mind that predates `package:`.
+
+    This repo's CI checks the sibling Mind out at `main`, and an adopting fork's
+    body map may never carry the field at all. `canonical_key` therefore falls
+    back to the hand table, which still holds the library rows — so the keys come
+    out identical either way. Without this the fix would be un-mergeable except
+    in lockstep, and the fallback would be the kind of load-bearing path nothing
+    exercises until it breaks.
+    """
+    specs = {
+        name: {k: v for k, v in spec.items() if k != "package"}
+        for name, spec in _sizing._body_map_specs().items()
+    }
+    for name, stripped in specs.items():
+        assert _sizing.canonical_key(name, stripped) == _sizing.canonical_key(name), (
+            f"{name}: canonical key moves when `package:` is absent — the "
+            "pre-package fallback in config/policy.yaml no longer covers it"
+        )
