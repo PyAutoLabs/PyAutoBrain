@@ -32,8 +32,16 @@ Sweeping them centrally too would put two sweepers on one repo with different
 credentials. "Mind" and "Brain" are organism roles present in any fork, so
 naming them here is not an instance fact.
 
+The self-sweeping exclusion is the *sweep's* boundary, not the body map's, so
+a second consumer can ask for it back. `--include-self-sweeping` yields every
+development repo including the Mind and the Brain — what the repo-settings
+sweep wants, because "delete the head branch on merge" is a per-repo setting
+that has to be on in those two as much as anywhere else, and no second sweeper
+collides over a settings PATCH.
+
 Usage:
     branch_sweep_targets.py <path-to-repos.yaml>   # one owner/repo per line
+    branch_sweep_targets.py --include-self-sweeping <path-to-repos.yaml>
 """
 
 from __future__ import annotations
@@ -53,29 +61,42 @@ SWEEPABLE_CATEGORIES = frozenset(
 SELF_SWEEPING_ORGANS = frozenset({"Mind", "Brain"})
 
 
-def targets(body_map: dict) -> list[str]:
-    """The sweepable `owner/repo` slugs, in body-map order."""
+def targets(body_map: dict, include_self_sweeping: bool = False) -> list[str]:
+    """The development `owner/repo` slugs, in body-map order.
+
+    `include_self_sweeping` keeps the organs that host their own branch
+    sweeper. Only the branch sweep needs them dropped (two sweepers on one
+    repo would contend); a consumer that flips a repo setting does not.
+    """
     out = []
     for entry in body_map["repos"].values():
         if entry.get("category") not in SWEEPABLE_CATEGORIES:
             continue
-        if entry.get("organ") in SELF_SWEEPING_ORGANS:
+        if not include_self_sweeping and entry.get("organ") in SELF_SWEEPING_ORGANS:
             continue
         out.append(entry["github"])
     return out
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(f"usage: {Path(argv[0]).name} <path-to-repos.yaml>", file=sys.stderr)
+    args = argv[1:]
+    include_self_sweeping = False
+    if "--include-self-sweeping" in args:
+        include_self_sweeping = True
+        args = [a for a in args if a != "--include-self-sweeping"]
+    if len(args) != 1 or args[0].startswith("-"):
+        print(
+            f"usage: {Path(argv[0]).name} [--include-self-sweeping] <path-to-repos.yaml>",
+            file=sys.stderr,
+        )
         return 2
     import yaml
 
-    path = Path(argv[1])
+    path = Path(args[0])
     if not path.is_file():
         print(f"branch_sweep_targets: no body map at {path}", file=sys.stderr)
         return 1
-    for slug in targets(yaml.safe_load(path.read_text())):
+    for slug in targets(yaml.safe_load(path.read_text()), include_self_sweeping):
         print(slug)
     return 0
 

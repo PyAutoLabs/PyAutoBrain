@@ -129,6 +129,12 @@ surface exposed to those sessions has no delete-ref call. Try it once and you
 have learned nothing the next session does not already know; do not retry, and
 do not route around it.
 
+Worse, you may not even learn *that*. Git prints the 403 to stderr and then
+finishes with `Everything up-to-date` and **exit status 0**, so a caller reading
+the tail or the exit code sees a successful delete of a branch that is still on
+origin. Never treat a `--delete` push here as evidence of anything;
+`git ls-remote --heads origin <branch>` is the only ground truth.
+
 Instead **dispatch the repo's own sweep**, which runs the same gates under a
 workflow `GITHUB_TOKEN` that does have `contents: write`:
 
@@ -199,8 +205,13 @@ unaffected: their heads live in the fork.)
 survive has *Settings → General → "Automatically delete head branches"* off.
 That single toggle removes each head at merge and stops the backlog forming;
 this sweep is the backstop for what predates it, for branches pushed without a
-PR, and for heads whose PR closed unmerged. Claude cannot set it (no
-repo-settings tool) — flag it for the human once, then move on.
+PR, and for heads whose PR closed unmerged. There is no repo-settings *tool*,
+but there is a workflow: dispatch **`repo_settings.yml`** in PyAutoBrain (mode
+`apply`) and it turns the setting on across every development repo in the body
+map, including any added since. It also runs weekly, so a repo born after today
+is corrected without anyone noticing it drifted. Report a repo it lists as
+`refused (needs admin)` to the human — that is a PAT scope, not something to
+retry.
 
 Whichever environment: resolve each repo's `<owner>/<repo>` from the `github:`
 field in `PyAutoMind/repos.yaml` (the body map is the single source of repo

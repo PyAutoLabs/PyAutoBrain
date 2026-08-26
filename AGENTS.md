@@ -171,7 +171,7 @@ via `/route`, and it routes to the right agent; normal usage never says
 work-type fixed (no dedicated conductor — added only on demonstrated need, never
 for symmetry); `/prm` composes the
 end-of-task close-out (CI green → merge → issue closed → Mind `active/` →
-`complete/` → dashboard reconciled and regenerated → worktree and branches
+`complete/` → dashboard reconciled and regenerated → worktree and local branches
 removed); `/brain
 <agent>` is the raw passthrough. Every command routes **through** the Brain;
 none replaces it.

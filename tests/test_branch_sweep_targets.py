@@ -73,6 +73,75 @@ def test_self_sweeping_organs_are_excluded_by_role_not_name():
     assert mod.targets(body) == ["Org/TheHeart"]
 
 
+def test_include_self_sweeping_keeps_the_organs_that_sweep_themselves():
+    """The exclusion belongs to the sweep, not to the body map.
+
+    repo_settings.yml flips `delete_branch_on_merge` per repo, and the Mind and
+    the Brain need it on as much as anything else — two sweepers would contend
+    over branches, two PATCHes of the same boolean would not.
+    """
+    body = _body_map(
+        {
+            "TheMind": {"github": "Org/TheMind", "category": "organ", "organ": "Mind"},
+            "TheBrain": {"github": "Org/TheBrain", "category": "organ", "organ": "Brain"},
+            "TheHeart": {"github": "Org/TheHeart", "category": "organ", "organ": "Heart"},
+            "Sci": {"github": "Org/Sci", "category": "assistant"},
+        }
+    )
+    assert mod.targets(body, include_self_sweeping=True) == [
+        "Org/TheMind",
+        "Org/TheBrain",
+        "Org/TheHeart",
+    ]
+    # Widening the organ exclusion must not widen the category boundary.
+    assert "Org/Sci" not in mod.targets(body, include_self_sweeping=True)
+
+
+def test_cli_flag_matches_the_function(tmp_path):
+    import subprocess
+    import sys
+
+    import yaml
+
+    path = tmp_path / "repos.yaml"
+    path.write_text(
+        # sort_keys=False: the output order is body-map order, and an
+        # alphabetised dump would test the dumper instead of the module.
+        yaml.safe_dump(
+            _body_map(
+                {
+                    "TheMind": {"github": "Org/TheMind", "category": "organ", "organ": "Mind"},
+                    "Lib": {"github": "Org/Lib", "category": "library"},
+                }
+            ),
+            sort_keys=False,
+        )
+    )
+    script = str(BRAIN_HOME / "bin" / "branch_sweep_targets.py")
+    plain = subprocess.run([sys.executable, script, str(path)], capture_output=True, text=True)
+    assert plain.stdout.split() == ["Org/Lib"], plain.stderr
+    widened = subprocess.run(
+        [sys.executable, script, "--include-self-sweeping", str(path)],
+        capture_output=True,
+        text=True,
+    )
+    assert widened.stdout.split() == ["Org/TheMind", "Org/Lib"], widened.stderr
+
+
+def test_cli_rejects_an_unknown_flag(tmp_path):
+    """A typo'd flag must not read as "no flag" and silently sweep the wrong set."""
+    import subprocess
+    import sys
+
+    proc = subprocess.run(
+        [sys.executable, str(BRAIN_HOME / "bin" / "branch_sweep_targets.py"), "--include-everything", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 2
+    assert "usage:" in proc.stderr
+
+
 def test_unknown_category_is_excluded_not_swept():
     """A category nobody has classified yet must fail closed."""
     body = _body_map(
