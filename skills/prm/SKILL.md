@@ -8,11 +8,9 @@ description: The last thing you type for a task — "PR, CI green, then merge", 
 Follow [`prm.md`](prm.md) exactly; gh + close-out mechanics in
 [`reference.md`](reference.md).
 
-Composition door — it owns no agent and re-derives nothing: the merge gates come
-from `/ship_library` / `/ship_workspace`, the CI verdict from GitHub Actions, the
-lifecycle from PyAutoMind, the dashboard render from `/intake`. Typing `/prm`
-authorizes the **whole** close-out — merge, issue close, `active/` →
-`complete/`, the dashboard reconciled and regenerated, worktree and local-branch
-removal — so it runs to the end without asking again. It still refuses on red, pending,
-conflicting, an unmerged upstream library PR, or an unmerged sibling branch, and
-asks once before deleting a worktree that holds irreplaceable data products.
+Composition door — it owns no agent and re-derives nothing: merge gates from
+`/ship_*`, the CI verdict from GitHub Actions, the lifecycle from PyAutoMind, the
+render from `/intake`. Typing `/prm` authorizes the **whole** close-out, so it
+runs to the end without asking again — but still refuses on red, pending,
+conflicting, an unmerged upstream library PR or sibling branch, and asks once
+before deleting a worktree holding irreplaceable data products.
