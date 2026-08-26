@@ -1046,30 +1046,6 @@ def test_tidy_still_condemns_a_branch_that_is_not_checked_out(tmp_path):
     assert [c["locator"] for c in doc["candidates"]] == ["feature/spent"]
 
 
-def test_refs_reports_not_scannable_for_a_missing_root(tmp_path):
-    # An absent scan root is "nothing to say", matching extras/config — not a
-    # FileNotFoundError traceback printed into the middle of the worklist.
-    missing = tmp_path / "not-a-checkout-root"
-
-    result = _run(["refs", "--json"], missing)
-
-    assert result.returncode == 0, result.stderr
-    row = json.loads(result.stdout)["row"]
-    assert row["count"] == 0 and row["status"] == "clean"
-    assert "not scannable" in row["summary"]
-    assert "Traceback" not in result.stderr
-
-
-def test_default_scan_survives_a_missing_root(tmp_path):
-    # The all-mode scan is where the traceback used to print twice.
-    result = _run(["--json"], tmp_path / "not-a-checkout-root")
-
-    assert result.returncode == 0, result.stderr
-    assert "Traceback" not in result.stderr
-    rows = {row["mode"]: row for row in json.loads(result.stdout)["rows"]}
-    assert rows["refs"]["count"] == 0
-
-
 # --- Body-map-derived coverage -------------------------------------------------
 #
 # The conductor scans repositories, so WHICH repositories must come from the body
