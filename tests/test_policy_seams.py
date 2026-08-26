@@ -273,11 +273,22 @@ def test_body_map_package_agrees_with_the_witness_map():
     something compares them — #269 verified every witness row by reading each
     repo's own tree, and this pins the body map to that verified evidence rather
     than to a second, unchecked transcription.
+
+    ALL-OR-NOTHING, not lockstep. A body map that declares NO package anywhere
+    simply predates the field (this repo's CI pins the sibling Mind checkout to
+    `main`, and an adopting fork may never adopt it) — absence is an older map,
+    not a contradiction, so there is nothing to compare and the guard stands
+    down. Once the map declares even one, every witness row that names a package
+    must have one: a PARTIALLY declared map is the drift this exists to catch,
+    and is what a new library added without its `package:` would look like.
     """
     sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "refactor"))
     import _refactor
 
     specs = _sizing._body_map_specs()
+    if not any("package" in spec for spec in specs.values()):
+        return  # a body map from before the field existed — nothing to corroborate
+
     disagree = {}
     for key, witness in _refactor.TEST_WITNESS.items():
         repo, _, test_dir = witness.partition("/")

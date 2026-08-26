@@ -183,7 +183,7 @@ def unreachable_repos() -> dict:
         name: "name contains a '.' or '/', which normalise_repo truncates — "
               "no @-mention can reach it"
         for name in _body_map_specs()
-        if re.split(r"[./]", name, 1)[0] != name
+        if re.split(r"[./]", name, maxsplit=1)[0] != name
     }
 
 
