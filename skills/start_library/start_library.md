@@ -9,6 +9,12 @@ Workflow entry point — the worktree/branch setup is the dev workflow's own
 state is **Mind**. Read [`../WORKFLOW.md`](../WORKFLOW.md) for the organ boundary,
 the worktree helpers, the execution-environment model, and the registry paths.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Steps
 
 ### 1. Conflict guard

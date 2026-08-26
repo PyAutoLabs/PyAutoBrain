@@ -160,6 +160,21 @@ Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install)
 it resolves the sibling `pyauto-heart` and `autohands` binaries from PATH or the
 `~/Code/PyAutoLabs/` checkouts.
 
+## Remote sessions: two lines that pay for themselves
+
+Measured in a web/mobile container, where this file is loaded and little else is.
+
+- **Tests run 3.5x faster in parallel** — 4 cores, subprocess-heavy suites, no
+  single slow test: this repo's 554 tests are 96s on one core and 28s on four.
+  Use `python3 -m pytest -q -n auto`.
+- **A session holding several organs registers no SessionStart hook.** Claude
+  Code reads project hooks from the project directory, which in that layout is
+  the repos' *parent*, not a repo. So knock on the door yourself in the first
+  turn: `bash PyAutoMind/scripts/session_bootstrap.sh` (add `--check` to report
+  only). `bin/pyauto-brain` already calls it before every verb. The symptom of
+  skipping it is a pytest that is not this workspace's — collection
+  `ImportError`s naming `yaml`, or `No module named pytest`.
+
 ## The command surface (Brain implicit)
 
 The verb table above is the machinery; humans drive it through short commands
@@ -171,7 +186,8 @@ via `/route`, and it routes to the right agent; normal usage never says
 work-type fixed (no dedicated conductor — added only on demonstrated need, never
 for symmetry); `/prm` composes the
 end-of-task close-out (CI green → merge → issue closed → Mind `active/` →
-`complete/` → worktree and branches removed); `/brain
+`complete/` → dashboard reconciled and regenerated → worktree and local branches
+removed); `/brain
 <agent>` is the raw passthrough. Every command routes **through** the Brain;
 none replaces it.
 

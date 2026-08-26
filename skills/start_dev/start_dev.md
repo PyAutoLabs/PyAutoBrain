@@ -12,6 +12,12 @@ risk judgement belong to Brain. Read
 Brain-agent entry points, Memory consultation, the execution-environment model,
 and the Mind registry paths used below.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Usage
 
 ```

@@ -15,7 +15,8 @@
 # but something a human should read.
 
 set -u
-command -v gh >/dev/null 2>&1 || { echo "gh not found — cannot fetch run status" >&2; exit 1; }
+. "$(dirname "${BASH_SOURCE[0]}")/_gh.sh"
+have_gh || { echo "overnight_status: cannot fetch run status" >&2; require_gh overnight_status; exit 1; }
 
 # owner/repo:workflow-file  (owner defaults to PyAutoLabs when omitted). The
 # passive morning webhooks (morning_health / morning_status) are excluded.
