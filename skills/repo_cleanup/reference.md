@@ -4,6 +4,12 @@ Factored out of `SKILL.md`. The body is authoritative for the flow; this holds
 the audit commands, the dashboard layout, the per-bucket execution recipes, the
 recap, and the execution-environment fallback.
 
+> **GitHub surface.** The `gh` commands below name the *operation*, not
+> necessarily the command: a Claude Code remote session has no `gh` and
+> reaches GitHub through the `mcp__github__*` tools instead. Probe once
+> (`command -v gh`) and translate via
+> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+
 ## Audit canonical checkouts
 
 For each in-scope repo at `$PYAUTO_MAIN/<repo>`:

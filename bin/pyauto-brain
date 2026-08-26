@@ -46,6 +46,8 @@ set -u
 
 _self="$(readlink -f "${BASH_SOURCE[0]}")"
 BRAIN_HOME="$(cd "$(dirname "$_self")/.." && pwd)"
+# The one workspace-root resolver (also sourced by agents/_common.sh).
+. "$BRAIN_HOME/bin/_pyauto_root.sh"
 AGENTS_DIR="$BRAIN_HOME/agents"
 
 CONDUCTORS_DIR="$AGENTS_DIR/conductors"
@@ -153,6 +155,29 @@ EOF
   echo "Run 'pyauto-brain help <agent>' for that agent's full docs."
 }
 
+# Every verb runs through here, which makes this the one place guaranteed to
+# execute in a remote session — so it is where the session environment gets
+# guaranteed too.
+#
+# The SessionStart hook is the proper mechanism and does the work; but Claude
+# Code registers project hooks from the session's project directory, and a
+# session holding several organs clones them side by side *under* that
+# directory. The project directory is then their parent: not a repo, no
+# `.claude/`, no hook registered. Multi-repo sessions therefore came up on the
+# container's Python 3.11 — below this organism's floor and below every CI leg,
+# with mypy and flake8 judging code against 3.11 rules.
+#
+# Idempotent and ~0.2s warm, so this is cheap insurance rather than a gate: a
+# missing or failing bootstrap never blocks a verb.
+ensure_session_environment() {
+  [[ "${CLAUDE_CODE_REMOTE:-}" == "true" ]] || return 0
+  [[ -z "${PYAUTO_SKIP_BOOTSTRAP:-}" ]] || return 0
+  local boot
+  boot="$PYAUTO_ROOT/PyAutoMind/scripts/session_bootstrap.sh"
+  [[ -x "$boot" ]] || return 0
+  bash "$boot" >/dev/null 2>&1 || true
+}
+
 main() {
   local sub="${1:-help}"
   case "$sub" in
@@ -163,6 +188,7 @@ main() {
       ;;
   esac
   shift
+  ensure_session_environment
   local script="${AGENT_SCRIPT[$sub]:-}"
   if [[ -z "$script" || ! -f "$script" ]]; then
     echo "pyauto-brain: unknown agent '$sub'" >&2

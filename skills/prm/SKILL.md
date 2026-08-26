@@ -1,6 +1,6 @@
 ---
 name: prm
-description: The last thing you type for a task — "PR, CI green, then merge", then the full close-out. Watches a feature PR's checks until every workflow run and every matrix leg is green, merges (library-first gate honoured), closes the issue, moves the PyAutoMind prompt active/ → complete/, reconciles and regenerates the Mind dashboard, removes the task worktree and deletes the merged branches. Use when the user says merge this PR once CI is green, close this task out, or types /prm. Runs anywhere gh is authenticated: CLI, mobile Claude Code chat, Codex.
+description: The last thing you type for a task — "PR, CI green, then merge", then the full close-out. Watches a feature PR's checks until every workflow run and every matrix leg is green, merges (library-first gate honoured), closes the issue, moves the PyAutoMind prompt active/ → complete/, reconciles and regenerates the Mind dashboard, removes the task worktree and deletes the merged branches. Use when the user says merge this PR once CI is green, close this task out, or types /prm. Runs on any GitHub surface — gh on a local CLI, the GitHub MCP tools in a mobile or web session, Codex.
 ---
 
 # /prm — PR, CI green, then merge, then close the task out

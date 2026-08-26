@@ -59,6 +59,11 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# This driver writes GitHub Actions variables and reads run state; without gh it
+# cannot do either, and a release driver must not discover that halfway through.
+. "$HERE/../../../bin/_gh.sh"
+require_gh nightly || exit $?
 source "$HERE/../../_common.sh"
 
 BRAIN_REPO="PyAutoLabs/PyAutoHands"   # where release-blocker labels are curated first

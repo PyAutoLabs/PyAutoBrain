@@ -9,6 +9,8 @@ and hands back a ledger of what it did.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 gh mechanics + snippets: [`reference.md`](reference.md).
+No `gh` in this session? [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md) maps every
+step below onto the GitHub MCP tools.
 
 ## Principle: compose, don't recompute
 
@@ -31,16 +33,30 @@ generated page.
 /prm --no-wait            # judge CI once and report; merge only if already green
 ```
 
-## Environment: runs anywhere gh is authenticated
+## Environment: decide your GitHub surface first
 
-Local CLI, mobile Claude Code chat, and Codex all work — every step is `gh`, no
-checkout required. Detect which you are in:
+Local CLI, mobile Claude Code chat, and Codex all work — but **not all of them
+have `gh`**. This page spells its GitHub steps as `gh` commands because that is
+the clearest way to name each operation; on a surface without `gh` they are the
+*operation*, not the command. Read
+[`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md) once and translate as you go.
 
-- **Local** — `$PYAUTO_ROOT` (default `~/Code/PyAutoLabs`) holds the sibling
-  repos. Branch detection and post-merge worktree cleanup are available.
-- **Remote (mobile/codex)** — no multi-repo checkout. Resolve the PR from the
-  argument or by listing candidates (below), and **skip the local-only cleanup**
-  with a one-line note. Never `cd` into a repo that isn't there.
+Probe both axes once, at the start of the run, and remember the answers:
+
+```bash
+command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
+    && echo "gh" || echo "mcp"      # which GitHub surface
+```
+
+- **Local** — `$PYAUTO_ROOT` (see `bin/_pyauto_root.sh`) holds the sibling repos,
+  and `gh` is normally present. Branch detection and post-merge worktree cleanup
+  are available.
+- **Remote (mobile/web/codex)** — no multi-repo checkout, and **no `gh` at all**:
+  GitHub access is the `mcp__github__*` tool surface. Resolve the PR from the
+  argument or by listing candidates (below), drive every step through MCP, and
+  **skip the local-only cleanup** with a one-line note. Never `cd` into a repo
+  that isn't there, and never report the close-out blocked for want of `gh` —
+  everything below except deleting a branch has an MCP equivalent.
 - **Proxied web session (Claude Code on the web)** — remote as above, **plus it
   cannot delete remote branches at all**: the egress proxy refuses ref deletions.
   Probe once, before the close-out, and remember the answer for the whole run:
@@ -59,7 +75,8 @@ checkout required. Detect which you are in:
 
 In order: explicit argument → current branch (`gh pr view --json` in the repo you
 are in) → the claimed task in `PyAutoMind/active.md` (its `library-pr:` /
-`workspace-pr:` entries; on mobile read it with `gh api`) → `gh pr list` across
+`workspace-pr:` entries; without a checkout read it with `gh api` or the MCP
+`get_file_contents` tool) → `gh pr list` across
 the claimed repos. If more than one candidate survives, **list them numbered and
 ask once** — never guess which PR to merge. Report each target as
 `owner/repo#N — title — branch` before doing anything.

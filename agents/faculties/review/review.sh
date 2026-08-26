@@ -12,7 +12,7 @@
 # vitals faculty).
 #
 # Usage:
-#   review.sh --task <task-name>            # resolve ~/Code/PyAutoLabs-wt/<task>/
+#   review.sh --task <task-name>            # resolve <workspace-root>-wt/<task>/
 #   review.sh --repo <path> [--repo ...]    # explicit repo checkouts
 #   review.sh ... --json                    # machine-readable ReviewSurface
 
