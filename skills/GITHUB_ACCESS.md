@@ -35,7 +35,7 @@ command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
 - **`mcp`** — the `gh` lines are *the operation to perform*, not the command to
   run. Translate with the table below. Do not try to install `gh`, and do not
   report the task as blocked: the MCP surface can do everything the close-out
-  needs except delete a branch.
+  needs — deleting a branch is not one of the things it needs (below).
 
 A session cannot be half-and-half. Probe once; don't re-probe per step.
 
@@ -74,9 +74,12 @@ Tool names are given unprefixed; the harness exposes them as
 ## What the MCP surface cannot do
 
 - **Delete a remote branch.** There is no MCP tool for it, and in a proxied web
-  session `git push origin --delete` is refused by the egress proxy anyway.
-  Branch cleanup is out of scope for such a run: skip it silently rather than
-  reporting a failed close-out. (`/prm` already documents this probe.)
+  session `git push origin --delete` is refused by the egress proxy — *silently*:
+  the 403 goes to stderr, git then prints `Everything up-to-date` and exits 0, so
+  the run cannot tell the delete failed and will report one that never happened.
+  Never run it here. No workflow asks you to: GitHub deletes a merged PR's head
+  itself (`repo_settings.yml` keeps that setting on), and `branch_sweep.yml`
+  sweeps the rest. Nothing about branch cleanup belongs in an MCP-surface run.
 - **Reach a repo outside the session's scope.** The session is scoped to a
   repository set at start; `add_repo` extends it. A call outside that scope is
   denied — that is the scope working, not an auth problem to route around.

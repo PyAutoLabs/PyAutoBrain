@@ -4,7 +4,7 @@ The end-of-task shortcut for "PR CI green then merge" — and the **full task
 close-out**: the last thing you type for a task. It watches the feature PR's
 checks, merges the moment they are genuinely green, then closes the task out
 completely — issue closed, PyAutoMind moved `active/` → `complete/`, the Mind's
-`dashboard.md` reconciled and regenerated, worktree removed, branches deleted —
+`dashboard.md` reconciled and regenerated, worktree and local branches removed —
 and hands back a ledger of what it did.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
@@ -41,7 +41,7 @@ the clearest way to name each operation; on a surface without `gh` they are the
 *operation*, not the command. Read
 [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md) once and translate as you go.
 
-Probe both axes once, at the start of the run, and remember the answers:
+Probe the GitHub surface once, at the start of the run, and remember the answer:
 
 ```bash
 command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
@@ -56,18 +56,14 @@ command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
   argument or by listing candidates (below), drive every step through MCP, and
   **skip the local-only cleanup** with a one-line note. Never `cd` into a repo
   that isn't there, and never report the close-out blocked for want of `gh` —
-  everything below except deleting a branch has an MCP equivalent.
-- **Proxied web session (Claude Code on the web)** — remote as above, **plus it
-  cannot delete remote branches at all**: the egress proxy refuses ref deletions.
-  Probe once, before the close-out, and remember the answer for the whole run:
+  every step below has an MCP equivalent.
 
-  ```bash
-  curl -sf "$HTTPS_PROXY/__agentproxy/status" >/dev/null && echo "ref deletes blocked"
-  ```
-
-  An answer means every `git push origin --delete` in this run will fail. Branch
-  cleanup is then **out of scope for the run**: don't attempt it, and don't
-  mention it — see step 5.
+There is no second probe for branch deletion, because **`/prm` no longer deletes
+remote branches on any surface**. GitHub does it at merge (the repo setting
+`repo_settings.yml` keeps on), and `branch_sweep.yml` sweeps whatever escapes.
+Attempting it anyway is worse than useless in a web session: the push 403s
+behind the proxy, then prints `Everything up-to-date` and **exits 0**, so the
+run reports a deletion that never happened. Detail: reference.md step 6.
 
 ## The routine
 
@@ -118,8 +114,8 @@ Green on every leg → merge, in this order:
 2. `gh pr merge <n> --merge` per PR (add `-R owner/repo` when you have no
    checkout), then confirm the resulting state is `MERGED` — a queued or
    auto-merge state is not a merge. Do **not** pass `--delete-branch`: it deletes
-   the local branch too, which fails or orphans a task worktree. Branch deletion
-   belongs to the post-merge cleanup in step 5.
+   the local branch too, which fails or orphans a task worktree. The remote head
+   goes at merge without being asked (step 5.6).
 
 Never force, never override a protection, never rewrite history. If a merge is
 refused by GitHub, report the reason verbatim and stop.
@@ -202,17 +198,19 @@ step 6. Order is forced by the tooling, so do not reorder:
 5. **Worktree** — `worktree_remove <task>` (source `bin/worktree.sh`, `PYAUTO_MAIN`
    set), never `rm -rf`. It refuses on a dirty repo and on a claim still
    registered in `active.md` — which is exactly why step 3 comes first.
-6. **Branches** — delete the remote `feature/<task>` per proven-merged repo, plus
-   any local branch left in the canonical checkout. Never delete a branch whose
-   merge you did not prove in sub-step 1. **Where the environment cannot delete
-   remote refs** (proxied web session, above), this sub-step does not exist:
-   attempt nothing, and report nothing about it. `/repo_cleanup` finds those
-   branches on origin by itself, so silence here loses nothing.
+6. **Local branches only** — delete any local `feature/<task>` left in the
+   canonical checkout, and never one whose merge you did not prove in sub-step 1.
+   **The remote branch is not yours to delete.** GitHub removes a merged PR's
+   head itself, so there is nothing here to do and nothing to report — no line
+   in the ledger, not "deferred", not "blocked". Where a head survives anyway
+   (pushed without a PR, PR closed unmerged, the setting off in that repo), the
+   sweeper collects it: `branch_sweep.yml` per repo, `branch_sweep_all.yml`
+   org-wide, `/repo_cleanup` locally.
 7. **Report the ledger** — PRs merged, issue closed, record path, `active.md`
    released, **dashboard regenerated** (plus any sibling prompt retired, and any
    suspect left standing with its `/intake reconcile` prefix), worktree removed,
-   branches deleted, and anything skipped. Branches are simply absent from the
-   ledger where sub-step 6 did not apply. The dashboard line is not optional
+   and anything skipped. Remote branches are simply not a line: sub-step 6 does
+   not touch them. The dashboard line is not optional
    prose: if you cannot write it, leg 4.3 did not run — go back and run it.
 
 **Remote (mobile/codex):** sub-steps 1 and 2 run over `gh`/`git ls-remote` as
@@ -222,8 +220,9 @@ the renderer is Brain's; with only Mind, do its sweep and reconcile legs and say
 the render
 is left to `dashboard_refresh.yml`; with neither, say the whole leg is pending
 rather than implying the page is true. The worktree (5) is local-only — name it
-as outstanding rather than implying it ran. Branches (6) delete normally from
-mobile and Codex; a proxied web session drops the sub-step silently.
+as outstanding rather than implying it ran. Branches (6) are local-only too, so
+with no checkout the sub-step is simply empty — and silently so, since there is
+no remote half of it left to defer.
 
 ### 6. The only guards that stop you
 
