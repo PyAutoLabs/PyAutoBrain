@@ -99,11 +99,14 @@ def test_every_backlog_prompt_is_one_collapsed_row_not_a_wide_table(tmp_path):
         "feature/widgets/two.md": _prompt("Feature two"),
     })
     page = _page(mind)
-    backlog = page.split("## Backlog")[1]
+    # The Backlog SECTION, not "everything after Backlog": Bundles renders a
+    # members table directly below it (a bundle is a comparison of four rows,
+    # not a 133-row pick list), and that table is not a backlog regression.
+    backlog = page.split("## Backlog")[1].split("\n## ")[0]
     assert ('<details><summary>📋 <a href="draft/bug/widgets/one.md">'
             "Bug one</a> — ") in backlog
     assert '<a href="draft/feature/widgets/two.md">Feature two</a>' in backlog
-    # The only table on the page is the 2-column where/count summary.
+    # No table in the backlog itself — a wide table is what this pins against.
     assert backlog.count("|") == 0, "the backlog must not render as tables"
     assert "<summary><b>bug</b> — 1</summary>" in backlog, \
         "long sections must be collapsible"
@@ -835,3 +838,351 @@ def test_issued_beats_filed_on_a_prompt_carrying_both(tmp_path):
     rows = _intake.census(
         _mind(tmp_path, active={"sprocket.md": body}))["recent"]
     assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]
+
+
+# --------------------------------------------------------------------------- #
+# bundles: several INDEPENDENT tasks in one orchestrated session
+# --------------------------------------------------------------------------- #
+# A bundle is the opposite of an epic. An epic is ordered and phase-gated, and
+# its members are pulled out of every pick list; a bundle is a flat set whose
+# members stay exactly where they were and gain a second, session-shaped view.
+# Pinned bundles are the human record in `bundles.md`; auto bundles are computed
+# at render time and never written anywhere — so these tests drive the renderer
+# against a fixture Mind and assert on the page, never on a file.
+_BUNDLES = """# Bundles
+
+## euclid-tidy
+- title: Euclid pipeline tidy-up
+- members:
+  - draft/feature/widgets/pinned_one.md
+  - draft/feature/widgets/pinned_two.md
+- rationale: same reviewer, same afternoon
+- status: proposed 2026-08-27
+"""
+
+
+def _bundle_page(mind: Path) -> str:
+    return _page(mind).split("## Bundles")[1].split("\n## ")[0]
+
+
+def _card_titles(section: str) -> list:
+    return re.findall(r"<summary><b>([^<]+)</b> — \d+ task\(s\)", section)
+
+
+def test_auto_bundles_group_by_target_repo(tmp_path):
+    """Independent tasks bundle only with tasks in the same repo — a session
+    that spans two repos is two worktrees and two sets of tests."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Widget A"),
+        "feature/widgets/b.md": _prompt("Widget B"),
+        "bug/gadgets/c.md": _prompt("Gadget C").replace("Target: widgets",
+                                                        "Target: gadgets"),
+        "bug/gadgets/d.md": _prompt("Gadget D").replace("Target: widgets",
+                                                        "Target: gadgets"),
+    })
+    bundles = _intake.auto_bundles(_intake.census(mind))
+    assert [b["slug"] for b in bundles] == ["auto-gadgets-1", "auto-widgets-1"]
+    assert [[m["title"] for m in b["members"]] for b in bundles] == [
+        ["Gadget C", "Gadget D"], ["Widget A", "Widget B"]]
+
+
+def test_a_lone_prompt_is_not_a_bundle(tmp_path):
+    """One task is a task. The minimum is two, or the section is just the
+    backlog again with extra words."""
+    mind = _mind(tmp_path, drafts={"feature/widgets/only.md": _prompt("Only")})
+    assert _intake.auto_bundles(_intake.census(mind)) == []
+    assert "## Bundles" not in _page(mind)
+
+
+def test_each_exclusion_keeps_a_prompt_out_of_the_auto_pool(tmp_path):
+    """Everything a bundle member must be: startable on its own, unblocked,
+    not already spoken for, and not a session in itself."""
+    blocked = _prompt("Blocked one").replace(
+        "Status: formalised", "Status: formalised\nBlocked-by: Widgets#12")
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS,
+                                       "bundles.md": _BUNDLES}, drafts={
+        "feature/widgets/ok_one.md": _prompt("Fine one"),
+        "feature/widgets/ok_two.md": _prompt("Fine two"),
+        "feature/widgets/blocked.md": blocked,
+        "feature/widgets/human.md": _prompt("Human one",
+                                            autonomy="human-required"),
+        "feature/widgets/huge.md": _prompt("Huge one", difficulty="too-large"),
+        "feature/widgets/phase.md": _epic_prompt_body("Phase one",
+                                                      "jax-profiling", 1),
+        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
+        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
+        "feature/widgets/headed.md": _prompt("Header-pinned").replace(
+            "Status: formalised", "Status: formalised\nBundle: euclid-tidy"),
+    })
+    auto = _intake.auto_bundles(_intake.census(mind))
+    assert [m["title"] for b in auto for m in b["members"]] == ["Fine one",
+                                                               "Fine two"]
+
+
+def test_a_declared_gate_reads_as_unresolved(tmp_path):
+    """The renderer makes no network call (it runs bare in the Mind's refresh
+    workflow), so a `Blocked-by:` is treated as still closed — proposing a
+    gated task is the more expensive mistake."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Open one"),
+        "feature/widgets/b.md": _prompt("Gated one").replace(
+            "Status: formalised", "Status: formalised\nBlocked-by: Widgets#1")})
+    assert _intake.auto_bundles(_intake.census(mind)) == []
+
+
+def test_the_size_cap_starts_a_new_bundle(tmp_path):
+    """Points, not counts: one large task plus three small ones is a session;
+    a second large one is the next session."""
+    drafts = {f"feature/widgets/s{i}.md": _prompt(f"Small {i}",
+                                                  difficulty="small")
+              for i in range(3)}
+    drafts["feature/widgets/l1.md"] = _prompt("Large one", difficulty="large",
+                                              priority="high")
+    drafts["feature/widgets/l2.md"] = _prompt("Large two", difficulty="large",
+                                              priority="high")
+    drafts["feature/widgets/s9.md"] = _prompt("Small nine", difficulty="small",
+                                              priority="high")
+    bundles = _intake.auto_bundles(_intake.census(_mind(tmp_path, drafts=drafts)))
+    assert [[m["title"] for m in b["members"]] for b in bundles] == [
+        ["Large one", "Small nine", "Small 0", "Small 1"],
+        ["Large two", "Small 2"]]
+    assert [b["points"] for b in bundles] == [7, 5]
+    for b in bundles:
+        assert b["points"] <= _intake.BUNDLE_POINT_CAP
+        assert len(b["members"]) <= _intake.BUNDLE_MAX_MEMBERS
+        assert sum(m["difficulty"] == "large" for m in b["members"]) <= 1
+
+
+def test_four_medium_tasks_are_one_bundle(tmp_path):
+    """The other shape the cap is drawn around (4 × medium = 8 points)."""
+    drafts = {f"feature/widgets/m{i}.md": _prompt(f"Medium {i}")
+              for i in range(4)}
+    bundles = _intake.auto_bundles(_intake.census(_mind(tmp_path, drafts=drafts)))
+    assert len(bundles) == 1 and bundles[0]["points"] == 8
+    assert len(bundles[0]["members"]) == 4
+
+
+def test_auto_bundles_are_priority_ordered_and_deterministic(tmp_path):
+    """Most-pickable first, and the same input renders the same page — the
+    nightly re-render must not churn the section every time it runs."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/b_low.md": _prompt("Low one", priority="low"),
+        "feature/widgets/a_high.md": _prompt("High one", priority="high"),
+        "feature/widgets/c_high.md": _prompt("High two", priority="high"),
+    })
+    c = _intake.census(mind)
+    assert [m["title"] for m in _intake.auto_bundles(c)[0]["members"]] == [
+        "High one", "High two", "Low one"]
+    assert _intake.auto_bundles(c) == _intake.auto_bundles(_intake.census(mind))
+    assert _bundle_page(mind) == _bundle_page(mind)
+
+
+def test_a_bundle_member_still_appears_in_the_backlog(tmp_path):
+    """A bundle is an extra VIEW of the backlog, never a replacement — the
+    opposite of an epic, whose members leave every pick list."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Widget A", priority="high"),
+        "feature/widgets/b.md": _prompt("Widget B", priority="high")})
+    page = _page(mind)
+    backlog = page.split("## Backlog")[1].split("\n## ")[0]
+    assert "Widget A" in backlog and "Widget B" in backlog
+    assert "Widget A" in page.split("## Start here")[1].split("## In flight")[0]
+
+
+def test_pinned_bundles_come_first_and_carry_their_registry_prose(tmp_path):
+    """`bundles.md` is the human record; the proposals follow it."""
+    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
+        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
+        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
+        "feature/widgets/loose_a.md": _prompt("Loose A"),
+        "feature/widgets/loose_b.md": _prompt("Loose B"),
+    })
+    section = _bundle_page(mind)
+    assert _card_titles(section) == ["Euclid pipeline tidy-up", "widgets — bundle 1"]
+    assert "same reviewer, same afternoon" in section
+    assert "proposed 2026-08-27" in section
+    assert section.index("Pinned one") < section.index("Loose A")
+    assert "· pinned" in section and "· auto — proposed" in section
+
+
+def test_a_pinned_member_leaves_the_auto_pool(tmp_path):
+    """A pinned prompt belongs to its bundle, not to a computed one."""
+    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
+        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
+        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
+    })
+    assert _intake.auto_bundles(_intake.census(mind)) == []
+
+
+def test_a_header_declared_member_joins_its_pinned_bundle(tmp_path):
+    """`Bundle: <slug>` in a prompt header is the second way to pin — the
+    dashboard merges it into the registry entry's members."""
+    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
+        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
+        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
+        "feature/widgets/headed.md": _prompt("Header-pinned").replace(
+            "Status: formalised", "Status: formalised\nBundle: euclid-tidy"),
+    })
+    cards = _intake.bundle_cards(_intake.census(mind))
+    assert [m["title"] for m in cards[0]["members"]] == [
+        "Pinned one", "Pinned two", "Header-pinned"]
+
+
+def test_a_member_of_an_unregistered_bundle_still_groups_loudly(tmp_path):
+    """A typo shows up on the page instead of silently rendering nothing —
+    the same treatment an unregistered `Epic:` slug gets."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/one.md": _prompt("Stray one").replace(
+            "Status: formalised", "Status: formalised\nBundle: no-such-bundle"),
+    })
+    section = _bundle_page(mind)
+    assert "no-such-bundle" in section
+    assert "not in `bundles.md`" in section
+    assert "Stray one" in section
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    assert "not in bundles.md" in _prose(html)
+
+
+def test_a_missing_member_prompt_still_renders(tmp_path):
+    """A pinned path that resolves to no filed prompt is exactly the drift
+    worth seeing — it renders as itself rather than vanishing."""
+    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
+        "feature/widgets/pinned_one.md": _prompt("Pinned one")})
+    section = _bundle_page(mind)
+    assert "draft/feature/widgets/pinned_two.md" in section
+
+
+def test_the_bundle_prompt_states_the_orchestration_contract(tmp_path):
+    """The 📋 payload is the whole contract: one issue and one PR per member,
+    one shared worktree per repo, execution delegated a rung down."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Widget A"),
+        "feature/widgets/b.md": _prompt("Widget B")})
+    prompt = _intake.bundle_prompt(_intake.auto_bundles(_intake.census(mind))[0])
+    assert "architect (Fable)" in prompt
+    assert "draft/feature/widgets/a.md" in prompt
+    assert "/start_dev <member prompt>" in prompt
+    assert "one issue" in prompt and "bulk issue queue" in prompt
+    assert "One shared worktree per repo" in prompt
+    assert "Opus subagent" in prompt
+    assert "ONE PR per task" in prompt
+    assert "/prm" in prompt
+    assert "/ship_library" in prompt
+
+
+def test_bundles_sit_between_backlog_and_recent_on_both_pages(tmp_path):
+    """Bundles read the backlog a second way, so they sit under it — and the
+    page still turns to Recent afterwards."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Widget A").replace(
+            "Status: formalised", "Status: formalised\nFiled: 2026-08-20"),
+        "feature/widgets/b.md": _prompt("Widget B").replace(
+            "Status: formalised", "Status: formalised\nFiled: 2026-08-21")})
+    page = _page(mind)
+    assert page.index("## Backlog") < page.index("## Bundles") \
+        < page.index("## Recent")
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    assert html.index("<h2>Backlog") < html.index("<h2>Bundles") \
+        < html.index("<h2>Recent")
+    section = html.split("<h2>Bundles")[1].split("<h2>")[0]
+    assert '<table class="bundle">' in section
+    assert '<button class="copy"' in section
+
+
+def test_the_section_is_absent_from_a_mind_with_no_bundles(tmp_path):
+    """No cards, no section — and no stylesheet or heading left behind."""
+    mind = _mind(tmp_path, drafts={"feature/widgets/only.md": _prompt("Only")})
+    assert "## Bundles" not in _page(mind)
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    assert "<h2>Bundles" not in html and "table.bundle" not in html
+
+
+def test_dashboard_check_is_idempotent_with_bundles(tmp_path, capsys):
+    """`--apply` then `--check` must be clean, or `dashboard_refresh.yml`
+    self-heals a commit every night."""
+    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
+        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
+        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
+        "feature/widgets/loose_a.md": _prompt("Loose A"),
+        "feature/widgets/loose_b.md": _prompt("Loose B"),
+    })
+    assert _intake.main(["--mind", str(mind), "--apply", "dashboard"]) == 0
+    assert _intake.main(["--mind", str(mind), "dashboard", "--check"]) == 0
+    assert "current" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# bundles: the section is a pick list, so it is ranked and capped
+# --------------------------------------------------------------------------- #
+def _targets(tmp_path, n, **kw):
+    """A Mind with `n` bundle-able target repos, two identical prompts each."""
+    return _mind(tmp_path, drafts={
+        f"feature/t{i:02d}/{name}.md": _prompt(f"T{i:02d} {name}", **kw)
+        for i in range(n) for name in ("a", "b")})
+
+
+def test_auto_bundles_are_ranked_before_they_are_cut(tmp_path):
+    """Most urgent member first (a bundle is only as pickable as its most
+    urgent task), then the biggest session, then slug — so the cap keeps the
+    bundles worth running rather than the repos that sort early."""
+    mind = _mind(tmp_path, drafts={
+        "feature/aaa/a.md": _prompt("Aaa one"),
+        "feature/aaa/b.md": _prompt("Aaa two"),
+        "feature/bbb/a.md": _prompt("Bbb one", priority="high"),
+        "feature/bbb/b.md": _prompt("Bbb two", priority="high"),
+        "feature/ccc/a.md": _prompt("Ccc one", difficulty="large",
+                                    priority="high"),
+        "feature/ccc/b.md": _prompt("Ccc two", difficulty="small"),
+        "feature/ccc/c.md": _prompt("Ccc three", difficulty="small"),
+        "feature/ddd/a.md": _prompt("Ddd one", difficulty="small",
+                                    priority="low"),
+        "feature/ddd/b.md": _prompt("Ddd two", difficulty="small",
+                                    priority="low"),
+    })
+    cards = _intake.bundle_cards(_intake.census(mind))
+    assert [b["slug"] for b in cards] == ["auto-ccc-1", "auto-bbb-1",
+                                          "auto-aaa-1", "auto-ddd-1"]
+    assert [b["points"] for b in cards] == [6, 4, 4, 2]
+
+
+def test_only_the_first_page_of_auto_bundles_reaches_the_page(tmp_path):
+    """One card per repo in the Mind is an inventory, not a pick list."""
+    cards = _intake.bundle_cards(_intake.census(_targets(tmp_path, 12)))
+    assert len(cards) == _intake.BUNDLE_LIST_MAX == 8
+    # Equal rank throughout, so the tie-break decides: slug, ascending.
+    assert [b["slug"] for b in cards] == [f"auto-t{i:02d}-1" for i in range(8)]
+    section = _bundle_page(_targets(tmp_path, 12))
+    assert section.count("· auto — proposed") == 8
+
+
+def test_a_cut_section_says_so_and_says_how_to_keep_one(tmp_path):
+    """Truncation is only honest if the page reports it, and pinning is the
+    answer to "but I wanted that one"."""
+    mind = _targets(tmp_path, 12)
+    line = ("Showing 8 of 12 auto bundles — pin one in `bundles.md` to keep "
+            "it on the page.")
+    assert f"_{line}_" in _bundle_page(mind)
+    html = _prose(_intake.render_dashboard_html(_intake.census(mind)))
+    assert ("Showing 8 of 12 auto bundles — pin one in "
+            "<code>bundles.md</code> to keep it on the page.") in html
+
+
+def test_an_uncut_section_has_no_footer(tmp_path):
+    mind = _targets(tmp_path, 3)
+    assert "Showing" not in _bundle_page(mind)
+    html = _prose(_intake.render_dashboard_html(_intake.census(mind)))
+    assert "auto bundles — pin one" not in html
+
+
+def test_pinned_bundles_are_never_capped(tmp_path):
+    """A human put them there; the cap is only ever spent on proposals."""
+    drafts = {f"feature/t{i:02d}/{name}.md": _prompt(f"T{i:02d} {name}")
+              for i in range(12) for name in ("a", "b")}
+    drafts["feature/widgets/pinned_one.md"] = _prompt("Pinned one")
+    drafts["feature/widgets/pinned_two.md"] = _prompt("Pinned two")
+    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts=drafts)
+    cards = _intake.bundle_cards(_intake.census(mind))
+    assert cards[0]["slug"] == "euclid-tidy"
+    assert len(cards) == _intake.BUNDLE_LIST_MAX + 1
+    # The footer counts AUTO bundles only — the pinned card is not a proposal.
+    assert "Showing 8 of 12 auto bundles" in _bundle_page(mind)
