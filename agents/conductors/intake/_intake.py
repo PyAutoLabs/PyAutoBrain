@@ -1801,7 +1801,7 @@ _FENCE_LANGS = {
 #: half of what these prompts are about.
 _PATH_RE = re.compile(
     r"(?<![\w./-])((?:[\w.-]+/)*[\w.-]+\.(?:py|pyi|sh|yaml|yml|toml|cfg|txt|ipynb))\b")
-#: `PyAutoFit#1473` / `autolens_workspace_test#266` — a tracking reference.
+#: `PyAutoFit#1473` / `some_workspace#266` — a tracking reference.
 _ISSUE_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)#(\d{1,5})\b")
 #: Mind-internal paths are cross-references between prompts and records, not
 #: shared upstream artefacts. Two prompts both citing `draft/…` say nothing.
@@ -1910,15 +1910,15 @@ _UPSTREAM_MIN_IDENTS = 2   # one shared name is a coincidence, not a signal
 # --- leg 4: the absence signal --------------------------------------------------
 # Leg 3 above tests PRESENCE — "the prompt names things that exist upstream" —
 # and that is structurally blind to the shape that motivated this leg.
-# `smoke_install_stale_jax_pin.md` shipped on 2026-08-23 (autolens_workspace_test
-# #266, PR #268) with NO Mind-side trace at all: no active.md entry, no active/
-# move, no complete/ record. It kept rendering as pickable backlog and was
-# re-picked four days later. Both guards were run against it directly and both
-# passed it: `lifecycle.py check` (its invariant is about active.md slugs, and a
-# task that skips Mind state is in neither place) and `intake reconcile
-# maintenance/ci --repo autolens_workspace_test`, pointed straight at the right
-# repo — 0 suspects of 132 scanned. It named `smoke_install.sh`, which still
-# exists, so presence said nothing.
+# `smoke_install_stale_jax_pin.md` shipped on 2026-08-23 (a workspace-test
+# repo, issue #266 / PR #268) with NO Mind-side trace at all: no active.md
+# entry, no active/ move, no complete/ record. It kept rendering as pickable
+# backlog and was re-picked four days later. Both guards were run against it
+# directly and both passed it: `lifecycle.py check` (its invariant is about
+# active.md slugs, and a task that skips Mind state is in neither place) and
+# `intake reconcile maintenance/ci --repo <that repo>`, pointed straight at it —
+# 0 suspects of 132 scanned. It named `smoke_install.sh`, which still exists, so
+# presence said nothing.
 #
 # The defect it described was an ABSENCE. It quoted a literal line —
 # `pip install "jax<0.7" "jaxlib<0.7"` — and that line is GONE upstream. A
@@ -2206,7 +2206,7 @@ def _check_quotes(root: Path, named: set, quoted: dict) -> dict:
             for line in [ln for ln in missing if ln in text]:
                 del missing[line]
     # Two named candidates can resolve to one file (`smoke_install.sh` and
-    # `autolens_workspace_test/.github/scripts/smoke_install.sh` are the same
+    # `<repo>/.github/scripts/smoke_install.sh` are the same
     # anchor) — report the anchor once.
     return {"files": sorted({f.relative_to(root).as_posix()
                              for f in resolved.values()}),

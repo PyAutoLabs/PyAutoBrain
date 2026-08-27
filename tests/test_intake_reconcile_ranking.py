@@ -340,15 +340,16 @@ def test_a_real_repo_target_resolves_to_its_slug(tmp_path):
 #
 # Leg 3 tests PRESENCE and is structurally blind to a prompt that shipped with
 # NO Mind-side trace while the files it names still exist.
-# `smoke_install_stale_jax_pin.md` shipped 2026-08-23 (autolens_workspace_test
-# #266, PR #268) and both guards passed it: `lifecycle.py check` (its invariant
-# is about active.md slugs, and a task that skips Mind state is in neither
-# place) and `intake reconcile maintenance/ci --repo autolens_workspace_test`,
-# pointed straight at the right repo — 0 suspects of 132. It named
-# `smoke_install.sh`, which still exists.
+# `smoke_install_stale_jax_pin.md` shipped 2026-08-23 (a workspace-test repo,
+# issue #266 / PR #268) and both guards passed it: `lifecycle.py check` (its
+# invariant is about active.md slugs, and a task that skips Mind state is in
+# neither place) and `intake reconcile maintenance/ci --repo <that repo>`,
+# pointed straight at it — 0 suspects of 132. It named `smoke_install.sh`,
+# which still exists.
 #
-# What it quoted was gone. These tests pin that, and the three filters that keep
-# it from firing on every prompt that quotes its own evidence.
+# What it quoted was gone. These tests pin that, and the five filters that keep
+# it from firing on every prompt that quotes its own evidence — the last two
+# added after a live run showed all six of its first hits were false.
 # --------------------------------------------------------------------------- #
 def _tree(root: Path, files: dict) -> Path:
     """A fake upstream checkout for the `.quotes` seam."""
