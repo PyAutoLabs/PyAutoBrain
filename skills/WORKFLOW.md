@@ -116,6 +116,19 @@ implementation phases (`start_library` / `start_workspace` source edits, script
 authoring, test writing, fix loops) to Opus as well, one subagent per coherent
 phase, using the same prompt contract below.
 
+**Several tasks in one session — `start_bundle`.** The ladder above scales a
+single task across tiers; a **bundle** scales one session across several
+*independent* tasks. The PyAutoMind dashboard's Bundles section proposes them
+(and `PyAutoMind/bundles.md` pins them); [`start_bundle/start_bundle.md`](start_bundle/start_bundle.md)
+is the contract: the architect session reads every member, runs `/start_dev`
+per member (one issue each — the no-bulk-issue rule is unchanged), creates
+**one shared worktree per repo** for the whole bundle, delegates each member's
+implementation to its own execution-tier subagent under the prompt contract
+below, and ships **one PR per member** so `/prm` closes each out unchanged.
+Within one repo the members are sequenced (a worktree holds one branch at a
+time); across repos they may run in parallel. A bundle is never an epic — if
+the members need an order, it belongs in `epics.md` instead.
+
 **Stays in the judgment tier:** planning (`start_dev`), environment setup
 (`start_library`/`start_workspace`), release triage (`review_release`);
 identifying affected repos, drafting the commit message and full PR body
