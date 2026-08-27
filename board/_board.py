@@ -138,9 +138,62 @@ def derive_org(homes):
 # --------------------------------------------------------------- collect ----
 
 
+# ---------------------------------------------------------------------------
+# The injection seam (--github-data)
+#
+# Eleven of this board's legs read GitHub through `gh api`, and a Claude Code
+# remote session — the surface the board is actually read from on a phone — has
+# no `gh` at all. Its GitHub access is the `mcp__github__*` tool surface, which
+# is an AGENT capability: this file is a subprocess and cannot reach it, however
+# it is invoked. That is the whole reason this is a seam and not a substitution.
+#
+# So the `/board` skill (which is the agent) fetches, writes the responses to a
+# file, and passes it here; this stays a pure renderer. The map is keyed by the
+# endpoint exactly as `gh_json` receives it, so injected and live data are
+# interchangeable by construction rather than by convention — a key that drifts
+# from its call site simply misses, and a miss is "could not ask", which is a
+# state this board already renders honestly.
+#
+# The alternative — an org admin connecting the Claude GitHub App so the
+# injected $GH_TOKEN works from a subprocess — was probed on 2026-08-27 and
+# does not work: 200 on /user and /rate_limit, 403 on every repo-scoped path.
+# If that changes, this seam becomes deletable; keep it small enough to delete.
+# ---------------------------------------------------------------------------
+
+_INJECTED = None
+
+
+def load_github_data(path):
+    """Load pre-fetched `gh api` responses ({endpoint: response}) for gh_json.
+
+    A missing or malformed file raises rather than degrading. An empty map
+    would make every leg render "could not read" — honest-looking, and wrong
+    for the wrong reason: the board would report a GitHub outage when what
+    actually happened is that the gatherer wrote a broken file.
+    """
+    global _INJECTED
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"board: --github-data {path} is unreadable: {exc}")
+    if not isinstance(data, dict):
+        raise SystemExit(
+            f"board: --github-data {path} must be an object keyed by endpoint")
+    _INJECTED = data
+    return len(data)
+
+
 def gh_json(args):
     """`gh api ...` -> parsed JSON; None on any failure (the surface degrades
-    honestly rather than inventing content). Read-only endpoints only."""
+    honestly rather than inventing content). Read-only endpoints only.
+
+    With `--github-data` loaded, the endpoint is looked up there first. A hit
+    is the answer; a miss falls through to `gh`, which on the gh-less surface
+    this exists for is absent, so the leg reports *could not ask* — never an
+    empty answer to an unasked question.
+    """
+    if _INJECTED is not None and args and args[0] in _INJECTED:
+        return _INJECTED[args[0]]
     try:
         r = subprocess.run(
             [GH, "api", *args], capture_output=True, text=True, timeout=120
@@ -1559,7 +1612,15 @@ def main():
                         help="write index.html + badge.json + board.json + "
                              "board.md into --out")
     parser.add_argument("--out", default="_site", help="--apply output dir")
+    parser.add_argument("--github-data", metavar="FILE",
+                        help="pre-fetched `gh api` responses ({endpoint: "
+                             "response}) — for a session with no `gh`, where "
+                             "the /board skill gathers them via the GitHub MCP "
+                             "tools and this stays a pure renderer")
     args = parser.parse_args()
+
+    if args.github_data:
+        load_github_data(args.github_data)
 
     data = collect()
     if args.apply:

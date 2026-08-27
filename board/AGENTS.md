@@ -150,6 +150,61 @@ qualified with `partial view (N legs unread)`, and a grey badge rather than a
 green one — a green badge is only ever emitted by a render that read
 everything and found nothing wrong.
 
+### `--github-data`: handing the renderer what it cannot fetch
+
+A remote session's GitHub access is the `mcp__github__*` tools, and those are
+an **agent** capability — `_board.py` is a subprocess and cannot reach them,
+however it is invoked. So the fetching moves to the only thing that can do it:
+the `/board` skill gathers, writes a file, and passes it to the renderer, which
+stays pure.
+
+```
+pyauto-brain board --github-data <file>
+```
+
+The file is a JSON object keyed by the endpoint **exactly as `gh_json()`
+receives it** — the same string that would follow `gh api`:
+
+```json
+{
+  "repos/Org/PyAutoBrain/actions/workflows/nightly-release.yml/runs?per_page=1":
+      { "workflow_runs": [ … ] },
+  "repos/Org/PyAutoBrain/actions/runs/42/jobs": { "jobs": [ … ] },
+  "repos/Org/PyAutoBrain/check-runs/98/annotations": [ … ]
+}
+```
+
+Keying on the call site's own string is deliberate: injected and live data are
+interchangeable by construction rather than by convention, and a key that
+drifts simply misses.
+
+Store each response **as GitHub returns it** — the renderer reads the API's own
+field names, and a gatherer that reshapes them produces rows that look like a
+render bug rather than a bad file. The overnight row needs `conclusion`,
+`status`, `created_at` (the age; `updated_at` is *not* the field read) and
+`html_url` per run, and `jobs[].conclusion` where the blocked-at-a-gate
+refinement is wanted.
+
+Three rules the seam does not get to bend:
+
+1. **A miss is *could not ask*.** An endpoint absent from the file yields
+   `None`, exactly as an absent `gh` does, and the leg renders `could not
+   read`. It must never become an empty answer — that is the failure the
+   degraded-render work exists to prevent, and it is how a board goes green by
+   never looking.
+2. **An explicit `null` means the gatherer's own fetch failed** — same
+   outcome, stated rather than implied. `{"workflow_runs": []}` is the
+   opposite: a real answer that happens to be empty.
+3. **A malformed or missing file is fatal, not degrading.** Every leg reading
+   `could not read` renders as a GitHub outage; if the truth is that the
+   gatherer wrote a broken file, the board must say so instead.
+
+The alternative to the seam is an org admin connecting the Claude GitHub App,
+after which `$GH_TOKEN` would work from a subprocess and `gh_json()` could
+become a plain REST helper on every surface. Probed 2026-08-27: 200 on `/user`
+and `/rate_limit`, **403 on every repo-scoped path**. Re-probe before assuming
+this seam is still needed — it is meant to be deletable.
+
 To get a complete board in a remote session, the environment needs outbound
 access to the Pages host. That is cloud-environment configuration on claude.ai,
 not something this repo can set: open the environment selector at
