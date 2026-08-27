@@ -164,16 +164,21 @@ it resolves the sibling `pyauto-heart` and `autohands` binaries from PATH or the
 
 Measured in a web/mobile container, where this file is loaded and little else is.
 
-- **Tests run 3.5x faster in parallel** — 4 cores, subprocess-heavy suites, no
-  single slow test: this repo's 554 tests are 96s on one core and 28s on four.
-  Use `python3 -m pytest -q -n auto`.
-- **A session holding several organs registers no SessionStart hook.** Claude
-  Code reads project hooks from the project directory, which in that layout is
-  the repos' *parent*, not a repo. So knock on the door yourself in the first
-  turn: `bash PyAutoMind/scripts/session_bootstrap.sh` (add `--check` to report
-  only). `bin/pyauto-brain` already calls it before every verb. The symptom of
-  skipping it is a pytest that is not this workspace's — collection
-  `ImportError`s naming `yaml`, or `No module named pytest`.
+- **Bootstrap in the first turn, unconditionally.** A session holding several
+  organs registers no SessionStart hook — Claude Code reads project hooks from
+  the project directory, which in that layout is the repos' *parent*, not a
+  repo. So knock on the door yourself: `bash
+  PyAutoMind/scripts/session_bootstrap.sh` (add `--check` to report only).
+  `bin/pyauto-brain` calls it before every verb. This used to be advice keyed to
+  a symptom — a pytest that is not this workspace's, collection `ImportError`s
+  naming `yaml`. That trigger stopped firing: measured 2026-08-27, the container
+  ships 3.12 with the linters on it, so the session looks right while
+  `pytest -n auto` still dies on `unrecognized arguments: -n`, which reads like
+  a bad flag. ~10s cold, ~1s warm — cheaper than the diagnosis it replaces.
+- **Then tests run 3.5x faster in parallel** — 4 cores, subprocess-heavy suites,
+  no single slow test: this repo's 554 tests are 96s on one core and 28s on
+  four. `python3 -m pytest -q -n auto`, with `pytest-xdist` from the bootstrap
+  above.
 - **There is no `gh`, and installing one does not help.** A remote session
   reaches GitHub through the `mcp__github__*` tools, already scoped to the
   session's repos. `gh` itself is two seconds away (`apt-get install gh`) and
