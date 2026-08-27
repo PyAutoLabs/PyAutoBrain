@@ -161,3 +161,22 @@ def test_waiting_for_ci_prefers_being_woken_over_polling():
     # And the subscription must be dropped, or later sessions wake on a PR
     # nobody is driving.
     assert "unsubscribe_pr_activity" in prm.split("## 4.")[1]
+
+
+def test_the_close_out_carries_its_own_mcp_calls():
+    """The mobile lane must not cost two pages to read.
+
+    `/prm` is ~4k words of `gh` mechanics; a run without `gh` used to load them
+    AND the mapping page, then translate step by step. The calls that close a
+    task out are few and stable enough to name inline, so the mapping page is
+    the index, not a required second read.
+    """
+    prm = (SKILLS / "prm" / "prm.md").read_text()
+    lane = prm.split("### The `mcp` lane")[1].split("## 1.")[0]
+    for call in ("pull_request_read", "actions_list", "get_job_logs",
+                 "merge_pull_request", "add_issue_comment", "issue_write",
+                 "subscribe_pr_activity", "get_file_contents"):
+        assert call in lane, f"the mcp lane never names {call}"
+    # The two traps that cost a run its turns, not just a lookup.
+    assert "head_sha" in lane, "nothing warns that runs cannot be filtered by sha"
+    assert "state_reason" in lane, "closing an issue without a reason mislabels it"
