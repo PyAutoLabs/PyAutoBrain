@@ -76,6 +76,15 @@ Because of the second wall, `gh` could not be a drop-in here even if an org
 admin connected the GitHub App. The MCP surface is not a workaround for a
 missing `gh` — on this surface it is *the* GitHub client. Use the table above.
 
+And installing it does not just waste the effort — **it breaks the probe
+above**. `gh auth status` exits 0 in a remote session even as it prints "The
+token in GH_TOKEN is invalid": the `proxy-injected` placeholder in `GH_TOKEN`
+is enough to satisfy it. So a session that installed `gh` answers its own
+decide-once probe with `gh`, reads this page's commands as commands, and walks
+straight into the 403s above — the failure mode the probe exists to prevent.
+The probe is only honest while `gh` is absent, which is the strongest reason to
+leave it that way.
+
 ## The mapping
 
 | Operation | `gh` | MCP tool |
