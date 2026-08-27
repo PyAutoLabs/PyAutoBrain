@@ -333,3 +333,236 @@ def test_a_real_repo_target_resolves_to_its_slug(tmp_path):
         slug, err = _intake.resolve_repo(tmp_path, target)
         assert err == ""
         assert slug == "PyAutoLabs/PyAutoFit"
+
+
+# --------------------------------------------------------------------------- #
+# leg 4 — the absence signal (--repo), PyAutoMind#353
+#
+# Leg 3 tests PRESENCE and is structurally blind to a prompt that shipped with
+# NO Mind-side trace while the files it names still exist.
+# `smoke_install_stale_jax_pin.md` shipped 2026-08-23 (autolens_workspace_test
+# #266, PR #268) and both guards passed it: `lifecycle.py check` (its invariant
+# is about active.md slugs, and a task that skips Mind state is in neither
+# place) and `intake reconcile maintenance/ci --repo autolens_workspace_test`,
+# pointed straight at the right repo — 0 suspects of 132. It named
+# `smoke_install.sh`, which still exists.
+#
+# What it quoted was gone. These tests pin that, and the three filters that keep
+# it from firing on every prompt that quotes its own evidence.
+# --------------------------------------------------------------------------- #
+def _tree(root: Path, files: dict) -> Path:
+    """A fake upstream checkout for the `.quotes` seam."""
+    for rel, body in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    return root
+
+
+def _up(root: Path):
+    """The real reader over a fake tree — exercises the code `--repo` runs."""
+    return _intake._UpstreamReader(root)
+
+
+_GONE_PROMPT = """# The smoke install pins jax below 0.7
+
+The install script still holds the pin:
+
+```bash
+pip install "jax<0.7" "jaxlib<0.7"
+```
+
+It lives in `.github/scripts/smoke_install.sh`.
+"""
+
+
+def test_a_quoted_line_gone_from_a_named_file_is_surfaced(tmp_path):
+    """The motivating case: quoted line absent, named file present."""
+    up = _tree(tmp_path / "up", {
+        ".github/scripts/smoke_install.sh": 'pip install "./PyAutoArray"\n'})
+    root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
+    res = _intake.reconcile(root, source_reader=_up(up))
+
+    s = [x for x in res["suspects"] if x["path"].endswith("smoke_pin.md")]
+    assert s, "a prompt quoting a line that no longer exists must be surfaced"
+    assert any(f["kind"] == "upstream-quote-absent" for f in s[0]["findings"])
+
+
+def test_a_quoted_line_still_present_is_not_evidence(tmp_path):
+    """The control. Same prompt, same file — but the line is still there, so
+    the prompt describes live work and must stay off the list."""
+    up = _tree(tmp_path / "up", {
+        ".github/scripts/smoke_install.sh": 'pip install "jax<0.7" "jaxlib<0.7"\n'})
+    root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
+    assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
+
+
+def test_a_moved_line_is_not_a_shipped_fix(tmp_path):
+    """Absent from the named file is not enough. A refactor that moved the line
+    elsewhere in the tree is not the prompt shipping, so absence must be checked
+    against the WHOLE checkout before it counts."""
+    up = _tree(tmp_path / "up", {
+        ".github/scripts/smoke_install.sh": "# moved out of here\n",
+        "ci/pins.sh": 'pip install "jax<0.7" "jaxlib<0.7"\n'})
+    root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
+    assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
+
+
+def test_quoted_output_is_not_treated_as_source(tmp_path):
+    """The precision filter that makes the leg usable. A prompt quoting its own
+    evidence — a traceback, a pytest summary, a log excerpt — writes it in a
+    BARE fence, and those lines are absent from every repo by construction.
+    Scoring them would fire leg 4 on most of the backlog."""
+    body = ("# Three pins fail the smoke gate\n\n"
+            "It lives in `scripts/interferometer/rectangular.py`.\n\n"
+            "```\n"
+            "AssertionError: Not equal to tolerance rtol=0.0001, atol=0\n"
+            " [0]: -3163.8939270532364 (ACTUAL), -3164.286252 (DESIRED)\n"
+            "```\n")
+    up = _tree(tmp_path / "up", {"scripts/interferometer/rectangular.py": "x = 1\n"})
+    root = _mind(tmp_path / "mind", {"bug/workspaces/pins.md": body}, {})
+    assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
+
+
+def test_a_quote_with_no_named_file_has_nothing_to_be_absent_from(tmp_path):
+    """The anchor requirement. Without a file the prompt names that actually
+    exists upstream, 'absent' has no referent — the quote could belong to any
+    repo, or to none."""
+    body = ("# Some pin somewhere\n\n```bash\n"
+            'pip install "jax<0.7" "jaxlib<0.7"\n```\n')
+    up = _tree(tmp_path / "up", {"unrelated.py": "x = 1\n"})
+    root = _mind(tmp_path / "mind", {"maintenance/ci/nameless.md": body}, {})
+    assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
+
+
+def test_quote_absence_cannot_reach_a_mind_local_band(tmp_path):
+    """Same structural defence as leg 3: a quoted line can vanish for reasons
+    other than the prompt shipping (an unrelated refactor, a reworded quote), so
+    it ranks for review and can never produce a shipped verdict."""
+    lines = "\n".join(f'pip install "pkg-{i}==1.0"' for i in range(9))
+    body = ("# Many gone pins\n\nIn `ci/install.sh`.\n\n```bash\n"
+            + lines + "\n```\n")
+    up = _tree(tmp_path / "up", {"ci/install.sh": "# emptied\n"})
+    root = _mind(tmp_path / "mind", {"maintenance/ci/many.md": body}, {})
+    s = _intake.reconcile(root, source_reader=_up(up))["suspects"][0]
+    assert s["confidence"] == "needs-review"
+    assert s["overlap_score"] == 0.0
+    assert s["upstream_score"] > 0.0
+
+
+def test_a_plain_lambda_reader_still_works(tmp_path):
+    """Backward compatibility of the seam. Leg 4 hangs off `.quotes`, probed
+    with getattr — a reader without it exercises leg 3 alone, which is what
+    every fake written before this leg existed is."""
+    root = _mind(tmp_path, {"bug/gearbox/ties.md": "# Ties\n\n`_a_helper`\n`_b_helper`\n"}, {})
+    res = _intake.reconcile(root, source_reader=_reader(
+        {"_a_helper": ["src/a.py:1"], "_b_helper": ["src/b.py:2"]}))
+    assert res["suspects"][0]["confidence"] == "needs-review"
+
+
+# --------------------------------------------------------------------------- #
+# leg 5 — duplicate candidates (offline), PyAutoMind#360
+#
+# Every leg above scores a prompt against the completion ARCHIVE. Nothing scored
+# the live prompts against EACH OTHER, and that blind spot let
+# `bug/workspaces/jax_likelihood_pins_stale_by_1e4.md` (filed 08-14) and
+# `bug/autolens/jax_likelihood_smoke_pins_stale.md` (filed 08-19) — the same
+# three scripts, the same failing smoke gate, five days apart — both live. The
+# 08-19 copy was verified and retired on 08-26; the 08-14 copy kept rendering as
+# pickable backlog.
+# --------------------------------------------------------------------------- #
+def _dups(res) -> set:
+    return {tuple(d["paths"]) for d in res["duplicates"]}
+
+
+def test_two_prompts_naming_the_same_scripts_are_paired(tmp_path):
+    """The measured case, in miniature: three shared script paths, in different
+    work-type/target folders, neither naming the other."""
+    scripts = ("`interferometer/jax_likelihood/rectangular.py`\n"
+               "`interferometer/jax_likelihood/mge.py`\n"
+               "`multi_dataset/jax_likelihood/mge.py`\n")
+    root = _mind(tmp_path, {
+        "bug/workspaces/pins_stale_by_1e4.md": "# Three pins are stale\n\n" + scripts,
+        "bug/autolens/smoke_pins_stale.md": "# Four scripts fail smoke\n\n" + scripts,
+    }, {})
+    assert _dups(_intake.reconcile(root)) == {
+        ("draft/bug/autolens/smoke_pins_stale.md",
+         "draft/bug/workspaces/pins_stale_by_1e4.md")}
+
+
+def test_a_bare_basename_is_not_evidence_of_shared_work(tmp_path):
+    """The filter that took the live backlog from 36 pairs to 2. `start_here.py`
+    and `modeling.py` are workspace-wide conventions repeated across hundreds of
+    example folders — two prompts naming one share a convention, not a task."""
+    common = "`start_here.py`\n`modeling.py`\n`simulator.py`\n`no_run.yaml`\n"
+    root = _mind(tmp_path, {
+        "docs/autolens/multi_galaxy.md": "# Multi galaxy docs\n\n" + common,
+        "docs/workspaces/cluster_narrative.md": "# Cluster narrative\n\n" + common,
+    }, {})
+    assert _intake.reconcile(root)["duplicates"] == []
+
+
+def test_prompts_that_name_each_other_are_a_series_not_a_duplicate(tmp_path):
+    """A phased parent and its child share everything by design. The measured
+    duplicate pair named neither the other, which is exactly why it survived."""
+    scripts = ("`interferometer/jax_likelihood/rectangular.py`\n"
+               "`interferometer/jax_likelihood/mge.py`\n"
+               "`multi_dataset/jax_likelihood/mge.py`\n")
+    root = _mind(tmp_path, {
+        "bug/workspaces/phase_one.md": "# Phase 1\n\n" + scripts,
+        "bug/autolens/phase_two.md": ("# Phase 2\n\nParent: `phase_one.md`\n\n"
+                                      + scripts),
+    }, {})
+    assert _intake.reconcile(root)["duplicates"] == []
+
+
+def test_a_folder_index_naming_both_is_a_declared_series(tmp_path):
+    """`draft/bug/health_fixes/` holds four prompts split out of one health run
+    — split by CAUSE, not by script, so they share their failing scripts and no
+    two name each other. The folder's own README.md names all four, and that
+    index IS the declaration. Without this the trio yields three pairs of
+    already-known work."""
+    scripts = ("`imaging/features/advanced/double_einstein_ring/chaining.py`\n"
+               "`config/build/profile_release.yaml`\n"
+               "`imaging/features/advanced/double_source_plane_lens/chaining.py`\n")
+    root = _mind(tmp_path, {
+        "bug/health_fixes/jax_runtime_and_parity.md": "# JAX runtime\n\n" + scripts,
+        "bug/health_fixes/jit_visualization_outputs.md": "# JIT viz\n\n" + scripts,
+    }, {})
+    (root / "draft" / "bug" / "health_fixes" / "README.md").write_text(
+        "The split:\n- jax_runtime_and_parity.md\n- jit_visualization_outputs.md\n",
+        encoding="utf-8")
+    assert _intake.reconcile(root)["duplicates"] == []
+
+
+def test_one_shared_path_is_not_a_duplicate(tmp_path):
+    """The same bar every other leg sets: one shared artefact is a coincidence.
+    Two prompts touching one file is ordinary; it is the OVERLAP that speaks."""
+    root = _mind(tmp_path, {
+        "bug/workspaces/one.md": "# One\n\n`interferometer/jax_likelihood/mge.py`\n",
+        "bug/autolens/two.md": "# Two\n\n`interferometer/jax_likelihood/mge.py`\n",
+    }, {})
+    assert _intake.reconcile(root)["duplicates"] == []
+
+
+def test_duplicate_scan_stays_offline_and_never_writes(tmp_path, monkeypatch):
+    """Leg 5 is Mind-local by construction — it reads only `draft/`. The
+    offline guarantee the rest of the default path carries must hold here too."""
+    import socket
+    import subprocess
+
+    def _boom(*a, **k):
+        raise AssertionError("duplicate scan attempted network access")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    monkeypatch.setattr(socket, "socket", _boom)
+    scripts = ("`interferometer/jax_likelihood/rectangular.py`\n"
+               "`interferometer/jax_likelihood/mge.py`\n"
+               "`multi_dataset/jax_likelihood/mge.py`\n")
+    root = _mind(tmp_path, {
+        "bug/workspaces/one.md": "# One\n\n" + scripts,
+        "bug/autolens/two.md": "# Two\n\n" + scripts,
+    }, {})
+    before = {p: p.read_bytes() for p in root.rglob("*.md")}
+    assert _intake.reconcile(root)["duplicates"]
+    assert {p: p.read_bytes() for p in root.rglob("*.md")} == before
