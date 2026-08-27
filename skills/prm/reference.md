@@ -123,6 +123,14 @@ git rev-list --count origin/main..origin/feature/<task>          # want 0
 `UNMERGED` with no open PR → stop the close-out and report which repo. Squash
 merges break `--is-ancestor`; fall back to the PR's `state=MERGED`.
 
+**On a shallow clone this answer is a lie, not a verdict.** A remote session
+clones shallow (measured 2026-08-27: PyAutoMind arrived with 78 of 4478
+commits), and `--is-ancestor` reports "not an ancestor" for a commit whose
+ancestry is merely *absent* — so a merged branch reads `UNMERGED` and the
+close-out stops on nothing. `session_bootstrap.sh` unshallows every checkout,
+which is one more reason it is the first thing a session runs; if you did not
+run it, `git rev-parse --is-shallow-repository` before trusting this step.
+
 ### 2. Issue: comment, then close
 
 `gh issue close` prints its usage string and exits non-zero in this gh (2.4.0) —

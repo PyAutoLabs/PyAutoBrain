@@ -139,3 +139,44 @@ def test_helper_locates_itself_without_readlink(tmp_path):
         capture_output=True, text=True, env=env, timeout=60)
     assert "command not found" not in r.stderr, r.stderr
     assert "GITHUB_ACCESS.md" in r.stderr
+
+
+def test_waiting_for_ci_prefers_being_woken_over_polling():
+    """A poll costs a turn every 90s; a wake costs one per event.
+
+    The MCP surface is usually a *reduced* `gh`, so the one operation where it
+    is strictly better is easy to leave unused. `/prm` is where a run would
+    otherwise sit in a loop, so its wait step must offer the subscription
+    first, and the mapping page must carry the tool that provides it.
+    """
+    access = ACCESS_PAGE.read_text()
+    for tool in ("subscribe_pr_activity", "unsubscribe_pr_activity"):
+        assert tool in access, f"{tool} is unmapped"
+
+    prm = (SKILLS / "prm" / "prm.md").read_text()
+    wait = prm.split("## 3. Wait, or stop")[1].split("## 4.")[0]
+    assert "subscribe_pr_activity" in wait, "the wait step never mentions waking"
+    assert wait.index("subscribe_pr_activity") < wait.index("~90s"), (
+        "polling is offered before the cheaper wake path")
+    # And the subscription must be dropped, or later sessions wake on a PR
+    # nobody is driving.
+    assert "unsubscribe_pr_activity" in prm.split("## 4.")[1]
+
+
+def test_the_close_out_carries_its_own_mcp_calls():
+    """The mobile lane must not cost two pages to read.
+
+    `/prm` is ~4k words of `gh` mechanics; a run without `gh` used to load them
+    AND the mapping page, then translate step by step. The calls that close a
+    task out are few and stable enough to name inline, so the mapping page is
+    the index, not a required second read.
+    """
+    prm = (SKILLS / "prm" / "prm.md").read_text()
+    lane = prm.split("### The `mcp` lane")[1].split("## 1.")[0]
+    for call in ("pull_request_read", "actions_list", "get_job_logs",
+                 "merge_pull_request", "add_issue_comment", "issue_write",
+                 "subscribe_pr_activity", "get_file_contents"):
+        assert call in lane, f"the mcp lane never names {call}"
+    # The two traps that cost a run its turns, not just a lookup.
+    assert "head_sha" in lane, "nothing warns that runs cannot be filtered by sha"
+    assert "state_reason" in lane, "closing an issue without a reason mislabels it"

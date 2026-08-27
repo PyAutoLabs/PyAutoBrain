@@ -113,9 +113,20 @@ leave it that way.
 | Create a branch | `gh api -X POST .../git/refs` | `create_branch` |
 | Releases | `gh release view/list` | `get_latest_release`, `list_releases`, `get_release_by_tag` |
 | Who am I | `gh api user` | `get_me` |
+| Be woken by CI / comments on a PR | *(no equivalent — a CLI polls)* | `subscribe_pr_activity`, `unsubscribe_pr_activity` |
 
 Tool names are given unprefixed; the harness exposes them as
 `mcp__github__<name>`. If a name is not loaded, `ToolSearch` fetches its schema.
+
+That last row is the one place the MCP surface **beats** `gh` rather than
+merely matching it. A CLI can only ask again; a subscribed session is woken by
+the check-suite rollup, so waiting for CI costs one turn per event instead of
+one turn per poll. Take it wherever a run would otherwise sit in a loop
+(`/prm` step 3), and drop the subscription when the PR merges. Webhooks are
+best-effort — a *successful* rollup is the event most likely to go missing — so
+pair it with a `send_later` check-in (claude-code-remote) where that tool
+exists, and re-read the PR's real state on every wake rather than trusting the
+event to be the whole story.
 
 ## What the MCP surface cannot do
 

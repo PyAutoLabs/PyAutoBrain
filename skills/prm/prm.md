@@ -43,6 +43,27 @@ command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
   `/prm` **deletes no remote branch on any surface** (step 5.6), so nothing here
   needs the second probe that step used to carry.
 
+### The `mcp` lane, step by step
+
+Every GitHub call a close-out makes, so a mobile run reads this page and the
+mapping page only if something here is missing. Names take the
+`mcp__github__` prefix (the wake tools are the harness's own); `ToolSearch`
+fetches a schema that is not loaded.
+
+| Step | Call |
+|---|---|
+| 1 resolve | `list_pull_requests` (state `open`), or `pull_request_read` `get` for a known number. Mind's `active.md` via `get_file_contents` |
+| 2 judge CI | `pull_request_read` `get_check_runs` — every check on the head commit, in one call. Then `pull_request_read` `get` for `mergeable` / `merge_state_status` |
+| 2 by workflow | `actions_list` `list_workflow_runs` **has no `head_sha` filter** (`workflow_runs_filter` is actor/branch/event/status only): filter by `branch`, then match `head_sha` yourself, or you will judge a stale run. Legs: `actions_list` `list_workflow_jobs`, `resource_id` = run id |
+| 3 wait | `subscribe_pr_activity` (owner, repo, pullNumber), then end the turn; `send_later` for the fallback check-in |
+| 3 red | `get_job_logs` with `run_id`, `failed_only: true`, `return_content: true` — **before** anything else, the blob is purged |
+| 4 merge | `merge_pull_request` (`merge_method: "merge"`), then `pull_request_read` `get` to confirm `MERGED`; `unsubscribe_pr_activity` |
+| 5.2 issue | `add_issue_comment`, then `issue_write` `update` with `state: "closed"` and `state_reason: "completed"` — an unset reason is what leaves an issue reading "closed as not planned" |
+| 5.1 proof | git, not GitHub — and `--is-ancestor` needs an unshallowed clone (`reference.md` §1) |
+
+Steps 5.3-5.7 touch no GitHub API at all; what they need is a checkout, and the
+note at the foot of step 5 says what to do without one.
+
 ## 1. Resolve the target PR(s)
 
 In order: explicit argument → current branch (`gh pr view --json`) → the claimed
@@ -64,9 +85,21 @@ every run for the sha and every job in it, and treat anything not `completed` as
 
 ## 3. Wait, or stop
 
-- **Pending** — poll every ~90s, one compact line per poll (`3/4 legs done`),
-  capped at ~30 min; then report where it stands rather than spinning. Under
-  `--no-wait`, skip the loop entirely: report and stop.
+- **Pending** — wait by the cheapest mechanism the surface has. Under
+  `--no-wait`, do neither: report and stop.
+
+  - **Be woken (mobile, web — preferred there).** Where the harness exposes
+    `subscribe_pr_activity`, call it once per target PR and **end the turn**.
+    CI completions and review comments then wake the session: one turn per
+    event instead of one turn per 90s, and the phone can be put down between
+    them. Pair it with a `send_later` check-in ~15 min out where that tool
+    exists — a *successful* rollup is the event most likely to arrive late or
+    not at all, and the check-in is what stops a green PR sitting unmerged.
+    On every wake re-judge from step 2 (an event is a reason to look, never
+    evidence of green) and re-arm the check-in until the merge lands.
+  - **Poll (local CLI, or no wake tools).** Every ~90s, one compact line per
+    poll (`3/4 legs done`), capped at ~30 min; then report where it stands
+    rather than spinning.
 - **Red** — **fetch the failing job's log immediately** (GitHub purges the blob;
   once purged the failure is unnameable forever), quote the failing step, and
   stop. Do not merge, do not re-run, do not "wait for the flake to pass". Offer
@@ -84,6 +117,10 @@ Green on every leg → merge, in this order:
 2. `gh pr merge <n> --merge` per PR (`-R owner/repo` when you have no checkout),
    then confirm the state is `MERGED` — queued or auto-merge is not merged. Never
    `--delete-branch`: it takes the local branch too, orphaning a task worktree.
+3. **Drop any subscription step 3 took.** Once every target PR reads `MERGED`,
+   `unsubscribe_pr_activity` each one and cancel the `send_later` check-in. A
+   subscription outliving its merge wakes later sessions on a PR nobody is
+   driving.
 
 Never force, never override a protection, never rewrite history. If a merge is
 refused by GitHub, report the reason verbatim and stop.
