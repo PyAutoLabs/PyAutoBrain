@@ -1780,6 +1780,105 @@ def _idents(text: str) -> set:
     return set(_IDENT_RE.findall(text))
 
 
+# --- literal quotes and named paths (legs 4 and 5) ------------------------------
+#: Fence languages whose content is SOURCE, mapped to the file extension it
+#: would live in. Deliberately narrow. A prompt quoting a traceback, a pytest
+#: summary or a log excerpt writes it in a BARE fence or one tagged `text`, and
+#: those lines are absent from every repo by construction — scoring them would
+#: make leg 4 fire on every prompt that quotes its own evidence. Requiring an
+#: explicit source language is what keeps the absence signal honest.
+_FENCE_LANGS = {
+    "python": ".py", "py": ".py",
+    "bash": ".sh", "sh": ".sh", "shell": ".sh", "zsh": ".sh",
+    "yaml": ".yaml", "yml": ".yaml",
+    "toml": ".toml", "cfg": ".cfg", "ini": ".cfg",
+}
+#: A path a prompt names, e.g. `scripts/interferometer/jax_likelihood/mge.py`.
+#: The left edge is a lookbehind, NOT `\b`: a word boundary cannot match before
+#: a leading dot, so `\b` silently truncated `.github/workflows/release.yml` to
+#: `github/workflows/release.yml` — a path that then resolves against no file in
+#: the checkout. Dot-directories are exactly where CI recipes live, which is
+#: half of what these prompts are about.
+_PATH_RE = re.compile(
+    r"(?<![\w./-])((?:[\w.-]+/)*[\w.-]+\.(?:py|pyi|sh|yaml|yml|toml|cfg|txt|ipynb))\b")
+#: `PyAutoFit#1473` / `some_workspace#266` — a tracking reference.
+_ISSUE_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)#(\d{1,5})\b")
+#: Mind-internal paths are cross-references between prompts and records, not
+#: shared upstream artefacts. Two prompts both citing `draft/…` say nothing.
+_MIND_DIRS = ("draft/", "active/", "complete/", "scripts/lifecycle.py")
+
+
+def _looks_like_source(line: str) -> bool:
+    """Is this fenced line plausibly a line OF a source file?
+
+    Length and punctuation only — the discrimination that matters is the fence
+    language above, and (for leg 4) that the prompt also names a file which
+    actually exists upstream. This just drops fence padding and one-word lines.
+    """
+    s = line.strip()
+    return 8 <= len(s) <= 200 and any(ch in s for ch in "=(){}[]\"':/,")
+
+
+def _quoted_source_lines(text: str) -> dict:
+    """`.ext` -> {literal line, …} for every source-tagged fence in a prompt."""
+    out: dict = {}
+    inside, ext = False, None
+    for line in text.splitlines():
+        m = re.match(r"^\s*```+\s*([A-Za-z0-9_+.-]*)\s*$", line)
+        if m:
+            inside, ext = (False, None) if inside else (
+                True, _FENCE_LANGS.get(m.group(1).lower()))
+            continue
+        if inside and ext and _looks_like_source(line):
+            out.setdefault(ext, set()).add(line.strip())
+    return out
+
+
+def _named_paths(text: str, mind_internal: bool = False) -> set:
+    """Source paths a prompt names. Mind-internal paths dropped by default."""
+    found = set(_PATH_RE.findall(text))
+    if mind_internal:
+        return found
+    return {f for f in found if not any(f.startswith(d) for d in _MIND_DIRS)}
+
+
+#: Files under `draft/` that describe a folder's prompts rather than being one.
+_INDEX_NAMES = ("README.md", "index.md", "AGENTS.md")
+
+
+def _indexed_together(mind: Path, a: str, b: str, base_a: str, base_b: str) -> bool:
+    """Does an index in these prompts' common folder name them both?"""
+    folder = a.rsplit("/", 1)[0]
+    if folder != b.rsplit("/", 1)[0]:
+        return False
+    for name in _INDEX_NAMES:
+        f = mind / folder / name
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if base_a in text and base_b in text:
+            return True
+    return False
+
+
+def _qualified_path(path: str) -> bool:
+    """Is this path specific enough to be evidence that two prompts share work?
+
+    A bare basename is not. `start_here.py` and `modeling.py` are workspace-wide
+    conventions repeated across hundreds of example folders — a prompt naming
+    one has said nothing about which work it is. Requiring a directory component
+    is what separates `interferometer/jax_likelihood/mge.py` (one file in one
+    repo) from `mge.py` (dozens). `X.py` and friends are prose placeholders.
+    """
+    return "/" in path and len(Path(path).stem) > 2
+
+
+def _issue_refs(text: str) -> set:
+    """`{'PyAutoFit#1473', …}`, repo name normalised so `#1473` alone is ignored."""
+    return {f"{normalise_repo(repo)}#{num}" for repo, num in _ISSUE_RE.findall(text)}
+
+
 # --- the upstream read (--repo) -------------------------------------------------
 # Leg 3 of the staleness work (PyAutoBrain#223). Everything above this line is
 # Mind-local: it cross-references `draft/` against `complete/` and `active/`.
@@ -1807,6 +1906,78 @@ _W_UPSTREAM = 1.5       # per upstream identifier beyond the first. Deliberately
                         # its own carry a prompt into the top band, because the
                         # trap above would ride it there.
 _UPSTREAM_MIN_IDENTS = 2   # one shared name is a coincidence, not a signal
+
+# --- leg 4: the absence signal --------------------------------------------------
+# Leg 3 above tests PRESENCE — "the prompt names things that exist upstream" —
+# and that is structurally blind to the shape that motivated this leg.
+# `smoke_install_stale_jax_pin.md` shipped on 2026-08-23 (a workspace-test
+# repo, issue #266 / PR #268) with NO Mind-side trace at all: no active.md
+# entry, no active/ move, no complete/ record. It kept rendering as pickable
+# backlog and was re-picked four days later. Both guards were run against it
+# directly and both passed it: `lifecycle.py check` (its invariant is about
+# active.md slugs, and a task that skips Mind state is in neither place) and
+# `intake reconcile maintenance/ci --repo <that repo>`, pointed straight at it —
+# 0 suspects of 132 scanned. It named `smoke_install.sh`, which still exists, so
+# presence said nothing.
+#
+# The defect it described was an ABSENCE. It quoted a literal line —
+# `pip install "jax<0.7" "jaxlib<0.7"` — and that line is GONE upstream. A
+# backlog prompt quoting a source line that no longer exists in a file it names
+# is close to a proof the work shipped.
+#
+# Three filters keep it from firing on every prompt that quotes its own
+# evidence, and all three must hold:
+#
+#   1. the fence carries an explicit SOURCE language (_FENCE_LANGS). A quoted
+#      traceback, pytest summary or log excerpt goes in a bare or `text` fence,
+#      and those are absent from every repo by construction.
+#   2. the prompt names a file that EXISTS upstream with that extension. Without
+#      an anchor the question "absent from what?" has no answer.
+#   3. the line is absent from the WHOLE tree, not just that file — otherwise a
+#      refactor that moved a line reads as a shipped fix.
+#
+# Like leg 3 it feeds `upstream_score`, never `score`: a quoted line can vanish
+# for reasons other than the prompt shipping (an unrelated refactor, a reworded
+# quote), so it ranks for review and never retires.
+_W_QUOTE_ABSENT = 4.0   # per absent quoted line. Above _W_UPSTREAM (1.5): the
+                        # prompt's own argument is that absence is the stronger
+                        # evidence, and the ordering inside `needs-review`
+                        # should say so. Still below _W_SHIPPED (7.0), which is
+                        # a Mind-local band this leg must never reach.
+
+# --- leg 5: duplicate candidates ------------------------------------------------
+# Every signal above scores a prompt against the completion ARCHIVE. Nothing
+# scored the live prompts against EACH OTHER, and near-duplicate filings are a
+# standing hazard of a backlog this size that several independent sessions file
+# into.
+#
+# Measured case: `bug/workspaces/jax_likelihood_pins_stale_by_1e4.md` (filed
+# 08-14) and `bug/autolens/jax_likelihood_smoke_pins_stale.md` (filed 08-19) —
+# same three scripts, same failing smoke gate, written five days apart by
+# sessions that did not know about each other. The 08-19 copy was verified and
+# retired on 08-26; the 08-14 copy kept rendering as pickable backlog until a
+# drift audit found it on 08-27. No guard saw it: neither was ever `active/`, so
+# no lifecycle invariant applied, and reconcile compares prompt text to RECORD
+# text — the record covering it carried the twin's words, not its own.
+#
+# Shared upstream file paths are the load-bearing signal: two prompts naming the
+# same source files are almost never independent work. Identifiers and issue
+# references corroborate. Mutual reference is the precision filter — a phased
+# parent and its child name each other, and that is a series, not a duplicate.
+_W_DUP_PATH = 4.0       # per shared upstream source path
+_W_DUP_IDENT = 1.0      # per shared rare identifier
+_W_DUP_ISSUE = 2.0      # per shared tracking reference
+_DUP_THRESHOLD = 8.0
+#: An identifier this many live prompts or more name is backlog vocabulary.
+_DUP_IDENT_COMMON = 4
+#: Ditto for paths — and this one is load-bearing. Measured on the 2026-08-27
+#: backlog (134 prompts): scoring every shared path flagged 36 pairs, and the
+#: noise was almost entirely BARE BASENAMES. `start_here.py`, `modeling.py`,
+#: `simulator.py`, `no_run.yaml`, `smoke_tests.txt` are workspace-wide filenames
+#: that dozens of unrelated prompts name; two prompts sharing `start_here.py`
+#: share a convention, not a task. Same discrimination `_TOKEN_COMMON_DF` and
+#: `_IDENT_COMMON_DF` already make against the records.
+_DUP_PATH_COMMON = 4
 
 
 def _upstream_noise() -> set:
@@ -1955,6 +2126,113 @@ def _grep_source(root: Path, idents: set) -> dict:
     return hits
 
 
+_QUOTE_SUFFIXES = (".py", ".pyi", ".sh", ".yaml", ".yml", ".toml", ".cfg")
+
+
+def _check_quotes(root: Path, named: set, quoted: dict) -> dict:
+    """Leg 4: which lines a prompt quotes are GONE from the files it names.
+
+    `named` are path fragments the prompt mentions; `quoted` is
+    `{'.ext': {line, …}}` from its source-tagged fences. Returns
+    `{"files": [rel, …], "absent": [(line, rel), …]}` — `files` is the anchor
+    (the named paths that actually exist upstream), `absent` the lines that
+    occur in NONE of them and nowhere else in the tree either.
+
+    A line found elsewhere in the tree is reported as neither: it moved, and a
+    moved line is a refactor, not a shipped fix.
+    """
+    resolved: dict = {}
+    for cand in sorted(named):
+        if len(resolved) >= 12:            # a prompt naming more is a survey
+            break
+        for f in root.rglob("*"):
+            if not f.is_file() or ".git" in f.parts:
+                continue
+            if f.as_posix().endswith("/" + cand) or f.name == cand:
+                resolved[cand] = f
+                break
+    if not resolved:
+        return {"files": [], "absent": []}
+
+    # One read of each resolved file, plus one lazy pass over the tree only for
+    # the lines that were not found in them.
+    bodies = {}
+    for cand, f in resolved.items():
+        try:
+            bodies[cand] = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            bodies[cand] = ""
+
+    missing: dict = {}
+    for ext, lines in quoted.items():
+        anchors = {c: b for c, b in bodies.items()
+                   if Path(c).suffix == ext}
+        if not anchors:
+            continue                        # nothing of that kind was named
+        gone = {ln for ln in lines
+                if not any(ln in b for b in anchors.values())}
+        # THE ANCHOR MUST BE CORROBORATED. If not one of the lines this prompt
+        # quotes for `ext` is present in the file(s) it names, the anchor is
+        # unproven and absence means nothing — measured against the live backlog,
+        # this is what separates the signal from its two loudest false positives:
+        #
+        #   * PROPOSED code. `einstein_radius_jit_native_seed_finder.md` quotes
+        #     23 lines of a JAX-native seed finder it wants WRITTEN. All 23 are
+        #     absent because none has ever existed, and it scored higher than
+        #     every true positive.
+        #   * The WRONG REPO. A prompt read against a repo it is not about
+        #     quotes lines absent from it by construction.
+        #
+        # One quoted line still present proves the prompt is talking about this
+        # file, in this checkout — and then a sibling line's absence is a change
+        # that happened. The motivating case passes it exactly: the PyAuto
+        # install line is still in `smoke_install.sh`, and the jax pin is gone.
+        if len(gone) == len(lines):
+            continue
+        for line in gone:
+            missing[line] = sorted(anchors)[0]
+    if missing:
+        # Absent from the named file is not enough — the line may have moved.
+        for f in root.rglob("*"):
+            if not missing:
+                break
+            if (not f.is_file() or ".git" in f.parts
+                    or f.suffix not in _QUOTE_SUFFIXES):
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for line in [ln for ln in missing if ln in text]:
+                del missing[line]
+    # Two named candidates can resolve to one file (`smoke_install.sh` and
+    # `<repo>/.github/scripts/smoke_install.sh` are the same
+    # anchor) — report the anchor once.
+    return {"files": sorted({f.relative_to(root).as_posix()
+                             for f in resolved.values()}),
+            "absent": sorted(missing.items())}
+
+
+class _UpstreamReader:
+    """The `--repo` seam: identifier presence (leg 3) and quote absence (leg 4).
+
+    Callable for leg 3 so every existing caller and test fake keeps working; leg
+    4 hangs off `.quotes`, and `reconcile` probes for it with `getattr`. A fake
+    that is a plain lambda therefore exercises leg 3 alone, which is what the
+    hermetic tests written before this leg existed expect.
+    """
+
+    def __init__(self, root: Path, slug: str = ""):
+        self._root = root
+        self.slug = slug
+
+    def __call__(self, idents: set) -> dict:
+        return _grep_source(self._root, idents)
+
+    def quotes(self, named: set, quoted: dict) -> dict:
+        return _check_quotes(self._root, named, quoted)
+
+
 def upstream_reader(mind: Path, target: str, cache: Path = None):
     """Build the `source_reader` seam for `reconcile(repo=…)`.
 
@@ -1971,7 +2249,97 @@ def upstream_reader(mind: Path, target: str, cache: Path = None):
         root, sha = _clone_upstream(slug, cache)
     except Exception as exc:                      # network/git failure
         return None, "", slug, f"could not read {slug}: {exc}"
-    return (lambda idents: _grep_source(root, idents)), sha, slug, ""
+    return _UpstreamReader(root, slug), sha, slug, ""
+
+
+def duplicate_candidates(mind: Path, records: list, prefix: str = "") -> list:
+    """Leg 5: pairs of LIVE prompts that look like the same work filed twice.
+
+    Offline and Mind-local. Scores every unordered pair on the artefacts both
+    name — upstream source paths, rare identifiers, tracking references — and
+    returns the pairs over `_DUP_THRESHOLD`, strongest first.
+
+    Two filters carry the precision:
+
+      * **Mutual reference disqualifies.** A phased parent and its child name
+        each other, as do deliberate siblings; that is a series, and reconcile
+        must not offer to merge one. The measured duplicate pair named neither
+        the other, which is exactly why it survived.
+      * **Rare identifiers only.** An identifier `_DUP_IDENT_COMMON` or more
+        live prompts share is backlog vocabulary, the same reasoning `ident_df`
+        applies against the records.
+
+    Advisory, like every other reconcile output: merging or retiring a prompt
+    stays a human act.
+    """
+    import itertools
+
+    texts: dict = {}
+    for r in records:
+        if prefix and not _prefix_match(r["path"], prefix):
+            continue
+        if r["path"].rsplit("/", 1)[-1] in _INDEX_NAMES:
+            continue            # an index is not a filing; it describes them
+        try:
+            texts[r["path"]] = (mind / r["path"]).read_text(
+                encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+    ident_pdf: dict = {}
+    path_pdf: dict = {}
+    feats: dict = {}
+    for path, text in texts.items():
+        idents = _idents(text)
+        named = {f for f in _named_paths(text) if _qualified_path(f)}
+        feats[path] = {
+            "paths": named,
+            "idents": idents,
+            "issues": _issue_refs(text),
+            "base": path.rsplit("/", 1)[-1],
+            "text": text,
+        }
+        for i in idents:
+            ident_pdf[i] = ident_pdf.get(i, 0) + 1
+        for f in named:
+            path_pdf[f] = path_pdf.get(f, 0) + 1
+
+    out = []
+    for a, b in itertools.combinations(sorted(feats), 2):
+        fa, fb = feats[a], feats[b]
+        # Mutual reference: these two prompts know about each other.
+        if fa["base"] in fb["text"] or fb["base"] in fa["text"]:
+            continue
+        # A DECLARED series knows about itself without any member naming
+        # another. `draft/bug/health_fixes/` holds four prompts split out of one
+        # health run — they share their failing scripts because they were split
+        # by CAUSE, not by script — and the folder's own README.md names all
+        # four. That index IS the declaration, and it is the same reasoning
+        # leg 1 applies to a record that resolves a folder of prompts as a
+        # group. Without it the trio yields three pairs of already-known work.
+        if _indexed_together(mind, a, b, fa["base"], fb["base"]):
+            continue
+        shared_paths = sorted(f for f in fa["paths"] & fb["paths"]
+                              if path_pdf.get(f, 0) <= _DUP_PATH_COMMON)
+        shared_idents = sorted(i for i in fa["idents"] & fb["idents"]
+                               if ident_pdf.get(i, 0) <= _DUP_IDENT_COMMON)
+        shared_issues = sorted(fa["issues"] & fb["issues"])
+        score = (_W_DUP_PATH * len(shared_paths)
+                 + _W_DUP_IDENT * len(shared_idents)
+                 + _W_DUP_ISSUE * len(shared_issues))
+        if score < _DUP_THRESHOLD:
+            continue
+        shared = []
+        if shared_paths:
+            shared.append(("shared-paths", ", ".join(shared_paths[:5])))
+        if shared_idents:
+            shared.append(("shared-identifiers", ", ".join(shared_idents[:5])))
+        if shared_issues:
+            shared.append(("shared-issues", ", ".join(shared_issues[:5])))
+        out.append({"paths": [a, b], "score": round(score, 2),
+                    "shared": [{"kind": k, "evidence": e} for k, e in shared]})
+    out.sort(key=lambda d: (-d["score"], d["paths"]))
+    return out
 
 
 def reconcile(mind: Path, prefix: str = "", source_reader=None,
@@ -2158,6 +2526,34 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
                     f"upstream: " + "; ".join(
                         f"{i} ({up[i][0]})" for i in shown)))
 
+            # 4b. The absence signal: lines this prompt QUOTES that are gone
+            #     from a file it names. The only leg that fires on a prompt
+            #     which shipped leaving no Mind-side trace AND whose named
+            #     files still exist — the shape leg 3 is blind to.
+            quotes = getattr(source_reader, "quotes", None)
+            if quotes is not None:
+                named = _named_paths(prompt_text)
+                quoted = _quoted_source_lines(prompt_text)
+                # A prompt that never mentions the repo being read is not about
+                # it, and its quotes are absent from it by construction. The
+                # `Repos:` header had this answer all along, while `--repo` had
+                # to be told the target by hand.
+                slug = getattr(source_reader, "slug", "")
+                about = (not slug) or normalise_repo(slug.rsplit("/", 1)[-1]) in {
+                    normalise_repo(x) for x in re.findall(
+                        r"[@`/\s]([A-Za-z_][A-Za-z0-9_]*)", prompt_text)}
+                q = (quotes(named, quoted)
+                     if (named and quoted and about) else {})
+                absent = q.get("absent") or []
+                if absent:
+                    upstream_score += _W_QUOTE_ABSENT * len(absent)
+                    findings.append((
+                        "upstream-quote-absent",
+                        f"{len(absent)} line(s) this prompt quotes are gone "
+                        f"from the file(s) it names ("
+                        + ", ".join(q["files"][:3]) + "): "
+                        + "; ".join(repr(ln) for ln, _ in absent[:3])))
+
         # `Status:` alone is not evidence — it fired on every hand-set draft. Kept
         # as context on prompts something else already flagged, never as a reason.
         if (score > 0 or upstream_score > 0) and r["status"] not in ("-", "formalised"):
@@ -2188,7 +2584,8 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
     suspects.sort(key=lambda s: (order[s["confidence"]], -s["overlap_score"],
                                  -s.get("upstream_score", 0.0), s["path"]))
     return {"generated": _dt.date.today().isoformat(), "scanned": c["total"],
-            "upstream": upstream_meta or {}, "suspects": suspects}
+            "upstream": upstream_meta or {}, "suspects": suspects,
+            "duplicates": duplicate_candidates(mind, c["records"], prefix)}
 
 
 def emit_reconcile(res: dict):
@@ -2215,8 +2612,25 @@ def emit_reconcile(res: dict):
             if len(ev) > 160:
                 ev = ev[:157] + "…"
             print(f"{' ' * (width + 3)}{f['kind']}: {ev}")
+    dups = res.get("duplicates") or []
+    if dups:
+        print(f"\n== Duplicate candidates: {len(dups)} pair(s) ==")
+        print("  Live prompts naming the same artefacts, neither referencing "
+              "the other.")
+        for d in dups:
+            print(f"[{d['score']:>6}] {d['paths'][0]}")
+            print(f"{' ' * 9}{d['paths'][1]}")
+            for s in d["shared"]:
+                ev = s["evidence"]
+                if len(ev) > 160:
+                    ev = ev[:157] + "\u2026"
+                print(f"{' ' * 9}{s['kind']}: {ev}")
     print("\nRetiring a prompt stays human: verify against the target repo's "
           "git log / merged\nPRs, then retire it to the complete/ archive by hand.")
+    if dups:
+        print("A duplicate candidate is a PAIR to read together, not a verdict: "
+              "two prompts can\nshare files and still be different work. Merge "
+              "or retire by hand.")
     if up:
         print("`needs-review` means the prompt NAMES things that exist upstream "
               "— NOT that it\nshipped. A fix can land next to the name without "

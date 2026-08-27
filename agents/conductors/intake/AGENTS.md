@@ -93,8 +93,8 @@ schema — light structure over free-form prose.
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
 | **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, parked, planned, backlog, recent, epics; `--apply` writes `PyAutoMind/dashboard.md`, `--check` exits 1 on drift |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
-| **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`); always read-only — retiring stays human |
-| **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source for identifiers the prompts name — the one signal that sees a prompt with no Mind-side trace. Opt-in; the default path is offline |
+| **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`), and pair live prompts that look like the same work filed twice; always read-only — retiring stays human |
+| **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source: identifiers the prompts name that exist upstream, and lines they quote that are **gone** — the two signals that see a prompt with no Mind-side trace. Opt-in; the default path is offline |
 
 **Recent** is the one section laid out by *date* rather than by state: the 50
 newest events on the **work in hand** — issued, parked, filed — merged across
@@ -151,6 +151,35 @@ are on PyAutoFit `main`, and the prompt is **not** shipped — the upstream catc
 wraps only the likelihood call while the raising line sits before the `try`.
 Presence of a name is not presence of the fix.
 
+`--repo` also carries the **absence signal**, the inversion of the above: a
+literal line a prompt *quotes* that is **gone** from a file it names. Presence
+tests "the prompt names things that exist upstream" and is blind to a task that
+shipped leaving no Mind-side trace while its files still exist —
+`smoke_install_stale_jax_pin.md` shipped 2026-08-23 and both guards passed it
+(`lifecycle.py check` has no invariant for a prompt that was never `active/`;
+`reconcile --repo autolens_workspace_test` found 0 suspects of 132). It named
+`smoke_install.sh`, which still exists. What it quoted —
+`pip install "jax<0.7" "jaxlib<0.7"` — did not.
+
+Five filters keep it off every prompt that quotes its own evidence, and all
+five must hold:
+
+| Filter | The false positive it kills |
+|---|---|
+| the fence carries an explicit **source language** | a traceback or pytest summary goes in a bare fence, and those lines are absent from every repo by construction |
+| the prompt **names a file that exists upstream** with that extension | without an anchor, *"absent from what?"* has no answer |
+| the line is absent from the **whole checkout**, not just that file | a refactor that moved a line is not the prompt shipping |
+| the prompt **mentions the repo being read** | a prompt read against a repo it is not about quotes lines absent by construction — its `Repos:` header had the answer all along, while `--repo` had to be told the target by hand |
+| **the anchor is corroborated** — at least one quoted line of that kind is still *present* in the named file | **proposed code.** `einstein_radius_jit_native_seed_finder.md` quotes 23 lines of a seed finder it wants *written*; all 23 are absent because none ever existed, and it outscored every true positive. One line still present proves the prompt is talking about this file, in this checkout |
+
+Measured against the live backlog (134 prompts) read at `autolens_workspace_test`:
+the last two filters took **6 hits → 0**, every one of the six a proposal or a
+wrong-repo read, while the retired `smoke_install_stale_jax_pin.md` — restored
+into `draft/` to reproduce — still fires. That prompt quoted *two* lines from
+`smoke_install.sh`: the PyAuto install line, still there, and the jax pin, gone.
+
+Like presence, it feeds only the upstream key and never retires anything.
+
 **This is the only network access in PyAutoBrain.** Every other conductor and
 faculty is stdlib-only and offline, and the default `reconcile` path stays that
 way — a test detonates on any socket or subprocess use when `--repo` is absent.
@@ -160,6 +189,32 @@ A target that is not one repo (`workspaces`, `health_fixes`, `priors`,
 Clones are cached shallow (`--depth 1`) under `$PYAUTO_BRAIN_CACHE`
 (default `~/.pyauto-brain/upstream`), and the resolved sha is printed so a
 verdict is re-checkable.
+
+### Duplicate candidates (offline)
+
+Every signal above scores a prompt against the completion **archive**. Nothing
+scored the live prompts against **each other**, and near-duplicate filings are a
+standing hazard of a backlog several independent sessions file into.
+`bug/workspaces/jax_likelihood_pins_stale_by_1e4.md` (filed 08-14) and
+`bug/autolens/jax_likelihood_smoke_pins_stale.md` (filed 08-19) named the same
+three scripts from the same failing smoke gate; the 08-19 copy was verified and
+retired on 08-26, and the 08-14 copy kept rendering as pickable backlog.
+
+`reconcile` therefore also emits a `duplicate-candidate` bucket, pair-wise, over
+shared upstream **source paths**, rare **identifiers** and **tracking
+references**. It runs on the default (offline) path — it reads only `draft/`.
+
+Three filters carry the precision, measured on the 2026-08-27 backlog (134
+prompts): **36 pairs → 2**.
+
+| Filter | Why |
+|---|---|
+| A path named by more than `_DUP_PATH_COMMON` prompts is dropped, and a **bare basename never counts** | `start_here.py`, `modeling.py`, `no_run.yaml` are workspace-wide conventions; sharing one is a convention, not a task. This filter alone removed 31 of the 36 |
+| **Mutual reference disqualifies** | a phased parent and its child name each other — a series, not a duplicate |
+| **A folder index naming both disqualifies** | the four `draft/bug/health_fixes/` prompts were split by *cause*, so they share their failing scripts and none names another; the folder's `README.md` names all four, and that is the declaration |
+
+A pair is something to **read together**, never a verdict: two prompts can share
+files and still be different work.
 
 ## Machine sources (one staging surface)
 
@@ -195,7 +250,8 @@ bin/pyauto-brain intake --apply dashboard                          # write PyAut
 bin/pyauto-brain intake dashboard --check                          # exit 1 if the committed page has drifted
 bin/pyauto-brain intake formalise                                  # propose retroactive headers (dry-run)
 bin/pyauto-brain intake --apply formalise bug/                     # write them, only under bug/
-bin/pyauto-brain intake reconcile                                  # rank shipped-but-stale suspects (read-only)
+bin/pyauto-brain intake reconcile                                  # rank shipped-but-stale suspects + duplicate pairs (read-only)
+bin/pyauto-brain intake reconcile --repo autolens_workspace_test   # + upstream presence and quote-absence legs
 ```
 
 **Writes only under `--apply`; dry-run is the default.** Exit codes: `0` produced
