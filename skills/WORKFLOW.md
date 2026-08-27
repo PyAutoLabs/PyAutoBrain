@@ -233,6 +233,22 @@ that resolve from any sibling repo:
   drift-checks them (`check`). See `PyAutoMind/complete/AGENTS.md` (issues #71/#81).
 - `source PyAutoMind/scripts/prompt_sync.sh` → `prompt_sync_push "<msg>"` (commit+push registry)
 
+`prompt_sync_push` pushes **the branch you are on**, never a hardcoded `main` —
+on a laptop that branch is `main`; on a branch-scoped surface (the phone,
+claude.ai/code, any `claude/**` flow) it is the session's branch. **That is the
+whole job either way.** A registry/prompt/record/dashboard diff is *ledger*, and
+`PyAutoMind/.github/workflows/mind_ledger_merge.yml` merges a ledger-only
+`claude/**` push into `main` and deletes the branch, unattended — no PR, and
+nothing for the human to merge afterwards. Do not leave a Mind branch hanging,
+and do not ask for it to be merged.
+
+The gate is default-deny and blocks on code: a push that also touches
+`PyAutoMind/scripts/`, `tests/`, `.github/`, `skills/`, `policy/`, `docs/`,
+`repos.yaml` or the prose pages waits for a human — say so rather than implying
+the state landed. `python3 scripts/ledger_merge.py classify --base origin/main`
+in the Mind checkout answers it before you push; the contract is
+`PyAutoMind/REFERENCE.md` "How the ledger lands".
+
 `active.md` task schema, the completion-record schema, and the prompt taxonomy
 (`draft/feature/<target>/`, `draft/bug/<target>/`, …) are documented in
 `PyAutoMind/README.md`. **Under `draft/`, the first folder is the work type, the
