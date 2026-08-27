@@ -161,13 +161,24 @@ shipped leaving no Mind-side trace while its files still exist —
 `smoke_install.sh`, which still exists. What it quoted —
 `pip install "jax<0.7" "jaxlib<0.7"` — did not.
 
-Three filters keep it off every prompt that quotes its own evidence, and all
-three must hold: the fence carries an explicit **source language** (a traceback
-or pytest summary goes in a bare fence, and those lines are absent from every
-repo by construction); the prompt **names a file that exists upstream** with
-that extension, so "absent from what?" has an answer; and the line is absent
-from the **whole checkout**, so a moved line reads as the refactor it is. Like
-presence, it feeds only the upstream key and never retires anything.
+Five filters keep it off every prompt that quotes its own evidence, and all
+five must hold:
+
+| Filter | The false positive it kills |
+|---|---|
+| the fence carries an explicit **source language** | a traceback or pytest summary goes in a bare fence, and those lines are absent from every repo by construction |
+| the prompt **names a file that exists upstream** with that extension | without an anchor, *"absent from what?"* has no answer |
+| the line is absent from the **whole checkout**, not just that file | a refactor that moved a line is not the prompt shipping |
+| the prompt **mentions the repo being read** | a prompt read against a repo it is not about quotes lines absent by construction — its `Repos:` header had the answer all along, while `--repo` had to be told the target by hand |
+| **the anchor is corroborated** — at least one quoted line of that kind is still *present* in the named file | **proposed code.** `einstein_radius_jit_native_seed_finder.md` quotes 23 lines of a seed finder it wants *written*; all 23 are absent because none ever existed, and it outscored every true positive. One line still present proves the prompt is talking about this file, in this checkout |
+
+Measured against the live backlog (134 prompts) read at `autolens_workspace_test`:
+the last two filters took **6 hits → 0**, every one of the six a proposal or a
+wrong-repo read, while the retired `smoke_install_stale_jax_pin.md` — restored
+into `draft/` to reproduce — still fires. That prompt quoted *two* lines from
+`smoke_install.sh`: the PyAuto install line, still there, and the jax pin, gone.
+
+Like presence, it feeds only the upstream key and never retires anything.
 
 **This is the only network access in PyAutoBrain.** Every other conductor and
 faculty is stdlib-only and offline, and the default `reconcile` path stays that

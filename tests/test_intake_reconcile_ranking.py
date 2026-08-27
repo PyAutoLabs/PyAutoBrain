@@ -364,11 +364,15 @@ def _up(root: Path):
     return _intake._UpstreamReader(root)
 
 
+# Faithful to the real prompt: it quoted TWO lines from the same file — the
+# pin it was about, and the install line above it. That second line is what
+# corroborates the anchor, and the leg requires it.
 _GONE_PROMPT = """# The smoke install pins jax below 0.7
 
 The install script still holds the pin:
 
 ```bash
+pip install "./PyAutoArray[optional]"
 pip install "jax<0.7" "jaxlib<0.7"
 ```
 
@@ -379,7 +383,7 @@ It lives in `.github/scripts/smoke_install.sh`.
 def test_a_quoted_line_gone_from_a_named_file_is_surfaced(tmp_path):
     """The motivating case: quoted line absent, named file present."""
     up = _tree(tmp_path / "up", {
-        ".github/scripts/smoke_install.sh": 'pip install "./PyAutoArray"\n'})
+        ".github/scripts/smoke_install.sh": 'pip install "./PyAutoArray[optional]"\n'})
     root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
     res = _intake.reconcile(root, source_reader=_up(up))
 
@@ -391,8 +395,9 @@ def test_a_quoted_line_gone_from_a_named_file_is_surfaced(tmp_path):
 def test_a_quoted_line_still_present_is_not_evidence(tmp_path):
     """The control. Same prompt, same file — but the line is still there, so
     the prompt describes live work and must stay off the list."""
-    up = _tree(tmp_path / "up", {
-        ".github/scripts/smoke_install.sh": 'pip install "jax<0.7" "jaxlib<0.7"\n'})
+    up = _tree(tmp_path / "up", {".github/scripts/smoke_install.sh":
+                                 'pip install "./PyAutoArray[optional]"\n'
+                                 'pip install "jax<0.7" "jaxlib<0.7"\n'})
     root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
     assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
 
@@ -402,7 +407,7 @@ def test_a_moved_line_is_not_a_shipped_fix(tmp_path):
     elsewhere in the tree is not the prompt shipping, so absence must be checked
     against the WHOLE checkout before it counts."""
     up = _tree(tmp_path / "up", {
-        ".github/scripts/smoke_install.sh": "# moved out of here\n",
+        ".github/scripts/smoke_install.sh": 'pip install "./PyAutoArray[optional]"\n',
         "ci/pins.sh": 'pip install "jax<0.7" "jaxlib<0.7"\n'})
     root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
     assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
@@ -441,8 +446,9 @@ def test_quote_absence_cannot_reach_a_mind_local_band(tmp_path):
     it ranks for review and can never produce a shipped verdict."""
     lines = "\n".join(f'pip install "pkg-{i}==1.0"' for i in range(9))
     body = ("# Many gone pins\n\nIn `ci/install.sh`.\n\n```bash\n"
-            + lines + "\n```\n")
-    up = _tree(tmp_path / "up", {"ci/install.sh": "# emptied\n"})
+            'pip install "./PyAutoArray[optional]"\n' + lines + "\n```\n")
+    up = _tree(tmp_path / "up",
+               {"ci/install.sh": 'pip install "./PyAutoArray[optional]"\n'})
     root = _mind(tmp_path / "mind", {"maintenance/ci/many.md": body}, {})
     s = _intake.reconcile(root, source_reader=_up(up))["suspects"][0]
     assert s["confidence"] == "needs-review"
@@ -566,3 +572,31 @@ def test_duplicate_scan_stays_offline_and_never_writes(tmp_path, monkeypatch):
     before = {p: p.read_bytes() for p in root.rglob("*.md")}
     assert _intake.reconcile(root)["duplicates"]
     assert {p: p.read_bytes() for p in root.rglob("*.md")} == before
+
+
+def test_proposed_code_is_not_an_absence(tmp_path):
+    """The loudest false positive on the live backlog, and the reason the anchor
+    must be corroborated. `einstein_radius_jit_native_seed_finder.md` quotes 23
+    lines of a JAX-native seed finder it wants WRITTEN — all 23 absent because
+    none has ever existed — and it outscored every true positive.
+
+    One quoted line still present proves the prompt is talking about this file
+    in this checkout. None present means the anchor is unproven: proposed code,
+    or the wrong repo. Absence then says nothing."""
+    proposed = "\n".join(f"    seed_{i} = grid_argmin(eigen_{i})" for i in range(6))
+    body = ("# JAX-native seed finder\n\nAdd to `scripts/misc/util.py`:\n\n"
+            "```python\n" + proposed + "\n```\n")
+    up = _tree(tmp_path / "up", {"scripts/misc/util.py": "def existing(): ...\n"})
+    root = _mind(tmp_path / "mind", {"refactor/autogalaxy/seed.md": body}, {})
+    assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
+
+
+def test_a_prompt_not_about_the_repo_being_read_is_skipped(tmp_path):
+    """The `Repos:` header had the answer all along, while `--repo` had to be
+    told the target by hand. A prompt that never mentions the repo under test
+    is not about it, and its quotes are absent from it by construction."""
+    up = _tree(tmp_path / "up", {
+        ".github/scripts/smoke_install.sh": 'pip install "./PyAutoArray[optional]"\n'})
+    root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
+    reader = _intake._UpstreamReader(up, "PyAutoLabs/some_other_repo")
+    assert _paths(_intake.reconcile(root, source_reader=reader)) == set()

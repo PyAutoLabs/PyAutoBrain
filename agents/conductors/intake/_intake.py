@@ -2169,9 +2169,28 @@ def _check_quotes(root: Path, named: set, quoted: dict) -> dict:
                    if Path(c).suffix == ext}
         if not anchors:
             continue                        # nothing of that kind was named
-        for line in lines:
-            if not any(line in b for b in anchors.values()):
-                missing[line] = sorted(anchors)[0]
+        gone = {ln for ln in lines
+                if not any(ln in b for b in anchors.values())}
+        # THE ANCHOR MUST BE CORROBORATED. If not one of the lines this prompt
+        # quotes for `ext` is present in the file(s) it names, the anchor is
+        # unproven and absence means nothing — measured against the live backlog,
+        # this is what separates the signal from its two loudest false positives:
+        #
+        #   * PROPOSED code. `einstein_radius_jit_native_seed_finder.md` quotes
+        #     23 lines of a JAX-native seed finder it wants WRITTEN. All 23 are
+        #     absent because none has ever existed, and it scored higher than
+        #     every true positive.
+        #   * The WRONG REPO. A prompt read against a repo it is not about
+        #     quotes lines absent from it by construction.
+        #
+        # One quoted line still present proves the prompt is talking about this
+        # file, in this checkout — and then a sibling line's absence is a change
+        # that happened. The motivating case passes it exactly: the PyAuto
+        # install line is still in `smoke_install.sh`, and the jax pin is gone.
+        if len(gone) == len(lines):
+            continue
+        for line in gone:
+            missing[line] = sorted(anchors)[0]
     if missing:
         # Absent from the named file is not enough — the line may have moved.
         for f in root.rglob("*"):
@@ -2203,8 +2222,9 @@ class _UpstreamReader:
     hermetic tests written before this leg existed expect.
     """
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, slug: str = ""):
         self._root = root
+        self.slug = slug
 
     def __call__(self, idents: set) -> dict:
         return _grep_source(self._root, idents)
@@ -2229,7 +2249,7 @@ def upstream_reader(mind: Path, target: str, cache: Path = None):
         root, sha = _clone_upstream(slug, cache)
     except Exception as exc:                      # network/git failure
         return None, "", slug, f"could not read {slug}: {exc}"
-    return _UpstreamReader(root), sha, slug, ""
+    return _UpstreamReader(root, slug), sha, slug, ""
 
 
 def duplicate_candidates(mind: Path, records: list, prefix: str = "") -> list:
@@ -2514,7 +2534,16 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
             if quotes is not None:
                 named = _named_paths(prompt_text)
                 quoted = _quoted_source_lines(prompt_text)
-                q = quotes(named, quoted) if (named and quoted) else {}
+                # A prompt that never mentions the repo being read is not about
+                # it, and its quotes are absent from it by construction. The
+                # `Repos:` header had this answer all along, while `--repo` had
+                # to be told the target by hand.
+                slug = getattr(source_reader, "slug", "")
+                about = (not slug) or normalise_repo(slug.rsplit("/", 1)[-1]) in {
+                    normalise_repo(x) for x in re.findall(
+                        r"[@`/\s]([A-Za-z_][A-Za-z0-9_]*)", prompt_text)}
+                q = (quotes(named, quoted)
+                     if (named and quoted and about) else {})
                 absent = q.get("absent") or []
                 if absent:
                     upstream_score += _W_QUOTE_ABSENT * len(absent)
