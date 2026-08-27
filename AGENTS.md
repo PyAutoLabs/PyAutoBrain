@@ -182,9 +182,11 @@ Measured in a web/mobile container, where this file is loaded and little else is
   REST repo paths nor GraphQL beyond a pinned set of PR-review operations. So
   `gh pr list`, `gh issue list`, `gh repo view` and `gh api repos/...` all
   fail *after* the install, which is worse than the honest `command not
-  found`. Read [`skills/GITHUB_ACCESS.md`](skills/GITHUB_ACCESS.md) at the top
-  of any run that touches GitHub; it maps each `gh` operation onto its MCP
-  tool.
+  found`. Read [`PyAutoBrain/skills/GITHUB_ACCESS.md`](skills/GITHUB_ACCESS.md)
+  at the top of any run that touches GitHub; it maps each `gh` operation onto
+  its MCP tool. Spell that path from the workspace root, as written: a session
+  holding several organs is cwd'd at the repos' *parent*, so a bare `skills/…`
+  reads as a missing file rather than a missing repo prefix.
 
 ## The command surface (Brain implicit)
 
