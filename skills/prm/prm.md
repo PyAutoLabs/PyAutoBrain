@@ -172,8 +172,21 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
       ```
 
    Never hand-edit either page. Commit the render **with** the record, then
-   `lifecycle.py check` and push Mind on `main`. `git show --stat HEAD` must name
-   both dashboard files beside the record, or leg 3 did not happen.
+   `lifecycle.py check` and push Mind. `git show --stat HEAD` must name both
+   dashboard files beside the record, or leg 3 did not happen.
+
+   **Push the branch you are on — never force `main`.** On a laptop that branch
+   *is* `main`. On a branch-scoped surface (the phone, claude.ai/code, any
+   `claude/**` flow) it is the session's branch, and pushing it is the whole
+   job: a close-out diff is ledger by construction, so
+   `mind_ledger_merge.yml` merges it into `main` and deletes the branch within
+   a minute — no PR, and no "merge that branch too" left for the human. Say in
+   the ledger that the Mind branch was pushed and will land itself. Two things
+   change that: the close-out also touched `scripts/`, `.github/`, `skills/` or
+   another code path (then the branch waits for a human — say so plainly), or
+   `lifecycle.py check` fails (then it was never going to merge; fix the drift).
+   `python3 scripts/ledger_merge.py classify --base origin/main` in the Mind
+   checkout tells you which of the three you are in.
 5. **Worktree** — `worktree_remove <task>`, never `rm -rf`. It refuses on a dirty
    repo and on a claim still registered in `active.md` — which is exactly why
    step 3 comes first.
@@ -209,7 +222,9 @@ Stop and report instead of pressing on when:
 ## Notes
 
 - `/prm` merges an **existing** PR. No PR yet → `/ship_library` or
-  `/ship_workspace` first; `/prm` will say so rather than opening one.
+  `/ship_workspace` first; `/prm` will say so rather than opening one. The one
+  exception is Mind's own close-out commit, which needs no PR at all: pushing
+  the branch is what lands it (step 5.4).
 - It never bypasses the Heart readiness gate — that ran at ship time, and a red
   Heart is not something a merge shortcut may re-judge. Nor does merge ever stop
   being human: `/prm` is a human-typed door, never invoked by the `--auto` queue.
