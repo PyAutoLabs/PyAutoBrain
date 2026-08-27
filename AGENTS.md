@@ -175,6 +175,11 @@ Measured in a web/mobile container, where this file is loaded and little else is
   ships 3.12 with the linters on it, so the session looks right while
   `pytest -n auto` still dies on `unrecognized arguments: -n`, which reads like
   a bad flag. ~10s cold, ~1s warm — cheaper than the diagnosis it replaces.
+  It also **unshallows the clones**, which is the leg with teeth: a remote
+  session clones shallow (measured 2026-08-27: PyAutoMind at 78 of 4478
+  commits), and `git merge-base --is-ancestor` then answers "not an ancestor"
+  for a commit whose ancestry is merely absent — the answer `/ship_*` and
+  `/prm` act on when proving a branch merged.
 - **Then tests run 3.5x faster in parallel** — 4 cores, subprocess-heavy suites,
   no single slow test: this repo's 554 tests are 96s on one core and 28s on
   four. `python3 -m pytest -q -n auto`, with `pytest-xdist` from the bootstrap
