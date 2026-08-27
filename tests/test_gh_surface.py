@@ -139,3 +139,25 @@ def test_helper_locates_itself_without_readlink(tmp_path):
         capture_output=True, text=True, env=env, timeout=60)
     assert "command not found" not in r.stderr, r.stderr
     assert "GITHUB_ACCESS.md" in r.stderr
+
+
+def test_waiting_for_ci_prefers_being_woken_over_polling():
+    """A poll costs a turn every 90s; a wake costs one per event.
+
+    The MCP surface is usually a *reduced* `gh`, so the one operation where it
+    is strictly better is easy to leave unused. `/prm` is where a run would
+    otherwise sit in a loop, so its wait step must offer the subscription
+    first, and the mapping page must carry the tool that provides it.
+    """
+    access = ACCESS_PAGE.read_text()
+    for tool in ("subscribe_pr_activity", "unsubscribe_pr_activity"):
+        assert tool in access, f"{tool} is unmapped"
+
+    prm = (SKILLS / "prm" / "prm.md").read_text()
+    wait = prm.split("## 3. Wait, or stop")[1].split("## 4.")[0]
+    assert "subscribe_pr_activity" in wait, "the wait step never mentions waking"
+    assert wait.index("subscribe_pr_activity") < wait.index("~90s"), (
+        "polling is offered before the cheaper wake path")
+    # And the subscription must be dropped, or later sessions wake on a PR
+    # nobody is driving.
+    assert "unsubscribe_pr_activity" in prm.split("## 4.")[1]

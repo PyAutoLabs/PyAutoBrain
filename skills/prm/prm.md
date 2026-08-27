@@ -64,9 +64,21 @@ every run for the sha and every job in it, and treat anything not `completed` as
 
 ## 3. Wait, or stop
 
-- **Pending** — poll every ~90s, one compact line per poll (`3/4 legs done`),
-  capped at ~30 min; then report where it stands rather than spinning. Under
-  `--no-wait`, skip the loop entirely: report and stop.
+- **Pending** — wait by the cheapest mechanism the surface has. Under
+  `--no-wait`, do neither: report and stop.
+
+  - **Be woken (mobile, web — preferred there).** Where the harness exposes
+    `subscribe_pr_activity`, call it once per target PR and **end the turn**.
+    CI completions and review comments then wake the session: one turn per
+    event instead of one turn per 90s, and the phone can be put down between
+    them. Pair it with a `send_later` check-in ~15 min out where that tool
+    exists — a *successful* rollup is the event most likely to arrive late or
+    not at all, and the check-in is what stops a green PR sitting unmerged.
+    On every wake re-judge from step 2 (an event is a reason to look, never
+    evidence of green) and re-arm the check-in until the merge lands.
+  - **Poll (local CLI, or no wake tools).** Every ~90s, one compact line per
+    poll (`3/4 legs done`), capped at ~30 min; then report where it stands
+    rather than spinning.
 - **Red** — **fetch the failing job's log immediately** (GitHub purges the blob;
   once purged the failure is unnameable forever), quote the failing step, and
   stop. Do not merge, do not re-run, do not "wait for the flake to pass". Offer
@@ -84,6 +96,10 @@ Green on every leg → merge, in this order:
 2. `gh pr merge <n> --merge` per PR (`-R owner/repo` when you have no checkout),
    then confirm the state is `MERGED` — queued or auto-merge is not merged. Never
    `--delete-branch`: it takes the local branch too, orphaning a task worktree.
+3. **Drop any subscription step 3 took.** Once every target PR reads `MERGED`,
+   `unsubscribe_pr_activity` each one and cancel the `send_later` check-in. A
+   subscription outliving its merge wakes later sessions on a PR nobody is
+   driving.
 
 Never force, never override a protection, never rewrite history. If a merge is
 refused by GitHub, report the reason verbatim and stop.
