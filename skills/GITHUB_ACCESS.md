@@ -33,11 +33,48 @@ command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
 
 - **`gh`** — follow the skill's commands as written.
 - **`mcp`** — the `gh` lines are *the operation to perform*, not the command to
-  run. Translate with the table below. Do not try to install `gh`, and do not
-  report the task as blocked: the MCP surface can do everything the close-out
+  run. Translate with the table below. Do not try to install `gh` (the next
+  section says why it would not help), and do not report the task as blocked: the MCP surface can do everything the close-out
   needs — deleting a branch is not one of the things it needs (below).
 
 A session cannot be half-and-half. Probe once; don't re-probe per step.
+
+## Installing `gh` does not work — measured, 2026-08-27
+
+The probe above says "no `gh`", and the obvious next thought is to fix that:
+the session runs as root, `apt-get install -y gh` succeeds in about two
+seconds, and Ubuntu ships 2.45.0. Do not. What you get is a `gh` that
+authenticates and then fails everything that matters, which is strictly worse
+than the honest `command not found` — the binary looks healthy, so a run
+spends its turns re-trying instead of switching surface.
+
+What was actually measured in a remote session, with `gh` installed:
+
+| Call | Result |
+|---|---|
+| `gh api user` | **works** — returns the login |
+| `gh api rate_limit` | **works** |
+| `gh api repos/<owner>/<repo>` | `403` — "GitHub access is not enabled for this session" |
+| `gh api repos/<owner>/<repo>/pulls` | `403` — same |
+| `gh api repos/<owner>/<repo>/issues` | `403` — same |
+| `gh api repos/<owner>/<repo>/actions/runs` | `403` — same |
+| `gh pr list`, `gh issue list`, `gh repo view` | `403` — "This GraphQL query is not enabled for this session" |
+| `gh auth status` | reports the token invalid (it is a proxy placeholder) |
+
+Two independent walls, either one of which is fatal:
+
+1. **REST repo paths are not served.** The egress proxy answers every
+   `api.github.com/repos/...` request with a 403 pointing at the Claude GitHub
+   App. The same URL through `mcp__github__*` succeeds, because the MCP surface
+   carries the session's own repo-scoped credential — a different credential
+   from the one raw `api.github.com` sees.
+2. **GraphQL is pinned to a small set of PR-review operations.** Most of `gh`'s
+   porcelain (`pr list`, `issue list`, `repo view`, `pr status`) is GraphQL, so
+   it stays broken even if the first wall were removed.
+
+Because of the second wall, `gh` could not be a drop-in here even if an org
+admin connected the GitHub App. The MCP surface is not a workaround for a
+missing `gh` — on this surface it is *the* GitHub client. Use the table above.
 
 ## The mapping
 

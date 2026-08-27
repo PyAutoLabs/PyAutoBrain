@@ -9,8 +9,9 @@ thing through MCP.
 
 Two rules, pinned here:
 
-1. a skill body that drives `gh` links to `skills/GITHUB_ACCESS.md`, which maps
-   each operation onto its MCP tool;
+1. a skill body that drives `gh` — here or in PyAutoMind, the other repo that
+   ships skills — points at `skills/GITHUB_ACCESS.md`, which maps each
+   operation onto its MCP tool;
 2. a script that needs `gh` says so in a way that names the alternative, rather
    than letting an empty command substitution be read as a real answer.
 """
@@ -25,11 +26,25 @@ SKILLS = BRAIN_HOME / "skills"
 ACCESS_PAGE = SKILLS / "GITHUB_ACCESS.md"
 GH_HELPER = BRAIN_HOME / "bin" / "_gh.sh"
 
+# PyAutoMind ships skills too, and its bodies drive `gh` for the same reasons.
+# The page lives here, so this repo's suite is the only one positioned to guard
+# both; when the sibling is not checked out that leg simply does not run.
+MIND_SKILLS = BRAIN_HOME.parent / "PyAutoMind" / "skills"
+
 # A real `gh` invocation, not the word in prose.
 GH_CALL = re.compile(r'\bgh (pr|api|issue|run|repo|workflow|auth|search|release)\b')
 
 # Shared prose pages describe the surface rather than driving it.
 EXEMPT = {"GITHUB_ACCESS.md", "COMMANDS.md", "WORKFLOW.md", "OPERATIONS.md"}
+
+
+def _skill_bodies():
+    """Every skill markdown body in the workspace, as (repo_home, path) pairs."""
+    for root in (SKILLS, MIND_SKILLS):
+        if not root.is_dir():
+            continue  # sibling not checked out here
+        for path in sorted(root.glob("*/*.md")):
+            yield root.parent, path
 
 
 def _gh_free_env(tmp_path):
@@ -60,14 +75,14 @@ def test_access_page_ships_and_maps_the_operations():
 
 def test_every_gh_driving_skill_points_at_the_mapping():
     offenders = []
-    for path in sorted(SKILLS.glob("*/*.md")):
+    for home, path in _skill_bodies():
         if path.name in EXEMPT:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         if not GH_CALL.search(text):
             continue
         if "GITHUB_ACCESS.md" not in text:
-            offenders.append(str(path.relative_to(BRAIN_HOME)))
+            offenders.append(str(path.relative_to(home.parent)))
     assert not offenders, (
         "these drive `gh` without telling a gh-less session what to do "
         "instead — add a pointer to skills/GITHUB_ACCESS.md:\n  "
@@ -77,11 +92,17 @@ def test_every_gh_driving_skill_points_at_the_mapping():
 
 def test_every_pointer_resolves():
     broken = []
-    for path in sorted(SKILLS.glob("*/*.md")):
+    for home, path in _skill_bodies():
         text = path.read_text(encoding="utf-8", errors="replace")
+        name = path.relative_to(home.parent)
+        # A same-repo pointer is a relative markdown link.
         for rel in re.findall(r'\]\((\.\.?/[^)]*GITHUB_ACCESS\.md)\)', text):
             if not (path.parent / rel).is_file():
-                broken.append(f"{path.relative_to(BRAIN_HOME)} -> {rel}")
+                broken.append(f"{name} -> {rel}")
+        # A cross-repo one is a bare workspace path; ../.. would be noise.
+        for rel in re.findall(r'(?<![(/\w])((?:\w[\w.-]*/)+GITHUB_ACCESS\.md)', text):
+            if not (home.parent / rel).is_file():
+                broken.append(f"{name} -> {rel}")
     assert not broken, broken
 
 

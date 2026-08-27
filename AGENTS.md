@@ -160,7 +160,7 @@ Like the other PyAuto repos, PyAutoBrain runs from its checkout (no pip install)
 it resolves the sibling `pyauto-heart` and `autohands` binaries from PATH or the
 `~/Code/PyAutoLabs/` checkouts.
 
-## Remote sessions: two lines that pay for themselves
+## Remote sessions: three lines that pay for themselves
 
 Measured in a web/mobile container, where this file is loaded and little else is.
 
@@ -174,6 +174,17 @@ Measured in a web/mobile container, where this file is loaded and little else is
   only). `bin/pyauto-brain` already calls it before every verb. The symptom of
   skipping it is a pytest that is not this workspace's — collection
   `ImportError`s naming `yaml`, or `No module named pytest`.
+- **There is no `gh`, and installing one does not help.** A remote session
+  reaches GitHub through the `mcp__github__*` tools, already scoped to the
+  session's repos. `gh` itself is two seconds away (`apt-get install gh`) and
+  is a trap: it authenticates — `gh api user` returns your login — and then
+  403s every repo-scoped call, because the egress proxy serves neither the
+  REST repo paths nor GraphQL beyond a pinned set of PR-review operations. So
+  `gh pr list`, `gh issue list`, `gh repo view` and `gh api repos/...` all
+  fail *after* the install, which is worse than the honest `command not
+  found`. Read [`skills/GITHUB_ACCESS.md`](skills/GITHUB_ACCESS.md) at the top
+  of any run that touches GitHub; it maps each `gh` operation onto its MCP
+  tool.
 
 ## The command surface (Brain implicit)
 
