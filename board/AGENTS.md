@@ -171,4 +171,4 @@ Two hosts worth knowing about while you are there:
 The allowlist is per environment; there is no organization-level one, so an
 environment you add later starts from the defaults again. And none of this
 installs `gh` — that is not in the image at all, so GitHub still goes through
-the MCP tools (`skills/GITHUB_ACCESS.md`).
+the MCP tools (`PyAutoBrain/skills/GITHUB_ACCESS.md`).
