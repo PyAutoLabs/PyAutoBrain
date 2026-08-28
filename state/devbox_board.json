@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 7,
+        "count": 12,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "13/13 code repos: 4 stale branches, 0 stashes, 3 [gone] refs, 0 dirty checkouts"
+        "summary": "13/13 code repos: 9 stale branches, 0 stashes, 3 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
@@ -102,14 +102,6 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-08-27T20:20:45Z",
-  "worktrees": [
-    {
-      "ahead": 0,
-      "branch": "main",
-      "dirty": true,
-      "repo": "admin_jammy",
-      "stashes": 0
-    }
-  ]
+  "ts": "2026-08-28T14:14:26Z",
+  "worktrees": []
 }
