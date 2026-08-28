@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 12,
+        "count": 8,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "13/13 code repos: 9 stale branches, 0 stashes, 3 [gone] refs, 0 dirty checkouts"
+        "summary": "13/13 code repos: 5 stale branches, 0 stashes, 3 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
@@ -23,11 +23,11 @@
         "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 17/18 scanned repos"
       },
       {
-        "count": 2,
+        "count": 3,
         "delegate": "/refactor",
         "mode": "docstrings",
         "status": "finding",
-        "summary": "2 adjacent documentation boundaries in 2 files across 2/7 repos; 0 parse errors"
+        "summary": "3 adjacent documentation boundaries in 3 files across 2/7 repos; 0 parse errors"
       },
       {
         "count": 1,
@@ -102,6 +102,6 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-08-28T14:14:26Z",
+  "ts": "2026-08-28T20:07:30Z",
   "worktrees": []
 }
