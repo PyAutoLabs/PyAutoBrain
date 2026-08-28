@@ -41,7 +41,7 @@
         "delegate": "/refactor",
         "mode": "refs",
         "status": "finding",
-        "summary": "6 folder-list defects (6 dead references, 0 undocumented folders) in 2 files across 2/7 repos; 284 unresolvable refs skipped"
+        "summary": "6 folder-list defects (6 dead references, 0 undocumented folders) in 2 files across 2/7 repos; 282 unresolvable refs skipped"
       },
       {
         "count": 0,
@@ -102,6 +102,14 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-08-28T20:07:30Z",
-  "worktrees": []
+  "ts": "2026-08-28T20:36:38Z",
+  "worktrees": [
+    {
+      "ahead": 1,
+      "branch": "main",
+      "dirty": false,
+      "repo": "PyAutoMind",
+      "stashes": 0
+    }
+  ]
 }
