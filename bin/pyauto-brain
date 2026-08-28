@@ -19,7 +19,9 @@
 #   pyauto-brain eyes    [args]   (conductor) the Eyes: survey/review a visualization workspace's figure surface — EyesSurvey/EyesReviewSurface (writes nothing)
 #   pyauto-brain profiling [args] (conductor) campaign/ingest/triage plans over the profiling workspace
 #   pyauto-brain hygiene [args]   (conductor) code-quality upkeep: perf/tidy/noise/deps/docs — HygieneDecision (modes staged)
-#   pyauto-brain clone   [args]   (conductor) v0: analyze a library+workspace against the reference assistant — CloneDecision (writes nothing)
+#   pyauto-brain clone   [args]   (conductor) analyze a library+workspace against the reference assistant — CloneDecision (writes nothing)
+#                                 (clone sync: re-apply the reference's generic-file diff to its born
+#                                  siblings as a reviewable patch; dry run unless --apply)
 #   pyauto-brain build   [args]   (conductor) coordinate execution: consult vitals, run Build
 #   pyauto-brain release [args]   (conductor) release door → Build Agent release mode (gate + pre_build)
 #                                 (release rehearse: Stage-2 TestPyPI rehearsal;
@@ -83,7 +85,7 @@ declare -A AGENT_DESC=(
   [eyes]="The perceptive function — the organism's sense of its own appearance: survey/review a visualization workspace's figure surface, critiques route to intake/start_dev — EyesSurvey/EyesReviewSurface (never renders, never edits)"
   [profiling]="The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision"
   [hygiene]="The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision"
-  [clone]="The Mitosis Agent: partition the reference assistant, analyze the domain, emit the CloneDecision; --apply --mode lightweight-seed delegates the seed birth to Build"
+  [clone]="The Mitosis Agent: partition the reference assistant, analyze the domain, emit the CloneDecision; --apply --mode lightweight-seed delegates the seed birth to Build; 'clone sync' patches the reference's generic-file diff onto the born siblings (dry run by default; rejected hunks are a human decision)"
   [build]="Coordinate execution: consult the vitals faculty, then delegate to PyAutoHands"
   [release]="Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation; 'release nightly' is the scheduled-nightly driver"
   [health]="The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green"
