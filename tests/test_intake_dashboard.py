@@ -1186,3 +1186,244 @@ def test_pinned_bundles_are_never_capped(tmp_path):
     assert len(cards) == _intake.BUNDLE_LIST_MAX + 1
     # The footer counts AUTO bundles only — the pinned card is not a proposal.
     assert "Showing 8 of 12 auto bundles" in _bundle_page(mind)
+
+
+# --------------------------------------------------------------------------- #
+# themes: what the work is ABOUT, and the bundles keyed on it
+# --------------------------------------------------------------------------- #
+# `Target:` says where the code lives — a mechanical key, one worktree per repo,
+# which made the proposals read as "three things that live in autoarray". A
+# prompt's `Themes:` list says what the work is about, which is the useful
+# grouping and is routinely cross-repo. The vocabulary is a markdown list in
+# `PyAutoMind/themes.md`, so a human adds a theme without touching the Brain.
+_THEMES = """# Themes
+
+The controlled vocabulary for a prompt's `Themes:` header.
+
+## Vocabulary
+
+- `mge`: Multi-Gaussian Expansion profiles, and fitting with them.
+- `jax-gradient`: JAX autodiff — gradient correctness and gradient-based search.
+- `interferometer`: Visibility-space datasets and their fits.
+- `dashboard`: The Mind dashboard and its sibling boards.
+"""
+
+
+def _themed(title, *themes, target="widgets", **kw):
+    """A prompt carrying a `Themes:` list, in the same shape as `Repos:`."""
+    body = _prompt(title, **kw).replace("Target: widgets", f"Target: {target}")
+    bullets = "".join(f"- {t}\n" for t in themes)
+    return body.replace("Difficulty:", f"Themes:\n{bullets}Difficulty:", 1)
+
+
+def test_the_vocabulary_is_read_from_the_minds_own_markdown(tmp_path):
+    """`themes.md` is the source of truth — one editable markdown list, never
+    a second copy inside the renderer."""
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES})
+    vocab = _intake.parse_themes(mind)
+    assert list(vocab) == ["mge", "jax-gradient", "interferometer", "dashboard"]
+    assert vocab["mge"].startswith("Multi-Gaussian")
+    assert _intake.parse_themes(tmp_path / "nowhere") == {}
+
+
+def test_a_prompts_theme_list_keeps_the_order_it_was_written_in(tmp_path):
+    """The first bullet is the grouping key and the rest are affinity, so the
+    list is a sequence — parsing must never sort or de-order it."""
+    text = _themed("Ordered", "jax-gradient", "mge", "mge")
+    assert _intake.parse_theme_list(text) == ["jax-gradient", "mge"]
+    assert _intake.parse_list_header(text, "Themes") == ["jax-gradient", "mge",
+                                                         "mge"]
+
+
+def test_a_primary_theme_pools_across_repos(tmp_path):
+    """The point of the whole feature: one bundle about MGE, not one bundle
+    per repo that MGE happens to touch."""
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _themed("Widget MGE", "mge"),
+        "bug/gadgets/b.md": _themed("Gadget MGE", "mge", target="gadgets"),
+    })
+    bundles = _intake.auto_bundles(_intake.census(mind))
+    assert [b["slug"] for b in bundles] == ["auto-mge-1"]
+    assert bundles[0]["title"] == "mge"
+    assert [m["title"] for m in bundles[0]["members"]] == ["Gadget MGE",
+                                                          "Widget MGE"]
+    assert {m["target"] for m in bundles[0]["members"]} == {"widgets", "gadgets"}
+
+
+def test_a_theme_bundle_names_every_members_repo(tmp_path):
+    """A theme bundle is cross-repo by construction, so the members table has
+    to say where each task lives — a Target-keyed card never needs to, because
+    the column would be a constant."""
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _themed("Widget MGE", "mge"),
+        "bug/gadgets/b.md": _themed("Gadget MGE", "mge", target="gadgets"),
+        "feature/doodads/c.md": _prompt("Plain C").replace("Target: widgets",
+                                                           "Target: doodads"),
+        "feature/doodads/d.md": _prompt("Plain D").replace("Target: widgets",
+                                                           "Target: doodads"),
+    })
+    # Pools sort by key text, so the Target-keyed `doodads` card is first.
+    plain, themed = _bundle_page(mind).split("<summary><b>mge")
+    assert "| Prompt | Repo | Difficulty | Priority | Status |" in themed
+    assert "| gadgets |" in themed and "| widgets |" in themed
+    assert "| Prompt | Difficulty | Priority | Status |" in plain
+    assert "| Prompt | Repo |" not in plain
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    cards = html.split("<h2>Bundles")[1].split("<h2>")[0].split("<details>")
+    assert "<th>Repo</th>" not in cards[1] and "<th>Repo</th>" in cards[2]
+
+
+def test_affinity_packing_beats_filename_order(tmp_path):
+    """Inside a pool the next member is the one that shares the most keywords
+    with the seed — so a big pool splits by what the work is about, not by
+    whichever filename sorts early."""
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a_seed.md": _themed(
+            "Seed", "mge", "jax-gradient", "interferometer",
+            difficulty="small", priority="high"),
+        "feature/widgets/b_plain.md": _themed("Plain B", "mge",
+                                              difficulty="small"),
+        "feature/widgets/c_overlap.md": _themed("Overlap C", "mge",
+                                                "jax-gradient",
+                                                difficulty="small"),
+        "feature/widgets/d_overlap.md": _themed("Overlap D", "mge",
+                                                "interferometer",
+                                                difficulty="small"),
+        "feature/widgets/e_plain.md": _themed("Plain E", "mge",
+                                              difficulty="small"),
+        "feature/widgets/f_plain.md": _themed("Plain F", "mge",
+                                              difficulty="small"),
+    })
+    bundles = _intake.auto_bundles(_intake.census(mind))
+    assert [[m["title"] for m in b["members"]] for b in bundles] == [
+        ["Seed", "Overlap C", "Overlap D", "Plain B"],
+        ["Plain E", "Plain F"]]
+    assert [b["slug"] for b in bundles] == ["auto-mge-1", "auto-mge-2"]
+    # A pool's second bundle is numbered: a bundle is picked BY NAME, and the
+    # title rides in the copied orchestration prompt.
+    assert [b["title"] for b in bundles] == ["mge", "mge — bundle 2"]
+
+
+def test_a_cards_title_carries_the_keywords_every_member_shares(tmp_path):
+    """`mge · jax-gradient` says what the session is; `mge` alone says it when
+    the members agree on nothing else."""
+    shared = _mind(tmp_path / "shared", registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _themed("A", "mge", "jax-gradient"),
+        "feature/widgets/b.md": _themed("B", "mge", "jax-gradient"),
+    })
+    assert _intake.auto_bundles(_intake.census(shared))[0]["title"] == \
+        "mge · jax-gradient"
+    split = _mind(tmp_path / "split", registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _themed("A", "mge", "jax-gradient"),
+        "feature/widgets/b.md": _themed("B", "mge", "interferometer"),
+    })
+    assert _intake.auto_bundles(_intake.census(split))[0]["title"] == "mge"
+
+
+def test_an_unthemed_prompt_falls_back_to_its_target(tmp_path):
+    """Themes are optional, so the old key has to keep working — and the two
+    kinds of pool sit side by side, ordered by their key text."""
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _themed("Themed A", "mge"),
+        "bug/gadgets/b.md": _themed("Themed B", "mge", target="gadgets"),
+        "feature/widgets/c.md": _prompt("Plain C"),
+        "feature/widgets/d.md": _prompt("Plain D"),
+    })
+    bundles = _intake.auto_bundles(_intake.census(mind))
+    assert [b["slug"] for b in bundles] == ["auto-mge-1", "auto-widgets-1"]
+    assert [b["title"] for b in bundles] == ["mge", "widgets — bundle 1"]
+    assert [m["title"] for m in bundles[1]["members"]] == ["Plain C", "Plain D"]
+
+
+def test_every_prompt_lands_in_at_most_one_auto_bundle(tmp_path):
+    """Themes are a list, but only the FIRST one groups — otherwise the same
+    task would be proposed from three cards and picked up twice."""
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _themed("A", "mge", "jax-gradient"),
+        "feature/widgets/b.md": _themed("B", "mge", "jax-gradient"),
+        "feature/widgets/c.md": _themed("C", "jax-gradient", "mge"),
+        "feature/widgets/d.md": _themed("D", "jax-gradient", "dashboard"),
+        "feature/gadgets/e.md": _prompt("E").replace("Target: widgets",
+                                                     "Target: gadgets"),
+        "feature/gadgets/f.md": _prompt("F").replace("Target: widgets",
+                                                     "Target: gadgets"),
+    })
+    bundles = _intake.auto_bundles(_intake.census(mind))
+    paths = [m["path"] for b in bundles for m in b["members"]]
+    assert len(paths) == len(set(paths)) == 6
+    assert [b["slug"] for b in bundles] == ["auto-gadgets-1",
+                                            "auto-jax-gradient-1", "auto-mge-1"]
+
+
+def test_an_unknown_keyword_is_loud_on_the_card_and_counted_in_hygiene(tmp_path):
+    """The list must not rot into free-text tags, so a keyword `themes.md`
+    does not know still groups — visibly, the way an unregistered `Epic:`
+    slug does — and the page says how many prompts carry one."""
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _themed("Odd one", "no-such-theme"),
+        "feature/widgets/b.md": _themed("Odd two", "no-such-theme", "mge"),
+    })
+    c = _intake.census(mind)
+    assert [r["unknown_themes"] for r in c["records"]] == [["no-such-theme"]] * 2
+    page = _page(mind)
+    assert "⚠️ theme(s) not in `themes.md`: no-such-theme" in page
+    assert "2 prompt(s) with unknown theme keyword(s)" in page
+    assert "draft/feature/widgets/a.md — unknown theme keyword(s): " \
+        "no-such-theme" in page
+    html = _prose(_intake.render_dashboard_html(c))
+    assert "⚠️ theme(s) not in themes.md: no-such-theme" in html
+
+
+def test_a_mind_with_no_vocabulary_warns_about_nothing(tmp_path):
+    """A freshly-spawned Mind has an empty `themes.md`; shouting at every
+    keyword in its backlog would be noise, not hygiene."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _themed("A", "whatever"),
+        "feature/widgets/b.md": _themed("B", "whatever")})
+    c = _intake.census(mind)
+    assert c["theme_flags"] == []
+    assert _intake.auto_bundles(c)[0]["slug"] == "auto-whatever-1"
+    assert "unknown theme keyword" not in _page(mind)
+
+
+# The un-themed page must be byte-for-byte what it was before themes existed:
+# 130-odd prompts carry no `Themes:` yet, and a grouping change that also
+# reflowed every existing card would make the backfill diff unreadable.
+_UNTHEMED_HEAD = ("<summary><b>widgets — bundle 1</b> — 2 task(s) · 4 pts · "
+                  "auto — proposed</summary>")
+_UNTHEMED_TABLE = """| Prompt | Difficulty | Priority | Status |
+|--------|------------|----------|--------|
+| <a href="draft/feature/widgets/a.md">Widget A</a> | medium | normal | formalised |
+| <a href="draft/feature/widgets/b.md">Widget B</a> | medium | normal | formalised |"""
+
+
+def test_an_unthemed_backlog_renders_exactly_as_it_did_before_themes(tmp_path):
+    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
+        "feature/widgets/a.md": _prompt("Widget A"),
+        "feature/widgets/b.md": _prompt("Widget B")})
+    section = _bundle_page(mind)
+    assert _UNTHEMED_HEAD in section
+    assert _UNTHEMED_TABLE in section
+    assert "| Prompt | Repo |" not in section and "themes.md" not in section
+    bundles = _intake.auto_bundles(_intake.census(mind))
+    assert [b["slug"] for b in bundles] == ["auto-widgets-1"]
+    assert bundles[0]["title"] == "widgets — bundle 1"
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    section = html.split("<h2>Bundles")[1].split("<h2>")[0]
+    assert ("<tr><th>Prompt</th><th>Difficulty</th><th>Priority</th>"
+            "<th>Status</th></tr>") in section
+
+
+def test_formalising_writes_themes_under_repos_and_never_waits_for_one(tmp_path):
+    """Intake assigns the keywords at formalisation — but a prompt formalises
+    with or without them, and the bundler falls back to `Target:`."""
+    text = "Speed up the @PyAutoArray MGE gradient path."
+    themed = _intake.analyse(text, "test", ["mge", "jax-gradient"])
+    assert themed["themes"] == ["mge", "jax-gradient"]
+    assert ("Repos:\n- PyAutoArray\nThemes:\n- mge\n- jax-gradient\n"
+            "Difficulty:") in themed["header"]
+    bare = _intake.analyse(text, "test")
+    assert bare["themes"] == [] and "Themes:" not in bare["header"]
+    # A pasted header block that already carries the list keeps it.
+    pasted = _intake.analyse(_themed("Pasted", "mge"), "test")
+    assert pasted["themes"] == ["mge"]
