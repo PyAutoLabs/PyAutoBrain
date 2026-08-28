@@ -104,6 +104,18 @@ The main session stays on the judgment tier; bulk execution moves to the
 execution tier — no manual model toggling, and no waiting to be told which
 model to use.
 
+**Scope: every task, not only the workflow skills.** The ladder is a property
+of the *session*, not of `start_dev`. Direct work on the organs (Brain, Mind,
+Heart, Hands, Memory, Gut, Nerves), hygiene and cleanup sweeps, skill/doc
+edits, one-off fixes, profiling runs and diagnostics that execute code all
+delegate the same way. A Fable session should say which model it is running
+on in its opening line and treat "should this be a subagent?" as the first
+question for any task. **Stays in-session (no delegation):** answering from
+context already loaded; reading a handful of files; edits of a few lines in
+files already read; and anything that is itself a conversation with the user —
+plans, decisions, reviews, judgment calls. Everything else is a delegation
+candidate; when in doubt, delegate one coherent phase and keep the judgment.
+
 **Delegated (mechanical phase — the floor, always delegated at any tier):**
 
 - `ship_library` — step 3 (test, commit, push, open PR).
@@ -151,6 +163,21 @@ asking for the minor version, printing the summary.
   SHA, PR URL, cross-reference/dispatch confirmations.
 - **Judgment tier after return:** interpret failures, decide routing, update
   registries, talk to the user.
+
+**Progress heartbeat (delegations expected to run > ~15 min).** Subagents have
+no clock, so a wall-clock cadence cannot be promised; milestones can. The
+judgment tier passes a progress-file path (under the session scratchpad, e.g.
+`$SCRATCHPAD/progress-<label>.log`) and instructs the subagent to **append one
+line per milestone** — phase started/finished, test run outcome with counts,
+commit SHA, a blocker hit — spaced so a healthy run writes roughly every
+10–20 min (`echo "$(date +%H:%M) <milestone>" >> <file>`; never rewrite the
+file, never write more than one line per milestone). Before spawning, the
+judgment tier arms a persistent `Monitor` (`tail -F <file>`) so each line
+lands in the main window as a single notification; it stops the monitor when
+the subagent returns. Keep the lines short — this is a pulse, not a log. For
+detail, the harness's subagent view (select the agent) shows the full
+transcript live and costs nothing; the heartbeat is for knowing *whether* to
+look, not a substitute for looking.
 
 **Tutorial-prose split** (separate from skill delegation — depends on what the
 reader is there to learn):
