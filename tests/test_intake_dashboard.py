@@ -1417,10 +1417,13 @@ def test_an_unthemed_backlog_renders_exactly_as_it_did_before_themes(tmp_path):
 def test_formalising_writes_themes_under_repos_and_never_waits_for_one(tmp_path):
     """Intake assigns the keywords at formalisation — but a prompt formalises
     with or without them, and the bundler falls back to `Target:`."""
-    text = "Speed up the @PyAutoArray MGE gradient path."
+    # An organ repo, not a satellite one: the tenant firewall bars instance
+    # repo names from organ code, and a made-up name would resolve to no repo
+    # at all — leaving no `Repos:` block for the themes to land under.
+    text = "Speed up the @PyAutoMind MGE gradient path."
     themed = _intake.analyse(text, "test", ["mge", "jax-gradient"])
     assert themed["themes"] == ["mge", "jax-gradient"]
-    assert ("Repos:\n- PyAutoArray\nThemes:\n- mge\n- jax-gradient\n"
+    assert ("Repos:\n- PyAutoMind\nThemes:\n- mge\n- jax-gradient\n"
             "Difficulty:") in themed["header"]
     bare = _intake.analyse(text, "test")
     assert bare["themes"] == [] and "Themes:" not in bare["header"]
