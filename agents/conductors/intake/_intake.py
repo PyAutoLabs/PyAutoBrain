@@ -275,8 +275,14 @@ def infer_autonomy(level: str, factors: dict) -> str:
     return "safe"
 
 
-def analyse(text: str, source: str):
-    """Classify raw text into a full IntakeDecision (never writes)."""
+def analyse(text: str, source: str, themes=None):
+    """Classify raw text into a full IntakeDecision (never writes).
+
+    `themes` is the optional `Themes:` keyword list the caller assigns at
+    formalisation (primary first). Absent, any `Themes:` block the raw input
+    already carries is kept; absent that too, the prompt is simply un-themed —
+    formalisation never waits on a theme.
+    """
     repos = _repos_in(text)
     # What the input DECLARES outranks what its prose merely suggests — the same
     # rule the feature and bug conductors apply (the faculty owns it). Raw
@@ -306,6 +312,9 @@ def analyse(text: str, source: str):
     priority = declared.get("priority") or infer_priority(text)
     workflow = infer_workflow(target, repos)
 
+    themes = [k for k in dict.fromkeys(_theme_key(t) for t in (themes or []))
+              if k] or parse_theme_list(text)
+
     title = _title(strip_declarations(text, decl_spans))
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
@@ -321,7 +330,7 @@ def analyse(text: str, source: str):
     # low-confidence triage filing that means `Type: triage`, not the provisional
     # guess — the guess still rides in the IntakeDecision's `work_type` field.
     header = _render_header(title, folder, target_display, repos, level,
-                            autonomy, priority)
+                            autonomy, priority, themes)
     return {
         "source": source,
         "title": title,
@@ -332,6 +341,7 @@ def analyse(text: str, source: str):
         "target": target,
         "target_display": target_display,
         "repos_affected": repos,
+        "themes": themes,
         "difficulty": level,
         "difficulty_score": score,
         "difficulty_factors": factors,
@@ -354,11 +364,20 @@ def analyse(text: str, source: str):
     }
 
 
-def _render_header(title, work_type, target_display, repos, level, autonomy, priority):
+def _render_header(title, work_type, target_display, repos, level, autonomy,
+                   priority, themes=None):
     lines = [f"# {title}", "", f"Type: {work_type}", f"Target: {target_display}"]
     if repos:
         lines.append("Repos:")
         lines += [f"- {REPO_DISPLAY.get(r, r)}" for r in repos]
+    # `Themes:` rides directly under `Repos:` — the same list shape, and the
+    # pair reads as "where the code lives, then what the work is about"
+    # (vocabulary: `PyAutoMind/themes.md`). Optional and never blocking: a
+    # prompt formalises with or without it, and the auto-bundler falls back to
+    # `Target:` for anything un-themed.
+    if themes:
+        lines.append("Themes:")
+        lines += [f"- {t}" for t in themes]
     lines += [f"Difficulty: {level}", f"Autonomy: {autonomy}",
               f"Priority: {priority}", "Status: formalised"]
     return "\n".join(lines)
@@ -667,6 +686,89 @@ def parse_bundles(path: Path) -> list:
     return entries
 
 
+# --- themes: what the work is ABOUT ------------------------------------------
+# `Target:` says where a prompt's code LIVES — a mechanical key (one worktree
+# per repo), which made the auto-bundler read as "three things that live in
+# autoarray". `Themes:` says what the work is ABOUT, which is the useful
+# grouping and is routinely cross-repo. Same list shape as `Repos:`: a bare
+# `Themes:` line then `- keyword` bullets, first bullet = the PRIMARY theme.
+_LIST_BULLET = re.compile(r"^\s*-\s+(\S.*?)\s*$")
+
+
+def parse_list_header(text: str, field: str) -> list:
+    """The `Repos:` / `Themes:` list header: a bare `Field:` then `- ` bullets.
+
+    Scans only the top of the file — the same window `parse_header` reads — so
+    a fenced example deep in a prompt's prose can never declare anything. The
+    list closes at the first line that is not a bullet: the header block is
+    contiguous by construction (see `_render_header`).
+    """
+    out, collecting = [], False
+    head = re.compile(rf"^{field}:\s*$", re.I)
+    for line in text.splitlines()[:30]:
+        if head.match(line.strip()):
+            collecting = True
+            continue
+        if not collecting:
+            continue
+        m = _LIST_BULLET.match(line)
+        if not m:
+            break
+        out.append(m.group(1))
+    return out
+
+
+def _theme_key(value: str) -> str:
+    """One `Themes:` bullet normalised to a vocabulary keyword."""
+    return value.split("#")[0].strip().strip("`*_").strip().lower()
+
+
+def parse_theme_list(text: str) -> list:
+    """A prompt's `Themes:` keywords — normalised, de-duplicated, order kept.
+
+    Order is the whole signal: the first keyword is the grouping key, the rest
+    are packing affinity, so this must never sort.
+    """
+    out = []
+    for raw in parse_list_header(text, "Themes"):
+        key = _theme_key(raw)
+        if key and key not in out:
+            out.append(key)
+    return out
+
+
+# `themes.md` — the Mind's controlled vocabulary for `Themes:`: prose plus one
+# `- <keyword>: <meaning>` bullet each, so a human adds a theme by editing one
+# markdown list and PyAutoBrain never holds a second copy of it.
+_THEME_ENTRY = re.compile(r"^-\s+`?([A-Za-z0-9][A-Za-z0-9._-]*)`?\s*:\s*(\S.*)$")
+
+
+def parse_themes(mind: Path) -> dict:
+    """Parse `<mind>/themes.md` into `{keyword: one-line meaning}`.
+
+    Tolerant like `parse_epics`, with one deliberate consequence: an absent or
+    empty file yields `{}`, which DISABLES the unknown-keyword warning rather
+    than flagging every keyword in the backlog. A freshly-spawned Mind has no
+    vocabulary yet, and a renderer that shouted at all of it would be noise.
+    """
+    f = Path(mind) / "themes.md"
+    if not f.is_file():
+        return {}
+    out: dict = {}
+    for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = _THEME_ENTRY.match(line.strip())
+        if m:
+            out.setdefault(m.group(1).lower(), m.group(2).strip())
+    return out
+
+
+def unknown_themes(themes: list, vocab: dict) -> list:
+    """The keywords a prompt declares that `themes.md` does not know."""
+    if not vocab:
+        return []
+    return [t for t in themes if t not in vocab]
+
+
 # What a bundle COSTS. One session carries a few independent tasks; the cap is
 # what stops a "bundle" becoming a to-do list. Points rather than a count,
 # because four small tasks and one large one are not the same session:
@@ -726,64 +828,153 @@ def _auto_excluded(r: dict, pinned: set) -> str:
     return ""
 
 
+def _jaccard(a: list, b: list) -> float:
+    """Keyword overlap of two theme lists; 0.0 when either side is empty."""
+    sa, sb = set(a), set(b)
+    return len(sa & sb) / len(sa | sb) if sa and sb else 0.0
+
+
+def _pool_key(r: dict) -> tuple:
+    """The auto-bundler's grouping key: PRIMARY THEME, else `Target`.
+
+    `("theme", <first Themes: bullet>)` when the prompt declares one — the
+    topical key, and cross-repo by design. `("target", <folder>)` otherwise,
+    which is exactly what the bundler keyed on before themes existed, so an
+    un-themed backlog groups unchanged. Every prompt has exactly one key, so
+    it lands in at most one auto bundle.
+    """
+    themes = r.get("themes") or []
+    return ("theme", themes[0]) if themes else ("target", r["target"])
+
+
+def _pack_by_affinity(rows: list) -> list:
+    """Pack one pool into bundles under the size caps, by keyword affinity.
+
+    Seed with the most pickable member (priority, then path); then repeatedly
+    add whichever remaining candidate that still FITS shares the most keywords
+    with the seed (Jaccard over the whole `Themes:` list), ties broken by
+    priority, then by sharing the seed's repo, then by path. When nothing fits,
+    the bundle closes and the next seeds from what is left — so a large pool
+    splits by what the work is about rather than by filename order.
+
+    Not "close the pack at the first thing that does not fit": a candidate that
+    is too big is skipped, not terminal, or two large tasks in a row would
+    leave the first alone in a pack of one (which is then dropped — the
+    highest-priority member of the pool, silently missing from the page).
+
+    With no themes anywhere every overlap is 0.0 and the tie-breaks reduce to
+    priority-then-path, which is the first-fit pass this replaced, member for
+    member.
+    """
+    rest = sorted(rows, key=lambda r: (PRIORITY_RANK.get(r["priority"], 9),
+                                       r["path"]))
+    packs = []
+    while rest:
+        seed, rest = rest[0], rest[1:]
+        pack = [seed]
+        points = BUNDLE_SIZE_POINTS.get(seed["difficulty"], BUNDLE_UNKNOWN_POINTS)
+        large = 1 if seed["difficulty"] == "large" else 0
+        while True:
+            best, best_i = None, -1
+            for i, r in enumerate(rest):
+                cost = BUNDLE_SIZE_POINTS.get(r["difficulty"],
+                                              BUNDLE_UNKNOWN_POINTS)
+                is_large = 1 if r["difficulty"] == "large" else 0
+                if (points + cost > BUNDLE_POINT_CAP
+                        or len(pack) >= BUNDLE_MAX_MEMBERS
+                        or large + is_large > BUNDLE_MAX_LARGE):
+                    continue
+                rank = (-_jaccard(seed.get("themes") or [],
+                                  r.get("themes") or []),
+                        PRIORITY_RANK.get(r["priority"], 9),
+                        0 if r["target"] == seed["target"] else 1,
+                        r["path"])
+                if best is None or rank < best:
+                    best, best_i = rank, i
+            if best_i < 0:
+                break
+            r = rest.pop(best_i)
+            pack.append(r)
+            points += BUNDLE_SIZE_POINTS.get(r["difficulty"],
+                                             BUNDLE_UNKNOWN_POINTS)
+            large += 1 if r["difficulty"] == "large" else 0
+        packs.append(pack)
+    return packs
+
+
+def _shared_secondaries(pack: list, primary: str) -> list:
+    """The keywords EVERY member of a pack carries, minus the primary theme.
+
+    Ordered by the seed's own list, because that is the order a human wrote
+    and the only one that is not an alphabetisation of somebody's tags.
+    """
+    shared = set.intersection(*[set(m.get("themes") or []) for m in pack])
+    return [t for t in (pack[0].get("themes") or [])
+            if t != primary and t in shared]
+
+
+def _theme_title(theme: str, pack: list, n: int) -> str:
+    """`mge · jax-gradient` — the primary theme plus what every member shares.
+
+    Numbered only from the second bundle of a pool onwards: a bundle is picked
+    BY NAME (the title rides in the copied prompt), so two cards may not carry
+    the same one, but the common single-bundle pool should read as its theme
+    and nothing else.
+    """
+    title = " · ".join([theme] + _shared_secondaries(pack, theme))
+    return title if n == 1 else f"{title} — bundle {n}"
+
+
+def _unknown_in(rows: list) -> list:
+    """Every `Themes:` keyword a card's members carry that `themes.md` lacks."""
+    out = []
+    for r in rows:
+        for t in r.get("unknown_themes") or []:
+            if t not in out:
+                out.append(t)
+    return sorted(out)
+
+
 def auto_bundles(c: dict) -> list:
     """Propose bundles from the backlog — deterministic, and render-only.
 
     Never written back to `bundles.md`: only human pins are persisted, so the
     nightly re-render commits no churn and a proposal that stops making sense
-    simply stops being proposed. Same input -> same output, always: draft
-    prompts are grouped by target repo (the folder taxonomy, not the free-prose
-    `Target:` header), ordered most-pickable first (priority, then path) and
-    packed greedily under the size cap. A pack of one is not a bundle, so it is
-    dropped rather than shown.
+    simply stops being proposed. Same input -> same output, always.
+
+    Prompts are pooled by `_pool_key` — primary theme when they declare one,
+    target repo when they do not — and each pool is packed by `_pack_by_affinity`
+    under the size cap. A pack of one is not a bundle, so it is dropped rather
+    than shown.
     """
     pinned = {m for b in (c.get("bundles") or []) for m in b["members"]}
     groups: dict = {}
     for r in c.get("records") or []:
         if not _auto_excluded(r, pinned):
-            groups.setdefault(r["target"], []).append(r)
-    out = []
-    for target in sorted(groups):
-        rows = sorted(groups[target],
-                      key=lambda r: (PRIORITY_RANK.get(r["priority"], 9),
-                                     r["path"]))
-        packs = []
-        while rows:
-            cur, rest, points, large = [], [], 0, 0
-            for r in rows:
-                cost = BUNDLE_SIZE_POINTS.get(r["difficulty"],
-                                              BUNDLE_UNKNOWN_POINTS)
-                is_large = 1 if r["difficulty"] == "large" else 0
-                # First fit down the ordered list, NOT "close the pack at the
-                # first thing that does not fit": two large tasks in a row
-                # would otherwise leave the first one alone in a pack of one,
-                # which is then dropped — the highest-priority member in the
-                # repo, silently missing from the page.
-                if (points + cost > BUNDLE_POINT_CAP
-                        or len(cur) >= BUNDLE_MAX_MEMBERS
-                        or large + is_large > BUNDLE_MAX_LARGE):
-                    rest.append(r)
-                    continue
-                cur.append(r)
-                points += cost
-                large += is_large
-            if not cur:
-                break  # nothing fits an empty pack — cannot happen, never loop
-            packs.append(cur)
-            rows = rest
-        n = 0
-        for pack in packs:
+            groups.setdefault(_pool_key(r), []).append(r)
+    out, used = [], {}
+    # Pools sort by their key TEXT, theme and target alike, so a mixed backlog
+    # interleaves alphabetically rather than listing every theme before every
+    # repo — and a Mind with no themes at all keeps exactly its old order.
+    for kind, key in sorted(groups, key=lambda k: (k[1], k[0])):
+        for pack in _pack_by_affinity(groups[(kind, key)]):
             if len(pack) < BUNDLE_MIN_MEMBERS:
                 continue
-            n += 1
+            # Numbered per KEY TEXT rather than per pool, so a theme and a
+            # target that happen to share a name cannot mint the same slug.
+            used[key] = n = used.get(key, 0) + 1
             out.append({
-                "slug": f"auto-{target}-{n}",
+                "slug": f"auto-{key}-{n}",
                 # Numbered, not described: two proposals over the same repo
                 # would otherwise carry the same name on the page and in the
                 # copied prompt, and a bundle is picked by name.
-                "title": f"{target} — bundle {n}",
-                "origin": "auto", "target": target, "members": pack,
-                "rationale": "", "status": "", "unknown": False,
+                "title": (_theme_title(key, pack, n) if kind == "theme"
+                          else f"{key} — bundle {n}"),
+                "origin": "auto", "pool": kind,
+                "theme": key if kind == "theme" else "",
+                "target": key if kind == "target" else "",
+                "members": pack, "rationale": "", "status": "",
+                "unknown": False, "unknown_themes": _unknown_in(pack),
                 "points": _bundle_points(pack),
             })
     return out
@@ -875,13 +1066,15 @@ def bundle_cards(c: dict) -> list:
         rows += sorted((r for r in declared.get(b["slug"], [])
                         if r["path"] not in seen), key=lambda r: r["path"])
         cards.append({**b, "members": rows, "unknown": False,
+                      "unknown_themes": _unknown_in(rows),
                       "points": _bundle_points(rows)})
     known = {b["slug"] for b in c.get("bundles") or []}
     for slug in sorted(s for s in declared if s not in known):
         rows = sorted(declared[slug], key=lambda r: r["path"])
         cards.append({"slug": slug, "title": slug, "origin": "pinned",
                       "members": rows, "rationale": "", "status": "",
-                      "unknown": True, "points": _bundle_points(rows)})
+                      "unknown": True, "unknown_themes": _unknown_in(rows),
+                      "points": _bundle_points(rows)})
     auto = auto_bundles(c)
     ranked = sorted(auto, key=lambda b: (
         min(PRIORITY_RANK.get(m.get("priority", "-"), 9) for m in b["members"]),
@@ -921,6 +1114,12 @@ def _bundle_head(b: dict) -> str:
 BUNDLE_TABLE_HEAD = ["| Prompt | Difficulty | Priority | Status |",
                      "|--------|------------|----------|--------|"]
 
+# A theme-keyed bundle is cross-repo by design, so its members must say WHERE
+# each task lives. A target-keyed (fallback) or pinned card does not get the
+# column: every row would carry the same value, and a constant column is noise.
+BUNDLE_TABLE_HEAD_REPO = ["| Prompt | Repo | Difficulty | Priority | Status |",
+                          "|--------|------|------------|----------|--------|"]
+
 BUNDLE_BLURB = (
     "Sets of INDEPENDENT tasks that make sense in one orchestrated session: "
     "an architect session plans them, subagents implement them, and every "
@@ -944,12 +1143,16 @@ def _bundle_rows_md(b: dict) -> list:
     question here is not "which do I pick?" but "what am I taking on in one
     session?" — which is a comparison, and comparisons are tables.
     """
-    rows = list(BUNDLE_TABLE_HEAD)
+    repo = b.get("pool") == "theme"
+    rows = list(BUNDLE_TABLE_HEAD_REPO if repo else BUNDLE_TABLE_HEAD)
     for r in b["members"]:
         link = f"<a href=\"{r['path']}\">{_summary_label(_clip(r['title'], 70))}</a>"
-        rows.append(f"| {_cell(link)} | {_cell(r.get('difficulty', '-'))} | "
-                    f"{_cell(r.get('priority', '-'))} | "
-                    f"{_cell(_summary_label(_clip(r.get('status', '-'), 40)))} |")
+        cells = [_cell(link)]
+        if repo:
+            cells.append(_cell(_summary_label(r.get("target", "-"))))
+        cells += [_cell(r.get("difficulty", "-")), _cell(r.get("priority", "-")),
+                  _cell(_summary_label(_clip(r.get("status", "-"), 40)))]
+        rows.append("| " + " | ".join(cells) + " |")
     return rows
 
 
@@ -961,6 +1164,9 @@ def _bundle_section(cards: list) -> list:
         head = _bundle_head(b)
         if b.get("unknown"):
             head += " — ⚠️ not in `bundles.md`"
+        if b.get("unknown_themes"):
+            head += (" — ⚠️ theme(s) not in `themes.md`: "
+                     + _summary_label(", ".join(b["unknown_themes"])))
         L += ["<details>", f"<summary>{head}</summary>", ""]
         L += _items([_task_row(BUNDLE_RUN_LABEL, bundle_prompt(b))])
         if b.get("rationale"):
@@ -994,17 +1200,26 @@ def _bundle_section_html(cards: list, blob: str) -> list:
         head = _bundle_head(b)
         if b.get("unknown"):
             head += " — ⚠️ not in bundles.md"
+        if b.get("unknown_themes"):
+            head += (" — ⚠️ theme(s) not in themes.md: "
+                     + _summary_label(", ".join(b["unknown_themes"])))
         H += ["<details>", f"<summary>{head}</summary>",
               _html_task(BUNDLE_RUN_LABEL, bundle_prompt(b))]
         if b.get("rationale"):
             H.append(f'<p class="muted">{_summary_label(b["rationale"])}</p>')
+        repo = b.get("pool") == "theme"
         H += ['<table class="bundle">',
-              "<tr><th>Prompt</th><th>Difficulty</th><th>Priority</th>"
+              "<tr><th>Prompt</th>" + ("<th>Repo</th>" if repo else "")
+              + "<th>Difficulty</th><th>Priority</th>"
               "<th>Status</th></tr>"]
         for r in b["members"]:
             H += ["<tr>",
                   f'<td><a href="{_attr(blob + r["path"])}">'
-                  f'{_summary_label(_clip(r["title"], 70))}</a></td>',
+                  f'{_summary_label(_clip(r["title"], 70))}</a></td>']
+            if repo:
+                H.append('<td class="facet">'
+                         f'{_summary_label(r.get("target", "-"))}</td>')
+            H += [
                   f'<td class="facet">{_summary_label(r.get("difficulty", "-"))}</td>',
                   f'<td class="facet">{_summary_label(r.get("priority", "-"))}</td>',
                   f'<td class="facet">'
@@ -1108,7 +1323,8 @@ def census(mind: Path) -> dict:
     GitHub issue), and the `parked.md` / `planned.md` rows. This is the Mind's
     *work* view — health belongs to the Heart, never here.
     """
-    records, hygiene, drift = [], [], []
+    records, hygiene, drift, theme_flags = [], [], [], []
+    vocab = parse_themes(mind)
     for wt in WORK_TYPES:
         folder = mind / "draft" / wt
         if not folder.is_dir():
@@ -1120,6 +1336,8 @@ def census(mind: Path) -> dict:
             rel = f.relative_to(mind)
             header = parse_header(text)
             missing = [h for h in HEADER_FIELDS if h not in header]
+            themes = parse_theme_list(text)
+            stray = unknown_themes(themes, vocab)
             try:
                 phase = int(header.get("phase", ""))
             except ValueError:
@@ -1141,6 +1359,10 @@ def census(mind: Path) -> dict:
                 # Bundle membership a human PINNED in the prompt itself; auto
                 # bundles never write here (see `auto_bundles`).
                 "bundle": header.get("bundle", ""),
+                # What the work is ABOUT (`themes.md` vocabulary); the first
+                # keyword is the auto-bundler's grouping key.
+                "themes": themes,
+                "unknown_themes": stray,
                 # `Filed:` normally; `Issued:` only on a prompt that has been
                 # issued and moved back, which is still the later event.
                 "date": _header_date(header),
@@ -1149,6 +1371,9 @@ def census(mind: Path) -> dict:
             })
             if len(missing) == len(HEADER_FIELDS):
                 hygiene.append(f"{rel} — no metadata header (pre-dates intake)")
+            if stray:
+                theme_flags.append(f"{rel} — unknown theme keyword(s): "
+                                   + ", ".join(stray))
             if _FIX_PR_RE.search(text):
                 drift.append(f"{rel} — body records a fix PR, but the prompt "
                              "never left draft/ (reconcile its lifecycle)")
@@ -1223,6 +1448,8 @@ def census(mind: Path) -> dict:
         "in_flight": in_flight,
         "epics": parse_epics(mind / "epics.md"),
         "bundles": parse_bundles(mind / "bundles.md"),
+        "theme_vocab": vocab,
+        "theme_flags": theme_flags,
         "parked": parked,
         "planned": planned,
         "hygiene": hygiene,
@@ -1693,14 +1920,30 @@ def render_dashboard(c: dict) -> str:
             L += _items([_bullet(r) for r in rows])
             L += ["", "</details>", ""]
 
+    # Hygiene is the page's only audit section: what a human should tidy, not
+    # what to pick. Each flag class is its own count line + `<details>` list.
+    blocks = []
     if c["hygiene"]:
-        L += ["## Hygiene", "",
-              f"{len(c['hygiene'])} prompt(s) without a metadata header — they "
-              "show no facets above. Re-home or re-run intake on them when "
-              "touched.", "",
-              "<details>", "<summary>Headerless prompts</summary>", ""]
-        L += [f"- `{h.split(' — ')[0]}`" for h in c["hygiene"]]
-        L += ["", "</details>"]
+        blocks.append(
+            [f"{len(c['hygiene'])} prompt(s) without a metadata header — they "
+             "show no facets above. Re-home or re-run intake on them when "
+             "touched.", "",
+             "<details>", "<summary>Headerless prompts</summary>", ""]
+            + [f"- `{h.split(' — ')[0]}`" for h in c["hygiene"]]
+            + ["", "</details>"])
+    if c.get("theme_flags"):
+        blocks.append(
+            [f"{len(c['theme_flags'])} prompt(s) with unknown theme "
+             "keyword(s) — not in [`themes.md`](themes.md), so they group "
+             "loudly rather than silently. Correct the prompt, or add the "
+             "keyword to the vocabulary.", "",
+             "<details>", "<summary>Unknown theme keywords</summary>", ""]
+            + [f"- `{t}`" for t in c["theme_flags"]]
+            + ["", "</details>"])
+    if blocks:
+        L += ["## Hygiene", ""]
+        for i, block in enumerate(blocks):
+            L += ([""] if i else []) + block
 
     boards = _board_links(c.get("home", ""))
     if boards:
@@ -3142,6 +3385,9 @@ def main(argv=None):
     cl = sub.add_parser("classify", help="classify raw text or a file")
     cl.add_argument("text", nargs="*", help="raw idea text")
     cl.add_argument("--file", default="", help="read raw text from a file")
+    cl.add_argument("--themes", default="",
+                    help="comma-separated Themes: keywords, primary first "
+                         "(vocabulary: PyAutoMind/themes.md)")
 
     sub.add_parser("ideas", help="scan ideas.md and propose one prompt per bullet")
 
@@ -3255,7 +3501,8 @@ def main(argv=None):
         if not text.strip():
             print("intake: no input text to classify.", file=sys.stderr)
             return 4
-        decision = analyse(text, source)
+        decision = analyse(text, source, [t for t in (
+            getattr(a, "themes", "") or "").split(",") if t.strip()])
         if a.apply:
             written = write_prompt(mind, decision, text, source)
             decision["written"] = written
