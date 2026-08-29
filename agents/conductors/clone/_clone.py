@@ -19,7 +19,17 @@ deliberate pressure that keeps the reference's boundary notes complete
 The clone-mode question is MANDATORY and never defaulted:
   exact-clone | differentiated-sibling | lightweight-seed
 
-Stdlib-only. Exit codes: 0 decision · 4 inputs unresolvable · 5 bad usage.
+`sync` is the SECOND mode, and it is not a birth: it keeps assistants that were
+already born from drifting apart on the files the boundary calls generic. It is
+NOT a blind overwrite — it takes the REFERENCE's own diff over a commit range,
+restricted to the `_SHARED_GENERIC` set, rewrites the names in it for each
+sibling, and applies it as a patch. A hunk that no longer fits the sibling is
+REJECTED and reported, never resolved silently: a sibling's domain adaptations
+outrank the reference's text, and only a human decides what a conflict means.
+Dry run by default; `--apply` writes (and leaves `.rej` files for the human).
+
+Stdlib-only (GNU `patch` for the apply). Exit codes: 0 decision / clean sync ·
+1 sync completed with rejected hunks · 4 inputs unresolvable · 5 bad usage.
 """
 
 from __future__ import annotations
@@ -28,8 +38,11 @@ import argparse
 import ast
 import fnmatch
 import json
+import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Workspace root via the one shared resolver (agents/_pyauto_root.py, mirrored
@@ -415,6 +428,94 @@ def repo_owner(repo_root):
     return url.rstrip("/").split("/")[-2].split(":")[-1]
 
 
+# ---------------------------------------------------------------------------
+# The name/domain rename table — shared by BIRTH (apply_seed -> clone_seed) and
+# SYNC (sync_substitutions). One table, so a file that lands in a sibling by
+# either route reads the same.
+#
+# Two rules were missing when the first siblings were born, and both were still
+# visible in a sibling cell (PyAutoBrain#315): the UPPERCASE package form, so a
+# generated project scaffold still pointed at the REFERENCE's `$..._ASSISTANT`
+# variable; and the science's own noun, so a profile template still headed its
+# first section with the reference's domain. Neither is a name the identity
+# rules can reach — the uppercase form is not the package, and a domain noun is
+# not a package at all.
+# ---------------------------------------------------------------------------
+
+# The domain noun each assistant's GENERIC prose uses for its own science, as
+# (short noun, full phrase). Keyed by library package. A package absent from
+# the table gets NO domain rule and a printed warning: leaving the reference's
+# noun visible is recoverable, inventing a science's name for it is not.
+DOMAIN_NOUNS = {
+    "autolens": ("lensing", "gravitational lensing"),
+    "autogalaxy": ("galaxy", "galaxy morphology"),
+    "autocti": ("CTI", "charge transfer inefficiency"),
+    "autofit": ("model-fitting", "statistical model-fitting"),
+}
+
+
+# Qualified compounds of the reference's own noun. They are rewritten to the
+# TARGET's bare noun *before* the bare rule runs, because "strong-lensing" ->
+# "strong-CTI" is a phrase in no science: the qualifier belongs to the
+# reference's domain, not the target's. (Trailing compounds — `lensing-fluent`
+# -> `CTI-fluent` — the bare rule already handles.)
+DOMAIN_ALIASES = {
+    "autolens": ("strong-lensing", "weak-lensing", "strong lensing", "weak lensing"),
+}
+
+
+def capitalised(phrase):
+    """`lensing` -> `Lensing`, `CTI` -> `CTI` (an acronym is left alone)."""
+    return phrase if phrase[:1].isupper() else phrase[:1].upper() + phrase[1:]
+
+
+def domain_substitutions(ref_pkg, tgt_pkg):
+    """Rewrite the reference's domain noun for the target's science.
+
+    Longest first — the full phrase, then the qualified compounds of
+    `DOMAIN_ALIASES`, then the bare noun — each in its lowercase and
+    sentence-case form, because the noun shows up mid-sentence and as a
+    heading. Word-anchored, so `microlensing` is not rewritten. Returns []
+    when either side's noun is unknown — never a guess.
+    """
+    ref, tgt = DOMAIN_NOUNS.get(ref_pkg), DOMAIN_NOUNS.get(tgt_pkg)
+    if not ref or not tgt:
+        return []
+    pairs = [(ref[1], tgt[1])]                              # the full phrase
+    pairs += [                                              # qualified compounds
+        (alias, tgt[0])
+        for alias in sorted(DOMAIN_ALIASES.get(ref_pkg, ()), key=len, reverse=True)
+    ]
+    pairs.append((ref[0], tgt[0]))                          # the bare noun, last
+    rules = []
+    for old, new in pairs:
+        if old == new:
+            continue
+        rules.append((old, new, "word"))
+        if capitalised(old) != old:
+            rules.append((capitalised(old), capitalised(new), "word"))
+    return rules
+
+
+def name_substitutions(reference_name, target_name,
+                       ref_pkg, ref_lib, tgt_pkg, tgt_lib):
+    """The reference -> sibling rename rules, most specific first."""
+    return [
+        # repo identity first (most specific): the full assistant name,
+        # e.g. autofit_assistant -> ic50_assistant
+        (reference_name, target_name),
+        # skill prefix (al_ -> af_): package initials, e.g. autolens -> al,
+        # autofit -> af. Word-anchored: unanchored, this two-letter rule also
+        # rewrites the `al_` inside `total_draws`, `external_shear` and
+        # `radial_minimum` (it did, in a sibling clone — PyAutoBrain#150).
+        (f"{ref_pkg[0]}{ref_pkg[4]}_", f"{tgt_pkg[0]}{tgt_pkg[4]}_", "word"),
+        (ref_lib, tgt_lib),                     # PyAutoLens -> PyAutoFit
+        (ref_pkg.upper(), tgt_pkg.upper()),     # $AUTOLENS_ASSISTANT -> $AUTOFIT_…
+        (ref_pkg, tgt_pkg),                     # autolens -> autofit
+        *domain_substitutions(ref_pkg, tgt_pkg),
+    ]
+
+
 def apply_seed(args, decision):
     """v1: emit the generation plan and hand execution to Build (clone_seed)."""
     import tempfile
@@ -435,23 +536,21 @@ def apply_seed(args, decision):
         "owner": args.owner or repo_owner(reference_root),
         "reference_path": str(reference_root),
         "substitutions": [
-            # repo identity first (most specific): the full assistant name,
-            # e.g. autofit_assistant -> ic50_assistant
-            [args.reference, target],
-            # skill prefix (al_ -> af_): package initials, e.g.
-            # autolens -> al, autofit -> af. Word-anchored: unanchored, this
-            # two-letter rule also rewrites the `al_` inside `total_draws`,
-            # `external_shear` and `radial_minimum` (it did, in a sibling
-            # assistant clone — PyAutoBrain#150).
-            [f"{ref_pkg[0]}{ref_pkg[4]}_", f"{target_pkg[0]}{target_pkg[4]}_", "word"],
-            [ref_lib, args.library],       # PyAutoLens -> PyAutoFit
-            [ref_pkg, target_pkg],         # autolens -> autofit
+            list(rule) for rule in name_substitutions(
+                args.reference, target, ref_pkg, ref_lib, target_pkg, args.library
+            )
         ],
         "generic": sets["generic"],
         "mixed": sets["mixed"],
         "domain": sets["domain"],
         "scaffold_dirs": profile["scaffold_dirs"],
     }
+    if not DOMAIN_NOUNS.get(target_pkg):
+        print(f"\n!! no domain noun known for '{target_pkg}' — the copied generic "
+              f"prose will keep the reference's ('{DOMAIN_NOUNS.get(ref_pkg, ('its own',))[0]}').\n"
+              f"   Add it to DOMAIN_NOUNS in _clone.py, or fix the newborn's "
+              f"prose by hand. Not guessed here.")
+
     plan_path = Path(tempfile.mkstemp(prefix="clone_plan_", suffix=".json")[1])
     plan_path.write_text(json.dumps(plan, indent=2))
 
@@ -467,7 +566,296 @@ def apply_seed(args, decision):
         fail(4, "Build's clone_seed failed — see its output")
 
 
+# ---------------------------------------------------------------------------
+# sync — keep the born siblings from drifting on the generic files
+#
+# Birth copies the reference once; nothing re-synced afterwards, so the four
+# copies of `skills/start-new-project.md` and `wiki/project/*` grew four
+# distinct hashes. This mode replays the REFERENCE's own diff over a commit
+# range onto each sibling, restricted to that reference's generic set, with the
+# same name substitutions birth uses. It applies with GNU `patch`, so a hunk
+# whose context the sibling has adapted away is REJECTED and listed rather than
+# forced: the sibling's domain adaptation outranks the reference's prose, and
+# only a human decides what a conflict means.
+#
+# "Since the sibling's last sync" is read from the sibling's own git history: a
+# sync commit carries the trailer `Clone-sync: <reference>@<sha>`. No new state
+# file, and the pointer travels with the commit that consumed the patch.
+# ---------------------------------------------------------------------------
+
+SYNC_TRAILER = "Clone-sync"
+
+
+def substitute(text, subs):
+    """Apply name-substitution rules to `text`.
+
+    Mirrors PyAutoHands `clone_seed.substitute` — the birth-side implementation
+    of the same contract — so a synced line reads exactly as a born one would.
+    A rule is `(old, new)` or `(old, new, "word")`; the latter requires `old` to
+    start at a word boundary, because the two-letter skill prefixes (`al_`,
+    `af_`) otherwise match inside `total_draws` / `external_shear`.
+    """
+    for rule in subs:
+        old, new = rule[0], rule[1]
+        if len(rule) > 2 and rule[2] == "word":
+            text = re.sub(rf"(?<![A-Za-z0-9]){re.escape(old)}", new, text)
+        else:
+            text = text.replace(old, new)
+    return text
+
+
+def sync_substitutions(reference_name, target_name):
+    """The reference -> sibling rename rules for a sync, from the shared table.
+
+    Same rules birth uses (`name_substitutions`), resolved from the two
+    assistant names. Sync only ever touches the lines in the patch, so the
+    UPPERCASE and domain-noun rules correct newly synced lines; they do not
+    retro-fix a line an earlier birth got wrong until that line is patched.
+    """
+    ref_pkg, ref_lib = reference_library(reference_name)
+    tgt_pkg, tgt_lib = reference_library(target_name)
+    return name_substitutions(
+        reference_name, target_name, ref_pkg, ref_lib, tgt_pkg, tgt_lib
+    )
+
+
+def git(repo, *args, check=False):
+    out = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True,
+    )
+    if check and out.returncode != 0:
+        fail(4, f"git {' '.join(args)} failed in {repo}: {out.stderr.strip()}")
+    return out
+
+
+def discover_targets(reference_name):
+    """Sibling assistants checked out beside the reference."""
+    return sorted(
+        child.name
+        for child in PYAUTO_ROOT.iterdir()
+        if child.is_dir()
+        and child.name.endswith("_assistant")
+        and child.name != reference_name
+        and (child / ".git").exists()
+    )
+
+
+def last_sync_rev(target_root, reference_name):
+    """The reference sha recorded by this sibling's most recent sync commit."""
+    out = git(target_root, "log", "-n", "1",
+              f"--grep=^{SYNC_TRAILER}: {reference_name}@", "--format=%B")
+    match = re.search(
+        rf"^{SYNC_TRAILER}: {re.escape(reference_name)}@(\S+)",
+        out.stdout, re.MULTILINE,
+    )
+    return match.group(1) if match else None
+
+
+def changed_generic_files(reference_root, profile, since, until):
+    """(path, status) for every generic file the reference changed in range."""
+    out = git(reference_root, "diff", "--name-status", f"{since}..{until}",
+              check=True)
+    rows = []
+    for line in out.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        status, path = parts[0], parts[-1]
+        if match_any(path, profile["generic"]):
+            rows.append((path, status[0]))
+    return sorted(rows)
+
+
+def substituted_patch(reference_root, since, until, path, subs):
+    """The reference's diff for one path, renamed for the target.
+
+    Only the CONTENT lines are substituted (` `, `+`, `-`), never the `---` /
+    `+++` / `diff --git` headers or the `@@` ranges: the generic paths are the
+    same in every sibling, and rewriting a header would send the hunk to a file
+    that does not exist.
+    """
+    out = git(reference_root, "diff", f"{since}..{until}", "--", path, check=True)
+    lines = []
+    for line in out.stdout.splitlines(keepends=True):
+        if line.startswith(("diff --git", "index ", "--- ", "+++ ", "@@",
+                            "new file mode", "deleted file mode",
+                            "old mode", "new mode", "similarity index",
+                            "rename from", "rename to")):
+            lines.append(line)
+        else:
+            lines.append(substitute(line, subs))
+    return "".join(lines)
+
+
+def apply_patch(target_root, patch_text, dry_run):
+    """Run GNU patch; return (status, detail).
+
+    status is one of: applied · created · already-applied · rejected · error.
+    """
+    if shutil.which("patch") is None:
+        fail(4, "GNU `patch` not found on PATH — sync applies patches with it")
+    handle, name = tempfile.mkstemp(prefix="clone_sync_", suffix=".patch")
+    Path(name).write_text(patch_text)
+    cmd = ["patch", "-p1", "--forward", "--fuzz=3",
+           "--no-backup-if-mismatch", "-i", name]
+    if dry_run:
+        cmd.insert(1, "--dry-run")
+    out = subprocess.run(cmd, cwd=str(target_root), capture_output=True, text=True)
+    Path(name).unlink(missing_ok=True)
+    text = out.stdout + out.stderr
+    failed = re.findall(r"Hunk #(\d+) FAILED", text)
+    if failed:
+        return "rejected", f"hunks {', '.join('#' + h for h in failed)} rejected"
+    if "Reversed (or previously applied) patch detected" in text:
+        return "already-applied", "sibling already carries this change"
+    if out.returncode != 0:
+        return "error", text.strip().splitlines()[-1] if text.strip() else "patch failed"
+    return "applied", ""
+
+
+def run_sync(args):
+    reference_root = repo_root(args.reference)
+    profile = reference_profile(args.reference)
+    until = args.until
+    targets = args.target or discover_targets(args.reference)
+    if not targets:
+        fail(4, f"no sibling assistants found beside {args.reference}")
+
+    report = {
+        "reference": f"{args.reference} @ {head_sha(reference_root)}",
+        "until": until,
+        "dry_run": not args.apply,
+        "targets": {},
+    }
+    rejected_any = False
+
+    for name in targets:
+        target_root = repo_root(name)
+        since = args.since or last_sync_rev(target_root, args.reference)
+        if since is None:
+            report["targets"][name] = {
+                "since": None,
+                "error": (
+                    f"no --since given and no `{SYNC_TRAILER}: {args.reference}@<sha>` "
+                    "trailer in this sibling's history — pass --since <rev> for "
+                    "the first sync"
+                ),
+                "files": [],
+            }
+            rejected_any = True
+            continue
+
+        subs = sync_substitutions(args.reference, name)
+        files = []
+        for path, status in changed_generic_files(reference_root, profile, since, until):
+            if status in ("R", "D"):
+                files.append({"path": path, "result": "unsupported",
+                              "detail": f"reference {status} (rename/delete) — do it by hand"})
+                rejected_any = True
+                continue
+            exists = (target_root / path).exists()
+            if status == "M" and not exists:
+                files.append({"path": path, "result": "absent",
+                              "detail": "file not present in this sibling"})
+                continue
+            if status == "A" and exists:
+                files.append({"path": path, "result": "skipped",
+                              "detail": "reference ADDED this file and the sibling "
+                                        "already has one — compare the two by hand"})
+                continue
+            patch_text = substituted_patch(reference_root, since, until, path, subs)
+            if not patch_text.strip():
+                files.append({"path": path, "result": "unchanged", "detail": ""})
+                continue
+            result, detail = apply_patch(target_root, patch_text, dry_run=not args.apply)
+            if status == "A" and result == "applied":
+                result = "created"
+            if result in ("rejected", "error"):
+                rejected_any = True
+            files.append({"path": path, "result": result, "detail": detail})
+
+        report["targets"][name] = {"since": since, "files": files}
+
+    report["next_action"] = (
+        "review the report; re-run with --apply to write (rejected hunks land as "
+        "`.rej` files a human resolves), and put "
+        f"`{SYNC_TRAILER}: {args.reference}@{head_sha(reference_root)}` in the "
+        "sibling's sync commit so the next run knows where it got to"
+        if not args.apply else
+        "resolve any `.rej` files by hand, delete them, then commit with "
+        f"`{SYNC_TRAILER}: {args.reference}@{head_sha(reference_root)}` in the message"
+    )
+    return report, rejected_any
+
+
+_SYNC_GLYPH = {
+    "applied": "OK ", "created": "NEW", "unchanged": "-- ",
+    "already-applied": "== ", "absent": "?? ", "skipped": "?? ",
+    "rejected": "XX ",
+    "error": "XX ", "unsupported": "XX ",
+}
+
+
+def print_sync(report):
+    mode = "dry run — writes nothing" if report["dry_run"] else "APPLY — writes"
+    print(f"== CloneSync ({mode}) ==")
+    print(f"Reference:  {report['reference']}")
+    print(f"Until:      {report['until']}")
+    for name, block in report["targets"].items():
+        print(f"\n{name}  (since {block['since'] or '?'})")
+        if block.get("error"):
+            print(f"  XX  {block['error']}")
+            continue
+        if not block["files"]:
+            print("  -- nothing generic changed in range")
+            continue
+        for row in block["files"]:
+            detail = f" — {row['detail']}" if row["detail"] else ""
+            print(f"  {_SYNC_GLYPH[row['result']]} {row['path']:<48s} "
+                  f"{row['result']}{detail}")
+        counts = {}
+        for row in block["files"]:
+            counts[row["result"]] = counts.get(row["result"], 0) + 1
+        print("  summary: " + " · ".join(f"{v} {k}" for k, v in sorted(counts.items())))
+    print(f"\nNext action: {report['next_action']}")
+
+
+def sync_main(argv):
+    parser = argparse.ArgumentParser(
+        prog="pyauto-brain clone sync",
+        description="Re-apply the reference assistant's generic-file changes to "
+                    "its born siblings as a reviewable patch (dry run by default).",
+    )
+    parser.add_argument("--reference", default="autolens_assistant",
+                        help="the reference assistant the diff comes from "
+                             "(default: autolens_assistant)")
+    parser.add_argument("--target", action="append", default=None,
+                        help="sibling to sync (repeatable; default: every "
+                             "*_assistant checked out beside the reference)")
+    parser.add_argument("--since", default=None,
+                        help="reference rev to diff from (default: the sha in "
+                             f"each sibling's last `{SYNC_TRAILER}:` commit trailer)")
+    parser.add_argument("--until", default="HEAD",
+                        help="reference rev to diff to (default: HEAD)")
+    parser.add_argument("--apply", action="store_true",
+                        help="write the patches (default: dry run)")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    report, rejected = run_sync(args)
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print_sync(report)
+    sys.exit(1 if rejected else 0)
+
+
 def main():
+    # `sync` is a mode, not a library: it takes no library/workspace pair, so it
+    # gets its own parser rather than optional-ing out every analyze argument.
+    if len(sys.argv) > 1 and sys.argv[1] == "sync":
+        sync_main(sys.argv[2:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("library", help="source library repo, e.g. PyAutoFit")
     parser.add_argument("--workspace", required=True, help="the library's workspace repo")

@@ -140,7 +140,7 @@ the `/<verb>` slash commands.
 | `eyes` | The perceptive function — the organism's sense of its own appearance: survey/review a visualization workspace's figure surface, critiques route to intake/start_dev — EyesSurvey/EyesReviewSurface (never renders, never edits) | `bin/pyauto-brain eyes` |
 | `profiling` | The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision | `bin/pyauto-brain profiling` |
 | `hygiene` | The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision | `bin/pyauto-brain hygiene` |
-| `clone` | The Mitosis Agent: partition the reference assistant, analyze the domain, emit the CloneDecision; --apply --mode lightweight-seed delegates the seed birth to Build | `bin/pyauto-brain clone` |
+| `clone` | The Mitosis Agent: partition the reference assistant, analyze the domain, emit the CloneDecision; --apply --mode lightweight-seed delegates the seed birth to Build; 'clone sync' patches the reference's generic-file diff onto the born siblings (dry run by default; rejected hunks are a human decision) | `bin/pyauto-brain clone` |
 | `build` | Coordinate execution: consult the vitals faculty, then delegate to PyAutoHands | `bin/pyauto-brain build` |
 | `release` | Release door → the Build Agent release mode (single gate); 'release rehearse'/'release validate' drive release validation; 'release nightly' is the scheduled-nightly driver | `bin/pyauto-brain release` |
 | `health` | The organism's clinician: run the health loop with a human, dispatch by dispatch, toward green | `bin/pyauto-brain health` |
