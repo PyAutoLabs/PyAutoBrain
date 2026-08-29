@@ -10,8 +10,9 @@ What the mode promises, and therefore what is asserted here:
    prose keeps its own text, and the hunks that no longer fit are REPORTED as
    rejected rather than forced;
 2. the reference's names are rewritten for each sibling, so a synced line reads
-   as a born one would (`autolens` -> `autocti`, `al_` -> `ac_`, and the
-   UPPERCASE env-var form birth forgets);
+   as a born one would (`autolens` -> `autocti`, `al_` -> `ac_`, the UPPERCASE
+   env-var form and the domain noun `lensing` -> `CTI` — the two rules the
+   first births omitted, PyAutoBrain#315);
 3. a dry run writes nothing;
 4. "since the sibling's last sync" is read from the sibling's own history via
    the `Clone-sync: <reference>@<sha>` commit trailer.
@@ -67,6 +68,19 @@ SKILL_V2 = SKILL_V1.replace(
     "# Start New Project\n",
     "# Start New Project\n\n## Session start — do this first, every session\n\n"
     "Read wiki/project/profile.md, wiki/project/state.md, then the newest entry.\n",
+)
+
+PROFILE_V1 = """# Profile template
+
+## Lensing background
+
+One or two sentences on the user's prior exposure to gravitational lensing.
+Set $AUTOLENS_ASSISTANT before you start; microlensing work is out of scope.
+"""
+
+PROFILE_V2 = PROFILE_V1.replace(
+    "## Lensing background\n",
+    "## Lensing background\n\n_unrecorded until the first session._\n",
 )
 
 STATE_TEMPLATE = """---
@@ -131,12 +145,21 @@ def workspace(tmp_path, monkeypatch):
     ref = _init(tmp_path / REFERENCE)
     _write(ref, "wiki/project/README.md", README_V1)
     _write(ref, "skills/start-new-project.md", SKILL_V1)
+    _write(ref, "wiki/project/_profile_template.md", PROFILE_V1)
     base = _commit(ref, "reference v1")
 
     # Both siblings are born from v1 with the birth substitutions applied.
     cti = _init(tmp_path / "autocti_assistant")
     _write(cti, "wiki/project/README.md",
            README_V1.replace("autolens", "autocti"))
+    # Born with the corrected rules (UPPERCASE + domain noun), i.e. what a
+    # birth produces after PyAutoBrain#315 — so a later reference hunk, whose
+    # context is substituted the same way, still fits.
+    _write(cti, "wiki/project/_profile_template.md",
+           PROFILE_V1.replace("AUTOLENS", "AUTOCTI")
+                     .replace("Lensing", "CTI")
+                     .replace("gravitational lensing",
+                              "charge transfer inefficiency"))
     # ... but this one never received the skill file: the reference's change to
     # it must report `absent`, not explode.
     _commit(cti, "born")
@@ -163,12 +186,17 @@ Grep for the galaxy name first; the entries are decomposition-ordered.
            SKILL_V1.replace("AUTOLENS", "AUTOGALAXY")
                    .replace("autolens", "autogalaxy")
                    .replace("al_", "ag_"))
+    # ... and this copy was born BEFORE the rules were fixed: its heading and
+    # env var still name the reference's domain, exactly as the live
+    # autocti_assistant's did (PyAutoBrain#315).
+    _write(gal, "wiki/project/_profile_template.md", PROFILE_V1)
     _commit(gal, "born")
 
     # The reference moves on: two edits and one new file, all generic.
     _write(ref, "wiki/project/README.md", README_V2)
     _write(ref, "skills/start-new-project.md", SKILL_V2)
     _write(ref, "wiki/project/_state_template.md", STATE_TEMPLATE)
+    _write(ref, "wiki/project/_profile_template.md", PROFILE_V2)
     head = _commit(ref, "reference v2: state.md")
 
     return argparse.Namespace(
@@ -293,3 +321,89 @@ def test_only_generic_files_are_synced(workspace):
         _args(since=workspace.base, target=["autocti_assistant"])
     )
     assert "wiki/core/lensing.md" not in _results(report, "autocti_assistant")
+
+
+def test_substitution_rewrites_the_domain_noun(workspace):
+    """The science's own noun is a rename too: a generic file copied from the
+    lensing reference must not head its profile template "Lensing background"
+    in a CTI cell (PyAutoBrain#315)."""
+    subs = workspace.clone.sync_substitutions(REFERENCE, "autocti_assistant")
+    out = workspace.clone.substitute(
+        "## Lensing background\n\nprior exposure to gravitational lensing.\n", subs
+    )
+    assert out == "## CTI background\n\nprior exposure to charge transfer inefficiency.\n"
+
+    gal = workspace.clone.sync_substitutions(REFERENCE, "autogalaxy_assistant")
+    assert workspace.clone.substitute("## Lensing background", gal) == (
+        "## Galaxy background"
+    )
+
+
+def test_qualified_compounds_do_not_become_nonsense(workspace):
+    """`strong-lensing` -> `strong-CTI` is a phrase in no science: the
+    qualifier belongs to the reference's domain, so the compound resolves to
+    the target's bare noun. A TRAILING compound keeps its own tail."""
+    subs = workspace.clone.sync_substitutions(REFERENCE, "autocti_assistant")
+    assert workspace.clone.substitute("strong-lensing systematics", subs) == (
+        "CTI systematics"
+    )
+    assert workspace.clone.substitute("a weak lensing survey", subs) == (
+        "a CTI survey"
+    )
+    assert workspace.clone.substitute("lensing-fluent", subs) == "CTI-fluent"
+
+
+def test_domain_noun_is_word_anchored(workspace):
+    """`microlensing` is one word, not a domain noun to rewrite."""
+    subs = workspace.clone.sync_substitutions(REFERENCE, "autocti_assistant")
+    assert workspace.clone.substitute("microlensing", subs) == "microlensing"
+
+
+def test_domain_noun_is_never_guessed_for_an_unknown_science(workspace):
+    """A birth into a science the table does not know gets NO domain rule —
+    a visible `lensing` is recoverable, an invented noun is not."""
+    assert workspace.clone.domain_substitutions("autolens", "ic50") == []
+
+
+def test_synced_hunk_lands_with_both_birth_gaps_closed(workspace):
+    """End to end: the reference edits its profile template, and the hunk that
+    lands in the CTI sibling carries the corrected heading and env var."""
+    report, rejected = workspace.clone.run_sync(
+        _args(since=workspace.base, target=["autocti_assistant"], apply=True)
+    )
+    rows = _results(report, "autocti_assistant")
+    assert rows["wiki/project/_profile_template.md"]["result"] == "applied"
+    text = (workspace.cti / "wiki/project/_profile_template.md").read_text()
+    assert "## CTI background" in text
+    assert "_unrecorded until the first session._" in text
+    assert "$AUTOCTI_ASSISTANT" in text
+    assert "Lensing" not in text
+    assert "lensing" not in text.replace("microlensing", "")
+
+
+def test_birth_and_sync_share_one_rename_table(workspace):
+    """Birth used to omit the UPPERCASE and domain rules; both routes must now
+    produce the identical substitution set."""
+    born = workspace.clone.name_substitutions(
+        REFERENCE, "autocti_assistant",
+        "autolens", "PyAutoLens", "autocti", "PyAutoCTI",
+    )
+    assert born == workspace.clone.sync_substitutions(REFERENCE, "autocti_assistant")
+    assert ("AUTOLENS", "AUTOCTI") in born
+    assert ("lensing", "CTI", "word") in born
+
+
+def test_sync_does_not_retro_fix_a_stale_born_copy(workspace):
+    """A sibling born before the rules were fixed still says "Lensing" and
+    `$AUTOLENS_ASSISTANT`. Sync only ever touches the lines in the patch: the
+    new line lands (`patch --fuzz` tolerates the drifted context), and the
+    stale heading and env var survive untouched. Closing those needs the
+    reference to change those very lines, or a hand fix — never a silent
+    rewrite by the sync."""
+    workspace.clone.run_sync(
+        _args(since=workspace.base, target=["autogalaxy_assistant"], apply=True)
+    )
+    text = (workspace.gal / "wiki/project/_profile_template.md").read_text()
+    assert "_unrecorded until the first session._" in text     # the hunk landed
+    assert "## Lensing background" in text                     # ... and only it
+    assert "$AUTOLENS_ASSISTANT" in text

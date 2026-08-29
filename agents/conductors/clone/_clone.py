@@ -428,6 +428,94 @@ def repo_owner(repo_root):
     return url.rstrip("/").split("/")[-2].split(":")[-1]
 
 
+# ---------------------------------------------------------------------------
+# The name/domain rename table — shared by BIRTH (apply_seed -> clone_seed) and
+# SYNC (sync_substitutions). One table, so a file that lands in a sibling by
+# either route reads the same.
+#
+# Two rules were missing when the first siblings were born, and both were still
+# visible in a sibling cell (PyAutoBrain#315): the UPPERCASE package form, so a
+# generated project scaffold still pointed at the REFERENCE's `$..._ASSISTANT`
+# variable; and the science's own noun, so a profile template still headed its
+# first section with the reference's domain. Neither is a name the identity
+# rules can reach — the uppercase form is not the package, and a domain noun is
+# not a package at all.
+# ---------------------------------------------------------------------------
+
+# The domain noun each assistant's GENERIC prose uses for its own science, as
+# (short noun, full phrase). Keyed by library package. A package absent from
+# the table gets NO domain rule and a printed warning: leaving the reference's
+# noun visible is recoverable, inventing a science's name for it is not.
+DOMAIN_NOUNS = {
+    "autolens": ("lensing", "gravitational lensing"),
+    "autogalaxy": ("galaxy", "galaxy morphology"),
+    "autocti": ("CTI", "charge transfer inefficiency"),
+    "autofit": ("model-fitting", "statistical model-fitting"),
+}
+
+
+# Qualified compounds of the reference's own noun. They are rewritten to the
+# TARGET's bare noun *before* the bare rule runs, because "strong-lensing" ->
+# "strong-CTI" is a phrase in no science: the qualifier belongs to the
+# reference's domain, not the target's. (Trailing compounds — `lensing-fluent`
+# -> `CTI-fluent` — the bare rule already handles.)
+DOMAIN_ALIASES = {
+    "autolens": ("strong-lensing", "weak-lensing", "strong lensing", "weak lensing"),
+}
+
+
+def capitalised(phrase):
+    """`lensing` -> `Lensing`, `CTI` -> `CTI` (an acronym is left alone)."""
+    return phrase if phrase[:1].isupper() else phrase[:1].upper() + phrase[1:]
+
+
+def domain_substitutions(ref_pkg, tgt_pkg):
+    """Rewrite the reference's domain noun for the target's science.
+
+    Longest first — the full phrase, then the qualified compounds of
+    `DOMAIN_ALIASES`, then the bare noun — each in its lowercase and
+    sentence-case form, because the noun shows up mid-sentence and as a
+    heading. Word-anchored, so `microlensing` is not rewritten. Returns []
+    when either side's noun is unknown — never a guess.
+    """
+    ref, tgt = DOMAIN_NOUNS.get(ref_pkg), DOMAIN_NOUNS.get(tgt_pkg)
+    if not ref or not tgt:
+        return []
+    pairs = [(ref[1], tgt[1])]                              # the full phrase
+    pairs += [                                              # qualified compounds
+        (alias, tgt[0])
+        for alias in sorted(DOMAIN_ALIASES.get(ref_pkg, ()), key=len, reverse=True)
+    ]
+    pairs.append((ref[0], tgt[0]))                          # the bare noun, last
+    rules = []
+    for old, new in pairs:
+        if old == new:
+            continue
+        rules.append((old, new, "word"))
+        if capitalised(old) != old:
+            rules.append((capitalised(old), capitalised(new), "word"))
+    return rules
+
+
+def name_substitutions(reference_name, target_name,
+                       ref_pkg, ref_lib, tgt_pkg, tgt_lib):
+    """The reference -> sibling rename rules, most specific first."""
+    return [
+        # repo identity first (most specific): the full assistant name,
+        # e.g. autofit_assistant -> ic50_assistant
+        (reference_name, target_name),
+        # skill prefix (al_ -> af_): package initials, e.g. autolens -> al,
+        # autofit -> af. Word-anchored: unanchored, this two-letter rule also
+        # rewrites the `al_` inside `total_draws`, `external_shear` and
+        # `radial_minimum` (it did, in a sibling clone — PyAutoBrain#150).
+        (f"{ref_pkg[0]}{ref_pkg[4]}_", f"{tgt_pkg[0]}{tgt_pkg[4]}_", "word"),
+        (ref_lib, tgt_lib),                     # PyAutoLens -> PyAutoFit
+        (ref_pkg.upper(), tgt_pkg.upper()),     # $AUTOLENS_ASSISTANT -> $AUTOFIT_…
+        (ref_pkg, tgt_pkg),                     # autolens -> autofit
+        *domain_substitutions(ref_pkg, tgt_pkg),
+    ]
+
+
 def apply_seed(args, decision):
     """v1: emit the generation plan and hand execution to Build (clone_seed)."""
     import tempfile
@@ -448,23 +536,21 @@ def apply_seed(args, decision):
         "owner": args.owner or repo_owner(reference_root),
         "reference_path": str(reference_root),
         "substitutions": [
-            # repo identity first (most specific): the full assistant name,
-            # e.g. autofit_assistant -> ic50_assistant
-            [args.reference, target],
-            # skill prefix (al_ -> af_): package initials, e.g.
-            # autolens -> al, autofit -> af. Word-anchored: unanchored, this
-            # two-letter rule also rewrites the `al_` inside `total_draws`,
-            # `external_shear` and `radial_minimum` (it did, in a sibling
-            # assistant clone — PyAutoBrain#150).
-            [f"{ref_pkg[0]}{ref_pkg[4]}_", f"{target_pkg[0]}{target_pkg[4]}_", "word"],
-            [ref_lib, args.library],       # PyAutoLens -> PyAutoFit
-            [ref_pkg, target_pkg],         # autolens -> autofit
+            list(rule) for rule in name_substitutions(
+                args.reference, target, ref_pkg, ref_lib, target_pkg, args.library
+            )
         ],
         "generic": sets["generic"],
         "mixed": sets["mixed"],
         "domain": sets["domain"],
         "scaffold_dirs": profile["scaffold_dirs"],
     }
+    if not DOMAIN_NOUNS.get(target_pkg):
+        print(f"\n!! no domain noun known for '{target_pkg}' — the copied generic "
+              f"prose will keep the reference's ('{DOMAIN_NOUNS.get(ref_pkg, ('its own',))[0]}').\n"
+              f"   Add it to DOMAIN_NOUNS in _clone.py, or fix the newborn's "
+              f"prose by hand. Not guessed here.")
+
     plan_path = Path(tempfile.mkstemp(prefix="clone_plan_", suffix=".json")[1])
     plan_path.write_text(json.dumps(plan, indent=2))
 
@@ -519,23 +605,18 @@ def substitute(text, subs):
 
 
 def sync_substitutions(reference_name, target_name):
-    """The reference -> sibling rename rules, most specific first.
+    """The reference -> sibling rename rules for a sync, from the shared table.
 
-    Birth omits the UPPERCASE rule, so a newborn inherits the reference's
-    `$<REFERENCE>_ASSISTANT` env-var name in its generated project scaffold —
-    still visible in a sibling born before this. Sync carries the rule, so
-    newly synced lines are right even where the old ones are not; sync only
-    ever touches the lines in the patch, so it does not retro-fix them.
+    Same rules birth uses (`name_substitutions`), resolved from the two
+    assistant names. Sync only ever touches the lines in the patch, so the
+    UPPERCASE and domain-noun rules correct newly synced lines; they do not
+    retro-fix a line an earlier birth got wrong until that line is patched.
     """
     ref_pkg, ref_lib = reference_library(reference_name)
     tgt_pkg, tgt_lib = reference_library(target_name)
-    return [
-        (reference_name, target_name),
-        (f"{ref_pkg[0]}{ref_pkg[4]}_", f"{tgt_pkg[0]}{tgt_pkg[4]}_", "word"),
-        (ref_lib, tgt_lib),
-        (ref_pkg.upper(), tgt_pkg.upper()),
-        (ref_pkg, tgt_pkg),
-    ]
+    return name_substitutions(
+        reference_name, target_name, ref_pkg, ref_lib, tgt_pkg, tgt_lib
+    )
 
 
 def git(repo, *args, check=False):

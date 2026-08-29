@@ -52,10 +52,9 @@ those; a domain file the reference changed never crosses.
 
 **It is not an overwrite.** It takes the *reference's own diff* over a commit
 range, restricted to that reference's `generic` pattern set, rewrites the names
-in it for the target (the same substitutions birth uses, **plus** the UPPERCASE
-env-var rule birth omits — which is why `autocti_assistant` still says
-`$AUTOLENS_ASSISTANT`), and applies it with GNU `patch`. Per file, per sibling
-it reports one of:
+in it for the target (`name_substitutions` — the one rename table birth and
+sync share), and applies it with GNU `patch`. Per file, per sibling it reports
+one of:
 
 | result | meaning |
 |--------|---------|
@@ -65,6 +64,23 @@ it reports one of:
 | `absent` | the reference changed a file this sibling does not have |
 | `skipped` | the reference *added* a file the sibling already has — compare by hand |
 | `unsupported` | a rename/delete in the reference — do it by hand |
+
+### The rename table (`name_substitutions`)
+
+One table, used by **both** birth and sync, so a generic file reads the same
+whichever route brought it into a sibling. Most specific first: the assistant
+name, the `al_` → `ac_` skill prefix (word-anchored), the library repo name,
+the **UPPERCASE** package form, the lowercase package, then the **domain noun**
+(`DOMAIN_NOUNS`: lensing / galaxy / CTI / model-fitting, each with its longer
+phrase, word-anchored so `microlensing` survives).
+
+The last two rules were missing at the first births, and both are still visible
+in `autocti_assistant` (PyAutoBrain#315): its generated project scaffold points
+at `$AUTOLENS_ASSISTANT`, and its profile template heads its first section
+"Lensing background". Neither is reachable by the identity rules — `AUTOLENS`
+is not `autolens`, and "lensing" is not a package at all. A target whose
+package is not in `DOMAIN_NOUNS` gets **no** domain rule and a printed warning;
+a science's own noun is never guessed.
 
 Apply is **per hunk**, the way `patch` has always worked: what fits lands, what
 does not is written out for a human. A sibling's domain adaptation outranks the
