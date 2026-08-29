@@ -568,7 +568,7 @@ WORK_TYPE_GLYPHS = {
     "feature": "✨", "bug": "\U0001f41b", "refactor": "♻️",
     "docs": "\U0001f4d6", "test": "\U0001f9ea", "release": "\U0001f680",
     "maintenance": "\U0001f9f9", "research": "\U0001f52c",
-    "experiment": "⚗️", "triage": "❓",
+    "experiment": "⚗️", "human_review": "\U0001f440", "triage": "❓",
 }
 
 
@@ -595,7 +595,10 @@ def pills(*values, work_type=None):
     out = []
     if work_type and work_type != "-":
         glyph = WORK_TYPE_GLYPHS.get(work_type, "")
-        tone = " y" if work_type == "triage" else ""
+        # Both of these are a call to action rather than a category: `triage`
+        # means nobody has classified this, `human_review` means someone is
+        # waiting on a person to read it.
+        tone = " y" if work_type in ("triage", "human_review") else ""
         out.append(f'<span class="pill w{tone}">{glyph} {_esc(work_type)}'
                    f'</span>')
     first = True

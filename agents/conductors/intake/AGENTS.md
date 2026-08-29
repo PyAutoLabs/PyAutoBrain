@@ -34,6 +34,7 @@ must not duplicate:
 |-------|------|-------------------|
 | `/route` | infer work-type, **dispatch** (starts dev now) | intake **files a prompt**, defers |
 | `triage/` | the unclassified-prompt bucket | intake **writes into** it on low confidence — reuse, don't reinvent |
+| `human_review/` | shipped work a human asked to sign off | intake files it **only when declared**; it is never inferred, never demoted to `triage/`, and never counted as backlog |
 | `create_issue` | prompt → GitHub issue + registry | intake runs strictly **before** it |
 
 ## What it decides (the IntakeDecision)
@@ -48,7 +49,12 @@ Proposed path · Header (the block written verbatim) · Risks · Next action
 
 - **Work-type** — scored by keyword signal into `feature/bug/refactor/docs/test/
   release/maintenance/research/experiment`; a tie across dissimilar types or zero
-  signal → `triage`.
+  signal → `triage`. `human_review` is the one type the classifier may never
+  select: it means *a human has decided this shipped work needs their eyes*,
+  which no keyword carries, so only an explicit `Type: human review` declaration
+  reaches it (`MANUAL_ONLY_WORK_TYPES` in the sizing faculty). Nothing files a
+  review automatically and no workflow requires one — review is opt-in, not a
+  lifecycle stage.
 - **Target** — resolved from `@RepoName` mentions *and* bare repo names, incl. the
   **organism repos** (`pyautomind/pyautobrain/pyautoheart/pyautobuild/pyautomemory`)
   — the gap that made the Feature Agent mis-route a `pyautobrain` target.
@@ -100,7 +106,7 @@ the page's Hygiene section), and an un-themed prompt falls back to `Target:`.
 | **classify** | `intake "<text>"` / `intake classify --file P` | classify one raw input; `--apply` writes the prompt |
 | **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
-| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, parked, planned, backlog, bundles, recent, epics; `--apply` writes `PyAutoMind/dashboard.md`, `--check` exits 1 on drift |
+| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, human review, parked, planned, backlog, bundles, recent, epics; `--apply` writes `PyAutoMind/dashboard.md`, `--check` exits 1 on drift |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`), and pair live prompts that look like the same work filed twice; always read-only — retiring stays human |
 | **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source: identifiers the prompts name that exist upstream, and lines they quote that are **gone** — the two signals that see a prompt with no Mind-side trace. Opt-in; the default path is offline |

@@ -167,3 +167,28 @@ def test_bug_decision_reports_the_declared_difficulty():
     assert d["difficulty_declared"] == "small"
     assert d["difficulty_derived"] != "small"
     assert d["difficulty_disagreement"] is True
+
+
+def test_a_multi_word_work_type_is_read_however_a_human_spells_it():
+    """`human_review` is the first work-type whose name is two words.
+
+    A human writes "human review" in a header and "human-review" mid-sentence;
+    the folder key is `human_review`. All three must resolve, in both readers,
+    or the one work-type that can ONLY be declared becomes undeclarable.
+    """
+    for spelling in ("human review", "Human Review", "human-review",
+                     "human_review"):
+        assert declared_header(f"Type: {spelling}\n")["declared_type"] == \
+            "human_review", spelling
+        assert declared_inline(f"file this as type: {spelling} please")[0] \
+            .get("type") == "human_review", spelling
+    # An unknown type is still no declaration at all.
+    assert declared_header("Type: vibes\n")["declared_type"] is None
+
+
+def test_a_leading_declaration_does_not_strand_its_punctuation_in_the_title():
+    """"Type: human review. Check the thing." must title as "Check the thing",
+    not ". Check the thing" — the title names the file."""
+    text = "Type: human review. Check the fit quality."
+    _fields, spans = declared_inline(text)
+    assert strip_declarations(text, spans).strip() == "Check the fit quality."
