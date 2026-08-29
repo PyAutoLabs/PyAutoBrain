@@ -38,7 +38,8 @@ from pathlib import Path
 # the Feature Agent and this agent consult it — one source of truth for sizing.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
-    WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
+    WORK_TYPES, HUMAN_REVIEW, MANUAL_ONLY_WORK_TYPES,
+    LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
     RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, declared_header,
     declared_inline, effective_difficulty, strip_declarations, _hits,
     policy as _sizing_policy, BODY_MAP_PATH,
@@ -196,9 +197,17 @@ def _repos_in(text: str) -> list:
 
 
 def classify_work_type(text: str):
-    """Return (work_type, confidence, per_type_hits)."""
+    """Return (work_type, confidence, per_type_hits).
+
+    `MANUAL_ONLY_WORK_TYPES` (today: `human_review`) can never come out of here.
+    They are not a reading of the prose — they are a human saying "this needs my
+    eyes" — so they are filtered out of the signal sets rather than merely
+    absent from them, and only a `Type:` declaration reaches them.
+    """
     scores = {}
     for wt, sigs in WORK_TYPE_SIGNALS.items():
+        if wt in MANUAL_ONLY_WORK_TYPES:
+            continue
         # Word-boundary prefix match (shared _hits) — not plain substring, so
         # "add" does not fire on "address" and "test" not on "latest".
         hits = _hits(text, sigs)
@@ -318,7 +327,15 @@ def analyse(text: str, source: str, themes=None):
     title = _title(strip_declarations(text, decl_spans))
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
-    if folder == "triage":
+    if folder == HUMAN_REVIEW:
+        # A declared human review is never demoted. `triage/` means "nobody has
+        # classified this"; here a human has, and the thing being reviewed is
+        # shipped work whose target may live in a completion record rather than
+        # in an @RepoName the body happens to repeat. Unresolved target files
+        # flat under the work-type, the way triage/ does.
+        proposed = (f"draft/{folder}/{target}/{slug}.md" if target != "?"
+                    else f"draft/{folder}/{slug}.md")
+    elif folder == "triage":
         proposed = f"draft/triage/{slug}.md"
     elif target != "?":
         proposed = f"draft/{folder}/{target}/{slug}.md"
@@ -360,7 +377,7 @@ def analyse(text: str, source: str, themes=None):
         "proposed_path": proposed,
         "header": header,
         "risks": _risks(level, factors, confidence, target, declared, estimated),
-        "next_action": _next_action(proposed, confidence),
+        "next_action": _next_action(proposed, confidence, folder),
     }
 
 
@@ -396,7 +413,10 @@ def _risks(level, factors, confidence, target, declared=None, estimated=None):
     if confidence == "low":
         out.append("Low classification confidence — filed to triage/ for a human "
                    "to re-home once the work type is clear.")
-    if target == "?":
+    if declared.get("type") in MANUAL_ONLY_WORK_TYPES:
+        out.append(f"Type {declared['type']} declared — it is never inferred, so "
+                   "this filing exists because a human asked for it.")
+    if target == "?" and declared.get("type") != HUMAN_REVIEW:
         out.append("No target repo resolved — add an @RepoName reference or set "
                    "Target: before start_dev.")
     if factors["architectural_risk"]:
@@ -408,10 +428,17 @@ def _risks(level, factors, confidence, target, declared=None, estimated=None):
     return out
 
 
-def _next_action(proposed, confidence):
+def _next_action(proposed, confidence, work_type=None):
     if confidence == "low":
         return (f"Re-run with a clearer description or --apply to file {proposed} "
                 "in triage/ for manual re-homing.")
+    if work_type == HUMAN_REVIEW:
+        # A human review has no dev leg to route: the work already shipped.
+        # It waits on the Human review section of the Mind dashboard until a
+        # person reads it and signs it off.
+        return (f"Review the header, then `--apply` to write {proposed}; "
+                "afterwards it stands on the dashboard's Human review section "
+                "until you sign it off.")
     return (f"Review the header, then `--apply` to write {proposed}; "
             "afterwards `/start_dev {}` routes it.".format(proposed))
 
@@ -1262,7 +1289,7 @@ RECENT_PAGE = 10
 # is something that already happened.
 EVENT_LABEL = {"issued": "issued", "registered": "issued", "started": "started",
                "planned": "planned", "filed": "filed", "parked": "parked",
-               "found": "found"}
+               "found": "found", "review": "flagged for review"}
 
 
 def _anchor(heading: str) -> str:
@@ -1297,6 +1324,13 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
             events.append({"date": r["date"], "event": "filed",
                            "title": r["title"], "path": r["path"],
                            "payload": f"/start_dev {r['path']}"})
+    # Flagging a task for review IS an event on the work in hand, and it hands
+    # out its own payload rather than a `/start_dev` (there is nothing to start).
+    for r in c.get("human_review") or []:
+        if r.get("date"):
+            events.append({"date": r["date"], "event": "review",
+                           "title": r["title"], "path": r["path"],
+                           "payload": _review_payload(r)})
     for key, verb in (("parked", "resume"), ("planned", "start")):
         for e in c.get(key) or []:
             if e.get("date"):
@@ -1324,6 +1358,11 @@ def census(mind: Path) -> dict:
     *work* view — health belongs to the Heart, never here.
     """
     records, hygiene, drift, theme_flags = [], [], [], []
+    # `human_review/` prompts are collected apart from the backlog: they are not
+    # work to pick up, they are shipped work waiting on a person. Keeping them
+    # out of `records` keeps them out of the pick lists, the work-type sections,
+    # the bundler, the epics and the backlog count in one move.
+    reviews = []
     vocab = parse_themes(mind)
     for wt in WORK_TYPES:
         folder = mind / "draft" / wt
@@ -1342,9 +1381,12 @@ def census(mind: Path) -> dict:
                 phase = int(header.get("phase", ""))
             except ValueError:
                 phase = None
-            records.append({
+            (reviews if wt == HUMAN_REVIEW else records).append({
                 "path": str(rel),
                 "work_type": wt,
+                # Only human_review rows read this; for a backlog prompt the
+                # date's event is "filed", which `recent_events` supplies.
+                "event": "review" if wt == HUMAN_REVIEW else "",
                 # Folder after the work-type = target repo/domain (authoritative
                 # — a header Target: is free prose and must not override the
                 # taxonomy). rel is draft/<work-type>/<target>/<name>.md.
@@ -1374,6 +1416,12 @@ def census(mind: Path) -> dict:
             if stray:
                 theme_flags.append(f"{rel} — unknown theme keyword(s): "
                                    + ", ".join(stray))
+            if wt == HUMAN_REVIEW:
+                # The drift checks below read "this body names a merged PR /
+                # calls itself shipped, so the prompt should have advanced".
+                # For a human review both are the premise, not drift: the work
+                # shipped, and the prompt exists to have someone check it.
+                continue
             if _FIX_PR_RE.search(text):
                 drift.append(f"{rel} — body records a fix PR, but the prompt "
                              "never left draft/ (reconcile its lifecycle)")
@@ -1445,6 +1493,9 @@ def census(mind: Path) -> dict:
         "by_difficulty": _count("difficulty"),
         "by_priority": _count("priority"),
         "records": records,
+        # Shipped work a human asked to check — never part of `records`, so
+        # never part of the backlog count above (see the collection loop).
+        "human_review": sorted(reviews, key=_pick_key),
         "in_flight": in_flight,
         "epics": parse_epics(mind / "epics.md"),
         "bundles": parse_bundles(mind / "bundles.md"),
@@ -1536,6 +1587,57 @@ def _pick_key(r: dict) -> tuple:
     return (PRIORITY_RANK.get(r["priority"], 9),
             DIFFICULTY_RANK.get(r["difficulty"], 9),
             r["target"], r["path"])
+
+
+# --- human review -------------------------------------------------------------
+# `human_review/` prompts are the one section of the page that is not work to
+# start. The task already shipped; what is outstanding is a person reading it
+# and saying it is sound. So its 📋 hands out a read-and-report prompt rather
+# than a `/start_dev`, and it ends by naming both exits — sign off (retire the
+# prompt) or don't (file the follow-up) — because a review that stops at
+# "looks fine" leaves the row on the board forever.
+HUMAN_REVIEW_BLURB = (
+    "Shipped work waiting on **you** — tasks a human asked to check before "
+    "calling them done. Nothing lands here on its own: a task only gets a "
+    "review row when someone files one (`/intake` with `Type: human review`), "
+    "so an empty section means nothing has been flagged, not that nothing "
+    "shipped."
+)
+
+HUMAN_REVIEW_PAYLOAD = """\
+Walk me through the completed work described in `{path}` so I can sign it off.
+
+1. Read the prompt: what was asked, and what it claims shipped.
+2. Find the evidence — the merged PR(s), the commits, the `complete/` record —
+   and read the actual diff, not the description of it.
+3. Report what changed, what it does NOT cover, and anything you would have
+   done differently. Call out behaviour changes and test gaps explicitly.
+
+Change nothing while reviewing. When I sign it off, retire the prompt from the
+PyAutoMind checkout (`python3 scripts/lifecycle.py record <slug> --date
+<YYYY-MM-DD> --from-file <body> --apply`, then `git rm` the prompt) and
+regenerate the dashboard. If I do not sign it off, file the follow-up with
+`/intake` instead.
+"""
+
+
+def _review_payload(r: dict) -> str:
+    return HUMAN_REVIEW_PAYLOAD.format(path=r["path"])
+
+
+def _review_head(r: dict) -> str:
+    """One human-review row's text — `_bullet`'s shape, minus difficulty.
+
+    Difficulty sizes the work of BUILDING a thing; nothing was built here, so
+    it would be noise. The date takes its place: how long a review has been
+    waiting is exactly what a human reading this section wants to know.
+    """
+    facets = " · ".join(_summary_label(x) for x in
+                        (r["target"], r["autonomy"], r["priority"]) if x != "-")
+    head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
+    if facets:
+        head += f" — {facets}"
+    return head + _dated(r)
 
 
 # --- freshness banner ----------------------------------------------------------
@@ -1782,6 +1884,8 @@ def render_dashboard(c: dict) -> str:
         "| Where | Count |",
         "|-------|------:|",
         f"| [In flight](#in-flight) (`active/`) | {c['issued_count']} |",
+        f"| [Human review](#human-review) (`draft/human_review/`) | "
+        f"{len(c.get('human_review') or [])} |",
         f"| [Parked](#parked) (`parked.md`) | {len(c['parked'])} |",
         f"| [Planned](#planned) (`planned.md`) | {len(c['planned'])} |",
         f"| [Backlog](#backlog) (`draft/`) | {c['total']} |",
@@ -1825,6 +1929,14 @@ def render_dashboard(c: dict) -> str:
             head += f" — {_summary_label(_clip(r['status']))}"
         flight.append(_task_row(head, f"/start_dev {r['path']}"))
     L += _items(flight) or ["- _(nothing in flight)_"]
+    L += [""]
+
+    # Directly under In flight: both are live obligations, and a review that
+    # sank below the 140-prompt backlog would never be read.
+    reviews = c.get("human_review") or []
+    L += ["## Human review", "", HUMAN_REVIEW_BLURB, ""]
+    L += _items([_task_row(_review_head(r), _review_payload(r))
+                 for r in reviews]) or ["- _(nothing awaiting review)_"]
     L += [""]
 
     for key, heading, verb, blurb in (
@@ -1983,11 +2095,13 @@ def _md_inline(text: str) -> str:
     """Render the inline markdown this module authors (`code` spans only) as HTML.
 
     The freshness blurb is written once and rendered on both pages; the markdown
-    page takes it verbatim, this turns its backticks into `<code>` so the HTML
-    twin does not print them literally. Deliberately not a markdown parser —
-    it handles exactly the one construct the blurb uses.
+    page takes it verbatim, this turns its backticks into `<code>` and its
+    `**bold**` into `<b>` so the HTML twin does not print them literally.
+    Deliberately not a markdown parser — it handles exactly the two constructs
+    the blurbs this module authors actually use.
     """
-    return re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    return re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
 
 
 def _attr(value: str) -> str:
@@ -2049,7 +2163,9 @@ def render_dashboard_html(c: dict) -> str:
              '<a href="#recent">Recent</a> is the same work by date — what has '
              "been happening rather than what to do next."),
         # The four numbers a human wants before reading a single row.
-        stats((c["issued_count"], "In flight"), (len(c["parked"]), "Parked"),
+        stats((c["issued_count"], "In flight"),
+              (len(c.get("human_review") or []), "Human review"),
+              (len(c["parked"]), "Parked"),
               (len(c["planned"]), "Planned"), (c["total"], "Backlog")),
     ]
     H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b> '
@@ -2104,6 +2220,22 @@ def render_dashboard_html(c: dict) -> str:
         H.append(_html_task(text, f"/start_dev {r['path']}"))
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')
+
+    reviews = c.get("human_review") or []
+    H += ['<a id="human-review"></a>'
+          + h2("Human review", "draft/human_review").replace(
+              "/blob/main/draft", "/tree/main/draft"),
+          f'<p class="muted">{_md_inline(HUMAN_REVIEW_BLURB)}</p>']
+    for r in reviews:
+        text = link(r["path"], _summary_label(r["title"]))
+        text += pills(*(_summary_label(x) for x in
+                        (r["target"], r["autonomy"], r["priority"])),
+                      work_type=HUMAN_REVIEW)
+        if r.get("date"):
+            text += f'<span class="facets">{_dated(r)}</span>'
+        H.append(_html_task(text, _review_payload(r)))
+    if not reviews:
+        H.append('<p class="muted">(nothing awaiting review)</p>')
 
     for key, heading, verb in (("parked", "Parked", "resume"),
                                ("planned", "Planned", "start")):
@@ -2231,6 +2363,8 @@ def emit_census(c: dict):
     print(f"Filed prompts:   {c['total']}   (already issued: {c['issued_count']})")
     print(f"Registry:        in flight {c['issued_count']} · parked "
           f"{len(c['parked'])} · planned {len(c['planned'])}")
+    print(f"Human review:    {len(c.get('human_review') or [])} shipped task(s) "
+          "flagged for a human to sign off")
     print(f"By work-type:    {_fmt(c['by_work_type'])}")
     print(f"By target:       {_fmt(c['by_target'], top=8)}")
     print(f"By difficulty:   {_fmt(c['by_difficulty'])}")

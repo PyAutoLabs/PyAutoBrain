@@ -25,6 +25,12 @@ prefix match) and picks the strongest:
 | `experiment` | spike, proof of concept, prototype, sandbox |
 | `feature` | add, implement, support, introduce, enable, extend (the default verb set) |
 
+`human_review` is deliberately absent from that table, and is filtered out of
+the signal sets rather than merely left out of them. It means *a human has
+decided this shipped work needs their eyes* — a judgement no keyword carries —
+so it is reachable only through an explicit declaration and can never be
+inferred. See §7 below.
+
 **Confidence & triage.** `high` when the winner has ≥2 signals, `medium` at 1.
 A tie across *dissimilar* non-feature types, or zero signal, is genuinely
 ambiguous → `triage` (low confidence), written to `triage/<slug>.md` for a human
@@ -134,7 +140,41 @@ suspects high/medium/low with the evidence shown. Always read-only: the final
 verification (target repo git log / merged PRs) and the retirement to
 `issued/` stay human.
 
-## 7. What intake does NOT own
+## 7. Human review — the one type only a human may set
+
+`human_review/` holds prompts about work that has already **shipped**: a
+completed task a human wants to read and sign off before calling it done. It is
+a work-type like any other in the layout (`draft/human_review/<target>/<slug>.md`,
+same light header) and unlike any other in three ways:
+
+- **Never inferred.** It is in `MANUAL_ONLY_WORK_TYPES` (sizing faculty), so the
+  classifier skips it entirely. The only route in is a declaration —
+  `Type: human review`, `human-review` or `human_review`, in a header line or
+  mid-sentence; `norm_work_type` folds all three to the folder key. Prose *about*
+  reviewing shipped work classifies as ordinary work, as it should.
+- **Never demoted.** An unresolved target sends an ordinary prompt to `triage/`
+  ("nobody classified this"). Here somebody did, and a review's subject is
+  shipped work whose repo may live in a completion record rather than in an
+  `@RepoName` the body repeats — so it files flat at
+  `draft/human_review/<slug>.md` instead.
+- **Never drift.** For every other draft prompt a merged PR in the body, or a
+  `Status:` saying shipped, means the lifecycle stalled. For a review both are
+  the premise, so the drift checks skip it.
+
+Nothing puts a task here automatically and no workflow requires it: review is
+opt-in, not a lifecycle stage. An empty section means nothing has been flagged,
+not that nothing shipped.
+
+**On the dashboard** it is its own top-level section, directly under *In flight*
+— both are live obligations, and a review sunk below a 140-prompt backlog would
+never be read. It is kept out of `census()["records"]` entirely, which keeps it
+out of the backlog count, the pick lists, the work-type sections, the bundler and
+the epics in one move. Its 📋 hands out a read-and-report prompt rather than a
+`/start_dev` (there is nothing to start) that ends by naming both exits — sign
+off and retire the prompt, or file the follow-up with `/intake` — because a
+review that stops at "looks fine" leaves the row on the board forever.
+
+## 8. What intake does NOT own
 
 - The difficulty heuristic, prompt parsing, repo sets → the **sizing faculty**.
 - The work-type → agent routing → `PyAutoMind/ROUTING.md` + the conductors.

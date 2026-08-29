@@ -53,8 +53,32 @@ WORK_TYPES = {
     "maintenance": "dependency updates, hygiene, small tech debt",
     "research": "exploratory scientific/algorithmic investigation",
     "experiment": "prototype, spike, proof-of-concept",
+    "human_review": "shipped work a human must read and sign off",
     "triage": "classification still unclear",
 }
+
+# `human_review` is the one work-type nothing may INFER. Every other type is a
+# guess a classifier is allowed to make from prose; this one says "a human has
+# decided this shipped work needs their eyes", which is a judgement no keyword
+# carries. It is therefore reachable only through an explicit `Type:`
+# declaration (see `MANUAL_ONLY_WORK_TYPES` below and the intake classifier),
+# and a task never acquires it by default — review is opt-in, not a stage.
+HUMAN_REVIEW = "human_review"
+
+# Work-types a classifier must never select on its own; only a declaration wins
+# them. Kept beside the vocabulary so every conductor reads the same rule.
+MANUAL_ONLY_WORK_TYPES = frozenset({HUMAN_REVIEW})
+
+
+def norm_work_type(value: str) -> str:
+    """"Human Review" / "human-review" -> the canonical folder key.
+
+    Work-type folders are single lowercase tokens, so the only normalisation a
+    multi-word type needs is separator collapsing — but it needs it in both
+    readers (`Type: human review` in a header, "type: human-review" in prose)
+    and in the folder name, so it is defined once here.
+    """
+    return re.sub(r"[\s-]+", "_", value.strip().lower())
 
 # --- policy + body-map loaders (the extraction seam, PyAutoBrain#75) ---------
 # Vocabulary lives in PyAutoBrain/config/policy.yaml (a declared config
@@ -441,7 +465,7 @@ def declared_header(text: str) -> dict:
             if v in DIFFICULTY_LEVELS and out["declared_difficulty"] is None:
                 out["declared_difficulty"] = v
         elif key == "type":
-            v = value.lower()
+            v = norm_work_type(value)
             if v in WORK_TYPES and out["declared_type"] is None:
                 out["declared_type"] = v
         elif key == "autonomy":
@@ -469,7 +493,11 @@ def declared_header(text: str) -> dict:
 _DIFFICULTY_ALT = r"too[-\s]large|small|medium|large"
 _AUTONOMY_ALT = r"human[-\s]required|supervised|safe"
 _PRIORITY_ALT = r"high|normal|low"
-_TYPE_ALT = "|".join(sorted(WORK_TYPES, key=len, reverse=True))
+# A multi-word type is written "human review" or "human-review" as often as
+# "human_review", so every separator is accepted and `norm_work_type` folds the
+# match back to the folder key.
+_TYPE_ALT = "|".join(t.replace("_", r"[\s_-]")
+                     for t in sorted(WORK_TYPES, key=len, reverse=True))
 # Between key and value: a colon/equals, "is", or nothing ("Difficulty large").
 _DECL_SEP = r"\s*(?::|=|\bis\b)?\s*"
 _DECLARATION = re.compile(
@@ -511,7 +539,7 @@ def declared_inline(text: str):
         if priority:
             fields.setdefault("priority", _norm_level(priority))
         if work_type:
-            fields.setdefault("type", work_type.lower())
+            fields.setdefault("type", norm_work_type(work_type))
         spans.append(m.span())
     return fields, spans
 
@@ -533,6 +561,10 @@ def strip_declarations(text: str, spans: list) -> str:
     out = re.sub(r"[ \t]+", " ", out)
     out = re.sub(r"\s+([.,;:])", r"\1", out)
     out = re.sub(r"([.,;:])(\s*[.,;:])+", r"\1", out)
+    # A declaration that OPENED the line ("Type: human review. Check the …")
+    # leaves its terminator stranded at the front; without this the derived
+    # title — and the filename — start with a bare full stop.
+    out = re.sub(r"^[ \t]*[.,;:]+[ \t]*", "", out, flags=re.M)
     return out if re.search(r"\w", out) else text
 
 
@@ -580,9 +612,9 @@ def parse_prompt(path: Path, mind: Path):
     # Formalised prompts carry Type:/Target: header lines — authoritative
     # whenever the path yields no valid taxonomy (active/, stray layouts).
     if work_type not in WORK_TYPES:
-        m = re.search(r"^Type:\s*([a-z_]+)\s*$", text, re.M)
-        if m and m.group(1) in WORK_TYPES:
-            work_type = m.group(1)
+        m = re.search(r"^Type:\s*([A-Za-z][A-Za-z _-]*?)\s*$", text, re.M)
+        if m and norm_work_type(m.group(1)) in WORK_TYPES:
+            work_type = norm_work_type(m.group(1))
     if target == "?":
         m = re.search(r"^Target:\s*(\S+)\s*$", text, re.M)
         if m:

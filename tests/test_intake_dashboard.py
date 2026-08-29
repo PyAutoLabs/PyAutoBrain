@@ -1430,3 +1430,129 @@ def test_formalising_writes_themes_under_repos_and_never_waits_for_one(tmp_path)
     # A pasted header block that already carries the list keeps it.
     pasted = _intake.analyse(_themed("Pasted", "mge"), "test")
     assert pasted["themes"] == ["mge"]
+
+
+# --------------------------------------------------------------------------- #
+# human review — the manual-only work-type (a complete task a human must check)
+# --------------------------------------------------------------------------- #
+def _review(title, target="widgets", priority="normal", date="2026-08-29"):
+    return (f"# {title}\n\nType: human_review\nTarget: {target}\n"
+            f"Difficulty: small\nAutonomy: human-required\n"
+            f"Priority: {priority}\nStatus: formalised\nFiled: {date}\n\n"
+            "Shipped in PR #99. Wanted eyes on it before calling it done.\n")
+
+
+def test_human_review_is_never_inferred_only_declared():
+    """The one work-type no classifier may reach.
+
+    Every other type is a reading of the prose; this one is a human saying
+    "my eyes are needed", which no keyword carries. Prose that talks about
+    reviewing shipped work still classifies as ordinary work.
+    """
+    prose = ("Someone should review and assess the finished work on the "
+             "widget pipeline and check it is ok before we call it done.")
+    assert _intake.classify_work_type(prose)[0] != "human_review"
+    assert _intake.analyse(prose, "test")["work_type"] != "human_review"
+    for declaration in ("Type: human review", "Type: human-review",
+                        "Type: human_review"):
+        d = _intake.analyse(f"{declaration}\n\nCheck the @PyAutoMind widget "
+                            "work shipped in PR #99.", "test")
+        assert d["work_type"] == "human_review", declaration
+        assert d["work_type_source"] == "declared"
+        assert d["proposed_path"].startswith("draft/human_review/")
+
+
+def test_declared_human_review_is_never_demoted_to_triage():
+    """`triage/` means nobody classified this; here somebody did.
+
+    A review's subject is shipped work whose repo may only be named in a
+    completion record, so an unresolved target must not send it to triage the
+    way it would an ordinary prompt.
+    """
+    d = _intake.analyse("Type: human review\n\nCheck last week's thing.", "test")
+    assert d["work_type"] == "human_review"
+    assert d["proposed_path"] == "draft/human_review/check_last_week_s_thing.md"
+    assert "triage" not in d["proposed_path"]
+    assert not any("No target repo resolved" in r for r in d["risks"])
+    assert "start_dev" not in d["next_action"]
+    # The same input WITHOUT the declaration is the ordinary triage filing.
+    assert _intake.analyse("Check last week's thing.",
+                           "test")["proposed_path"].startswith("draft/triage/")
+
+
+def test_declaring_a_type_does_not_leak_into_the_derived_title(tmp_path):
+    """A declaration that opens the input must not name the file after itself."""
+    d = _intake.analyse("Type: human review. Check the widget fit quality.",
+                        "test")
+    assert d["title"] == "Check the widget fit quality"
+    assert d["proposed_path"].endswith("check_the_widget_fit_quality.md")
+
+
+def test_human_review_is_its_own_section_not_backlog(tmp_path):
+    """Shipped work waiting on a person is not work to pick up.
+
+    It must not inflate the backlog count, appear in the pick lists, or sink
+    into a work-type section under 140 other prompts.
+    """
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Widget A", priority="high"),
+        "human_review/widgets/checked.md": _review("Check the widget rollout",
+                                                   priority="high")})
+    c = _intake.census(mind)
+    assert c["total"] == 1
+    assert [r["path"] for r in c["human_review"]] == [
+        "draft/human_review/widgets/checked.md"]
+    assert "human_review" not in c["by_work_type"]
+    assert all(r["work_type"] != "human_review" for r in c["records"])
+
+    page = _page(mind)
+    section = page.split("## Human review")[1].split("## Parked")[0]
+    assert "Check the widget rollout" in section
+    assert "Widget A" not in section
+    assert "| [Backlog](#backlog) (`draft/`) | 1 |" in page
+    assert "| [Human review](#human-review) (`draft/human_review/`) | 1 |" in page
+    # The row hands out a review prompt, never a /start_dev.
+    assert "/start_dev draft/human_review" not in page
+    assert "so I can sign it off" in section
+    # Highest priority is a pick list; a review is not pickable work.
+    assert "Check the widget rollout" not in page.split("## In flight")[0]
+
+
+def test_human_review_section_renders_empty_rather_than_vanishing(tmp_path):
+    """An absent section reads as "nothing to review"; so must an empty one —
+    but only the section says which, so it is always drawn."""
+    page = _page(_mind(tmp_path, drafts={"feature/widgets/a.md": _prompt("A")}))
+    section = page.split("## Human review")[1].split("## Parked")[0]
+    assert "_(nothing awaiting review)_" in section
+    assert "nothing has been flagged, not that nothing shipped" in section
+
+
+def test_human_review_body_may_name_its_shipped_pr_without_reading_as_drift(
+        tmp_path):
+    """For every other prompt a merged PR in the body means the lifecycle
+    stalled. For a review it is the premise."""
+    mind = _mind(tmp_path, drafts={
+        "human_review/widgets/checked.md": _review("Check it"),
+        "feature/widgets/stalled.md": _prompt("Stalled") + "\nFix: PR #12\n"})
+    drift = _intake.census(mind)["drift"]
+    assert any("stalled.md" in d for d in drift)
+    assert not any("human_review" in d for d in drift)
+
+
+def test_human_review_appears_in_the_recent_feed_as_its_own_event(tmp_path):
+    mind = _mind(tmp_path, drafts={
+        "human_review/widgets/checked.md": _review("Check it")})
+    row = _intake.census(mind)["recent"][0]
+    assert row["event"] == "flagged for review"
+    assert row["payload"].startswith("Walk me through the completed work")
+
+
+def test_human_review_renders_on_the_html_twin(tmp_path):
+    mind = _mind(tmp_path, drafts={
+        "human_review/widgets/checked.md": _review("Check the widget rollout")})
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    section = html.split('<a id="human-review"></a>')[1].split("<h2>")[1]
+    assert "Check the widget rollout" in section
+    assert "so I can sign it off" in section
+    # The blurb's markdown must not print literally on a page that renders HTML.
+    assert "**you**" not in html and "<b>you</b>" in html

@@ -22,6 +22,15 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 3. When it looks right, re-run with **`--apply`** to write the prompt file into
    PyAutoMind under `draft/<work-type>/<target>/<name>.md` (or `draft/triage/` if the
    classification is genuinely unclear).
+
+   **Asking for a human review.** To flag a task that has already *shipped* as
+   needing your eyes before it counts as done, declare it — `Type: human review`
+   in the input, anywhere. It files to `draft/human_review/<target>/<slug>.md` and
+   stands in the dashboard's **Human review** section (with a 📋 that hands out a
+   read-and-report prompt, not a `/start_dev`) until you sign it off. Never infer
+   this: no amount of "someone should check this" in the prose selects it, and no
+   completed task acquires it by default. If the user has not asked for a review,
+   there is no review.
 4. **Regenerate the dashboard and commit both together.** `--apply` writes the
    prompt file and nothing else — it runs no git — so the filing is not finished
    until the page that offers the task is rebuilt:
@@ -94,6 +103,10 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   infers a work-type and *files a prompt* (defers).
 - Low-confidence classification lands in `triage/` — the existing unclassified
   bucket, reused.
+- **`human_review/` is declaration-only.** It is the sole work-type intake may
+  not infer, and a review is never a required step — the user asks for one, or
+  there isn't one. A declared review is also never demoted to `triage/`: with no
+  target resolved it files flat at `draft/human_review/<slug>.md`.
 - Writes happen **only** under `--apply`; the default is a read-only dry run.
 - **Machine sources** (scholar research runs, Heart findings, profiling
   results) stage as provenance-tagged `ideas.md` bullets — `- [from: <source>]

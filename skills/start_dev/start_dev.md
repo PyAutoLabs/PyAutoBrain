@@ -34,7 +34,16 @@ Examples: `bug/autofit/factor_graph_instance_iteration.md`,
 
 If the user gives a development task with **no** prompt path, first write a
 concise prompt file under the right `PyAutoMind/<work-type>/<target>/` folder
-(include the original request verbatim), then continue with that path.
+(include the original request verbatim), then continue with that path. Never
+write one under `human_review/` — that folder is shipped work awaiting a human's
+sign-off, not work to start, and it is filed only by an explicit `/intake`
+declaration.
+
+A `draft/human_review/…` path handed to `/start_dev` is almost certainly a
+mistake: the work it names already shipped. Say so and offer the review (read
+the prompt, find the merged PR and the `complete/` record, report back) instead
+of opening a worktree — unless the user confirms they want new development, in
+which case file that as its own ordinary prompt.
 
 ## --auto mode
 
