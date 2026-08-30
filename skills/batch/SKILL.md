@@ -5,18 +5,13 @@ description: Compose the next unattended batch through the PyAutoBrain Batch Age
 
 # Batch
 
-Read [`../../agents/conductors/batch/AGENTS.md`](../../agents/conductors/batch/AGENTS.md)
-completely, then run `bin/pyauto-brain batch plan` in the documented mode.
+Read [`batch.md`](batch.md) in this directory — the authoritative body for the
+slot door: how to propose a batch, how to compose one from what the human
+pasted or described, how to dispatch it, and how to work through what came
+back. Then read
+[`../../agents/conductors/batch/AGENTS.md`](../../agents/conductors/batch/AGENTS.md)
+for the constraints and why each exists.
 
-Return the **BatchDecision** as written — members, the review-minutes it spends,
-and what it rejected with reasons. Do not re-rank it, do not quietly add a
-member the planner excluded, and do not present it as a schedule: it is a
-proposal, and the human approving it in their slot is what launches the batch
-([`../../AUTONOMY.md`](../../AUTONOMY.md), "What a batch launch is"). A
-scheduler may carry the timing; it never carries the authority.
-
-Two parts of the output are the point and must survive into your reply: the
-**review-minute total** (the budget is the human's hour, not a task count), and
-the **other lane's ready count** when the session cannot plan it — *"4 local-dev
-tasks are ready, run this from the laptop"*. An empty batch at the backpressure
-cap is a finding, not a deadlock; say which.
+The one rule that outranks convenience: **the human's go in the conversation is
+what launches a batch** (`../../AUTONOMY.md`, "What a batch launch is"). A
+schedule may carry the timing; it never carries the authority.
