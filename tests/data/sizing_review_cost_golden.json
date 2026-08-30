@@ -1,0 +1,30 @@
+{
+  "api_change": {
+    "consequence": "judge",
+    "derived_consequence": "judge",
+    "difficulty": "small",
+    "review_minutes": 20,
+    "unattended": "ready"
+  },
+  "doc_no_witness": {
+    "consequence": "judge",
+    "derived_consequence": "judge",
+    "difficulty": "small",
+    "review_minutes": 20,
+    "unattended": "ready"
+  },
+  "doc_with_witness": {
+    "consequence": "notify",
+    "derived_consequence": "notify",
+    "difficulty": "small",
+    "review_minutes": 0,
+    "unattended": "ready"
+  },
+  "refactor_byte_equal": {
+    "consequence": "notify",
+    "derived_consequence": "notify",
+    "difficulty": "small",
+    "review_minutes": 0,
+    "unattended": "ready"
+  }
+}
