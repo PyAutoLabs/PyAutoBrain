@@ -68,6 +68,64 @@ scope addition rather than a correction of the run's own work — and **zero
 work-type's cap one level immediately, pending a review that cites the row.
 Both directions are dated doctrine edits to the table above, citing rows.
 
+### Multi-repo autonomy experiment — 2026-08-30
+
+`infer_autonomy` (the conception heuristic in
+`agents/conductors/intake/_intake.py`) returned `supervised` whenever a prompt
+named more than one repo. Repo count is *blast radius*, and blast radius is
+already priced — `estimate_difficulty` adds 2 points per repo beyond the first.
+This field is supposed to encode whether a **human's judgement** is required, and
+a change touching four repos mechanically needs no more judgement than the same
+change touching one. The trigger is removed.
+
+**This is an experiment, not a graduation, and it is deliberately not justified
+by the calibration log.** The tempting argument — 238 rows, zero `rejected` —
+does not survive reading: the rows run densely 2026-07-08 → 08-01 and then stop
+(about seven cover all of August, against 332 completion records), so the base is
+human-in-session work rather than the unattended regime this would license; the
+human was in the loop for nearly every row, so failures were corrected before
+they could become rows; `rejected` is structurally unreachable (a withdrawn
+five-PR mechanism was logged `reverted`, a human rejecting a run's
+recommendation `amended`, and two rows say verbatim "NOT a clean row for
+graduation purposes"); and most of all, the 2026-07-09 review raised the
+work-type caps **because** this heuristic stayed conservative about multi-repo
+work. Every clean row was produced with the guard switched on. Evidence
+collected under a safety device cannot license removing the device.
+
+**Measured effect** (all 153 `draft/` prompts, re-derived, nothing written):
+`safe` 30 → 55, `supervised` 117 → 92, `human-required` unchanged at 6.
+`repo_count > 1` is the *sole* supervised trigger for **25** prompts — the
+largest single one, ahead of `large`-or-above (20) and architectural risk (17).
+
+Note what that also refutes: the multi-repo rule was **not** the cause of the
+backlog reading 120-of-137 `supervised`. Those levels are declared, written by
+earlier intake runs, and the triggers overlap heavily. Removing this one is
+worth doing on its merits and frees 25 prompts; it is not the unblocking of the
+backlog it was first taken for, and phase 3's ship-sign-off change is where that
+actually lives.
+
+**A first draft of this change also added `human_judgement` as a supervised
+trigger in `repo_count`'s place. It was measured and reverted**: `safe` fell to
+24, because the ambiguity keywords fire on 63% of prompts and catch well-written
+ones indiscriminately. It was the same mistake as the rule it replaced — a loose
+proxy standing in for a judgement it does not measure. Recorded here so nobody
+re-proposes it.
+
+**Terms of the experiment:**
+
+- **20 unattended launches** under the new rule.
+- The **independent-model adversarial review leg** is mandatory for them. Until
+  that leg exists (batch epic phase 3), the experiment **does not start** — the
+  rule change ships, but no launch counts toward the window.
+- Calibration rows written **per work-type**, since the graduation rule is
+  per-work-type and the figure usually cited is an aggregate.
+- A new outcome value, **`rejected-at-review`**, stamped by the **human** in
+  their review slot. Without it the demotion trigger cannot fire, and an
+  experiment that cannot fail is not evidence.
+- **Revert condition:** any `rejected-at-review` row, or a window that closes
+  with fewer than 20 launches and no clean read, reverts this edit and restores
+  the `repo_count > 1` trigger.
+
 ### The scheduled-nightly standing grant — 2026-07-09
 
 The human decided (2026-07-09, recorded in
@@ -255,11 +313,22 @@ at PR-open (or on parking):
 | date | task | effective level | gates (tests/smoke/review/heart) | outcome |
 ```
 
-Outcome ∈ `merged-unchanged` / `amended` / `rejected` / `parked` / `corrective`
-(the last records a use of the human-authorized corrective-PR exception above —
-not an `--auto` run, but logged so the exception's use is auditable alongside the
-autonomy rows). This is the evidence base for raising or lowering caps — autonomy
-grows by demonstrated calibration, not by optimism.
+Outcome ∈ `merged-unchanged` / `amended` / `rejected` / `rejected-at-review` /
+`parked` / `corrective` (`corrective` records a use of the human-authorized
+corrective-PR exception above — not an `--auto` run, but logged so the
+exception's use is auditable alongside the autonomy rows). This is the evidence
+base for raising or lowering caps — autonomy grows by demonstrated calibration,
+not by optimism.
+
+**`rejected-at-review` — added 2026-08-30.** Stamped by the **human**, in their
+review slot, when they would not have merged what the run produced. It exists
+because `rejected` has never once been used in 238 rows, and reading why shows
+the category was being routed around rather than earned: a human rejecting a
+run's recommendation was logged `amended`, and an entire shipped mechanism
+withdrawn on reflection — five PRs closed, branches deleted — was logged
+`reverted`. A demotion trigger nothing can pull is not a safety device, and a
+zero-`rejected` record produced that way is not evidence of anything. Use the
+human-stamped value for any judgement about whether autonomy should rise.
 
 ### Calibration review — 2026-07-09
 

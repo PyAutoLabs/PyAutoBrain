@@ -42,6 +42,7 @@ from _sizing import (  # noqa: E402
     LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
     RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, declared_header,
     declared_inline, effective_difficulty, strip_declarations, _hits,
+    effective_consequence, effective_unattended, effective_review_minutes,
     policy as _sizing_policy, BODY_MAP_PATH,
     _body_map_specs as _sizing_specs,
 )
@@ -274,12 +275,40 @@ def infer_priority(text: str) -> str:
 
 
 def infer_autonomy(level: str, factors: dict) -> str:
-    """safe | supervised | human-required."""
-    repo_count = factors["repos_affected"]
-    if factors["human_judgement"] and repo_count == 0:
+    """safe | supervised | human-required.
+
+    `repo_count > 1` used to force `supervised` here, and it is why 120 of the
+    137 backlog prompts carried that level on 2026-08-30: nearly every real task
+    in this organism names a library plus its workspace, or a library plus a
+    downstream repo. Repo count is *blast radius*, and blast radius is already
+    priced — `estimate_difficulty` adds 2 points per repo beyond the first. This
+    field is supposed to encode something else: whether a HUMAN'S JUDGEMENT is
+    required. A change touching four repos mechanically needs no more judgement
+    than the same change touching one.
+
+    So `repo_count` is removed and NOTHING replaces it. The first draft of this
+    change added `human_judgement` as a supervised trigger in its place, on the
+    reasoning that ambiguity is what actually predicts a park. Measured over the
+    backlog, that made things WORSE — `safe` fell from 30 to 24, because the
+    ambiguity keywords ("unclear", "investigate", "explore", "research",
+    "decide") fire on 63% of prompts and catch well-written ones indiscriminately.
+    It was the same mistake as the rule it replaced: a loose proxy standing in
+    for a judgement it does not measure. Dropping `repo_count` alone takes `safe`
+    from 30 to 55.
+
+    CHANGED 2026-08-30 as a dated EXPERIMENT, not a graduation — see
+    AUTONOMY.md "Multi-repo autonomy experiment". Deliberately not justified by
+    the calibration log's 238 rows and zero `rejected`: those rows are July
+    human-in-session work (about seven cover all of August, against 332
+    completions), `rejected` is structurally unreachable in that log, and every
+    clean row was produced *with this guard switched on* — by a review that
+    raised the work-type caps precisely BECAUSE this heuristic stayed
+    conservative. Evidence collected under a safety device cannot license
+    removing the device.
+    """
+    if factors["human_judgement"] and factors["repos_affected"] == 0:
         return "human-required"          # unscoped / needs a design decision
-    if (factors["architectural_risk"] or level in ("large", "too-large")
-            or repo_count > 1):
+    if factors["architectural_risk"] or level in ("large", "too-large"):
         return "supervised"
     return "safe"
 
@@ -317,6 +346,23 @@ def analyse(text: str, source: str, themes=None):
          "declared_difficulty": declared.get("difficulty")}
     level, score, factors, estimated = effective_difficulty(p)
 
+    # The review-cost model (sizing faculty). `Witness:` is the one field that
+    # can never be derived: it is a promise about evidence the work will
+    # produce, and a plausible-sounding invented one would defeat the whole
+    # mechanism — the value of the field is that its ABSENCE is informative.
+    # So it is read if declared and left absent otherwise, which correctly
+    # grades the prompt `judge`.
+    p["witness"] = header.get("witness")
+    p["declared_consequence"] = header.get("declared_consequence")
+    p["declared_unattended"] = header.get("declared_unattended")
+    p["declared_review_minutes"] = header.get("declared_review_minutes")
+    p["declared_autonomy"] = header["declared_autonomy"] or inline.get("autonomy")
+    consequence, consequence_why, consequence_derived = effective_consequence(p, factors)
+    unattended, unattended_why, unattended_derived = effective_unattended(
+        p, level, factors, estimated)
+    review_minutes, review_minutes_derived = effective_review_minutes(
+        p, consequence, level)
+
     autonomy = declared.get("autonomy") or infer_autonomy(level, factors)
     priority = declared.get("priority") or infer_priority(text)
     workflow = infer_workflow(target, repos)
@@ -347,7 +393,10 @@ def analyse(text: str, source: str, themes=None):
     # low-confidence triage filing that means `Type: triage`, not the provisional
     # guess — the guess still rides in the IntakeDecision's `work_type` field.
     header = _render_header(title, folder, target_display, repos, level,
-                            autonomy, priority, themes)
+                            autonomy, priority, themes,
+                            consequence=consequence, witness=p["witness"],
+                            review_minutes=review_minutes,
+                            unattended=unattended)
     return {
         "source": source,
         "title": title,
@@ -370,19 +419,30 @@ def analyse(text: str, source: str, themes=None):
         "difficulty_source": "declared" if "difficulty" in declared else "estimated",
         "autonomy": autonomy,
         "autonomy_source": "declared" if "autonomy" in declared else "inferred",
+        "consequence": consequence,
+        "consequence_derived": consequence_derived,
+        "consequence_why": consequence_why,
+        "witness": p["witness"],
+        "review_minutes": review_minutes,
+        "review_minutes_derived": review_minutes_derived,
+        "unattended": unattended,
+        "unattended_derived": unattended_derived,
+        "unattended_why": unattended_why,
         "priority": priority,
         "priority_source": "declared" if "priority" in declared else "inferred",
         "declared_fields": declared,
         "workflow": workflow,
         "proposed_path": proposed,
         "header": header,
-        "risks": _risks(level, factors, confidence, target, declared, estimated),
+        "risks": _risks(level, factors, confidence, target, declared, estimated,
+                        witness=p["witness"], consequence=consequence),
         "next_action": _next_action(proposed, confidence, folder),
     }
 
 
 def _render_header(title, work_type, target_display, repos, level, autonomy,
-                   priority, themes=None):
+                   priority, themes=None, consequence=None, witness=None,
+                   review_minutes=None, unattended=None):
     lines = [f"# {title}", "", f"Type: {work_type}", f"Target: {target_display}"]
     if repos:
         lines.append("Repos:")
@@ -397,10 +457,22 @@ def _render_header(title, work_type, target_display, repos, level, autonomy,
         lines += [f"- {t}" for t in themes]
     lines += [f"Difficulty: {level}", f"Autonomy: {autonomy}",
               f"Priority: {priority}", "Status: formalised"]
+    # The review-cost model rides below the difficulty block: what the work
+    # costs the organism, then what it costs the human. `Witness:` is written
+    # ONLY when the author supplied one — see the note in `analyse`.
+    if consequence:
+        lines.append(f"Consequence: {consequence}")
+    if witness:
+        lines.append(f"Witness: {witness}")
+    if review_minutes is not None:
+        lines.append(f"Review-minutes: {review_minutes}")
+    if unattended:
+        lines.append(f"Unattended: {unattended}")
     return "\n".join(lines)
 
 
-def _risks(level, factors, confidence, target, declared=None, estimated=None):
+def _risks(level, factors, confidence, target, declared=None, estimated=None,
+           witness=None, consequence=None):
     out = []
     declared = declared or {}
     if "difficulty" in declared and declared["difficulty"] != estimated:
@@ -410,6 +482,10 @@ def _risks(level, factors, confidence, target, declared=None, estimated=None):
         if field in declared:
             out.append(f"{field.capitalize()} {declared[field]} declared in the raw "
                        f"text — taken as written, not inferred.")
+    if witness is None and consequence == "judge":
+        out.append("No Witness: declared — this grades `judge` (a PI's "
+                   "quarter-hour) whatever its size. Naming one machine-checkable "
+                   "claim now is what makes the work reviewable in minutes later.")
     if confidence == "low":
         out.append("Low classification confidence — filed to triage/ for a human "
                    "to re-home once the work type is clear.")
@@ -465,7 +541,20 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
 # The header convention this agent writes (see _render_header); census parses the
 # same fields back out of every filed prompt. Legacy prompts pre-date the header,
 # so every field is optional — absence is reported, never fatal.
-HEADER_FIELDS = ("type", "target", "difficulty", "autonomy", "priority", "status")
+# `consequence` and `review-minutes` join the hygiene set: both are DERIVED, so
+# `intake formalise` can fill them in place like any other missing field.
+#
+# `witness` and `unattended` deliberately do NOT. `formalise` writes every field
+# it finds missing, and a `Witness:` cannot be derived — it is a promise about
+# evidence the work will produce. An auto-written one would be plausible prose
+# with nothing behind it, which is strictly worse than none: the entire value of
+# the field is that its ABSENCE is informative, and a backlog of invented
+# witnesses would grade `notify` while offering a reviewer nothing to check.
+# (`unattended` stays out for the ordinary reason — it is derived on read and
+# never needs storing.) The dashboard reports missing witnesses as its own
+# hygiene row instead, where the fix is a human writing one.
+HEADER_FIELDS = ("type", "target", "difficulty", "autonomy", "priority", "status",
+                 "consequence", "review-minutes")
 
 # `Fix:`-anchored PR reference in a draft prompt's body — the idiom a session
 # writes when it fixes the bug but forgets to advance the prompt's lifecycle
@@ -499,7 +588,8 @@ def parse_header(text: str) -> dict:
     fields = {}
     for line in text.splitlines()[:30]:
         m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
-                     r"Issued|Filed|Epic|Phase|Bundle|Blocked-by):\s*(\S.*)",
+                     r"Issued|Filed|Epic|Phase|Bundle|Blocked-by|"
+                     r"Consequence|Witness|Review-minutes|Unattended):\s*(\S.*)",
                      line.strip())
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
