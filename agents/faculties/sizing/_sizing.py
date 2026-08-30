@@ -428,6 +428,12 @@ AUTONOMY_LEVELS = ("safe", "supervised", "human-required")
 # correction or a retraction), so self-assessment is not an input here.
 CONSEQUENCE_TIERS = ("notify", "glance", "judge")
 UNATTENDED_LEVELS = ("ready", "needs-slicing", "never")
+# Where the work can run. Spelled in the environment vocabulary
+# `skills/WORKFLOW.md` already defines (`local-dev` / `web-github` / `ci-only` /
+# `analysis-only`) rather than a parallel cloud/laptop one — `local-dev` means
+# the work needs the local dataset and output trees, an SSH endpoint, or the
+# human at the machine. Default `any`.
+LANE_VALUES = ("any", "local-dev")
 
 # Surfaces that make a change a PI's decision whatever repo it lives in: a
 # public API, a default value, an error contract, a science-policy call, or an
@@ -461,7 +467,7 @@ DEFAULT_PRIORITY_RANK = 1
 
 _HEADER_KEY_RE = re.compile(
     r"^\s*(difficulty|type|autonomy|status|priority|blocked-by|closes-when"
-    r"|consequence|witness|review-minutes|unattended)"
+    r"|consequence|witness|review-minutes|unattended|lane)"
     r"\s*:\s*(.+?)\s*$", re.I
 )
 
@@ -485,7 +491,8 @@ def declared_header(text: str) -> dict:
            "declared_autonomy": None, "status": None,
            "priority": None, "blocked_by": [], "closes_when": [],
            "declared_consequence": None, "witness": None,
-           "declared_review_minutes": None, "declared_unattended": None}
+           "declared_review_minutes": None, "declared_unattended": None,
+           "lane": None}
     in_fence = False
     for line in text.splitlines():
         if line.lstrip().startswith("```"):
@@ -533,6 +540,10 @@ def declared_header(text: str) -> dict:
             m2 = re.search(r"\d+", value)
             if m2:
                 out["declared_review_minutes"] = int(m2.group(0))
+        elif key == "lane":
+            v = value.lower()
+            if v in LANE_VALUES and out["lane"] is None:
+                out["lane"] = v
         elif key == "unattended":
             v = _norm_level(value)
             if v in UNATTENDED_LEVELS and out["declared_unattended"] is None:

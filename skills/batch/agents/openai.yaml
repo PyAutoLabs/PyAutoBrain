@@ -1,0 +1,4 @@
+interface:
+  display_name: "Batch Agent"
+  short_description: "Compose one unattended shift against a review-minute budget"
+  default_prompt: "Use $batch to plan the next batch — what fits in my review slot."

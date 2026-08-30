@@ -589,7 +589,7 @@ def parse_header(text: str) -> dict:
     for line in text.splitlines()[:30]:
         m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
                      r"Issued|Filed|Epic|Phase|Bundle|Blocked-by|"
-                     r"Consequence|Witness|Review-minutes|Unattended):\s*(\S.*)",
+                     r"Consequence|Witness|Review-minutes|Unattended|Lane):\s*(\S.*)",
                      line.strip())
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())
@@ -1492,6 +1492,9 @@ def census(mind: Path) -> dict:
                 "witness": header.get("witness", ""),
                 "review_minutes": header.get("review-minutes", "-"),
                 "unattended": header.get("unattended", "-"),
+                # Where it can run. Absent means `any` — the common case, and a
+                # missing lane must never be read as "nowhere".
+                "lane": header.get("lane", "any"),
                 "priority": header.get("priority", "-"),
                 "status": header.get("status", "-"),
                 "epic": header.get("epic", ""),
