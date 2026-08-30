@@ -1448,6 +1448,7 @@ def census(mind: Path) -> dict:
     *work* view — health belongs to the Heart, never here.
     """
     records, hygiene, drift, theme_flags = [], [], [], []
+    witness_flags = []
     # `human_review/` prompts are collected apart from the backlog: they are not
     # work to pick up, they are shipped work waiting on a person. Keeping them
     # out of `records` keeps them out of the pick lists, the work-type sections,
@@ -1484,6 +1485,13 @@ def census(mind: Path) -> dict:
                 "title": _title(text),
                 "difficulty": header.get("difficulty", "-"),
                 "autonomy": header.get("autonomy", "-"),
+                # The review-cost model (sizing faculty). `witness` is the only
+                # one that can be genuinely absent on a graded prompt — nothing
+                # derives it — and its absence is what makes the prompt `judge`.
+                "consequence": header.get("consequence", "-"),
+                "witness": header.get("witness", ""),
+                "review_minutes": header.get("review-minutes", "-"),
+                "unattended": header.get("unattended", "-"),
                 "priority": header.get("priority", "-"),
                 "status": header.get("status", "-"),
                 "epic": header.get("epic", ""),
@@ -1503,6 +1511,8 @@ def census(mind: Path) -> dict:
             })
             if len(missing) == len(HEADER_FIELDS):
                 hygiene.append(f"{rel} — no metadata header (pre-dates intake)")
+            if not header.get("witness"):
+                witness_flags.append(str(rel))
             if stray:
                 theme_flags.append(f"{rel} — unknown theme keyword(s): "
                                    + ", ".join(stray))
@@ -1591,6 +1601,7 @@ def census(mind: Path) -> dict:
         "bundles": parse_bundles(mind / "bundles.md"),
         "theme_vocab": vocab,
         "theme_flags": theme_flags,
+        "witness_flags": witness_flags,
         "parked": parked,
         "planned": planned,
         "hygiene": hygiene,
@@ -1933,6 +1944,29 @@ EPIC_ORDER_CAUTION = ("Members are worked in order through the epic's ledger "
                       "— continue the epic rather than starting one standalone.")
 
 
+def _fits_a_slot(records: list) -> list:
+    """The pick list for a human working in a bounded review slot.
+
+    It replaced "Quick wins" (`difficulty == small and autonomy == safe`), which
+    was near-empty: ten prompts in the whole backlog carried `safe`, so the
+    surface that exists to hand out unattended work had almost nothing to hand
+    out. The two questions that actually matter are different ones — can it
+    finish without me, and what will it cost me to review — and the sizing
+    faculty now answers both.
+
+    Ordered by review-minutes ASCENDING rather than by priority: this list is
+    read when the human has a slot to fill and wants to know what fits in it.
+    `Highest priority` above is where importance is answered.
+    """
+    def cost(r):
+        try:
+            return int(r.get("review_minutes", "-"))
+        except (TypeError, ValueError):
+            return 99          # ungraded sorts last, never hidden
+    ready = [r for r in records if r.get("unattended") == "ready"]
+    return sorted(ready, key=lambda r: (cost(r), _pick_key(r)))
+
+
 def render_dashboard(c: dict) -> str:
     """Render the census as the Mind's task page (`dashboard.md`).
 
@@ -1994,11 +2028,11 @@ def render_dashboard(c: dict) -> str:
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
     high = [r for r in standalone if r["priority"] == "high"]
-    quick = [r for r in standalone
-             if r["difficulty"] == "small" and r["autonomy"] == "safe"]
+    quick = _fits_a_slot(standalone)
     for title, note, rows in (
         ("Highest priority", "filed as `high`", high),
-        ("Quick wins", "small enough, and safe enough to run unattended", quick),
+        ("Fits a slot", "ready to run unattended, cheapest to review first",
+         quick),
     ):
         shown = rows[:PICK_LIST_MAX]
         more = f" — showing {len(shown)} of {len(rows)}" if len(rows) > len(shown) else ""
@@ -2132,6 +2166,20 @@ def render_dashboard(c: dict) -> str:
              "touched.", "",
              "<details>", "<summary>Headerless prompts</summary>", ""]
             + [f"- `{h.split(' — ')[0]}`" for h in c["hygiene"]]
+            + ["", "</details>"])
+    if c.get("witness_flags"):
+        n = len(c["witness_flags"])
+        blocks.append(
+            [f"{n} prompt(s) with no `Witness:` — the machine-checkable claim "
+             "that would make the work reviewable in minutes. Absent, a prompt "
+             "grades `judge` (a PI's quarter-hour) whatever its size, which is "
+             "the intended default and not a bug. Nothing derives or backfills "
+             "a witness — an invented one is plausible prose with nothing "
+             "behind it — so this is a human writing one, a prompt at a time.",
+             "",
+             "<details>", "<summary>Prompts with no witness</summary>", ""]
+            + [f"- `{w}`" for w in c["witness_flags"][:40]]
+            + ([f"- _… and {n - 40} more_"] if n > 40 else [])
             + ["", "</details>"])
     if c.get("theme_flags"):
         blocks.append(
@@ -2276,11 +2324,11 @@ def render_dashboard_html(c: dict) -> str:
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
     high = [r for r in standalone if r["priority"] == "high"]
-    quick = [r for r in standalone
-             if r["difficulty"] == "small" and r["autonomy"] == "safe"]
+    quick = _fits_a_slot(standalone)
     for title, note, rows in (
         ("Highest priority", "filed as high", high),
-        ("Quick wins", "small enough, and safe enough to run unattended", quick),
+        ("Fits a slot", "ready to run unattended, cheapest to review first",
+         quick),
     ):
         shown = rows[:PICK_LIST_MAX]
         more = (f" — showing {len(shown)} of {len(rows)}"

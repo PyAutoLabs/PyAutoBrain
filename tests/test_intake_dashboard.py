@@ -28,10 +28,17 @@ _spec.loader.exec_module(_intake)
 # fixtures
 # --------------------------------------------------------------------------- #
 def _prompt(title, difficulty="medium", autonomy="supervised", priority="normal",
-            status="formalised"):
+            status="formalised", unattended=None, review_minutes=None,
+            consequence=None, witness=None):
+    extra = ""
+    for key, value in (("Consequence", consequence), ("Witness", witness),
+                       ("Review-minutes", review_minutes),
+                       ("Unattended", unattended)):
+        if value is not None:
+            extra += f"{key}: {value}\n"
     return (f"# {title}\n\nType: feature\nTarget: widgets\n"
             f"Difficulty: {difficulty}\nAutonomy: {autonomy}\n"
-            f"Priority: {priority}\nStatus: {status}\n\nBody prose.\n")
+            f"Priority: {priority}\nStatus: {status}\n{extra}\nBody prose.\n")
 
 
 def _mind(root: Path, drafts=None, active=None, registries=None,
@@ -76,19 +83,64 @@ def test_start_here_leads_with_high_priority_smallest_first(tmp_path):
     assert "Later thing" not in head, "a low-priority prompt is not a pick"
 
 
-def test_quick_wins_are_small_and_safe_only(tmp_path):
+def test_fits_a_slot_lists_only_unattended_ready_work(tmp_path):
+    """Replaced "Quick wins" (`small and safe`), which was near-empty: ten
+    prompts in the live backlog carried `safe`, so the surface that exists to
+    hand out unattended work had almost nothing to hand out. The question is
+    not how small the work is — it is whether it can finish without the human."""
     mind = _mind(tmp_path, drafts={
-        "feature/widgets/a.md": _prompt("Small and safe", difficulty="small",
-                                        autonomy="safe"),
-        "feature/widgets/b.md": _prompt("Small but supervised", difficulty="small",
-                                        autonomy="supervised"),
-        "feature/widgets/c.md": _prompt("Safe but large", difficulty="large",
-                                        autonomy="safe"),
+        "feature/widgets/a.md": _prompt("Ready and cheap", unattended="ready",
+                                        review_minutes="0"),
+        "feature/widgets/b.md": _prompt("Needs slicing", difficulty="too-large",
+                                        unattended="needs-slicing"),
+        "feature/widgets/c.md": _prompt("Never unattended", unattended="never"),
+        "feature/widgets/d.md": _prompt("Ungraded"),
     })
-    quick = _page(mind).split("**Quick wins**")[1].split("## In flight")[0]
-    assert "Small and safe" in quick
-    assert "Small but supervised" not in quick
-    assert "Safe but large" not in quick
+    slot = _page(mind).split("**Fits a slot**")[1].split("## In flight")[0]
+    assert "Ready and cheap" in slot
+    assert "Needs slicing" not in slot
+    assert "Never unattended" not in slot
+    assert "Ungraded" not in slot
+
+
+def test_fits_a_slot_is_ordered_by_what_review_costs(tmp_path):
+    """Ordered by review-minutes ascending, not by priority. This list is read
+    when the human has a slot to fill and wants to know what fits in it;
+    `Highest priority` above is where importance is answered."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Expensive but urgent", priority="high",
+                                        unattended="ready", review_minutes="20"),
+        "feature/widgets/b.md": _prompt("Cheap and dull", priority="low",
+                                        unattended="ready", review_minutes="2"),
+    })
+    slot = _page(mind).split("**Fits a slot**")[1].split("## In flight")[0]
+    assert slot.index("Cheap and dull") < slot.index("Expensive but urgent")
+
+
+def test_an_ungraded_prompt_sorts_last_rather_than_being_hidden(tmp_path):
+    """A prompt that is `ready` with no review-minutes is still pickable; the
+    page's standing rule is that unknown sorts last, never disappears."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("No cost recorded", unattended="ready"),
+        "feature/widgets/b.md": _prompt("Costed", unattended="ready",
+                                        review_minutes="5"),
+    })
+    slot = _page(mind).split("**Fits a slot**")[1].split("## In flight")[0]
+    assert slot.index("Costed") < slot.index("No cost recorded")
+
+
+def test_a_prompt_with_no_witness_is_reported_as_hygiene(tmp_path):
+    """Not an error — the intended default. But the human is the only thing
+    that can write one, so the page has to say which prompts are waiting."""
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("Has one", witness="ids bit-identical"),
+        "feature/widgets/b.md": _prompt("Has none"),
+    })
+    page = _page(mind)
+    hygiene = page.split("## Hygiene")[1]
+    assert "no `Witness:`" in hygiene
+    assert "feature/widgets/b.md" in hygiene
+    assert "feature/widgets/a.md" not in hygiene
 
 
 def test_every_backlog_prompt_is_one_collapsed_row_not_a_wide_table(tmp_path):
