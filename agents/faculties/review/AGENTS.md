@@ -70,6 +70,29 @@ Heart and the agent reasons over the verdict.
    (`docs/agent_failure_modes.md` item 6 Outcome) found that across 22 ship
    gates a healthy pass and a skipped one wrote the identical ledger row.
    An empty surface requires nothing.
+2b. **Independent-adversary mode** (`--adversary`, autonomous-ship gate leg 5,
+   added 2026-08-30). Required for a **batch launch**, where no human is
+   reachable; optional elsewhere. Run as
+   `pyauto-brain review --task <name> --witness "<the prompt's Witness:>"
+   --adversary`.
+
+   Two things change, and only two. First, the task's **`Witness:`** — the
+   machine-checkable claim the work was scoped around
+   (`PyAutoMind/REFERENCE.md`, "The review-cost model") — is lifted to the head
+   of the claims surface and falsified **first**: if the witness does not hold,
+   the work did not do what it promised and nothing else on the surface matters.
+   Second, the reader must be a **different model from the one that wrote the
+   branch**.
+
+   That second rule is the whole leg. Step 2a is already adversarial in
+   *procedure*, and it was still run, in practice, by the branch's own author —
+   `complete/2026/08/falsified-by-checkpoint-efficacy-review.md` found that "a
+   healthy pass and a rote one write the identical ledger row" and that the one
+   confirmed-wrong load-bearing claim of its window lived outside the surface
+   the stage reads. The catches that did happen came from an independent model
+   reading the same diff. **A self-run adversary leg is an absent leg, not a
+   weak one**, and recording it as run is a false ledger row.
+
 3. Map the outcome to the verdict: any unresolved must-fix → **FINDINGS**
    (ranked list, file:line, failure scenario) — including any
    `unverified-claim` from step 2a; nothing → **CLEAN**; could not

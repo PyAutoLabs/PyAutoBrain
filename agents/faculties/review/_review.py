@@ -170,7 +170,28 @@ def resolve_repos(task: str | None, repos: list[str]) -> list[Path]:
     return [Path(r).resolve() for r in repos]
 
 
-def emit_human(surfaces: list[dict]) -> None:
+ADVERSARY_CONTRACT = """\
+INDEPENDENT ADVERSARY MODE (autonomous-ship gate, leg 5)
+
+  Who may run this: NOT the session or model that wrote the branch. The leg's
+  entire value is independence — the organism's own audit found the review leg
+  on autonomous ships was in practice the branch's own author, that "a healthy
+  pass and a rote one write the identical ledger row", and that the one
+  confirmed-wrong load-bearing claim of its window lived outside the surface the
+  stage reads. The catches that did happen came from a different model reading
+  the same diff. A self-run adversary leg is not a weaker version of this leg;
+  it is an absent one, and recording it as run is a false ledger row.
+
+  Your job is NOT to review the change. It is to FALSIFY its claims — starting
+  with the witness, which is the claim the whole task was scoped around.
+
+  For each claim: what would make this false, and what in the diff, the tests or
+  a run actually shows it is not? Then say which. A claim you cannot falsify AND
+  cannot find a basis for is a FINDING (unverified-claim), not a pass.
+"""
+
+
+def emit_human(surfaces: list[dict], witness: str = "", adversary: bool = False) -> None:
     print("== ReviewSurface (review faculty — surface only; the verdict is the")
     print("   reviewing agent's, per agents/faculties/review/AGENTS.md) ==")
     for s in surfaces:
@@ -191,6 +212,15 @@ def emit_human(surfaces: list[dict]) -> None:
                 print(f"     ? {c}")
     print("\nVerdict rubric: CLEAN (nothing must change) | FINDINGS (ranked,")
     print("file:line, failure scenario) | BLOCKED (could not review — say why).")
+    if witness:
+        print()
+        print("  THE WITNESS — the claim this task was scoped around, and the")
+        print("  one whose failure means the work did not do what it promised:")
+        print(f"    * {witness}")
+        print("  Falsify it first. If it does not hold, nothing below matters.")
+    if adversary:
+        print()
+        print(ADVERSARY_CONTRACT)
     print("A load-bearing claim above with no falsified-by basis in the branch is")
     print("a FINDING (unverified-claim) — see the faculty AGENTS.md.")
     if any(s.get("claims_to_falsify") for s in surfaces):
@@ -201,6 +231,25 @@ def emit_human(surfaces: list[dict]) -> None:
         print("malformed evidence, not CLEAN (faculty AGENTS.md step 2a).")
 
 
+def surface_payload(surfaces: list[dict], witness: str = "",
+                    adversary: bool = False) -> dict:
+    """Assemble the machine-readable surface. Pure — no git, no I/O.
+
+    Split out from `main` so the contract can be tested without a repo that
+    happens to have a diff against `origin/main`. The first version of the
+    adversary tests drove the CLI against this checkout and passed locally and
+    failed in CI, where the checkout has no `origin/main` to diff and the whole
+    surface is empty: a test asserting on output that the environment decides.
+    """
+    payload: dict = {"review_surface": surfaces}
+    if witness:
+        payload["witness"] = witness
+    if adversary:
+        payload["mode"] = "independent-adversary"
+        payload["contract"] = ADVERSARY_CONTRACT
+    return payload
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="review")
     ap.add_argument("--task", default="",
@@ -208,6 +257,13 @@ def main(argv=None) -> int:
                          f"({WT_BASE})")
     ap.add_argument("--repo", action="append", default=[], help="explicit repo checkout path")
     ap.add_argument("--json", action="store_true", dest="as_json")
+    ap.add_argument("--witness", default="",
+                    help="the task's Witness: header — the claim the work was "
+                         "scoped around, falsified first")
+    ap.add_argument("--adversary", action="store_true",
+                    help="independent-adversary mode (autonomous-ship gate leg "
+                         "5): print the independence contract. Must be run by a "
+                         "different model from the one that wrote the branch")
     a = ap.parse_args(argv)
     if not a.task and not a.repo:
         print("review: pass --task <name> or --repo <path>", file=sys.stderr)
@@ -221,9 +277,9 @@ def main(argv=None) -> int:
         print("review: no reviewable diff against origin/main", file=sys.stderr)
         return 4
     if a.as_json:
-        print(json.dumps({"review_surface": surfaces}, indent=2))
+        print(json.dumps(surface_payload(surfaces, a.witness, a.adversary), indent=2))
     else:
-        emit_human(surfaces)
+        emit_human(surfaces, witness=a.witness, adversary=a.adversary)
     return 0
 
 

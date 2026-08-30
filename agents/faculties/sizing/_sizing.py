@@ -418,13 +418,56 @@ def empty_discovery_reason(mind: Path, work_type: str) -> str:
 # place, and gives the bug/refactor conductors the same reading for free.
 DIFFICULTY_LEVELS = ("small", "medium", "large", "too-large")
 AUTONOMY_LEVELS = ("safe", "supervised", "human-required")
+
+# --- the review-cost model (batch epic phase 0a) -----------------------------
+# `Difficulty:` is static blast radius. It cannot answer the only question a
+# batch needs answered, which is what a task will cost the HUMAN once it lands.
+# These three do. They are graded by RULES over repo class and surface, never by
+# an agent's reading of its own work — the ledger's own base rate for an agent
+# mis-scoping its own change is 20% (68 of 332 records in 2026-08 carry a
+# correction or a retraction), so self-assessment is not an input here.
+CONSEQUENCE_TIERS = ("notify", "glance", "judge")
+UNATTENDED_LEVELS = ("ready", "needs-slicing", "never")
+# Where the work can run. Spelled in the environment vocabulary
+# `skills/WORKFLOW.md` already defines (`local-dev` / `web-github` / `ci-only` /
+# `analysis-only`) rather than a parallel cloud/laptop one — `local-dev` means
+# the work needs the local dataset and output trees, an SSH endpoint, or the
+# human at the machine. Default `any`.
+LANE_VALUES = ("any", "local-dev")
+
+# Surfaces that make a change a PI's decision whatever repo it lives in: a
+# public API, a default value, an error contract, a science-policy call, or an
+# external contributor's request. Judged from the prompt's own words.
+# Kept deliberately specific. A loose keyword here does not fail safe in the way
+# it first appears: it grades everything `judge`, the tier starves, and the model
+# stops discriminating at all. `raise` alone matched "praise" and every prose
+# mention of raising a question; `raises ` earns its place, bare `raise` does not.
+JUDGE_SURFACE_KEYWORDS = [
+    "public api", "default value", "defaults to", "error contract",
+    "raises ", "science policy", "external contributor", "external reporter",
+    "user-filed", "reported by", "backwards-compat", "backwards compat",
+    "breaking change",
+]
+# A witness claiming exact equality is the one machine-checkable claim strong
+# enough to carry a behaviour-preserving change on its own.
+BYTE_EQUALITY_MARKERS = [
+    "byte-equal", "byte equality", "byte-identical", "bit-identical",
+    "bit identical", "byte-for-byte", "identical output", "unchanged output",
+]
+# Repo categories (PyAutoMind/repos.yaml) whose contents nobody outside this
+# workshop consumes. Everything else is somebody's dependency.
+INTERNAL_REPO_CATEGORIES = frozenset({"organ", "admin"})
+# Seeds, NOT measurements. Phase 7's batch records carry the minutes the human
+# actually spent, and those are what will correct these.
+REVIEW_MINUTES_SEED = {"notify": 0, "glance": 3, "judge": 20}
 # `medium` is not a documented Priority: value but occurs in the live backlog;
 # read it as normal rather than dropping the prompt's stated intent.
 PRIORITY_RANK = {"high": 0, "normal": 1, "medium": 1, "low": 2}
 DEFAULT_PRIORITY_RANK = 1
 
 _HEADER_KEY_RE = re.compile(
-    r"^\s*(difficulty|type|autonomy|status|priority|blocked-by|closes-when)"
+    r"^\s*(difficulty|type|autonomy|status|priority|blocked-by|closes-when"
+    r"|consequence|witness|review-minutes|unattended|lane)"
     r"\s*:\s*(.+?)\s*$", re.I
 )
 
@@ -446,7 +489,10 @@ def declared_header(text: str) -> dict:
     """
     out = {"declared_difficulty": None, "declared_type": None,
            "declared_autonomy": None, "status": None,
-           "priority": None, "blocked_by": [], "closes_when": []}
+           "priority": None, "blocked_by": [], "closes_when": [],
+           "declared_consequence": None, "witness": None,
+           "declared_review_minutes": None, "declared_unattended": None,
+           "lane": None}
     in_fence = False
     for line in text.splitlines():
         if line.lstrip().startswith("```"):
@@ -457,7 +503,11 @@ def declared_header(text: str) -> dict:
         m = _HEADER_KEY_RE.match(line)
         if not m:
             continue
-        key, value = m.group(1).lower(), _strip_trailing_comment(m.group(2))
+        key = m.group(1).lower()
+        # `Witness:` is free text and routinely carries a `PR #123` reference,
+        # which the trailing-comment split would truncate. Take it raw.
+        value = m.group(2).strip() if key == "witness" \
+            else _strip_trailing_comment(m.group(2))
         if not value:
             continue
         if key == "difficulty":
@@ -480,6 +530,24 @@ def declared_header(text: str) -> dict:
             out["blocked_by"].append(value)
         elif key == "closes-when":
             out["closes_when"].append(value)
+        elif key == "consequence":
+            v = value.lower()
+            if v in CONSEQUENCE_TIERS and out["declared_consequence"] is None:
+                out["declared_consequence"] = v
+        elif key == "witness" and out["witness"] is None:
+            out["witness"] = value
+        elif key == "review-minutes" and out["declared_review_minutes"] is None:
+            m2 = re.search(r"\d+", value)
+            if m2:
+                out["declared_review_minutes"] = int(m2.group(0))
+        elif key == "lane":
+            v = value.lower()
+            if v in LANE_VALUES and out["lane"] is None:
+                out["lane"] = v
+        elif key == "unattended":
+            v = _norm_level(value)
+            if v in UNATTENDED_LEVELS and out["declared_unattended"] is None:
+                out["declared_unattended"] = v
     return out
 
 
@@ -701,6 +769,159 @@ def estimate_difficulty(p: dict):
     return level, score, factors
 
 
+def _repo_categories_of(p: dict) -> set:
+    """The body-map categories of the repos this prompt names.
+
+    Repo *identity* is declared once, in `PyAutoMind/repos.yaml`. Reading the
+    category from there rather than keeping a second list here is the same rule
+    that governs every other repo fact in this module: one source, or the two
+    drift and whichever the reader happened to consult decides the answer.
+    """
+    cats = _body_map_categories()
+    out = set()
+    for r in p["repos"]:
+        for name, spec in _body_map_specs().items():
+            if canonical_key(name, spec) == r:
+                out.add(cats.get(name, "?"))
+                break
+    return out
+
+
+def estimate_consequence(p: dict, factors: dict | None = None):
+    """Heuristic consequence tier -> (tier, reasons).
+
+    `notify` costs the human nothing, `glance` costs a couple of minutes reading
+    the WITNESS, `judge` costs a PI's quarter-hour. The rules are ordered and the
+    first match wins, so every uncertain case falls through to `judge`: the tier
+    decides how little review something gets, and the safe direction for a
+    grader that is unsure is always more.
+
+    The load-bearing rule is the last fallthrough — **no witness means judge**.
+    Without it the field would be aspirational: a prompt could claim a cheap tier
+    while offering the reviewer nothing to check but the diff. With it, choosing
+    a cheap tier means committing at CONCEPTION to producing evidence, which is
+    what actually makes work reviewable in minutes. The corollary is deliberate:
+    a prompt carrying no `Witness:` grades `judge` however small it looks.
+    """
+    if factors is None:
+        _, _, factors = estimate_difficulty(p)
+    # Mask fenced blocks and inline code first, on the module's own standing
+    # rule: a prompt QUOTING a surface is documenting it, not touching it. The
+    # prompts that define this very model are the worst offenders — they name
+    # every judged surface in prose while touching none of them.
+    text = _mask_code(p["text"]).lower()
+    witness = (p.get("witness") or "").strip()
+    reasons = []
+
+    # 1. Work types whose deliverable is never a quietly-mergeable diff.
+    if p["work_type"] in ("release", HUMAN_REVIEW):
+        return "judge", [f"work-type {p['work_type']} is a human act by contract"]
+
+    # 2. Surfaces that are a PI's call wherever they live.
+    surface = _hits(text, JUDGE_SURFACE_KEYWORDS)
+    if surface:
+        return "judge", [f"names a judged surface: {', '.join(surface[:3])}"]
+
+    # 3. The default that makes the model bite.
+    if not witness:
+        return "judge", ["no Witness: declared — nothing to check but the diff"]
+    reasons.append(f"witness declared: {witness[:60]}")
+
+    cats = _repo_categories_of(p)
+    internal = bool(cats) and cats <= INTERNAL_REPO_CATEGORIES
+
+    # 4. A behaviour-preserving change proving exact equality reviews itself.
+    if p["work_type"] == "refactor" and _hits(witness.lower(), BYTE_EQUALITY_MARKERS):
+        return "notify", reasons + ["refactor with a byte-equality witness"]
+
+    # 5. Work nobody outside this workshop consumes.
+    if internal:
+        return "notify", reasons + [f"internal repos only ({', '.join(sorted(cats))})"]
+    if p["work_type"] in ("docs", "test") and not (factors["library_repos"]):
+        return "notify", reasons + [f"{p['work_type']}, no library repo touched"]
+
+    return "glance", reasons + ["witnessed change to a consumed repo"]
+
+
+def estimate_unattended(p: dict, level: str, factors: dict | None = None):
+    """Can this finish without the human? -> (grade, reasons).
+
+    Deliberately NOT difficulty renamed. Difficulty asks how big the blast
+    radius is; this asks whether one unattended run can carry the task to
+    PR-open. The rule that separates them is the compaction rule: **a task that
+    would need context compaction to finish is too big to run unattended.**
+    That is measured, not cautious — `anthropics/claude-code#54393`, a
+    postmortem of five consecutive failed autonomous overnight runs, names
+    "good plan -> compact -> garbage drift" as a primary failure primitive, and
+    nothing downstream of the run catches it.
+    """
+    if factors is None:
+        _, _, factors = estimate_difficulty(p)
+    if p["work_type"] in ("release", HUMAN_REVIEW):
+        return "never", [f"work-type {p['work_type']} is human-driven by contract"]
+    if p.get("declared_autonomy") == "human-required":
+        return "never", ["declared Autonomy: human-required"]
+    if level == "too-large":
+        return "needs-slicing", ["too-large is a routing signal, not a grade"]
+    if level == "large" and factors["repos_affected"] > 2:
+        return "needs-slicing", [
+            f"large across {factors['repos_affected']} repos — would compact"]
+    return "ready", ["fits one unattended run"]
+
+
+def estimate_review_minutes(tier: str, level: str) -> int:
+    """A SEED, not a measurement.
+
+    Everything here is derived from the tier plus a nudge for size; the honest
+    numbers come from phase 7's batch records, which carry the minutes the human
+    actually spent. Read a value from this function as "what to plan with until
+    we have measured", and never as evidence about how long anything took.
+    """
+    minutes = REVIEW_MINUTES_SEED.get(tier, REVIEW_MINUTES_SEED["judge"])
+    if tier == "judge" and level in ("large", "too-large"):
+        minutes += 5
+    return minutes
+
+
+def effective_consequence(p: dict, factors: dict | None = None):
+    """(tier, reasons, derived_tier) — the DECLARED tier wins.
+
+    Same precedence rule as `effective_difficulty`, for the same reason: a value
+    the author declared is a judgement the heuristic does not have, and a
+    disagreement is evidence about the heuristic worth reporting rather than
+    silently resolving.
+    """
+    derived, reasons = estimate_consequence(p, factors)
+    return p.get("declared_consequence") or derived, reasons, derived
+
+
+def effective_unattended(p: dict, level: str, factors: dict | None = None,
+                         derived_level: str | None = None):
+    """(grade, reasons, derived_grade) — the DECLARED grade wins.
+
+    `derived_level` is the difficulty the heuristic derived, as opposed to the
+    one the author declared. It changes no verdict — declared still wins, per
+    the module's precedence rule — but a prompt the heuristic reads as
+    `too-large` and the author calls `medium` is exactly the case the compaction
+    rule exists to catch, so the tension is named in the reasons rather than
+    disappearing behind the precedence.
+    """
+    derived, reasons = estimate_unattended(p, level, factors)
+    grade = p.get("declared_unattended") or derived
+    if grade == "ready" and derived_level == "too-large":
+        reasons = reasons + [
+            "CAUTION: the heuristic derives too-large; the declared level won."
+            " Re-read before dispatching this unattended"]
+    return grade, reasons, derived
+
+
+def effective_review_minutes(p: dict, tier: str, level: str):
+    """(minutes, derived_minutes) — a DECLARED estimate wins."""
+    derived = estimate_review_minutes(tier, level)
+    declared = p.get("declared_review_minutes")
+    return (declared if declared is not None else derived), derived
+
+
 def effective_difficulty(p: dict):
     """(level, score, factors, derived_level) — the DECLARED level wins.
 
@@ -729,6 +950,18 @@ def effective_difficulty(p: dict):
 # prompt without dispatching anything. It writes nothing.
 
 
+def _disagree(field: str, declared, derived) -> None:
+    """Report a declared/derived split rather than resolving it silently.
+
+    The precedence rule is that declared wins; the point of printing the other
+    value is that the split is evidence about the heuristic, and the heuristic
+    only improves if somebody sees it.
+    """
+    if declared != derived:
+        print(f"    ! declared {declared} but derived {derived}"
+              f" — declared wins; the disagreement is worth a look")
+
+
 def _main(argv=None):
     import argparse
     import json
@@ -747,7 +980,11 @@ def _main(argv=None):
     args = ap.parse_args(argv)
 
     p = parse_prompt(Path(args.prompt).resolve(), args.mind.resolve())
-    level, score, factors = estimate_difficulty(p)
+    level, score, factors, derived_level = effective_difficulty(p)
+    tier, tier_why, derived_tier = effective_consequence(p, factors)
+    grade, grade_why, derived_grade = effective_unattended(
+        p, level, factors, derived_level)
+    minutes, derived_minutes = effective_review_minutes(p, tier, level)
     surface = {
         "path": p["path"],
         "work_type": p["work_type"],
@@ -755,17 +992,37 @@ def _main(argv=None):
         "repos": p["repos"],
         "lines": p["lines"],
         "words": p["words"],
-        "difficulty": {"level": level, "score": score, "factors": factors},
+        "difficulty": {"level": level, "derived": derived_level,
+                       "score": score, "factors": factors},
+        "consequence": {"tier": tier, "derived": derived_tier,
+                        "reasons": tier_why},
+        "witness": p.get("witness"),
+        "review_minutes": {"minutes": minutes, "derived": derived_minutes,
+                           "note": "a seed, not a measurement"},
+        "unattended": {"grade": grade, "derived": derived_grade,
+                       "reasons": grade_why},
     }
     if args.json:
         print(json.dumps(surface, indent=2))
         return
+    witness = p.get("witness")
     print(f"SizingSurface: {p['path']}")
     print(f"  work-type : {p['work_type']}")
     print(f"  target    : {p['target']}")
     print(f"  repos     : {', '.join(p['repos']) or '(none)'}")
     print(f"  size      : {p['lines']} lines / {p['words']} words")
     print(f"  difficulty: {level} (score {score})")
+    _disagree("difficulty", level, derived_level)
+    print(f"  witness   : {witness if witness else '(none declared)'}")
+    print(f"  consequence: {tier} — {tier_why[0] if tier_why else ''}")
+    _disagree("consequence", tier, derived_tier)
+    print(f"  review    : ~{minutes} min (seed, not a measurement)")
+    if derived_minutes != minutes:
+        print(f"    ! declared {minutes} but seeded {derived_minutes}")
+    print(f"  unattended: {grade} — {grade_why[0] if grade_why else ''}")
+    for extra in grade_why[1:]:
+        print(f"    ! {extra}")
+    _disagree("unattended", grade, derived_grade)
 
 
 if __name__ == "__main__":
