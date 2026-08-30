@@ -82,7 +82,7 @@ landed. This is feature-development git work, not a Build/release step. In
 local-dev delegate the mechanical part to an execution-tier subagent; elsewhere run it
 directly. If any step fails, stop and report — do not proceed.
 
-**Under `--auto`:** all four legs of the autonomous-ship gate must pass (step
+**Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
 3 note); then ship **without interactive sign-off** — the PR body additionally
 carries the `## Validation checklist` section
 ([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run

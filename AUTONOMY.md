@@ -164,6 +164,38 @@ doctrine edit; removing this section is the doctrine edit that retires it.
 - Opt-in per invocation, never ambient: no config flag, no environment
   variable, no "remembered" mode.
 
+### What a batch launch is — 2026-08-30
+
+A batch dispatches work into a shift that outlasts the human's session, and
+waves of it may start hours after they left. Read against the rule above, a wave
+firing at 4am under an approval given at 17:00 is a **stored grant** — the exact
+shape the corrective-PR section voids ("a stored, reused or 'standing'
+authorization does not count — it must be for this RED, **now**"). So the term
+is defined here rather than left for an implementation to settle by accident:
+
+**A batch dispatch is ONE launch.** Specifically:
+
+- Its **membership is fixed at approval**, in the slot, by the human. A task not
+  on the approved list is not launched, however ready it looks and however much
+  budget is left.
+- Its **grant expires at the end of the shift.** A member not dispatched within
+  it returns to the queue and needs the next slot's approval.
+- Its **terms are written down** — members, the acknowledged Heart reason set,
+  the effective level per member — in `batches/<date>-<am|pm>.md`, where they can
+  be read afterwards against what actually happened.
+- **The human performs the dispatch.** A scheduler may build the review packet
+  and may wake a session, but the act that starts work on the approved list is
+  theirs. This is the line that keeps "never ambient" true: the schedule carries
+  the *timing*, never the *authority*.
+
+What this deliberately does **not** grant: a standing batch, a recurring
+approval, or a config flag that makes the next batch launch itself. Each shift
+is approved in its own slot, or it does not run.
+
+*Revert condition:* if a batch is ever found to have launched work its approval
+list did not name, batching returns to per-task `--auto` until the cause is
+found.
+
 ## Checkpoint-and-continue (`supervised`)
 
 The operational mechanics of the levels-table behaviour: a run writes a
@@ -195,11 +227,52 @@ otherwise.
 Ship sign-off and merge park the *task*, never bypass the gate —
 checkpoint-and-continue frees the human's session, not the checkpoint.
 
+### Decide-and-flag (batch launches only) — 2026-08-30
+
+Park-and-ask is the right behaviour when a human is one message away. In a shift
+it costs the whole shift: the run stops, the question waits until the slot, and
+the task needs a second batch. So a run under a **batch launch** may, at a
+judgement gate, take the more reversible option and record it instead of parking.
+
+**Narrowly**, because the agent deciding is the poorest available judge of its
+own decision's scope. The base rate is measured, not feared: **68 of 332
+completion records in 2026-08 (20%) carry a correction or a retraction**,
+including one whose own claim was later marked "FALSE when this record was
+written". And *reversible* is the wrong axis on its own — an API-philosophy fork
+decided on behalf of an external reporter is trivially reversible in git and
+irreversible in public.
+
+The limits, all of them:
+
+- **At most ONE flagged decision per PR.** A second judgement gate parks the run
+  exactly as today. One is a note a reviewer can hold in their head; three is a
+  design review they did not agree to do.
+- The PR body must state the **rejected alternative** and the **one-command
+  revert**. *If the run cannot write the revert, the decision was not reversible*
+  — park.
+- **Never** where the decision touches a public API, a default value, an error
+  contract, or a file named in an external reporter's issue.
+- **Never** for a `judge`-tier task (`Consequence:` — REFERENCE.md "The
+  review-cost model"). A tier that costs a PI's quarter-hour is one where the PI
+  makes the call.
+- The PR carries a `decision-taken` label so the review surface sorts it above
+  clean work, and the calibration row names it.
+
+This moves review debt from the issue tracker into the diff, which is a real
+cost — the diff is where an overloaded reviewer is least able to interrogate a
+choice. The cap, the revert line and the tier exclusion are what keep that cost
+to one bounded item per PR rather than an unmarked scatter.
+
+*Revert condition:* two flagged decisions the human would not have taken retires
+this section; it returns to park-and-ask.
+
 ## The autonomous-ship gate
 
 An unattended ship (checkpoint 2 at `safe`) requires **all four legs**, no
-substitutions. Audited 2026-07-08 (issue #38); each leg carries an
-applicability rule so "n/a" is a stated fact, never an assumption:
+substitutions — **plus leg 5 under a batch launch**, where no human is reachable
+and the review leg's independence stops being optional. Audited 2026-07-08
+(issue #38); each leg carries an applicability rule so "n/a" is a stated fact,
+never an assumption:
 
 1. **Tests** — worktree pytest (full suite, `-x`) on every **shipped** repo,
    *plus* every downstream library repo when the diff touches public API
@@ -233,8 +306,71 @@ applicability rule so "n/a" is a stated fact, never an assumption:
    reason, or RED, parks the run. Never ambient, never carried across
    sessions.
 
+5. **Independent adversary** — **added 2026-08-30, required for a BATCH
+   launch** (below) and for any run counting toward the multi-repo autonomy
+   experiment; optional elsewhere. A second reading of the same diff by a
+   **different model from the one that wrote it**, whose job is not to review
+   the change but to **falsify its claims — the `Witness:` first**. Run it as
+   `pyauto-brain review --task <name> --witness "<the prompt's Witness:>"
+   --adversary`.
+
+   Why it exists, and why leg 3 does not already cover it:
+   `complete/2026/08/falsified-by-checkpoint-efficacy-review.md` found that the
+   review leg on autonomous ships was in practice **the branch's own author**,
+   that "a healthy pass and a rote one write the identical ledger row", and that
+   the one confirmed-wrong load-bearing claim of its window lived *outside* the
+   surface the stage reads — "the stage could not have caught the one escape
+   that actually happened". The catches that did happen came from an independent
+   model reading the same diff.
+
+   **A self-run adversary leg is an absent leg, not a weak one**, and recording
+   it as run is a false ledger row. The verdict is recorded in the calibration
+   row alongside the other four.
+
+   *Revert condition:* if the leg produces no finding across 30 runs it is
+   ceremony, and this clause is removed rather than left as theatre.
+
 A failed leg downgrades the run to a human checkpoint: state written to the
 issue, nothing force-shipped, never modify code to make a leg pass.
+
+### Leg 4 under a batch launch — 2026-08-30
+
+Leg 4 as written assumes a human is reachable: YELLOW passes only where the
+reason set is the one acknowledged *at launch*, and any new reason parks the
+run. Overnight nobody can acknowledge anything, so a fifteen-hour shift would
+ride on that set staying frozen. **It does not stay frozen for an afternoon.**
+The log shows a drift count growing 2 → 4 → 6 across a single day, re-asked at
+each ship; and a *benign new* reason appearing mid-session from a run's own
+sibling merge ("release validation stale: source moved since rehearsal") — which
+in a batch means **wave 1 can manufacture the reason that parks waves 2 and 3**.
+The 2026-07-09 review records that Heart never read GREEN: every shipped run
+went out on an acked YELLOW. The base rate says this leg blocks by default.
+
+That pressure has already produced a violation rather than a park:
+`complete/2026/08/cmap-magma-default.md` shipped under a **standing** ack, which
+the corrective-PR section below explicitly voids. Doctrine moving deliberately is
+the alternative to doctrine bending under load.
+
+So, **for a batch launch only**:
+
+- At slot time the human acknowledges a **named reason set for the shift**,
+  written verbatim into `batches/<date>.md` and into each member's `active.md`
+  `- heart-ack:` block.
+- A run parks on a new **RED**, or on a new **YELLOW reason whose repo
+  intersects the run's own repos**. A new YELLOW elsewhere in the organism does
+  not park it — the reason is out of the branch's blast radius, and legs 1-3 and
+  5 gate the branch itself.
+- A reason **generated by an earlier member of the same batch** is named as such
+  in the batch record and does not park later members.
+- The grant **expires with the shift**. It is not standing, not ambient, and not
+  carried into the next batch.
+
+Unchanged: RED still parks at every level; YELLOW is still never acknowledged
+*autonomously* — the acknowledgement is a human act performed in the slot, and
+this section only defines how far it reaches.
+
+*Revert condition:* one escape traceable to a YELLOW reason this section let
+through restores the exact-set rule for batches.
 
 ## Corrective-PR exception for Heart RED (human-authorized)
 
@@ -310,7 +446,7 @@ work. That resumes only along this path:
 at PR-open (or on parking):
 
 ```markdown
-| date | task | effective level | gates (tests/smoke/review/heart) | outcome |
+| date | task | effective level | gates (tests/smoke/review/heart[/adversary]) | outcome |
 ```
 
 Outcome ∈ `merged-unchanged` / `amended` / `rejected` / `rejected-at-review` /
@@ -389,7 +525,8 @@ tier), never by weakening leg 4.
 
 - `start_dev` — `--auto` usage, effective-level computation, plan-to-issue
   for `safe`, launch-acknowledgement recording (its "--auto mode" section).
-- `ship_library` / `ship_workspace` — the four-leg gate at step 4, stop at
+- `ship_library` / `ship_workspace` — the four-leg gate at step 4 (five under a
+  batch launch), stop at
   PR-open, validation checklist, calibration append; the RED-handling step
   points here for the human-authorized corrective-PR exception.
 
