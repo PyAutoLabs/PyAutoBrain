@@ -231,6 +231,25 @@ def emit_human(surfaces: list[dict], witness: str = "", adversary: bool = False)
         print("malformed evidence, not CLEAN (faculty AGENTS.md step 2a).")
 
 
+def surface_payload(surfaces: list[dict], witness: str = "",
+                    adversary: bool = False) -> dict:
+    """Assemble the machine-readable surface. Pure — no git, no I/O.
+
+    Split out from `main` so the contract can be tested without a repo that
+    happens to have a diff against `origin/main`. The first version of the
+    adversary tests drove the CLI against this checkout and passed locally and
+    failed in CI, where the checkout has no `origin/main` to diff and the whole
+    surface is empty: a test asserting on output that the environment decides.
+    """
+    payload: dict = {"review_surface": surfaces}
+    if witness:
+        payload["witness"] = witness
+    if adversary:
+        payload["mode"] = "independent-adversary"
+        payload["contract"] = ADVERSARY_CONTRACT
+    return payload
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="review")
     ap.add_argument("--task", default="",
@@ -258,13 +277,7 @@ def main(argv=None) -> int:
         print("review: no reviewable diff against origin/main", file=sys.stderr)
         return 4
     if a.as_json:
-        payload = {"review_surface": surfaces}
-        if a.witness:
-            payload["witness"] = a.witness
-        if a.adversary:
-            payload["mode"] = "independent-adversary"
-            payload["contract"] = ADVERSARY_CONTRACT
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(surface_payload(surfaces, a.witness, a.adversary), indent=2))
     else:
         emit_human(surfaces, witness=a.witness, adversary=a.adversary)
     return 0
