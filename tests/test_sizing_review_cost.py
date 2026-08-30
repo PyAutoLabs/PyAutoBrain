@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agents" / "faculti
 from _sizing import (  # noqa: E402
     CONSEQUENCE_TIERS,
     UNATTENDED_LEVELS,
+    effective_autonomy,
     effective_consequence,
     effective_difficulty,
     effective_review_minutes,
@@ -180,3 +181,32 @@ def test_golden_sample_is_unchanged(tmp_path):
         GOLDEN.parent.mkdir(parents=True, exist_ok=True)
         GOLDEN.write_text(json.dumps(got, indent=2, sort_keys=True) + "\n")
     assert got == json.loads(GOLDEN.read_text())
+
+
+def test_autonomy_cap_is_executable_not_prose(tmp_path):
+    """Until 2026-08-30 the per-work-type caps lived only in AUTONOMY.md, applied
+    by whichever agent happened to read it — so nothing could compute what a
+    prompt's autonomy actually resolves to, and the batch planner proposed work
+    that would park the moment it ran."""
+    from _sizing import autonomy_cap, effective_autonomy
+
+    assert autonomy_cap("refactor", "large") == "safe"
+    assert autonomy_cap("bug", "small") == "supervised"
+    assert autonomy_cap("release", "small") == "human-required"
+    # feature/docs were raised on calibration evidence, but only to `medium`.
+    assert autonomy_cap("feature", "medium") == "safe"
+    assert autonomy_cap("feature", "large") == "supervised"
+
+
+def test_the_more_restrictive_of_header_and_cap_wins(tmp_path):
+    body = HEADERLESS_DOC.replace("Type: docs", "Type: bug").replace(
+        "Priority: normal", "Autonomy: safe\nPriority: normal")
+    p = _prompt(tmp_path, body, "draft/bug/pyautobrain/t.md")
+    level, _s, _f, _d = effective_difficulty(p)
+    assert effective_autonomy(p, level) == ("supervised", "supervised", "safe")
+
+
+def test_a_missing_header_is_human_required_not_a_default(tmp_path):
+    p = _prompt(tmp_path, HEADERLESS_DOC.replace("Difficulty: small", ""))
+    level, _s, _f, _d = effective_difficulty(p)
+    assert effective_autonomy(p, level)[0] == "human-required"

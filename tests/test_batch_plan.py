@@ -20,12 +20,15 @@ _spec.loader.exec_module(_batch)
 
 
 def rec(path, *, minutes=20, tier="judge", ready="ready", repos=(), epic="",
-        lane="any", blocked=False, priority="normal"):
+        lane="any", blocked=False, priority="normal", autonomy="safe",
+        done=False, phase=float("inf")):
     return {"path": path, "repos": list(repos), "work_type": "feature",
             "difficulty": "medium", "score": 4, "consequence": tier,
             "witness": None, "review_minutes": minutes, "unattended": ready,
             "why": "", "ready_why": [], "epic": epic, "lane": lane,
-            "priority": priority, "blocked": blocked}
+            "priority": priority, "blocked": blocked, "autonomy": autonomy,
+            "autonomy_cap": "safe", "declared_autonomy": autonomy,
+            "done": done, "phase": phase}
 
 
 def paths(d):
@@ -128,3 +131,49 @@ def test_lane_detection_reads_the_environment_not_a_flag():
     """A session that could be told where it is could plan local-dev work it
     cannot run. Probed from `gh`, the same signal the organism already uses."""
     assert _batch.detect_lane() in ("local-dev", "web-github")
+
+
+def test_only_safe_work_is_dispatched():
+    """Readiness says the work FITS one run; autonomy says the run may FINISH
+    it. A batch that reads only the first fills a shift with tasks that all
+    stop at the ship checkpoint and come back as questions — which is the
+    failure the epic exists to remove. Found by running the planner against the
+    live backlog and reading what it picked."""
+    d = _batch.plan([rec("a.md", autonomy="safe"),
+                     rec("b.md", autonomy="supervised"),
+                     rec("c.md", autonomy="human-required")], budget=100)
+    assert paths(d) == ["a.md"]
+    assert "would park at ship" in why(d, "b.md")
+
+
+def test_a_prompt_that_says_it_is_done_is_never_dispatched():
+    """A session that ships the work and writes the outcome into `Status:` but
+    leaves the file in draft/ is a recorded failure mode; the file keeps
+    rendering as pickable backlog. Dispatching one wastes a whole shift
+    re-doing finished work."""
+    d = _batch.plan([rec("a.md", done=True), rec("b.md")], budget=100)
+    assert paths(d) == ["b.md"]
+    assert "already done" in why(d, "a.md")
+
+
+def test_an_epic_offers_only_its_next_phase():
+    """Members are worked in order. One-slice-per-epic caps how many run; this
+    decides WHICH — without it the planner can propose phase 6 while phase 3 is
+    still open."""
+    d = _batch.plan([rec("late.md", epic="euclid", phase=6),
+                     rec("next.md", epic="euclid", phase=3)], budget=100)
+    assert paths(d) == ["next.md"]
+    assert "is not next" in why(d, "late.md")
+
+
+def test_a_shipped_phase_does_not_block_the_one_after_it():
+    d = _batch.plan([rec("done.md", epic="e", phase=1, done=True),
+                     rec("next.md", epic="e", phase=2)], budget=100)
+    assert paths(d) == ["next.md"]
+
+
+def test_dispatch_payloads_carry_no_decisions():
+    """The launch is the human's act, so what they perform should carry nothing
+    still to be decided — everything was decided when they approved the batch."""
+    d = _batch.plan([rec("draft/x/y/z.md")], budget=100)
+    assert d["dispatch"] == ["/start_dev draft/x/y/z.md --auto"]
