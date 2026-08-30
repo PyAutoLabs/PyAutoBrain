@@ -99,6 +99,57 @@ pyauto-brain batch plan --json
 
 Stdlib-only, offline, writes nothing.
 
+## Running a batch by hand (there is no dispatcher yet, and that is fine)
+
+Phase 5 — automatic fan-out — is deliberately unbuilt. Everything below works
+today, costs about two minutes of tapping, and is the honest way to find out
+what a dispatcher actually needs before writing one.
+
+**In the slot (about an hour, once a day):**
+
+1. `pyauto-brain batch plan` — read the BatchDecision. Edit it by removing
+   members you do not want; do not add ones it rejected without reading why.
+2. **Acknowledge the Heart reason set for the shift**, if Heart is YELLOW
+   (`pyauto-brain vitals`). Write it verbatim into the batch record — a grant
+   recorded loosely is how a scoped one becomes standing, which doctrine voids
+   (`AUTONOMY.md`, "Leg 4 under a batch launch").
+3. Open the batch record `PyAutoMind/batches/<YYYY-MM-DD>-<am|pm>.md` from the
+   schema in that folder's `AGENTS.md`, and write the members, the planned
+   review-minutes and the reason set **before** dispatching. That file is what
+   makes the launch auditable afterwards.
+4. **Dispatch**: paste each line the decision prints into **its own session**.
+   One session per member — they must not share one, because a single session
+   would serialise them and carry one member's context into the next.
+5. Go and do something else.
+
+**Next slot:**
+
+6. Read the PRs. Failures first, then anything labelled `decision-taken`, then
+   clean ones. For each: merge (`/prm <PR>`), or say one line of what you want
+   changed and let a session draft the follow-up prompt into `queue.md`.
+7. Append the outcome to the batch record — `delivered:`, and especially
+   **`review-minutes-actual:`**. That last number is the only calibration the
+   estimate will ever get, and everything the planner does rests on it.
+8. Plan the next batch.
+
+**The one leg you must not skip.** A batch launch requires the independent
+adversary (`AUTONOMY.md` leg 5). Until `batch collect` exists, run it by hand
+before reading a PR:
+
+```
+pyauto-brain review --task <name> --witness "<the prompt's Witness:>" --adversary
+```
+
+in a session **using a different model from the one that wrote the branch**. A
+self-run adversary leg is an absent leg, not a weak one.
+
+**What to expect from batch 1.** Small. The planner picks against a 45-minute
+review budget, and with almost no prompt carrying a `Witness:` nearly everything
+grades `judge` at 20 minutes — so a slot holds two or three. That number is the
+honest state of the backlog rather than a limit of the machinery, and the way to
+move it is to write witnesses, which costs zero review-minutes and is the best
+possible fill work.
+
 ## Not built yet
 
 `slice` (the decomposition pass doctrine has named since inception) and

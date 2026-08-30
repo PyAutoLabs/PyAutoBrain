@@ -35,8 +35,9 @@ from pathlib import Path
 BRAIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
-    BODY_MAP_PATH, LIBRARY_REPOS, effective_consequence, effective_difficulty,
-    effective_review_minutes, effective_unattended, parse_prompt, priority_rank,
+    BODY_MAP_PATH, LIBRARY_REPOS, effective_autonomy, effective_consequence,
+    effective_difficulty, effective_review_minutes, effective_unattended,
+    parse_prompt, priority_rank,
 )
 
 # One slot's worth of the human's attention. Not a task count — see the module
@@ -74,7 +75,10 @@ def grade(path: Path, mind: Path) -> dict:
     tier, why, _ = effective_consequence(p, factors)
     ready, ready_why, _ = effective_unattended(p, level, factors, derived)
     minutes, _ = effective_review_minutes(p, tier, level)
+    autonomy, cap, declared_autonomy = effective_autonomy(p, level)
     return {
+        "autonomy": autonomy, "autonomy_cap": cap,
+        "declared_autonomy": declared_autonomy,
         "path": p["path"], "repos": p["repos"], "work_type": p["work_type"],
         "difficulty": level, "score": score, "consequence": tier,
         "witness": p.get("witness"), "review_minutes": minutes,
@@ -85,11 +89,38 @@ def grade(path: Path, mind: Path) -> dict:
     }
 
 
-def _epic_of(text: str) -> str:
+# A prompt whose own header says the work is finished. Mirrors intake's
+# DONE_STATUSES: a session that ships the work and writes the outcome into
+# `Status:` but leaves the file in `draft/` is a known, recorded failure mode,
+# and the file keeps rendering as pickable backlog until someone retires it.
+# Dispatching one wastes a whole shift re-doing finished work.
+DONE_STATUSES = ("shipped", "superseded", "absorbed", "complete", "completed",
+                 "done", "retired")
+
+
+def _header_of(text: str, key: str) -> str:
     for line in text.splitlines()[:30]:
-        if line.lower().startswith("epic:"):
+        if line.lower().startswith(f"{key}:"):
             return line.split(":", 1)[1].strip()
     return ""
+
+
+def _epic_of(text: str) -> str:
+    return _header_of(text, "epic")
+
+
+def _is_done(text: str) -> bool:
+    status = _header_of(text, "status").lower()
+    return any(status.startswith(d) for d in DONE_STATUSES)
+
+
+def _phase_of(text: str) -> float:
+    """`Phase: <n>` as a sortable number; phase-less members sort last."""
+    raw = _header_of(text, "phase")
+    try:
+        return float(raw.rstrip("abcdefgh") or "inf")
+    except ValueError:
+        return float("inf")
 
 
 def survey(mind: Path) -> list[dict]:
@@ -99,8 +130,11 @@ def survey(mind: Path) -> list[dict]:
     for f in sorted(mind.glob("draft/**/*.md")):
         if f.name == "README.md":
             continue
+        text = f.read_text(encoding="utf-8", errors="replace")
         g = grade(f, mind)
-        g["epic"] = _epic_of(f.read_text(encoding="utf-8", errors="replace"))
+        g["epic"] = _epic_of(text)
+        g["phase"] = _phase_of(text)
+        g["done"] = _is_done(text)
         out.append(g)
     return out
 
@@ -125,9 +159,33 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     else:
         effective_budget, pressure = budget, "clear"
 
+    # An epic's members are worked IN ORDER, so only its lowest un-shipped
+    # phase is startable. Without this the planner can propose phase 6 while
+    # phase 3 is still open — the one-slice-per-epic rule below caps how many
+    # run, not which.
+    next_phase: dict[str, float] = {}
+    for r in records:
+        if r.get("epic") and not r.get("done"):
+            e = r["epic"]
+            next_phase[e] = min(next_phase.get(e, float("inf")),
+                                r.get("phase", float("inf")))
+
     pool = []
     for r in records:
-        if r["unattended"] != "ready":
+        # Readiness says the work FITS one run; autonomy says the run may
+        # FINISH it. A batch that ignores the second fills a shift with tasks
+        # that all stop at the ship checkpoint and come back as questions —
+        # which is the failure the whole epic exists to remove.
+        if r.get("done"):
+            rejected.append((r["path"], "Status: says the work is already done"))
+        elif r.get("epic") and r.get("phase", float("inf")) > next_phase.get(
+                r["epic"], float("inf")):
+            rejected.append((r["path"],
+                             f"epic {r['epic']} phase {r.get('phase')} is not next"))
+        elif r["autonomy"] != "safe":
+            rejected.append((r["path"],
+                             f"autonomy {r['autonomy']} — would park at ship"))
+        elif r["unattended"] != "ready":
             rejected.append((r["path"], f"unattended: {r['unattended']}"))
         elif r["blocked"]:
             rejected.append((r["path"], "declares Blocked-by:"))
@@ -166,6 +224,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         libs.update(x for x in r["repos"] if x in LIBRARY_REPOS)
 
     return {
+        "dispatch": [_dispatch_payload(r) for r in members],
         "session_lane": session_lane,
         "review_budget": budget,
         "effective_budget": effective_budget,
@@ -178,6 +237,17 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
             1 for r in records
             if r["unattended"] == "ready" and not _lane_ok(r["lane"], session_lane)),
     }
+
+
+def _dispatch_payload(r: dict) -> str:
+    """The exact text a human pastes into one unattended session.
+
+    Written out rather than left to be composed at dispatch time: the launch is
+    the human's act (AUTONOMY.md, "What a batch launch is"), so the thing they
+    perform should carry no decisions — everything decided was decided when they
+    approved the batch.
+    """
+    return f"/start_dev {r['path']} --auto"
 
 
 def emit(d: dict) -> None:
@@ -223,6 +293,11 @@ def emit(d: dict) -> None:
     for why, n in sorted(counts.items(), key=lambda kv: -kv[1])[:8]:
         print(f"  {n:>4}  {why}")
     print()
+    if d["members"]:
+        print("To dispatch: paste ONE of these into its own session —")
+        for line in d["dispatch"]:
+            print(f"  {line}")
+        print()
     print("This is a PROPOSAL. Approving it in the slot is what launches the")
     print("batch — membership is fixed at approval and the grant expires with")
     print("the shift (AUTONOMY.md, \"What a batch launch is\").")

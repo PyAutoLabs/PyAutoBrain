@@ -922,6 +922,54 @@ def effective_review_minutes(p: dict, tier: str, level: str):
     return (declared if declared is not None else derived), derived
 
 
+# The per-work-type autonomy caps, mirrored from `AUTONOMY.md` "Per-work-type
+# caps". Until 2026-08-30 these lived ONLY as prose there, applied by whichever
+# agent happened to read the doctrine — so nothing could compute what a prompt's
+# autonomy actually resolves to, and the batch planner proposed work that would
+# park at the ship checkpoint the moment it ran. A rule every consumer has to
+# re-read and re-apply by hand is a rule that gets applied differently by each
+# of them; this is the same lesson `effective_difficulty` already carries.
+#
+# Editing this table is a doctrine change: edit AUTONOMY.md first, then mirror.
+WORK_TYPE_AUTONOMY_CAPS = {
+    "refactor": "safe", "test": "safe", "maintenance": "safe",
+    "bug": "supervised", "research": "supervised", "experiment": "supervised",
+    "release": "human-required", "human_review": "human-required",
+    "triage": "human-required",
+}
+_AUTONOMY_RANK = {"safe": 0, "supervised": 1, "human-required": 2}
+
+
+def autonomy_cap(work_type: str, difficulty: str) -> str:
+    """The most autonomy this work-type may ever have, whatever it declares."""
+    if work_type in ("feature", "docs"):
+        # Raised 2026-07-09 on calibration evidence; `large` and above still
+        # checkpoints, because size is where the heuristic is least trustworthy.
+        return "safe" if difficulty in ("small", "medium") else "supervised"
+    return WORK_TYPE_AUTONOMY_CAPS.get(work_type, "human-required")
+
+
+def effective_autonomy(p: dict, difficulty: str):
+    """(level, cap, declared) — what a run's autonomy ACTUALLY resolves to.
+
+    `min(header, cap)` in the doctrine's sense: the more restrictive of the two
+    wins, and a missing header means `human-required` rather than a default.
+
+    This is the difference between a task that reaches PR-open unattended and
+    one that parks on a question the moment it gets there, and it is not the
+    same question as `Unattended:`. Readiness asks whether the work FITS one
+    run; this asks whether the run is allowed to finish it without a human.
+    A batch planner that reads only the first will fill a shift with tasks that
+    all stop at the ship checkpoint.
+    """
+    declared = p.get("declared_autonomy")
+    cap = autonomy_cap(p.get("work_type", "?"), difficulty)
+    if not declared:
+        return "human-required", cap, None
+    level = max(declared, cap, key=lambda v: _AUTONOMY_RANK[v])
+    return level, cap, declared
+
+
 def effective_difficulty(p: dict):
     """(level, score, factors, derived_level) — the DECLARED level wins.
 
