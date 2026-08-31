@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 9,
+        "count": 7,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "13/13 code repos: 6 stale branches, 0 stashes, 3 [gone] refs, 0 dirty checkouts"
+        "summary": "13/13 code repos: 4 stale branches, 0 stashes, 3 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
@@ -93,15 +93,23 @@
         "summary": "33 api .rst files, 81 currentmodule directives across 4 repos with docs/api (13/13 code repos present)"
       },
       {
-        "count": 19,
+        "count": 20,
         "delegate": "/refactor",
         "mode": "config",
         "status": "surface",
-        "summary": "19 library config keys absent downstream (review/mirror): autofit_workspace:3 autogalaxy_workspace:15 autolens_workspace:1"
+        "summary": "20 library config keys absent downstream (review/mirror): autofit_workspace:4 autogalaxy_workspace:15 autolens_workspace:1"
       }
     ]
   },
   "schema": 1,
-  "ts": "2026-08-28T22:00:11Z",
-  "worktrees": []
+  "ts": "2026-08-31T14:10:32Z",
+  "worktrees": [
+    {
+      "ahead": 0,
+      "branch": "main",
+      "dirty": true,
+      "repo": "autolens_workspace",
+      "stashes": 0
+    }
+  ]
 }
