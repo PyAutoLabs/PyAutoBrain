@@ -11,9 +11,11 @@ The composition rule, and the reason the epic exists:
 
     sum(Review-minutes) over `glance` and `judge` members <= the slot budget
 
-not a task count. Read against the ledger, an honest review hour holds about
-three library-touching tasks; a design that plans by count over-promises
-capacity roughly threefold and lands the overflow on the human at 6am.
+not a task count. The budget is the human's to set per slot (default 45) — a
+slot is whenever they come in, not a scheduled hour. Read against the ledger, an
+honest review hour holds about three library-touching tasks; a design that plans
+by count over-promises capacity roughly threefold and lands the overflow on the
+human at 6am.
 
 Everything above that budget is the FILL: work costing zero review-minutes
 (`notify`-tier work, slicing, witness authoring, re-grading, deeper verification
@@ -40,7 +42,9 @@ from _sizing import (  # noqa: E402
     parse_prompt, priority_rank,
 )
 
-# One slot's worth of the human's attention. Not a task count — see the module
+# One slot's worth of the human's attention, and only the DEFAULT: the human
+# sets it per slot with --budget, because they know whether the next one is a
+# quick morning check or a long afternoon. Not a task count — see the module
 # docstring. 45 rather than 60 because a slot also has to queue the next batch.
 DEFAULT_REVIEW_BUDGET = 45
 # Above half the cap the review-bearing half is halved; at the cap the batch is
@@ -149,9 +153,10 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     """
     rejected: list[tuple[str, str]] = []
 
-    # Backpressure RAMPS; it never deadlocks. A missed slot is the common case
-    # for an academic, and a conference week must not stop the thing whose whole
-    # purpose is working while nobody watches.
+    # Backpressure RAMPS; it never deadlocks. It measures review-queue DEPTH,
+    # never timing: timing is the human's, declared as `review-at:` at dispatch.
+    # An academic comes back late and vanishes for conference weeks, and a deep
+    # queue must shrink the next batch rather than refuse to compose one.
     if awaiting_review >= cap:
         effective_budget, pressure = 0, "at cap — fill only"
     elif awaiting_review > cap / 2:
@@ -268,14 +273,16 @@ def emit(d: dict) -> None:
             if not r["witness"]:
                 print("           (no witness — reviewed as `judge`)")
     elif d["effective_budget"] == 0:
-        # At the cap the batch is the FLOOR: fill only, dispatched whether or
-        # not the human turned up. An empty floor is a finding, not a deadlock —
-        # it means nothing in the backlog costs zero review-minutes, which is
-        # what the `notify` tier and the witness field exist to change.
-        print("  (no members — at the backpressure cap, so this batch is the")
-        print("   FLOOR: fill only. Nothing in the backlog currently qualifies")
-        print("   as fill, which is itself the finding — clear the review queue,")
-        print("   or write witnesses so work can grade `notify`.)")
+        # At the cap the batch is fill only — and the human still dispatches it.
+        # (The FLOOR, a fill-only batch dispatched whether or not they turned
+        # up, was closed 2026-08-31 and never built.) An empty fill-only batch
+        # is a finding, not a deadlock: nothing in the backlog costs zero
+        # review-minutes, which is what the `notify` tier and the witness field
+        # exist to change.
+        print("  (no members — at the backpressure cap, so this batch is FILL")
+        print("   ONLY. Nothing in the backlog currently qualifies as fill,")
+        print("   which is itself the finding — clear the review queue, or")
+        print("   write witnesses so work can grade `notify`.)")
     else:
         print("  (no members — see the rejections below)")
     print()
@@ -301,6 +308,8 @@ def emit(d: dict) -> None:
     print("This is a PROPOSAL. Approving it in the slot is what launches the")
     print("batch — membership is fixed at approval and the grant expires with")
     print("the shift (AUTONOMY.md, \"What a batch launch is\").")
+    print("State review-at (when you expect to be back) when you say go: the")
+    print("shift is dispatch -> review-at, and it is where the grant expires.")
 
 
 def main(argv=None) -> int:

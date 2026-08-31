@@ -4,7 +4,9 @@
 > unattended shift*: given the queue, the backlog and the review-queue state, it
 > emits a **BatchDecision** — the members, what they will cost the human to
 > review, and what it rejected and why. It **proposes; it never dispatches.**
-> Approving the proposal in a slot is what launches a batch.
+> Approving the proposal in a slot is what launches a batch, and the human says
+> at dispatch when they expect to be back (`review-at:`) — that horizon is the
+> shift.
 
 ## What it is for
 
@@ -17,9 +19,12 @@ So the composition rule is a budget in **review-minutes**, not a count:
 > Σ `Review-minutes:` over `glance` and `judge` members ≤ the slot's budget
 > (default 45 — a slot also has to queue the next batch).
 
-Read against the ledger, an honest hour holds about three library-touching
-tasks. Planning by count over-promises capacity roughly threefold, and the
-overflow lands on the human at 6am.
+The budget is **the human's to set per slot**: they know whether the next one is
+a quick morning check or a long afternoon, and the number follows the nature of
+the work and their schedule rather than a rhythm. Read against the ledger, an
+honest hour holds about three library-touching tasks. Planning by count
+over-promises capacity roughly threefold, and the overflow lands on the human at
+6am.
 
 Everything above that budget is the **fill**: work costing zero review-minutes
 (`notify`-tier work, slicing, witness authoring, backlog re-grading, deeper
@@ -59,15 +64,17 @@ named two or more PRs, so a PR-count cap trips on a single healthy batch.
 - clear → the full budget;
 - above half the cap → the review-bearing half is **halved** (the fill is not:
   it does not touch the queue);
-- at the cap → the batch is the **floor**: fill only, dispatched whether or not
-  the human turned up.
+- at the cap → the batch is **fill only**: zero-cost work still composes, and
+  the human still dispatches it.
 
-A missed slot is the common case for an academic, not an exception, and a
-conference week must not stop the thing whose whole purpose is working while
-nobody watches. An **empty floor is a finding, not a deadlock** — it means
-nothing in the backlog costs zero review-minutes, which is exactly what the
-`notify` tier and the `Witness:` field exist to change, and the decision says so
-in those words.
+Backpressure is about review-queue **depth**, never about timing — timing is the
+human's, declared as `review-at:` at dispatch, and if they do not come back
+nothing new is dispatched at all. (The **floor** — a fill-only batch that
+dispatched whether or not the human turned up — was **closed 2026-08-31** and
+never built.) An **empty fill-only batch is a finding, not a deadlock** — it
+means nothing in the backlog costs zero review-minutes, which is exactly what
+the `notify` tier and the `Witness:` field exist to change, and the decision
+says so in those words.
 
 ## Lane detection
 
@@ -81,7 +88,8 @@ hiding it: *"4 local-dev task(s) are ready — run `batch plan` from the laptop.
 ## It proposes; the human launches
 
 `AUTONOMY.md` ("What a batch launch is") defines a batch dispatch as **one
-launch**: membership fixed at approval, the grant expiring with the shift, the
+launch**: membership fixed at approval, the grant expiring with the shift — the
+interval from dispatch to the `review-at:` the human states at dispatch — the
 terms written into `PyAutoMind/batches/<date>-<am|pm>.md`, and the human
 performing the dispatch. A scheduler may build the review packet and wake a
 session; the act that starts work on the approved list is the human's. That is
@@ -105,32 +113,37 @@ Phase 5 — automatic fan-out — is deliberately unbuilt. Everything below work
 today, costs about two minutes of tapping, and is the honest way to find out
 what a dispatcher actually needs before writing one.
 
-**In the slot (about an hour, once a day):**
+**In the slot — whenever the human comes in; there is no schedule:**
 
-1. `pyauto-brain batch plan` — read the BatchDecision. Edit it by removing
-   members you do not want; do not add ones it rejected without reading why.
+1. `pyauto-brain batch plan` — read the BatchDecision. Pass `--budget` if this
+   slot is not a default 45-minute one. Edit the decision by removing members
+   you do not want; do not add ones it rejected without reading why.
 2. **Acknowledge the Heart reason set for the shift**, if Heart is YELLOW
    (`pyauto-brain vitals`). Write it verbatim into the batch record — a grant
    recorded loosely is how a scoped one becomes standing, which doctrine voids
    (`AUTONOMY.md`, "Leg 4 under a batch launch").
-3. Open the batch record `PyAutoMind/batches/<YYYY-MM-DD>-<am|pm>.md` from the
+3. **Say when you expect to be back** — `review-at:`, an ISO timestamp. The
+   shift is dispatch → `review-at:`, and the grant expires there. It is the one
+   thing only the human knows, so it is stated, never inferred.
+4. Open the batch record `PyAutoMind/batches/<YYYY-MM-DD>-<am|pm>.md` from the
    schema in that folder's `AGENTS.md`, and write the members, the planned
-   review-minutes and the reason set **before** dispatching. That file is what
-   makes the launch auditable afterwards.
-4. **Dispatch**: paste each line the decision prints into **its own session**.
+   review-minutes, `review-at:` and the reason set **before** dispatching. That
+   file is what makes the launch auditable afterwards.
+5. **Dispatch**: paste each line the decision prints into **its own session**.
    One session per member — they must not share one, because a single session
    would serialise them and carry one member's context into the next.
-5. Go and do something else.
+6. Go and do something else.
 
-**Next slot:**
+**At `review-at:` (or whenever they actually sit down):**
 
-6. Read the PRs. Failures first, then anything labelled `decision-taken`, then
+7. Read the PRs. Failures first, then anything labelled `decision-taken`, then
    clean ones. For each: merge (`/prm <PR>`), or say one line of what you want
    changed and let a session draft the follow-up prompt into `queue.md`.
-7. Append the outcome to the batch record — `delivered:`, and especially
+8. Append the outcome to the batch record — `reviewed-at:` (when they really
+   sat down, which calibrates their own estimates), `delivered:`, and especially
    **`review-minutes-actual:`**. That last number is the only calibration the
-   estimate will ever get, and everything the planner does rests on it.
-8. Plan the next batch.
+   review estimate will ever get, and everything the planner does rests on it.
+9. Plan the next batch, and declare the next `review-at:`.
 
 **The one leg you must not skip.** A batch launch requires the independent
 adversary (`AUTONOMY.md` leg 5). Until `batch collect` exists, run it by hand

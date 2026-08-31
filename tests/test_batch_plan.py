@@ -1,7 +1,8 @@
 """tests/test_batch_plan.py — the Batch Agent's composition rules.
 
 The planner's whole job is refusing things for stated reasons, so every test
-here is a refusal (or the one case that must never be refused: the floor).
+here is a refusal (or the one case that must never be refused: zero-cost fill
+under full backpressure).
 """
 
 from __future__ import annotations
@@ -106,10 +107,10 @@ def test_backpressure_ramps_rather_than_cliffs():
     assert _batch.plan(pool, budget=60, awaiting_review=8)["effective_budget"] == 0
 
 
-def test_at_the_cap_the_floor_is_fill_only_and_still_runs():
-    """A conference week must not stop the thing whose whole purpose is working
-    while nobody watches. At the cap the review-bearing half is zero — but
-    zero-cost work still dispatches."""
+def test_at_the_cap_the_batch_is_fill_only_and_still_composes():
+    """Backpressure measures review-queue depth, not the human's timing. At the
+    cap the review-bearing half is zero — but zero-cost work still composes, and
+    the human still dispatches it."""
     d = _batch.plan([rec("a.md"), rec("b.md", tier="notify", minutes=0)],
                     budget=60, awaiting_review=99)
     assert paths(d) == ["b.md"]
