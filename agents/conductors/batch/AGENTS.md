@@ -129,21 +129,42 @@ what a dispatcher actually needs before writing one.
    schema in that folder's `AGENTS.md`, and write the members, the planned
    review-minutes, `review-at:` and the reason set **before** dispatching. That
    file is what makes the launch auditable afterwards.
-5. **Dispatch**: paste each line the decision prints into **its own session**.
-   One session per member — they must not share one, because a single session
+5. **Dispatch — `local-dev` members first** (2026-08-31): paste their lines
+   into laptop CLI chats while the laptop is still on, so RAL submissions
+   queue this evening — that is the priority use of the remaining laptop
+   hours. Cloud members follow, each line into **its own session**. One
+   session per member — they must not share one, because a single session
    would serialise them and carry one member's context into the next.
-6. Go and do something else.
+6. **Open the packet now** (2026-08-31): write the review page to
+   `PyAutoMind/batches/packets/<date>-<slot>.html` with every member present
+   — overnight runs as PENDING entries — stamped `generated:`. The human
+   wakes to a live page; the morning collect fills it in.
+7. Go and do something else.
 
 **At `review-at:` (or whenever they actually sit down):**
 
-7. Read the PRs. Failures first, then anything labelled `decision-taken`, then
-   clean ones. For each: merge (`/prm <PR>`), or say one line of what you want
-   changed and let a session draft the follow-up prompt into `queue.md`.
-8. Append the outcome to the batch record — `reviewed-at:` (when they really
-   sat down, which calibrates their own estimates), `delivered:`, and especially
-   **`review-minutes-actual:`**. That last number is the only calibration the
-   review estimate will ever get, and everything the planner does rests on it.
-9. Plan the next batch, and declare the next `review-at:`.
+8. **Collect** (2026-08-31): science members — `hpc/sync pull` per project,
+   so every pointer in the packet is a local path (remote-only pointers exist
+   only where the pull cannot fetch by design, and say so; a mobile session
+   cannot pull and says "run collect from the laptop"). Dev members — the PR
+   number and whether every check ran green; no green-CI PR, not
+   `delivered:`. Fill the PENDING entries, stamp the page `refreshed:` — this
+   normally happens while the human is already reading the finished members.
+9. The human reviews on the packet page — tick, choose, annotate, submit —
+   and the review lands as `batches/reviews/<date>-<slot>.md` (or they
+   dictate it in-chat; same review). Failures first, then `decision-taken`,
+   then clean. Act on it member by member: merge (`/prm <PR>`) and write
+   science rulings into the project ledgers; tweaks become follow-up prompts
+   drafted for them at the **top of `queue.md`**; rejects go to
+   `condemned.md`. **Follow-ups are enacted in the next batch — a review
+   never executes its own follow-ups, and an open follow-up never holds the
+   next dispatch** (2026-08-31).
+10. Close the batch record — `reviewed-at:` (when they really sat down, which
+   calibrates their own estimates), `delivered:`, `packet:`, `review:`, and
+   especially **`review-minutes-actual:`**. That last number is the only
+   calibration the review estimate will ever get, and everything the planner
+   does rests on it.
+11. Plan the next batch, and declare the next `review-at:`.
 
 **The one leg you must not skip.** A batch launch requires the independent
 adversary (`AUTONOMY.md` leg 5). Until `batch collect` exists, run it by hand
