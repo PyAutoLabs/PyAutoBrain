@@ -66,37 +66,73 @@ In order:
    `/start_dev <path> --auto`. Spawn them if this harness can; otherwise hand
    the human the lines to paste. **One session per member, never shared**: a
    shared session serialises them and carries one member's context into the
-   next.
-4. Confirm what was dispatched, and stop. Do not follow the runs.
+   next. **`local-dev` members go first** (2026-08-31): they are pasted into
+   laptop CLI chats and their RAL submissions queue while the laptop is still
+   on — the priority use of the remaining laptop hours is getting cluster
+   queues running; cloud members follow, they do not need the laptop.
+4. **Open the packet at dispatch** (2026-08-31): write the review page to
+   `PyAutoMind/batches/packets/<date>-<slot>.html` with every member present —
+   dev members as stubs, overnight runs as **PENDING** entries — and stamp it
+   `generated:`. The human wakes to a live page, not a blank; the morning
+   collect fills it in.
+5. Confirm what was dispatched, and stop. Do not follow the runs.
 
-## When they come back
+## When they come back — collect, review, close (2026-08-31)
 
-Read the PRs. Order: **failures first, then anything labelled `decision-taken`,
-then clean.** For each, offer three things and do the one they pick:
+**Collect first, before the human reads anything.**
 
-- **merge** — `/prm <PR>`;
-- **tweak** — they say one line; *you* draft the follow-up prompt and put it at
-  the top of `queue.md`. They should never have to write a prompt file.
-- **reject** — route it to `condemned.md`.
-
-Then append the outcome to the batch record: `reviewed-at:` (when they actually
-sat down — the calibration of their own `review-at:` estimate), `delivered:`
-(see below) and **`review-minutes-actual:`**. That last number is the only
-calibration the review estimate will ever get, so ask for it if the human does
-not volunteer it.
+- **Science members end at pulled results.** Step 0 is each project's
+  `hpc/sync pull`, so every run output the packet cites is on the laptop —
+  these are evolving projects the human stays in the loop on, and the loop
+  runs through their own disk. Every "where to look" pointer in the packet is
+  a **local path**; a pointer may stay remote only when the pull cannot fetch
+  it by design, and must say so. A mobile session cannot pull: it says "run
+  collect from the laptop" rather than emitting a remote-only packet.
+- **Dev members end at a PR with CI green.** The packet states, per dev
+  member, the PR number and whether **every check ran and ran green** — a
+  member without a green-CI PR is not `delivered:`, however clean its diff.
+- **Fill the PENDING entries.** The packet was written at dispatch; the
+  morning collect replaces each PENDING member with its readout and adds a
+  `refreshed:` stamp. This normally happens while the human is already
+  reading the finished members.
 
 **Before reading any PR from a batch, the independent adversary leg must have
 run** (`AUTONOMY.md` leg 5): `bin/pyauto-brain review --task <name> --witness
 "<the prompt's Witness:>" --adversary`, **in a session using a different model
-from the one that wrote the branch**. A self-run adversary leg is an absent leg,
-not a weak one, and recording it as run is a false ledger row. If it has not
-run, say so rather than reviewing as though it had.
+from the one that wrote the branch**. A self-run adversary leg is an absent
+leg, not a weak one, and recording it as run is a false ledger row. If it has
+not run, say so rather than reviewing as though it had.
+
+**Then the human reviews — on the packet page, not in the chat.** Order:
+failures first, then anything labelled `decision-taken`, then clean. They tick,
+choose and annotate each member on the page and submit; the submission lands as
+`PyAutoMind/batches/reviews/<date>-<slot>.md` (or they dictate the same
+content in-chat — both are the same review). When they say the review is done,
+read that file and act on it, member by member:
+
+- **merge** — `/prm <PR>`; for a science member, write the ruling into the
+  project's own ledger (DECISIONS, harvest table, results summary) verbatim.
+- **tweak** — their one line becomes a follow-up prompt *you* draft, placed at
+  the **top of `queue.md`**. They never write a prompt file.
+- **reject** — route it to `condemned.md`.
+
+**Review closes the batch; follow-ups never block the next one** (2026-08-31).
+Every tweak and follow-up is *queued*, enacted in the next batch the human
+launches — it is never executed inside the review, and an open follow-up is
+never a reason to hold the next dispatch. The batch is complete when: accepted
+PRs are merged, science rulings are in their ledgers, follow-ups sit at the top
+of `queue.md`, the packet page is archived in `batches/packets/`, and the batch
+record carries `reviewed-at:` (when they actually sat down — the calibration of
+their own `review-at:` estimate), `delivered:` (see below), `review:` (the
+review file's path) and **`review-minutes-actual:`**. That last number is the
+only calibration the review estimate will ever get, so ask for it if the human
+does not volunteer it.
 
 **`delivered:` is not "green".** A cloud session's green status means it exited
 without an infrastructure error — not that the task succeeded. A member counts
-as delivered only with a PR that has a non-empty diff and checks that ran. A
-member that ended green with no PR is reported **not delivered**, loudly, at the
-top.
+as delivered only with a PR that has a non-empty diff and checks that ran green.
+A member that ended green with no PR is reported **not delivered**, loudly, at
+the top.
 
 ## Never
 
@@ -108,3 +144,5 @@ top.
 - Present the proposal as a schedule. The schedule may carry the timing; it
   never carries the authority.
 - Dispatch without a `review-at:` in the batch record, or invent one for them.
+- Execute a review follow-up inside the review, or hold the next batch waiting
+  on one — follow-ups go to the top of `queue.md` and run in the next batch.
