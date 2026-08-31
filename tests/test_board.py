@@ -27,8 +27,8 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SURFACE_KEYS = {
-    "generated", "org", "overnight", "heart", "heart_blockers", "heart_plan",
-    "performance",
+    "generated", "org", "repo", "overnight", "heart", "heart_blockers",
+    "heart_plan", "performance",
     "hands", "versions", "community", "resume", "open_issues", "hygiene",
     "devbox", "autonomy", "doors", "boards", "degraded", "history",
 }
@@ -392,6 +392,11 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert 'data-cmd="bash PyAutoBrain/bin/morning.sh"' in page
     # The doors roster is on the page.
     assert 'data-cmd="/intake"' in page
+    # The header line every sibling board carries: the markdown twin and the
+    # way back to the repository front door on github.com.
+    assert '<a href="board.md">markdown version</a>' in page
+    assert ('<a href="https://github.com/ExampleOrg/PyAutoBrain/blob/main/'
+            'README.md">GitHub Page</a>') in page
 
 
 # --------------------------------------------------------------- the look --
