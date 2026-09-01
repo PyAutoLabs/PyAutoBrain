@@ -2316,7 +2316,8 @@ def render_dashboard_html(c: dict) -> str:
           "</div>"]
     if home:
         H.append(f'<p class="muted mdsrc">'
-                 f'{link("dashboard.md", "markdown version")}</p>')
+                 f'{link("dashboard.md", "markdown version")} · '
+                 f'{link("README.md", "GitHub Page")}</p>')
     if c.get("drift"):
         H += ['<p>⚠️ <b>Needs lifecycle reconciliation</b> — draft prompts '
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]

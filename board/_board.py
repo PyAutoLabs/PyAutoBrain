@@ -873,6 +873,7 @@ def collect():
     data = {
         "generated": now.strftime("%Y-%m-%d %H:%M UTC"),
         "org": org,
+        "repo": board_family.get("brain", "PyAutoBrain"),
         "overnight": overnight,
         "heart": heart,
         "heart_blockers": heart_blockers,
@@ -1288,6 +1289,14 @@ def render_html(data):
     # page. `–` where a source was unreachable: an absent count is never a
     # zero here, the same contract the rows keep.
     H.append(stats(*section_counts(data)))
+    # The sibling boards' header line: the markdown twin (written beside
+    # index.html by --apply, so the relative href resolves on Pages) and the
+    # way back to the repository front door on github.com.
+    if data.get("org") and data.get("repo"):
+        gh = (f'https://github.com/{data["org"]}/{data["repo"]}'
+              "/blob/main/README.md")
+        H.append('<p class="muted mdsrc"><a href="board.md">markdown '
+                 f'version</a> · <a href="{_attr(gh)}">GitHub Page</a></p>')
     H.append("<h2>⌨ Morning sync (local)</h2>")
     H.append(_row(
         "Sync every repo to main + clean generated cruft — run in a terminal "
