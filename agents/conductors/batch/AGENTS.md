@@ -135,6 +135,13 @@ what a dispatcher actually needs before writing one.
    hours. Cloud members follow, each line into **its own session**. One
    session per member — they must not share one, because a single session
    would serialise them and carry one member's context into the next.
+   Spawned cloud members need the **member-session contract**
+   (`skills/batch/batch.md`, dispatch step 3): seed PyAutoMind as the session
+   source with the bootstrap preamble, and instruct members to **end at their
+   deliverable** — no PR watching, no event subscriptions, no self-armed
+   check-ins after the last push; the batch review owns follow-through
+   (2026-08-31: a bare-spawned wave died on missing sources, and green
+   members' self-armed check-ins drained usage overnight).
 6. **Open the packet now** (2026-08-31): write the review page to
    `PyAutoMind/batches/packets/<date>-<slot>.html` with every member present
    — overnight runs as PENDING entries — stamped `generated:`. The human

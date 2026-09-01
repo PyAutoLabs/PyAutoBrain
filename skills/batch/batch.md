@@ -67,8 +67,8 @@ In order:
    is where the grant expires; **if they did not say, ask before dispatching.**
    It is the one thing only they know — never infer it from a schedule, a
    previous batch, or the time of day, and do not dispatch without it.
-3. Start one session per member, each carrying exactly
-   `/start_dev <path> --auto` — nothing more: the batch record is what informs a
+3. Start one session per member, each carrying `/start_dev <path> --auto`
+   plus the member-session contract below — the batch record is what informs a
    member of the shift's grant (it reads it at leg 4), not the dispatch line. Spawn them if this harness can; otherwise hand
    the human the lines to paste. **One session per member, never shared**: a
    shared session serialises them and carries one member's context into the
@@ -76,6 +76,25 @@ In order:
    laptop CLI chats and their RAL submissions queue while the laptop is still
    on — the priority use of the remaining laptop hours is getting cluster
    queues running; cloud members follow, they do not need the laptop.
+
+   **The member-session contract (2026-08-31, both measured that night):**
+
+   - *Spawned cloud sessions need sources and a bootstrap preamble.* A session
+     created bare (environment inherited, no source repos) has no clones, no
+     skills and no GitHub scope — the whole first wave died on
+     `Unknown command: /start_dev`. Seed `PyAutoMind@main` as the session
+     source and prepend: run `scripts/session_bootstrap.sh`; attach
+     PyAutoLabs/PyAutoBrain via `add_repo` (push) + `register_repo_root`; read
+     `PyAutoBrain/skills/GITHUB_ACCESS.md`; read the batch record; then follow
+     `skills/start_dev/start_dev.md` for the prompt in `--auto` mode.
+   - *Members END at their deliverable — a green PR, a posted verdict, or a
+     park.* The dispatch line must say, and members must obey: **do not watch
+     the PR, do not `subscribe_pr_activity`, do not schedule check-ins or
+     routines after the last push.** The batch review owns everything that
+     follows; the general PR-steward doctrine does not apply to a batch member.
+     Five members self-armed 2–4-hourly check-ins on green PRs overnight and
+     drained usage with no task active. At collect, the orchestrator deletes
+     any member-armed routine it finds and archives finished member sessions.
 4. **Open the packet at dispatch** (2026-08-31): write the review page to
    `PyAutoMind/batches/packets/<date>-<slot>.html` with every member present —
    dev members as stubs, overnight runs as **PENDING** entries — and stamp it
