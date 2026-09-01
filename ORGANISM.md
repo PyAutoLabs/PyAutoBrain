@@ -12,13 +12,14 @@ organs plan, build, test and release it, and you make every judgment call.
 
 | Organ | Repo | Role and boundary |
 |-------|------|-------------------|
-| **Mind** | PyAutoMind | Decides *what* — intent, goals, priorities, workflow state, the prompt registry and taxonomy. Also holds the body map (`repos.yaml`, the single source of repo identity). |
 | **Brain** | PyAutoBrain | Figures out *how* — reasoning, planning, decomposition, routing; hosts the specialist agents. Owns **no state, no health checks, no execution mechanics**. |
+| **Mind** | PyAutoMind | Decides *what* — intent, goals, priorities, workflow state, the prompt registry and taxonomy. Also holds the body map (`repos.yaml`, the single source of repo identity). |
+| **Cortex** | PyAutoCortex | Learns *what is true* — the science body map (`projects.yaml`) and the rulings of record for every science run; the science mirror of the Mind (runs and rulings ↔ prompts and PRs). The Mind decides what to build, the Brain routes the work and executes nothing, the Cortex learns what is true. A verdict recorded only outside the Cortex does not exist: project ledgers are commentary that cite the ruling. |
+| **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (the `complete/` records, issues), not here. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. `pyauto-heart readiness` is the **authoritative** GREEN/YELLOW/RED "is it safe to release?" gate. An observer: never writes into other repos, never triggers Build. |
 | **Hands** | PyAutoHands | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
-| **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (the `complete/` records, issues), not here. |
+| **Nerves** | PyAutoNerves | The configuration/serialization layer (`autonerves`) — layered config with overrides, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. Connects the organism's conventions to every library; the base layer the scientific libraries all import. |
 | **Gut** | PyAutoGut | Owns the lifecycle of *condemned self-material* — stale branches, stashes, dead code/tests. Holds each as a durable, recoverable git ref through a transit window and **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
-| **Nerves** | PyAutoNerves | The configuration/serialization layer (`autonerves`) — layered config with overrides, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. Connects the organism's conventions to every library; the base layer the scientific libraries all import. The seventh organ. |
 
 *Hands* and *Build* name the **same organ** (PyAutoHands) throughout this
 document: the organ is the **Hands**, and *Build* is the call-chain step it
@@ -65,8 +66,12 @@ human types); let faculties multiply behind them.
 New capability grows as a **faculty** (cheap: one directory, one doc, one
 script), not as a repo. A new organ costs an `AGENTS.md`, a `CLAUDE.md` stub,
 install wiring, a body-map row and boundary prose — it must earn that by
-owning state or effects no existing organ can. Configuration/signalling is the
-one standing exception that already earned organ status: it is the **Nerves**
+owning state or effects no existing organ can. Two capabilities have earned
+organ status that way. Configuration/signalling is the **Nerves**
 (PyAutoNerves), the base config/serialization layer every library imports — new
-config surfaces belong there, not in a new organ. The human interaction layer
-is the command surface (`/route` + the verb commands), which is part of Brain.
+config surfaces belong there, not in a new organ. Learning what is true is the
+**Cortex** (PyAutoCortex), the second organ to earn it: it owns state no organ
+owned before — the science body map and the rulings of record — so science
+runs and their verdicts belong there, not in the Mind. The human interaction
+layer is the command surface (`/route` + the verb commands), which is part of
+Brain.

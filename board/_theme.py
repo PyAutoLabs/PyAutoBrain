@@ -67,18 +67,25 @@ its own background (light on `#fff`, dark on `#0d1117`).
 # hero:  (lift, base) — the hero's radial gradient, echoing each logo's
 #        vignette: a tinted lift behind the wordmark falling to near-black.
 ORGANS = {
-    "mind": {
-        "organ": "Mind",
-        "tagline": "Intent. Priority. Flow.",
-        "ink_light": "#0a7d72", "ink_dark": "#2ee6cf", "glow": "#00d1ba",
-        "hero": ("#07302b", "#000000"),
-    },
     "brain": {
         "organ": "Brain",
         "tagline": "Reason. Plan. Decide.",
         "ink_light": "#2159c9", "ink_dark": "#6f9dff", "glow": "#4d8bff",
         "glow2": "#a855f7",
         "hero": ("#16234f", "#000312"),
+    },
+    "mind": {
+        "organ": "Mind",
+        "tagline": "Intent. Priority. Flow.",
+        "ink_light": "#0a7d72", "ink_dark": "#2ee6cf", "glow": "#00d1ba",
+        "hero": ("#07302b", "#000000"),
+    },
+    "memory": {
+        "organ": "Memory",
+        "tagline": "Remember. Learn. Evolve.",
+        "ink_light": "#6b34d6", "ink_dark": "#b37eff", "glow": "#b37eff",
+        "glow2": "#8b5cf6",
+        "hero": ("#221345", "#000000"),
     },
     "heart": {
         "organ": "Heart",
@@ -91,13 +98,6 @@ ORGANS = {
         "tagline": "Build. Execute. Deliver.",
         "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
         "hero": ("#372100", "#000000"),
-    },
-    "memory": {
-        "organ": "Memory",
-        "tagline": "Remember. Learn. Evolve.",
-        "ink_light": "#6b34d6", "ink_dark": "#b37eff", "glow": "#b37eff",
-        "glow2": "#8b5cf6",
-        "hero": ("#221345", "#000000"),
     },
     # The umbrella is the one board with no logo to sample: the accent and
     # the tagline are designed to sit in the family rather than read off a
@@ -122,30 +122,6 @@ ORGANS = {
 # are ~1KB of path data, stay sharp on any screen, and take the accent.
 # Keep them that way — a mark is a logo's glyph in line art, not a rendering.
 MARKS = {
-    # Mind — a left-facing head profile, a check inside the skull, three
-    # node-tipped signal lines leaving the back of the head, inside a ring.
-    "mind": (
-        '<circle cx="24" cy="24" r="20.4"/>'
-        '<path d="M20.2,37.6 L20.2,33.6 '
-        'C20.2,32.4 19.4,31.6 18.4,30.8 '
-        'C16.8,29.6 15.8,28.2 15.6,26.6 '
-        'C15.5,25.6 14.9,25.2 13.9,24.9 '
-        'C12.6,24.5 12.3,23.7 13.0,22.7 '
-        'C13.8,21.6 14.5,20.6 14.6,19.4 '
-        'C15.0,15.4 18.2,12.2 22.4,11.8 '
-        'C27.2,11.3 31.6,14.6 32.3,19.2 '
-        'C32.8,22.4 31.6,25.0 30.6,27.0 '
-        'C29.9,28.4 29.6,29.6 29.6,31.2 '
-        'L29.6,37.6"/>'
-        '<circle cx="24.6" cy="19.6" r="4.4"/>'
-        '<path d="M22.5,19.7 L24.0,21.3 L26.8,18.1"/>'
-        '<path d="M34.2,16.5 L38.8,16.5 M35.2,21.0 L39.4,21.0 '
-        'M33.6,25.5 L37.2,25.5"/>'
-        '<g fill="currentColor" stroke="none">'
-        '<circle cx="40.1" cy="16.5" r="1.4"/>'
-        '<circle cx="40.7" cy="21.0" r="1.4"/>'
-        '<circle cx="38.5" cy="25.5" r="1.4"/></g>'
-    ),
     # Brain — a circuit brain: two lobed hemispheres either side of a spine,
     # each branching into elbowed, node-tipped traces, inside a ring.
     "brain": (
@@ -187,6 +163,61 @@ MARKS = {
         '<circle cx="26.8" cy="32.8" r="1.2"/>'
         '<circle cx="24" cy="33.8" r="1.4"/></g>'
     ),
+    # Mind — a left-facing head profile, a check inside the skull, three
+    # node-tipped signal lines leaving the back of the head, inside a ring.
+    "mind": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<path d="M20.2,37.6 L20.2,33.6 '
+        'C20.2,32.4 19.4,31.6 18.4,30.8 '
+        'C16.8,29.6 15.8,28.2 15.6,26.6 '
+        'C15.5,25.6 14.9,25.2 13.9,24.9 '
+        'C12.6,24.5 12.3,23.7 13.0,22.7 '
+        'C13.8,21.6 14.5,20.6 14.6,19.4 '
+        'C15.0,15.4 18.2,12.2 22.4,11.8 '
+        'C27.2,11.3 31.6,14.6 32.3,19.2 '
+        'C32.8,22.4 31.6,25.0 30.6,27.0 '
+        'C29.9,28.4 29.6,29.6 29.6,31.2 '
+        'L29.6,37.6"/>'
+        '<circle cx="24.6" cy="19.6" r="4.4"/>'
+        '<path d="M22.5,19.7 L24.0,21.3 L26.8,18.1"/>'
+        '<path d="M34.2,16.5 L38.8,16.5 M35.2,21.0 L39.4,21.0 '
+        'M33.6,25.5 L37.2,25.5"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="40.1" cy="16.5" r="1.4"/>'
+        '<circle cx="40.7" cy="21.0" r="1.4"/>'
+        '<circle cx="38.5" cy="25.5" r="1.4"/></g>'
+    ),
+    # Memory — an open book with a node-tree growing out of its spine and a
+    # scatter of stars, under an arc open at the bottom.
+    "memory": (
+        '<path d="M10.6,37.6 A20.4,20.4 0 1 1 37.4,37.6"/>'
+        '<path d="M24.0,28.2 C20.7,25.5 15.6,24.4 9.6,24.9 '
+        'L9.6,37.8 C15.6,37.3 20.7,38.4 24.0,41.1 '
+        'C27.3,38.4 32.4,37.3 38.4,37.8 '
+        'L38.4,24.9 C32.4,24.4 27.3,25.5 24.0,28.2 Z"/>'
+        '<path d="M24.0,28.2 L24.0,41.1"/>'
+        '<path d="M13.0,28.6 C15.6,28.7 17.9,29.2 19.8,30.1 '
+        'M13.0,30.7 C15.6,30.8 17.9,31.3 19.8,32.2 '
+        'M13.0,32.8 C15.6,32.9 17.9,33.4 19.8,34.3 '
+        'M35.0,28.6 C32.4,28.7 30.1,29.2 28.2,30.1 '
+        'M35.0,30.7 C32.4,30.8 30.1,31.3 28.2,32.2 '
+        'M35.0,32.8 C32.4,32.9 30.1,33.4 28.2,34.3"/>'
+        '<path d="M24.0,28.0 L24.0,12.6 M24.0,19.0 L19.6,16.2 '
+        'M24.0,23.6 L17.6,20.2 M24.0,19.0 L28.4,16.2 '
+        'M24.0,23.6 L30.4,20.2"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="24" cy="11.4" r="1.5"/>'
+        '<circle cx="19.2" cy="16.0" r="1.3"/>'
+        '<circle cx="17.2" cy="20.0" r="1.3"/>'
+        '<circle cx="28.8" cy="16.0" r="1.3"/>'
+        '<circle cx="30.8" cy="20.0" r="1.3"/></g>'
+        '<path d="M12.6,14.6 Q12.6,17.0 10.2,17.0 Q12.6,17.0 12.6,19.4 '
+        'Q12.6,17.0 15.0,17.0 Q12.6,17.0 12.6,14.6 Z"/>'
+        '<path d="M35.4,13.0 Q35.4,15.2 33.2,15.2 Q35.4,15.2 35.4,17.4 '
+        'Q35.4,15.2 37.6,15.2 Q35.4,15.2 35.4,13.0 Z"/>'
+        '<path d="M15.8,21.8 Q15.8,23.4 14.2,23.4 Q15.8,23.4 15.8,25.0 '
+        'Q15.8,23.4 17.4,23.4 Q15.8,23.4 15.8,21.8 Z"/>'
+    ),
     # Heart — a heart outline crossed by an ECG trace, with the check badge
     # sitting in the ring's lower-right gap.
     "heart": (
@@ -221,37 +252,6 @@ MARKS = {
         '<circle cx="14.6" cy="34.6" r="1" fill="currentColor" stroke="none"/>'
         '<path d="M3.8,26.2 L11.6,26.2 M2.2,30.4 L8.6,30.4 '
         'M5.0,34.6 L9.4,34.6"/>'
-    ),
-    # Memory — an open book with a node-tree growing out of its spine and a
-    # scatter of stars, under an arc open at the bottom.
-    "memory": (
-        '<path d="M10.6,37.6 A20.4,20.4 0 1 1 37.4,37.6"/>'
-        '<path d="M24.0,28.2 C20.7,25.5 15.6,24.4 9.6,24.9 '
-        'L9.6,37.8 C15.6,37.3 20.7,38.4 24.0,41.1 '
-        'C27.3,38.4 32.4,37.3 38.4,37.8 '
-        'L38.4,24.9 C32.4,24.4 27.3,25.5 24.0,28.2 Z"/>'
-        '<path d="M24.0,28.2 L24.0,41.1"/>'
-        '<path d="M13.0,28.6 C15.6,28.7 17.9,29.2 19.8,30.1 '
-        'M13.0,30.7 C15.6,30.8 17.9,31.3 19.8,32.2 '
-        'M13.0,32.8 C15.6,32.9 17.9,33.4 19.8,34.3 '
-        'M35.0,28.6 C32.4,28.7 30.1,29.2 28.2,30.1 '
-        'M35.0,30.7 C32.4,30.8 30.1,31.3 28.2,32.2 '
-        'M35.0,32.8 C32.4,32.9 30.1,33.4 28.2,34.3"/>'
-        '<path d="M24.0,28.0 L24.0,12.6 M24.0,19.0 L19.6,16.2 '
-        'M24.0,23.6 L17.6,20.2 M24.0,19.0 L28.4,16.2 '
-        'M24.0,23.6 L30.4,20.2"/>'
-        '<g fill="currentColor" stroke="none">'
-        '<circle cx="24" cy="11.4" r="1.5"/>'
-        '<circle cx="19.2" cy="16.0" r="1.3"/>'
-        '<circle cx="17.2" cy="20.0" r="1.3"/>'
-        '<circle cx="28.8" cy="16.0" r="1.3"/>'
-        '<circle cx="30.8" cy="20.0" r="1.3"/></g>'
-        '<path d="M12.6,14.6 Q12.6,17.0 10.2,17.0 Q12.6,17.0 12.6,19.4 '
-        'Q12.6,17.0 15.0,17.0 Q12.6,17.0 12.6,14.6 Z"/>'
-        '<path d="M35.4,13.0 Q35.4,15.2 33.2,15.2 Q35.4,15.2 35.4,17.4 '
-        'Q35.4,15.2 37.6,15.2 Q35.4,15.2 35.4,13.0 Z"/>'
-        '<path d="M15.8,21.8 Q15.8,23.4 14.2,23.4 Q15.8,23.4 15.8,25.0 '
-        'Q15.8,23.4 17.4,23.4 Q15.8,23.4 15.8,21.8 Z"/>'
     ),
     # Umbrella — no logo to sample, so the family language (ring, line-art,
     # node dots) applied to the double helix the board already carried.
