@@ -124,6 +124,7 @@ test_witness:
   pyautohands: PyAutoHands/tests
   pyautomemory: PyAutoMemory/tests
   pyautomind: PyAutoMind/tests
+  pyautocortex: PyAutoCortex/tests
   # PyAutoGut has no test suite — deliberately absent, so the conductor's
   # "strengthen tests first" advice is correct there rather than noise.
 
