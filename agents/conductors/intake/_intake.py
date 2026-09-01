@@ -1609,6 +1609,9 @@ def census(mind: Path) -> dict:
         "planned": planned,
         "hygiene": hygiene,
         "drift": drift,
+        # Render-only, and never fatal: a Mind with no Cortex beside it draws
+        # no badge and says nothing about it.
+        "cortex_gates": cortex_gates(mind),
     }
     c["recent"] = recent_events(c)
     return c
@@ -1638,6 +1641,95 @@ def _pages_url(home: str) -> str:
     """The GitHub Pages site URL for a repo home, `''` when underivable."""
     m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
     return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
+
+
+# --------------------------------------------------------- the Cortex badge ---
+# A development task that a science phase is gated on has a second reader
+# waiting on it, and nothing on this page said so: the Cortex's own board knows
+# which issues it is waiting for, but the person choosing what to work on reads
+# the Mind's. So the in-flight rows carry a badge naming the phase they gate.
+#
+# Render-only, and deliberately cheap: no new import (`_intake` already
+# hard-fails without a Mind checkout; it must not also require a Cortex one),
+# no schema of the Cortex's beyond two lines of its phase header, and an absent
+# or unreadable Cortex is silence rather than an error.
+CORTEX_REPO = "PyAutoCortex"
+CORTEX_HEADER_LINES = 30  # PyAutoCortex/scripts/cortex.py HEADER_LINES
+
+#: A local copy of `PyAutoCortex/scripts/cortex.py:105-108` GATE_REF_RE (itself
+#: a copy of `PyAutoMind/scripts/lifecycle.py`'s). The lookbehind is what
+#: rejects `owner/Repo#N` — another owner is spelled as a URL.
+CORTEX_GATE_REF_RE = re.compile(
+    r"https://github\.com/([\w.-]+)/([\w.-]+)/(?:issues|pull)/(\d+)"
+    r"|(?<![\w/])([A-Za-z_][\w.]*)#(\d+)\b"
+)
+
+
+def _cortex_root(mind: Path):
+    """`$PYAUTO_CORTEX`, then beside the Mind. `None` when there is none."""
+    env = os.environ.get("PYAUTO_CORTEX", "").strip()
+    for candidate in ([Path(env).expanduser()] if env else
+                      []) + [mind.parent / CORTEX_REPO]:
+        if (candidate / "phases").is_dir():
+            return candidate
+    return None
+
+
+def _issue_url(url: str) -> str:
+    """The canonical issues URL — a PR *is* an issue, as the Cortex grades it."""
+    return re.sub(r"/pull/(\d+)$", r"/issues/\1", (url or "").strip())
+
+
+def cortex_gates(mind: Path) -> dict:
+    """`{issue url: [phase rel, …]}` — every Cortex phase gated on an issue.
+
+    The short `Repo#N` form takes its owner from the Mind's own `repos.yaml`
+    (through `_mind_home`), never from a literal: a fork's Mind and its Cortex
+    carry the same owner, and organ code names no tenant.
+    """
+    root = _cortex_root(mind)
+    if root is None:
+        return {}
+    home = _mind_home(mind)
+    owner = home.split("/")[3] if home.count("/") >= 4 else ""
+    out: dict = {}
+    try:
+        files = sorted((root / "phases").rglob("*.md"))
+    except OSError:
+        return {}
+    for f in files:
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+            rel = f.relative_to(root).as_posix()
+        except (OSError, ValueError):
+            continue
+        value = ""
+        for line in text.split("\n")[:CORTEX_HEADER_LINES]:
+            if line.startswith("## "):  # the header block is over
+                break
+            m = re.match(r"^Gates:(?:[ \t]+(.*?))?[ \t]*$", line)
+            if m:
+                value = m.group(1) or ""
+                break
+        for token in (t.strip() for t in value.split(",")):
+            m = CORTEX_GATE_REF_RE.fullmatch(token) if token else None
+            if not m:
+                continue
+            org, repo, num, short_repo, short_num = m.groups()
+            if org:
+                url = f"https://github.com/{org}/{repo}/issues/{num}"
+            elif owner:
+                url = f"https://github.com/{owner}/{short_repo}/issues/{short_num}"
+            else:
+                continue
+            out.setdefault(url, []).append(rel)
+    return out
+
+
+def _gated_phases(c: dict, row: dict) -> list:
+    """The Cortex phases this in-flight row gates, in file order."""
+    issue = _issue_url(row.get("issue", ""))
+    return (c.get("cortex_gates") or {}).get(issue, []) if issue else []
 
 
 def _board_links(home: str) -> list:
@@ -2054,6 +2146,8 @@ def render_dashboard(c: dict) -> str:
         head += _dated(r)
         if r["status"]:
             head += f" — {_summary_label(_clip(r['status']))}"
+        for rel in _gated_phases(c, r):
+            head += f" — ⚠️ gates a Cortex phase → {rel}"
         flight.append(_task_row(head, f"/start_dev {r['path']}"))
     L += _items(flight) or ["- _(nothing in flight)_"]
     L += [""]
@@ -2359,6 +2453,10 @@ def render_dashboard_html(c: dict) -> str:
         if r["status"]:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
+        gated = _gated_phases(c, r)
+        if gated:
+            text += pills(*[(f"gates a Cortex phase → {rel}", "y")
+                            for rel in gated])
         H.append(_html_task(text, f"/start_dev {r['path']}"))
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')

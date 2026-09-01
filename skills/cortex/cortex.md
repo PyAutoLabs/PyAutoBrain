@@ -10,9 +10,11 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 ## Do
 
 1. Run `bin/pyauto-brain cortex [census | dashboard --check|--apply |
-   gates [--grade] [--apply] | plan [--budget N]]`. `census` and `plan` are
-   read-only; `dashboard --apply` writes the two generated pages; `gates
-   --apply` writes only the `gated → ready` flips the grading earned.
+   gates [--grade] [--apply] | plan [--budget N] | collect [--pull]
+   [--apply]]`. `census`, `plan` and a bare `collect` are read-only;
+   `dashboard --apply` writes the two generated pages; `gates --apply` writes
+   only the `gated → ready` flips the grading earned; `collect --apply` moves
+   the scored members on and writes the batch record.
 2. Read the result to the human and hand them the command the row carries.
    **Never** decide a ruling, never submit a job, never edit a phase file by
    hand — every phase edit goes through `python3 scripts/cortex.py move` and
@@ -30,6 +32,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 | `dashboard --apply` | Regenerate `dashboard.md` + `dashboard.html` — never hand-edit those two files |
 | `gates [--grade]` | What is each gated phase waiting on, and has it cleared? `--apply` writes the flips |
 | `plan [--budget N]` | Which ready phases fit the slot, cheapest first, and the exact launch lines |
+| `collect [--slot S] [--pull] [--refreshed ISO] [--apply] [--out F]` | What did the pull bring back? One packet member block per live member — six legs each `PASS`/`FAIL`/`UNOBSERVABLE`, the readout, a **blank** ruling line. Exit **1** = a member the human must look at |
 
 ## The rules that do not bend
 
@@ -42,5 +45,12 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
   empty, the phase cannot be submitted — write the witness first.
 - **Gate grading only ever moves `gated → ready`** (and demotes a `ready`
   phase whose gate reopened). It never touches a submitted run.
+- **`collect` never touches RAL, and never rules.** It reads only what the
+  human's own sync CLI already mirrored; `--pull` runs that CLI's `pull` and
+  nothing else; the `Ruling` line it emits is left blank for the human.
+- **UNOBSERVABLE is not FAIL.** Two of the four `delivered:` legs are not
+  visible on the laptop (the checkpoint is never pulled; one project writes no
+  version stamp), so those members come back **SUSPECT** — read them, do not
+  treat them as broken runs.
 - **A cloud session plans nothing** — every Cortex phase is `local-dev`, so a
   session with no `gh` reports the ready count and stops.

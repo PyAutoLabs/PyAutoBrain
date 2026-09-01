@@ -22,13 +22,14 @@ the Cortex's intake-and-dashboard conductor.
 | `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` |
 | `gates [--grade] [--apply]` | What is each gated phase waiting on, and has it cleared? | the refs, a verdict per phase, and with `--apply` the `gated → ready` flips |
 | `plan [--budget N]` | Which ready phases fit the slot? | `== CortexPlan ==` — members against the review-minute budget, plus the launch lines |
-| `collect` | (phase 2b) score a pulled run into a packet member | — |
+| `collect [--slot S] [--pull] [--refreshed ISO] [--apply] [--out F] [--phase REL]` | What did the pull bring back, and is it worth reviewing? | one packet member block per live member — six scored legs, the readout, a blank ruling line — and exit **1** when any member is not HEALTHY |
 
 ```
 pyauto-brain cortex                          # census
 pyauto-brain cortex dashboard --apply
 pyauto-brain cortex gates --grade
 pyauto-brain cortex plan --budget 30
+pyauto-brain cortex collect --pull --apply       # score the board, then move it on
 pyauto-brain cortex <verb> --cortex <dir>    # another checkout
 ```
 
@@ -88,6 +89,40 @@ closed) and the writes live there, so the Cortex's daily `gates_grade.yml`
 runs them with no Brain checkout at all. `--apply` is this surface's spelling
 of the script's `--write`, and it may only ever move `gated → ready` (and
 demote a `ready` phase whose gate reopened).
+
+## Scoring a pull (`collect`)
+
+The board is rolling: a member joins the review on the pull that fills its
+results in. `collect` scores every member whose phase is `submitted` or
+`running` (or the phases named by `--phase`) against **six legs**, each
+`PASS | FAIL | UNOBSERVABLE`:
+
+| Leg | Read from |
+|-----|-----------|
+| `err` | every `error.<jobid>*.err` under the roots. Benign = every non-blank line is a `*Warning*` line or its indented continuation — **not** size 0; `Traceback`/`Error`/`Killed`/`OOM` ⇒ FAIL |
+| `wall` | the `.out`'s first and last date stamps when it ends `Finished.`, else `Time To Run` in `search.summary` — **from the `<hash>.zip` when there is one**, because an extracted run dir can be a stale partial. Over `Budget:` ⇒ FAIL |
+| `version` | a top-level `version` key in a JSON matching the project's `witness_file` |
+| `checkpoint` | `<root>/.cortex/pull.json` only (`{"pulled_at": ISO, "runs": {"<jobid>": {"checkpoint_bytes": N, "checkpoint_mtime": ISO}}}`) — `search_internal/checkpoint.hdf5` is never pulled, so without that manifest the leg is UNOBSERVABLE, tagged `RAL only` |
+| `resume` | `Fit Already Completed` / `Resuming … previous samples found` in the `.out` ⇒ FAIL: those are the previous fit's numbers |
+| `witness` | a file matching `witness_file` newer than the phase's first submission |
+
+HEALTH is **FAILED** if any leg failed, **SUSPECT** if any is unobservable,
+**HEALTHY** otherwise; `delivered:` counts the HEALTHY ones. Two of the four
+`delivered:` legs of `batches/AGENTS.md` are simply not visible on the laptop
+today — inventing PASS for them would be inventing evidence and FAIL would
+condemn every healthy run, so they are UNOBSERVABLE and the member goes to the
+human as SUSPECT.
+
+Everything is read from the laptop tree the human's own sync CLI filled; the
+search roots are the project's `mirror` then `local_path`, from
+`projects.yaml`. **The only thing that reaches the cluster is `--pull`**, which
+runs that project's own `<sync_cli> pull` and prints the command first.
+`--apply` (which needs a refresh stamp, from `--pull` or `--refreshed <ISO>`)
+moves each member `running → pulled → awaiting-ruling`, appends one
+`- refreshed:` line per member and rewrites the member's `<state>` — rehearsed
+on a throwaway copy of the tree first and refused outright if
+`cortex.py check` would not pass afterwards. A phase whose run line is still
+live, or one still `submitted` (no such edge), is left where it is with a note.
 
 ## What it never does
 

@@ -6,8 +6,9 @@ reasons over PyAutoCortex, the organ where the organism learns what is true.
 The Cortex holds the state — science phases, their pre-registered witnesses,
 their runs and the rulings of record; this conductor holds the reasoning: it
 renders the Cortex board, grades the gates, admits ready phases into a laptop
-slot and (phase 2b) scores what a pull brought back. It **never submits** and
-never edits a ruling: the run is the human's act and the verdict is theirs.
+slot and scores what a pull brought back into a packet member. It **never
+submits** and never edits a ruling: the run is the human's act, the verdict is
+theirs, and the `Ruling` line this verb emits is left blank for them.
 
 The same split as Heart ↔ vitals and Gut ↔ hygiene — the organ keeps the
 state, the conductor reasons over it.
@@ -31,10 +32,12 @@ Three constraints shape this module:
   every path this module prints is read from a row of it at runtime.
 
 Verbs: `census [--json]` · `dashboard --check|--apply` · `plan [--budget N]
-[--lane L]` · `gates [--grade] [--apply]` · `collect` (phase 2b).
+[--lane L]` · `gates [--grade] [--apply]` · `collect [--slot S] [--pull]
+[--refreshed ISO] [--apply] [--out F] [--phase REL]`.
 
-Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract) ·
-2 bad args / no Cortex checkout · 3 the Cortex tree could not be read.
+Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract),
+and for `collect` a member the human must look at · 2 bad args / no Cortex
+checkout · 3 the Cortex tree could not be read.
 `gates` passes the Cortex script's own rc through (1 = an unreadable ref,
 which fails closed).
 """
@@ -51,6 +54,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
 BRAIN_HOME = Path(__file__).resolve().parents[3]
@@ -1061,6 +1066,726 @@ def emit_census(c: dict) -> None:
               "`python3 scripts/cortex.py check`")
 
 
+# ---------------------------------------------------------------- collect ---
+# What a pull brought back, scored against the phase's own pre-registered
+# witness. Two facts shape every rule below.
+#
+# **The laptop is the whole world.** This verb reads only what the human's own
+# sync CLI has already mirrored; it never reaches RAL. The single exception is
+# `--pull`, which runs that CLI's own `pull` verb — the human's command, in the
+# human's project, opt-in.
+#
+# **Two of the four `delivered:` legs are not observable here.**
+# `search_internal/checkpoint.hdf5` is excluded from both projects' pulls, and
+# one of the two project layouts writes no version stamp at all. A scorer that
+# called those legs PASS would be inventing evidence and a scorer that called
+# them FAIL would condemn every healthy run, so there is a third verdict:
+# UNOBSERVABLE, which sends the member to the human as SUSPECT. Phase 3's sync
+# work adds the pull manifest that makes the checkpoint leg observable.
+PASS, FAIL, UNOBSERVABLE = "PASS", "FAIL", "UNOBSERVABLE"
+
+#: the six legs, in packet order — the four `delivered:` legs of
+#: `batches/AGENTS.md` plus the two the laptop tree made necessary.
+LEGS = ("err", "wall", "version", "checkpoint", "resume", "witness")
+LEG_TITLES = {
+    "err": "`.err` clean",
+    "wall": "wall vs budget",
+    "version": "version stamp",
+    "checkpoint": "`checkpoint.hdf5` sane",
+    "resume": "a fresh run, not a resume",
+    "witness": "the witness landed",
+}
+
+#: `<mirror>/.cortex/pull.json`, written by the sync work of phase 3:
+#: `{"pulled_at": ISO, "runs": {"<jobid>": {"checkpoint_bytes": N,
+#: "checkpoint_mtime": ISO}}}`. Absent until then — hence UNOBSERVABLE.
+PULL_MANIFEST = (".cortex", "pull.json")
+
+LOG_DEPTH = 4  # `**/output.<jobid>*.out` — deep enough for both layouts
+
+# A benign `.err` is not an empty one: the baseline both projects produce is a
+# warning line plus its indented source line. Anything else is read.
+FATAL_ERR_RE = re.compile(r"Traceback|Error|Killed|OOM|out of memory")
+BENIGN_ERR_RE = re.compile(r"\w*Warning\b")
+# A resumed run is not a run of the model under test: it reports the previous
+# fit's samples. Both spellings the stack emits.
+RESUME_MARKER_RE = re.compile(r"Fit Already Completed"
+                              r"|Resuming .*previous samples found")
+FINISHED = "Finished."
+STAMP_RE = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})")
+TIME_TO_RUN_RE = re.compile(r"Time To Run\s*=\s*(\d+):(\d{2}):(\d{2})")
+SUMMARY_NAME = "search.summary"
+
+
+def _utc_now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _stamp_dt(value: str) -> _dt.datetime | None:
+    m = STAMP_RE.search(value or "")
+    if not m:
+        return None
+    try:
+        return _dt.datetime.fromisoformat(f"{m.group(1)} {m.group(2)}")
+    except ValueError:
+        return None
+
+
+def _since(ph) -> _dt.datetime:
+    """The earliest date at which an artefact could belong to this campaign.
+
+    The *first* submission, not the last: an array resubmitted on Tuesday does
+    not make Monday's outputs stale, and a witness written by the run that
+    preceded a failed resubmit is still this phase's witness. Freshness here
+    means "not left over from before the phase started".
+    """
+    days = sorted(r.date for r in ph.runs if r.date)
+    if not days:
+        return _dt.datetime.min
+    try:
+        return _dt.datetime.fromisoformat(days[0])
+    except ValueError:
+        return _dt.datetime.min
+
+
+def _mtime(path: Path) -> _dt.datetime:
+    try:
+        return _dt.datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError:
+        return _dt.datetime.min
+
+
+def _wall(minutes: int) -> str:
+    return f"{minutes // 60}:{minutes % 60:02d}"
+
+
+def project_roots(row: dict) -> list[Path]:
+    """The search roots for one project: the mirror the sync CLI fills, then
+    the checkout. Both come from `projects.yaml`; no path is named here."""
+    roots = []
+    for key in ("mirror", "local_path"):
+        value = (row.get(key) or "").strip()
+        if value and value != "none":
+            p = Path(value).expanduser()
+            if p.is_dir() and p not in roots:
+                roots.append(p)
+    return roots
+
+
+def _depth_glob(root: Path, pattern: str, depth: int = LOG_DEPTH) -> list[Path]:
+    """`**/<pattern>` bounded to `depth` levels — a science mirror holds tens
+    of thousands of files and an unbounded `rglob` walks all of them."""
+    out: list[Path] = []
+    for d in range(depth + 1):
+        try:
+            out += sorted(root.glob("/".join(["*"] * d + [pattern])))
+        except OSError:
+            continue
+    return out
+
+
+def find_logs(roots: list[Path], stems: list[str]) -> dict:
+    """The SLURM logs of these job stems: `{"out": [...], "err": [...]}`.
+
+    Both layouts seen on the laptop are covered by the same two globs —
+    `logs/output/output.<jobid>.out` and
+    `hpc/batch_cpu/output/output.<jobid>_<task>.out`.
+    """
+    found: dict[str, list[Path]] = {"out": [], "err": []}
+    for root in roots:
+        for stem in stems:
+            for kind, pattern in (("out", f"output.{stem}*.out"),
+                                  ("err", f"error.{stem}*.err")):
+                for p in _depth_glob(root, pattern):
+                    if p not in found[kind]:
+                        found[kind].append(p)
+    return found
+
+
+def _under(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def where_paths(mod, ph, roots: list[Path]) -> list[Path]:
+    """The phase's own `## Where to look` bullets, intersected with the roots.
+
+    A phase names where its results are; that is the first place to look. A
+    bullet pointing outside every root is not this project's tree (a RAL path,
+    say) and is dropped rather than followed.
+    """
+    getter = getattr(mod, "_where_to_look", None)
+    if getter is not None:
+        bullets = getter(ph)
+    else:  # a checkout whose script predates the helper
+        span = mod.sections(ph.text).get("Where to look")
+        bullets = ([ln for ln in ph.text.split("\n")[span[0]:span[1]]
+                    if ln.startswith("- ") and ln.strip() != "-"]
+                   if span else [])
+    out = []
+    for bullet in bullets:
+        token = bullet[2:].strip().split()[0].strip("`,.") if bullet[2:].strip() else ""
+        if not token:
+            continue
+        p = Path(token)
+        if p.is_absolute() and any(_under(p, r) for r in roots) and p.exists():
+            out.append(p)
+    return out
+
+
+def run_artifacts(roots: list[Path], where: list[Path],
+                  since: _dt.datetime) -> tuple:
+    """`(run_dir, zip_path)` — where this run's `search.summary` lives.
+
+    The zip is authoritative when both exist: seven of the subhalo project's
+    extracted run dirs are stale partial extractions, and reading the wall
+    clock out of one of those reports a run that never finished as short.
+    """
+    bases = list(where) or [r / "output" for r in roots if (r / "output").is_dir()]
+    seen: dict[Path, Path | None] = {}
+    for base in bases:
+        if (base / SUMMARY_NAME).is_file() or (base / ".completed").exists():
+            seen.setdefault(base, None)
+        try:
+            for marker in sorted(base.rglob(".completed")):
+                seen.setdefault(marker.parent, None)
+            for z in sorted(base.rglob("*.zip")):
+                seen[z.with_suffix("")] = z
+        except OSError:
+            continue
+    if not seen:
+        return None, None
+    scored = [(max(_mtime(d), _mtime(z) if z else _dt.datetime.min), d, z)
+              for d, z in seen.items()]
+    fresh = [row for row in scored if row[0] >= since]
+    best = max(fresh or scored, key=lambda row: (row[0], str(row[1])))
+    return best[1], best[2]
+
+
+def summary_minutes(run_dir: Path | None, zip_path: Path | None) -> tuple:
+    """`(minutes, raw, source)` from `search.summary` — the zip first."""
+    if zip_path is not None and zip_path.is_file():
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                for name in zf.namelist():
+                    if name.rsplit("/", 1)[-1] == SUMMARY_NAME:
+                        text = zf.read(name).decode("utf-8", "replace")
+                        got = _time_to_run(text)
+                        if got:
+                            return got[0], got[1], f"{zip_path.name} (zip)"
+        except (OSError, zipfile.BadZipFile):
+            pass
+    if run_dir is not None and run_dir.is_dir():
+        candidates = [run_dir / SUMMARY_NAME]
+        if not candidates[0].is_file():
+            try:
+                candidates = sorted(run_dir.rglob(SUMMARY_NAME))[:1]
+            except OSError:
+                candidates = []
+        for path in candidates:
+            got = _time_to_run(_read(path))
+            if got:
+                return got[0], got[1], f"{run_dir.name}/{SUMMARY_NAME}"
+    return None, None, ""
+
+
+def _time_to_run(text: str) -> tuple | None:
+    m = TIME_TO_RUN_RE.search(text or "")
+    if not m:
+        return None
+    h, mi, s = (int(x) for x in m.groups())
+    return h * 60 + mi, f"{h}:{mi:02d}:{s:02d}"
+
+
+def witness_matches(roots: list[Path], pattern: str, since: _dt.datetime,
+                    tokens: set | None = None) -> list[Path]:
+    """Every file matching the project's `witness_file` glob, this phase's own
+    first.
+
+    `witness_file` is a *project-wide* glob and a project's phases share one
+    output tree, so the glob alone would hand a phase its neighbour's numbers.
+    A file whose path names this phase's run stem, or the directory its results
+    were pulled into, is this phase's witness; everything else sorts behind it,
+    newest first, rather than being hidden — a phase whose witness landed
+    somewhere unexpected still has a witness.
+    """
+    pattern = (pattern or "").strip()
+    if not pattern:
+        return []
+    hits: list[Path] = []
+    for root in roots:
+        try:
+            hits += [p for p in root.glob(pattern) if p.is_file()]
+        except (OSError, ValueError):
+            continue
+    fresh = [p for p in hits if _mtime(p) >= since]
+    marks = {t for t in (tokens or set()) if t}
+    return sorted(fresh, key=lambda p: (any(t in str(p) for t in marks),
+                                        _mtime(p), str(p)), reverse=True)
+
+
+def pull_manifest(roots: list[Path]) -> dict:
+    """`<root>/.cortex/pull.json`, or `{}` — the only window onto RAL-only
+    artefacts, and it does not exist until phase 3 writes it."""
+    for root in roots:
+        path = root.joinpath(*PULL_MANIFEST)
+        if path.is_file():
+            try:
+                data = json.loads(_read(path))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                return data
+    return {}
+
+
+# --------------------------------------------------------------- the legs ---
+def leg_err(errs: list[Path]) -> tuple:
+    if not errs:
+        return UNOBSERVABLE, "no `.err` file under the mirror"
+    for path in errs:
+        lines = [ln for ln in _read(path).split("\n") if ln.strip()]
+        odd = [ln for ln in lines
+               if not (ln[:1].isspace() or BENIGN_ERR_RE.search(ln))]
+        if not odd:
+            continue
+        if any(FATAL_ERR_RE.search(ln) for ln in lines):
+            first = next(ln for ln in lines if FATAL_ERR_RE.search(ln))
+            return FAIL, f"{path.name}: {first.strip()[:110]}"
+        return (UNOBSERVABLE,
+                f"{path.name}: {len(odd)} line(s) that are neither warning nor "
+                f"error — read it: {odd[0].strip()[:80]}")
+    warned = sum(1 for p in errs
+                 if BENIGN_ERR_RE.search(_read(p)))
+    return PASS, (f"{len(errs)} file(s) hold only warnings"
+                  if warned else f"{len(errs)} file(s), empty")
+
+
+def leg_wall(outs: list[Path], run_dir, zip_path, budget_minutes,
+             budget: str) -> tuple:
+    minutes, raw, source = None, "", ""
+    for path in outs:
+        text = _read(path)
+        if not text.rstrip().endswith(FINISHED):
+            continue
+        stamps = STAMP_RE.findall(text)
+        if len(stamps) >= 2:
+            a = _stamp_dt(f"{stamps[0][0]} {stamps[0][1]}")
+            b = _stamp_dt(f"{stamps[-1][0]} {stamps[-1][1]}")
+            if a and b and b >= a:
+                minutes = int((b - a).total_seconds() // 60)
+                raw, source = _wall(minutes), path.name
+                break
+    if minutes is None:
+        minutes, raw, source = summary_minutes(run_dir, zip_path)
+    if minutes is None:
+        return (UNOBSERVABLE,
+                "no `.out` ending `Finished.` and no `search.summary` — "
+                "the run's wall clock is not on the laptop")
+    if budget_minutes and minutes > budget_minutes:
+        return FAIL, f"wall {raw} over the {budget} budget (from {source})"
+    return PASS, (f"wall {raw}" + (f" of {budget}" if budget else "")
+                  + f" (from {source})")
+
+
+def leg_version(hits: list[Path]) -> tuple:
+    jsons = [p for p in hits if p.suffix == ".json"]
+    for path in jsons:
+        try:
+            data = json.loads(_read(path))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and "version" in data:
+            return PASS, f"{data['version']} — {path.name}"
+    if not jsons:
+        return (UNOBSERVABLE,
+                "the witness is not JSON — this project writes no version "
+                "stamp")
+    return (UNOBSERVABLE,
+            f"{len(jsons)} witness JSON(s), none with a top-level `version` key")
+
+
+def leg_checkpoint(manifest: dict, ph) -> tuple:
+    runs = manifest.get("runs") if isinstance(manifest.get("runs"), dict) else {}
+    rows = []
+    for r in ph.runs:
+        row = runs.get(r.ident) or runs.get(r.stem)
+        if isinstance(row, dict):
+            rows.append((r.ident, row))
+    if not rows:
+        return (UNOBSERVABLE,
+                "RAL only — `search_internal/checkpoint.hdf5` is not pulled "
+                "and no `.cortex/pull.json` records it")
+    empty = [ident for ident, row in rows
+             if not int(row.get("checkpoint_bytes") or 0)]
+    if empty:
+        return FAIL, f"empty checkpoint for {', '.join(empty)} — not delivered"
+    total = sum(int(row.get("checkpoint_bytes") or 0) for _i, row in rows)
+    return PASS, f"{len(rows)} checkpoint(s), {total} bytes (pull manifest)"
+
+
+def leg_resume(outs: list[Path]) -> tuple:
+    if not outs:
+        return UNOBSERVABLE, "no `.out` file under the mirror"
+    for path in outs:
+        m = RESUME_MARKER_RE.search(_read(path))
+        if m:
+            return FAIL, (f"{path.name}: `{m.group(0)}` — this is the previous "
+                          "fit's samples, not a run of the model under test")
+    return PASS, f"no resume marker in {len(outs)} `.out` file(s)"
+
+
+def leg_witness(hits: list[Path], roots: list[Path], pattern: str) -> tuple:
+    if not pattern.strip():
+        return UNOBSERVABLE, "the project row names no `witness_file`"
+    if not hits:
+        return FAIL, f"nothing matching `{pattern}` newer than the submission"
+    root = next((r for r in roots if _under(hits[0], r)), None)
+    name = hits[0].relative_to(root).as_posix() if root else hits[0].name
+    return PASS, f"{name}" + (f" (+{len(hits) - 1} more)" if len(hits) > 1 else "")
+
+
+def health_of(legs: dict) -> str:
+    verdicts = [legs[k][0] for k in LEGS]
+    if FAIL in verdicts:
+        return "FAILED"
+    return "SUSPECT" if UNOBSERVABLE in verdicts else "HEALTHY"
+
+
+def _readout(hits: list[Path]) -> list[tuple]:
+    """The witness JSON's top-level scalars — the numbers the human reads."""
+    for path in hits:
+        if path.suffix != ".json":
+            continue
+        try:
+            data = json.loads(_read(path))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        rows = [(k, v) for k, v in data.items()
+                if isinstance(v, (str, int, float, bool)) or v is None]
+        if rows:
+            return rows
+    return []
+
+
+def score_phase(mod, ph, projects: dict) -> dict:
+    """Every leg of one phase, plus what the packet block needs to print it."""
+    key = ph.get("Project") or ph.project_dir
+    row = projects.get(key, {})
+    roots = project_roots(row)
+    stems = sorted({r.stem for r in ph.runs})
+    logs = find_logs(roots, stems)
+    since = _since(ph)
+    where = where_paths(mod, ph, roots)
+    run_dir, zip_path = run_artifacts(roots, where, since)
+    pattern = (row.get("witness_file") or "").strip()
+    hits = witness_matches(roots, pattern, since,
+                           tokens={r.stem for r in ph.runs}
+                           | {p.name for p in where})
+    budget = ph.get("Budget")
+    legs = {
+        "err": leg_err(logs["err"]),
+        "wall": leg_wall(logs["out"], run_dir, zip_path, _mins(budget), budget),
+        "version": leg_version(hits),
+        "checkpoint": leg_checkpoint(pull_manifest(roots), ph),
+        "resume": leg_resume(logs["out"]),
+        "witness": leg_witness(hits, roots, pattern),
+    }
+    pulled_to = (str(run_dir) if run_dir is not None else
+                 str(logs["out"][0].parent) if logs["out"] else
+                 str(roots[0]) if roots else "")
+    return {
+        "slug": ph.slug,
+        "rel": ph.rel,
+        "phase": ph,
+        "project": key,
+        "state": ph.state,
+        "live_run": any(r.state in mod.LIVE_RUN_STATES for r in ph.runs),
+        "legs": legs,
+        "health": health_of(legs),
+        "roots": roots,
+        "logs": logs,
+        "run_dir": run_dir,
+        "zip": zip_path,
+        "witness_hits": hits,
+        "readout": _readout(hits),
+        "pulled_to": pulled_to,
+    }
+
+
+# ------------------------------------------------------ the packet member ---
+def _section_text(mod, ph, name: str) -> str:
+    span = mod.sections(ph.text).get(name)
+    if span is None:
+        return ""
+    body = "\n".join(ph.text.split("\n")[span[0]:span[1]]).strip()
+    return body
+
+
+def member_block(mod, s: dict) -> list[str]:
+    """One packet member, in `batches/packets/TEMPLATE.md`'s order."""
+    ph = s["phase"]
+    facets = [s["project"]]
+    if ph.get("Phase"):
+        facets.append(f"phase {ph.get('Phase')}")
+    if ph.get("Budget"):
+        facets.append(f"budget {ph.get('Budget')}")
+    if ph.runs:
+        facets.append("runs " + ", ".join(r.ident for r in ph.runs))
+    L = [f"## {s['slug']} — {s['health']}", "",
+         f"`{s['rel']}` — " + " · ".join(facets), "",
+         "**Question**", "", _section_text(mod, ph, "Question") or "_(none)_",
+         "", "**Witness**", ""]
+    registered = ph.get("Witness")
+    if registered:
+        L += [f"Registered: {registered}", ""]
+    L += [_section_text(mod, ph, "Witness") or "_(none)_", "",
+          "**Health evidence**", ""]
+    L += [f"- {LEG_TITLES[k]} — {s['legs'][k][0]} — {s['legs'][k][1]}"
+          for k in LEGS]
+    L += ["", "**Readout**", ""]
+    if s["readout"]:
+        L += ["| Key | Value |", "|---|---|"]
+        L += [f"| `{_cell(k)}` | {_cell(v)} |" for k, v in s["readout"]]
+    else:
+        L += ["_(no JSON witness to read out — score the witness by eye)_"]
+    # Left blank on purpose: the ruling is the human's sentence, and a draft
+    # of it here is the conductor deciding.
+    L += ["", "**Ruling**", "", "_(one line — yours to write)_", "",
+          "**Your review**", ""]
+    L += (["Leave to finish — a run of this phase is still live"]
+          if s["live_run"] else ["Accept / Rerun / Drop / Leave to finish"])
+    L += ["", "**Follow-ups**", ""]
+    refs = mod.gate_refs(ph.get("Gates"))[0]
+    L += ([f"- [{ref.split('#')[0]}] {ref}" for ref in refs] if refs
+          else ["_(none yet — add them as you rule)_"])
+    L += ["", "**Where to look yourself**", ""]
+    for label, value in (("run dir", s["run_dir"]), ("zip", s["zip"])):
+        if value is not None:
+            L.append(f"- {label}: `{value}`")
+    for kind in ("out", "err"):
+        for path in s["logs"][kind][:2]:
+            L.append(f"- `.{kind}`: `{path}`")
+    for path in s["witness_hits"][:2]:
+        L.append(f"- witness: `{path}`")
+    if s["legs"]["checkpoint"][0] == UNOBSERVABLE:
+        L.append("- `search_internal/checkpoint.hdf5`: **RAL only** — not "
+                 "mirrored to the laptop")
+    if len(L) and L[-1] == "":
+        L.append("_(nothing found on the laptop)_")
+    L += ["", f"**Est. review-minutes** — {ph.get('Review-minutes') or '?'}", ""]
+    return L
+
+
+def collect_report(mod, slot: str, scored: list, notes: list) -> str:
+    L = [f"# Batch collect {slot}", ""]
+    for s in scored:
+        L += member_block(mod, s)
+    if notes:
+        L += ["## Notes", ""] + [f"- {n}" for n in notes] + [""]
+    return "\n".join(L) + "\n"
+
+
+# ------------------------------------------------------------- the record ---
+def record_update(text: str, mod, states: dict, refreshed: list[str]) -> str:
+    """The batch record with each scored member's `<state>` rewritten and one
+    `- refreshed:` line appended per member — the board's own history."""
+    lines = text.split("\n")
+    rec = read_record(text, mod.MEMBER_RE)
+    at = 0
+    for m in rec["members"]:
+        at = max(at, m["lineno"])
+        slug = m.get("slug")
+        if slug and slug in states and m.get("path"):
+            lines[m["lineno"] - 1] = (
+                f"  - {slug}: {m['path']} — {m['runs']} — {m['minutes']} — "
+                f"{states[slug]}")
+    for i, raw in enumerate(lines, 1):
+        if raw.startswith("- refreshed:"):
+            at = max(at, i)
+    for j, line in enumerate(refreshed):
+        lines.insert(at + j, line)
+    return "\n".join(lines)
+
+
+def apply_ops(root: Path, mod, scored: list, stamp: str,
+              record_rel: str) -> list[str]:
+    """Move every scored phase along and write the record. Returns the notes.
+
+    `submitted → pulled` is not an edge in the Cortex's transition table and a
+    phase whose run line is still live has not finished, so both are left where
+    they are with a note rather than forced.
+    """
+    notes: list[str] = []
+    states: dict[str, str] = {}
+    by_rel = {ph.rel: ph for ph in mod.load_phases(root)[0]}
+    for s in scored:
+        ph = by_rel.get(s["rel"])
+        if ph is None:
+            notes.append(f"{s['slug']}: {s['rel']} is gone — not moved")
+            continue
+        state = ph.state
+        try:
+            if state == "running" and not any(r.state in mod.LIVE_RUN_STATES
+                                              for r in ph.runs):
+                mod.move_phase(root, ph.rel, "pulled",
+                               pulled_to=s["pulled_to"] or None)
+                state = "pulled"
+            elif state == "running":
+                notes.append(f"{s['slug']}: left running — a run line is still "
+                             "submitted | running")
+            elif state == "submitted":
+                notes.append(f"{s['slug']}: left submitted — submitted → pulled "
+                             "is not an edge; `move <phase> running` first")
+            if state == "pulled":
+                mod.move_phase(root, ph.rel, "awaiting-ruling")
+                state = "awaiting-ruling"
+        except mod.CortexError as e:
+            notes.append(f"{s['slug']}: {e}")
+        states[s["slug"]] = state
+    record = root / record_rel
+    if record.is_file():
+        lines = [f"- refreshed: {stamp} — {s['slug']} pulled" for s in scored]
+        record.write_text(
+            record_update(_read(record), mod, states, lines), encoding="utf-8")
+    return notes
+
+
+def run_pull(projects: dict, keys: list[str]) -> list[str]:
+    """Run each project's own `<sync_cli> pull`. The command is printed before
+    it runs: this is the one thing `collect` does that touches the cluster, and
+    it is the human's own CLI doing it."""
+    notes = []
+    for key in keys:
+        row = projects.get(key, {})
+        local = (row.get("local_path") or "").strip()
+        cli = (row.get("sync_cli") or "").strip()
+        if not local or not cli or "pull" not in (row.get("sync_verbs") or []):
+            notes.append(f"{key}: no `pull` verb in projects.yaml — not pulled")
+            continue
+        cmd = [str(Path(local) / cli), "pull"]
+        print(f"$ cd {local} && {cli} pull")
+        try:
+            r = subprocess.run(cmd, cwd=local, capture_output=True, text=True)
+        except (OSError, subprocess.SubprocessError) as e:
+            notes.append(f"{key}: pull could not run ({e}) — scored anyway")
+            continue
+        if r.returncode != 0:
+            tail = (r.stderr or r.stdout).strip().splitlines()
+            notes.append(f"{key}: pull exited {r.returncode} — scored anyway"
+                         + (f": {tail[-1][:160]}" if tail else ""))
+    return notes
+
+
+def cmd_collect(root: Path, mod, a) -> int:
+    records = mod.batch_records(root)
+    if a.slot:
+        record = root / "batches" / f"{a.slot}.md"
+        if not record.is_file():
+            print(f"cortex: no batch record {record}", file=sys.stderr)
+            return RC_USAGE
+    elif records:
+        record = records[-1]
+    elif not a.phase:
+        print("cortex: no batch record to collect — pass --phase <rel>",
+              file=sys.stderr)
+        return RC_USAGE
+    else:
+        record = None
+    slot = record.stem if record is not None else "(no record)"
+
+    projects = mod.load_projects(root)[0]
+    by_rel = {ph.rel: ph for ph in mod.load_phases(root)[0]}
+    notes: list[str] = []
+    if a.phase:
+        rels, live_only = list(a.phase), False
+    else:
+        rec = read_record(_read(record), mod.MEMBER_RE)
+        rels = [m["path"] for m in rec["members"] if m.get("path")]
+        live_only = True
+    phases = []
+    for rel in rels:
+        ph = by_rel.get(rel)
+        if ph is None:
+            notes.append(f"{rel}: no such phase — skipped")
+        elif live_only and ph.state not in LIVE_STATES:
+            # The board is rolling: a member joins the packet on the pull that
+            # fills it in, and one already ruled on does not re-join.
+            continue
+        else:
+            phases.append(ph)
+
+    if a.pull:
+        notes += run_pull(projects, sorted({ph.get("Project") or ph.project_dir
+                                            for ph in phases}))
+    stamp = a.refreshed.strip() or (_utc_now() if a.pull else "")
+
+    scored = [score_phase(mod, ph, projects) for ph in phases]
+
+    if a.apply:
+        if not stamp:
+            print("cortex: --apply needs a refresh stamp — run it with --pull, "
+                  "or pass --refreshed <ISO> when you pulled by hand",
+                  file=sys.stderr)
+            return RC_USAGE
+        problems, applied, wrote = _apply_checked(root, mod, scored, stamp,
+                                                  record)
+        notes += applied
+        if problems:
+            print("cortex: the tree does not check after the moves — "
+                  + ("they were written; run `python3 scripts/cortex.py check`"
+                     if wrote else "nothing was written") + ":",
+                  file=sys.stderr)
+            for problem in problems[:10]:
+                print(f"  {problem}", file=sys.stderr)
+            return RC_DRIFT
+
+    delivered = sum(1 for s in scored if s["health"] == "HEALTHY")
+    body = collect_report(mod, slot, scored, notes)
+    print(f"collect {slot}: {len(scored)} members, delivered "
+          f"{delivered}/{len(scored)}")
+    if a.out:
+        Path(a.out).write_text(body, encoding="utf-8")
+        print(f"Wrote: {a.out}")
+    else:
+        print(body, end="")
+    return RC_OK if delivered == len(scored) else RC_DRIFT
+
+
+def _apply_checked(root: Path, mod, scored: list, stamp: str,
+                   record) -> tuple:
+    """`(problems, notes, wrote)` — rehearse the writes, then make them.
+
+    `move_phase` writes phase by phase; a rejection halfway through would leave
+    the tree in a state `check` fails on and no way back. So the whole apply is
+    run against a throwaway copy first and only replayed on the real tree when
+    `check_problems` comes back clean — and checked again afterwards, because
+    the promise this verb makes is that it never leaves the Cortex in drift.
+    """
+    record_rel = record.relative_to(root).as_posix() if record is not None else ""
+    tmp = Path(tempfile.mkdtemp(prefix="cortex-collect-"))
+    try:
+        copy = tmp / root.name
+        shutil.copytree(root, copy, ignore=shutil.ignore_patterns(".git"),
+                        symlinks=True)
+        apply_ops(copy, mod, scored, stamp, record_rel)
+        problems = mod.check_problems(copy)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if problems:
+        return problems, [], False
+    notes = apply_ops(root, mod, scored, stamp, record_rel)
+    return mod.check_problems(root), notes, True
+
+
 # -------------------------------------------------------------------- cli ---
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
@@ -1095,7 +1820,24 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--apply", action="store_true",
                    help="write the flips (implies --grade)")
 
-    common(sub.add_parser("collect", help="score a pulled run (phase 2b)"))
+    k = common(sub.add_parser(
+        "collect", help="score what a pull brought back into packet members"))
+    k.add_argument("--slot", default="",
+                   help="the batch record to collect (default: the newest)")
+    k.add_argument("--phase", action="append", default=[], metavar="REL",
+                   help="score these phases instead of the record's live "
+                        "members (repeatable)")
+    k.add_argument("--pull", action="store_true",
+                   help="run each project's own `<sync_cli> pull` first, then "
+                        "stamp the refresh")
+    k.add_argument("--refreshed", default="", metavar="ISO",
+                   help="stamp the refresh at this time — for a pull you ran "
+                        "by hand")
+    k.add_argument("--apply", action="store_true",
+                   help="move the scored phases to awaiting-ruling and write "
+                        "the record (needs --pull or --refreshed)")
+    k.add_argument("--out", default="", metavar="FILE",
+                   help="write the packet markdown here instead of stdout")
     return ap
 
 
@@ -1123,10 +1865,17 @@ def main(argv=None) -> int:
         return rc
 
     if verb == "collect":
-        print("cortex collect lands in slice B of PyAutoMind#380 — until then "
-              "score a pulled run by hand against the phase's `## Witness`.",
-              file=sys.stderr)
-        return RC_USAGE
+        # Scoring reads the tree phase by phase rather than through `census`:
+        # a collect must work on a tree that does not fully check, because a
+        # tree that does not check is exactly when the human needs the packet.
+        try:
+            return cmd_collect(root, mod, a)
+        except mod.CortexError as e:
+            print(f"cortex: {root}: {e}", file=sys.stderr)
+            return RC_UNREADABLE
+        except OSError as e:
+            print(f"cortex: cannot read {root}: {e}", file=sys.stderr)
+            return RC_UNREADABLE
 
     try:
         c = census(root)
