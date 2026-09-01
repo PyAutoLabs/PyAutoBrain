@@ -63,9 +63,10 @@ bin/pyauto-brain vitals                    # read the Heart's readiness verdict
 bash bin/install.sh                        # symlink every organ's skills into ~/.claude
 ```
 
-The seven organs the Brain coordinates — Mind (intent), Brain (reasoning),
-Heart (health), Hands (release), Memory (knowledge), Gut (shedding), Nerves
-(configuration) — are defined once in [ORGANISM.md](ORGANISM.md), which this
+The eight organs the Brain coordinates — Brain (reasoning), Mind (intent),
+Cortex (learning what is true), Memory (knowledge), Heart (health), Hands
+(release), Nerves (configuration), Gut (shedding) — are defined once in
+[ORGANISM.md](ORGANISM.md), which this
 repo hosts. Agent contracts and the generated command table are in
 [AGENTS.md](AGENTS.md). The full organism documentation — including how to
 fork it and lead your own — is at <https://pyautoscientist.readthedocs.io>,

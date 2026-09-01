@@ -67,7 +67,7 @@ CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 # are skipped, so this runs in a partial/web checkout.
 COMMANDS_BEGIN="<!-- pyauto:commands:begin -->"
 COMMANDS_END="<!-- pyauto:commands:end -->"
-ORGAN_REPOS=(PyAutoMind PyAutoBrain PyAutoHeart PyAutoHands PyAutoMemory)
+ORGAN_REPOS=(PyAutoBrain PyAutoMind PyAutoMemory PyAutoHeart PyAutoHands)
 
 # Emit the canonical command-surface block (identical in every organ) to stdout,
 # sourced from the agent registry in bin/pyauto-brain — the single source of
@@ -185,7 +185,7 @@ check_agents_surface() {
 # is checked out. The AGENTS.md command surface (above) still advertises the full
 # verb set + hosting organ. Generated + drift-checked — do not hand-edit these
 # dirs. Symlinks (single source = skills/), matching the user-level install.
-DISCOVERY_REPOS=(PyAutoMind PyAutoBrain PyAutoHeart PyAutoHands autolens_profiling)
+DISCOVERY_REPOS=(PyAutoBrain PyAutoMind PyAutoHeart PyAutoHands autolens_profiling)
 DISCOVERY_DIRS=(.claude/commands .claude/skills .codex/skills)
 
 # Emit the (link<TAB>target) pairs a repo's committed discovery should contain,

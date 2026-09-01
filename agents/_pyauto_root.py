@@ -45,11 +45,12 @@ __all__ = [
 # want) but a Brain-only remote session is still a legitimate root.
 SIBLING_ORGANS = (
     "PyAutoMind",
+    "PyAutoCortex",
+    "PyAutoMemory",
     "PyAutoHeart",
     "PyAutoHands",
-    "PyAutoMemory",
-    "PyAutoGut",
     "PyAutoNerves",
+    "PyAutoGut",
 )
 
 _BRAIN_HOME = Path(__file__).resolve().parents[1]

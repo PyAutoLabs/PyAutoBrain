@@ -164,9 +164,9 @@ board:
   # (yaml) and by the Mind renderer's footer (stdlib regex on this block —
   # keep one `name: Repo` pair per line).
   boards:
-    mind: PyAutoMind
     brain: PyAutoBrain
+    mind: PyAutoMind
+    memory: PyAutoMemory
     heart: PyAutoHeart
     hands: PyAutoHands
-    memory: PyAutoMemory
     organism: PyAutoScientist

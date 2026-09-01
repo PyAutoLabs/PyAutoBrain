@@ -9,11 +9,12 @@ it and adds the framework/instance distinction an adopter needs.
 
 | Organ | Repo | Job |
 |-------|------|-----|
-| **Mind** | PyAutoMind | Decides *what* — intent, goals, priorities, workflow state, the prompt registry, and the body map (`repos.yaml`). |
 | **Brain** | PyAutoBrain | Figures out *how* — reasoning, planning, routing; hosts the specialist agents. Owns no state, no health checks, no execution mechanics. |
+| **Mind** | PyAutoMind | Decides *what* — intent, goals, priorities, workflow state, the prompt registry, and the body map (`repos.yaml`). |
+| **Cortex** | PyAutoCortex | *Learns what is true* — the science body map (`projects.yaml`) and the rulings of record for every science run; the science mirror of the Mind (runs and rulings ↔ prompts and PRs). The Mind decides, the Brain routes, the Cortex learns; a verdict recorded only outside the Cortex does not exist. |
+| **Memory** | PyAutoMemory | *Knows* — long-term domain knowledge: literature wikis, concepts, bibliographies. Pull-only; consulted, never load-bearing at runtime. |
 | **Heart** | PyAutoHeart | Decides whether the organism is *healthy*. `pyauto-heart readiness` is the authoritative GREEN/YELLOW/RED release gate. An observer: never writes into other repos, never triggers a build. |
 | **Hands** | PyAutoHands | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
-| **Memory** | PyAutoMemory | *Knows* — long-term domain knowledge: literature wikis, concepts, bibliographies. Pull-only; consulted, never load-bearing at runtime. |
 | **Gut** | PyAutoGut | *Sheds* — the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds each as a durable, recoverable git ref through a transit window, then **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 
 Everything else — the libraries being developed, their example workspaces,
@@ -34,16 +35,16 @@ organ has to be trusted to police itself.
 
 ## Framework vs instance
 
-The six organs split on one line that matters for adoption:
+The organs split on one line that matters for adoption:
 
 - **Framework organs — Brain, Heart, Hands.** Code, agents, checks,
   pipelines. Domain facts appear only in declared config surfaces (tables
   and policy files, not logic), and a drift check — the
   {ref}`tenant firewall <tenant-firewall>` — keeps it that way.
-- **Instance organs — Mind, Memory, Gut.** Committed state, knowledge, and
-  shed material. These are *inherently yours*: an adopter never forks the
-  upstream Mind, Memory or Gut content, they create their own repos with the
-  same documented shape.
+- **Instance organs — Mind, Cortex, Memory, Gut.** Committed state, rulings,
+  knowledge, and shed material. These are *inherently yours*: an adopter never
+  forks the upstream Mind, Cortex, Memory or Gut content, they create their own
+  repos with the same documented shape.
 
 One more principle worth knowing before you read anything else:
 **one canonical page per fact.** Organ boundaries live in ORGANISM.md;
