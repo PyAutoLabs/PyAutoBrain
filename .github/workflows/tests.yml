@@ -18,15 +18,20 @@ name: Brain Tests
 # PRs on drift Brain cannot cause; organs not checked out (Heart, Hands) are
 # skipped by the check itself, so this gates exactly Brain.
 #
-# TWO repos are checked out on purpose. PyAutoBrain alone cannot even COLLECT
+# THREE repos are checked out on purpose. PyAutoBrain alone cannot even COLLECT
 # the suite: `agents/faculties/sizing/_sizing.py` reads the body map
 # (`BRAIN_HOME.parent / "PyAutoMind" / "repos.yaml"`) at import time and is
 # deliberately strict, so `test_policy_seams.py` and `test_sizing_paths.py`
 # error out before a single test runs. Checking PyAutoMind out as a sibling
 # reproduces the workspace layout the code assumes — the same layout the
-# firewall gate's `--root` needs. Both repos are public, so the default
-# GITHUB_TOKEN suffices — no PAT. No other sibling repo is needed (verified by
-# running the suite against exactly this two-repo layout).
+# firewall gate's `--root` needs. PyAutoCortex is the third: the cortex
+# conductor imports the Cortex's own `scripts/cortex.py` at runtime and its
+# tests render the board against that repo's `tests/fixtures/skeleton`, the
+# fixture that IS the schema's witness — a copied fixture here would drift
+# from the schema it claims to test (the tests skip cleanly when the checkout
+# is absent, so a local run without it still passes). All three repos are
+# public, so the default GITHUB_TOKEN suffices — no PAT. No other sibling repo
+# is needed (verified by running the suite against exactly this layout).
 
 # One run per commit: PR events carry the CI; pushes only build main.
 # Superseded runs are cancelled on PR refs only — a cancelled main run would
@@ -60,6 +65,14 @@ jobs:
         with:
           repository: PyAutoLabs/PyAutoMind
           path: PyAutoMind
+      # The science organ the cortex conductor reasons over: its
+      # `scripts/cortex.py` is the schema API and its skeleton fixture is
+      # what `test_cortex_conductor.py` renders.
+      - name: Checkout PyAutoCortex (the Cortex schema + fixture)
+        uses: actions/checkout@v4
+        with:
+          repository: PyAutoLabs/PyAutoCortex
+          path: PyAutoCortex
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:

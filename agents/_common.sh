@@ -68,6 +68,11 @@ _resolve_dir() {
 # resolve_mind — locate the PyAutoMind checkout (the organism's intent store).
 resolve_mind() { _resolve_dir PYAUTO_MIND PyAutoMind; }
 
+# resolve_cortex — locate the PyAutoCortex checkout (the organism's science
+# state: phases, gates, runs, rulings of record). Resolved independently of the
+# Mind so a session holding one organ and not the other still works.
+resolve_cortex() { _resolve_dir PYAUTO_CORTEX PyAutoCortex; }
+
 # resolve_memory — locate the PyAutoMemory checkout (the organism's long-term
 # scientific/architectural knowledge). Optional: the Feature Agent degrades
 # gracefully when memory is absent rather than inventing context.

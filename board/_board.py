@@ -666,6 +666,29 @@ def collect_resume(org, degraded):
             "pending_prs": pending}
 
 
+def collect_cortex():
+    """The Cortex's own generated counts (its `dashboard.md` counts table —
+    compose, don't recompute), or None.
+
+    Read exactly as `collect_resume` reads the Mind's: the organ's renderer
+    already decided what its sections are and how many are in each, and the
+    board's job is to show that number, not to re-derive it. Absent Cortex
+    checkout, or a Cortex whose board has never been rendered, degrades to
+    None and the strip simply does not appear — a science organ nobody has
+    cloned is not a degraded morning.
+    """
+    dash = PYAUTO_ROOT / "PyAutoCortex" / "dashboard.md"
+    if not dash.is_file():
+        return None
+    counts = {}
+    for label, n in re.findall(
+        r"^\|\s*\[([^\]]+)\]\([^)]*\)[^|]*\|\s*(\d+)\s*\|",
+        dash.read_text(encoding="utf-8"), re.M,
+    ):
+        counts[label] = int(n)
+    return counts or None
+
+
 def collect_open_issues(org, degraded):
     """Total open issues across the org — the /issue_cleanup pointer count
     (the audit itself stays that skill's confirmation-gated job)."""
@@ -866,6 +889,7 @@ def collect():
         board_cfg.get("reference_release_repo"), degraded)
     community = collect_community(degraded)
     resume = collect_resume(org, degraded)
+    cortex = collect_cortex()
     open_issues = collect_open_issues(org, degraded)
     boards = {name: f"{pages_base}/{repo}/"
               for name, repo in board_family.items()}
@@ -883,6 +907,7 @@ def collect():
         "versions": versions,
         "community": community,
         "resume": resume,
+        "cortex": cortex,
         "open_issues": open_issues,
         "hygiene": collect_hygiene(degraded),
         "devbox": collect_devbox(),
@@ -1117,6 +1142,11 @@ def render_md(data):
     if counts:
         L.append("- " + " · ".join(f"{k} {n}" for k, n in counts.items())
                  + f" — [Mind board]({data['boards'].get('mind', '')})")
+    if data.get("cortex"):
+        L.append("- Cortex: "
+                 + " · ".join(f"{k.lower()} {n}"
+                              for k, n in data["cortex"].items())
+                 + f" — [Cortex board]({data['boards'].get('cortex', '')})")
     for t in data["resume"]["tasks"]:
         L.append(f"  - `/start_dev {t['path']}` — {t['title'][:70]}")
     pending = data["resume"]["pending_prs"]
@@ -1475,6 +1505,13 @@ def render_html(data):
             f'Pick from the <a href="{_attr(mind_url)}">Mind board ↗</a>'
             + pills(*[(f"{k} {n}", "" if i == 0 else "n")
                       for i, (k, n) in enumerate(counts.items())])))
+    if data.get("cortex"):
+        cortex_url = data["boards"].get("cortex", "")
+        H.append(_plain(
+            f'Science phases on the <a href="{_attr(cortex_url)}">Cortex '
+            "board \u2197</a>"
+            + pills(*[(f"{k.lower()} {n}", "" if i == 0 else "n")
+                      for i, (k, n) in enumerate(data["cortex"].items())])))
     for t in data["resume"]["tasks"]:
         # An in-flight task wears the header facets the Mind gave it, so it
         # looks like itself on both pages — same pills, same order.

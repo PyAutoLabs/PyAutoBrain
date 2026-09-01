@@ -167,6 +167,7 @@ board:
   boards:
     brain: PyAutoBrain
     mind: PyAutoMind
+    cortex: PyAutoCortex
     memory: PyAutoMemory
     heart: PyAutoHeart
     hands: PyAutoHands

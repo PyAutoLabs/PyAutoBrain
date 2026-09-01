@@ -31,6 +31,9 @@ SURFACE_KEYS = {
     "heart_plan", "performance",
     "hands", "versions", "community", "resume", "open_issues", "hygiene",
     "devbox", "autonomy", "doors", "boards", "degraded", "history",
+    # The science organ's own counts (its dashboard.md counts table), None
+    # when no Cortex is checked out.
+    "cortex",
 }
 
 AUTONOMY_LOG = """\
@@ -170,6 +173,19 @@ def _default_fixtures(**overrides):
     return fx
 
 
+CORTEX_DASHBOARD_MD = """\
+# PyAutoCortex Dashboard
+
+| Where | Count |
+|-------|------:|
+| [Awaiting ruling](#awaiting-ruling) | 2 |
+| [Running / submitted](#running--submitted) | 1 |
+| [Ready](#ready) | 4 |
+| [Gated](#gated) | 3 |
+| [Recent rulings](#recent-rulings) | 9 |
+"""
+
+
 def _fabricate(tmp_path, fixtures, heart_board=None):
     """A PYAUTO_ROOT with a fabricated Mind, file:// sibling-board badges, and
     a stub gh serving per-endpoint fixture JSON, logging every invocation.
@@ -195,6 +211,12 @@ def _fabricate(tmp_path, fixtures, heart_board=None):
     (mind / "queue.md").write_text(
         "# Queue\n\ndraft/feature/repoa/one.md\ndraft/feature/repoa/two.md\n")
     (mind / "autonomy_log.md").write_text(AUTONOMY_LOG)
+
+    # The Cortex beside it, with the board its own renderer generates: the
+    # Brain board composes those counts rather than recomputing them.
+    cortex = tmp_path / "PyAutoCortex"
+    cortex.mkdir()
+    (cortex / "dashboard.md").write_text(CORTEX_DASHBOARD_MD)
 
     # One badge per sibling board named in the declared config surface —
     # read from policy.yaml so no board repo name is hardcoded here.
@@ -274,6 +296,19 @@ def _surface(tmp_path, fixtures=None):
 
 
 # ----------------------------------------------------------------- surface --
+
+
+def test_the_cortex_strip_composes_the_cortex_own_counts(tmp_path):
+    """The science organ renders its own board and decides its own sections;
+    the Brain board shows those numbers rather than re-deriving them, and
+    degrades to nothing at all when no Cortex is checked out."""
+    s, _ = _surface(tmp_path)
+    assert s["cortex"] == {"Awaiting ruling": 2, "Running / submitted": 1,
+                           "Ready": 4, "Gated": 3, "Recent rulings": 9}
+    stub = _fabricate(tmp_path / "no_cortex", _default_fixtures())
+    (tmp_path / "no_cortex" / "PyAutoCortex" / "dashboard.md").unlink()
+    r = _run(["--json"], tmp_path / "no_cortex", stub)
+    assert json.loads(r.stdout)["cortex"] is None
 
 
 def test_json_surface_is_complete_and_derives_org(tmp_path):
