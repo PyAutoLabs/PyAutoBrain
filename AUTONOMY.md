@@ -401,6 +401,19 @@ relaxation above never operates and every batch returns parked questions.
 *Revert condition:* one escape traceable to a YELLOW reason this section let
 through restores the exact-set rule for batches.
 
+**Which record — 2026-09-02.** A member reads **its own organ's** batch record:
+`PyAutoMind/batches/<slot>.md` for a dev member, `PyAutoCortex/batches/<slot>.md`
+for a science one (`batch plan --kind cortex` writes it). The two surfaces hold
+separate records with separate `review-at:`s, so a member that read the other
+organ's would be reading another shift's grant. The "no record → solo `--auto`"
+rule above is unchanged for dev members and **inapplicable to a cortex member**:
+a science member is never `--auto` — the human submits the run and rules on it,
+so there is no autonomous acknowledgement for a grant to license. A Cortex record
+therefore carries no `heart-ack:` and no `expected-effects:` at all (the Cortex's
+own `batches/AGENTS.md` drops both: the Heart gates releases, not runs), and
+**their absence there is never read as an unacknowledged RED** — the fields are
+not missing, they do not exist on that schema.
+
 ## Corrective-PR exception for Heart RED (human-authorized)
 
 Heart RED forbids commit, push and PR-open at every autonomy level (the levels
