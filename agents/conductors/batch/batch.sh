@@ -21,6 +21,7 @@
 #   batch.sh collect --evidence ev.json  # PR state the session gathered (MCP surface)
 #   batch.sh collect --fetch             # laptop only: one `gh pr view` per PR
 #   batch.sh collect --integration       # laptop only: merge every member's head per repo
+#   batch.sh collect --integration --push  # laptop only: publish each integration/<slot>
 #   batch.sh collect --evidence ev.json --apply [--stamp ISO]   # the form that writes
 #   batch.sh collect --out report.md --json
 #
@@ -34,6 +35,14 @@
 # merges locally, pushes nothing and opens no PR. A member whose merge
 # conflicts is left out and named with the conflicting files -- that report
 # is the product, and it does not move the exit code.
+#
+# --push (needs --integration) publishes each of those branches to origin as a
+# throwaway review ref, so the preview can be read from another machine. Never
+# a pull request and never a base for one; never forced -- an unchanged refresh
+# is not re-pushed, a fast-forward is, and anything else is published as
+# integration/<slot>-2 rather than moving what is already there. The ref
+# expires at the record's sweep-after: date, when branch_sweep.sh may delete
+# it. No record can ask for --push: the human types it.
 
 set -uo pipefail
 

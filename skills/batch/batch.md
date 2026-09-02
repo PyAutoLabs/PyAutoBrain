@@ -133,7 +133,10 @@ bin/pyauto-brain batch collect --slot <date>-<slot> --evidence ev.json --apply
   `<root>/<workspace>`. A member that conflicts is **left out and named with
   the conflicting files** — report that as the answer to "how would this
   resolve at the end?", not as a failure. Nothing is pushed, no PR is opened,
-  no remote ref is touched.
+  no remote ref is touched. If the reviewer needs it on another machine or in
+  CI, add `--push`: one real `integration/<slot>` per repo, pushed with the
+  laptop's own git auth, never forced, never a PR, and swept after the record's
+  `sweep-after:` date. The first push of a slot is the human's call.
 - **What comes back is scored, not summarised.** Six legs per member (pr ·
   diff · checks · green · witness · adversary), one health word (FAILED ·
   NOT-DELIVERED · SUSPECT · HEALTHY · PENDING · MERGED), failures at the top.
