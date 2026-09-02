@@ -104,22 +104,38 @@ In order:
 
 ## When they come back — collect, review, close (2026-08-31)
 
-**Collect first, before the human reads anything.**
+**Collect first, before the human reads anything.** It is one command:
 
-- **Science members end at pulled results.** Step 0 is each project's
-  `hpc/sync pull`, so every run output the packet cites is on the laptop —
-  these are evolving projects the human stays in the loop on, and the loop
-  runs through their own disk. Every "where to look" pointer in the packet is
-  a **local path**; a pointer may stay remote only when the pull cannot fetch
-  it by design, and must say so. A mobile session cannot pull: it says "run
+```
+bin/pyauto-brain batch collect --slot <date>-<slot> --evidence ev.json --apply
+```
+
+- **Gather the evidence, then hand it over.** Collect has no GitHub of its
+  own. In a web session, read each member's PRs with the GitHub MCP tools
+  (`pull_request_read` for state and diff counts, the check rollup or
+  `actions_list` for the checks — `PyAutoBrain/skills/GITHUB_ACCESS.md` maps
+  each operation) and write them into the evidence JSON that the conductor's
+  `AGENTS.md` documents under "The collect recipe". On the laptop lane
+  `--fetch` does the same by running one `gh pr view` per PR. Run it once
+  without `--apply` to read the report; run it again with `--apply` to write
+  the packet and stamp the record.
+- **What comes back is scored, not summarised.** Six legs per member (pr ·
+  diff · checks · green · witness · adversary), one health word (FAILED ·
+  NOT-DELIVERED · SUSPECT · HEALTHY · PENDING · MERGED), failures at the top.
+  A leg with no evidence is UNOBSERVABLE and never delivered — a member you
+  did not look up reaches the human as SUSPECT, not as clean.
+- **The PENDING entries fill themselves in.** `--apply` regenerates each
+  member's section in place — same path, same id — and stamps the page
+  `refreshed:`, normally while the human is already reading the finished
+  members. No other member's markup is touched, so their stored notes and
+  chips survive.
+- **Science members are still by hand** until the Cortex kind lands: step 0 is
+  each project's `hpc/sync pull`, so every run output the packet cites is on
+  the laptop — these are evolving projects the human stays in the loop on, and
+  the loop runs through their own disk. Every "where to look" pointer is a
+  **local path**; one may stay remote only when the pull cannot fetch it by
+  design, and must say so. **A mobile session cannot pull**: it says "run
   collect from the laptop" rather than emitting a remote-only packet.
-- **Dev members end at a PR with CI green.** The packet states, per dev
-  member, the PR number and whether **every check ran and ran green** — a
-  member without a green-CI PR is not `delivered:`, however clean its diff.
-- **Fill the PENDING entries.** The packet was written at dispatch; the
-  morning collect replaces each PENDING member with its readout and adds a
-  `refreshed:` stamp. This normally happens while the human is already
-  reading the finished members.
 
 **Before reading any PR from a batch, the independent adversary leg must have
 run** (`AUTONOMY.md` leg 5): `bin/pyauto-brain review --task <name> --witness
@@ -133,7 +149,11 @@ failures first, then anything labelled `decision-taken`, then clean. They tick,
 choose and annotate each member on the page and submit; the submission lands as
 `PyAutoMind/batches/reviews/<date>-<slot>.md` (or they dictate the same
 content in-chat — both are the same review). When they say the review is done,
-read that file and act on it, member by member:
+run `batch collect --slot <date>-<slot> --apply` once more: with the review
+file present it **refuses to rewrite the packet** — that page is what they
+ruled against — and closes the record instead (`reviewed-at:`,
+`review-minutes-actual:`, `review:`). It reports their decisions and enacts
+none of them; that part is yours, member by member:
 
 - **merge** — `/prm <PR>`; for a science member, write the ruling into the
   project's own ledger (DECISIONS, harvest table, results summary) verbatim.

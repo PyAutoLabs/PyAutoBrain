@@ -80,7 +80,7 @@ declare -A AGENT_SCRIPT=(
 )
 declare -A AGENT_DESC=(
   [intake]="Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev)"
-  [batch]="Compose one unattended shift: the BatchDecision, planned against the slot's REVIEW-MINUTE budget rather than a task count — proposes, never dispatches"
+  [batch]="Compose one unattended shift: the BatchDecision, planned against the slot's REVIEW-MINUTE budget rather than a task count — proposes, never dispatches; 'batch collect' scores what came back into the review packet and stamps the batch record"
   [community]="The ears — the organism's receptive function: scan/triage user-filed GitHub issues + PRs and review requests across the repos; drafts stay human-gated, dev work routes via start_dev_for_user (never posts)"
   [feature]="Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev"
   [bug]="The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair"
