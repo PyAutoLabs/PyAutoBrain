@@ -52,6 +52,7 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 | **`Unattended: ready` only** | `needs-slicing` goes to the decomposition pass; `never` never enters a batch |
 | **Lane match** | a session detects its own lane and plans only that one |
 | **Backpressure** | see below |
+| **One integration root per slot, and it is local** | `integration/<slot>` is cut fresh from `origin/main` on every run and never pushed, so a re-run is a re-preview rather than a rewrite; a dirty integration worktree is skipped, never reset. The one-member-per-library-repo rule above is what keeps within-repo conflicts rare — the common case is one member with organ PRs across five repos. |
 
 Everything rejected says so, with its reason. A planner that silently drops work
 teaches the human to distrust the number it reports.
@@ -108,6 +109,7 @@ pyauto-brain batch collect                   # score the newest record; offline
 pyauto-brain batch collect --slot 2026-09-03-pm
 pyauto-brain batch collect --evidence ev.json    # PR state from this session
 pyauto-brain batch collect --fetch               # laptop: `gh pr view` per PR
+pyauto-brain batch collect --integration         # laptop: merge every member's head into one worktree root
 pyauto-brain batch collect --evidence ev.json --apply  # the one form that writes
 pyauto-brain batch collect --out report.md --json
 
@@ -311,6 +313,70 @@ merged.
 
 `witness.holds` is tri-state: `true` PASS, `false` FAIL, absent UNOBSERVABLE.
 
+### Integration branches (`--integration`)
+
+One throwaway worktree root per slot under `$PYAUTO_WT_ROOT`, built by
+`bin/worktree.sh` with `PYAUTO_WT_BRANCH=integration/<slot>`. Every affected
+repo becomes a real worktree on `integration/<slot>`, cut from `origin/main`,
+with every member's head branch merged in **dispatch order** — so the human can
+*run* the whole batch before ruling on any of it, and "how would these resolve
+at the end?" is answered by a merge rather than by reading diffs.
+
+**It fetches and reads; it never pushes, opens a PR, or touches a remote ref.**
+Like `--fetch` it is opt-in, non-default and laptop-only — a cloud session is
+pointed at the laptop rather than failing halfway through a root it cannot
+finish. Pushing `integration/<slot>` is a separate, later decision.
+
+```jsonc
+{"slot": "2026-09-03-pm",
+ "root": "~/Code/PyAutoLabs-wt/integration-2026-09-03-pm",
+ "activate": "<root>/activate.sh", "branch": "integration/2026-09-03-pm",
+ "at": "2026-09-03T08:00Z",
+ "repos": [{"repo": "PyAutoLabs/PyAutoFit", "dir": "PyAutoFit",
+            "path": "<root>/PyAutoFit", "branch": "integration/2026-09-03-pm",
+            "base": "origin/main", "base_sha": "…", "head_sha": "…",
+            "merged": ["autofit-resampling-info"],
+            "conflicts": [{"member": "autoarray-x", "branch": "feature/x",
+                           "paths": ["src/mask/mask_2d.py"]}],
+            "status": "clean | conflicted | skipped", "note": ""}],
+ "notes": ["…"]}
+```
+
+**Four reasons a member's PR is left out**, each said out loud: it is already
+merged; it is CLOSED; it has no `head_ref` in the evidence (gathered before the
+head fields were asked for — re-run `--fetch`); or its head lives on a **fork**,
+whose branch is not on `origin` and cannot be merged from a local checkout at
+all. A repo with no local checkout under the workspace root is dropped the same
+way.
+
+**Nothing is resolved.** A member whose merge conflicts is left OUT of that
+repo's branch and named with the conflicting paths; the merge is aborted and
+the next member is tried. **That report is the product** — it does not change
+the exit code, and it does not change any member's health word. A member's
+health is about *its own* delivery; a merge collision is a property of the
+*slot*, and mixing them would make a green, delivered member read as SUSPECT
+because a sibling touched the same file.
+
+**A dirty integration worktree is skipped, never reset.** The branch is re-cut
+from `origin/main` on every run (`checkout -B`), because the merge result is a
+function of the current base and the current heads — a second run stacked onto
+the first would preview a base that no longer exists. That is safe only because
+the one thing a re-cut could destroy, a human's uncommitted experiment inside
+the review root, is refused outright and reported. **That refusal, not the
+branch policy, is the safety property.**
+
+`activate.sh`'s `PYTHONPATH` covers the libraries, so a **library** member's
+change is live anywhere once the root is sourced. A **workspace** member is a
+real worktree in the root but is not on the PYTHONPATH, so its script must be
+run from inside `<root>/<workspace>`.
+
+**Collect does not rewrite your `--evidence` file.** That file is an *input*;
+`--apply` writes exactly two things, the packet and the record's stamps. The
+computed block is emitted on `--json`, rendered into the packet and stamped on
+the record as `integration-root:` — persisting it is `--json > ev.json`'s job,
+and a block pasted back into an evidence file is how a cloud session renders one
+at all.
+
 ### The packet is refreshed, never rewritten
 
 `--apply` writes `batches/packets/<slot>.html` in place and at the same path,
@@ -328,8 +394,11 @@ header was left alone. Collect never rewrites such a page wholesale.
 
 `--apply` edits the batch record line by line, never re-serialising it:
 `collected:` once (the first collect owns it), one `refreshed:` line per apply,
-`delivered: n/m`, and `packet:`. Member outcomes become `<HEALTH> (<one line of
-evidence>)` — **unless the outcome already opens with a ruling word**
+`delivered: n/m`, `packet:`, and — after an `--integration` run —
+`integration-root:` (a key of its own: the dispatch-time
+`- integration: yes` is the human's request, and is never overwritten
+with a path). Member outcomes become `<HEALTH> (<one line of evidence>)` —
+**unless the outcome already opens with a ruling word**
 (`ACCEPTED`, `REJECTED`, `MERGED`, `LEAVE-TO-FINISH`, …), which is a human's
 verdict and is never overwritten by a machine re-read. Once the slot's review
 has landed, **no member line changes at all** — the record is the history of
