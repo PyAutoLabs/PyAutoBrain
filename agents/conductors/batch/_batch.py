@@ -1411,9 +1411,21 @@ _GENERATED_RE = re.compile(r"Generated ([^·<]+)")
 
 
 def _mind_home(mind: Path) -> str:
-    """`https://github.com/<owner>/PyAutoMind`, read from a file that travels
-    with the repo rather than named here — a fork's packets must point at the
-    fork. Falls back to the URL `batches/packets/TEMPLATE.md` itself spells."""
+    """`https://github.com/<owner>/PyAutoMind`, read from the checkout rather
+    than named here — a fork's packets must point at the fork, and organ code
+    names no GitHub owner (the Mind's tenant firewall). The `origin` remote is
+    tried first, then a page that travels with the repo; with neither there is
+    no home, and the packet's Commit-on-GitHub button says so instead of
+    guessing one."""
+    try:
+        r = subprocess.run(["git", "-C", str(mind), "config", "--get",
+                            "remote.origin.url"], capture_output=True,
+                           text=True, timeout=10)
+        m = re.search(r"github\.com[:/]([\w.-]+)/PyAutoMind", r.stdout)
+        if r.returncode == 0 and m:
+            return f"https://github.com/{m.group(1)}/PyAutoMind"
+    except (OSError, subprocess.SubprocessError):
+        pass
     for name in ("README.md", "AGENTS.md"):
         f = mind / name
         if f.is_file():
@@ -1421,7 +1433,7 @@ def _mind_home(mind: Path) -> str:
                           f.read_text(encoding="utf-8", errors="replace"))
             if m:
                 return f"https://github.com/{m.group(1)}/PyAutoMind"
-    return "https://github.com/PyAutoLabs/PyAutoMind"
+    return ""
 
 
 def _tiles(d: dict) -> str:
@@ -1481,12 +1493,13 @@ def _members_js(d: dict) -> str:
     payload = json.dumps(members, indent=2, ensure_ascii=False).replace(
         "<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     js = _asset("packet.js")
+    home = _mind_home(d["mind"])
     for token, value in (
             ("%%MEMBERS_JSON%%", payload),
             ("%%SLOT%%", d["slot"]),
             ("%%PACKET_PATH%%", f"PyAutoMind/batches/packets/{d['slot']}.html"),
             ("%%REVIEW_PATH%%", f"batches/reviews/{d['slot']}.md"),
-            ("%%GITHUB_NEW%%", f"{_mind_home(d['mind'])}/new/main")):
+            ("%%GITHUB_NEW%%", (f"{home}/new/main" if home else ""))):
         js = js.replace(token, value)
     return "<script>\n" + js + "</script>"
 

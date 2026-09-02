@@ -40,16 +40,16 @@ resampled heavily looks identical to one that did not.
 ACTIVE = """# Active Tasks
 
 ## resampling-info-summary-section
-- issue: https://github.com/PyAutoLabs/PyAutoFit/issues/1551
+- issue: https://github.com/ExampleOrg/ExampleFit/issues/1551
 - prompt: active/resampling.md
 - status: library-shipped, awaiting-merge
-- library-pr: https://github.com/PyAutoLabs/PyAutoFit/pull/1554
+- library-pr: https://github.com/ExampleOrg/ExampleFit/pull/1554
 
 ## something-else
 - prompt: active/other.md
 - status: pr-open
 - prs:
-  - https://github.com/PyAutoLabs/PyAutoArray/pull/9
+  - https://github.com/ExampleOrg/ExampleArray/pull/9
 """
 
 MEMBER = ("  - resampling: draft/bug/autofit/resampling.md — glance — 3 — "
@@ -98,8 +98,8 @@ def mini_mind(tmp_path, *members, active=ACTIVE, notes=True, keys="",
 
 
 def pr(**over) -> dict:
-    row = {"repo": "PyAutoLabs/PyAutoFit", "number": 1554,
-           "url": "https://github.com/PyAutoLabs/PyAutoFit/pull/1554",
+    row = {"repo": "ExampleOrg/ExampleFit", "number": 1554,
+           "url": "https://github.com/ExampleOrg/ExampleFit/pull/1554",
            "state": "OPEN", "additions": 86, "deletions": 12,
            "changed_files": 3, "mergeable": "MERGEABLE", "merged": False,
            "checks": [{"name": "tests", "status": "completed",
@@ -128,7 +128,7 @@ def test_a_member_outcome_may_contain_the_separator(tmp_path):
     keeps the outcome whole; the Cortex conductor's `(?P<state>\\S+)$` does
     not, which is why this module does not reuse it."""
     line = ("  - resampling: draft/bug/autofit/resampling.md — glance — 3 — "
-            "DELIVERED (PyAutoFit#1554 — 4/4 checks green, mergeable clean)")
+            "DELIVERED (ExampleFit#1554 — 4/4 checks green, mergeable clean)")
     row = _batch.parse_member(line)
     assert row["slug"] == "resampling"
     assert row["path"] == "draft/bug/autofit/resampling.md"
@@ -153,7 +153,7 @@ def test_an_unparsable_member_line_is_a_note_not_a_crash(tmp_path):
 def test_the_em_dash_may_be_typed_as_two_hyphens(tmp_path):
     row = _batch.parse_member(
         "  - resampling: draft/bug/autofit/resampling.md -- glance -- 3 -- "
-        "DELIVERED (PyAutoFit#1554)")
+        "DELIVERED (ExampleFit#1554)")
     assert row and row["tier"] == "glance" and row["minutes"] == "3"
 
 
@@ -281,7 +281,7 @@ def test_active_md_is_matched_by_prompt_basename_when_the_slug_differs(tmp_path)
         active)
     assert entry["slug"] == "resampling-info-summary-section"
     assert how == "prompt basename"
-    assert entry["prs"] == ["https://github.com/PyAutoLabs/PyAutoFit/pull/1554"]
+    assert entry["prs"] == ["https://github.com/ExampleOrg/ExampleFit/pull/1554"]
     assert entry["issue"].endswith("/issues/1551")
 
 
@@ -346,7 +346,7 @@ def test_a_pending_member_becomes_a_full_block_on_refresh_with_the_same_id(tmp_p
     mind = mini_mind(
         tmp_path,
         "  - resampling: draft/bug/autofit/resampling.md — glance — 3 — "
-        "DELIVERED (PyAutoFit#1554)")
+        "DELIVERED (ExampleFit#1554)")
     ev = evidence()
     ev["resampling"] = dict(ev["resampling"], pending=True)
     apply_once(mind, ev)
@@ -477,7 +477,7 @@ def test_a_closed_batch_keeps_every_member_line_and_every_value_it_has(tmp_path)
     mind = mini_mind(
         tmp_path,
         "  - resampling: draft/bug/autofit/resampling.md — glance — 3 — PR "
-        "OPENED AT REVIEW (PyAutoFit#1554 from the parked branch)",
+        "OPENED AT REVIEW (ExampleFit#1554 from the parked branch)",
         keys="- reviewed-at: 2026-09-04T08:30 (transcribed; the review sat "
              "outside the packet)\n- review-minutes-actual: (not given)\n"
              "- delivered: 6/9 cloud members (5 PR sets green + 1 verdict)",
@@ -486,7 +486,7 @@ def test_a_closed_batch_keeps_every_member_line_and_every_value_it_has(tmp_path)
     record = (mind / "batches" / "2026-09-03-pm.md").read_text(encoding="utf-8")
     assert "- delivered: 6/9 cloud members (5 PR sets green + 1 verdict)" in record
     assert "- delivered: 0/1" not in record
-    assert "PR OPENED AT REVIEW (PyAutoFit#1554 from the parked branch)" in record
+    assert "PR OPENED AT REVIEW (ExampleFit#1554 from the parked branch)" in record
     assert "— HEALTHY" not in record
     assert ("- reviewed-at: 2026-09-04T08:30 (transcribed; the review sat "
             "outside the packet)") in record

@@ -193,7 +193,16 @@
       /* GitHub's prefilled-new-file URL is the affordance that lands the review
        * without a copy-paste; past ~7,500 chars it silently truncates, which
        * would commit a review missing its last members. */
-      if (url.length > 7500) {
+      if (!GITHUB_NEW) {
+        /* The renderer found no GitHub home for this Mind (no origin remote,
+         * no README link) and names none itself, so there is nothing to link. */
+        ghLink.removeAttribute("href");
+        ghLink.classList.add("is-disabled");
+        ghLink.setAttribute("aria-disabled", "true");
+        if (ghHint) {
+          ghHint.textContent = "No GitHub home resolved for this Mind — use Copy, then paste into a new file at " + REVIEW_PATH + ".";
+        }
+      } else if (url.length > 7500) {
         ghLink.removeAttribute("href");
         ghLink.classList.add("is-disabled");
         ghLink.setAttribute("aria-disabled", "true");
