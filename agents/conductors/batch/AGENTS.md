@@ -110,7 +110,25 @@ pyauto-brain batch collect --evidence ev.json    # PR state from this session
 pyauto-brain batch collect --fetch               # laptop: `gh pr view` per PR
 pyauto-brain batch collect --evidence ev.json --apply  # the one form that writes
 pyauto-brain batch collect --out report.md --json
+
+pyauto-brain batch plan --kind cortex [--cortex DIR] [--cortex-budget N]
+pyauto-brain batch plan --kind cortex --apply --review-at <ISO> \
+      [--slot <YYYY-MM-DD-label>] [--shift <label>] [--stamp <ISO>]  # writes the record
+pyauto-brain batch collect --kind cortex [--pull] [--apply] [--review-at <ISO>]
 ```
+
+`--kind dev | cortex | both` picks the member kind, and its default is the
+**lane's**: `local-dev` offers `both`, a cloud session `dev` only — with the
+Cortex ready count reported rather than hidden, as the lane rule says. `--cortex
+DIR` names the checkout when it is not where `_cortex.resolve_root` finds it;
+`--cortex-budget N` is the science slot's own review-minute budget (default
+`--budget`). `plan --kind cortex --apply` is the only form that opens a Cortex
+record, and it **refuses without `--review-at`**: the shift is dispatch →
+`review-at:`, and that horizon is the human's to declare, never inferred.
+`collect --kind cortex` scores the record's members and refreshes the packet;
+`--pull` runs each project's own sync CLI first (laptop only), and `--review-at`
+re-declares the record's horizon at a refresh. `--fetch` and `--evidence` are
+dev-only — a science member's evidence is on disk, not on GitHub.
 
 `plan` is stdlib-only, offline and writes nothing. `collect` is the same by
 default — it reads the newest batch record (`--slot` picks another; the
@@ -124,7 +142,8 @@ why it needs a stamp (`--stamp <ISO>`, else now).
 
 Exit codes: **0** every member delivered · **1** a member needs the human
 (FAILED, NOT-DELIVERED, SUSPECT, or still PENDING) · **2** usage · **4** no
-Mind (no `batches/` at all).
+Mind (no `batches/` at all) · **5** no usable Cortex tree (`--kind cortex` with
+nothing to read).
 
 ## Running a batch by hand (there is no dispatcher yet, and that is fine)
 
@@ -174,11 +193,12 @@ what a dispatcher actually needs before writing one.
    entries in place and stamps the page `refreshed:` — normally while the
    human is already reading the finished members. A dev member without a
    green-CI PR is not `delivered:`, and collect says so first and loudly.
-   Science members stay by hand until the Cortex kind lands (phase 5):
-   `hpc/sync pull` per project, so every pointer in the packet is a local path
-   (remote-only pointers exist only where the pull cannot fetch by design, and
-   say so; a mobile session cannot pull and says "run collect from the
-   laptop").
+   Science members are their own batch: `hpc/sync pull` per project (or
+   `collect --kind cortex --pull`), then `pyauto-brain batch collect --kind
+   cortex --apply` against the Cortex record, so every pointer in the packet is
+   a local path (remote-only pointers exist only where the pull cannot fetch by
+   design, and say so; a mobile session cannot pull and says "run collect from
+   the laptop").
 9. The human reviews on the packet page — tick, choose, annotate, submit —
    and the review lands as `batches/reviews/<date>-<slot>.md` (or they
    dictate it in-chat; same review). Failures first, then `decision-taken`,
@@ -325,9 +345,53 @@ rejections are the orchestrator's next act with the human, not collect's.
 
 Scoring is registered per member **kind** (`KINDS`) — a scorer plus a block
 renderer, over the one flat scored shape the report and the packet both read.
-`dev` is the kind that ships. The science kind (pulled runs, the six legs of
-`cortex collect`, rulings written into the project's own ledger) is Cortex
-phase 5's, and it plugs in there rather than growing a second collect.
+`dev` was the kind that shipped first; the science kind (`cortex`) now ships
+here too, over the phase-2 Cortex conductor's own `score_phase` and
+`member_block` rather than a second collect. A third kind is a scorer, a block
+renderer and a claim function — nothing else moves.
+
+## Two kinds, two records
+
+`dev` reads the Mind, `cortex` reads the Cortex, and the two vocabularies are
+kept apart on purpose: they are different genres of work reviewed by different
+acts.
+
+| | `dev` | `cortex` |
+|---|---|---|
+| a member is | a Mind prompt | a Cortex phase |
+| its record | `PyAutoMind/batches/<slot>.md` | `PyAutoCortex/batches/<slot>.md` |
+| its legs | pr · diff · checks · green · witness · adversary | the six science legs of `cortex collect` |
+| its health words | FAILED · NOT-DELIVERED · SUSPECT · HEALTHY · PENDING · MERGED | FAILED · SUSPECT · HEALTHY · **RUNNING** |
+| the human's verbs | merge · tweak · reject · defer | accept · rerun · drop · leave-to-finish |
+| the review lands as | a merge and follow-up prompts | a ruling (`cortex.py rule`) |
+
+**Admission is the phase-2 rule, not the dev one.** A cortex member is `ready`,
+carries a witness, fits the budget and matches the lane. The **autonomy cap is
+never consulted** — a science member is supervised by definition, the human
+submits the run and rules on it — and the one-member-per-library-repo clash
+applies **in neither direction**: a science run claims no library worktree, so
+it can neither be blocked by a dev member nor block one.
+
+**The Cortex packet is a rolling board.** A dev batch is dispatched at once and
+reviewed at once; a science phase **joins** its board when its results are
+pulled. `collect --kind cortex` may therefore run any number of times in one
+slot — each pull appends the member that just landed and leaves every other
+section byte-identical. Members still `submitted`/`running` render as RUNNING
+with their job ids and wall-vs-budget, and **hold no review control at all**:
+no chips, no ruled box, `(none)` in the submitted review. There is nothing for
+the human to say about a run that has not finished.
+
+**Carry-forward is the mechanism that moves them on.** At close, every member
+still `submitted`/`running` gets a `- carried: <slug> — still <state> at review`
+line on the record, and the next `plan --kind cortex --apply` includes those
+members automatically with a `- carried-from:` naming the record they came from.
+The human never re-specifies them, and **a Cortex member never blocks a Cortex
+review** (`PyAutoCortex/batches/AGENTS.md`).
+
+**A Mind record never lists a Cortex member, and a Cortex record never lists a
+dev one.** Each surface holds its own `review-at:`, so one record cannot carry
+two shifts — and a member reading its organ's record at leg 4 (`AUTONOMY.md`,
+"How a member learns the shift's grant") would otherwise read the wrong grant.
 
 ## Not built yet
 

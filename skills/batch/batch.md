@@ -129,13 +129,31 @@ bin/pyauto-brain batch collect --slot <date>-<slot> --evidence ev.json --apply
   `refreshed:`, normally while the human is already reading the finished
   members. No other member's markup is touched, so their stored notes and
   chips survive.
-- **Science members are still by hand** until the Cortex kind lands: step 0 is
-  each project's `hpc/sync pull`, so every run output the packet cites is on
-  the laptop — these are evolving projects the human stays in the loop on, and
-  the loop runs through their own disk. Every "where to look" pointer is a
-  **local path**; one may stay remote only when the pull cannot fetch it by
-  design, and must say so. **A mobile session cannot pull**: it says "run
-  collect from the laptop" rather than emitting a remote-only packet.
+- **Science members are their own batch, with their own record.** Step 0 is
+  still each project's `hpc/sync pull` (or `--pull`, which runs the project's
+  own sync CLI for you), so every run output the packet cites is on the laptop
+  — these are evolving projects the human stays in the loop on, and the loop
+  runs through their own disk. Then:
+
+  ```
+  bin/pyauto-brain batch collect --kind cortex --slot <date>-<slot> --apply
+  ```
+
+  Run it again after every pull: the Cortex packet is a **rolling board**, so a
+  newly `pulled` member is appended in place and every other section stays
+  byte-identical. Members still running show job ids and wall-vs-budget and
+  hold **no review control** — there is nothing to say about an unfinished run.
+  Every "where to look" pointer is a **local path**; one may stay remote only
+  when the pull cannot fetch it by design, and must say so. **A mobile session
+  cannot pull**: it says "run collect from the laptop" rather than emitting a
+  remote-only packet.
+- **Two records, two `review-at:`s.** A science batch is never a member of the
+  dev record: it lives in `PyAutoCortex/batches/<date>-<slot>.md`, opened by
+  `batch plan --kind cortex --apply --review-at <ISO>`, and it carries its own
+  horizon — re-declare it with `--review-at` at any refresh when the human's
+  return time moves. The review closes that batch; members still running are
+  written as `- carried:` lines and re-enter the next Cortex batch by
+  themselves, so a long run never holds a science review.
 
 **Before reading any PR from a batch, the independent adversary leg must have
 run** (`AUTONOMY.md` leg 5): `bin/pyauto-brain review --task <name> --witness

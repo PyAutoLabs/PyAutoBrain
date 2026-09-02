@@ -24,6 +24,12 @@
   var PACKET_PATH = "%%PACKET_PATH%%";
   var REVIEW_PATH = "%%REVIEW_PATH%%";
   var GITHUB_NEW = "%%GITHUB_NEW%%";
+  /* The two spellings the two organs' checks disagree on: the Mind's review
+   * takes `## Follow-ups accepted` and `UNREVIEWED`; the Cortex's check reads
+   * every `##` heading as a member name and every decision as a ruling verb,
+   * so its follow-ups sit one level down and its no-verdict word is `(none)`. */
+  var FOLLOWUPS_HEADING = "%%FOLLOWUPS_HEADING%%";
+  var DEFAULT_DECISION = "%%DEFAULT_DECISION%%";
   var MEMBERS = %%MEMBERS_JSON%%;
 
   function readState() {
@@ -64,15 +70,27 @@
   var i;
 
   var progressEl = document.getElementById("progress-count");
+  /* A member with no review control cannot be ruled, so it is not in the
+   * denominator: a board whose progress line could never read "all decided"
+   * teaches the human to ignore it. */
+  function reviewable() {
+    var n = 0;
+    for (var r = 0; r < MEMBERS.length; r++) {
+      if (MEMBERS[r].reviewable !== false) { n++; }
+    }
+    return n;
+  }
+
   function updateProgress() {
-    var ruled = 0, decided = 0;
+    var ruled = 0, decided = 0, total = reviewable();
     for (i = 0; i < MEMBERS.length; i++) {
+      if (MEMBERS[i].reviewable === false) { continue; }
       if (state.ruled[MEMBERS[i].id] === true) { ruled++; }
       if (state.decision[MEMBERS[i].id]) { decided++; }
     }
     if (progressEl) {
-      progressEl.textContent = "Ruled " + ruled + " of " + MEMBERS.length +
-        " · decisions " + decided + " of " + MEMBERS.length;
+      progressEl.textContent = "Ruled " + ruled + " of " + total +
+        " · decisions " + decided + " of " + total;
     }
   }
 
@@ -163,14 +181,14 @@
     for (var j = 0; j < MEMBERS.length; j++) {
       var m = MEMBERS[j];
       lines.push("## " + m.slug + " — " + m.health);
-      lines.push("- decision: " + (state.decision[m.id] || "UNREVIEWED"));
+      lines.push("- decision: " + (state.decision[m.id] || DEFAULT_DECISION));
       lines.push("- ruled: " + (state.ruled[m.id] === true ? "yes" : "no"));
       lines.push("");
       var note = (state.note[m.id] || "").replace(/\s+$/, "");
       lines.push(note ? note : "(no note)");
       lines.push("");
     }
-    lines.push("## Follow-ups accepted");
+    lines.push(FOLLOWUPS_HEADING);
     lines.push("<!-- orchestrator: fill from the tweak notes and the packet's proposed follow-ups -->");
     lines.push("");
     return lines.join("\n");
