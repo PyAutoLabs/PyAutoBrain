@@ -373,6 +373,22 @@ def _dash(line: str) -> str:
     return line.replace(" -- ", " — ")
 
 
+#: The spellings a hand-written record's boolean key is allowed to use.
+YES_WORDS = ("yes", "true", "on", "1")
+
+
+def _yes(values) -> bool:
+    """Is this record key asking for something? `read_record` keeps every value
+    of every key in file order, so a key is a LIST; the FIRST value is the
+    answer and a later `- integration: no` does not un-ask it — the same rule
+    `collected:` follows (the first collect owns it)."""
+    if isinstance(values, str):
+        values = [values]
+    for v in values or []:
+        return str(v).strip().casefold() in YES_WORDS
+    return False
+
+
 def parse_member(raw: str) -> dict | None:
     """`  - <slug>: <path> — <tier> — <minutes> — <outcome…>`, or None.
 
@@ -616,8 +632,18 @@ def active_for(member: dict, active: dict) -> tuple:
 #: get a wrapper right.
 EVIDENCE_KEYS = ("prs", "witness", "adversary", "flagged", "pending", "summary")
 
+#: The `gh pr view --json` field list. The four `head*` fields are the
+#: authoritative member -> (repo, branch) map: the record stores no branch per
+#: member, so a PR's own head is the only reliable source. The head *repo* is
+#: recorded too because a fork's head is not on `origin` and cannot be merged
+#: from a local checkout at all.
+#: `mergedAt`, NOT `merged`: `gh pr view --json` has no `merged` field (gh
+#: 2.98 rejects the whole request with "Unknown JSON field", so ONE bad name
+#: made every `--fetch` PR UNOBSERVABLE rather than dropping one column). The
+#: timestamp is the same fact, and `merged` is derived from it below.
 GH_FIELDS = ("number,url,state,additions,deletions,changedFiles,mergeable,"
-             "merged,statusCheckRollup")
+             "mergedAt,statusCheckRollup,headRefName,headRefOid,"
+             "headRepository,headRepositoryOwner")
 
 
 def load_evidence(path) -> dict:
@@ -631,6 +657,38 @@ def load_evidence(path) -> dict:
         raise BatchUsageError(f"batch: --evidence {path} must be a JSON object")
     members = data.get("members") if isinstance(data.get("members"), dict) else data
     return {k: v for k, v in members.items() if isinstance(v, dict)}
+
+
+def load_evidence_doc(path) -> dict:
+    """The whole evidence document. `load_evidence` deliberately returns only
+    its members; this returns the wrapper too, because `integration` is
+    slot-level rather than per member — and a laptop's integration block pasted
+    into a cloud session is how a non-laptop surface renders one at all."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+#: The integration leg lives in its own module: it is a git engine, it imports
+#: nothing from here, and a session that never types `--integration` never pays
+#: for it. Loaded by file location and cached, exactly like the Cortex
+#: conductor below — and for the same reason.
+INTEGRATION_MOD = (BRAIN / "agents" / "conductors" / "batch" /
+                   "_integration.py")
+_INTEG = None
+
+
+def load_integration():
+    global _INTEG
+    if _INTEG is None:
+        spec = importlib.util.spec_from_file_location(
+            "_batch_integration_leg", INTEGRATION_MOD)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _INTEG = mod
+    return _INTEG
 
 
 def _checks_from_rollup(rollup) -> list:
@@ -651,6 +709,24 @@ def _checks_from_rollup(rollup) -> list:
                         "status": str(row.get("status") or "").lower(),
                         "conclusion": str(row.get("conclusion") or "").lower()})
     return out
+
+
+def _head_of(data: dict, repo: str) -> dict:
+    """The PR's head branch and where it lives. `headRepository` /
+    `headRepositoryOwner` are objects (`{"name": ...}` / `{"login": ...}`) and
+    either may be null on a deleted fork — a missing head is reported empty,
+    never guessed as `origin`, so a caller can tell "same repo" from "unknown".
+    """
+    data = data if isinstance(data, dict) else {}
+    name = data.get("headRepository")
+    owner = data.get("headRepositoryOwner")
+    name = name.get("name") if isinstance(name, dict) else None
+    owner = owner.get("login") if isinstance(owner, dict) else None
+    return {
+        "head_ref": str(data.get("headRefName") or ""),
+        "head_sha": str(data.get("headRefOid") or ""),
+        "head_repo": f"{owner}/{name}" if owner and name else "",
+    }
 
 
 def fetch_evidence(members: list, active: dict) -> tuple:
@@ -704,8 +780,9 @@ def fetch_evidence(members: list, active: dict) -> tuple:
                 "deletions": data.get("deletions"),
                 "changed_files": data.get("changedFiles"),
                 "mergeable": data.get("mergeable"),
-                "merged": bool(data.get("merged")),
+                "merged": bool(data.get("mergedAt")),
                 "checks": _checks_from_rollup(data.get("statusCheckRollup")),
+                **_head_of(data, repo),
             })
         if prs:
             out[m["slug"]] = {"prs": prs}
@@ -1154,6 +1231,12 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
                           if s["health"] == "NOT-DELIVERED"],
         "rulings": [(s["slug"], _ruling_line(s)) for s in scored],
         "unparsable": rec["unparsable"],
+        # `members` above is sorted by HEALTH, so it cannot drive a merge
+        # order. Dispatch order is a property of the record — the order the
+        # human listed the members in — and it is the order `--integration`
+        # merges heads in, so the preview matches the shift.
+        "dispatch_order": [m["slug"] for m in rec["members"]],
+        "integration_requested": _yes(rec["keys"].get("integration")),
         "stamp": "",
     }
 
@@ -1183,6 +1266,39 @@ def _ruling_line(s: dict) -> str:
 
 
 # ------------------------------------------------------- report and JSON ---
+def _integ_detail(r: dict) -> str:
+    """One repo's outcome, minus its name and its status word — what the packet
+    puts after the chip and the report puts after both. Written once so the
+    terminal and the page cannot report the same merge differently."""
+    if r.get("status") == "skipped":
+        return r.get("note") or "nothing to cut from"
+    merged = ", ".join(r.get("merged") or [])
+    detail = (f"{r.get('branch')} — {len(r.get('merged') or [])} member(s) "
+              "merged" + (f": {merged}" if merged else ""))
+    for c in r.get("conflicts") or []:
+        paths = ", ".join(c.get("paths") or []) or "(no paths reported)"
+        detail += (f"; {c['member']} ({c['branch']}) collides on {paths} — "
+                   "left out")
+    return detail
+
+
+def _integ_line(r: dict) -> str:
+    return f"{r.get('repo', '')} — {r.get('status', '')} — {_integ_detail(r)}"
+
+
+def _integration_report(d: dict) -> list:
+    """The copy-paste line first, at the top of the report: the whole point of
+    the leg is that the human can RUN the batch, and a `source …` line five
+    screens down is a line nobody sources."""
+    block = d.get("integration")
+    if not block:
+        return []
+    L = ["## Integration branches", "",
+         f"Run the whole batch: `source {block.get('activate', '')}`", ""]
+    L += [f"- {_integ_line(r)}" for r in block.get("repos") or []]
+    return L + [""]
+
+
 def collect_report(d: dict) -> str:
     L = [f"# Batch collect {d['slot']}", ""]
     if d["not_delivered"]:
@@ -1194,6 +1310,7 @@ def collect_report(d: dict) -> str:
             f"{slug} ({_short(by_slug[slug]['legs']['pr'][1] if by_slug[slug]['legs']['pr'][0] == FAIL else _evidence_line(by_slug[slug]))})"
             for slug in d["not_delivered"])
         L += [f"**NOT DELIVERED — {n} of {total}**: {why}", ""]
+    L += _integration_report(d)
     for s in d["members"]:
         L += _member_report(s)
     if d["review"] is not None:
@@ -1531,6 +1648,45 @@ def _rulings(d: dict) -> str:
     return "\n".join(L)
 
 
+CHIP_FOR_STATUS = {"clean": "chip-healthy", "conflicted": "chip-failed",
+                   "skipped": "chip-pending"}
+
+
+def _integration_panel(d: dict) -> str:
+    """The integration block, rendered. Every value goes through `_e` and the
+    panel carries no `data-*` hook: `packet.js` queries `[data-ruled]`,
+    `[data-decision]`, `[data-note]` and `[data-meta]` only, and there is
+    nothing for the human to *rule* about a merge preview — it is a finding they
+    read, not a control they operate."""
+    block = d.get("integration")
+    if not block:
+        return ""
+    root = block.get("root", "")
+    L = ['<section class="panel" id="integration">',
+         '  <h2>Integration branches</h2>',
+         '  <p>One throwaway worktree root merges every member&#x27;s head '
+         'branch per repo, off <code>origin/main</code>. Nothing is pushed and '
+         'nothing is resolved: a member whose merge conflicts is left out and '
+         'named.</p>',
+         f'  <p><code>source {_e(block.get("activate", ""))}</code></p>',
+         '  <p class="smallprint">Once that is sourced, a <strong>library</strong> '
+         'change is live anywhere — it is on the <code>PYTHONPATH</code>. A '
+         '<strong>workspace</strong> member is a real worktree but is not on the '
+         'PYTHONPATH, so run its script from inside '
+         f'<code>{_e(root)}/&lt;workspace&gt;</code>.</p>',
+         '  <ul class="integ">']
+    for r in block.get("repos") or []:
+        status = str(r.get("status") or "")
+        chip = CHIP_FOR_STATUS.get(status, "chip-pending")
+        L.append(f'    <li><span class="who">{_e(r.get("repo", ""))}</span> '
+                 f'<span class="chip {chip}">{_e(status)}</span> — '
+                 f'{_e(_integ_detail(r))}</li>')
+    if not (block.get("repos") or []):
+        L.append("    <li>No repo had a mergeable member head.</li>")
+    L += ['  </ul>', '</section>']
+    return "\n".join(L)
+
+
 def _sidenav(d: dict) -> str:
     L = ['<nav class="sidenav" aria-label="Members">',
          '  <p class="navhead">Members</p>', '  <ul>']
@@ -1664,6 +1820,12 @@ def _fresh_packet(d: dict, stamp: str) -> str:
          _callout(d), '',
          '<!-- pyauto:rulings:begin -->', _rulings(d),
          '<!-- pyauto:rulings:end -->', '',
+         # The sentinels ship even when the body is empty, so a LATER
+         # `--integration` refresh of this same page has somewhere to splice
+         # into. A region that only appears once it has content can never be
+         # filled in place.
+         '<!-- pyauto:integration:begin -->', _integration_panel(d),
+         '<!-- pyauto:integration:end -->', '',
          '<div class="shell">', '',
          '<!-- pyauto:sidenav:begin -->', _sidenav(d),
          '<!-- pyauto:sidenav:end -->', '',
@@ -1755,13 +1917,19 @@ def packet_html(d: dict, existing: str | None = None) -> tuple:
                 f"packet has no pyauto:members sentinels — {len(missing)} new "
                 "member section(s) appended after the last existing one; this "
                 "page was not written by this renderer")
-    regions = (
+    regions = [
         ("stamp", _stamp_block(d, generated, stamp), "header stamp"),
         ("tiles", _tiles(d), "stat tiles"),
         ("rulings", _rulings(d), "rulings list"),
         ("sidenav", _sidenav(d), "sidenav"),
         ("members-js", _members_js(d), "MEMBERS array"),
-    )
+    ]
+    # Only when this collect HAS an integration block. A plain refresh must not
+    # blank the region the last `--integration` filled: the merge preview is
+    # still true, and the human is reading it.
+    if d.get("integration"):
+        regions.append(("integration", _integration_panel(d),
+                        "integration branches"))
     for name, new, what in regions:
         out, ok = replace_region(out, name, new)
         if not ok:
@@ -1862,6 +2030,18 @@ def record_update(text: str, d: dict, stamp: str) -> str:
     put = _fill_key if closed else _set_key
     put(lines, rec, "delivered", f"{n}/{total}", inserts)
     put(lines, rec, "packet", f"batches/packets/{d['slot']}.html", inserts)
+    block = d.get("integration")
+    if block and not closed:
+        # A SEPARATE key from the dispatch-time `- integration: yes`. That line
+        # is the human's REQUEST; overwriting it with a path would erase what
+        # they asked for and leave only what happened.
+        clean = sum(1 for r in block.get("repos") or []
+                    if r.get("status") == "clean")
+        bad = sum(1 for r in block.get("repos") or []
+                  if r.get("status") == "conflicted")
+        _set_key(lines, rec, "integration-root",
+                 f"{block.get('root', '')} — {block.get('branch', '')}; "
+                 f"{clean} clean, {bad} conflicted", inserts)
     review = d.get("review")
     if review is not None:
         _fill_key(lines, rec, "review",
@@ -2605,7 +2785,8 @@ def cortex_ready_note(cortex_arg: str = "") -> str:
 #: Flags that belong to `collect` only. Passing one to `plan` is a usage error
 #: rather than a silent no-op: a human who types `batch plan --apply` means
 #: something, and it is not "plan".
-COLLECT_ONLY = ("slot", "evidence", "fetch", "apply", "out", "stamp")
+COLLECT_ONLY = ("slot", "evidence", "fetch", "integration", "apply", "out",
+                "stamp")
 
 #: …except on `plan --kind cortex`, which OPENS a board: the slot is its name,
 #: `--apply` writes it, and the stamp is its `dispatched:`. Only with the kind
@@ -2635,6 +2816,10 @@ def main(argv=None) -> int:
                     help="JSON file of PR/witness/adversary evidence per member")
     ap.add_argument("--fetch", action="store_true",
                     help="gather PR evidence with gh, where there is a gh")
+    ap.add_argument("--integration", action="store_true",
+                    help="laptop: build one throwaway worktree root merging "
+                         "every member's head branch per repo, and report the "
+                         "conflicts (writes no remote, pushes nothing)")
     ap.add_argument("--apply", action="store_true",
                     help="write the packet and update the record")
     ap.add_argument("--out", default="", help="write the report here")
@@ -2773,6 +2958,7 @@ def _main_collect(mind: Path, a) -> int:
     except BatchUsageError as e:
         print(e, file=sys.stderr)
         return RC_USAGE
+    doc = load_evidence_doc(a.evidence) if a.evidence else {}
 
     d = collect(mind, slot, evidence=evidence)
     if a.fetch:
@@ -2785,6 +2971,21 @@ def _main_collect(mind: Path, a) -> int:
         merged.update(evidence)
         d = collect(mind, slot, evidence=merged)
         d["notes"] += notes
+
+    # `--integration` on the command line, or `- integration: yes` written into
+    # the record at dispatch — the flag turns it on for one run without editing
+    # the record, and the record asks for it without anyone remembering a flag.
+    if a.integration or d.get("integration_requested"):
+        integ = load_integration()
+        block, inotes = integ.run(d["members"], d["dispatch_order"], slot,
+                                  lane=(a.lane or detect_lane()))
+        d["integration"] = block
+        d["notes"] += inotes
+    elif isinstance(doc.get("integration"), dict):
+        # Computed on the laptop, rendered anywhere: collect never rewrites the
+        # human's --evidence file, so a block that reaches a cloud session got
+        # there through `--json > ev.json` and a paste.
+        d["integration"] = doc["integration"]
     d["stamp"] = a.stamp.strip() or _utc_now()
 
     if a.apply:

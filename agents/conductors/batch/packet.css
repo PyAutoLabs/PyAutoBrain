@@ -222,6 +222,15 @@ ol.rulings {
 ol.rulings li { max-width: 78ch; }
 ol.rulings li::marker { font-family: var(--mono); color: var(--accent); font-weight: 500; }
 ol.rulings .who { font-weight: 600; }
+ul.integ {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+ul.integ li { max-width: 78ch; }
+ul.integ .who { font-weight: 600; }
 
 /* ---------- shell / sidenav ---------- */
 .shell { display: flex; flex-direction: column; gap: 34px; }

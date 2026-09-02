@@ -18,6 +18,9 @@
 #   back to the canonical checkout so relative paths keep working.
 # * Numba and matplotlib cache dirs are per-task to prevent concurrent pytest
 #   runs from thrashing each other's caches.
+# * PYAUTO_WT_BRANCH overrides the per-task branch name. The batch conductor's
+#   `collect --integration` sets it to integration/<slot> so a throwaway review
+#   root does not masquerade as feature work; unset, nothing changes.
 
 set -o pipefail
 
@@ -81,7 +84,7 @@ _worktree_add_one() {
   local task="$1" repo="$2"
   local repo_src="$PYAUTO_MAIN/$repo"
   local repo_dest="$PYAUTO_WT_ROOT/$task/$repo"
-  local branch="feature/$task"
+  local branch="${PYAUTO_WT_BRANCH:-feature/$task}"
 
   if [[ ! -d "$repo_src/.git" ]]; then
     echo "_worktree_add_one: $repo_src is not a git repo" >&2
@@ -191,7 +194,7 @@ worktree_add_repo() {
     return 1
   fi
 
-  echo "worktree_add_repo: added $repo to $root on branch feature/$task"
+  echo "worktree_add_repo: added $repo to $root on branch ${PYAUTO_WT_BRANCH:-feature/$task}"
 }
 
 # worktree_remove <task-name>

@@ -67,6 +67,9 @@ In order:
    is where the grant expires; **if they did not say, ask before dispatching.**
    It is the one thing only they know — never infer it from a schedule, a
    previous batch, or the time of day, and do not dispatch without it.
+   **If the human says they will want to *run* the batch, write
+   `- integration: yes` into the record** — collect then builds the review's
+   integration worktree without anyone remembering a flag.
 3. Start one session per member, each carrying `/start_dev <path> --auto`
    plus the member-session contract below — the batch record is what informs a
    member of the shift's grant (it reads it at leg 4), not the dispatch line. Spawn them if this harness can; otherwise hand
@@ -119,6 +122,18 @@ bin/pyauto-brain batch collect --slot <date>-<slot> --evidence ev.json --apply
   `--fetch` does the same by running one `gh pr view` per PR. Run it once
   without `--apply` to read the report; run it again with `--apply` to write
   the packet and stamp the record.
+- **"I want to run the whole batch."** —
+  `bin/pyauto-brain batch collect --slot <date>-<slot> --integration --apply`
+  (laptop only). One worktree root per slot under
+  `~/Code/PyAutoLabs-wt/integration-<slot>/`, each affected repo on
+  `integration/<slot>` cut from `origin/main` with every member's head merged
+  in dispatch order. Hand the human the `source <root>/activate.sh` line: once
+  it is sourced a **library** member's change is live anywhere (it is on the
+  `PYTHONPATH`), while a **workspace** member's script must be run from inside
+  `<root>/<workspace>`. A member that conflicts is **left out and named with
+  the conflicting files** — report that as the answer to "how would this
+  resolve at the end?", not as a failure. Nothing is pushed, no PR is opened,
+  no remote ref is touched.
 - **What comes back is scored, not summarised.** Six legs per member (pr ·
   diff · checks · green · witness · adversary), one health word (FAILED ·
   NOT-DELIVERED · SUSPECT · HEALTHY · PENDING · MERGED), failures at the top.

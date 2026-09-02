@@ -15,6 +15,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 BRAIN = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
@@ -102,6 +103,8 @@ def pr(**over) -> dict:
            "url": "https://github.com/ExampleOrg/ExampleFit/pull/1554",
            "state": "OPEN", "additions": 86, "deletions": 12,
            "changed_files": 3, "mergeable": "MERGEABLE", "merged": False,
+           "head_ref": "feature/autofit-resampling-info",
+           "head_sha": "2629933c", "head_repo": "ExampleOrg/ExampleFit",
            "checks": [{"name": "tests", "status": "completed",
                        "conclusion": "success"}]}
     row.update(over)
@@ -554,6 +557,84 @@ def test_fetch_without_gh_points_at_the_mcp_tools_and_still_scores(
     assert "no gh here" in out and "--evidence <json>" in out
     assert out.count("no gh here") == 1
     assert "## resampling — SUSPECT" in out
+
+
+def test_fetch_records_the_head_branch_of_every_pr(tmp_path, monkeypatch):
+    """A record names members, never branches, and `active.md`'s PR field has
+    four spellings — so the PR's own head is the only reliable member ->
+    (repo, branch) map. It is asked for in the `--json` field list and carried
+    through onto the row; a fork whose owner is gone reports an empty head
+    repo rather than guessing `origin`."""
+    calls = []
+    head = {"headRefName": "feature/x", "headRefOid": "abc",
+            "headRepository": {"name": "ExampleFit"},
+            "headRepositoryOwner": {"login": "ExampleOrg"}}
+
+    def fake(cmd, **_kw):
+        calls.append(cmd)
+        body = {"number": 1554, "url": "https://example.invalid/pull/1554",
+                "state": "OPEN", "additions": 5, "deletions": 1,
+                "changedFiles": 2, "mergeable": "MERGEABLE",
+                "mergedAt": None, "statusCheckRollup": [], **head}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(body),
+                               stderr="")
+
+    monkeypatch.setattr(_batch.shutil, "which", lambda _name: "/usr/bin/gh")
+    monkeypatch.setattr(_batch.subprocess, "run", fake)
+    mind = mini_mind(tmp_path)
+    members = [{"slug": "resampling", "path": "draft/bug/autofit/resampling.md"}]
+    active = _batch.read_active(mind)
+
+    got, notes = _batch.fetch_evidence(members, active)
+
+    assert notes == []
+    assert "headRefName" in _batch.GH_FIELDS
+    # The flag is what is pinned: a field dropped from the argv is a field the
+    # evidence silently loses.
+    assert any("headRefName" in str(arg) for arg in calls[0])
+    row = got["resampling"]["prs"][0]
+    assert row["head_ref"] == "feature/x"
+    assert row["head_sha"] == "abc"
+    assert row["head_repo"] == "ExampleOrg/ExampleFit"
+
+    head["headRepositoryOwner"] = None
+    got, _notes = _batch.fetch_evidence(members, active)
+    assert got["resampling"]["prs"][0]["head_repo"] == ""
+    assert got["resampling"]["prs"][0]["head_ref"] == "feature/x"
+
+
+def test_fetch_asks_gh_for_mergedat_because_there_is_no_merged_field(
+        tmp_path, monkeypatch):
+    """`gh pr view --json` has no `merged` field. It does not drop an unknown
+    name — it rejects the WHOLE request ("Unknown JSON field: merged", gh
+    2.98), so one wrong word made every PR of every `--fetch` UNOBSERVABLE and
+    the report blamed the PRs. `mergedAt` is the same fact, and the row's
+    `merged` is derived from it."""
+    assert "mergedAt" in _batch.GH_FIELDS
+    assert "merged," not in _batch.GH_FIELDS
+
+    rows = [{"number": 1554, "url": "u", "state": "MERGED", "additions": 5,
+             "deletions": 1, "changedFiles": 2, "mergeable": "UNKNOWN",
+             "mergedAt": "2026-09-01T19:34:55Z", "statusCheckRollup": [],
+             "headRefName": "feature/x", "headRefOid": "abc",
+             "headRepository": {"name": "ExampleFit"},
+             "headRepositoryOwner": {"login": "ExampleOrg"}}]
+
+    def fake(cmd, **_kw):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(rows[0]),
+                               stderr="")
+
+    monkeypatch.setattr(_batch.shutil, "which", lambda _name: "/usr/bin/gh")
+    monkeypatch.setattr(_batch.subprocess, "run", fake)
+    mind = mini_mind(tmp_path)
+    members = [{"slug": "resampling", "path": "draft/bug/autofit/resampling.md"}]
+    got, notes = _batch.fetch_evidence(members, _batch.read_active(mind))
+    assert notes == []
+    assert got["resampling"]["prs"][0]["merged"] is True
+
+    rows[0]["mergedAt"] = None
+    got, _n = _batch.fetch_evidence(members, _batch.read_active(mind))
+    assert got["resampling"]["prs"][0]["merged"] is False
 
 
 def test_apply_writes_nothing_that_a_re_read_cannot_recover(tmp_path):
