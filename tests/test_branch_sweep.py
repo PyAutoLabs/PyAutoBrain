@@ -16,6 +16,16 @@ The gates, and what breaking each one would cost:
                             destroys the only copy
   open PR heads             someone's in-flight review
   unproven CONTRIBUTES      unmerged work, gone
+  integration/*             a batch review branch whose slot is still open —
+                            these can never be proven contained (a merge
+                            preview is unmergeable by construction), so a date
+                            on the batch record is the ONLY thing standing
+                            between one and deletion
+
+The integration gate is the inverse of the others: those keep a branch the
+containment proof would clear, this one clears a branch the containment proof
+never could. That makes its failure mode the loud kind — a missing records dir
+must read as "keep", never as "no date, therefore expired".
 
 `gh` is stubbed: the script refuses to run without it (it cannot rule out open
 PRs blind), and these tests pin that refusal too.
@@ -23,6 +33,7 @@ PRs blind), and these tests pin that refusal too.
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import shutil
 import subprocess
@@ -31,6 +42,14 @@ from pathlib import Path
 import pytest
 
 TOOL = Path(__file__).resolve().parents[1] / "bin" / "branch_sweep.sh"
+
+# Dates relative to the day the test runs, never literals: a fixture pinned to
+# 2026-09-03 stops testing "expired" the moment the calendar passes it, and
+# would then pass for the wrong reason forever.
+_TODAY = dt.date.today()
+EXPIRED = (_TODAY - dt.timedelta(days=30)).isoformat()
+LIVE = (_TODAY + dt.timedelta(days=30)).isoformat()
+TODAY = _TODAY.isoformat()
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -72,6 +91,27 @@ def world(tmp_path: Path):
         _git(origin, "checkout", "-q", "-b", name, "main")
     _git(origin, "checkout", "-q", "main")
 
+    # Three batch review branches, each carrying unique content main has never
+    # seen — exactly what a merge preview looks like. Without the integration
+    # arm all three read as CONTRIBUTES/unmerged and are kept forever; with it,
+    # only the date on the record decides.
+    records = tmp_path / "records"
+    records.mkdir()
+    for slot, after in ((EXPIRED, EXPIRED), (LIVE, LIVE), (TODAY, TODAY)):
+        branch = f"integration/{slot}-pm"
+        _git(origin, "checkout", "-q", "-b", branch, "main")
+        _commit(origin, f"i-{slot}", slot, f"integration preview {slot}")
+        _git(origin, "checkout", "-q", "main")
+        # `n` is the --name this fixture sweeps under, which is the name the
+        # record writes into `integration-remote:`.
+        (records / f"{slot}-pm.md").write_text(
+            f"# Batch {slot} pm\n"
+            f"- dispatched: {slot}T17:40Z\n"
+            f"- integration-remote: other-repo:integration/{slot}-pm, "
+            f"n:integration/{slot}-pm\n"
+            f"- sweep-after: {after}\n"
+        )
+
     clone = tmp_path / "clone"
     subprocess.run(
         ["git", "clone", "-q", str(origin), str(clone)], check=True
@@ -92,6 +132,12 @@ def world(tmp_path: Path):
     return clone, origin, bin_dir
 
 
+def _records(clone: Path) -> Path:
+    """The `world` fixture's records dir. Derived rather than returned, so the
+    three-value unpacking every existing test does keeps working."""
+    return clone.parent / "records"
+
+
 def _gh_free_path(tmp_path: Path) -> str:
     """A PATH with everything the script needs except `gh`.
 
@@ -108,17 +154,18 @@ def _gh_free_path(tmp_path: Path) -> str:
     return str(lean)
 
 
-def _sweep(clone: Path, bin_dir: Path | None, mode: str = "audit") -> subprocess.CompletedProcess:
+def _sweep(clone: Path, bin_dir: Path | None, mode: str = "audit",
+           records: Path | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     if bin_dir is not None:
         env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     else:
         env["PATH"] = _gh_free_path(clone.parent)
-    return subprocess.run(
-        ["bash", str(TOOL), "--repo", str(clone), "--owner", "o", "--name", "n",
-         "--mode", mode],
-        capture_output=True, text=True, env=env, timeout=120,
-    )
+    cmd = ["bash", str(TOOL), "--repo", str(clone), "--owner", "o", "--name", "n",
+           "--mode", mode]
+    if records is not None:
+        cmd += ["--records", str(records)]
+    return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
 
 
 def test_audit_classifies_every_branch(world):
@@ -265,3 +312,88 @@ def test_rejects_unknown_mode(world):
     proc = _sweep(clone, bin_dir, mode="purge")
     assert proc.returncode == 1
     assert "must be 'audit' or 'delete'" in proc.stderr
+
+
+# --- integration/* : cleared by date, or not at all --------------------------
+
+
+def test_an_expired_integration_branch_is_sweepable(world):
+    """The only gate here that ever RELEASES a branch, so it has to be exact.
+
+    An integration ref is a merge preview: cut from the base with every
+    member's head merged in, it is unmergeable by construction and no
+    containment proof will ever clear it. Left to the other gates it would sit
+    on origin forever. Its licence is the `sweep-after:` on the batch record
+    that published it, and once that date is behind us the branch is spent.
+    """
+    clone, _, bin_dir = world
+    out = _sweep(clone, bin_dir, records=_records(clone)).stdout
+    assert f"integration/{EXPIRED}-pm\tintegration-expired-{EXPIRED}" in out
+    # released into the delete set, not merely reported somewhere
+    assert out.index("CONTAINED IN") < out.index(f"integration/{EXPIRED}-pm\tinteg")
+
+
+def test_an_unexpired_integration_branch_is_protected(world):
+    """Two branches the sweep must not touch: one whose date is still ahead,
+    and one whose date is TODAY.
+
+    The same-day case is the one worth pinning. `sweep-after: <today>` is the
+    day the human sits down to read the preview, and a sweep that fires that
+    morning deletes the branch out from under the review it exists for. The
+    comparison is strictly greater-than-today, never greater-or-equal.
+    """
+    clone, _, bin_dir = world
+    out = _sweep(clone, bin_dir, records=_records(clone)).stdout
+    protected = out.split("PROTECTED (never swept)")[1].split("\n\n")[0]
+    assert f"integration/{LIVE}-pm\tintegration-until-{LIVE}" in protected
+    assert f"integration/{TODAY}-pm\tintegration-until-{TODAY}" in protected
+
+
+def test_an_integration_branch_with_no_record_is_protected(world):
+    """No records dir means no dates, and no dates must mean KEEP.
+
+    The whole mechanism hangs off a checkout of PyAutoMind's `batches/` that a
+    workflow may simply fail to make. If a missing Mind read as "no date,
+    therefore expired", one bad checkout step would delete every open slot's
+    review branch across the org — the precise failure this direction exists to
+    make impossible.
+    """
+    clone, origin, bin_dir = world
+    out = _sweep(clone, bin_dir).stdout
+    protected = out.split("PROTECTED (never swept)")[1].split("\n\n")[0]
+    for slot in (EXPIRED, LIVE, TODAY):
+        assert f"integration/{slot}-pm\tintegration-no-sweep-after" in protected
+
+    assert _sweep(clone, bin_dir, mode="delete").returncode == 0
+    remaining = set(_git(origin, "for-each-ref", "--format=%(refname:short)",
+                         "refs/heads").split())
+    assert {f"integration/{slot}-pm" for slot in (EXPIRED, LIVE, TODAY)} <= remaining
+
+
+def test_delete_removes_only_the_expired_integration_branch(world):
+    clone, origin, bin_dir = world
+    assert _sweep(clone, bin_dir, mode="delete",
+                  records=_records(clone)).returncode == 0
+    remaining = set(_git(origin, "for-each-ref", "--format=%(refname:short)",
+                         "refs/heads").split())
+    assert f"integration/{EXPIRED}-pm" not in remaining
+    assert {f"integration/{LIVE}-pm", f"integration/{TODAY}-pm"} <= remaining
+    # the other gates are unmoved by the new arm
+    assert {"main", "unmerged", "open-pr-head",
+            "archive/condemned/something"} <= remaining
+
+
+def test_a_record_naming_another_repo_does_not_answer_for_this_one(world):
+    """`integration-remote:` is `<Repo>:<branch>`, comma-separated, and the repo
+    half is load-bearing: one slot publishes the same branch NAME into every
+    affected repo, so matching on the branch alone would let one repo's record
+    expire another repo's ref.
+    """
+    clone, _, bin_dir = world
+    records = _records(clone)
+    for f in records.glob("*.md"):
+        f.write_text(f.read_text().replace(f"n:integration/", "nn:integration/"))
+    out = _sweep(clone, bin_dir, records=records).stdout
+    assert "integration-expired" not in out
+    for slot in (EXPIRED, LIVE, TODAY):
+        assert f"integration/{slot}-pm\tintegration-no-sweep-after" in out

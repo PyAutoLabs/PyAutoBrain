@@ -156,6 +156,7 @@ jobs:
               --owner "${slug%%/*}" \
               --name "$name" \
               --mode "$mode" \
+              --records "$PWD/.mind/batches" \
               --limit '${{ inputs.limit || 0 }}' 2>&1 | tee "work/$name.log" || failed=1
 
             {
