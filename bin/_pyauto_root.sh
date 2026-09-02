@@ -45,7 +45,8 @@ _pyauto_brain_home() {
 # a legitimate root, so accept any organ sibling.
 _pyauto_is_root() {
     [ -d "$1/PyAutoMind" ] || [ -d "$1/PyAutoHeart" ] || [ -d "$1/PyAutoHands" ] \
-        || [ -d "$1/PyAutoMemory" ] || [ -d "$1/PyAutoGut" ] || [ -d "$1/PyAutoNerves" ]
+        || [ -d "$1/PyAutoMemory" ] || [ -d "$1/PyAutoGut" ] || [ -d "$1/PyAutoNerves" ] \
+        || [ -d "$1/PyAutoCortex" ]
 }
 
 _pyauto_resolve_root() {

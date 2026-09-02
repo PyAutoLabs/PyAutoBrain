@@ -80,6 +80,12 @@ ORGANS = {
         "ink_light": "#0a7d72", "ink_dark": "#2ee6cf", "glow": "#00d1ba",
         "hero": ("#07302b", "#000000"),
     },
+    "cortex": {
+        "organ": "Cortex",
+        "tagline": "Question. Run. Rule.",
+        "ink_light": "#a5177d", "ink_dark": "#ff7ad9", "glow": "#ff4fc3",
+        "hero": ("#340a2a", "#000000"),
+    },
     "memory": {
         "organ": "Memory",
         "tagline": "Remember. Learn. Evolve.",
@@ -186,6 +192,25 @@ MARKS = {
         '<circle cx="40.1" cy="16.5" r="1.4"/>'
         '<circle cx="40.7" cy="21.0" r="1.4"/>'
         '<circle cx="38.5" cy="25.5" r="1.4"/></g>'
+    ),
+    # Cortex — the folded sheet where the organism learns: three cortical
+    # folds across a ring, and the witness node the fold ends on (a phase is
+    # a question that names, in advance, the thing that will settle it).
+    "cortex": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<path d="M11.8,18.6 C14.4,14.8 17.8,14.4 20.1,17.1 '
+        'C22.4,19.8 25.8,20.2 28.5,17.9 '
+        'C31.2,15.6 34.4,16.2 36.1,19.1"/>'
+        '<path d="M11.6,24.6 C14.2,20.8 17.6,20.4 19.9,23.1 '
+        'C22.2,25.8 25.6,26.2 28.3,23.9 '
+        'C31.0,21.6 34.2,22.2 35.9,25.1"/>'
+        '<path d="M12.8,30.6 C15.3,27.2 18.4,26.8 20.5,29.4 '
+        'C22.6,32.0 25.7,32.4 28.2,30.2"/>'
+        '<circle cx="32.6" cy="33.0" r="3.8"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="32.6" cy="33.0" r="1.5"/>'
+        '<circle cx="11.7" cy="18.6" r="1.2"/>'
+        '<circle cx="11.5" cy="24.6" r="1.2"/></g>'
     ),
     # Memory — an open book with a node-tree growing out of its spine and a
     # scatter of stars, under an arc open at the bottom.
