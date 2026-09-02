@@ -51,6 +51,8 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 - **UNOBSERVABLE is not FAIL.** Two of the four `delivered:` legs are not
   visible on the laptop (the checkpoint is never pulled; one project writes no
   version stamp), so those members come back **SUSPECT** — read them, do not
-  treat them as broken runs.
+  treat them as broken runs. The checkpoint leg becomes scorable only where
+  the project's sync CLI writes `.cortex/pull.json` — its `checkpoints` table
+  is keyed by the run directory, its `runs` table by job id.
 - **A cloud session plans nothing** — every Cortex phase is `local-dev`, so a
   session with no `gh` reports the ready count and stops.

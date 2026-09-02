@@ -537,6 +537,44 @@ def test_the_two_legs_the_laptop_cannot_see_are_unobservable_not_failed(board):
     assert s["health"] == "SUSPECT"
 
 
+def test_the_manifests_checkpoints_table_is_keyed_by_the_run_directory(board):
+    """The third lookup (PyAutoCortex decision 51). The subhalo-style member's
+    pull carries no job id, so `runs` is empty and the only name both sides can
+    say is the run directory, relative to the pull root."""
+    _write(board["sub"] / ".cortex/pull.json", json.dumps(
+        {"schema": 1, "pulled_at": "2026-08-31T10:00Z",
+         "checkpoints": {"output/lens_a/cccc3333": {
+             "bytes": 81920, "mtime": "2026-08-30T09:51Z"}},
+         "runs": {}}))
+    s = _score(board)["01_partial"]
+    assert s["legs"]["checkpoint"][0] == _cortex.PASS, s["legs"]["checkpoint"]
+    assert "81920 bytes" in s["legs"]["checkpoint"][1]
+
+
+def test_a_zero_byte_checkpoint_in_the_manifest_fails_the_leg(board):
+    """A checkpoint the puller found and measured at zero bytes is not an
+    unobservable leg — it is a run that delivered nothing."""
+    _write(board["sub"] / ".cortex/pull.json", json.dumps(
+        {"schema": 1, "pulled_at": "2026-08-31T10:00Z",
+         "checkpoints": {"output/lens_a/cccc3333": {
+             "bytes": 0, "mtime": "2026-08-30T09:51Z"}}}))
+    s = _score(board)["01_partial"]
+    assert s["legs"]["checkpoint"][0] == _cortex.FAIL
+    assert "empty checkpoint" in s["legs"]["checkpoint"][1]
+    assert s["health"] == "FAILED"
+
+
+def test_a_manifest_without_a_schema_key_still_reads_as_the_runs_only_shape(board):
+    """The phase-2 manifest (`pulled_at` + `runs`, no `schema`) is what the
+    healthy member carries — it must keep scoring PASS unchanged."""
+    manifest = json.loads(
+        (board["mirror"] / ".cortex/pull.json").read_text(encoding="utf-8"))
+    assert "schema" not in manifest and "checkpoints" not in manifest
+    s = _score(board)["11_healthy"]
+    assert s["legs"]["checkpoint"][0] == _cortex.PASS
+    assert "40960 bytes" in s["legs"]["checkpoint"][1]
+
+
 def test_a_benign_err_is_warnings_not_an_empty_file(board):
     """`.err` "clean" is not size 0: the baseline both projects produce is a
     warning line plus its indented source line."""

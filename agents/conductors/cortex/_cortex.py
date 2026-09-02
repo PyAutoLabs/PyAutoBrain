@@ -1080,8 +1080,9 @@ def emit_census(c: dict) -> None:
 # one of the two project layouts writes no version stamp at all. A scorer that
 # called those legs PASS would be inventing evidence and a scorer that called
 # them FAIL would condemn every healthy run, so there is a third verdict:
-# UNOBSERVABLE, which sends the member to the human as SUSPECT. Phase 3's sync
-# work adds the pull manifest that makes the checkpoint leg observable.
+# UNOBSERVABLE, which sends the member to the human as SUSPECT. The checkpoint
+# leg becomes observable exactly when the project's own sync CLI writes the
+# pull manifest (`.cortex/pull.json`), and not before.
 PASS, FAIL, UNOBSERVABLE = "PASS", "FAIL", "UNOBSERVABLE"
 
 #: the six legs, in packet order — the four `delivered:` legs of
@@ -1096,9 +1097,15 @@ LEG_TITLES = {
     "witness": "the witness landed",
 }
 
-#: `<mirror>/.cortex/pull.json`, written by the sync work of phase 3:
-#: `{"pulled_at": ISO, "runs": {"<jobid>": {"checkpoint_bytes": N,
-#: "checkpoint_mtime": ISO}}}`. Absent until then — hence UNOBSERVABLE.
+#: `<mirror or local_path>/.cortex/pull.json`, written by each project's own
+#: sync CLI (PyAutoCortex decision 51):
+#: `{"schema": 1, "pulled_at": ISO,
+#:   "checkpoints": {"<run dir rel to the pull root>": {"bytes": N, "mtime": ISO}},
+#:   "runs": {"<jobid|jobid_task>": {"checkpoint_bytes": N, "checkpoint_mtime": ISO}}}`.
+#: `checkpoints` is always filled — it is keyed by the only name both sides can
+#: say — while `runs` is filled only where the CLI can link a job id to a run
+#: directory. A manifest with no `schema` key is the phase-2 shape (`runs`
+#: only) and still reads. Absent altogether — hence UNOBSERVABLE.
 PULL_MANIFEST = (".cortex", "pull.json")
 
 LOG_DEPTH = 4  # `**/output.<jobid>*.out` — deep enough for both layouts
@@ -1332,7 +1339,7 @@ def witness_matches(roots: list[Path], pattern: str, since: _dt.datetime,
 
 def pull_manifest(roots: list[Path]) -> dict:
     """`<root>/.cortex/pull.json`, or `{}` — the only window onto RAL-only
-    artefacts, and it does not exist until phase 3 writes it."""
+    artefacts, and it exists only where the project's sync CLI writes it."""
     for root in roots:
         path = root.joinpath(*PULL_MANIFEST)
         if path.is_file():
@@ -1411,22 +1418,46 @@ def leg_version(hits: list[Path]) -> tuple:
             f"{len(jsons)} witness JSON(s), none with a top-level `version` key")
 
 
-def leg_checkpoint(manifest: dict, ph) -> tuple:
+def _manifest_run_dir_key(roots: list[Path], run_dir) -> str:
+    """The run directory as the puller named it: its path relative to the pull
+    root it sits under. The empty string when it sits under none of them."""
+    if run_dir is None:
+        return ""
+    for root in roots:
+        if _under(run_dir, root):
+            try:
+                return run_dir.relative_to(root).as_posix()
+            except ValueError:
+                continue
+    return ""
+
+
+def leg_checkpoint(manifest: dict, roots: list[Path], run_dir, ph) -> tuple:
+    """Three lookups, in order: the job id, its bare stem, then the run
+    directory. The third is the one the profiling project can answer — its
+    pull carries no job id at all, so `runs` is empty there and `checkpoints`
+    is keyed by the run directory instead."""
     runs = manifest.get("runs") if isinstance(manifest.get("runs"), dict) else {}
-    rows = []
+    ckpts = (manifest.get("checkpoints")
+             if isinstance(manifest.get("checkpoints"), dict) else {})
+    rows: list[tuple] = []
     for r in ph.runs:
         row = runs.get(r.ident) or runs.get(r.stem)
         if isinstance(row, dict):
-            rows.append((r.ident, row))
+            rows.append((r.ident, int(row.get("checkpoint_bytes") or 0)))
+    if not rows:
+        key = _manifest_run_dir_key(roots, run_dir)
+        row = ckpts.get(key) if key else None
+        if isinstance(row, dict):
+            rows.append((key, int(row.get("bytes") or 0)))
     if not rows:
         return (UNOBSERVABLE,
                 "RAL only — `search_internal/checkpoint.hdf5` is not pulled "
                 "and no `.cortex/pull.json` records it")
-    empty = [ident for ident, row in rows
-             if not int(row.get("checkpoint_bytes") or 0)]
+    empty = [label for label, size in rows if not size]
     if empty:
         return FAIL, f"empty checkpoint for {', '.join(empty)} — not delivered"
-    total = sum(int(row.get("checkpoint_bytes") or 0) for _i, row in rows)
+    total = sum(size for _label, size in rows)
     return PASS, f"{len(rows)} checkpoint(s), {total} bytes (pull manifest)"
 
 
@@ -1495,7 +1526,7 @@ def score_phase(mod, ph, projects: dict) -> dict:
         "err": leg_err(logs["err"]),
         "wall": leg_wall(logs["out"], run_dir, zip_path, _mins(budget), budget),
         "version": leg_version(hits),
-        "checkpoint": leg_checkpoint(pull_manifest(roots), ph),
+        "checkpoint": leg_checkpoint(pull_manifest(roots), roots, run_dir, ph),
         "resume": leg_resume(logs["out"]),
         "witness": leg_witness(hits, roots, pattern),
     }
