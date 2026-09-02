@@ -103,9 +103,28 @@ pyauto-brain batch plan                      # the BatchDecision for this lane
 pyauto-brain batch plan --budget 45          # review-minutes available
 pyauto-brain batch plan --awaiting-review 6  # backpressure input
 pyauto-brain batch plan --json
+
+pyauto-brain batch collect                   # score the newest record; offline
+pyauto-brain batch collect --slot 2026-09-03-pm
+pyauto-brain batch collect --evidence ev.json    # PR state from this session
+pyauto-brain batch collect --fetch               # laptop: `gh pr view` per PR
+pyauto-brain batch collect --evidence ev.json --apply  # the one form that writes
+pyauto-brain batch collect --out report.md --json
 ```
 
-Stdlib-only, offline, writes nothing.
+`plan` is stdlib-only, offline and writes nothing. `collect` is the same by
+default — it reads the newest batch record (`--slot` picks another; the
+newest is lexical, so `-night` sorts before `-pm` on one date), scores what it
+can see and prints. It has no GitHub of its own: on the web surface the
+session gathers PR state with the GitHub MCP tools (`skills/GITHUB_ACCESS.md`)
+and hands it over as `--evidence <json>`; `--fetch` is the laptop's shortcut,
+one `gh pr view` per PR, opt-in and still writing nothing. Only `--apply`
+writes — `batches/packets/<slot>.html` and the record's own stamps — which is
+why it needs a stamp (`--stamp <ISO>`, else now).
+
+Exit codes: **0** every member delivered · **1** a member needs the human
+(FAILED, NOT-DELIVERED, SUSPECT, or still PENDING) · **2** usage · **4** no
+Mind (no `batches/` at all).
 
 ## Running a batch by hand (there is no dispatcher yet, and that is fine)
 
@@ -150,13 +169,16 @@ what a dispatcher actually needs before writing one.
 
 **At `review-at:` (or whenever they actually sit down):**
 
-8. **Collect** (2026-08-31): science members — `hpc/sync pull` per project,
-   so every pointer in the packet is a local path (remote-only pointers exist
-   only where the pull cannot fetch by design, and say so; a mobile session
-   cannot pull and says "run collect from the laptop"). Dev members — the PR
-   number and whether every check ran green; no green-CI PR, not
-   `delivered:`. Fill the PENDING entries, stamp the page `refreshed:` — this
-   normally happens while the human is already reading the finished members.
+8. **Collect** — `pyauto-brain batch collect --evidence <json> --apply`
+   ("The collect recipe" below). It scores every dev member, fills the PENDING
+   entries in place and stamps the page `refreshed:` — normally while the
+   human is already reading the finished members. A dev member without a
+   green-CI PR is not `delivered:`, and collect says so first and loudly.
+   Science members stay by hand until the Cortex kind lands (phase 5):
+   `hpc/sync pull` per project, so every pointer in the packet is a local path
+   (remote-only pointers exist only where the pull cannot fetch by design, and
+   say so; a mobile session cannot pull and says "run collect from the
+   laptop").
 9. The human reviews on the packet page — tick, choose, annotate, submit —
    and the review lands as `batches/reviews/<date>-<slot>.md` (or they
    dictate it in-chat; same review). Failures first, then `decision-taken`,
@@ -174,15 +196,17 @@ what a dispatcher actually needs before writing one.
 11. Plan the next batch, and declare the next `review-at:`.
 
 **The one leg you must not skip.** A batch launch requires the independent
-adversary (`AUTONOMY.md` leg 5). Until `batch collect` exists, run it by hand
-before reading a PR:
+adversary (`AUTONOMY.md` leg 5). Run it before reading a PR:
 
 ```
 pyauto-brain review --task <name> --witness "<the prompt's Witness:>" --adversary
 ```
 
 in a session **using a different model from the one that wrote the branch**. A
-self-run adversary leg is an absent leg, not a weak one.
+self-run adversary leg is an absent leg, not a weak one. `collect` cannot run
+it for you and does not pretend to: with no `adversary` block in the evidence
+the leg is UNOBSERVABLE and the member reaches the human as SUSPECT — the
+honest state, rather than a gap that closes itself.
 
 **What to expect from batch 1.** Small. The planner picks against a 45-minute
 review budget, and with almost no prompt carrying a `Witness:` nearly everything
@@ -191,10 +215,124 @@ honest state of the backlog rather than a limit of the machinery, and the way to
 move it is to write witnesses, which costs zero review-minutes and is the best
 possible fill work.
 
+## The collect recipe
+
+The verb answers one question — *what came back, and is it worth the human's
+next hour?* — and answers it the way the Cortex conductor answers it for a
+science pull: **six legs, then one health word**. It is a reader, not an actor:
+it merges nothing, runs nothing and rules on nothing.
+
+### Six legs, each PASS · FAIL · UNOBSERVABLE
+
+| Leg | Passes when |
+|---|---|
+| `pr` | a PR exists |
+| `diff` | the diff is non-empty |
+| `checks` | every check completed |
+| `green` | every check green |
+| `witness` | the witness is declared, and holds |
+| `adversary` | an independent adversary read it |
+
+**No evidence is UNOBSERVABLE, never delivered.** The offline default invents
+nothing: with neither `--evidence` nor `--fetch`, every leg that needs GitHub
+is unobservable and its member reaches the human as SUSPECT. Inventing PASS
+would be inventing evidence and FAIL would condemn healthy work — the same
+choice the Cortex conductor makes for the `delivered:` legs it cannot see.
+
+`adversary` is the leg with a rule of its own: it passes only when the read ran
+under a model that is not the branch's author. **A self-run adversary leg is an
+absent leg, not a weak one** (`AUTONOMY.md` leg 5), so an equal or missing
+`author_model` is FAIL, not PASS.
+
+### Six health words, in the order the human reads them
+
+```
+FAILED · NOT-DELIVERED · SUSPECT · HEALTHY · PENDING · MERGED
+```
+
+Severity order and sort order are the same list, so the top of the report is
+the part that needs a person and the bottom is the part that is not finished
+being work. `FAILED` is a failed check, green or witness; `NOT-DELIVERED` is no
+PR, an empty diff, or checks that never ran — green is not delivered
+(`batches/AGENTS.md`); `SUSPECT` is green work carrying an unobservable leg or
+a flagged decision; `MERGED` and `PENDING` short-circuit ahead of all of it,
+because a merged member is a retrospective and a pending one has not landed.
+`delivered: n/m` counts HEALTHY and MERGED over every non-PENDING member.
+
+### The evidence JSON
+
+One object per member slug; every key optional, so a session supplies what it
+actually looked up and nothing more.
+
+```jsonc
+{"schema": 1, "members": {
+  "resampling-info-summary-section": {
+    "prs": [{"repo": "PyAutoLabs/PyAutoFit", "number": 1554, "url": "...",
+             "state": "open", "merged": false,
+             "additions": 86, "deletions": 12, "changed_files": 3,
+             "mergeable": "MERGEABLE",
+             "checks": [{"name": "tests", "status": "completed",
+                         "conclusion": "success"}]}],
+    "witness":   {"holds": true, "evidence": "ordering test green on 2629933c"},
+    "adversary": {"ran": true, "model": "gpt-5.1",
+                  "author_model": "claude-opus-4", "verdict": "CLEAN"},
+    "flagged":   ["decide-and-flag: PR opened rather than parked"],
+    "pending":   false,
+    "summary":   "one line"}}}
+```
+
+`witness.holds` is tri-state: `true` PASS, `false` FAIL, absent UNOBSERVABLE.
+
+### The packet is refreshed, never rewritten
+
+`--apply` writes `batches/packets/<slot>.html` in place and at the same path,
+because the human's chips and notes live in `localStorage` keyed by the page
+(`batches/packets/TEMPLATE.md`) and a moved file orphans them. Every member
+owns a section with a stable `id="m-<slug>"`; a refresh replaces that span and
+leaves **every other member's markup byte-identical** — a PENDING stub becomes
+a full block under the same id, and nothing a neighbour's stored notes are
+anchored to moves. The regenerable non-member regions (stamp, tiles, rulings
+needed, sidenav) are bounded by `pyauto:*` sentinel comments; a hand-authored
+archived packet has none, so it gets its member splices plus a note saying the
+header was left alone. Collect never rewrites such a page wholesale.
+
+### What it stamps on the record
+
+`--apply` edits the batch record line by line, never re-serialising it:
+`collected:` once (the first collect owns it), one `refreshed:` line per apply,
+`delivered: n/m`, and `packet:`. Member outcomes become `<HEALTH> (<one line of
+evidence>)` — **unless the outcome already opens with a ruling word**
+(`ACCEPTED`, `REJECTED`, `MERGED`, `LEAVE-TO-FINISH`, …), which is a human's
+verdict and is never overwritten by a machine re-read. Once the slot's review
+has landed, **no member line changes at all** — the record is the history of
+a batch that closed, and the pm record's `PR OPENED AT REVIEW (…)` sentences
+are exactly the outcomes no word list would have protected. The write is
+rehearsed on a throwaway copy and refused if a member line or a key would be
+lost; the `notes: |` block is never touched.
+
+### The close leg
+
+A review that has landed closes the batch. Where `batches/reviews/<slot>.md`
+exists, collect **refuses to write the packet** — that file is the record now,
+and rewriting the page the human ruled on destroys what they ruled against —
+and instead fills `reviewed-at:`, `review-minutes-actual:` and `review:` from
+it — **fills, never overwrites**: a value the record already carries (anything
+but blank or `(not given)`) is the human's and stays. The decisions inside are
+reported, never enacted: merges, follow-ups and
+rejections are the orchestrator's next act with the human, not collect's.
+
+### The extension point
+
+Scoring is registered per member **kind** (`KINDS`) — a scorer plus a block
+renderer, over the one flat scored shape the report and the packet both read.
+`dev` is the kind that ships. The science kind (pulled runs, the six legs of
+`cortex collect`, rulings written into the project's own ledger) is Cortex
+phase 5's, and it plugs in there rather than growing a second collect.
+
 ## Not built yet
 
-`slice` (the decomposition pass doctrine has named since inception) and
-`collect` (the review packet) are the conductor's other two verbs — see the
-epic ledger, `PyAutoMind/draft/feature/pyautomind/two_slot_batching_epic.md`.
-`plan` is useful on its own: run it in a slot and dispatch by tapping the
-dashboard's existing chips.
+`slice` — the decomposition pass doctrine has named since inception — is the
+conductor's one remaining verb; see the epic ledger,
+`PyAutoMind/draft/feature/pyautomind/two_slot_batching_epic.md`. `plan` and
+`collect` stand on their own in the meantime: plan a slot, dispatch by tapping
+the dashboard's existing chips, collect what comes back.

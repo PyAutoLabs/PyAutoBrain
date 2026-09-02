@@ -133,7 +133,7 @@ the `/<verb>` slash commands.
 | Verb | Purpose | Entrypoint |
 |------|---------|------------|
 | `intake` | Conceive a task: turn raw input into a formal, headed PyAutoMind prompt (files it; never starts dev) | `bin/pyauto-brain intake` |
-| `batch` | Compose one unattended shift: the BatchDecision, planned against the slot's REVIEW-MINUTE budget rather than a task count — proposes, never dispatches | `bin/pyauto-brain batch` |
+| `batch` | Compose one unattended shift: the BatchDecision, planned against the slot's REVIEW-MINUTE budget rather than a task count — proposes, never dispatches; 'batch collect' scores what came back into the review packet and stamps the batch record | `bin/pyauto-brain batch` |
 | `community` | The ears — the organism's receptive function: scan/triage user-filed GitHub issues + PRs and review requests across the repos; drafts stay human-gated, dev work routes via start_dev_for_user (never posts) | `bin/pyauto-brain community` |
 | `feature` | Reason over PyAutoMind feature tasks: select, size, phase, plan for start_dev | `bin/pyauto-brain feature` |
 | `bug` | The immune system: classify a bug/regression/Heart finding, locate the fix, plan the repair | `bin/pyauto-brain bug` |

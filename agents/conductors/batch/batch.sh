@@ -15,6 +15,17 @@
 #   batch.sh plan --budget 45            # review-minutes available in the slot
 #   batch.sh plan --awaiting-review 6    # backpressure input
 #   batch.sh plan --json
+#
+#   batch.sh collect                     # score the newest batch record; offline
+#   batch.sh collect --slot 2026-09-03-pm
+#   batch.sh collect --evidence ev.json  # PR state the session gathered (MCP surface)
+#   batch.sh collect --fetch             # laptop only: one `gh pr view` per PR
+#   batch.sh collect --evidence ev.json --apply [--stamp ISO]   # the form that writes
+#   batch.sh collect --out report.md --json
+#
+# collect reads and prints; only --apply writes (the packet page and the
+# record's stamps). Exit: 0 all delivered, 1 a member needs the human,
+# 2 usage, 4 no Mind.
 
 set -uo pipefail
 
