@@ -137,4 +137,4 @@ the same shape — a body map of your projects, a phase file per question, a
 place to write what you decided — and hold your own rulings in it.
 
 The birth of this organ is tracked in the
-[cortex-birth epic ledger](https://github.com/PyAutoLabs/PyAutoMind/blob/main/draft/feature/pyautocortex/cortex_birth_epic.md).
+[cortex-birth epic ledger](https://github.com/PyAutoLabs/PyAutoMind/blob/main/complete/archive/epics/cortex_birth_epic.md).
