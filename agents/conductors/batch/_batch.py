@@ -616,8 +616,14 @@ def active_for(member: dict, active: dict) -> tuple:
 #: get a wrapper right.
 EVIDENCE_KEYS = ("prs", "witness", "adversary", "flagged", "pending", "summary")
 
+#: The `gh pr view --json` field list. The four `head*` fields are the
+#: authoritative member -> (repo, branch) map: the record stores no branch per
+#: member, so a PR's own head is the only reliable source. The head *repo* is
+#: recorded too because a fork's head is not on `origin` and cannot be merged
+#: from a local checkout at all.
 GH_FIELDS = ("number,url,state,additions,deletions,changedFiles,mergeable,"
-             "merged,statusCheckRollup")
+             "merged,statusCheckRollup,headRefName,headRefOid,"
+             "headRepository,headRepositoryOwner")
 
 
 def load_evidence(path) -> dict:
@@ -651,6 +657,24 @@ def _checks_from_rollup(rollup) -> list:
                         "status": str(row.get("status") or "").lower(),
                         "conclusion": str(row.get("conclusion") or "").lower()})
     return out
+
+
+def _head_of(data: dict, repo: str) -> dict:
+    """The PR's head branch and where it lives. `headRepository` /
+    `headRepositoryOwner` are objects (`{"name": ...}` / `{"login": ...}`) and
+    either may be null on a deleted fork — a missing head is reported empty,
+    never guessed as `origin`, so a caller can tell "same repo" from "unknown".
+    """
+    data = data if isinstance(data, dict) else {}
+    name = data.get("headRepository")
+    owner = data.get("headRepositoryOwner")
+    name = name.get("name") if isinstance(name, dict) else None
+    owner = owner.get("login") if isinstance(owner, dict) else None
+    return {
+        "head_ref": str(data.get("headRefName") or ""),
+        "head_sha": str(data.get("headRefOid") or ""),
+        "head_repo": f"{owner}/{name}" if owner and name else "",
+    }
 
 
 def fetch_evidence(members: list, active: dict) -> tuple:
@@ -706,6 +730,7 @@ def fetch_evidence(members: list, active: dict) -> tuple:
                 "mergeable": data.get("mergeable"),
                 "merged": bool(data.get("merged")),
                 "checks": _checks_from_rollup(data.get("statusCheckRollup")),
+                **_head_of(data, repo),
             })
         if prs:
             out[m["slug"]] = {"prs": prs}

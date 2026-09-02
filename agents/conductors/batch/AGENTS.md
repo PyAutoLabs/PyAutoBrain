@@ -291,6 +291,8 @@ actually looked up and nothing more.
              "state": "open", "merged": false,
              "additions": 86, "deletions": 12, "changed_files": 3,
              "mergeable": "MERGEABLE",
+             "head_ref": "feature/autofit-resampling-info",
+             "head_sha": "2629933c...", "head_repo": "PyAutoLabs/PyAutoFit",
              "checks": [{"name": "tests", "status": "completed",
                          "conclusion": "success"}]}],
     "witness":   {"holds": true, "evidence": "ordering test green on 2629933c"},
@@ -300,6 +302,12 @@ actually looked up and nothing more.
     "pending":   false,
     "summary":   "one line"}}}
 ```
+
+`head_ref`/`head_repo` are the member -> branch map: the record stores no repo
+or branch per member and `active.md`'s `repos:` field has four dialects, so the
+PR's own head is the only reliable source. A `head_repo` that differs from
+`repo` is a fork — its head is not on `origin`, so it is reported rather than
+merged.
 
 `witness.holds` is tri-state: `true` PASS, `false` FAIL, absent UNOBSERVABLE.
 
