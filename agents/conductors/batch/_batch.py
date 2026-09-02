@@ -637,8 +637,12 @@ EVIDENCE_KEYS = ("prs", "witness", "adversary", "flagged", "pending", "summary")
 #: member, so a PR's own head is the only reliable source. The head *repo* is
 #: recorded too because a fork's head is not on `origin` and cannot be merged
 #: from a local checkout at all.
+#: `mergedAt`, NOT `merged`: `gh pr view --json` has no `merged` field (gh
+#: 2.98 rejects the whole request with "Unknown JSON field", so ONE bad name
+#: made every `--fetch` PR UNOBSERVABLE rather than dropping one column). The
+#: timestamp is the same fact, and `merged` is derived from it below.
 GH_FIELDS = ("number,url,state,additions,deletions,changedFiles,mergeable,"
-             "merged,statusCheckRollup,headRefName,headRefOid,"
+             "mergedAt,statusCheckRollup,headRefName,headRefOid,"
              "headRepository,headRepositoryOwner")
 
 
@@ -776,7 +780,7 @@ def fetch_evidence(members: list, active: dict) -> tuple:
                 "deletions": data.get("deletions"),
                 "changed_files": data.get("changedFiles"),
                 "mergeable": data.get("mergeable"),
-                "merged": bool(data.get("merged")),
+                "merged": bool(data.get("mergedAt")),
                 "checks": _checks_from_rollup(data.get("statusCheckRollup")),
                 **_head_of(data, repo),
             })

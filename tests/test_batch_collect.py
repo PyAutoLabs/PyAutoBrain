@@ -574,8 +574,8 @@ def test_fetch_records_the_head_branch_of_every_pr(tmp_path, monkeypatch):
         calls.append(cmd)
         body = {"number": 1554, "url": "https://example.invalid/pull/1554",
                 "state": "OPEN", "additions": 5, "deletions": 1,
-                "changedFiles": 2, "mergeable": "MERGEABLE", "merged": False,
-                "statusCheckRollup": [], **head}
+                "changedFiles": 2, "mergeable": "MERGEABLE",
+                "mergedAt": None, "statusCheckRollup": [], **head}
         return SimpleNamespace(returncode=0, stdout=json.dumps(body),
                                stderr="")
 
@@ -601,6 +601,40 @@ def test_fetch_records_the_head_branch_of_every_pr(tmp_path, monkeypatch):
     got, _notes = _batch.fetch_evidence(members, active)
     assert got["resampling"]["prs"][0]["head_repo"] == ""
     assert got["resampling"]["prs"][0]["head_ref"] == "feature/x"
+
+
+def test_fetch_asks_gh_for_mergedat_because_there_is_no_merged_field(
+        tmp_path, monkeypatch):
+    """`gh pr view --json` has no `merged` field. It does not drop an unknown
+    name — it rejects the WHOLE request ("Unknown JSON field: merged", gh
+    2.98), so one wrong word made every PR of every `--fetch` UNOBSERVABLE and
+    the report blamed the PRs. `mergedAt` is the same fact, and the row's
+    `merged` is derived from it."""
+    assert "mergedAt" in _batch.GH_FIELDS
+    assert "merged," not in _batch.GH_FIELDS
+
+    rows = [{"number": 1554, "url": "u", "state": "MERGED", "additions": 5,
+             "deletions": 1, "changedFiles": 2, "mergeable": "UNKNOWN",
+             "mergedAt": "2026-09-01T19:34:55Z", "statusCheckRollup": [],
+             "headRefName": "feature/x", "headRefOid": "abc",
+             "headRepository": {"name": "ExampleFit"},
+             "headRepositoryOwner": {"login": "ExampleOrg"}}]
+
+    def fake(cmd, **_kw):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(rows[0]),
+                               stderr="")
+
+    monkeypatch.setattr(_batch.shutil, "which", lambda _name: "/usr/bin/gh")
+    monkeypatch.setattr(_batch.subprocess, "run", fake)
+    mind = mini_mind(tmp_path)
+    members = [{"slug": "resampling", "path": "draft/bug/autofit/resampling.md"}]
+    got, notes = _batch.fetch_evidence(members, _batch.read_active(mind))
+    assert notes == []
+    assert got["resampling"]["prs"][0]["merged"] is True
+
+    rows[0]["mergedAt"] = None
+    got, _n = _batch.fetch_evidence(members, _batch.read_active(mind))
+    assert got["resampling"]["prs"][0]["merged"] is False
 
 
 def test_apply_writes_nothing_that_a_re_read_cannot_recover(tmp_path):
