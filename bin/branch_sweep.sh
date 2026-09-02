@@ -162,11 +162,12 @@ TODAY="$(date -u +%F)"
 integration_sweep_after() {
     local b="$1" f line want pat
     [[ -n "$RECORDS" && -d "$RECORDS" ]] || return 0
-    # Compared as a literal: a repo like `pyautolabs.github.io` would otherwise
-    # bring regex wildcards to a question whose wrong answer deletes a branch.
+    # Compared as a literal: a dotted repo name (a Pages site, say) would
+    # otherwise bring regex wildcards to a question whose wrong answer deletes
+    # a branch.
     want=$(printf '%s:%s' "$NAME" "$b" | sed 's/[][^$.*+?(){}|\\]/\\&/g')
-    # The entry must sit on its own between separators, so `MyPyAutoFit:x`
-    # cannot answer for `PyAutoFit:x`.
+    # The entry must sit on its own between separators, so `MyRepo:x`
+    # cannot answer for `Repo:x`.
     pat="^- integration-remote:.*[[:space:],:]${want}([,[:space:]]|\$)"
     for f in "$RECORDS"/*.md; do
         [[ -f "$f" ]] || continue
