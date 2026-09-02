@@ -368,6 +368,30 @@ def _utc_now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
+#: How long a pushed `integration/<slot>` ref lives after the review it exists
+#: for. A week is generous for a branch whose whole reason to exist is one
+#: reading; longer, and the namespace becomes a graveyard nobody dares sweep.
+SWEEP_DAYS = 7
+
+
+def sweep_after_default(review_at: str, notes: list) -> str:
+    """`review-at` plus a week — the default expiry of a pushed review ref.
+
+    The review is the branch's reason to exist, so the review date is what the
+    expiry hangs off. An unparsable `review-at:` falls back to today plus the
+    same week and SAYS SO: a silently guessed deletion date is the one kind of
+    guess a branch sweep must never act on unexplained.
+    """
+    try:
+        day = _dt.date.fromisoformat((review_at or "").strip()[:10])
+    except ValueError:
+        notes.append(f"sweep-after: review-at {review_at or '(none)'!r} does "
+                     f"not read as a date — defaulted to today + {SWEEP_DAYS} "
+                     f"days; edit the record to change it")
+        day = _dt.datetime.now(_dt.timezone.utc).date()
+    return (day + _dt.timedelta(days=SWEEP_DAYS)).isoformat()
+
+
 def _dash(line: str) -> str:
     """` -- ` typed for an em dash. Records are hand-written as often as not."""
     return line.replace(" -- ", " — ")
@@ -1237,6 +1261,11 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
         # merges heads in, so the preview matches the shift.
         "dispatch_order": [m["slug"] for m in rec["members"]],
         "integration_requested": _yes(rec["keys"].get("integration")),
+        # Read for `--push` only: `review-at` is what the default expiry of a
+        # published ref hangs off, and a `sweep-after:` the human wrote is
+        # theirs and wins over that default.
+        "review_at": (rec["keys"].get("review-at") or [""])[0].strip(),
+        "sweep_after": (rec["keys"].get("sweep-after") or [""])[0].strip(),
         "stamp": "",
     }
 
@@ -1279,6 +1308,12 @@ def _integ_detail(r: dict) -> str:
         paths = ", ".join(c.get("paths") or []) or "(no paths reported)"
         detail += (f"; {c['member']} ({c['branch']}) collides on {paths} — "
                    "left out")
+    if r.get("pushed") and r.get("remote_branch"):
+        detail += f"; pushed to origin/{r['remote_branch']}"
+        if r.get("push_note"):
+            detail += f" ({r['push_note']})"
+    elif r.get("push_note"):
+        detail += f"; NOT pushed — {r['push_note']}"
     return detail
 
 
@@ -1295,6 +1330,10 @@ def _integration_report(d: dict) -> list:
         return []
     L = ["## Integration branches", "",
          f"Run the whole batch: `source {block.get('activate', '')}`", ""]
+    if block.get("pushed"):
+        L += [f"Pushed for review; the branch sweep may delete these after "
+              f"**{block.get('sweep_after') or '(no sweep-after)'}**. Never a "
+              f"PR, never a base.", ""]
     L += [f"- {_integ_line(r)}" for r in block.get("repos") or []]
     return L + [""]
 
@@ -1662,14 +1701,28 @@ def _integration_panel(d: dict) -> str:
     if not block:
         return ""
     root = block.get("root", "")
+    # The lede tells the truth about THIS block: "nothing is pushed" is a
+    # promise the panel may no longer be able to make.
+    pushed = bool(block.get("pushed"))
+    lede = ('One throwaway worktree root merges every member&#x27;s head '
+            'branch per repo, off <code>origin/main</code>. '
+            + ('Nothing is resolved: a member whose merge conflicts is left '
+               'out and named.' if pushed else
+               'Nothing is pushed and nothing is resolved: a member whose '
+               'merge conflicts is left out and named.'))
     L = ['<section class="panel" id="integration">',
          '  <h2>Integration branches</h2>',
-         '  <p>One throwaway worktree root merges every member&#x27;s head '
-         'branch per repo, off <code>origin/main</code>. Nothing is pushed and '
-         'nothing is resolved: a member whose merge conflicts is left out and '
-         'named.</p>',
-         f'  <p><code>source {_e(block.get("activate", ""))}</code></p>',
-         '  <p class="smallprint">Once that is sourced, a <strong>library</strong> '
+         f'  <p>{lede}</p>',
+         f'  <p><code>source {_e(block.get("activate", ""))}</code></p>']
+    if pushed:
+        L.append(
+            '  <p class="smallprint">Pushed for review; the branch sweep may '
+            'delete these after <strong>'
+            f'{_e(block.get("sweep_after") or "(no sweep-after)")}</strong>. '
+            'Never a PR, never a base. A pushed branch carries only the '
+            'members that merged — each one named <code>left out</code> below '
+            'is not in it.</p>')
+    L += ['  <p class="smallprint">Once that is sourced, a <strong>library</strong> '
          'change is live anywhere — it is on the <code>PYTHONPATH</code>. A '
          '<strong>workspace</strong> member is a real worktree but is not on the '
          'PYTHONPATH, so run its script from inside '
@@ -2042,6 +2095,18 @@ def record_update(text: str, d: dict, stamp: str) -> str:
         _set_key(lines, rec, "integration-root",
                  f"{block.get('root', '')} — {block.get('branch', '')}; "
                  f"{clean} clean, {bad} conflicted", inserts)
+        # What was PUBLISHED, per repo, under the name `branch_sweep.sh --name`
+        # matches on. Rewritten on every push, because the current publication
+        # is the truth; `sweep-after:` is filled once and never overwritten,
+        # because the date a human typed is a decision about their own review.
+        remotes = [f"{r['dir']}:{r['remote_branch']}"
+                   for r in block.get("repos") or [] if r.get("remote_branch")]
+        if remotes:
+            _set_key(lines, rec, "integration-remote", ", ".join(remotes),
+                     inserts)
+            if block.get("sweep_after"):
+                _fill_key(lines, rec, "sweep-after", block["sweep_after"],
+                          inserts)
     review = d.get("review")
     if review is not None:
         _fill_key(lines, rec, "review",
@@ -2785,8 +2850,8 @@ def cortex_ready_note(cortex_arg: str = "") -> str:
 #: Flags that belong to `collect` only. Passing one to `plan` is a usage error
 #: rather than a silent no-op: a human who types `batch plan --apply` means
 #: something, and it is not "plan".
-COLLECT_ONLY = ("slot", "evidence", "fetch", "integration", "apply", "out",
-                "stamp")
+COLLECT_ONLY = ("slot", "evidence", "fetch", "integration", "push", "apply",
+                "out", "stamp")
 
 #: …except on `plan --kind cortex`, which OPENS a board: the slot is its name,
 #: `--apply` writes it, and the stamp is its `dispatched:`. Only with the kind
@@ -2820,6 +2885,11 @@ def main(argv=None) -> int:
                     help="laptop: build one throwaway worktree root merging "
                          "every member's head branch per repo, and report the "
                          "conflicts (writes no remote, pushes nothing)")
+    ap.add_argument("--push", action="store_true",
+                    help="laptop: push each integration/<slot> to origin as a "
+                         "throwaway review ref (needs --integration; never a "
+                         "PR, never forced, expires at the record's "
+                         "sweep-after:)")
     ap.add_argument("--apply", action="store_true",
                     help="write the packet and update the record")
     ap.add_argument("--out", default="", help="write the report here")
@@ -2948,6 +3018,11 @@ def _main_collect(mind: Path, a) -> int:
     if not (mind / "batches").is_dir():
         print(f"batch: no batch records at {mind}", file=sys.stderr)
         return RC_NO_MIND
+    if a.push and not a.integration:
+        raise BatchUsageError(
+            "batch: --push publishes what --integration built — pass both. A "
+            "record's `- integration: yes` asks for the LOCAL preview; putting "
+            "a ref on GitHub is a separate act, typed at collect.")
     slot = a.slot or newest_slot(mind)
     if not slot or not (mind / "batches" / f"{slot}.md").is_file():
         print(f"batch: no batch record batches/{slot or '<none>'}.md at {mind}",
@@ -2978,7 +3053,15 @@ def _main_collect(mind: Path, a) -> int:
     if a.integration or d.get("integration_requested"):
         integ = load_integration()
         block, inotes = integ.run(d["members"], d["dispatch_order"], slot,
-                                  lane=(a.lane or detect_lane()))
+                                  lane=(a.lane or detect_lane()),
+                                  push=a.push)
+        if block and a.push:
+            # The expiry is a fact about the RECORD, so it is filled here and
+            # not in the merge engine: the human's own `sweep-after:` wins, and
+            # the default hangs off the review the branch exists for.
+            block["sweep_after"] = (d.get("sweep_after")
+                                    or sweep_after_default(
+                                        d.get("review_at", ""), inotes))
         d["integration"] = block
         d["notes"] += inotes
     elif isinstance(doc.get("integration"), dict):
