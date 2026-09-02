@@ -301,6 +301,139 @@ def test_the_worktree_root_carries_activate_sh_and_the_symlinks(ws):
     assert (root / "some_workspace").is_symlink()
 
 
+# ---------------------------------------------------------------- the push --
+def _on_origin(wt: Path, ref: str) -> str:
+    """The SHA of `refs/heads/<ref>` as it really is on the origin.
+
+    Read with `ls-remote`, never from a remote-tracking ref: the whole claim
+    under test is about what is published, and a stale `origin/…` in the local
+    checkout is exactly the thing that could fake it."""
+    out = _out(wt, "ls-remote", "origin", f"refs/heads/{ref}")
+    return out.splitlines()[0].split("\t")[0] if out else ""
+
+
+def test_push_puts_the_branch_on_origin_equal_to_the_local_one(ws):
+    """**Witness claim 1.** `--push` publishes exactly the branch the human just
+    previewed: same commit, one real ref, under `integration/` where the sweep
+    can find it. Nothing else on the remote is written."""
+    ws.seed("MyRepo")
+    block, _notes = INTEG.run(
+        [member("alpha", "feature/alpha"), member("gamma", "feature/gamma")],
+        ["alpha", "gamma"], SLOT, lane="local-dev", push=True)
+
+    assert block["pushed"] is True
+    # The conductor fills this: the date lives on the RECORD, and the merge
+    # engine never reads one.
+    assert block["sweep_after"] == ""
+    r = block["repos"][0]
+    assert r["status"] == "clean"
+    assert r["pushed"] is True
+    assert r["remote_branch"] == f"integration/{SLOT}"
+    assert r["push_note"] == ""
+
+    wt = Path(r["path"])
+    assert _on_origin(wt, f"integration/{SLOT}") == _out(wt, "rev-parse", "HEAD")
+    assert _on_origin(wt, f"integration/{SLOT}-2") == ""
+
+
+def test_a_second_run_after_main_moves_never_moves_the_first_ref(ws):
+    """**Witness claim 2.** `origin/main` moved, so the honest refresh re-cuts
+    from the new base and the published ref is no longer an ancestor of it. A
+    force push would silently destroy what a reviewer may already be reading —
+    so the earlier ref is left exactly where it is and the refresh is published
+    beside it as `-2`."""
+    repo = ws.seed("MyRepo")
+    args = ([member("alpha", "feature/alpha")], ["alpha"], SLOT)
+    first, _n = INTEG.run(*args, lane="local-dev", push=True)
+    wt = Path(first["repos"][0]["path"])
+    was = _on_origin(wt, f"integration/{SLOT}")
+    assert was
+
+    _git(repo, "checkout", "main")
+    (repo / "c.py").write_text("main moved on\n")
+    _git(repo, "add", "c.py")
+    _git(repo, "commit", "-m", "main moves")
+    _git(repo, "push", "origin", "main")
+
+    second, _n = INTEG.run(*args, lane="local-dev", push=True)
+    r = second["repos"][0]
+    assert _on_origin(wt, f"integration/{SLOT}") == was      # untouched
+    assert r["pushed"] is True
+    assert r["remote_branch"] == f"integration/{SLOT}-2"
+    assert "never force-pushed" in r["push_note"]
+    assert (_on_origin(wt, f"integration/{SLOT}-2")
+            == _out(wt, "rev-parse", "HEAD"))
+
+
+def test_an_unchanged_refresh_does_not_mint_a_second_branch(ws):
+    """`integrate_repo` re-cuts the branch every run, so the commit SHA differs
+    on every refresh even when nothing changed. Comparing commits would make
+    every refresh look non-fast-forwardable and pile up `-2 … -20`; the tree
+    check asks what the human means — is what is published still this?"""
+    ws.seed("MyRepo")
+    args = ([member("alpha", "feature/alpha")], ["alpha"], SLOT)
+    first, _n = INTEG.run(*args, lane="local-dev", push=True)
+    wt = Path(first["repos"][0]["path"])
+    was = _on_origin(wt, f"integration/{SLOT}")
+
+    second, _n = INTEG.run(*args, lane="local-dev", push=True)
+    r = second["repos"][0]
+    assert r["pushed"] is False
+    assert r["remote_branch"] == f"integration/{SLOT}"
+    assert "already carries this exact tree" in r["push_note"]
+    assert _on_origin(wt, f"integration/{SLOT}") == was
+    assert _on_origin(wt, f"integration/{SLOT}-2") == ""
+
+
+def test_a_conflicted_repo_still_publishes_its_partial_branch(ws):
+    """A conflict is a finding, not a failure — and the partial branch is the
+    runnable thing. It is published, and the member left out of it is named."""
+    ws.seed("MyRepo")
+    block, _n = INTEG.run(
+        [member("alpha", "feature/alpha"), member("beta", "feature/beta")],
+        ["alpha", "beta"], SLOT, lane="local-dev", push=True)
+    r = block["repos"][0]
+    assert r["status"] == "conflicted"
+    assert r["merged"] == ["alpha"]
+    assert [c["member"] for c in r["conflicts"]] == ["beta"]
+    assert r["pushed"] is True
+    assert r["remote_branch"] == f"integration/{SLOT}"
+    wt = Path(r["path"])
+    assert _on_origin(wt, f"integration/{SLOT}") == _out(wt, "rev-parse", "HEAD")
+
+
+def test_a_failed_push_is_a_note_and_the_merge_verdict_stands(ws, tmp_path):
+    """A network failure must not turn a clean integration into a conflicted
+    one: the merge verdict is a fact about the merge. The push says so in its
+    own field and in the notes, and `status` is untouched."""
+    ws.seed("MyRepo")
+    block, _n = INTEG.run([member("alpha", "feature/alpha")], ["alpha"], SLOT,
+                          lane="local-dev")
+    r = block["repos"][0]
+    wt = Path(r["path"])
+    _git(wt, "remote", "set-url", "origin", str(tmp_path / "not-a-repo.git"))
+
+    notes: list = []
+    INTEG.push_repo(r, wt, SLOT, notes)
+    assert r["status"] == "clean"
+    assert r["merged"] == ["alpha"]
+    assert r["pushed"] is False
+    assert r["remote_branch"] == ""
+    assert "push failed" in r["push_note"]
+    assert any("push failed" in n for n in notes)
+
+
+def test_the_push_leg_carries_no_force_flag_at_all():
+    """The property the whole design rests on, asserted against the source: a
+    reviewer's ref is never destroyed. The one `-f` in the module names a LOCAL
+    branch whose name was just proven absent on origin."""
+    src = Path(INTEG.__file__).read_text(encoding="utf-8")
+    assert "--force" not in src
+    assert "--force-with-lease" not in src
+    assert [l.strip() for l in src.splitlines()
+            if '"-f"' in l and "branch" not in l] == []
+
+
 # ------------------------------------------------- the packet and the record --
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 _spec = importlib.util.spec_from_file_location(
