@@ -557,8 +557,21 @@ tier), never by weakening leg 4.
   already exist upstream. It is **read-only, opt-in and non-default**: without
   the flag no clone, socket or subprocess is used, and a test detonates on any
   attempt. It ranks prompts for human review in a `needs-review` band and never
-  emits a shipped verdict, so it retires nothing on its own. Any *further*
-  network surface in the Brain is a new decision, not covered by this line.
+  emits a shipped verdict, so it retires nothing on its own.
+
+  A second exception, added 2026-09-02: `batch collect --integration` fetches
+  and merges locally, and `--integration --push` publishes each
+  `integration/<slot>` to `origin`. Both are **opt-in, non-default and
+  laptop-only** (a remote session's credential cannot write a ref —
+  `skills/GITHUB_ACCESS.md`). The push writes throwaway review refs under
+  `integration/*` and nothing else: never `main`, never a release ref, never a
+  pull request, never a base for one. It is **never forced** — a branch that is
+  not a fast-forward of what is already published is pushed under a new `-N`
+  name instead — and every pushed ref carries a `sweep-after:` date on the
+  batch record, after which `bin/branch_sweep.sh` may delete it.
+
+  Any *further* network surface in the Brain is a new decision, not covered by
+  this line.
 - The `Autonomy:` header is a model's own estimate. The caps, the explicit
   `--auto` launch, and the calibration log are what make consuming it
   defensible — none of the three is optional.

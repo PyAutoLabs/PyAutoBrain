@@ -25,6 +25,13 @@
 #     the Gut exists to provide. The Gut voids them, not us.
 #   * any branch that is the head of an OPEN pull request
 #   * any branch git cannot prove is already contained in the base
+#   * `integration/*`                                   — batch review refs,
+#     published by `batch collect --integration --push`. These are deliberately
+#     NOT contained in the base — previewing a merge before it happens is the
+#     whole point — so the containment proof can never clear them, and they
+#     would otherwise be kept forever. They are cleared BY DATE ALONE: the
+#     `sweep-after:` on the batch record that published them, read from
+#     `--records`. No records dir, no record, or no date -> protected.
 #
 # Containment is decided by branch_contribution.sh — the blessed tool, never a
 # hand-rolled ahead-count (see docs/agent_failure_modes.md D1/D2: that question
@@ -40,13 +47,18 @@
 #
 # Usage:
 #   branch_sweep.sh --repo <path> --owner <o> --name <n> [--mode audit|delete]
-#                   [--base origin/main] [--limit N]
+#                   [--base origin/main] [--limit N] [--records <dir>]
+#
+# --records points at a checkout of PyAutoMind's `batches/` — the only thing
+# that knows when an `integration/*` ref stops being worth keeping. Omitted or
+# unreadable, every integration branch is protected: the failure mode of a
+# missing Mind is "keep", which is the direction that cannot lose work.
 #
 # Exit: 0 clean · 1 usage/setup error · 2 one or more deletions failed.
 
 set -uo pipefail
 
-REPO="" OWNER="" NAME="" MODE="audit" BASE="origin/main" LIMIT=0
+REPO="" OWNER="" NAME="" MODE="audit" BASE="origin/main" LIMIT=0 RECORDS=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo)  REPO="$2";  shift 2 ;;
@@ -55,11 +67,13 @@ while [[ $# -gt 0 ]]; do
         --mode)  MODE="$2";  shift 2 ;;
         --base)  BASE="$2";  shift 2 ;;
         --limit) LIMIT="$2"; shift 2 ;;
+        --records) RECORDS="$2"; shift 2 ;;
         *) echo "branch_sweep: unknown argument '$1'" >&2; exit 1 ;;
     esac
 done
 [[ -n "$REPO" && -n "$OWNER" && -n "$NAME" ]] || {
     echo "usage: branch_sweep.sh --repo <path> --owner <o> --name <n> [--mode audit|delete]" >&2
+    echo "                       [--base origin/main] [--limit N] [--records <dir>]" >&2
     exit 1
 }
 [[ "$MODE" == "audit" || "$MODE" == "delete" ]] || {
@@ -134,6 +148,36 @@ merged_pr_for() {
        2>/dev/null | head -1
 }
 
+TODAY="$(date -u +%F)"
+
+# The date after which one `integration/*` branch may be deleted, or empty.
+#
+# An integration ref is a merge preview: it is cut from the base and carries
+# every member's head, so it is unmergeable-by-construction and the containment
+# proof will never clear it. Its licence to exist is a date, not an ancestry —
+# the `- sweep-after:` on the batch record that published it, found by that
+# record naming this repo and this branch in its `- integration-remote:` line
+# (`<Repo>:<branch>`, comma-separated, written under the same repo NAME this
+# script was given as --name). No record, no date, no deletion.
+integration_sweep_after() {
+    local b="$1" f line want pat
+    [[ -n "$RECORDS" && -d "$RECORDS" ]] || return 0
+    # Compared as a literal: a dotted repo name (a Pages site, say) would
+    # otherwise bring regex wildcards to a question whose wrong answer deletes
+    # a branch.
+    want=$(printf '%s:%s' "$NAME" "$b" | sed 's/[][^$.*+?(){}|\\]/\\&/g')
+    # The entry must sit on its own between separators, so `MyRepo:x`
+    # cannot answer for `Repo:x`.
+    pat="^- integration-remote:.*[[:space:],:]${want}([,[:space:]]|\$)"
+    for f in "$RECORDS"/*.md; do
+        [[ -f "$f" ]] || continue
+        grep -qE "$pat" "$f" || continue
+        line=$(sed -nE 's/^- sweep-after:[[:space:]]*([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/p' "$f" | head -1)
+        printf '%s' "$line"
+        return 0
+    done
+}
+
 # Returns 0 and echoes the proving commit when `branch` is a confirmed squash
 # of a PR already on the base; returns 1 otherwise.
 squash_proof() {
@@ -175,6 +219,19 @@ while read -r b; do
     is_trunk "$b" && continue
     case "$b" in
         archive/condemned/*) protected+=("$b	gut-transit-ref"); continue ;;
+        integration/*)
+            # ISO dates compare correctly as strings. The test is >= TODAY,
+            # not > TODAY: `sweep-after: <today>` is the day the human sits
+            # down to read the preview, and a sweep firing that morning deletes
+            # the branch out from under the review it exists for. Expiry starts
+            # the day AFTER.
+            d=$(integration_sweep_after "$b")
+            if [[ -z "$d" ]]; then
+                protected+=("$b	integration-no-sweep-after"); continue
+            elif [[ "$d" > "$TODAY" || "$d" == "$TODAY" ]]; then
+                protected+=("$b	integration-until-$d"); continue
+            fi
+            safe+=("$b	integration-expired-$d"); continue ;;
     esac
     if [[ -n "$open_prs" ]] && grep -qxF "$b" <<<"$open_prs"; then
         protected+=("$b	open-pr"); continue

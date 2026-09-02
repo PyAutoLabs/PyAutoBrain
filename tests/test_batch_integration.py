@@ -301,6 +301,139 @@ def test_the_worktree_root_carries_activate_sh_and_the_symlinks(ws):
     assert (root / "some_workspace").is_symlink()
 
 
+# ---------------------------------------------------------------- the push --
+def _on_origin(wt: Path, ref: str) -> str:
+    """The SHA of `refs/heads/<ref>` as it really is on the origin.
+
+    Read with `ls-remote`, never from a remote-tracking ref: the whole claim
+    under test is about what is published, and a stale `origin/…` in the local
+    checkout is exactly the thing that could fake it."""
+    out = _out(wt, "ls-remote", "origin", f"refs/heads/{ref}")
+    return out.splitlines()[0].split("\t")[0] if out else ""
+
+
+def test_push_puts_the_branch_on_origin_equal_to_the_local_one(ws):
+    """**Witness claim 1.** `--push` publishes exactly the branch the human just
+    previewed: same commit, one real ref, under `integration/` where the sweep
+    can find it. Nothing else on the remote is written."""
+    ws.seed("MyRepo")
+    block, _notes = INTEG.run(
+        [member("alpha", "feature/alpha"), member("gamma", "feature/gamma")],
+        ["alpha", "gamma"], SLOT, lane="local-dev", push=True)
+
+    assert block["pushed"] is True
+    # The conductor fills this: the date lives on the RECORD, and the merge
+    # engine never reads one.
+    assert block["sweep_after"] == ""
+    r = block["repos"][0]
+    assert r["status"] == "clean"
+    assert r["pushed"] is True
+    assert r["remote_branch"] == f"integration/{SLOT}"
+    assert r["push_note"] == ""
+
+    wt = Path(r["path"])
+    assert _on_origin(wt, f"integration/{SLOT}") == _out(wt, "rev-parse", "HEAD")
+    assert _on_origin(wt, f"integration/{SLOT}-2") == ""
+
+
+def test_a_second_run_after_main_moves_never_moves_the_first_ref(ws):
+    """**Witness claim 2.** `origin/main` moved, so the honest refresh re-cuts
+    from the new base and the published ref is no longer an ancestor of it. A
+    force push would silently destroy what a reviewer may already be reading —
+    so the earlier ref is left exactly where it is and the refresh is published
+    beside it as `-2`."""
+    repo = ws.seed("MyRepo")
+    args = ([member("alpha", "feature/alpha")], ["alpha"], SLOT)
+    first, _n = INTEG.run(*args, lane="local-dev", push=True)
+    wt = Path(first["repos"][0]["path"])
+    was = _on_origin(wt, f"integration/{SLOT}")
+    assert was
+
+    _git(repo, "checkout", "main")
+    (repo / "c.py").write_text("main moved on\n")
+    _git(repo, "add", "c.py")
+    _git(repo, "commit", "-m", "main moves")
+    _git(repo, "push", "origin", "main")
+
+    second, _n = INTEG.run(*args, lane="local-dev", push=True)
+    r = second["repos"][0]
+    assert _on_origin(wt, f"integration/{SLOT}") == was      # untouched
+    assert r["pushed"] is True
+    assert r["remote_branch"] == f"integration/{SLOT}-2"
+    assert "never force-pushed" in r["push_note"]
+    assert (_on_origin(wt, f"integration/{SLOT}-2")
+            == _out(wt, "rev-parse", "HEAD"))
+
+
+def test_an_unchanged_refresh_does_not_mint_a_second_branch(ws):
+    """`integrate_repo` re-cuts the branch every run, so the commit SHA differs
+    on every refresh even when nothing changed. Comparing commits would make
+    every refresh look non-fast-forwardable and pile up `-2 … -20`; the tree
+    check asks what the human means — is what is published still this?"""
+    ws.seed("MyRepo")
+    args = ([member("alpha", "feature/alpha")], ["alpha"], SLOT)
+    first, _n = INTEG.run(*args, lane="local-dev", push=True)
+    wt = Path(first["repos"][0]["path"])
+    was = _on_origin(wt, f"integration/{SLOT}")
+
+    second, _n = INTEG.run(*args, lane="local-dev", push=True)
+    r = second["repos"][0]
+    assert r["pushed"] is False
+    assert r["remote_branch"] == f"integration/{SLOT}"
+    assert "already carries this exact tree" in r["push_note"]
+    assert _on_origin(wt, f"integration/{SLOT}") == was
+    assert _on_origin(wt, f"integration/{SLOT}-2") == ""
+
+
+def test_a_conflicted_repo_still_publishes_its_partial_branch(ws):
+    """A conflict is a finding, not a failure — and the partial branch is the
+    runnable thing. It is published, and the member left out of it is named."""
+    ws.seed("MyRepo")
+    block, _n = INTEG.run(
+        [member("alpha", "feature/alpha"), member("beta", "feature/beta")],
+        ["alpha", "beta"], SLOT, lane="local-dev", push=True)
+    r = block["repos"][0]
+    assert r["status"] == "conflicted"
+    assert r["merged"] == ["alpha"]
+    assert [c["member"] for c in r["conflicts"]] == ["beta"]
+    assert r["pushed"] is True
+    assert r["remote_branch"] == f"integration/{SLOT}"
+    wt = Path(r["path"])
+    assert _on_origin(wt, f"integration/{SLOT}") == _out(wt, "rev-parse", "HEAD")
+
+
+def test_a_failed_push_is_a_note_and_the_merge_verdict_stands(ws, tmp_path):
+    """A network failure must not turn a clean integration into a conflicted
+    one: the merge verdict is a fact about the merge. The push says so in its
+    own field and in the notes, and `status` is untouched."""
+    ws.seed("MyRepo")
+    block, _n = INTEG.run([member("alpha", "feature/alpha")], ["alpha"], SLOT,
+                          lane="local-dev")
+    r = block["repos"][0]
+    wt = Path(r["path"])
+    _git(wt, "remote", "set-url", "origin", str(tmp_path / "not-a-repo.git"))
+
+    notes: list = []
+    INTEG.push_repo(r, wt, SLOT, notes)
+    assert r["status"] == "clean"
+    assert r["merged"] == ["alpha"]
+    assert r["pushed"] is False
+    assert r["remote_branch"] == ""
+    assert "push failed" in r["push_note"]
+    assert any("push failed" in n for n in notes)
+
+
+def test_the_push_leg_carries_no_force_flag_at_all():
+    """The property the whole design rests on, asserted against the source: a
+    reviewer's ref is never destroyed. The one `-f` in the module names a LOCAL
+    branch whose name was just proven absent on origin."""
+    src = Path(INTEG.__file__).read_text(encoding="utf-8")
+    assert "--force" not in src
+    assert "--force-with-lease" not in src
+    assert [l.strip() for l in src.splitlines()
+            if '"-f"' in l and "branch" not in l] == []
+
+
 # ------------------------------------------------- the packet and the record --
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 _spec = importlib.util.spec_from_file_location(
@@ -359,10 +492,16 @@ def mini_mind(tmp_path, *members, keys="") -> Path:
     return mind
 
 
-def block_for(root="/tmp/wt/integration-x", slug="beta") -> dict:
-    return {
+def block_for(root="/tmp/wt/integration-x", slug="beta",
+              pushed=False) -> dict:
+    """The block a laptop `--integration` returns. `pushed=True` is the same
+    block after `--push`: both repos published, including the conflicted one —
+    its PARTIAL branch is the runnable thing, and the member left out of it is
+    named on the same line."""
+    block = {
         "slot": SLOT, "root": root, "activate": f"{root}/activate.sh",
         "branch": f"integration/{SLOT}", "at": STAMP, "notes": [],
+        "pushed": pushed, "sweep_after": "",
         "repos": [
             {"repo": "Example/MyRepo", "dir": "MyRepo", "path": f"{root}/MyRepo",
              "branch": f"integration/{SLOT}", "base": "origin/main",
@@ -374,6 +513,11 @@ def block_for(root="/tmp/wt/integration-x", slug="beta") -> dict:
              "conflicts": [{"member": slug, "branch": "feature/beta",
                             "paths": ["a.py"]}],
              "status": "conflicted", "note": ""}]}
+    if pushed:
+        for r in block["repos"]:
+            r.update({"remote_branch": f"integration/{SLOT}", "pushed": True,
+                      "push_note": ""})
+    return block
 
 
 def collected(mind, block=None) -> dict:
@@ -442,8 +586,9 @@ def test_a_cloud_session_says_run_it_from_the_laptop(tmp_path, capsys):
 def _recorder(monkeypatch) -> list:
     calls: list = []
 
-    def run(members, order, slot, *, lane):
-        calls.append({"order": list(order), "slot": slot, "lane": lane})
+    def run(members, order, slot, *, lane, push=False):
+        calls.append({"order": list(order), "slot": slot, "lane": lane,
+                      "push": push})
         return None, []
 
     monkeypatch.setattr(_batch, "load_integration",
@@ -458,6 +603,9 @@ def test_the_record_can_ask_for_it_at_dispatch(tmp_path, monkeypatch):
     mind = mini_mind(tmp_path, keys="- integration: yes")
     _batch.main(["collect", "--mind", str(mind), "--slot", SLOT])
     assert [c["order"] for c in calls] == [["alpha"]]
+    # The record asks for the LOCAL preview. Putting a ref on GitHub is a
+    # separate act, and no key in a record may ever perform it.
+    assert [c["push"] for c in calls] == [False]
 
     calls.clear()
     off = mini_mind(tmp_path / "off", keys="- integration: no")
@@ -500,3 +648,126 @@ def test_plan_refuses_the_collect_flag(tmp_path):
     mind = mini_mind(tmp_path)
     (mind / "draft").mkdir(exist_ok=True)
     assert _batch.main(["plan", "--mind", str(mind), "--integration"]) == 2
+
+
+# --------------------------------------------------------- the push, wired --
+def test_push_without_integration_is_a_usage_error(tmp_path, capsys):
+    """`--push` publishes what `--integration` built. Alone it would either
+    silently do nothing or push a branch nobody previewed; it is neither."""
+    mind = mini_mind(tmp_path)
+    rc = _batch.main(["collect", "--mind", str(mind), "--slot", SLOT, "--push"])
+    assert rc == 2
+    assert "pass both" in capsys.readouterr().err
+
+
+def test_plan_refuses_the_push_flag(tmp_path):
+    """`batch plan --push` means something, and it is not "plan"."""
+    mind = mini_mind(tmp_path)
+    (mind / "draft").mkdir(exist_ok=True)
+    assert _batch.main(["plan", "--mind", str(mind), "--push"]) == 2
+
+
+def test_a_cloud_session_says_run_the_push_from_the_laptop(tmp_path, capsys):
+    """A second reason for the same refusal, said instead of the first: a
+    remote session's GH_TOKEN is a proxy placeholder that cannot write a ref at
+    all, so "build a worktree on the laptop" would be the wrong advice."""
+    mind = mini_mind(tmp_path)
+    rc = _batch.main(["collect", "--mind", str(mind), "--slot", SLOT,
+                      "--integration", "--push", "--lane", "web-github"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "Run it from the laptop" in out
+    assert "GITHUB_ACCESS.md" in out
+    assert "## alpha — " in out          # the members are still scored
+
+
+def test_apply_stamps_the_remote_branches_and_a_default_sweep_after(tmp_path):
+    """What was PUBLISHED, per repo, under the name the branch sweep matches
+    on — and the date after which it may delete them. The default hangs off
+    `review-at:`, because the review is the branch's reason to exist."""
+    mind = mini_mind(tmp_path, keys="- integration: yes")
+    d = collected(mind, block_for(pushed=True))
+    assert d["review_at"] == "2026-09-04T08:00Z"
+    notes: list = []
+    d["integration"]["sweep_after"] = _batch.sweep_after_default(
+        d["review_at"], notes)
+    assert notes == []
+
+    before = (mind / "batches" / f"{SLOT}.md").read_text(encoding="utf-8")
+    after = _batch.record_update(before, d, STAMP)
+    assert _batch._rehearse_record(mind, before, after) == []
+    assert (f"- integration-remote: MyRepo:integration/{SLOT}, "
+            f"Other:integration/{SLOT}") in after
+    assert "- sweep-after: 2026-09-11" in after
+    assert "- integration: yes" in after and "- integration-root: " in after
+
+    _batch.apply_collect(mind, d, STAMP)
+    written = (mind / "batches" / f"{SLOT}.md").read_text(encoding="utf-8")
+    assert "- integration-remote: " in written
+    assert "- sweep-after: 2026-09-11" in written
+
+
+def test_a_human_written_sweep_after_is_never_overwritten(tmp_path):
+    """The default is a default. A date the human typed is a decision about
+    their own review, and a second `- sweep-after:` line would leave the sweep
+    reading whichever it hit first."""
+    mind = mini_mind(tmp_path,
+                     keys="- integration: yes\n- sweep-after: 2026-12-01")
+    d = collected(mind, block_for(pushed=True))
+    assert d["sweep_after"] == "2026-12-01"
+    d["integration"]["sweep_after"] = d["sweep_after"]
+    _batch.apply_collect(mind, d, STAMP)
+    written = (mind / "batches" / f"{SLOT}.md").read_text(encoding="utf-8")
+    assert "- sweep-after: 2026-12-01" in written
+    assert written.count("- sweep-after:") == 1
+    assert "2026-09-11" not in written
+
+
+def test_an_unreadable_review_at_falls_back_to_today_plus_seven(tmp_path):
+    """A silently guessed deletion date is the one guess a branch sweep must
+    never act on unexplained — so the fallback says so in the notes."""
+    import datetime as dt
+    notes: list = []
+    got = _batch.sweep_after_default("(not given)", notes)
+    want = (dt.datetime.now(dt.timezone.utc).date()
+            + dt.timedelta(days=_batch.SWEEP_DAYS)).isoformat()
+    assert got == want
+    assert len(notes) == 1
+    assert "does not read as a date" in notes[0]
+    assert "edit the record to change it" in notes[0]
+
+
+def test_the_panel_and_the_report_name_the_remote_and_the_expiry(tmp_path):
+    """Written once in `_integ_detail`, so the terminal and the page cannot
+    report the same publication differently — and the expiry is stated on both,
+    because a ref with a deletion date the reader never saw is a trap."""
+    mind = mini_mind(tmp_path)
+    block = block_for(pushed=True)
+    block["sweep_after"] = "2026-09-11"
+    d = collected(mind, block)
+
+    body = _batch.collect_report(d)
+    assert f"pushed to origin/integration/{SLOT}" in body
+    assert "may delete these after **2026-09-11**" in body
+    assert "Never a PR, never a base." in body
+    assert "collides on a.py — left out" in body
+
+    page, _n = _batch.packet_html(d)
+    region = region_of(page)
+    assert f"pushed to origin/integration/{SLOT}" in region
+    assert "2026-09-11" in region
+    assert "Never a PR, never a base." in region
+    assert "Nothing is pushed" not in region       # it no longer is true
+    assert page.count("<script>") == 1 and page.count("</script>") == 1
+    assert "data-" not in region
+
+
+def test_an_unpushed_block_still_promises_nothing_is_pushed(tmp_path):
+    """The default leg's promise is unchanged — and it is the promise, not the
+    prose, that the flag has to be able to withdraw."""
+    mind = mini_mind(tmp_path)
+    page, _n = _batch.packet_html(collected(mind, block_for()))
+    region = region_of(page)
+    assert "Nothing is pushed and nothing is resolved" in region
+    assert "pushed to origin/" not in region
+    assert "sweep" not in region

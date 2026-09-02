@@ -53,6 +53,7 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 | **Lane match** | a session detects its own lane and plans only that one |
 | **Backpressure** | see below |
 | **One integration root per slot, and it is local** | `integration/<slot>` is cut fresh from `origin/main` on every run and never pushed, so a re-run is a re-preview rather than a rewrite; a dirty integration worktree is skipped, never reset. The one-member-per-library-repo rule above is what keeps within-repo conflicts rare — the common case is one member with organ PRs across five repos. |
+| **Publishing that root is a separate act, typed by the human** | `--push` is the only remote write the batch makes, and no record can ask for it — `- integration: yes` requests the *local* preview. What it writes is a throwaway `integration/*` review ref and nothing else: never a pull request, never a base for one, never forced. A refresh that is not a fast-forward publishes `-2` rather than moving what is already there, and the ref expires at the record's `sweep-after:`. |
 
 Everything rejected says so, with its reason. A planner that silently drops work
 teaches the human to distrust the number it reports.
@@ -325,7 +326,8 @@ at the end?" is answered by a merge rather than by reading diffs.
 **It fetches and reads; it never pushes, opens a PR, or touches a remote ref.**
 Like `--fetch` it is opt-in, non-default and laptop-only — a cloud session is
 pointed at the laptop rather than failing halfway through a root it cannot
-finish. Pushing `integration/<slot>` is a separate, later decision.
+finish. Pushing `integration/<slot>` is a separate, later decision, and a
+separate flag — see `--push` below.
 
 ```jsonc
 {"slot": "2026-09-03-pm",
@@ -338,9 +340,18 @@ finish. Pushing `integration/<slot>` is a separate, later decision.
             "merged": ["autofit-resampling-info"],
             "conflicts": [{"member": "autoarray-x", "branch": "feature/x",
                            "paths": ["src/mask/mask_2d.py"]}],
-            "status": "clean | conflicted | skipped", "note": ""}],
+            "status": "clean | conflicted | skipped", "note": "",
+            // --push only; "" and false on every run without it
+            "remote_branch": "integration/2026-09-03-pm", "pushed": true,
+            "push_note": ""}],
+ "pushed": false, "sweep_after": "",
  "notes": ["…"]}
 ```
+
+`status` is the merge verdict and `pushed` is the network one; they are
+deliberately separate. A push that fails leaves a clean integration reading
+`clean`, because whether the merge collided is a fact about the merge and a
+dead network does not change it.
 
 **Four reasons a member's PR is left out**, each said out loud: it is already
 merged; it is CLOSED; it has no `head_ref` in the evidence (gathered before the
@@ -377,6 +388,52 @@ the record as `integration-root:` — persisting it is `--json > ev.json`'s job,
 and a block pasted back into an evidence file is how a cloud session renders one
 at all.
 
+### Pushing the integration branch (`--push`)
+
+`--push` publishes what `--integration` built. It **requires** `--integration`
+(without it, a usage error and rc 2) and it is refused on `plan` — and no
+record can ask for it. `- integration: yes` is a request for the *local*
+preview; putting a ref on GitHub is a separate act, typed at collect by the
+human, because it writes into shared repos under the laptop's own credential.
+Laptop lane only, for the same reason `--integration` is: a cloud session's
+credential cannot write a ref at all, so it is pointed at the laptop rather
+than failing halfway.
+
+**What it publishes.** One real branch per repo — `integration/<slot>` — whose
+tip is exactly the state `--integration` merged. A **conflicted** repo still
+publishes: its branch carries the members that merged, and the ones left out
+are named, with their conflicting paths, in the same report. A pushed branch is
+therefore never a claim that the whole slot merges; it is the same partial
+preview, on a machine the reviewer can reach.
+
+**Never a PR, never a base.** These refs are review scaffolding with a
+death date, not proposals. Nothing opens a pull request from one, nothing
+targets one as a base, and nothing merges one anywhere.
+
+**Never forced.** Three arms, decided per repo after re-fetching the
+`integration/*` namespace:
+
+- the remote branch carries the **same tree** → not re-pushed at all, and said
+  so. This is the common case on a refresh: `--integration` re-cuts and
+  re-merges honestly, so the commit SHAs differ every run even when nothing
+  changed. Compare trees, not commits, or every refresh mints a new name.
+- the remote branch is an **ancestor** → a plain fast-forward push.
+- otherwise → published as `integration/<slot>-2` (then `-3`, …, first free
+  name, capped). The earlier ref is left exactly where it was. There is no
+  `--force` and no `--force-with-lease` anywhere in this path; `branch -f`
+  appears once, on a *local* name already proven absent on origin.
+
+A push that fails is a note and a `push_note` on the row, never a change to the
+merge verdict.
+
+**How it ends.** Every push stamps `integration-remote:` on the record and
+fills `sweep-after:` (see below); `bin/branch_sweep.sh --records <a checkout of
+PyAutoMind/batches>` deletes `integration/*` refs on or after that date and
+protects them in every other case — no records dir, no record, no date, no
+deletion. That expiry is the only thing keeping these refs from accumulating:
+they can never be proven contained in `main`, so the sweep's ordinary
+containment gate would keep them forever.
+
 ### The packet is refreshed, never rewritten
 
 `--apply` writes `batches/packets/<slot>.html` in place and at the same path,
@@ -397,7 +454,13 @@ header was left alone. Collect never rewrites such a page wholesale.
 `delivered: n/m`, `packet:`, and — after an `--integration` run —
 `integration-root:` (a key of its own: the dispatch-time
 `- integration: yes` is the human's request, and is never overwritten
-with a path). Member outcomes become `<HEALTH> (<one line of evidence>)` —
+with a path). After an `--integration --push` run it also writes
+`integration-remote:` — `<Repo>:<branch>`, comma-separated, under the repo name
+`branch_sweep.sh --name` matches on — **rewritten on every push**, because the
+current publication is the truth and a stale list would send the sweep after a
+ref that no longer exists. Alongside it, `sweep-after:` is **filled once and
+never overwritten**: `review-at:` plus a week by default, and a date the human
+typed is a decision about their own review. Member outcomes become `<HEALTH> (<one line of evidence>)` —
 **unless the outcome already opens with a ruling word**
 (`ACCEPTED`, `REJECTED`, `MERGED`, `LEAVE-TO-FINISH`, …), which is a human's
 verdict and is never overwritten by a machine re-read. Once the slot's review
