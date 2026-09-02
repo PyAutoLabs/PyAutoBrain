@@ -299,3 +299,204 @@ def test_the_worktree_root_carries_activate_sh_and_the_symlinks(ws):
     # A linked worktree's `.git` is a FILE; an untouched entry stays a symlink.
     assert (root / "MyRepo" / ".git").is_file()
     assert (root / "some_workspace").is_symlink()
+
+
+# ------------------------------------------------- the packet and the record --
+sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
+_spec = importlib.util.spec_from_file_location(
+    "_batch_integration_under_test",
+    BRAIN / "agents" / "conductors" / "batch" / "_batch.py")
+_batch = importlib.util.module_from_spec(_spec)
+sys.modules["_batch_integration_under_test"] = _batch
+_spec.loader.exec_module(_batch)
+
+
+def test_the_conductor_loads_the_leg_lazily_by_file_location():
+    """`batch plan` and most collects never build a worktree, so the merge
+    engine is loaded the way the Cortex conductor is: by file location, cached,
+    and never at module import."""
+    mod = _batch.load_integration()
+    assert mod.__file__ == INTEG.__file__
+    assert _batch.load_integration() is mod
+    assert mod.branch_name(SLOT) == f"integration/{SLOT}"
+
+
+def _record(*members, keys="") -> str:
+    body = [f"# Batch {SLOT}", "",
+            "- dispatched: 2026-09-03T17:40Z",
+            "- review-at: 2026-09-04T08:00Z",
+            "- lane: any",
+            "- review-minutes-planned: 3",
+            "- members:"]
+    body += list(members or (MEMBER,))
+    if keys:
+        body.append(keys)
+    body += ["- notes: |", "    What actually happened."]
+    return "\n".join(body) + "\n"
+
+
+MEMBER = ("  - alpha: draft/bug/autofit/alpha.md — glance — 3 — "
+          "session ended green")
+
+PROMPT = """# Alpha
+
+Type: bug
+Target: autofit
+Witness: a unit test pins it
+"""
+
+
+def mini_mind(tmp_path, *members, keys="") -> Path:
+    mind = tmp_path / "mind"
+    (mind / "batches" / "packets").mkdir(parents=True)
+    (mind / "batches" / "reviews").mkdir(parents=True)
+    (mind / "draft" / "bug" / "autofit").mkdir(parents=True)
+    (mind / "batches" / f"{SLOT}.md").write_text(_record(*members, keys=keys),
+                                                 encoding="utf-8")
+    (mind / "draft" / "bug" / "autofit" / "alpha.md").write_text(
+        PROMPT, encoding="utf-8")
+    (mind / "active.md").write_text("# Active Tasks\n", encoding="utf-8")
+    return mind
+
+
+def block_for(root="/tmp/wt/integration-x", slug="beta") -> dict:
+    return {
+        "slot": SLOT, "root": root, "activate": f"{root}/activate.sh",
+        "branch": f"integration/{SLOT}", "at": STAMP, "notes": [],
+        "repos": [
+            {"repo": "Example/MyRepo", "dir": "MyRepo", "path": f"{root}/MyRepo",
+             "branch": f"integration/{SLOT}", "base": "origin/main",
+             "base_sha": "aaa", "head_sha": "bbb", "merged": ["alpha"],
+             "conflicts": [], "status": "clean", "note": ""},
+            {"repo": "Example/Other", "dir": "Other", "path": f"{root}/Other",
+             "branch": f"integration/{SLOT}", "base": "origin/main",
+             "base_sha": "ccc", "head_sha": "ddd", "merged": [],
+             "conflicts": [{"member": slug, "branch": "feature/beta",
+                            "paths": ["a.py"]}],
+             "status": "conflicted", "note": ""}]}
+
+
+def collected(mind, block=None) -> dict:
+    d = _batch.collect(mind, SLOT)
+    d["stamp"] = STAMP
+    if block is not None:
+        d["integration"] = block
+    return d
+
+
+def region_of(page: str) -> str:
+    begin = page.index("<!-- pyauto:integration:begin -->")
+    return page[begin:page.index("<!-- pyauto:integration:end -->")]
+
+
+def test_the_packet_carries_a_sentinel_bounded_integration_region(tmp_path):
+    """The panel is a finding the human READS — no `data-*` hook, no second
+    `<script>`, and every value escaped: a slug is a branch name someone typed."""
+    mind = mini_mind(tmp_path)
+    d = collected(mind, block_for(slug="<script>alert(1)</script>"))
+    page, _notes = _batch.packet_html(d)
+    assert "<!-- pyauto:integration:begin -->" in page
+    assert "<!-- pyauto:integration:end -->" in page
+    body = region_of(page)
+    assert "clean" in body and "conflicted" in body and "a.py" in body
+    assert "source /tmp/wt/integration-x/activate.sh" in body
+    assert "&lt;script&gt;alert(1)" in body
+    assert page.count("<script>") == 1 and page.count("</script>") == 1
+
+
+def test_the_panel_says_where_a_workspace_member_has_to_be_run(tmp_path):
+    """`activate.sh`'s PYTHONPATH covers the libraries only. A workspace member
+    is a real worktree in the root but is not importable from outside it, and a
+    human who runs its script from the canonical checkout tests the wrong tree."""
+    mind = mini_mind(tmp_path)
+    page, _n = _batch.packet_html(collected(mind, block_for()))
+    body = region_of(page)
+    assert "PYTHONPATH" in body
+    assert "/tmp/wt/integration-x/&lt;workspace&gt;" in body
+
+
+def test_a_refresh_without_an_integration_leaves_the_region_alone(tmp_path):
+    """A plain collect must not blank the region the last `--integration`
+    filled: that merge preview is still true, and the human is reading it."""
+    mind = mini_mind(tmp_path)
+    first, _n = _batch.packet_html(collected(mind, block_for()))
+    was = region_of(first)
+    assert "Example/MyRepo" in was
+    second, _n = _batch.packet_html(collected(mind), first)
+    assert region_of(second) == was
+
+
+def test_a_cloud_session_says_run_it_from_the_laptop(tmp_path, capsys):
+    """Mirrors the `--fetch` refusal: real worktrees under `$PYAUTO_WT_ROOT` are
+    a laptop thing, so a cloud session is pointed at the laptop rather than
+    failing halfway through building a root it cannot finish."""
+    mind = mini_mind(tmp_path)
+    rc = _batch.main(["collect", "--mind", str(mind), "--slot", SLOT,
+                      "--integration", "--lane", "web-github"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert out.count("run collect from the laptop") == 1
+    assert "## alpha — " in out          # the members are still scored
+
+
+def _recorder(monkeypatch) -> list:
+    calls: list = []
+
+    def run(members, order, slot, *, lane):
+        calls.append({"order": list(order), "slot": slot, "lane": lane})
+        return None, []
+
+    monkeypatch.setattr(_batch, "load_integration",
+                        lambda: SimpleNamespace(run=run))
+    return calls
+
+
+def test_the_record_can_ask_for_it_at_dispatch(tmp_path, monkeypatch):
+    """`- integration: yes` written at dispatch is the human saying "I will want
+    to run this batch" — it must not need them to remember a flag at collect."""
+    calls = _recorder(monkeypatch)
+    mind = mini_mind(tmp_path, keys="- integration: yes")
+    _batch.main(["collect", "--mind", str(mind), "--slot", SLOT])
+    assert [c["order"] for c in calls] == [["alpha"]]
+
+    calls.clear()
+    off = mini_mind(tmp_path / "off", keys="- integration: no")
+    _batch.main(["collect", "--mind", str(off), "--slot", SLOT])
+    assert calls == []
+
+
+def test_apply_stamps_the_integration_root_on_the_record(tmp_path):
+    """A SEPARATE key. `- integration: yes` is the human's request and
+    `- integration-root:` is what happened; writing the second over the first
+    would erase what they asked for."""
+    mind = mini_mind(tmp_path, keys="- integration: yes")
+    d = collected(mind, block_for())
+    before = (mind / "batches" / f"{SLOT}.md").read_text(encoding="utf-8")
+    after = _batch.record_update(before, d, STAMP)
+    assert _batch._rehearse_record(mind, before, after) == []
+    assert "- integration: yes" in after
+    assert ("- integration-root: /tmp/wt/integration-x — "
+            f"integration/{SLOT}; 1 clean, 1 conflicted") in after
+
+    _batch.apply_collect(mind, d, STAMP)
+    written = (mind / "batches" / f"{SLOT}.md").read_text(encoding="utf-8")
+    assert "- integration: yes" in written and "- integration-root: " in written
+
+
+def test_the_report_puts_the_source_line_at_the_top(tmp_path):
+    """The whole point of the leg is that the human can RUN the batch, and a
+    `source …` line five screens down is a line nobody sources."""
+    mind = mini_mind(tmp_path)
+    body = _batch.collect_report(collected(mind, block_for()))
+    assert "## Integration branches" in body
+    assert "source /tmp/wt/integration-x/activate.sh" in body
+    assert body.index("## Integration branches") < body.index("## alpha")
+    assert ("- Example/Other — conflicted — " in body
+            and "collides on a.py — left out" in body)
+
+
+def test_plan_refuses_the_collect_flag(tmp_path):
+    """`batch plan --integration` means something, and it is not "plan"."""
+    mind = mini_mind(tmp_path)
+    (mind / "draft").mkdir(exist_ok=True)
+    assert _batch.main(["plan", "--mind", str(mind), "--integration"]) == 2
