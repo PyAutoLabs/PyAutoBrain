@@ -102,7 +102,7 @@ results in. `collect` scores every member whose phase is `submitted` or
 | `err` | every `error.<jobid>*.err` under the roots. Benign = every non-blank line is a `*Warning*` line or its indented continuation — **not** size 0; `Traceback`/`Error`/`Killed`/`OOM` ⇒ FAIL |
 | `wall` | the `.out`'s first and last date stamps when it ends `Finished.`, else `Time To Run` in `search.summary` — **from the `<hash>.zip` when there is one**, because an extracted run dir can be a stale partial. Over `Budget:` ⇒ FAIL |
 | `version` | a top-level `version` key in a JSON matching the project's `witness_file` |
-| `checkpoint` | `<root>/.cortex/pull.json` only (`{"pulled_at": ISO, "runs": {"<jobid>": {"checkpoint_bytes": N, "checkpoint_mtime": ISO}}}`) — `search_internal/checkpoint.hdf5` is never pulled, so without that manifest the leg is UNOBSERVABLE, tagged `RAL only` |
+| `checkpoint` | `<root>/.cortex/pull.json` only (`{"schema": 1, "pulled_at": ISO, "checkpoints": {"<run dir rel to the pull root>": {"bytes": N, "mtime": ISO}}, "runs": {"<jobid>": {"checkpoint_bytes": N, "checkpoint_mtime": ISO}}}`; looked up `runs[<jobid>]` → `runs[<stem>]` → `checkpoints[<run dir rel>]`, and a manifest with no `schema` is the older `runs`-only shape) — `search_internal/checkpoint.hdf5` is never pulled, so without that manifest the leg is UNOBSERVABLE, tagged `RAL only` |
 | `resume` | `Fit Already Completed` / `Resuming … previous samples found` in the `.out` ⇒ FAIL: those are the previous fit's numbers |
 | `witness` | a file matching `witness_file` newer than the phase's first submission |
 
