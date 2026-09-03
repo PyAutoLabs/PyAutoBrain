@@ -95,6 +95,18 @@ workspace PR may merge; refuse otherwise (no `gh pr merge --auto`-flag
 workaround — unrelated to the workflow's `--auto` mode, which never merges).
 See [`reference.md`](reference.md) → "Library-first merge gate".
 
+**Blocked behind an unreleased library?** Merged is not released, and a
+workspace change that needs the new API cannot ship until the library is on
+PyPI. Record that on the `active.md` row:
+
+```markdown
+- release-gate: <LibraryRepo>
+```
+
+one line per library. The Mind dashboard's **Pending release** section lists
+the task under that library's pending PRs, so the block is visible without a
+GitHub query — `PyAutoMind/REFERENCE.md` → "The pending-release chain".
+
 ### 6. Complete the issue + Mind state
 
 Detect the issue, generate a session summary, post a "Shipped" comment, write

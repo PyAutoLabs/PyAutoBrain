@@ -52,7 +52,6 @@ WORK_TYPES = {
     "release": "packaging, versions, deployment, readiness",
     "maintenance": "dependency updates, hygiene, small tech debt",
     "research": "exploratory scientific/algorithmic investigation",
-    "experiment": "prototype, spike, proof-of-concept",
     "human_review": "shipped work a human must read and sign off",
     "triage": "classification still unclear",
 }
@@ -933,7 +932,7 @@ def effective_review_minutes(p: dict, tier: str, level: str):
 # Editing this table is a doctrine change: edit AUTONOMY.md first, then mirror.
 WORK_TYPE_AUTONOMY_CAPS = {
     "refactor": "safe", "test": "safe", "maintenance": "safe",
-    "bug": "supervised", "research": "supervised", "experiment": "supervised",
+    "bug": "supervised", "research": "supervised",
     "release": "human-required", "human_review": "human-required",
     "triage": "human-required",
 }

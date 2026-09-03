@@ -141,12 +141,33 @@ Created" comment (PR URLs, "Next: /start_workspace", API-change summary), set th
 `active.md` status to `library-shipped, workspace-pending`, add `library-pr:`,
 push Mind. Do **not** record completion yet.
 
+**The PR keys are schematised** — `PyAutoMind/REFERENCE.md` → "The PR keys".
+Write one `- library-pr: <url>` line **per PR** (the key is repeatable; the
+older single line of `<url>, <url>` still parses, but new rows use one line
+each). A row whose `status:` says `awaiting-merge` / `PR open` / `shipped` and
+carries no `*-pr:` is drift — `lifecycle.py check` exits 1 on it, because it is
+a task `/prm` cannot close.
+
+**And the pending-release link.** Every PR this skill opens carries the
+`pending-release` label, so also write
+
+```markdown
+- pending-release: <LibraryRepo>@<pr-url>
+```
+
+on the `active.md` row — one line per merged-but-unpublished library PR. That
+is the Mind's half of the chain in `REFERENCE.md` → "The pending-release
+chain": GitHub's label and the Hands release stay the source of truth, Mind
+holds only the link. The dashboard's **Pending release** section renders it,
+and `/review_release` clears it once a release has actually published.
+
 **Shipped (option iii passed):** offer to merge the library PR
 (`gh pr merge <n> --merge --auto`), post a "Shipped" comment (PRs, summary,
 optional session notes), then record completion — the dated record **is** the
 ledger (issues #71/#81; the monolithic `complete.md` was retired 2026-07-16):
 - **Draft the rich completion body** to a temp file — `## <slug>`, `issue`,
-  `completed: <date>`, `library-pr:`, then the summary/traps/notes bullets.
+  `completed: <date>`, `library-pr:`, any uncleared `pending-release:` carried
+  over from the `active.md` row, then the summary/traps/notes bullets.
 - **Write the record** — one step: it folds + removes the `active/` prompt,
   refreshes `complete/index.md`, and prunes the task's `active.md` section
   (all the state `lifecycle.py check` drift-checks):

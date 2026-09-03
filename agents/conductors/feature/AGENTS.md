@@ -82,8 +82,8 @@ Sizing then drives the **phase decision**:
   one fragile PR. For *too-large* it emits phase stubs, e.g.
   `feature/<target>/<name>_phase_1_design.md … _phase_4_docs.md`.
 - **research-first** — ambiguous, no repo resolved; open a `research/` task first.
-- **defer / re-home** — if the prompt is mis-filed (a bug, refactor, research or
-  experiment), it says so and suggests the correct PyAutoMind category.
+- **defer / re-home** — if the prompt is mis-filed (a bug, refactor or research),
+  it says so and suggests the correct PyAutoMind category.
 
 ## Run
 
@@ -109,7 +109,7 @@ Mirrors the spec's required fields:
 
 ```
 Selected task · Mode · Work-type/target · Repos affected · Difficulty (+score)
-Recommended workflow (library|workspace|combined|research|experiment|refactor|bug)
+Recommended workflow (library|workspace|combined|research|refactor|bug)
 Relevant context (PyAutoMemory sub-wikis to consult) · Phase decision (+stubs)
 Execution plan (start_dev / start_library / ship_library / start_workspace / …)
 Health considerations · Risks · Next action (one concrete step)

@@ -598,7 +598,7 @@ WORK_TYPE_GLYPHS = {
     "feature": "✨", "bug": "\U0001f41b", "refactor": "♻️",
     "docs": "\U0001f4d6", "test": "\U0001f9ea", "release": "\U0001f680",
     "maintenance": "\U0001f9f9", "research": "\U0001f52c",
-    "experiment": "⚗️", "human_review": "\U0001f440", "triage": "❓",
+    "human_review": "\U0001f440", "triage": "❓",
 }
 
 
