@@ -92,6 +92,9 @@ re-run; `/prm` does not decide that for them.
 ## Merging in gate order
 
 ```bash
+# 0. the freeze window — library PRs only; exit 3 means a validation is open
+pyauto-heart freeze --show || echo "frozen: stop unless /prm --thaw \"<why>\""
+
 # 1. library PR
 gh pr merge <lib_n> -R <owner>/<lib_repo> --merge
 gh pr view <lib_n> -R <owner>/<lib_repo> --json state --jq '.state'   # must print MERGED
@@ -104,6 +107,12 @@ gh pr merge <ws_n> -R <owner>/<ws_repo> --merge
 The library-first gate is `../ship_workspace/reference.md` → "Library-first merge
 gate": a workspace PR linked to an upstream library PR may only merge once that
 PR reads `MERGED`. There is no workaround — not `--auto`, not `--admin`.
+
+The freeze gate is `PyAutoHeart/REFERENCE.md` → "The release freeze window":
+Heart owns the flag, `/prm` is the one surface that stops on it, and it stops
+only for **library** repos. `--thaw "<why>"` merges anyway and appends the
+override row to `PyAutoMind/autonomy_log.md` (`## Freeze overrides`). An
+expired flag reads as clear, so a forgotten `--set` never blocks anyone.
 
 ## The close-out
 

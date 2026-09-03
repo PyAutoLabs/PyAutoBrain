@@ -41,7 +41,13 @@ if [[ $# -eq 0 ]]; then
   # Render the ONE unified board (readiness verdict + every check + the
   # release-validation state), not just the raw verdict. Same renderer as the
   # web page and the mobile card, so the surfaces cannot disagree.
-  exec "$heart" dashboard
+  "$heart" dashboard
+  # ...and, under it, the release freeze window if one is open. It is NOT part
+  # of the verdict (a freeze is not a health problem) and Heart is its only
+  # writer — this faculty reads the line Heart prints and passes it on. An
+  # older Heart without the verb prints nothing, which is not an error.
+  "$heart" freeze --show 2>/dev/null | grep '^FROZEN:' || true
+  exit 0
 fi
 
 exec "$heart" "$@"

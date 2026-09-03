@@ -131,6 +131,21 @@ def _first_word(text: str) -> str:
     return words[0].strip("(,.").upper() if words else ""
 
 
+def freeze_line(rec: dict | None) -> str:
+    """The Heart freeze flag as one line — `""` when nothing is frozen.
+
+    `rec` is PyAutoHeart's own reading (`pyauto-heart freeze --show --json`, or
+    the `freeze.json` sidecar read straight off disk). Heart owns the flag and
+    is its only writer; this is the Brain-side copy of the *wording*, kept
+    byte-identical to `PyAutoHeart/heart/freeze.py::render_line` so the batch
+    box, `vitals` and `/prm` all say the same sentence. `expired` reads as
+    thawed, exactly as Heart reads it.
+    """
+    if not rec or rec.get("state") != "active":
+        return ""
+    return f"FROZEN: {rec.get('reason', 'unspecified')} until {rec.get('until', '?')}"
+
+
 def _carried_slugs(keys: dict, members: list) -> set:
     """The members a `- carried:` line hands to the next slot.
 
@@ -151,7 +166,7 @@ def _carried_slugs(keys: dict, members: list) -> set:
 
 
 def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
-               pages: str) -> dict | None:
+               pages: str, freeze: str = "") -> dict | None:
     """The Mind's (development) reading — today's behaviour, unchanged.
 
     A dev batch is dispatched at once and reviewed at once: it is open until
@@ -174,11 +189,12 @@ def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
         rows.append({"slug": m.get("slug", ""), "state": state,
                      "detail": detail})
     return _status(slot, "dev", keys, rows,
-                   reviewable=bool(_one(keys, "collected")), pages=pages)
+                   reviewable=bool(_one(keys, "collected")), pages=pages,
+                   freeze=freeze)
 
 
 def cortex_status(slot: str, keys: dict, members: list, states: dict,
-                  live: dict, pages: str) -> dict | None:
+                  live: dict, pages: str, freeze: str = "") -> dict | None:
     """The Cortex's (science) reading — a rolling board, not one sitting.
 
     A science slot stays open while anything is still ON the board: members
@@ -210,11 +226,20 @@ def cortex_status(slot: str, keys: dict, members: list, states: dict,
         return None
     return _status(slot, "cortex", keys, rows,
                    reviewable=any(r["state"] == AWAITING for r in rows),
-                   pages=pages)
+                   pages=pages, freeze=freeze)
 
 
 def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
-            pages: str) -> dict:
+            pages: str, freeze: str = "") -> dict:
+    """`freeze` is a caller-supplied FACT, and defaults to nothing on purpose.
+
+    The flag lives in the dev box's `~/.pyauto-heart/`, which is machine state
+    and not in any checkout — so a surface that renders a **committed**
+    artifact must not pass it. The Mind's dashboard is regenerated in CI, where
+    that state does not exist, and a freeze folded into the page would read as
+    dashboard drift on the next `--check`. `batch collect`, which runs on the
+    box that holds the state and prints to a terminal, passes it.
+    """
     return {
         "slot": slot,
         "kind": kind,
@@ -225,6 +250,7 @@ def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
         "reviewable": reviewable,
         "url": review_url(pages, slot) if reviewable else "",
         "packet": f"batches/packets/{slot}.html",
+        "freeze": freeze,
     }
 
 
@@ -261,6 +287,8 @@ def render_html(st: dict | None) -> str:
     esc = _html.escape
     tone = "warn" if st["reviewable"] else "ok"
     H = [f'<div class="verdict {tone}"><b>{esc(_headline(st))}</b>']
+    if st.get("freeze"):
+        H.append(f'<p class="facets">{esc(st["freeze"])}</p>')
     for r in st["members"]:
         line = (f'<code>{esc(r["slug"])}</code>'
                 f'{pills((r["state"], _TONE.get(r["state"], "n")))}')
@@ -286,6 +314,8 @@ def render_md(st: dict | None) -> str:
     if st is None:
         return f"> **{FIXTURE}**"
     L = [f"> **{_headline(st)}**", ">"]
+    if st.get("freeze"):
+        L += [f"> {st['freeze']}", ">"]
     for r in st["members"]:
         line = f"> - `{r['slug']}` — {r['state']}"
         if r["detail"]:
