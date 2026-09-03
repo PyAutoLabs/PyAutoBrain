@@ -35,7 +35,7 @@ _status = importlib.util.module_from_spec(_spec)
 sys.modules["_status_under_test"] = _status
 _spec.loader.exec_module(_status)
 
-PAGES = "https://pyautolabs.github.io/PyAutoMind/"
+PAGES = "https://exampleorg.github.io/PyAutoMind/"
 
 
 # ------------------------------------------------------------------- dev ---
@@ -55,7 +55,7 @@ def test_dev_in_flight_member_reads_as_in_progress_with_no_button():
 def test_dev_collected_slot_gets_the_button():
     keys = {"dispatched": ["2026-09-03T18:00Z"], "collected": ["2026-09-03T20:00Z"]}
     members = [{"slug": "autofit-resampling-info",
-                "outcome": "DELIVERED (PyAutoFit#1554)"}]
+                "outcome": "DELIVERED (Widgets#1554)"}]
     st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False,
                             pages=PAGES)
     assert st is not None

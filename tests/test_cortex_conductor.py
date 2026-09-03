@@ -175,7 +175,7 @@ def test_the_review_button_appears_as_soon_as_one_member_is_awaiting_ruling(skel
     rows = [_cortex._phase_row(mod, ph, {})
             for ph in mod.load_phases(skeleton)[0]]
     st = _cortex._slot_status(skeleton, mod, rows,
-                               "https://pyautolabs.github.io/PyAutoCortex/")
+                               "https://exampleorg.github.io/PyAutoCortex/")
     assert st["reviewable"] is True  # one member (07) is awaiting-ruling
     html = _cortex._status_box_html(st)
     assert html.count('class="go"') == 1  # one button for the whole box

@@ -1747,7 +1747,7 @@ DEV_RECORD_COLLECTED = """# Batch 2026-09-03 pm
 - dispatched: 2026-09-03T18:00Z
 - collected: 2026-09-03T20:00Z
 - members:
-  - autofit-resampling-info: draft/bug/autofit/resampling.md — glance — 3 — DELIVERED (PyAutoFit#1554)
+  - autofit-resampling-info: draft/bug/autofit/resampling.md — glance — 3 — DELIVERED (Widgets#1554)
   - autonerves-colab-silence: draft/feature/autonerves/colab_silence.md — glance — 5 — MERGED
 """
 
