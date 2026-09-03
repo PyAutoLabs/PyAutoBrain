@@ -150,6 +150,14 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
    `draft/<work-type>/<target>/` prompt pointing back at the record. Recording a
    prompt whole on a partial merge is what leaves half-done work on the dashboard
    as pickable backlog.
+
+   **Carry `pending-release:` into the record.** A library PR merged here is not
+   a released library, and the `active.md` row that held that fact is about to
+   be pruned. Copy every uncleared `- pending-release: <lib>@<pr-url>` line from
+   the row into the completion body, so the obligation outlives the row and the
+   dashboard's **Pending release** section keeps showing it. `/prm` never
+   clears the key — only `/review_release` does, on a release that actually
+   published (`PyAutoMind/REFERENCE.md` → "The pending-release chain").
 4. **Mind: leave the page true** — the close-out is finished when `dashboard.md`
    stops offering this work, not when the claim is released.
    `dashboard_refresh.yml` heals a stale *render*, never a stale *prompt*, so

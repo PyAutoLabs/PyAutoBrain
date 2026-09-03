@@ -667,6 +667,64 @@ def _entry_date(fields: dict) -> tuple:
     return "", ""
 
 
+# The PR ledger keys. `library-pr:` / `workspace-pr:` are written by
+# ship_library / ship_workspace, read by /prm, and schematised in
+# PyAutoMind/REFERENCE.md ("The PR keys"). They are REPEATABLE — one task may
+# open several PRs of a kind — so the parse below collects every occurrence
+# rather than the first, which is what the rest of `parse_registry` does.
+#
+# `pending-release: <lib>@<pr-url>` and `release-gate: <lib>` carry the
+# merged-but-unpublished chain (REFERENCE.md "The pending-release chain").
+# Mind holds the LINK and the GATE; GitHub's label and the Hands release stay
+# the source of truth, and this renderer never asks either at render time.
+PR_KEYS = ("library-pr", "workspace-pr")
+_PR_URL = re.compile(r"https://github\.com/[^/\s]+/([^/\s]+)/pull/(\d+)")
+_PENDING_RELEASE = re.compile(r"([\w.-]+)@(https://\S+)")
+
+
+def _pr_links(values: list) -> list:
+    """`[{url, label}]` for every PR URL across a repeated key's values.
+
+    Both written forms collapse here: one line per URL, and the older single
+    line of `<url>, <url>`. The label is `Repo#N` — the shortest thing that
+    still says which repo, which is the whole reason the column exists."""
+    out, seen = [], set()
+    for value in values or []:
+        for m in _PR_URL.finditer(value):
+            if m.group(0) in seen:
+                continue
+            seen.add(m.group(0))
+            out.append({"url": m.group(0),
+                        "label": f"{m.group(1)}#{m.group(2)}"})
+    return out
+
+
+def _pending_links(values: list) -> list:
+    """`[{lib, url, label}]` for `pending-release: <lib>@<pr-url>` lines."""
+    out, seen = [], set()
+    for value in values or []:
+        for m in _PENDING_RELEASE.finditer(value):
+            url = m.group(2).rstrip(").,;")
+            if url in seen:
+                continue
+            seen.add(url)
+            pr = _PR_URL.search(url)
+            out.append({"lib": m.group(1), "url": url,
+                        "label": f"{pr.group(1)}#{pr.group(2)}" if pr else url})
+    return out
+
+
+def _gate_libs(values: list) -> list:
+    """`release-gate: <lib>[, <lib>]` -> the library names, in order."""
+    out = []
+    for value in values or []:
+        for lib in re.split(r"[,\s]+", value.strip()):
+            lib = lib.strip("`")
+            if lib and lib not in out:
+                out.append(lib)
+    return out
+
+
 def parse_registry(path: Path) -> list:
     """Parse one registry file into `[{slug, issue, issue_no, status, prompt}]`.
 
@@ -681,7 +739,7 @@ def parse_registry(path: Path) -> list:
         head = _REG_HEAD.match(line)
         if head:
             cur = {"slug": head.group(1), "issue": "", "issue_no": "",
-                   "status": "", "prompt": "", "fields": {},
+                   "status": "", "prompt": "", "fields": {}, "multi": {},
                    "date": "", "event": ""}
             entries.append(cur)
             continue
@@ -692,6 +750,9 @@ def parse_registry(path: Path) -> list:
             continue
         key, value = field.group(1), field.group(2).strip()
         cur["fields"].setdefault(key, value)
+        # `fields` is first-wins (how a reader scans a block); `multi` keeps
+        # every occurrence, which is what the repeatable PR keys need.
+        cur["multi"].setdefault(key, []).append(value)
         if key in ("issue", "status", "prompt") and not cur[key]:
             cur[key] = value
             if key == "issue":
@@ -702,6 +763,11 @@ def parse_registry(path: Path) -> list:
                     cur["issue"], cur["issue_no"] = m.group(0), m.group(1)
     for e in entries:
         e["date"], e["event"] = _entry_date(e["fields"])
+        e["prs"] = [dict(link, kind=key)
+                    for key in PR_KEYS
+                    for link in _pr_links(e["multi"].get(key))]
+        e["pending_release"] = _pending_links(e["multi"].get("pending-release"))
+        e["release_gate"] = _gate_libs(e["multi"].get("release-gate"))
     return entries
 
 
@@ -1595,6 +1661,12 @@ def census(mind: Path) -> dict:
             # at conception ("filed"/"formalised") and is stale the moment the
             # task is issued, so it would report the opposite of live state.
             "status": row.get("status", ""),
+            # The PR ledger (REFERENCE.md "The PR keys"). Empty lists for a row
+            # that has shipped nothing yet — the common case, and the renderer
+            # must draw nothing rather than an empty column.
+            "prs": row.get("prs", []),
+            "pending_release": row.get("pending_release", []),
+            "release_gate": row.get("release_gate", []),
         })
 
     c = {
@@ -1626,7 +1698,76 @@ def census(mind: Path) -> dict:
         "batch": _batch_status(mind),
     }
     c["recent"] = recent_events(c)
+    # Needs `in_flight` in place, so it is derived after the dict is built.
+    c["pending_release"] = pending_release(c, mind)
     return c
+
+
+# `complete/` records carry `pending-release:` too — /prm copies the key over
+# from the active.md row at close-out, so the obligation outlives the row that
+# opened it. The ledger holds ~1300 records, so only the head of each file is
+# read: the record's own fields sit at the top, and everything past
+# `## Original prompt` is the starting prompt verbatim (which may quote another
+# task's keys and must not be attributed to this record).
+_RECORD_HEAD_BYTES = 4096
+_ORIGINAL_PROMPT = re.compile(r"^##\s+Original prompt\s*$", re.M | re.I)
+
+
+def _record_pending(mind: Path) -> list:
+    """`[{lib, url, label, source, task}]` for uncleared `complete/` records."""
+    comp = mind / "complete"
+    if not comp.is_dir():
+        return []
+    archive = comp / "archive"
+    out = []
+    for f in sorted(comp.rglob("*.md")):
+        if archive in f.parents or f.name == "index.md":
+            continue
+        with f.open(encoding="utf-8", errors="replace") as fh:
+            head = _ORIGINAL_PROMPT.split(fh.read(_RECORD_HEAD_BYTES), 1)[0]
+        if "pending-release:" not in head:
+            continue
+        task = ""
+        values = []
+        for line in head.splitlines():
+            m = _REG_HEAD.match(line)
+            if m and not task:
+                task = m.group(1)
+            fm = _REG_FIELD.match(line)
+            if fm and fm.group(1) == "pending-release":
+                values.append(fm.group(2).strip())
+        rel = f.relative_to(mind).as_posix()
+        for link in _pending_links(values):
+            out.append(dict(link, source=rel, task=task or f.stem))
+    return out
+
+
+def pending_release(c: dict, mind: Path) -> list:
+    """The merged-but-unpublished chain, grouped by library.
+
+    `[{lib, prs: [...], gated: [...]}]`, empty when nothing is pending. Read
+    from the LEDGER only — `active.md` rows plus `complete/` records — never a
+    live GitHub query: the dashboard renders in CI and on a phone, and a page
+    that needs a token to draw a section is a page that silently loses it.
+    The Brain board's live `pending-release` search stays the fresh view."""
+    groups: dict = {}
+    for row in c["in_flight"]:
+        for link in row.get("pending_release") or []:
+            g = groups.setdefault(link["lib"], {"lib": link["lib"], "prs": [],
+                                                "gated": []})
+            g["prs"].append(dict(link, source=row["path"], task=row["title"]))
+    for link in _record_pending(mind):
+        g = groups.setdefault(link["lib"], {"lib": link["lib"], "prs": [],
+                                            "gated": []})
+        g["prs"].append(link)
+    # A gate names a library that may have no pending PR recorded (the row was
+    # written by hand, or the PR's own record has been cleared). Show it
+    # anyway: a task declaring itself blocked is the more urgent half.
+    for row in c["in_flight"]:
+        for lib in row.get("release_gate") or []:
+            g = groups.setdefault(lib, {"lib": lib, "prs": [], "gated": []})
+            g["gated"].append(row)
+    return [groups[k] for k in sorted(groups)]
 
 
 def _cell(value: str) -> str:
@@ -1730,9 +1871,13 @@ CORTEX_GATE_REF_RE = re.compile(
 
 def _cortex_root(mind: Path):
     """`$PYAUTO_CORTEX`, then beside the Mind. `None` when there is none."""
+    # `.resolve()` before `.parent`: CI runs the renderer as `--mind .` from
+    # inside the Mind checkout, and `Path(".").parent` is `.` — so the sibling
+    # lookup pointed at `PyAutoMind/PyAutoCortex`, never resolved, and every CI
+    # render silently dropped the Cortex-gate badges (found 2026-09-03).
     env = os.environ.get("PYAUTO_CORTEX", "").strip()
     for candidate in ([Path(env).expanduser()] if env else
-                      []) + [mind.parent / CORTEX_REPO]:
+                      []) + [mind.resolve().parent / CORTEX_REPO]:
         if (candidate / "phases").is_dir():
             return candidate
     return None
@@ -2210,11 +2355,14 @@ def render_dashboard(c: dict) -> str:
         head += _dated(r)
         if r["status"]:
             head += f" — {_summary_label(_clip(r['status']))}"
+        head += _pr_column(r)
         for rel in _gated_phases(c, r):
             head += f" — ⚠️ gates a Cortex phase → {rel}"
         flight.append(_task_row(head, f"/start_dev {r['path']}"))
     L += _items(flight) or ["- _(nothing in flight)_"]
     L += [""]
+
+    L += _pending_release_section(c.get("pending_release") or [])
 
     # Directly under In flight: both are live obligations, and a review that
     # sank below the 140-prompt backlog would never be read.
@@ -2390,6 +2538,57 @@ document.addEventListener("click",e=>{
 """
 
 
+# The PR column. In-flight rows render inside a `<summary>`, so this is HTML
+# (see `_summary_label`) — and it is deliberately a suffix on the task line
+# rather than a real table column: the page is read on a phone, where a
+# five-column table wraps into unreadability.
+PENDING_RELEASE_BLURB = (
+    "Library PRs the ledger records as merged but not yet released, and the "
+    "in-flight tasks waiting on each. Rendered from the ledger — `active.md` "
+    "and the `complete/` records — never a live GitHub query; the Brain "
+    "board's `pending-release` search is the fresh view, this is what the Mind "
+    "believes.")
+
+
+def _pr_column(r: dict) -> str:
+    """The `— PRs: Repo#N, Repo#N` suffix, plus the ledger's own badges."""
+    out = ""
+    prs = r.get("prs") or []
+    if prs:
+        links = ", ".join(f'<a href="{_attr(pr["url"])}">{pr["label"]}</a>'
+                          for pr in prs)
+        out += f" — PRs: {links}"
+    # The badge is the LEDGER's `pending-release:` key, not a live label read.
+    for link in r.get("pending_release") or []:
+        out += f" — ⏳ pending release: {_summary_label(link['lib'])}"
+    for lib in r.get("release_gate") or []:
+        out += f" — ⏸ waiting on {_summary_label(lib)}'s release"
+    return out
+
+
+def _pending_release_section(groups: list) -> list:
+    """The Pending release section, or nothing at all when the chain is empty.
+
+    Omitted rather than rendered empty: a heading that is almost always
+    followed by "(none)" trains the eye to skip it, and the whole value of this
+    section is that its presence means something is waiting."""
+    if not groups:
+        return []
+    L = ["## Pending release", "", PENDING_RELEASE_BLURB, ""]
+    for g in groups:
+        L += [f"**{_summary_label(g['lib'])}**", ""]
+        rows = []
+        for pr in g["prs"]:
+            rows.append(f"- [{pr['label']}]({pr['url']}) — "
+                        f"`{pr['source']}`")
+        for row in g["gated"]:
+            rows.append(f"- ⏸ waiting: [{_md_inline(row['title'])}]"
+                        f"({row['path']})")
+        L += rows or ["- _(no PR recorded — the gate names this library only)_"]
+        L += [""]
+    return L
+
+
 def _md_inline(text: str) -> str:
     """Render the inline markdown this module authors (`code` spans only) as HTML.
 
@@ -2518,6 +2717,7 @@ def render_dashboard_html(c: dict) -> str:
         if r["status"]:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
+        text += _pr_column(r)
         gated = _gated_phases(c, r)
         if gated:
             text += pills(*[(f"gates a Cortex phase → {rel}", "y")
@@ -2525,6 +2725,21 @@ def render_dashboard_html(c: dict) -> str:
         H.append(_html_task(text, f"/start_dev {r['path']}"))
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')
+
+    groups = c.get("pending_release") or []
+    if groups:
+        H += ['<a id="pending-release"></a>' + h2("Pending release", "active.md"),
+              f'<p class="muted">{_md_inline(PENDING_RELEASE_BLURB)}</p>']
+        for g in groups:
+            H.append(f"<h3>{_summary_label(g['lib'])}</h3>")
+            items = [f'<li><a href="{_attr(pr["url"])}">{pr["label"]}</a> '
+                     f'<span class="facets">{_summary_label(pr["source"])}</span></li>'
+                     for pr in g["prs"]]
+            items += [f'<li>⏸ waiting: {link(row["path"], _summary_label(row["title"]))}'
+                      "</li>" for row in g["gated"]]
+            H.append("<ul>" + "".join(
+                items or ["<li>(no PR recorded — the gate names this library "
+                          "only)</li>"]) + "</ul>")
 
     reviews = c.get("human_review") or []
     H += ['<a id="human-review"></a>'
