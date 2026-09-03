@@ -48,7 +48,7 @@ Proposed path · Header (the block written verbatim) · Risks · Next action
 ```
 
 - **Work-type** — scored by keyword signal into `feature/bug/refactor/docs/test/
-  release/maintenance/research/experiment`; a tie across dissimilar types or zero
+  release/maintenance/research`; a tie across dissimilar types or zero
   signal → `triage`. `human_review` is the one type the classifier may never
   select: it means *a human has decided this shipped work needs their eyes*,
   which no keyword carries, so only an explicit `Type: human review` declaration

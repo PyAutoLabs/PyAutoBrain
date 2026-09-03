@@ -1809,3 +1809,132 @@ def test_batch_box_md_and_html_agree_on_slugs_and_the_review_url(tmp_path):
     for slug in ("autofit-resampling-info", "autonerves-colab-silence"):
         assert slug in page and slug in html
     assert url in page and url in html
+
+
+# --------------------------------------------------------------------------- #
+# the PR ledger — `library-pr:` / `workspace-pr:` / `pending-release:`
+#
+# The keys were written by ship_library and read by /prm for months while the
+# page rendered only the free-text `status:`, so a reader on a phone could see
+# that a task was "awaiting-merge" and had no way to reach the PR. The whole
+# section is a LEDGER render: no `gh` call may happen here, at any input.
+# --------------------------------------------------------------------------- #
+PR_LEDGER_ACTIVE = """# Active
+
+## widget-rework
+- issue: https://github.com/ExampleOrg/Widgets/issues/42
+- prompt: active/widget_rework.md
+- status: library-shipped, awaiting-merge
+- library-pr: https://github.com/ExampleOrg/Widgets/pull/7
+- library-pr: https://github.com/ExampleOrg/Gadgets/pull/8
+- workspace-pr: https://github.com/ExampleOrg/widgets_workspace/pull/9
+"""
+
+
+def test_in_flight_rows_link_every_pr_key_labelled_by_repo(tmp_path):
+    mind = _mind(tmp_path,
+                 active={"widget_rework.md": _prompt("Widget rework")},
+                 registries={"active.md": PR_LEDGER_ACTIVE})
+    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    for label, url in (("Widgets#7", "https://github.com/ExampleOrg/Widgets/pull/7"),
+                       ("Gadgets#8", "https://github.com/ExampleOrg/Gadgets/pull/8"),
+                       ("widgets_workspace#9",
+                        "https://github.com/ExampleOrg/widgets_workspace/pull/9")):
+        assert f'<a href="{url}">{label}</a>' in flight, \
+            "every *-pr: key must render as one repo-labelled link"
+
+
+def test_the_older_single_line_comma_form_of_a_pr_key_still_links(tmp_path):
+    """Rows written before the key was schematised must not lose their links."""
+    mind = _mind(
+        tmp_path,
+        active={"widget_rework.md": _prompt("Widget rework")},
+        registries={"active.md": (
+            "# Active\n\n## widget-rework\n"
+            "- prompt: active/widget_rework.md\n"
+            "- status: shipped\n"
+            "- library-pr: https://github.com/ExampleOrg/Widgets/pull/7, "
+            "https://github.com/ExampleOrg/Gadgets/pull/8\n")})
+    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    assert "Widgets#7" in flight and "Gadgets#8" in flight
+
+
+PENDING_ACTIVE = """# Active
+
+## widget-rework
+- issue: https://github.com/ExampleOrg/Widgets/issues/42
+- prompt: active/widget_rework.md
+- status: library-shipped, awaiting-merge
+- library-pr: https://github.com/ExampleOrg/Widgets/pull/7
+- pending-release: Widgets@https://github.com/ExampleOrg/Widgets/pull/7
+
+## gadget-polish
+- prompt: active/gadget_polish.md
+- status: workspace-dev
+- release-gate: Widgets
+"""
+
+
+def test_a_pending_release_badge_is_read_from_the_ledger_not_github(tmp_path):
+    mind = _mind(tmp_path,
+                 active={"widget_rework.md": _prompt("Widget rework"),
+                         "gadget_polish.md": _prompt("Gadget polish")},
+                 registries={"active.md": PENDING_ACTIVE})
+    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
+    assert "⏳ pending release: Widgets" in flight
+    assert "⏸ waiting on Widgets's release" in flight
+
+
+def test_pending_release_groups_the_prs_and_the_tasks_waiting_on_them(tmp_path):
+    mind = _mind(
+        tmp_path,
+        active={"widget_rework.md": _prompt("Widget rework"),
+                "gadget_polish.md": _prompt("Gadget polish")},
+        registries={"active.md": PENDING_ACTIVE},
+        complete={"2026/01/sprocket_fix.md": (
+            "## sprocket-fix\n- completed: 2026-01-01\n"
+            "- pending-release: Sprockets@https://github.com/ExampleOrg/Sprockets/pull/3\n"
+            "\n## Original prompt\n\n"
+            "- pending-release: Decoys@https://github.com/ExampleOrg/Decoys/pull/99\n")})
+    section = _page(mind).split("## Pending release")[1].split("## Human review")[0]
+    assert "**Widgets**" in section and "**Sprockets**" in section
+    assert "[Widgets#7](https://github.com/ExampleOrg/Widgets/pull/7)" in section
+    assert "Sprockets#3" in section, \
+        "a complete/ record's uncleared pending-release: belongs in the section"
+    assert "Decoys" not in section, \
+        "the appended Original prompt is not the record's own fields"
+    assert "⏸ waiting: [Gadget polish]" in section
+    assert "never a live GitHub query" in section
+
+
+def test_an_empty_pending_release_section_is_omitted_entirely(tmp_path):
+    mind = _mind(tmp_path,
+                 active={"widget_rework.md": _prompt("Widget rework")},
+                 registries={"active.md": ACTIVE_MD})
+    page = _page(mind)
+    assert "## Pending release" not in page
+    assert "## Pending release" not in _intake.render_dashboard_html(
+        _intake.census(mind))
+
+
+def test_pending_release_renders_on_the_html_page_too(tmp_path):
+    mind = _mind(tmp_path,
+                 active={"widget_rework.md": _prompt("Widget rework"),
+                         "gadget_polish.md": _prompt("Gadget polish")},
+                 registries={"active.md": PENDING_ACTIVE})
+    html = _intake.render_dashboard_html(_intake.census(mind))
+    assert 'id="pending-release"' in html
+    assert '<a href="https://github.com/ExampleOrg/Widgets/pull/7">Widgets#7</a>' in html
+
+
+def test_the_cortex_root_resolves_from_a_relative_mind_path(tmp_path, monkeypatch):
+    """CI runs the renderer as `--mind .` from inside the Mind checkout.
+    `Path(".").parent` is `.`, so the sibling lookup used to point at
+    `PyAutoMind/PyAutoCortex` and every CI render silently dropped the
+    Cortex-gate badges."""
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    (tmp_path / _intake.CORTEX_REPO / "phases").mkdir(parents=True)
+    monkeypatch.delenv("PYAUTO_CORTEX", raising=False)
+    monkeypatch.chdir(mind)
+    assert _intake._cortex_root(Path(".")) == (tmp_path / _intake.CORTEX_REPO)

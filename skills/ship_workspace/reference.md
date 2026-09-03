@@ -114,6 +114,7 @@ SHIP_EOF
 - completed: <YYYY-MM-DD>
 - library-pr: <library PR URL — if linked>
 - workspace-pr: <workspace PR URL(s)>
+- pending-release: <lib>@<pr-url>   # any still uncleared, carried from active.md
 - summary: <what landed, gotchas, follow-ups>
 ```
 

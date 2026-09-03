@@ -178,3 +178,132 @@ def test_dispatch_payloads_carry_no_decisions():
     still to be decided — everything was decided when they approved the batch."""
     d = _batch.plan([rec("draft/x/y/z.md")], budget=100)
     assert d["dispatch"] == ["/start_dev draft/x/y/z.md --auto"]
+
+
+# ------------------------------------------------- the derived review queue --
+ACTIVE_MD = """# Active Tasks
+
+## shipped-with-a-pr-key
+- prompt: active/one.md
+- status: library-shipped, awaiting-merge
+- library-pr: https://github.com/ExampleOrg/ExampleFit/pull/1554
+
+## shipped-before-the-pr-keys-existed
+- prompt: active/two.md
+- status: workspace-shipped, PR open (waiting on the library)
+
+## two-prs-is-still-one-task
+- prompt: active/three.md
+- status: library-shipped, awaiting-merge
+- library-pr: https://github.com/ExampleOrg/ExampleFit/pull/1555
+- workspace-pr: https://github.com/ExampleOrg/ExampleWorkspace/pull/22
+
+## still-being-written
+- prompt: active/four.md
+- status: library-dev
+"""
+
+
+def test_the_review_queue_depth_is_derived_from_active_md(tmp_path):
+    """The backpressure input used to default to 0 and was never derived, so
+    every plan composed a shift as though nothing were waiting. A row counts
+    once, whether it names one PR or two, and whether it says so with the PR
+    keys or in words."""
+    (tmp_path / "active.md").write_text(ACTIVE_MD, encoding="utf-8")
+    assert _batch.derive_awaiting_review(tmp_path) == 3
+
+
+def test_a_row_with_no_pr_and_no_shipped_status_is_not_awaiting_review(tmp_path):
+    (tmp_path / "active.md").write_text(
+        "# Active Tasks\n\n## writing\n- status: library-dev\n", encoding="utf-8")
+    assert _batch.derive_awaiting_review(tmp_path) == 0
+
+
+def test_a_mind_with_no_active_md_derives_zero(tmp_path):
+    """A missing registry is an empty queue, not a crash: `plan` must still
+    compose in a checkout that has not got one."""
+    assert _batch.derive_awaiting_review(tmp_path) == 0
+
+
+# ----------------------------------------------------------- queue.md order --
+QUEUE_MD = """# Queue
+
+```markdown
+## <n>. <label>
+- kind: prompt | epic-slice | theme-sweep
+- ref: draft/<work-type>/<target>/<name>.md    # kind: prompt
+```
+
+## 1. The thing I want first
+- kind: prompt
+- ref: draft/feature/example/slow.md
+- note: the human's own words
+
+## 2. Already shipped
+- kind: retired
+- ref: draft/feature/example/gone.md
+
+## 3. Any ready chip on this theme
+- kind: theme-sweep
+- ref: numba-cpu
+
+## 4. The thing I want second
+- kind: prompt
+- ref: draft/feature/example/fast.md
+"""
+
+
+def test_read_queue_keeps_prompt_entries_in_file_order(tmp_path):
+    """And skips the schema example inside the fenced block, the retired
+    entries and the kinds that name an epic or a theme rather than a file."""
+    (tmp_path / "queue.md").write_text(QUEUE_MD, encoding="utf-8")
+    assert _batch.read_queue(tmp_path) == ["draft/feature/example/slow.md",
+                                           "draft/feature/example/fast.md"]
+
+
+def test_a_missing_queue_is_no_queue_not_a_crash(tmp_path):
+    assert _batch.read_queue(tmp_path) == []
+
+
+def test_the_queue_outranks_cheapest_first():
+    """`queue.md` is the human's statement of importance and the only one the
+    planner has. Order is priority: the expensive queued task goes first, and
+    the cheap unqueued one waits."""
+    d = _batch.plan([rec("draft/feature/example/slow.md", minutes=20),
+                     rec("draft/feature/example/fast.md", minutes=2)],
+                    budget=45, queue=["draft/feature/example/slow.md"])
+    assert paths(d) == ["draft/feature/example/slow.md",
+                        "draft/feature/example/fast.md"]
+
+
+def test_among_queued_prompts_the_file_order_wins():
+    d = _batch.plan([rec("a.md", minutes=2), rec("b.md", minutes=20)],
+                    budget=45, queue=["b.md", "a.md"])
+    assert paths(d) == ["b.md", "a.md"]
+
+
+def test_a_queue_entry_still_matches_its_prompt_after_it_is_issued():
+    """The entry is written against `draft/…` and the prompt moves to
+    `active/` the moment it is issued. An entry that stopped matching would
+    silently lose its priority rather than report anything."""
+    d = _batch.plan([rec("active/slow.md", minutes=20),
+                     rec("draft/x/fast.md", minutes=2)],
+                    budget=45, queue=["draft/x/slow.md"])
+    assert paths(d)[0] == "active/slow.md"
+
+
+def test_the_decision_says_where_the_review_queue_number_came_from():
+    d = _batch.plan([rec("a.md")], budget=45, awaiting_review=2,
+                    awaiting_source="--awaiting-review")
+    assert d["backpressure"]["source"] == "--awaiting-review"
+    assert d["backpressure"]["awaiting_review"] == 2
+
+
+def test_carried_members_are_reported_to_the_next_plan():
+    """A carried member is already costing the human review-minutes in the
+    slot being planned; a batch composed as though it were not is over-sold by
+    exactly that much."""
+    d = _batch.plan([rec("a.md")], budget=45, carried=["subhalo-wave"],
+                    carried_from="2026-09-03-pm")
+    assert d["carried"] == ["subhalo-wave"]
+    assert d["carried_from"] == "2026-09-03-pm"
