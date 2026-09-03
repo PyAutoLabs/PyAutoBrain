@@ -33,6 +33,7 @@ import datetime as _dt
 import html
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -53,7 +54,7 @@ from _sizing import (  # noqa: E402
 # `CORTEX_BOARD_STATES`) so existing importers of `_batch` keep working.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import (  # noqa: E402
-    PENDING_RE, RULING_WORDS, CORTEX_BOARD_STATES, _carried_slugs,
+    PENDING_RE, RULING_WORDS, CORTEX_BOARD_STATES, _carried_slugs, freeze_line,
 )
 
 # One slot's worth of the human's attention, and only the DEFAULT: the human
@@ -1254,6 +1255,11 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
         "review": review,
         "not_delivered": [s["slug"] for s in scored
                           if s["health"] == "NOT-DELIVERED"],
+        # Heart's release freeze, read at collect time: the packet is where a
+        # human decides what to merge, so the window has to be on the page.
+        # Empty whenever nothing is frozen (or Heart's state is absent — this
+        # runs on a laptop, in CI and in a web container).
+        "freeze": freeze_line(heart_freeze()),
         "rulings": [(s["slug"], _ruling_line(s)) for s in scored],
         "unparsable": rec["unparsable"],
         # `members` above is sorted by HEALTH, so it cannot drive a merge
@@ -1339,6 +1345,42 @@ def _integration_report(d: dict) -> list:
     return L + [""]
 
 
+#: PyAutoHeart's freeze flag, read straight off its sidecar. Brain never
+#: writes it — Heart owns the file (`PyAutoHeart/heart/freeze.py`), and this is
+#: a read of state that lives on the same box, in the same spirit as the
+#: profiling conductor's read of `~/.pyauto-heart`. A shell-out to
+#: `pyauto-heart freeze --show --json` would say the same thing; the file read
+#: keeps `collect` runnable where Heart is not on PATH.
+HEART_STATE_DIR = Path(os.environ.get("HEART_STATE_DIR")
+                       or Path.home() / ".pyauto-heart")
+
+
+def heart_freeze(now: _dt.datetime | None = None,
+                 state_dir: Path | None = None) -> dict:
+    """`{"state": clear|active|expired, ...}` — Heart's reading, re-derived.
+
+    Expiry is applied here rather than trusted from the file, so a flag whose
+    window has passed reads as thawed even if nobody cleared it. Anything
+    unreadable reads as clear: a freeze nobody can parse must not be able to
+    stop a batch from being collected.
+    """
+    path = (state_dir or HEART_STATE_DIR) / "freeze.json"
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"state": "clear"}
+    if not isinstance(rec, dict):
+        return {"state": "clear"}
+    try:
+        until = _dt.datetime.fromisoformat(str(rec.get("until", "")).replace("Z", "+00:00"))
+    except ValueError:
+        return {"state": "clear"}
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=_dt.timezone.utc)
+    ref = now or _dt.datetime.now(_dt.timezone.utc)
+    return {**rec, "state": "active" if ref < until else "expired"}
+
+
 def collect_report(d: dict) -> str:
     L = [f"# Batch collect {d['slot']}", ""]
     if d["not_delivered"]:
@@ -1350,6 +1392,13 @@ def collect_report(d: dict) -> str:
             f"{slug} ({_short(by_slug[slug]['legs']['pr'][1] if by_slug[slug]['legs']['pr'][0] == FAIL else _evidence_line(by_slug[slug]))})"
             for slug in d["not_delivered"])
         L += [f"**NOT DELIVERED — {n} of {total}**: {why}", ""]
+    if d.get("freeze"):
+        # One line, above the members: whoever reads this packet is deciding
+        # what to merge, and a library merge landing inside a validation window
+        # restales the whole rehearsal. `/prm` is what actually stops.
+        L += [f"**{d['freeze']}** — library `main`s are frozen; `/prm` will "
+              "refuse a library PR until it clears (`--thaw` overrides, "
+              "logged).", ""]
     L += _integration_report(d)
     for s in d["members"]:
         L += _member_report(s)
@@ -1386,6 +1435,8 @@ def emit_collect(d: dict, out: str = "") -> None:
     n, total = d["delivered"]
     print(f"collect {d['slot']}: {len(d['members'])} members, "
           f"delivered {n}/{total}")
+    if d.get("freeze"):
+        print(d["freeze"])
     body = collect_report(d)
     if out:
         Path(out).write_text(body, encoding="utf-8")

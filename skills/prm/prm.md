@@ -20,6 +20,7 @@ never hand-writing a generated page.
 /prm 380                  # PR #380 in the current or inferred repo
 /prm PyAutoArray#42       # or Jammy2211/PyAutoArray#42, or the full PR URL
 /prm --no-wait            # judge CI once and report; merge only if already green
+/prm --thaw "<why>"       # merge a LIBRARY PR through an active Heart freeze (logged)
 ```
 
 ## Environment: decide your GitHub surface first
@@ -114,14 +115,44 @@ every run for the sha and every job in it, and treat anything not `completed` as
 
 Green on every leg → merge, in this order:
 
-1. **Library PR first.** The workspace PR may not merge until its upstream
+1. **The Heart freeze window — library PRs only.** A release validation is a
+   window in which the library `main`s must not move: a merge landing inside it
+   invalidates the evidence and restales the rehearsal (~75 minutes, measured
+   2026-08-29). Heart's flag says whether one is open:
+
+   ```bash
+   pyauto-heart freeze --show      # exit 3 = frozen; 0 = clear or expired
+   ```
+
+   Active **and** a target PR is in a **library** repo (the `category: library`
+   entries of `PyAutoMind/repos.yaml`) → stop, report the `FROZEN: …` line
+   verbatim, and say when it expires. Organ and workspace repos are not gated;
+   a workspace PR whose library half is held waits on the library-first gate
+   below anyway. Where Heart is not installed (mobile, web, CI) there is
+   nothing to read — say so in one line; an absent flag is not a freeze.
+
+   **`--thaw "<why>"` is the only way past**, and it is loggable by
+   construction: merge, then append one row to `PyAutoMind/autonomy_log.md`
+   under a `## Freeze overrides` heading (create the section, with this header,
+   on first use) —
+
+   ```
+   | date | task / PR | freeze reason | until | thawed by | why |
+   ```
+
+   — in the same Mind push the close-out already makes (step 5.4). The override
+   exists because a freeze is advice about evidence, not a protected branch,
+   and an unloggable override is one people route around instead of recording.
+   Never thaw silently, and never thaw to get past a red check: this gate is
+   about *when*, and step 2 is about *whether*.
+2. **Library PR first.** The workspace PR may not merge until its upstream
    library PR is `MERGED` — the library-first gate
    ([`../ship_workspace/reference.md`](../ship_workspace/reference.md)). Refuse
    otherwise; there is no `--auto`-flag workaround.
-2. `gh pr merge <n> --merge` per PR (`-R owner/repo` when you have no checkout),
+3. `gh pr merge <n> --merge` per PR (`-R owner/repo` when you have no checkout),
    then confirm the state is `MERGED` — queued or auto-merge is not merged. Never
    `--delete-branch`: it takes the local branch too, orphaning a task worktree.
-3. **Clear anything an older run left armed.** Step 3 arms nothing, so this is
+4. **Clear anything an older run left armed.** Step 3 arms nothing, so this is
    hygiene: if the harness's routine list shows a subscription or a
    `send_later` reminder on a target PR, drop it (`unsubscribe_pr_activity`,
    cancel the reminder). Never create one.
@@ -216,6 +247,8 @@ the page is true. 5 and 6 are local-only — name 5 outstanding, say nothing of 
 Stop and report instead of pressing on when:
 
 - a branch in the task is **unmerged** with no open PR (step 5.1) — the waves trap;
+- Heart's **freeze** is active and a target PR is in a library repo (step 4),
+  and no `--thaw "<why>"` was given;
 - `worktree_remove` **refuses** (dirty repo, stale claim) — fix the cause, never
   `PYAUTO_WT_FORCE=1` past it;
 - the worktree holds **gitignored data products** (reduced datasets, caches,
@@ -230,7 +263,10 @@ Stop and report instead of pressing on when:
   exception is Mind's own close-out commit, which needs no PR at all: pushing
   the branch is what lands it (step 5.4).
 - It never bypasses the Heart readiness gate — that ran at ship time, and a red
-  Heart is not something a merge shortcut may re-judge. Nor does merge ever stop
+  Heart is not something a merge shortcut may re-judge. The **freeze** flag
+  (step 4) is a different thing and does not re-run anything: readiness answers
+  "is the organism healthy", the freeze answers "is a validation window open
+  right now". Nor does merge ever stop
   being human: `/prm` is a human-typed door, never invoked by the `--auto` queue.
 - A task with no issue, no Mind prompt, or no worktree (a direct wiring change,
   say) skips those sub-steps and says so — not an error. That licence does **not**

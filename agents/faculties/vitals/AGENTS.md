@@ -78,6 +78,20 @@ faculty every cycle.)
    `~/.pyauto-heart/release_ready.json`; if neither exists, the verdict is
    **unknown -> treat as YELLOW** and recommend running `pyauto-heart tick`.
 
+1b. **Read the freeze window.** The verdict does not carry it, deliberately:
+
+   ```bash
+   pyauto-heart freeze --show --json     # {state: clear|active|expired, reason, until, ...}
+   ```
+
+   While `state` is `active`, report `FROZEN: <reason> until <ts>` as a warning
+   line (below). It is **not** a `yellow_reasons` entry and it does **not**
+   change Heart's verdict — a freeze is not a health problem, it is the release
+   validation saying the library `main`s should not move for now. `clear` and
+   `expired` both mean thawed; say nothing (an `expired` reading is worth one
+   line only when someone asks why it is still on disk). An older Heart with no
+   `freeze` verb prints nothing and that is not an error.
+
 2. **Collect detail for explanation.** Pull the full snapshot when you need to
    explain a reason or craft a recommendation:
    ```bash
@@ -144,6 +158,9 @@ Status: <GREEN | STALE | YELLOW | RED>   (score <0-100>, snapshot <ts>)
 
 ### Warnings
 - <yellow reason, mapped to its capability>   (or "None")
+- FROZEN: <reason> until <ts>   (only while the freeze flag is active; not a
+  verdict input — it says library `main`s should not move, and `/prm` is the
+  one surface that actually stops on it)
 
 ### Evidence Gaps
 - <stale reason, mapped to its capability, with the check to re-run — the
