@@ -93,8 +93,6 @@ WORK_TYPE_SIGNALS = {
     "research": ["research", "investigate", "explore", "study", "figure out",
                  "open question", "not sure", "design note", "scoping",
                  "literature", "compare approaches"],
-    "experiment": ["experiment", "spike", "proof of concept", "proof-of-concept",
-                   "poc", "prototype", "try out", "sandbox"],
     # `_hits` is word-boundary *prefix* matching, so keep bare stems that would
     # over-fire out: "add " (with the space) matches "add X" but not "address"/
     # "additional"; "new " not "renew".
@@ -103,7 +101,7 @@ WORK_TYPE_SIGNALS = {
 }
 # Order used to break exact-score ties (more specific intent wins over feature).
 TYPE_PRECEDENCE = ["bug", "test", "docs", "refactor", "release", "maintenance",
-                   "research", "experiment", "feature"]
+                   "research", "feature"]
 
 # --- target inference ---------------------------------------------------------
 # When no @RepoName resolves a target, guess the domain from keywords. Maps a
