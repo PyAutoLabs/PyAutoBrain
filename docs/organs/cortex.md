@@ -99,25 +99,23 @@ same split as **Heart ↔ vitals** and **Gut ↔ hygiene**.
 
 | Verb | What it does |
 |------|--------------|
-| `census` | What the Cortex is holding — phases by state, rulings, projects, batches |
+| `census` | What the Cortex is holding — phases by state, rulings, projects, epics |
 | `dashboard --check` \| `--apply` | The generated board, `dashboard.md` + `dashboard.html`. `--check` exits **1** on drift — the contract the Cortex's `dashboard_refresh.yml` runs on. The two pages are generated: never hand-edit them |
-| `gates [--grade] [--apply]` | The refs each gated phase waits on, their verdicts, and (with `--apply`) the `gated → ready` flips — a thin wrapper over the Cortex script's own grading, so the daily job needs no Brain checkout |
-| `plan [--budget N]` | Which `ready` phases fit a laptop slot — witness registered, budget set, lane the session's — cheapest first, with the exact launch lines |
-| `collect [--slot S] [--pull] [--apply]` | What the pull brought back, as packet member blocks: six legs (`err`, `wall`, `version`, `checkpoint`, `resume`, `witness`) each `PASS`/`FAIL`/**`UNOBSERVABLE`**, the witness readout and a blank ruling line. `--pull` runs the project's own sync CLI; `--apply` moves each member `running → pulled → awaiting-ruling`. Exit **1** = a member the human must look at |
+| `gates` | The refs each gated phase waits on and the URL each resolves to — read-only and offline. A human opens them and, when they have closed, types `cortex.py move <phase> ready` |
+| `collect [--pull] [--apply] [--phase REL]` | **The check-in.** What came back, one block per phase: six legs (`err`, `wall`, `version`, `checkpoint`, `resume`, `witness`) each `PASS`/`FAIL`/**`UNOBSERVABLE`**, the witness readout and a blank ruling line. Default scope is every `submitted \| running` phase; `--pull` runs each project's own sync CLI; `--apply` moves each phase `running → pulled → awaiting-ruling`. Exit **1** = a phase the human must look at |
 
-The **batch conductor** is the slot door over those two verbs. `pyauto-brain
-batch plan --kind cortex --apply --review-at <ISO>` opens the slot's record
-under `batches/`, refused without the `--review-at` the human states — the
-shift is dispatch → review-at, and that horizon is theirs to declare. `batch
-collect --kind cortex [--pull] [--apply]` is the **rolling board**: a phase
-joins the review on the pull that fills its results in, each pull appends a
-`refreshed:` line, and a member still running renders with its job ids and
-wall-against-budget but **holds no review control at all** — there is nothing
-to say about a run that has not finished. At close it is written out as
-`carried:` and the next plan picks it up at its current state, so a long run
-never holds a review. A Mind record never lists a science member and a Cortex
-record never lists a development one: two genres, two vocabularies, two
-`review-at:` times.
+**Checking in is one command.** `pyauto-brain cortex collect --pull --apply`
+pulls every active project through its own sync CLI, scores every phase the
+Cortex believes is out there against its pre-registered witness, and moves what
+came back to `awaiting-ruling` — then the human rules with
+`scripts/cortex.py rule`. It needs no record, no slot and no packet.
+
+A review-slot apparatus — a rolling board with its own record under `batches/`,
+a scored packet page, partial reviews and carry-forward — was built on the
+batch conductor in 2026-08 and retired on 2026-09-03: 0 slots were ever opened
+by the conductor, 0 rulings came from a packet, and all 22 rulings were reached
+in a live session. `batches/` is kept as read-only history because 13 rulings
+cite its words.
 
 ## The board
 

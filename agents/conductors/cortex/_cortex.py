@@ -31,15 +31,16 @@ Three constraints shape this module:
   one place that carries such a path is the Cortex's own `projects.yaml`, and
   every path this module prints is read from a row of it at runtime.
 
-Verbs: `census [--json]` · `dashboard --check|--apply` · `plan [--budget N]
-[--lane L]` · `gates [--grade] [--apply]` · `collect [--slot S] [--pull]
-[--refreshed ISO] [--apply] [--out F] [--phase REL]`.
+Verbs: `census [--json]` · `dashboard --check|--apply` · `gates` ·
+`collect [--pull] [--refreshed ISO] [--apply] [--out F] [--phase REL]`.
+
+`collect` is the check-in: with no `--phase` it scopes to every phase in
+`submitted | running`, which is what "where is my science?" asks for. It needs
+no batch record — the review-slot apparatus was retired 2026-09-03.
 
 Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract),
 and for `collect` a member the human must look at · 2 bad args / no Cortex
 checkout · 3 the Cortex tree could not be read.
-`gates` passes the Cortex script's own rc through (1 = an unreadable ref,
-which fails closed).
 """
 
 from __future__ import annotations
@@ -73,24 +74,12 @@ from _theme import (  # noqa: E402
     JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
 )
 
-# The batch-status box: one reading of "is a batch in flight", shared with
-# the Mind's dashboard (agents/conductors/batch/_status.py). Same import
-# shape as `_theme` above, for the same reason — this page renders with only
-# Brain + Cortex checked out, and `_status` is stdlib-and-`_theme`-only.
-sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "batch"))
-from _status import (  # noqa: E402
-    cortex_status, pick_slot, read_record,
-    render_html as _status_box_html, render_md as _status_box_md,
-)
-
 THEME_ORGAN = "cortex"  # whose logo this page wears
 CORTEX_REPO = "PyAutoCortex"  # an organ name, not an instance fact
 
 # Exit codes — the `dashboard_refresh.yml` contract lives on these.
 RC_OK, RC_DRIFT, RC_USAGE, RC_UNREADABLE = 0, 1, 2, 3
 
-DEFAULT_REVIEW_BUDGET = 45  # one laptop slot's review-minutes (batch's default)
-LOCAL_LANE = "local-dev"
 RECENT_RULINGS = 12
 
 
@@ -237,11 +226,11 @@ SECTIONS = (
      "On the queue or on the machine. Wall is what the run lines record at the "
      "last refresh, against the phase's own budget."),
     ("ready", "Ready", "phases/",
-     "Gate cleared, witness registered — these are what `cortex plan` admits "
-     "into a laptop slot."),
+     "Gate cleared, witness registered — everything that could be submitted "
+     "today."),
     ("gated", "Gated", "phases/",
-     "Waiting on development work. The daily grading job flips a phase to "
-     "ready when every reference it names has closed."),
+     "Waiting on development work. Open the references; when they have all "
+     "closed, `cortex.py move <phase> ready`."),
     ("rulings", "Recent rulings", "rulings/",
      "The ledger of record, newest first. A verdict recorded only outside the "
      "Cortex does not exist."),
@@ -254,10 +243,9 @@ SECTIONS = (
 )
 
 REFRESH_BLURB = (
-    "generated from `phases/`, `rulings/`, `batches/`, `epics.md` and "
-    "`projects.yaml`, so it is only as current as they are. "
-    "`dashboard_refresh.yml` re-renders it on every push to `main`, and the "
-    "daily gate grading flips cleared gates before it runs."
+    "generated from `phases/`, `rulings/`, `epics.md` and `projects.yaml`, so "
+    "it is only as current as they are. `dashboard_refresh.yml` re-renders it "
+    "on every push to `main`."
 )
 
 
@@ -272,36 +260,7 @@ def _int(value: str) -> int | None:
     return int(v) if v.isdigit() else None
 
 
-# The batch record's own grammar — `RECORD_KEY` lives in `_status.py` now
-# (`read_record`, imported above), read here rather than through the Cortex
-# script's `_record_members`: that helper keeps only the FIRST value of a
-# repeated key, and `- refreshed:` is repeated once per pull — which is
-# exactly the live-progress signal this board wants.
-REFRESHED = re.compile(r"^(?P<at>\S+)(?:\s+[—-]+\s+(?P<note>.*))?$")
-
-
-def _refresh_index(root: Path, mod) -> dict:
-    """`{slug: {"at": …, "note": …, "slot": …}}` — the newest `refreshed:`
-    line naming each phase slug, across every batch record."""
-    index: dict[str, dict] = {}
-    for path in mod.batch_records(root):
-        slot = path.stem
-        rec = read_record(path.read_text(encoding="utf-8"), mod.MEMBER_RE)
-        slugs = [m.get("slug", "") for m in rec["members"] if m.get("slug")]
-        for value in rec["keys"].get("refreshed", []):
-            m = REFRESHED.match(value.strip())
-            if not m:
-                continue
-            at, note = m.group("at"), (m.group("note") or "").strip()
-            for slug in slugs:
-                if slug and slug in note:
-                    prev = index.get(slug)
-                    if prev is None or at >= prev["at"]:
-                        index[slug] = {"at": at, "note": note, "slot": slot}
-    return index
-
-
-def _phase_row(mod, ph, refreshed: dict) -> dict:
+def _phase_row(mod, ph) -> dict:
     refs, bad_refs = mod.gate_refs(ph.get("Gates"))
     runs = [{"ident": r.ident, "state": r.state, "partition": r.partition,
              "date": r.date, "wall": r.wall, "note": r.note}
@@ -317,8 +276,6 @@ def _phase_row(mod, ph, refreshed: dict) -> dict:
         "state": ph.state,
         "gates": refs,
         "bad_gates": bad_refs,
-        "gates_cleared": ph.get("Gates-cleared"),
-        "gate_override": ph.get("Gate-override"),
         "witness": ph.get("Witness"),
         "budget": budget,
         "budget_minutes": _mins(budget),
@@ -326,9 +283,7 @@ def _phase_row(mod, ph, refreshed: dict) -> dict:
         "wall_minutes": max(walls) if walls else 0,
         "ruling": ph.get("Ruling"),
         "epic": ph.get("Epic"),
-        "lane": ph.get("Lane") or LOCAL_LANE,
         "review_minutes": _int(ph.get("Review-minutes")),
-        "refreshed": refreshed.get(ph.slug),
         "failed_runs": [r["ident"] for r in runs
                         if r["state"] in FAILED_RUN_STATES],
     }
@@ -386,9 +341,8 @@ def census(root: Path) -> dict:
     projects, project_problems = mod.load_projects(root)
     phases, phase_problems = mod.load_phases(root)
     rulings, ruling_problems = mod.load_rulings(root)
-    refreshed = _refresh_index(root, mod)
 
-    rows = [_phase_row(mod, ph, refreshed) for ph in phases]
+    rows = [_phase_row(mod, ph) for ph in phases]
     by_state: dict[str, int] = {}
     for r in rows:
         by_state[r["state"] or "?"] = by_state.get(r["state"] or "?", 0) + 1
@@ -427,9 +381,6 @@ def census(root: Path) -> dict:
         "rulings": ruling_rows,
         "projects": projects,
         "epics": parse_epics(root / "epics.md"),
-        "batches": [p.stem for p in mod.batch_records(root)],
-        "reviews": [p.stem for p in mod.batch_reviews(root)],
-        "batch": _slot_status(root, mod, rows, _pages_url(home)),
         "problems": project_problems + phase_problems + ruling_problems,
     }
 
@@ -580,8 +531,8 @@ def _ready_payload(r: dict, projects: dict) -> str:
 
 
 def _gate_payload(r: dict) -> str:
-    return ("python3 scripts/cortex.py gates --grade   # "
-            + ", ".join(r["gates"]))
+    return ("python3 scripts/cortex.py gates   # then, once they have closed: "
+            f"move {r['rel']} ready\n# gates: " + ", ".join(r["gates"]))
 
 
 def _project_payload(key: str, row: dict) -> str:
@@ -611,42 +562,17 @@ def _phase_head(r: dict) -> str:
 
 
 def _live_note(r: dict) -> str:
-    """Budget vs elapsed plus the last refresh — the live-progress line."""
+    """Budget vs elapsed — the live-progress line."""
     bits = []
     if r["budget_minutes"]:
         pct = round(100 * r["wall_minutes"] / r["budget_minutes"])
         bits.append(f"wall {r['wall_minutes'] // 60}:{r['wall_minutes'] % 60:02d}"
                     f" of {r['budget']} ({pct}%)")
-    if r["refreshed"]:
-        bits.append(f"last refresh {r['refreshed']['at']}")
     return " · ".join(bits)
-
-
-def _slot_status(root: Path, mod, rows: list, pages: str) -> dict | None:
-    """`c["batch"]` — the batch-status box's one reading.
-
-    A batch record's own `- slug: … — state` is a dispatch-time (or
-    last-refresh-time) snapshot; the phase file's `State:` is what actually
-    happened since. So `states` here is the CENSUS's reading (this run's
-    `rows`, keyed by slug) and `cortex_status` joins each record's members to
-    it rather than trusting the record's inline word. `live` is `_live_note`
-    per slug, the same live-progress text the "live" section already shows.
-    """
-    states = {r["slug"]: r["state"] for r in rows}
-    live = {r["slug"]: _live_note(r) for r in rows}
-    readings = []
-    for path in mod.batch_records(root):
-        rec = read_record(path.read_text(encoding="utf-8"), mod.MEMBER_RE)
-        readings.append(cortex_status(path.stem, rec["keys"], rec["members"],
-                                      states, live, pages))
-    return pick_slot(readings)
 
 
 def _gate_note(r: dict) -> str:
-    bits = [", ".join(r["gates"]) or "no refs"]
-    if r["gate_override"]:
-        bits.append("gate override")
-    return " · ".join(bits)
+    return ", ".join(r["gates"]) or "no refs"
 
 
 def render_dashboard(c: dict) -> str:
@@ -701,7 +627,6 @@ def render_dashboard(c: dict) -> str:
         L += [f"> - `{_cell(p)}`" for p in c["problems"][:10]]
         L += [""]
 
-    L += [_status_box_md(c["batch"]), ""]
 
     L += h2("awaiting")
     L += _items([_task_row(_phase_head(r)
@@ -852,7 +777,6 @@ def render_dashboard_html(c: dict) -> str:
         H += [f"<li><code>{_attr(p)}</code></li>" for p in c["problems"][:10]]
         H += ["</ul>"]
 
-    H.append(_status_box_html(c["batch"]))
 
     H.append(h2("awaiting"))
     for r in c["awaiting"]:
@@ -958,102 +882,6 @@ def render_pages(c: dict) -> dict:
             "dashboard.html": render_dashboard_html(c)}
 
 
-# ------------------------------------------------------------------- plan ---
-def detect_lane() -> str:
-    """`local-dev` or `web-github` — where this session is running.
-
-    The same probe the batch conductor uses: a remote session has no `gh`. No
-    env var decides it; a session that could lie about where it is would plan
-    laptop runs it cannot launch.
-    """
-    return LOCAL_LANE if shutil.which("gh") else "web-github"
-
-
-def plan(c: dict, budget: int = DEFAULT_REVIEW_BUDGET,
-         lane: str | None = None) -> dict:
-    """Which ready phases fit the slot.
-
-    The admission rule is the Cortex's own, not the Mind's: a phase is
-    plannable when it is `ready`, has a registered witness and a budget, and
-    its lane is this session's. No autonomy cap is consulted — science members
-    are supervised by definition and the ruling is the human's.
-    """
-    session_lane = lane or detect_lane()
-    members, rejected, pool = [], [], []
-    for r in c["ready"]:
-        if not (r["witness"] or "").strip():
-            rejected.append((r["rel"], "no Witness: — nothing to score"))
-        elif not (r["budget"] or "").strip():
-            rejected.append((r["rel"], "no Budget:"))
-        elif r["lane"] != session_lane:
-            rejected.append((r["rel"],
-                             f"lane {r['lane']}, session {session_lane}"))
-        else:
-            pool.append(r)
-    # Cheapest first: this list is read when the human has a slot to fill.
-    pool.sort(key=lambda r: (r["review_minutes"] if r["review_minutes"]
-                             is not None else 999, r["rel"]))
-    spent = 0
-    for r in pool:
-        cost = r["review_minutes"] or 0
-        if spent + cost > budget:
-            rejected.append((r["rel"], f"{cost} min would exceed the budget"))
-            continue
-        members.append(r)
-        spent += cost
-    return {
-        "session_lane": session_lane,
-        "review_budget": budget,
-        "review_minutes_planned": spent,
-        "members": members,
-        "rejected": rejected,
-        "ready_count": len(c["ready"]),
-        "launch": [launch_payload(r, c["projects"]) for r in members],
-    }
-
-
-def emit_plan(d: dict) -> None:
-    print("== CortexPlan ==")
-    print(f"Session lane:      {d['session_lane']}")
-    print(f"Review budget:     {d['review_budget']} min")
-    print(f"Planned:           {d['review_minutes_planned']} review-minutes "
-          f"over {len(d['members'])} member(s)")
-    print()
-    if d["session_lane"] != LOCAL_LANE:
-        # The laptop-lane ruling: a science run is launched from the machine
-        # that can reach the queue. A cloud session reports and plans nothing.
-        print(f"  {d['ready_count']} phase(s) are ready — every Cortex phase "
-              f"is `{LOCAL_LANE}`, so run")
-        print("  `pyauto-brain cortex plan` from the laptop to plan them.")
-        print()
-        return
-    if d["members"]:
-        for r in d["members"]:
-            print(f"  {r['review_minutes'] or 0:>3} min  "
-                  f"{r['project']:<12} {r['rel']}")
-            if not (r["witness"] or "").strip():
-                print("           (no witness — not plannable)")
-    else:
-        print("  (no members — see the rejections below)")
-    print()
-    print(f"Not selected: {len(d['rejected'])}")
-    counts: dict[str, int] = {}
-    for _rel, why in d["rejected"]:
-        key = why.split(":")[0].split(" would")[0]
-        counts[key] = counts.get(key, 0) + 1
-    for why, n in sorted(counts.items(), key=lambda kv: -kv[1])[:8]:
-        print(f"  {n:>4}  {why}")
-    print()
-    if d["members"]:
-        print("To launch: run ONE of these, then record the job id —")
-        for lines in d["launch"]:
-            for line in lines:
-                print(f"  {line}")
-            print()
-    print("This is a PROPOSAL. The submission is yours; the conductor never")
-    print("dispatches, and the ruling on what comes back is yours too.")
-
-
 # ----------------------------------------------------------------- census ---
 def emit_census(c: dict) -> None:
     print("== Cortex census ==")
@@ -1066,8 +894,6 @@ def emit_census(c: dict) -> None:
           f"(heads {sum(1 for r in c['rulings'] if r['head'])})")
     print(f"Projects:        {len(c['projects'])}   "
           + " · ".join(sorted(c["projects"])))
-    print(f"Batches:         {len(c['batches'])} record(s) · "
-          f"{len(c['reviews'])} review(s)")
     print(f"Epics:           {len(c['epics'])}")
     if c["problems"]:
         print(f"Problems:        {len(c['problems'])} — run "
@@ -1093,8 +919,9 @@ def emit_census(c: dict) -> None:
 # pull manifest (`.cortex/pull.json`), and not before.
 PASS, FAIL, UNOBSERVABLE = "PASS", "FAIL", "UNOBSERVABLE"
 
-#: the six legs, in packet order — the four `delivered:` legs of
-#: `batches/AGENTS.md` plus the two the laptop tree made necessary.
+#: the six legs, in the order the member block reads them — the four
+#: `delivered:` legs the batch records were scored on plus the two the laptop
+#: tree made necessary.
 LEGS = ("err", "wall", "version", "checkpoint", "resume", "witness")
 LEG_TITLES = {
     "err": "`.err` clean",
@@ -1570,7 +1397,7 @@ def _section_text(mod, ph, name: str) -> str:
 
 
 def member_block(mod, s: dict) -> list[str]:
-    """One packet member, in `batches/packets/TEMPLATE.md`'s order."""
+    """One collected phase, as the report reads it."""
     ph = s["phase"]
     facets = [s["project"]]
     if ph.get("Phase"):
@@ -1624,8 +1451,11 @@ def member_block(mod, s: dict) -> list[str]:
     return L
 
 
-def collect_report(mod, slot: str, scored: list, notes: list) -> str:
-    L = [f"# Batch collect {slot}", ""]
+def collect_report(mod, scope: str, scored: list, notes: list,
+                   stamp: str = "") -> str:
+    L = [f"# Cortex collect — {scope}", ""]
+    if stamp:
+        L += [f"Refreshed: {stamp}", ""]
     for s in scored:
         L += member_block(mod, s)
     if notes:
@@ -1633,38 +1463,15 @@ def collect_report(mod, slot: str, scored: list, notes: list) -> str:
     return "\n".join(L) + "\n"
 
 
-# ------------------------------------------------------------- the record ---
-def record_update(text: str, mod, states: dict, refreshed: list[str]) -> str:
-    """The batch record with each scored member's `<state>` rewritten and one
-    `- refreshed:` line appended per member — the board's own history."""
-    lines = text.split("\n")
-    rec = read_record(text, mod.MEMBER_RE)
-    at = 0
-    for m in rec["members"]:
-        at = max(at, m["lineno"])
-        slug = m.get("slug")
-        if slug and slug in states and m.get("path"):
-            lines[m["lineno"] - 1] = (
-                f"  - {slug}: {m['path']} — {m['runs']} — {m['minutes']} — "
-                f"{states[slug]}")
-    for i, raw in enumerate(lines, 1):
-        if raw.startswith("- refreshed:"):
-            at = max(at, i)
-    for j, line in enumerate(refreshed):
-        lines.insert(at + j, line)
-    return "\n".join(lines)
-
-
-def apply_ops(root: Path, mod, scored: list, stamp: str,
-              record_rel: str) -> list[str]:
-    """Move every scored phase along and write the record. Returns the notes.
+def apply_ops(root: Path, mod, scored: list) -> list[str]:
+    """Move every scored phase along the state table. Returns the notes.
 
     `submitted → pulled` is not an edge in the Cortex's transition table and a
     phase whose run line is still live has not finished, so both are left where
-    they are with a note rather than forced.
+    they are with a note rather than forced. Nothing else is written: the batch
+    record this once rewrote is closed history (retired 2026-09-03).
     """
     notes: list[str] = []
-    states: dict[str, str] = {}
     by_rel = {ph.rel: ph for ph in mod.load_phases(root)[0]}
     for s in scored:
         ph = by_rel.get(s["rel"])
@@ -1689,12 +1496,6 @@ def apply_ops(root: Path, mod, scored: list, stamp: str,
                 state = "awaiting-ruling"
         except mod.CortexError as e:
             notes.append(f"{s['slug']}: {e}")
-        states[s["slug"]] = state
-    record = root / record_rel
-    if record.is_file():
-        lines = [f"- refreshed: {stamp} — {s['slug']} pulled" for s in scored]
-        record.write_text(
-            record_update(_read(record), mod, states, lines), encoding="utf-8")
     return notes
 
 
@@ -1725,42 +1526,22 @@ def run_pull(projects: dict, keys: list[str]) -> list[str]:
 
 
 def cmd_collect(root: Path, mod, a) -> int:
-    records = mod.batch_records(root)
-    if a.slot:
-        record = root / "batches" / f"{a.slot}.md"
-        if not record.is_file():
-            print(f"cortex: no batch record {record}", file=sys.stderr)
-            return RC_USAGE
-    elif records:
-        record = records[-1]
-    elif not a.phase:
-        print("cortex: no batch record to collect — pass --phase <rel>",
-              file=sys.stderr)
-        return RC_USAGE
-    else:
-        record = None
-    slot = record.stem if record is not None else "(no record)"
-
+    """The check-in. With no `--phase` the scope is every phase the Cortex
+    believes is out there — `submitted | running` — because "what came back?"
+    is a question about the runs, not about a slot somebody opened."""
     projects = mod.load_projects(root)[0]
     by_rel = {ph.rel: ph for ph in mod.load_phases(root)[0]}
     notes: list[str] = []
-    if a.phase:
-        rels, live_only = list(a.phase), False
-    else:
-        rec = read_record(_read(record), mod.MEMBER_RE)
-        rels = [m["path"] for m in rec["members"] if m.get("path")]
-        live_only = True
     phases = []
-    for rel in rels:
-        ph = by_rel.get(rel)
-        if ph is None:
-            notes.append(f"{rel}: no such phase — skipped")
-        elif live_only and ph.state not in LIVE_STATES:
-            # The board is rolling: a member joins the packet on the pull that
-            # fills it in, and one already ruled on does not re-join.
-            continue
-        else:
-            phases.append(ph)
+    if a.phase:
+        for rel in a.phase:
+            ph = by_rel.get(rel)
+            if ph is None:
+                notes.append(f"{rel}: no such phase — skipped")
+            else:
+                phases.append(ph)
+    else:
+        phases = [ph for ph in by_rel.values() if ph.state in LIVE_STATES]
 
     if a.pull:
         notes += run_pull(projects, sorted({ph.get("Project") or ph.project_dir
@@ -1771,12 +1552,14 @@ def cmd_collect(root: Path, mod, a) -> int:
 
     if a.apply:
         if not stamp:
+            # `--apply` moves phases on the strength of what is on the laptop,
+            # so the human has to say the laptop is current: either this run
+            # pulled, or they pulled by hand and stamped it.
             print("cortex: --apply needs a refresh stamp — run it with --pull, "
                   "or pass --refreshed <ISO> when you pulled by hand",
                   file=sys.stderr)
             return RC_USAGE
-        problems, applied, wrote = _apply_checked(root, mod, scored, stamp,
-                                                  record)
+        problems, applied, wrote = _apply_checked(root, mod, scored)
         notes += applied
         if problems:
             print("cortex: the tree does not check after the moves — "
@@ -1788,8 +1571,9 @@ def cmd_collect(root: Path, mod, a) -> int:
             return RC_DRIFT
 
     delivered = sum(1 for s in scored if s["health"] == "HEALTHY")
-    body = collect_report(mod, slot, scored, notes)
-    print(f"collect {slot}: {len(scored)} members, delivered "
+    scope = " ".join(a.phase) if a.phase else "submitted | running"
+    body = collect_report(mod, scope, scored, notes, stamp)
+    print(f"collect [{scope}]: {len(scored)} phase(s), delivered "
           f"{delivered}/{len(scored)}")
     if a.out:
         Path(a.out).write_text(body, encoding="utf-8")
@@ -1799,8 +1583,7 @@ def cmd_collect(root: Path, mod, a) -> int:
     return RC_OK if delivered == len(scored) else RC_DRIFT
 
 
-def _apply_checked(root: Path, mod, scored: list, stamp: str,
-                   record) -> tuple:
+def _apply_checked(root: Path, mod, scored: list) -> tuple:
     """`(problems, notes, wrote)` — rehearse the writes, then make them.
 
     `move_phase` writes phase by phase; a rejection halfway through would leave
@@ -1809,19 +1592,18 @@ def _apply_checked(root: Path, mod, scored: list, stamp: str,
     `check_problems` comes back clean — and checked again afterwards, because
     the promise this verb makes is that it never leaves the Cortex in drift.
     """
-    record_rel = record.relative_to(root).as_posix() if record is not None else ""
     tmp = Path(tempfile.mkdtemp(prefix="cortex-collect-"))
     try:
         copy = tmp / root.name
         shutil.copytree(root, copy, ignore=shutil.ignore_patterns(".git"),
                         symlinks=True)
-        apply_ops(copy, mod, scored, stamp, record_rel)
+        apply_ops(copy, mod, scored)
         problems = mod.check_problems(copy)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if problems:
         return problems, [], False
-    notes = apply_ops(root, mod, scored, stamp, record_rel)
+    notes = apply_ops(root, mod, scored)
     return mod.check_problems(root), notes, True
 
 
@@ -1830,7 +1612,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="cortex",
         description="The Cortex Agent — reason over PyAutoCortex: the board, "
-                    "the gates, the slot. It never submits and never rules.")
+                    "the gates, the check-in. It never submits and never "
+                    "rules.")
     sub = ap.add_subparsers(dest="verb")
 
     def common(p):
@@ -1847,25 +1630,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="exit 1 if the committed pages are stale")
     d.add_argument("--apply", action="store_true", help="write both pages")
 
-    p = common(sub.add_parser("plan", help="which ready phases fit a slot"))
-    p.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
-                   help="review-minutes available in the slot")
-    p.add_argument("--lane", default="",
-                   help="override the detected session lane")
-
-    g = common(sub.add_parser("gates", help="the gate refs, and grade them"))
-    g.add_argument("--grade", action="store_true",
-                   help="fetch every ref and give a verdict per phase")
-    g.add_argument("--apply", action="store_true",
-                   help="write the flips (implies --grade)")
+    common(sub.add_parser("gates", help="every gated phase and its refs"))
 
     k = common(sub.add_parser(
-        "collect", help="score what a pull brought back into packet members"))
-    k.add_argument("--slot", default="",
-                   help="the batch record to collect (default: the newest)")
+        "collect", help="score what came back; default scope is every "
+                        "submitted | running phase"))
     k.add_argument("--phase", action="append", default=[], metavar="REL",
-                   help="score these phases instead of the record's live "
-                        "members (repeatable)")
+                   help="score these phases instead of every submitted | "
+                        "running one (repeatable)")
     k.add_argument("--pull", action="store_true",
                    help="run each project's own `<sync_cli> pull` first, then "
                         "stamp the refresh")
@@ -1895,11 +1667,9 @@ def main(argv=None) -> int:
         return RC_USAGE
 
     if verb == "gates":
-        # A thin wrapper: the grading, the clearing rule and the writes are
-        # the Cortex script's, so the daily job can run them with no Brain
-        # checkout at all. `--apply` is this surface's spelling of `--write`.
-        lines, rc = mod.gates_report(root, grade=a.grade or a.apply,
-                                     write=a.apply)
+        # A thin wrapper over the Cortex script's own read-only listing: a
+        # gated phase is moved on by a human typing `move <phase> ready`.
+        lines, rc = mod.gates_report(root)
         print("\n".join(lines))
         return rc
 
@@ -1928,10 +1698,6 @@ def main(argv=None) -> int:
     if verb == "census":
         print(json.dumps({k: v for k, v in c.items() if k != "phases"},
                          indent=2)) if a.as_json else emit_census(c)
-        return RC_OK
-
-    if verb == "plan":
-        emit_plan(plan(c, budget=a.budget, lane=a.lane or None))
         return RC_OK
 
     if verb == "dashboard":

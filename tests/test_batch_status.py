@@ -1,25 +1,22 @@
 """tests/test_batch_status.py — the batch-status box's one reading.
 
-`agents/conductors/batch/_status.py` is imported by both dashboards
-(`_cortex.py`, `_intake.py`) and by `_batch.py` for its shared vocabulary.
-This file exercises the module directly, against constructed records rather
-than a live checkout: the box's own rules are organ-agnostic (dev is a
-dispatch-and-review sitting, science is a rolling board) and belong to
-`_status.py` alone, not to either organ's fixture.
+`agents/conductors/batch/_status.py` is imported by the Mind's dashboard
+(`_intake.py`) and by `_batch.py` for its shared vocabulary. This file
+exercises the module directly, against constructed records rather than a live
+checkout: the box's own rules belong to `_status.py` alone, not to the Mind's
+fixture.
 
-Three things this file defends, because getting any of them wrong makes the
-box lie about what a human still has to do:
+Two things this file defends, because getting either wrong makes the box lie
+about what a human still has to do:
 
 - The **dev** rule: the button waits for `collected:`, and the box itself
   disappears once the slot has been reviewed (`reviewed-at:` OR a review file
   on disk — either says the sitting is over).
-- The **cortex** rule: the board is rolling — a slot stays open while any
-  member is still `submitted`/`running`/`pulled`/`awaiting-ruling`, the
-  button appears as soon as ONE member is `awaiting-ruling`, and a member
-  named on a `- carried:` line does not hold its OWN slot open (it belongs to
-  the next one).
 - `pick_slot` reads `- dispatched:`, never the record's file name — two slots
   dispatched on the same date sort by clock time, not by the slot label.
+
+(A second reading, for the Cortex's rolling science board, lived here until
+2026-09-03; the science review slot was retired with it.)
 """
 
 from __future__ import annotations
@@ -92,65 +89,6 @@ def test_dev_member_with_no_outcome_is_not_delivered():
 
 
 # --------------------------------------------------------------- cortex ---
-def _cortex_member(slug, state):
-    return {"slug": slug, "state": state}
-
-
-def test_cortex_mixed_board_is_open_and_reviewable_with_no_per_member_control():
-    keys = {"dispatched": ["2026-09-01T09:00Z"]}
-    members = [_cortex_member("05_running_array", "running"),
-               _cortex_member("07_awaiting_ruling", "awaiting-ruling")]
-    states = {"05_running_array": "running", "07_awaiting_ruling": "awaiting-ruling"}
-    live = {"05_running_array": "wall 3:10 of 8:00 (40%)"}
-    st = _status.cortex_status("2026-09-01-pm", keys, members, states, live, PAGES)
-    assert st is not None
-    assert st["reviewable"] is True
-    assert st["url"] == f"{PAGES}packets/2026-09-01-pm.html"
-    rows = {r["slug"]: r for r in st["members"]}
-    assert rows["05_running_array"]["state"] == _status.IN_PROGRESS
-    assert rows["07_awaiting_ruling"]["state"] == _status.AWAITING
-    # Exactly one button for the whole box, never a per-member review control.
-    html = _status.render_html(st)
-    assert html.count('class="go"') == 1
-
-
-def test_cortex_all_ruled_slot_is_closed():
-    keys = {"dispatched": ["2026-09-01T09:00Z"]}
-    members = [_cortex_member("08_accepted", "accepted"),
-               _cortex_member("09_rerun", "rerun"),
-               _cortex_member("10_dropped", "dropped")]
-    states = {"08_accepted": "accepted", "09_rerun": "rerun",
-              "10_dropped": "dropped"}
-    assert _status.cortex_status("2026-09-01-pm", keys, members, states, {},
-                                 PAGES) is None
-
-
-def test_cortex_carried_member_does_not_reopen_its_own_slot():
-    # The member is CURRENTLY awaiting-ruling (per the phase file's own
-    # `State:`), but the record hands it to the next slot — it must not hold
-    # THIS one open, or a closed batch would render as still in flight.
-    keys = {"dispatched": ["2026-09-02T17:51Z"],
-            "carried": ["refs_v1_positions_on_completion — still submitted "
-                        "at review"]}
-    members = [_cortex_member("phase2_nss_mainline_gate_a_reuse", "awaiting-ruling"),
-               _cortex_member("refs_v1_positions_on_completion", "submitted")]
-    states = {"phase2_nss_mainline_gate_a_reuse": "accepted",
-              "refs_v1_positions_on_completion": "awaiting-ruling"}
-    assert _status.cortex_status("2026-09-02-pm", keys, members, states, {},
-                                 PAGES) is None
-
-
-def test_cortex_carried_line_reads_the_double_hyphen_typed_em_dash():
-    keys = {"dispatched": ["2026-09-02T17:51Z"],
-            "carried": ["refs_v1_positions_on_completion -- still submitted "
-                        "at review"]}
-    members = [_cortex_member("refs_v1_positions_on_completion", "submitted")]
-    states = {"refs_v1_positions_on_completion": "awaiting-ruling"}
-    assert _status.cortex_status("2026-09-02-pm", keys, members, states, {},
-                                 PAGES) is None
-
-
-# ------------------------------------------------------------- pick_slot ---
 def _dev_reading(slot, dispatched):
     members = [{"slug": "m", "outcome": "RUNNING"}]
     return _status.dev_status(slot, {"dispatched": [dispatched]}, members,
