@@ -1247,9 +1247,9 @@ def previous_carried(mind: Path) -> tuple:
 
 # --------------------------------------------------------- the merge order ---
 def _repo_key(name: str) -> str:
-    """One repo, one key. The prompt header spells it `autofit`, a PR URL
-    spells it `PyAutoFit`, and a merge order that treated those as two repos
-    would serialise neither."""
+    """One repo, one key. A prompt header spells a library by its short name
+    and a PR URL spells it with the packaging prefix; a merge order that
+    treated those as two repos would serialise neither."""
     key = normalise_repo(name)
     return key[2:] if key.startswith("pyauto") else key
 
@@ -1564,8 +1564,8 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
         if name == "cortex" and not _on_the_board(s, ruled, notes):
             continue
         if name == "dev":
-            # The record's outcome column is EVIDENCE ("PyAutoFit#1554, 4/4
-            # checks green"); this is the ACCOUNTING — what became of the
+            # The record's outcome column is EVIDENCE (a PR number and its
+            # check counts); this is the ACCOUNTING — what became of the
             # member. Two different questions, two different fields.
             s["outcome_ledger"], s["outcome_why"] = member_outcome(member, ctx)
         scored.append(s)

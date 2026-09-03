@@ -785,24 +785,20 @@ LIB_PROMPT = """# A library change
 
 Type: feature
 Target: autofit
-Repos:
-- PyAutoFit
 """
 
-WORKSPACE_PROMPT = """# A workspace change
+# No `Repos:` header and a target nothing recognises: a member with no library
+# repo, which is what the merge order has to put last.
+WORKSPACE_PROMPT = """# A documentation change
 
 Type: docs
-Target: autofit_workspace
-Repos:
-- autofit_workspace
+Target: widgets
 """
 
 SECOND_LIB_PROMPT = """# Another change to the same library
 
 Type: bug
 Target: autofit
-Repos:
-- PyAutoFit
 """
 
 
@@ -810,12 +806,12 @@ def _slot_of_three(tmp_path) -> Path:
     """One workspace member dispatched FIRST, then two library members on the
     same repo — the shape the merge order has to correct."""
     members = (
-        "  - wsp: draft/docs/autofit_workspace/wsp.md — glance — 3 — DELIVERED",
+        "  - wsp: draft/docs/widgets/wsp.md — glance — 3 — DELIVERED",
         "  - lib-a: draft/feature/autofit/lib_a.md — judge — 20 — DELIVERED",
         "  - lib-b: draft/bug/autofit/lib_b.md — glance — 3 — DELIVERED",
     )
     mind = mini_mind(tmp_path, *members, active="# Active Tasks\n")
-    d = mind / "draft" / "docs" / "autofit_workspace"
+    d = mind / "draft" / "docs" / "widgets"
     d.mkdir(parents=True, exist_ok=True)
     (d / "wsp.md").write_text(WORKSPACE_PROMPT, encoding="utf-8")
     (mind / "draft" / "feature" / "autofit").mkdir(parents=True, exist_ok=True)
