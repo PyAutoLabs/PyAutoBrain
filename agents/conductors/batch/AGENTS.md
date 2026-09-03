@@ -472,14 +472,34 @@ lost; the `notes: |` block is never touched.
 
 ### The close leg
 
-A review that has landed closes the batch. Where `batches/reviews/<slot>.md`
-exists, collect **refuses to write the packet** — that file is the record now,
-and rewriting the page the human ruled on destroys what they ruled against —
-and instead fills `reviewed-at:`, `review-minutes-actual:` and `review:` from
-it — **fills, never overwrites**: a value the record already carries (anything
-but blank or `(not given)`) is the human's and stays. The decisions inside are
-reported, never enacted: merges, follow-ups and
-rejections are the orchestrator's next act with the human, not collect's.
+**`dev` — collected once, reviewed once.** A review that has landed closes the
+batch outright. Where `batches/reviews/<slot>.md` exists, collect **refuses to
+write the packet** — that file is the record now, and rewriting the page the
+human ruled on destroys what they ruled against — and instead fills
+`reviewed-at:`, `review-minutes-actual:` and `review:` from it — **fills,
+never overwrites**: a value the record already carries (anything but blank or
+`(not given)`) is the human's and stays. The decisions inside are reported,
+never enacted: merges, follow-ups and rejections are the orchestrator's next
+act with the human, not collect's. The review button lives on `collected:` —
+there is exactly one packet to press it on, because a dev batch is dispatched
+at once and reviewed at once.
+
+**`cortex` — a rolling board, reviewed as many times as it takes.** A review
+landing does **not** by itself refuse the packet write: `PyAutoCortex/batches/
+AGENTS.md`, "The first review does not close the slot" — the human rules on
+whatever is reviewable whenever they come in, and the packet keeps refreshing
+under whatever is still on the board while they do. A later sitting lands as
+`batches/reviews/<slot>-r<N>.md` (N ≥ 2; the first sitting is `<slot>.md` — see
+"Two kinds, two records" below), and each one adds its own `- review:` line to
+the record rather than replacing the last. What a review DOES do, on every
+kind, is take its own members out of further splicing (`_on_the_board`): a
+member the record already shows `ruled: yes` for is never re-rendered, on this
+sitting's collect or any later one — its packet span is what the human was
+shown. The record's `delivered:`/`packet:` keys are filled once the slot is
+CLOSED — nothing left in a board state, carried members excluded — and moved
+on every refresh until then; `reviewed-at:`/`review-minutes-actual:` still
+fill from whichever sitting sets them first, and `carried:` is written once
+per member the moment a sitting finds it still running.
 
 ### The extension point
 
@@ -520,6 +540,36 @@ section byte-identical. Members still `submitted`/`running` render as RUNNING
 with their job ids and wall-vs-budget, and **hold no review control at all**:
 no chips, no ruled box, `(none)` in the submitted review. There is nothing for
 the human to say about a run that has not finished.
+
+**The first review does not close the slot, either.** A dev batch is reviewed
+once — `collected:` puts the button on the packet, and `batches/reviews/
+<slot>.md` existing closes it outright (see "The close leg" above). A Cortex
+slot stays open across as many sittings as it takes: the human rules on
+whatever is reviewable whenever they come in, and every sitting after the
+first lands as its own numbered file, `batches/reviews/<slot>-r<N>.md` (N ≥
+2 — `-r1` is not a name, the first sitting is `<slot>.md`;
+`PyAutoCortex/batches/reviews/AGENTS.md`). `organ_for`'s `review_path` always
+names the **next free** one, so the packet's submit button (and the GitHub
+new-file link it builds) never points a later sitting at an earlier one's
+file. The record's `- review:` key **repeats**, one line per sitting, in the
+order they happened — `collect` appends whichever of a slot's review files the
+record does not already carry a line for, and never touches the ones it does.
+
+**A rolling slot closes when nothing is left in a board state.** Not "a review
+exists" — a Cortex record may carry several `- review:` lines and still be
+open, because a later sitting can rule on members a pull only just landed.
+Closed means: every member is either **ruled** (its review row says `ruled:
+yes` — `_on_the_board` drops it from the score for good, so no later sitting
+re-splices it even if the underlying phase file changes afterward) or
+**carried** (a `- carried: <slug> — still <state> at review` line for it is
+already IN THE RECORD, written by an earlier sitting). A member that is merely
+`submitted`/`running`/`pulled`/`awaiting-ruling` **right now**, with no
+`- carried:` line yet, still holds the slot open — carrying happens at a
+sitting, not by inference from the tree. This is the same reading
+`agents/conductors/batch/_status.py`'s `cortex_status` gives the status box on
+both dashboards (`_cortex_slot_open` in `_batch.py` is the collect-side
+replay of it), so a slot the box shows as still in flight is a slot `collect`
+also still treats as open.
 
 **Carry-forward is the mechanism that moves them on.** At close, every member
 still `submitted`/`running` gets a `- carried: <slug> — still <state> at review`

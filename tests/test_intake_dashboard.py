@@ -42,7 +42,7 @@ def _prompt(title, difficulty="medium", autonomy="supervised", priority="normal"
 
 
 def _mind(root: Path, drafts=None, active=None, registries=None,
-          complete=None) -> Path:
+          complete=None, batches=None) -> Path:
     for rel, body in (drafts or {}).items():
         p = root / "draft" / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +57,12 @@ def _mind(root: Path, drafts=None, active=None, registries=None,
         p.write_text(body, encoding="utf-8")
     for name, body in (registries or {}).items():
         (root / name).write_text(body, encoding="utf-8")
+    # `rel` is relative to `batches/` itself, so `reviews/<slot>.md` lands the
+    # review file the batch-status box's "is this slot reviewed?" check reads.
+    for rel, body in (batches or {}).items():
+        p = root / "batches" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -1726,3 +1732,80 @@ def test_the_pyauto_cortex_env_var_wins_over_the_sibling(tmp_path, monkeypatch):
     flight = _page(mind).split("## In flight")[1].split("## Human review")[0]
     assert "→ phases/other/09_far.md" in flight
     assert "02_gated" not in flight
+
+
+# --------------------------------------------------------------------------- #
+# the batch-status box: c["batch"], shared with the Cortex's own dashboard
+# --------------------------------------------------------------------------- #
+DEV_RECORD_IN_FLIGHT = """# Batch 2026-09-03 pm
+- dispatched: 2026-09-03T18:00Z
+- members:
+  - autofit-resampling-info: draft/bug/autofit/resampling.md — glance — 3 — RUNNING
+"""
+
+DEV_RECORD_COLLECTED = """# Batch 2026-09-03 pm
+- dispatched: 2026-09-03T18:00Z
+- collected: 2026-09-03T20:00Z
+- members:
+  - autofit-resampling-info: draft/bug/autofit/resampling.md — glance — 3 — DELIVERED (Widgets#1554)
+  - autonerves-colab-silence: draft/feature/autonerves/colab_silence.md — glance — 5 — MERGED
+"""
+
+DEV_RECORD_REVIEWED = """# Batch 2026-09-02 pm
+- dispatched: 2026-09-02T18:00Z
+- collected: 2026-09-02T20:00Z
+- reviewed-at: 2026-09-02T21:00Z
+- members:
+  - autofit-resampling-info: draft/bug/autofit/resampling.md — glance — 3 — DELIVERED
+"""
+
+
+def test_in_flight_batch_reads_as_in_progress_with_no_button(tmp_path):
+    mind = _mind(tmp_path, batches={"2026-09-03-pm.md": DEV_RECORD_IN_FLIGHT})
+    page, html = _page(mind), _html(mind)
+    assert "Batch 2026-09-03-pm" in page
+    assert "autofit-resampling-info" in page and "autofit-resampling-info" in html
+    assert "in progress" in page
+    assert "Nothing to review yet" in page
+    assert '<a class="go"' not in html
+
+
+def test_button_appears_once_collected_is_stamped(tmp_path):
+    mind = _mind(tmp_path, batches={"2026-09-03-pm.md": DEV_RECORD_COLLECTED},
+                registries={"repos.yaml": REPOS_YAML})
+    page, html = _page(mind), _html(mind)
+    url = "https://exampleorg.github.io/PyAutoMind/packets/2026-09-03-pm.html"
+    assert f"[Review this batch →]({url})" in page
+    assert f'<a class="go" href="{url}">Review this batch →</a>' in html
+
+
+def test_a_reviewed_batch_disappears_from_the_box(tmp_path):
+    mind = _mind(tmp_path, batches={"2026-09-02-pm.md": DEV_RECORD_REVIEWED})
+    assert "No batch in flight." in _page(mind)
+    assert "No batch in flight." in _html(mind)
+
+
+def test_a_review_file_on_disk_closes_the_slot_without_a_reviewed_at_key(tmp_path):
+    # A migrated/transcribed record can carry no `reviewed-at:` line at all —
+    # the review file's existence must still close the box.
+    mind = _mind(tmp_path, batches={
+        "2026-09-03-pm.md": DEV_RECORD_COLLECTED,
+        "reviews/2026-09-03-pm.md": "# Batch review 2026-09-03-pm\n",
+    })
+    assert "No batch in flight." in _page(mind)
+
+
+def test_empty_mind_renders_the_fixture(tmp_path):
+    mind = _mind(tmp_path)
+    assert "No batch in flight." in _page(mind)
+    assert "No batch in flight." in _html(mind)
+
+
+def test_batch_box_md_and_html_agree_on_slugs_and_the_review_url(tmp_path):
+    mind = _mind(tmp_path, batches={"2026-09-03-pm.md": DEV_RECORD_COLLECTED},
+                registries={"repos.yaml": REPOS_YAML})
+    page, html = _page(mind), _html(mind)
+    url = "https://exampleorg.github.io/PyAutoMind/packets/2026-09-03-pm.html"
+    for slug in ("autofit-resampling-info", "autonerves-colab-silence"):
+        assert slug in page and slug in html
+    assert url in page and url in html

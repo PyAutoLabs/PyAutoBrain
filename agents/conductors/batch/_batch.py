@@ -47,6 +47,14 @@ from _sizing import (  # noqa: E402
     effective_difficulty, effective_review_minutes, effective_unattended,
     parse_prompt, priority_rank,
 )
+# `_status` (same directory) is the one definition of this vocabulary — the
+# batch status box on both dashboards reads a record the same way this
+# conductor writes one. Re-exported below (`RULING_WORDS`, `PENDING_RE`,
+# `CORTEX_BOARD_STATES`) so existing importers of `_batch` keep working.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _status import (  # noqa: E402
+    PENDING_RE, RULING_WORDS, CORTEX_BOARD_STATES, _carried_slugs,
+)
 
 # One slot's worth of the human's attention, and only the DEFAULT: the human
 # sets it per slot with --budget, because they know whether the next one is a
@@ -340,21 +348,10 @@ def emit(d: dict) -> None:
 RECORD_KEY = re.compile(r"^- ([a-z][a-z0-9-]*):(?:\s+(.*?))?\s*$")
 MEMBER_RE = re.compile(r"^  - (?P<slug>[^:]+): (?P<rest>.+)$")
 
-#: Outcome tokens a human (or an earlier collect) already ruled with. A record
-#: line opening with one of these is a VERDICT, and `--apply` leaves it alone:
-#: the am record's REJECTED/ACCEPTED members are the ledger of a review that
-#: happened, and overwriting them with a fresh machine reading would erase it.
-RULING_WORDS = {"DELIVERED", "NOT-DELIVERED", "FAILED", "MERGED", "PARKED",
-                "CARRIED", "SUSPECT", "REJECTED", "ACCEPTED", "UNREVIEWED",
-                "STRUCTURE-OK", "LEAVE-TO-FINISH", "TWEAK", "DEFER", "PENDING",
-                "HEALTHY", "MERGE", "REJECT", "DROP", "DROPPED", "RERUN",
-                "ACCEPT"}
-
-#: An outcome that says the member had not finished when the record was
-#: written. These are the words the ledger actually uses (`REFRESHED … still
-#: carried`, `CARRIED to the next batch`), not a vocabulary invented here.
-PENDING_RE = re.compile(r"\b(RUNNING|CARRIED|IN FLIGHT|REFRESHED|PENDING|"
-                        r"DISPATCHED)\b", re.I)
+# `RULING_WORDS` and `PENDING_RE` are `_status`'s (imported above): a record
+# line opening with a ruling word is a VERDICT, and `--apply` leaves it alone;
+# `PENDING_RE` is the ledger's own "not finished yet" vocabulary. Kept as one
+# definition so the batch status box and this conductor never drift.
 
 PR_URL_RE = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)")
 ISSUE_URL_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
@@ -1210,10 +1207,14 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
            "evidence": evidence or {}, "notes": notes, "kinds": kinds,
            "cortex": cortex}
 
-    review_path = root / "batches" / "reviews" / f"{slot}.md"
-    review = (read_review(review_path.read_text(encoding="utf-8",
-                                                errors="replace"))
-              if review_path.is_file() else None)
+    if kind == "cortex":
+        # A rolling slot may have more than one sitting — see `_merge_reviews`.
+        review = _merge_reviews(_review_paths(root, slot))
+    else:
+        review_path = root / "batches" / "reviews" / f"{slot}.md"
+        review = (read_review(review_path.read_text(encoding="utf-8",
+                                                    errors="replace"))
+                  if review_path.is_file() else None)
     ruled = {slug for slug, row in (review or {}).get("members", {}).items()
              if row.get("ruled") == "yes"}
 
@@ -2145,10 +2146,15 @@ def _apply_packet(root: Path, d: dict) -> list:
     page is the same page. Written under the organ's own `batches/packets/`."""
     notes: list[str] = []
     packet = root / "batches" / "packets" / f"{d['slot']}.html"
-    if d.get("review") is not None:
+    if d.get("kind") != "cortex" and d.get("review") is not None:
         # `batches/packets/AGENTS.md`: the archived page and the review file are
         # the audit pair — what was shown, what was ruled. A correction gets a
-        # new dated page, not an edit.
+        # new dated page, not an edit. A dev batch is reviewed once — this is
+        # the WHOLE close. A Cortex slot is a rolling board (`batches/AGENTS.md`,
+        # "The first review does not close the slot"): a review lands, more
+        # members may still join the board, and the packet keeps refreshing
+        # under `d["members"]` (which `_on_the_board` already keeps the ruled
+        # ones out of) until nothing is left on it.
         notes.append("review submitted — the packet is never rewritten after a "
                      f"review; batches/reviews/{d['slot']}.md is the record now")
         return notes
@@ -2251,10 +2257,10 @@ def read_review(text: str) -> dict:
 CORTEX_CONDUCTOR = BRAIN / "agents" / "conductors" / "cortex" / "_cortex.py"
 _CX = None
 
-#: The four states a science member is on the board in. `ready` and `planned`
-#: are scope; `accepted`, `rerun` and `dropped` are history the rulings ledger
-#: carries. A record naming one of those is reported, never scored.
-CORTEX_BOARD_STATES = ("submitted", "running", "pulled", "awaiting-ruling")
+# `CORTEX_BOARD_STATES` is `_status`'s (imported above) — the four states a
+# science member is on the board in. `ready` and `planned` are scope;
+# `accepted`, `rerun` and `dropped` are history the rulings ledger carries. A
+# record naming one of those is reported, never scored.
 
 #: The Cortex's review vocabulary (`scripts/cortex.py::RULING_VERBS`), not the
 #: Mind's merge/tweak/reject/defer. A RUNNING member gets none of them.
@@ -2267,6 +2273,75 @@ CORTEX_LEDE = ("{n} of {total} scored member(s) delivered on the evidence — a 
                "witness that landed inside its budget, on a clean run that is "
                "not a resume. Members still running hold no review control; "
                "carry-forward moves them to the next board.")
+
+#: The `-r<N>` suffix of a slot's later, partial reviews (`<slot>-r2.md`,
+#: N >= 2) — `scripts/cortex.py`'s own pattern, kept byte-identical so a
+#: review file this conductor offers is one `cortex.py check` also resolves.
+REVIEW_PART_RE = re.compile(r"-r(\d+)$")
+
+
+def _review_paths(root: Path, slot: str) -> list:
+    """Every partial review file a rolling slot has, in sitting order:
+    `reviews/<slot>.md` (the first sitting, if it exists) then `-r2.md`,
+    `-r3.md`, … by N — `scripts/cortex.py::batch_problems`'s own resolution.
+    `-r1` is not a name; the first review is `<slot>.md`."""
+    reviews = root / "batches" / "reviews"
+    out = []
+    first = reviews / f"{slot}.md"
+    if first.is_file():
+        out.append(first)
+    numbered = []
+    for p in reviews.glob(f"{slot}-r*.md"):
+        m = REVIEW_PART_RE.search(p.stem)
+        if m:
+            numbered.append((int(m.group(1)), p))
+    numbered.sort(key=lambda t: t[0])
+    return out + [p for _, p in numbered]
+
+
+def _next_review_path(root: Path, slot: str) -> str:
+    """The next free `reviews/<slot>[-r<N>].md` — `<slot>.md` if the first
+    sitting has not happened yet, else the smallest free `-r<N>`, N >= 2."""
+    reviews = root / "batches" / "reviews"
+    if not (reviews / f"{slot}.md").is_file():
+        return f"batches/reviews/{slot}.md"
+    n = 2
+    while (reviews / f"{slot}-r{n}.md").is_file():
+        n += 1
+    return f"batches/reviews/{slot}-r{n}.md"
+
+
+def _merge_reviews(paths: list) -> dict | None:
+    """Every partial review file for a slot, read and merged — `keys` from
+    the latest file that set them, `members` per slug from the latest file
+    that named it. `ruled` is STICKY: a member already ruled `yes` at an
+    earlier sitting stays ruled even if a later, narrower sitting (one that
+    lists only what it itself rules on) does not mention it again — that is
+    what lets `_on_the_board` keep skipping it forever, not just this pass.
+    """
+    if not paths:
+        return None
+    keys: dict = {}
+    members: dict = {}
+    for p in paths:
+        r = read_review(p.read_text(encoding="utf-8", errors="replace"))
+        keys.update(r["keys"])
+        for slug, row in r["members"].items():
+            if members.get(slug, {}).get("ruled") == "yes":
+                continue
+            members[slug] = row
+    return {"keys": keys, "members": members}
+
+
+def _review_rel_paths(d: dict) -> list:
+    """`batches/reviews/<slot>[-r<N>].md`, one per file this slot has ever
+    had, in sitting order. Recomputed from the tree rather than threaded
+    through `d`: the review files on disk do not move between a collect and
+    its own apply."""
+    root = d.get("root")
+    if root is None or not d.get("slot"):
+        return []
+    return [f"batches/reviews/{p.name}" for p in _review_paths(root, d["slot"])]
 
 
 class CortexMissing(BatchUsageError):
@@ -2321,7 +2396,9 @@ def organ_for(kind: str, root: Path, slot: str) -> dict:
         return {
             "key": "cortex", "repo": cx.CORTEX_REPO, "home": cx._home(root),
             "packet_path": f"{cx.CORTEX_REPO}/batches/packets/{slot}.html",
-            "review_path": f"batches/reviews/{slot}.md",
+            # The rolling board's first review is `<slot>.md`; every later
+            # sitting is the next free `-r<N>.md` (`batches/reviews/AGENTS.md`).
+            "review_path": _next_review_path(root, slot),
             # `cortex.py check` requires every `##` heading in a review to name
             # a member of the record, so the follow-ups block is one level down.
             "followups_heading": "### Follow-ups accepted",
@@ -2722,6 +2799,27 @@ def _cortex_movers(d: dict) -> list:
     return out
 
 
+def _recorded_carried_slugs(rec: dict) -> set:
+    """Slugs an EARLIER sitting already carried forward — `_status`'s own
+    reading of the `- carried:` line, replayed against this record's
+    already-read `rec` so the box and the close leg can never disagree."""
+    return _carried_slugs(rec["keys"], rec["members"])
+
+
+def _cortex_slot_open(d: dict, rec: dict) -> bool:
+    """Whether the science board still holds something worth waiting for —
+    `_status.cortex_status`'s reading: nothing left in a board state, members
+    an EARLIER sitting already carried forward excluded. `d["members"]` is
+    already the board (`_on_the_board` has dropped the ruled and the
+    off-board); a member leaves it for `carried` only once a `- carried:` line
+    naming it is already IN THE RECORD — one merely running right now, before
+    any sitting has said so, still holds this slot open (`batches/AGENTS.md`:
+    "the slot stays open while any non-carried member is still `submitted`,
+    `running`, `pulled` or `awaiting-ruling`")."""
+    carried = _recorded_carried_slugs(rec)
+    return any(s["slug"] not in carried for s in d.get("members") or [])
+
+
 def record_update_cortex(text: str, d: dict, stamp: str,
                          review_at: str = "") -> str:
     """The Cortex record's collect keys, updated in place. The MEMBER LINES ARE
@@ -2729,7 +2827,11 @@ def record_update_cortex(text: str, d: dict, stamp: str,
     the dev rewrite (`HEALTHY (…)`) would fail `cortex.py check` outright."""
     lines = text.split("\n")
     rec = read_record(text)
-    closed = d.get("review") is not None
+    # A slot closes when nothing is left on the board (`batches/AGENTS.md`,
+    # "The first review does not close the slot") — NOT the moment a review
+    # file exists: a rolling slot may be reviewed more than once while it is
+    # still open.
+    closed = not _cortex_slot_open(d, rec)
     inserts: list[str] = []
     if not rec["key_lines"].get("collected"):
         inserts.append(f"- collected: {stamp}")
@@ -2744,8 +2846,12 @@ def record_update_cortex(text: str, d: dict, stamp: str,
         _set_key(lines, rec, "review-at", review_at.strip(), inserts)
     review = d.get("review")
     if review is not None:
-        _fill_key(lines, rec, "review",
-                  f"batches/reviews/{d['slot']}.md", inserts)
+        # `review:` REPEATS — one line per sitting (`batches/reviews/AGENTS.md`)
+        # — so this is never a fill-once key; only lines the record does not
+        # already carry are appended, in sitting order.
+        have = set(rec["keys"].get("review") or [])
+        inserts += [f"- review: {p}" for p in _review_rel_paths(d)
+                   if p not in have]
         reviewed_at = review["keys"].get("reviewed-at", "")
         if reviewed_at:
             _fill_key(lines, rec, "reviewed-at", reviewed_at, inserts)

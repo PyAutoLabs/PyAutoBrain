@@ -404,14 +404,17 @@ def test_carried_members_ride_onto_the_next_record_unnamed(two_organ, capsys):
 
 def test_the_close_leg_fills_never_overwrites_and_carries_once(
         two_organ, capsys):
-    """A submitted review closes the board: the packet is never rewritten (it
-    and the review file are the audit pair), the close fields are filled where
-    the human left them blank, and every member still running is carried."""
+    """A review does not freeze the packet — a Cortex slot is a rolling board
+    (`batches/AGENTS.md`, "The first review does not close the slot"), so it
+    keeps refreshing — but a RULED member's own section is never re-spliced
+    (its packet span is what the human was shown), the close fields are
+    filled where the human left them blank, and every member still running is
+    carried."""
     set_run_state(two_organ, "phases/example/11_healthy.md", "running")
     assert cli(two_organ, "collect", "--slot", AM, "--apply",
                "--stamp", STAMP) == _batch.RC_FINDINGS
     capsys.readouterr()
-    frozen = packet_text(two_organ)
+    before = spans(packet_text(two_organ))
 
     (two_organ["root"] / "batches" / "reviews" / f"{AM}.md").write_text(
         f"# Batch review {AM}\n\n"
@@ -427,10 +430,15 @@ def test_the_close_leg_fills_never_overwrites_and_carries_once(
     assert cli(two_organ, "collect", "--slot", AM, "--apply",
                "--stamp", "2026-09-03T16:00Z") == _batch.RC_FINDINGS
     out = capsys.readouterr().out
-    assert "never rewritten after a review" in out
-    assert packet_text(two_organ) == frozen
+    assert "packet refreshed" in out
+    after = spans(packet_text(two_organ))
+    # the two now-ruled members are off the board (`_on_the_board`) and their
+    # sections are exactly what the human was shown, byte for byte
+    assert after["m-12_resumed"] == before["m-12_resumed"]
+    assert after["m-01_partial"] == before["m-01_partial"]
     text = record_text(two_organ)
     assert f"- review: batches/reviews/{AM}.md" in text
+    assert text.count("- review:") == 1, "one line — this is the only sitting"
     assert "- reviewed-at: 2026-09-03T15:00Z" in text
     assert "- review-minutes-actual: 21" in text
     assert "- collected: 2026-09-03T12:00Z" in text, "history, not this run"
@@ -440,8 +448,176 @@ def test_the_close_leg_fills_never_overwrites_and_carries_once(
                "--stamp", "2026-09-03T17:00Z") == _batch.RC_FINDINGS
     out = capsys.readouterr().out
     assert record_text(two_organ).count("- carried: 11_healthy") == 1
+    assert record_text(two_organ).count("- review:") == 1, "no new sitting"
     assert "already ruled in this slot's review" in out
     assert check(two_organ) == []
+
+
+def test_the_offered_review_path_is_the_next_free_one(two_organ, capsys):
+    """`organ_for`'s `review_path` is what `packet.js`'s `REVIEW_PATH` and the
+    submit button's GitHub link are built from — `<slot>.md` for the first
+    sitting, then the smallest free `-r<N>.md`, N >= 2
+    (`batches/reviews/AGENTS.md`: `-r1` is not a name)."""
+    reviews = two_organ["root"] / "batches" / "reviews"
+    organ = _batch.organ_for("cortex", two_organ["root"], AM)
+    assert organ["review_path"] == f"batches/reviews/{AM}.md"
+
+    (reviews / f"{AM}.md").write_text(f"# Batch review {AM}\n",
+                                      encoding="utf-8")
+    organ = _batch.organ_for("cortex", two_organ["root"], AM)
+    assert organ["review_path"] == f"batches/reviews/{AM}-r2.md"
+
+    (reviews / f"{AM}-r2.md").write_text(f"# Batch review {AM}-r2\n",
+                                         encoding="utf-8")
+    organ = _batch.organ_for("cortex", two_organ["root"], AM)
+    assert organ["review_path"] == f"batches/reviews/{AM}-r3.md"
+
+    # `packet.js` reads `REVIEW_PATH` — the templated page needs no change
+    js = (BRAIN / "agents" / "conductors" / "batch" / "packet.js").read_text(
+        encoding="utf-8")
+    assert 'var REVIEW_PATH = "%%REVIEW_PATH%%"' in js
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", STAMP) == _batch.RC_FINDINGS
+    capsys.readouterr()
+    assert (f'var REVIEW_PATH = "batches/reviews/{AM}-r3.md"'
+            in packet_text(two_organ))
+
+
+def test_a_second_partial_review_refreshes_the_packet_untouched_elsewhere(
+        two_organ, capsys):
+    """A rolling slot's second sitting lands as `<slot>-r2.md`
+    (`batches/reviews/AGENTS.md`) and the packet keeps refreshing under it —
+    the member neither sitting touched is exactly what the first refresh
+    rendered, byte for byte."""
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", STAMP) == _batch.RC_FINDINGS
+    capsys.readouterr()
+    reviews = two_organ["root"] / "batches" / "reviews"
+    pass0 = spans(packet_text(two_organ))
+
+    (reviews / f"{AM}.md").write_text(
+        f"# Batch review {AM}\n\n"
+        f"- packet: batches/packets/{AM}.html\n"
+        "- reviewed-at: 2026-09-03T15:00Z\n\n"
+        "## 12_resumed — FAILED\n- decision: rerun\n- ruled: yes\n\n"
+        "It resumed the previous fit.\n", encoding="utf-8")
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", "2026-09-03T16:00Z") == _batch.RC_FINDINGS
+    capsys.readouterr()
+    first_pass = spans(packet_text(two_organ))
+    # ruled — its span is still on the page (a correction is a new dated
+    # page, not an edit), and it is EXACTLY what pass0 rendered: not re-spliced
+    assert first_pass["m-12_resumed"] == pass0["m-12_resumed"]
+
+    (reviews / f"{AM}-r2.md").write_text(
+        f"# Batch review {AM}-r2\n\n"
+        f"- packet: batches/packets/{AM}.html\n"
+        "- reviewed-at: 2026-09-03T18:00Z\n\n"
+        "## 01_partial — SUSPECT\n- decision: accept\n- ruled: yes\n\n"
+        "Good enough.\n", encoding="utf-8")
+    # every member but 11_healthy (HEALTHY) is now ruled — nothing left needs
+    # a finding
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", "2026-09-03T19:00Z") == _batch.RC_OK
+    out = capsys.readouterr().out
+    assert "packet refreshed" in out
+    second_pass = spans(packet_text(two_organ))
+    # ruled at the FIRST sitting — untouched by the second refresh too
+    assert second_pass["m-12_resumed"] == first_pass["m-12_resumed"]
+    # ruled at the SECOND sitting — frozen at what the first refresh rendered
+    assert second_pass["m-01_partial"] == first_pass["m-01_partial"]
+    # the member neither sitting rules on keeps being re-spliced, unchanged
+    assert second_pass["m-11_healthy"] == first_pass["m-11_healthy"] \
+        == pass0["m-11_healthy"]
+
+    text = record_text(two_organ)
+    assert f"- review: batches/reviews/{AM}.md" in text
+    assert f"- review: batches/reviews/{AM}-r2.md" in text
+    assert text.count("- review:") == 2, "one line per sitting"
+
+
+def test_a_ruled_member_is_not_re_spliced_even_if_its_phase_changes(
+        two_organ, capsys):
+    """`_on_the_board` drops a ruled member from `d["members"]` for good — its
+    packet span is what the human was shown, not a live view, so a change to
+    the underlying phase file AFTER the ruling still leaves the rendered
+    section exactly as it was."""
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", STAMP) == _batch.RC_FINDINGS
+    capsys.readouterr()
+    before = spans(packet_text(two_organ))["m-12_resumed"]
+
+    (two_organ["root"] / "batches" / "reviews" / f"{AM}.md").write_text(
+        f"# Batch review {AM}\n\n"
+        f"- packet: batches/packets/{AM}.html\n"
+        "- reviewed-at: 2026-09-03T15:00Z\n\n"
+        "## 12_resumed — FAILED\n- decision: rerun\n- ruled: yes\n\n"
+        "It resumed the previous fit.\n", encoding="utf-8")
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", "2026-09-03T16:00Z") == _batch.RC_FINDINGS
+    capsys.readouterr()
+
+    # mutate the ruled member's own phase file — a live re-score would notice
+    set_run_state(two_organ, "phases/example/12_resumed.md", "running")
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", "2026-09-03T17:00Z") == _batch.RC_FINDINGS
+    out = capsys.readouterr().out
+    assert "already ruled in this slot's review" in out
+    after = spans(packet_text(two_organ))["m-12_resumed"]
+    assert after == before, "ruled — its packet span never moves again"
+
+
+def test_a_slot_closes_when_ruled_or_carried_one_running_stays_open(
+        two_organ, capsys):
+    """`batches/AGENTS.md`: the slot stays open while any non-carried member
+    is still on the board, and closes when nothing is left. A member merely
+    running right now holds the slot open until a sitting actually records it
+    as carried — `_cortex_slot_open` is the same reading `_status.
+    cortex_status` gives the dashboards, replayed against this collect's own
+    `d["members"]` and the record's OWN `- carried:` lines."""
+    assert cli(two_organ, "collect", "--slot", AM, "--apply",
+               "--stamp", STAMP) == _batch.RC_FINDINGS
+    capsys.readouterr()
+    ctx = ctx_of(two_organ)
+    reviews = two_organ["root"] / "batches" / "reviews"
+    rec = _batch.read_record(record_text(two_organ))
+
+    d = _batch.collect(two_organ["root"], AM, kind="cortex", cortex=ctx)
+    assert _batch._cortex_slot_open(d, rec) is True, \
+        "nothing ruled or carried yet — every member holds the board open"
+
+    reviews.mkdir(parents=True, exist_ok=True)
+    (reviews / f"{AM}.md").write_text(
+        f"# Batch review {AM}\n\n"
+        f"- packet: batches/packets/{AM}.html\n"
+        "- reviewed-at: 2026-09-03T15:00Z\n\n"
+        "## 12_resumed — FAILED\n- decision: rerun\n- ruled: yes\n\nRerun.\n\n"
+        "## 01_partial — SUSPECT\n- decision: accept\n- ruled: yes\n\nOK.\n",
+        encoding="utf-8")
+    d_open = _batch.collect(two_organ["root"], AM, kind="cortex", cortex=ctx)
+    assert _batch._cortex_slot_open(d_open, rec) is True, \
+        "11_healthy is still awaiting-ruling and not yet recorded as carried"
+
+    # the SAME board state, but 11_healthy is already recorded (by an earlier
+    # sitting) as carried — nothing left worth waiting for
+    rec_carried = _batch.read_record(
+        record_text(two_organ)
+        + "- carried: 11_healthy — still awaiting-ruling at review\n")
+    assert _batch._cortex_slot_open(d_open, rec_carried) is False, \
+        "the one member left is already carried — not running, not open"
+
+    # …and ruling every member closes it outright, no carry needed at all
+    (reviews / f"{AM}.md").write_text(
+        f"# Batch review {AM}\n\n"
+        f"- packet: batches/packets/{AM}.html\n"
+        "- reviewed-at: 2026-09-03T15:00Z\n\n"
+        "## 11_healthy — HEALTHY\n- decision: accept\n- ruled: yes\n\nGood.\n\n"
+        "## 12_resumed — FAILED\n- decision: rerun\n- ruled: yes\n\nRerun.\n\n"
+        "## 01_partial — SUSPECT\n- decision: accept\n- ruled: yes\n\nOK.\n",
+        encoding="utf-8")
+    d_closed = _batch.collect(two_organ["root"], AM, kind="cortex", cortex=ctx)
+    assert _batch._cortex_slot_open(d_closed, rec) is False, \
+        "every member ruled — nothing left on the board"
 
 
 def test_a_record_naming_a_phase_this_cortex_does_not_have_is_a_note(

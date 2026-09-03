@@ -55,6 +55,19 @@ from _theme import (  # noqa: E402
     JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
 )
 
+# The batch-status box: one reading of "is a batch in flight", shared with
+# the Cortex's dashboard (agents/conductors/batch/_status.py). Not `_batch`
+# itself: its `read_record` has no `member_re` param and its member grammar
+# (outcomes hold spaces) needs `_batch.py`'s own post-split, which `_status`'s
+# generic groupdict extraction cannot carry — see `_dev_member` below — and
+# `_batch.py` is a live edit surface this render path should not couple to.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "agents"
+                       / "conductors" / "batch"))
+from _status import (  # noqa: E402
+    dev_status, pick_slot, read_record,
+    render_html as _status_box_html, render_md as _status_box_md,
+)
+
 THEME_ORGAN = "mind"  # whose logo this page wears
 
 # --- work-type classification -------------------------------------------------
@@ -1612,6 +1625,7 @@ def census(mind: Path) -> dict:
         # Render-only, and never fatal: a Mind with no Cortex beside it draws
         # no badge and says nothing about it.
         "cortex_gates": cortex_gates(mind),
+        "batch": _batch_status(mind),
     }
     c["recent"] = recent_events(c)
     return c
@@ -1641,6 +1655,57 @@ def _pages_url(home: str) -> str:
     """The GitHub Pages site URL for a repo home, `''` when underivable."""
     m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
     return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
+
+
+# The dev batch record's member grammar — duplicated from
+# `agents/conductors/batch/_batch.py`'s `MEMBER_RE`/`parse_member`/`_dash`
+# (not imported: see the `_status` import above). `  - <slug>: <path> —
+# <tier> — <minutes> — <outcome…>`; the outcome is split last and kept whole
+# however long it runs, because unlike the Cortex's grammar every real dev
+# outcome sentence contains spaces.
+_DEV_MEMBER_RE = re.compile(r"^  - (?P<slug>[^:]+): (?P<rest>.+)$")
+
+
+def _dev_member(raw: str) -> dict | None:
+    """One dev member row, or `None` when the line is not this grammar."""
+    m = _DEV_MEMBER_RE.match(raw.replace(" -- ", " — "))
+    if not m:
+        return None
+    fields = [f.strip() for f in m.group("rest").split(" — ", 3)]
+    if len(fields) != 4:
+        return None
+    path, tier, minutes, outcome = fields
+    if not path or " " in path:
+        return None
+    return {"slug": m.group("slug").strip(), "path": path, "tier": tier,
+            "minutes": minutes, "outcome": outcome}
+
+
+def _batch_status(mind: Path) -> dict | None:
+    """`c["batch"]` — the batch-status box's reading of the Mind's side.
+
+    Records live at `<mind>/batches/*.md`; a slot closes once it has been
+    reviewed — `reviewed-at:` stamped in the record, or a
+    `<mind>/batches/reviews/<slot>.md` file on disk (`dev_status` checks
+    both). The review button appears once `collect` has stamped `collected:`
+    — that is when `batches/packets/<slot>.html` exists to press it on.
+    """
+    batches = mind / "batches"
+    if not batches.is_dir():
+        return None
+    pages = _pages_url(_mind_home(mind))
+    readings = []
+    for path in sorted(batches.glob("*.md")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        rec = read_record(text)
+        members = []
+        for row in rec["members"]:
+            parsed = _dev_member(row["raw"])
+            members.append({**row, **parsed} if parsed else row)
+        review_exists = (batches / "reviews" / f"{path.stem}.md").is_file()
+        readings.append(dev_status(path.stem, rec["keys"], members,
+                                   review_exists, pages))
+    return pick_slot(readings)
 
 
 # --------------------------------------------------------- the Cortex badge ---
@@ -2116,6 +2181,7 @@ def render_dashboard(c: dict) -> str:
               "prompt never advanced, so it still renders as backlog:", ""]
         L += [f"> - `{d}`" for d in c["drift"]]
         L += [""]
+    L += [_status_box_md(c["batch"]), ""]
     L += ["## Start here", ""]
 
     # Epic members never appear in the pick lists or the work-type sections —
@@ -2417,6 +2483,7 @@ def render_dashboard_html(c: dict) -> str:
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
         H += [f"<li><code>{_attr(d)}</code></li>" for d in c["drift"]]
         H += ["</ul>"]
+    H.append(_status_box_html(c["batch"]))
     H += ["<h2>Start here</h2>"]
 
     members = _epic_members(c)

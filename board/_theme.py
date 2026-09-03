@@ -534,6 +534,11 @@ table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
 .boards a{display:inline-block;padding:.3rem .7rem;border-radius:999px;
  font-size:.82em;font-weight:600;border:1px solid currentColor;opacity:.85}
 .boards a:hover{opacity:1;text-decoration:none}
+/* --- the review button: the batch-status box's `_status.render_html` ---- */
+a.go{display:inline-block;margin-top:.15rem;padding:.35rem .8rem;
+ border-radius:999px;font-size:.85em;font-weight:600;color:#fff;
+ background:var(--warn)}
+a.go:hover{opacity:.9;text-decoration:none}
 .mdsrc{font-size:.85em}
 """
 

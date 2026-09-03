@@ -73,6 +73,16 @@ from _theme import (  # noqa: E402
     JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
 )
 
+# The batch-status box: one reading of "is a batch in flight", shared with
+# the Mind's dashboard (agents/conductors/batch/_status.py). Same import
+# shape as `_theme` above, for the same reason — this page renders with only
+# Brain + Cortex checked out, and `_status` is stdlib-and-`_theme`-only.
+sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "batch"))
+from _status import (  # noqa: E402
+    cortex_status, pick_slot, read_record,
+    render_html as _status_box_html, render_md as _status_box_md,
+)
+
 THEME_ORGAN = "cortex"  # whose logo this page wears
 CORTEX_REPO = "PyAutoCortex"  # an organ name, not an instance fact
 
@@ -262,40 +272,12 @@ def _int(value: str) -> int | None:
     return int(v) if v.isdigit() else None
 
 
-# The batch record's own grammar, read here rather than through the Cortex
+# The batch record's own grammar — `RECORD_KEY` lives in `_status.py` now
+# (`read_record`, imported above), read here rather than through the Cortex
 # script's `_record_members`: that helper keeps only the FIRST value of a
 # repeated key, and `- refreshed:` is repeated once per pull — which is
 # exactly the live-progress signal this board wants.
-RECORD_KEY = re.compile(r"^- ([a-z][a-z0-9-]*):(?:\s+(.*?))?\s*$")
 REFRESHED = re.compile(r"^(?P<at>\S+)(?:\s+[—-]+\s+(?P<note>.*))?$")
-
-
-def read_record(text: str, member_re=None) -> dict:
-    """One batch record as `{"keys": {k: [v, …]}, "members": [row, …]}`.
-
-    Every value of every key is kept, in file order — the lossless reader the
-    live-progress strip and (phase 2b) `collect` both need.
-    """
-    keys: dict[str, list[str]] = {}
-    members: list[dict] = []
-    in_members = False
-    for lineno, raw in enumerate(text.split("\n"), 1):
-        m = RECORD_KEY.match(raw)
-        if m:
-            in_members = m.group(1) == "members"
-            keys.setdefault(m.group(1), []).append((m.group(2) or "").strip())
-            continue
-        if in_members and raw.startswith("  - "):
-            row = {"lineno": lineno, "raw": raw}
-            mm = member_re.match(raw.replace("--", "—")) if member_re else None
-            if mm:
-                row.update({k: (mm.groupdict().get(k) or "").strip()
-                            for k in ("slug", "path", "runs", "minutes", "state")
-                            if k in mm.groupdict()})
-            members.append(row)
-        elif raw.strip() and not raw.startswith("    ") and in_members:
-            in_members = False
-    return {"keys": keys, "members": members}
 
 
 def _refresh_index(root: Path, mod) -> dict:
@@ -431,9 +413,10 @@ def census(root: Path) -> dict:
     gated = sorted([r for r in rows if r["state"] == "gated"],
                    key=lambda r: (r["project"], r["phase"] or 0, r["rel"]))
 
+    home = _home(root)
     return {
         "root": str(root),
-        "home": _home(root),
+        "home": home,
         "generated": _dt.date.today().isoformat(),
         "phases": rows,
         "by_state": by_state,
@@ -446,6 +429,7 @@ def census(root: Path) -> dict:
         "epics": parse_epics(root / "epics.md"),
         "batches": [p.stem for p in mod.batch_records(root)],
         "reviews": [p.stem for p in mod.batch_reviews(root)],
+        "batch": _slot_status(root, mod, rows, _pages_url(home)),
         "problems": project_problems + phase_problems + ruling_problems,
     }
 
@@ -638,6 +622,26 @@ def _live_note(r: dict) -> str:
     return " · ".join(bits)
 
 
+def _slot_status(root: Path, mod, rows: list, pages: str) -> dict | None:
+    """`c["batch"]` — the batch-status box's one reading.
+
+    A batch record's own `- slug: … — state` is a dispatch-time (or
+    last-refresh-time) snapshot; the phase file's `State:` is what actually
+    happened since. So `states` here is the CENSUS's reading (this run's
+    `rows`, keyed by slug) and `cortex_status` joins each record's members to
+    it rather than trusting the record's inline word. `live` is `_live_note`
+    per slug, the same live-progress text the "live" section already shows.
+    """
+    states = {r["slug"]: r["state"] for r in rows}
+    live = {r["slug"]: _live_note(r) for r in rows}
+    readings = []
+    for path in mod.batch_records(root):
+        rec = read_record(path.read_text(encoding="utf-8"), mod.MEMBER_RE)
+        readings.append(cortex_status(path.stem, rec["keys"], rec["members"],
+                                      states, live, pages))
+    return pick_slot(readings)
+
+
 def _gate_note(r: dict) -> str:
     bits = [", ".join(r["gates"]) or "no refs"]
     if r["gate_override"]:
@@ -696,6 +700,8 @@ def render_dashboard(c: dict) -> str:
               "check` reports:", ""]
         L += [f"> - `{_cell(p)}`" for p in c["problems"][:10]]
         L += [""]
+
+    L += [_status_box_md(c["batch"]), ""]
 
     L += h2("awaiting")
     L += _items([_task_row(_phase_head(r)
@@ -845,6 +851,8 @@ def render_dashboard_html(c: dict) -> str:
               "<code>scripts/cortex.py check</code> reports:</p>", "<ul>"]
         H += [f"<li><code>{_attr(p)}</code></li>" for p in c["problems"][:10]]
         H += ["</ul>"]
+
+    H.append(_status_box_html(c["batch"]))
 
     H.append(h2("awaiting"))
     for r in c["awaiting"]:

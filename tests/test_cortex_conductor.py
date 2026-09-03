@@ -158,6 +158,47 @@ def test_the_pages_wear_the_cortex_and_nothing_of_the_mind(skeleton):
     assert "PyAutoMind" not in html and "/start_dev" not in html
 
 
+def test_the_batch_box_lists_every_member_of_the_open_slot(skeleton):
+    st = _cortex.census(skeleton)["batch"]
+    assert st is not None and st["slot"] == "2026-09-01-pm"
+    assert {r["slug"] for r in st["members"]} == {
+        "05_running_array", "06_pulled", "07_awaiting_ruling",
+        "08_accepted", "09_rerun", "10_dropped"}
+
+
+def test_the_review_button_appears_as_soon_as_one_member_is_awaiting_ruling(skeleton):
+    # The skeleton fixture has no git remote of its own, so `census`'s real
+    # `pages` is `''` and the box falls back to naming the packet — the
+    # button itself is exercised here with an explicit Pages URL, the same
+    # call `census` makes with a real one.
+    mod = _cortex.load_cortex(skeleton)
+    rows = [_cortex._phase_row(mod, ph, {})
+            for ph in mod.load_phases(skeleton)[0]]
+    st = _cortex._slot_status(skeleton, mod, rows,
+                               "https://exampleorg.github.io/PyAutoCortex/")
+    assert st["reviewable"] is True  # one member (07) is awaiting-ruling
+    html = _cortex._status_box_html(st)
+    assert html.count('class="go"') == 1  # one button for the whole box
+    running = next(r for r in st["members"] if r["slug"] == "05_running_array")
+    assert running["state"] != "awaiting review"  # no review control of its own
+
+
+def test_nothing_open_renders_the_fixture(tmp_skeleton):
+    # Rule every live member on the fixture's one batch off the board — the
+    # slot must close, and the box must fall back to the fixed sentence.
+    for slug, was, now in (("05_running_array", "State: running", "State: accepted"),
+                           ("06_pulled", "State: pulled", "State: accepted"),
+                           ("07_awaiting_ruling", "State: awaiting-ruling",
+                            "State: accepted")):
+        f = tmp_skeleton / "phases" / "example" / f"{slug}.md"
+        f.write_text(f.read_text(encoding="utf-8").replace(was, now, 1),
+                     encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    assert c["batch"] is None
+    assert "No batch in flight." in _cortex.render_dashboard(c)
+    assert "No batch in flight." in _cortex.render_dashboard_html(c)
+
+
 def test_the_check_compare_ignores_the_date_but_not_the_content(skeleton):
     """Two renders on different days must compare equal — the Mind's
     normaliser strips only the generated comment, which is why its refresh
@@ -613,13 +654,13 @@ def test_the_conductor_is_stdlib_only_and_never_imports_the_mind():
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
     assert not imported & {"_sizing", "_intake", "yaml"}, sorted(imported)
-    # The whole import list, pinned: stdlib, the one root resolver and the
-    # shared theme. Anything else would be a dependency this page cannot
-    # carry into the Cortex's own workflow.
+    # The whole import list, pinned: stdlib, the one root resolver, the
+    # shared theme and the batch-status box. Anything else would be a
+    # dependency this page cannot carry into the Cortex's own workflow.
     assert imported <= {
         "__future__", "argparse", "ast", "datetime", "html", "importlib",
         "json", "os", "re", "shutil", "subprocess", "sys", "tempfile",
-        "zipfile", "pathlib", "_pyauto_root", "_theme",
+        "zipfile", "pathlib", "_pyauto_root", "_theme", "_status",
     }, sorted(imported)
 
 
