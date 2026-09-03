@@ -48,7 +48,7 @@ TARGET_DEFAULT_WIKI = _sizing_policy()["target_default_wiki"]
 def recommend_workflow(p: dict, factors: dict):
     """Map the task to a development path / re-home suggestion."""
     wt = p["work_type"]
-    if wt in ("research", "experiment", "bug", "refactor") and wt != "feature":
+    if wt in ("research", "bug", "refactor") and wt != "feature":
         # Already correctly homed in a non-feature category.
         return wt, None
 
@@ -122,7 +122,7 @@ def execution_plan(workflow: str, factors: dict):
         return ["start_dev <prompt>", "start_library", "ship_library",
                 "start_workspace (uses the library PR's API-change summary)",
                 "ship_workspace"]
-    if workflow in ("research", "experiment"):
+    if workflow == "research":
         return [f"re-home as a {workflow}/ task in PyAutoMind, then scope before start_dev"]
     return [f"re-home as a {workflow}/ task, then run start_dev once scoped"]
 

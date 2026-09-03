@@ -22,7 +22,6 @@ prefix match) and picks the strongest:
 | `release` | release, PyPI, changelog, version bump, wheel |
 | `maintenance` | dependency, bump, upgrade, pin, tech debt |
 | `research` | investigate, explore, open question, design note, scoping |
-| `experiment` | spike, proof of concept, prototype, sandbox |
 | `feature` | add, implement, support, introduce, enable, extend (the default verb set) |
 
 `human_review` is deliberately absent from that table, and is filtered out of

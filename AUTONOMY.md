@@ -52,7 +52,7 @@ A prompt's header never exceeds its work-type cap. The **effective level** is
 | `refactor`, `test`, `maintenance` | `safe` | behaviour-preserving by definition; tests + review are a near-complete gate |
 | `feature`, `docs` | `safe` at Difficulty ≤ `medium`; `supervised` at `large` and above | raised 2026-07-09 on calibration evidence (see "Calibration review — 2026-07-09") |
 | `bug` | `supervised` | the log holds too few bug rows to justify raising (graduation rule below) |
-| `research`, `experiment` | `supervised` | output is judgment-shaped |
+| `research` | `supervised` | output is judgment-shaped |
 | `release` | `human-required` | always, for manual and agent-initiated releases; the **sole** exception is the scheduled-nightly standing grant below (2026-07-09) |
 
 Raising a cap is a doctrine edit to this page and must cite calibration-log

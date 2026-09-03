@@ -20,7 +20,6 @@ keep it organised — re-homing mis-filed prompts.
 | `bug/` | incorrect behaviour, crash, regression | `bug/` |
 | `refactor/` | internal restructuring, no behaviour change | `refactor/` |
 | `research/` | unclear science → investigate before building | `research/` |
-| `experiment/` | proof-of-concept / spike | `experiment/` |
 | `docs/` `test/` `release/` `maintenance/` `triage/` | docs / tests / release / hygiene / unclear | matching folder |
 
 The agent classifies a prompt's intent and, when it does not match `feature/`,
