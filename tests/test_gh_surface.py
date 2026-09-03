@@ -141,26 +141,36 @@ def test_helper_locates_itself_without_readlink(tmp_path):
     assert "GITHUB_ACCESS.md" in r.stderr
 
 
-def test_waiting_for_ci_prefers_being_woken_over_polling():
-    """A poll costs a turn every 90s; a wake costs one per event.
+def test_waiting_for_ci_never_arms_anything_that_outlives_the_turn():
+    """This test used to assert the opposite, and that is the point.
 
-    The MCP surface is usually a *reduced* `gh`, so the one operation where it
-    is strictly better is easy to leave unused. `/prm` is where a run would
-    otherwise sit in a loop, so its wait step must offer the subscription
-    first, and the mapping page must carry the tool that provides it.
+    Being woken *was* the cheaper wait — one turn per event instead of one per
+    90s poll — right up until it became a self-arming overnight loop: a mobile
+    `/prm` subscribed and re-armed an hourly check-in from 02:39 to 12:11 UTC
+    with no task active (2026-09-03), after five batch members did the same on
+    2026-08-31. The rule is now universal: sessions end at their deliverable,
+    so the wait step may not arm a subscription, a `send_later`, a cron or a
+    wake-up. An in-turn poll is still fine — it dies with the turn.
     """
     access = ACCESS_PAGE.read_text()
-    for tool in ("subscribe_pr_activity", "unsubscribe_pr_activity"):
-        assert tool in access, f"{tool} is unmapped"
+    assert "end_at_deliverable" in access, (
+        "the mapping page does not point at the policy")
+    assert "pair it with a `send_later`" not in access, (
+        "the mapping page still endorses a check-in reminder")
 
     prm = (SKILLS / "prm" / "prm.md").read_text()
     wait = prm.split("## 3. Wait, or stop")[1].split("## 4.")[0]
-    assert "subscribe_pr_activity" in wait, "the wait step never mentions waking"
-    assert wait.index("subscribe_pr_activity") < wait.index("~90s"), (
-        "polling is offered before the cheaper wake path")
-    # And the subscription must be dropped, or later sessions wake on a PR
-    # nobody is driving.
-    assert "unsubscribe_pr_activity" in prm.split("## 4.")[1]
+    for banned in ("re-arm", "Be woken"):
+        assert banned not in wait, f"the wait step still endorses {banned!r}"
+    # `send_later` survives only inside the prohibition that names it.
+    assert wait.count("send_later") == 1 and "never `send_later`" in wait, (
+        "the wait step mentions send_later outside the prohibition")
+    assert "end_at_deliverable" in wait, (
+        "the wait step does not cite the policy it enforces")
+    # `subscribe_pr_activity` may appear only inside the prohibition.
+    assert "call it once" not in wait, "the wait step still arms a subscription"
+    assert "never `subscribe_pr_activity`" in wait.lower(), (
+        "the wait step does not forbid subscribing")
 
 
 def test_the_close_out_carries_its_own_mcp_calls():
@@ -170,12 +180,17 @@ def test_the_close_out_carries_its_own_mcp_calls():
     AND the mapping page, then translate step by step. The calls that close a
     task out are few and stable enough to name inline, so the mapping page is
     the index, not a required second read.
+
+    `subscribe_pr_activity` was once on this list, because step 3 on the mobile
+    lane was "subscribe, then be woken". It is not a call the lane makes any
+    more — sessions end at their deliverable — so requiring it here would pin
+    the trap back in place.
     """
     prm = (SKILLS / "prm" / "prm.md").read_text()
     lane = prm.split("### The `mcp` lane")[1].split("## 1.")[0]
     for call in ("pull_request_read", "actions_list", "get_job_logs",
                  "merge_pull_request", "add_issue_comment", "issue_write",
-                 "subscribe_pr_activity", "get_file_contents"):
+                 "get_file_contents"):
         assert call in lane, f"the mcp lane never names {call}"
     # The two traps that cost a run its turns, not just a lookup.
     assert "head_sha" in lane, "nothing warns that runs cannot be filtered by sha"

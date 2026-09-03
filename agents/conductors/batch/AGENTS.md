@@ -182,7 +182,9 @@ what a dispatcher actually needs before writing one.
    deliverable** — no PR watching, no event subscriptions, no self-armed
    check-ins after the last push; the batch review owns follow-through
    (2026-08-31: a bare-spawned wave died on missing sources, and green
-   members' self-armed check-ins drained usage overnight).
+   members' self-armed check-ins drained usage overnight). The rule is now
+   universal, not a batch-only exemption
+   (`PyAutoMind/policy/end_at_deliverable.md`).
 6. **Open the packet now** (2026-08-31): write the review page to
    `PyAutoMind/batches/packets/<date>-<slot>.html` with every member present
    — overnight runs as PENDING entries — stamped `generated:`. The human

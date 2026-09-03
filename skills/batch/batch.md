@@ -94,7 +94,9 @@ In order:
      park.* The dispatch line must say, and members must obey: **do not watch
      the PR, do not `subscribe_pr_activity`, do not schedule check-ins or
      routines after the last push.** The batch review owns everything that
-     follows; the general PR-steward doctrine does not apply to a batch member.
+     follows. This is no longer a batch-only exemption: every session ends at
+     its deliverable (`PyAutoMind/policy/end_at_deliverable.md`), `/prm`
+     included.
      Five members self-armed 2–4-hourly check-ins on green PRs overnight and
      drained usage with no task active. At collect, the orchestrator deletes
      any member-armed routine it finds and archives finished member sessions.

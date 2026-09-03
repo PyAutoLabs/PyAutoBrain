@@ -113,20 +113,21 @@ leave it that way.
 | Create a branch | `gh api -X POST .../git/refs` | `create_branch` |
 | Releases | `gh release view/list` | `get_latest_release`, `list_releases`, `get_release_by_tag` |
 | Who am I | `gh api user` | `get_me` |
-| Be woken by CI / comments on a PR | *(no equivalent — a CLI polls)* | `subscribe_pr_activity`, `unsubscribe_pr_activity` |
+| Be woken by CI / comments on a PR | *(no equivalent — a CLI polls)* | `subscribe_pr_activity`, `unsubscribe_pr_activity` exist but are **not to be armed** — sessions end at their deliverable; use `unsubscribe_pr_activity` only to clear a stale subscription |
 
 Tool names are given unprefixed; the harness exposes them as
 `mcp__github__<name>`. If a name is not loaded, `ToolSearch` fetches its schema.
 
-That last row is the one place the MCP surface **beats** `gh` rather than
-merely matching it. A CLI can only ask again; a subscribed session is woken by
-the check-suite rollup, so waiting for CI costs one turn per event instead of
-one turn per poll. Take it wherever a run would otherwise sit in a loop
-(`/prm` step 3), and drop the subscription when the PR merges. Webhooks are
-best-effort — a *successful* rollup is the event most likely to go missing — so
-pair it with a `send_later` check-in (claude-code-remote) where that tool
-exists, and re-read the PR's real state on every wake rather than trusting the
-event to be the whole story.
+That last row is the one capability a run must **not** take. A subscription or
+a `send_later` reminder outlives the session's deliverable and wakes turns
+nobody asked for: five batch members self-armed check-ins on green PRs
+overnight (2026-08-31), and a mobile `/prm` subscribed then re-armed an hourly
+check-in all night with no task active (2026-09-03), draining usage. Sessions
+end at their deliverable — judge once, report, stop
+(`PyAutoMind/policy/end_at_deliverable.md`). Waiting for CI is the human's
+re-run of `/prm`, not a timer this session leaves running;
+`unsubscribe_pr_activity` is here only to clear a stale subscription an older
+run left behind.
 
 ## What the MCP surface cannot do
 
