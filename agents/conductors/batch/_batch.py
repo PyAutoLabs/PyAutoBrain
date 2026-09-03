@@ -45,7 +45,7 @@ sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
     BODY_MAP_PATH, LIBRARY_REPOS, effective_autonomy, effective_consequence,
     effective_difficulty, effective_review_minutes, effective_unattended,
-    parse_prompt, priority_rank,
+    normalise_repo, parse_prompt, priority_rank,
 )
 # `_status` (same directory) is the one definition of this vocabulary — the
 # batch status box on both dashboards reads a record the same way this
@@ -157,15 +157,96 @@ def survey(mind: Path) -> list[dict]:
     return out
 
 
+#: A `queue.md` section heading — `## <n>. <label>`. The digits matter: the
+#: file documents its own schema in a fenced block whose heading is the literal
+#: `## <n>. <label>`, and a reader that took it would rank a placeholder.
+QUEUE_HEAD_RE = re.compile(r"^##\s+\d+\.\s+(.+?)\s*$")
+QUEUE_FIELD_RE = re.compile(r"^-\s+(kind|ref):\s*(.+?)\s*$")
+
+
+def read_queue(mind: Path) -> list[str]:
+    """`queue.md` as prompt paths, top of the file first.
+
+    The one file the human maintains by hand, and the only statement of
+    IMPORTANCE the planner has — everything else it reads is a property of the
+    work, not a preference about it. Order is priority: moving an entry up is
+    the act of prioritising it, so the list is returned in file order and
+    nothing here re-sorts it.
+
+    Only `kind: prompt` entries carry a path anyone can plan against. A
+    `retired` entry is history the human left in place, and the other kinds
+    name an epic or a theme rather than a file — they are skipped rather than
+    resolved, because resolving them is a decision (which phase? which chip?)
+    and this function is a reader.
+    """
+    try:
+        text = (mind / "queue.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    out: list[str] = []
+    kind, ref, fenced = "", "", False
+    def flush() -> None:
+        if kind == "prompt" and ref and ref not in out:
+            out.append(ref)
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        if QUEUE_HEAD_RE.match(line):
+            flush()
+            kind, ref = "", ""
+            continue
+        m = QUEUE_FIELD_RE.match(line)
+        if not m:
+            continue
+        value = m.group(2).split("#")[0].strip()
+        if m.group(1) == "kind":
+            kind = value
+        else:
+            ref = value
+    flush()
+    return out
+
+
+def queue_rank(r: dict, queue: list[str]) -> int:
+    """Where this prompt sits in the human's queue; unqueued sorts last.
+
+    Matched on the path, then the basename, because a queue entry is written
+    against `draft/…` and the prompt it names moves to `active/` the moment it
+    is issued — an entry that stopped matching would silently lose its
+    priority rather than reporting anything."""
+    path = r.get("path") or ""
+    if path in queue:
+        return queue.index(path)
+    name = Path(path).name
+    if name:
+        for i, q in enumerate(queue):
+            if Path(q).name == name:
+                return i
+    return len(queue)
+
+
 def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          session_lane: str = "web-github", awaiting_review: int = 0,
-         cap: int = DEFAULT_BACKPRESSURE_CAP) -> dict:
+         cap: int = DEFAULT_BACKPRESSURE_CAP, queue: list[str] | None = None,
+         awaiting_source: str = "given", carried: list[str] | None = None,
+         carried_from: str = "") -> dict:
     """Compose the next batch — a BatchDecision.
 
     Every constraint states itself in `rejected`, because a planner that
     silently drops work teaches the human to distrust the number it reports.
+
+    `queue` is `queue.md` in file order (`read_queue`) — the human's statement
+    of importance, and the only input here that is a preference rather than a
+    property of the work. `awaiting_review` is the review-queue depth, derived
+    from `active.md` by the caller (`derive_awaiting_review`) unless the human
+    passed the flag; `awaiting_source` says which, because a number nobody can
+    trace is a number nobody trusts.
     """
     rejected: list[tuple[str, str]] = []
+    queue = queue or []
 
     # Backpressure RAMPS; it never deadlocks. It measures review-queue DEPTH,
     # never timing: timing is the human's, declared as `review-at:` at dispatch.
@@ -213,9 +294,16 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         else:
             pool.append(r)
 
-    # Cheapest first: this list is read when the human has a slot to fill and
-    # wants to know what fits in it. Importance is answered by the queue's order.
-    pool.sort(key=lambda r: (r["review_minutes"], priority_rank(r), r["path"]))
+    # The queue first, cheapest first within it. `queue.md` is the human's
+    # order and outranks everything: a queued prompt beats an unqueued one, and
+    # among queued ones the file's order wins, because moving an entry up IS
+    # the act of prioritising it. Below the queue the old rule stands —
+    # cheapest first, since this list is read when there is a slot to fill and
+    # the question is what fits in it.
+    for r in pool:
+        r["queue_rank"] = queue_rank(r, queue)
+    pool.sort(key=lambda r: (r["queue_rank"], r["review_minutes"],
+                             priority_rank(r), r["path"]))
 
     members, spent, seen_epics, libs = [], 0, set(), set()
     for r in pool:
@@ -248,7 +336,10 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         "review_budget": budget,
         "effective_budget": effective_budget,
         "backpressure": {"awaiting_review": awaiting_review, "cap": cap,
-                         "state": pressure},
+                         "state": pressure, "source": awaiting_source},
+        "queue": queue,
+        "carried": carried or [],
+        "carried_from": carried_from,
         "review_minutes_planned": spent,
         "members": members,
         "rejected": rejected,
@@ -275,15 +366,29 @@ def emit(d: dict) -> None:
     print(f"Session lane:      {lane}")
     print(f"Review budget:     {d['effective_budget']} of {d['review_budget']} min "
           f"({d['backpressure']['state']}; "
-          f"{d['backpressure']['awaiting_review']} awaiting review, "
+          f"{d['backpressure']['awaiting_review']} awaiting review "
+          f"[{d['backpressure'].get('source', 'given')}], "
           f"cap {d['backpressure']['cap']})")
+    print(f"Queue:             {len(d.get('queue') or [])} prompt entr"
+          f"{'y' if len(d.get('queue') or []) == 1 else 'ies'} from queue.md "
+          f"(queued members marked q<n>)")
     print(f"Planned:           {d['review_minutes_planned']} review-minutes over "
           f"{len(d['members'])} member(s)")
+    if d.get("carried"):
+        # Read first, because a carried member is work the human is already
+        # holding: it costs review-minutes in THIS slot that no new member
+        # accounted for.
+        print(f"Carried in:        {', '.join(d['carried'])} "
+              f"(from {d.get('carried_from') or 'the previous slot'}) — still "
+              f"in flight, and yours to review before anything new")
     print()
     if d["members"]:
+        queued = len(d.get("queue") or [])
         for r in d["members"]:
             cost = 0 if r["consequence"] in CHEAP_TIERS else r["review_minutes"]
-            print(f"  {cost:>3} min  {r['consequence']:<7} {r['path']}")
+            rank = r.get("queue_rank", queued)
+            mark = f"q{rank + 1}" if rank < queued else "  "
+            print(f"  {mark:<3}{cost:>3} min  {r['consequence']:<7} {r['path']}")
             if not r["witness"]:
                 print("           (no witness — reviewed as `judge`)")
     elif d["effective_budget"] == 0:
@@ -620,6 +725,37 @@ def read_active(mind: Path) -> dict:
     if slug:
         out[slug] = _active_entry(slug, "\n".join(buf))
     return out
+
+
+#: An `active.md` status that says this task's PRs are open and unmerged. The
+#: `library-pr:`/`workspace-pr:` keys are the PRIMARY signal — they are the PR
+#: ledger (PyAutoMind REFERENCE.md, "The PR keys") — and these words are the
+#: fallback for rows written before that schema existed.
+AWAITING_STATUS_WORDS = ("awaiting-merge", "pr open", "pr-open")
+
+
+def derive_awaiting_review(mind: Path) -> int:
+    """How deep the human's review queue already is, read from `active.md`.
+
+    The backpressure input used to default to 0 and was never derived, so every
+    plan composed a shift as though nothing were waiting — the one input that
+    is supposed to SHRINK a batch could only ever be supplied by hand, and
+    never was. A task counts when its row names an open PR (`library-pr:` /
+    `workspace-pr:`) or its `status:` says so in words.
+
+    Deliberately NOT a `gh` call. `active.md` is the ledger; GitHub is the
+    truth about mergeability and nobody should have to be online to plan a
+    shift (`mind_post_cortex_epic.md`: no live PR state in Mind).
+    """
+    n = 0
+    for entry in read_active(mind).values():
+        keyed = any(PR_URL_RE.search(v)
+                    for key in ("library-pr", "workspace-pr")
+                    for v in entry["keys"].get(key, []))
+        spoken = any(w in entry["status"].lower() for w in AWAITING_STATUS_WORDS)
+        if keyed or spoken:
+            n += 1
+    return n
 
 
 def active_for(member: dict, active: dict) -> tuple:
@@ -995,6 +1131,199 @@ def _md_link(text: str, url: str) -> str:
     return f"[{text}]({url})" if url else text
 
 
+# ------------------------------------------------------ ledger outcomes ---
+# What became of each member, read from the LEDGER and nothing else. Before
+# this, a collected member kept whatever the record's outcome column said and
+# `batches/reviews/…` recorded `decision: UNREVIEWED` for all nine members of
+# the 2026-08-31-pm slot — every one of which had in fact merged. The
+# completion records knew (`- batch: <slot> — member `<slug>``); nothing
+# read them.
+#
+# Offline by construction: no `gh`, no network. The four outcomes are what the
+# organism's own files can prove.
+OUTCOMES = ("merged", "rejected-at-review", "carried", "unreviewed")
+
+#: How a `complete/` record names the batch member it shipped as.
+MEMBER_CITE_RE = re.compile(r"member `([^`]+)`")
+
+#: A review `decision:` that rejected the member. Matched on the first word so
+#: `reject`, `rejected`, `REJECTED — <reason>` are all one ruling.
+REJECT_WORDS = ("reject", "rejected")
+
+
+def completed_members(mind: Path, slot: str = "") -> dict:
+    """`{member slug: complete/ record path}` — every member the completion
+    ledger says shipped.
+
+    Two joins, because records are filed under the TASK's name and a batch
+    member carries a DISPATCH label, and they routinely differ
+    (`autofit-resampling-info` shipped as `resampling-info-summary-section`).
+    The record's own `- batch: <slot> — member `<slug>`` line is the
+    authoritative one; the record filename is the fallback for a member whose
+    task was named after it."""
+    out: dict[str, str] = {}
+    for f in sorted(mind.glob("complete/**/*.md")):
+        if f.name == "index.md":
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = str(f.relative_to(mind))
+        for line in text.split("\n"):
+            if not line.startswith("- batch:"):
+                continue
+            if slot and slot not in line:
+                continue
+            for m in MEMBER_CITE_RE.finditer(line):
+                out[m.group(1)] = rel
+        out.setdefault(f.stem, rel)
+    return out
+
+
+def member_outcome(member: dict, ctx: dict) -> tuple:
+    """`(outcome, why)` for one member, from the ledger only.
+
+    Order matters. A rejected member is still in `active.md` — it is work that
+    came back — so the review must be read before the registry, or every
+    rejection would report as `carried`. A merged one is read first of all:
+    its `complete/` record is the end of the story and outranks any row left
+    behind in `active.md`.
+    """
+    slug = member.get("slug", "")
+    record = (ctx.get("completed") or {}).get(slug)
+    if record:
+        return "merged", f"complete/ record: {record}"
+    row = ((ctx.get("review") or {}).get("members") or {}).get(slug) or {}
+    decision = (row.get("decision") or "").strip()
+    if decision.split()[:1] and decision.split()[0].strip(",.:").lower() in REJECT_WORDS:
+        return "rejected-at-review", f"review decision: {decision}"
+    entry, how = active_for(member, ctx.get("active") or {})
+    if entry is not None:
+        return "carried", f"still in active.md as `{entry['slug']}` (by {how})"
+    return "unreviewed", "no complete/ record, no ruling, no active.md row"
+
+
+def read_outcomes(text: str) -> dict:
+    """The record's `- outcomes:` block as `{slug: outcome}`.
+
+    `read_record` deliberately does not see the body of a non-`members:` block
+    (it keeps only key VALUES), so this reads the lines itself — the same way
+    `- notes:` is left alone."""
+    out: dict[str, str] = {}
+    inside = False
+    for raw in text.split("\n"):
+        if raw.startswith("- outcomes:"):
+            inside = True
+            continue
+        if not inside:
+            continue
+        if raw.startswith("  - "):
+            slug, _, value = raw[4:].partition(":")
+            if value.strip():
+                out[slug.strip()] = value.strip().split()[0]
+            continue
+        if raw.strip():
+            inside = False
+    return out
+
+
+def previous_carried(mind: Path) -> tuple:
+    """`(slot, [slug…])` — what the last collected slot handed forward.
+
+    The next plan reads these FIRST: a carried member is already costing the
+    human review-minutes in the slot being planned, and a batch composed as
+    though it were not is over-sold by exactly that much."""
+    slot = newest_slot(mind)
+    if not slot:
+        return "", []
+    try:
+        text = (mind / "batches" / f"{slot}.md").read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return "", []
+    return slot, [s for s, o in read_outcomes(text).items() if o == "carried"]
+
+
+# --------------------------------------------------------- the merge order ---
+def _repo_key(name: str) -> str:
+    """One repo, one key. The prompt header spells it `autofit`, a PR URL
+    spells it `PyAutoFit`, and a merge order that treated those as two repos
+    would serialise neither."""
+    key = normalise_repo(name)
+    return key[2:] if key.startswith("pyauto") else key
+
+
+def _member_repos(s: dict) -> list:
+    """Every repo this member touches, deduplicated by `_repo_key`.
+
+    Three sources, because no single one covers a whole slot: the prompt's
+    `Repos:` header (absent once the prompt is absorbed into its completion
+    record), the PRs the evidence found, and the PR links the member's
+    `active.md` row carries. A member whose prompt has moved on still merges
+    into a repo."""
+    urls = [pr.get("url") or "" for pr in s.get("prs") or []]
+    urls += [u for _label, u in s.get("links") or []]
+    names = list((s.get("facts") or {}).get("repos") or [])
+    names += [m.group(2) for u in urls for m in [PR_URL_RE.match(u)] if m]
+    out, seen = [], set()
+    for name in names:
+        key = _repo_key(name)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(name)
+    return out
+
+
+def merge_order(members: list, dispatch_order: list) -> list:
+    """The order to merge this slot's PRs in — advice, never an action.
+
+    `collect` used to decline this outright ("members is sorted by HEALTH, so
+    it cannot drive a merge order"), which is true of that list and not of the
+    record: `dispatch_order` is the order the human listed the members in, and
+    it is stable. Three rules on top of it:
+
+    1. **Library first.** A workspace change is validated against the library
+       it calls, so the library PR lands first — the same gate `/prm` applies
+       (`ship_workspace`, "library-first merge gate").
+    2. **Same repo, one at a time.** The first merge moves `main` and stales
+       every sibling's test and CI evidence; the sequence says which sibling
+       is re-validated against what.
+    3. **Otherwise, dispatch order**, so the sequence a human reads matches
+       the shift they dispatched.
+
+    Nothing is filtered: a member with no PR is still listed, in its place,
+    with what it is waiting on — an order that silently omits a member is an
+    order somebody merges out of.
+    """
+    def libs_of(s: dict) -> list:
+        return [r for r in _member_repos(s) if _repo_key(r) in LIBRARY_REPOS]
+
+    pos = {slug: i for i, slug in enumerate(dispatch_order)}
+    rows = sorted(members, key=lambda s: (0 if libs_of(s) else 1,
+                                          pos.get(s["slug"], len(pos)),
+                                          s["slug"]))
+    out, seen = [], {}
+    for s in rows:
+        repos = _member_repos(s)
+        libs = libs_of(s)
+        shared = [(r, seen[_repo_key(r)]) for r in repos
+                  if _repo_key(r) in seen]
+        why = (f"library ({', '.join(libs)}) — before its workspace dependants"
+               if libs else
+               (f"{', '.join(repos)} — after the libraries" if repos
+                else "no repo recorded — order is the dispatch order"))
+        if shared:
+            why += "; after " + ", ".join(f"{slug} (shares {r})"
+                                          for r, slug in shared)
+        if not s.get("prs") and not s.get("links"):
+            why += "; no PR recorded — nothing to merge yet"
+        out.append({"slug": s["slug"], "repos": repos, "why": why})
+        for r in repos:
+            seen[_repo_key(r)] = s["slug"]
+    return out
+
+
 def score_dev(member: dict, ctx: dict) -> dict:
     """One dev member, scored. The ONLY shape the report and the renderer read.
 
@@ -1205,7 +1534,11 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
     ctx = {"mind": mind, "root": root, "organ": organ, "slot": slot,
            "active": read_active(mind) if kind == "dev" else {},
            "evidence": evidence or {}, "notes": notes, "kinds": kinds,
-           "cortex": cortex}
+           "cortex": cortex,
+           # The completion ledger, read once: `member_outcome` asks it per
+           # member and re-globbing `complete/**` for each one would read the
+           # same few hundred files ten times over.
+           "completed": completed_members(mind, slot) if kind == "dev" else {}}
 
     if kind == "cortex":
         # A rolling slot may have more than one sitting — see `_merge_reviews`.
@@ -1217,6 +1550,7 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
                   if review_path.is_file() else None)
     ruled = {slug for slug, row in (review or {}).get("members", {}).items()
              if row.get("ruled") == "yes"}
+    ctx["review"] = review
 
     scored = []
     for member in rec["members"]:
@@ -1229,6 +1563,11 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
             s["blocks"] = blocks(s)
         if name == "cortex" and not _on_the_board(s, ruled, notes):
             continue
+        if name == "dev":
+            # The record's outcome column is EVIDENCE ("PyAutoFit#1554, 4/4
+            # checks green"); this is the ACCOUNTING — what became of the
+            # member. Two different questions, two different fields.
+            s["outcome_ledger"], s["outcome_why"] = member_outcome(member, ctx)
         scored.append(s)
         notes += [f"{s['slug']}: {n}" for n in s.get("notes", [])]
     # Failures first, then what cannot be trusted, then the clean ones, then
@@ -1261,6 +1600,13 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
         # human listed the members in — and it is the order `--integration`
         # merges heads in, so the preview matches the shift.
         "dispatch_order": [m["slug"] for m in rec["members"]],
+        # …but it CAN drive a merge order, which is what `merge_order` makes of
+        # it: dispatch order, library repos first, same-repo members
+        # serialised. Advice for the human's `/prm` sequence, never an action.
+        "merge_order": (merge_order(scored, [m["slug"] for m in rec["members"]])
+                        if kind == "dev" else []),
+        "outcomes": {s["slug"]: s["outcome_ledger"] for s in scored
+                     if s.get("outcome_ledger")},
         "integration_requested": _yes(rec["keys"].get("integration")),
         # Read for `--push` only: `review-at` is what the default expiry of a
         # published ref hangs off, and a `sweep-after:` the human wrote is
@@ -1351,6 +1697,7 @@ def collect_report(d: dict) -> str:
             for slug in d["not_delivered"])
         L += [f"**NOT DELIVERED — {n} of {total}**: {why}", ""]
     L += _integration_report(d)
+    L += _merge_order_report(d)
     for s in d["members"]:
         L += _member_report(s)
     if d["review"] is not None:
@@ -1367,10 +1714,25 @@ def collect_report(d: dict) -> str:
     return "\n".join(L) + "\n"
 
 
+def _merge_order_report(d: dict) -> list:
+    """The `/prm` sequence, said once, near the top — it is read before any
+    member is opened, and it is the whole reason `dispatch_order` is kept."""
+    if not d.get("merge_order"):
+        return []
+    L = ["## Merge order", "",
+         "Advice for your `/prm` sequence — nothing here is enacted:", ""]
+    for i, row in enumerate(d["merge_order"], 1):
+        L.append(f"{i}. **{row['slug']}** — {row['why']}")
+    return L + [""]
+
+
 def _member_report(s: dict) -> list:
     L = [f"## {s['slug']} — {s['health']}", ""]
     facets = [x for x in (f"`{s['path']}`" if s["path"] else "", s["eyebrow"],
-                          f"{s['est_minutes']} est. review-minutes") if x]
+                          f"{s['est_minutes']} est. review-minutes",
+                          (f"outcome: {s['outcome_ledger']} "
+                           f"({s.get('outcome_why', '')})")
+                          if s.get("outcome_ledger") else "") if x]
     L += [" — ".join(facets), ""]
     for label, body in s["blocks"]:
         L += [f"**{label}**", "", body, ""]
@@ -2036,6 +2398,36 @@ def _insert_anchor(rec: dict) -> int:
     return last
 
 
+#: A line the block writer has replaced. Dropped in the LAST pass of
+#: `record_update`, after the inserts have landed, so no index-based write in
+#: this module ever sees a list whose length has changed under it.
+_DROPPED = "\x00dropped"
+
+
+def _set_block(lines: list, rec: dict, key: str, values: list, inserts: list,
+               *, fill: bool = False) -> None:
+    """Write `- <key>:` followed by its indented `  - ` entries.
+
+    The record's other writes are one line each; these two blocks are not. An
+    existing block is replaced whole (its old body lines are marked `_DROPPED`,
+    never deleted in place — see that constant), and `fill=True` leaves one
+    that is already there alone, which is what a CLOSED record needs: its
+    contents are history."""
+    body = "\n".join([f"- {key}:"] + [f"  - {v}" for v in values])
+    linenos = rec["key_lines"].get(key)
+    if not linenos:
+        inserts.append(body)
+        return
+    if fill:
+        return
+    start = linenos[0] - 1
+    lines[start] = body
+    i = start + 1
+    while i < len(lines) and lines[i].startswith("  - "):
+        lines[i] = _DROPPED
+        i += 1
+
+
 def _fill_key(lines: list, rec: dict, key: str, value: str,
               inserts: list) -> None:
     """Like `_set_key`, but only where the record has no value yet (or the
@@ -2118,11 +2510,25 @@ def record_update(text: str, d: dict, stamp: str) -> str:
         minutes = review["keys"].get("review-minutes-actual", "")
         if minutes and minutes != "(not given)":
             _fill_key(lines, rec, "review-minutes-actual", minutes, inserts)
+    # The accounting and the advice. Both are DERIVED — from the completion
+    # ledger, the review file and `active.md` — so on an open record they are
+    # rewritten on every apply; on a closed one they are written once and left,
+    # like `delivered:` and `packet:` above.
+    if d.get("outcomes"):
+        _set_block(lines, rec, "outcomes",
+                   [f"{slug}: {outcome}"
+                    for slug, outcome in d["outcomes"].items()],
+                   inserts, fill=closed)
+    if d.get("merge_order"):
+        _set_block(lines, rec, "merge-order",
+                   [f"{i}. {row['slug']} — {row['why']}"
+                    for i, row in enumerate(d["merge_order"], 1)],
+                   inserts, fill=closed)
     inserts.append(f"- refreshed: {stamp} — collect "
                    f"({len(d['members'])} member(s))")
     at = _insert_anchor(rec)
     lines[at:at] = inserts
-    return "\n".join(lines)
+    return "\n".join(ln for ln in lines if ln != _DROPPED)
 
 
 def apply_collect(mind: Path, d: dict, stamp: str) -> list:
@@ -2975,8 +3381,9 @@ def main(argv=None) -> int:
     ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
                     help="review-minutes available in the slot")
-    ap.add_argument("--awaiting-review", type=int, default=0,
-                    help="tasks already awaiting review (backpressure input)")
+    ap.add_argument("--awaiting-review", type=int, default=None,
+                    help="tasks already awaiting review (backpressure input); "
+                         "default: derived from active.md")
     ap.add_argument("--cap", type=int, default=DEFAULT_BACKPRESSURE_CAP)
     ap.add_argument("--lane", default="", help="override the detected session lane")
     ap.add_argument("--json", action="store_true", dest="as_json")
@@ -3053,8 +3460,17 @@ def _main_plan(mind: Path, a, lane: str, kind: str) -> int:
     if not (mind / "draft").is_dir():
         print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
         return RC_NO_MIND
+    # Derived unless the human said otherwise. `is None`, not falsiness:
+    # `--awaiting-review 0` is a human asserting the queue is empty, and it
+    # must beat the derivation rather than fall through to it.
+    if a.awaiting_review is None:
+        awaiting, source = derive_awaiting_review(mind), "derived from active.md"
+    else:
+        awaiting, source = a.awaiting_review, "--awaiting-review"
+    carried_from, carried = previous_carried(mind)
     d = plan(survey(mind), budget=a.budget, session_lane=lane,
-             awaiting_review=a.awaiting_review, cap=a.cap)
+             awaiting_review=awaiting, cap=a.cap, queue=read_queue(mind),
+             awaiting_source=source, carried=carried, carried_from=carried_from)
     if a.as_json:
         print(json.dumps(d, indent=2))
         return RC_OK

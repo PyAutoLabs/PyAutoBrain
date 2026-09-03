@@ -63,6 +63,47 @@ teaches the human to distrust the number it reports.
 Counted in **tasks awaiting review**, never in PRs — 94 of 332 August records
 named two or more PRs, so a PR-count cap trips on a single healthy batch.
 
+**Derived, not asked for.** The count is read from `PyAutoMind/active.md`: a
+task counts when its row names an open PR (`library-pr:` / `workspace-pr:` —
+the PR ledger, `PyAutoMind/REFERENCE.md` "The PR keys") or its `status:` says
+`awaiting-merge` / `PR open` in words, which is how rows written before that
+schema spelled it. `--awaiting-review <n>` still overrides, including `0` — a
+human asserting the queue is empty outranks the derivation. Until 2026-09-03
+the flag defaulted to `0` and nothing derived it, so every plan composed a
+shift as though nothing were waiting: the one input that can SHRINK a batch
+could only arrive by hand, and never did.
+
+No `gh` call, here or anywhere in `plan`. `active.md` is the ledger and GitHub
+is the truth about mergeability; a shift must be plannable offline
+(`mind_post_cortex_epic.md`: no live PR state in Mind).
+
+## The queue is the order
+
+`PyAutoMind/queue.md` is the one file the human maintains by hand, and the only
+statement of *importance* the planner has — everything else it reads is a
+property of the work, not a preference about it. **Order is priority**: moving
+an entry up *is* the act of prioritising it.
+
+`plan` reads exactly three things, and nothing live:
+
+1. `queue.md` — the `kind: prompt` entries, in file order;
+2. the `draft/` backlog, graded through the sizing faculty;
+3. the review-queue depth, derived from `active.md` as above.
+
+A queued prompt outranks an unqueued one; among queued ones the file's order
+wins; below the queue the old rule stands — cheapest first, because that list
+is read when there is a slot to fill and the question is what fits in it. A
+queue entry written against `draft/…` still matches its prompt after it moves
+to `active/` (matched on the basename), so an entry never silently loses its
+priority. `retired`, `epic-slice` and `theme-sweep` entries are skipped rather
+than resolved: resolving one is a decision (which phase? which chip?), and the
+reader does not decide.
+
+`plan` also reports what the **previous slot carried**: the members its
+`outcomes:` block marks `carried` are read first, because they are already
+costing the human review-minutes in the slot being planned and a batch composed
+as though they were not is over-sold by exactly that much.
+
 - clear → the full budget;
 - above half the cap → the review-bearing half is **halved** (the fill is not:
   it does not touch the queue);
@@ -471,6 +512,30 @@ a batch that closed, and the pm record's `PR OPENED AT REVIEW (…)` sentences
 are exactly the outcomes no word list would have protected. The write is
 rehearsed on a throwaway copy and refused if a member line or a key would be
 lost; the `notes: |` block is never touched.
+
+Two **blocks** are stamped alongside those keys, both derived and both rewritten
+on every apply of an open record (and filled once, then left, on a closed one —
+its contents are history, like `delivered:`):
+
+- **`outcomes:`** — one `<slug>: <merged | rejected-at-review | carried |
+  unreviewed>` per member. This is the *accounting*; the member line's outcome
+  column is the *evidence* ("PyAutoFit#1554, 4/4 checks green"). It is read
+  from the ledger and nothing else: a `complete/` record that names the member
+  (`- batch: <slot> — member `<slug>``, or a record filed under the member's
+  own name) → `merged`; a review `decision:` that rejected it →
+  `rejected-at-review`; a row still in `active.md` → `carried`; otherwise
+  `unreviewed`. In that order, because a rejected member is still in
+  `active.md` and a merged one may be too. All nine members of the
+  2026-08-31-pm slot merged and every one of them was recorded
+  `decision: UNREVIEWED` — the completion records knew, and nothing read them.
+- **`merge-order:`** — the `/prm` sequence, as advice and never an action:
+  dispatch order (the order the human listed the members in — the only stable
+  order there is, since `members` is sorted by health), with library repos
+  first (the library-first merge gate) and same-repo members serialised (the
+  first merge moves `main` and stales its siblings' evidence). Nothing is
+  filtered: a member with no PR is listed in its place with what it is waiting
+  on, because an order that silently omits a member is an order somebody merges
+  out of. It is rendered in the collect report's summary too.
 
 ### The close leg
 

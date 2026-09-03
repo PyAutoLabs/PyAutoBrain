@@ -705,3 +705,208 @@ def test_every_interpolated_value_is_escaped(tmp_path):
     assert "<script>alert(1)</script>" not in page
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
     assert page.count("<script>") == 1
+
+
+# ------------------------------------------------------- ledger outcomes ----
+COMPLETE = """## resampling-info-summary-section
+- issue: https://github.com/ExampleOrg/ExampleFit/issues/1551 (closed, completed)
+- completed: 2026-09-04
+- library-pr: https://github.com/ExampleOrg/ExampleFit/pull/1554 (MERGED)
+- batch: 2026-09-03-pm — member `resampling`, tier `glance`, 3 review-minutes
+"""
+
+UNREVIEWED_REVIEW = """# Batch review 2026-09-03-pm
+
+- reviewed-at: 2026-09-04T08:30Z
+
+## resampling — DELIVERED
+- decision: UNREVIEWED
+- ruled: no
+"""
+
+REJECTED_REVIEW = """# Batch review 2026-09-03-pm
+
+- reviewed-at: 2026-09-04T08:30Z
+
+## resampling — SUSPECT
+- decision: reject — the diff answers a different question
+- ruled: yes
+"""
+
+
+def _completed(mind: Path, body: str = COMPLETE, name: str = "shipped.md"):
+    d = mind / "complete" / "2026" / "09"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(body, encoding="utf-8")
+
+
+def test_a_merged_member_is_read_from_the_completion_record(tmp_path):
+    """All nine members of the 2026-08-31-pm slot merged and every one was
+    recorded `decision: UNREVIEWED`. The completion records knew — they name
+    the slot and the member — and nothing read them."""
+    mind = mini_mind(tmp_path, review=UNREVIEWED_REVIEW)
+    _completed(mind)
+    d = _batch.collect(mind, "2026-09-03-pm")
+    assert one(d)["outcome_ledger"] == "merged"
+    assert d["outcomes"]["resampling"] == "merged"
+
+
+def test_a_record_filed_under_the_members_own_name_still_counts(tmp_path):
+    """The record's `- batch:` citation is the authoritative join; a record
+    named after the member is the fallback, because a task is filed under its
+    own name and a member carries a dispatch label."""
+    mind = mini_mind(tmp_path)
+    _completed(mind, body="## resampling\n- completed: 2026-09-04\n",
+               name="resampling.md")
+    assert one(_batch.collect(mind, "2026-09-03-pm"))["outcome_ledger"] == "merged"
+
+
+def test_a_member_still_in_the_registry_is_carried(tmp_path):
+    mind = mini_mind(tmp_path)
+    assert one(_batch.collect(mind, "2026-09-03-pm"))["outcome_ledger"] == "carried"
+
+
+def test_a_rejection_is_read_before_the_registry_row(tmp_path):
+    """A rejected member is still in `active.md` — it is work that came back —
+    so reading the registry first would report every rejection as carried."""
+    mind = mini_mind(tmp_path, review=REJECTED_REVIEW)
+    d = _batch.collect(mind, "2026-09-03-pm")
+    assert one(d)["outcome_ledger"] == "rejected-at-review"
+
+
+def test_a_member_the_ledger_says_nothing_about_is_unreviewed(tmp_path):
+    mind = mini_mind(tmp_path, active="# Active Tasks\n")
+    assert one(_batch.collect(mind,
+                              "2026-09-03-pm"))["outcome_ledger"] == "unreviewed"
+
+
+# ---------------------------------------------------------- the merge order --
+LIB_PROMPT = """# A library change
+
+Type: feature
+Target: autofit
+Repos:
+- PyAutoFit
+"""
+
+WORKSPACE_PROMPT = """# A workspace change
+
+Type: docs
+Target: autofit_workspace
+Repos:
+- autofit_workspace
+"""
+
+SECOND_LIB_PROMPT = """# Another change to the same library
+
+Type: bug
+Target: autofit
+Repos:
+- PyAutoFit
+"""
+
+
+def _slot_of_three(tmp_path) -> Path:
+    """One workspace member dispatched FIRST, then two library members on the
+    same repo — the shape the merge order has to correct."""
+    members = (
+        "  - wsp: draft/docs/autofit_workspace/wsp.md — glance — 3 — DELIVERED",
+        "  - lib-a: draft/feature/autofit/lib_a.md — judge — 20 — DELIVERED",
+        "  - lib-b: draft/bug/autofit/lib_b.md — glance — 3 — DELIVERED",
+    )
+    mind = mini_mind(tmp_path, *members, active="# Active Tasks\n")
+    d = mind / "draft" / "docs" / "autofit_workspace"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "wsp.md").write_text(WORKSPACE_PROMPT, encoding="utf-8")
+    (mind / "draft" / "feature" / "autofit").mkdir(parents=True, exist_ok=True)
+    (mind / "draft" / "feature" / "autofit" / "lib_a.md").write_text(
+        LIB_PROMPT, encoding="utf-8")
+    (mind / "draft" / "bug" / "autofit" / "lib_b.md").write_text(
+        SECOND_LIB_PROMPT, encoding="utf-8")
+    return mind
+
+
+def test_the_merge_order_puts_the_library_before_its_dependants(tmp_path):
+    """`collect` used to decline a merge order outright. `members` is sorted by
+    health and cannot carry one — the record's dispatch order can, and the
+    library-first gate reorders it."""
+    d = _batch.collect(_slot_of_three(tmp_path), "2026-09-03-pm")
+    assert [row["slug"] for row in d["merge_order"]] == ["lib-a", "lib-b", "wsp"]
+
+
+def test_same_repo_members_are_serialised_and_say_why(tmp_path):
+    """The first merge moves `main` and stales its siblings' evidence, so the
+    order says which sibling is re-validated against what."""
+    d = _batch.collect(_slot_of_three(tmp_path), "2026-09-03-pm")
+    second = next(r for r in d["merge_order"] if r["slug"] == "lib-b")
+    assert "after lib-a" in second["why"]
+    assert "shares autofit" in second["why"]
+
+
+def test_the_merge_order_reaches_the_report(tmp_path):
+    d = _batch.collect(_slot_of_three(tmp_path), "2026-09-03-pm")
+    body = _batch.collect_report(d)
+    assert "## Merge order" in body
+    assert "nothing here is enacted" in body
+    assert body.index("1. **lib-a**") < body.index("3. **wsp**")
+
+
+def test_nothing_is_filtered_out_of_the_merge_order(tmp_path):
+    """A member with no PR is listed in its place with what it is waiting on:
+    an order that silently omits a member is an order somebody merges out of."""
+    d = _batch.collect(_slot_of_three(tmp_path), "2026-09-03-pm")
+    assert len(d["merge_order"]) == len(d["members"]) == 3
+    assert all("no PR recorded" in r["why"] for r in d["merge_order"])
+
+
+# ------------------------------------------------ what the record gains ------
+def test_the_record_gains_the_outcomes_and_merge_order_blocks(tmp_path):
+    mind = _slot_of_three(tmp_path)
+    d = _batch.collect(mind, "2026-09-03-pm")
+    before = (mind / "batches" / "2026-09-03-pm.md").read_text(encoding="utf-8")
+    after = _batch.record_update(before, d, STAMP)
+    assert "- outcomes:" in after and "  - lib-a: unreviewed" in after
+    assert "- merge-order:" in after and "  - 1. lib-a — library" in after
+    # the blocks sit above `notes:`, never inside it
+    assert after.index("- outcomes:") < after.index("- notes: |")
+    assert _batch.read_outcomes(after)["wsp"] == "unreviewed"
+    # and the record still reads as a record
+    again = _batch.read_record(after)
+    assert {m["slug"] for m in again["members"]} == {"wsp", "lib-a", "lib-b"}
+    assert not again["unparsable"]
+
+
+def test_a_second_apply_replaces_the_blocks_rather_than_repeating_them(tmp_path):
+    mind = _slot_of_three(tmp_path)
+    d = _batch.collect(mind, "2026-09-03-pm")
+    once = _batch.record_update(
+        (mind / "batches" / "2026-09-03-pm.md").read_text(encoding="utf-8"),
+        d, STAMP)
+    twice = _batch.record_update(once, d, STAMP)
+    assert twice.count("- merge-order:") == 1
+    assert twice.count("  - 1. lib-a — library") == 1
+
+
+def test_a_closed_records_blocks_are_history(tmp_path):
+    """`delivered:` and `packet:` are filled rather than set once a review has
+    landed. The accounting is the same kind of fact."""
+    mind = _slot_of_three(tmp_path)
+    (mind / "batches" / "reviews" / "2026-09-03-pm.md").write_text(
+        UNREVIEWED_REVIEW.replace("resampling", "lib-a"), encoding="utf-8")
+    d = _batch.collect(mind, "2026-09-03-pm")
+    before = (mind / "batches" / "2026-09-03-pm.md").read_text(
+        encoding="utf-8").replace("- notes: |",
+                                  "- outcomes:\n  - lib-a: merged\n- notes: |")
+    after = _batch.record_update(before, d, STAMP)
+    assert "  - lib-a: merged" in after
+    assert "  - lib-a: unreviewed" not in after
+
+
+def test_previous_carried_reads_the_newest_records_outcomes(tmp_path):
+    mind = mini_mind(tmp_path)
+    record = mind / "batches" / "2026-09-03-pm.md"
+    record.write_text(record.read_text(encoding="utf-8").replace(
+        "- notes: |",
+        "- outcomes:\n  - resampling: carried\n  - other: merged\n- notes: |"),
+        encoding="utf-8")
+    assert _batch.previous_carried(mind) == ("2026-09-03-pm", ["resampling"])
