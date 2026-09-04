@@ -265,14 +265,14 @@ def test_the_checkin_chip_is_the_first_task_row_on_both_twins(skeleton):
 def test_the_stamp_is_read_from_checkin_yaml_and_says_never_without_it(tmp_skeleton):
     c = _cortex.census(tmp_skeleton)
     assert c["checkin"] == "" and c["problems"] == []
-    assert f"**Last check-in:** {_cortex.CHECKIN_NEVER}" in \
+    assert f"### Last check-in: {_cortex.CHECKIN_NEVER}" in \
         _cortex.render_dashboard(c)
     assert _cortex.CHECKIN_NEVER in _cortex.render_dashboard_html(c)
 
     _cortex.write_checkin(tmp_skeleton, "2026-09-04T14:03:00Z")
     c = _cortex.census(tmp_skeleton)
     assert c["checkin"] == "2026-09-04T14:03:00Z"
-    assert "**Last check-in:** 2026-09-04T14:03:00Z" in _cortex.render_dashboard(c)
+    assert "### Last check-in: 2026-09-04T14:03:00Z" in _cortex.render_dashboard(c)
     assert ('<time id="checkin" datetime="2026-09-04T14:03:00Z">'
             in _cortex.render_dashboard_html(c))
     # the paste names the stamp it is refreshing from
@@ -291,14 +291,47 @@ def test_a_stamp_that_cannot_be_read_is_a_problem_not_a_freshness_claim(tmp_skel
 
 
 def test_the_html_twin_ages_the_stamp_on_the_viewers_clock(skeleton):
-    """The page is static: an hour after it was rendered nothing on the
-    server knows. So the age is computed on load and nowhere else."""
+    """The page is static: 3 h after it was rendered nothing on the server
+    knows. So the age is computed on load and nowhere else — and what it
+    computes paints a whole box, not one word."""
     html = _cortex.render_dashboard_html(_cortex.census(skeleton))
     assert ".stale{color:var(--bad)" in html
     assert "getElementById('checkin')" in html
-    assert "/60000>60" in html
+    assert f"/60000>{_cortex.CHECKIN_FRESH_MINUTES}" in html
+    assert "/60000>180" in html
+    assert 'id="checkin-box"' in html
+    # the two tone classes the script picks between, and the CSS for both
+    for cls in ("fresh-ok", "fresh-bad"):
+        assert "classList.add('" + cls + "')" in html
+        assert f".checkin.{cls}{{" in html
     assert "classList.add('stale')" in html
+    assert "✓" in html and "✗" in html
     assert "stale, paste the check-in" in html
+    assert "never checked in" in html
+    # the blurb that said the page is only as fresh as its sources is gone
+    # from both twins: the box says it, in the reader's own units.
+    assert "only as current as they are" not in html
+    assert "only as current as they are" not in \
+        _cortex.render_dashboard(_cortex.census(skeleton))
+
+
+def test_the_map_is_a_map_not_a_paragraph(skeleton):
+    """The Projects section lost its blurb, and every card is wrapped so the
+    project's own name can carry the weight the blurb used to."""
+    c = _cortex.census(skeleton)
+    md = _cortex.render_dashboard(c)
+    html = _cortex.render_dashboard_html(c)
+    for page in (md, html):
+        assert "science body map" not in page
+    lines = md.splitlines()
+    link = lines[lines.index("## Projects") + 2]
+    assert link.startswith("[markdown version](") and link.endswith(")")
+    assert " — " not in link  # an empty blurb leaves no dangling dash
+    shown, _folded = _cortex.by_project_keys(c)
+    assert shown, "the fixture must show at least one project"
+    assert html.count('<section class="project">') == len(shown)
+    assert html.count("</section>") == len(shown)
+    assert ".project h3{" in html
 
 
 # --- collect ---------------------------------------------------------------
@@ -350,7 +383,7 @@ def test_the_projects_section_leads_the_state_sections(skeleton):
     the map — and only then what needs a verdict."""
     page = _cortex.render_dashboard(_cortex.census(skeleton))
     order = ["| Where | Count |", "📋 " + _cortex.CHECKIN_LABEL,
-             "**Last check-in:**", "## Summary", "## Projects",
+             "### Last check-in:", "## Summary", "## Projects",
              "## Awaiting ruling", "## Running / submitted", "## Ready",
              "## Gated", "## Recent rulings"]
     assert [page.index(x) for x in order] == sorted(page.index(x) for x in order)
@@ -438,7 +471,9 @@ _DORMANT_ROW = ("\ndormant_one:\n  remote: none\n"
                 "  partition: gpu\n  status: dormant\n")
 
 
-def test_a_project_with_nothing_open_folds_to_one_line_with_its_status(tmp_skeleton):
+def test_a_project_with_nothing_open_is_a_row_under_the_summary(tmp_skeleton):
+    """It gets no card — a dormant project with nothing open is a fact, not
+    a thing to read — but it is a row in a table, not prose in a fold."""
     (tmp_skeleton / "projects.yaml").write_text(
         (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
         + _DORMANT_ROW, encoding="utf-8")
@@ -446,10 +481,17 @@ def test_a_project_with_nothing_open_folds_to_one_line_with_its_status(tmp_skele
     shown, folded = _cortex.by_project_keys(c)
     assert shown == ["example"] and folded == ["dormant_one"]
     page = _cortex.render_dashboard(c)
+    html = _cortex.render_dashboard_html(c)
     assert "### dormant_one" not in page
-    assert "1 project(s) with nothing open" in page
-    assert "`dormant_one` (dormant · none)" in page
-    assert "1 project(s) with nothing open" in _cortex.render_dashboard_html(c)
+    assert "#### Nothing open" in page
+    assert "| dormant_one | dormant | none |" in page
+    assert "<h3>Nothing open</h3>" in html
+    assert "<tr><td>dormant_one</td><td>dormant</td><td>none</td></tr>" in html
+    # it reads under the summary, before the map
+    assert page.index("#### Nothing open") < page.index("## Projects")
+    assert html.index("<h3>Nothing open</h3>") < html.index("<h2>Projects")
+    for twin in (page, html):
+        assert "project(s) with nothing open" not in twin
 
 
 def test_the_projects_run_active_then_planned_then_dormant(skeleton):
@@ -1029,7 +1071,7 @@ def test_the_checkin_stamps_the_board_it_just_refreshed(board):
     stamp, problems = _cortex.read_checkin(board["root"])
     assert problems == [] and _cortex.CHECKIN_STAMP.match(stamp), stamp
     assert f"Refreshed: {stamp}" in r.stdout
-    assert f"**Last check-in:** {stamp}" in \
+    assert f"### Last check-in: {stamp}" in \
         (board["root"] / "dashboard.md").read_text(encoding="utf-8")
     # Whether the push gate calls it ledger is the Cortex's own claim — its
     # `tests/test_ledger_merge.py` pins `checkin.yaml` in LEDGER_FILES. Asking
