@@ -20,7 +20,7 @@ the Cortex's intake-and-dashboard conductor.
 | Verb | Question | Emits |
 |------|----------|-------|
 | `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY] [--skip-pull] [--refreshed ISO]` | **Where is my science?** | the door — the sequence below, ending in a summary keyed by project; exit **1** when a pull failed or the tree needs a look |
-| `census` | What is the Cortex holding? | phase counts by state, the board's section counts, rulings, projects, epics (`--json` for the lot) |
+| `census` | What is the Cortex holding? | phase counts by state, the board's section counts, rulings, projects, the last check-in stamp (`--json` for the lot) |
 | `dashboard --check` | Are the committed pages current? | exit 0 current · **1 stale** · 2 no checkout · 3 unreadable tree |
 | `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` |
 | `gates` | What is each gated phase waiting on? | every gated phase, its refs and the URL each resolves to — read-only and offline |
@@ -60,18 +60,36 @@ Mind's: a session holding one organ and not the other still works.
 
 ## The board
 
-Sections, in the reading order of a check-in: **Awaiting ruling** (pulled and
-awaiting-ruling phases, ordered failures → a ruling is required → clean) →
-**Running / submitted** (job ids, wall against the phase's budget) →
-**Ready** → **Gated** (the open refs) → **Recent
-rulings** → **Epics** (each card links its Mind half) → **Projects** (the
-where-to-look table straight from `projects.yaml`). A counts table near the
-top is what `board/_board.py` reads for the Brain board's Cortex strip.
+The page opens on the door, not on the work: a counts table (what
+`board/_board.py` reads for the Brain board's Cortex strip), then the
+**check-in chip** — the paste for the laptop's science chat — and the **last
+check-in** stamp under it. Then **Summary** (one row per active project),
+then the sections in the reading order of a check-in: **Projects** (active →
+planned → dormant; each card is the folders, the counts and the ONE phase to
+act on next, with the rest of its open phases and its issue list behind a
+fold) → **Awaiting ruling** (ordered failures → a ruling is required → clean)
+→ **Running / submitted** → **Ready** (one visible row per project, the
+queue behind it folded) → **Gated** → **Recent rulings**.
+
+No `## Where to look` bullets ride on the page — they stay in the phase file,
+in `census --by-project` and in the check-in printout, which keep the full
+per-phase tree. The Cortex has no epics of its own (retired 2026-09-04): a
+science project *is* the long programme, and `Epic:` on a phase header is
+only an optional join key to a **Mind** epic.
+
+**`checkin.yaml`** is the one-key file (`refreshed: <UTC ISO 8601>`) that
+`cmd_checkin` and `collect --apply` write from the stamp they scored against,
+before rendering. `census()` reads it into `c["checkin"]`; missing means
+"never checked in", unparseable is a `problems` line. The stamp means *last
+check-in*, never last render, so a doc-only push cannot fake freshness, and
+the HTML twin computes its age on the **viewer's** clock (a static page
+cannot know when it is read) and reddens it past sixty minutes.
 
 `--check` compares the pages with the generation comment **and** the visible
 `Last updated` banner stripped, so a re-render on a new date is not drift —
 the Mind's normaliser strips only the comment, which is why its refresh
-workflow self-heals with an empty commit most nights.
+workflow self-heals with an empty commit most nights. `checkin.yaml` needs no
+rule of its own: it is stable between renders.
 
 ## Gates
 
