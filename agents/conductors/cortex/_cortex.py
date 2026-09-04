@@ -31,12 +31,21 @@ Three constraints shape this module:
   one place that carries such a path is the Cortex's own `projects.yaml`, and
   every path this module prints is read from a row of it at runtime.
 
-Verbs: `census [--json]` · `dashboard --check|--apply` · `gates` ·
+Verbs: `checkin [--dry-run|--apply] [--push|--no-push] [--project KEY]
+[--skip-pull] [--refreshed ISO]` · `census [--json]` ·
+`dashboard --check|--apply` · `gates` ·
 `collect [--pull] [--refreshed ISO] [--apply] [--out F] [--phase REL]`.
 
-`collect` is the check-in: with no `--phase` it scopes to every phase in
-`submitted | running`, which is what "where is my science?" asks for. It needs
-no batch record — the review-slot apparatus was retired 2026-09-03.
+`checkin` is **the door** — the one command behind "where is my science?": it
+pulls every active project through that project's own sync CLI, scores every
+`submitted | running` phase, moves what came back, re-renders the board,
+optionally pushes the ledger, and prints a summary keyed **by project** with
+the copy-ready prompt each phase's state already has. It composes the verbs
+below and reasons nothing extra of its own.
+
+`collect` is the scorer it composes: with no `--phase` it scopes to every phase
+in `submitted | running`. It needs no batch record — the review-slot apparatus
+was retired 2026-09-03.
 
 Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract),
 and for `collect` a member the human must look at · 2 bad args / no Cortex
@@ -1607,6 +1616,490 @@ def _apply_checked(root: Path, mod, scored: list) -> tuple:
     return mod.check_problems(root), notes, True
 
 
+# --------------------------------------------------------------- check-in ---
+# The one door. `collect` scores; `dashboard` renders; each project's own sync
+# CLI pulls. `checkin` is the sequence a human actually wants when they ask
+# "where is my science?" — sync every active project, score every live phase,
+# move what finished, re-render the board, optionally push the ledger, and
+# hand back the prompts. It composes the primitives above and adds none of its
+# own reasoning; a phase edit is still `cortex.py move`'s and a verdict is
+# still the human's.
+#
+# Three rules it does not bend:
+#
+# - **It reaches the cluster only through the projects' own CLIs.** No SSH of
+#   its own, ever; `--dry-run` reaches nothing at all and prints the exact
+#   command each project would run.
+# - **One project's failure is that project's.** A pull that exits non-zero is
+#   recorded against its project and the sweep continues — a check-in that
+#   aborts on the first broken mirror tells you nothing about the other six.
+# - **The push is a ledger push or it does not happen.** `claude/checkin-<date>`
+#   cut from a fresh `origin/main`, explicit paths, no force, never `main`, and
+#   refused outright if `ledger_merge.py classify` calls the diff code.
+CHECKIN_BRANCH_PREFIX = "claude/checkin-"
+
+#: The rule the `--push` default resolves by, stated wherever it is applied.
+PUSH_RULE = ("`--push` needs `gh auth status` to succeed and the Cortex "
+             "checkout to be clean on `main`")
+
+
+def checkin_keys(projects: dict, phases: list, only: list) -> tuple:
+    """`(keys, notes)` — the projects one check-in sweeps.
+
+    Every `status: active` row, plus any project that owns a phase in
+    `submitted | running`: a dormant project with a job still out there is
+    still out there, and the run is what the check-in is about.
+    """
+    notes: list[str] = []
+    keys = {key for key, row in projects.items()
+            if (row.get("status") or "").strip() == "active"}
+    for ph in phases:
+        if ph.state in LIVE_STATES:
+            keys.add(ph.get("Project") or ph.project_dir)
+    for key in sorted(keys):
+        if key not in projects:
+            notes.append(f"{key}: a live phase names a project with no row in "
+                         "projects.yaml — not pulled")
+    keys &= set(projects)
+    if only:
+        for key in only:
+            if key not in projects:
+                notes.append(f"{key}: no such project in projects.yaml")
+        keys &= set(only)
+    return sorted(keys), notes
+
+
+def pull_cmd(row: dict) -> tuple | None:
+    """`(argv, cwd)` for this project's own `<sync_cli> pull`, or None when the
+    row has no such verb. Every path comes from the row."""
+    local = (row.get("local_path") or "").strip()
+    cli = (row.get("sync_cli") or "").strip()
+    if not local or not cli or "pull" not in (row.get("sync_verbs") or []):
+        return None
+    return [str(Path(local) / cli), "pull"], local
+
+
+def pull_shell(row: dict) -> str:
+    """The pull as a human would type it — what `--dry-run` prints."""
+    cmd = pull_cmd(row)
+    return (f"cd {cmd[1]} && {row.get('sync_cli')} pull" if cmd
+            else "(no `pull` verb in projects.yaml)")
+
+
+def run_pull_streamed(projects: dict, keys: list) -> dict:
+    """`{key: (rc, note)}` — each project's own pull, **streamed**.
+
+    Not captured: a pull runs for minutes and the human is watching this one
+    command; buffering it would hold every project's output back to the end.
+    `rc` is None when nothing ran.
+    """
+    results: dict[str, tuple] = {}
+    for key in keys:
+        row = projects.get(key, {})
+        cmd = pull_cmd(row)
+        if cmd is None:
+            results[key] = (None, "no `pull` verb in projects.yaml — not pulled")
+            continue
+        argv, cwd = cmd
+        print(f"\n$ {pull_shell(row)}", flush=True)
+        try:
+            rc = subprocess.run(argv, cwd=cwd).returncode
+        except (OSError, subprocess.SubprocessError) as e:
+            results[key] = (None, f"pull could not run ({e}) — scored anyway")
+            continue
+        results[key] = (rc, "" if rc == 0 else
+                        f"pull exited {rc} — scored anyway, and the rest of "
+                        "the sweep ran")
+    return results
+
+
+def pull_root(row: dict) -> Path | None:
+    """Where this project's pull lands: the mirror it fills, else the
+    checkout. The manifest is written at the top of that tree, which is the
+    root `pull_manifest()` reads it back from."""
+    for key in ("mirror", "local_path"):
+        value = (row.get(key) or "").strip()
+        if value and value != "none":
+            path = Path(value).expanduser()
+            if path.is_dir():
+                return path
+    return None
+
+
+def write_pull_manifest(root_dir: Path, key: str, cmd: str, rc: int,
+                        phases_live: list) -> Path | None:
+    """Record this check-in's pull in `<pull root>/.cortex/pull.json`.
+
+    **Merge, never clobber.** One project's own sync CLI already writes a
+    richer manifest there (the `checkpoints` / `runs` tables the scorer's
+    checkpoint leg reads); this adds the check-in's own keys and leaves every
+    other key exactly as it found it. An unreadable file is replaced — it was
+    telling the scorer nothing.
+    """
+    path = root_dir.joinpath(*PULL_MANIFEST)
+    data: dict = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(_read(path))
+        except json.JSONDecodeError:
+            loaded = None
+        if isinstance(loaded, dict):
+            data = loaded
+    data.update({"project": key, "pulled_at": _utc_now(), "cmd": cmd,
+                 "rc": rc, "phases_live": list(phases_live)})
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8")
+    except OSError:
+        return None
+    return path
+
+
+# ------------------------------------------------------------- the push ---
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(root), *args],
+                          capture_output=True, text=True)
+
+
+def push_preflight(root: Path) -> tuple:
+    """`(ok, reason)` — may this check-in push its own ledger diff?
+
+    Read **before** anything is written, because "the checkout is clean" stops
+    being true the moment the phases move. Two legs, both of them facts about
+    this machine rather than a policy: a `gh` that is logged in (the cloud
+    sessions have none, and that is the whole cloud/laptop split), and a
+    Cortex checkout sitting clean on `main` (a dirty tree or a feature branch
+    means the human is mid-something, and the check-in is not going to guess
+    what).
+    """
+    if shutil.which("gh") is None:
+        return False, "no `gh` on PATH — this is not a laptop session"
+    if subprocess.run(["gh", "auth", "status"], capture_output=True,
+                      text=True).returncode != 0:
+        return False, "`gh auth status` fails — not authenticated"
+    head = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    if head.returncode != 0:
+        return False, "the Cortex checkout is not a git repo"
+    branch = head.stdout.strip()
+    if branch != "main":
+        return False, f"the Cortex checkout is on `{branch}`, not `main`"
+    dirty = _git(root, "status", "--porcelain")
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        return False, "the Cortex checkout has uncommitted changes"
+    return True, "`gh` is authenticated and the Cortex is clean on `main`"
+
+
+def dirty_paths(root: Path) -> list[str]:
+    """Every path the check-in's own writes left changed. Safe to read as
+    *ours* only because the preflight demanded a clean tree first."""
+    out = _git(root, "status", "--porcelain")
+    paths = []
+    for line in out.stdout.splitlines():
+        if not line.strip():
+            continue
+        path = line[3:].strip().strip('"')
+        if " -> " in path:  # a rename: the destination is what we commit
+            path = path.split(" -> ", 1)[1].strip().strip('"')
+        if path not in paths:
+            paths.append(path)
+    return sorted(paths)
+
+
+def classify_paths(root: Path, paths: list) -> tuple:
+    """`(rc, text)` from the Cortex's own `scripts/ledger_merge.py classify`.
+
+    The gate the Cortex already owns, asked before pushing rather than after:
+    0 = ledger (auto-merges), 1 = holds code (a human's call), 2 = the gate
+    could not run. 1 and 2 are both refusals here, and they are not the same
+    refusal.
+    """
+    script = root / "scripts" / "ledger_merge.py"
+    if not script.is_file():
+        return 2, "no scripts/ledger_merge.py in this checkout"
+    r = subprocess.run([sys.executable, str(script), "classify", *paths],
+                       cwd=str(root), capture_output=True, text=True)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def push_ledger(root: Path, date: str, paths: list) -> tuple:
+    """Commit the check-in's ledger diff on `claude/checkin-<date>` and push.
+
+    Never `main`, never `--force`, never a path the classifier calls code.
+    Returns `(ok, lines)` — the lines are the summary's push block.
+    """
+    L: list[str] = []
+    if not paths:
+        return True, ["push: nothing changed — no branch cut"]
+    rc, text = classify_paths(root, paths)
+    if rc != 0:
+        L.append("push: REFUSED — " + ("the diff holds code, which is a "
+                                       "human's call" if rc == 1 else
+                                       "the classifier could not run"))
+        L += [f"  {line}" for line in text.splitlines()[:8]]
+        L.append("  nothing was pushed; the changes are in the checkout")
+        return False, L
+    branch = f"{CHECKIN_BRANCH_PREFIX}{date}"
+    fetch = _git(root, "fetch", "origin")
+    if fetch.returncode != 0:
+        return False, ["push: REFUSED — `git fetch origin` failed",
+                       f"  {fetch.stderr.strip()[:200]}"]
+    exists = _git(root, "rev-parse", "--verify", "--quiet", branch).returncode == 0
+    # A same-day re-check-in reuses its branch rather than resetting it: the
+    # branch may already be pushed, and moving a pushed ref needs a force.
+    co = (_git(root, "checkout", branch) if exists else
+          _git(root, "checkout", "-b", branch, "origin/main"))
+    if co.returncode != 0:
+        return False, [f"push: REFUSED — could not cut `{branch}` from a fresh "
+                       "origin/main", f"  {co.stderr.strip()[:200]}",
+                       "  the changes are still in the checkout"]
+    add = _git(root, "add", "--", *paths)
+    if add.returncode != 0:
+        return False, ["push: REFUSED — `git add` failed",
+                       f"  {add.stderr.strip()[:200]}"]
+    if _git(root, "diff", "--cached", "--quiet").returncode == 0:
+        return True, [f"push: nothing staged on `{branch}` — already recorded"]
+    msg = (f"cortex: check-in {date}\n\n"
+           "Phase moves and the re-rendered board from "
+           "`pyauto-brain cortex checkin --apply`.\n")
+    commit = _git(root, "commit", "-m", msg)
+    if commit.returncode != 0:
+        return False, ["push: REFUSED — `git commit` failed",
+                       f"  {commit.stderr.strip()[:200]}"]
+    push = _git(root, "push", "-u", "origin", branch)
+    if push.returncode != 0:
+        return False, [f"push: FAILED — `git push -u origin {branch}`",
+                       f"  {push.stderr.strip()[:200]}",
+                       "  the commit is on the branch; push it by hand"]
+    L.append(f"push: `{branch}` pushed ({len(paths)} path(s), ledger-only)")
+    L.append("  `ledger_merge.yml` merges a ledger-only `claude/**` push into "
+             "main and deletes the branch — no PR to open, nothing to merge "
+             "by hand")
+    return True, L
+
+
+# ---------------------------------------------------- the by-project summary ---
+def _payload_block(payload: str) -> list[str]:
+    return ["", "```", *payload.split("\n"), "```", ""]
+
+
+def project_digest(key: str, row: dict, c: dict, scored_by_rel: dict,
+                   pull_line: str) -> list[str]:
+    """One project's block of the check-in summary — where it lives, what came
+    of its pull, and every phase of it a human could act on today, each with
+    the prompt that already exists for that state.
+
+    Phase 3 enriches this (the two missing prompts, the folders); it is keyed
+    by project here because that is the axis the human checks in along — they
+    ask about a project, never about a phase id.
+    """
+    rows = [r for r in c["phases"] if r["project"] == key]
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r["state"]] = counts.get(r["state"], 0) + 1
+    L = [f"### {key}", ""]
+    where = [f"local `{row.get('local_path', '?')}`"]
+    if (row.get("mirror") or "none") != "none":
+        where.append(f"mirror `{row['mirror']}`")
+    where.append(f"RAL `{row.get('ral_root', '?')}`")
+    L += ["- " + " · ".join(where),
+          f"- {pull_line}",
+          "- phases: " + (" · ".join(f"{state} {n}" for state, n
+                                     in sorted(counts.items()))
+                          or "none")]
+
+    def _phase_lines(title: str, phase_rows: list, payload) -> list[str]:
+        if not phase_rows:
+            return []
+        out = ["", f"**{title}**", ""]
+        for r in phase_rows:
+            s = scored_by_rel.get(r["rel"])
+            head = f"- `{r['rel']}` — {r['title']}"
+            if s:
+                head += f" — {s['health']}"
+            out.append(head)
+            note = _live_note(r)
+            if note:
+                out.append(f"  - {note}")
+            if s:
+                legs = ", ".join(f"{k} {s['legs'][k][0]}" for k in LEGS)
+                out.append(f"  - legs: {legs}")
+                for label, value in (("run dir", s["run_dir"]),
+                                     ("zip", s["zip"])):
+                    if value is not None:
+                        out.append(f"  - {label}: `{value}`")
+                for kind in ("out", "err"):
+                    for path in s["logs"][kind][:1]:
+                        out.append(f"  - `.{kind}`: `{path}`")
+            out += _payload_block(payload(r))
+        return out
+
+    L += _phase_lines("Awaiting your ruling",
+                      [r for r in c["awaiting"] if r["project"] == key],
+                      _ruling_payload)
+    L += _phase_lines("Still out there",
+                      [r for r in c["live"] if r["project"] == key],
+                      lambda r: _live_payload(r, c["projects"]))
+    L += _phase_lines("Ready to submit",
+                      [r for r in c["ready"] if r["project"] == key],
+                      lambda r: _ready_payload(r, c["projects"]))
+    L += _phase_lines("Gated",
+                      [r for r in c["gated"] if r["project"] == key],
+                      _gate_payload)
+    L += [""]
+    return L
+
+
+def checkin_summary(c: dict, keys: list, scored: list, pulls: dict,
+                    notes: list) -> str:
+    """The whole by-project summary — the LAST thing the door prints, so a
+    chat sees it above the fold and can paste from it."""
+    scored_by_rel = {s["rel"]: s for s in scored}
+    L = ["", "=" * 72, "", f"# Cortex check-in — {c['generated']}", "",
+         f"{len(keys)} project(s) swept · {len(scored)} live phase(s) scored · "
+         f"{len(c['awaiting'])} awaiting a ruling · {len(c['ready'])} ready",
+         ""]
+    for key in keys:
+        row = c["projects"].get(key, {})
+        rc, note = pulls.get(key, (None, "not pulled (--skip-pull)"))
+        pull_line = ("pull: ok" if rc == 0 and not note else
+                     f"pull: {note}" if note else "pull: not run")
+        L += project_digest(key, row, c, scored_by_rel, pull_line)
+    if notes:
+        L += ["### Notes", ""] + [f"- {n}" for n in notes] + [""]
+    return "\n".join(L)
+
+
+# ----------------------------------------------------------- the door ---
+def cmd_checkin(root: Path, mod, a) -> int:
+    """`checkin` — sync, score, move, render, push, summarise by project."""
+    if a.dry_run and a.apply:
+        print("cortex: --dry-run and --apply are the two halves of this door "
+              "— pass one", file=sys.stderr)
+        return RC_USAGE
+    projects = mod.load_projects(root)[0]
+    phases_all = mod.load_phases(root)[0]
+    keys, notes = checkin_keys(projects, phases_all, a.project)
+    live = [ph for ph in phases_all if ph.state in LIVE_STATES
+            and (ph.get("Project") or ph.project_dir) in keys]
+    live_by_key: dict[str, list[str]] = {}
+    for ph in live:
+        live_by_key.setdefault(ph.get("Project") or ph.project_dir,
+                               []).append(ph.rel)
+
+    if not a.apply:  # the default: say what it would do, touch nothing
+        print(f"cortex check-in (dry run) — {len(keys)} project(s), "
+              f"{len(live)} live phase(s). Nothing is pulled, nothing is "
+              "written, no cluster is reached.")
+        for key in keys:
+            row = projects.get(key, {})
+            print(f"\n{key}  [{(row.get('status') or '?').strip()}]")
+            print(f"  pull:   $ {pull_shell(row)}")
+            print(f"  root:   {pull_root(row) or '(no readable pull root)'}")
+            rels = live_by_key.get(key, [])
+            print("  score:  " + (", ".join(rels) if rels
+                                  else "(no submitted | running phase)"))
+        for note in notes:
+            print(f"\nnote: {note}")
+        ok, why = push_preflight(root)
+        print(f"\npush would be: {'yes' if ok else 'no'} — {why}")
+        print(f"the rule: {PUSH_RULE}")
+        return RC_OK
+
+    # --- the push question is asked first: "clean on main" stops being true
+    #     the moment the phases move.
+    if a.push is False:
+        push_ok, push_why = False, "--no-push"
+    else:
+        push_ok, push_why = push_preflight(root)
+    if a.push is True and not push_ok:
+        print(f"cortex: --push refused — {push_why}. The rule: {PUSH_RULE}.",
+              file=sys.stderr)
+    push_now = push_ok and a.push is not False
+    print(f"push: {'yes' if push_now else 'no'} — {push_why}"
+          + ("" if push_now else f" (the rule: {PUSH_RULE})"))
+
+    # --- 1. sync ---------------------------------------------------------
+    pulls: dict[str, tuple] = {}
+    if not a.skip_pull:
+        pulls = run_pull_streamed(projects, keys)
+        for key, (rc, note) in pulls.items():
+            if rc != 0:
+                if note:
+                    notes.append(f"{key}: {note}")
+                continue
+            row = projects.get(key, {})
+            target = pull_root(row)
+            if target is None:
+                notes.append(f"{key}: pulled, but no readable pull root — no "
+                             "manifest written")
+                continue
+            written = write_pull_manifest(target, key, pull_shell(row), rc,
+                                          live_by_key.get(key, []))
+            notes.append(f"{key}: pulled → {written}" if written else
+                         f"{key}: pulled, but the manifest could not be written")
+    stamp = a.refreshed.strip() or (_utc_now() if pulls else
+                                    _newest_pull_stamp(projects, keys))
+    if not stamp:
+        print("cortex: --apply needs a refresh stamp — run it without "
+              "--skip-pull, or pass --refreshed <ISO> when you pulled by hand",
+              file=sys.stderr)
+        return RC_USAGE
+
+    # --- 2. score + move -------------------------------------------------
+    scored = [score_phase(mod, ph, projects) for ph in live]
+    problems, applied, wrote = _apply_checked(root, mod, scored)
+    notes += applied
+    if problems:
+        print("cortex: the tree does not check after the moves — "
+              + ("they were written; run `python3 scripts/cortex.py check`"
+                 if wrote else "nothing was written") + ":", file=sys.stderr)
+        for problem in problems[:10]:
+            print(f"  {problem}", file=sys.stderr)
+        return RC_DRIFT
+
+    # --- 3. render -------------------------------------------------------
+    c = census(root)
+    pages = render_pages(c)
+    for name, want in pages.items():
+        (root / name).write_text(want, encoding="utf-8")
+    print(f"Wrote: {' + '.join(pages)} ({len(c['phases'])} phase(s), "
+          f"{len(c['rulings'])} ruling(s))")
+
+    # --- 4. push ---------------------------------------------------------
+    push_lines: list[str] = []
+    rc_out = RC_OK
+    if push_now:
+        ok, push_lines = push_ledger(root, _dt.date.today().isoformat(),
+                                     dirty_paths(root))
+        if not ok:
+            rc_out = RC_DRIFT
+    if any(rc not in (0, None) for rc, _n in pulls.values()):
+        rc_out = RC_DRIFT
+
+    # --- 5. summarise, by project, last ----------------------------------
+    print(checkin_summary(c, keys, scored, pulls, notes))
+    for line in push_lines:
+        print(line)
+    print(f"\nRefreshed: {stamp}")
+    return rc_out
+
+
+def _newest_pull_stamp(projects: dict, keys: list) -> str:
+    """The newest `pulled_at` any project's manifest carries — what
+    `--skip-pull` scores against when the human pulled earlier themselves."""
+    stamps = []
+    for key in keys:
+        root_dir = pull_root(projects.get(key, {}))
+        if root_dir is None:
+            continue
+        data = pull_manifest([root_dir])
+        value = str(data.get("pulled_at") or "").strip()
+        if value:
+            stamps.append(value)
+    return max(stamps) if stamps else ""
+
+
 # -------------------------------------------------------------------- cli ---
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
@@ -1649,6 +2142,34 @@ def build_parser() -> argparse.ArgumentParser:
                         "the record (needs --pull or --refreshed)")
     k.add_argument("--out", default="", metavar="FILE",
                    help="write the packet markdown here instead of stdout")
+
+    n = common(sub.add_parser(
+        "checkin", help="the check-in door: pull every active project, score "
+                        "every live phase, move what came back, re-render the "
+                        "board and summarise it by project"))
+    n.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="the default — say what would be pulled and scored, "
+                        "and touch nothing")
+    n.add_argument("--apply", action="store_true",
+                   help="do it: pull, score, move, render (and push, per the "
+                        "push rule)")
+    n.add_argument("--push", dest="push", action="store_const", const=True,
+                   default=None,
+                   help="push the ledger diff on `claude/checkin-<date>` "
+                        "(allowed only when `gh auth status` succeeds and the "
+                        "Cortex is clean on main; that is also the default "
+                        "when neither flag is given)")
+    n.add_argument("--no-push", dest="push", action="store_const", const=False,
+                   help="never push — the default in any session without a "
+                        "logged-in `gh`")
+    n.add_argument("--project", action="append", default=[], metavar="KEY",
+                   help="sweep only these projects (repeatable)")
+    n.add_argument("--skip-pull", dest="skip_pull", action="store_true",
+                   help="score what is already on the laptop — an offline "
+                        "re-score")
+    n.add_argument("--refreshed", default="", metavar="ISO",
+                   help="stamp the refresh at this time — for a pull you ran "
+                        "by hand")
     return ap
 
 
@@ -1672,6 +2193,19 @@ def main(argv=None) -> int:
         lines, rc = mod.gates_report(root)
         print("\n".join(lines))
         return rc
+
+    if verb == "checkin":
+        # The door composes the verbs below; like `collect` it reads the tree
+        # phase by phase rather than through `census`, because a tree that
+        # does not check is exactly when a human checks in.
+        try:
+            return cmd_checkin(root, mod, a)
+        except mod.CortexError as e:
+            print(f"cortex: {root}: {e}", file=sys.stderr)
+            return RC_UNREADABLE
+        except OSError as e:
+            print(f"cortex: cannot read {root}: {e}", file=sys.stderr)
+            return RC_UNREADABLE
 
     if verb == "collect":
         # Scoring reads the tree phase by phase rather than through `census`:

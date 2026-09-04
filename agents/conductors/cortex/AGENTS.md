@@ -3,10 +3,12 @@
 > **Tier: conductor** — a front-door agent you *drive*. The *learning
 > function* — where the organism finds out what is true: it reasons over
 > PyAutoCortex (the science body map, the pre-registered phases, the rulings
-> of record), renders the Cortex board, lists what the gates are waiting on
-> and scores what came back from a pull. It **never submits a run and never
-> writes a ruling**: the run is the human's act, the verdict is the human's word, and
-> the ruling file is the Cortex script's to write.
+> of record) and answers one question — *where is my science?* — with one
+> command, `checkin`: pull every active project, score every live run, move
+> what came back, re-render the board, push the ledger, summarise by project.
+> It **never submits a run and never writes a ruling**: the run is the human's
+> act, the verdict is the human's word, and the ruling file is the Cortex
+> script's to write.
 
 The same split the organism already uses twice — **Heart ↔ vitals**, **Gut ↔
 hygiene**: the organ keeps the state, the conductor reasons over it. The
@@ -17,6 +19,7 @@ the Cortex's intake-and-dashboard conductor.
 
 | Verb | Question | Emits |
 |------|----------|-------|
+| `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY] [--skip-pull] [--refreshed ISO]` | **Where is my science?** | the door — the sequence below, ending in a summary keyed by project; exit **1** when a pull failed or the tree needs a look |
 | `census` | What is the Cortex holding? | phase counts by state, the board's section counts, rulings, projects, epics (`--json` for the lot) |
 | `dashboard --check` | Are the committed pages current? | exit 0 current · **1 stale** · 2 no checkout · 3 unreadable tree |
 | `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` |
@@ -24,10 +27,12 @@ the Cortex's intake-and-dashboard conductor.
 | `collect [--pull] [--refreshed ISO] [--apply] [--out F] [--phase REL]` | What came back, and is it worth reviewing? | one block per phase — six scored legs, the readout, a blank ruling line — and exit **1** when any is not HEALTHY. **Default scope: every `submitted \| running` phase**; `--phase REL` narrows |
 
 ```
+pyauto-brain cortex checkin --dry-run        # what it would pull and score
+pyauto-brain cortex checkin --apply          # the check-in
 pyauto-brain cortex                          # census
 pyauto-brain cortex dashboard --apply
 pyauto-brain cortex gates
-pyauto-brain cortex collect --pull --apply   # the check-in: pull, score, move on
+pyauto-brain cortex collect --pull --apply   # the scorer on its own
 pyauto-brain cortex <verb> --cortex <dir>    # another checkout
 ```
 
@@ -76,6 +81,51 @@ GitHub and nothing flips a state — gate grading was retired on 2026-09-03 (2
 gated refs, 0 flips in its lifetime; sequencing is prose `Ready when:` lines
 per Cortex schema decision 54). A human opens the refs and, when they have
 closed, types `python3 scripts/cortex.py move <phase> ready`.
+
+## The door (`checkin`)
+
+The verb a human types. It composes what is already here and reasons nothing
+extra of its own:
+
+1. **Sync.** Every project with `status: active` in `projects.yaml`, plus any
+   project that owns a phase in `submitted | running` (a dormant project with a
+   job still out there is still out there). Each is pulled with **its own**
+   `<local_path>/<sync_cli> pull` — the verb all seven implement — and the
+   output is **streamed**, not captured: a pull runs for minutes and the human
+   is watching this one command. A non-zero exit is recorded against that
+   project and the sweep continues; one unreachable mirror must not hide the
+   other six. After a good pull the door writes `<pull root>/.cortex/pull.json`
+   (`project`, `pulled_at`, `cmd`, `rc`, `phases_live`) — **merged** into
+   whatever is already there, because one project's own CLI writes the richer
+   `checkpoints` / `runs` tables the scorer's checkpoint leg reads.
+2. **Score + move.** `collect`'s scorer over every live phase, then the same
+   rehearsed `_apply_checked` moves.
+3. **Render.** `dashboard.md` + `dashboard.html`.
+4. **Push** (the rule below).
+5. **Summarise, by project** — printed **last**, so a chat sees it above the
+   fold: each project's paths, what its pull did, its phase counts, and every
+   phase a human could act on today with its health verdict and the fenced,
+   copy-ready prompt its state already has (`_ruling_payload`,
+   `_live_payload`, `_ready_payload`, `_gate_payload`). `project_digest()`
+   builds one project's block and `checkin_summary()` the whole thing.
+
+`--dry-run` (the default) prints the exact pull command per project, the pull
+root, and every phase it would score — and reaches nothing at all. `--project
+KEY` narrows the sweep; `--skip-pull` re-scores what is already on the laptop,
+stamping the refresh from the newest manifest.
+
+### The push rule
+
+`--push` is allowed only when **`gh auth status` succeeds** *and* **the Cortex
+checkout is clean on `main`** — read *before* anything is written, because
+"clean" stops being true the moment the phases move. That is the whole
+cloud/laptop split, and it is also the default: a laptop pushes without asking,
+a cloud session cannot and says so. The push cuts
+`claude/checkin-<YYYY-MM-DD>` from a fresh `origin/main`, commits the changed
+paths **explicitly**, pushes, and names `ledger_merge.yml` as what lands it.
+`scripts/ledger_merge.py classify` is asked first and a code-classified diff is
+refused before the branch is cut. Never `main`, never `--force`, and a
+same-day re-check-in reuses its branch rather than resetting a pushed ref.
 
 ## The check-in (`collect`)
 

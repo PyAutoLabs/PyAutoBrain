@@ -1,10 +1,11 @@
 ---
 name: cortex
-description: Read and drive the science side of the organism through the PyAutoBrain Cortex Agent — the Cortex board (what awaits a ruling, what is running, what is ready, what is gated), the daily gate grading, and which ready phases fit a laptop slot. Use for science runs, phases, gates and rulings; never for development tasks, which are the Mind's.
+description: Check in on the science — run the PyAutoBrain Cortex Agent's one door (pull every active project through its own sync CLI, score every live run against its pre-registered witness, move what came back, re-render the board, push the ledger) and read the by-project summary back to the human with the prompt each phase needs next. Use for science runs, phases, gates and rulings; never for development tasks, which are the Mind's.
 ---
 
 # Cortex
 
-Follow [`cortex.md`](cortex.md) exactly. The conductor reasons; it never
-submits a run and never writes a ruling — the submission and the verdict stay
-the human's.
+Follow [`cortex.md`](cortex.md) exactly: it is the check-in sequence, and the
+individual verbs are its appendix. The conductor reasons; it never submits a
+run and never writes a ruling — the submission and the verdict stay the
+human's.
