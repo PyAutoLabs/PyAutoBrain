@@ -227,12 +227,8 @@ FAILED_RUN_STATES = ("failed", "timeout", "void", "legacy_wrong")
 
 # One section: (key, title, source path in the repo, blurb).
 SECTIONS = (
-    ("projects", "Projects", "projects.yaml",
-     "The science body map, active first: where each project lives, what it "
-     "is holding, and the one phase of it to act on next. The plans and the "
-     "issues are one click away — this page routes to them rather than "
-     "reprinting them; `census --by-project` and the check-in printout keep "
-     "the full per-phase tree."),
+    # No blurb: the section is the map, and the cards say what they are.
+    ("projects", "Projects", "projects.yaml", ""),
     ("awaiting", "Awaiting ruling", "phases/",
      "Results are in and nothing is running — the human's verdict is the only "
      "thing outstanding. Ordered failures first, then the phases a ruling is "
@@ -251,12 +247,6 @@ SECTIONS = (
      "Cortex does not exist."),
 )
 
-REFRESH_BLURB = (
-    "generated from `phases/`, `rulings/` and `projects.yaml`, so it is only "
-    "as current as they are. `dashboard_refresh.yml` re-renders it on every "
-    "push to `main`."
-)
-
 #: The one-key file the check-in door writes and this page reads back. It
 #: means *last check-in*, not last render: a doc-only push re-renders the
 #: board and must not be able to fake freshness.
@@ -264,6 +254,11 @@ CHECKIN_FILE = "checkin.yaml"
 CHECKIN_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$")
 CHECKIN_LABEL = "check in since last time"
 CHECKIN_NEVER = "never checked in"
+
+#: How old a check-in may be before the board calls it stale, in minutes. It
+#: is interpolated into the page's script — never into the rendered stamp,
+#: which is a fact and does not age between renders.
+CHECKIN_FRESH_MINUTES = 180
 
 
 def read_checkin(root: Path) -> tuple[str, list[str]]:
@@ -950,10 +945,12 @@ def render_dashboard(c: dict) -> str:
 
     def h2(key: str) -> list:
         # Every section links the markdown it is rendered from — the ledger
-        # file is the record, this page is only the view.
-        return [f"## {titles[key]}", "",
-                f"[markdown version]({_src_url(blob, srcs[key])}) — "
-                f"{blurbs[key]}", ""]
+        # file is the record, this page is only the view. A section with no
+        # blurb stops at the link: no dangling dash.
+        line = f"[markdown version]({_src_url(blob, srcs[key])})"
+        if blurbs[key]:
+            line += f" — {blurbs[key]}"
+        return [f"## {titles[key]}", "", line, ""]
 
     L = [
         "# PyAutoCortex Dashboard",
@@ -973,7 +970,7 @@ def render_dashboard(c: dict) -> str:
         "next and what is still gated on development work. The verdict is "
         "always yours — this page hands you the command, never the ruling.",
         "",
-        f"> **Last updated {c['generated']}.** This page is {REFRESH_BLURB}",
+        f"> **Last updated {c['generated']}.**",
         "",
         "| Where | Count |",
         "|-------|------:|",
@@ -990,7 +987,11 @@ def render_dashboard(c: dict) -> str:
     # The first row on the page, before any section: the paste that refreshes
     # everything below it, and the stamp saying when that last happened.
     L += [_task_row(CHECKIN_LABEL, _checkin_payload(c)), "",
-          f"**Last check-in:** {c.get('checkin') or CHECKIN_NEVER}", ""]
+          f"### Last check-in: {c.get('checkin') or CHECKIN_NEVER}", ""]
+
+    # Computed once, read twice: the cards below, and the table of what has
+    # nothing open that rides under the summary.
+    shown, folded = by_project_keys(c)
 
     L += ["## Summary", "",
           "One row per active project — the next thing, what it is holding, "
@@ -1005,13 +1006,19 @@ def render_dashboard(c: dict) -> str:
         L += [""]
     else:
         L += ["- _(no active project)_", ""]
+    if folded:
+        L += ["#### Nothing open", "",
+              "| Project | Status | Phases |", "|---|---|---|"]
+        L += [f"| {_cell(k)} | "
+              f"{_cell((c['projects'][k].get('status') or '?').strip())} | "
+              f"{_cell(project_counts(k, c))} |"
+              for k in project_order(folded, c)]
+        L += [""]
 
-
-    # The map, first: active projects, then planned, then dormant. Each card
-    # is where the project lives, what it holds and the ONE phase to act on
+    # The map: active projects, then planned, then dormant. Each card is
+    # where the project lives, what it holds and the ONE phase to act on
     # next — the plans and the issues ride behind a fold, one click away.
     L += h2("projects")
-    shown, folded = by_project_keys(c)
     for key in project_order(shown, c):
         row = c["projects"][key]
         L += [f"### {_summary_label(key)}", ""]
@@ -1040,14 +1047,6 @@ def render_dashboard(c: dict) -> str:
             if _issues_url(row):
                 links.append(f"[issues]({_issues_url(row)})")
             L += ["", " · ".join(links), "", "</details>", ""]
-    if folded:
-        L += [f"<details><summary>{len(folded)} project(s) with nothing "
-              "open</summary>", "",
-              " · ".join(
-                  f"`{_cell(k)}` ({_cell((c['projects'][k].get('status') or '?').strip())}"
-                  f" · {project_counts(k, c)})" for k in project_order(folded, c)),
-              "", "</details>", ""]
-
     L += h2("awaiting")
     awaiting_rows = []
     for r in c["awaiting"]:
@@ -1116,28 +1115,60 @@ def render_dashboard(c: dict) -> str:
 
 
 # ------------------------------------------------------------------- html ---
-_FRESH_CSS = (".fresh{border-left:3px solid var(--edge);padding:.1rem .9rem;"
-              "margin:1.2rem 0;background:var(--tint)}"
+_FRESH_CSS = (".fresh{padding:.1rem .9rem;margin:1.2rem 0;"
+              "background:var(--tint)}"
               ".fresh p{margin:.5rem 0}"
               "table.map{width:100%;border-collapse:collapse;font-size:.95em}"
               "table.map th{text-align:left;color:var(--muted);"
               "font-weight:600}"
               "table.map td,table.map th{border-bottom:1px solid var(--line);"
               "padding:.4rem .5rem .4rem 0;vertical-align:top}"
-              ".checkin{margin:.2rem 0 1.4rem}"
+              # The one thing a slot has to know before it reads anything
+              # else, so it is a box and not a line. The mark, the note and
+              # the two tone classes are painted by the script on load.
+              ".checkin{display:flex;gap:.9rem;align-items:center;"
+              "padding:.9rem 1.2rem;border:2px solid var(--line);"
+              "border-radius:.6rem;margin:.2rem 0 1.4rem}"
+              ".checkin .mark{font-size:2rem;line-height:1}"
+              ".checkin .label{display:block;font-size:.75rem;"
+              "letter-spacing:.06em;text-transform:uppercase;"
+              "color:var(--muted)}"
+              ".checkin time{font-size:1.6rem;font-weight:700;"
+              "font-variant-numeric:tabular-nums;display:block}"
+              ".checkin .note{font-size:.85rem;color:var(--muted)}"
+              ".checkin.fresh-ok{border-color:var(--ok);"
+              "background:color-mix(in srgb,var(--ok) 12%,transparent)}"
+              ".checkin.fresh-ok .mark{color:var(--ok)}"
+              ".checkin.fresh-bad{border-color:var(--bad);"
+              "background:color-mix(in srgb,var(--bad) 12%,transparent)}"
+              ".checkin.fresh-bad .mark{color:var(--bad)}"
+              # A project name is what a thumb scrolls for; the shared h3 is
+              # sized for a card's inner headings, so the map overrides it.
+              ".project h3{font-size:1.35rem;font-weight:700;"
+              "padding-bottom:.2rem;border-bottom:2px solid var(--accent);"
+              "letter-spacing:.01em;margin-top:1.6rem}"
               ".paths{margin:.2rem 0}.paths b{display:inline-block;"
               "min-width:3.6rem}"
               ".stale{color:var(--bad);font-weight:600}")
 
 # The page is static, so a stamp is never stale *at render* — it is stale on
-# the reader's clock, an hour later, on a different day. So the age is
-# computed on load, here, and nowhere else.
+# the reader's clock, 3 h later, on a different day. So the age is computed
+# on load, here, and nowhere else: the box is neutral until this runs.
 _CHECKIN_JS = (
-    "(function(){var e=document.getElementById('checkin');if(!e)return;"
+    "(function(){var e=document.getElementById('checkin'),"
+    "b=document.getElementById('checkin-box'),"
+    "m=document.getElementById('checkin-mark'),"
+    "n=document.getElementById('checkin-note');if(!e||!b)return;"
     "var t=e.getAttribute('datetime'),d=t?new Date(t):null;"
-    "if(!d||isNaN(d.getTime())||(Date.now()-d.getTime())/60000>60){"
-    "e.classList.add('stale');"
-    "e.textContent+=' \\u00b7 stale, paste the check-in';}})();")
+    "if(!d||isNaN(d.getTime())||(Date.now()-d.getTime())/60000>"
+    f"{CHECKIN_FRESH_MINUTES}){{"
+    "b.classList.add('fresh-bad');e.classList.add('stale');"
+    "if(m)m.textContent='✗';"
+    "if(n)n.textContent=t?'stale, paste the check-in':'never checked in';"
+    "}else{b.classList.add('fresh-ok');if(m)m.textContent='✓';"
+    "var a=Math.round((Date.now()-d.getTime())/60000);"
+    "if(n)n.textContent='fresh · '+(a<60?a+' min':Math.round(a/60)+' h')"
+    "+' ago';}})();")
 
 
 def render_dashboard_html(c: dict) -> str:
@@ -1154,8 +1185,10 @@ def render_dashboard_html(c: dict) -> str:
     def h2(key):
         a = (f' <a class="mdsrc" href="{_attr(_src_url(blob, srcs[key]))}">'
              "markdown version</a>") if blob else ""
-        return (f'<a id="{_anchor(titles[key])}"></a><h2>{titles[key]}{a}</h2>'
-                f'<p class="muted">{_md_inline(blurbs[key])}</p>')
+        head = f'<a id="{_anchor(titles[key])}"></a><h2>{titles[key]}{a}</h2>'
+        if not blurbs[key]:
+            return head
+        return head + f'<p class="muted">{_md_inline(blurbs[key])}</p>'
 
     def phase_head(r, tone_pills=()):
         head = link(r["rel"], _summary_label(r["title"]))
@@ -1191,8 +1224,8 @@ def render_dashboard_html(c: dict) -> str:
     ]
     # One line, deliberately: the `--check` normaliser drops it whole so a
     # date change is not drift.
-    H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b> This '
-          f'page is {_md_inline(REFRESH_BLURB)}</p></div>']
+    H += [f'<div class="fresh"><p class="muted">Last updated '
+          f'{c["generated"]}.</p></div>']
     if home:
         H.append(f'<p class="muted mdsrc">'
                  f'{link("dashboard.md", "markdown version")} · '
@@ -1205,13 +1238,20 @@ def render_dashboard_html(c: dict) -> str:
 
     # The first button on the page, before any section: the paste that
     # refreshes everything below it, then the stamp saying when that last
-    # happened. The script at the bottom reddens the stamp on the viewer's
-    # own clock.
+    # happened. The script at the bottom marks the box green or red on the
+    # viewer's own clock, 3 h being the line between them.
     stamp = c.get("checkin") or ""
     H += [_html_task(_summary_label(CHECKIN_LABEL), _checkin_payload(c)),
-          f'<p class="checkin"><b>Last check-in:</b> '
+          f'<div class="checkin" id="checkin-box">'
+          f'<span class="mark" id="checkin-mark"></span><div>'
+          f'<span class="label">Last check-in</span>'
           f'<time id="checkin" datetime="{_attr(stamp)}">'
-          f'{_summary_label(stamp or CHECKIN_NEVER)}</time></p>']
+          f'{_summary_label(stamp or CHECKIN_NEVER)}</time>'
+          f'<span class="note" id="checkin-note"></span></div></div>']
+
+    # Computed once, read twice: the cards below, and the table of what has
+    # nothing open that rides under the summary.
+    shown, folded = by_project_keys(c)
 
     H += ['<a id="summary"></a><h2>Summary</h2>',
           '<p class="muted">One row per active project — the next thing, what '
@@ -1228,12 +1268,19 @@ def render_dashboard_html(c: dict) -> str:
         H.append("</table>")
     else:
         H.append('<p class="muted">(no active project)</p>')
-
+    if folded:
+        H += ["<h3>Nothing open</h3>", '<table class="map">',
+              "<tr><th>Project</th><th>Status</th><th>Phases</th></tr>"]
+        H += [f"<tr><td>{_summary_label(k)}</td><td>"
+              f"{_summary_label((c['projects'][k].get('status') or '?').strip())}"
+              f"</td><td>{_summary_label(project_counts(k, c))}</td></tr>"
+              for k in project_order(folded, c)]
+        H.append("</table>")
 
     H.append(h2("projects"))
-    shown, folded = by_project_keys(c)
     for key in project_order(shown, c):
         row = c["projects"][key]
+        H.append('<section class="project">')
         H.append(f"<h3>{_summary_label(key)}</h3>")
         H += [f'<p class="paths"><b>{label}</b> '
               f"<code>{_summary_label(path)}</code></p>"
@@ -1244,7 +1291,7 @@ def render_dashboard_html(c: dict) -> str:
         nxt = next_open_phase(key, c)
         if nxt is None:
             H.append('<p class="muted">(nothing open — every phase of this '
-                     "project is history)</p>")
+                     "project is history)</p></section>")
             continue
         rest = rest[1:]
         text = phase_head(nxt, ((nxt["state"], "n"),))
@@ -1270,14 +1317,7 @@ def render_dashboard_html(c: dict) -> str:
             if _issues_url(row):
                 links.append(f'<a href="{_attr(_issues_url(row))}">issues</a>')
             H.append("</ul><p>" + " · ".join(links) + "</p></details>")
-    if folded:
-        H.append('<p class="muted">'
-                 + f"{len(folded)} project(s) with nothing open: "
-                 + " · ".join(
-                     f"<code>{_summary_label(k)}</code> "
-                     f"({_summary_label((c['projects'][k].get('status') or '?').strip())}"
-                     f" · {_summary_label(project_counts(k, c))})"
-                     for k in project_order(folded, c)) + "</p>")
+        H.append("</section>")
 
     H.append(h2("awaiting"))
     for r in c["awaiting"]:
