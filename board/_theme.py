@@ -296,6 +296,8 @@ MARKS = {
 }
 
 import html as _html
+import re as _re
+from pathlib import Path as _Path
 
 WORD = "PyAuto"  # the half of every wordmark that stays white
 
@@ -651,6 +653,46 @@ def stats(*pairs):
     items = "".join(f"<li><b>{n}</b><span>{label}</span></li>"
                     for n, label in pairs)
     return f'<ul class="stats">{items}</ul>' if items else ""
+
+
+# The board family's canonical membership and order live in ONE place:
+# `config/policy.yaml` `board: boards:`. Every renderer that draws the footer
+# used to keep its own copy of that list, and every copy drifted — the three
+# sibling organs shipped a tuple written before the Cortex had a board, so
+# their footers were both short a chip and out of the ruled organ order.
+#
+# `board_links` is that single read, offered to every renderer. It stays a
+# stdlib regex over the one-pair-per-line block rather than a yaml parse for
+# the same reason `_intake._board_links` does: these renderers also run bare
+# in workflows that install nothing, and this module is presentation-only —
+# it must not grow a dependency. File order IS the order: editing
+# `policy.yaml` reorders every board's footer at once, which is the point.
+_BOARDS_BLOCK = _re.compile(r"^  boards:\n((?:    \w+: \S+\n)+)", _re.M)
+_BOARD_PAIR = _re.compile(r"^    (\w+): (\S+)$", _re.M)
+
+
+def board_links(base_url, current=None, policy=None):
+    """The family's `name -> board URL` mapping, in `policy.yaml` order.
+
+    `base_url` is the Pages origin the caller already derives for itself
+    (e.g. `https://<owner>.github.io`); each entry becomes
+    `<base_url>/<Repo>/`. `current` — this page's own board key — is dropped,
+    so a renderer can hand the result straight to `boards_footer`. Returns an
+    empty mapping when the config surface is unreadable, which renders as no
+    footer rather than a broken one.
+    """
+    path = _Path(policy) if policy else _Path(__file__).resolve().parents[1] / "config" / "policy.yaml"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    block = _BOARDS_BLOCK.search(text)
+    if not block:
+        return {}
+    base = str(base_url or "").rstrip("/")
+    return {name: f"{base}/{repo}/"
+            for name, repo in _BOARD_PAIR.findall(block.group(1))
+            if name != current}
 
 
 def boards_footer(links, current):

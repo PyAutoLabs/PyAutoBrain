@@ -196,6 +196,44 @@ def test_boards_footer_skips_self_and_tags_each_sibling():
             assert f'.boards a[data-organ="{key}"]' in _theme.css("mind")
 
 
+def test_board_links_reads_the_declared_family_in_file_order():
+    # The footer's membership and order are config, not code. Every sibling
+    # renderer used to keep its own tuple; each one drifted (no Cortex chip,
+    # ad-hoc order). This helper is the one read, so the order it returns is
+    # the order `config/policy.yaml` declares — the ruled organ order.
+    links = _theme.board_links("https://example.invalid")
+    assert list(links) == ["brain", "mind", "cortex", "memory",
+                           "heart", "hands", "organism"]
+    assert list(links) == POLICY_BOARDS
+    assert links["cortex"] == "https://example.invalid/PyAutoCortex/"
+
+
+def test_board_links_drops_the_page_it_is_rendered_on():
+    for current in POLICY_BOARDS:
+        links = _theme.board_links("https://example.invalid", current)
+        assert current not in links
+        assert list(links) == [k for k in POLICY_BOARDS if k != current]
+
+
+def test_board_links_tolerates_a_trailing_slash_on_the_base():
+    assert (_theme.board_links("https://example.invalid/")
+            == _theme.board_links("https://example.invalid"))
+
+
+def test_board_links_renders_the_family_footer_end_to_end():
+    # What every sibling renderer actually does: one read, one footer.
+    footer = _theme.boards_footer(
+        _theme.board_links("https://example.invalid", "heart"), "heart")
+    order = re.findall(r'data-organ="(\w+)"', footer)
+    assert order == ["brain", "mind", "cortex", "memory", "hands", "organism"]
+
+
+def test_board_links_returns_nothing_when_the_config_is_unreadable():
+    # A missing config surface renders no footer, never a broken one.
+    assert _theme.board_links("https://example.invalid",
+                              policy="/nonexistent/policy.yaml") == {}
+
+
 def test_stats_render_pairs_and_vanish_when_empty():
     assert _theme.stats() == ""
     assert "<b>3</b><span>In flight</span>" in _theme.stats((3, "In flight"))
