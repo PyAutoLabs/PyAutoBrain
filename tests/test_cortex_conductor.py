@@ -1031,9 +1031,10 @@ def test_the_checkin_stamps_the_board_it_just_refreshed(board):
     assert f"Refreshed: {stamp}" in r.stdout
     assert f"**Last check-in:** {stamp}" in \
         (board["root"] / "dashboard.md").read_text(encoding="utf-8")
-    # …and the push gate calls it ledger, so it can ride with the moves.
-    _with_classifier(board["root"])
-    assert _cortex.classify_paths(board["root"], ["checkin.yaml"])[0] == 0
+    # Whether the push gate calls it ledger is the Cortex's own claim — its
+    # `tests/test_ledger_merge.py` pins `checkin.yaml` in LEDGER_FILES. Asking
+    # the checked-out Cortex here would couple this suite to whichever ref CI
+    # cloned, and the two repos merge one after the other.
 
 
 def test_a_plain_re_render_of_a_stamped_board_is_not_drift(tmp_skeleton):
