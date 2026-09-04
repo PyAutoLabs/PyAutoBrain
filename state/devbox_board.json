@@ -9,39 +9,39 @@
         "summary": ""
       },
       {
-        "count": 7,
+        "count": 14,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "14/14 code repos: 4 stale branches, 0 stashes, 3 [gone] refs, 0 dirty checkouts"
+        "summary": "14/14 code repos: 9 stale branches, 2 stashes, 3 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
         "delegate": "/refactor",
         "mode": "crlf",
         "status": "clean",
-        "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 18/19 scanned repos"
+        "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 19/19 scanned repos"
       },
       {
-        "count": 3,
+        "count": 27,
         "delegate": "/refactor",
         "mode": "docstrings",
         "status": "finding",
-        "summary": "3 adjacent documentation boundaries in 3 files across 2/7 repos; 0 parse errors"
+        "summary": "27 adjacent documentation boundaries in 18 files across 3/8 repos; 0 parse errors"
       },
       {
         "count": 1,
         "delegate": "/refactor",
         "mode": "escapes",
         "status": "finding",
-        "summary": "1 script(s) across 7 repo(s) with LaTeX damaged by string escapes: 2 warned, 1 silent (0 file(s) have ONLY silent damage, which a warning-only sweep would miss); 0 read error(s)"
+        "summary": "1 script(s) across 8 repo(s) with LaTeX damaged by string escapes: 2 warned, 1 silent (0 file(s) have ONLY silent damage, which a warning-only sweep would miss); 0 read error(s)"
       },
       {
-        "count": 6,
+        "count": 10,
         "delegate": "/refactor",
         "mode": "refs",
         "status": "finding",
-        "summary": "6 folder-list defects (6 dead references, 0 undocumented folders) in 2 files across 2/7 repos; 284 unresolvable refs skipped"
+        "summary": "10 folder-list defects (10 dead references, 0 undocumented folders) in 5 files across 3/8 repos; 292 unresolvable refs skipped"
       },
       {
         "count": 0,
@@ -62,7 +62,7 @@
         "delegate": "/repo_cleanup",
         "mode": "artifacts",
         "status": "clean",
-        "summary": "0 tracked files look like leaked outputs/data across 18/19 scanned repos: (fix: gitignore + git rm --cached)"
+        "summary": "0 tracked files look like leaked outputs/data across 19/19 scanned repos: (fix: gitignore + git rm --cached)"
       },
       {
         "count": 0,
@@ -102,6 +102,21 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-09-02T15:16:44Z",
-  "worktrees": []
+  "ts": "2026-09-04T15:59:42Z",
+  "worktrees": [
+    {
+      "ahead": 0,
+      "branch": "main",
+      "dirty": false,
+      "repo": "PyAutoBrain",
+      "stashes": 1
+    },
+    {
+      "ahead": 0,
+      "branch": "main",
+      "dirty": false,
+      "repo": "PyAutoMind",
+      "stashes": 1
+    }
+  ]
 }
