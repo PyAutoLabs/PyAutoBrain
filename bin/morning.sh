@@ -9,11 +9,12 @@
 # touch YOUR checkout — sync and clean-slate. This script is exactly those two
 # steps, so the morning is: run this in a terminal, then open the board.
 #
-#   bash PyAutoBrain/bin/morning.sh            # sync + clean + publish,
-#                                              #   then board URL
+#   bash PyAutoBrain/bin/morning.sh            # sync + clean + publish
+#                                              #   (Brain + Heart dev-box
+#                                              #   observations), then board URL
 #   bash PyAutoBrain/bin/morning.sh --digest   # also print the board's
 #                                              #   markdown digest (needs gh)
-#   bash PyAutoBrain/bin/morning.sh --no-publish  # skip the dev-box publish
+#   bash PyAutoBrain/bin/morning.sh --no-publish  # skip both dev-box publishes
 #   DRY_RUN=1 bash PyAutoBrain/bin/morning.sh  # preview clean-slate only
 #
 # To run overnight automatically (so the board is fresh on waking), schedule
@@ -43,6 +44,19 @@ if [ "${1:-}" != "--no-publish" ]; then
     # this morning's local observations a minute later.
     bash "$HERE/../board/board.sh" publish \
         || echo "morning: dev-box publish skipped (see above) — the board keeps its last stamp"
+
+    # The Heart's cloud board has the same blind spot for the same reason: its
+    # local-only check families render grey unless THIS box publishes what it
+    # saw (the observation expires after 48h). Publishing it here, beside the
+    # Brain's, is what keeps those eight rows lit — they went grey because this
+    # leg did not exist and the last hand-run was a week old.
+    heart="$HERE/../../PyAutoHeart/bin/pyauto-heart"
+    if [ -x "$heart" ]; then
+        echo
+        echo "== morning: publish the Heart's dev-box observation =="
+        ( "$heart" tick && "$heart" publish ) \
+            || echo "morning: Heart dev-box publish skipped (see above) — the Heart board keeps its last stamp"
+    fi
 fi
 
 echo
