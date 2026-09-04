@@ -15,6 +15,7 @@ are the `dashboard_refresh.yml` contract.
 
 import importlib.util
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -270,6 +271,191 @@ def _score(board_) -> dict:
             for ph in mod.load_phases(root)[0]
             if ph.state in _cortex.LIVE_STATES and ph.slug in
             ("11_healthy", "12_resumed", "01_partial")}
+
+
+# --- by project ------------------------------------------------------------
+# The check-in view: one tree, rendered three ways. These assert the tree's
+# promises (the folders, the `## Where to look` bullets, the prompts) rather
+# than its exact prose.
+def test_the_by_project_section_leads_the_board(skeleton):
+    """It is the first section, above the state lists: those are
+    cross-project, this one answers "where is everything" per project."""
+    page = _cortex.render_dashboard(_cortex.census(skeleton))
+    assert page.index("## By project") < page.index("## Awaiting ruling")
+    assert page.index("| Where | Count |") < page.index("## By project")
+
+
+def test_a_project_block_names_its_three_folders_and_its_counts(skeleton):
+    c = _cortex.census(skeleton)
+    page = _cortex.render_dashboard(c)
+    row = c["projects"]["example"]
+    assert "### example" in page
+    for path in (row["local_path"], row["mirror"], row["ral_root"]):
+        assert f"`{path}`" in page
+    # every state of the fixture is counted, history included
+    assert "- phases: accepted 1 · awaiting-ruling 1 · dropped 1" in page
+
+
+def test_the_where_to_look_bullets_render_verbatim(skeleton):
+    """Parsed since phase 1 of the check-in epic, rendered since phase 3 —
+    this is the "which folder do I open" answer."""
+    c = _cortex.census(skeleton)
+    awaiting = [r for r in c["phases"] if r["rel"].endswith("07_awaiting_ruling.md")][0]
+    assert awaiting["where"] == ["`/mnt/c/Users/Jammy/Science/example/output/phase_07/`"]
+    assert ("- where to look: `/mnt/c/Users/Jammy/Science/example/output/phase_07/`"
+            in _cortex.render_dashboard(c))
+
+
+def test_the_history_states_are_counted_not_listed(skeleton):
+    """`accepted` / `rerun` / `dropped` are history: they belong to the
+    counts line and to the ruling ledger, not to a list of things to do."""
+    c = _cortex.census(skeleton)
+    groups = dict(_cortex.project_groups("example", c))
+    listed = {r["state"] for rows in groups.values() for r in rows}
+    assert listed == {"awaiting-ruling", "pulled", "submitted", "running",
+                      "ready", "gated", "planned"}
+
+
+def test_census_by_project_prints_the_same_tree(skeleton):
+    r = _run(["census", "--cortex", str(skeleton), "--by-project"])
+    assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
+    assert "# The Cortex by project" in r.stdout
+    assert "### example" in r.stdout
+    assert "- where to look: `/mnt/c/Users/Jammy/Science/example/output/phase_07/`" in r.stdout
+    assert "**rule on it**" in r.stdout
+    # the counts census is still the default
+    assert "== Cortex census ==" in _run(["census", "--cortex", str(skeleton)]).stdout
+
+
+def test_a_dormant_project_with_nothing_open_folds_to_one_line(tmp_skeleton):
+    (tmp_skeleton / "projects.yaml").write_text(
+        (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
+        + "\ndormant_one:\n  remote: none\n"
+          "  local_path: /mnt/c/Users/Jammy/Science/dormant\n"
+          "  ral_root: /mnt/ral/jnightin/dormant\n  mirror: none\n"
+          "  sync_cli: hpc/sync\n  sync_verbs: [pull]\n"
+          "  ledger: wiki/state.md\n  witness_file: out/**/*.json\n"
+          "  partition: gpu\n  status: dormant\n", encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    shown, folded = _cortex.by_project_keys(c)
+    assert shown == ["example"] and folded == ["dormant_one"]
+    page = _cortex.render_dashboard(c)
+    assert "### dormant_one" not in page
+    assert "1 dormant project(s) with nothing open" in page
+    assert "`dormant_one` (none)" in page
+
+
+def test_a_phase_that_names_nowhere_still_renders(tmp_skeleton):
+    """A `planned` phase may still be carrying the template placeholder —
+    `check` exempts it — so every rendering has to survive an empty list."""
+    scope = tmp_skeleton / "phases" / "example" / "01_scope.md"
+    text = scope.read_text(encoding="utf-8")
+    scope.write_text(re.sub(r"## Where to look\n\n(?:- .*\n)+",
+                            "## Where to look\n\n", text, count=1),
+                     encoding="utf-8")
+    mod = _cortex.load_cortex(tmp_skeleton)
+    assert mod.check_problems(tmp_skeleton) == []
+    c = _cortex.census(tmp_skeleton)
+    row = [r for r in c["phases"] if r["rel"].endswith("01_scope.md")][0]
+    assert row["where"] == []
+    page = _cortex.render_dashboard(c)
+    assert "### example" in page and "where to look: \n" not in page
+    _cortex.render_dashboard_html(c)          # must not raise either
+    text = "\n".join(_cortex.project_digest("example", c["projects"]["example"],
+                                            c, {}))
+    assert "01_scope.md" in text
+
+
+# --- the two missing prompts ----------------------------------------------
+def _synthetic(*rows) -> dict:
+    """A census-shaped dict — the payloads read only `phases` + `projects`."""
+    return {"phases": list(rows),
+            "projects": {"proj": {"local_path": "/s/proj", "sync_cli": "hpc/sync",
+                                  "sync_verbs": ["pull", "submit"]}}}
+
+
+def _row(number, state, slug, epic=None):
+    return {"rel": f"phases/proj/{slug}.md", "slug": slug, "title": slug,
+            "project": "proj", "phase": number, "state": state, "epic": epic,
+            "runs": [], "budget": None, "budget_minutes": None,
+            "wall_minutes": 0, "review_minutes": None, "gates": [],
+            "failed_runs": [], "where": []}
+
+
+def test_accept_and_open_opens_the_planned_sibling(skeleton):
+    """A planned phase N+1 IS the ledger naming the next phase — the prompt
+    opens it rather than writing a second one beside it."""
+    c = _synthetic(_row(4, "awaiting-ruling", "four"), _row(5, "planned", "five"))
+    payload = _cortex._next_phase_payload(c["phases"][0], c)
+    assert "rule phases/proj/four.md accept --body <file>" in payload
+    assert "move phases/proj/five.md ready" in payload
+    assert "cd /s/proj && hpc/sync submit <script>" in payload
+    assert "cortex.py new" not in payload
+
+
+def test_accept_and_open_writes_a_new_phase_when_there_is_none(skeleton):
+    c = _synthetic(_row(4, "awaiting-ruling", "four", epic="an-epic"))
+    payload = _cortex._next_phase_payload(c["phases"][0], c)
+    assert "new proj <slug> --phase 5 --epic an-epic" in payload
+    # the title-prefix convention, stated where it is used: `new` writes
+    # `# <Project> — phase N: ` itself, so `--title` takes the tail alone.
+    assert "the tail only" in payload and "phase 5: ' itself" in payload
+
+
+def test_accept_and_open_skips_a_number_that_is_already_taken(skeleton):
+    """Phase numbers are unique per project, and a phase that has already run
+    cannot be moved back to `ready` — so N+1 being taken means a new number."""
+    c = _synthetic(_row(4, "awaiting-ruling", "four"), _row(5, "accepted", "five"),
+                   _row(9, "dropped", "nine"))
+    payload = _cortex._next_phase_payload(c["phases"][0], c)
+    assert "phase 5 is taken (phases/proj/five.md, accepted)" in payload
+    assert "--phase 10" in payload
+
+
+def test_run_it_again_is_a_ruling_then_the_same_launch(skeleton):
+    c = _synthetic(_row(4, "awaiting-ruling", "four"))
+    payload = _cortex._rerun_payload(c["phases"][0], c)
+    order = [payload.index(x) for x in (
+        "rule phases/proj/four.md rerun --body <file>",
+        "move phases/proj/four.md ready",
+        "cd /s/proj && hpc/sync submit <script>",
+        "move phases/proj/four.md submitted --run <jobid>")]
+    assert order == sorted(order), payload
+    assert "one run per call" in payload
+
+
+def test_a_project_with_no_submit_verb_says_so_rather_than_inventing_one(skeleton):
+    c = _synthetic(_row(4, "awaiting-ruling", "four"))
+    c["projects"]["proj"]["sync_verbs"] = ["pull"]
+    assert "no `submit` verb in projects.yaml" in _cortex._rerun_payload(
+        c["phases"][0], c)
+
+
+def test_the_chips_a_state_carries_are_the_same_everywhere(skeleton):
+    """One table, three renderings — the board, `--by-project` and the door
+    all ask `phase_chips`, so a prompt cannot appear in one and not another."""
+    c = _cortex.census(skeleton)
+    by_state = {r["state"]: [label for label, _p in _cortex.phase_chips(r, c)]
+                for r in c["phases"]}
+    assert by_state["awaiting-ruling"] == [
+        "rule on it", "the results are good — accept and open phase 8",
+        "run it again"]
+    assert by_state["pulled"][0] == "rule on it"
+    assert by_state["running"] == ["where the jobs stand", "run it again"]
+    assert by_state["submitted"] == ["where the jobs stand"]
+    assert by_state["ready"] == ["submit it"]
+    assert by_state["gated"] == ["its gates"]
+    assert by_state["planned"] == ["open it"]
+
+
+def test_the_new_prompts_ride_beside_the_rule_prompt_on_the_board(skeleton):
+    """"Beside", not "instead of": the awaiting row keeps the rule payload it
+    has always had and the two new ones follow it as their own chips."""
+    page = _cortex.render_dashboard(_cortex.census(skeleton))
+    assert "📋 ↳ the results are good — accept and open phase 8" in page
+    assert "📋 ↳ run it again" in page
+    html = _cortex.render_dashboard_html(_cortex.census(skeleton))
+    assert "↳ run it again" in html
 
 
 def test_the_board_the_collect_tests_score_is_a_tree_that_checks(board):
@@ -609,6 +795,9 @@ def test_the_summary_is_keyed_by_project_and_is_the_last_thing_printed(board):
     assert "Awaiting your ruling" in out
     # the prompt each state already has, ready to paste
     assert "help me rule on it" in out
+    # ... and the two phase 3 added, in the same tree
+    assert "accept and open phase" in out and "needs running again" in out
+    assert "where to look:" in out
     assert f"local `{board['sub']}`" in out
 
 
