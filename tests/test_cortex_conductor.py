@@ -221,16 +221,84 @@ def test_the_gates_verb_is_a_read_only_wrapper_over_the_scripts_listing(tmp_skel
     assert after == before
 
 
-def test_the_epics_schema_block_is_not_read_as_an_epic(tmp_path):
-    """`epics.md` documents its own schema in a fenced block whose body is a
-    `## <slug>` template — an empty Cortex must show no epic card."""
-    (tmp_path / "epics.md").write_text(
-        "# Epics\n\n```markdown\n## <slug>\n- title: <one line>\n```\n"
-        "\n## real-epic\n- title: A real one\n- mind-half: dev-half\n",
-        encoding="utf-8")
-    entries = _cortex.parse_epics(tmp_path / "epics.md")
-    assert [e["slug"] for e in entries] == ["real-epic"]
-    assert entries[0]["mind-half"] == "dev-half"
+def test_the_cortex_holds_no_epics_of_its_own(tmp_skeleton):
+    """Retired 2026-09-04: a science project IS the long programme, so the
+    Cortex keeps no epics file, no census key and no section. A tree with an
+    `epics.md` left lying in it is simply not read."""
+    assert not hasattr(_cortex, "parse_epics")
+    (tmp_skeleton / "epics.md").write_text(
+        "# Epics\n\n## a-leftover\n- title: not read\n", encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    assert "epics" not in c
+    for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
+        assert "a-leftover" not in page
+        assert "Epics" not in page
+    # …and the section list no longer names one.
+    assert "epics" not in [key for key, _t, _s, _b in _cortex.SECTIONS]
+
+
+# --- the check-in chip and the freshness stamp -----------------------------
+def _first_task(page: str) -> str:
+    """The first copy row on either twin — markdown `<summary>`, HTML button."""
+    m = re.search(r"<summary>📋 ([^<\n]+)", page) or \
+        re.search(r'<button class="copy"[^>]*></button><p>([^<]+)', page)
+    return m.group(1) if m else ""
+
+
+def test_the_checkin_chip_is_the_first_task_row_on_both_twins(skeleton):
+    """The reader arrives, and the first thing on the page is the paste that
+    refreshes everything below it — before any section."""
+    c = _cortex.census(skeleton)
+    page = _cortex.render_dashboard(c)
+    assert _first_task(page) == _cortex.CHECKIN_LABEL
+    assert page.index("📋 " + _cortex.CHECKIN_LABEL) < page.index("## Summary")
+    payload = _cortex._checkin_payload(c)
+    assert payload.startswith("/cortex — check in on every active science")
+    assert "read me the by-project summary" in payload
+
+    html = _cortex.render_dashboard_html(c)
+    first = html.index('<div class="task">')
+    assert _cortex.CHECKIN_LABEL in html[first:first + 900]
+    assert first < html.index("<h2>Summary</h2>")
+
+
+def test_the_stamp_is_read_from_checkin_yaml_and_says_never_without_it(tmp_skeleton):
+    c = _cortex.census(tmp_skeleton)
+    assert c["checkin"] == "" and c["problems"] == []
+    assert f"**Last check-in:** {_cortex.CHECKIN_NEVER}" in \
+        _cortex.render_dashboard(c)
+    assert _cortex.CHECKIN_NEVER in _cortex.render_dashboard_html(c)
+
+    _cortex.write_checkin(tmp_skeleton, "2026-09-04T14:03:00Z")
+    c = _cortex.census(tmp_skeleton)
+    assert c["checkin"] == "2026-09-04T14:03:00Z"
+    assert "**Last check-in:** 2026-09-04T14:03:00Z" in _cortex.render_dashboard(c)
+    assert ('<time id="checkin" datetime="2026-09-04T14:03:00Z">'
+            in _cortex.render_dashboard_html(c))
+    # the paste names the stamp it is refreshing from
+    assert "(2026-09-04T14:03:00Z)" in _cortex._checkin_payload(c)
+
+
+def test_a_stamp_that_cannot_be_read_is_a_problem_not_a_freshness_claim(tmp_skeleton):
+    """Something wrote the file; a stamp that will not parse cannot be
+    trusted to mean anything, so the board says never and says why."""
+    (tmp_skeleton / "checkin.yaml").write_text("refreshed: yesterday\n",
+                                               encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    assert c["checkin"] == ""
+    assert any("checkin.yaml" in p for p in c["problems"]), c["problems"]
+    assert _cortex.CHECKIN_NEVER in _cortex.render_dashboard(c)
+
+
+def test_the_html_twin_ages_the_stamp_on_the_viewers_clock(skeleton):
+    """The page is static: an hour after it was rendered nothing on the
+    server knows. So the age is computed on load and nowhere else."""
+    html = _cortex.render_dashboard_html(_cortex.census(skeleton))
+    assert ".stale{color:var(--bad)" in html
+    assert "getElementById('checkin')" in html
+    assert "/60000>60" in html
+    assert "classList.add('stale')" in html
+    assert "stale, paste the check-in" in html
 
 
 # --- collect ---------------------------------------------------------------
@@ -277,33 +345,66 @@ def _score(board_) -> dict:
 # The check-in view: one tree, rendered three ways. These assert the tree's
 # promises (the folders, the `## Where to look` bullets, the prompts) rather
 # than its exact prose.
-def test_the_by_project_section_leads_the_board(skeleton):
-    """It is the first section, above the state lists: those are
-    cross-project, this one answers "where is everything" per project."""
+def test_the_projects_section_leads_the_state_sections(skeleton):
+    """The reading order of a morning: the counts, the check-in, the summary,
+    the map — and only then what needs a verdict."""
     page = _cortex.render_dashboard(_cortex.census(skeleton))
-    assert page.index("## By project") < page.index("## Awaiting ruling")
-    assert page.index("| Where | Count |") < page.index("## By project")
+    order = ["| Where | Count |", "📋 " + _cortex.CHECKIN_LABEL,
+             "**Last check-in:**", "## Summary", "## Projects",
+             "## Awaiting ruling", "## Running / submitted", "## Ready",
+             "## Gated", "## Recent rulings"]
+    assert [page.index(x) for x in order] == sorted(page.index(x) for x in order)
+    html = _cortex.render_dashboard_html(_cortex.census(skeleton))
+    assert html.index("<h2>Summary</h2>") < html.index("<h2>Projects") \
+        < html.index("<h2>Awaiting ruling")
 
 
-def test_a_project_block_names_its_three_folders_and_its_counts(skeleton):
-    c = _cortex.census(skeleton)
+def test_the_summary_table_holds_one_row_per_active_project(tmp_skeleton):
+    """The "clean summary of everything" the page was missing. Active only —
+    a dormant project is a fact, not a thing to read every morning."""
+    (tmp_skeleton / "projects.yaml").write_text(
+        (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
+        + _DORMANT_ROW, encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    rows = _cortex.summary_rows(c)
+    assert [r["project"] for r in rows] == ["example"]
+    row = rows[0]
+    # the next thing is the awaiting phase, and the ledger date is its own
+    assert row["next"] == "6 pulled"
+    assert (row["awaiting"], row["live"], row["ready"]) == (2, 2, 1)
+    assert row["ruling"] == "2026-09-01"
     page = _cortex.render_dashboard(c)
-    row = c["projects"]["example"]
-    assert "### example" in page
-    for path in (row["local_path"], row["mirror"], row["ral_root"]):
-        assert f"`{path}`" in page
-    # every state of the fixture is counted, history included
-    assert "- phases: accepted 1 · awaiting-ruling 1 · dropped 1" in page
+    assert "| example | 6 pulled | 2 | 2 | 1 | 2026-09-01 |" in page
+    assert "<td>6 pulled</td>" in _cortex.render_dashboard_html(c)
 
 
-def test_the_where_to_look_bullets_render_verbatim(skeleton):
-    """Parsed since phase 1 of the check-in epic, rendered since phase 3 —
-    this is the "which folder do I open" answer."""
+def test_a_project_card_puts_each_folder_on_its_own_bold_line(skeleton):
     c = _cortex.census(skeleton)
-    awaiting = [r for r in c["phases"] if r["rel"].endswith("07_awaiting_ruling.md")][0]
-    assert awaiting["where"] == ["`/mnt/c/Users/Jammy/Science/example/output/phase_07/`"]
-    assert ("- where to look: `/mnt/c/Users/Jammy/Science/example/output/phase_07/`"
-            in _cortex.render_dashboard(c))
+    row = c["projects"]["example"]
+    lines = _cortex.render_dashboard(c).splitlines()
+    for label, path in (("Local", row["local_path"]), ("Mirror", row["mirror"]),
+                        ("RAL", row["ral_root"])):
+        assert f"**{label}** `{path}`" in lines, label
+    html = _cortex.render_dashboard_html(c)
+    assert (f'<p class="paths"><b>RAL</b> <code>{row["ral_root"]}</code></p>'
+            in html)
+    # the counts and the partition, one line under them
+    assert "active · gpu partition · phases: accepted 1" in "\n".join(lines)
+
+
+def test_the_where_to_look_bullets_leave_the_page_but_not_the_door(skeleton):
+    """They are the "which folder do I open" answer, and they belong where a
+    human is already reading a phase — not on a board they scroll past."""
+    c = _cortex.census(skeleton)
+    where = "`/mnt/c/Users/Jammy/Science/example/output/phase_07/`"
+    awaiting = [r for r in c["phases"]
+                if r["rel"].endswith("07_awaiting_ruling.md")][0]
+    assert awaiting["where"] == [where]
+    for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
+        assert "where to look:" not in page
+    digest = "\n".join(_cortex.project_digest(
+        "example", c["projects"]["example"], c, {}))
+    assert f"where to look: {where}" in digest
 
 
 def test_the_history_states_are_counted_not_listed(skeleton):
@@ -327,22 +428,95 @@ def test_census_by_project_prints_the_same_tree(skeleton):
     assert "== Cortex census ==" in _run(["census", "--cortex", str(skeleton)]).stdout
 
 
-def test_a_dormant_project_with_nothing_open_folds_to_one_line(tmp_skeleton):
+#: A second row for the fixture's body map — a project with nothing open, so
+#: it folds. Generic on purpose: the tenant firewall reads test fixtures too.
+_DORMANT_ROW = ("\ndormant_one:\n  remote: none\n"
+                "  local_path: /mnt/c/Users/Jammy/Science/dormant\n"
+                "  ral_root: /mnt/ral/jnightin/dormant\n  mirror: none\n"
+                "  sync_cli: hpc/sync\n  sync_verbs: [pull]\n"
+                "  ledger: wiki/state.md\n  witness_file: out/**/*.json\n"
+                "  partition: gpu\n  status: dormant\n")
+
+
+def test_a_project_with_nothing_open_folds_to_one_line_with_its_status(tmp_skeleton):
     (tmp_skeleton / "projects.yaml").write_text(
         (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
-        + "\ndormant_one:\n  remote: none\n"
-          "  local_path: /mnt/c/Users/Jammy/Science/dormant\n"
-          "  ral_root: /mnt/ral/jnightin/dormant\n  mirror: none\n"
-          "  sync_cli: hpc/sync\n  sync_verbs: [pull]\n"
-          "  ledger: wiki/state.md\n  witness_file: out/**/*.json\n"
-          "  partition: gpu\n  status: dormant\n", encoding="utf-8")
+        + _DORMANT_ROW, encoding="utf-8")
     c = _cortex.census(tmp_skeleton)
     shown, folded = _cortex.by_project_keys(c)
     assert shown == ["example"] and folded == ["dormant_one"]
     page = _cortex.render_dashboard(c)
     assert "### dormant_one" not in page
-    assert "1 dormant project(s) with nothing open" in page
-    assert "`dormant_one` (none)" in page
+    assert "1 project(s) with nothing open" in page
+    assert "`dormant_one` (dormant · none)" in page
+    assert "1 project(s) with nothing open" in _cortex.render_dashboard_html(c)
+
+
+def test_the_projects_run_active_then_planned_then_dormant(skeleton):
+    """The order the human asked for, alphabetical inside each rank."""
+    c = {"projects": {"zeta": {"status": "active"}, "alpha": {"status": "active"},
+                      "plan_b": {"status": "planned"},
+                      "sleepy": {"status": "dormant"},
+                      "odd": {"status": "who-knows"}}}
+    assert _cortex.project_order(list(c["projects"]), c) == \
+        ["alpha", "zeta", "plan_b", "sleepy", "odd"]
+
+
+def _bucketed(**buckets) -> dict:
+    """A census-shaped dict holding only the open buckets."""
+    c = {k: [] for k in _cortex.OPEN_ORDER}
+    c.update(buckets)
+    return c
+
+
+def test_the_next_phase_is_the_first_open_bucket_and_its_lowest_number(skeleton):
+    """awaiting > live > ready > gated > planned, then by phase number: the
+    route from a project card to the follow-up work."""
+    def r(number, bucket):
+        return {"project": "p", "phase": number, "rel": f"phases/p/{number}.md",
+                "state": bucket}
+    c = _bucketed(ready=[r(3, "ready"), r(2, "ready")],
+                  gated=[r(1, "gated")], planned=[r(9, "planned")])
+    assert _cortex.next_open_phase("p", c)["phase"] == 2
+    c = _bucketed(live=[r(7, "running")], ready=[r(2, "ready")])
+    assert _cortex.next_open_phase("p", c)["phase"] == 7
+    c = _bucketed(awaiting=[r(8, "pulled")], live=[r(7, "running")])
+    assert _cortex.next_open_phase("p", c)["phase"] == 8
+    assert _cortex.next_open_phase("p", _bucketed()) is None
+    # every open phase, in that same order — the fold lists the tail of it
+    c = _bucketed(awaiting=[r(8, "pulled")], ready=[r(2, "ready")])
+    assert [x["phase"] for x in _cortex.open_phases("p", c)] == [8, 2]
+
+
+def test_the_rest_of_a_projects_open_phases_fold_behind_links(tmp_skeleton):
+    """The plans live behind a click: a link per phase file, the phase folder
+    and — when the row declares a remote — that repo's issue list."""
+    yaml = (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
+    (tmp_skeleton / "projects.yaml").write_text(
+        yaml.replace("remote: none", "remote: exampleorg/widgets"),
+        encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    page = _cortex.render_dashboard(c)
+    rest = _cortex.open_phases("example", c)[1:]
+    assert len(rest) == 6
+    assert f"<summary>{len(rest)} more open phase(s) · plans and issues" in page
+    for r in rest:
+        assert f"]({r['rel']}) — {r['state']}" in page
+    assert "https://github.com/exampleorg/widgets/issues" in page
+    assert "https://github.com/exampleorg/widgets/issues" in \
+        _cortex.render_dashboard_html(c)
+
+
+def test_a_project_with_one_open_phase_grows_no_fold(tmp_skeleton):
+    """The fold is the tail, so a project whose next phase IS its only open
+    one shows the row and nothing else."""
+    for name in ("01_scope", "02_gated_on_dev", "04_submitted_override",
+                 "05_running_array", "06_pulled", "07_awaiting_ruling"):
+        (tmp_skeleton / "phases" / "example" / f"{name}.md").unlink()
+    c = _cortex.census(tmp_skeleton)
+    assert len(_cortex.open_phases("example", c)) == 1
+    for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
+        assert "more open phase(s)" not in page
 
 
 def test_a_phase_that_names_nowhere_still_renders(tmp_skeleton):
@@ -441,7 +615,10 @@ def test_the_chips_a_state_carries_are_the_same_everywhere(skeleton):
         "rule on it", "the results are good — accept and open phase 8",
         "run it again"]
     assert by_state["pulled"][0] == "rule on it"
-    assert by_state["running"] == ["where the jobs stand", "run it again"]
+    # A rerun is a VERDICT, so the chip rides on the states a verdict is owed
+    # on. A running job is still out there: "run it again" there would be a
+    # second submission, and it was a block of page nobody tapped.
+    assert by_state["running"] == ["where the jobs stand"]
     assert by_state["submitted"] == ["where the jobs stand"]
     assert by_state["ready"] == ["submit it"]
     assert by_state["gated"] == ["its gates"]
@@ -456,6 +633,40 @@ def test_the_new_prompts_ride_beside_the_rule_prompt_on_the_board(skeleton):
     assert "📋 ↳ run it again" in page
     html = _cortex.render_dashboard_html(_cortex.census(skeleton))
     assert "↳ run it again" in html
+
+
+def test_the_live_section_carries_no_rerun_chip(skeleton):
+    c = _cortex.census(skeleton)
+    for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
+        # the last occurrence is the section heading; the first is the
+        # counts table at the top of the page
+        live = page.split("Running / submitted")[-1].split("Ready")[0]
+        assert "run it again" not in live, live[:400]
+        # "where the jobs stand" is the head row's own payload, so the label
+        # never prints here — the project's own `jobs` verb does
+        assert "hpc/sync jobs" in live
+
+
+def test_ready_shows_one_row_per_project_and_folds_the_queue(tmp_skeleton):
+    """Four ready phases of one project are a queue: only the front of it can
+    be submitted today, so only the front of it is on the page."""
+    scope = tmp_skeleton / "phases" / "example" / "01_scope.md"
+    scope.write_text(scope.read_text(encoding="utf-8")
+                     .replace("State: planned", "State: ready"),
+                     encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    assert len(c["ready"]) == 2
+    groups = _cortex.ready_groups(c)
+    assert len(groups) == 1
+    first, rest = groups[0]
+    assert first["phase"] == 1 and [r["phase"] for r in rest] == [3]
+    page = _cortex.render_dashboard(c)
+    ready = page.split("## Ready", 1)[1].split("## Gated", 1)[0]
+    assert "<summary>1 more ready</summary>" in ready
+    assert ready.index("01_scope.md") < ready.index("1 more ready") \
+        < ready.index("03_ready_cleared.md")
+    html = _cortex.render_dashboard_html(c)
+    assert "<summary>1 more ready</summary>" in html
 
 
 def test_the_board_the_collect_tests_score_is_a_tree_that_checks(board):
@@ -806,6 +1017,33 @@ def test_the_render_leg_leaves_the_board_current(board):
     _checkin(board["root"], "--apply", "--no-push")
     check = _run(["dashboard", "--cortex", str(board["root"]), "--check"])
     assert check.returncode == _cortex.RC_OK, check.stdout + check.stderr
+
+
+def test_the_checkin_stamps_the_board_it_just_refreshed(board):
+    """The stamp is the check-in's own, written before the render, so the
+    board says when the state under it was last actually pulled — and so the
+    push carries the file beside the phase moves."""
+    _fake_cli(board["sub"], 0, board["sub"] / "pulled.txt")
+    r = _checkin(board["root"], "--apply", "--no-push")
+    assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
+    stamp, problems = _cortex.read_checkin(board["root"])
+    assert problems == [] and _cortex.CHECKIN_STAMP.match(stamp), stamp
+    assert f"Refreshed: {stamp}" in r.stdout
+    assert f"**Last check-in:** {stamp}" in \
+        (board["root"] / "dashboard.md").read_text(encoding="utf-8")
+    # …and the push gate calls it ledger, so it can ride with the moves.
+    _with_classifier(board["root"])
+    assert _cortex.classify_paths(board["root"], ["checkin.yaml"])[0] == 0
+
+
+def test_a_plain_re_render_of_a_stamped_board_is_not_drift(tmp_skeleton):
+    """`checkin.yaml` is stable between renders, so `--check` needs no rule
+    for it — the stamp only moves when a check-in moved it."""
+    _cortex.write_checkin(tmp_skeleton, "2026-09-04T14:03:00Z")
+    assert _run(["dashboard", "--apply", "--cortex",
+                 str(tmp_skeleton)]).returncode == 0
+    assert _run(["dashboard", "--check", "--cortex",
+                 str(tmp_skeleton)]).returncode == 0
 
 
 def test_the_no_push_path_says_so_and_reaches_no_git(board):

@@ -46,7 +46,9 @@ It runs, in order:
    phase's own pre-registered witness.
 3. **Move** — `running → pulled → awaiting-ruling`, rehearsed on a throwaway
    copy first and refused outright if `cortex.py check` would not pass after.
-4. **Render** — `dashboard.md` + `dashboard.html`.
+4. **Render** — the refresh stamp into `checkin.yaml` (the board's "Last
+   check-in", red on the Pages twin once an hour old), then `dashboard.md` +
+   `dashboard.html`.
 5. **Push** — see the rule below.
 6. **Summarise by project** — printed last, so it is what the chat sees.
 
@@ -117,7 +119,7 @@ checkout.
 | Verb | Answers |
 |------|---------|
 | `checkin [--dry-run\|--apply] [--push\|--no-push] [--project KEY] [--skip-pull] [--refreshed ISO]` | Where is my science? The whole sequence above. Exit **1** = a pull failed or the tree needs a look |
-| `census [--json]` | What is the Cortex holding? Phase counts by state, rulings, projects, epics |
+| `census [--json]` | What is the Cortex holding? Phase counts by state, rulings, projects, the last check-in stamp |
 | `dashboard --check` | Are the committed pages current? Exit **1** = stale (the refresh workflow's contract) |
 | `dashboard --apply` | Regenerate `dashboard.md` + `dashboard.html` — never hand-edit those two |
 | `gates` | What is each gated phase waiting on? Read-only and offline; a human types `move <phase> ready` |

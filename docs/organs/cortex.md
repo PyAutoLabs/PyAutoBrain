@@ -100,7 +100,7 @@ same split as **Heart ↔ vitals** and **Gut ↔ hygiene**.
 | Verb | What it does |
 |------|--------------|
 | `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY] [--skip-pull]` | **The door.** Pull every active project through its own sync CLI (streamed; one project's failure does not stop the sweep), score every live phase, move what came back, re-render the board, push the ledger where the rule allows, and print a summary **by project** with the copy-ready prompt each phase's state already has. `--dry-run` (the default) says what it would do and reaches nothing |
-| `census` | What the Cortex is holding — phases by state, rulings, projects, epics |
+| `census` | What the Cortex is holding — phases by state, rulings, projects, the last check-in stamp |
 | `dashboard --check` \| `--apply` | The generated board, `dashboard.md` + `dashboard.html`. `--check` exits **1** on drift — the contract the Cortex's `dashboard_refresh.yml` runs on. The two pages are generated: never hand-edit them |
 | `gates` | The refs each gated phase waits on and the URL each resolves to — read-only and offline. A human opens them and, when they have closed, types `cortex.py move <phase> ready` |
 | `collect [--pull] [--apply] [--phase REL]` | **The check-in.** What came back, one block per phase: six legs (`err`, `wall`, `version`, `checkpoint`, `resume`, `witness`) each `PASS`/`FAIL`/**`UNOBSERVABLE`**, the witness readout and a blank ruling line. Default scope is every `submitted \| running` phase; `--pull` runs each project's own sync CLI; `--apply` moves each phase `running → pulled → awaiting-ruling`. Exit **1** = a phase the human must look at |
@@ -125,9 +125,10 @@ cite its words.
 
 ![The Cortex board](../_static/cortex_board.png)
 
-Every phase the Cortex is holding on one page — awaiting ruling first, then
-running, ready, gated, the ruling ledger, the epics (each linking its Mind
-half) and the project map — published at
+Every phase the Cortex is holding on one page — the check-in paste and the
+last-check-in stamp, a one-row-per-project summary, the project map (active,
+then planned, then dormant, each card routing to its next phase), then
+awaiting ruling, running, ready, gated and the ruling ledger — published at
 <https://pyautolabs.github.io/PyAutoCortex/>. It hands out the next command;
 the verdict is never on the page.
 

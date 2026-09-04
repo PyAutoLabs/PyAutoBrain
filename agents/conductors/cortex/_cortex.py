@@ -227,12 +227,12 @@ FAILED_RUN_STATES = ("failed", "timeout", "void", "legacy_wrong")
 
 # One section: (key, title, source path in the repo, blurb).
 SECTIONS = (
-    ("by_project", "By project", "projects.yaml",
-     "Where every project is: the folders it lives in, every phase of it that "
-     "is still open, the locations its `## Where to look` names, and the "
-     "prompt for each thing that phase could become. This is the check-in "
-     "view — `pyauto-brain cortex checkin` and `census --by-project` print "
-     "the same tree."),
+    ("projects", "Projects", "projects.yaml",
+     "The science body map, active first: where each project lives, what it "
+     "is holding, and the one phase of it to act on next. The plans and the "
+     "issues are one click away — this page routes to them rather than "
+     "reprinting them; `census --by-project` and the check-in printout keep "
+     "the full per-phase tree."),
     ("awaiting", "Awaiting ruling", "phases/",
      "Results are in and nothing is running — the human's verdict is the only "
      "thing outstanding. Ordered failures first, then the phases a ruling is "
@@ -249,19 +249,49 @@ SECTIONS = (
     ("rulings", "Recent rulings", "rulings/",
      "The ledger of record, newest first. A verdict recorded only outside the "
      "Cortex does not exist."),
-    ("epics", "Epics", "epics.md",
-     "Long-running programmes whose science half lives here; each card links "
-     "its development half in the Mind."),
-    ("projects", "Projects", "projects.yaml",
-     "The science body map — where each project lives, what syncs it and "
-     "where its witness lands."),
 )
 
 REFRESH_BLURB = (
-    "generated from `phases/`, `rulings/`, `epics.md` and `projects.yaml`, so "
-    "it is only as current as they are. `dashboard_refresh.yml` re-renders it "
-    "on every push to `main`."
+    "generated from `phases/`, `rulings/` and `projects.yaml`, so it is only "
+    "as current as they are. `dashboard_refresh.yml` re-renders it on every "
+    "push to `main`."
 )
+
+#: The one-key file the check-in door writes and this page reads back. It
+#: means *last check-in*, not last render: a doc-only push re-renders the
+#: board and must not be able to fake freshness.
+CHECKIN_FILE = "checkin.yaml"
+CHECKIN_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$")
+CHECKIN_LABEL = "check in since last time"
+CHECKIN_NEVER = "never checked in"
+
+
+def read_checkin(root: Path) -> tuple[str, list[str]]:
+    """`(stamp, problems)` from `<root>/checkin.yaml`.
+
+    Missing is not a problem: a Cortex nobody has checked in yet is a state
+    the page can say out loud. A file that IS there but carries no readable
+    `refreshed:` is — something wrote it, and a stamp that cannot be parsed
+    cannot be trusted to mean anything.
+    """
+    path = root / CHECKIN_FILE
+    if not path.is_file():
+        return "", []
+    m = re.search(r"^refreshed:\s*(\S+)\s*$", _read(path), re.M)
+    value = (m.group(1) if m else "").strip().strip('"')
+    if not CHECKIN_STAMP.match(value):
+        return "", [f"{CHECKIN_FILE}: no readable `refreshed: <UTC ISO>` — "
+                    "read as never checked in"]
+    return value, []
+
+
+def write_checkin(root: Path, stamp: str) -> Path:
+    """Persist the refresh stamp, before the pages are rendered: the board is
+    meant to show the check-in that produced it, and `push_ledger` picks the
+    file up in the same commit as the phase moves."""
+    path = root / CHECKIN_FILE
+    path.write_text(f"refreshed: {stamp}\n", encoding="utf-8")
+    return path
 
 
 def _mins(value: str) -> int | None:
@@ -337,44 +367,13 @@ def _ruling_row(mod, r) -> dict:
     }
 
 
-EPIC_HEAD = re.compile(r"^## (\S+)\s*$")
-EPIC_FIELD = re.compile(r"^- ([a-z-]+):\s*(.*?)\s*$")
-
-
-def parse_epics(path: Path) -> list[dict]:
-    """`epics.md` entries — `## <slug>` then `- key: value` lines. The Cortex
-    half additionally carries `- mind-half:`, the slug of the Mind's entry."""
-    if not path.is_file():
-        return []
-    entries: list[dict] = []
-    cur: dict | None = None
-    fenced = False
-    for line in path.read_text(encoding="utf-8").splitlines():
-        # `epics.md` documents its own schema in a fenced block whose body is
-        # a `## <slug>` template — reading that as an entry would put a ghost
-        # card on the board of an empty Cortex.
-        if line.startswith("```"):
-            fenced = not fenced
-            continue
-        if fenced:
-            continue
-        head = EPIC_HEAD.match(line)
-        if head:
-            cur = {"slug": head.group(1)}
-            entries.append(cur)
-            continue
-        field = EPIC_FIELD.match(line)
-        if field and cur is not None:
-            cur[field.group(1)] = field.group(2)
-    return entries
-
-
 def census(root: Path) -> dict:
     """Everything the board, the plan and the counts need, in one read."""
     mod = load_cortex(root)
     projects, project_problems = mod.load_projects(root)
     phases, phase_problems = mod.load_phases(root)
     rulings, ruling_problems = mod.load_rulings(root)
+    checkin, checkin_problems = read_checkin(root)
 
     rows = [_phase_row(mod, ph) for ph in phases]
     by_state: dict[str, int] = {}
@@ -419,8 +418,9 @@ def census(root: Path) -> dict:
         "planned": planned,
         "rulings": ruling_rows,
         "projects": projects,
-        "epics": parse_epics(root / "epics.md"),
-        "problems": project_problems + phase_problems + ruling_problems,
+        "checkin": checkin,
+        "problems": (project_problems + phase_problems + ruling_problems
+                     + checkin_problems),
     }
 
 
@@ -531,6 +531,18 @@ def _src_url(blob: str, src: str) -> str:
 # ------------------------------------------------------------- the payloads ---
 # Every row hands the reader the next command rather than a decision. The
 # science verbs stay the Cortex script's and the run stays the human's.
+def _checkin_payload(c: dict) -> str:
+    """The paste for the laptop's science chat — the whole door as one
+    sentence, naming the stamp it is refreshing *from* so "since last time"
+    needs no second explanation."""
+    since = c.get("checkin") or "never"
+    return (f"/cortex — check in on every active science project since the "
+            f"last check-in ({since}): pull each project through its sync "
+            "CLI, score every live run against its pre-registered witness, "
+            "move what came back, re-render and push the board, then read me "
+            "the by-project summary with the prompt each phase needs next.")
+
+
 def _ruling_payload(r: dict) -> str:
     return (f"Review the PyAutoCortex phase {r['rel']} and help me rule on it: "
             f"read its `## Witness` and the pulled evidence under its "
@@ -585,9 +597,9 @@ OPENABLE_STATES = ("planned", "gated")
 def _next_phase(r: dict, c: dict) -> dict | None:
     """The phase numbered N+1 of this project, when the tree already holds it.
 
-    A planned sibling IS the ledger naming the next phase — `epics.md` points
-    at `phases/<project>/` for exactly this reason — so the prompt opens the
-    phase that exists rather than writing a second one beside it.
+    A planned sibling IS the ledger naming the next phase — `phases/<project>/`
+    is the programme, there is no separate list of it — so the prompt opens
+    the phase that exists rather than writing a second one beside it.
     """
     if r["phase"] is None:
         return None
@@ -684,7 +696,10 @@ def phase_chips(r: dict, c: dict) -> list[tuple[str, str]]:
         chips.append(("its gates", _gate_payload(r)))
     if state == "planned":
         chips.append(("open it", _planned_payload(r)))
-    if state in AWAITING_STATES or state == "running":
+    # Only where a rerun would BE a verdict. On a running phase the job is
+    # still out there and "run it again" is a second submission, not a
+    # ruling — it was noise on the row and a row taller than it needed.
+    if state in AWAITING_STATES:
         chips.append(("run it again", _rerun_payload(r, c)))
     return chips
 
@@ -713,6 +728,89 @@ def project_groups(key: str, c: dict) -> list[tuple[str, list[dict]]]:
     return out
 
 
+#: `status` in the order the reader wants it: what is running, then what is
+#: coming, then what is asleep. An unrecognised status sorts last.
+STATUS_RANK = {"active": 0, "planned": 1, "dormant": 2}
+
+#: The buckets a project's open phases live in, in the order "what is the
+#: next thing" is answered: a verdict owed beats a job out there beats a
+#: launch beats a gate beats a plan.
+OPEN_ORDER = ("awaiting", "live", "ready", "gated", "planned")
+
+
+def project_order(keys: list[str], c: dict) -> list[str]:
+    """Active, then planned, then dormant; alphabetical inside each rank."""
+    return sorted(keys, key=lambda k: (
+        STATUS_RANK.get((c["projects"][k].get("status") or "").strip(), 3), k))
+
+
+def open_phases(key: str, c: dict) -> list[dict]:
+    """Every open phase of one project, in `OPEN_ORDER`, by phase number."""
+    out = []
+    for bucket in OPEN_ORDER:
+        out += sorted((r for r in c[bucket] if r["project"] == key),
+                      key=lambda r: (10 ** 6 if r["phase"] is None
+                                     else r["phase"], r["rel"]))
+    return out
+
+
+def next_open_phase(key: str, c: dict) -> dict | None:
+    """The one phase a project's card shows — the route from Projects to the
+    follow-up work. First non-empty bucket, lowest phase number in it."""
+    phases = open_phases(key, c)
+    return phases[0] if phases else None
+
+
+def ready_groups(c: dict) -> list[tuple[dict, list[dict]]]:
+    """`(the visible row, the ones behind it)` per project, in the section's
+    own order. One project, one launch: four ready phases of one project are
+    a queue, and only the front of it can be submitted today."""
+    rows: dict[str, list[dict]] = {}
+    for r in c["ready"]:
+        rows.setdefault(r["project"], []).append(r)
+    out = []
+    for key in dict.fromkeys(r["project"] for r in c["ready"]):
+        queue = sorted(rows[key], key=lambda r: (10 ** 6 if r["phase"] is None
+                                                 else r["phase"], r["rel"]))
+        out.append((queue[0], queue[1:]))
+    return out
+
+
+def _last_ruling(key: str, c: dict) -> str:
+    """The date of this project's newest ruling, `-` when it has none."""
+    dates = []
+    for r in c["rulings"]:
+        if r["project"] != key:
+            continue
+        stamp = (r["reviewed_at"] or "")[:10]
+        if not stamp:
+            m = re.match(r"R-(\d{4})(\d{2})(\d{2})-", r["id"] or "")
+            stamp = "-".join(m.groups()) if m else ""
+        if stamp:
+            dates.append(stamp)
+    return max(dates) if dates else "-"
+
+
+def summary_rows(c: dict) -> list[dict]:
+    """One row per `status: active` project — the clean summary the page
+    opens on, before any of it has to be read phase by phase."""
+    out = []
+    for key in sorted(k for k, row in c["projects"].items()
+                      if (row.get("status") or "").strip() == "active"):
+        nxt = next_open_phase(key, c)
+        out.append({
+            "project": key,
+            "next": "-" if nxt is None else
+                    (f"{nxt['phase']} {nxt['state']}" if nxt["phase"] is not None
+                     else nxt["state"]),
+            "awaiting": sum(1 for r in c["awaiting"] if r["project"] == key),
+            "live": sum(1 for r in c["live"] if r["project"] == key),
+            "ready": sum(1 for r in c["ready"] if r["project"] == key),
+            "ruling": _last_ruling(key, c),
+        })
+    return out
+
+
 def by_project_keys(c: dict) -> tuple[list[str], list[str]]:
     """`(shown, folded)` — a block each for every `status: active` project
     plus any project still holding an open phase; everything else folds to
@@ -725,13 +823,31 @@ def by_project_keys(c: dict) -> tuple[list[str], list[str]]:
     return sorted(shown), sorted(set(c["projects"]) - shown)
 
 
-def project_paths(row: dict) -> list[str]:
-    """The three folders a project lives in — the answer to "where is it"."""
-    where = [f"local `{row.get('local_path') or '?'}`"]
+def project_paths(row: dict) -> list[tuple[str, str]]:
+    """`(label, path)` for the folders a project lives in. One per line on the
+    board with the label in bold: "where is it" is read, not scanned, and the
+    three run together on one line was the complaint that started this."""
+    where = [("Local", row.get("local_path") or "?")]
     if (row.get("mirror") or "none") != "none":
-        where.append(f"mirror `{row['mirror']}`")
-    where.append(f"RAL `{row.get('ral_root') or '?'}`")
+        where.append(("Mirror", row["mirror"]))
+    where.append(("RAL", row.get("ral_root") or "?"))
     return where
+
+
+def project_paths_line(row: dict) -> str:
+    """The same folders on one line — what the check-in printout and
+    `census --by-project` read, where a paragraph each would be noise."""
+    return " · ".join(f"{label if label == 'RAL' else label.lower()} `{path}`"
+                      for label, path in project_paths(row))
+
+
+def _issues_url(row: dict) -> str:
+    """The project repo's issue list, from the row's own `remote:`. Empty for
+    a project with no remote — most dormant rows, by design."""
+    remote = (row.get("remote") or "").strip()
+    if not remote or remote == "none" or "/" not in remote:
+        return ""
+    return f"https://github.com/{remote}/issues"
 
 
 def project_counts(key: str, c: dict) -> str:
@@ -743,15 +859,23 @@ def project_counts(key: str, c: dict) -> str:
         or "none"
 
 
-def _project_payload(key: str, row: dict) -> str:
-    path = row.get("mirror") if row.get("mirror") not in ("", "none") else row.get("local_path", "")
-    return f"Show me what is under {path} for the science project {key}."
+def _project_facts(key: str, c: dict) -> str:
+    """The one line of facts under a project's folders."""
+    row = c["projects"][key]
+    return (f"{(row.get('status') or '?').strip()} · "
+            f"{(row.get('partition') or '?').strip()} partition · phases: "
+            f"{project_counts(key, c)}")
 
 
-def _epic_payload(e: dict) -> str:
-    return (f"Work out where the Cortex half of the epic {e['slug']} stands "
-            f"from {e.get('ledger') or 'phases/'} and tell me what its next "
-            "phase is.")
+def _fold_label(rest: list[dict]) -> str:
+    return f"{len(rest)} more open phase(s) · plans and issues"
+
+
+def _phase_dir(key: str, blob: str) -> str:
+    """`phases/<project>/` on GitHub — where that project's plans actually
+    are. Bare backticks when the owner could not be derived."""
+    tree = blob.replace("/blob/main/", "/tree/main/")
+    return f"{tree}phases/{key}/" if blob else ""
 
 
 # --------------------------------------------------------------- markdown ---
@@ -787,7 +911,9 @@ def _project_head(r: dict) -> str:
     """A by-project phase line: the phase head, its state, and the warning a
     failed run earns. State is on the line because this section is not keyed
     by it."""
-    head = _phase_head(r) + f" — **{r['state']}**"
+    # `<b>`, not `**`: this head is rendered inside a `<summary>`, which is
+    # HTML on both twins and where markdown emphasis would show as asterisks.
+    head = _phase_head(r) + f" — <b>{r['state']}</b>"
     if r["failed_runs"]:
         head += " — ⚠️ " + _summary_label(
             "failed runs: " + ", ".join(r["failed_runs"]))
@@ -861,31 +987,65 @@ def render_dashboard(c: dict) -> str:
         L += [f"> - `{_cell(p)}`" for p in c["problems"][:10]]
         L += [""]
 
+    # The first row on the page, before any section: the paste that refreshes
+    # everything below it, and the stamp saying when that last happened.
+    L += [_task_row(CHECKIN_LABEL, _checkin_payload(c)), "",
+          f"**Last check-in:** {c.get('checkin') or CHECKIN_NEVER}", ""]
 
-    # First section, above the state lists: on a phone the state lists are
-    # cross-project and every row has to be read to find out whose it is,
-    # while this one answers "where is everything" a screen per project and
-    # opens with the folders. The counts table sits above it, so the urgency
-    # sections stay one tap away.
-    L += h2("by_project")
+    L += ["## Summary", "",
+          "One row per active project — the next thing, what it is holding, "
+          "and when it last ruled.", ""]
+    rows = summary_rows(c)
+    if rows:
+        L += ["| Project | Next phase | Awaiting | Running | Ready | "
+              "Last ruling |", "|---|---|---:|---:|---:|---|"]
+        L += [f"| {_cell(r['project'])} | {_cell(r['next'])} | "
+              f"{r['awaiting']} | {r['live']} | {r['ready']} | "
+              f"{_cell(r['ruling'])} |" for r in rows]
+        L += [""]
+    else:
+        L += ["- _(no active project)_", ""]
+
+
+    # The map, first: active projects, then planned, then dormant. Each card
+    # is where the project lives, what it holds and the ONE phase to act on
+    # next — the plans and the issues ride behind a fold, one click away.
+    L += h2("projects")
     shown, folded = by_project_keys(c)
-    for key in shown:
-        L += [f"### {_summary_label(key)}", "",
-              "- " + " · ".join(project_paths(c["projects"][key])),
-              f"- phases: {project_counts(key, c)}", ""]
-        groups = project_groups(key, c)
-        if not groups:
+    for key in project_order(shown, c):
+        row = c["projects"][key]
+        L += [f"### {_summary_label(key)}", ""]
+        for label, path in project_paths(row):
+            L += [f"**{label}** `{_cell(path)}`", ""]
+        L += [_project_facts(key, c), ""]
+        rest = open_phases(key, c)
+        nxt = next_open_phase(key, c)
+        if nxt is None:
             L += ["_Nothing open — every phase of this project is history._",
                   ""]
-        for title, rows in groups:
-            L += [f"**{title}**", ""]
-            for r in rows:
-                L += _project_phase_md(r, c)
+            continue
+        rest = rest[1:]
+        chips = phase_chips(nxt, c)
+        L += _items([_task_row(_project_head(nxt), chips[0][1])]
+                    + [_task_row("↳ " + label, payload)
+                       for label, payload in chips[1:]]) or \
+            [f"- {_project_head(nxt)}"]
+        L += [""]
+        if rest:
+            L += [f"<details><summary>{_fold_label(rest)}</summary>", ""]
+            L += [f"- [{_summary_label(r['title'])}]({r['rel']}) — "
+                  f"{r['state']}" for r in rest]
+            links = [f"[phases/{key}/]({_phase_dir(key, blob)})" if blob
+                     else f"`phases/{key}/`"]
+            if _issues_url(row):
+                links.append(f"[issues]({_issues_url(row)})")
+            L += ["", " · ".join(links), "", "</details>", ""]
     if folded:
-        L += [f"<details><summary>{len(folded)} dormant project(s) with "
-              "nothing open</summary>", "",
-              " · ".join(f"`{_cell(k)}` ({project_counts(k, c)})"
-                         for k in folded),
+        L += [f"<details><summary>{len(folded)} project(s) with nothing "
+              "open</summary>", "",
+              " · ".join(
+                  f"`{_cell(k)}` ({_cell((c['projects'][k].get('status') or '?').strip())}"
+                  f" · {project_counts(k, c)})" for k in project_order(folded, c)),
               "", "</details>", ""]
 
     L += h2("awaiting")
@@ -916,8 +1076,18 @@ def render_dashboard(c: dict) -> str:
     L += [""]
 
     L += h2("ready")
-    L += _items([_task_row(_phase_head(r), _ready_payload(r, c["projects"]))
-                 for r in c["ready"]]) or ["- _(nothing ready to launch)_"]
+    ready_rows = []
+    for first, rest in ready_groups(c):
+        ready_rows.append(_task_row(_phase_head(first),
+                                    _ready_payload(first, c["projects"])))
+        if rest:
+            ready_rows.append("\n".join(
+                [f"<details><summary>{len(rest)} more ready</summary>", ""]
+                + _items([_task_row(_phase_head(r),
+                                    _ready_payload(r, c["projects"]))
+                          for r in rest])
+                + ["", "</details>"]))
+    L += _items(ready_rows) or ["- _(nothing ready to launch)_"]
     L += [""]
 
     L += h2("gated")
@@ -937,35 +1107,6 @@ def render_dashboard(c: dict) -> str:
     else:
         L += ["- _(no rulings yet)_", ""]
 
-    L += h2("epics")
-    epic_rows = []
-    for e in c["epics"]:
-        head = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
-        half = e.get("mind-half")
-        if half and half != "none":
-            head += f" — Mind half: <code>{_summary_label(half)}</code>"
-        if e.get("ledger"):
-            head += f" — ledger: <code>{_summary_label(e['ledger'])}</code>"
-        if e.get("status"):
-            head += f" — {_summary_label(e['status'])}"
-        epic_rows.append(_task_row(head, _epic_payload(e)))
-    L += _items(epic_rows) or ["- _(no epics yet)_"]
-    L += [""]
-
-    L += h2("projects")
-    if c["projects"]:
-        L += ["| Project | Status | Partition | Sync | Ledger | Witness |",
-              "|---|---|---|---|---|---|"]
-        for key, row in sorted(c["projects"].items()):
-            L.append(f"| {_cell(key)} | {_cell(row.get('status', '-'))} | "
-                     f"{_cell(row.get('partition', '-'))} | "
-                     f"`{_cell(row.get('sync_cli', '-'))}` | "
-                     f"`{_cell(row.get('ledger', '-'))}` | "
-                     f"`{_cell(row.get('witness_file', '-'))}` |")
-        L += [""]
-    else:
-        L += ["- _(the science body map is empty)_", ""]
-
     links = _board_links(home, THEME_ORGAN)
     if links:
         L += ["---", "",
@@ -982,7 +1123,21 @@ _FRESH_CSS = (".fresh{border-left:3px solid var(--edge);padding:.1rem .9rem;"
               "table.map th{text-align:left;color:var(--muted);"
               "font-weight:600}"
               "table.map td,table.map th{border-bottom:1px solid var(--line);"
-              "padding:.4rem .5rem .4rem 0;vertical-align:top}")
+              "padding:.4rem .5rem .4rem 0;vertical-align:top}"
+              ".checkin{margin:.2rem 0 1.4rem}"
+              ".paths{margin:.2rem 0}.paths b{display:inline-block;"
+              "min-width:3.6rem}"
+              ".stale{color:var(--bad);font-weight:600}")
+
+# The page is static, so a stamp is never stale *at render* — it is stale on
+# the reader's clock, an hour later, on a different day. So the age is
+# computed on load, here, and nowhere else.
+_CHECKIN_JS = (
+    "(function(){var e=document.getElementById('checkin');if(!e)return;"
+    "var t=e.getAttribute('datetime'),d=t?new Date(t):null;"
+    "if(!d||isNaN(d.getTime())||(Date.now()-d.getTime())/60000>60){"
+    "e.classList.add('stale');"
+    "e.textContent+=' \\u00b7 stale, paste the check-in';}})();")
 
 
 def render_dashboard_html(c: dict) -> str:
@@ -1048,41 +1203,81 @@ def render_dashboard_html(c: dict) -> str:
         H += [f"<li><code>{_attr(p)}</code></li>" for p in c["problems"][:10]]
         H += ["</ul>"]
 
+    # The first button on the page, before any section: the paste that
+    # refreshes everything below it, then the stamp saying when that last
+    # happened. The script at the bottom reddens the stamp on the viewer's
+    # own clock.
+    stamp = c.get("checkin") or ""
+    H += [_html_task(_summary_label(CHECKIN_LABEL), _checkin_payload(c)),
+          f'<p class="checkin"><b>Last check-in:</b> '
+          f'<time id="checkin" datetime="{_attr(stamp)}">'
+          f'{_summary_label(stamp or CHECKIN_NEVER)}</time></p>']
 
-    H.append(h2("by_project"))
+    H += ['<a id="summary"></a><h2>Summary</h2>',
+          '<p class="muted">One row per active project — the next thing, what '
+          "it is holding, and when it last ruled.</p>"]
+    rows = summary_rows(c)
+    if rows:
+        H += ['<table class="map">',
+              "<tr><th>Project</th><th>Next phase</th><th>Awaiting</th>"
+              "<th>Running</th><th>Ready</th><th>Last ruling</th></tr>"]
+        H += [f"<tr><td><b>{_summary_label(r['project'])}</b></td>"
+              f"<td>{_summary_label(r['next'])}</td><td>{r['awaiting']}</td>"
+              f"<td>{r['live']}</td><td>{r['ready']}</td>"
+              f"<td>{_summary_label(r['ruling'])}</td></tr>" for r in rows]
+        H.append("</table>")
+    else:
+        H.append('<p class="muted">(no active project)</p>')
+
+
+    H.append(h2("projects"))
     shown, folded = by_project_keys(c)
-    for key in shown:
-        H += [f"<h3>{_summary_label(key)}</h3>",
-              '<p class="muted">'
-              + _md_inline(" · ".join(project_paths(c["projects"][key])))
-              + f' — phases: {_summary_label(project_counts(key, c))}</p>']
-        groups = project_groups(key, c)
-        if not groups:
+    for key in project_order(shown, c):
+        row = c["projects"][key]
+        H.append(f"<h3>{_summary_label(key)}</h3>")
+        H += [f'<p class="paths"><b>{label}</b> '
+              f"<code>{_summary_label(path)}</code></p>"
+              for label, path in project_paths(row)]
+        H.append(f'<p class="muted">{_summary_label(_project_facts(key, c))}'
+                 "</p>")
+        rest = open_phases(key, c)
+        nxt = next_open_phase(key, c)
+        if nxt is None:
             H.append('<p class="muted">(nothing open — every phase of this '
                      "project is history)</p>")
-        for title, rows in groups:
-            H.append(f"<p><b>{title}</b></p>")
-            for r in rows:
-                text = phase_head(r, ((r["state"], "n"),))
-                if r["failed_runs"]:
-                    text += ('<span class="facets"> — ⚠️ failed runs: '
-                             + _summary_label(", ".join(r["failed_runs"]))
-                             + "</span>")
-                note = _live_note(r) if r["state"] in LIVE_STATES else ""
-                if note:
-                    text += f'<span class="facets"> — {_summary_label(note)}</span>'
-                H.append(f"<p>{text}</p>")
-                if r["where"]:
-                    H += ["<ul>"] + [f"<li>{_md_inline(_summary_label(b))}</li>"
-                                     for b in r["where"]] + ["</ul>"]
-                for label, payload in phase_chips(r, c):
-                    H.append(_html_task(_summary_label(label), payload))
+            continue
+        rest = rest[1:]
+        text = phase_head(nxt, ((nxt["state"], "n"),))
+        if nxt["failed_runs"]:
+            text += ('<span class="facets"> — ⚠️ failed runs: '
+                     + _summary_label(", ".join(nxt["failed_runs"]))
+                     + "</span>")
+        chips = phase_chips(nxt, c)
+        if chips:
+            H.append(_html_task(text, chips[0][1]))
+            H += [_html_task(f"↳ {_summary_label(label)}", payload)
+                  for label, payload in chips[1:]]
+        else:
+            H.append(f"<p>{text}</p>")
+        if rest:
+            H.append(f"<details><summary>{_fold_label(rest)}</summary><ul>")
+            H += [f"<li>{link(r['rel'], _summary_label(r['title']))}"
+                  f' <span class="facets">— {r["state"]}</span></li>'
+                  for r in rest]
+            links = [f'<a href="{_attr(_phase_dir(key, blob))}">phases/'
+                     f"{_summary_label(key)}/</a>" if blob
+                     else f"<code>phases/{_summary_label(key)}/</code>"]
+            if _issues_url(row):
+                links.append(f'<a href="{_attr(_issues_url(row))}">issues</a>')
+            H.append("</ul><p>" + " · ".join(links) + "</p></details>")
     if folded:
         H.append('<p class="muted">'
-                 + f"{len(folded)} dormant project(s) with nothing open: "
-                 + " · ".join(f"<code>{_summary_label(k)}</code> "
-                              f"({_summary_label(project_counts(k, c))})"
-                              for k in folded) + "</p>")
+                 + f"{len(folded)} project(s) with nothing open: "
+                 + " · ".join(
+                     f"<code>{_summary_label(k)}</code> "
+                     f"({_summary_label((c['projects'][k].get('status') or '?').strip())}"
+                     f" · {_summary_label(project_counts(k, c))})"
+                     for k in project_order(folded, c)) + "</p>")
 
     H.append(h2("awaiting"))
     for r in c["awaiting"]:
@@ -1108,9 +1303,14 @@ def render_dashboard_html(c: dict) -> str:
         H.append('<p class="muted">(nothing on the queue)</p>')
 
     H.append(h2("ready"))
-    for r in c["ready"]:
-        H.append(_html_task(phase_head(r, (("ready", "g"),)),
-                            _ready_payload(r, c["projects"])))
+    for first, rest in ready_groups(c):
+        H.append(_html_task(phase_head(first, (("ready", "g"),)),
+                            _ready_payload(first, c["projects"])))
+        if rest:
+            H.append(f"<details><summary>{len(rest)} more ready</summary>")
+            H += [_html_task(phase_head(r, (("ready", "g"),)),
+                             _ready_payload(r, c["projects"])) for r in rest]
+            H.append("</details>")
     if not c["ready"]:
         H.append('<p class="muted">(nothing ready to launch)</p>')
 
@@ -1137,42 +1337,11 @@ def render_dashboard_html(c: dict) -> str:
     else:
         H.append('<p class="muted">(no rulings yet)</p>')
 
-    H.append(h2("epics"))
-    for e in c["epics"]:
-        text = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
-        half = e.get("mind-half")
-        if half and half != "none":
-            # The epic's development half lives in the Mind; the card links it
-            # so the two dashboards read as one programme.
-            text += f'<span class="facets"> — Mind half: <code>{_summary_label(half)}</code></span>'
-        if e.get("ledger"):
-            text += f'<span class="facets"> — ledger: <code>{_summary_label(e["ledger"])}</code></span>'
-        if e.get("status"):
-            text += f'<span class="facets"> — {_summary_label(e["status"])}</span>'
-        H.append(_html_task(text, _epic_payload(e)))
-    if not c["epics"]:
-        H.append('<p class="muted">(no epics yet)</p>')
-
-    H.append(h2("projects"))
-    if c["projects"]:
-        H += ['<table class="map">',
-              "<tr><th>Project</th><th>Status</th><th>Partition</th>"
-              "<th>Sync</th><th>Witness</th></tr>"]
-        for key, row in sorted(c["projects"].items()):
-            H.append(f"<tr><td><b>{_summary_label(key)}</b></td>"
-                     f"<td>{_summary_label(row.get('status', '-'))}</td>"
-                     f"<td>{_summary_label(row.get('partition', '-'))}</td>"
-                     f"<td><code>{_summary_label(row.get('sync_cli', '-'))}</code></td>"
-                     f"<td><code>{_summary_label(row.get('witness_file', '-'))}</code></td>"
-                     "</tr>")
-        H.append("</table>")
-    else:
-        H.append('<p class="muted">(the science body map is empty)</p>')
-
     footer = boards_footer(dict(_board_links(home, THEME_ORGAN)), THEME_ORGAN)
     if footer:
         H.append(footer)
-    H += [f"<script>{_THEME_JS}</script>", "</body>", "</html>"]
+    H += [f"<script>{_THEME_JS}</script>",
+          f"<script>{_CHECKIN_JS}</script>", "</body>", "</html>"]
     return "\n".join(H) + "\n"
 
 
@@ -1206,7 +1375,7 @@ def emit_census(c: dict) -> None:
           f"(heads {sum(1 for r in c['rulings'] if r['head'])})")
     print(f"Projects:        {len(c['projects'])}   "
           + " · ".join(sorted(c["projects"])))
-    print(f"Epics:           {len(c['epics'])}")
+    print(f"Last check-in:   {c['checkin'] or CHECKIN_NEVER}")
     if c["problems"]:
         print(f"Problems:        {len(c['problems'])} — run "
               "`python3 scripts/cortex.py check`")
@@ -1890,6 +2059,9 @@ def cmd_collect(root: Path, mod, a) -> int:
             for problem in problems[:10]:
                 print(f"  {problem}", file=sys.stderr)
             return RC_DRIFT
+        # The same stamp the door writes: an `--apply` here moved phases on
+        # the strength of this pull, so the board must say so too.
+        write_checkin(root, stamp)
 
     delivered = sum(1 for s in scored if s["health"] == "HEALTHY")
     scope = " ".join(a.phase) if a.phase else "submitted | running"
@@ -2207,7 +2379,7 @@ def project_digest(key: str, row: dict, c: dict, scored_by_rel: dict,
     `census --by-project` prints (no pull line, nothing scored) and what the
     board renders with copy buttons; this is the text rendering of it.
     """
-    L = [f"### {key}", "", "- " + " · ".join(project_paths(row))]
+    L = [f"### {key}", "", "- " + project_paths_line(row)]
     if pull_line:
         L.append(f"- {pull_line}")
     L.append(f"- phases: {project_counts(key, c)}")
@@ -2354,7 +2526,11 @@ def cmd_checkin(root: Path, mod, a) -> int:
             print(f"  {problem}", file=sys.stderr)
         return RC_DRIFT
 
-    # --- 3. render -------------------------------------------------------
+    # --- 3. stamp + render -----------------------------------------------
+    # The stamp is persisted BEFORE the render, so the board this check-in
+    # writes shows the check-in that produced it — and so `push_ledger` picks
+    # `checkin.yaml` up in the same commit as the phase moves.
+    write_checkin(root, stamp)
     c = census(root)
     pages = render_pages(c)
     for name, want in pages.items():
