@@ -538,6 +538,34 @@ def _checkin_payload(c: dict) -> str:
             "the by-project summary with the prompt each phase needs next.")
 
 
+def _retire_payload(key: str) -> str:
+    """The paste that ends a project — the whole retirement as one sentence.
+
+    It names the project twice on purpose: once in the prose, so a chat that
+    reads the sentence aloud says which project is being ended, and once
+    inside the command, so the command is runnable without re-reading the
+    sentence. Retiring keeps the row, the phases and the rulings; only the
+    status and the note change, and the ledger has to be pushed afterwards or
+    the board goes stale."""
+    return (f"/cortex — retire the science project {key}: confirm it is "
+            f"holding nothing live, then in PyAutoCortex run `python3 "
+            f"scripts/cortex.py retire {key} --why \"<one line on why>\"`, "
+            f"`python3 scripts/cortex.py check`, `pyauto-brain cortex "
+            f"dashboard --apply`, and push the ledger. The row, its phases "
+            f"and its rulings all stay — only the status and the note change.")
+
+
+def _retire_cell_html(key: str, c: dict) -> str:
+    """The Retire column of the Nothing-open table: a copy chip on a dormant
+    row, an empty cell on any other. A `planned` project has not started, so
+    it is not offered retirement."""
+    if project_status(key, c) != "dormant":
+        return "<td></td>"
+    return (f'<td><button class="copy text" '
+            f'data-cmd="{_attr(_retire_payload(key))}" '
+            f'aria-label="Copy the retire prompt">📋 retire</button></td>')
+
+
 def _ruling_payload(r: dict) -> str:
     return (f"Review the PyAutoCortex phase {r['rel']} and help me rule on it: "
             f"read its `## Witness` and the pulled evidence under its "
@@ -724,8 +752,9 @@ def project_groups(key: str, c: dict) -> list[tuple[str, list[dict]]]:
 
 
 #: `status` in the order the reader wants it: what is running, then what is
-#: coming, then what is asleep. An unrecognised status sorts last.
-STATUS_RANK = {"active": 0, "planned": 1, "dormant": 2}
+#: coming, then what is asleep, then what is over. An unrecognised status
+#: sorts last.
+STATUS_RANK = {"active": 0, "planned": 1, "dormant": 2, "retired": 3}
 
 #: The buckets a project's open phases live in, in the order "what is the
 #: next thing" is answered: a verdict owed beats a job out there beats a
@@ -734,9 +763,16 @@ OPEN_ORDER = ("awaiting", "live", "ready", "gated", "planned")
 
 
 def project_order(keys: list[str], c: dict) -> list[str]:
-    """Active, then planned, then dormant; alphabetical inside each rank."""
+    """Active, then planned, then dormant, then retired; alphabetical inside
+    each rank."""
     return sorted(keys, key=lambda k: (
-        STATUS_RANK.get((c["projects"][k].get("status") or "").strip(), 3), k))
+        STATUS_RANK.get((c["projects"][k].get("status") or "").strip(),
+                        len(STATUS_RANK)), k))
+
+
+def project_status(key: str, c: dict) -> str:
+    """One row's `status:`, `?` when the row does not declare one."""
+    return (c["projects"][key].get("status") or "?").strip()
 
 
 def open_phases(key: str, c: dict) -> list[dict]:
@@ -1007,13 +1043,32 @@ def render_dashboard(c: dict) -> str:
     else:
         L += ["- _(no active project)_", ""]
     if folded:
-        L += ["#### Nothing open", "",
-              "| Project | Status | Phases |", "|---|---|---|"]
-        L += [f"| {_cell(k)} | "
-              f"{_cell((c['projects'][k].get('status') or '?').strip())} | "
-              f"{_cell(project_counts(k, c))} |"
-              for k in project_order(folded, c)]
-        L += [""]
+        # Retired projects leave the table: the reader of "nothing open" is
+        # looking for something to do, and a retired project is a fact to be
+        # able to find, not a row to scan past. It folds under the table with
+        # the note that says when and why.
+        ordered = project_order(folded, c)
+        retired = [k for k in ordered if project_status(k, c) == "retired"]
+        rest = [k for k in ordered if project_status(k, c) != "retired"]
+        L += ["#### Nothing open", ""]
+        if rest:
+            L += ["| Project | Status | Phases | Retire |", "|---|---|---|---|"]
+            L += [f"| {_cell(k)} | {_cell(project_status(k, c))} | "
+                  f"{_cell(project_counts(k, c))} | "
+                  f"{'retire ↓' if project_status(k, c) == 'dormant' else ''} |"
+                  for k in rest]
+            L += [""]
+            # The payload itself cannot live in the cell — a `<details>` inside
+            # a table cell does not render on GitHub — so the cell points down
+            # at one copy row per dormant project.
+            L += _items([_task_row(f"retire {k}", _retire_payload(k))
+                         for k in rest if project_status(k, c) == "dormant"])
+            L += [""]
+        if retired:
+            L += [f"<details><summary>{len(retired)} retired</summary>", ""]
+            L += [f"- {k} — {c['projects'][k].get('note') or '-'}"
+                  for k in retired]
+            L += ["", "</details>", ""]
 
     # The map: active projects, then planned, then dormant. Each card is
     # where the project lives, what it holds and the ONE phase to act on
@@ -1269,13 +1324,25 @@ def render_dashboard_html(c: dict) -> str:
     else:
         H.append('<p class="muted">(no active project)</p>')
     if folded:
-        H += ["<h3>Nothing open</h3>", '<table class="map">',
-              "<tr><th>Project</th><th>Status</th><th>Phases</th></tr>"]
-        H += [f"<tr><td>{_summary_label(k)}</td><td>"
-              f"{_summary_label((c['projects'][k].get('status') or '?').strip())}"
-              f"</td><td>{_summary_label(project_counts(k, c))}</td></tr>"
-              for k in project_order(folded, c)]
-        H.append("</table>")
+        ordered = project_order(folded, c)
+        retired = [k for k in ordered if project_status(k, c) == "retired"]
+        rest = [k for k in ordered if project_status(k, c) != "retired"]
+        H += ["<h3>Nothing open</h3>"]
+        if rest:
+            H += ['<table class="map">',
+                  "<tr><th>Project</th><th>Status</th><th>Phases</th>"
+                  "<th>Retire</th></tr>"]
+            H += [f"<tr><td>{_summary_label(k)}</td><td>"
+                  f"{_summary_label(project_status(k, c))}</td>"
+                  f"<td>{_summary_label(project_counts(k, c))}</td>"
+                  f"{_retire_cell_html(k, c)}</tr>" for k in rest]
+            H.append("</table>")
+        if retired:
+            H += [f"<details><summary>{len(retired)} retired</summary><ul>"]
+            H += [f"<li>{_summary_label(k)} — "
+                  f"{_summary_label(c['projects'][k].get('note') or '-')}</li>"
+                  for k in retired]
+            H += ["</ul></details>"]
 
     H.append(h2("projects"))
     for key in project_order(shown, c):
@@ -1434,8 +1501,14 @@ def emit_by_project(c: dict) -> None:
     for key in shown:
         print("\n".join(project_digest(key, c["projects"][key], c, {})))
     if folded:
-        print(f"Dormant, nothing open: "
-              + " · ".join(f"{k} ({project_counts(k, c)})" for k in folded))
+        retired = [k for k in folded if project_status(k, c) == "retired"]
+        rest = [k for k in folded if project_status(k, c) != "retired"]
+        if rest:
+            print("Dormant, nothing open: "
+                  + " · ".join(f"{k} ({project_counts(k, c)})" for k in rest))
+        if retired:
+            print("Retired: "
+                  + " · ".join(f"{k} ({project_counts(k, c)})" for k in retired))
 
 
 # ---------------------------------------------------------------- collect ---

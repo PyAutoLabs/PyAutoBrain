@@ -109,6 +109,12 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
 - **The door runs once and ends.** No timer, no subscription, no cron, no
   loop — you check in, you report, you stop.
 - **`rulings/` is append-only.** Never edit or delete one.
+- **Retiring ends a project, it does not erase one.** `cortex.py retire`
+  changes a `projects.yaml` row's `status:` and `note:` and nothing else:
+  the row stays (it is the only record of where that project's data
+  lives), its phases stay, its rulings stay. It refuses while the project
+  holds a phase outside `accepted | rerun | dropped | planned` — rule or
+  drop the live questions first.
 
 ## Appendix — the verbs it composes
 
@@ -123,4 +129,5 @@ checkout.
 | `dashboard --check` | Are the committed pages current? Exit **1** = stale (the refresh workflow's contract) |
 | `dashboard --apply` | Regenerate `dashboard.md` + `dashboard.html` — never hand-edit those two |
 | `gates` | What is each gated phase waiting on? Read-only and offline; a human types `move <phase> ready` |
+| `retire <project> --why "…"` (`scripts/cortex.py`) | Is this project over? Flips the row to `status: retired` and stamps `note: retired <today>: <why>`. The 📋 chip on the board's **Nothing open** table is this command. Exit **1** = an unknown key, an already-retired row, or a phase still live |
 | `collect [--phase REL] [--pull] [--refreshed ISO] [--apply] [--out F]` | The scorer `checkin` composes: one block per phase — six legs each `PASS`/`FAIL`/`UNOBSERVABLE`, the readout, a **blank** ruling line. Exit **1** = a phase the human must look at |

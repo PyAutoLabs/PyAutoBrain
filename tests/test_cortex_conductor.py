@@ -470,6 +470,15 @@ _DORMANT_ROW = ("\ndormant_one:\n  remote: none\n"
                 "  ledger: wiki/state.md\n  witness_file: out/**/*.json\n"
                 "  partition: gpu\n  status: dormant\n")
 
+#: Two more, so the Nothing-open table can be read for all three of the
+#: statuses that fold: one that has not started and one that is over.
+_PLANNED_ROW = _DORMANT_ROW.replace("dormant_one", "planned_one") \
+    .replace("status: dormant", "status: planned")
+_RETIRED_ROW = _DORMANT_ROW.replace("dormant_one", "retired_one") \
+    .replace("status: dormant",
+             'status: retired\n  note: "retired 2026-09-04: the question '
+             'was answered"')
+
 
 def test_a_project_with_nothing_open_is_a_row_under_the_summary(tmp_skeleton):
     """It gets no card — a dormant project with nothing open is a fact, not
@@ -484,9 +493,9 @@ def test_a_project_with_nothing_open_is_a_row_under_the_summary(tmp_skeleton):
     html = _cortex.render_dashboard_html(c)
     assert "### dormant_one" not in page
     assert "#### Nothing open" in page
-    assert "| dormant_one | dormant | none |" in page
+    assert "| dormant_one | dormant | none | retire ↓ |" in page
     assert "<h3>Nothing open</h3>" in html
-    assert "<tr><td>dormant_one</td><td>dormant</td><td>none</td></tr>" in html
+    assert "<tr><td>dormant_one</td><td>dormant</td><td>none</td>" in html
     # it reads under the summary, before the map
     assert page.index("#### Nothing open") < page.index("## Projects")
     assert html.index("<h3>Nothing open</h3>") < html.index("<h2>Projects")
@@ -494,14 +503,94 @@ def test_a_project_with_nothing_open_is_a_row_under_the_summary(tmp_skeleton):
         assert "project(s) with nothing open" not in twin
 
 
-def test_the_projects_run_active_then_planned_then_dormant(skeleton):
-    """The order the human asked for, alphabetical inside each rank."""
+def test_the_projects_run_active_then_planned_then_dormant_then_retired(skeleton):
+    """The order the human asked for, alphabetical inside each rank. Retired
+    sorts after dormant and an unrecognised status still sorts last."""
     c = {"projects": {"zeta": {"status": "active"}, "alpha": {"status": "active"},
                       "plan_b": {"status": "planned"},
                       "sleepy": {"status": "dormant"},
+                      "over": {"status": "retired"},
                       "odd": {"status": "who-knows"}}}
     assert _cortex.project_order(list(c["projects"]), c) == \
-        ["alpha", "zeta", "plan_b", "sleepy", "odd"]
+        ["alpha", "zeta", "plan_b", "sleepy", "over", "odd"]
+
+
+def test_a_dormant_row_carries_the_retire_chip_in_both_twins(tmp_skeleton):
+    """The chip is the door: the board's only offer of retirement, and the
+    payload behind it is the `cortex.py retire` command for that project."""
+    (tmp_skeleton / "projects.yaml").write_text(
+        (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
+        + _DORMANT_ROW + _PLANNED_ROW, encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    page = _cortex.render_dashboard(c)
+    html = _cortex.render_dashboard_html(c)
+    payload = _cortex._retire_payload("dormant_one")
+    # HTML: a real copy button in the row's own Retire cell
+    assert "<th>Retire</th>" in html
+    assert (f'<button class="copy text" data-cmd="'
+            f'{_cortex._attr(payload)}" aria-label="Copy the retire prompt">'
+            f"📋 retire</button>") in html
+    assert "cortex.py retire dormant_one --why" in html
+    # markdown: the cell points down at the copy row under the table
+    assert "| dormant_one | dormant | none | retire ↓ |" in page
+    assert "<details><summary>📋 retire dormant_one</summary>" in page
+    assert payload in page
+    # a planned project has not started — no chip, an empty cell, no row
+    assert "| planned_one | planned | none |  |" in page
+    assert "retire planned_one" not in page
+    assert "cortex.py retire planned_one" not in html
+    assert "<td></td>" in html
+
+
+def test_a_retired_project_leaves_the_table_for_the_fold(tmp_skeleton):
+    """Retiring never deletes a row, so the project stays findable — but the
+    reader of "nothing open" is looking for something to do, and a retired
+    project is not it."""
+    (tmp_skeleton / "projects.yaml").write_text(
+        (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
+        + _DORMANT_ROW + _RETIRED_ROW, encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    assert _cortex.project_status("retired_one", c) == "retired"
+    page = _cortex.render_dashboard(c)
+    html = _cortex.render_dashboard_html(c)
+    note = "retired 2026-09-04: the question was answered"
+    for twin in (page, html):
+        assert "retired_one" in twin
+        assert "1 retired" in twin
+        assert note in twin
+        # no chip: it is already retired
+        assert "cortex.py retire retired_one" not in twin
+    assert "| retired_one |" not in page
+    assert "<td>retired_one</td>" not in html
+    assert "<details><summary>1 retired</summary>" in page
+    assert "<details><summary>1 retired</summary><ul>" in html
+    assert f"- retired_one — {note}" in page
+    # it reads after the table it left, and the dormant row is still in it
+    assert page.index("| dormant_one |") < page.index("1 retired")
+    assert html.index("<td>dormant_one</td>") < html.index("1 retired")
+
+
+def test_the_retire_payload_is_the_command_and_the_sentence(skeleton):
+    """It names the project in prose and again inside the command, so a chat
+    that reads it aloud says what is ending and can run it without re-reading."""
+    payload = _cortex._retire_payload("dormant_one")
+    assert payload.startswith("/cortex — retire the science project dormant_one:")
+    assert ('`python3 scripts/cortex.py retire dormant_one --why '
+            '"<one line on why>"`') in payload
+    assert "`python3 scripts/cortex.py check`" in payload
+    assert "`pyauto-brain cortex dashboard --apply`" in payload
+    assert "push the ledger" in payload
+    assert "rulings all stay" in payload
+
+
+def test_census_by_project_lists_retired_on_its_own_line(tmp_skeleton):
+    (tmp_skeleton / "projects.yaml").write_text(
+        (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
+        + _DORMANT_ROW + _RETIRED_ROW, encoding="utf-8")
+    r = _run(["census", "--cortex", str(tmp_skeleton), "--by-project"])
+    assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
+    assert "Dormant, nothing open: dormant_one (none)" in r.stdout
+    assert "Retired: retired_one (none)" in r.stdout
 
 
 def _bucketed(**buckets) -> dict:
