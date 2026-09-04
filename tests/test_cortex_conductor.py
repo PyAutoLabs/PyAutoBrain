@@ -97,23 +97,9 @@ def test_a_superseded_ruling_is_not_a_standing_verdict(skeleton):
     assert [r["id"] for r in c["rulings"]] == sorted(by_id, reverse=True)
 
 
-def test_the_record_reader_keeps_every_refreshed_line(skeleton):
-    """`cortex.py`'s own `_record_members` keeps the FIRST value of a repeated
-    key; `refreshed:` is repeated once per pull, and the live strip needs them
-    all — hence this module's own reader."""
-    mod = _cortex.load_cortex(skeleton)
-    record = next(p for p in mod.batch_records(skeleton))
-    rec = _cortex.read_record(record.read_text(encoding="utf-8"), mod.MEMBER_RE)
-    assert len(rec["keys"]["refreshed"]) == 3
-    assert len(rec["members"]) == 6
-    assert rec["members"][0]["slug"] == "05_running_array"
-
-
-def test_a_running_phase_carries_its_last_refresh(skeleton):
+def test_a_running_phase_reads_its_wall_against_its_budget(skeleton):
     c = _cortex.census(skeleton)
     running = next(r for r in c["live"] if r["state"] == "running")
-    assert running["refreshed"]["at"].startswith("2026-09-01T15:30")
-    # wall against budget is what the strip prints
     assert "of 8:00" in _cortex._live_note(running)
 
 
@@ -158,45 +144,14 @@ def test_the_pages_wear_the_cortex_and_nothing_of_the_mind(skeleton):
     assert "PyAutoMind" not in html and "/start_dev" not in html
 
 
-def test_the_batch_box_lists_every_member_of_the_open_slot(skeleton):
-    st = _cortex.census(skeleton)["batch"]
-    assert st is not None and st["slot"] == "2026-09-01-pm"
-    assert {r["slug"] for r in st["members"]} == {
-        "05_running_array", "06_pulled", "07_awaiting_ruling",
-        "08_accepted", "09_rerun", "10_dropped"}
-
-
-def test_the_review_button_appears_as_soon_as_one_member_is_awaiting_ruling(skeleton):
-    # The skeleton fixture has no git remote of its own, so `census`'s real
-    # `pages` is `''` and the box falls back to naming the packet — the
-    # button itself is exercised here with an explicit Pages URL, the same
-    # call `census` makes with a real one.
-    mod = _cortex.load_cortex(skeleton)
-    rows = [_cortex._phase_row(mod, ph, {})
-            for ph in mod.load_phases(skeleton)[0]]
-    st = _cortex._slot_status(skeleton, mod, rows,
-                               "https://exampleorg.github.io/PyAutoCortex/")
-    assert st["reviewable"] is True  # one member (07) is awaiting-ruling
-    html = _cortex._status_box_html(st)
-    assert html.count('class="go"') == 1  # one button for the whole box
-    running = next(r for r in st["members"] if r["slug"] == "05_running_array")
-    assert running["state"] != "awaiting review"  # no review control of its own
-
-
-def test_nothing_open_renders_the_fixture(tmp_skeleton):
-    # Rule every live member on the fixture's one batch off the board — the
-    # slot must close, and the box must fall back to the fixed sentence.
-    for slug, was, now in (("05_running_array", "State: running", "State: accepted"),
-                           ("06_pulled", "State: pulled", "State: accepted"),
-                           ("07_awaiting_ruling", "State: awaiting-ruling",
-                            "State: accepted")):
-        f = tmp_skeleton / "phases" / "example" / f"{slug}.md"
-        f.write_text(f.read_text(encoding="utf-8").replace(was, now, 1),
-                     encoding="utf-8")
-    c = _cortex.census(tmp_skeleton)
-    assert c["batch"] is None
-    assert "No batch in flight." in _cortex.render_dashboard(c)
-    assert "No batch in flight." in _cortex.render_dashboard_html(c)
+def test_the_board_carries_no_batch_status_box(skeleton):
+    """The science review slot was retired 2026-09-03: the page opens on the
+    board's own sections, and nothing renders a box about a batch."""
+    c = _cortex.census(skeleton)
+    assert "batch" not in c
+    for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
+        assert "No batch in flight" not in page
+        assert "batch collect" not in page
 
 
 def test_the_check_compare_ignores_the_date_but_not_the_content(skeleton):
@@ -243,110 +198,26 @@ def test_a_stale_page_by_one_row_is_drift(tmp_skeleton):
                  str(tmp_skeleton)]).returncode == _cortex.RC_DRIFT
 
 
-# --- plan ------------------------------------------------------------------
-def test_plan_admits_the_ready_phase_and_hands_over_the_launch_lines(skeleton):
-    c = _cortex.census(skeleton)
-    d = _cortex.plan(c, budget=45, lane="local-dev")
-    assert [r["rel"] for r in d["members"]] == ["phases/example/03_ready_cleared.md"]
-    lines = d["launch"][0]
-    assert lines[0] == "phases/example/03_ready_cleared.md"
-    # the project's own sync CLI, from projects.yaml — never a literal here
-    assert c["projects"]["example"]["sync_cli"] in lines[1]
-    assert lines[2].startswith("python3 scripts/cortex.py move ")
-    assert lines[2].endswith("submitted --run <jobid>")
-
-
-def test_a_cloud_session_plans_nothing_and_reports_the_count(skeleton, capsys):
-    d = _cortex.plan(_cortex.census(skeleton), lane="web-github")
-    _cortex.emit_plan(d)
-    out = capsys.readouterr().out
-    assert d["members"] == [] and d["ready_count"] == 1
-    assert "1 phase(s) are ready" in out and "from the laptop" in out
-
-
-def test_the_budget_takes_the_cheapest_and_states_why_it_stopped(skeleton):
-    c = _cortex.census(skeleton)
-    ready = c["ready"][0]
-    cheap = dict(ready, rel="phases/example/98_cheap.md", review_minutes=2)
-    dear = dict(ready, rel="phases/example/99_dear.md", review_minutes=40)
-    d = _cortex.plan(dict(c, ready=[dear, cheap]), budget=10, lane="local-dev")
-    assert [r["rel"] for r in d["members"]] == ["phases/example/98_cheap.md"]
-    assert any("exceed the budget" in why for _rel, why in d["rejected"])
-
-
-def test_a_phase_without_a_witness_is_not_plannable(skeleton):
-    c = _cortex.census(skeleton)
-    naked = dict(c["ready"][0], witness="")
-    d = _cortex.plan(dict(c, ready=[naked]), lane="local-dev")
-    assert d["members"] == []
-    assert "no Witness" in d["rejected"][0][1]
-
-
-def test_the_lane_is_probed_not_declared():
-    # Same signal the batch conductor uses: a remote session has no `gh`.
-    assert _cortex.detect_lane() == (
-        "local-dev" if shutil.which("gh") else "web-github")
-
-
 # --- gates -----------------------------------------------------------------
-def _closed_issue():
-    return {"state": "closed", "state_reason": "completed", "merged_at": None,
-            "is_pr": False}
-
-
-def _merged_pr():
-    return {"state": "closed", "state_reason": None,
-            "merged_at": "2026-08-30T10:00:00Z", "is_pr": True}
-
-
-def test_grading_flips_exactly_one_phase_when_every_ref_has_cleared(tmp_skeleton):
-    """The daily job's whole job, offline: the fixture's one `gated` phase
-    waits on an issue and a PR; with both cleared it becomes `ready` and
-    nothing else in the tree moves."""
-    mod = _cortex.load_cortex(tmp_skeleton)
-    before = {p.rel: p.state for p in mod.load_phases(tmp_skeleton)[0]}
-
-    # PR-ness comes from the fixture's own `Gates:` value, not from a repo
-    # name written here: an instance fact in Brain test code is the tenant
-    # firewall's concern (PyAutoMind/scripts/repos_sync.py).
-    gated = next(p for p in mod.load_phases(tmp_skeleton)[0]
-                 if p.state == "gated")
-    prs = {mod.gate_url(ref) for ref in mod.gate_refs(gated.get("Gates"))[0]
-           if "/pull/" in ref}
-
-    def fetch(urls):
-        return {u: (_merged_pr() if u in prs else _closed_issue()) for u in urls}
-
-    lines, rc = mod.gates_report(tmp_skeleton, grade=True, write=True,
-                                 fetch=fetch, today=__import__("datetime").date(2026, 9, 2))
-    assert rc == 0, "\n".join(lines)
-    after = {p.rel: p.state for p in mod.load_phases(tmp_skeleton)[0]}
-    moved = {rel for rel in after if after[rel] != before[rel]}
-    assert moved == {"phases/example/02_gated_on_dev.md"}
-    assert after["phases/example/02_gated_on_dev.md"] == "ready"
-    assert "Gates-cleared: 2026-09-02" in (
-        tmp_skeleton / "phases/example/02_gated_on_dev.md").read_text()
-
-
-def test_an_unreadable_ref_fails_closed_and_flips_nothing(tmp_skeleton):
-    mod = _cortex.load_cortex(tmp_skeleton)
-    lines, rc = mod.gates_report(tmp_skeleton, grade=True, write=True,
-                                 fetch=lambda urls: {u: "unreadable: HTTP 502"
-                                                     for u in urls})
-    assert rc == 1
-    assert "fails closed" in "\n".join(lines)
-    states = {p.rel: p.state for p in mod.load_phases(tmp_skeleton)[0]}
-    assert states["phases/example/02_gated_on_dev.md"] == "gated"
-
-
-def test_the_gates_verb_is_a_wrapper_and_passes_the_scripts_rc_through(tmp_skeleton):
-    """No `--grade`: the offline listing, exit 0, nothing fetched."""
+def test_the_gates_verb_is_a_read_only_wrapper_over_the_scripts_listing(tmp_skeleton):
+    """Gate grading was retired 2026-09-03: the verb lists, exits 0, fetches
+    nothing and flips nothing. A gated phase moves on when a human types
+    `move <phase> ready`."""
+    before = {p.rel: p.state for p in
+              _cortex.load_cortex(tmp_skeleton).load_phases(tmp_skeleton)[0]}
     r = _run(["gates", "--cortex", str(tmp_skeleton)])
     assert r.returncode == 0, r.stderr
     gated = _cortex.census(tmp_skeleton)["gated"][0]
     assert gated["rel"] in r.stdout
     for ref in gated["gates"]:  # the refs come from the fixture, not from here
         assert ref in r.stdout
+    # What the listing prints per ref is the Cortex script's own business (CI
+    # checks that repo out at main, which may be a release behind this one) —
+    # what this asserts is that the wrapper fetches nothing and writes nothing.
+    assert "--grade" not in r.stdout
+    after = {p.rel: p.state for p in
+             _cortex.load_cortex(tmp_skeleton).load_phases(tmp_skeleton)[0]}
+    assert after == before
 
 
 def test_the_epics_schema_block_is_not_read_as_an_epic(tmp_path):
@@ -370,12 +241,23 @@ from _cortex_board import (  # noqa: E402 - tests/ is on sys.path
     _zip_summary, build_board,
 )
 
+#: The three phases `build_board` adds on top of the skeleton, and the only
+#: ones the scoring tests assert about. The skeleton's own live phases are in
+#: `collect`'s default scope too (that IS the check-in), so a test about one
+#: member names it with `--phase` rather than counting the whole scope.
+BOARD = ("phases/example/11_healthy.md", "phases/example/12_resumed.md",
+         "phases/subhalo/01_partial.md")
+
+
+def _collect(root, *args):
+    return _run(["collect", "--cortex", str(root),
+                 *[x for rel in BOARD for x in ("--phase", rel)], *args])
+
 
 @pytest.fixture()
 def board(tmp_path, skeleton):
-    """The two-organ fixture's science half — built by
-    `tests/_cortex_board.py`, which `test_batch_kinds.py` raises the same
-    tree from."""
+    """A tmp Cortex with three live phases — built by
+    `tests/_cortex_board.py`."""
     return build_board(tmp_path, skeleton)
 
 
@@ -487,10 +369,10 @@ def test_a_benign_err_is_warnings_not_an_empty_file(board):
     assert _cortex.leg_err([])[0] == _cortex.UNOBSERVABLE
 
 
-def test_the_packet_emits_a_member_block_per_live_member_in_template_order(board):
-    r = _run(["collect", "--cortex", str(board["root"])])
+def test_the_report_emits_a_block_per_phase_in_order(board):
+    r = _collect(board["root"])
     assert r.returncode == _cortex.RC_DRIFT, "one FAILED + one SUSPECT"
-    assert "collect 2026-09-02-am: 3 members, delivered 1/3" in r.stdout
+    assert "3 phase(s), delivered 1/3" in r.stdout
     for head in ("## 11_healthy — HEALTHY", "## 12_resumed — FAILED",
                  "## 01_partial — SUSPECT"):
         assert head in r.stdout, r.stdout
@@ -519,15 +401,15 @@ def test_a_phase_gets_its_own_witness_not_its_neighbours(board):
     assert s["12_resumed"]["witness_hits"][0].name == "bbbb2222.json"
 
 
-def test_the_packet_can_be_written_to_a_file(board, tmp_path):
+def test_the_report_can_be_written_to_a_file(board, tmp_path):
     out = tmp_path / "packet.md"
-    r = _run(["collect", "--cortex", str(board["root"]), "--out", str(out)])
+    r = _collect(board["root"], "--out", str(out))
     assert "## 11_healthy — HEALTHY" in out.read_text()
     assert "## 11_healthy" not in r.stdout and str(out) in r.stdout
 
 
 def test_apply_without_a_refresh_stamp_refuses(board):
-    r = _run(["collect", "--cortex", str(board["root"]), "--apply"])
+    r = _collect(board["root"], "--apply")
     assert r.returncode == _cortex.RC_USAGE
     assert "--apply needs a refresh stamp" in r.stderr
     states = {p.rel: p.state for p in
@@ -535,26 +417,23 @@ def test_apply_without_a_refresh_stamp_refuses(board):
     assert states["phases/example/11_healthy.md"] == "running"
 
 
-def test_apply_moves_the_members_records_the_refresh_and_still_checks(board):
+def test_apply_moves_the_phases_and_the_tree_still_checks(board):
+    """The moves are the WHOLE write: the batch record `apply_ops` once
+    rewrote is closed history since 2026-09-03."""
     root = board["root"]
-    r = _run(["collect", "--cortex", str(root), "--apply",
-              "--refreshed", "2026-09-02T11:40Z"])
-    assert r.returncode == _cortex.RC_DRIFT, "the packet still has a FAILED member"
+    r = _collect(root, "--apply", "--refreshed", "2026-09-02T11:40Z")
+    assert r.returncode == _cortex.RC_DRIFT, "one member is still FAILED"
+    assert "Refreshed: 2026-09-02T11:40Z" in r.stdout
     mod = _cortex.load_cortex(root)
     states = {p.rel: p.state for p in mod.load_phases(root)[0]}
-    for rel in ("phases/example/11_healthy.md", "phases/example/12_resumed.md",
-                "phases/subhalo/01_partial.md"):
+    for rel in BOARD:
         assert states[rel] == "awaiting-ruling", rel
-    record = (root / "batches/2026-09-02-am.md").read_text()
-    assert record.count("- refreshed: 2026-09-02T11:40Z") == 3
-    assert "11_healthy pulled" in record
-    assert "— 5 — awaiting-ruling" in record
-    assert "— 5 — running" not in record
     # the whole point of rehearsing on a copy: the tree still checks.
     assert mod.check_problems(root) == []
-    # …and a second collect finds no live member left on the board.
+    # …and the default scope no longer sees them: they are off the runs.
     again = _run(["collect", "--cortex", str(root)])
-    assert "0 members, delivered 0/0" in again.stdout
+    for rel in BOARD:
+        assert rel.rsplit("/", 1)[1][:-3] not in again.stdout
 
 
 def test_apply_leaves_a_phase_whose_run_is_still_live_where_it_is(board):
@@ -564,8 +443,7 @@ def test_apply_leaves_a_phase_whose_run_is_still_live_where_it_is(board):
     ph = root / "phases/example/11_healthy.md"
     ph.write_text(ph.read_text().replace(
         "- 400100: done", "- 400100: running"), encoding="utf-8")
-    r = _run(["collect", "--cortex", str(root), "--apply",
-              "--refreshed", "2026-09-02T11:40Z"])
+    r = _collect(root, "--apply", "--refreshed", "2026-09-02T11:40Z")
     assert "left running" in r.stdout, r.stdout + r.stderr
     mod = _cortex.load_cortex(root)
     states = {p.rel: p.state for p in mod.load_phases(root)[0]}
@@ -582,21 +460,34 @@ def test_pull_runs_the_projects_own_cli_and_stamps_the_refresh(board):
     marker = board["local"] / "pulled.txt"
     cli.write_text(f'#!/bin/sh\necho "$1" > {marker}\n', encoding="utf-8")
     cli.chmod(0o755)
-    r = _run(["collect", "--cortex", str(board["root"]), "--pull", "--apply"])
+    r = _collect(board["root"], "--pull", "--apply")
     assert marker.is_file() and marker.read_text().strip() == "pull"
     assert "hpc/sync pull" in r.stdout
     # the subhalo project has no such script: reported, and scored anyway.
     assert "01_partial" in r.stdout
-    record = (board["root"] / "batches/2026-09-02-am.md").read_text()
-    assert record.count("- refreshed: ") == 3
+    assert "Refreshed: " in r.stdout
 
 
-def test_a_named_phase_can_be_scored_without_a_record(board):
+def test_a_named_phase_narrows_the_scope(board):
     r = _run(["collect", "--cortex", str(board["root"]),
               "--phase", "phases/example/11_healthy.md"])
     assert r.returncode == _cortex.RC_OK
-    assert "1 members, delivered 1/1" in r.stdout
+    assert "1 phase(s), delivered 1/1" in r.stdout
     assert "12_resumed" not in r.stdout
+
+
+def test_the_default_scope_is_every_submitted_or_running_phase(board):
+    """The check-in needs no record and no `--phase`: it asks the tree which
+    runs are out there and scores all of them."""
+    root = board["root"]
+    mod = _cortex.load_cortex(root)
+    live = [ph.rel for ph in mod.load_phases(root)[0]
+            if ph.state in _cortex.LIVE_STATES]
+    assert set(BOARD) < set(live), "the skeleton's own live phases count too"
+    r = _run(["collect", "--cortex", str(root)])
+    assert f"{len(live)} phase(s)" in r.stdout
+    for rel in live:
+        assert rel.rsplit("/", 1)[1][:-3] in r.stdout
 
 
 # --- footing ---------------------------------------------------------------

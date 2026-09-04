@@ -3,9 +3,9 @@
 > **Tier: conductor** — a front-door agent you *drive*. The *learning
 > function* — where the organism finds out what is true: it reasons over
 > PyAutoCortex (the science body map, the pre-registered phases, the rulings
-> of record), renders the Cortex board, grades the gates and admits ready
-> phases into a laptop slot. It **never submits a run and never writes a
-> ruling**: the run is the human's act, the verdict is the human's word, and
+> of record), renders the Cortex board, lists what the gates are waiting on
+> and scores what came back from a pull. It **never submits a run and never
+> writes a ruling**: the run is the human's act, the verdict is the human's word, and
 > the ruling file is the Cortex script's to write.
 
 The same split the organism already uses twice — **Heart ↔ vitals**, **Gut ↔
@@ -17,19 +17,17 @@ the Cortex's intake-and-dashboard conductor.
 
 | Verb | Question | Emits |
 |------|----------|-------|
-| `census` | What is the Cortex holding? | phase counts by state, the board's section counts, rulings, projects, batches, epics (`--json` for the lot) |
+| `census` | What is the Cortex holding? | phase counts by state, the board's section counts, rulings, projects, epics (`--json` for the lot) |
 | `dashboard --check` | Are the committed pages current? | exit 0 current · **1 stale** · 2 no checkout · 3 unreadable tree |
 | `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` |
-| `gates [--grade] [--apply]` | What is each gated phase waiting on, and has it cleared? | the refs, a verdict per phase, and with `--apply` the `gated → ready` flips |
-| `plan [--budget N]` | Which ready phases fit the slot? | `== CortexPlan ==` — members against the review-minute budget, plus the launch lines |
-| `collect [--slot S] [--pull] [--refreshed ISO] [--apply] [--out F] [--phase REL]` | What did the pull bring back, and is it worth reviewing? | one packet member block per live member — six scored legs, the readout, a blank ruling line — and exit **1** when any member is not HEALTHY |
+| `gates` | What is each gated phase waiting on? | every gated phase, its refs and the URL each resolves to — read-only and offline |
+| `collect [--pull] [--refreshed ISO] [--apply] [--out F] [--phase REL]` | What came back, and is it worth reviewing? | one block per phase — six scored legs, the readout, a blank ruling line — and exit **1** when any is not HEALTHY. **Default scope: every `submitted \| running` phase**; `--phase REL` narrows |
 
 ```
 pyauto-brain cortex                          # census
 pyauto-brain cortex dashboard --apply
-pyauto-brain cortex gates --grade
-pyauto-brain cortex plan --budget 30
-pyauto-brain cortex collect --pull --apply       # score the board, then move it on
+pyauto-brain cortex gates
+pyauto-brain cortex collect --pull --apply   # the check-in: pull, score, move on
 pyauto-brain cortex <verb> --cortex <dir>    # another checkout
 ```
 
@@ -44,7 +42,7 @@ Mind's: a session holding one organ and not the other still works.
 
 - `<cortex_root>/scripts/cortex.py` is imported at runtime and is the schema
   API: `load_phases`, `load_rulings`, `load_projects`, `gates_report`,
-  `batch_records`, `move_phase`. The conductor always reasons with the schema
+  `move_phase`. The conductor always reasons with the schema
   the checkout it is pointed at implements.
 - **Stdlib only, and Mind-free.** The renderer runs bare inside the Cortex's
   own `dashboard_refresh.yml`, which installs nothing and checks out no
@@ -57,10 +55,10 @@ Mind's: a session holding one organ and not the other still works.
 
 ## The board
 
-Sections, in the reading order of a slot: **Awaiting ruling** (pulled and
+Sections, in the reading order of a check-in: **Awaiting ruling** (pulled and
 awaiting-ruling phases, ordered failures → a ruling is required → clean) →
-**Running / submitted** (job ids, wall against the phase's budget, the last
-`refreshed:` line) → **Ready** → **Gated** (the open refs) → **Recent
+**Running / submitted** (job ids, wall against the phase's budget) →
+**Ready** → **Gated** (the open refs) → **Recent
 rulings** → **Epics** (each card links its Mind half) → **Projects** (the
 where-to-look table straight from `projects.yaml`). A counts table near the
 top is what `board/_board.py` reads for the Brain board's Cortex strip.
@@ -70,32 +68,22 @@ top is what `board/_board.py` reads for the Brain board's Cortex strip.
 the Mind's normaliser strips only the comment, which is why its refresh
 workflow self-heals with an empty commit most nights.
 
-## The admission rule (`plan`)
+## Gates
 
-A phase is plannable when its `State:` is `ready`, its `Witness:` is
-registered, its `Budget:` is set and its lane is the session's — detected the
-way the batch conductor detects it (`gh` on PATH ⇒ `local-dev`). Cheapest
-first against `--budget` (default 45 review-minutes). **No autonomy cap is
-consulted**: science members are supervised by definition, and the ruling is
-the human's. A cloud session reports the ready count and plans nothing — a
-science run is launched from the machine that can reach the queue.
+`gates` is a thin wrapper over the Cortex script's own `gates_report(root)`:
+every gated phase, its refs and the URL each ref resolves to. Nothing polls
+GitHub and nothing flips a state — gate grading was retired on 2026-09-03 (2
+gated refs, 0 flips in its lifetime; sequencing is prose `Ready when:` lines
+per Cortex schema decision 54). A human opens the refs and, when they have
+closed, types `python3 scripts/cortex.py move <phase> ready`.
 
-## Gate grading
+## The check-in (`collect`)
 
-`gates --grade [--apply]` is a thin wrapper over the Cortex script's own
-`gates_report(root, grade=…, write=…)`. The grading rule (a PR clears when it
-merged; an issue when it closed as `completed`; anything unreadable fails
-closed) and the writes live there, so the Cortex's daily `gates_grade.yml`
-runs them with no Brain checkout at all. `--apply` is this surface's spelling
-of the script's `--write`, and it may only ever move `gated → ready` (and
-demote a `ready` phase whose gate reopened).
-
-## Scoring a pull (`collect`)
-
-The board is rolling: a member joins the review on the pull that fills its
-results in. `collect` scores every member whose phase is `submitted` or
-`running` (or the phases named by `--phase`) against **six legs**, each
-`PASS | FAIL | UNOBSERVABLE`:
+This is the verb the human actually drives: *what came back?* With no
+`--phase` it scopes to **every phase in `submitted | running`** — the runs the
+Cortex believes are out there — and needs no record of any kind. `--phase REL`
+(repeatable) narrows it to named phases. Each is scored against **six legs**,
+each `PASS | FAIL | UNOBSERVABLE`:
 
 | Leg | Read from |
 |-----|-----------|
@@ -108,8 +96,8 @@ results in. `collect` scores every member whose phase is `submitted` or
 
 HEALTH is **FAILED** if any leg failed, **SUSPECT** if any is unobservable,
 **HEALTHY** otherwise; `delivered:` counts the HEALTHY ones. Two of the four
-`delivered:` legs of `batches/AGENTS.md` are simply not visible on the laptop
-today — inventing PASS for them would be inventing evidence and FAIL would
+`delivered:` legs the batch records were scored on are simply not visible on
+the laptop today — inventing PASS for them would be inventing evidence and FAIL would
 condemn every healthy run, so they are UNOBSERVABLE and the member goes to the
 human as SUSPECT.
 
@@ -117,12 +105,12 @@ Everything is read from the laptop tree the human's own sync CLI filled; the
 search roots are the project's `mirror` then `local_path`, from
 `projects.yaml`. **The only thing that reaches the cluster is `--pull`**, which
 runs that project's own `<sync_cli> pull` and prints the command first.
-`--apply` (which needs a refresh stamp, from `--pull` or `--refreshed <ISO>`)
-moves each member `running → pulled → awaiting-ruling`, appends one
-`- refreshed:` line per member and rewrites the member's `<state>` — rehearsed
-on a throwaway copy of the tree first and refused outright if
-`cortex.py check` would not pass afterwards. A phase whose run line is still
-live, or one still `submitted` (no such edge), is left where it is with a note.
+`--apply` (which needs a refresh stamp, from `--pull` or `--refreshed <ISO>`,
+so a human cannot move phases on a stale laptop) moves each phase
+`running → pulled → awaiting-ruling` — rehearsed on a throwaway copy of the
+tree first and refused outright if `cortex.py check` would not pass afterwards.
+Nothing else is written. A phase whose run line is still live, or one still
+`submitted` (no such edge), is left where it is with a note.
 
 ## What it never does
 

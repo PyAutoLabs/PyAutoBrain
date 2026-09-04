@@ -1,29 +1,26 @@
 #!/usr/bin/env python3
 """agents/conductors/batch/_status.py — one reading of "is a batch in flight?".
 
-Both dashboards open with the same box: the slot that is in flight, every
+The Mind's dashboard opens with this box: the slot that is in flight, every
 member on one line, and — once there is something to review — the button to
-its packet. The Mind's page and the Cortex's page render it from different
-state, so the *reading* lives here and each organ only supplies its facts.
+its packet. The *reading* lives here and the dashboard only supplies its facts.
 
-Three constraints shape this module, and they are why it is a module at all:
+Two constraints shape this module, and they are why it is a module at all:
 
-- **Stdlib and `_theme` only.** The Cortex renderer runs bare inside
-  PyAutoCortex's own `dashboard_refresh.yml`, with only the Cortex and the
-  Brain checked out and nothing installed. So this module imports neither
-  `_batch` (which imports `_sizing`, which reads the Mind's body map at
-  import) nor the Cortex script. It is imported BY `_batch.py`, never the
-  other way round.
-- **One renderer, two organs.** `render_html`/`render_md` are written once so
-  the two boards' `--check` runs stay byte-consistent with each other and a
-  reader who knows one page can read the other.
-- **Nothing time-derived.** Every word in the box comes from a record line or
-  a phase file. A box that said "3h ago" would be drift on every re-render of
-  an unchanged tree, and `dashboard --check` would report it as such.
+- **Stdlib and `_theme` only.** It imports neither `_batch` (which imports
+  `_sizing`, which reads the Mind's body map at import) nor any organ's
+  script. It is imported BY `_batch.py`, never the other way round.
+- **Nothing time-derived.** Every word in the box comes from a record line. A
+  box that said "3h ago" would be drift on every re-render of an unchanged
+  tree, and `dashboard --check` would report it as such.
 
-The vocabulary (`RECORD_KEY`, `RULING_WORDS`, `PENDING_RE`,
-`CORTEX_BOARD_STATES`) lives here and `_batch.py` imports it back, so the
-words the record is written in have one definition.
+The vocabulary (`RECORD_KEY`, `RULING_WORDS`, `PENDING_RE`) lives here and
+`_batch.py` imports it back, so the words the record is written in have one
+definition.
+
+It rendered a second box for the Cortex until 2026-09-03, when the science
+review slot was retired (PyAutoCortex#9); checking in on the science is
+`pyauto-brain cortex collect` now, and that surface has no board of its own.
 """
 
 from __future__ import annotations
@@ -60,22 +57,15 @@ RULING_WORDS = {"DELIVERED", "NOT-DELIVERED", "FAILED", "MERGED", "PARKED",
 PENDING_RE = re.compile(r"\b(RUNNING|CARRIED|IN FLIGHT|REFRESHED|PENDING|"
                         r"DISPATCHED)\b", re.I)
 
-#: The four states a science member is on the board in. `ready` and `planned`
-#: are scope; `accepted`, `rerun` and `dropped` are history the rulings ledger
-#: carries. A slot whose every non-carried member has left these is closed.
-CORTEX_BOARD_STATES = ("submitted", "running", "pulled", "awaiting-ruling")
-
 #: The four things this box says about a member. They are display words, not
 #: record states: the record's vocabulary differs per kind, the box's does not.
 IN_PROGRESS = "in progress"
 AWAITING = "awaiting review"
 RULED = "ruled"
-PULLED = "pulled, awaiting collect"
 NOT_DELIVERED = "not delivered"
 
 #: Tone per display word, as `_theme.pills` classes: go / caution / neutral.
-_TONE = {IN_PROGRESS: "n", AWAITING: "y", RULED: "g", PULLED: "n",
-         NOT_DELIVERED: "r"}
+_TONE = {IN_PROGRESS: "n", AWAITING: "y", RULED: "g", NOT_DELIVERED: "r"}
 
 #: What the box says when nothing is in flight. A fixed sentence, so an
 #: unchanged tree renders an unchanged page.
@@ -146,25 +136,6 @@ def freeze_line(rec: dict | None) -> str:
     return f"FROZEN: {rec.get('reason', 'unspecified')} until {rec.get('until', '?')}"
 
 
-def _carried_slugs(keys: dict, members: list) -> set:
-    """The members a `- carried:` line hands to the next slot.
-
-    A carried member is on the NEXT board, not this one, so it must not hold
-    this slot open — `carried: refs_v1_… — still submitted at review` closes a
-    slot whose other three members are ruled. Only the head of the line (what
-    comes before the em-dash that opens the human's reason) names slugs.
-    """
-    slugs = {m.get("slug") for m in members if m.get("slug")}
-    out = set()
-    for value in keys.get("carried") or []:
-        head = re.split(r"\s+[—–-]\s+", value.replace("--", "—"), 1)[0]
-        for token in re.split(r"[\s,;]+", head):
-            token = token.strip("`'\"()")
-            if token in slugs:
-                out.add(token)
-    return out
-
-
 def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
                pages: str, freeze: str = "") -> dict | None:
     """The Mind's (development) reading — today's behaviour, unchanged.
@@ -191,42 +162,6 @@ def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
     return _status(slot, "dev", keys, rows,
                    reviewable=bool(_one(keys, "collected")), pages=pages,
                    freeze=freeze)
-
-
-def cortex_status(slot: str, keys: dict, members: list, states: dict,
-                  live: dict, pages: str, freeze: str = "") -> dict | None:
-    """The Cortex's (science) reading — a rolling board, not one sitting.
-
-    A science slot stays open while anything is still ON the board: members
-    join it as their runs finish and leave it as they are ruled. `states` is
-    the phase file's own `State:` per slug (the census join — the phase file
-    is the state, the record is only how the member got here) and `live` the
-    per-slug progress note. Members named on a `- carried:` line are excluded
-    from the open test: they belong to the next board.
-    """
-    carried = _carried_slugs(keys, members)
-    rows, on_board = [], False
-    for m in members:
-        slug = m.get("slug", "")
-        state = (states.get(slug) or m.get("state") or "").strip().lower()
-        if state in ("submitted", "running"):
-            row = (IN_PROGRESS, live.get(slug, ""))
-        elif state == "pulled":
-            row = (PULLED, "")
-        elif state == "awaiting-ruling":
-            row = (AWAITING, "")
-        elif state in ("accepted", "rerun", "dropped"):
-            row = (RULED, state)
-        else:
-            row = (RULED, state) if state else (NOT_DELIVERED, "")
-        if state in CORTEX_BOARD_STATES and slug not in carried:
-            on_board = True
-        rows.append({"slug": slug, "state": row[0], "detail": row[1]})
-    if not on_board:
-        return None
-    return _status(slot, "cortex", keys, rows,
-                   reviewable=any(r["state"] == AWAITING for r in rows),
-                   pages=pages, freeze=freeze)
 
 
 def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,

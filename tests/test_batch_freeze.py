@@ -130,14 +130,6 @@ def test_the_box_carries_one_line_when_it_is_supplied():
     assert md.index("FROZEN") < md.index("resampling-info")
 
 
-def test_the_science_box_carries_it_too():
-    st = _status.cortex_status(
-        "2026-09-03-night", {"dispatched": ["2026-09-03T18:00Z"]},
-        [{"slug": "a-phase"}], states={"a-phase": "running"}, live={},
-        pages=PAGES, freeze=_status.freeze_line(ACTIVE_REC))
-    assert "FROZEN" in _status.render_md(st)
-
-
 # ------------------------------------------------------------- the packet ---
 def test_the_collect_packet_says_what_the_freeze_means_for_merging():
     d = {"slot": "2026-09-03-pm", "not_delivered": [], "members": [],

@@ -54,7 +54,7 @@ def _phase(project, number, slug, budget, runs, where, witness_prose,
     return (f"# {project.title()} — phase {number}: {slug}\n\n"
             f"Project: {project}\nPhase: {number}\nState: {state}\n"
             f"Witness: {witness_prose}\nBudget: {budget}\n"
-            f"Runs: {stems}\nLane: local-dev\nReview-minutes: {minutes}\n"
+            f"Runs: {stems}\nReview-minutes: {minutes}\n"
             f"Filed: 2026-08-30\n\n"
             f"## Question\n\nDoes it converge?\n\n"
             f"## Witness\n\n{witness_prose}\n\n"
@@ -91,8 +91,8 @@ subhalo:
 
 
 def build_board(tmp_path: Path, skeleton: Path) -> dict:
-    """A tmp Cortex with a rolling board of three live members, and the two
-    laptop trees they were pulled into.
+    """A tmp Cortex with three live phases, and the two laptop trees they
+    were pulled into.
 
     The fixture's `projects.yaml` points at fictional absolute paths (it is the
     one file in the organism allowed to carry one), so the rows are rewritten
@@ -159,14 +159,4 @@ def build_board(tmp_path: Path, skeleton: Path) -> dict:
         sub / "output/lens_a",
         "the pipeline JSON lands for the lens"))
 
-    _write(root / "batches/2026-09-02-am.md",
-           "# Batch 2026-09-02 am\n"
-           "- dispatched: 2026-09-02T09:00Z\n"
-           "- review-at: 2026-09-02T17:00Z\n"
-           "- shift: day\n- lane: local-dev\n"
-           "- review-minutes-planned: 15\n"
-           "- members:\n"
-           "  - 11_healthy: phases/example/11_healthy.md — 400100 — 5 — running\n"
-           "  - 12_resumed: phases/example/12_resumed.md — 400200 — 5 — running\n"
-           "  - 01_partial: phases/subhalo/01_partial.md — 400300 — 5 — running\n")
     return {"root": root, "mirror": mirror, "local": local, "sub": sub}

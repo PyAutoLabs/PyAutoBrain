@@ -21,8 +21,7 @@ Three properties, deliberately:
   member's health word (a member's health is about its own delivery; a merge
   collision is a property of the *slot*).
 * **It is stdlib-only and imports nothing from `_batch`.** The conductor loads
-  it lazily, the way it loads the Cortex conductor, so a session that never asks
-  for `--integration` never pays for it — and this module stays unit-testable
+  it lazily, so a session that never asks for `--integration` never pays for it — and this module stays unit-testable
   against throwaway repos with no Mind, no record and no packet in sight.
 
 The seam with `bin/worktree.sh`: **worktree.sh knows layout, this module knows

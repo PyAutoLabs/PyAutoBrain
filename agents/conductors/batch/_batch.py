@@ -49,13 +49,11 @@ from _sizing import (  # noqa: E402
     normalise_repo, parse_prompt, priority_rank,
 )
 # `_status` (same directory) is the one definition of this vocabulary — the
-# batch status box on both dashboards reads a record the same way this
-# conductor writes one. Re-exported below (`RULING_WORDS`, `PENDING_RE`,
-# `CORTEX_BOARD_STATES`) so existing importers of `_batch` keep working.
+# batch status box on the Mind's dashboard reads a record the same way this
+# conductor writes one. Re-exported below (`RULING_WORDS`, `PENDING_RE`) so
+# existing importers of `_batch` keep working.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _status import (  # noqa: E402
-    PENDING_RE, RULING_WORDS, CORTEX_BOARD_STATES, _carried_slugs, freeze_line,
-)
+from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 
 # One slot's worth of the human's attention, and only the DEFAULT: the human
 # sets it per slot with --budget, because they know whether the next one is a
@@ -448,9 +446,9 @@ def emit(d: dict) -> None:
 # It is offline by default and writes nothing without `--apply`. `--fetch` is
 # the one leg that shells out, and only to `gh`, and only where `gh` exists.
 
-# The batch record's own grammar. `RECORD_KEY` is the Cortex conductor's, kept
-# byte-identical so both organs read one record the same way; `MEMBER_RE` is
-# NOT — see `parse_member`.
+# The batch record's own grammar. `RECORD_KEY` is `_status.py`'s, kept
+# byte-identical so the conductor and the status box read one record the same
+# way; `MEMBER_RE` is deliberately loose — see `parse_member`.
 RECORD_KEY = re.compile(r"^- ([a-z][a-z0-9-]*):(?:\s+(.*?))?\s*$")
 MEMBER_RE = re.compile(r"^  - (?P<slug>[^:]+): (?P<rest>.+)$")
 
@@ -519,11 +517,11 @@ def _yes(values) -> bool:
 def parse_member(raw: str) -> dict | None:
     """`  - <slug>: <path> — <tier> — <minutes> — <outcome…>`, or None.
 
-    Deliberately not the Cortex conductor's `MEMBER_RE`: its `(?P<state>\\S+)$`
-    fails on every real dev line (all nine outcomes in the 2026-08-31-pm record
-    contain spaces) and its `(?P<path>\\S+)` fails on the two science lines,
-    whose "path" is a sentence. Splitting on the separator with `maxsplit=3`
-    keeps the outcome whole however long it runs — and a line whose path holds
+    Deliberately not a strict grammar: a `(?P<state>\\S+)$` tail fails on every
+    real dev line (all nine outcomes in the 2026-08-31-pm record contain
+    spaces) and a `(?P<path>\\S+)` fails on a line whose "path" is a sentence.
+    Splitting on the separator with `maxsplit=3` keeps the outcome whole
+    however long it runs — and a line whose path holds
     a space is simply not this grammar, which is a NOTE, not a crash.
     """
     m = MEMBER_RE.match(_dash(raw))
@@ -1477,9 +1475,9 @@ def _pr_table(s: dict) -> str:
 
 
 def kind_of(member: dict, ctx: dict) -> str:
-    """`dev` unless a registered kind claims the member. The Cortex's phase-5
-    `cortex` kind claims a member whose path is a `phases/…` file; nothing else
-    may claim one, so the default is never a guess."""
+    """`dev` unless a registered kind claims the member. No other kind is
+    registered today, so the default is never a guess; the hook stays because
+    a member kind is the cheapest way for a second board to arrive."""
     for name, (_score, _blocks, claims) in ctx.get("kinds", KINDS).items():
         if claims is not None and claims(member, ctx):
             return name
@@ -1492,8 +1490,8 @@ def kind_of(member: dict, ctx: dict) -> str:
 #: fallback kind, which claims whatever is left). A scored dict must carry
 #: `slug id kind title health eyebrow jobs chip est_minutes tier pending legs
 #: blocks review_chips notes path outcome` — the report, the record and the
-#: renderer read those and nothing else, which is what lets the Cortex register
-#: a `cortex` kind without either organ learning the other's vocabulary.
+#: renderer read those and nothing else, which is what would let a second
+#: board register a kind without either side learning the other's vocabulary.
 #:
 #: Six keys are OPTIONAL, each with the dev reading as its default: `leg_order`
 #: and `leg_titles` (a kind whose legs are not the dev six), `reviewable`
@@ -1505,8 +1503,7 @@ KINDS = {"dev": (score_dev, dev_blocks, None)}
 
 # --------------------------------------------------------- collect() -------
 def collect(mind: Path, slot: str, *, evidence: dict | None = None,
-            kinds: dict | None = None, kind: str = "dev",
-            cortex: dict | None = None) -> dict:
+            kinds: dict | None = None, kind: str = "dev") -> dict:
     """Score one slot. Reads three inputs, writes nothing.
 
     The record is the spine (it is the ledger of what was dispatched); the
@@ -1515,15 +1512,12 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
     verdict, the adversary leg — comes from outside, because nothing this
     conductor can reach offline knows whether a PR is green.
 
-    `kind` names the ORGAN this slot belongs to, not the member kinds in it:
-    `dev` reads a `PyAutoMind/batches/` record, `cortex` a
-    `PyAutoCortex/batches/` one (its root arrives as `cortex["root"]`, and
-    `mind` is that root too). The member kinds are still claimed per member —
-    a Cortex record's members are `phases/…` paths and the `cortex` kind
-    claims them.
+    `kind` names the ORGAN this slot belongs to, not the member kinds in it.
+    One organ today — `dev`, a `PyAutoMind/batches/` record — and the member
+    kinds are still claimed per member.
     """
     kinds = kinds or KINDS
-    root = cortex["root"] if (kind == "cortex" and cortex) else mind
+    root = mind
     organ = organ_for(kind, root, slot)
     record_path = root / "batches" / f"{slot}.md"
     text = record_path.read_text(encoding="utf-8", errors="replace")
@@ -1533,24 +1527,17 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
         notes.append(f"line {lineno} does not read as a member line — reported, "
                      f"not scored: {raw.strip()[:140]}")
     ctx = {"mind": mind, "root": root, "organ": organ, "slot": slot,
-           "active": read_active(mind) if kind == "dev" else {},
+           "active": read_active(mind),
            "evidence": evidence or {}, "notes": notes, "kinds": kinds,
-           "cortex": cortex,
            # The completion ledger, read once: `member_outcome` asks it per
            # member and re-globbing `complete/**` for each one would read the
            # same few hundred files ten times over.
-           "completed": completed_members(mind, slot) if kind == "dev" else {}}
+           "completed": completed_members(mind, slot)}
 
-    if kind == "cortex":
-        # A rolling slot may have more than one sitting — see `_merge_reviews`.
-        review = _merge_reviews(_review_paths(root, slot))
-    else:
-        review_path = root / "batches" / "reviews" / f"{slot}.md"
-        review = (read_review(review_path.read_text(encoding="utf-8",
-                                                    errors="replace"))
-                  if review_path.is_file() else None)
-    ruled = {slug for slug, row in (review or {}).get("members", {}).items()
-             if row.get("ruled") == "yes"}
+    review_path = root / "batches" / "reviews" / f"{slot}.md"
+    review = (read_review(review_path.read_text(encoding="utf-8",
+                                                errors="replace"))
+              if review_path.is_file() else None)
     ctx["review"] = review
 
     scored = []
@@ -1562,8 +1549,6 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
         s.setdefault("id", f"m-{s['slug']}")
         if not s.get("blocks"):
             s["blocks"] = blocks(s)
-        if name == "cortex" and not _on_the_board(s, ruled, notes):
-            continue
         if name == "dev":
             # The record's outcome column is EVIDENCE (a PR number and its
             # check counts); this is the ACCOUNTING — what became of the
@@ -1585,8 +1570,7 @@ def collect(mind: Path, slot: str, *, evidence: dict | None = None,
                  len(ended))
     return {
         "slot": slot, "mind": mind, "root": root, "kind": kind,
-        "organ": organ, "cortex": cortex,
-        "carry": carried_members(cortex, record_path) if cortex else [],
+        "organ": organ,
         "record": str(record_path),
         "members": scored, "notes": notes, "counts": counts,
         "delivered": delivered,
@@ -1627,9 +1611,8 @@ def _ruling_line(s: dict) -> str:
     """The one-line "why this needs you" for the rulings list.
 
     The legs are read through `leg_order`/`leg_titles` rather than the dev
-    constants: a `cortex` member's six legs are the Cortex's own (`err`,
-    `wall`, `version`, `checkpoint`, `resume`, `witness`), and a reader keyed
-    to `pr`/`green` raises `KeyError` on every one of them.
+    constants, so a kind whose legs are not the dev six reads correctly here
+    instead of raising `KeyError` on every one of them.
     """
     order = s.get("leg_order", LEGS)
     titles = s.get("leg_titles", LEG_TITLES)
@@ -1894,12 +1877,10 @@ def render_member_section(s: dict) -> str:
     nothing else, so everything a member needs — including its review controls,
     whose state the human may already have typed — has to live inside it.
 
-    A member that is not `reviewable` (a RUNNING science phase) renders with no
-    Ruled box and no decision chips: `PyAutoCortex/batches/AGENTS.md` says
-    nothing in `submitted`/`running` holds review control, and carry-forward —
-    not an unclickable chip — is what moves it to the next board. The note
-    textarea stays, because a human starts noting on a running member long
-    before it finishes.
+    A member that is not `reviewable` renders with no Ruled box and no decision
+    chips — a kind may declare that a member cannot be ruled on yet. The note
+    textarea stays, because a human starts noting on a member long before it
+    finishes.
     """
     sev = HEALTH_SEV.get(s["health"], "suspect")
     reviewable = s.get("reviewable", True)
@@ -2199,8 +2180,6 @@ def _members_js(d: dict) -> str:
 
 
 def _callout(d: dict) -> str:
-    if _organ(d)["key"] == "cortex":
-        return _cortex_callout(d)
     if d["not_delivered"]:
         by_slug = {s["slug"]: s for s in d["members"]}
         items = "".join(
@@ -2250,9 +2229,9 @@ def _fresh_packet(d: dict, stamp: str) -> str:
         "%%SLOT%%", _e(slot))
     organ = _organ(d)
     n, total = d["delivered"]
-    # The progress line counts what can actually be ruled: a RUNNING science
-    # member holds no review control, so a denominator that included it would
-    # never reach "all decided" however complete the review was.
+    # The progress line counts what can actually be ruled: a member with no
+    # review control would leave a denominator that never reaches "all
+    # decided" however complete the review was.
     votes = sum(1 for s in d["members"] if s.get("reviewable", True))
     L = [head, '<div class="page">', '', '<header class="pagehead">',
          f'  <p class="eyebrow">{_e(slot)} · batch collect · '
@@ -2603,15 +2582,11 @@ def _apply_packet(root: Path, d: dict) -> list:
     page is the same page. Written under the organ's own `batches/packets/`."""
     notes: list[str] = []
     packet = root / "batches" / "packets" / f"{d['slot']}.html"
-    if d.get("kind") != "cortex" and d.get("review") is not None:
+    if d.get("review") is not None:
         # `batches/packets/AGENTS.md`: the archived page and the review file are
         # the audit pair — what was shown, what was ruled. A correction gets a
         # new dated page, not an edit. A dev batch is reviewed once — this is
-        # the WHOLE close. A Cortex slot is a rolling board (`batches/AGENTS.md`,
-        # "The first review does not close the slot"): a review lands, more
-        # members may still join the board, and the packet keeps refreshing
-        # under `d["members"]` (which `_on_the_board` already keeps the ruled
-        # ones out of) until nothing is left on it.
+        # the WHOLE close.
         notes.append("review submitted — the packet is never rewritten after a "
                      f"review; batches/reviews/{d['slot']}.md is the record now")
         return notes
@@ -2700,170 +2675,20 @@ def read_review(text: str) -> dict:
     return {"keys": keys, "members": members}
 
 
-# ================================================================= cortex ===
-# The second member kind: a phase of a science project, on a rolling board.
-#
-# The dependency runs ONE WAY. This module imports the cortex conductor; the
-# cortex conductor imports nothing of this one and nothing of the Mind's,
-# because it renders the Cortex's own board inside that repo's
-# `dashboard_refresh.yml`, where no PyAutoMind checkout exists. So everything
-# the science side knows — the admission rule, the six legs, the packet block,
-# the state table — is ASKED of `_cortex` here and never re-implemented, which
-# is what keeps the two surfaces from drifting.
-
-CORTEX_CONDUCTOR = BRAIN / "agents" / "conductors" / "cortex" / "_cortex.py"
-_CX = None
-
-# `CORTEX_BOARD_STATES` is `_status`'s (imported above) — the four states a
-# science member is on the board in. `ready` and `planned` are scope;
-# `accepted`, `rerun` and `dropped` are history the rulings ledger carries. A
-# record naming one of those is reported, never scored.
-
-#: The Cortex's review vocabulary (`scripts/cortex.py::RULING_VERBS`), not the
-#: Mind's merge/tweak/reject/defer. A RUNNING member gets none of them.
-CORTEX_CHIPS = (("accept", "Accept"), ("rerun", "Rerun"), ("drop", "Drop"),
-                ("leave-to-finish", "Leave to finish"))
-
+# ----------------------------------------------------------- the organ ------
+#: The packet's opening line. One organ since 2026-09-03: the science board and
+#: everything that modelled the human as a reviewer working a scheduled shift
+#: were retired (PyAutoCortex#9), and checking in on the science is
+#: `pyauto-brain cortex collect` instead.
 DEV_LEDE = ("{n} of {total} ended member(s) delivered on the evidence — a PR "
             "with a non-empty diff and checks that ran.")
-CORTEX_LEDE = ("{n} of {total} scored member(s) delivered on the evidence — a "
-               "witness that landed inside its budget, on a clean run that is "
-               "not a resume. Members still running hold no review control; "
-               "carry-forward moves them to the next board.")
-
-#: The `-r<N>` suffix of a slot's later, partial reviews (`<slot>-r2.md`,
-#: N >= 2) — `scripts/cortex.py`'s own pattern, kept byte-identical so a
-#: review file this conductor offers is one `cortex.py check` also resolves.
-REVIEW_PART_RE = re.compile(r"-r(\d+)$")
 
 
-def _review_paths(root: Path, slot: str) -> list:
-    """Every partial review file a rolling slot has, in sitting order:
-    `reviews/<slot>.md` (the first sitting, if it exists) then `-r2.md`,
-    `-r3.md`, … by N — `scripts/cortex.py::batch_problems`'s own resolution.
-    `-r1` is not a name; the first review is `<slot>.md`."""
-    reviews = root / "batches" / "reviews"
-    out = []
-    first = reviews / f"{slot}.md"
-    if first.is_file():
-        out.append(first)
-    numbered = []
-    for p in reviews.glob(f"{slot}-r*.md"):
-        m = REVIEW_PART_RE.search(p.stem)
-        if m:
-            numbered.append((int(m.group(1)), p))
-    numbered.sort(key=lambda t: t[0])
-    return out + [p for _, p in numbered]
-
-
-def _next_review_path(root: Path, slot: str) -> str:
-    """The next free `reviews/<slot>[-r<N>].md` — `<slot>.md` if the first
-    sitting has not happened yet, else the smallest free `-r<N>`, N >= 2."""
-    reviews = root / "batches" / "reviews"
-    if not (reviews / f"{slot}.md").is_file():
-        return f"batches/reviews/{slot}.md"
-    n = 2
-    while (reviews / f"{slot}-r{n}.md").is_file():
-        n += 1
-    return f"batches/reviews/{slot}-r{n}.md"
-
-
-def _merge_reviews(paths: list) -> dict | None:
-    """Every partial review file for a slot, read and merged — `keys` from
-    the latest file that set them, `members` per slug from the latest file
-    that named it. `ruled` is STICKY: a member already ruled `yes` at an
-    earlier sitting stays ruled even if a later, narrower sitting (one that
-    lists only what it itself rules on) does not mention it again — that is
-    what lets `_on_the_board` keep skipping it forever, not just this pass.
-    """
-    if not paths:
-        return None
-    keys: dict = {}
-    members: dict = {}
-    for p in paths:
-        r = read_review(p.read_text(encoding="utf-8", errors="replace"))
-        keys.update(r["keys"])
-        for slug, row in r["members"].items():
-            if members.get(slug, {}).get("ruled") == "yes":
-                continue
-            members[slug] = row
-    return {"keys": keys, "members": members}
-
-
-def _review_rel_paths(d: dict) -> list:
-    """`batches/reviews/<slot>[-r<N>].md`, one per file this slot has ever
-    had, in sitting order. Recomputed from the tree rather than threaded
-    through `d`: the review files on disk do not move between a collect and
-    its own apply."""
-    root = d.get("root")
-    if root is None or not d.get("slot"):
-        return []
-    return [f"batches/reviews/{p.name}" for p in _review_paths(root, d["slot"])]
-
-
-class CortexMissing(BatchUsageError):
-    """No usable Cortex tree. Its own words, and its own exit code — a session
-    with no science checkout is not a session that typed something wrong."""
-
-
-def load_cortex_conductor():
-    """`agents/conductors/cortex/_cortex.py`, imported by file location and
-    cached. Never at module import: `batch plan` and `batch collect` must run
-    in a session with no Cortex checkout at all, which is most of them."""
-    global _CX
-    if _CX is None:
-        spec = importlib.util.spec_from_file_location(
-            "_batch_cortex_conductor", CORTEX_CONDUCTOR)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _CX = mod
-    return _CX
-
-
-def cortex_context(cortex_arg: str = "") -> dict:
-    """Everything the cortex kind reads: the conductor, the tree's own schema
-    module, its root, its projects and its phases by path."""
-    cx = load_cortex_conductor()
-    try:
-        root = cx.resolve_root(cortex_arg or None)
-        mod = cx.load_cortex(root)
-    except cx.CortexUnavailable as e:
-        raise CortexMissing(f"batch: {e}")
-    return {"cx": cx, "mod": mod, "root": root,
-            "projects": mod.load_projects(root)[0],
-            "by_rel": {ph.rel: ph for ph in mod.load_phases(root)[0]}}
-
-
-def default_kinds(lane: str) -> str:
-    """What a session offers when the human names no kind. Every Cortex phase
-    is `local-dev` (the review happens at the laptop), so a cloud session is
-    offered the dev kind and TOLD the science count rather than shown a board
-    it cannot run."""
-    return "both" if lane == "local-dev" else "dev"
-
-
-# ----------------------------------------------------------- the organ ------
 def organ_for(kind: str, root: Path, slot: str) -> dict:
     """Which organ's packet this is. Everything the renderer would otherwise
-    have hardcoded to the Mind: the repo, its GitHub home, where the packet and
-    the review live, and the two review-file spellings the two organs' checks
-    disagree on."""
-    if kind == "cortex":
-        cx = load_cortex_conductor()
-        return {
-            "key": "cortex", "repo": cx.CORTEX_REPO, "home": cx._home(root),
-            "packet_path": f"{cx.CORTEX_REPO}/batches/packets/{slot}.html",
-            # The rolling board's first review is `<slot>.md`; every later
-            # sitting is the next free `-r<N>.md` (`batches/reviews/AGENTS.md`).
-            "review_path": _next_review_path(root, slot),
-            # `cortex.py check` requires every `##` heading in a review to name
-            # a member of the record, so the follow-ups block is one level down.
-            "followups_heading": "### Follow-ups accepted",
-            # `UNREVIEWED` is not a ruling verb; `(none)` is the Cortex's own
-            # word for "no verdict yet" and its check accepts it.
-            "default_decision": "(none)",
-            "lede": CORTEX_LEDE,
-        }
+    have hardcoded: the repo, its GitHub home, where the packet and the review
+    live. One row today; the indirection stays because the renderer reads
+    `organ[...]` throughout and a second board would arrive as one more row."""
     return {
         "key": "dev", "repo": "PyAutoMind", "home": _mind_home(root),
         "packet_path": f"PyAutoMind/batches/packets/{slot}.html",
@@ -2874,541 +2699,6 @@ def organ_for(kind: str, root: Path, slot: str) -> dict:
     }
 
 
-# ------------------------------------------------------- the scored member --
-_BLOCK_LABEL_RE = re.compile(r"^\*\*(.+?)\*\*$")
-_EST_LINE_RE = re.compile(r"^\*\*Est\. review-minutes\*\*")
-
-
-def _pairs(lines: list, drop=("Your review",)) -> list:
-    """`**Label**` full-line headings → the `(label, body)` pairs the packet
-    and the report both read.
-
-    Everything before the first label — the `## <slug> — HEALTH` head and the
-    facets line — is dropped, because both surfaces render those themselves;
-    `**Est. review-minutes** — n` is not a full-line label and is dropped too
-    (the est chip carries it). Parsing rather than re-authoring: the Cortex's
-    `member_block` stays the ONE source of the Question · Witness · Health
-    evidence · Readout · Ruling · Follow-ups · Where-to-look text.
-    """
-    out, label, body = [], None, []
-    for raw in lines:
-        line = raw.rstrip()
-        m = _BLOCK_LABEL_RE.match(line.strip())
-        if m:
-            if label is not None:
-                out.append((label, "\n".join(body).strip()))
-            label, body = m.group(1).strip(), []
-            continue
-        if label is None or _EST_LINE_RE.match(line.strip()):
-            continue
-        body.append(line)
-    if label is not None:
-        out.append((label, "\n".join(body).strip()))
-    return [(k, v) for k, v in out if k not in drop]
-
-
-def cortex_claims(member: dict, ctx: dict) -> bool:
-    """A `phases/…` member, and only where a cortex context is loaded. With no
-    Cortex in play the kind is not registered against anything and the member
-    stays `dev` — a dev record that happens to name a phase path is a note,
-    not a science member."""
-    return bool(ctx.get("cortex")) and (
-        member.get("path") or "").startswith("phases/")
-
-
-def score_cortex(member: dict, ctx: dict) -> dict:
-    """One science member, scored — the same flat dict the dev kind returns.
-
-    Every judgement here is the Cortex conductor's: `score_phase` for the six
-    legs and the health word, `LIVE_STATES` for what is still running. This
-    function's own work is the translation: which chips the member gets, what
-    the chip says, and whether it is reviewable at all.
-    """
-    cxc = ctx["cortex"]
-    cx, mod = cxc["cx"], cxc["mod"]
-    slug, rel = member["slug"], member.get("path") or ""
-    est = _int(member.get("minutes"))
-    base = {
-        "slug": slug, "kind": "cortex", "id": f"m-{slug}",
-        "est_minutes": est,
-        # Positionally the record's RUNS column, not a tier: a Cortex member
-        # line is `<slug>: <path> — <runs> — <minutes> — <state>`. Never print
-        # it as one.
-        "tier": "", "merged": False, "flagged": [], "links": [], "prs": [],
-        "summary": "", "path": rel, "outcome": member.get("outcome") or "",
-        "ruling_line": "_(one line — yours to write)_",
-        "rel": rel, "cx": cx, "mod": mod,
-    }
-    ph = cxc["by_rel"].get(rel)
-    if ph is None:
-        # A record naming a phase this Cortex does not have is a NOTE on one
-        # member, never the end of the collect.
-        note = f"`{rel or slug}` is not in this Cortex — not scored"
-        base.update({
-            "title": slug, "health": "SUSPECT", "eyebrow": "cortex",
-            "jobs": "(no phase)", "chip": "not scored", "pending": False,
-            "legs": {}, "leg_order": (), "leg_titles": {}, "state": "",
-            "notes": [note],
-            # No chips and no Ruled box: there is nothing here to rule ON. It
-            # is not RUNNING either — the callout below reads the health word,
-            # not this flag, so a ghost is never reported as a live run.
-            "review_chips": [], "reviewable": False,
-            "cortex": None, "clean_line": note,
-            "blocks": [("Status", f"_{note}_")],
-        })
-        return base
-
-    sc = cx.score_phase(mod, ph, cxc["projects"])
-    running = ph.state in cx.LIVE_STATES or sc["live_run"]
-    health = "RUNNING" if running else sc["health"]
-    wall = sc["legs"]["wall"][1]
-    if running:
-        chip = f"RUNNING — {wall}"
-    elif health == "HEALTHY" and sc["legs"]["witness"][0] == PASS:
-        chip = "witness landed"
-    else:
-        chip = health.lower()
-    base.update({
-        "title": ph.title or slug,
-        "health": health,
-        "eyebrow": " · ".join(x for x in (
-            sc["project"],
-            f"phase {ph.get('Phase')}" if ph.get("Phase") else "",
-            ph.state) if x),
-        "jobs": ", ".join(r.ident for r in ph.runs) or "(no runs)",
-        "chip": chip,
-        # `pending` is what keeps a running member out of the delivered
-        # denominator; `reviewable` is what takes its review controls away.
-        "pending": running,
-        "reviewable": not running,
-        "legs": sc["legs"], "leg_order": cx.LEGS, "leg_titles": cx.LEG_TITLES,
-        "state": ph.state, "notes": [], "cortex": sc,
-        "review_chips": [] if running else list(CORTEX_CHIPS),
-        "pending_line": f"RUNNING — {wall}; no review control "
-                        "until it is pulled",
-        "clean_line": f"{sc['legs']['witness'][1]}; accept / rerun / drop",
-    })
-    base["blocks"] = cortex_blocks(base)
-    return base
-
-
-def cortex_blocks(s: dict) -> list:
-    """The Cortex's own packet block, split into this renderer's pairs."""
-    if not s.get("cortex"):
-        return list(s.get("blocks") or [("Status", "_(not scored)_")])
-    return _pairs(s["cx"].member_block(s["mod"], s["cortex"]))
-
-
-def _on_the_board(s: dict, ruled: set, notes: list) -> bool:
-    """Whether a scored science member belongs on this packet.
-
-    Two exclusions, both from `batches/AGENTS.md`'s rolling board: a member the
-    human has already ruled on in this slot's review is not re-rendered (its
-    packet span is what they were shown), and a phase that has left the board
-    — `accepted`, `rerun`, `dropped`, back to `ready` — is history, not work.
-    """
-    if s["slug"] in ruled:
-        notes.append(f"{s['slug']}: already ruled in this slot's review — its "
-                     "packet section is left exactly as it was")
-        return False
-    state = s.get("state") or ""
-    if state and state not in CORTEX_BOARD_STATES:
-        notes.append(f"{s['slug']}: state `{state}` is off the board "
-                     f"({' | '.join(CORTEX_BOARD_STATES)}) — not scored")
-        return False
-    return True
-
-
-def _cortex_callout(d: dict) -> str:
-    """The Cortex packet's "most important finding". The dev callout's subject
-    — a session that ended green with no PR — has no science equivalent; the
-    live strip is what a science reviewer needs at the top instead."""
-    live = [s for s in d["members"] if s["health"] == "RUNNING"]
-    failed = d["counts"].get("FAILED", 0)
-    if live:
-        items = "".join(
-            f'<li><a href="#{_e(s["id"])}">{_e(s["slug"])}</a> — '
-            f'{_e(_short(s["chip"], 140))}</li>' for s in live)
-        return (f'<section class="callout" aria-label="Most important finding">'
-                f'\n  <p class="eyebrow">Most important finding</p>\n'
-                f'  <p>{len(live)} member(s) are still running — they hold no '
-                f'review control, and carry-forward moves them to the next '
-                f'board. Rule on what is pulled; nothing here waits on them.'
-                f'</p>\n  <ul>{items}</ul>\n</section>')
-    return ('<section class="callout ok" aria-label="Most important finding">\n'
-            '  <p class="eyebrow">Most important finding</p>\n'
-            f'  <p>Nothing is still running: every member of this slot has its '
-            f'results in. {_e(failed)} failed a leg outright and '
-            f'{_e(d["counts"].get("SUSPECT", 0))} need your eyes for a leg the '
-            f'collect could not observe.</p>\n</section>')
-
-
-KINDS["cortex"] = (score_cortex, cortex_blocks, cortex_claims)
-
-
-# ------------------------------------------------------------- plan ---------
-def plan_cortex(ctx: dict, *, budget: int, lane: str) -> dict:
-    """Which ready phases fit the slot — the phase-2 admission rule, whole.
-
-    `ready` + a registered `Witness:` + a `Budget:` + the session's lane, and
-    nothing else. The autonomy cap is NEVER consulted: a science member is
-    supervised by definition and the ruling is the human's, so there is no
-    "would park at ship" to reject it for. `LIBRARY_REPOS` clash detection
-    applies in neither direction either — a science run claims no library
-    worktree, so it can never collide at merge with a dev member.
-    """
-    cx = ctx["cx"]
-    c = cx.census(ctx["root"])
-    d = cx.plan(c, budget, lane)
-    d["census"] = c
-    return d
-
-
-def _cortex_member_row(ph) -> dict:
-    """One record member line's fields, read off the phase itself.
-
-    The runs column is the run STEMS (`342091`), not the idents (`342091_0`):
-    `cortex.py`'s batch check compares the column against `{r.stem for r in
-    ph.runs}` and an ident fails it.
-    """
-    return {"slug": ph.slug, "rel": ph.rel,
-            "runs": ", ".join(sorted({r.stem for r in ph.runs})) or "none",
-            "minutes": _int(ph.get("Review-minutes")), "state": ph.state}
-
-
-def cortex_record_text(members: list, *, slot: str, dispatched: str,
-                       review_at: str, shift: str, planned: int,
-                       carried: list, carried_from: str) -> str:
-    """The Cortex batch record, in `PyAutoCortex/batches/AGENTS.md`'s schema.
-
-    `heart-ack:` and `expected-effects:` are deliberately NOT written: that
-    page drops them on purpose (the Heart gates releases, not runs, and a
-    science batch has no autonomy leg to license), so a record carrying them
-    would be a field nothing ever reads.
-    """
-    rows = list(members) + [m for m in carried
-                            if m["slug"] not in {x["slug"] for x in members}]
-    L = [f"# Batch {slot[:10]} {slot[11:]}",
-         f"- dispatched: {dispatched}",
-         f"- review-at: {review_at}",
-         f"- shift: {shift}",
-         "- lane: local-dev",
-         f"- review-minutes-planned: {planned}"]
-    if carried and carried_from:
-        L.append(f"- carried-from: {carried_from}")
-    L.append("- members:")
-    for m in rows:
-        L.append(f"  - {m['slug']}: {m['rel']} — {m['runs']} — "
-                 f"{m['minutes']} — {m['state']}")
-    L += ["- notes: |",
-          "    Opened by `pyauto-brain batch plan --kind cortex --apply`. The",
-          "    review-minutes figure is a seed; `review-minutes-actual:` at",
-          "    close is the only calibration this surface gets."]
-    if carried and carried_from:
-        L += ["",
-              f"    {len(carried)} member(s) carried from {carried_from},",
-              f"    still live at its review: "
-              f"{', '.join(m['slug'] for m in carried)}. Their minutes are",
-              "    counted in the planned figure above."]
-    return "\n".join(L) + "\n"
-
-
-def write_cortex_record(root: Path, text: str, slot: str) -> str:
-    """Write the record, refusing to overwrite one. A slot's record is the
-    ledger of what was on that board; a second `plan --apply` on the same slot
-    is a typo, not an intent."""
-    path = root / "batches" / f"{slot}.md"
-    if path.exists():
-        raise BatchUsageError(
-            f"batch: batches/{slot}.md already exists — pick another --slot "
-            "(a record is the ledger of one board and is never reopened)")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return f"batches/{slot}.md"
-
-
-def _rehearse_cortex(root: Path, mod, rel: str, text: str) -> list:
-    """Write `text` at `rel` on a throwaway copy of the whole tree and run the
-    Cortex's own `check` over it. Same reason as the dev rehearsal, plus one:
-    the member lines this module writes are checked against the phase files by
-    a schema that is not this module's, and being wrong about it is drift in
-    someone else's repo."""
-    tmp = Path(tempfile.mkdtemp(prefix="batch-cortex-"))
-    try:
-        copy = tmp / root.name
-        shutil.copytree(root, copy, ignore=shutil.ignore_patterns(".git"),
-                        symlinks=True)
-        target = copy / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-        return mod.check_problems(copy)
-    except OSError as e:
-        return [f"the rehearsal copy could not be made ({e})"]
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[A-Za-z0-9_-]+$")
-
-
-def cortex_plan_record(ctx: dict, d: dict, *, slot: str, review_at: str,
-                       shift: str, dispatched: str) -> tuple:
-    """`(rel, notes)` — compose and write one Cortex batch record.
-
-    Carried members ride along without being named by the human: whatever was
-    still `submitted`/`running` at the last closed record's review is on this
-    board too, at its CURRENT state, with the record it came from recorded.
-    """
-    if not SLOT_RE.match(slot):
-        raise BatchUsageError(
-            f"batch: `{slot}` is not a slot name (<YYYY-MM-DD>-<label>)")
-    if not review_at.strip():
-        raise BatchUsageError(
-            "batch: plan --kind cortex --apply needs --review-at — the shift "
-            "is dispatch → review-at, and it is the human's to declare")
-    root, mod = ctx["root"], ctx["mod"]
-    by_rel = ctx["by_rel"]
-    rows = [_cortex_member_row(by_rel[r["rel"]]) for r in d["members"]
-            if r["rel"] in by_rel]
-    previous = newest_closed_record(root, mod)
-    carried = carried_members(ctx, previous) if previous is not None else []
-    carried = [m for m in carried if m["slug"] not in {r["slug"] for r in rows}]
-    carried_from = (f"batches/{previous.stem}.md" if previous is not None
-                    else "")
-    planned = d["review_minutes_planned"] + sum(m["minutes"] for m in carried)
-    text = cortex_record_text(
-        rows, slot=slot, dispatched=dispatched, review_at=review_at,
-        shift=shift, planned=planned, carried=carried,
-        carried_from=carried_from)
-    rel = f"batches/{slot}.md"
-    problems = _rehearse_cortex(root, mod, rel, text)
-    if problems:
-        return "", ["record NOT written — the Cortex does not check with it:"
-                    ] + [f"  {p}" for p in problems[:10]]
-    write_cortex_record(root, text, slot)
-    notes = [f"record written: {rel}"]
-    if carried:
-        notes.append(f"{len(carried)} member(s) carried from {carried_from}: "
-                     + ", ".join(m["slug"] for m in carried))
-    return rel, notes
-
-
-# --------------------------------------------------------- carry-forward ----
-def newest_closed_record(root: Path, mod):
-    """The last record whose review has landed — the one carry-forward reads.
-    An OPEN record's live members have not reached a review yet, so nothing
-    about them is carried anywhere."""
-    for path in reversed(mod.batch_records(root)):
-        rec = read_record(path.read_text(encoding="utf-8", errors="replace"))
-        if any(v for v in rec["keys"].get("review", [])):
-            return path
-    return None
-
-
-def carried_members(ctx: dict | None, record) -> list:
-    """A record's members whose phase is STILL `submitted`/`running` NOW.
-
-    The new record writes the phase's current state; the old record's line
-    stays as the ledger of what it was at its own review. A science member
-    never blocks a science review — that is the whole rule this implements.
-    """
-    if not ctx or record is None:
-        return []
-    try:
-        text = Path(record).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    live = ctx["cx"].LIVE_STATES
-    out = []
-    for m in read_record(text)["members"]:
-        ph = ctx["by_rel"].get(m.get("path") or "")
-        if ph is not None and ph.state in live:
-            out.append(_cortex_member_row(ph))
-    return out
-
-
-def carried_lines(d: dict, rec: dict) -> list:
-    """`- carried: <slug> — still <state> at review`, once per slug.
-
-    Written at CLOSE only: it is a statement about where a member stood when
-    the human ruled, and idempotent, because a collect may be re-run over a
-    closed record any number of times.
-    """
-    have = {v.split(" — ")[0].strip() for v in rec["keys"].get("carried", [])}
-    return [f"- carried: {m['slug']} — still {m['state']} at review"
-            for m in d.get("carry", []) if m["slug"] not in have]
-
-
-# -------------------------------------------------------------- collect -----
-def _cortex_movers(d: dict) -> list:
-    """The raw scored phases an apply may MOVE — `pulled`, and `running` with
-    no live run line. An `awaiting-ruling` member is already on the board, and
-    `apply_ops` writes one `refreshed:` line per phase it is handed, so
-    handing it those would stamp the record on every refresh forever."""
-    out = []
-    for s in d["members"]:
-        sc = s.get("cortex")
-        if not sc:
-            continue
-        if s.get("state") == "pulled" or (
-                s.get("state") == "running" and not sc["live_run"]):
-            out.append(sc)
-    return out
-
-
-def _recorded_carried_slugs(rec: dict) -> set:
-    """Slugs an EARLIER sitting already carried forward — `_status`'s own
-    reading of the `- carried:` line, replayed against this record's
-    already-read `rec` so the box and the close leg can never disagree."""
-    return _carried_slugs(rec["keys"], rec["members"])
-
-
-def _cortex_slot_open(d: dict, rec: dict) -> bool:
-    """Whether the science board still holds something worth waiting for —
-    `_status.cortex_status`'s reading: nothing left in a board state, members
-    an EARLIER sitting already carried forward excluded. `d["members"]` is
-    already the board (`_on_the_board` has dropped the ruled and the
-    off-board); a member leaves it for `carried` only once a `- carried:` line
-    naming it is already IN THE RECORD — one merely running right now, before
-    any sitting has said so, still holds this slot open (`batches/AGENTS.md`:
-    "the slot stays open while any non-carried member is still `submitted`,
-    `running`, `pulled` or `awaiting-ruling`")."""
-    carried = _recorded_carried_slugs(rec)
-    return any(s["slug"] not in carried for s in d.get("members") or [])
-
-
-def record_update_cortex(text: str, d: dict, stamp: str,
-                         review_at: str = "") -> str:
-    """The Cortex record's collect keys, updated in place. The MEMBER LINES ARE
-    NOT TOUCHED: their last column is a phase state, `apply_ops` owns it, and
-    the dev rewrite (`HEALTHY (…)`) would fail `cortex.py check` outright."""
-    lines = text.split("\n")
-    rec = read_record(text)
-    # A slot closes when nothing is left on the board (`batches/AGENTS.md`,
-    # "The first review does not close the slot") — NOT the moment a review
-    # file exists: a rolling slot may be reviewed more than once while it is
-    # still open.
-    closed = not _cortex_slot_open(d, rec)
-    inserts: list[str] = []
-    if not rec["key_lines"].get("collected"):
-        inserts.append(f"- collected: {stamp}")
-    n, total = d["delivered"]
-    # An open board's `delivered:`/`packet:` move with every refresh; a closed
-    # one's are history and are filled, never set.
-    put = _fill_key if closed else _set_key
-    put(lines, rec, "delivered", f"{n}/{total}", inserts)
-    put(lines, rec, "packet", f"batches/packets/{d['slot']}.html", inserts)
-    if review_at.strip():
-        # "re-declared at each refresh" — the human's own number, always.
-        _set_key(lines, rec, "review-at", review_at.strip(), inserts)
-    review = d.get("review")
-    if review is not None:
-        # `review:` REPEATS — one line per sitting (`batches/reviews/AGENTS.md`)
-        # — so this is never a fill-once key; only lines the record does not
-        # already carry are appended, in sitting order.
-        have = set(rec["keys"].get("review") or [])
-        inserts += [f"- review: {p}" for p in _review_rel_paths(d)
-                   if p not in have]
-        reviewed_at = review["keys"].get("reviewed-at", "")
-        if reviewed_at:
-            _fill_key(lines, rec, "reviewed-at", reviewed_at, inserts)
-        minutes = review["keys"].get("review-minutes-actual", "")
-        if minutes and minutes != "(not given)":
-            _fill_key(lines, rec, "review-minutes-actual", minutes, inserts)
-        inserts += carried_lines(d, rec)
-    at = _insert_anchor(rec)
-    lines[at:at] = inserts
-    return "\n".join(lines)
-
-
-def apply_collect_cortex(ctx: dict, d: dict, stamp: str,
-                         review_at: str = "") -> list:
-    """Move the phases, update the record's collect keys, refresh the packet.
-
-    In that order, and each leg rehearsed before it is made: the phase moves
-    are the Cortex's own `_apply_checked` (the whole tree copied, moved,
-    `check`ed and only then replayed for real), the record keys are re-read and
-    re-checked, and the packet is spliced in place exactly as a dev packet is.
-
-    `d` is REFRESHED IN PLACE when the moves land: the caller's report, the
-    record's `delivered:` and the packet then describe the board as it stands
-    after this collect, not as it stood before it. Assign the returned notes
-    (`d["notes"] = d["notes"] + apply_collect_cortex(…)`); `+=` would store a
-    stale list back.
-    """
-    notes: list[str] = []
-    cx, mod, root = ctx["cx"], ctx["mod"], ctx["root"]
-    record = root / "batches" / f"{d['slot']}.md"
-    rel = f"batches/{d['slot']}.md"
-
-    movers = _cortex_movers(d)
-    if movers:
-        problems, applied, wrote = cx._apply_checked(root, mod, movers, stamp,
-                                                     record)
-        notes += applied
-        if problems:
-            notes.append(
-                "the Cortex does not check after the moves — "
-                + ("they were written; run `python3 scripts/cortex.py check`"
-                   if wrote else "nothing was moved") + ": "
-                + "; ".join(problems[:3]))
-        elif wrote:
-            notes.append("phases moved and one `refreshed:` line written per "
-                         "pull: " + ", ".join(s["slug"] for s in movers))
-            # Re-score against the tree as it NOW stands. A member the moves
-            # just walked `running → pulled → awaiting-ruling` has its results
-            # in, and a packet that still drew it as RUNNING would withhold the
-            # review controls of the very member this refresh delivered — the
-            # human would have to collect twice to rule once.
-            _reload_phases(ctx)
-            fresh = collect(root, d["slot"], kind="cortex", cortex=ctx)
-            keep = list(d["notes"])
-            d.update({k: v for k, v in fresh.items() if k != "notes"})
-            d["stamp"] = stamp
-            d["notes"] = keep + [n for n in fresh["notes"] if n not in keep]
-
-    before = record.read_text(encoding="utf-8", errors="replace")
-    after = record_update_cortex(before, d, stamp, review_at)
-    if after != before:
-        problems = (_rehearse_record(root, before, after)
-                    + _rehearse_cortex(root, mod, rel, after))
-        if problems:
-            notes += [f"record keys NOT written — {p}" for p in problems[:5]]
-        else:
-            record.write_text(after, encoding="utf-8")
-            notes.append(f"record updated: {rel}")
-
-    notes += _apply_packet(root, d)
-    return notes
-
-
-def _reload_phases(ctx: dict) -> None:
-    """Re-read the phase files. The context caches `Phase` objects, and a move
-    has just changed the one thing they are read for."""
-    ctx["by_rel"] = {ph.rel: ph
-                     for ph in ctx["mod"].load_phases(ctx["root"])[0]}
-
-
-def cortex_ready_note(cortex_arg: str = "") -> str:
-    """"N Cortex phase(s) are ready — run from the laptop", for a session that
-    is not at the laptop. Reported, never silently dropped: a board this
-    session cannot run is still a board the human can, from the other machine.
-
-    Any failure at all is silence: a dev plan must not depend on a science
-    checkout being present, readable, or in schema.
-    """
-    try:
-        ctx = cortex_context(cortex_arg)
-        ready = len(ctx["cx"].census(ctx["root"])["ready"])
-    except Exception:  # noqa: BLE001 - a dev plan never fails on the Cortex
-        return ""
-    if not ready:
-        return ""
-    return (f"{ready} Cortex phase(s) are ready — every Cortex phase is "
-            f"local-dev, so run\n`batch plan --kind cortex` from the laptop "
-            f"to plan them.")
-
-
 # -------------------------------------------------------------------- cli ---
 #: Flags that belong to `collect` only. Passing one to `plan` is a usage error
 #: rather than a silent no-op: a human who types `batch plan --apply` means
@@ -3416,13 +2706,7 @@ def cortex_ready_note(cortex_arg: str = "") -> str:
 COLLECT_ONLY = ("slot", "evidence", "fetch", "integration", "push", "apply",
                 "out", "stamp")
 
-#: …except on `plan --kind cortex`, which OPENS a board: the slot is its name,
-#: `--apply` writes it, and the stamp is its `dispatched:`. Only with the kind
-#: named explicitly, so `batch plan --apply` on a laptop stays the usage error
-#: it has always been.
-CORTEX_PLAN_FLAGS = ("slot", "apply", "stamp")
-
-RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND, RC_NO_CORTEX = 0, 1, 2, 4, 5
+RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
 
 def main(argv=None) -> int:
@@ -3459,55 +2743,28 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default="", help="write the report here")
     ap.add_argument("--stamp", default="",
                     help="the refresh stamp to record (default: now, UTC)")
-    # the second kind
-    ap.add_argument("--kind", choices=["dev", "cortex", "both"], default="",
-                    help="which organ's board (default: from the session lane)")
-    ap.add_argument("--cortex", default="",
-                    help="the PyAutoCortex checkout (default: $PYAUTO_CORTEX, "
-                         "or beside this Brain)")
-    ap.add_argument("--cortex-budget", type=int, default=0,
-                    help="review-minutes for the science board (default: "
-                         "--budget)")
     ap.add_argument("--review-at", default="",
                     help="when you expect to be back — the shift is dispatch "
                          "-> review-at, and it is yours to declare")
-    ap.add_argument("--shift", default="",
-                    help="the shift label a new Cortex record carries")
-    ap.add_argument("--pull", action="store_true",
-                    help="run each project's own `pull` first (laptop only)")
     a = ap.parse_args(argv)
 
     lane = a.lane or detect_lane()
-    kind = a.kind or default_kinds(lane)
     mind = a.mind.resolve()
     try:
         if a.verb == "collect":
-            if a.kind == "both":
-                print("batch: collect takes one board at a time — --kind dev "
-                      "or --kind cortex", file=sys.stderr)
-                return RC_USAGE
-            if kind == "cortex":
-                return _main_collect_cortex(a)
             return _main_collect(mind, a)
-        return _main_plan(mind, a, lane, kind)
-    except CortexMissing as e:
-        print(e, file=sys.stderr)
-        return RC_NO_CORTEX
+        return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)
         return RC_USAGE
 
 
-def _main_plan(mind: Path, a, lane: str, kind: str) -> int:
-    allowed = CORTEX_PLAN_FLAGS if a.kind == "cortex" else ()
-    used = [f"--{f}" for f in COLLECT_ONLY
-            if getattr(a, f) and f not in allowed]
+def _main_plan(mind: Path, a, lane: str) -> int:
+    used = [f"--{f}" for f in COLLECT_ONLY if getattr(a, f)]
     if used:
         print(f"batch: {', '.join(used)} belong(s) to `batch collect`, not "
               "`batch plan`", file=sys.stderr)
         return RC_USAGE
-    if kind == "cortex":
-        return _main_plan_cortex(a, lane)
     if not (mind / "draft").is_dir():
         print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
         return RC_NO_MIND
@@ -3526,65 +2783,7 @@ def _main_plan(mind: Path, a, lane: str, kind: str) -> int:
         print(json.dumps(d, indent=2))
         return RC_OK
     emit(d)
-    if kind == "both":
-        # Both boards, one after the other, and the reason they are two.
-        print()
-        try:
-            _main_plan_cortex(a, lane)
-        except CortexMissing as e:
-            # A laptop with no science checkout still gets its dev board: the
-            # second kind was OFFERED by the lane, not asked for.
-            if a.kind:
-                raise
-            print(f"(no science board: {e})")
-            return RC_OK
-        print()
-        print("Two records, one per organ — PyAutoMind/batches/ for the dev "
-              "board and")
-        print("PyAutoCortex/batches/ for the science one, each with its own "
-              "review-at:.")
-        print("Neither ever lists the other's members.")
-    else:
-        note = cortex_ready_note(a.cortex)
-        if note:
-            print()
-            print(note)
     return RC_OK
-
-
-def _main_plan_cortex(a, lane: str) -> int:
-    """The science board. Offline, and it dispatches nothing: `emit_plan`
-    prints the project's own submit line for the human to run."""
-    ctx = cortex_context(a.cortex)
-    d = plan_cortex(ctx, budget=a.cortex_budget or a.budget, lane=lane)
-    if a.as_json:
-        print(json.dumps({k: v for k, v in d.items() if k != "census"},
-                         indent=2, default=str))
-    else:
-        ctx["cx"].emit_plan(d)
-    if not a.apply:
-        return RC_OK
-    if lane != ctx["cx"].LOCAL_LANE:
-        raise BatchUsageError(
-            "batch: plan --kind cortex --apply opens a board that is reviewed "
-            "at the laptop — run it there (or pass --lane local-dev if you "
-            "are there and this session cannot tell)")
-    stamp = a.stamp.strip() or _utc_now()
-    shift = a.shift.strip() or (a.slot[11:] if a.slot else _shift_label())
-    today = f"{_dt.datetime.now(_dt.timezone.utc):%Y-%m-%d}"
-    slot = a.slot.strip() or f"{today}-{shift}"
-    rel, notes = cortex_plan_record(ctx, d, slot=slot, review_at=a.review_at,
-                                   shift=shift, dispatched=stamp)
-    print()
-    for note in notes:
-        print(f"  {note}")
-    return RC_OK if rel else RC_FINDINGS
-
-
-def _shift_label() -> str:
-    """`am` or `pm` — a default label, never a schedule. A slot is whenever the
-    human comes in; this only names the file when they did not."""
-    return "am" if _dt.datetime.now(_dt.timezone.utc).hour < 12 else "pm"
 
 
 def _main_collect(mind: Path, a) -> int:
@@ -3658,69 +2857,6 @@ def _collect_rc(d: dict) -> int:
     ended = [s for s in d["members"] if not s["pending"]]
     clean = all(s["health"] in ("HEALTHY", "MERGED") for s in ended)
     return RC_OK if clean and len(ended) == len(d["members"]) else RC_FINDINGS
-
-
-def _main_collect_cortex(a) -> int:
-    """The science board, refreshed. It may run any number of times per batch:
-    a member joins the packet on the pull that fills its results in, and every
-    other section is re-rendered identically, so the human can keep reading the
-    page while the overnight members land under them."""
-    if a.fetch or a.evidence:
-        raise BatchUsageError(
-            "batch: --fetch and --evidence read PR evidence — they belong to "
-            "the dev board. A science member's evidence is what the project's "
-            "own pull mirrored to the laptop; see --pull")
-    ctx = cortex_context(a.cortex)
-    cx, root = ctx["cx"], ctx["root"]
-    if not (root / "batches").is_dir():
-        raise CortexMissing(f"batch: no batch records at {root}")
-    slot = a.slot or newest_slot(root)
-    record = root / "batches" / f"{slot}.md" if slot else None
-    if not slot or not record.is_file():
-        print(f"batch: no batch record batches/{slot or '<none>'}.md at "
-              f"{root}", file=sys.stderr)
-        return RC_USAGE
-
-    notes: list[str] = []
-    if a.pull:
-        # The one leg that touches the cluster, through the human's own CLI,
-        # and only from the machine that can reach it.
-        if (a.lane or detect_lane()) != cx.LOCAL_LANE:
-            notes.append("batch collect --kind cortex --pull: no laptop here "
-                         "— run collect from the laptop; what is already "
-                         "mirrored is scored anyway")
-        else:
-            notes += cx.run_pull(ctx["projects"], _record_projects(ctx, record))
-
-    d = collect(root, slot, kind="cortex", cortex=ctx)
-    d["notes"] += notes
-    d["stamp"] = a.stamp.strip() or _utc_now()
-    if a.apply:
-        # Assigned, not `+=`: the apply refreshes `d` in place (the phase moves
-        # change what the members are), and `d["notes"] += …` would load the
-        # pre-refresh list before the call and store that one back.
-        applied = apply_collect_cortex(ctx, d, d["stamp"], a.review_at)
-        d["notes"] = d["notes"] + applied
-    elif a.review_at.strip():
-        d["notes"].append("--review-at is recorded by --apply; nothing was "
-                          "written")
-
-    if a.as_json:
-        print(json.dumps(d, indent=2, default=str))
-    else:
-        emit_collect(d, a.out)
-    return _collect_rc(d)
-
-
-def _record_projects(ctx: dict, record: Path) -> list:
-    """The projects a record's members belong to — what `--pull` pulls."""
-    keys = set()
-    text = record.read_text(encoding="utf-8", errors="replace")
-    for m in read_record(text)["members"]:
-        ph = ctx["by_rel"].get(m.get("path") or "")
-        if ph is not None:
-            keys.add(ph.get("Project") or ph.project_dir)
-    return sorted(keys)
 
 
 if __name__ == "__main__":
