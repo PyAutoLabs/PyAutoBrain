@@ -99,16 +99,20 @@ same split as **Heart ↔ vitals** and **Gut ↔ hygiene**.
 
 | Verb | What it does |
 |------|--------------|
+| `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY] [--skip-pull]` | **The door.** Pull every active project through its own sync CLI (streamed; one project's failure does not stop the sweep), score every live phase, move what came back, re-render the board, push the ledger where the rule allows, and print a summary **by project** with the copy-ready prompt each phase's state already has. `--dry-run` (the default) says what it would do and reaches nothing |
 | `census` | What the Cortex is holding — phases by state, rulings, projects, epics |
 | `dashboard --check` \| `--apply` | The generated board, `dashboard.md` + `dashboard.html`. `--check` exits **1** on drift — the contract the Cortex's `dashboard_refresh.yml` runs on. The two pages are generated: never hand-edit them |
 | `gates` | The refs each gated phase waits on and the URL each resolves to — read-only and offline. A human opens them and, when they have closed, types `cortex.py move <phase> ready` |
 | `collect [--pull] [--apply] [--phase REL]` | **The check-in.** What came back, one block per phase: six legs (`err`, `wall`, `version`, `checkpoint`, `resume`, `witness`) each `PASS`/`FAIL`/**`UNOBSERVABLE`**, the witness readout and a blank ruling line. Default scope is every `submitted \| running` phase; `--pull` runs each project's own sync CLI; `--apply` moves each phase `running → pulled → awaiting-ruling`. Exit **1** = a phase the human must look at |
 
-**Checking in is one command.** `pyauto-brain cortex collect --pull --apply`
-pulls every active project through its own sync CLI, scores every phase the
-Cortex believes is out there against its pre-registered witness, and moves what
-came back to `awaiting-ruling` — then the human rules with
-`scripts/cortex.py rule`. It needs no record, no slot and no packet.
+**Checking in is one command.** `pyauto-brain cortex checkin --apply` pulls
+every active project through its own sync CLI, scores every phase the Cortex
+believes is out there against its pre-registered witness, moves what came back
+to `awaiting-ruling`, re-renders the board, pushes the ledger on
+`claude/checkin-<date>` when `gh` is logged in and the checkout is clean on
+`main`, and ends with a by-project summary the human reads and pastes from —
+then they rule with `scripts/cortex.py rule`. It needs no record, no slot and
+no packet.
 
 A review-slot apparatus — a rolling board with its own record under `batches/`,
 a scored packet page, partial reviews and carry-forward — was built on the

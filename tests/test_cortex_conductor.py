@@ -490,6 +490,196 @@ def test_the_default_scope_is_every_submitted_or_running_phase(board):
         assert rel.rsplit("/", 1)[1][:-3] in r.stdout
 
 
+# --- the check-in door -----------------------------------------------------
+# `checkin` composes the primitives above; these tests are about the
+# composition — what it sweeps, what it writes, what one project's failure
+# does to the other's, and what it refuses to push. The scoring itself is
+# covered by the `collect` block above and is not re-asserted here.
+
+
+def _checkin(root, *args):
+    return _run(["checkin", "--cortex", str(root), *args])
+
+
+def _fake_cli(local: Path, rc: int, marker: Path) -> Path:
+    """A stand-in for a project's own `hpc/sync`. No test in this file runs a
+    real one: a real pull reaches RAL."""
+    cli = local / "hpc" / "sync"
+    cli.parent.mkdir(parents=True, exist_ok=True)
+    cli.write_text(f'#!/bin/sh\necho "$1" > {marker}\nexit {rc}\n',
+                   encoding="utf-8")
+    cli.chmod(0o755)
+    return cli
+
+
+def test_the_dry_run_names_every_project_its_pull_and_the_phases_it_would_score(board):
+    """The dry run is the door's own contract: the exact command per project
+    and the exact phases, and nothing touched."""
+    before = (board["mirror"] / ".cortex" / "pull.json").read_text()
+    r = _checkin(board["root"], "--dry-run")
+    assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
+    assert "Nothing is pulled, nothing is written" in r.stdout
+    for key in ("example", "subhalo"):
+        assert f"\n{key}  [active]" in r.stdout
+    assert f"cd {board['local']} && hpc/sync pull" in r.stdout
+    assert f"cd {board['sub']} && hpc/sync pull" in r.stdout
+    for rel in BOARD:
+        assert rel in r.stdout
+    assert "push would be:" in r.stdout and "the rule:" in r.stdout
+    assert (board["mirror"] / ".cortex" / "pull.json").read_text() == before
+
+
+def test_the_dry_run_is_the_default(board):
+    assert _checkin(board["root"]).stdout == _checkin(board["root"],
+                                                      "--dry-run").stdout
+
+
+def test_one_projects_failing_pull_does_not_stop_the_sweep(board):
+    """A mirror that will not sync is one project's problem. The other
+    projects still pull, every live phase is still scored, and the failure is
+    recorded against the project it belongs to."""
+    ran_ok = board["sub"] / "pulled.txt"
+    ran_bad = board["local"] / "pulled.txt"
+    _fake_cli(board["local"], 1, ran_bad)   # example: fails
+    _fake_cli(board["sub"], 0, ran_ok)      # subhalo: fine
+    r = _checkin(board["root"], "--apply", "--no-push")
+    assert ran_bad.is_file() and ran_ok.is_file(), "both CLIs must be tried"
+    assert "example: pull exited 1" in r.stdout
+    assert "scored anyway" in r.stdout
+    assert "### example" in r.stdout and "### subhalo" in r.stdout
+    assert r.returncode == _cortex.RC_DRIFT, "a failed pull is not a clean run"
+    # the sweep still did its work on the project that did pull
+    mod = _cortex.load_cortex(board["root"])
+    states = {p.rel: p.state for p in mod.load_phases(board["root"])[0]}
+    assert states["phases/subhalo/01_partial.md"] == "awaiting-ruling"
+
+
+def test_a_pulled_project_gets_a_manifest_the_scorer_can_read(board):
+    _fake_cli(board["sub"], 0, board["sub"] / "pulled.txt")
+    r = _checkin(board["root"], "--apply", "--no-push")
+    manifest = json.loads((board["sub"] / ".cortex" / "pull.json").read_text())
+    assert manifest["project"] == "subhalo"
+    assert manifest["rc"] == 0
+    assert manifest["cmd"].endswith("hpc/sync pull")
+    assert manifest["pulled_at"]
+    assert "phases/subhalo/01_partial.md" in manifest["phases_live"]
+    assert "subhalo: pulled" in r.stdout
+
+
+def test_the_manifest_merges_and_never_clobbers_a_richer_one(board):
+    """One project's own sync CLI writes the `runs`/`checkpoints` tables the
+    checkpoint leg reads. The check-in adds its keys beside them."""
+    path = board["mirror"] / ".cortex" / "pull.json"
+    before = json.loads(path.read_text())
+    assert "runs" in before, "the fixture's manifest is the richer shape"
+    _fake_cli(board["local"], 0, board["local"] / "pulled.txt")
+    _checkin(board["root"], "--apply", "--no-push")
+    after = json.loads(path.read_text())
+    assert after["runs"] == before["runs"], "the CLI's own table is untouched"
+    assert after["project"] == "example" and after["rc"] == 0
+    assert after["pulled_at"] != before["pulled_at"]
+
+
+def test_skip_pull_scores_what_is_already_there_and_runs_no_cli(board):
+    marker = board["sub"] / "pulled.txt"
+    _fake_cli(board["sub"], 0, marker)
+    r = _checkin(board["root"], "--apply", "--skip-pull", "--no-push")
+    assert not marker.exists(), "--skip-pull runs no sync CLI"
+    assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
+    # the stamp came from the manifest the fixture already carries
+    assert "Refreshed: 2026-08-31T10:00Z" in r.stdout
+
+
+def test_a_named_project_narrows_the_sweep(board):
+    r = _checkin(board["root"], "--dry-run", "--project", "subhalo")
+    assert "1 project(s)" in r.stdout
+    assert "\nsubhalo  [active]" in r.stdout and "\nexample  [active]" not in r.stdout
+
+
+def test_the_summary_is_keyed_by_project_and_is_the_last_thing_printed(board):
+    """A chat reads the top of the output; the door prints the pull log first
+    and the summary last, so the summary is what it sees."""
+    _fake_cli(board["sub"], 0, board["sub"] / "pulled.txt")
+    r = _checkin(board["root"], "--apply", "--no-push")
+    assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
+    out = r.stdout
+    assert "# Cortex check-in" in out
+    assert out.index("Wrote: dashboard.md") < out.index("# Cortex check-in")
+    assert out.index("### example") < out.index("### subhalo")
+    assert "Awaiting your ruling" in out
+    # the prompt each state already has, ready to paste
+    assert "help me rule on it" in out
+    assert f"local `{board['sub']}`" in out
+
+
+def test_the_render_leg_leaves_the_board_current(board):
+    _fake_cli(board["sub"], 0, board["sub"] / "pulled.txt")
+    _checkin(board["root"], "--apply", "--no-push")
+    check = _run(["dashboard", "--cortex", str(board["root"]), "--check"])
+    assert check.returncode == _cortex.RC_OK, check.stdout + check.stderr
+
+
+def test_the_no_push_path_says_so_and_reaches_no_git(board):
+    _fake_cli(board["sub"], 0, board["sub"] / "pulled.txt")
+    r = _checkin(board["root"], "--apply", "--no-push")
+    assert "push: no — --no-push" in r.stdout
+    assert not (board["root"] / ".git").exists()
+    assert "claude/checkin-" not in r.stdout
+
+
+def test_the_push_preflight_refuses_anything_that_is_not_a_clean_main(tmp_path):
+    ok, why = _cortex.push_preflight(tmp_path)
+    assert ok is False and why
+
+
+def _with_classifier(root: Path) -> Path:
+    """The board fixture is a phases-and-rulings tree; the push gate lives in
+    the Cortex's `scripts/`, so lay the real one beside it."""
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    dst = root / "scripts" / "ledger_merge.py"
+    shutil.copy(cortex_root() / "scripts" / "ledger_merge.py", dst)
+    return dst
+
+
+def _git_init(root: Path) -> None:
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "user.email=t@t", "-c", "user.name=t",
+                  "commit", "-qm", "fixture"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True)
+
+
+def test_the_push_refuses_a_code_classified_diff(board):
+    """The Cortex's own classifier is the gate, asked before the branch is
+    cut: a diff holding code is a human's call, so nothing is committed and
+    no `claude/**` branch appears."""
+    root = board["root"]
+    _with_classifier(root)
+    _git_init(root)
+    # `projects.yaml` is the science body map — paths the conductor executes
+    # under, so the classifier calls it code however small the diff is.
+    (root / "projects.yaml").write_text(
+        (root / "projects.yaml").read_text() + "\n# a new row\n",
+        encoding="utf-8")
+    ok, lines = _cortex.push_ledger(root, "2026-09-03",
+                                    ["projects.yaml", "dashboard.md"])
+    text = "\n".join(lines)
+    assert ok is False
+    assert "REFUSED" in text and "code" in text
+    branches = subprocess.run(["git", "-C", str(root), "branch", "--list",
+                               "claude/*"], capture_output=True, text=True)
+    assert branches.stdout.strip() == "", branches.stdout
+
+
+def test_a_ledger_only_diff_passes_the_classifier_before_any_git_call(board):
+    """The other side of the same gate: the two generated pages classify as
+    ledger, so the refusal that follows is git's (no remote), not the
+    classifier's."""
+    root = board["root"]
+    _with_classifier(root)
+    rc, text = _cortex.classify_paths(root, ["dashboard.md", "dashboard.html"])
+    assert rc == 0, text
+
+
 # --- footing ---------------------------------------------------------------
 def test_the_root_resolves_by_flag_then_env_then_sibling(tmp_path, monkeypatch):
     monkeypatch.delenv("PYAUTO_CORTEX", raising=False)
