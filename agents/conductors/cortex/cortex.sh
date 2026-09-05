@@ -6,9 +6,9 @@
 # Reasons over PyAutoCortex, the organ that holds the science body map, the
 # pre-registered phases and the rulings of record: renders the Cortex board
 # (dashboard.md + dashboard.html, published to Pages), lists what each gated
-# phase is waiting on, and scores what a pull brought back. It never submits a
-# run and never writes a ruling — the run is the human's act and the verdict
-# is theirs.
+# phase is waiting on, and scores what a pull brought back. Its verbs never
+# submit a run and never write a ruling — a run is submitted only on the
+# human's ask, and the verdict is theirs.
 #
 # Usage:
 #   cortex.sh                          # census (default)
