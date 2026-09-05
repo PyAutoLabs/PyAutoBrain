@@ -6,9 +6,10 @@ reasons over PyAutoCortex, the organ where the organism learns what is true.
 The Cortex holds the state — science phases, their pre-registered witnesses,
 their runs and the rulings of record; this conductor holds the reasoning: it
 renders the Cortex board, grades the gates, admits ready phases into a laptop
-slot and scores what a pull brought back into a packet member. It **never
-submits** and never edits a ruling: the run is the human's act, the verdict is
-theirs, and the `Ruling` line this verb emits is left blank for them.
+slot and scores what a pull brought back into a packet member. Its verbs
+**never submit** and never edit a ruling: a run is submitted only on the
+human's ask (through the project's own sync CLI), the verdict is theirs, and
+the `Ruling` line this verb emits is left blank for them.
 
 The same split as Heart ↔ vitals and Gut ↔ hygiene — the organ keeps the
 state, the conductor reasons over it.
@@ -584,8 +585,8 @@ def _live_payload(r: dict, projects: dict) -> str:
 
 
 def _submit_line(project: str, projects: dict) -> str:
-    """The project's own submit verb, as a human would type it — or the note
-    that says the row has no such verb. Every path comes from the row."""
+    """The project's own submit verb, as it would be typed at the laptop — or
+    the note that says the row has no such verb. Every path comes from the row."""
     row = projects.get(project, {})
     cli, path = (row.get("sync_cli") or ""), (row.get("local_path") or "")
     if cli and path and "submit" in (row.get("sync_verbs") or []):
