@@ -64,13 +64,13 @@ then offer the prompts:
   the ruling for approval, then `cortex.py rule`).
 - **still out there** → the project's own `jobs` line.
 - **ready** → the launch lines (the phase, the `submit`, the `move … submitted
-  --run <jobid>`).
+  --run <jobid>`). Run them yourself when the human says go.
 - **gated** → the refs to open.
 
-Never decide a ruling, never submit a job, never edit a phase file by hand:
-every phase edit is `python3 scripts/cortex.py move`, every verdict is
-`python3 scripts/cortex.py rule`, both in the PyAutoCortex checkout, and the
-ruling body is the human's words verbatim.
+Never decide a ruling, never submit a job the human did not ask for, never edit
+a phase file by hand: every phase edit is `python3 scripts/cortex.py move`,
+every verdict is `python3 scripts/cortex.py rule`, both in the PyAutoCortex
+checkout, and the ruling body is the human's words verbatim.
 
 ## The push rule
 
@@ -93,8 +93,13 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
 
 ## The rules that do not bend
 
-- **The conductor never submits.** The human runs the project's own sync CLI
-  and records the job id with `cortex.py move <phase> submitted --run <jobid>`.
+- **A run is the human's call, not the human's keystroke.** The check-in door
+  never submits. When the human asks for a run in the session, the agent
+  submits it with the project's own sync CLI (its `submit` / `push-submit`
+  verb) and records the job id at once with `cortex.py move <phase> submitted
+  --run <jobid>`. Nothing is submitted unasked, and a run that has no phase
+  gets one before the session ends. (Changed 2026-09-05 by the human's ruling;
+  before that the human typed the submit.)
 - **A verdict recorded only outside the Cortex does not exist.** A decision
   reached in chat is not a ruling until `cortex.py rule` has written it.
 - **A phase is a question with a pre-registered witness.** If `Witness:` is

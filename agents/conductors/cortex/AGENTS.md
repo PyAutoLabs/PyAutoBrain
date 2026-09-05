@@ -6,9 +6,10 @@
 > of record) and answers one question — *where is my science?* — with one
 > command, `checkin`: pull every active project, score every live run, move
 > what came back, re-render the board, push the ledger, summarise by project.
-> It **never submits a run and never writes a ruling**: the run is the human's
-> act, the verdict is the human's word, and the ruling file is the Cortex
-> script's to write.
+> Its door **never submits a run and never writes a ruling**: a run is
+> submitted only on the human's ask (by the human, or by the agent in the
+> session through the project's own sync CLI), the verdict is the human's
+> word, and the ruling file is the Cortex script's to write.
 
 The same split the organism already uses twice — **Heart ↔ vitals**, **Gut ↔
 hygiene**: the organ keeps the state, the conductor reasons over it. The

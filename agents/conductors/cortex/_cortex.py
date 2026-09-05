@@ -525,7 +525,7 @@ def _src_url(blob: str, src: str) -> str:
 
 # ------------------------------------------------------------- the payloads ---
 # Every row hands the reader the next command rather than a decision. The
-# science verbs stay the Cortex script's and the run stays the human's.
+# science verbs stay the Cortex script's and a run is only ever the human's ask.
 def _checkin_payload(c: dict) -> str:
     """The paste for the laptop's science chat — the whole door as one
     sentence, naming the stamp it is refreshing *from* so "since last time"
@@ -597,7 +597,8 @@ def _submit_line(project: str, projects: dict) -> str:
 def launch_payload(r: dict, projects: dict) -> list[str]:
     """The launch lines for a ready phase: the phase, the project's own
     submit verb, and the move that records the job id. No decision rides
-    here — everything decided was decided when the plan was approved."""
+    here — everything decided was decided when the plan was approved; the
+    agent may run these lines itself when the human says go."""
     return [r["rel"], _submit_line(r["project"], projects),
             f"python3 scripts/cortex.py move {r['rel']} submitted "
             "--run <jobid>"]
@@ -2690,8 +2691,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="cortex",
         description="The Cortex Agent — reason over PyAutoCortex: the board, "
-                    "the gates, the check-in. It never submits and never "
-                    "rules.")
+                    "the gates, the check-in. Its verbs never submit and "
+                    "never rule; a run is submitted only on the human's "
+                    "ask.")
     sub = ap.add_subparsers(dest="verb")
 
     def common(p):
