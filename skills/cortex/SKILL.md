@@ -6,6 +6,8 @@ description: Check in on the science — run the PyAutoBrain Cortex Agent's one 
 # Cortex
 
 Follow [`cortex.md`](cortex.md) exactly: it is the check-in sequence, and the
-individual verbs are its appendix. The conductor reasons; it never submits a
-run and never writes a ruling — the submission and the verdict stay the
-human's.
+individual verbs are its appendix. The conductor reasons; its check-in door
+never submits a run and never writes a ruling. A run is submitted only when the
+human asks for it in the session — then the agent runs the project's own sync
+CLI and records the job id with `cortex.py move`. The verdict stays the
+human's word.
