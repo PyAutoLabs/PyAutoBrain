@@ -195,14 +195,18 @@ def test_the_three_state_sections_are_gone_from_both_twins(skeleton):
 
 def test_the_paths_render_as_accent_chips_on_the_html_twin(skeleton):
     """Pink-on-tint `code` was unreadable against the Cortex accent; the
-    chip fills with the accent and takes the theme's ink for it."""
+    chip fills with the accent and carries white ink in both schemes."""
     c = _cortex.census(skeleton)
     html = _cortex.render_dashboard_html(c)
     row = c["projects"]["example"]
     assert (f'<p class="paths"><b>Local</b> '
             f'<span class="pathchip">{row["local_path"]}</span></p>') in html
     assert ".pathchip{" in html
-    assert "background:var(--accent);color:var(--accent-ink)" in html
+    # White ink in BOTH schemes (the human's ask); the dark scheme darkens
+    # the fill instead of swapping the ink.
+    assert "background:var(--accent);color:#fff" in html
+    assert ("@media(prefers-color-scheme:dark){.pathchip{"
+            "background:color-mix(in srgb,var(--accent) 55%,#000)}}") in html
     sys.path.insert(0, str(BRAIN_HOME / "board"))
     import _theme
     sheet = _theme.css("cortex")

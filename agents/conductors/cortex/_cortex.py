@@ -1170,14 +1170,17 @@ _FRESH_CSS = (".fresh{padding:.1rem .9rem;margin:1.2rem 0;"
               "min-width:3.6rem}"
               # A path is the one thing on a card that is READ character by
               # character, and pink-on-tint `code` was the complaint that
-              # started this: the organ's own accent, filled, with the ink
-              # the theme keeps for a solid accent (white on the light
-              # scheme, the page's ground on the dark one).
+              # started this: white on the organ's own accent, filled. The
+              # dark scheme's accent is too bright for white (2.6:1), so the
+              # chip darkens its fill there rather than swap the ink — the
+              # human asked for white, in both themes.
               ".pathchip{display:inline-block;background:var(--accent);"
-              "color:var(--accent-ink);font-family:ui-monospace,"
+              "color:#fff;font-family:ui-monospace,"
               "SFMono-Regular,Menlo,monospace;font-size:.88em;"
               "padding:.12em .5em;border-radius:.3rem;"
               "overflow-wrap:anywhere}"
+              "@media(prefers-color-scheme:dark){.pathchip{"
+              "background:color-mix(in srgb,var(--accent) 55%,#000)}}"
               ".stale{color:var(--bad);font-weight:600}")
 
 # The page is static, so a stamp is never stale *at render* — it is stale on
