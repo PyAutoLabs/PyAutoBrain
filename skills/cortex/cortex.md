@@ -2,7 +2,7 @@
 
 **This is the check-in.** You have runs on a cluster; this door finds out where
 they got to. It pulls every active project through that project's *own* sync
-CLI, scores every live phase against the witness it pre-registered, moves what
+CLI, scores every live task against the witness it pre-registered, moves what
 came back to `awaiting-ruling`, re-renders the board, pushes the ledger when it
 is allowed to, and hands you a summary **by project** with the prompt you would
 paste to carry each one forward.
@@ -21,10 +21,10 @@ bin/pyauto-brain cortex checkin --dry-run
 
 Prints every project it would sweep, the exact `cd <local_path> && <sync_cli>
 pull` it would run for each, the pull root each manifest would land in, and
-every `submitted | running` phase it would score. It reaches no cluster and
+every `submitted | running` task it would score. It reaches no cluster and
 writes nothing. Read it to the human — especially if a project they expect is
 missing (it is missing because its `projects.yaml` row is not `status: active`
-and it owns no live phase).
+and it owns no live task).
 
 ### 2. Check in
 
@@ -42,8 +42,8 @@ It runs, in order:
    A pull that exits non-zero is recorded against *that* project and the sweep
    carries on. After a good pull it writes `<pull root>/.cortex/pull.json`,
    merging with whatever the project's CLI already wrote there.
-2. **Score** — every `submitted | running` phase, six legs each, against the
-   phase's own pre-registered witness.
+2. **Score** — every `submitted | running` task, six legs each, against the
+   task's own pre-registered witness.
 3. **Move** — `running → pulled → awaiting-ruling`, rehearsed on a throwaway
    copy first and refused outright if `cortex.py check` would not pass after.
 4. **Render** — the refresh stamp into `checkin.yaml` (the board's "Last
@@ -55,22 +55,22 @@ It runs, in order:
 ### 3. Read the summary back, project by project
 
 The last block of the output is the deliverable: one section per project — its
-`local_path` / `mirror` / RAL root, what its pull did, its phase counts, and
-then every phase a human could act on today, each with the health verdict and
+`local_path` / `mirror` / RAL root, what its pull did, its task counts, and
+then every task a human could act on today, each with the health verdict and
 a fenced, copy-ready prompt. Read it to the human as *state of each project*,
 then offer the prompts:
 
 - **awaiting a ruling** → the review prompt (read the witness, score it, draft
   the ruling for approval, then `cortex.py rule`).
 - **still out there** → the project's own `jobs` line.
-- **ready** → the launch lines (the phase, the `submit`, the `move … submitted
-  --run <jobid>`).
+- **ready** → the launch lines (the task, the `submit`, the `move … submitted
+  --run <jobid>`). Run them yourself when the human says go.
 - **gated** → the refs to open.
 
-Never decide a ruling, never submit a job, never edit a phase file by hand:
-every phase edit is `python3 scripts/cortex.py move`, every verdict is
-`python3 scripts/cortex.py rule`, both in the PyAutoCortex checkout, and the
-ruling body is the human's words verbatim.
+Never decide a ruling, never submit a job the human did not ask for, never edit
+a task file by hand: every task edit is `python3 scripts/cortex.py move`,
+every verdict is `python3 scripts/cortex.py rule`, both in the PyAutoCortex
+checkout, and the ruling body is the human's words verbatim.
 
 ## The push rule
 
@@ -93,17 +93,22 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
 
 ## The rules that do not bend
 
-- **The conductor never submits.** The human runs the project's own sync CLI
-  and records the job id with `cortex.py move <phase> submitted --run <jobid>`.
+- **A run is the human's call, not the human's keystroke.** The check-in door
+  never submits. When the human asks for a run in the session, the agent
+  submits it with the project's own sync CLI (its `submit` / `push-submit`
+  verb) and records the job id at once with `cortex.py move <task> submitted
+  --run <jobid>`. Nothing is submitted unasked, and a run that has no task
+  gets one before the session ends. (Changed 2026-09-05 by the human's ruling;
+  before that the human typed the submit.)
 - **A verdict recorded only outside the Cortex does not exist.** A decision
   reached in chat is not a ruling until `cortex.py rule` has written it.
-- **A phase is a question with a pre-registered witness.** If `Witness:` is
-  empty the phase cannot be submitted — write the witness first.
+- **A task is a question with a pre-registered witness.** If `Witness:` is
+  empty the task cannot be submitted — write the witness first.
 - **The only thing that reaches a cluster is the project's own CLI.** The door
   adds no SSH of its own, and `--dry-run` reaches nothing at all.
 - **UNOBSERVABLE is not FAIL.** Some legs are not visible on the laptop (the
   checkpoint is never pulled; one project writes no version stamp), so those
-  phases come back **SUSPECT** — read them, do not treat them as broken runs.
+  tasks come back **SUSPECT** — read them, do not treat them as broken runs.
   The checkpoint leg becomes scorable where `.cortex/pull.json` carries a
   `checkpoints` table (keyed by run directory) or a `runs` table (by job id).
 - **The door runs once and ends.** No timer, no subscription, no cron, no
@@ -112,8 +117,8 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
 - **Retiring ends a project, it does not erase one.** `cortex.py retire`
   changes a `projects.yaml` row's `status:` and `note:` and nothing else:
   the row stays (it is the only record of where that project's data
-  lives), its phases stay, its rulings stay. It refuses while the project
-  holds a phase outside `accepted | rerun | dropped | planned` — rule or
+  lives), its tasks stay, its rulings stay. It refuses while the project
+  holds a task outside `accepted | rerun | dropped | planned` — rule or
   drop the live questions first.
 
 ## Appendix — the verbs it composes
@@ -125,9 +130,9 @@ checkout.
 | Verb | Answers |
 |------|---------|
 | `checkin [--dry-run\|--apply] [--push\|--no-push] [--project KEY] [--skip-pull] [--refreshed ISO]` | Where is my science? The whole sequence above. Exit **1** = a pull failed or the tree needs a look |
-| `census [--json]` | What is the Cortex holding? Phase counts by state, rulings, projects, the last check-in stamp |
+| `census [--json]` | What is the Cortex holding? Task counts by state, rulings, projects, the last check-in stamp |
 | `dashboard --check` | Are the committed pages current? Exit **1** = stale (the refresh workflow's contract) |
 | `dashboard --apply` | Regenerate `dashboard.md` + `dashboard.html` — never hand-edit those two |
-| `gates` | What is each gated phase waiting on? Read-only and offline; a human types `move <phase> ready` |
-| `retire <project> --why "…"` (`scripts/cortex.py`) | Is this project over? Flips the row to `status: retired` and stamps `note: retired <today>: <why>`. The 📋 chip on the board's **Nothing open** table is this command. Exit **1** = an unknown key, an already-retired row, or a phase still live |
-| `collect [--phase REL] [--pull] [--refreshed ISO] [--apply] [--out F]` | The scorer `checkin` composes: one block per phase — six legs each `PASS`/`FAIL`/`UNOBSERVABLE`, the readout, a **blank** ruling line. Exit **1** = a phase the human must look at |
+| `gates` | What is each gated task waiting on? Read-only and offline; a human types `move <task> ready` |
+| `retire <project> --why "…"` (`scripts/cortex.py`) | Is this project over? Flips the row to `status: retired` and stamps `note: retired <today>: <why>`. The 📋 chip on the board's **Nothing open** table is this command. Exit **1** = an unknown key, an already-retired row, or a task still live |
+| `collect [--task REL] [--pull] [--refreshed ISO] [--apply] [--out F]` | The scorer `checkin` composes: one block per task — six legs each `PASS`/`FAIL`/`UNOBSERVABLE`, the readout, a **blank** ruling line. Exit **1** = a task the human must look at |

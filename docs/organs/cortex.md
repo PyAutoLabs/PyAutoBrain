@@ -13,20 +13,23 @@ routes the work and executes nothing, the Cortex learns what is true.*
 
 ## The defining function: learning
 
-A science phase begins as a **pre-registered question with a witness** — the
+A science task begins as a **pre-registered question with a witness** — the
 file or number that will settle it — before anything is submitted. The run
 happens on RAL or the laptop; its evidence (`.err`, checkpoints, witness
 JSONs, figures) is **pulled** to the laptop; the human inspects it and records
 a **ruling**: *accept*, *rerun* or *drop*. That ruling is the organism
 learning something.
 
-The unit is a **phase** of a **project** — one markdown file under
-`phases/<project>/` that spawns **runs** (SLURM job ids) and ends in a ruling.
-Development work a phase waits on stays in the Mind, named here only as a gate.
+The unit is a **task** of a **project** — one markdown file under
+`tasks/<project>/` that spawns **runs** (SLURM job ids) and ends in a ruling.
+A task carries a ten-word `Summary:` — the question it answers — and its slug
+is its identity; there is no number, because the order tasks are run in is the
+human's, decided by what the results say (2026-09-07). Development work a task
+waits on stays in the Mind, named here only as a gate.
 
 ## The state model
 
-A phase moves through ten states, and the sentence is the lifecycle:
+A task moves through ten states, and the sentence is the lifecycle:
 **planned** until its gates are written, **gated** while they are open,
 **ready** once they clear, **submitted** when the human launches the run,
 **running** while it is on the cluster, **pulled** when the evidence reaches
@@ -36,14 +39,14 @@ model worth having:
 
 - **`scripts/cortex.py move` owns every edge except the last three.**
   `accepted`, `rerun` and `dropped` are reachable **only** through
-  `scripts/cortex.py rule`, which writes the ruling file and the phase's
-  `Ruling:` in one act — a phase cannot be marked accepted with no ruling of
+  `scripts/cortex.py rule`, which writes the ruling file and the task's
+  `Ruling:` in one act — a task cannot be marked accepted with no ruling of
   record to point at.
 - **`accepted` is not terminal; `dropped` is.** A later ruling may supersede an
   acceptance (that is what a rewind is), and a `rerun` returns to `ready`
-  keeping its run history. Reviving a dropped phase means a new phase number.
+  keeping its run history. Reviving a dropped task means a new slug.
 
-`legacy` and `legacy_wrong` are states of a **run**, never of a phase — the
+`legacy` and `legacy_wrong` are states of a **run**, never of a task — the
 quarantine for results produced before a rule the project has since adopted.
 `scripts/cortex.py check` enforces the table and its invariants: a witness
 before `submitted`, a cleared or overridden gate before `ready`, a ruling
@@ -60,18 +63,18 @@ deletion under `rulings/` as code, which is a human's turn.
 
 ## Gates
 
-A science phase declares what it waits on as GitHub issue and PR references in
+A science task declares what it waits on as GitHub issue and PR references in
 its `Gates:` header — `Repo#N` under the default owner, or a full issue/PR URL
 — the same grammar the Mind's `Blocked-by:` uses, sharing its regular
 expression verbatim. A **daily grading job** (`gates_grade.yml`, 06:47 UTC)
-polls those refs and flips a phase `gated → ready` when every one has closed,
+polls those refs and flips a task `gated → ready` when every one has closed,
 stamping `Gates-cleared:`; a cleared gate that reopens flips it back. It is the
 one scheduled job in the repo that mutates the ledger, it may make no other
-move, and an unreadable ref fails closed — the phase is skipped and the run
+move, and an unreadable ref fails closed — the task is skipped and the run
 goes red so a human sees the ref.
 
 The Mind learns nothing about the Cortex beyond a **render-time badge** —
-"gates a Cortex phase" on the development issue in question. One grammar, one
+"gates a Cortex task" on the development issue in question. One grammar, one
 direction.
 
 ## What it never does
@@ -82,7 +85,7 @@ direction.
 - **It never holds data.** The science project trees, their outputs, mirrors
   and checkpoints stay where they are; `projects.yaml` points at them. What is
   committed here is the question, the run ids, the verdict.
-- **It never runs under an autonomy level.** Every phase is `Lane: local-dev`;
+- **It never runs under an autonomy level.** Every task is `Lane: local-dev`;
   the review happens at the laptop, on evidence in the human's hands. The
   autonomy cap is not consulted when a science member is admitted to a slot: a
   science run is supervised by definition, and no autonomous ship gate can
@@ -99,14 +102,14 @@ same split as **Heart ↔ vitals** and **Gut ↔ hygiene**.
 
 | Verb | What it does |
 |------|--------------|
-| `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY] [--skip-pull]` | **The door.** Pull every active project through its own sync CLI (streamed; one project's failure does not stop the sweep), score every live phase, move what came back, re-render the board, push the ledger where the rule allows, and print a summary **by project** with the copy-ready prompt each phase's state already has. `--dry-run` (the default) says what it would do and reaches nothing |
-| `census` | What the Cortex is holding — phases by state, rulings, projects, the last check-in stamp |
+| `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY] [--skip-pull]` | **The door.** Pull every active project through its own sync CLI (streamed; one project's failure does not stop the sweep), score every live task, move what came back, re-render the board, push the ledger where the rule allows, and print a summary **by project** with the copy-ready prompt each task's state already has. `--dry-run` (the default) says what it would do and reaches nothing |
+| `census` | What the Cortex is holding — tasks by state, rulings, projects, the last check-in stamp |
 | `dashboard --check` \| `--apply` | The generated board, `dashboard.md` + `dashboard.html`. `--check` exits **1** on drift — the contract the Cortex's `dashboard_refresh.yml` runs on. The two pages are generated: never hand-edit them |
-| `gates` | The refs each gated phase waits on and the URL each resolves to — read-only and offline. A human opens them and, when they have closed, types `cortex.py move <phase> ready` |
-| `collect [--pull] [--apply] [--phase REL]` | **The check-in.** What came back, one block per phase: six legs (`err`, `wall`, `version`, `checkpoint`, `resume`, `witness`) each `PASS`/`FAIL`/**`UNOBSERVABLE`**, the witness readout and a blank ruling line. Default scope is every `submitted \| running` phase; `--pull` runs each project's own sync CLI; `--apply` moves each phase `running → pulled → awaiting-ruling`. Exit **1** = a phase the human must look at |
+| `gates` | The refs each gated task waits on and the URL each resolves to — read-only and offline. A human opens them and, when they have closed, types `cortex.py move <task> ready` |
+| `collect [--pull] [--apply] [--task REL]` | **The check-in.** What came back, one block per task: six legs (`err`, `wall`, `version`, `checkpoint`, `resume`, `witness`) each `PASS`/`FAIL`/**`UNOBSERVABLE`**, the witness readout and a blank ruling line. Default scope is every `submitted \| running` task; `--pull` runs each project's own sync CLI; `--apply` moves each task `running → pulled → awaiting-ruling`. Exit **1** = a task the human must look at |
 
 **Checking in is one command.** `pyauto-brain cortex checkin --apply` pulls
-every active project through its own sync CLI, scores every phase the Cortex
+every active project through its own sync CLI, scores every task the Cortex
 believes is out there against its pre-registered witness, moves what came back
 to `awaiting-ruling`, re-renders the board, pushes the ledger on
 `claude/checkin-<date>` when `gh` is logged in and the checkout is clean on
@@ -125,10 +128,12 @@ cite its words.
 
 ![The Cortex board](../_static/cortex_board.png)
 
-Every phase the Cortex is holding on one page — the check-in paste and the
+Every task the Cortex is holding on one page — the check-in paste and the
 last-check-in stamp, a one-row-per-project summary, the project map (active,
-then planned, then dormant, each card routing to its next phase), then
-awaiting ruling, running, ready, gated and the ruling ledger — published at
+then planned, then dormant, each card carrying **every open task of that
+project, one line each** — its ten-word summary, a state pill coloured by
+what it is doing, and only the facts that state earns), then awaiting ruling
+and the ruling ledger — published at
 <https://pyautolabs.github.io/PyAutoCortex/>. It hands out the next command;
 the verdict is never on the page.
 
@@ -136,7 +141,7 @@ the verdict is never on the page.
 
 Like Mind, Memory and Gut, the Cortex is an **instance organ** — inherently
 yours. You do not fork this repo's contents; you create your own Cortex with
-the same shape — a body map of your projects, a phase file per question, a
+the same shape — a body map of your projects, a task file per question, a
 place to write what you decided — and hold your own rulings in it.
 
 The birth of this organ is tracked in the

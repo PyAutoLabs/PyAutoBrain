@@ -1619,7 +1619,7 @@ def test_human_review_renders_on_the_html_twin(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# the Cortex badge: a dev task a science phase is waiting on
+# the Cortex badge: a dev task a science task is waiting on
 # --------------------------------------------------------------------------- #
 # Render-only, and read out of a second organ that may not be checked out. The
 # owner of the short `Repo#N` gate form comes from the Mind's own `repos.yaml`,
@@ -1640,12 +1640,13 @@ CORTEX_ACTIVE_MD = """# Active Tasks
 """
 
 
-def _cortex_phase(root: Path, gates: str, rel="phases/example/02_gated.md"):
-    """One Cortex phase file — the header block the badge reads, no more."""
+def _cortex_task(root: Path, gates: str, rel="tasks/example/02_gated.md"):
+    """One Cortex task file — the header block the badge reads, no more."""
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(f"# Example — phase 2: the gated one\n\n"
-                 f"Project: example\nPhase: 2\nState: gated\nGates: {gates}\n"
+    p.write_text(f"# Example — the gated one\n\n"
+                 f"Project: example\nSummary: Does the gated sweep change "
+                 f"the preferred model\nState: gated\nGates: {gates}\n"
                  f"Witness: it converges\nBudget: 4:00\nLane: local-dev\n\n"
                  f"## Question\n\nDoes it?\n\n## Witness\n\nIt does.\n",
                  encoding="utf-8")
@@ -1658,11 +1659,11 @@ def _mind_beside_cortex(tmp_path, gates="https://github.com/ExampleOrg/Widgets/i
                  registries={"active.md": CORTEX_ACTIVE_MD,
                              "repos.yaml": REPOS_YAML})
     if gates is not None:
-        _cortex_phase(tmp_path / "PyAutoCortex", gates)
+        _cortex_task(tmp_path / "PyAutoCortex", gates)
     return mind
 
 
-def test_an_in_flight_task_that_gates_a_cortex_phase_is_badged(tmp_path, monkeypatch):
+def test_an_in_flight_task_that_gates_a_cortex_task_is_badged(tmp_path, monkeypatch):
     """The Cortex knows which issues it is waiting for; the person choosing
     what to work on reads the Mind. So the Mind's row says so."""
     monkeypatch.delenv("PYAUTO_CORTEX", raising=False)
@@ -1670,12 +1671,12 @@ def test_an_in_flight_task_that_gates_a_cortex_phase_is_badged(tmp_path, monkeyp
     c = _intake.census(mind)
     assert c["cortex_gates"] == {
         "https://github.com/ExampleOrg/Widgets/issues/42":
-            ["phases/example/02_gated.md"]}
+            ["tasks/example/02_gated.md"]}
     flight = _intake.render_dashboard(c).split("## In flight")[1] \
         .split("## Human review")[0]
-    assert "⚠️ gates a Cortex phase → phases/example/02_gated.md" in flight
+    assert "⚠️ gates a Cortex task → tasks/example/02_gated.md" in flight
     html = _intake.render_dashboard_html(c)
-    assert "gates a Cortex phase → phases/example/02_gated.md" in html
+    assert "gates a Cortex task → tasks/example/02_gated.md" in html
 
 
 def test_the_short_gate_form_takes_its_owner_from_the_minds_body_map(tmp_path, monkeypatch):
@@ -1686,7 +1687,7 @@ def test_the_short_gate_form_takes_its_owner_from_the_minds_body_map(tmp_path, m
     assert list(_intake.census(mind)["cortex_gates"]) == \
         ["https://github.com/ExampleOrg/Widgets/issues/42"]
     flight = _page(mind).split("## In flight")[1].split("## Human review")[0]
-    assert "gates a Cortex phase" in flight
+    assert "gates a Cortex task" in flight
 
 
 def test_a_gate_written_as_a_pull_request_url_still_matches_the_issue(tmp_path, monkeypatch):
@@ -1695,7 +1696,7 @@ def test_a_gate_written_as_a_pull_request_url_still_matches_the_issue(tmp_path, 
     mind = _mind_beside_cortex(
         tmp_path, gates="https://github.com/ExampleOrg/Widgets/pull/42")
     flight = _page(mind).split("## In flight")[1].split("## Human review")[0]
-    assert "gates a Cortex phase" in flight
+    assert "gates a Cortex task" in flight
 
 
 def test_a_phase_gating_another_issue_badges_nothing(tmp_path, monkeypatch):
@@ -1703,7 +1704,7 @@ def test_a_phase_gating_another_issue_badges_nothing(tmp_path, monkeypatch):
     mind = _mind_beside_cortex(
         tmp_path, gates="https://github.com/ExampleOrg/Widgets/issues/99")
     page = _page(mind)
-    assert "gates a Cortex phase" not in page
+    assert "gates a Cortex task" not in page
     assert "Widget rework" in page
 
 
@@ -1724,13 +1725,13 @@ def test_no_cortex_checkout_leaves_the_page_byte_identical(tmp_path, monkeypatch
 
 def test_the_pyauto_cortex_env_var_wins_over_the_sibling(tmp_path, monkeypatch):
     elsewhere = tmp_path / "elsewhere"
-    _cortex_phase(elsewhere, "https://github.com/ExampleOrg/Widgets/issues/42",
-                  rel="phases/other/09_far.md")
+    _cortex_task(elsewhere, "https://github.com/ExampleOrg/Widgets/issues/42",
+                  rel="tasks/other/09_far.md")
     monkeypatch.setenv("PYAUTO_CORTEX", str(elsewhere))
     mind = _mind_beside_cortex(
         tmp_path, gates="https://github.com/ExampleOrg/Widgets/issues/42")
     flight = _page(mind).split("## In flight")[1].split("## Human review")[0]
-    assert "→ phases/other/09_far.md" in flight
+    assert "→ tasks/other/09_far.md" in flight
     assert "02_gated" not in flight
 
 
@@ -1934,7 +1935,7 @@ def test_the_cortex_root_resolves_from_a_relative_mind_path(tmp_path, monkeypatc
     Cortex-gate badges."""
     mind = tmp_path / "PyAutoMind"
     mind.mkdir()
-    (tmp_path / _intake.CORTEX_REPO / "phases").mkdir(parents=True)
+    (tmp_path / _intake.CORTEX_REPO / "tasks").mkdir(parents=True)
     monkeypatch.delenv("PYAUTO_CORTEX", raising=False)
     monkeypatch.chdir(mind)
     assert _intake._cortex_root(Path(".")) == (tmp_path / _intake.CORTEX_REPO)

@@ -1,7 +1,7 @@
 """Contract tests for the Cortex conductor — the Brain's science door.
 
 These run against the **real** Cortex checkout's `tests/fixtures/skeleton`,
-not a copy: that fixture is the phase-1 witness (one project, one phase per
+not a copy: that fixture is the phase-1 witness (one project, one task per
 state, five rulings including a superseded chain, one batch record), and a
 copy here would drift from the schema it claims to exercise. When no Cortex
 is checked out (a laptop that never cloned it) every test skips cleanly —
@@ -71,10 +71,11 @@ def _run(args, cwd=None):
 
 
 # --- the census ------------------------------------------------------------
-def test_the_census_sorts_every_fixture_state_into_its_section(skeleton):
+def test_the_census_sorts_every_fixture_state_into_its_bucket(skeleton):
+    """The buckets outlived their sections: `live`, `ready` and `gated` are
+    still what `collect` and the check-in door scope by, they are simply no
+    longer headings on the page."""
     c = _cortex.census(skeleton)
-    # The fixture holds one phase per state; the board shows the four that
-    # are live work and leaves planned/accepted/rerun/dropped to the ledger.
     assert {r["state"] for r in c["awaiting"]} == {"pulled", "awaiting-ruling"}
     assert {r["state"] for r in c["live"]} == {"submitted", "running"}
     assert [r["state"] for r in c["ready"]] == ["ready"]
@@ -92,13 +93,13 @@ def test_awaiting_orders_failures_before_the_clean_ones(skeleton):
 def test_a_superseded_ruling_is_not_a_standing_verdict(skeleton):
     c = _cortex.census(skeleton)
     by_id = {r["id"]: r for r in c["rulings"]}
-    # The fixture's R-…-02 supersedes R-…-01 over the same phase.
+    # The fixture's R-…-02 supersedes R-…-01 over the same task.
     assert by_id["R-20260901-01"]["head"] is False
     assert by_id["R-20260901-02"]["head"] is True
     assert [r["id"] for r in c["rulings"]] == sorted(by_id, reverse=True)
 
 
-def test_a_running_phase_reads_its_wall_against_its_budget(skeleton):
+def test_a_running_task_reads_its_wall_against_its_budget(skeleton):
     c = _cortex.census(skeleton)
     running = next(r for r in c["live"] if r["state"] == "running")
     assert "of 8:00" in _cortex._live_note(running)
@@ -113,17 +114,101 @@ def test_every_section_renders_in_order_with_its_source_link(skeleton):
     assert page.count("[markdown version]") == len(titles)
 
 
-def test_every_live_phase_of_the_fixture_appears_in_its_section(skeleton):
+def test_every_open_task_of_the_fixture_appears_on_the_page(skeleton):
+    """Not "the four live sections" any more — every open task of every
+    project, on its project's card, once."""
     c = _cortex.census(skeleton)
     page = _cortex.render_dashboard(c)
     html = _cortex.render_dashboard_html(c)
-    for key in ("awaiting", "live", "ready", "gated"):
-        for r in c[key]:
-            assert r["rel"] in page, (key, r["rel"])
-            assert r["rel"] in html, (key, r["rel"])
+    for r in c["tasks"]:
+        if r["state"] in _cortex.CLOSED_STATES:
+            continue
+        assert r["rel"] in page, r["rel"]
+        assert r["rel"] in html, r["rel"]
+        # …by its ten-word summary, which is what makes the line readable.
+        assert r["summary"] in page, r["rel"]
     # …and the gated row shows what it is actually waiting on.
     for ref in c["gated"][0]["gates"]:
         assert ref in page and ref in html
+
+
+def test_every_open_task_is_one_row_and_the_fold_is_gone(skeleton):
+    """The complaint that started this: "4 more open phase(s)" hid the work
+    behind a click. There is no fold on the Projects block on either twin,
+    and the number of task rows is the number of open tasks."""
+    c = _cortex.census(skeleton)
+    md = _cortex.render_dashboard(c)
+    html = _cortex.render_dashboard_html(c)
+    for twin in (md, html):
+        assert "more open" not in twin
+        assert "plans and issues" not in twin
+    assert not hasattr(_cortex, "_fold_label")
+    projects_html = html.split("<h2>Projects")[1].split("<h2>Awaiting")[0]
+    assert "<details" not in projects_html
+    open_rows = [r for r in c["tasks"]
+                 if r["state"] not in _cortex.CLOSED_STATES]
+    # one head row per open task (each chip past the first adds a `↳` row)
+    heads = sum(1 for r in open_rows) 
+    assert heads == len(open_rows)
+    for r in open_rows:
+        assert f'>{r["summary"]}</a>' in projects_html, r["rel"]
+
+
+def test_the_state_pill_is_toned_and_a_failed_run_reddens_it(skeleton):
+    """Green is "nothing owed", yellow is "moving or waiting on you", grey is
+    "waiting on someone else" — and a failed run overrides all three."""
+    assert _cortex.STATE_TONES == {
+        "planned": "g", "ready": "g", "accepted": "g",
+        "gated": "n",
+        "submitted": "y", "running": "y", "pulled": "y",
+        "awaiting-ruling": "y", "rerun": "y"}
+    c = _cortex.census(skeleton)
+    clean = {r["state"]: _cortex.state_tone(r) for r in c["tasks"]
+             if not r["failed_runs"]}
+    for state, tone in clean.items():
+        assert tone == _cortex.STATE_TONES.get(state, "n"), state
+    assert clean["planned"] == "g" and clean["ready"] == "g"
+    assert clean["gated"] == "n" and clean["pulled"] == "y"
+    failed = next(r for r in c["tasks"] if r["failed_runs"])
+    assert _cortex.STATE_TONES[failed["state"]] != "r", "the override matters"
+    assert _cortex.state_tone(failed) == "r"
+    html = _cortex.render_dashboard_html(c)
+    assert f'<span class="pill r">{failed["state"]}</span>' in html
+    assert '<span class="pill g">planned</span>' in html
+    assert '<span class="pill n">gated</span>' in html
+    assert '<span class="pill y">pulled</span>' in html
+
+
+def test_the_three_state_sections_are_gone_from_both_twins(skeleton):
+    """The Projects block carries what they carried, per project and in
+    colour, so they said the same thing three more times."""
+    c = _cortex.census(skeleton)
+    assert [key for key, _t, _s, _b in _cortex.SECTIONS] == \
+        ["projects", "awaiting", "rulings"]
+    for twin in (_cortex.render_dashboard(c),
+                 _cortex.render_dashboard_html(c)):
+        for heading in ("Running / submitted", ">Ready<", "## Ready",
+                        ">Gated<", "## Gated"):
+            assert heading not in twin, heading
+    assert not hasattr(_cortex, "ready_groups")
+
+
+def test_the_paths_render_as_accent_chips_on_the_html_twin(skeleton):
+    """Pink-on-tint `code` was unreadable against the Cortex accent; the
+    chip fills with the accent and takes the theme's ink for it."""
+    c = _cortex.census(skeleton)
+    html = _cortex.render_dashboard_html(c)
+    row = c["projects"]["example"]
+    assert (f'<p class="paths"><b>Local</b> '
+            f'<span class="pathchip">{row["local_path"]}</span></p>') in html
+    assert ".pathchip{" in html
+    assert "background:var(--accent);color:var(--accent-ink)" in html
+    sys.path.insert(0, str(BRAIN_HOME / "board"))
+    import _theme
+    sheet = _theme.css("cortex")
+    assert sheet.count("--accent-ink:") == 2, "light and dark both define it"
+    # the markdown twin is unchanged — no HTML span in a bold path line
+    assert "**Local** `" in _cortex.render_dashboard(c)
 
 
 def test_the_counts_table_is_the_one_the_brain_board_reads(skeleton):
@@ -132,8 +217,7 @@ def test_the_counts_table_is_the_one_the_brain_board_reads(skeleton):
     # board/_board.py's regex, verbatim.
     found = dict(re.findall(
         r"^\|\s*\[([^\]]+)\]\([^)]*\)[^|]*\|\s*(\d+)\s*\|", page, re.M))
-    assert found == {"Awaiting ruling": "2", "Running / submitted": "2",
-                     "Ready": "1", "Gated": "1", "Recent rulings": "5"}
+    assert found == {"Awaiting ruling": "2", "Recent rulings": "5"}
 
 
 def test_the_pages_wear_the_cortex_and_nothing_of_the_mind(skeleton):
@@ -168,7 +252,7 @@ def test_the_check_compare_ignores_the_date_but_not_the_content(skeleton):
         assert (_cortex.dashboard_body(today[name])
                 == _cortex.dashboard_body(tomorrow[name])), name
     # A real content change is still drift.
-    changed = dict(c, ready=[])
+    changed = dict(c, awaiting=[])
     assert (_cortex.dashboard_body(_cortex.render_pages(changed)["dashboard.md"])
             != _cortex.dashboard_body(today["dashboard.md"]))
 
@@ -192,9 +276,9 @@ def test_apply_then_check_is_clean_and_check_alone_is_drift(tmp_skeleton):
 def test_a_stale_page_by_one_row_is_drift(tmp_skeleton):
     _run(["dashboard", "--apply", "--cortex", str(tmp_skeleton)])
     page = tmp_skeleton / "dashboard.md"
-    page.write_text(page.read_text().replace("[Ready](#ready) | 1 |",
-                                             "[Ready](#ready) | 9 |"),
-                    encoding="utf-8")
+    page.write_text(page.read_text().replace(
+        "[Awaiting ruling](#awaiting-ruling) | 2 |",
+        "[Awaiting ruling](#awaiting-ruling) | 9 |"), encoding="utf-8")
     assert _run(["dashboard", "--check", "--cortex",
                  str(tmp_skeleton)]).returncode == _cortex.RC_DRIFT
 
@@ -202,10 +286,10 @@ def test_a_stale_page_by_one_row_is_drift(tmp_skeleton):
 # --- gates -----------------------------------------------------------------
 def test_the_gates_verb_is_a_read_only_wrapper_over_the_scripts_listing(tmp_skeleton):
     """Gate grading was retired 2026-09-03: the verb lists, exits 0, fetches
-    nothing and flips nothing. A gated phase moves on when a human types
-    `move <phase> ready`."""
+    nothing and flips nothing. A gated task moves on when a human types
+    `move <task> ready`."""
     before = {p.rel: p.state for p in
-              _cortex.load_cortex(tmp_skeleton).load_phases(tmp_skeleton)[0]}
+              _cortex.load_cortex(tmp_skeleton).load_tasks(tmp_skeleton)[0]}
     r = _run(["gates", "--cortex", str(tmp_skeleton)])
     assert r.returncode == 0, r.stderr
     gated = _cortex.census(tmp_skeleton)["gated"][0]
@@ -217,7 +301,7 @@ def test_the_gates_verb_is_a_read_only_wrapper_over_the_scripts_listing(tmp_skel
     # what this asserts is that the wrapper fetches nothing and writes nothing.
     assert "--grade" not in r.stdout
     after = {p.rel: p.state for p in
-             _cortex.load_cortex(tmp_skeleton).load_phases(tmp_skeleton)[0]}
+             _cortex.load_cortex(tmp_skeleton).load_tasks(tmp_skeleton)[0]}
     assert after == before
 
 
@@ -238,7 +322,7 @@ def test_the_cortex_holds_no_epics_of_its_own(tmp_skeleton):
 
 
 # --- the check-in chip and the freshness stamp -----------------------------
-def _first_task(page: str) -> str:
+def _first_row(page: str) -> str:
     """The first copy row on either twin — markdown `<summary>`, HTML button."""
     m = re.search(r"<summary>📋 ([^<\n]+)", page) or \
         re.search(r'<button class="copy"[^>]*></button><p>([^<]+)', page)
@@ -250,7 +334,7 @@ def test_the_checkin_chip_is_the_first_task_row_on_both_twins(skeleton):
     refreshes everything below it — before any section."""
     c = _cortex.census(skeleton)
     page = _cortex.render_dashboard(c)
-    assert _first_task(page) == _cortex.CHECKIN_LABEL
+    assert _first_row(page) == _cortex.CHECKIN_LABEL
     assert page.index("📋 " + _cortex.CHECKIN_LABEL) < page.index("## Summary")
     payload = _cortex._checkin_payload(c)
     assert payload.startswith("/cortex — check in on every active science")
@@ -339,26 +423,26 @@ def test_the_map_is_a_map_not_a_paragraph(skeleton):
 # `tests/_cortex_board.py` (which says what real trees they imitate); the
 # builder lives there because `test_batch_kinds.py` raises the same tree.
 from _cortex_board import (  # noqa: E402 - tests/ is on sys.path
-    BENIGN_ERR, HEALTHY_OUT, PROJECTS, SUMMARY, _phase, _write,
+    BENIGN_ERR, HEALTHY_OUT, PROJECTS, SUMMARY, _task, _write,
     _zip_summary, build_board,
 )
 
-#: The three phases `build_board` adds on top of the skeleton, and the only
-#: ones the scoring tests assert about. The skeleton's own live phases are in
+#: The three tasks `build_board` adds on top of the skeleton, and the only
+#: ones the scoring tests assert about. The skeleton's own live tasks are in
 #: `collect`'s default scope too (that IS the check-in), so a test about one
-#: member names it with `--phase` rather than counting the whole scope.
-BOARD = ("phases/example/11_healthy.md", "phases/example/12_resumed.md",
-         "phases/subhalo/01_partial.md")
+#: member names it with `--task` rather than counting the whole scope.
+BOARD = ("tasks/example/11_healthy.md", "tasks/example/12_resumed.md",
+         "tasks/subhalo/01_partial.md")
 
 
 def _collect(root, *args):
     return _run(["collect", "--cortex", str(root),
-                 *[x for rel in BOARD for x in ("--phase", rel)], *args])
+                 *[x for rel in BOARD for x in ("--task", rel)], *args])
 
 
 @pytest.fixture()
 def board(tmp_path, skeleton):
-    """A tmp Cortex with three live phases — built by
+    """A tmp Cortex with three live tasks — built by
     `tests/_cortex_board.py`."""
     return build_board(tmp_path, skeleton)
 
@@ -368,9 +452,9 @@ def _score(board_) -> dict:
     root = board_["root"]
     mod = _cortex.load_cortex(root)
     projects = mod.load_projects(root)[0]
-    return {ph.slug: _cortex.score_phase(mod, ph, projects)
-            for ph in mod.load_phases(root)[0]
-            if ph.state in _cortex.LIVE_STATES and ph.slug in
+    return {tk.slug: _cortex.score_task(mod, tk, projects)
+            for tk in mod.load_tasks(root)[0]
+            if tk.state in _cortex.LIVE_STATES and tk.slug in
             ("11_healthy", "12_resumed", "01_partial")}
 
 
@@ -384,8 +468,7 @@ def test_the_projects_section_leads_the_state_sections(skeleton):
     page = _cortex.render_dashboard(_cortex.census(skeleton))
     order = ["| Where | Count |", "📋 " + _cortex.CHECKIN_LABEL,
              "### Last check-in:", "## Summary", "## Projects",
-             "## Awaiting ruling", "## Running / submitted", "## Ready",
-             "## Gated", "## Recent rulings"]
+             "## Awaiting ruling", "## Recent rulings"]
     assert [page.index(x) for x in order] == sorted(page.index(x) for x in order)
     html = _cortex.render_dashboard_html(_cortex.census(skeleton))
     assert html.index("<h2>Summary</h2>") < html.index("<h2>Projects") \
@@ -402,13 +485,20 @@ def test_the_summary_table_holds_one_row_per_active_project(tmp_skeleton):
     rows = _cortex.summary_rows(c)
     assert [r["project"] for r in rows] == ["example"]
     row = rows[0]
-    # the next thing is the awaiting phase, and the ledger date is its own
-    assert row["next"] == "6 pulled"
-    assert (row["awaiting"], row["live"], row["ready"]) == (2, 2, 1)
+    # the next thing is the task owed a verdict, named by its own summary —
+    # a number and a state said nothing a reader could act on.
+    nxt = "Do the five faint lenses converge once resumed"
+    assert row["next"] == nxt
+    assert (row["awaiting"], row["live"]) == (2, 2)
+    assert "ready" not in row
     assert row["ruling"] == "2026-09-01"
     page = _cortex.render_dashboard(c)
-    assert "| example | 6 pulled | 2 | 2 | 1 | 2026-09-01 |" in page
-    assert "<td>6 pulled</td>" in _cortex.render_dashboard_html(c)
+    html = _cortex.render_dashboard_html(c)
+    assert f"| example | {nxt} | 2 | 2 | 2026-09-01 |" in page
+    assert "| Project | Next task | Awaiting | Running | Last ruling |" in page
+    assert f"<td>{nxt}</td>" in html
+    # the Ready column went with the Ready section
+    assert "<th>Ready</th>" not in html and "| Ready |" not in page
 
 
 def test_a_project_card_puts_each_folder_on_its_own_bold_line(skeleton):
@@ -419,18 +509,18 @@ def test_a_project_card_puts_each_folder_on_its_own_bold_line(skeleton):
                         ("RAL", row["ral_root"])):
         assert f"**{label}** `{path}`" in lines, label
     html = _cortex.render_dashboard_html(c)
-    assert (f'<p class="paths"><b>RAL</b> <code>{row["ral_root"]}</code></p>'
-            in html)
+    assert (f'<p class="paths"><b>RAL</b> '
+            f'<span class="pathchip">{row["ral_root"]}</span></p>') in html
     # the counts and the partition, one line under them
-    assert "active · gpu partition · phases: accepted 1" in "\n".join(lines)
+    assert "active · gpu partition · tasks: accepted 1" in "\n".join(lines)
 
 
 def test_the_where_to_look_bullets_leave_the_page_but_not_the_door(skeleton):
     """They are the "which folder do I open" answer, and they belong where a
-    human is already reading a phase — not on a board they scroll past."""
+    human is already reading a task — not on a board they scroll past."""
     c = _cortex.census(skeleton)
-    where = "`/mnt/c/Users/Jammy/Science/example/output/phase_07/`"
-    awaiting = [r for r in c["phases"]
+    where = "`/mnt/c/Users/Jammy/Science/example/output/task_07/`"
+    awaiting = [r for r in c["tasks"]
                 if r["rel"].endswith("07_awaiting_ruling.md")][0]
     assert awaiting["where"] == [where]
     for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
@@ -455,7 +545,7 @@ def test_census_by_project_prints_the_same_tree(skeleton):
     assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
     assert "# The Cortex by project" in r.stdout
     assert "### example" in r.stdout
-    assert "- where to look: `/mnt/c/Users/Jammy/Science/example/output/phase_07/`" in r.stdout
+    assert "- where to look: `/mnt/c/Users/Jammy/Science/example/output/task_07/`" in r.stdout
     assert "**rule on it**" in r.stdout
     # the counts census is still the default
     assert "== Cortex census ==" in _run(["census", "--cortex", str(skeleton)]).stdout
@@ -593,67 +683,61 @@ def test_census_by_project_lists_retired_on_its_own_line(tmp_skeleton):
     assert "Retired: retired_one (none)" in r.stdout
 
 
-def _bucketed(**buckets) -> dict:
-    """A census-shaped dict holding only the open buckets."""
-    c = {k: [] for k in _cortex.OPEN_ORDER}
-    c.update(buckets)
-    return c
+def _tasks(*rows) -> dict:
+    """A census-shaped dict holding only the task rows."""
+    return {"tasks": list(rows)}
 
 
-def test_the_next_phase_is_the_first_open_bucket_and_its_lowest_number(skeleton):
-    """awaiting > live > ready > gated > planned, then by phase number: the
-    route from a project card to the follow-up work."""
-    def r(number, bucket):
-        return {"project": "p", "phase": number, "rel": f"phases/p/{number}.md",
-                "state": bucket}
-    c = _bucketed(ready=[r(3, "ready"), r(2, "ready")],
-                  gated=[r(1, "gated")], planned=[r(9, "planned")])
-    assert _cortex.next_open_phase("p", c)["phase"] == 2
-    c = _bucketed(live=[r(7, "running")], ready=[r(2, "ready")])
-    assert _cortex.next_open_phase("p", c)["phase"] == 7
-    c = _bucketed(awaiting=[r(8, "pulled")], live=[r(7, "running")])
-    assert _cortex.next_open_phase("p", c)["phase"] == 8
-    assert _cortex.next_open_phase("p", _bucketed()) is None
-    # every open phase, in that same order — the fold lists the tail of it
-    c = _bucketed(awaiting=[r(8, "pulled")], ready=[r(2, "ready")])
-    assert [x["phase"] for x in _cortex.open_phases("p", c)] == [8, 2]
+def _open(slug, state) -> dict:
+    return {"project": "p", "rel": f"tasks/p/{slug}.md", "slug": slug,
+            "summary": f"summary of {slug}", "state": state}
 
 
-def test_the_rest_of_a_projects_open_phases_fold_behind_links(tmp_skeleton):
-    """The plans live behind a click: a link per phase file, the phase folder
-    and — when the row declares a remote — that repo's issue list."""
+def test_the_open_tasks_of_a_project_read_in_the_order_they_owe_you(skeleton):
+    """awaiting-ruling > running > submitted > pulled > ready > gated >
+    planned. No number to sort by — science is unordered — so what a task
+    owes the human is the order, and `rel` breaks the tie inside a state."""
+    c = _tasks(_open("e", "planned"), _open("d", "gated"), _open("c", "ready"),
+               _open("b", "running"), _open("a", "awaiting-ruling"),
+               _open("z", "accepted"), _open("y", "dropped"))
+    assert [r["slug"] for r in _cortex.open_tasks("p", c)] == \
+        ["a", "b", "c", "d", "e"], "accepted and dropped are history"
+    assert _cortex.next_open_task("p", c)["slug"] == "a"
+    assert _cortex.next_open_task("p", _tasks()) is None
+    # inside one state, the file path is the tie-break
+    c = _tasks(_open("m", "ready"), _open("b", "ready"))
+    assert [r["slug"] for r in _cortex.open_tasks("p", c)] == ["b", "m"]
+
+
+def test_every_open_task_of_a_project_is_a_row_with_its_own_links(tmp_skeleton):
+    """No fold and no queue: all seven open tasks of the fixture project are
+    rows, and the task folder and the repo's issue list ride under them."""
     yaml = (tmp_skeleton / "projects.yaml").read_text(encoding="utf-8")
     (tmp_skeleton / "projects.yaml").write_text(
         yaml.replace("remote: none", "remote: exampleorg/widgets"),
         encoding="utf-8")
     c = _cortex.census(tmp_skeleton)
     page = _cortex.render_dashboard(c)
-    rest = _cortex.open_phases("example", c)[1:]
-    assert len(rest) == 6
-    assert f"<summary>{len(rest)} more open phase(s) · plans and issues" in page
-    for r in rest:
-        assert f"]({r['rel']}) — {r['state']}" in page
+    html = _cortex.render_dashboard_html(c)
+    tasks = _cortex.open_tasks("example", c)
+    assert len(tasks) == 8, [r["rel"] for r in tasks]
+    for r in tasks:
+        assert f'<a href="{r["rel"]}">{r["summary"]}</a>' in page, r["rel"]
+        assert f'>{r["summary"]}</a>' in html, r["rel"]
+    # the fixture copy is outside any repo, so no owner is derivable and
+    # the folder is bare backticks rather than a link
+    assert "`tasks/example/`" in page
     assert "https://github.com/exampleorg/widgets/issues" in page
-    assert "https://github.com/exampleorg/widgets/issues" in \
-        _cortex.render_dashboard_html(c)
+    assert "https://github.com/exampleorg/widgets/issues" in html
+    # the rows read in the order `open_tasks` put them in
+    order = [page.index(r["summary"]) for r in tasks]
+    assert order == sorted(order), [r["state"] for r in tasks]
 
 
-def test_a_project_with_one_open_phase_grows_no_fold(tmp_skeleton):
-    """The fold is the tail, so a project whose next phase IS its only open
-    one shows the row and nothing else."""
-    for name in ("01_scope", "02_gated_on_dev", "04_submitted_override",
-                 "05_running_array", "06_pulled", "07_awaiting_ruling"):
-        (tmp_skeleton / "phases" / "example" / f"{name}.md").unlink()
-    c = _cortex.census(tmp_skeleton)
-    assert len(_cortex.open_phases("example", c)) == 1
-    for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
-        assert "more open phase(s)" not in page
-
-
-def test_a_phase_that_names_nowhere_still_renders(tmp_skeleton):
-    """A `planned` phase may still be carrying the template placeholder —
+def test_a_task_that_names_nowhere_still_renders(tmp_skeleton):
+    """A `planned` task may still be carrying the template placeholder —
     `check` exempts it — so every rendering has to survive an empty list."""
-    scope = tmp_skeleton / "phases" / "example" / "01_scope.md"
+    scope = tmp_skeleton / "tasks" / "example" / "01_scope.md"
     text = scope.read_text(encoding="utf-8")
     scope.write_text(re.sub(r"## Where to look\n\n(?:- .*\n)+",
                             "## Where to look\n\n", text, count=1),
@@ -661,7 +745,7 @@ def test_a_phase_that_names_nowhere_still_renders(tmp_skeleton):
     mod = _cortex.load_cortex(tmp_skeleton)
     assert mod.check_problems(tmp_skeleton) == []
     c = _cortex.census(tmp_skeleton)
-    row = [r for r in c["phases"] if r["rel"].endswith("01_scope.md")][0]
+    row = [r for r in c["tasks"] if r["rel"].endswith("01_scope.md")][0]
     assert row["where"] == []
     page = _cortex.render_dashboard(c)
     assert "### example" in page and "where to look: \n" not in page
@@ -673,77 +757,81 @@ def test_a_phase_that_names_nowhere_still_renders(tmp_skeleton):
 
 # --- the two missing prompts ----------------------------------------------
 def _synthetic(*rows) -> dict:
-    """A census-shaped dict — the payloads read only `phases` + `projects`."""
-    return {"phases": list(rows),
+    """A census-shaped dict — the payloads read only `tasks` + `projects`."""
+    return {"tasks": list(rows),
             "projects": {"proj": {"local_path": "/s/proj", "sync_cli": "hpc/sync",
                                   "sync_verbs": ["pull", "submit"]}}}
 
 
-def _row(number, state, slug, epic=None):
-    return {"rel": f"phases/proj/{slug}.md", "slug": slug, "title": slug,
-            "project": "proj", "phase": number, "state": state, "epic": epic,
+def _row(state, slug, epic=None):
+    return {"rel": f"tasks/proj/{slug}.md", "slug": slug, "title": slug,
+            "summary": f"the {slug} question", "project": "proj",
+            "state": state, "epic": epic,
             "runs": [], "budget": None, "budget_minutes": None,
             "wall_minutes": 0, "review_minutes": None, "gates": [],
             "failed_runs": [], "where": []}
 
 
-def test_accept_and_open_opens_the_planned_sibling(skeleton):
-    """A planned phase N+1 IS the ledger naming the next phase — the prompt
-    opens it rather than writing a second one beside it."""
-    c = _synthetic(_row(4, "awaiting-ruling", "four"), _row(5, "planned", "five"))
-    payload = _cortex._next_phase_payload(c["phases"][0], c)
-    assert "rule phases/proj/four.md accept --body <file>" in payload
-    assert "move phases/proj/five.md ready" in payload
+def test_accept_and_open_opens_the_sibling_the_tree_already_holds(skeleton):
+    """A planned sibling IS the ledger naming another question — the prompt
+    opens it rather than writing a second one beside it. There is no "next
+    number": the slug is the identity and the order is the human's."""
+    c = _synthetic(_row("awaiting-ruling", "four"), _row("planned", "five"))
+    payload = _cortex._next_task_payload(c["tasks"][0], c)
+    assert "rule tasks/proj/four.md accept --body <file>" in payload
+    assert "move tasks/proj/five.md ready" in payload
     assert "cd /s/proj && hpc/sync submit <script>" in payload
     assert "cortex.py new" not in payload
 
 
-def test_accept_and_open_writes_a_new_phase_when_there_is_none(skeleton):
-    c = _synthetic(_row(4, "awaiting-ruling", "four", epic="an-epic"))
-    payload = _cortex._next_phase_payload(c["phases"][0], c)
-    assert "new proj <slug> --phase 5 --epic an-epic" in payload
-    # the title-prefix convention, stated where it is used: `new` writes
-    # `# <Project> — phase N: ` itself, so `--title` takes the tail alone.
-    assert "the tail only" in payload and "phase 5: ' itself" in payload
+def test_accept_and_open_prefers_a_planned_sibling_over_a_gated_one(skeleton):
+    """Both are openable; a plan is a question waiting to be asked and a gate
+    is waiting on someone else."""
+    c = _synthetic(_row("awaiting-ruling", "four"), _row("gated", "aaa"),
+                   _row("planned", "zzz"))
+    assert _cortex._next_task(c["tasks"][0], c)["slug"] == "zzz"
 
 
-def test_accept_and_open_skips_a_number_that_is_already_taken(skeleton):
-    """Phase numbers are unique per project, and a phase that has already run
-    cannot be moved back to `ready` — so N+1 being taken means a new number."""
-    c = _synthetic(_row(4, "awaiting-ruling", "four"), _row(5, "accepted", "five"),
-                   _row(9, "dropped", "nine"))
-    payload = _cortex._next_phase_payload(c["phases"][0], c)
-    assert "phase 5 is taken (phases/proj/five.md, accepted)" in payload
-    assert "--phase 10" in payload
+def test_accept_and_open_writes_a_new_task_when_there_is_none(skeleton):
+    """`new` requires a ten-word `--summary` — the board's line — so the
+    prompt asks for the question, not for a title or a number."""
+    c = _synthetic(_row("awaiting-ruling", "four", epic="an-epic"),
+                   _row("accepted", "five"), _row("dropped", "nine"))
+    payload = _cortex._next_task_payload(c["tasks"][0], c)
+    assert "new proj <slug> --summary" in payload
+    assert "ten words at most" in payload
+    assert "--epic an-epic" in payload
+    assert "move tasks/proj/<slug>.md ready" in payload
+    assert "--task" not in payload and "phase" not in payload
 
 
 def test_run_it_again_is_a_ruling_then_the_same_launch(skeleton):
-    c = _synthetic(_row(4, "awaiting-ruling", "four"))
-    payload = _cortex._rerun_payload(c["phases"][0], c)
+    c = _synthetic(_row("awaiting-ruling", "four"))
+    payload = _cortex._rerun_payload(c["tasks"][0], c)
     order = [payload.index(x) for x in (
-        "rule phases/proj/four.md rerun --body <file>",
-        "move phases/proj/four.md ready",
+        "rule tasks/proj/four.md rerun --body <file>",
+        "move tasks/proj/four.md ready",
         "cd /s/proj && hpc/sync submit <script>",
-        "move phases/proj/four.md submitted --run <jobid>")]
+        "move tasks/proj/four.md submitted --run <jobid>")]
     assert order == sorted(order), payload
     assert "one run per call" in payload
 
 
 def test_a_project_with_no_submit_verb_says_so_rather_than_inventing_one(skeleton):
-    c = _synthetic(_row(4, "awaiting-ruling", "four"))
+    c = _synthetic(_row("awaiting-ruling", "four"))
     c["projects"]["proj"]["sync_verbs"] = ["pull"]
     assert "no `submit` verb in projects.yaml" in _cortex._rerun_payload(
-        c["phases"][0], c)
+        c["tasks"][0], c)
 
 
 def test_the_chips_a_state_carries_are_the_same_everywhere(skeleton):
     """One table, three renderings — the board, `--by-project` and the door
-    all ask `phase_chips`, so a prompt cannot appear in one and not another."""
+    all ask `task_chips`, so a prompt cannot appear in one and not another."""
     c = _cortex.census(skeleton)
-    by_state = {r["state"]: [label for label, _p in _cortex.phase_chips(r, c)]
-                for r in c["phases"]}
+    by_state = {r["state"]: [label for label, _p in _cortex.task_chips(r, c)]
+                for r in c["tasks"]}
     assert by_state["awaiting-ruling"] == [
-        "rule on it", "the results are good — accept and open phase 8",
+        "rule on it", "the results are good — accept and open the next task",
         "run it again"]
     assert by_state["pulled"][0] == "rule on it"
     # A rerun is a VERDICT, so the chip rides on the states a verdict is owed
@@ -754,50 +842,51 @@ def test_the_chips_a_state_carries_are_the_same_everywhere(skeleton):
     assert by_state["ready"] == ["submit it"]
     assert by_state["gated"] == ["its gates"]
     assert by_state["planned"] == ["open it"]
+    # a rerun ruling is already written: what is left of it is the launch
+    assert by_state["rerun"] == ["relaunch it"]
 
 
 def test_the_new_prompts_ride_beside_the_rule_prompt_on_the_board(skeleton):
     """"Beside", not "instead of": the awaiting row keeps the rule payload it
     has always had and the two new ones follow it as their own chips."""
     page = _cortex.render_dashboard(_cortex.census(skeleton))
-    assert "📋 ↳ the results are good — accept and open phase 8" in page
+    assert ("📋 ↳ the results are good — accept and open the next task"
+            in page)
     assert "📋 ↳ run it again" in page
     html = _cortex.render_dashboard_html(_cortex.census(skeleton))
     assert "↳ run it again" in html
 
 
-def test_the_live_section_carries_no_rerun_chip(skeleton):
+def test_a_live_task_carries_the_jobs_line_and_no_rerun_chip(skeleton):
+    """The live section is gone; the running task is a row on its project's
+    card, and what it hands over is the project's own `jobs` verb. "Run it
+    again" on a job still out there is a second submission, not a ruling."""
     c = _cortex.census(skeleton)
+    running = next(r for r in c["tasks"] if r["state"] == "running")
+    assert [l for l, _p in _cortex.task_chips(running, c)] == \
+        ["where the jobs stand"]
     for page in (_cortex.render_dashboard(c), _cortex.render_dashboard_html(c)):
-        # the last occurrence is the section heading; the first is the
-        # counts table at the top of the page
-        live = page.split("Running / submitted")[-1].split("Ready")[0]
-        assert "run it again" not in live, live[:400]
-        # "where the jobs stand" is the head row's own payload, so the label
-        # never prints here — the project's own `jobs` verb does
-        assert "hpc/sync jobs" in live
+        assert "hpc/sync jobs" in page
+        # the wall against the budget rides on the row, as its own facet
+        assert "of 8:00" in page
 
 
-def test_ready_shows_one_row_per_project_and_folds_the_queue(tmp_skeleton):
-    """Four ready phases of one project are a queue: only the front of it can
-    be submitted today, so only the front of it is on the page."""
-    scope = tmp_skeleton / "phases" / "example" / "01_scope.md"
+def test_every_ready_task_of_a_project_is_its_own_row(tmp_skeleton):
+    """The Ready section showed one row per project and folded the rest as a
+    "queue". The order is the human's, so the board shows them all."""
+    scope = tmp_skeleton / "tasks" / "example" / "01_scope.md"
     scope.write_text(scope.read_text(encoding="utf-8")
                      .replace("State: planned", "State: ready"),
                      encoding="utf-8")
     c = _cortex.census(tmp_skeleton)
     assert len(c["ready"]) == 2
-    groups = _cortex.ready_groups(c)
-    assert len(groups) == 1
-    first, rest = groups[0]
-    assert first["phase"] == 1 and [r["phase"] for r in rest] == [3]
     page = _cortex.render_dashboard(c)
-    ready = page.split("## Ready", 1)[1].split("## Gated", 1)[0]
-    assert "<summary>1 more ready</summary>" in ready
-    assert ready.index("01_scope.md") < ready.index("1 more ready") \
-        < ready.index("03_ready_cleared.md")
     html = _cortex.render_dashboard_html(c)
-    assert "<summary>1 more ready</summary>" in html
+    for twin in (page, html):
+        assert "01_scope.md" in twin and "03_ready_cleared.md" in twin
+        assert "more ready" not in twin
+    # both carry the launch lines their state earns
+    assert page.count("hpc/sync submit <script>") >= 2
 
 
 def test_the_board_the_collect_tests_score_is_a_tree_that_checks(board):
@@ -897,10 +986,10 @@ def test_a_benign_err_is_warnings_not_an_empty_file(board):
     assert _cortex.leg_err([])[0] == _cortex.UNOBSERVABLE
 
 
-def test_the_report_emits_a_block_per_phase_in_order(board):
+def test_the_report_emits_a_block_per_task_in_order(board):
     r = _collect(board["root"])
     assert r.returncode == _cortex.RC_DRIFT, "one FAILED + one SUSPECT"
-    assert "3 phase(s), delivered 1/3" in r.stdout
+    assert "3 task(s), delivered 1/3" in r.stdout
     for head in ("## 11_healthy — HEALTHY", "## 12_resumed — FAILED",
                  "## 01_partial — SUSPECT"):
         assert head in r.stdout, r.stdout
@@ -919,9 +1008,9 @@ def test_the_report_emits_a_block_per_phase_in_order(board):
     assert "Accept / Rerun / Drop / Leave to finish" in block
 
 
-def test_a_phase_gets_its_own_witness_not_its_neighbours(board):
-    """`witness_file` is a *project-wide* glob and the two `example` phases
-    share one output tree, so the glob alone hands a phase its neighbour's
+def test_a_task_gets_its_own_witness_not_its_neighbours(board):
+    """`witness_file` is a *project-wide* glob and the two `example` tasks
+    share one output tree, so the glob alone hands a task its neighbour's
     numbers — the readout under a member's name must be that member's run."""
     s = _score(board)
     assert s["11_healthy"]["witness_hits"][0].name == "aaaa1111.json"
@@ -941,11 +1030,11 @@ def test_apply_without_a_refresh_stamp_refuses(board):
     assert r.returncode == _cortex.RC_USAGE
     assert "--apply needs a refresh stamp" in r.stderr
     states = {p.rel: p.state for p in
-              _cortex.load_cortex(board["root"]).load_phases(board["root"])[0]}
-    assert states["phases/example/11_healthy.md"] == "running"
+              _cortex.load_cortex(board["root"]).load_tasks(board["root"])[0]}
+    assert states["tasks/example/11_healthy.md"] == "running"
 
 
-def test_apply_moves_the_phases_and_the_tree_still_checks(board):
+def test_apply_moves_the_tasks_and_the_tree_still_checks(board):
     """The moves are the WHOLE write: the batch record `apply_ops` once
     rewrote is closed history since 2026-09-03."""
     root = board["root"]
@@ -953,7 +1042,7 @@ def test_apply_moves_the_phases_and_the_tree_still_checks(board):
     assert r.returncode == _cortex.RC_DRIFT, "one member is still FAILED"
     assert "Refreshed: 2026-09-02T11:40Z" in r.stdout
     mod = _cortex.load_cortex(root)
-    states = {p.rel: p.state for p in mod.load_phases(root)[0]}
+    states = {p.rel: p.state for p in mod.load_tasks(root)[0]}
     for rel in BOARD:
         assert states[rel] == "awaiting-ruling", rel
     # the whole point of rehearsing on a copy: the tree still checks.
@@ -964,19 +1053,19 @@ def test_apply_moves_the_phases_and_the_tree_still_checks(board):
         assert rel.rsplit("/", 1)[1][:-3] not in again.stdout
 
 
-def test_apply_leaves_a_phase_whose_run_is_still_live_where_it_is(board):
+def test_apply_leaves_a_task_whose_run_is_still_live_where_it_is(board):
     """`submitted → pulled` is not an edge and a live run has not finished:
     both are notes, not forced moves."""
     root = board["root"]
-    ph = root / "phases/example/11_healthy.md"
-    ph.write_text(ph.read_text().replace(
+    tk = root / "tasks/example/11_healthy.md"
+    tk.write_text(tk.read_text().replace(
         "- 400100: done", "- 400100: running"), encoding="utf-8")
     r = _collect(root, "--apply", "--refreshed", "2026-09-02T11:40Z")
     assert "left running" in r.stdout, r.stdout + r.stderr
     mod = _cortex.load_cortex(root)
-    states = {p.rel: p.state for p in mod.load_phases(root)[0]}
-    assert states["phases/example/11_healthy.md"] == "running"
-    assert states["phases/example/12_resumed.md"] == "awaiting-ruling"
+    states = {p.rel: p.state for p in mod.load_tasks(root)[0]}
+    assert states["tasks/example/11_healthy.md"] == "running"
+    assert states["tasks/example/12_resumed.md"] == "awaiting-ruling"
     assert mod.check_problems(root) == []
 
 
@@ -996,24 +1085,24 @@ def test_pull_runs_the_projects_own_cli_and_stamps_the_refresh(board):
     assert "Refreshed: " in r.stdout
 
 
-def test_a_named_phase_narrows_the_scope(board):
+def test_a_named_task_narrows_the_scope(board):
     r = _run(["collect", "--cortex", str(board["root"]),
-              "--phase", "phases/example/11_healthy.md"])
+              "--task", "tasks/example/11_healthy.md"])
     assert r.returncode == _cortex.RC_OK
-    assert "1 phase(s), delivered 1/1" in r.stdout
+    assert "1 task(s), delivered 1/1" in r.stdout
     assert "12_resumed" not in r.stdout
 
 
-def test_the_default_scope_is_every_submitted_or_running_phase(board):
-    """The check-in needs no record and no `--phase`: it asks the tree which
+def test_the_default_scope_is_every_submitted_or_running_task(board):
+    """The check-in needs no record and no `--task`: it asks the tree which
     runs are out there and scores all of them."""
     root = board["root"]
     mod = _cortex.load_cortex(root)
-    live = [ph.rel for ph in mod.load_phases(root)[0]
-            if ph.state in _cortex.LIVE_STATES]
-    assert set(BOARD) < set(live), "the skeleton's own live phases count too"
+    live = [tk.rel for tk in mod.load_tasks(root)[0]
+            if tk.state in _cortex.LIVE_STATES]
+    assert set(BOARD) < set(live), "the skeleton's own live tasks count too"
     r = _run(["collect", "--cortex", str(root)])
-    assert f"{len(live)} phase(s)" in r.stdout
+    assert f"{len(live)} task(s)" in r.stdout
     for rel in live:
         assert rel.rsplit("/", 1)[1][:-3] in r.stdout
 
@@ -1040,9 +1129,9 @@ def _fake_cli(local: Path, rc: int, marker: Path) -> Path:
     return cli
 
 
-def test_the_dry_run_names_every_project_its_pull_and_the_phases_it_would_score(board):
+def test_the_dry_run_names_every_project_its_pull_and_the_tasks_it_would_score(board):
     """The dry run is the door's own contract: the exact command per project
-    and the exact phases, and nothing touched."""
+    and the exact tasks, and nothing touched."""
     before = (board["mirror"] / ".cortex" / "pull.json").read_text()
     r = _checkin(board["root"], "--dry-run")
     assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
@@ -1064,7 +1153,7 @@ def test_the_dry_run_is_the_default(board):
 
 def test_one_projects_failing_pull_does_not_stop_the_sweep(board):
     """A mirror that will not sync is one project's problem. The other
-    projects still pull, every live phase is still scored, and the failure is
+    projects still pull, every live task is still scored, and the failure is
     recorded against the project it belongs to."""
     ran_ok = board["sub"] / "pulled.txt"
     ran_bad = board["local"] / "pulled.txt"
@@ -1078,8 +1167,8 @@ def test_one_projects_failing_pull_does_not_stop_the_sweep(board):
     assert r.returncode == _cortex.RC_DRIFT, "a failed pull is not a clean run"
     # the sweep still did its work on the project that did pull
     mod = _cortex.load_cortex(board["root"])
-    states = {p.rel: p.state for p in mod.load_phases(board["root"])[0]}
-    assert states["phases/subhalo/01_partial.md"] == "awaiting-ruling"
+    states = {p.rel: p.state for p in mod.load_tasks(board["root"])[0]}
+    assert states["tasks/subhalo/01_partial.md"] == "awaiting-ruling"
 
 
 def test_a_pulled_project_gets_a_manifest_the_scorer_can_read(board):
@@ -1090,7 +1179,7 @@ def test_a_pulled_project_gets_a_manifest_the_scorer_can_read(board):
     assert manifest["rc"] == 0
     assert manifest["cmd"].endswith("hpc/sync pull")
     assert manifest["pulled_at"]
-    assert "phases/subhalo/01_partial.md" in manifest["phases_live"]
+    assert "tasks/subhalo/01_partial.md" in manifest["tasks_live"]
     assert "subhalo: pulled" in r.stdout
 
 
@@ -1137,8 +1226,9 @@ def test_the_summary_is_keyed_by_project_and_is_the_last_thing_printed(board):
     assert "Awaiting your ruling" in out
     # the prompt each state already has, ready to paste
     assert "help me rule on it" in out
-    # ... and the two phase 3 added, in the same tree
-    assert "accept and open phase" in out and "needs running again" in out
+    # ... and the two the awaiting states added, in the same tree
+    assert "accept and open the next task" in out
+    assert "needs running again" in out
     assert "where to look:" in out
     assert f"local `{board['sub']}`" in out
 
@@ -1153,7 +1243,7 @@ def test_the_render_leg_leaves_the_board_current(board):
 def test_the_checkin_stamps_the_board_it_just_refreshed(board):
     """The stamp is the check-in's own, written before the render, so the
     board says when the state under it was last actually pulled — and so the
-    push carries the file beside the phase moves."""
+    push carries the file beside the task moves."""
     _fake_cli(board["sub"], 0, board["sub"] / "pulled.txt")
     r = _checkin(board["root"], "--apply", "--no-push")
     assert r.returncode == _cortex.RC_OK, r.stdout + r.stderr
@@ -1192,7 +1282,7 @@ def test_the_push_preflight_refuses_anything_that_is_not_a_clean_main(tmp_path):
 
 
 def _with_classifier(root: Path) -> Path:
-    """The board fixture is a phases-and-rulings tree; the push gate lives in
+    """The board fixture is a tasks-and-rulings tree; the push gate lives in
     the Cortex's `scripts/`, so lay the real one beside it."""
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     dst = root / "scripts" / "ledger_merge.py"
