@@ -72,6 +72,7 @@ example:
   sync_cli: hpc/sync
   sync_verbs: [pull, submit, jobs, tail]
   ledger: wiki/project/state.md
+  assistant: none
   witness_file: results/**/*.json
   partition: gpu
   status: active
@@ -84,6 +85,7 @@ subhalo:
   sync_cli: hpc/sync
   sync_verbs: [pull, submit, jobs, tail]
   ledger: wiki/project/state.md
+  assistant: autolens_assistant
   witness_file: results/**/*.json
   partition: ral
   status: active

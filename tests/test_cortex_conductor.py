@@ -561,7 +561,8 @@ _DORMANT_ROW = ("\ndormant_one:\n  remote: none\n"
                 "  local_path: /mnt/c/Users/Jammy/Science/dormant\n"
                 "  ral_root: /mnt/ral/jnightin/dormant\n  mirror: none\n"
                 "  sync_cli: hpc/sync\n  sync_verbs: [pull]\n"
-                "  ledger: wiki/state.md\n  witness_file: out/**/*.json\n"
+                "  ledger: wiki/state.md\n  assistant: none\n"
+                "  witness_file: out/**/*.json\n"
                 "  partition: gpu\n  status: dormant\n")
 
 #: Two more, so the Nothing-open table can be read for all three of the
@@ -826,6 +827,63 @@ def test_a_project_with_no_submit_verb_says_so_rather_than_inventing_one(skeleto
     c["projects"]["proj"]["sync_verbs"] = ["pull"]
     assert "no `submit` verb in projects.yaml" in _cortex._rerun_payload(
         c["tasks"][0], c)
+
+
+# --- the assistant entry protocol ------------------------------------------
+BRIEF = "Enter through the assistant `autolens_assistant`"
+
+
+def _with_assistant(c: dict, value: str) -> dict:
+    c["projects"]["proj"]["assistant"] = value
+    return c
+
+
+def test_the_work_shaped_prompts_carry_the_assistant_entry_brief(skeleton):
+    """A row that declares an assistant turns the three work-shaped payloads
+    into subagent briefs — the same three chips on both twins, because
+    `task_chips` is the one funnel."""
+    c = _with_assistant(_synthetic(_row("awaiting-ruling", "four")),
+                        "autolens_assistant")
+    for payload in (_cortex._next_task_payload(c["tasks"][0], c),
+                    _cortex._rerun_payload(c["tasks"][0], c),
+                    _cortex._planned_payload(c["tasks"][0], c["projects"])):
+        assert BRIEF in payload
+        assert "AUTOLENS_ASSISTANT" in payload
+        assert "cd /s/proj && source activate.sh" in payload
+        assert "Work brief — proj / four" in payload
+        assert "tasks/proj/four.md — its ## Witness is the contract" in payload
+
+    labelled = dict(_cortex.task_chips(c["tasks"][0], c))
+    assert BRIEF in labelled[
+        "the results are good — accept and open the next task"]
+    assert BRIEF in labelled["run it again"]
+    planned = _with_assistant(_synthetic(_row("planned", "five")),
+                              "autolens_assistant")
+    assert BRIEF in dict(_cortex.task_chips(planned["tasks"][0],
+                                            planned))["open it"]
+
+
+def test_a_none_row_and_a_row_without_the_field_carry_no_brief(skeleton):
+    """`none` is the declaration that the project routes through no
+    assistant; a Cortex checkout predating the field reads the same way."""
+    for c in (_with_assistant(_synthetic(_row("awaiting-ruling", "four")),
+                              "none"),
+              _synthetic(_row("awaiting-ruling", "four"))):
+        assert "assistant" not in c["projects"]["proj"] or \
+            c["projects"]["proj"]["assistant"] == "none"
+        for payload in (_cortex._next_task_payload(c["tasks"][0], c),
+                        _cortex._rerun_payload(c["tasks"][0], c),
+                        _cortex._planned_payload(c["tasks"][0], c["projects"])):
+            assert "Work brief" not in payload and "assistant" not in payload
+
+
+def test_the_ruling_and_checkin_prompts_name_no_assistant(skeleton):
+    """The door and the verdict are assistant-free by ruling: the assistant is
+    the execution subagent's entry protocol, not part of checking in."""
+    c = _with_assistant(_synthetic(_row("awaiting-ruling", "four")),
+                        "autolens_assistant")
+    assert "assistant" not in _cortex._ruling_payload(c["tasks"][0])
+    assert "assistant" not in _cortex._checkin_payload({"checkin": "never"})
 
 
 def test_the_chips_a_state_carries_are_the_same_everywhere(skeleton):

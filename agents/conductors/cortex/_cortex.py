@@ -521,6 +521,44 @@ def _src_url(blob: str, src: str) -> str:
 # ------------------------------------------------------------- the payloads ---
 # Every row hands the reader the next command rather than a decision. The
 # science verbs stay the Cortex script's and a run is only ever the human's ask.
+def _work_brief(r: dict, projects: dict) -> str:
+    """The entry protocol for the subagent that works this task, or `""`.
+
+    A project row names the domain assistant its work enters through; this
+    renders that name into the three work-shaped payloads. The conductor
+    NAMES the assistant and never reads it — no stat, no resolve, no
+    assistant page loaded in the Cortex chat (see this conductor's
+    AGENTS.md). A row without the field, or with `none`, gets no brief: the
+    work is plain workspace work.
+    """
+    row = projects.get(r["project"], {})
+    assistant = row.get("assistant", "none")
+    if not assistant or assistant == "none":
+        return ""
+    env = re.sub(r"[^A-Za-z0-9]", "_", assistant).upper()
+    return "\n".join([
+        f"Work brief — {r['project']} / {r['slug']}. Delegate this to an "
+        "execution-tier subagent; never work it in the Cortex chat.",
+        f"cd {row.get('local_path', '')} && source activate.sh",
+        f"Enter through the assistant `{assistant}`: resolve it as ${env}, "
+        f"else <workspace root>/{assistant}; read its AGENTS.md first and "
+        "follow its constitution.",
+        "Then read wiki/project/state.md, the newest "
+        "wiki/project/YYYY-MM-DD-*.md, and the skills the task names.",
+        f"Then the task {r['rel']} — its ## Witness is the contract.",
+        "Finish: write today's journal entry, rewrite wiki/project/state.md, "
+        "and return (1) the outcome against the witness and (2) assistant "
+        "drift — any skill or wiki page that was wrong, missing or stale.",
+    ])
+
+
+def _with_brief(payload: str, r: dict, projects: dict) -> str:
+    """`payload` with the work brief under it, separated by a blank line —
+    or `payload` unchanged when the project declares no assistant."""
+    brief = _work_brief(r, projects)
+    return f"{payload}\n\n{brief}" if brief else payload
+
+
 def _checkin_payload(c: dict) -> str:
     """The paste for the laptop's science chat — the whole door as one
     sentence, naming the stamp it is refreshing *from* so "since last time"
@@ -657,7 +695,7 @@ def _next_task_payload(r: dict, c: dict) -> str:
               f"python3 scripts/cortex.py move tasks/{r['project']}/"
               "<slug>.md ready",
               _submit_line(r["project"], c["projects"])]
-    return "\n".join(L)
+    return _with_brief("\n".join(L), r, c["projects"])
 
 
 def _rerun_payload(r: dict, c: dict) -> str:
@@ -667,7 +705,7 @@ def _rerun_payload(r: dict, c: dict) -> str:
     the next submission a rerun rather than a repeat, and `rule … rerun`
     is the only edge that puts a task back on the board.
     """
-    return "\n".join([
+    return _with_brief("\n".join([
         f"The PyAutoCortex task {r['rel']} needs running again. Draft the "
         "rerun body — what came back, and what changes — for my approval, "
         "then file it and relaunch:",
@@ -676,12 +714,13 @@ def _rerun_payload(r: dict, c: dict) -> str:
         _submit_line(r["project"], c["projects"]),
         f"python3 scripts/cortex.py move {r['rel']} submitted --run <jobid>"
         "   # one run per call; --after <run> chains the next",
-    ])
+    ]), r, c["projects"])
 
 
-def _planned_payload(r: dict) -> str:
-    return (f"python3 scripts/cortex.py move {r['rel']} ready   # when the "
-            "`Ready when:` clause in its `## Question` is met")
+def _planned_payload(r: dict, projects: dict) -> str:
+    return _with_brief(
+        f"python3 scripts/cortex.py move {r['rel']} ready   # when the "
+        "`Ready when:` clause in its `## Question` is met", r, projects)
 
 
 def _relaunch_payload(r: dict, projects: dict) -> str:
@@ -713,7 +752,7 @@ def task_chips(r: dict, c: dict) -> list[tuple[str, str]]:
     if state == "gated":
         chips.append(("its gates", _gate_payload(r)))
     if state == "planned":
-        chips.append(("open it", _planned_payload(r)))
+        chips.append(("open it", _planned_payload(r, c["projects"])))
     if state == "rerun":
         chips.append(("relaunch it", _relaunch_payload(r, c["projects"])))
     # Only where a rerun would BE a verdict. On a running task the job is
