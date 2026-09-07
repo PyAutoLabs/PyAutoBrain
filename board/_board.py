@@ -1508,7 +1508,7 @@ def render_html(data):
     if data.get("cortex"):
         cortex_url = data["boards"].get("cortex", "")
         H.append(_plain(
-            f'Science phases on the <a href="{_attr(cortex_url)}">Cortex '
+            f'Science tasks on the <a href="{_attr(cortex_url)}">Cortex '
             "board \u2197</a>"
             + pills(*[(f"{k.lower()} {n}", "" if i == 0 else "n")
                       for i, (k, n) in enumerate(data["cortex"].items())])))

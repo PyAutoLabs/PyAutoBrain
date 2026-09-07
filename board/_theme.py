@@ -332,12 +332,16 @@ _CSS = """\
 :root{color-scheme:light dark;--bg:#fff;--fg:#1f2328;--muted:#59636e;
  --line:#d8dee4;--btn:#f6f8fa;--ok:#1a7f37;--warn:#9a6700;--bad:#d1242f;
  --accent:%(ink_light)s;--tint:%(ink_light)s14;--edge:%(ink_light)s3d;
+ /* the ink that READS on a solid --accent fill: the accent is a dark ink on
+    the light scheme, so white sits on it; on the dark scheme the accent is
+    the bright end of the pair and the page's own ground is what reads. */
+ --accent-ink:#fff;
  --hero-lift:%(hero_lift)s;--hero-base:%(hero_base)s;--glow:%(glow)s;
  --glow2:%(glow2)s}
 @media(prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#f0f6fc;
  --muted:#9198a1;--line:#2c333c;--btn:#151b23;--ok:#3fb950;--warn:#d29922;
  --bad:#f85149;--accent:%(ink_dark)s;--tint:%(ink_dark)s1f;
- --edge:%(ink_dark)s47}}
+ --edge:%(ink_dark)s47;--accent-ink:#0d1117}}
 *{box-sizing:border-box}
 /* Wrapping is the page DEFAULT, not a per-component opt-in. These boards are
    read on phones, and every one of them prints run URLs, dotted test ids and

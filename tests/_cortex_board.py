@@ -47,12 +47,12 @@ def _zip_summary(path: Path, hours: str) -> Path:
     return path
 
 
-def _phase(project, number, slug, budget, runs, where, witness_prose,
-           minutes=5, state="running"):
+def _task(project, slug, summary, budget, runs, where, witness_prose,
+          minutes=5, state="running"):
     stems = ", ".join(r.split(":")[0].split("_")[0] for r in runs)
     body = "\n".join(f"- {r}" for r in runs)
-    return (f"# {project.title()} — phase {number}: {slug}\n\n"
-            f"Project: {project}\nPhase: {number}\nState: {state}\n"
+    return (f"# {project.title()} — {slug}\n\n"
+            f"Project: {project}\nSummary: {summary}\nState: {state}\n"
             f"Witness: {witness_prose}\nBudget: {budget}\n"
             f"Runs: {stems}\nReview-minutes: {minutes}\n"
             f"Filed: 2026-08-30\n\n"
@@ -91,7 +91,7 @@ subhalo:
 
 
 def build_board(tmp_path: Path, skeleton: Path) -> dict:
-    """A tmp Cortex with three live phases, and the two laptop trees they
+    """A tmp Cortex with three live tasks, and the two laptop trees they
     were pulled into.
 
     The fixture's `projects.yaml` points at fictional absolute paths (it is the
@@ -121,8 +121,9 @@ def build_board(tmp_path: Path, skeleton: Path) -> dict:
         {"pulled_at": "2026-08-31T10:00Z",
          "runs": {"400100": {"checkpoint_bytes": 40960,
                              "checkpoint_mtime": "2026-08-30T09:51Z"}}}))
-    _write(root / "phases/example/11_healthy.md", _phase(
-        "example", 11, "the bright lens", "6:00",
+    _write(root / "tasks/example/11_healthy.md", _task(
+        "example", "the bright lens",
+        "Does the bright lens converge on the mirrored pull", "6:00",
         ["400100: done — gpu — submitted 2026-08-30 — wall 0:51"],
         mirror / "output/searches/bright",
         "a result JSON carrying the installed stack's version stamp"))
@@ -137,8 +138,9 @@ def build_board(tmp_path: Path, skeleton: Path) -> dict:
     (run2 / ".completed").write_text("", encoding="utf-8")
     _write(mirror / "results/searches/faint/bbbb2222.json",
            json.dumps({"version": "2026.8.17.1", "log_likelihood": 1200.0}))
-    _write(root / "phases/example/12_resumed.md", _phase(
-        "example", 12, "the faint lens", "6:00",
+    _write(root / "tasks/example/12_resumed.md", _task(
+        "example", "the faint lens",
+        "Does the faint lens converge on the mirrored pull", "6:00",
         ["400200: done — gpu — submitted 2026-08-30 — wall 0:44"],
         mirror / "output/searches/faint",
         "a result JSON carrying the installed stack's version stamp"))
@@ -153,8 +155,9 @@ def build_board(tmp_path: Path, skeleton: Path) -> dict:
     _zip_summary(sub / "output/lens_a/cccc3333.zip", "0:51:28.387009")
     _write(sub / "results/pipeline/lens_a.json",
            json.dumps({"log_likelihood": 999.0, "n_live": 200}))
-    _write(root / "phases/subhalo/01_partial.md", _phase(
-        "subhalo", 1, "the partial extraction", "1:00",
+    _write(root / "tasks/subhalo/01_partial.md", _task(
+        "subhalo", "the partial extraction",
+        "Does the pipeline JSON land for the partial extraction", "1:00",
         ["400300_0: done — ral — submitted 2026-08-30 — wall 0:51"],
         sub / "output/lens_a",
         "the pipeline JSON lands for the lens"))

@@ -1848,14 +1848,14 @@ def _batch_status(mind: Path) -> dict | None:
 
 
 # --------------------------------------------------------- the Cortex badge ---
-# A development task that a science phase is gated on has a second reader
+# A development task that a science task is gated on has a second reader
 # waiting on it, and nothing on this page said so: the Cortex's own board knows
 # which issues it is waiting for, but the person choosing what to work on reads
-# the Mind's. So the in-flight rows carry a badge naming the phase they gate.
+# the Mind's. So the in-flight rows carry a badge naming the task they gate.
 #
 # Render-only, and deliberately cheap: no new import (`_intake` already
 # hard-fails without a Mind checkout; it must not also require a Cortex one),
-# no schema of the Cortex's beyond two lines of its phase header, and an absent
+# no schema of the Cortex's beyond two lines of its task header, and an absent
 # or unreadable Cortex is silence rather than an error.
 CORTEX_REPO = "PyAutoCortex"
 CORTEX_HEADER_LINES = 30  # PyAutoCortex/scripts/cortex.py HEADER_LINES
@@ -1878,7 +1878,7 @@ def _cortex_root(mind: Path):
     env = os.environ.get("PYAUTO_CORTEX", "").strip()
     for candidate in ([Path(env).expanduser()] if env else
                       []) + [mind.resolve().parent / CORTEX_REPO]:
-        if (candidate / "phases").is_dir():
+        if (candidate / "tasks").is_dir():
             return candidate
     return None
 
@@ -1889,7 +1889,7 @@ def _issue_url(url: str) -> str:
 
 
 def cortex_gates(mind: Path) -> dict:
-    """`{issue url: [phase rel, …]}` — every Cortex phase gated on an issue.
+    """`{issue url: [task rel, …]}` — every Cortex task gated on an issue.
 
     The short `Repo#N` form takes its owner from the Mind's own `repos.yaml`
     (through `_mind_home`), never from a literal: a fork's Mind and its Cortex
@@ -1902,7 +1902,7 @@ def cortex_gates(mind: Path) -> dict:
     owner = home.split("/")[3] if home.count("/") >= 4 else ""
     out: dict = {}
     try:
-        files = sorted((root / "phases").rglob("*.md"))
+        files = sorted((root / "tasks").rglob("*.md"))
     except OSError:
         return {}
     for f in files:
@@ -1934,8 +1934,8 @@ def cortex_gates(mind: Path) -> dict:
     return out
 
 
-def _gated_phases(c: dict, row: dict) -> list:
-    """The Cortex phases this in-flight row gates, in file order."""
+def _gated_tasks(c: dict, row: dict) -> list:
+    """The Cortex tasks this in-flight row gates, in file order."""
     issue = _issue_url(row.get("issue", ""))
     return (c.get("cortex_gates") or {}).get(issue, []) if issue else []
 
@@ -2356,8 +2356,8 @@ def render_dashboard(c: dict) -> str:
         if r["status"]:
             head += f" — {_summary_label(_clip(r['status']))}"
         head += _pr_column(r)
-        for rel in _gated_phases(c, r):
-            head += f" — ⚠️ gates a Cortex phase → {rel}"
+        for rel in _gated_tasks(c, r):
+            head += f" — ⚠️ gates a Cortex task → {rel}"
         flight.append(_task_row(head, f"/start_dev {r['path']}"))
     L += _items(flight) or ["- _(nothing in flight)_"]
     L += [""]
@@ -2718,9 +2718,9 @@ def render_dashboard_html(c: dict) -> str:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
         text += _pr_column(r)
-        gated = _gated_phases(c, r)
+        gated = _gated_tasks(c, r)
         if gated:
-            text += pills(*[(f"gates a Cortex phase → {rel}", "y")
+            text += pills(*[(f"gates a Cortex task → {rel}", "y")
                             for rel in gated])
         H.append(_html_task(text, f"/start_dev {r['path']}"))
     if not c["in_flight"]:
