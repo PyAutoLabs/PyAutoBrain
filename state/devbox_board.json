@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 14,
+        "count": 17,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "14/14 code repos: 9 stale branches, 2 stashes, 3 [gone] refs, 0 dirty checkouts"
+        "summary": "14/14 code repos: 12 stale branches, 2 stashes, 3 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
@@ -23,11 +23,11 @@
         "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 19/19 scanned repos"
       },
       {
-        "count": 27,
+        "count": 28,
         "delegate": "/refactor",
         "mode": "docstrings",
         "status": "finding",
-        "summary": "27 adjacent documentation boundaries in 18 files across 3/8 repos; 0 parse errors"
+        "summary": "28 adjacent documentation boundaries in 19 files across 3/8 repos; 0 parse errors"
       },
       {
         "count": 1,
@@ -37,11 +37,11 @@
         "summary": "1 script(s) across 8 repo(s) with LaTeX damaged by string escapes: 2 warned, 1 silent (0 file(s) have ONLY silent damage, which a warning-only sweep would miss); 0 read error(s)"
       },
       {
-        "count": 10,
+        "count": 11,
         "delegate": "/refactor",
         "mode": "refs",
         "status": "finding",
-        "summary": "10 folder-list defects (10 dead references, 0 undocumented folders) in 5 files across 3/8 repos; 292 unresolvable refs skipped"
+        "summary": "11 folder-list defects (11 dead references, 0 undocumented folders) in 6 files across 3/8 repos; 292 unresolvable refs skipped"
       },
       {
         "count": 0,
@@ -102,7 +102,7 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-09-04T15:59:42Z",
+  "ts": "2026-09-07T13:42:34Z",
   "worktrees": [
     {
       "ahead": 0,
