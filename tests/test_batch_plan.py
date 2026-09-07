@@ -134,17 +134,19 @@ def test_lane_detection_reads_the_environment_not_a_flag():
     assert _batch.detect_lane() in ("local-dev", "web-github")
 
 
-def test_only_safe_work_is_dispatched():
+def test_human_required_work_is_never_dispatched():
     """Readiness says the work FITS one run; autonomy says the run may FINISH
-    it. A batch that reads only the first fills a shift with tasks that all
-    stop at the ship checkpoint and come back as questions — which is the
-    failure the epic exists to remove. Found by running the planner against the
-    live backlog and reading what it picked."""
+    it. Under `--auto` a `supervised` run's ship checkpoint resolves to
+    decide-and-flag rather than parking (AUTONOMY.md, "Decide-and-flag",
+    extended 2026-09-07), so it finishes at an open PR and belongs in the pool.
+    Only `human-required` would still stop at the ship checkpoint and come back
+    as a question — which is the failure the epic exists to remove."""
     d = _batch.plan([rec("a.md", autonomy="safe"),
                      rec("b.md", autonomy="supervised"),
                      rec("c.md", autonomy="human-required")], budget=100)
-    assert paths(d) == ["a.md"]
-    assert "would park at ship" in why(d, "b.md")
+    assert sorted(paths(d)) == ["a.md", "b.md"]
+    assert "would park at ship" in why(d, "c.md")
+    assert "human-required" in why(d, "c.md")
 
 
 def test_a_prompt_that_says_it_is_done_is_never_dispatched():

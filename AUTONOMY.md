@@ -29,7 +29,7 @@ Where the dev workflow stops for a human today:
 | Checkpoint | `safe` | `supervised` | `human-required` |
 |------------|--------|--------------|------------------|
 | Plan approval | write plan to the issue, proceed | write plan to the issue, proceed | present + wait |
-| Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere | present + wait |
+| Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere — except under an explicit `--auto` launch, where it resolves to decide-and-flag (below; 2026-09-07) | present + wait |
 | Heart YELLOW | park, unless the reason set was human-acknowledged at launch (see the autonomous-ship gate) | same as `safe` | present + wait |
 | Heart RED | stop, report | stop, report | stop, report — a human may separately invoke the corrective-PR exception (below), which is not an autonomy level |
 | Merge / close | human, always | human, always | human, always |
@@ -236,15 +236,41 @@ otherwise.
   up per the prompt's fallback clause and the task parks as blocked; it never
   becomes a question for the human to answer.
 
-Ship sign-off and merge park the *task*, never bypass the gate —
-checkpoint-and-continue frees the human's session, not the checkpoint.
+An interactive `supervised` run parks at ship sign-off exactly as above —
+the human is one message away, so the round-trip is free. Under an explicit
+`--auto` launch the ship checkpoint instead resolves to **decide-and-flag**
+(next section, extended to it 2026-09-07): the run ships to an open PR and the
+decision is flagged there. Merge stays a human act either way, and no run ever
+bypasses the gate — checkpoint-and-continue frees the human's session, not the
+checkpoint.
 
-### Decide-and-flag (batch launches only) — 2026-08-30
+### Decide-and-flag (`--auto` launches) — 2026-08-30, extended 2026-09-07
 
-Park-and-ask is the right behaviour when a human is one message away. In a shift
-it costs the whole shift: the run stops, the question waits until the slot, and
-the task needs a second batch. So a run under a **batch launch** may, at a
-judgement gate, take the more reversible option and record it instead of parking.
+Park-and-ask is the right behaviour when a human is one message away. Under an
+unattended launch it costs the whole run: the run stops, the question waits until
+the human next comes in, and the task needs a second dispatch. So a run under an
+explicit **`--auto` launch** — a batch launch included — may, at a judgement
+gate, take the more reversible option and record it instead of parking.
+
+**Extended 2026-09-07 to every explicit `--auto` launch, and to the ship
+checkpoint of an effective-`supervised` run.** The human's direction
+(2026-08-31): *"I dont really want these parked at ship judgements, ideally we
+send off a batch and then dont think about it again, the parked thing is an
+annoying middle ground which requires human time."* The argument: every
+autonomous run already ends at PR-open with merge left to the human, so **the PR
+review IS the approval the `supervised` level exists to provide**. A mid-run park
+at ship sign-off is a redundant *second* checkpoint — it costs a GitHub-issue
+round-trip before a PR even exists, and then asks the human for the same
+judgement again at merge. The evidence, 2026-08-31: two supervised-capped
+`--auto` runs took decide-and-flag (PyAutoFit#1554, PyAutoMemory#76) and gave
+exactly one review surface; three took the park branch (PyAutoHands#272,
+PyAutoFit#1552, euclid#47) and each needed a separate human judgement before a PR
+existed. The scope is **explicit `--auto` launches only** — an interactive
+`supervised` run keeps park-and-ask, because there the human is one message away
+and the round-trip is free. `human-required`, `Unattended: never` and
+`Blocked-by:` are unchanged and never run unattended. Every limit below is
+unchanged, **including "never for a `judge`-tier task"**: a `supervised` run that
+reaches a judge-tier gate other than ship sign-off still parks.
 
 **Narrowly**, because the agent deciding is the poorest available judge of its
 own decision's scope. The base rate is measured, not feared: **68 of 332
@@ -276,7 +302,9 @@ choice. The cap, the revert line and the tier exclusion are what keep that cost
 to one bounded item per PR rather than an unmarked scatter.
 
 *Revert condition:* two flagged decisions the human would not have taken retires
-this section; it returns to park-and-ask.
+this section; it returns to park-and-ask. Or one `supervised` `--auto` run
+opening a PR the human would have wanted stopped before it existed — the ship
+checkpoint returns to park-and-ask (2026-09-07).
 
 ## The autonomous-ship gate
 
