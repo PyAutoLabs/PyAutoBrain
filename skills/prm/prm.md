@@ -189,6 +189,55 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
    dashboard's **Pending release** section keeps showing it. `/prm` never
    clears the key — only `/review_release` does, on a release that actually
    published (`PyAutoMind/REFERENCE.md` → "The pending-release chain").
+
+   **3b. Shadow row — tier-`notify` only.** The tier-`notify` auto-merge
+   decision is pre-registered over **40 candidates**, and this close-out is
+   where the window is fed. It used to hang off a batch review slot, which
+   runs only when a batch is launched; close-out happens on every shipped
+   task. Do it only after sub-step 1 proved every branch `MERGED` — the row
+   records what the human *did* with the PR, and before the merge there is
+   nothing to record.
+
+   1. **Tier.** The prompt's declared `Consequence:` header wins; with no
+      header, `bin/pyauto-brain sizing <prompt>`. Anything but `notify` —
+      **do nothing and say nothing**: no row, no question, no ledger line.
+   2. **Gate cell.** Copy it from the task's ship calibration row in
+      `PyAutoMind/autonomy_log.md` — `ship_library` / `ship_workspace` wrote
+      it at PR-open. No such row (a task that never went through ship)? Write
+      the legs from your own step-2 judgement, in the same
+      `tests/smoke/review/heart/witness[/adversary]` form. Never invent a
+      greener gate than the one that ran.
+   3. **Stage.** `2` if an independent-model adversary leg ran on this task,
+      else `1`. Stage 1 and stage 2 are never pooled, so this is not a
+      judgement call: the leg either ran or it did not.
+   4. **The one question.** Ask the human exactly this, and ask nothing else:
+
+      > Merged unchanged, or did you change something substantive first?
+      > (substantive = a change you would have minded finding already merged:
+      > a changed default, a user-visible error message, a removed or weakened
+      > test, a renamed public thing, a wrong docs claim)
+
+      → `merged-unchanged` / `merged-after-substantive-change`. `not-merged`
+      is what gets recorded when `/prm` stopped on a guard (step 6) and never
+      reached the question — never a guess at what the answer would have been.
+   5. **Append**, inside the Mind commit sub-step 4 is about to make:
+
+      ```bash
+      python3 scripts/lifecycle.py shadow-row \
+        --date <merge date> --task "<slug> (<repo>#<pr> …)" --tier notify \
+        --gate "<cell>" --action <action> --stage <1|2> --apply
+      ```
+
+      Without `--apply` it prints the row and the new count line and writes
+      nothing — that is how you check the cells before committing to them.
+      The row then rides the same commit and push as the record and the
+      dashboard; it is never a commit of its own.
+   6. **Name it in the ledger** (sub-step 7): "shadow row appended, count
+      N/40".
+
+   Protocol, power calculation and the **pre-registered decision rule** live in
+   the tier-`notify` protocol prompt (`batch_notify_tier_merge`) — read it
+   before interpreting the table.
 4. **Mind: leave the page true** — the close-out is finished when `dashboard.md`
    stops offering this work, not when the claim is released.
    `dashboard_refresh.yml` heals a stale *render*, never a stale *prompt*, so

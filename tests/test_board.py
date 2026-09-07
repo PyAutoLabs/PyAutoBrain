@@ -970,3 +970,44 @@ def test_a_judgement_cell_becomes_a_chip_sized_label(tmp_path):
     assert "campaign merge authorization" not in page
     # No parenthetical to cut? Then the head is elided, never left full length.
     assert '"pill n">human-authorized merge afte…</span>' in page
+
+
+def test_a_six_column_shadow_row_still_renders(tmp_path):
+    """The ledger grew a second table. `/prm` close-out appends one row per
+    tier-`notify` candidate under `## Shadow window`, and that table has SIX
+    columns (`date | task | tier | gate | human action | stage`) against the
+    calibration table's five.
+
+    The strip's regex reads columns 1, 2, 3 and 5 and skips the rest, so a
+    six-column row lands as tier-in-the-level-chip and human-action-in-the-
+    outcome-chip — which is the same pair of judgements the strip exists to
+    show ("what ran unattended lately and how it ended"), so the regex is left
+    alone. What must not happen is a crash, a half-parsed row, or the gate
+    sentence leaking into a pill; this pins all three.
+    """
+    log = AUTONOMY_LOG + (
+        "\n## Shadow window\n\n"
+        "| date | task | tier | gate (tests/smoke/review/heart/witness"
+        "[/adversary]) | human action | stage |\n"
+        "|------|------|------|------|--------------|-------|\n"
+        "| 2026-08-05 | fifth-task (RepoA#5 / PR#6) | notify "
+        "| tests 12 pass / smoke n/a / review CLEAN / heart GREEN / witness "
+        "holds | merged-unchanged | 1 |\n")
+    stub = _fabricate(tmp_path, _default_fixtures())
+    (tmp_path / "PyAutoMind" / "autonomy_log.md").write_text(log)
+    r = _run(["--json"], tmp_path, stub)
+    assert r.returncode == 0, r.stderr
+    rows = json.loads(r.stdout)["autonomy"]
+
+    assert rows[-1] == {"date": "2026-08-05",
+                        "task": "fifth-task (RepoA#5 / PR#6)",
+                        "level": "notify",
+                        "outcome": "merged-unchanged"}
+    # The calibration rows above it are unaffected — one table did not eat the
+    # other.
+    assert [a["task"] for a in rows[:-1]] == ["first-task (#1)",
+                                              "second-task (#2)"]
+    # The gate cell is a sentence, not a chip: it stays in the log.
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert "witness holds" not in page
+    assert '<span class="pill n">merged-unchanged</span>' in page
