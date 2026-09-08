@@ -21,6 +21,7 @@
 #   refs  -> /refactor (folder-list drift in workspace prose: dead refs + undocumented folders)
 #   optdeps -> /refactor (smoke-listed scripts missing an optional-dep skip guard)
 #   extras  -> /bug (optional deps a library declares that the smoke CI leg never installs)
+#   ci      -> /ci_speedup (the slowest smoke scripts / unit tests / gates, read off the Heart board)
 # The three Heart skills are read-only observation skills — measurement lives in
 # Heart; hygiene routes and prioritises. perf's import timing runs in a
 # SUBPROCESS, so the conductor itself never imports the science/JAX stack.
@@ -29,6 +30,7 @@
 #   hygiene.sh                 # pre-scan across modes -> ranked worklist (default)
 #   hygiene.sh perf            # import-cost timing (subprocess) -> /refactor + Heart legs
 #   hygiene.sh perf --profile <script>  # cProfile a script, rank NON-likelihood hotspots -> /refactor
+#   hygiene.sh ci [--top N] [--lane scripts|tests|gates|all]  # slowest parts of CI from the Heart board -> /ci_speedup
 #   hygiene.sh tidy            # git debris pre-scan -> condemn into condemned.md (async, no per-item gate)
 #   hygiene.sh sweep           # void condemned.md entries past sweep-after -> pyauto-gut void (repo_cleanup gates)
 #   hygiene.sh noise           # CLI-noise route -> /cli_noise_clean
@@ -445,17 +447,20 @@ prescan() {
 
 # --- Arg parse. ----------------------------------------------------------------
 
-mode="default"; json=0; profile_script=""; expect_script=0
+mode="default"; json=0; profile_script=""; expect_script=0; ci_args=()
 for arg in "$@"; do
   if [[ "$expect_script" -eq 1 ]]; then profile_script="$arg"; expect_script=0; continue; fi
+  # ci takes its own flags (--top N, --lane L, --board SRC) — passed through to
+  # the helper verbatim, so they must not fall into the unknown-argument branch.
+  if [[ "$mode" == "ci" && "$arg" != "--json" ]]; then ci_args+=("$arg"); continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|escapes|refs|optdeps|extras|config|artifacts|packaging) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|escapes|refs|optdeps|extras|config|artifacts|packaging|ci) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
     --profile=*) mode="perf"; profile_script="${arg#*=}" ;;
     -h|--help|help) mode="help" ;;
-    *) echo "hygiene: unknown argument '$arg' (modes: ${MODE_ORDER[*]}, --json, perf --profile <script>)" >&2; exit 2 ;;
+    *) echo "hygiene: unknown argument '$arg' (modes: ${MODE_ORDER[*]} ci, --json, perf --profile <script>, ci --top N --lane L)" >&2; exit 2 ;;
   esac
 done
 if [[ "$expect_script" -eq 1 ]]; then
@@ -502,6 +507,23 @@ run_profile() {
 
 if [[ -n "$profile_script" ]]; then
   run_profile "$profile_script"; exit $?
+fi
+
+# ci: the slowest parts of CI, read off the Heart board's published
+# `performance` block (smoke-script rows, unit-test rows, gate wall-clocks) and
+# ranked by the stdlib helper — one candidate per script (python legs folded),
+# each carrying its evidence and, when the script is checked out under the
+# scan root, the levers read from its text. Measurement stays in Heart; this
+# mode ranks and routes to /ci_speedup, which drives the fix through the dev
+# flow. Network (Pages) or a local Heart checkout — never the default scan.
+run_ci() {
+  local -a extra=("$@")
+  if [[ "$json" -eq 1 ]]; then extra+=(--json); fi
+  python3 "$HERE/_hygiene_ci.py" --scripts-root "$ROOT" "${extra[@]}"
+}
+
+if [[ "$mode" == "ci" ]]; then
+  run_ci "${ci_args[@]}"; exit $?
 fi
 
 # --- PyAutoGut drive seam: tidy (condemn) + sweep (void). ----------------------

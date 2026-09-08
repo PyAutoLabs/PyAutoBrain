@@ -71,6 +71,7 @@ names — and they keep reporting even when the repo-array modes are `unscanned`
 
 | Mode | Pre-scan (kind) | Delegates to |
 |------|-----------------|--------------|
+| `ci` | the slowest parts of CI, read off the Heart board's published `performance` block — smoke-script rows (python legs folded; the slowest leg is the cost, since the gate waits for it), the slowest unit tests, and every gate's wall-clock median (**timing**). Each item carries its evidence (seconds, share of its leg, `cache_jax` state, run URL) and, when the script is checked out under the scan root, the *levers* read from its text: `env_knob` (an `os.environ.get` sizing knob → a `profile_smoke.yaml` `set:`), `simulates`, `jax_jit`, `full_datasets`, `real_search`, `subprocess`, `plots`. Reads Pages, `HYGIENE_HEART_BOARD`, or a local Heart checkout; an unreachable board is exit 3, never a clean zero. On demand only — never the default scan | `/ci_speedup` (executes one item through `/start_dev` → `ship_*`; a *slowdown* row is `/bug`'s, a hang is the board's kill-timer prompt) |
 | `perf` | dev-loop timing — prefers Heart's tracked timing legs when present (`import_time`, `unit_test_timing`, `workspace_testmode_timing`), else times `import <pkg>` per library in a **subprocess** (**timing**) | `/refactor` / `/bug` (+ Heart timing legs) |
 | `tidy` | git debris — stale branches, stashes, `[gone]` refs, dirty checkouts (**debris**) | **condemn** → files candidates into `condemned.md` async (PyAutoGut archives the fragile forms); no synchronous per-item gate |
 | `sweep` | reads `condemned.md`, classifies entries by their transit clock (**due** / pending / undated) | `pyauto-gut void` for past-due entries, behind the existing `repo_cleanup` safety gates |
@@ -92,6 +93,7 @@ names — and they keep reporting even when the repo-array modes are `unscanned`
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
 pyauto-brain hygiene perf         # import cost (subprocess) → /refactor + Heart legs
 pyauto-brain hygiene perf --profile <script>   # cProfile a normal-mode run → rank NON-likelihood hotspots → /refactor
+pyauto-brain hygiene ci [--top N] [--lane scripts|tests|gates|all]   # slowest parts of CI from the Heart board → /ci_speedup
 pyauto-brain hygiene tidy         # git debris → condemn into condemned.md (async, no per-item gate)
 pyauto-brain hygiene sweep        # void condemned.md entries past sweep-after → pyauto-gut void (repo_cleanup gates)
 pyauto-brain hygiene noise        # CLI noise → /cli_noise_clean
@@ -117,6 +119,16 @@ to time the science libs), so the conductor itself never imports the JAX stack;
 the slow-test / slow-script signal is read from Heart, not re-run. A *standing*
 Heart `import_time` (or `cli_noise`) leg — promoting the import pre-scan to a
 tracked Heart signal — is a deferred optional follow-up (a PyAutoHeart change).
+
+**`ci` (CI cost).** The Heart measures CI and publishes it (`board.json`
+`performance`: `scripts.rows`, `unit.tests`, `gates`); this mode is the
+conductor's read of that surface, and `_hygiene_ci.py` is the stdlib helper
+behind it. It ranks, folds the python legs of a script into one candidate,
+attaches the levers it can read from the script file, and hands each item to
+`/ci_speedup` as a 📋. It never re-times CI and never edits a script — "measure
+in Heart, act in hygiene", the same split as `perf`. The board's own caveats
+travel with the item: a `cache_jax: miss` leg paid every compile, a cold
+dataset cache paid the simulator inside the script's timing.
 
 **`perf --profile <script>` (function profiling).** An on-demand action: run a
 **normal-mode** script under `cProfile` in a subprocess (`HYGIENE_PYTHON`), then
