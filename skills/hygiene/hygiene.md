@@ -9,9 +9,11 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 ## Do
 
-1. Run `bin/pyauto-brain hygiene [perf | tidy | noise | deps | docs | crlf |
+1. Run `bin/pyauto-brain hygiene [perf | ci | tidy | noise | deps | docs | crlf |
    docstrings | escapes | refs | optdeps | extras | config | artifacts | packaging]` (no arg = pre-scan across modes → a ranked worklist;
-   perf's import timing is deferred there). This is a **dry run** — each mode
+   perf's import timing and `ci` are deferred there — `ci` reads the Heart
+   board's published CI timings and ranks the slowest smoke scripts, unit
+   tests and gates, one 📋 each for `/ci_speedup`). This is a **dry run** — each mode
    does a cheap read-only pre-scan and emits a `HygieneDecision` naming the
    skill to run for the full audit. Nothing is executed or mutated. (`crlf` =
    executable scripts w/ CRLF that break on HPC — library `.py` CRLF reported as

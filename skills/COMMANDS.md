@@ -124,8 +124,17 @@ audit-first and confirmation-gated:
   *spawned* a still-open issue. The Brain board surfaces the open-issue count
   and points here; the audit itself stays this door's job.
 
-These two are complements, not overlaps: `/repo_cleanup` never touches issues,
-`/issue_cleanup` never touches git. Neither handles **external** users' issues —
+- **`/ci_speedup`** — the **CI clock**: the slowest smoke scripts, unit tests
+  and workflow gates, read off the Heart board's published timings by the
+  Hygiene Agent's `ci` mode (`pyauto-brain hygiene ci`), then fixed one item
+  at a time through `/start_dev` → `ship_*` — a smoke-profile override, an
+  in-script reduction, a cache or workflow change — with the number re-timed
+  under the smoke profile before it ships. Never demotes or skips a script to
+  get the number down (a coverage decision, a human's), never touches the
+  likelihood compute (`/profiling`'s), and a *slowdown* row is `/bug`'s.
+
+These are complements, not overlaps: `/repo_cleanup` never touches issues,
+`/issue_cleanup` never touches git, `/ci_speedup` touches neither. Neither handles **external** users' issues —
 that is `/community`, whose drafts stay human-approved.
 
 Codex skills also expose the remaining public CLI agents directly: the `clone`
