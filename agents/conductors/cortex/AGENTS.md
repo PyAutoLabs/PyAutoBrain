@@ -58,6 +58,9 @@ Mind's: a session holding one organ and not the other still works.
 - **No path is named in this code.** Science projects live outside the
   workspace; the one place carrying such a path is the Cortex's own
   `projects.yaml`, and every path the board prints is read from a row of it.
+- **The assistant is a name, not a page.** `assistant` is a `projects.yaml`
+  field rendered by name into the work briefs; the conductor never resolves
+  it on disk and never reads an assistant page.
 
 ## The board
 

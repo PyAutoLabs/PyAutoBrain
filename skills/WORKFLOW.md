@@ -164,6 +164,20 @@ asking for the minor version, printing the summary.
 - **Judgment tier after return:** interpret failures, decide routing, update
   registries, talk to the user.
 
+**Cortex project work.** Science projects delegate the same way, and `/cortex`
+writes the prompt for you: every next-task, rerun and planned payload of a
+project whose `projects.yaml` row declares an `assistant:` carries a **work
+brief** under it. Paste that brief verbatim into the execution-tier subagent —
+it is the whole prompt, and it names the assistant the subagent enters through
+(its `AGENTS.md` first, then the project's `wiki/project/` state and journal).
+The subagent **finishes** by writing today's journal entry and rewriting
+`wiki/project/state.md`, and **returns two parts**: the outcome against the
+task's `## Witness`, and assistant drift — any skill or wiki page that was
+wrong, missing or stale. The judgment tier files each drift item through
+`/intake` against the assistant repo; nobody edits the assistant from the
+Cortex chat. A brief that is empty means the row says `assistant: none`. The
+heartbeat below applies whenever the run is a long one.
+
 **Progress heartbeat (delegations expected to run > ~15 min).** Subagents have
 no clock, so a wall-clock cadence cannot be promised; milestones can. The
 judgment tier passes a progress-file path (under the session scratchpad, e.g.
