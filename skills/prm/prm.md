@@ -236,7 +236,8 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
       N/40".
 
    Protocol, power calculation and the **pre-registered decision rule** live in
-   the tier-`notify` protocol prompt (`batch_notify_tier_merge`) — read it
+   the tier-`notify` protocol prompt, folded under `## Original prompt` in
+   `PyAutoMind/complete/2026/09/prm-shadow-row-notify-tier.md` — read it
    before interpreting the table.
 4. **Mind: leave the page true** — the close-out is finished when `dashboard.md`
    stops offering this work, not when the claim is released.
