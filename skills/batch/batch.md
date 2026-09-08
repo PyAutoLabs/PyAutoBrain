@@ -31,10 +31,12 @@ task they named:
 
 - **taken** — with its tier and review-minutes;
 - **rejected, and why** — in the planner's own words. The reasons that come up
-  most: `autonomy supervised — would park at ship` (it will stop at the ship
-  checkpoint and come back as a question, which is the failure this workflow
-  exists to remove), `Status: says the work is already done`, `epic <slug> phase
-  N is not next`, `<repo> already claimed this shift`, `would exceed the budget`.
+  most: `autonomy human-required — would park at ship` (it cannot run unattended
+  at all — it would stop at the ship checkpoint and come back as a question,
+  which is the failure this workflow exists to remove; `supervised` no longer
+  parks there, see AUTONOMY.md "Decide-and-flag"), `Status: says the work is
+  already done`, `epic <slug> phase N is not next`, `<repo> already claimed this
+  shift`, `would exceed the budget`.
 
 If everything they named is rejected, **say so plainly and offer the planner's
 own proposal instead** — never hand back a batch they did not ask for as though

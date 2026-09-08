@@ -272,8 +272,11 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     pool = []
     for r in records:
         # Readiness says the work FITS one run; autonomy says the run may
-        # FINISH it. A batch that ignores the second fills a shift with tasks
-        # that all stop at the ship checkpoint and come back as questions —
+        # FINISH it. Under `--auto` a `supervised` run's ship checkpoint
+        # resolves to decide-and-flag (AUTONOMY.md, "Decide-and-flag",
+        # extended 2026-09-07): it ships to an open PR rather than parking, so
+        # it FINISHES and belongs in the pool. Only `human-required` would
+        # still stop at the ship checkpoint and come back as a question —
         # which is the failure the whole epic exists to remove.
         if r.get("done"):
             rejected.append((r["path"], "Status: says the work is already done"))
@@ -281,7 +284,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
                 r["epic"], float("inf")):
             rejected.append((r["path"],
                              f"epic {r['epic']} phase {r.get('phase')} is not next"))
-        elif r["autonomy"] != "safe":
+        elif r["autonomy"] == "human-required":
             rejected.append((r["path"],
                              f"autonomy {r['autonomy']} — would park at ship"))
         elif r["unattended"] != "ready":
@@ -387,7 +390,14 @@ def emit(d: dict) -> None:
             cost = 0 if r["consequence"] in CHEAP_TIERS else r["review_minutes"]
             rank = r.get("queue_rank", queued)
             mark = f"q{rank + 1}" if rank < queued else "  "
-            print(f"  {mark:<3}{cost:>3} min  {r['consequence']:<7} {r['path']}")
+            # A `supervised` member ships under decide-and-flag rather than
+            # parking (AUTONOMY.md 2026-09-07); say so on the line, so the
+            # human approving the batch sees which members carry a flagged
+            # decision at review.
+            note = ("  (supervised — decide-and-flag at ship)"
+                    if r.get("autonomy") == "supervised" else "")
+            print(f"  {mark:<3}{cost:>3} min  {r['consequence']:<7} "
+                  f"{r['path']}{note}")
             if not r["witness"]:
                 print("           (no witness — reviewed as `judge`)")
     elif d["effective_budget"] == 0:
