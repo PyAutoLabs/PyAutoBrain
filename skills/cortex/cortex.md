@@ -72,6 +72,27 @@ a task file by hand: every task edit is `python3 scripts/cortex.py move`,
 every verdict is `python3 scripts/cortex.py rule`, both in the PyAutoCortex
 checkout, and the ruling body is the human's words verbatim.
 
+### 4. Work on a project
+
+Every next-task, rerun and planned prompt of a project that declares an
+`assistant:` in `projects.yaml` carries a **work brief** under it — the entry
+protocol for the subagent that does the work.
+
+- **Paste it verbatim into an execution-tier subagent**, one rung down the
+  ladder in [`../WORKFLOW.md`](../WORKFLOW.md) (from a Fable session,
+  `Agent(model="opus", …)`). The brief is the prompt; the project is never
+  worked in the Cortex chat.
+- **The return is two parts**: the outcome against the task's `## Witness`,
+  and **assistant drift** — every skill or wiki page of the assistant that was
+  wrong, missing or stale.
+- **File each drift item through `/intake`** against the assistant repo. The
+  assistant is never edited from the Cortex chat.
+- **An empty brief means `assistant: none`** — the project routes through no
+  assistant and the work is plain workspace work.
+
+The check-in itself and the ruling prompts carry no brief and load no
+assistant page.
+
 ## The push rule
 
 `--push` is allowed only when **`gh auth status` succeeds** *and* **the Cortex
@@ -113,6 +134,8 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
   `checkpoints` table (keyed by run directory) or a `runs` table (by job id).
 - **The door runs once and ends.** No timer, no subscription, no cron, no
   loop — you check in, you report, you stop.
+- **The door names the assistant, never reads it.** No assistant page is
+  loaded in the Cortex chat; the assistant is the subagent's entry protocol.
 - **`rulings/` is append-only.** Never edit or delete one.
 - **Retiring ends a project, it does not erase one.** `cortex.py retire`
   changes a `projects.yaml` row's `status:` and `note:` and nothing else:
