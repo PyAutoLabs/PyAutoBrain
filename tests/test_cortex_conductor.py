@@ -830,7 +830,7 @@ def test_a_project_with_no_submit_verb_says_so_rather_than_inventing_one(skeleto
 
 
 # --- the assistant entry protocol ------------------------------------------
-BRIEF = "Enter through the assistant `autolens_assistant`"
+BRIEF = "Enter through the assistant `example_assistant`"
 
 
 def _with_assistant(c: dict, value: str) -> dict:
@@ -843,12 +843,12 @@ def test_the_work_shaped_prompts_carry_the_assistant_entry_brief(skeleton):
     into subagent briefs — the same three chips on both twins, because
     `task_chips` is the one funnel."""
     c = _with_assistant(_synthetic(_row("awaiting-ruling", "four")),
-                        "autolens_assistant")
+                        "example_assistant")
     for payload in (_cortex._next_task_payload(c["tasks"][0], c),
                     _cortex._rerun_payload(c["tasks"][0], c),
                     _cortex._planned_payload(c["tasks"][0], c["projects"])):
         assert BRIEF in payload
-        assert "AUTOLENS_ASSISTANT" in payload
+        assert "EXAMPLE_ASSISTANT" in payload
         assert "cd /s/proj && source activate.sh" in payload
         assert "Work brief — proj / four" in payload
         assert "tasks/proj/four.md — its ## Witness is the contract" in payload
@@ -858,7 +858,7 @@ def test_the_work_shaped_prompts_carry_the_assistant_entry_brief(skeleton):
         "the results are good — accept and open the next task"]
     assert BRIEF in labelled["run it again"]
     planned = _with_assistant(_synthetic(_row("planned", "five")),
-                              "autolens_assistant")
+                              "example_assistant")
     assert BRIEF in dict(_cortex.task_chips(planned["tasks"][0],
                                             planned))["open it"]
 
@@ -881,7 +881,7 @@ def test_the_ruling_and_checkin_prompts_name_no_assistant(skeleton):
     """The door and the verdict are assistant-free by ruling: the assistant is
     the execution subagent's entry protocol, not part of checking in."""
     c = _with_assistant(_synthetic(_row("awaiting-ruling", "four")),
-                        "autolens_assistant")
+                        "example_assistant")
     assert "assistant" not in _cortex._ruling_payload(c["tasks"][0])
     assert "assistant" not in _cortex._checkin_payload({"checkin": "never"})
 

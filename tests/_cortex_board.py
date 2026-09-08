@@ -85,7 +85,7 @@ subhalo:
   sync_cli: hpc/sync
   sync_verbs: [pull, submit, jobs, tail]
   ledger: wiki/project/state.md
-  assistant: autolens_assistant
+  assistant: example_assistant
   witness_file: results/**/*.json
   partition: ral
   status: active
