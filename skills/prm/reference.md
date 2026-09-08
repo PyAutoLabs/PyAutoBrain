@@ -114,6 +114,46 @@ only for **library** repos. `--thaw "<why>"` merges anyway and appends the
 override row to `PyAutoMind/autonomy_log.md` (`## Freeze overrides`). An
 expired flag reads as clear, so a forgotten `--set` never blocks anyone.
 
+## Shadow row (tier-`notify`)
+
+The other row `/prm` appends to `PyAutoMind/autonomy_log.md`, and the only one
+that is routine: one per tier-`notify` candidate, under `## Shadow window`
+(prm.md step 5.3b). The window is the pre-registered evidence base for the
+question "may an agent ever merge its own low-consequence work?", counted to
+**40** candidates rather than run to a date.
+
+```
+| date | task | tier | gate (tests/smoke/review/heart/witness[/adversary]) | human action | stage |
+```
+
+| cell | where it comes from |
+|------|---------------------|
+| `date` | the merge date — when the PR actually went in, not when `/prm` ran |
+| `task` | the slug plus the PR refs, e.g. `my-task (PyAutoBrain#364 / PR#365)` |
+| `tier` | `notify`, and only `notify` — the prompt's declared `Consequence:` header wins over `bin/pyauto-brain sizing <prompt>` |
+| `gate` | copied verbatim from the task's ship calibration row (written at PR-open by `ship_library` / `ship_workspace`); absent → the legs from the `/prm` step-2 judgement, same form |
+| `human action` | `merged-unchanged` / `merged-after-substantive-change` / `not-merged` — nothing else |
+| `stage` | `2` if an independent-model adversary leg ran, else `1`; never pooled |
+
+`not-merged` is for a close-out that stopped on a guard before the question was
+asked, never a guess at the answer. **Append only after every branch reads
+`MERGED`** (close-out sub-step 1): the row's subject is what the human did with
+the PR, so before the merge there is nothing to record.
+
+`python3 scripts/lifecycle.py shadow-row … --apply` writes the row and rewrites
+the section's `Count toward 40:` line from the table; without `--apply` it
+prints both and writes nothing. The row rides the close-out's existing Mind
+commit and push — never its own.
+
+**Substantive** is canonical in `autonomy_log.md`, which fixed it in advance —
+a change the human would have minded finding already merged: a changed default,
+a user-visible error message, a removed or weakened test, a renamed public
+thing, a wrong docs claim. Typos, wording, formatting and comment polish are
+not. It is restated in the question `/prm` asks (prm.md step 5.3b) so the human
+hears the definition at the moment they answer; on any difference between the
+two wordings the ledger wins, and the fix is to re-copy it, never to reword a
+pre-registered rule in a skill.
+
 ## The close-out
 
 ### 1. Prove every branch merged (before recording anything)
