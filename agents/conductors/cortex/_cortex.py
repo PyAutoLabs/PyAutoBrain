@@ -1637,35 +1637,89 @@ def _under(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
-def where_paths(mod, tk, roots: list[Path]) -> list[Path]:
-    """The task's own `## Where to look` bullets, intersected with the roots.
+#: A bullet marks its paths with backticks and leads with a label the reader
+#: needs and the scorer does not — "`euclid_dr1_prelim` (project row):
+#: `output_ordered_witness/run_0`" — so the first token is never the path.
+_BACKTICK_RE = re.compile(r"`([^`]+)`")
 
-    A task names where its results are; that is the first place to look. A
-    bullet pointing outside every root is not this project's tree (a RAL path,
-    say) and is dropped rather than followed.
+
+def _path_tokens(bullet: str) -> list[str]:
+    """Every path-like token in one bullet, in the order it reads.
+
+    Each backticked span, then any bare word carrying a `/`. A label caught
+    this way costs one `exists()` and is dropped; reading only the first
+    token, as this once did, cost every real bullet.
     """
-    out = []
-    for bullet in _where_bullets(mod, tk):
-        token = bullet.split()[0].strip("`,.")
-        if not token:
+    spans = [m.group(1) for m in _BACKTICK_RE.finditer(bullet)]
+    bare = [w for w in _BACKTICK_RE.sub(" ", bullet).split() if "/" in w]
+    out: list[str] = []
+    for raw in spans + bare:
+        token = raw.strip().rstrip(".,;:")
+        if not token or " " in token or "://" in token:
             continue
-        p = Path(token)
-        if p.is_absolute() and any(_under(p, r) for r in roots) and p.exists():
-            out.append(p)
+        if ".." in Path(token).parts:      # no climbing out of a root
+            continue
+        if token not in out:
+            out.append(token)
     return out
 
 
+def where_paths(mod, tk, roots: list[Path]) -> list[Path]:
+    """The task's own `## Where to look` bullets, resolved against the roots.
+
+    A task names where its results are; that is the first place to look. It
+    names them *relative to the project root* — `output_ordered_witness/…`,
+    the custom `PYAUTO_OUTPUT_DIR` a run was pointed at — so each token is
+    tried under every root. An absolute one is kept only if it lands inside a
+    root: a bullet pointing outside every root is not this project's tree (a
+    RAL path, say) and is not followed.
+    """
+    out: list[Path] = []
+    for bullet in _where_bullets(mod, tk):
+        for token in _path_tokens(bullet):
+            p = Path(token).expanduser()
+            cands = (([p] if any(_under(p, r) for r in roots) else [])
+                     if p.is_absolute() else [r / p for r in roots])
+            for cand in cands:
+                if cand.exists() and cand not in out:
+                    out.append(cand)
+    return out
+
+
+#: Which of the three things `run_artifacts` scored: the task's own `## Where
+#: to look` paths, the newest run under `output/` because the task named no
+#: path at all, or nothing — because the paths it named are not on this laptop.
+WHERE, FALLBACK, UNRESOLVED = "where", "fallback", "unresolved"
+
+
 def run_artifacts(roots: list[Path], where: list[Path],
-                  since: _dt.datetime) -> tuple:
-    """`(run_dir, zip_path)` — where this run's `search.summary` lives.
+                  since: _dt.datetime, declared: bool = False) -> tuple:
+    """`(run_dir, zip_path, source)` — where this run's `search.summary` lives.
 
     The zip is authoritative when both exist: seven of the subhalo project's
     extracted run dirs are stale partial extractions, and reading the wall
     clock out of one of those reports a run that never finished as short.
+
+    A task that *names* its paths and whose paths are not here has **no**
+    observable run. Falling back to the newest thing under `output/` there
+    scores it against a stranger's run and reports that stranger's numbers as
+    its own — eight of nine tasks came back FAILED on 2026-09-09 and none was
+    a failed run. `source` is how the caller says which of the three happened,
+    so a fallback run can never be printed as the task's own.
     """
-    bases = list(where) or [r / "output" for r in roots if (r / "output").is_dir()]
+    if where:
+        bases, source = list(where), WHERE
+    elif declared:
+        return None, None, UNRESOLVED
+    else:
+        bases = [r / "output" for r in roots if (r / "output").is_dir()]
+        source = FALLBACK
     seen: dict[Path, Path | None] = {}
     for base in bases:
+        if base.is_file():                 # a bullet may name the zip itself
+            if base.suffix == ".zip":
+                seen[base.with_suffix("")] = base
+            continue
         if (base / SUMMARY_NAME).is_file() or (base / ".completed").exists():
             seen.setdefault(base, None)
         try:
@@ -1676,12 +1730,12 @@ def run_artifacts(roots: list[Path], where: list[Path],
         except OSError:
             continue
     if not seen:
-        return None, None
+        return None, None, source
     scored = [(max(_mtime(d), _mtime(z) if z else _dt.datetime.min), d, z)
               for d, z in seen.items()]
     fresh = [row for row in scored if row[0] >= since]
     best = max(fresh or scored, key=lambda row: (row[0], str(row[1])))
-    return best[1], best[2]
+    return best[1], best[2], source
 
 
 def summary_minutes(run_dir: Path | None, zip_path: Path | None) -> tuple:
@@ -1784,7 +1838,7 @@ def leg_err(errs: list[Path]) -> tuple:
 
 
 def leg_wall(outs: list[Path], run_dir, zip_path, budget_minutes,
-             budget: str) -> tuple:
+             budget: str, fallback: bool = False) -> tuple:
     minutes, raw, source = None, "", ""
     for path in outs:
         text = _read(path)
@@ -1799,7 +1853,11 @@ def leg_wall(outs: list[Path], run_dir, zip_path, budget_minutes,
                 raw, source = _wall(minutes), path.name
                 break
     if minutes is None:
+        # Only this branch reads the run dir, so only this one can be reading
+        # a run the task never claimed.
         minutes, raw, source = summary_minutes(run_dir, zip_path)
+        if minutes is not None and fallback:
+            source += " — a fallback run, not this task's own"
     if minutes is None:
         return (UNOBSERVABLE,
                 "no `.out` ending `Finished.` and no `search.summary` — "
@@ -1925,7 +1983,9 @@ def score_task(mod, tk, projects: dict) -> dict:
     logs = find_logs(roots, stems)
     since = _since(tk)
     where = where_paths(mod, tk, roots)
-    run_dir, zip_path = run_artifacts(roots, where, since)
+    declared = [tok for b in _where_bullets(mod, tk) for tok in _path_tokens(b)]
+    run_dir, zip_path, run_source = run_artifacts(roots, where, since,
+                                                 declared=bool(declared))
     pattern = (row.get("witness_file") or "").strip()
     hits = witness_matches(roots, pattern, since,
                            tokens={r.stem for r in tk.runs}
@@ -1933,7 +1993,8 @@ def score_task(mod, tk, projects: dict) -> dict:
     budget = tk.get("Budget")
     legs = {
         "err": leg_err(logs["err"]),
-        "wall": leg_wall(logs["out"], run_dir, zip_path, _mins(budget), budget),
+        "wall": leg_wall(logs["out"], run_dir, zip_path, _mins(budget), budget,
+                         fallback=run_source == FALLBACK),
         "version": leg_version(hits),
         "checkpoint": leg_checkpoint(pull_manifest(roots), roots, run_dir, tk),
         "resume": leg_resume(logs["out"]),
@@ -1955,6 +2016,8 @@ def score_task(mod, tk, projects: dict) -> dict:
         "logs": logs,
         "run_dir": run_dir,
         "zip": zip_path,
+        "run_source": run_source,
+        "declared_where": declared,
         "witness_hits": hits,
         "readout": _readout(hits),
         "pulled_to": pulled_to,
@@ -2008,9 +2071,18 @@ def member_block(mod, s: dict) -> list[str]:
     L += ([f"- [{ref.split('#')[0]}] {ref}" for ref in refs] if refs
           else ["_(none yet — add them as you rule)_"])
     L += ["", "**Where to look yourself**", ""]
+    if s["run_source"] == UNRESOLVED:
+        named = ", ".join(f"`{tok}`" for tok in s["declared_where"])
+        L.append(f"- run dir: **none** — this task's `## Where to look` names "
+                 f"{named}, which is under none of its project roots. Nothing "
+                 "was scored in its place.")
     for label, value in (("run dir", s["run_dir"]), ("zip", s["zip"])):
         if value is not None:
-            L.append(f"- {label}: `{value}`")
+            mark = (" — **fallback**: this task names no path, so this is the "
+                    "newest run under `output/`, not necessarily its own"
+                    if label == "run dir" and s["run_source"] == FALLBACK
+                    else "")
+            L.append(f"- {label}: `{value}`{mark}")
     for kind in ("out", "err"):
         for path in s["logs"][kind][:2]:
             L.append(f"- `.{kind}`: `{path}`")
@@ -2486,10 +2558,17 @@ def project_digest(key: str, row: dict, c: dict, scored_by_rel: dict,
             if s:
                 legs = ", ".join(f"{k} {s['legs'][k][0]}" for k in LEGS)
                 L.append(f"  - legs: {legs}")
+                if s["run_source"] == UNRESOLVED:
+                    L.append("  - run dir: none — the paths this task names "
+                             "are under none of its project roots; nothing "
+                             "was scored in their place")
                 for label, value in (("run dir", s["run_dir"]),
                                      ("zip", s["zip"])):
                     if value is not None:
-                        L.append(f"  - {label}: `{value}`")
+                        mark = (" — fallback, not this task's own run"
+                                if label == "run dir"
+                                and s["run_source"] == FALLBACK else "")
+                        L.append(f"  - {label}: `{value}`{mark}")
                 for kind in ("out", "err"):
                     for path in s["logs"][kind][:1]:
                         L.append(f"  - `.{kind}`: `{path}`")
