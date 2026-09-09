@@ -998,6 +998,72 @@ def test_the_two_legs_the_laptop_cannot_see_are_unobservable_not_failed(board):
     assert s["health"] == "SUSPECT"
 
 
+# --- which run is being scored ---------------------------------------------
+# A task names its own results in `## Where to look`. Until 2026-09-09 the
+# scorer read only the first token of each bullet and kept it only if it was
+# absolute — so every real bullet (relative, and led by a project-row label)
+# was dropped, and the scorer silently fell back to the newest run anywhere
+# under `output/`. Eight of nine live tasks came back FAILED that morning and
+# none of them was a failed run.
+def _rewrite_where(board_, rel: str, *bullets: str) -> Path:
+    """Replace one task's `## Where to look` bullets. Returns the task file."""
+    path = board_["root"] / rel
+    body = "".join(f"- {b}\n" for b in bullets)
+    path.write_text(re.sub(r"## Where to look\n\n(?:- .*\n)+",
+                           f"## Where to look\n\n{body}",
+                           path.read_text(encoding="utf-8"), count=1),
+                    encoding="utf-8")
+    return path
+
+
+def test_a_relative_where_to_look_bullet_still_finds_the_run(board):
+    """The shape every task actually writes: a project-row label, then the
+    path — relative to the project root, because that is where the run wrote
+    it. Reading only `bullet.split()[0]`, and only when absolute, found
+    neither half."""
+    _rewrite_where(board, "tasks/example/11_healthy.md",
+                   "`example` (project row): `output/searches/bright`")
+    s = _score(board)["11_healthy"]
+    assert s["run_source"] == _cortex.WHERE
+    assert s["run_dir"] == board["mirror"] / "output/searches/bright/aaaa1111"
+    assert s["legs"]["wall"][0] == _cortex.PASS
+    assert s["health"] == "HEALTHY"
+
+
+def test_declared_paths_that_are_not_here_are_unobservable_not_failed(board):
+    """A run written to a custom `PYAUTO_OUTPUT_DIR` that was never pulled is
+    a run this laptop cannot see. Scoring the newest thing under `output/` in
+    its place — here the stale `cccc3333` extraction — reports a stranger's
+    wall clock as a confident PASS about this task; the door's own contract is
+    that UNOBSERVABLE is not FAIL, and it is not PASS either."""
+    _rewrite_where(board, "tasks/subhalo/01_partial.md",
+                   "`subhalo` (project row): `output_ordered_witness/run_0`")
+    s = _score(board)["01_partial"]
+    assert s["run_source"] == _cortex.UNRESOLVED
+    assert s["run_dir"] is None and s["zip"] is None
+    assert s["legs"]["wall"][0] == _cortex.UNOBSERVABLE
+    assert s["health"] == "SUSPECT", "a run we cannot see is not a failed run"
+    block = _collect(board["root"]).stdout.split("## 01_partial")[1] \
+        .split("\n## ")[0]
+    assert "output_ordered_witness/run_0" in block
+    assert "run dir: **none**" in block
+    assert "cccc3333" not in block, "no other run scored in its place"
+
+
+def test_a_fallback_run_says_it_is_a_fallback(board):
+    """A task that names no path at all still gets the old behaviour — but it
+    is labelled, in the leg that reads it and in the block the human reads, so
+    a wall clock from someone else's run is never printed as this task's."""
+    _rewrite_where(board, "tasks/subhalo/01_partial.md")
+    s = _score(board)["01_partial"]
+    assert s["run_source"] == _cortex.FALLBACK
+    assert s["run_dir"] == board["sub"] / "output/lens_a/cccc3333"
+    assert s["legs"]["wall"][0] == _cortex.PASS
+    assert "fallback run, not this task's own" in s["legs"]["wall"][1]
+    block = _collect(board["root"]).stdout.split("## 01_partial")[1]
+    assert "**fallback**" in block
+
+
 def test_the_manifests_checkpoints_table_is_keyed_by_the_run_directory(board):
     """The third lookup (PyAutoCortex decision 51). The subhalo-style member's
     pull carries no job id, so `runs` is empty and the only name both sides can
