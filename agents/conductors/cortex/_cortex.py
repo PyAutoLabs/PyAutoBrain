@@ -2145,11 +2145,16 @@ def apply_ops(root: Path, mod, scored: list) -> list[str]:
     return notes
 
 
-def run_pull(projects: dict, keys: list[str]) -> list[str]:
+def run_pull(projects: dict, keys: list[str], roots_by_key=None) -> list[str]:
     """Run each project's own `<sync_cli> pull`. The command is printed before
     it runs: this is the one thing `collect` does that touches the cluster, and
-    it is the human's own CLI doing it."""
+    it is the human's own CLI doing it.
+
+    `roots_by_key` adds the `output*` roots that project's tasks declare, so a
+    run written to a custom `PYAUTO_OUTPUT_DIR` is fetched without anyone
+    editing the project's `PULL_DIRS` by hand."""
     notes = []
+    roots_by_key = roots_by_key or {}
     for key in keys:
         row = projects.get(key, {})
         local = (row.get("local_path") or "").strip()
@@ -2158,9 +2163,11 @@ def run_pull(projects: dict, keys: list[str]) -> list[str]:
             notes.append(f"{key}: no `pull` verb in projects.yaml — not pulled")
             continue
         cmd = [str(Path(local) / cli), "pull"]
-        print(f"$ cd {local} && {cli} pull")
+        env = pull_env(roots_by_key.get(key))
+        print(f"$ {pull_shell(row, roots_by_key.get(key))}")
         try:
-            r = subprocess.run(cmd, cwd=local, capture_output=True, text=True)
+            r = subprocess.run(cmd, cwd=local, capture_output=True, text=True,
+                               env=env)
         except (OSError, subprocess.SubprocessError) as e:
             notes.append(f"{key}: pull could not run ({e}) — scored anyway")
             continue
@@ -2191,7 +2198,8 @@ def cmd_collect(root: Path, mod, a) -> int:
 
     if a.pull:
         notes += run_pull(projects, sorted({tk.get("Project") or tk.project_dir
-                                            for tk in tasks}))
+                                            for tk in tasks}),
+                          output_roots_by_project(mod, tasks))
     stamp = a.refreshed.strip() or (_utc_now() if a.pull else "")
 
     scored = [score_task(mod, tk, projects) for tk in tasks]
@@ -2309,6 +2317,65 @@ def checkin_keys(projects: dict, tasks: list, only: list) -> tuple:
     return sorted(keys), notes
 
 
+#: A caller may add output roots to a project's own `PULL_DIRS` through this
+#: environment variable — the same override convention `hpc/sync.conf` already
+#: documents for `HPC_HOST` / `HPC_BASE` / `PROJECT_NAME`. Space-separated,
+#: because an environment variable cannot carry a bash array. The scripts
+#: *append* it, so a project's own roots always pull and an unset variable
+#: reproduces today's behaviour exactly.
+PULL_DIRS_ENV = "PYAUTO_PULL_DIRS"
+
+#: Only `output*` roots are ever passed. A pull rsyncs **remote → local**, so
+#: asking one for `results/`, `wiki/` or `scripts/` — all of which real tasks
+#: name in `## Where to look` — would overwrite the human's own source with the
+#: cluster's copy. Runs written to a custom `PYAUTO_OUTPUT_DIR` are named by
+#: convention (`output_ordered_witness`, `output_sed`), and that convention is
+#: the guard.
+OUTPUT_ROOT_RE = re.compile(r"^output[\w.-]*$")
+
+
+def declared_output_roots(mod, tasks) -> list[str]:
+    """The `output*` roots these tasks say they wrote to — first segment only.
+
+    A task already names where its results are; that is also the answer to
+    "what should the pull fetch?". Absolute tokens are skipped: they are not
+    project-relative roots, and `PULL_DIRS` entries are relative to the remote
+    project root.
+    """
+    out: list[str] = []
+    for tk in tasks:
+        for bullet in _where_bullets(mod, tk):
+            for token in _path_tokens(bullet):
+                p = Path(token)
+                if p.is_absolute() or not p.parts:
+                    continue
+                head = p.parts[0]
+                if OUTPUT_ROOT_RE.match(head) and head not in out:
+                    out.append(head)
+    return sorted(out)
+
+
+def output_roots_by_project(mod, tasks) -> dict[str, list[str]]:
+    """`{project key: the `output*` roots its tasks declare}`."""
+    by_key: dict[str, list] = {}
+    for tk in tasks:
+        by_key.setdefault(tk.get("Project") or tk.project_dir, []).append(tk)
+    return {key: declared_output_roots(mod, group)
+            for key, group in by_key.items()}
+
+
+def pull_env(roots) -> dict | None:
+    """The environment for one project's pull, or `None` to inherit unchanged.
+
+    `None` rather than a copy of `os.environ` matters: a project that declares
+    no extra root runs exactly the command it runs today.
+    """
+    roots = [r for r in (roots or []) if r]
+    if not roots:
+        return None
+    return {**os.environ, PULL_DIRS_ENV: " ".join(roots)}
+
+
 def pull_cmd(row: dict) -> tuple | None:
     """`(argv, cwd)` for this project's own `<sync_cli> pull`, or None when the
     row has no such verb. Every path comes from the row."""
@@ -2319,14 +2386,21 @@ def pull_cmd(row: dict) -> tuple | None:
     return [str(Path(local) / cli), "pull"], local
 
 
-def pull_shell(row: dict) -> str:
-    """The pull as a human would type it — what `--dry-run` prints."""
+def pull_shell(row: dict, roots=()) -> str:
+    """The pull as a human would type it — what `--dry-run` prints.
+
+    The extra roots are shown as the assignment they are, so the dry run is a
+    command the human can paste and get the same pull.
+    """
     cmd = pull_cmd(row)
-    return (f"cd {cmd[1]} && {row.get('sync_cli')} pull" if cmd
-            else "(no `pull` verb in projects.yaml)")
+    if not cmd:
+        return "(no `pull` verb in projects.yaml)"
+    roots = [r for r in (roots or []) if r]
+    prefix = f'{PULL_DIRS_ENV}="{" ".join(roots)}" ' if roots else ""
+    return f"cd {cmd[1]} && {prefix}{row.get('sync_cli')} pull"
 
 
-def run_pull_streamed(projects: dict, keys: list) -> dict:
+def run_pull_streamed(projects: dict, keys: list, roots_by_key=None) -> dict:
     """`{key: (rc, note)}` — each project's own pull, **streamed**.
 
     Not captured: a pull runs for minutes and the human is watching this one
@@ -2341,9 +2415,10 @@ def run_pull_streamed(projects: dict, keys: list) -> dict:
             results[key] = (None, "no `pull` verb in projects.yaml — not pulled")
             continue
         argv, cwd = cmd
-        print(f"\n$ {pull_shell(row)}", flush=True)
+        roots = (roots_by_key or {}).get(key)
+        print(f"\n$ {pull_shell(row, roots)}", flush=True)
         try:
-            rc = subprocess.run(argv, cwd=cwd).returncode
+            rc = subprocess.run(argv, cwd=cwd, env=pull_env(roots)).returncode
         except (OSError, subprocess.SubprocessError) as e:
             results[key] = (None, f"pull could not run ({e}) — scored anyway")
             continue
@@ -2617,6 +2692,9 @@ def cmd_checkin(root: Path, mod, a) -> int:
     for tk in live:
         live_by_key.setdefault(tk.get("Project") or tk.project_dir,
                                []).append(tk.rel)
+    # What each project's live tasks say they wrote to — added to that
+    # project's own `PULL_DIRS` so a custom `PYAUTO_OUTPUT_DIR` run arrives.
+    roots_by_key = output_roots_by_project(mod, live)
 
     if not a.apply:  # the default: say what it would do, touch nothing
         print(f"cortex check-in (dry run) — {len(keys)} project(s), "
@@ -2625,7 +2703,7 @@ def cmd_checkin(root: Path, mod, a) -> int:
         for key in keys:
             row = projects.get(key, {})
             print(f"\n{key}  [{(row.get('status') or '?').strip()}]")
-            print(f"  pull:   $ {pull_shell(row)}")
+            print(f"  pull:   $ {pull_shell(row, roots_by_key.get(key))}")
             print(f"  root:   {pull_root(row) or '(no readable pull root)'}")
             rels = live_by_key.get(key, [])
             print("  score:  " + (", ".join(rels) if rels
@@ -2653,7 +2731,7 @@ def cmd_checkin(root: Path, mod, a) -> int:
     # --- 1. sync ---------------------------------------------------------
     pulls: dict[str, tuple] = {}
     if not a.skip_pull:
-        pulls = run_pull_streamed(projects, keys)
+        pulls = run_pull_streamed(projects, keys, roots_by_key)
         for key, (rc, note) in pulls.items():
             if rc != 0:
                 if note:
@@ -2665,8 +2743,10 @@ def cmd_checkin(root: Path, mod, a) -> int:
                 notes.append(f"{key}: pulled, but no readable pull root — no "
                              "manifest written")
                 continue
-            written = write_pull_manifest(target, key, pull_shell(row), rc,
-                                          live_by_key.get(key, []))
+            written = write_pull_manifest(target, key,
+                                          pull_shell(row,
+                                                     roots_by_key.get(key)),
+                                          rc, live_by_key.get(key, []))
             notes.append(f"{key}: pulled → {written}" if written else
                          f"{key}: pulled, but the manifest could not be written")
     stamp = a.refreshed.strip() or (_utc_now() if pulls else

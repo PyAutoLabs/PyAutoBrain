@@ -1064,6 +1064,88 @@ def test_a_fallback_run_says_it_is_a_fallback(board):
     assert "**fallback**" in block
 
 
+# --- what the pull is asked to fetch ---------------------------------------
+# Each science project's `hpc/sync` hard-codes `PULL_DIRS`, so a run written to
+# a custom `PYAUTO_OUTPUT_DIR` never came down at all (166MB of euclid_dr1_prelim
+# results sat on RAL on 2026-09-09). The check-in now passes the `output*` roots
+# its tasks declare. Only `output*`: a pull rsyncs remote -> local, so handing it
+# `scripts/` or `wiki/` would overwrite the human's own source.
+def test_only_output_shaped_roots_are_ever_offered_to_a_pull(board):
+    """The guard that keeps a pull from overwriting local source. Real tasks
+    name `results/`, `wiki/…`, `scripts/…` and `hpc/…` in the same bullets as
+    their output roots."""
+    _rewrite_where(board, "tasks/example/11_healthy.md",
+                   "`example` (project row): `output_ordered_witness/run_0/`",
+                   "results: `results/searches/bright.json`",
+                   "the write-up: `wiki/project/state.md`",
+                   "the submit script: `hpc/batch_cpu/submit_vis_lp`",
+                   "scripts: `scripts/control_unordered.py`",
+                   "absolute: `/mnt/ral/jnightin/example/output_elsewhere`")
+    mod = _cortex.load_cortex(board["root"])
+    tk = [t for t in mod.load_tasks(board["root"])[0]
+          if t.slug == "11_healthy"][0]
+    assert _cortex.declared_output_roots(mod, [tk]) == ["output_ordered_witness"]
+
+
+def test_the_roots_of_a_projects_tasks_are_pooled_and_deduped(board):
+    """One pull serves every live task of a project, so the roots are the
+    union — and `output/` named twice is still one directory."""
+    _rewrite_where(board, "tasks/example/11_healthy.md",
+                   "`output_ordered_witness/run_0/`", "`output/searches`")
+    _rewrite_where(board, "tasks/example/12_resumed.md",
+                   "`output_sed/run_9/`", "`output/searches`")
+    mod = _cortex.load_cortex(board["root"])
+    tasks = [t for t in mod.load_tasks(board["root"])[0]
+             if t.slug in ("11_healthy", "12_resumed")]
+    by_key = _cortex.output_roots_by_project(mod, tasks)
+    assert by_key["example"] == ["output", "output_ordered_witness",
+                                 "output_sed"]
+
+
+def test_a_project_declaring_no_extra_root_pulls_exactly_as_before(board):
+    """`pull_env` returns None, not a copy of the environment: a project with
+    nothing to add runs the command it runs today, byte for byte."""
+    mod = _cortex.load_cortex(board["root"])
+    projects = mod.load_projects(board["root"])[0]
+    row = projects["example"]
+    assert _cortex.pull_env([]) is None
+    assert _cortex.pull_env(None) is None
+    assert _cortex.PULL_DIRS_ENV not in _cortex.pull_shell(row)
+    assert _cortex.pull_shell(row) == _cortex.pull_shell(row, [])
+
+
+def test_the_declared_roots_reach_the_pull_as_an_environment_assignment(board):
+    """The seam itself: `hpc/sync` reads `PYAUTO_PULL_DIRS` the same way it
+    already reads `HPC_HOST` — so the dry run prints an assignment the human
+    can paste, and the real pull sets it in the child's environment."""
+    mod = _cortex.load_cortex(board["root"])
+    projects = mod.load_projects(board["root"])[0]
+    row = projects["example"]
+    roots = ["output_ordered_witness"]
+    assert 'PYAUTO_PULL_DIRS="output_ordered_witness" hpc/sync pull' in \
+        _cortex.pull_shell(row, roots)
+
+    seen = {}
+
+    class _Done:
+        returncode = 0
+
+    def _fake_run(argv, **kw):
+        seen["argv"], seen["env"] = argv, kw.get("env")
+        return _Done()
+
+    monkey = _cortex.subprocess.run
+    _cortex.subprocess.run = _fake_run
+    try:
+        _cortex.run_pull_streamed(projects, ["example"], {"example": roots})
+        assert seen["env"][_cortex.PULL_DIRS_ENV] == "output_ordered_witness"
+        assert seen["env"]["PATH"], "the child keeps the inherited environment"
+        _cortex.run_pull_streamed(projects, ["example"], {})
+        assert seen["env"] is None, "nothing declared, nothing overridden"
+    finally:
+        _cortex.subprocess.run = monkey
+
+
 def test_the_manifests_checkpoints_table_is_keyed_by_the_run_directory(board):
     """The third lookup (PyAutoCortex decision 51). The subhalo-style member's
     pull carries no job id, so `runs` is empty and the only name both sides can
