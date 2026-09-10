@@ -43,7 +43,7 @@ human answers the clone-mode question before anything is generated.
 | **PyAutoMind** | stores the *intent* — the prompt that asks for the new assistant |
 | **PyAutoBrain** (this agent) | inspects the domain, partitions template vs domain content, plans — the `CloneDecision` |
 | **PyAutoHands** (the Hands) | executes: repo creation, file generation, initial commit/push |
-| **PyAutoHeart** | validates the result — the newborn's own symbol audit, link sweep, wiki-currency, chat-surface smoke |
+| **PyAutoHeart** | validates the result — the newborn's own symbol audit, link sweep, wiki-currency, harness smoke (Claude Code + Codex) |
 | **PyAutoMemory** | supplies reusable architectural knowledge (assistant anatomy, prior CloneDecisions) — cited in the Decision, **never** copied into the public assistant (the privacy seam) |
 
 ## What it decides (the CloneDecision)
