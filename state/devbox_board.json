@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 17,
+        "count": 37,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "14/14 code repos: 12 stale branches, 2 stashes, 3 [gone] refs, 0 dirty checkouts"
+        "summary": "14/14 code repos: 27 stale branches, 4 stashes, 6 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
@@ -86,11 +86,11 @@
         "summary": "38 capped/pinned specifiers across 8 pyproject.toml (14/14 code repos present)"
       },
       {
-        "count": 81,
+        "count": 119,
         "delegate": "/audit_docs",
         "mode": "docs",
         "status": "surface",
-        "summary": "33 api .rst files, 81 currentmodule directives across 4 repos with docs/api (14/14 code repos present)"
+        "summary": "33 api .rst files, 119 currentmodule directives across 4 repos with docs/api (14/14 code repos present)"
       },
       {
         "count": 20,
@@ -102,7 +102,7 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-09-07T13:42:34Z",
+  "ts": "2026-09-10T19:24:23Z",
   "worktrees": [
     {
       "ahead": 0,
@@ -116,7 +116,7 @@
       "branch": "main",
       "dirty": false,
       "repo": "PyAutoMind",
-      "stashes": 1
+      "stashes": 3
     }
   ]
 }
