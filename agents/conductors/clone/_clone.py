@@ -74,9 +74,9 @@ _SHARED_GENERIC = [
     "AGENTS.md", "CLAUDE.md", "LICENSE", ".gitignore", ".gitattributes",
     "Makefile", "__init__.py", "activate.sh", "version.txt",
     "AI_POLICY.md", "CITATIONS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
-    "AGENTS_CHAT.md",             # chat-mode counterpart of AGENTS.md: the same
-                                  # skeleton with the shell-dependent rules cut,
-                                  # so it clones on the same terms as AGENTS.md
+    # (No chat-mode counterpart of AGENTS.md and no generated chat bundles: the
+    # assistants are agentic-only since 2026-09-10, so a newborn ships one
+    # instruction file and the harness adapters below, nothing chat-shaped.)
     "modes/*",                    # Teacher/Assistant mode machinery
     "skills/_style.md", "skills/_bootstrap_skill.md", "skills/README.md",
     "skills/start-new-project*", "skills/contribute-upstream*",
@@ -111,14 +111,6 @@ _SHARED_DOMAIN = [
 
 _SHARED_MIXED = [
     "llms.txt", "llms-full.txt",
-    "llms-chat.txt",              # generated paste bundle: same seam as llms.txt
-    "FREE_TIER_SETUP.md",         # per-platform chat setup — the platform
-                                  # mechanics clone verbatim, the worked prompts
-                                  # and dataset names are domain
-    "CHOOSING_YOUR_AI_TOOL.md",   # the other half of that free-tier chat
-                                  # surface: which tool to use and how to set it
-                                  # up clones verbatim, the domain naming and
-                                  # worked examples do not
     "config/*",
     "benchmarks/README.md",       # protocol generic, benchmark table domain
 ]
@@ -149,15 +141,10 @@ REFERENCE_PROFILES = {
             "wiki/literature/*",          # a shipped lensing paper corpus
             "paper/*",                    # this assistant's own JOSS paper
             "scripts/*.py",               # bundled science scripts (a named lens)
-            # Generated chat knowledge pack: concatenated al_* skill bodies +
-            # wiki/core pages + a snapshot of the lensing stack's API surface.
-            # Every input is domain, so a newborn regenerates it from its own
-            # content (`make chat-bundle`) rather than copying this one.
-            "chat_pack/*",
             *_SHARED_DOMAIN,
         ],
         "mixed": _SHARED_MIXED,
-        "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc", "chat_pack"],
+        "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc"],
     },
     # The domain-agnostic base: `af_*` inference skills and the *statistics*
     # `wiki/core/` are GENERIC infrastructure kept verbatim; only the example
@@ -175,7 +162,12 @@ REFERENCE_PROFILES = {
             "wiki/core/*",                # statistics/inference reference
             "wiki/literature/*",          # the near-empty literature scaffold
         ],
-        "domain": list(_SHARED_DOMAIN),
+        "domain": [
+            "docs/*",                     # setup + archive pages: agent-access
+                                          # mechanics read the same everywhere,
+                                          # the worked prompts are domain
+            *_SHARED_DOMAIN,
+        ],
         "mixed": _SHARED_MIXED,
         "scaffold_dirs": ["dataset", "hpc"],
     },
@@ -191,7 +183,8 @@ VALIDATION_PLAN = [
     "newborn symbol audit (autoassistant API gate against the domain library)",
     "link sweep (no dangling wiki/skill cross-references)",
     "wiki-currency check (sources clone @ main, doc-pin truth)",
-    "chat-surface smoke (llms.txt bootstrap on each supported surface)",
+    "harness smoke (benchmarks/prompts/harness_smoke.md on Claude Code and Codex — "
+    "grounded answering, a small fit with figure inspection, stale-API recovery)",
 ]
 
 
