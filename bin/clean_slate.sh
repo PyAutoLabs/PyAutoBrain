@@ -70,7 +70,9 @@ SCOPE="all"
 PACKAGING_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 # Repos whose dataset/ dirs are auto-simulated by their own simulator scripts.
 # Deliberately excludes autolens_profiling and autolens_jax_joss, whose dataset/
-# dirs hold real instrument data (alma/sma/hst inputs, JWST cosmos_web_ring).
+# dirs hold real instrument data (alma/sma/hst inputs, JWST cosmos_web_ring), and
+# autolens_inference, a project repo whose dataset/ is auto-simulated but whose
+# results/ are tracked witnesses — it is swept by its own tooling, never here.
 DATASET_REPOS=(autolens_workspace autogalaxy_workspace autofit_workspace \
                autocti_workspace HowToLens HowToGalaxy HowToFit)
 # Committed dataset files above this size are flagged as repo bloat.
