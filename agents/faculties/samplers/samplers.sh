@@ -30,12 +30,12 @@ test_ws="$(_resolve_dir PYAUTO_FIT_TEST autofit_workspace_test 2>/dev/null || tr
 # The findings maturation lane's two tiers (AGENTS.md "Judgment: the maturation
 # lane") — present-if-checked-out, exactly like the autofit-side surfaces.
 lens_developer="$(_resolve_dir PYAUTO_LENS_DEVELOPER autolens_workspace_developer 2>/dev/null || true)"
-profiling="$(_resolve_dir PYAUTO_PROFILING autolens_profiling 2>/dev/null || true)"
+inference="$(_resolve_dir PYAUTO_INFERENCE autolens_inference 2>/dev/null || true)"
 
 exec python3 "$HERE/_samplers.py" \
   ${autofit:+--autofit "$autofit"} \
   ${developer:+--developer "$developer"} \
   ${test_ws:+--test "$test_ws"} \
   ${lens_developer:+--lens-developer "$lens_developer"} \
-  ${profiling:+--profiling "$profiling"} \
+  ${inference:+--inference "$inference"} \
   "$@"

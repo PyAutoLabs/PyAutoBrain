@@ -88,8 +88,8 @@ def test_experiment_tier_lists_probes_and_findings_verdicts(tmp_path):
 
 
 def test_mature_tier_reads_the_declaration_not_the_path(tmp_path):
-    d = _digest("--profiling", str(_make_mature(tmp_path)))
-    assert _samplers.SURFACE_PROFILING in d["surfaces_present"]
+    d = _digest("--inference", str(_make_mature(tmp_path)))
+    assert _samplers.SURFACE_INFERENCE in d["surfaces_present"]
     cells = d["tiers"][_samplers.TIER_LENS_MATURE]
     # the cluster/ leaf declares `group`, and the declaration wins — parsing the
     # path instead would mislabel it and silently collide with a real cell
@@ -101,14 +101,14 @@ def test_mature_tier_falls_back_to_path_when_undeclared(tmp_path):
     undeclared = root / "scripts" / "interferometer" / "searches" / "emcee"
     undeclared.mkdir(parents=True)
     (undeclared / "delaunay.py").write_text("# no run_search call at all\n")
-    cells = _digest("--profiling", str(root))["tiers"][_samplers.TIER_LENS_MATURE]
+    cells = _digest("--inference", str(root))["tiers"][_samplers.TIER_LENS_MATURE]
     assert "emcee/interferometer/delaunay" in cells
 
 
 def test_lane_tiers_add_no_gaps(tmp_path):
     """Inventory only — `gaps` stays keyed on the autofit promotion tiers."""
     root = _make_mature(_make_experiment(tmp_path))
-    d = _digest("--lens-developer", str(root), "--profiling", str(root))
+    d = _digest("--lens-developer", str(root), "--inference", str(root))
     assert d["gaps"] == []
 
 
@@ -116,7 +116,7 @@ def test_absent_lane_checkouts_are_not_fatal(tmp_path):
     result = subprocess.run(
         [sys.executable, str(FACULTY / "_samplers.py"), "--json",
          "--lens-developer", str(tmp_path / "nope"),
-         "--profiling", str(tmp_path / "also-nope")],
+         "--inference", str(tmp_path / "also-nope")],
         capture_output=True, text=True,
     )
     assert result.returncode == 4  # no surface, reported cleanly
@@ -126,5 +126,20 @@ def test_absent_lane_checkouts_are_not_fatal(tmp_path):
 def test_never_writes(tmp_path):
     root = _make_mature(_make_experiment(tmp_path))
     before = sorted(str(p) for p in root.rglob("*"))
-    _digest("--lens-developer", str(root), "--profiling", str(root))
+    _digest("--lens-developer", str(root), "--inference", str(root))
     assert sorted(str(p) for p in root.rglob("*")) == before
+
+
+def test_empty_mature_surface_yields_no_cells(tmp_path):
+    """The mature tier is empty until its cells are built — a surface with zero
+    rows, not a crash and not a missing surface."""
+    empty = tmp_path / "successor"
+    empty.mkdir()
+    d = _digest("--inference", str(empty))
+    assert _samplers.SURFACE_INFERENCE in d["surfaces_present"]
+    assert d["tiers"][_samplers.TIER_LENS_MATURE] == []
+    # and again with a scripts/ tree that holds no searches cells at all
+    (empty / "scripts" / "imaging" / "likelihood_runtime").mkdir(parents=True)
+    (empty / "scripts" / "imaging" / "likelihood_runtime" / "mge.py").write_text("x = 1\n")
+    d = _digest("--inference", str(empty))
+    assert d["tiers"][_samplers.TIER_LENS_MATURE] == []
