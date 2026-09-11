@@ -21,7 +21,10 @@
 #                            --profile release-ci` — GREEN only; STALE/YELLOW/
 #                            RED stop and page; there is NO force input
 #   step 6  live release     dispatch Build's release.yml (rehearsal=false,
-#                            minor_version=1) — or a log line under dry-run
+#                            minor_version=1) — or a log line under dry-run.
+#                            A red run whose release tag nevertheless landed
+#                            (the post-publish smoke leg failed) is SHIPPED,
+#                            reported with a warning, never a stop
 #   step 7  report           one Slack message per terminal outcome
 #
 # Activity-window anchor: the PyAutoBrain repo Actions variable
@@ -163,8 +166,15 @@ fi
 # ---------------------------------------------------------------------------
 today="$(date -u +'%Y.%-m.%-d')"
 today_re="^${today//./\\.}\\.[0-9]+$"
-if gh api "repos/$TAG_REPO/tags?per_page=50" --jq '.[].name' 2>/dev/null \
-    | grep -Eq "$today_re"; then
+# released_today — true when a YYYY.M.D.* release tag for today is on TAG_REPO.
+# Step 1's guard, and the evidence step 6 reads after a red live run: the tag
+# is pushed by release.yml's `release` job, so its presence means the
+# libraries published whatever the run's overall conclusion says.
+released_today() {
+  gh api "repos/$TAG_REPO/tags?per_page=50" --jq '.[].name' 2>/dev/null \
+    | grep -Eq "$today_re"
+}
+if released_today; then
   log "a $today.* release tag already exists on $TAG_REPO"
   notify "💤" "*nightly release skipped* — already released today ($today). <$RUN_URL|nightly run>"
   exit 0
@@ -439,6 +449,19 @@ fi
 log "step 6 — dispatching the LIVE release ($version)"
 if ! dispatch_and_await "$BUILD_REPO" "$RELEASE_WORKFLOW" \
       '{"rehearsal": "false", "minor_version": "1"}'; then
+  # A red release run is not always a release that did not happen: release.yml
+  # publishes (tag + PyPI) from its `release` job, which does not wait on the
+  # post-publish `run_smoke_tests` leg. On 2026-09-11 (run 34577342347) that leg
+  # timed out on one script after every library had published, and this path
+  # paged "no release was made" over a release that stood on PyPI — and left
+  # the anchor behind, so the shipped window would have been re-judged the
+  # next night. The tag is the evidence: present means shipped, and the night
+  # is reported as shipped with a red smoke leg for a human to look at.
+  if released_today; then
+    notify "⚠️" "*nightly release shipped with a red smoke leg* — $version published, but the release run went red after publishing (the post-release smoke leg is the usual cause) — <${LAST_RUN_URL:-$RUN_URL}|release run>. $summary (window $anchor → $WINDOW_END). <$RUN_URL|nightly run>"
+    advance_anchor
+    exit 0
+  fi
   # release.yml's announce_release also pages on a live failure; this adds the
   # nightly attribution so the two reports correlate.
   page "live release run failed — <${LAST_RUN_URL:-$RUN_URL}|release run>"
