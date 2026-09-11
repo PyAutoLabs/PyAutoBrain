@@ -28,15 +28,16 @@ samplers.sh [--json]
   -> the findings maturation lane (below):
             experiment probes   (autolens_workspace_developer/searches_minimal)
             experiment findings (the same tier's *_findings.md, name + verdict)
-            mature              (autolens_profiling — one row per
-                                 sampler/dataset_class/model_type cell)
+            mature              (autolens_inference — one row per
+                                 sampler/dataset_class/model_type cell;
+                                 empty until autolens-inference phase 3)
   -> the latest minimal-tier benchmark table (output/comparison.txt)
   -> tier gaps: prototyped-never-promoted, promoted-never-integration-tested
 ```
 
 Surfaces are resolved as sibling checkouts (`PYAUTO_FIT`,
 `PYAUTO_FIT_DEVELOPER`, `PYAUTO_FIT_TEST`, `PYAUTO_LENS_DEVELOPER`,
-`PYAUTO_PROFILING` override); absent ones are
+`PYAUTO_INFERENCE` override); absent ones are
 reported, never fatal. Exit codes: `0` digest · `4` no surface · `5` usage.
 
 A mature-tier cell is read from its leaf's `run_search(sampler=,
@@ -93,7 +94,7 @@ Promote a prototyped sampler only when **all** hold:
    see nss_simple's 15-nat error in the benchmark record).
 3. It wins somewhere concrete: a use case (likelihood class × hardware)
    where it beats the incumbents on time-to-ML or time/eval at equal
-   quality — ideally confirmed on a real likelihood (autolens_profiling),
+   quality — ideally confirmed on a real likelihood (autolens_inference),
    not just the 1D Gaussian.
 4. The implementation cost is justified: a full `NonLinearSearch` subclass
    must support the Analysis wrap, results/samples API, visualization and
@@ -111,12 +112,15 @@ and promote what matures:
    hand-rolled harnesses, env-knob objectives, findings docs
    (`*_findings.md`). This tier may bypass the `af` search wrapper to probe
    mechanisms; its artifacts are the campaign record, not the product.
-2. **Mature** — `autolens_profiling/scripts/<dataset>/searches/<sampler>/`:
+2. **Mature** — `autolens_inference/scripts/<dataset>/searches/<sampler>/`:
    when a configuration *works*, it becomes a first-class cell on the
-   **library** `af` search via the searches framework (`misc/searches/`
-   model registry + per-cell knobs), with the *why it works and what was
-   learned* in the cell docstring + `misc/searches/README.md`. Never promote
-   `searches_minimal`-style hand-rolled loops.
+   **library** `af` search, with the *why it works and what was learned* in
+   the cell docstring and the section README. Never promote
+   `searches_minimal`-style hand-rolled loops. **Empty until
+   autolens-inference phase 3**: `autolens_profiling` held these cells until
+   its retired inference programme was scrapped (autolens_profiling#245), and
+   the successor repo has not built them yet — an empty mature tier is the
+   expected reading today, not a missing surface.
 3. **User-facing** — `autolens_workspace/scripts/guides/modeling/searches.py`
    (and siblings): the lessons at user altitude — which settings matter and
    when, no campaign internals.
@@ -147,11 +151,10 @@ not inventoried.
   PyAutoMemory is personal — its citations flow into Mind prompts, issues
   and Brain plans, but never into public user-facing output (the memory
   faculty's AGENTS.md is the rule's home).
-- **Profiling campaigns** — `autolens_profiling` (A100/HPC runs on real
-  lensing likelihoods); its `scripts/<dataset>/searches/<sampler>/` cells are
-  the mature tier of the findings lane above, driven by
-  `scripts/misc/searches/` (model registry, per-cell knobs, README with the
-  campaign knowledge).
+- **Inference campaigns** — `autolens_inference` (A100/HPC search runs on
+  real lensing likelihoods); its `scripts/<dataset>/searches/<sampler>/` cells
+  are the mature tier of the findings lane above. `autolens_profiling` is
+  likelihood timing only and holds no search cells.
 - **Real-likelihood search experiments** —
   `autolens_workspace_developer/searches_minimal/` (findings docs:
   `pix_prodigy_findings.md`, `lr_free_findings.md`,

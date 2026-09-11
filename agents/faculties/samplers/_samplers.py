@@ -88,10 +88,10 @@ def tier_promoted(autofit: Path) -> list[str]:
 # as module constants so callers and tests can refer to a tier without
 # re-spelling an instance fact.
 SURFACE_LENS_DEVELOPER = "autolens_workspace_developer"
-SURFACE_PROFILING = "autolens_profiling"
+SURFACE_INFERENCE = "autolens_inference"
 TIER_LENS_PROBES = "experiment probes (autolens searches_minimal)"
 TIER_LENS_FINDINGS = "experiment findings (autolens searches_minimal)"
-TIER_LENS_MATURE = "mature (autolens_profiling searches cells)"
+TIER_LENS_MATURE = "mature (autolens_inference searches cells)"
 
 
 def tier_lens_probes(lens_developer: Path) -> list[str]:
@@ -156,14 +156,22 @@ def _declared_cell(leaf: Path) -> tuple[str, str, str] | None:
     return None
 
 
-def tier_lens_mature(profiling: Path) -> list[str]:
+def tier_lens_mature(inference: Path) -> list[str]:
     """Mature tier: the (sampler x dataset_class x model_type) cell matrix.
 
-    Walks `scripts/<dataset>/searches/<sampler>/<model_type>.py`, skipping the
-    `misc/` framework directory and `_`-prefixed helpers. A leaf with no
-    parsable declaration falls back to its path shape rather than vanishing.
+    Walks `scripts/<dataset>/searches/<sampler>/<model_type>.py` under the
+    `autolens_inference` checkout, skipping the `misc/` framework directory and
+    `_`-prefixed helpers. A leaf with no parsable declaration falls back to its
+    path shape rather than vanishing.
+
+    The tier is EMPTY until autolens-inference phase 3 builds these cells
+    (autolens_profiling#245 removed the retired inference programme's copies,
+    and this walk was repointed here rather than left pointing at a tree that
+    no longer exists). An absent or empty `scripts/` returns `[]` — never
+    raises — so an un-cloned or still-empty successor repo is reported as a
+    surface with no cells rather than a crash.
     """
-    scripts = profiling / "scripts"
+    scripts = inference / "scripts"
     if not scripts.is_dir():
         return []
     cells = set()
@@ -208,7 +216,7 @@ def gaps(minimal, integration, promoted) -> list[str]:
     return out
 
 
-def digest(autofit, developer, test, lens_developer=None, profiling=None) -> dict:
+def digest(autofit, developer, test, lens_developer=None, inference=None) -> dict:
     d = {
         "surfaces_present": [],
         "tiers": {},
@@ -240,9 +248,9 @@ def digest(autofit, developer, test, lens_developer=None, profiling=None) -> dic
         d["surfaces_present"].append(SURFACE_LENS_DEVELOPER)
         d["tiers"][TIER_LENS_PROBES] = tier_lens_probes(lens_developer)
         d["tiers"][TIER_LENS_FINDINGS] = tier_lens_findings(lens_developer)
-    if profiling and profiling.is_dir():
-        d["surfaces_present"].append(SURFACE_PROFILING)
-        d["tiers"][TIER_LENS_MATURE] = tier_lens_mature(profiling)
+    if inference and inference.is_dir():
+        d["surfaces_present"].append(SURFACE_INFERENCE)
+        d["tiers"][TIER_LENS_MATURE] = tier_lens_mature(inference)
     # The lane tiers are inventory only: `gaps` stays keyed on the autofit
     # promotion tiers, so adding them introduces no new judgment.
     if minimal or promoted:
@@ -282,20 +290,20 @@ def main(argv=None) -> int:
     ap.add_argument("--lens-developer", default="", dest="lens_developer",
                     help="autolens_workspace_developer checkout "
                          "(lane experiment tier)")
-    ap.add_argument("--profiling", default="",
-                    help="autolens_profiling checkout (lane mature tier)")
+    ap.add_argument("--inference", default="",
+                    help="autolens_inference checkout (lane mature tier)")
     ap.add_argument("--json", action="store_true", dest="as_json")
     a = ap.parse_args(argv)
     autofit = Path(a.autofit) if a.autofit else None
     developer = Path(a.developer) if a.developer else None
     test = Path(a.test) if a.test else None
     lens_developer = Path(a.lens_developer) if a.lens_developer else None
-    profiling = Path(a.profiling) if a.profiling else None
-    d = digest(autofit, developer, test, lens_developer, profiling)
+    inference = Path(a.inference) if a.inference else None
+    d = digest(autofit, developer, test, lens_developer, inference)
     if not d["surfaces_present"]:
         print("samplers: no sampler surface found (PyAutoFit / "
               "autofit_workspace_developer / autofit_workspace_test / "
-              "autolens_workspace_developer / autolens_profiling absent)",
+              "autolens_workspace_developer / autolens_inference absent)",
               file=sys.stderr)
         return 4
     print(json.dumps(d, indent=2)) if a.as_json else emit_human(d)
