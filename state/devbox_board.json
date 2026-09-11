@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 37,
+        "count": 39,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "14/14 code repos: 27 stale branches, 4 stashes, 6 [gone] refs, 0 dirty checkouts"
+        "summary": "14/14 code repos: 28 stale branches, 4 stashes, 7 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
@@ -23,11 +23,11 @@
         "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 19/19 scanned repos"
       },
       {
-        "count": 28,
+        "count": 29,
         "delegate": "/refactor",
         "mode": "docstrings",
         "status": "finding",
-        "summary": "28 adjacent documentation boundaries in 19 files across 3/8 repos; 0 parse errors"
+        "summary": "29 adjacent documentation boundaries in 20 files across 4/8 repos; 0 parse errors"
       },
       {
         "count": 1,
@@ -41,7 +41,7 @@
         "delegate": "/refactor",
         "mode": "refs",
         "status": "finding",
-        "summary": "11 folder-list defects (11 dead references, 0 undocumented folders) in 6 files across 3/8 repos; 292 unresolvable refs skipped"
+        "summary": "11 folder-list defects (11 dead references, 0 undocumented folders) in 6 files across 3/8 repos; 294 unresolvable refs skipped"
       },
       {
         "count": 0,
@@ -102,7 +102,7 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-09-10T19:24:23Z",
+  "ts": "2026-09-11T12:21:33Z",
   "worktrees": [
     {
       "ahead": 0,
