@@ -42,6 +42,11 @@ def _load():
 _cortex = _load()
 
 
+def _owner() -> str:
+    """The issue owner the Cortex script defaults to — read from it, never stated here."""
+    return _cortex.load_cortex(cortex_root()).DEFAULT_ISSUE_OWNER
+
+
 def cortex_root() -> Path:
     """The real PyAutoCortex checkout, or skip."""
     env = os.environ.get("PYAUTO_CORTEX")
@@ -192,7 +197,7 @@ def test_a_project_card_shows_now_runs_and_the_last_five(skeleton):
     page = _cortex.render_dashboard(_cortex.census(skeleton))
     card = page.split("### example — ")[1].split("### single — ")[0]
     assert card.startswith("Does the example pipeline recover the truth on the fixture lens")
-    assert ("active · both · [example#7](https://github.com/PyAutoLabs/example/"
+    assert (f"active · both · [example#7](https://github.com/{_owner()}/example/"
             "issues/7) · [projects/example.md](projects/example.md) · local "
             "`/tmp/example` · RAL `/mnt/ral/example`") in card
     assert "**Now**\n\nWave 2 is on the cluster" in card
@@ -455,7 +460,7 @@ def test_push_ledger_refuses_a_code_classified_diff(tmp_skeleton):
 def test_the_issue_block_prints_for_example_and_not_for_single(skeleton):
     r = _run(["issue", "--cortex", str(skeleton)])
     assert r.returncode == 0, r.stderr
-    assert "== example → https://github.com/PyAutoLabs/example/issues/7" in r.stdout
+    assert f"== example → https://github.com/{_owner()}/example/issues/7" in r.stdout
     assert "<!-- cortex:ledger begin — regenerated from projects/example.md; edit there -->" in r.stdout
     assert "<!-- cortex:ledger end -->" in r.stdout
     assert "**Now**" in r.stdout and "- `3002_[0-3]` — running" in r.stdout
@@ -469,7 +474,7 @@ def test_issue_apply_without_gh_says_what_it_would_write_and_exits_1(skeleton, m
     r = _run(["issue", "--apply", "--cortex", str(skeleton)],
              env={**os.environ, "PATH": "/nonexistent"})
     assert r.returncode == 1
-    assert "no `gh` on PATH — would write the block above to https://github.com/PyAutoLabs/example/issues/7" in r.stdout
+    assert f"no `gh` on PATH — would write the block above to https://github.com/{_owner()}/example/issues/7" in r.stdout
 
 
 def test_issue_apply_replaces_the_block_through_gh(skeleton, tmp_path):
@@ -499,8 +504,8 @@ def test_issue_apply_replaces_the_block_through_gh(skeleton, tmp_path):
     assert body.rstrip().endswith("The human wrote this.")
     assert "**Now**" in body
     calls = log.read_text()
-    assert "issue view https://github.com/PyAutoLabs/example/issues/7" in calls
-    assert "issue edit https://github.com/PyAutoLabs/example/issues/7 --body-file" in calls
+    assert f"issue view https://github.com/{_owner()}/example/issues/7" in calls
+    assert f"issue edit https://github.com/{_owner()}/example/issues/7 --body-file" in calls
     assert "create" not in calls
 
 
@@ -529,7 +534,7 @@ def test_the_conductor_is_mind_free_and_names_no_instance_path():
     assert not re.search(r"^(?:from|import) _(?:intake|sizing)\b", src, re.M)
     assert not re.search(r"^(?:from|import) yaml\b", src, re.M), "PyYAML comes through the Cortex script"
     assert not re.search(r"/mnt/|/home/\w|Users/", src), "a science path leaked into organ code"
-    assert "PyAutoLabs" not in src, "no org is named in organ code"
+    assert _owner() not in src, "no org is named in organ code"
 
 
 def test_the_conductor_never_writes_a_ledger():
