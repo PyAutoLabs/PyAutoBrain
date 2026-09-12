@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 39,
+        "count": 47,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "14/14 code repos: 28 stale branches, 4 stashes, 7 [gone] refs, 0 dirty checkouts"
+        "summary": "14/14 code repos: 36 stale branches, 4 stashes, 7 [gone] refs, 0 dirty checkouts"
       },
       {
         "count": 0,
@@ -37,11 +37,11 @@
         "summary": "1 script(s) across 8 repo(s) with LaTeX damaged by string escapes: 2 warned, 1 silent (0 file(s) have ONLY silent damage, which a warning-only sweep would miss); 0 read error(s)"
       },
       {
-        "count": 11,
+        "count": 12,
         "delegate": "/refactor",
         "mode": "refs",
         "status": "finding",
-        "summary": "11 folder-list defects (11 dead references, 0 undocumented folders) in 6 files across 3/8 repos; 294 unresolvable refs skipped"
+        "summary": "12 folder-list defects (12 dead references, 0 undocumented folders) in 7 files across 3/8 repos; 294 unresolvable refs skipped"
       },
       {
         "count": 0,
@@ -102,7 +102,7 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-09-11T12:21:33Z",
+  "ts": "2026-09-12T17:07:30Z",
   "worktrees": [
     {
       "ahead": 0,
