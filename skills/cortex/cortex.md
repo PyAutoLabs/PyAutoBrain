@@ -2,14 +2,20 @@
 
 **This is the check-in.** You have runs on a cluster; this door finds out where
 they got to. It pulls every active project through that project's *own* sync
-CLI, scores every live task against the witness it pre-registered, moves what
-came back to `awaiting-ruling`, re-renders the board, pushes the ledger when it
-is allowed to, and hands you a summary **by project** with the prompt you would
-paste to carry each one forward.
+CLI, shows that CLI's `jobs` output verbatim, re-renders the board, pushes the
+ledger when it is allowed to, and hands you each project's ledger back — **Now**,
+the runs on the cluster, the last entries — with the `cortex.py` lines you are
+most likely to type next. It records cluster facts and your words. It never
+decides what a result meant.
 
 Development work is the Mind's and goes through `/intake` and `/start_dev`;
 this door is for what the organism is *finding out*, not what it is building.
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
+
+The Cortex is one ledger per project, `PyAutoCortex/projects/<key>.md`:
+`## Now` (2–3 lines the human rewrites), `## Runs` (on the cluster now,
+`open | running`), `## Log` (dated, newest first, `run | result | lesson |
+note`). Every write to one is a verb of `PyAutoCortex/scripts/cortex.py`.
 
 ## Do
 
@@ -19,12 +25,11 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 bin/pyauto-brain cortex checkin --dry-run
 ```
 
-Prints every project it would sweep, the exact `cd <local_path> && <sync_cli>
-pull` it would run for each, the pull root each manifest would land in, and
-every `submitted | running` task it would score. It reaches no cluster and
-writes nothing. Read it to the human — especially if a project they expect is
-missing (it is missing because its `projects.yaml` row is not `status: active`
-and it owns no live task).
+Prints every project it would sweep and the exact `cd <local_path> &&
+<sync_cli> pull` it would run for each (and the `jobs` line where the ledger
+lists runs). It reaches no cluster and writes nothing. Read it to the human —
+especially if a project they expect is missing (it is missing because its
+`projects.yaml` row is not `status: active` and its ledger lists no run).
 
 ### 2. Check in
 
@@ -32,7 +37,7 @@ and it owns no live task).
 bin/pyauto-brain cortex checkin --apply            # push per the rule below
 bin/pyauto-brain cortex checkin --apply --no-push  # never push
 bin/pyauto-brain cortex checkin --apply --project subhalo_validation
-bin/pyauto-brain cortex checkin --apply --skip-pull   # re-score, offline
+bin/pyauto-brain cortex checkin --apply --skip-pull   # no pull; jobs, stamp, render
 ```
 
 It runs, in order:
@@ -40,58 +45,58 @@ It runs, in order:
 1. **Sync** — each project's own `<sync_cli> pull`, output streamed as it
    comes (a pull takes minutes; do not wrap this in anything that buffers).
    A pull that exits non-zero is recorded against *that* project and the sweep
-   carries on. After a good pull it writes `<pull root>/.cortex/pull.json`,
-   merging with whatever the project's CLI already wrote there.
-2. **Score** — every `submitted | running` task, six legs each, against the
-   task's own pre-registered witness.
-3. **Move** — `running → pulled → awaiting-ruling`, rehearsed on a throwaway
-   copy first and refused outright if `cortex.py check` would not pass after.
-4. **Render** — the refresh stamp into `checkin.yaml` (the board's "Last
-   check-in", red on the Pages twin once an hour old), then `dashboard.md` +
+   carries on.
+2. **Jobs** — where the row has a `jobs` verb and the ledger lists runs, the
+   project's own `<sync_cli> jobs`, printed **verbatim**. Nothing is parsed
+   and no state flips.
+3. **Render** — the refresh stamp into `checkin.yaml` (the board's "Last
+   check-in", red on the Pages twin once stale), then `dashboard.md` +
    `dashboard.html`.
-5. **Push** — see the rule below.
-6. **Summarise by project** — printed last, so it is what the chat sees.
+4. **Push** — see the rule below.
+5. **Summarise by project** — printed last, so it is what the chat sees.
 
 ### 3. Read the summary back, project by project
 
-The last block of the output is the deliverable: one section per project — its
-`local_path` / `mirror` / RAL root, what its pull did, its task counts, and
-then every task a human could act on today, each with the health verdict and
-a fenced, copy-ready prompt. Read it to the human as *state of each project*,
-then offer the prompts:
+The last block of the output is the deliverable: one section per project —
+`key — summary`, what its pull did, the jobs output, then **Now**, the
+**runs** and the **last entries** as the ledger holds them. Read it to the
+human as *where each project is*, in that shape: what they said they were
+doing, what is on the cluster, what they last wrote down. Then stop and let
+them talk.
 
-- **awaiting a ruling** → the review prompt (read the witness, score it, draft
-  the ruling for approval, then `cortex.py rule`).
-- **still out there** → the project's own `jobs` line.
-- **ready** → the launch lines (the task, the `submit`, the `move … submitted
-  --run <jobid>`). Run them yourself when the human says go.
-- **gated** → the refs to open.
+### 4. Record what the human says
 
-Never decide a ruling, never submit a job the human did not ask for, never edit
-a task file by hand: every task edit is `python3 scripts/cortex.py move`,
-every verdict is `python3 scripts/cortex.py rule`, both in the PyAutoCortex
-checkout, and the ruling body is the human's words verbatim.
+Every ledger write is a `cortex.py` verb, run in the PyAutoCortex checkout:
 
-### 4. Work on a project
+```bash
+python3 scripts/cortex.py run <key> <jobid> "<what it is>" [--partition P]   # a submission
+python3 scripts/cortex.py running <key> <jobid>                              # the cluster says it started
+python3 scripts/cortex.py done <key> <jobid> [--failed] [--wall H:MM]        # the cluster says it ended
+python3 scripts/cortex.py log <key> "<their words>" --kind result|lesson|note
+python3 scripts/cortex.py now <key> "<where they are, what comes next>"
+```
 
-Every next-task, rerun and planned prompt of a project that declares an
-`assistant:` in `projects.yaml` carries a **work brief** under it — the entry
-protocol for the subagent that does the work.
+- `running` and `done` are **cluster facts**: the agent may run them straight
+  from the `jobs` output the check-in printed, and say it did.
+- A `result` or a `lesson` is written **only in the human's words, when they
+  say it**. If you read a results file, tell the human what you see; they say
+  what to log. Never paraphrase a result into the ledger unasked.
+- `now` is the human's "pick up where I left off" line. Rewrite it when they
+  tell you where they are, in their words.
+- After a ledger changes, `bin/pyauto-brain cortex dashboard --apply` (or the
+  next check-in) re-renders the board; `bin/pyauto-brain cortex issue --apply`
+  refreshes the block at the top of the project's issue.
 
-- **Paste it verbatim into an execution-tier subagent**, one rung down the
-  ladder in [`../WORKFLOW.md`](../WORKFLOW.md) (from a Fable session,
-  `Agent(model="opus", …)`). The brief is the prompt; the project is never
-  worked in the Cortex chat.
-- **The return is two parts**: the outcome against the task's `## Witness`,
-  and **assistant drift** — every skill or wiki page of the assistant that was
-  wrong, missing or stale.
-- **File each drift item through `/intake`** against the assistant repo. The
-  assistant is never edited from the Cortex chat.
-- **An empty brief means `assistant: none`** — the project routes through no
-  assistant and the work is plain workspace work.
+### 5. Resume a project
 
-The check-in itself and the ruling prompts carry no brief and load no
-assistant page.
+The board carries one 📋 per active project — **resume `<key>`**. Its paste:
+read `PyAutoCortex/projects/<key>.md` (Now, Runs, Log), then the project's own
+`ledger` file from its `projects.yaml` row, then — when the row names an
+`assistant:` — that assistant's `AGENTS.md`; then tell the human where they
+left off and what they said they would do next. **Submit nothing and log
+nothing until they say.** Work on the project itself is delegated the way
+[`../WORKFLOW.md`](../WORKFLOW.md) "Cortex project work" says; the resume is
+the entry protocol, not the work.
 
 ## The push rule
 
@@ -101,9 +106,7 @@ operation — a session without `gh` (a remote one, which reaches GitHub through
 the `mcp__github__*` tools instead; the map is
 [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md)) simply gets `--no-push` and is
 told so. Do not install `gh` to change that answer: the push wants a laptop
-with a clean checkout, and a remote session has neither. That is the whole cloud/laptop split: on a
-laptop it is the default and needs no asking; in a cloud session there is no
-logged-in `gh`, so the default is `--no-push` and the check-in says so.
+with a clean checkout, and a remote session has neither.
 
 When it pushes it cuts `claude/checkin-<YYYY-MM-DD>` from a fresh
 `origin/main`, commits the changed paths **explicitly**, and pushes. If
@@ -114,35 +117,24 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
 
 ## The rules that do not bend
 
-- **A run is the human's call, not the human's keystroke.** The check-in door
-  never submits. When the human asks for a run in the session, the agent
-  submits it with the project's own sync CLI (its `submit` / `push-submit`
-  verb) and records the job id at once with `cortex.py move <task> submitted
-  --run <jobid>`. Nothing is submitted unasked, and a run that has no task
-  gets one before the session ends. (Changed 2026-09-05 by the human's ruling;
-  before that the human typed the submit.)
-- **A verdict recorded only outside the Cortex does not exist.** A decision
-  reached in chat is not a ruling until `cortex.py rule` has written it.
-- **A task is a question with a pre-registered witness.** If `Witness:` is
-  empty the task cannot be submitted — write the witness first.
-- **The only thing that reaches a cluster is the project's own CLI.** The door
-  adds no SSH of its own, and `--dry-run` reaches nothing at all.
-- **UNOBSERVABLE is not FAIL.** Some legs are not visible on the laptop (the
-  checkpoint is never pulled; one project writes no version stamp), so those
-  tasks come back **SUSPECT** — read them, do not treat them as broken runs.
-  The checkpoint leg becomes scorable where `.cortex/pull.json` carries a
-  `checkpoints` table (keyed by run directory) or a `runs` table (by job id).
+- **Never submit unless asked.** The check-in door never submits. When the
+  human asks for a run in the session, the agent submits it with the
+  project's own sync CLI (its `submit` / `push-submit` verb) and records the
+  job id at once with `cortex.py run <key> <jobid> "<what>"`.
+- **Never write a result or lesson the human did not say.** The conductor
+  scores nothing, rules nothing, drafts no verdict. A `result` or `lesson`
+  entry is the human's words, verbatim, on their ask.
+- **Never edit a ledger by hand.** Every write is a `cortex.py` verb; the
+  script refuses an edit that would not read back.
+- **Only the project's own CLI reaches a cluster.** The door adds no SSH of
+  its own, and `--dry-run` reaches nothing at all.
 - **The door runs once and ends.** No timer, no subscription, no cron, no
   loop — you check in, you report, you stop.
 - **The door names the assistant, never reads it.** No assistant page is
-  loaded in the Cortex chat; the assistant is the subagent's entry protocol.
-- **`rulings/` is append-only.** Never edit or delete one.
+  loaded in the Cortex chat; the assistant is the resume's entry protocol.
 - **Retiring ends a project, it does not erase one.** `cortex.py retire`
-  changes a `projects.yaml` row's `status:` and `note:` and nothing else:
-  the row stays (it is the only record of where that project's data
-  lives), its tasks stay, its rulings stay. It refuses while the project
-  holds a task outside `accepted | rerun | dropped | planned` — rule or
-  drop the live questions first.
+  changes a `projects.yaml` row's `status:` and `note:` and logs it; the row
+  and the ledger stay. It refuses while the ledger still lists a run.
 
 ## Appendix — the verbs it composes
 
@@ -152,10 +144,9 @@ checkout.
 
 | Verb | Answers |
 |------|---------|
-| `checkin [--dry-run\|--apply] [--push\|--no-push] [--project KEY] [--skip-pull] [--refreshed ISO]` | Where is my science? The whole sequence above. Exit **1** = a pull failed or the tree needs a look |
-| `census [--json]` | What is the Cortex holding? Task counts by state, rulings, projects, the last check-in stamp |
+| `checkin [--dry-run\|--apply] [--push\|--no-push] [--project KEY] [--skip-pull]` | Where is my science? The whole sequence above. Exit **1** = a pull failed or the tree does not check |
+| `census [--json]` | What is the Cortex holding? Per project: status, runs by state, log length, last update; the totals; the last check-in stamp |
 | `dashboard --check` | Are the committed pages current? Exit **1** = stale (the refresh workflow's contract) |
 | `dashboard --apply` | Regenerate `dashboard.md` + `dashboard.html` — never hand-edit those two |
-| `gates` | What is each gated task waiting on? Read-only and offline; a human types `move <task> ready` |
-| `retire <project> --why "…"` (`scripts/cortex.py`) | Is this project over? Flips the row to `status: retired` and stamps `note: retired <today>: <why>`. The 📋 chip on the board's **Nothing open** table is this command. Exit **1** = an unknown key, an already-retired row, or a task still live |
-| `collect [--task REL] [--pull] [--refreshed ISO] [--apply] [--out F]` | The scorer `checkin` composes: one block per task — six legs each `PASS`/`FAIL`/`UNOBSERVABLE`, the readout, a **blank** ruling line. Exit **1** = a task the human must look at |
+| `issue [--project KEY] [--apply]` | The ledger block at the top of each project's issue (Now, Runs, the last five). `--apply` writes it there through `gh`; never creates an issue; exit **1** without `gh` |
+| `retire <project> --why "…"` (`scripts/cortex.py`) | Is this project over? Flips the row to `status: retired`, stamps the note, logs it. Exit **1** = an unknown key, an already-retired row, or a run still listed |

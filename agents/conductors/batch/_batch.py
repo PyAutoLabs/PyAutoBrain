@@ -2689,7 +2689,7 @@ def read_review(text: str) -> dict:
 #: The packet's opening line. One organ since 2026-09-03: the science board and
 #: everything that modelled the human as a reviewer working a scheduled shift
 #: were retired (PyAutoCortex#9), and checking in on the science is
-#: `pyauto-brain cortex collect` instead.
+#: `pyauto-brain cortex checkin` instead.
 DEV_LEDE = ("{n} of {total} ended member(s) delivered on the evidence — a PR "
             "with a non-empty diff and checks that ran.")
 
