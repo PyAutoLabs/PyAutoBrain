@@ -18,7 +18,7 @@ Canonical boundaries live in `PyAutoBrain/ORGANISM.md`; the full body map
 |-------|------|------|
 | **Brain** | PyAutoBrain | Reasoning/orchestration layer; how work is decomposed and routed; the specialist agents. |
 | **Mind** | PyAutoMind | Intent, goals, priorities, workflow state; every task starts as a markdown prompt here. |
-| **Cortex** | PyAutoCortex | The Cortex — where the organism learns what is true: the science body map (`projects.yaml`) and the rulings of record for every science run; the science mirror of the Mind (runs and rulings, not prompts and PRs). |
+| **Cortex** | PyAutoCortex | The Cortex — where the organism keeps track of what is true: the science body map (`projects.yaml`) and one ledger per science project (what was run, what came back, what was learned, where to pick up); the science mirror of the Mind (runs and a dated log, not prompts and PRs). |
 | **Memory** | PyAutoMemory | Long-term scientific/software/project knowledge (see science pointer below). |
 | **Heart** | PyAutoHeart | Health/readiness — the authoritative "is it safe to release?" verdict. |
 | **Hands** | PyAutoHands | Packaging, tagging, notebook generation, PyPI release execution. |
@@ -141,7 +141,7 @@ the `/<verb>` slash commands.
 | `workspace` | The voice — the organism's expressive function: plan/survey workspace + HowTo example authorship (workspace\|howto registers) — WorkspaceDecision (never writes) | `bin/pyauto-brain workspace` |
 | `eyes` | The perceptive function — the organism's sense of its own appearance: survey/review a visualization workspace's figure surface, critiques route to intake/start_dev — EyesSurvey/EyesReviewSurface (never renders, never edits) | `bin/pyauto-brain eyes` |
 | `profiling` | The proprioceptive function — the organism's sense of its own effort: campaign/ingest/triage plans over the autolens_profiling workspace — ProfilingDecision | `bin/pyauto-brain profiling` |
-| `cortex` | The learning function — where the organism finds out what is true: the science check-in over PyAutoCortex ('cortex checkin') — pull every active project through its own sync CLI, score every live run against its pre-registered witness, move what came back to awaiting-ruling, re-render the board and summarise it by project; its door never submits a run and never writes a ruling; the agent submits only on the human's ask, and the ruling is the human's word | `bin/pyauto-brain cortex` |
+| `cortex` | The learning function — where the organism keeps track of what is true: the per-project science ledger over PyAutoCortex ('cortex checkin') — pull every active project through its own sync CLI, show where each run stands, re-render the board; it records cluster facts and the human's words, never a verdict of its own | `bin/pyauto-brain cortex` |
 | `hygiene` | The maintenance function — the organism's sense of its own upkeep: code-quality debt (dev-loop cost + tidiness), delegating fixes — HygieneDecision | `bin/pyauto-brain hygiene` |
 | `clone` | The Mitosis Agent: partition the reference assistant, analyze the domain, emit the CloneDecision; --apply --mode lightweight-seed delegates the seed birth to Build; 'clone sync' patches the reference's generic-file diff onto the born siblings (dry run by default; rejected hunks are a human decision) | `bin/pyauto-brain clone` |
 | `build` | Coordinate execution: consult the vitals faculty, then delegate to PyAutoHands | `bin/pyauto-brain build` |

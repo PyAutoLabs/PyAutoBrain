@@ -73,6 +73,19 @@ jobs:
         with:
           repository: PyAutoLabs/PyAutoCortex
           path: PyAutoCortex
+      # A Brain branch that changes the conductor alongside a Cortex schema
+      # change is tested against the Cortex branch of the SAME NAME when one
+      # exists (the two land as a pair), and against Cortex main otherwise.
+      - name: Prefer the same-named PyAutoCortex branch, if any
+        working-directory: PyAutoCortex
+        env:
+          BR: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if git fetch --depth 1 origin "$BR" 2>/dev/null; then
+            git checkout -q FETCH_HEAD && echo "PyAutoCortex @ $BR"
+          else
+            echo "PyAutoCortex @ main (no branch named $BR)"
+          fi
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:

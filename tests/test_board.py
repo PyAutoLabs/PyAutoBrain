@@ -178,11 +178,9 @@ CORTEX_DASHBOARD_MD = """\
 
 | Where | Count |
 |-------|------:|
-| [Awaiting ruling](#awaiting-ruling) | 2 |
-| [Running / submitted](#running--submitted) | 1 |
-| [Ready](#ready) | 4 |
-| [Gated](#gated) | 3 |
-| [Recent rulings](#recent-rulings) | 9 |
+| [Running](#projects) | 1 |
+| [Open](#projects) | 4 |
+| [Projects](#projects) | 3 |
 """
 
 
@@ -303,8 +301,7 @@ def test_the_cortex_strip_composes_the_cortex_own_counts(tmp_path):
     the Brain board shows those numbers rather than re-deriving them, and
     degrades to nothing at all when no Cortex is checked out."""
     s, _ = _surface(tmp_path)
-    assert s["cortex"] == {"Awaiting ruling": 2, "Running / submitted": 1,
-                           "Ready": 4, "Gated": 3, "Recent rulings": 9}
+    assert s["cortex"] == {"Running": 1, "Open": 4, "Projects": 3}
     stub = _fabricate(tmp_path / "no_cortex", _default_fixtures())
     (tmp_path / "no_cortex" / "PyAutoCortex" / "dashboard.md").unlink()
     r = _run(["--json"], tmp_path / "no_cortex", stub)

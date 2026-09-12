@@ -20,7 +20,7 @@ definition.
 
 It rendered a second box for the Cortex until 2026-09-03, when the science
 review slot was retired (PyAutoCortex#9); checking in on the science is
-`pyauto-brain cortex collect` now, and that surface has no board of its own.
+`pyauto-brain cortex checkin` now, and that surface has no board of its own.
 """
 
 from __future__ import annotations
