@@ -113,7 +113,9 @@ def test_a_ledger_dict_carries_the_card_facts(skeleton):
     ex = _cortex.ledger_of(c, "example")
     assert ex["status"] == "active" and ex["partition"] == "both"
     assert ex["issue"] == "example#7"
-    assert ex["issue_url"] == "https://github.com/PyAutoLabs/example/issues/7"
+    # the owner is the Cortex script's default, not a fact this test states
+    assert ex["issue_url"].startswith("https://github.com/")
+    assert ex["issue_url"].endswith("/example/issues/7")
     assert ex["rel"] == "projects/example.md"
     assert ex["local_path"] == "/tmp/example" and ex["ral_root"] == "/mnt/ral/example"
     assert [(r["ident"], r["state"]) for r in ex["runs"]] == \
