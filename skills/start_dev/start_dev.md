@@ -11,7 +11,9 @@ risk judgement belong to Brain. Read
 [`../WORKFLOW.md`](../WORKFLOW.md) first: it defines the organ boundary, the
 Brain-agent entry points, Memory consultation, the execution-environment model,
 the **model-delegation ladder** (Fable > Opus > Sonnet — a Fable session plans
-here and delegates all execution to Opus), and the Mind registry paths used
+here and delegates all execution to Opus; an Opus session delegates execution to
+Opus too, dropping to Sonnet only for the really simple mechanical `ship_*` /
+`pre_build` recipes), and the Mind registry paths used
 below.
 
 > **GitHub surface.** The `gh` commands below name the *operation*, not

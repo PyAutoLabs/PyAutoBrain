@@ -90,15 +90,22 @@ session is Opus:
 | Session model | Judgment tier (in-session) | Execution tier (subagents) |
 |---------------|----------------------------|----------------------------|
 | **Fable** | Fable — the architect: all planning and decomposition | **Opus** — *all* remaining work |
-| **Opus** | Opus | Sonnet |
+| **Opus** | Opus | **Opus** — Sonnet only for the simple-and-mechanical floor below |
 | **Sonnet** | Sonnet | Sonnet (nothing below; run inline) |
 
 A **Fable session is the architect**. It plans, decomposes, judges and talks to
 the user, then hands *every* execution phase to Opus subagents
 (`Agent(model="opus", …)`) — not only the mechanical shell/git steps listed
-below, but implementation, edits, tests and tutorial prose too. An Opus session
-behaves as it always has: it implements in-session and delegates only the
-mechanical phases to Sonnet.
+below, but implementation, edits, tests and tutorial prose too.
+
+An **Opus session delegates to Opus** (`Agent(model="opus", …)`) for anything
+with judgment in it — implementation, source edits, test authoring, fix loops,
+tutorial prose, diagnostics that have to reason about their own output.
+**Sonnet is the exception, not the default:** it gets a phase only when that
+phase is *really simple and mechanical* — a fixed recipe of shell/git steps
+with no design decisions in it, where a wrong answer surfaces immediately as a
+failed command. If you are weighing whether a phase is mechanical enough for
+Sonnet, it isn't: send it to Opus.
 
 The main session stays on the judgment tier; bulk execution moves to the
 execution tier — no manual model toggling, and no waiting to be told which
@@ -108,25 +115,27 @@ model to use.
 of the *session*, not of `start_dev`. Direct work on the organs (Brain, Mind,
 Heart, Hands, Memory, Gut, Nerves), hygiene and cleanup sweeps, skill/doc
 edits, one-off fixes, profiling runs and diagnostics that execute code all
-delegate the same way. A Fable session should say which model it is running
-on in its opening line and treat "should this be a subagent?" as the first
-question for any task. **Stays in-session (no delegation):** answering from
+delegate the same way. A Fable *or* Opus session should say which model it is
+running on in its opening line and treat "should this be a subagent?" as the
+first question for any task. **Stays in-session (no delegation):** answering from
 context already loaded; reading a handful of files; edits of a few lines in
 files already read; and anything that is itself a conversation with the user —
 plans, decisions, reviews, judgment calls. Everything else is a delegation
 candidate; when in doubt, delegate one coherent phase and keep the judgment.
 
-**Delegated (mechanical phase — the floor, always delegated at any tier):**
+**The simple-and-mechanical floor — always delegated at any tier, and the only
+phases an Opus session may hand to Sonnet:**
 
 - `ship_library` — step 3 (test, commit, push, open PR).
 - `ship_workspace` — step 3 (commit, push, smoke test, open PR, cross-reference).
 - `pre_build` — step 2 (format, generate, version bump, stage, commit, push,
   dispatch workflow).
 
-From a **Fable** session this list is a floor, not a ceiling: delegate the
-implementation phases (`start_library` / `start_workspace` source edits, script
-authoring, test writing, fix loops) to Opus as well, one subagent per coherent
-phase, using the same prompt contract below.
+That list is a floor, not a ceiling. Everything above it that is still
+*execution* — `start_library` / `start_workspace` source edits, script
+authoring, test writing, fix loops, doc and skill edits, hygiene sweeps,
+diagnostics — goes to the **Opus** execution tier from a Fable *or* an Opus
+session, one subagent per coherent phase, using the same prompt contract below.
 
 **Several tasks in one session — `start_bundle`.** The ladder above scales a
 single task across tiers; a **bundle** scales one session across several
@@ -204,11 +213,15 @@ reader is there to learn):
   `howto*`). Sonnet drifts to generic textbook phrasing and misses domain
   framing here, so prose never goes below Opus — a Fable session may delegate
   it to an Opus subagent, an Opus session keeps it in-session.
-- **Sonnet** for code-heavy, doc-light scripts where comments are short
-  API-usage notes: `*_workspace_test`, `euclid_strong_lens_modeling_pipeline`
-  glue, and developer/regression/smoke/parity scripts.
+- **Short API-usage notes** — not the Opus prose register — for code-heavy,
+  doc-light scripts: `*_workspace_test`, `euclid_strong_lens_modeling_pipeline`
+  glue, and developer/regression/smoke/parity scripts. Authoring these still
+  goes to the **Opus** execution tier; Sonnet only takes one when the script is
+  a near-copy of an existing sibling and the work is pure mechanical
+  adaptation.
 - Heuristic: *"is the reader here to learn science, or to exercise code?"*
-  Science → Fable/Opus. Code → Sonnet.
+  Science → full teaching prose. Code → terse notes. Either way the writer is
+  Opus unless the job is a mechanical copy.
 
 ## Consult Memory before substantial planning
 

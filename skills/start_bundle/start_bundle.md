@@ -2,9 +2,10 @@
 
 A **bundle** is a set of *independent* PyAutoMind prompts worked in one
 orchestrated session. The session model is the **architect**: it plans and
-judges, and delegates the implementation of each member to a subagent one rung
-down the capability ladder (see [`WORKFLOW.md`](../WORKFLOW.md) — Fable > Opus >
-Sonnet; a Fable session delegates to Opus). Bundles come from the PyAutoMind
+judges, and delegates the implementation of each member to an execution-tier
+subagent (see [`WORKFLOW.md`](../WORKFLOW.md) — Fable > Opus > Sonnet; a Fable
+*or* an Opus session delegates member implementation to Opus, and Sonnet only
+takes the really simple mechanical phases). Bundles come from the PyAutoMind
 dashboard's **Bundles** section — pinned entries in `PyAutoMind/bundles.md`, or
 proposals it computes from the backlog — or from a human naming several prompts.
 
