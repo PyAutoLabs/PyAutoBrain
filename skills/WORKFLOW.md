@@ -75,37 +75,47 @@ file and `PyAutoBrain/AGENTS.md`, and note that the agent was emulated.
 
 ## Model delegation (judgment tier plans, execution tier ships)
 
-The workflow skills split work across **capability tiers**, not named models or
-harness-specific tool names, so the doctrine survives model access changing:
+The workflow skills split work across **capability tiers**, then resolve those
+tiers within the provider family and subagent mechanism exposed by the current
+harness. Do not carry model names or invocation syntax from one provider or
+harness into another:
 
 - **Judgment tier** — the session model itself. Planning, orchestration, risk
   judgment, and anything user-facing. Never delegated, never handed *up*.
-- **Execution tier** — the next model down the ladder, delegated through the
-  harness's subagent mechanism when available.
+- **Execution tier** — the model assigned below for the session's provider
+  family, delegated through the harness's subagent mechanism when available.
 
-**Capability ladder (strongest first): Fable > Opus > Sonnet.** The tiers are
-resolved from the model the session is actually running on — do not assume the
-session is Opus:
+The tiers are resolved from the model the session is actually running on. Do
+not assume the provider, session model, or subagent-call syntax:
 
-| Session model | Judgment tier (in-session) | Execution tier (subagents) |
-|---------------|----------------------------|----------------------------|
-| **Fable** | Fable — the architect: all planning and decomposition | **Opus** — *all* remaining work |
-| **Opus** | Opus | **Opus** — Sonnet only for the simple-and-mechanical floor below |
-| **Sonnet** | Sonnet | Sonnet (nothing below; run inline) |
+| Provider family | Session model | Judgment tier (in-session) | Execution tier (subagents) |
+|-----------------|---------------|----------------------------|----------------------------|
+| Anthropic | **Fable** | Fable — the architect: all planning and decomposition | **Opus** — *all* remaining work |
+| Anthropic | **Opus** | Opus | **Opus** — Sonnet only for the simple-and-mechanical floor below |
+| Anthropic | **Sonnet** | Sonnet | Sonnet (nothing below; run inline) |
+| OpenAI | **Astra** | Astra — the architect: all planning and decomposition | **Sol** — *all* remaining work |
+| OpenAI | **Sol** | Sol | **Sol** |
 
-A **Fable session is the architect**. It plans, decomposes, judges and talks to
-the user, then hands *every* execution phase to Opus subagents
-(`Agent(model="opus", …)`) — not only the mechanical shell/git steps listed
-below, but implementation, edits, tests and tutorial prose too.
+No default mapping is defined here for other models, including Terra or Luna.
+When the harness cannot target the named execution model or has no subagent
+mechanism, follow the cross-harness fallback below and execute directly.
 
-An **Opus session delegates to Opus** (`Agent(model="opus", …)`) for anything
-with judgment in it — implementation, source edits, test authoring, fix loops,
-tutorial prose, diagnostics that have to reason about their own output.
-**Sonnet is the exception, not the default:** it gets a phase only when that
-phase is *really simple and mechanical* — a fixed recipe of shell/git steps
-with no design decisions in it, where a wrong answer surfaces immediately as a
-failed command. If you are weighing whether a phase is mechanical enough for
-Sonnet, it isn't: send it to Opus.
+A **Fable or Astra session is the architect**. It plans, decomposes, judges and
+talks to the user, then hands *every* execution phase to its family's execution
+tier: Fable → Opus; Astra → Sol. This includes implementation, edits, tests and
+tutorial prose, not only the mechanical shell/git steps listed below.
+
+An **Opus or Sol session delegates to the same model** for execution: Opus →
+Opus; Sol → Sol. Use the current harness's native subagent call and exact model
+identifier. In particular, do not use Anthropic-specific
+`Agent(model="opus", …)` syntax or an Opus target from an OpenAI session.
+
+Within the Anthropic family, **Sonnet is the exception, not the default:** it
+gets a phase only when that phase is *really simple and mechanical* — a fixed
+recipe of shell/git steps with no design decisions in it, where a wrong answer
+surfaces immediately as a failed command. If you are weighing whether a phase
+is mechanical enough for Sonnet, it isn't: send it to Opus. The OpenAI policy
+has no corresponding lower mechanical tier; those phases stay on Sol.
 
 The main session stays on the judgment tier; bulk execution moves to the
 execution tier — no manual model toggling, and no waiting to be told which
@@ -115,16 +125,17 @@ model to use.
 of the *session*, not of `start_dev`. Direct work on the organs (Brain, Mind,
 Heart, Hands, Memory, Gut, Nerves), hygiene and cleanup sweeps, skill/doc
 edits, one-off fixes, profiling runs and diagnostics that execute code all
-delegate the same way. A Fable *or* Opus session should say which model it is
-running on in its opening line and treat "should this be a subagent?" as the
-first question for any task. **Stays in-session (no delegation):** answering from
-context already loaded; reading a handful of files; edits of a few lines in
-files already read; and anything that is itself a conversation with the user —
-plans, decisions, reviews, judgment calls. Everything else is a delegation
-candidate; when in doubt, delegate one coherent phase and keep the judgment.
+delegate the same way. A Fable, Opus, Astra or Sol session should say which
+model it is running on in its opening line and treat "should this be a
+subagent?" as the first question for any task. **Stays in-session (no
+delegation):** answering from context already loaded; reading a handful of
+files; edits of a few lines in files already read; and anything that is itself
+a conversation with the user — plans, decisions, reviews, judgment calls.
+Everything else is a delegation candidate; when in doubt, delegate one
+coherent phase and keep the judgment.
 
-**The simple-and-mechanical floor — always delegated at any tier, and the only
-phases an Opus session may hand to Sonnet:**
+**The simple-and-mechanical floor — always delegated when the harness supports
+subagents, and the only phases an Anthropic Opus session may hand to Sonnet:**
 
 - `ship_library` — step 3 (test, commit, push, open PR).
 - `ship_workspace` — step 3 (commit, push, smoke test, open PR, cross-reference).
@@ -135,7 +146,8 @@ That list is a floor, not a ceiling. Everything above it that is still
 *execution* — `start_library` / `start_workspace` source edits, script
 authoring, test writing, fix loops, doc and skill edits, hygiene sweeps,
 diagnostics — goes to the **Opus** execution tier from a Fable *or* an Opus
-session, one subagent per coherent phase, using the same prompt contract below.
+session, or to the **Sol** execution tier from an Astra *or* a Sol session, one
+subagent per coherent phase, using the same prompt contract below.
 
 **Several tasks in one session — `start_bundle`.** The ladder above scales a
 single task across tiers; a **bundle** scales one session across several
@@ -207,21 +219,22 @@ look, not a substitute for looking.
 **Tutorial-prose split** (separate from skill delegation — depends on what the
 reader is there to learn):
 
-- **Fable or Opus** for narrative science-teaching scripts where the
+- **Opus in the Anthropic family; Sol in the OpenAI family** for narrative
+  science-teaching scripts where the
   docstrings/comments are the product: tutorials in `autofit_workspace`,
   `autogalaxy_workspace`, `autolens_workspace` (`overview_*`, `start_here.py`,
   `howto*`). Sonnet drifts to generic textbook phrasing and misses domain
-  framing here, so prose never goes below Opus — a Fable session may delegate
-  it to an Opus subagent, an Opus session keeps it in-session.
+  framing here, so Anthropic prose never goes below Opus. Fable and Opus
+  sessions delegate it to Opus; Astra and Sol sessions delegate it to Sol.
 - **Short API-usage notes** — not the Opus prose register — for code-heavy,
   doc-light scripts: `*_workspace_test`, `euclid_strong_lens_modeling_pipeline`
   glue, and developer/regression/smoke/parity scripts. Authoring these still
-  goes to the **Opus** execution tier; Sonnet only takes one when the script is
-  a near-copy of an existing sibling and the work is pure mechanical
-  adaptation.
+  goes to the family's execution tier (Opus or Sol); Sonnet only takes one in
+  the Anthropic family when the script is a near-copy of an existing sibling
+  and the work is pure mechanical adaptation.
 - Heuristic: *"is the reader here to learn science, or to exercise code?"*
   Science → full teaching prose. Code → terse notes. Either way the writer is
-  Opus unless the job is a mechanical copy.
+  Opus or Sol unless an Anthropic job is a mechanical copy.
 
 ## Consult Memory before substantial planning
 
