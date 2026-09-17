@@ -171,6 +171,21 @@ def test_command_surface_block_is_current():
     assert "DRIFT" not in result.stdout
 
 
+def test_project_discovery_tree_is_current():
+    """This repo's committed .claude/ + .codex/ discovery symlinks match skills/.
+    Guards against adding or deleting a skill without regenerating the trees
+    (bash PyAutoBrain/bin/install.sh --write-project-discovery). Scoped to
+    PyAutoBrain so a sibling organ's drift never reddens a local Brain run."""
+    result = subprocess.run(
+        ["bash", str(INSTALLER), "--check-project-discovery", "PyAutoBrain"],
+        cwd=BRAIN_HOME,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "DRIFT" not in result.stdout
+
+
 def test_command_surface_covers_every_public_agent():
     agents = public_agents()
     assert agents

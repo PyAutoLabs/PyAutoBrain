@@ -47,6 +47,13 @@ from _sizing import (  # noqa: E402
     _body_map_specs as _sizing_specs,
 )
 
+# The memory faculty, imported rather than shelled out to: intake files prompts
+# in bulk (`intake ideas --apply` formalises the whole inbox in one go) and a
+# subprocess per prompt would pay the interpreter start-up every time. It is the
+# same ranking function the `/memory` verb prints — one recall implementation.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "faculties" / "memory"))
+import _memory  # noqa: E402
+
 # The shared board theme: the one place that answers "what does a one-tap board
 # look like". Presentation only — the stylesheet, the hero, the pills — so this
 # page and the Brain board are visibly the same family (board/_theme.py).
@@ -531,6 +538,64 @@ def _next_action(proposed, confidence, work_type=None):
 
 
 # --- apply (the only writing path) -------------------------------------------
+# --- Memory citations ---------------------------------------------------------
+# The doctrine says every plan consults Memory. The record says it was consulted
+# about six times in 1,547 completed tasks, because consulting it is a step a
+# human has to remember. So intake does it mechanically: every prompt it files
+# carries the top PyAutoMemory pages for its own text, as a `Memory:` header
+# line, and the session that picks the prompt up has the citations in front of
+# it before it plans anything.
+#
+# PyAutoMemory ONLY — not Mind history, not the assistant. Those two are
+# operational recall (what the organism did); this line answers "what does the
+# science say", which is the half a plan cannot reconstruct from the repo. A
+# prompt with no hits, or filed on a box with no PyAutoMemory, gets no line at
+# all: an empty `Memory:` would read as "nothing is known", which is a claim
+# this has no standing to make.
+MEMORY_CITATIONS = 3
+MEMORY_QUERY_WORDS = 200
+
+
+def _memory_home(mind: Path) -> Path | None:
+    """The PyAutoMemory checkout beside this Mind, or None when it is absent."""
+    override = os.environ.get("PYAUTO_MEMORY", "")
+    home = Path(override) if override else mind.parent / "PyAutoMemory"
+    return home if home.is_dir() else None
+
+
+def memory_citations(mind: Path, title: str, body_text: str,
+                     limit: int = MEMORY_CITATIONS) -> list:
+    """The top PyAutoMemory pages for this prompt, as repo-relative paths.
+
+    The query is the title plus the head of the body: a prompt's opening states
+    the problem, while its tail is usually acceptance criteria and file paths
+    that match on vocabulary rather than subject.
+    """
+    home = _memory_home(mind)
+    if home is None:
+        return []
+    query = " ".join(f"{title} {body_text}".split()[:MEMORY_QUERY_WORDS])
+    try:
+        d = _memory.digest(query, home, None, None, limit)
+    except (OSError, ValueError):
+        return []
+    return [page["page"] for page in d["pages"]][:limit]
+
+
+def _with_memory(header: str, pages: list) -> str:
+    """`Memory: a.md; b.md` under the optional keys, or the header unchanged."""
+    if not pages:
+        return header
+    line = "Memory: " + "; ".join(pages)
+    lines = header.split("\n")
+    for i, text in enumerate(lines):
+        if text.startswith("Priority:"):
+            lines.insert(i + 1, line)
+            return "\n".join(lines)
+    lines.append(line)
+    return "\n".join(lines)
+
+
 def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
     """Write the formal prompt file. Returns the path written (relative to mind)."""
     rel = Path(decision["proposed_path"])
@@ -543,6 +608,13 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
     date = _dt.date.today().isoformat()
     note = (f"\n\n<!-- formalised by the Intake (Conception) Agent on {date} "
             f"from {source_note} -->\n")
+    # Consulted at FILING time, not at analysis time: `analyse` is pure and
+    # touches no filesystem, and a citation is only worth computing for a
+    # prompt that is actually going to exist. The decision carries the header
+    # that was written, so `--json` reports the file's real contents.
+    cites = memory_citations(mind, decision.get("title", ""), body_text)
+    decision["memory"] = cites
+    decision["header"] = _with_memory(decision["header"], cites)
     dest.write_text(decision["header"] + "\n\n" + body_text.strip() + note,
                     encoding="utf-8")
     return str(rel)
@@ -600,7 +672,8 @@ def parse_header(text: str) -> dict:
     for line in text.splitlines()[:30]:
         m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
                      r"Issued|Filed|Epic|Phase|Bundle|Blocked-by|"
-                     r"Consequence|Witness|Review-minutes|Unattended|Lane):\s*(\S.*)",
+                     r"Consequence|Witness|Review-minutes|Unattended|Lane|"
+                     r"Memory):\s*(\S.*)",
                      line.strip())
         if m:
             fields.setdefault(m.group(1).lower(), m.group(2).strip())

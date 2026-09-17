@@ -74,6 +74,12 @@ reimplement inside Brain.
 - **The vitals faculty renders the card from `pyauto-heart dashboard --json`/`--md`**
   — the same board, not raw verdict JSON. It is exposed as the `dashboard`
   capability + `published_board` URL in Heart's `health_agent/capabilities.yaml`.
+- **The published Pages board is also the faculty's FALLBACK read.** With no
+  `pyauto-heart` on the box (every web/mobile session), the faculty reads that
+  surface's `badge.json` + `board.json` directly — the verdict, the structured
+  blockers, the publish timestamp — and labels the answer published, not live.
+  It is also the only surface carrying per-repo blockers, so `--scope` reads it
+  even when the CLI is present.
 - **Observer-only.** The dashboard SHOWS health; the `readiness` verdict stays
   the gate. Everything the dashboard writes stays within PyAutoHeart's own repo
   (gh-pages / README / `[heart-health]` issue), the job step summary, or

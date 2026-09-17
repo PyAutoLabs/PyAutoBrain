@@ -52,6 +52,14 @@ def surfaces(memory: Path | None, assistant: Path | None, mind: Path | None):
         wikis += sorted(memory.glob("*_wiki"))
         for wiki in wikis:
             for f in wiki.rglob("*.md"):
+                # `wiki/<domain>/seed/` holds UNVERIFIED import stubs — pages
+                # pulled in mechanically and not yet read by a human. They are
+                # kept in the repo on purpose, but a faculty that cites them
+                # would be handing an agent unchecked material with the same
+                # authority as a verified page, so they are not a recall
+                # surface until they leave seed/.
+                if "seed" in f.relative_to(wiki).parts:
+                    continue
                 yield f"PyAutoMemory/{wiki.name}", memory, f
     if assistant and assistant.is_dir():
         for sub in ("skills", "wiki"):

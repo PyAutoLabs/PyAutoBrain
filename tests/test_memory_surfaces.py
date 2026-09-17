@@ -85,3 +85,26 @@ def test_conductor_pointers_name_real_layout_paths(tmp_path):
             assert (live / "wiki" / wiki / "index.md").is_file(), (
                 f"policy names sub-wiki '{wiki}' but "
                 f"PyAutoMemory/wiki/{wiki}/index.md does not exist")
+
+
+def test_seed_pages_are_not_a_recall_surface(tmp_path):
+    """`wiki/<domain>/seed/` holds unverified import stubs.
+
+    They are real files in the repo and would out-rank a verified page on a
+    keyword count alone, so the faculty must not cite them — an agent reading a
+    digest has no way to tell a stub from a page a human checked.
+    """
+    m = _memory_repo(tmp_path)
+    seed = m / "wiki" / "demo" / "seed"
+    seed.mkdir()
+    (seed / "quasars_import.md").write_text(
+        "# stub\nquasars quasars quasars quasars\n")
+    (seed / "nested").mkdir()
+    (seed / "nested" / "more.md").write_text("quasars quasars\n")
+
+    pages = [f for _, _, f in _memory.surfaces(m, None, None)]
+    assert not any("seed" in f.parts for f in pages)
+
+    d = _memory.digest("quasars", m, None, None, 10)
+    assert d["pages"], "the verified pages must still be found"
+    assert all("seed/" not in p["page"] for p in d["pages"])

@@ -1,0 +1,33 @@
+{
+  "schema_version": 3,
+  "generated": "2026-09-17 06:12 UTC",
+  "blockers": [
+    {
+      "text": "repob_workspace: nightly smoke red",
+      "severity": "red",
+      "repo": "repob_workspace",
+      "repo_url": "https://example.invalid/repob_workspace",
+      "run_url": "https://example.invalid/run/9",
+      "prompt": "/bug Heart board: repob_workspace nightly smoke red",
+      "command": null
+    },
+    {
+      "text": "RepoA: install verification not run",
+      "severity": "stale",
+      "repo": "RepoA",
+      "repo_url": "https://example.invalid/RepoA",
+      "run_url": null,
+      "prompt": "/health run `pyauto-heart verify_install --report-json`",
+      "command": "pyauto-heart verify_install --report-json"
+    },
+    {
+      "text": "release validation missing for current source",
+      "severity": "stale",
+      "repo": null,
+      "repo_url": null,
+      "run_url": null,
+      "prompt": "/health re-run release validation",
+      "command": "pyauto-heart tick"
+    }
+  ]
+}
