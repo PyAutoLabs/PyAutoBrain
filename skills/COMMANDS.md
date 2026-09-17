@@ -30,7 +30,7 @@ readiness gate, or execution — those belong to the organs.
 | Command | Agent | Chain |
 |---------|-------|-------|
 | `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`); `census`/`dashboard` = backlog inventory / `PyAutoMind/dashboard.md` |
-| `/community` | Community Agent | `bin/pyauto-brain community` → scan/triage user-filed issues (read-only surfaces) → session drafts replies for human approval → `/start_dev_for_user` |
+| `/community` | Community Agent | `bin/pyauto-brain community` → scan/triage the Discussions hub + user-filed issues/PRs (read-only surfaces) → session drafts replies for human approval → answer in the thread, or `/start_dev_for_user` for a report with a reproducer |
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/refactor` | Refactor Agent | `bin/pyauto-brain refactor` → `start_dev [--auto]` → `ship_*` (behaviour-preserving; default-safe) |

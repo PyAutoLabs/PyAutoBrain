@@ -324,6 +324,15 @@ PERF_FLAGGED_CAP = 5
 COMMUNITY_STALE_DAYS = 7
 
 
+def community_ref(e):
+    """The ref a `/community triage` chip carries: `owner/repo#N` for an
+    issue or PR, the thread URL for a discussion (`#N` would read as an
+    issue — see the conductor's `parse_ref`)."""
+    if e.get("type") == "discussion":
+        return e.get("url") or f"{e['repo']}/discussions/{e['number']}"
+    return f"{e['repo']}#{e['number']}"
+
+
 def _local_published_json(repo, name):
     """The same surface from a sibling checkout, when one is here.
 
@@ -1114,18 +1123,19 @@ def render_md(data):
     c = data["community"]
     if c:
         counts = c["counts"]
-        L.append(f"- {counts['open_external']} external issue(s), "
+        L.append(f"- {counts.get('open_discussions', 0)} discussion(s) on the hub, "
+                 f"{counts['open_external']} external issue(s), "
                  f"{counts['open_external_prs']} external PR(s) open — "
                  f"**{counts['awaiting_response']} awaiting our reply** "
                  "(respond via `/community`; never auto-reply)")
-        awaiting_keys = {(e["repo"], e["number"]) for e in c["awaiting_response"]}
+        awaiting_keys = {(e.get("type"), e["repo"], e["number"]) for e in c["awaiting_response"]}
         for e in c["awaiting_response"]:
             days = (f"{e['waiting_days']:.0f}d"
                     if e.get("waiting_days") is not None else "?")
-            L.append(f"  - `/community triage {e['repo']}#{e['number']}` "
+            L.append(f"  - `/community triage {community_ref(e)}` "
                      f"[{days} waiting] @{e['author']}: {e['title'][:70]}")
         for e in c["open_external_issues"] + c["open_external_prs"]:
-            if (e["repo"], e["number"]) in awaiting_keys:
+            if (e.get("type"), e["repo"], e["number"]) in awaiting_keys:
                 continue
             note = ("ours to watch" if e.get("awaiting_response") is False
                     else "unchecked")
@@ -1457,7 +1467,8 @@ def render_html(data):
         counts = c["counts"]
         H.append(_row(
             'Replies stay human-gated in <code>/community</code>.'
-            + pills((f'{counts["open_external"]} issue(s)', ""),
+            + pills((f'{counts.get("open_discussions", 0)} discussion(s)', ""),
+                    (f'{counts["open_external"]} issue(s)', "n"),
                     (f'{counts["open_external_prs"]} PR(s)', "n"),
                     (f'{counts["awaiting_response"]} awaiting our reply',
                      "y" if counts["awaiting_response"] else "g")),
@@ -1472,22 +1483,23 @@ def render_html(data):
             """
             url = e.get("url") or ""
             title = esc(e.get("title", "")[:80])
-            kind = "PR" if e.get("type") == "pr" else "issue"
+            kind = e.get("type") if e.get("type") == "discussion" \
+                else ("PR" if e.get("type") == "pr" else "issue")
             link = f'<a href="{_attr(url)}">{esc(e["repo"])}#{e["number"]}</a>' \
                 if url else f'{esc(e["repo"])}#{e["number"]}'
             return _row(
                 f'{link} @{esc(e["author"])}: {title}'
                 + pills((kind, ""), (note, tone)),
-                f"/community triage {e['repo']}#{e['number']}")
+                f"/community triage {community_ref(e)}")
 
-        awaiting_keys = {(e["repo"], e["number"]) for e in c["awaiting_response"]}
+        awaiting_keys = {(e.get("type"), e["repo"], e["number"]) for e in c["awaiting_response"]}
         for e in c["awaiting_response"]:
             waited = e.get("waiting_days")
             days = f"{waited:.0f}d waiting" if waited is not None else "waiting"
             H.append(community_row(
                 e, days, "r" if (waited or 0) >= COMMUNITY_STALE_DAYS else "y"))
         for e in c["open_external_issues"] + c["open_external_prs"]:
-            if (e["repo"], e["number"]) in awaiting_keys:
+            if (e.get("type"), e["repo"], e["number"]) in awaiting_keys:
                 continue
             note = ("ours to watch" if e.get("awaiting_response") is False
                     else "unchecked")

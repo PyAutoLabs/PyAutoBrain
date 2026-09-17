@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # agents/conductors/community/community.sh — the Community Agent (a PyAutoBrain
 # reasoning conductor). Organism-facing name: the Ears — the organism's
-# receptive language function: it hears the community (user-filed GitHub
-# issues) and drafts what the organism says back; the human remains the mouth.
+# receptive language function: it hears the community (the Discussions hub
+# where users ask, plus user-filed GitHub issues and PRs) and drafts what the
+# organism says back; the human remains the mouth.
 # (Wernicke to the Workspace Agent's Broca — that Voice speaks through
 # examples; this agent comprehends and converses.)
 #
@@ -12,13 +13,15 @@
 # labels, edits or writes anything.
 #
 # Usage:
-#   community.sh                       # scan (default): open external issues
-#                                      #   + PRs, awaiting-response ranking,
-#                                      #   review requests
+#   community.sh                       # scan (default): the hub's open
+#                                      #   discussions + external issues/PRs,
+#                                      #   awaiting-response ranking, review
+#                                      #   requests
 #   community.sh scan                  # same, explicit
-#   community.sh triage <ref>          # one issue/PR -> context-sufficiency
-#                                      #   surface (+ PR change-shape block);
-#                                      #   <ref> = issue/PR URL or owner/repo#N
+#   community.sh triage <ref>          # one discussion/issue/PR -> context-
+#                                      #   sufficiency surface (+ PR change-shape
+#                                      #   block); <ref> = a discussion/issue/PR
+#                                      #   URL or owner/repo#N
 #   community.sh ... --json            # machine-readable output
 
 set -uo pipefail

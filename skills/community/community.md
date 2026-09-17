@@ -16,17 +16,21 @@ docs: `bin/pyauto-brain help community`.
    bin/pyauto-brain community            # default mode
    ```
 
-   Emits a **CommunityScan**: open issues **and PRs** authored by non-self
-   humans across every `repos.yaml` repo, with awaiting-response detection
-   (the conversation's last word is not ours) ranked by waiting time, plus
-   open PRs with review requested from you. `/wake_up` runs this same scan
-   as its community step.
+   Emits a **CommunityScan**: the Discussions hub's open threads (the
+   surface users post to — `PyAutoMind/policy/community_surface.md`;
+   unanswered = no accepted answer and the last word is not ours), plus open
+   issues **and PRs** authored by non-self humans across every `repos.yaml`
+   repo, with awaiting-response detection ranked by waiting time, plus open
+   PRs with review requested from you. The Brain board runs this same scan
+   as its community leg.
 
 2. **Triage** the item the human picks:
 
    ```bash
-   bin/pyauto-brain community triage <issue-or-PR url | owner/repo#N>
+   bin/pyauto-brain community triage <discussion/issue/PR url | owner/repo#N>
    ```
+
+   A discussion is named by its URL (`owner/repo#N` reads as an issue).
 
    Emits context-sufficiency signals (code block, traceback, versions,
    expected-vs-actual, data pointer), clarifying-question seeds for whatever
@@ -35,6 +39,15 @@ docs: `bin/pyauto-brain help community`.
    heuristics — **you** read the actual issue or PR and judge.
 
 3. **Converse — drafts only.** Based on your judgment:
+   - **A discussion** → answer **in the thread**: draft the reply, the human
+     posts it and marks it as the answer. If the thread is a bug with a
+     reproducer, open the issue on the target repo (quote the thread, link
+     it), route that issue via `/start_dev_for_user`, and have the human mark
+     the thread answered with the issue link. Never convert a thread in
+     place, and never ask a user to re-file: the hub is *their* surface.
+     No session can post to, answer or convert a Discussion — the REST API
+     is read-only and GraphQL is refused — so the human's click is the last
+     step of every discussion round.
    - **Actionable** → route into `/start_dev_for_user <url>` — it owns the
      receipt comment, the clarification gate, the plan comment and the
      milestone cadence. Do not re-implement its templates here.

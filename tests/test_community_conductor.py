@@ -17,9 +17,9 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SCAN_KEYS = {
-    "self_logins", "org", "extra_repos", "open_external_issues",
-    "open_external_prs", "awaiting_review", "awaiting_response", "counts",
-    "degraded", "next_action",
+    "self_logins", "org", "hub", "extra_repos", "open_discussions",
+    "open_external_issues", "open_external_prs", "awaiting_review",
+    "awaiting_response", "counts", "degraded", "next_action",
 }
 TRIAGE_KEYS = {
     "type", "pr", "repo", "number", "url", "title", "author",
@@ -44,7 +44,28 @@ EMPTY_SEARCHES = {
     "search_org_review.json": {"items": []},
     "search_extra.json": {"items": []},
     "comments.json": [],
+    "discussions.json": [],
+    "discussion_comments.json": [],
 }
+
+
+def _discussion(hub, number, login, title, comments=0, answered=False,
+                category="Q&A", state="open", locked=False):
+    return {
+        "number": number,
+        "title": title,
+        "user": {"login": login, "type": "User"},
+        "html_url": f"https://github.com/{hub}/discussions/{number}",
+        "category": {"name": category, "slug": category.lower(), "is_answerable": True},
+        "answer_chosen_at": "2026-07-11T00:00:00Z" if answered else None,
+        "labels": [],
+        "comments": comments,
+        "state": state,
+        "locked": locked,
+        "body": "",
+        "updated_at": "2026-07-10T00:00:00Z",
+        "repository_url": f"https://api.github.com/repos/{hub}",
+    }
 
 
 def _item(repo, number, login, title, comments=0, user_type="User"):
@@ -81,6 +102,9 @@ for arg in "$@"; do
     q=org:*is:issue*)          cat "{fixture_dir}/search_org_issues.json"; exit 0 ;;
     q=org:*is:pr*)             cat "{fixture_dir}/search_org_prs.json"; exit 0 ;;
     q=repo:*)                  cat "{fixture_dir}/search_extra.json"; exit 0 ;;
+    repos/*/discussions/*/comments) cat "{fixture_dir}/discussion_comments.json"; exit 0 ;;
+    repos/*/discussions/*)     cat "{fixture_dir}/discussion.json"; exit 0 ;;
+    repos/*/discussions)       cat "{fixture_dir}/discussions.json"; exit 0 ;;
     */comments)                cat "{fixture_dir}/comments.json"; exit 0 ;;
     repos/*/pulls/*)           cat "{fixture_dir}/pull.json"; exit 0 ;;
     repos/*/issues/*)          cat "{fixture_dir}/issue.json"; exit 0 ;;
@@ -122,7 +146,7 @@ def test_scan_json_is_a_complete_surface_and_filters_bots(tmp_path):
     assert [e["author"] for e in s["open_external_issues"]] == ["some_user"]
     assert s["open_external_issues"][0]["type"] == "issue"
     assert s["counts"] == {
-        "open_external": 1, "open_external_prs": 0,
+        "open_discussions": 0, "open_external": 1, "open_external_prs": 0,
         "awaiting_review": 0, "awaiting_response": 1,
     }
     # Uncommented external issue: the author had the last word -> awaiting us.
@@ -245,5 +269,76 @@ def test_scan_degrades_honestly_when_search_fails(tmp_path):
     assert r.returncode == 0, r.stderr
     s = json.loads(r.stdout)
     assert s["counts"]["open_external"] == 0
-    # 2 qualifier groups (org + non-org) x 3 searches (issue, pr, review).
-    assert len(s["degraded"]) == 6
+    # 2 qualifier groups (org + non-org) x 3 searches (issue, pr, review),
+    # plus the hub's discussions listing.
+    assert len(s["degraded"]) == 7
+    assert any("discussions" in d for d in s["degraded"])
+
+
+HUB = "PyAutoLabs/PyAutoLens"
+
+
+def test_scan_hears_the_hub_and_only_unanswered_threads_await(tmp_path):
+    """The Discussions hub (policy/community_surface.md) is scanned beside
+    the trackers: an accepted answer settles a thread without a comment
+    lookup; otherwise the last word decides, as for an issue. Closed,
+    locked and bot threads never surface."""
+    stub = _fabricate(tmp_path, {
+        **EMPTY_SEARCHES,
+        "discussions.json": [
+            _discussion(HUB, 11, "asker", "how do I mask my data?"),
+            _discussion(HUB, 12, "asker", "answered already", comments=2, answered=True),
+            _discussion(HUB, 13, "asker", "we replied last", comments=1),
+            _discussion(HUB, 14, "asker", "converted issue", state="closed"),
+            _discussion(HUB, 15, "asker", "locked thread", locked=True),
+            {**_discussion(HUB, 16, "dependabot[bot]", "bot post"),
+             "user": {"login": "dependabot[bot]", "type": "Bot"}},
+        ],
+        "discussion_comments.json": [{"user": {"login": "Jammy2211"}, "body": "hi"}],
+    })
+    r = _run(["scan", "--json"], tmp_path, stub)
+    assert r.returncode == 0, r.stderr
+    s = json.loads(r.stdout)
+    assert s["hub"] == HUB
+    assert s["counts"]["open_discussions"] == 3
+    assert {d["number"] for d in s["open_discussions"]} == {11, 12, 13}
+    by_number = {d["number"]: d for d in s["open_discussions"]}
+    assert by_number[11]["awaiting_response"] is True
+    assert by_number[12]["awaiting_response"] is False and by_number[12]["answered"]
+    assert by_number[13]["awaiting_response"] is False
+    assert [e["number"] for e in s["awaiting_response"]] == [11]
+    assert s["awaiting_response"][0]["type"] == "discussion"
+    assert s["awaiting_response"][0]["url"].endswith("/discussions/11")
+    # The human-readable surface names a discussion by its URL — `#N`
+    # would read as an issue when pasted back into `triage`.
+    text = _run(["scan"], tmp_path, stub).stdout
+    assert f"https://github.com/{HUB}/discussions/11" in text
+    assert "Open discussions:     3 on the hub" in text
+
+
+def test_triage_discussion_ref_routes_to_the_thread(tmp_path):
+    stub = _fabricate(tmp_path, {
+        **EMPTY_SEARCHES,
+        "discussion.json": _discussion(
+            HUB, 11, "asker", "how do I mask my data?", comments=1),
+        "discussion_comments.json": [
+            {"user": {"login": "asker"}, "created_at": "2026-07-10T01:00:00Z",
+             "body": "still stuck"},
+        ],
+    })
+    for ref in (f"https://github.com/{HUB}/discussions/11", f"{HUB}/discussions/11"):
+        r = _run(["triage", ref, "--json"], tmp_path, stub)
+        assert r.returncode == 0, r.stderr
+        t = json.loads(r.stdout)
+        assert set(t) >= TRIAGE_KEYS | {"category", "answered"}
+        assert t["type"] == "discussion" and t["pr"] is None
+        assert t["repo"] == HUB and t["number"] == 11
+        assert t["author_is_external"] and t["awaiting_response"]
+        assert t["category"] == "Q&A" and t["answered"] is False
+        assert "answer in the thread" in t["route"]
+        assert "/start_dev_for_user" in t["route"]
+        # Nothing in the run hit the issues endpoints for a discussion ref.
+    calls = (tmp_path / "gh_calls.log").read_text()
+    assert "/issues/" not in calls
+    text = _run(["triage", f"{HUB}/discussions/11"], tmp_path, stub).stdout
+    assert "(discussion)" in text and "Category:             Q&A" in text
