@@ -26,8 +26,8 @@ fresh when you wake.
 You drive it in plain English, through short slash commands in a Claude Code
 chat: `/intake` to file an idea, `/start_dev` to begin a task, `/health` for a
 check-up — or just `/route <what you want>` and the Brain picks the right
-door. The full command surface (13 conductors + 5 faculties) is the generated
-table in [AGENTS.md](AGENTS.md).
+door. The generated table in [AGENTS.md](AGENTS.md) is the roster — every
+conductor and faculty, regenerated from the router.
 
 1. **A task arrives.** Usually from the Mind's backlog — pick a task on the
    [PyAutoMind dashboard](https://pyautolabs.github.io/PyAutoMind/) and paste
@@ -43,7 +43,7 @@ table in [AGENTS.md](AGENTS.md).
    knows, `review` judges a branch. A conductor never consults another
    conductor — an opinion worth sharing becomes a faculty.
 4. **The organs execute.** Always in the same order — **Brain → Heart (gate)
-   → Hands (execute)**: work happens on task worktrees, ships as pull
+   → Build (execute)**: work happens on task worktrees, ships as pull
    requests behind the Heart's health verdict, and is packaged and released
    by the Hands.
 5. **Autonomy is a contract.** How much a run may do without a human is

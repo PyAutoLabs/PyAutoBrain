@@ -35,6 +35,7 @@
 #   bash PyAutoBrain/bin/install.sh --write-project-discovery # (re)generate committed
 #                                                          #   .claude/ + .codex/ discovery per repo
 #   bash PyAutoBrain/bin/install.sh --check-project-discovery # drift-check that discovery (exit 1)
+#                                                          #   trailing repo names narrow the check
 #
 # The command-surface modes are the agent-agnostic half of command discovery:
 # per-tool symlinks (above) are absent in cloud/web sessions, which load only
@@ -243,9 +244,13 @@ write_project_discovery() {
   done
 }
 
+# Optional trailing repo names narrow the check to those repos (the pytest leg
+# checks PyAutoBrain alone, so a local run is not reddened by a sibling's drift).
 check_project_discovery() {
   local repo repo_dir want got drift=0
-  for repo in "${DISCOVERY_REPOS[@]}"; do
+  local repos=("${DISCOVERY_REPOS[@]}")
+  [ "$#" -gt 0 ] && repos=("$@")
+  for repo in "${repos[@]}"; do
     repo_dir="$PYAUTO_ROOT/$repo"
     [ -d "$repo_dir/skills" ] || continue
     want="$(_discovery_manifest "$repo_dir")"
@@ -265,7 +270,7 @@ case "${1:-}" in
   --write-agents-surface) write_agents_surface; exit 0 ;;
   --check-agents-surface) check_agents_surface; exit $? ;;
   --write-project-discovery) write_project_discovery; exit 0 ;;
-  --check-project-discovery) check_project_discovery; exit $? ;;
+  --check-project-discovery) shift; check_project_discovery "$@"; exit $? ;;
   --help|-h)
     sed -n '2,24p' "$0"; exit 0 ;;
 esac

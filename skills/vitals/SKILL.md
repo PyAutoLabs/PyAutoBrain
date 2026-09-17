@@ -7,4 +7,7 @@ description: Read and explain the authoritative PyAutoHeart readiness verdict th
 
 Read [`../../agents/faculties/vitals/AGENTS.md`](../../agents/faculties/vitals/AGENTS.md)
 completely, then run `bin/pyauto-brain vitals` in the documented mode. Return
-the verdict and reasons without mutating or bypassing Heart.
+the verdict and reasons without mutating or bypassing Heart. Without the Heart
+CLI (every web/mobile session) it reads the Heart's published Pages board
+instead; `--scope <repo>[,<repo>]` gives the verdict for the repos a branch
+actually touches beside the organism-wide one.

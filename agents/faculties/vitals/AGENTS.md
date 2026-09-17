@@ -50,6 +50,33 @@ bin/pyauto-brain vitals dashboard --json   # forward: the board as one machine c
 bin/pyauto-brain vitals readiness --json   # forward: pyauto-heart readiness --json (no tick)
 bin/pyauto-brain vitals status             # forward to: pyauto-heart status
 bin/pyauto-brain vitals watch 300          # forward to: pyauto-heart watch 300
+bin/pyauto-brain vitals --scope PyAutoFit  # scoped verdict from the published board
+```
+
+## Without the Heart CLI
+
+A web/mobile session never holds the PyAutoHeart checkout, so `resolve_heart`
+fails — and the faculty used to *exit*, leaving the ship gate with no verdict at
+all. It now falls back to the Heart's **published board** (the same GitHub Pages
+`badge.json` + `board.json` the Brain board reads), via
+[`_vitals.py`](./_vitals.py). That is not a live tick — it is as fresh as the
+Heart's last publish, and every line of the output says so. Unreachable Pages
+print `verdict: UNKNOWN (Pages unreachable: …)` and exit 3; a gate reads that as
+unknown → YELLOW, never as GREEN.
+
+## `--scope <repo>[,<repo>...]`
+
+The organism-wide verdict is one number over every repo, so a PyAutoFit branch
+was acknowledging a RED caused by an `autogalaxy_workspace` smoke failure it
+could not have caused. `--scope` filters the published blockers to those naming
+the given repos and prints a **scoped** verdict beside the organism-wide one —
+GREEN when nothing in scope blocks, otherwise the worst in-scope severity. It
+always reads the published board (that is where the per-repo blockers live), CLI
+present or not, and says so.
+
+```bash
+bin/pyauto-brain vitals --scope PyAutoFit            # scoped verdict + blockers
+bin/pyauto-brain vitals --scope PyAutoFit,PyAutoLens --json
 ```
 
 The entrypoint (`vitals.sh`) refreshes Heart's state and renders the **unified

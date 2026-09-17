@@ -16,7 +16,20 @@
 #   vitals.sh                 # one tick, then render the unified dashboard card
 #   vitals.sh status          # forward: pyauto-heart status
 #   vitals.sh watch [secs]    # forward: pyauto-heart watch (continuous)
+#   vitals.sh --scope <repo>[,...]     # verdict scoped to those repos (+ --json)
 #   vitals.sh <subcommand>... # forward verbatim to pyauto-heart
+#
+# WITHOUT THE HEART CLI. A web/mobile session never holds the PyAutoHeart
+# checkout, so `resolve_heart` failed and this faculty exited — the ship gate
+# then ran with no verdict at all, which is worse than a qualified one. When the
+# CLI cannot be resolved we read the Heart's PUBLISHED board instead
+# (`_vitals.py`, the same Pages JSON the Brain board reads). It is not a live
+# tick and says so on every line.
+#
+# --scope ALWAYS reads the published board, CLI or no CLI: the per-repo
+# blockers live in the Heart's `board.json`, and that is the surface that can
+# say a RED belongs to some other repo's workspace smoke and not to the library
+# branch asking. The output names its source so the two are never confused.
 #
 # The no-arg card is the SAME unified board every other surface shows (one
 # renderer in heart/dashboard.py) — verdict, score, top blockers, and the
@@ -32,7 +45,46 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$HERE/../../_common.sh"
 
-heart="$(resolve_heart)" || exit $?
+PAGES_READER="$HERE/_vitals.py"
+
+# This faculty's OWN flags (--scope/--json), recognised only when they are the
+# whole argument list. Anything else — `dashboard --json`, `readiness --json` —
+# is a pyauto-heart subcommand line and is forwarded verbatim, unread: stripping
+# a `--json` that belonged to Heart would silently turn a machine card into a
+# human one.
+scope=""; want_json=0; ours=1; rest=("$@")
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --scope)   scope="${2:-}"; shift; shift || true ;;
+    --scope=*) scope="${1#--scope=}"; shift ;;
+    --json)    want_json=1; shift ;;
+    *)         ours=0; break ;;
+  esac
+done
+if [[ "$ours" -eq 0 ]]; then scope=""; want_json=0; else rest=(); fi
+
+pages_read() {
+  local args=()
+  [[ -n "$scope" ]] && args+=(--scope "$scope")
+  [[ "$want_json" -eq 1 ]] && args+=(--json)
+  python3 "$PAGES_READER" "${args[@]}"
+}
+
+# A scoped read is a published-board question by construction — answer it and
+# stop, so a scoped verdict is never half live and half published.
+if [[ -n "$scope" ]]; then
+  pages_read; exit $?
+fi
+
+if ! heart="$(resolve_heart)"; then
+  echo "== vitals faculty: no pyauto-heart here — reading the published Heart board ==" >&2
+  pages_read; exit $?
+fi
+
+# A bare `--json` with the CLI here is a live machine card, not a published one.
+if [[ "$want_json" -eq 1 ]]; then exec "$heart" dashboard --json; fi
+
+set -- "${rest[@]+"${rest[@]}"}"
 
 if [[ $# -eq 0 ]]; then
   echo "== vitals faculty: refreshing PyAutoHeart state =="

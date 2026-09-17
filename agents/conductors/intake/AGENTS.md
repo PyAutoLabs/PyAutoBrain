@@ -90,6 +90,16 @@ Writes the light header PyAutoMind blesses (`README.md` "Prompt file format"),
 extended with `Difficulty:/Autonomy:/Priority:`. No YAML frontmatter, no required
 schema — light structure over free-form prose.
 
+`Memory:` rides under `Priority:`: the top 3 PyAutoMemory pages for this
+prompt's own text, `;`-separated and repo-relative, written at filing time by
+the memory faculty's own ranking function. The doctrine says every plan
+consults Memory and the record says it happened about six times in 1,547
+tasks, so intake consults it mechanically and the citations sit in front of
+the session that picks the prompt up. PyAutoMemory only — Mind history and the
+assistant are operational recall, not what the science says — and no hits (or
+no PyAutoMemory checkout) writes no line at all, because an empty `Memory:`
+would claim nothing is known.
+
 `Themes:` is written at formalisation, directly under `Repos:` and in the same
 list shape (`intake classify --themes mge,jax-gradient`, primary keyword
 first). `Target:` says where the code lives; `Themes:` says what the work is

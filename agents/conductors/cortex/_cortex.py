@@ -6,9 +6,10 @@ over PyAutoCortex, the organ where the organism keeps track of what is true.
 The Cortex is **one ledger per science project** (`projects/<key>.md`): a
 `## Now` the human rewrites, the `## Runs` on the cluster right now, and a
 dated `## Log`, newest first. This conductor renders that ledger as the
-board, pulls every active project through its own sync CLI, shows where each
-run stands, and reads the ledger back by project. It **records cluster facts
-and the human's words, never a verdict of its own**: it never scores a
+board, reads the ledger back by project, and — on the laptop, where the
+science actually lives — pulls every active project through its own sync CLI
+and shows where each run stands. It **records cluster facts and the human's
+words, never a verdict of its own**: it never scores a
 result, never drafts a ruling, never writes a `result` or `lesson` entry —
 those are the human's words, written on their ask through the Cortex's own
 `scripts/cortex.py`. The same split as Heart ↔ vitals and Gut ↔ hygiene.
@@ -26,13 +27,19 @@ Three constraints shape this module:
   the one place that carries such a path is the Cortex's own `projects.yaml`,
   and every path this module prints is read from a row of it at runtime.
 
-Verbs: `checkin [--dry-run|--apply] [--push|--no-push] [--project KEY]
-[--skip-pull]` (the door) · `census [--json]` · `dashboard --check|--apply` ·
-`issue [--project KEY] [--apply]`.
+The verbs split along the one line the surfaces actually draw: a science
+project's `local_path` is a laptop path, so only the laptop can pull it,
+while stamping and rendering the board work anywhere.
+
+Verbs: `pull [--project KEY] [--dry-run]` (the laptop leg) · `checkin
+[--dry-run|--apply] [--push|--no-push] [--project KEY]` (the door, reaches no
+cluster) · `census [--json]` · `dashboard --check|--apply` · `issue
+[--project KEY] [--apply]`.
 
 Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract),
 a failed pull, or a tree that does not check · 2 bad args / no Cortex
-checkout · 3 the Cortex tree could not be read.
+checkout / no project's `local_path` is on this machine · 3 the Cortex tree
+could not be read.
 """
 
 from __future__ import annotations
@@ -386,11 +393,18 @@ def _board_links(home: str, current: str) -> list:
 
 
 def checkin_payload(c: dict) -> str:
-    return (f"/cortex — check in on every active science project since the "
-            f"last check-in ({c.get('checkin') or CHECKIN_NEVER}): pull each "
-            "through its sync CLI, show me where each run stands, re-render "
-            "and push the board, then read me the by-project summary. Record "
-            "nothing about results — I will tell you what to log.")
+    """Two lines, because the check-in has two halves and they do not run on
+    the same machine: the pull needs the laptop the science lives on, the
+    check-in itself runs on whatever surface you are holding."""
+    return "\n".join([
+        "/cortex — on the laptop: `pyauto-brain cortex pull` — pull every "
+        "active science project through its own sync CLI and show me where "
+        "each run stands.",
+        f"/cortex — anywhere: `pyauto-brain cortex checkin --apply --push` — "
+        f"stamp, re-render and push the board since the last check-in "
+        f"({c.get('checkin') or CHECKIN_NEVER}), then read me the by-project "
+        "summary. Record nothing about results — I will tell you what to log.",
+    ])
 
 
 def resume_payload(key: str, row: dict) -> str:
@@ -756,6 +770,32 @@ def run_pull_streamed(projects: dict, keys: list) -> dict:
     return results
 
 
+#: What a surface without the science on it is told, once, instead of seven
+#: failed pulls: the split this module is built around.
+NOT_THE_LAPTOP = ("this is not the laptop — run `checkin` here and `pull` on "
+                  "the laptop")
+
+
+def local_root(row: dict) -> str:
+    return (row.get("local_path") or "").strip()
+
+
+def _root_of(projects: dict, key: str) -> str:
+    """A project's `local_path` as a line names it, or why there is none."""
+    return local_root(projects.get(key, {})) or "(no local_path in projects.yaml)"
+
+
+def split_by_root(projects: dict, keys: list) -> tuple:
+    """`(present, missing)` — which of `keys` have their `local_path` on this
+    machine. The one question that decides whether a pull can happen at all:
+    a project's root is a laptop path, and nothing else can stand in for it."""
+    present, missing = [], []
+    for key in keys:
+        root = local_root(projects.get(key, {}))
+        (present if root and Path(root).is_dir() else missing).append(key)
+    return present, missing
+
+
 def run_jobs(row: dict) -> str | None:
     """The project's own `<sync_cli> jobs`, verbatim — stdout and stderr as
     they came, no parsing. None when the row has no `jobs` verb."""
@@ -777,8 +817,8 @@ def run_jobs(row: dict) -> str | None:
 CHECKIN_BRANCH_PREFIX = "claude/checkin-"
 
 #: The rule the `--push` default resolves by, stated wherever it is applied.
-PUSH_RULE = ("`--push` needs `gh auth status` to succeed and the Cortex "
-             "checkout to be clean on `main`")
+PUSH_RULE = ("`--push` needs the Cortex checkout clean on `main` with a "
+             "resolvable `origin`")
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
@@ -788,23 +828,30 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
 
 def push_preflight(root: Path) -> tuple:
     """`(ok, reason)` — may this check-in push its own ledger diff? Read
-    **before** anything is written. Two legs, both facts about this machine:
-    a logged-in `gh` (the cloud/laptop split) and a clean checkout on `main`."""
-    if shutil.which("gh") is None:
-        return False, "no `gh` on PATH — this is not a laptop session"
-    if subprocess.run(["gh", "auth", "status"], capture_output=True,
-                      text=True).returncode != 0:
-        return False, "`gh auth status` fails — not authenticated"
+    **before** anything is written, and asked of **git alone**.
+
+    It used to open with a `gh` probe standing in for "this is a laptop".
+    That reading is wrong twice over: a session can push a branch without
+    `gh` (git credentials are not the GitHub CLI), and making the headline
+    verb refuse everywhere `gh` is absent is what left the ledger to the
+    merge bot. So the preflight asks only what git can answer — a checkout,
+    on `main`, clean, with an `origin` to push to — and the push itself is
+    the real gate: it either succeeds or `push_ledger` says exactly how it
+    failed.
+    """
     head = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
     if head.returncode != 0:
         return False, "the Cortex checkout is not a git repo"
     branch = head.stdout.strip()
     if branch != "main":
         return False, f"the Cortex checkout is on `{branch}`, not `main`"
+    origin = _git(root, "remote", "get-url", "origin")
+    if origin.returncode != 0 or not origin.stdout.strip():
+        return False, "the Cortex checkout has no `origin` to push to"
     dirty = _git(root, "status", "--porcelain")
     if dirty.returncode != 0 or dirty.stdout.strip():
         return False, "the Cortex checkout has uncommitted changes"
-    return True, "`gh` is authenticated and the Cortex is clean on `main`"
+    return True, "the Cortex is clean on `main` with an `origin`"
 
 
 def dirty_paths(root: Path) -> list[str]:
@@ -921,24 +968,17 @@ def next_commands(key: str, d: dict | None) -> str:
         f'python3 scripts/cortex.py now {key} "<where I am>"'])
 
 
-def project_digest(key: str, c: dict, pull: tuple | None, jobs: str | None,
-                   skipped: bool) -> list[str]:
+def project_digest(key: str, c: dict) -> list[str]:
+    """One project as the check-in reads it back: what the human said they
+    were doing, what the ledger says is on the cluster, what they last wrote
+    down, and the three lines they are most likely to type next.
+
+    No pull column and no `jobs` block: this digest is the ledger, and the
+    ledger is readable on any surface. What the cluster says is `pull`'s to
+    print, on the laptop that can ask it.
+    """
     d = ledger_of(c, key)
-    row = c["projects"].get(key, {})
     L = [f"## {key} — {d['summary'] if d else '(no ledger)'}", ""]
-    if skipped:
-        L.append("pull: skipped (--skip-pull)")
-    elif pull is None:
-        L.append("pull: not run")
-    else:
-        rc, note = pull
-        L.append("pull: ok" if rc == 0 else f"pull: {note or f'exited {rc}'}")
-    if jobs is None:
-        has = "jobs" in (row.get("sync_verbs") or [])
-        L.append("jobs: " + ("no runs listed — not asked" if has else "no jobs verb"))
-    else:
-        L += ["jobs:", jobs]
-    L.append("")
     if d is None:
         L += ["(no projects/<key>.md — `python3 scripts/cortex.py new "
               f"{key} --summary ...` opens one)", ""]
@@ -952,24 +992,126 @@ def project_digest(key: str, c: dict, pull: tuple | None, jobs: str | None,
     return L
 
 
-def cmd_checkin(root: Path, mod, a) -> int:
+# -------------------------------------------------------------- the pull ---
+def cmd_pull(root: Path, mod, a) -> int:
+    """The laptop leg: each project's own `<sync_cli> pull`, then its `jobs`
+    output verbatim. Nothing else — no stamp, no render, no push.
+
+    It is a separate verb because it has a separate precondition: every path
+    it runs under is a `local_path` out of `projects.yaml`, which exists on
+    exactly one machine. Asked anywhere else it says so once, by project,
+    rather than failing a pull per project.
+    """
     projects, _ = mod.load_projects(root)
     ledgers, _ = mod.load_ledgers(root)
     keys, notes = checkin_keys(projects, ledgers, a.project)
     runs_by_key = {led.key: len(led.runs) for led in ledgers}
+    present, missing = split_by_root(projects, keys)
 
-    if not a.apply:
-        print("== Cortex check-in — dry run (nothing is reached) ==")
+    def jobs_line(key: str) -> str:
+        row = projects[key]
+        return f"cd {row.get('local_path')} && {row.get('sync_cli')} jobs"
+
+    def asks_jobs(key: str) -> bool:
+        return bool(runs_by_key.get(key)) and \
+            "jobs" in (projects[key].get("sync_verbs") or [])
+
+    if a.dry_run:
+        print("== Cortex pull — dry run (nothing is reached) ==")
         for key in keys:
             row = projects[key]
-            print(f"\n{key} — {row.get('status')}")
+            here = "" if key in present else "   (not on this machine)"
+            print(f"\n{key} — {row.get('status')}{here}")
             print(f"  $ {pull_shell(row)}")
-            if runs_by_key.get(key) and "jobs" in (row.get("sync_verbs") or []):
-                print(f"  $ cd {row.get('local_path')} && {row.get('sync_cli')} jobs")
+            if asks_jobs(key):
+                print(f"  $ {jobs_line(key)}")
         for n in notes:
             print(f"\nnote: {n}")
-        print(f"\n{len(keys)} project(s) would be pulled. Run with --apply to "
-              "check in.")
+        print(f"\n{len(present)} of {len(keys)} project(s) would be pulled. "
+              "Run without --dry-run to pull.")
+        return RC_OK
+
+    for n in notes:
+        print(f"note: {n}")
+    if not keys:
+        print("no project to pull — no `status: active` row and no ledger "
+              "lists a run.")
+        return RC_OK
+    if not present:
+        print("cortex pull: no project's `local_path` is on this machine:",
+              file=sys.stderr)
+        for key in missing:
+            print(f"  - {key}: {_root_of(projects, key)} is not here",
+                  file=sys.stderr)
+        print(f"  {NOT_THE_LAPTOP}", file=sys.stderr)
+        return RC_USAGE
+
+    pulls = run_pull_streamed(projects, present)
+    jobs_out: dict[str, str] = {}
+    for key in present:
+        if not runs_by_key.get(key):
+            continue
+        out = run_jobs(projects[key])
+        if out is None:
+            continue
+        jobs_out[key] = out
+        print(f"\n$ {jobs_line(key)}", flush=True)
+        print(out, flush=True)
+
+    failed = [k for k, (rc, _n) in pulls.items() if rc not in (0, None)]
+    print("\n# The cluster by project — pull\n")
+    for key in present:
+        rc, note = pulls.get(key, (None, "not run"))
+        print(f"{key}: " + ("pull ok" if rc == 0 else
+                            (note or f"pull exited {rc}")))
+        if key in jobs_out:
+            print(jobs_out[key])
+        elif asks_jobs(key):
+            print("  (jobs printed nothing)")
+        else:
+            has = "jobs" in (projects[key].get("sync_verbs") or [])
+            print("  jobs: " + ("no runs listed — not asked" if has
+                                else "no jobs verb"))
+    for key in missing:
+        print(f"{key}: skipped — {_root_of(projects, key)} is not on this "
+              "machine")
+    if missing:
+        print(f"  {NOT_THE_LAPTOP}")
+    print("\nRecord what the jobs output says with `python3 scripts/cortex.py "
+          "running|done <key> <jobid>` in the Cortex checkout; a result or a "
+          "lesson is written only in the human's words. Then "
+          "`pyauto-brain cortex checkin --apply` stamps and re-renders the "
+          "board.")
+    return RC_DRIFT if failed else RC_OK
+
+
+# -------------------------------------------------------------- the door ---
+def cmd_checkin(root: Path, mod, a) -> int:
+    """The door, on any surface: stamp, render, push, read the ledger back.
+
+    It reaches no cluster and shells out to no sync CLI — every path such a
+    CLI runs under exists on the laptop alone, so a check-in that pulled was
+    a check-in that only worked in one place. `pull` is that leg now.
+    """
+    projects, _ = mod.load_projects(root)
+    ledgers, _ = mod.load_ledgers(root)
+    keys, notes = checkin_keys(projects, ledgers, a.project)
+    if a.skip_pull:
+        notes.append("--skip-pull: accepted and ignored — `checkin` no longer "
+                     "pulls; the pull is `pyauto-brain cortex pull`, on the "
+                     "laptop")
+
+    if not a.apply:
+        print("== Cortex check-in — dry run (nothing is written) ==")
+        for key in keys:
+            print(f"\n{key} — {projects[key].get('status')}")
+        for n in notes:
+            print(f"\nnote: {n}")
+        print(f"\nwould stamp {CHECKIN_FILE}, re-render dashboard.md + "
+              "dashboard.html, and read back "
+              f"{len(keys)} project(s). Run with --apply to check in.")
+        print("The pull is its own verb, on the laptop: "
+              "`pyauto-brain cortex pull`.")
         return RC_OK
 
     # The push decision is read before anything is written.
@@ -981,21 +1123,6 @@ def cmd_checkin(root: Path, mod, a) -> int:
     elif not push:
         push_note = f"push: off — {push_why if a.push is None else '--no-push'}"
 
-    pulls: dict[str, tuple] = {}
-    if not a.skip_pull:
-        pulls = run_pull_streamed(projects, keys)
-    jobs_out: dict[str, str] = {}
-    for key in keys:
-        if not runs_by_key.get(key):
-            continue
-        out = run_jobs(projects[key])
-        if out is None:
-            continue
-        jobs_out[key] = out
-        print(f"\n$ cd {projects[key].get('local_path')} && "
-              f"{projects[key].get('sync_cli')} jobs", flush=True)
-        print(out, flush=True)
-
     stamp = _utc_now()
     write_checkin(root, stamp)
     c = census(root)
@@ -1006,7 +1133,6 @@ def cmd_checkin(root: Path, mod, a) -> int:
     if push:
         _ok, push_lines = push_ledger(root, stamp[:10], dirty_paths(root))
 
-    failed = [k for k, (rc, _n) in pulls.items() if rc not in (0, None)]
     print(f"\n# The Cortex by project — check-in {stamp}\n")
     print(f"{len(keys)} project(s) · {c['counts']['running']} running · "
           f"{c['counts']['open']} open · pages re-rendered")
@@ -1017,12 +1143,13 @@ def cmd_checkin(root: Path, mod, a) -> int:
               "run `python3 scripts/cortex.py check`")
     print()
     for key in keys:
-        print("\n".join(project_digest(key, c, pulls.get(key), jobs_out.get(key),
-                                       a.skip_pull)))
-    print("Record what the jobs output says with `python3 scripts/cortex.py "
-          "running|done <key> <jobid>` in the Cortex checkout; a result or a "
-          "lesson is written only in the human's words.")
-    return RC_DRIFT if failed or c["problems"] else RC_OK
+        print("\n".join(project_digest(key, c)))
+    print("The runs above are what the ledger says, not what the cluster "
+          "says: `pyauto-brain cortex pull` on the laptop asks the cluster, "
+          "and `python3 scripts/cortex.py running|done <key> <jobid>` records "
+          "what it answered. A result or a lesson is written only in the "
+          "human's words.")
+    return RC_DRIFT if c["problems"] else RC_OK
 
 
 # ------------------------------------------------------------ the issue ---
@@ -1114,30 +1241,36 @@ def build_parser() -> argparse.ArgumentParser:
                    help="exit 1 if the committed pages are stale")
     d.add_argument("--apply", action="store_true", help="write both pages")
 
+    u = common(sub.add_parser(
+        "pull", help="the laptop leg: pull every active project through its "
+                     "own sync CLI and print its `jobs` output verbatim"))
+    u.add_argument("--project", action="append", default=[], metavar="KEY",
+                   help="pull only these projects (repeatable)")
+    u.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="name every pull and reach nothing")
+
     n = common(sub.add_parser(
-        "checkin", help="the check-in door: pull every active project through "
-                        "its own sync CLI, show where each run stands, "
-                        "re-render the board and read it back by project"))
+        "checkin", help="the check-in door, on any surface: stamp, re-render "
+                        "the board, push the ledger and read it back by "
+                        "project (it reaches no cluster — that is `pull`)"))
     n.add_argument("--dry-run", dest="dry_run", action="store_true",
-                   help="the default — say what would be pulled and touch "
+                   help="the default — say what would be written and write "
                         "nothing")
     n.add_argument("--apply", action="store_true",
-                   help="do it: pull, jobs, stamp, render (and push, per the "
-                        "push rule)")
+                   help="do it: stamp, render (and push, per the push rule)")
     n.add_argument("--push", dest="push", action="store_const", const=True,
                    default=None,
                    help="push the ledger diff on `claude/checkin-<date>` "
-                        "(allowed only when `gh auth status` succeeds and the "
-                        "Cortex is clean on main; also the default when "
-                        "neither flag is given)")
+                        "(allowed when the Cortex checkout is clean on `main` "
+                        "with an `origin`; also the default when neither flag "
+                        "is given)")
     n.add_argument("--no-push", dest="push", action="store_const", const=False,
-                   help="never push — the default in any session without a "
-                        "logged-in `gh`")
+                   help="never push — leave the check-in in the checkout")
     n.add_argument("--project", action="append", default=[], metavar="KEY",
-                   help="sweep only these projects (repeatable)")
+                   help="read back only these projects (repeatable)")
     n.add_argument("--skip-pull", dest="skip_pull", action="store_true",
-                   help="do not pull — stamp, render and read back what is "
-                        "already on the laptop")
+                   help="accepted and ignored — `checkin` no longer pulls "
+                        "(kept so an old paste still runs)")
 
     i = common(sub.add_parser(
         "issue", help="the ledger block that sits at the top of each "
@@ -1163,6 +1296,8 @@ def main(argv=None) -> int:
         return RC_USAGE
 
     try:
+        if verb == "pull":
+            return cmd_pull(root, mod, a)
         if verb == "checkin":
             return cmd_checkin(root, mod, a)
         if verb == "issue":

@@ -1,6 +1,6 @@
 # PyAutoBrain command surface — shared reference
 
-The short verb commands (`/intake`, `/community`, `/feature`, `/build`, `/health`, `/bug`,
+The short verb commands (`/intake`, `/batch`, `/community`, `/feature`, `/build`, `/health`, `/bug`,
 `/refactor`, `/workspace`, `/eyes`, `/profiling`, `/cortex`, `/hygiene`, `/docs`, `/research`, `/route`, `/brain`) are a thin, human-friendly **veneer**
 over the PyAutoBrain router (`bin/pyauto-brain`). This file is the shared context
 every command file points at, so each command body stays a few lines long.
@@ -22,7 +22,7 @@ through the Brain Feature Agent. A command is a *shortcut into* the Brain, never
 *replacement for* it. No command file re-implements classification, planning, the
 readiness gate, or execution — those belong to the organs.
 
-## The three command tiers
+## The command tiers
 
 **1. Real conductors** — route straight to an existing agent in
 `agents/conductors/` (`AGENTS.md` is authoritative):
@@ -30,6 +30,7 @@ readiness gate, or execution — those belong to the organs.
 | Command | Agent | Chain |
 |---------|-------|-------|
 | `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`); `census`/`dashboard` = backlog inventory / `PyAutoMind/dashboard.md` |
+| `/batch` | Batch Agent | `bin/pyauto-brain batch` → the BatchDecision for one unattended shift, budgeted in review minutes; proposes only — the human's approval in the slot dispatches it; `batch collect` scores what came back |
 | `/community` | Community Agent | `bin/pyauto-brain community` → scan/triage user-filed issues (read-only surfaces) → session drafts replies for human approval → `/start_dev_for_user` |
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
@@ -37,10 +38,12 @@ readiness gate, or execution — those belong to the organs.
 | `/workspace` | Workspace Agent | `bin/pyauto-brain workspace` → WorkspaceDecision (plan/survey example authorship) → `start_dev` → `start_workspace` → `ship_workspace` |
 | `/eyes` | Eyes Agent | `bin/pyauto-brain eyes` → survey/review a visualization workspace's figures; render via its `gallery_run.sh`; accepted critiques → `/intake` → `start_dev` |
 | `/profiling` | Profiling Agent | `bin/pyauto-brain profiling` → campaign/ingest/triage plans over the autolens_profiling workspace |
-| `/cortex` | Cortex Agent | `bin/pyauto-brain cortex checkin` → the science check-in over PyAutoCortex's per-project ledgers: pull every active project through its own sync CLI, show where each run stands (its `jobs` output verbatim), re-render the board and read it back by project — Now, runs, the last entries (`census`/`dashboard`/`issue` are the verbs beside it); it records cluster facts and the human's words with `scripts/cortex.py`, never a verdict of its own; a run is submitted only on the human's ask |
+| `/cortex` | Cortex Agent | `bin/pyauto-brain cortex pull` (laptop) → every active project pulled through its own sync CLI, its `jobs` output verbatim; `bin/pyauto-brain cortex checkin` (anywhere) → stamp, re-render the board, push the ledger and read it back by project — Now, runs, the last entries (`census`/`dashboard`/`issue` are the verbs beside them); it records cluster facts and the human's words with `scripts/cortex.py`, never a verdict of its own; a run is submitted only on the human's ask |
 | `/hygiene` | Hygiene Agent | `bin/pyauto-brain hygiene` → perf/tidy/noise/deps/docs/docstrings upkeep plans; delegates fixes to refactor/bug/feature |
 | `/build` | Build Agent | `bin/pyauto-brain build` → vitals faculty → Heart → PyAutoHands |
 | `/health` | Health Agent | `bin/pyauto-brain health` loop → vitals faculty → Heart → GREEN |
+| `clone` | Clone Agent | `bin/pyauto-brain clone` → CloneDecision; a birth only under `--apply --mode lightweight-seed`, behind the human's clone-mode and repo-creation answers (skill only, no slash command) |
+| `release` | Release Agent | `bin/pyauto-brain release` → the Build Agent's release mode (single gate); `rehearse`/`validate`/`nightly` beside it; a manual release stays human-authorized (skill only, no slash command) |
 
 **2. Work-type entries** — no dedicated conductor exists **yet**, so these route
 through the Brain dev-flow with their PyAutoMind work-type fixed. Still through
@@ -105,6 +108,20 @@ call, so the Brain is not bypassed):
   Code chat and Codex alike; the worktree half is local-only and is reported as
   outstanding elsewhere.
 
+- **`/start_bundle`** — one session, several **independent** PyAutoMind prompts
+  in the same repo (the dashboard's Bundles card). Every member still goes
+  through `/start_dev` and ships its own issue and PR, so `/prm` closes each one
+  out unchanged; the door only orchestrates.
+
+- **`sampler_pipeline`** — the ingest → prototype → profile → promote trial of a
+  new non-linear sampler: reason with the samplers faculty, then do each stage
+  as ordinary dev work through `/start_dev` → `ship_*`. Promotion to a PyAutoFit
+  `NonLinearSearch` is the last stage, not the first.
+
+- **`update_issue`** — post a progress update (commits, summary, what is left)
+  to the active task's GitHub issue, read from the PyAutoMind registry. The
+  dev-lifecycle's progress leg; `start_dev_for_user` calls it at milestones.
+
 **5. Maintenance doors** — periodic sweeps that reason about accumulated debris
 and then execute their own cleanup after per-bucket human confirmation. They own
 no agent, but unlike the composition doors they *mutate*, so each is
@@ -137,10 +154,9 @@ These are complements, not overlaps: `/repo_cleanup` never touches issues,
 `/issue_cleanup` never touches git, `/ci_speedup` touches neither. Neither handles **external** users' issues —
 that is `/community`, whose drafts stay human-approved.
 
-Codex skills also expose the remaining public CLI agents directly: the `clone`
-conductor, the `release` conductor, and the read-only `vitals`, `review`,
-`memory`, and `samplers` faculties. They do not gain new
-slash commands; `brain` remains Claude's low-level passthrough.
+Codex skills also expose the read-only faculties directly — `vitals`, `review`,
+`memory`, `sizing`, `samplers`. Faculties and the two skill-only conductors gain
+no slash command; `brain` remains Claude's low-level passthrough.
 
 ## How these are installed
 

@@ -12,17 +12,10 @@ question: **does it act, or only opine?**
   conductors consult. They return a judgment and stop — never dispatch,
   never mutate.
 
-The live conductor set: **intake** (raw idea → formal Mind prompt),
-**feature** (plan the next growth task), **bug** (classify and route a
-repair), **refactor** (behaviour-preserving restructuring), **workspace**
-(the Voice — plan workspace + HowTo example authorship), **profiling**
-(the organism's sense of its own effort), **hygiene** (the organism's sense
-of its own upkeep), **clone** (reproduce a mature assistant into a new
-cell), **build**, **release**, and **health** (the clinician loop toward
-GREEN). The faculties behind them:
-**vitals** (the only component that talks to Heart), **review** (the
-automatic-review leg of the ship gate), **memory** (cited digests over the
-Memory organ), and **samplers** (domain expertise for the live instance).
+The live roster is never listed twice: the verb table in the Brain's
+[AGENTS.md](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/AGENTS.md) is
+generated from the router (`bin/pyauto-brain`), so it cannot drift from the
+agents that exist. Each agent's own `AGENTS.md` carries its full role.
 
 ## The consult graph is a DAG
 
