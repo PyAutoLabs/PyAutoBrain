@@ -92,8 +92,8 @@ _SHARED_GENERIC = [
     ".github/*",                  # wiki-currency / citation workflows
     "wiki/README.md", "wiki/project/*",   # project wiki rules + profile template
     "scripts/AGENTS.md", "scripts/CLAUDE.md", "scripts/README.md",
-    # Harness mirrors of the generic machinery (.claude/, .gemini/):
-    ".claude/hooks/*", ".claude/settings.json", ".gemini/*",
+    # Harness mirrors of the generic machinery (.claude/, .codex/, .gemini/):
+    ".claude/hooks/*", ".claude/settings.json", ".codex/hooks.json", ".gemini/*",
     ".claude/skills/_*", ".claude/skills/start-new-project*",
     ".claude/skills/contribute-upstream*",
 ]
