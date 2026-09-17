@@ -80,6 +80,16 @@ schema in that file's header; outcome starts `parked`/blank and is set at the
 human's merge decision) and push Mind with
 `prompt_sync_push "mind: autonomy_log — <task> at PR-open"`.
 
+**Which table.** The calibration row goes in the **first** table of that
+file — the five-cell `| date | task | effective level | gates | outcome |`
+table under the top heading — as the last row of its final segment, in date
+order. It never goes at the end of the file: the table that sits there is the
+**Shadow window** (`## Shadow window`), which is `/prm`'s alone, tier-`notify`
+only, appended at close-out with a fixed `human action` vocabulary. Six
+supervised rows landed there at PR-open between 2026-09-13 and 2026-09-17 and
+broke `tests/test_autonomy_log_shadow.py` on every Mind CI run until they were
+moved (2026-09-17).
+
 ## Execution contract (feature-dev — the mechanical ship step)
 
 This is the dev workflow's own git execution (commit/push/feature-PR), not a

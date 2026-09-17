@@ -87,7 +87,9 @@ directly. If any step fails, stop and report — do not proceed.
 carries the `## Validation checklist` section
 ([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run
 **stops at PR-open** (merge stays human, always), a calibration row is
-appended to `PyAutoMind/autonomy_log.md`, and `active.md` moves to
+appended to `PyAutoMind/autonomy_log.md` (its **first** table, never the
+Shadow window at the end — [`reference.md`](reference.md) → "Which table"),
+and `active.md` moves to
 `library-shipped, awaiting-merge`. Any failed leg → park per
 [`../../AUTONOMY.md`](../../AUTONOMY.md): write state to the issue, never
 modify code to make a leg pass, nothing force-shipped.
