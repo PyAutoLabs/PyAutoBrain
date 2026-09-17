@@ -275,7 +275,7 @@ def test_scan_degrades_honestly_when_search_fails(tmp_path):
     assert any("discussions" in d for d in s["degraded"])
 
 
-HUB = "PyAutoLabs/PyAutoLens"
+HUB = "PyAutoLabs/.github"
 
 
 def test_scan_hears_the_hub_and_only_unanswered_threads_await(tmp_path):

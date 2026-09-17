@@ -58,9 +58,10 @@ SELF_LOGINS = [
 ]
 PRIMARY_ORG = "PyAutoLabs"
 # The one Discussions hub users post to (PyAutoMind/policy/community_surface.md,
-# decision 1): PyAutoLens's Discussions, promoted to the org's. Every library
-# and workspace points here; the other repos keep Discussions off.
-HUB = os.environ.get("COMMUNITY_HUB", "PyAutoLabs/PyAutoLens")
+# decision 1): the org's Discussions, hosted on the neutral profile repo
+# PyAutoLabs/.github. Every library and workspace points here; the repos
+# themselves keep Discussions off.
+HUB = os.environ.get("COMMUNITY_HUB", "PyAutoLabs/.github")
 SCAN_DETAIL_CAP = 30  # issues that get a per-issue last-commenter lookup
 # Pause between search-API calls — the scan makes up to six, and GitHub's
 # secondary rate limit trips on rapid bursts (hermetic tests set it to 0).

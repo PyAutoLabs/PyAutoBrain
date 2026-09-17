@@ -37,8 +37,8 @@ pyauto-brain community scan --json
 pyauto-brain community triage <discussion/issue/PR url | owner/repo#N> [--json]
 ```
 
-The hub is `COMMUNITY_HUB` (default `PyAutoLabs/PyAutoLens` — the one
-Discussions surface users post to, decided in
+The hub is `COMMUNITY_HUB` (default `PyAutoLabs/.github` — the org's
+Discussions, the one surface users post to, decided in
 `PyAutoMind/policy/community_surface.md`). A discussion is named by its URL on
 every surface, because `owner/repo#N` reads as an issue.
 
