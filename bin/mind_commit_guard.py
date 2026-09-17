@@ -248,9 +248,14 @@ def main() -> None:
         payload = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
         _allow()
+    if not isinstance(payload, dict):
+        _allow()
     if payload.get("tool_name") != "Bash":
         _allow()
-    command = (payload.get("tool_input") or {}).get("command") or ""
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        _allow()
+    command = tool_input.get("command") or ""
     cwd = payload.get("cwd") or ""
     try:
         reason = check_command(command, cwd)
