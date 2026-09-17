@@ -259,13 +259,16 @@ pyauto-heart readiness --json    # authoritative GREEN / YELLOW / RED verdict
 - **YELLOW** → surface the warnings; proceed only with explicit user
   acknowledgement (a human checkpoint at **every** autonomy level —
   [`../AUTONOMY.md`](../AUTONOMY.md)).
-- **RED** → stop; report what failed. Do not ship — **unless** a human
-  authorizes the narrow corrective-PR exception naming the exact RED reason
-  ([`../AUTONOMY.md`](../AUTONOMY.md) "Corrective-PR exception for Heart RED"):
-  commit/push/PR-open of one reason-scoped fix only, never merge or release.
-  When that exception is in play, surface the exact RED reason string(s)
-  verbatim from `pyauto-heart readiness` so the human authorizes the quote the
-  agent provided rather than hunting for the wording.
+- **RED** → stop and report what failed; an autonomous run parks before any
+  exception can be considered. After the exact current RED reasons and passed
+  applicable tests/smoke/review are surfaced, including the reason strings
+  verbatim from `pyauto-heart readiness`, a live human may authorize the
+  development-only override ([`../AUTONOMY.md`](../AUTONOMY.md)
+  "Human override for Heart RED (development only)"), or may authorize the
+  narrower causal-fix path ("Corrective-PR exception for Heart RED"). Follow
+  the selected canonical section's scope and record sinks exactly. Neither
+  path permits release or a CI bypass; merge requires its own current human
+  command and green required GitHub checks.
 
 Tests/smoke runs that feed the verdict are Heart's domain — invoke them through
 the vitals faculty rather than re-deriving pass/fail criteria in the skill.

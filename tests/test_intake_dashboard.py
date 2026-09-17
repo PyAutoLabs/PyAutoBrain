@@ -1119,15 +1119,21 @@ def test_the_bundle_prompt_states_the_orchestration_contract(tmp_path):
         "feature/widgets/a.md": _prompt("Widget A"),
         "feature/widgets/b.md": _prompt("Widget B")})
     prompt = _intake.bundle_prompt(_intake.auto_bundles(_intake.census(mind))[0])
-    assert "architect (Fable)" in prompt
+    assert "judgment tier" in prompt
     assert "draft/feature/widgets/a.md" in prompt
     assert "/start_dev <member prompt>" in prompt
     assert "one issue" in prompt and "bulk issue queue" in prompt
     assert "One shared worktree per repo" in prompt
-    assert "Opus subagent" in prompt
+    assert "PyAutoBrain/skills/WORKFLOW.md" in prompt
+    assert "current harness's native subagent mechanism" in prompt
+    assert "one execution delegate per member" in prompt
+    assert "direct-execution fallback" in prompt
     assert "ONE PR per task" in prompt
     assert "/prm" in prompt
     assert "/ship_library" in prompt
+    assert "Fa" + "ble" not in prompt
+    assert "Op" + "us" not in prompt
+    assert "Agent(" + "model=" not in prompt
 
 
 def test_bundles_sit_between_backlog_and_recent_on_both_pages(tmp_path):
