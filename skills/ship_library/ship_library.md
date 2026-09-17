@@ -55,13 +55,14 @@ pyauto-heart readiness --json        # authoritative GREEN / YELLOW / RED
 The library test suites are part of Heart's verdict — they run as the gate, not
 as an ad-hoc step the skill re-judges. **GREEN** → proceed to step 4.
 **YELLOW** → surface warnings, proceed only on explicit user acknowledgement.
-**RED** → stop and report; do not ship — **unless** a human authorizes the
-narrow corrective-PR exception naming the exact RED reason (`AUTONOMY.md`
-"Corrective-PR exception for Heart RED"), which permits commit/push/PR-open of
-one reason-scoped fix only, never merge or release. When that exception is in
-play, **surface the exact RED reason string(s) verbatim from `pyauto-heart
-readiness`** and the specific corrective request, so the human authorizes the
-quote the agent provided rather than hunting for the wording. If `pyauto-brain`/`pyauto-heart` are
+**RED** → stop and report; an autonomous run parks. After surfacing the exact
+current RED reasons verbatim from `pyauto-heart readiness` and passed applicable
+tests/smoke/review, a live human may authorize the canonical `AUTONOMY.md`
+"Human override for Heart RED (development only)" or the narrower
+"Corrective-PR exception for Heart RED" for a causal fix. Follow the selected
+canonical section's scope and four record sinks exactly. Neither path permits
+release or bypassing CI; merge requires its own current human command and green
+required GitHub checks. If `pyauto-brain`/`pyauto-heart` are
 unavailable, run the per-repo `pytest <test_dir>/ -x` inside the worktree as the
 gate and treat any failure as RED (WORKFLOW.md). Under `--auto`, this step is
 the four-leg **autonomous-ship gate** — tests (+ downstream dependents on

@@ -115,6 +115,15 @@ every run for the sha and every job in it, and treat anything not `completed` as
 
 Green on every leg → merge, in this order:
 
+**PRs shipped under the Heart RED development override.** The shipping grant
+alone is not merge authority. Require a separate explicit human merge command
+and every required GitHub check green; never force, override protection, or
+treat Heart RED as cleared. A live message may authorize both shipping and
+merge, but that merge grant lasts only for the current turn. If the turn ends
+before checks are green, it expires: arm no waiter or auto-merge, stop, and
+require the human to invoke `/prm` again. This permission never reaches a
+release or release rehearsal.
+
 1. **The Heart freeze window — library PRs only.** A release validation is a
    window in which the library `main`s must not move: a merge landing inside it
    invalidates the evidence and restales the rehearsal (~75 minutes, measured

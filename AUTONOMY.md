@@ -31,7 +31,7 @@ Where the dev workflow stops for a human today:
 | Plan approval | write plan to the issue, proceed | write plan to the issue, proceed | present + wait |
 | Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere — except under an explicit `--auto` launch, where it resolves to decide-and-flag (below; 2026-09-07) | present + wait |
 | Heart YELLOW | park, unless the reason set was human-acknowledged at launch (see the autonomous-ship gate) | same as `safe` | present + wait |
-| Heart RED | stop, report | stop, report | stop, report — a human may separately invoke the corrective-PR exception (below), which is not an autonomy level |
+| Heart RED | stop, report | stop, report | stop, report — a live human may separately invoke the development override or corrective-PR exception below; neither is an autonomy level |
 | Merge / close | human, always | human, always | human, always |
 | Version ask | n/a — release stays `human-required` (sole exception: the scheduled-nightly standing grant, dated below) | n/a | ask |
 | Cleanup | proceed + log | proceed + log | confirm |
@@ -443,6 +443,42 @@ own `batches/AGENTS.md` drops both: the Heart gates releases, not runs), and
 **their absence there is never read as an unacknowledged RED** — the fields are
 not missing, they do not exist on that schema.
 
+## Human override for Heart RED (development only)
+
+Heart RED still parks every autonomous run and blocks every release. After the
+agent has parked and reported — or at the equivalent gate in supervised or
+human-required development — a **live human** may authorize a non-corrective
+development branch to pass the RED gate. This is a development-shipping
+override, not an acknowledgement that Heart is healthy, not an autonomy level,
+and not evidence that the branch repairs Heart.
+
+- **Evidence before the ask** — the agent surfaces every exact RED reason
+  string from Heart's current verdict and shows that the branch has passed all
+  applicable tests, smoke, and review. A failed branch test, smoke leg, or
+  review cannot be overridden.
+- **Authorization** — the live human names the specific task or issue and
+  authorizes that branch contemporaneously. It is recorded verbatim, or
+  faithfully quoted, on the issue. A standing, stored, batch, ambient, or
+  earlier-session grant does not count.
+- **Permitted development actions** — commit, push, and opening the task's
+  pending-release PR.
+- **Merge remains separate and checked** — merge requires a separate explicit
+  human merge command and every required GitHub check green. One live message
+  may explicitly authorize both development shipping and merge, but if the
+  turn ends before the checks are green, the merge grant expires: do not arm
+  auto-merge or a waiter; the human must invoke `/prm` again.
+- **Forbidden** — release, release rehearsal, bypassing a failed test, smoke,
+  review, required GitHub check or branch protection, force merge, and any
+  claim that the branch fixes Heart. Heart remains RED for release purposes.
+- **Recorded in four sinks** — the authorization, exact current RED reasons,
+  and passed branch gates are recorded on the **GitHub issue**; in the **PR
+  body**; in the task's **`PyAutoMind/active.md`** entry as a
+  `- heart-red-override:` block; and in the **first** table of
+  **`PyAutoMind/autonomy_log.md`** with outcome `red-override`.
+
+This override is never inferred or exercised by `--auto`: RED parks the run
+first, and only the live human act above can resume development shipping.
+
 ## Corrective-PR exception for Heart RED (human-authorized)
 
 Heart RED forbids commit, push and PR-open at every autonomy level (the levels
@@ -450,8 +486,9 @@ table). But Heart cannot clear a RED until the fixing source reaches `main`,
 fresh wheels are built, and release-integration validation passes — so a source
 fix that directly repairs the exact defect named by the RED reason cannot be
 shipped, and recovery is impossible without violating policy. This section is
-the **one** authorized way through that deadlock, and it is a **human act**, not
-an autonomy level: it never fires under `--auto` (the hard invariant "Heart
+the **narrow causal-fix path**, alongside the development-only human override
+above, through that deadlock. It is a **human act**, not an autonomy level: it
+never fires under `--auto` (the hard invariant "Heart
 YELLOW/RED is never acknowledged autonomously" stands verbatim — an unattended
 `--auto` run on RED still stops and reports). A human invokes it, live, per
 incident.
@@ -521,11 +558,11 @@ at PR-open (or on parking):
 ```
 
 Outcome ∈ `merged-unchanged` / `amended` / `rejected` / `rejected-at-review` /
-`parked` / `corrective` (`corrective` records a use of the human-authorized
-corrective-PR exception above — not an `--auto` run, but logged so the
-exception's use is auditable alongside the autonomy rows). This is the evidence
-base for raising or lowering caps — autonomy grows by demonstrated calibration,
-not by optimism.
+`parked` / `corrective` / `red-override`. `corrective` records the causal-fix
+exception; `red-override` records the development-only human override. Neither
+is an `--auto` run, but both are logged in this first table so their use is
+auditable alongside the autonomy rows. This is the evidence base for raising or
+lowering caps — autonomy grows by demonstrated calibration, not by optimism.
 
 **`rejected-at-review` — added 2026-08-30.** Stamped by the **human**, in their
 review slot, when they would not have merged what the run produced. It exists
@@ -572,6 +609,10 @@ tier), never by weakening leg 4.
 - **Heart YELLOW/RED is never acknowledged autonomously.** A launch-time
   human acknowledgement of a named reason set is a human acknowledgement — it
   binds to that exact set, for that launch, and never extends to new reasons.
+- **The development-only human override for Heart RED is a live human act**
+  after an autonomous run parks, never an autonomous acknowledgement. It can
+  open a development PR and, only with a separate current human merge command
+  plus green required checks, merge it; Heart remains RED for release.
 - **The corrective-PR exception for Heart RED is a contemporaneous human act**
   (the section above), never reachable under `--auto`. It permits only commit,
   push and opening one pending-release PR that repairs the named RED reason —
@@ -612,6 +653,7 @@ tier), never by weakening leg 4.
 - `ship_library` / `ship_workspace` — the four-leg gate at step 4 (five under a
   batch launch), stop at
   PR-open, validation checklist, calibration append; the RED-handling step
-  points here for the human-authorized corrective-PR exception.
+  points here for both the development-only human override and the narrower
+  corrective-PR exception.
 
 Skills must link here rather than copying the tables.
