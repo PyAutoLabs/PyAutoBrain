@@ -84,8 +84,8 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   (then regenerate the dashboard and commit it with the change, per step 4).
 - `bin/pyauto-brain intake reconcile [prefix]` — ranks backlog (`draft/`)
   prompts that look already-shipped (cross-referenced against the `complete/`
-  records — the sole completion ledger since `complete.md` retired, #81 — and `active/`; a stale
-  hand-set `Status:` is a signal, never proof). Always read-only: verify each
+  records — the sole completion ledger — and `active/`; a stale hand-set
+  `Status:` is a signal, never proof). Always read-only: verify each
   suspect against the target repo's git log / merged PRs, then retire it to the
   `complete/` archive by hand (it is already done).
 - `bin/pyauto-brain intake reconcile --repo <target> [prefix]` — **also** reads

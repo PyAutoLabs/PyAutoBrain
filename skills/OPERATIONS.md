@@ -11,6 +11,10 @@ gets rediscovered twice, it belongs here.
 
 ## GitHub CLI fallbacks
 
+These are `gh` bugs on a box that *has* `gh`. Whether this session has one at
+all is the other question, answered once in
+[`./GITHUB_ACCESS.md`](./GITHUB_ACCESS.md).
+
 - **`gh pr create` fails on SSH remotes.** When `origin` is an SSH URL it can
   refuse to resolve the repo. Fallback:
   `gh api repos/<owner>/<repo>/pulls -f title=… -f head=<branch> -f base=main -f body=…`

@@ -8,7 +8,7 @@ repos that honour the contracts your body map declares.
 
 | Category | What it is for | What the organism expects of it |
 |----------|----------------|--------------------------------|
-| `organ` | The five organism repos themselves. | Framework identity — names survive a fork; excluded from the tenant firewall's instance-fact tokens. |
+| `organ` | The eight organism repos themselves. | Framework identity — names survive a fork; excluded from the tenant firewall's instance-fact tokens. |
 | `library` | A source package you release. | A test suite and CI workflow Heart gates on; a row in the Brain release conductor's library set; a PyPI package the Hands release; a version floor workspaces pin against. |
 | `workspace` | Runnable, user-facing examples for one library. | A `run_workspace` row in `pre_build.sh` (repo, package, flags, parent library); a version pin Heart's `version_skew` compares to the installed library; required CI (smoke tests) on `main`; notebook generation from its scripts. |
 | `workspace_test` | Regression / smoke / parity scripts — code-heavy, doc-light. | Same `run_workspace` mechanics; scripts runnable headless in the validation pipeline; the home for cross-package and integration checks that don't belong in a library's unit tests. |

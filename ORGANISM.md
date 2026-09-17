@@ -14,7 +14,7 @@ organs plan, build, test and release it, and you make every judgment call.
 |-------|------|-------------------|
 | **Brain** | PyAutoBrain | Figures out *how* — reasoning, planning, decomposition, routing; hosts the specialist agents. Owns **no state, no health checks, no execution mechanics**. |
 | **Mind** | PyAutoMind | Decides *what* — intent, goals, priorities, workflow state, the prompt registry and taxonomy. Also holds the body map (`repos.yaml`, the single source of repo identity). |
-| **Cortex** | PyAutoCortex | Learns *what is true* — the science body map (`projects.yaml`) and the rulings of record for every science run; the science mirror of the Mind (runs and rulings ↔ prompts and PRs). The Mind decides what to build, the Brain routes the work and executes nothing, the Cortex learns what is true. A verdict recorded only outside the Cortex does not exist: project ledgers are commentary that cite the ruling. |
+| **Cortex** | PyAutoCortex | Keeps track of *what is true* — the science body map (`projects.yaml`) and **one ledger per science project** (`## Now`, the `## Runs` on the cluster, a `## Log` that only gets longer); the science mirror of the Mind (runs and a dated log ↔ prompts and PRs). Not a task tracker: it records cluster facts and the human's words, never a verdict of its own. |
 | **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (the `complete/` records, issues), not here. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. `pyauto-heart readiness` is the **authoritative** GREEN/YELLOW/RED "is it safe to release?" gate. An observer: never writes into other repos, never triggers Build. |
 | **Hands** | PyAutoHands | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
@@ -69,9 +69,9 @@ install wiring, a body-map row and boundary prose — it must earn that by
 owning state or effects no existing organ can. Two capabilities have earned
 organ status that way. Configuration/signalling is the **Nerves**
 (PyAutoNerves), the base config/serialization layer every library imports — new
-config surfaces belong there, not in a new organ. Learning what is true is the
-**Cortex** (PyAutoCortex), the second organ to earn it: it owns state no organ
-owned before — the science body map and the rulings of record — so science
-runs and their verdicts belong there, not in the Mind. The human interaction
-layer is the command surface (`/route` + the verb commands), which is part of
-Brain.
+config surfaces belong there, not in a new organ. Keeping track of what is
+true is the **Cortex** (PyAutoCortex), the second organ to earn it: it owns
+state no organ owned before — the science body map and the per-project
+ledgers — so science runs and the human's notes on them belong there, not in
+the Mind. The human interaction layer is the command surface (`/route` + the
+verb commands), which is part of Brain.

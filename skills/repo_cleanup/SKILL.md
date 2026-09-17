@@ -36,11 +36,7 @@ but this also mutates); post-merge cleanup in `CLAUDE.md` (once per shipped task
 this covers residue when that flow is skipped); the start_dev branch survey
 (task start — this is between-tasks hygiene).
 
-> **GitHub surface.** The `gh` commands below name the *operation*, not
-> necessarily the command: a Claude Code remote session has no `gh` and
-> reaches GitHub through the `mcp__github__*` tools instead. Probe once
-> (`command -v gh`) and translate via
-> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+> No `gh` on a remote session — map each `gh` step via [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
 
 ## Safety principles (non-negotiable)
 

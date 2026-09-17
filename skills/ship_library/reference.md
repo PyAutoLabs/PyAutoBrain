@@ -4,11 +4,7 @@ Factored out of `ship_library.md`. The body skill is authoritative for the flow;
 this file holds the verbatim PR format, the API-Changes rules, and the
 workspace-impact analysis.
 
-> **GitHub surface.** The `gh` commands below name the *operation*, not
-> necessarily the command: a Claude Code remote session has no `gh` and
-> reaches GitHub through the `mcp__github__*` tools instead. Probe once
-> (`command -v gh`) and translate via
-> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+> No `gh` on a remote session — map each `gh` step via [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
 
 ## Writing the `## API Changes` section (judgement — stays in the reasoning model)
 
@@ -174,7 +170,7 @@ and `/review_release` clears it once a release has actually published.
 **Shipped (option iii passed):** offer to merge the library PR
 (`gh pr merge <n> --merge --auto`), post a "Shipped" comment (PRs, summary,
 optional session notes), then record completion — the dated record **is** the
-ledger (issues #71/#81; the monolithic `complete.md` was retired 2026-07-16):
+ledger (issues #71/#81):
 - **Draft the rich completion body** to a temp file — `## <slug>`, `issue`,
   `completed: <date>`, `library-pr:`, any uncleared `pending-release:` carried
   over from the `active.md` row, then the summary/traps/notes bullets.
