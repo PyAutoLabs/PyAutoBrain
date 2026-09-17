@@ -86,6 +86,9 @@ _SHARED_GENERIC = [
                                   # `autoassistant.mcp` — generic tooling above,
                                   # so the wiring carries no domain either
     "benchmarks/AGENTS.md",       # benchmark run/record contract
+    "benchmarks/harnesses.yaml",  # headless harness command templates (one-shot runner)
+    "benchmarks/VERSIONS.lock",   # prompt-freeze history — regenerated per reference,
+                                  # but the file and its schema are framework
     ".github/*",                  # wiki-currency / citation workflows
     "wiki/README.md", "wiki/project/*",   # project wiki rules + profile template
     "scripts/AGENTS.md", "scripts/CLAUDE.md", "scripts/README.md",
@@ -104,7 +107,10 @@ _SHARED_DOMAIN = [
     "dataset/*",
     "README.md",                  # science framing + the example prompts
     "hpc/*",
-    "benchmarks/prompts/*",       # prompt cards — a new domain writes its own
+    "benchmarks/prompts/*",       # prompt cards (+ each one-shot card's score.py) —
+                                  # a new domain writes its own
+    "benchmarks/truth/*",         # hidden reference values behind the one-shot
+                                  # cards — never copied, the domain regenerates them
     # A newborn starts with empty runs/ and regenerates RESULTS.md.
     "benchmarks/runs/*", "benchmarks/RESULTS.md",
 ]
@@ -185,6 +191,9 @@ VALIDATION_PLAN = [
     "wiki-currency check (sources clone @ main, doc-pin truth)",
     "harness smoke (benchmarks/prompts/harness_smoke.md on Claude Code and Codex — "
     "grounded answering, a small fit with figure inspection, stale-API recovery)",
+    "one-shot cards (`benchmark.py run oneshot-smoke --harness claude-code` headless "
+    "end to end, then the newborn's own one-shot cards with their score.py and "
+    "benchmarks/truth/ — a computed score, no operator; autolens_assistant#126)",
 ]
 
 
