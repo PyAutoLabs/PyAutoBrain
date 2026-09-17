@@ -1258,7 +1258,7 @@ def bundle_prompt(b: dict) -> str:
     `/prm` closes each member out unchanged.
     """
     members = [m["path"] for m in b["members"]]
-    L = [f"You are the architect (Fable) for the PyAutoMind bundle "
+    L = [f"You are the judgment tier for the PyAutoMind bundle "
          f"'{b.get('title') or b['slug']}' — {len(members)} INDEPENDENT tasks "
          "run in one orchestrated session.",
          "",
@@ -1281,11 +1281,14 @@ def bundle_prompt(b: dict) -> str:
         "branch at a time, so inside it members are worked one at a time, "
         "each on its own `feature/<member-task>` branch cut from "
         "`origin/main`; members in different repos may run in parallel.",
-        "4. Delegate the implementation of each member to an Opus subagent "
-        "via the Agent tool (`Agent(model=\"opus\", …)`), one subagent per "
-        "member, with the member's issue plan, the worktree path and the "
-        "branch to use. You plan, judge and talk to the user; the subagents "
-        "edit, test and report back.",
+        "4. For each member, resolve the execution tier from "
+        "`PyAutoBrain/skills/WORKFLOW.md`, then delegate implementation "
+        "through the current harness's native subagent mechanism, one "
+        "execution delegate per member, with the member's issue plan, the "
+        "worktree path and the branch to use. If that mechanism is "
+        "unavailable, follow WORKFLOW's direct-execution fallback. The "
+        "current session plans, judges and talks to the user; the execution "
+        "delegate edits, tests and reports back.",
         "5. Ship each member on its own: `/ship_library` or "
         "`/ship_workspace`, ONE PR per task, so `/prm` closes each member out "
         "unchanged. Never one PR for the bundle.",
