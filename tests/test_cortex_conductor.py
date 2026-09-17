@@ -87,6 +87,16 @@ esac
 """
 
 
+def wire_missing(root: Path, tmp_path: Path):
+    """Point every `local_path` at a directory that is not there — the web and
+    mobile surface, where a science root is a laptop path and nothing else."""
+    text = (root / "projects.yaml").read_text(encoding="utf-8")
+    for key in re.findall(r"^([a-z][a-z0-9_]*):$", text, re.M):
+        text = text.replace(f"local_path: /tmp/{key}\n",
+                            f"local_path: {tmp_path / 'not-here' / key}\n")
+    (root / "projects.yaml").write_text(text, encoding="utf-8")
+
+
 def wire_cli(root: Path, tmp_path: Path, fail=(), jobs="3002_[0-3]   ral   RUNNING"):
     """Point every `local_path` of the copied fixture at a directory holding a
     fake `hpc/sync` that echoes — so `--apply` pulls something that exists
@@ -187,7 +197,13 @@ def test_one_resume_chip_per_active_project_and_no_other_chips(skeleton):
             "nothing until I say.") in page
     # `assistant: none` names no assistant
     assert ("and then /tmp/single/NOTES.md; tell me where I left off" in page)
-    assert "since the last check-in (2026-09-02T09:00Z)" in page
+    # two lines, because the two halves do not run on the same machine
+    assert ("/cortex — on the laptop: `pyauto-brain cortex pull` — pull every "
+            "active science project through its own sync CLI and show me "
+            "where each run stands." in page)
+    assert ("/cortex — anywhere: `pyauto-brain cortex checkin --apply --push` "
+            "— stamp, re-render and push the board since the last check-in "
+            "(2026-09-02T09:00Z), then read me the by-project summary." in page)
     assert "Record nothing about results — I will tell you what to log." in page
     assert "### Last check-in: 2026-09-02T09:00Z" in page
     assert "retire" not in page.lower().replace("retired", "")
@@ -263,7 +279,8 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     assert _cortex._theme_css("cortex") in html
     assert html.count('<button class="copy"') == 3
     assert 'data-cmd="/cortex — resume example:' in html
-    assert 'data-cmd="/cortex — check in on every active science project' in html
+    assert 'data-cmd="/cortex — on the laptop: `pyauto-brain cortex pull`' in html
+    assert "`pyauto-brain cortex checkin --apply --push`" in html
     assert '<time id="checkin" datetime="2026-09-02T09:00Z">2026-09-02T09:00Z</time>' in html
     assert "fresh-bad" in html and _cortex._CHECKIN_JS in html
     assert "<b>1</b><span>Running</span>" in html
@@ -320,16 +337,16 @@ def test_check_exit_codes_are_the_refresh_workflow_contract(tmp_path):
     assert r.returncode in (1, 2, 3)
 
 
-# --- checkin ---------------------------------------------------------------
+# --- pull: the laptop leg ---------------------------------------------------
 def _tree_bytes(root: Path) -> dict:
     return {p.relative_to(root).as_posix(): p.read_bytes()
             for p in root.rglob("*") if p.is_file()}
 
 
-def test_a_dry_run_names_every_active_pull_and_reaches_nothing(tmp_skeleton, tmp_path):
+def test_a_pull_dry_run_names_every_active_pull_and_reaches_nothing(tmp_skeleton, tmp_path):
     wire_cli(tmp_skeleton, tmp_path)
     before = _tree_bytes(tmp_skeleton)
-    r = _run(["checkin", "--cortex", str(tmp_skeleton)])
+    r = _run(["pull", "--dry-run", "--cortex", str(tmp_skeleton)])
     assert r.returncode == 0, r.stderr
     assert "dry run" in r.stdout
     assert f"$ cd {tmp_path / 'science' / 'example'} && hpc/sync pull" in r.stdout
@@ -338,21 +355,99 @@ def test_a_dry_run_names_every_active_pull_and_reaches_nothing(tmp_skeleton, tmp
     assert "wound_down" not in r.stdout and "sleeping" not in r.stdout
     assert "pulled example" not in r.stdout  # the fake CLI never ran
     assert _tree_bytes(tmp_skeleton) == before
-    assert _run(["checkin", "--dry-run", "--cortex", str(tmp_skeleton)]).stdout == r.stdout
 
 
-def test_apply_pulls_then_prints_the_jobs_output_verbatim_and_renders(tmp_skeleton, tmp_path):
+def test_pull_streams_each_pull_then_prints_the_jobs_output_verbatim(tmp_skeleton, tmp_path):
+    wire_cli(tmp_skeleton, tmp_path)
+    before = _tree_bytes(tmp_skeleton)
+    r = _run(["pull", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stderr + r.stdout
+    out = r.stdout
+    assert "pulled example" in out and "pulled single" in out
+    # streamed as it came, then again in the by-project block
+    assert out.count("3002_[0-3]   ral   RUNNING") >= 2
+    assert "JOBID        PARTITION  STATE" in out
+    assert "example: pull ok" in out and "single: pull ok" in out
+    # jobs ran for the project with runs, not for the one without
+    assert "jobs: no jobs verb" in out.split("single: pull ok")[1]
+    # the pull writes nothing at all: no stamp, no pages, no ledger touched
+    assert _tree_bytes(tmp_skeleton) == before
+    assert not (tmp_skeleton / "dashboard.md").is_file()
+
+
+def test_pull_without_a_local_root_names_each_one_and_exits_2(tmp_skeleton, tmp_path):
+    """The one fact the split is built on: a science root is a laptop path.
+    Asked anywhere else, `pull` says so once per project — it does not fail a
+    pull per project — and points at the verb that does work there."""
+    wire_missing(tmp_skeleton, tmp_path)
+    before = _tree_bytes(tmp_skeleton)
+    r = _run(["pull", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 2
+    for key in ("example", "single"):
+        assert f"- {key}: {tmp_path / 'not-here' / key} is not here" in r.stderr
+    assert ("this is not the laptop — run `checkin` here and `pull` on the "
+            "laptop") in r.stderr
+    assert "wound_down" not in r.stderr  # the sweep is the check-in's sweep
+    assert _tree_bytes(tmp_skeleton) == before
+
+
+def test_pull_pulls_the_roots_that_are_here_and_lists_the_rest_as_skipped(
+        tmp_skeleton, tmp_path):
+    science = wire_cli(tmp_skeleton, tmp_path)
+    shutil.rmtree(science / "single")
+    r = _run(["pull", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stderr
+    assert "pulled example" in r.stdout and "pulled single" not in r.stdout
+    assert f"single: skipped — {science / 'single'} is not on this machine" \
+        in r.stdout
+    assert "this is not the laptop" in r.stdout
+
+
+def test_one_failing_pull_does_not_stop_the_sweep_and_exits_1(tmp_skeleton, tmp_path):
+    wire_cli(tmp_skeleton, tmp_path, fail=("example",))
+    r = _run(["pull", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 1
+    assert "pulled single" in r.stdout
+    assert "example: pull exited 3 — the rest of the sweep ran" in r.stdout
+    assert "single: pull ok" in r.stdout
+
+
+def test_pull_project_narrows_the_sweep(tmp_skeleton, tmp_path):
+    wire_cli(tmp_skeleton, tmp_path)
+    r = _run(["pull", "--project", "single", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stderr
+    assert "pulled single" in r.stdout and "pulled example" not in r.stdout
+    r = _run(["pull", "--project", "nope", "--cortex", str(tmp_skeleton)])
+    assert "nope: no such project" in r.stdout
+
+
+# --- checkin: the door, on any surface --------------------------------------
+def test_a_dry_run_says_what_it_would_write_and_writes_nothing(tmp_skeleton, tmp_path):
+    wire_cli(tmp_skeleton, tmp_path)
+    before = _tree_bytes(tmp_skeleton)
+    r = _run(["checkin", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stderr
+    assert "dry run" in r.stdout
+    assert "example — active" in r.stdout and "single — active" in r.stdout
+    assert "would stamp checkin.yaml" in r.stdout
+    assert "`pyauto-brain cortex pull`" in r.stdout
+    assert "pulled example" not in r.stdout
+    assert _tree_bytes(tmp_skeleton) == before
+    assert _run(["checkin", "--dry-run", "--cortex", str(tmp_skeleton)]).stdout \
+        == r.stdout
+
+
+def test_apply_stamps_renders_and_reads_each_ledger_back(tmp_skeleton, tmp_path):
+    """The door reaches no cluster: the science roots here are fake CLIs that
+    would echo if they ran, and nothing runs them."""
     wire_cli(tmp_skeleton, tmp_path)
     r = _run(["checkin", "--apply", "--no-push", "--cortex", str(tmp_skeleton)])
     assert r.returncode == 0, r.stderr + r.stdout
     out = r.stdout
-    assert "pulled example" in out and "pulled single" in out
-    # jobs ran for the project with runs, not for the one without
-    assert out.count("3002_[0-3]   ral   RUNNING") >= 2  # streamed, then in the summary
+    assert "pulled example" not in out and "3002_[0-3]   ral   RUNNING" not in out
     summary = out.split("# The Cortex by project")[1]
     ex = summary.split("## example — ")[1].split("## single — ")[0]
-    assert "pull: ok" in ex
-    assert "jobs:\nJOBID        PARTITION  STATE\n3002_[0-3]   ral   RUNNING" in ex
+    assert "pull:" not in ex and "jobs:" not in ex
     assert "Now:\nWave 2 is on the cluster" in ex
     assert "- 3002_[0-3] — running — ral — 2026-09-01" in ex
     assert "- 2026-09-01 — lesson — the adapt image" in ex
@@ -360,8 +455,9 @@ def test_apply_pulls_then_prints_the_jobs_output_verbatim_and_renders(tmp_skelet
     assert 'python3 scripts/cortex.py log example "<what I learned>" --kind result|lesson' in ex
     assert 'python3 scripts/cortex.py now example "<where I am>"' in ex
     single = summary.split("## single — ")[1]
-    assert "jobs: no jobs verb" in single
     assert "- nothing on the cluster" in single
+    # the runs it read back are the ledger's, and it says so
+    assert "not what the cluster says" in out
     # nothing was inferred: no state moved, the ledgers are untouched
     assert (tmp_skeleton / "projects" / "example.md").read_text() == \
         (cortex_root() / "tests" / "fixtures" / "skeleton" / "projects" / "example.md").read_text()
@@ -372,30 +468,50 @@ def test_apply_pulls_then_prints_the_jobs_output_verbatim_and_renders(tmp_skelet
     assert "push: off" in out
 
 
-def test_one_failing_pull_does_not_stop_the_sweep_and_exits_1(tmp_skeleton, tmp_path):
-    wire_cli(tmp_skeleton, tmp_path, fail=("example",))
+def test_apply_checks_in_where_no_science_root_exists(tmp_skeleton, tmp_path):
+    """The surface the split is for: not one `local_path` is here, and the
+    check-in still stamps, renders and reads back."""
+    wire_missing(tmp_skeleton, tmp_path)
     r = _run(["checkin", "--apply", "--no-push", "--cortex", str(tmp_skeleton)])
-    assert r.returncode == 1
-    assert "pulled single" in r.stdout
-    ex = r.stdout.split("## example — ")[1].split("## single — ")[0]
-    assert "pull: pull exited 3" in ex
-    assert "pull: ok" in r.stdout.split("## single — ")[1]
-    assert (tmp_skeleton / "checkin.yaml").read_text().startswith("refreshed: 20")
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "## example — " in r.stdout and "## single — " in r.stdout
+    assert (tmp_skeleton / "dashboard.html").is_file()
 
 
-def test_skip_pull_and_project_narrow_the_sweep(tmp_skeleton, tmp_path):
+def test_checkin_apply_never_shells_out_to_a_sync_cli(tmp_skeleton, tmp_path,
+                                                      monkeypatch, capsys):
+    """Asserted at the one place it could happen: every `subprocess.run` the
+    door makes is inspected, and a `sync_cli` among them fails the test."""
+    wire_cli(tmp_skeleton, tmp_path)
+    real = subprocess.run
+
+    def guard(argv, *args, **kwargs):
+        seq = argv if isinstance(argv, (list, tuple)) else [argv]
+        joined = " ".join(str(x) for x in seq)
+        assert "hpc/sync" not in joined, f"the check-in shelled out: {joined}"
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(_cortex.subprocess, "run", guard)
+    a = _cortex.build_parser().parse_args(
+        ["checkin", "--apply", "--no-push", "--cortex", str(tmp_skeleton)])
+    assert _cortex.cmd_checkin(tmp_skeleton, _cortex.load_cortex(tmp_skeleton), a) == 0
+    out = capsys.readouterr().out
+    assert "# The Cortex by project" in out and "pulled example" not in out
+
+
+def test_skip_pull_is_accepted_and_ignored_and_project_narrows_the_readback(
+        tmp_skeleton, tmp_path):
     wire_cli(tmp_skeleton, tmp_path)
     r = _run(["checkin", "--apply", "--no-push", "--skip-pull",
               "--cortex", str(tmp_skeleton)])
     assert r.returncode == 0, r.stderr
-    assert "pulled " not in r.stdout
-    assert "pull: skipped (--skip-pull)" in r.stdout
-    assert "3002_[0-3]   ral   RUNNING" in r.stdout  # jobs still asked
+    assert "--skip-pull: accepted and ignored" in r.stdout
+    assert "`pyauto-brain cortex pull`" in r.stdout
+    assert "## example — " in r.stdout
     r = _run(["checkin", "--apply", "--no-push", "--project", "single",
               "--cortex", str(tmp_skeleton)])
     assert r.returncode == 0, r.stderr
-    assert "pulled single" in r.stdout and "pulled example" not in r.stdout
-    assert "## example — " not in r.stdout
+    assert "## single — " in r.stdout and "## example — " not in r.stdout
     r = _run(["checkin", "--apply", "--no-push", "--project", "nope",
               "--cortex", str(tmp_skeleton)])
     assert "nope: no such project" in r.stdout
@@ -421,16 +537,17 @@ def _git(root, *args):
                           text=True, check=True)
 
 
-def test_push_preflight_refuses_a_dirty_tree_or_a_branch(tmp_skeleton, tmp_path, monkeypatch):
-    fake = tmp_path / "bin"
-    fake.mkdir()
-    gh = fake / "gh"
-    gh.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
-    monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ['PATH']}")
-    _git(tmp_skeleton, "init", "-q", "-b", "main")
-    _git(tmp_skeleton, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
-    _git(tmp_skeleton, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x")
+def _init_repo(root: Path, origin: Path):
+    origin.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+    _git(root, "init", "-q", "-b", "main")
+    _git(root, "remote", "add", "origin", str(origin))
+    _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x")
+
+
+def test_push_preflight_refuses_a_dirty_tree_or_a_branch(tmp_skeleton, tmp_path):
+    _init_repo(tmp_skeleton, tmp_path / "origin.git")
     ok, why = _cortex.push_preflight(tmp_skeleton)
     assert ok, why
     (tmp_skeleton / "checkin.yaml").write_text("refreshed: 2026-09-03T09:00Z\n")
@@ -441,10 +558,34 @@ def test_push_preflight_refuses_a_dirty_tree_or_a_branch(tmp_skeleton, tmp_path,
     assert not ok and "`feature`" in why
 
 
-def test_push_preflight_refuses_without_gh(tmp_skeleton, monkeypatch):
-    monkeypatch.setenv("PATH", "/nonexistent")
+def test_push_preflight_passes_without_gh_on_path(tmp_skeleton, tmp_path, monkeypatch):
+    """`gh` used to be the first leg, standing in for "this is a laptop" — so
+    every surface that reaches GitHub another way was refused. The preflight
+    is git's answer now, and git needs no `gh`."""
+    _init_repo(tmp_skeleton, tmp_path / "origin.git")
+    # a PATH with git on it and no `gh` anywhere — a remote session, exactly
+    only_git = tmp_path / "bin"
+    only_git.mkdir()
+    (only_git / "git").symlink_to(shutil.which("git"))
+    monkeypatch.setenv("PATH", str(only_git))
+    assert shutil.which("gh") is None and shutil.which("git")
     ok, why = _cortex.push_preflight(tmp_skeleton)
-    assert not ok and "gh" in why
+    assert ok, why
+    assert "gh" not in why
+
+
+def test_push_preflight_refuses_a_checkout_with_no_origin(tmp_skeleton):
+    _git(tmp_skeleton, "init", "-q", "-b", "main")
+    _git(tmp_skeleton, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    _git(tmp_skeleton, "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-q", "-m", "x")
+    ok, why = _cortex.push_preflight(tmp_skeleton)
+    assert not ok and "origin" in why
+
+
+def test_push_preflight_refuses_a_tree_that_is_not_a_repo(tmp_skeleton):
+    ok, why = _cortex.push_preflight(tmp_skeleton)
+    assert not ok and "not a git repo" in why
 
 
 def test_push_ledger_refuses_a_code_classified_diff(tmp_skeleton):
@@ -550,6 +691,6 @@ def test_the_conductor_never_writes_a_ledger():
 def test_the_dispatcher_lists_the_verb():
     assert "[cortex]=" in BRAIN.read_text(encoding="utf-8")
     r = _run(["--help"])
-    for verb in ("census", "dashboard", "checkin", "issue"):
+    for verb in ("census", "dashboard", "pull", "checkin", "issue"):
         assert verb in r.stdout
     assert "collect" not in r.stdout and "gates" not in r.stdout
