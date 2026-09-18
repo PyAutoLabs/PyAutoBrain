@@ -41,8 +41,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Workspace root via the one shared resolver (agents/_pyauto_root.py, mirrored
-# by bin/_pyauto_root.sh): PYAUTO_ROOT, else beside this checkout, else the
-# developer box. Naming an absolute workspace path as the *default* here
+# by bin/_pyauto_root.sh): PYAUTO_ROOT, else the nearest ancestor holding a
+# .pyauto-root marker, else beside this checkout, else the parent anyway. Naming an absolute workspace path as the *default* here
 # resolved into
 # a non-existent tree in a remote session and reported empty rather than
 # failing.
