@@ -129,6 +129,27 @@ worktree_create() {
 
   mkdir -p "$root" || return 1
 
+  # Mark the bundle as a workspace root of its own. Without this, a tool run
+  # inside the bundle walks past it to the canonical workspace above — the
+  # sibling-symlink loop below is `"$PYAUTO_MAIN"/*`, which does not glob
+  # dotfiles, so the canonical marker never arrives here either. Unversioned
+  # and per-machine, like the canonical one; `worktree_remove` takes it with
+  # the bundle.
+  cat > "$root/$PYAUTO_ROOT_MARKER" <<'EOF'
+# Task-bundle root marker.
+#
+# Its presence is what makes this directory a workspace root: the bundle
+# holding this task's real git worktrees, plus a symlink back to the canonical
+# checkout for every repo the task did not claim.
+# `PyAutoBrain/agents/_pyauto_root.py` and `PyAutoBrain/bin/_pyauto_root.sh`
+# walk UP from a checkout and take the first ancestor holding this file, so
+# work done in here resolves to the bundle rather than to the workspace above.
+#
+# Written by worktree_create (PyAutoBrain/bin/worktree.sh). Intentionally
+# unversioned: a bundle root is not a git repo, so this file belongs to no
+# repository.
+EOF
+
   local repo
   for repo in "$@"; do
     if ! _worktree_add_one "$task" "$repo"; then

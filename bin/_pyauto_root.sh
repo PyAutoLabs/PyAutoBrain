@@ -23,10 +23,23 @@
 # this way (BRAIN_HOME.parent); this file makes that the one convention instead
 # of the majority one.
 #
+# The order, identical to agents/_pyauto_root.py's:
+#
+#   1. an explicit PYAUTO_ROOT — the operator's word, taken verbatim, but
+#      reported as verified or not so a wrong value from a hook is visible;
+#   2. the nearest ancestor holding a .pyauto-root marker file — the only rule
+#      that survives the workspace growing subdirectories, because "does this
+#      directory hold an organ?" is answered yes by a family directory such as
+#      organs/ the moment the organs move into one;
+#   3. the parent of this checkout when it holds a sibling organ — still true
+#      for a single-repo remote checkout, which has no root above it to mark;
+#   4. the parent regardless, reported as unverified.
+#
 # Usage (from anywhere in this repo):
 #     . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../bin/_pyauto_root.sh"
-# then read $PYAUTO_ROOT. An explicit PYAUTO_ROOT in the environment always
-# wins, so a caller can still point the tooling at another workspace.
+# then read $PYAUTO_ROOT, and $PYAUTO_ROOT_REASON when reporting a degraded
+# result. An explicit PYAUTO_ROOT in the environment always wins, so a caller
+# can still point the tooling at another workspace.
 
 # Guard against re-sourcing: several agents source both _common.sh and a bin
 # helper that each pull this in.
@@ -39,6 +52,32 @@ _pyauto_brain_home() {
     cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd
 }
 
+# A workspace root says so itself by holding this file. It is deliberately
+# unversioned — the root is not a git repo — so it marks a checkout layout on
+# one machine, not a fact about the organism.
+PYAUTO_ROOT_MARKER=".pyauto-root"
+export PYAUTO_ROOT_MARKER
+
+# The nearest ANCESTOR of $1 holding the marker, printed; non-zero when there
+# is none. A checkout is never its own workspace root, so the walk starts one
+# level up — the layout-independent walk the workspace already uses elsewhere
+# to find a project root.
+_pyauto_marked_root() {
+    _pyauto_d=$(dirname "$1")
+    while [ "$_pyauto_d" != "/" ]; do
+        if [ -f "$_pyauto_d/$PYAUTO_ROOT_MARKER" ]; then
+            printf '%s' "$_pyauto_d"
+            return 0
+        fi
+        _pyauto_d=$(dirname "$_pyauto_d")
+    done
+    if [ -f "/$PYAUTO_ROOT_MARKER" ]; then
+        printf '%s' "/"
+        return 0
+    fi
+    return 1
+}
+
 # A directory counts as a workspace root if it holds at least one sibling organ
 # besides this one. The Mind is the strongest signal (it carries repos.yaml,
 # the body map every consumer wants), but a Brain-only remote session is still
@@ -49,21 +88,43 @@ _pyauto_is_root() {
         || [ -d "$1/PyAutoCortex" ]
 }
 
+# Assigns PYAUTO_ROOT and PYAUTO_ROOT_REASON rather than printing: one
+# decision produces two answers, and a command substitution would drop the
+# reason. Called directly, so it runs in this shell, not a subshell.
 _pyauto_resolve_root() {
     # 1. An explicit override is the operator's word; never second-guess it.
+    #    The marker only decides how the reason reads.
     if [ -n "${PYAUTO_ROOT:-}" ]; then
-        printf '%s' "$PYAUTO_ROOT"
+        if [ -f "$PYAUTO_ROOT/$PYAUTO_ROOT_MARKER" ]; then
+            PYAUTO_ROOT_REASON="PYAUTO_ROOT"
+        else
+            PYAUTO_ROOT_REASON="PYAUTO_ROOT (unverified - no $PYAUTO_ROOT_MARKER marker)"
+        fi
         return 0
     fi
-    # 2. Beside this checkout — the layout that is true in every environment
-    #    the organism actually runs in, remote sessions included. 3. Failing
-    #    that, the parent anyway: the best guess available, and a real path the
-    #    caller can name in a diagnostic.
-    printf '%s' "$(dirname "$(_pyauto_brain_home)")"
+    _pyauto_home="$(_pyauto_brain_home)"
+    # 2. A marked ancestor — the root naming itself, which stays right however
+    #    deep under it this checkout sits.
+    if _pyauto_marked="$(_pyauto_marked_root "$_pyauto_home")"; then
+        PYAUTO_ROOT="$_pyauto_marked"
+        PYAUTO_ROOT_REASON="$PYAUTO_ROOT_MARKER marker"
+        return 0
+    fi
+    # 3. Beside this checkout — no marker anywhere above us, so what sits
+    #    beside us is all there is: a single-repo remote session, a CI matrix,
+    #    a spawned template. 4. Failing that, the parent anyway: the best guess
+    #    available, and a real path the caller can name in a diagnostic.
+    PYAUTO_ROOT="$(dirname "$_pyauto_home")"
+    if _pyauto_is_root "$PYAUTO_ROOT"; then
+        PYAUTO_ROOT_REASON="beside this checkout"
+    else
+        PYAUTO_ROOT_REASON="unverified (no sibling organ beside this checkout)"
+    fi
 }
 
-PYAUTO_ROOT="$(_pyauto_resolve_root)"
+_pyauto_resolve_root
 export PYAUTO_ROOT
+export PYAUTO_ROOT_REASON
 
 # Task worktrees live beside the workspace root, not inside it, so they derive
 # from whatever the root resolved to rather than re-deriving from $HOME.
