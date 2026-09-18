@@ -35,6 +35,9 @@
 #   bash PyAutoBrain/bin/install.sh --write-project-discovery # (re)generate committed
 #                                                          #   .claude/ + .codex/ discovery per repo
 #   bash PyAutoBrain/bin/install.sh --check-project-discovery # drift-check that discovery (exit 1)
+#                                                          #   trailing repo names narrow the check
+#   bash PyAutoBrain/bin/install.sh --write-workspace-policy # refresh root AGENTS.md delegation block
+#   bash PyAutoBrain/bin/install.sh --check-workspace-policy # drift-check that block
 #
 # The command-surface modes are the agent-agnostic half of command discovery:
 # per-tool symlinks (above) are absent in cloud/web sessions, which load only
@@ -68,6 +71,12 @@ CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 COMMANDS_BEGIN="<!-- pyauto:commands:begin -->"
 COMMANDS_END="<!-- pyauto:commands:end -->"
 ORGAN_REPOS=(PyAutoBrain PyAutoMind PyAutoMemory PyAutoHeart PyAutoHands)
+WORKSPACE_POLICY="$SCRIPT_DIR/../policy/workspace_model_delegation.md"
+WORKSPACE_POLICY_BEGIN="<!-- pyauto:model-delegation:begin -->"
+WORKSPACE_POLICY_END="<!-- pyauto:model-delegation:end -->"
+WORKSPACE_POINTER="$SCRIPT_DIR/../policy/workspace_model_delegation_pointer.md"
+WORKSPACE_POINTER_BEGIN="<!-- pyauto:model-delegation-pointer:begin -->"
+WORKSPACE_POINTER_END="<!-- pyauto:model-delegation-pointer:end -->"
 
 # Emit the canonical command-surface block (identical in every organ) to stdout,
 # sourced from the agent registry in bin/pyauto-brain — the single source of
@@ -173,6 +182,95 @@ check_agents_surface() {
   return "$drift"
 }
 
+workspace_policy() {
+  local mode="$1" agents="$PYAUTO_ROOT/AGENTS.md" target tmp tmp2 begin_count end_count legacy=0 pointer_legacy=0
+  [ -f "$agents" ] || { echo "skipped (absent): $agents"; return 0; }
+  target="$(readlink -f "$agents")"
+  begin_count="$(grep -cFx "$WORKSPACE_POLICY_BEGIN" "$agents" || true)"
+  end_count="$(grep -cFx "$WORKSPACE_POLICY_END" "$agents" || true)"
+  if [ "$begin_count" = 0 ] && [ "$end_count" = 0 ]; then
+    [ "$(grep -cF -- '- **Delegate execution to a subagent' "$target" || true)" = 1 ] &&
+      [ "$(grep -cF -- '- **Never rewrite pushed history.' "$target" || true)" = 1 ] || {
+        echo "cannot locate unique legacy delegation block: $agents"; return 1;
+      }
+    legacy=1
+  elif [ "$begin_count" != 1 ] || [ "$end_count" != 1 ]; then
+    echo "malformed workspace-policy markers: $agents"; return 1
+  fi
+  [ "$(grep -cFx "$WORKSPACE_POLICY_BEGIN" "$WORKSPACE_POLICY" || true)" = 1 ] &&
+    [ "$(grep -cFx "$WORKSPACE_POLICY_END" "$WORKSPACE_POLICY" || true)" = 1 ] || {
+      echo "malformed policy source: $WORKSPACE_POLICY"; return 1;
+    }
+  awk -v begin="$WORKSPACE_POLICY_BEGIN" -v end="$WORKSPACE_POLICY_END" '
+    $0 == begin { if (seen_end) exit 2; seen_begin=1 }
+    $0 == end { if (!seen_begin) exit 2; seen_end=1 }
+    END { if (!seen_begin || !seen_end) exit 2 }
+  ' "$WORKSPACE_POLICY" || { echo "unordered policy source: $WORKSPACE_POLICY"; return 1; }
+  [ "$(grep -cFx "$WORKSPACE_POINTER_BEGIN" "$WORKSPACE_POINTER" || true)" = 1 ] &&
+    [ "$(grep -cFx "$WORKSPACE_POINTER_END" "$WORKSPACE_POINTER" || true)" = 1 ] || {
+      echo "malformed pointer source: $WORKSPACE_POINTER"; return 1;
+    }
+  awk -v begin="$WORKSPACE_POINTER_BEGIN" -v end="$WORKSPACE_POINTER_END" '
+    $0 == begin { if (seen_end) exit 2; seen_begin=1 }
+    $0 == end { if (!seen_begin) exit 2; seen_end=1 }
+    END { if (!seen_begin || !seen_end) exit 2 }
+  ' "$WORKSPACE_POINTER" || { echo "unordered pointer source: $WORKSPACE_POINTER"; return 1; }
+  if [ "$(grep -cFx "$WORKSPACE_POINTER_BEGIN" "$target" || true)" = 0 ] &&
+     [ "$(grep -cFx "$WORKSPACE_POINTER_END" "$target" || true)" = 0 ]; then
+    [ "$(grep -cF -- '- **Model delegation** (provider-aware defaults:' "$target" || true)" = 1 ] || {
+      echo "cannot locate unique legacy delegation pointer: $agents"; return 1;
+    }
+    awk '
+      /- \*\*Model delegation\*\* \(provider-aware defaults:/ { if (seen_end) exit 2; seen_begin=1 }
+      /PyAutoBrain\/skills\/WORKFLOW\.md/ { if (seen_begin) seen_end=1 }
+      END { if (!seen_begin || !seen_end) exit 2 }
+    ' "$target" || { echo "unordered legacy delegation pointer: $agents"; return 1; }
+    pointer_legacy=1
+  elif [ "$(grep -cFx "$WORKSPACE_POINTER_BEGIN" "$target" || true)" != 1 ] ||
+       [ "$(grep -cFx "$WORKSPACE_POINTER_END" "$target" || true)" != 1 ]; then
+    echo "malformed workspace-pointer markers: $agents"; return 1
+  else
+    awk -v begin="$WORKSPACE_POINTER_BEGIN" -v end="$WORKSPACE_POINTER_END" '
+      $0 == begin { if (seen_end) exit 2; seen_begin=1 }
+      $0 == end { if (!seen_begin) exit 2; seen_end=1 }
+      END { if (!seen_begin || !seen_end) exit 2 }
+    ' "$target" || { echo "unordered workspace-pointer markers: $agents"; return 1; }
+  fi
+  if [ "$legacy" = 1 ]; then awk '
+    /- \*\*Delegate execution to a subagent/ { if (seen_end) exit 2; seen_begin=1 }
+    /- \*\*Never rewrite pushed history\./ { if (!seen_begin) exit 2; seen_end=1 }
+    END { if (!seen_begin || !seen_end) exit 2 }
+  ' "$target" || { echo "unordered legacy delegation block: $agents"; return 1; }; fi
+  if [ "$legacy" = 0 ]; then awk -v begin="$WORKSPACE_POLICY_BEGIN" -v end="$WORKSPACE_POLICY_END" '
+    $0 == begin { if (seen_end) exit 2; seen_begin=1 }
+    $0 == end { if (!seen_begin) exit 2; seen_end=1 }
+    END { if (!seen_begin || !seen_end) exit 2 }
+  ' "$target" || { echo "unordered workspace-policy markers: $agents"; return 1; }; fi
+  tmp="$(mktemp "$(dirname "$target")/.agents-policy.XXXXXX")"
+  awk -v begin="$WORKSPACE_POLICY_BEGIN" -v end="$WORKSPACE_POLICY_END" -v policy="$WORKSPACE_POLICY" -v legacy="$legacy" '
+    legacy && /^- \*\*Delegate execution to a subagent/ { while ((getline line < policy) > 0) print line; close(policy); skip=1; next }
+    legacy && skip && /^- \*\*Never rewrite pushed history\./ { skip=0; print; next }
+    $0 == begin { while ((getline line < policy) > 0) print line; close(policy); skip=1; next }
+    $0 == end { skip=0; next }
+    !skip { print }
+  ' "$target" > "$tmp"
+  tmp2="$(mktemp "$(dirname "$target")/.agents-pointer.XXXXXX")"
+  awk -v begin="$WORKSPACE_POINTER_BEGIN" -v end="$WORKSPACE_POINTER_END" -v policy="$WORKSPACE_POINTER" -v legacy="$pointer_legacy" '
+    legacy && /^- \*\*Model delegation\*\* \(provider-aware defaults:/ { while ((getline line < policy) > 0) print line; close(policy); skip=1; next }
+    legacy && skip && /PyAutoBrain\/skills\/WORKFLOW\.md/ { skip=0; next }
+    $0 == begin { while ((getline line < policy) > 0) print line; close(policy); skip=1; next }
+    $0 == end { skip=0; next }
+    !skip { print }
+  ' "$tmp" > "$tmp2"
+  rm -f "$tmp"; tmp="$tmp2"
+  chmod --reference="$target" "$tmp"
+  if cmp -s "$target" "$tmp"; then
+    echo "OK: $agents"; rm -f "$tmp"; return 0
+  fi
+  if [ "$mode" = write ]; then mv "$tmp" "$target"; echo "updated: $agents"; return 0; fi
+  rm -f "$tmp"; echo "DRIFT: $agents — run: bash PyAutoBrain/bin/install.sh --write-workspace-policy"; return 1
+}
+
 # ---------- Committed per-tool discovery (web/cloud) ----------
 #
 # The user-level ~/.claude / ~/.codex symlinks (below) are NOT loaded in cloud/
@@ -243,9 +341,13 @@ write_project_discovery() {
   done
 }
 
+# Optional trailing repo names narrow the check to those repos (the pytest leg
+# checks PyAutoBrain alone, so a local run is not reddened by a sibling's drift).
 check_project_discovery() {
   local repo repo_dir want got drift=0
-  for repo in "${DISCOVERY_REPOS[@]}"; do
+  local repos=("${DISCOVERY_REPOS[@]}")
+  [ "$#" -gt 0 ] && repos=("$@")
+  for repo in "${repos[@]}"; do
     repo_dir="$PYAUTO_ROOT/$repo"
     [ -d "$repo_dir/skills" ] || continue
     want="$(_discovery_manifest "$repo_dir")"
@@ -265,7 +367,9 @@ case "${1:-}" in
   --write-agents-surface) write_agents_surface; exit 0 ;;
   --check-agents-surface) check_agents_surface; exit $? ;;
   --write-project-discovery) write_project_discovery; exit 0 ;;
-  --check-project-discovery) check_project_discovery; exit $? ;;
+  --check-project-discovery) shift; check_project_discovery "$@"; exit $? ;;
+  --write-workspace-policy) workspace_policy write; exit $? ;;
+  --check-workspace-policy) workspace_policy check; exit $? ;;
   --help|-h)
     sed -n '2,24p' "$0"; exit 0 ;;
 esac

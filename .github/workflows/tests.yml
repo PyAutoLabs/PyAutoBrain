@@ -95,6 +95,25 @@ jobs:
       - name: Run tests
         working-directory: PyAutoBrain
         run: pytest tests/ -q
+      # The committed `.claude/` + `.codex/` discovery trees are generated
+      # symlinks, and nothing regenerated them: three skills (batch,
+      # ci_speedup, start_bundle) were never registered and two deleted ones
+      # (register_and_iterate, run_queue) stayed linked, so a web session —
+      # which loads only committed files — silently lacked those verbs. The
+      # generator has always had a drift mode; it just ran in no CI. Only the
+      # repos checked out above are examined (the check skips the rest), so
+      # this gates Brain and Mind and nothing a Brain PR cannot fix.
+      - name: Skill discovery trees are current (.claude/ + .codex/ symlinks)
+        run: bash PyAutoBrain/bin/install.sh --check-project-discovery
+      # A skill's SKILL.md + body is MANDATORY context every time the skill
+      # loads, so line count is a per-invocation token cost, not a style
+      # preference. Report-only: `batch` and `prm` are over the 200-line budget
+      # today and trimming them is its own task — this step makes the debt
+      # visible on every PR without reddening a gate nobody can currently pass.
+      - name: Skill line-count budget (report-only — known offenders)
+        continue-on-error: true
+        working-directory: PyAutoBrain
+        run: bash bin/check_skill_line_counts.sh
       - name: Tenant firewall (instance facts stay in declared config surfaces)
         run: >
           python3 PyAutoMind/scripts/repos_sync.py --check

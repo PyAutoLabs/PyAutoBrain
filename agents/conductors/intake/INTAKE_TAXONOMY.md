@@ -90,6 +90,7 @@ Repos:
 Difficulty: <level>
 Autonomy: <autonomy>
 Priority: <priority>
+Memory: wiki/lensing/concepts/foo.md; wiki/methods/sources/bar.md
 Status: formalised
 
 <original raw text, verbatim>
@@ -100,6 +101,16 @@ Status: formalised
 No YAML, no required fields — this is the light header PyAutoMind blesses in
 `README.md` "Prompt file format", extended with the three intake keys
 (`Difficulty:/Autonomy:/Priority:`). `Type:` always matches the work-type folder.
+
+**`Memory:`** — the top 3 **PyAutoMemory** pages for this prompt's own text
+(title + the first ~200 words of the body), repo-relative and `;`-separated,
+written at filing time by the memory faculty's own ranking function. The
+doctrine says every plan consults Memory; the record says it happened about six
+times in 1,547 tasks, so intake consults it mechanically and the citations are
+in front of the session that picks the prompt up. PyAutoMemory only — Mind
+history and the assistant are operational recall, not what the science says. No
+hits, or no PyAutoMemory checkout, writes **no line at all**: an empty
+`Memory:` would claim nothing is known. Optional on read, like every other key.
 
 ## 6. Census + dashboard (reading the taxonomy back)
 

@@ -115,6 +115,15 @@ every run for the sha and every job in it, and treat anything not `completed` as
 
 Green on every leg → merge, in this order:
 
+**PRs shipped under the Heart RED development override.** The shipping grant
+alone is not merge authority. Require a separate explicit human merge command
+and every required GitHub check green; never force, override protection, or
+treat Heart RED as cleared. A live message may authorize both shipping and
+merge, but that merge grant lasts only for the current turn. If the turn ends
+before checks are green, it expires: arm no waiter or auto-merge, stop, and
+require the human to invoke `/prm` again. This permission never reaches a
+release or release rehearsal.
+
 1. **The Heart freeze window — library PRs only.** A release validation is a
    window in which the library `main`s must not move: a merge landing inside it
    invalidates the evidence and restales the rehearsal (~75 minutes, measured
@@ -172,9 +181,24 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
 2. **Issue** — post the "Shipped" comment (template: `../ship_library/reference.md`
    → "Issue comments + Mind state"), then close it. `gh issue close` is broken in
    this gh; use the REST path.
-3. **Mind: `active/` → `complete/`** — draft the completion body, then
-   `lifecycle.py record … --prompt <bare-filename> --apply`. A *path* there
-   silently no-ops, so verify all three effects rather than the exit code.
+3. **Mind: `active/` → `complete/`** — draft the completion body, then one
+   verb does the whole Mind-side close-out — the record, the prompt's
+   removal, the `active.md` row (and any `parked.md`/`planned.md` pointer),
+   the shadow row when the tier is `notify`, and `complete/index.md`:
+
+   ```bash
+   python3 scripts/lifecycle.py close <slug> --date <merge date> \
+     --from-file <body.md> --pr <Repo#N …> [--tier notify --gate "<cell>" \
+     --action <action> --stage <1|2>]            # dry run: prints every step
+   python3 scripts/lifecycle.py close … --apply  # then does them
+   ```
+
+   Read the dry run before `--apply`: it names the record path, the file it
+   removes, the entry it drops and every cross-reference you must repoint
+   (`draft/`, `active/`, `epics.md`, the registries — it never rewrites those
+   itself). It refuses a record that already exists and a slug it cannot
+   resolve; `--prompt <bare-filename>` names the prompt when the slug does
+   not. `lifecycle.py record …` remains underneath for the record alone.
 
    **Record the scope you merged, not the scope you filed.** On a partial merge,
    record what shipped and re-file the remainder as a fresh
@@ -220,18 +244,11 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
       → `merged-unchanged` / `merged-after-substantive-change`. `not-merged`
       is what gets recorded when `/prm` stopped on a guard (step 6) and never
       reached the question — never a guess at what the answer would have been.
-   5. **Append**, inside the Mind commit sub-step 4 is about to make:
-
-      ```bash
-      python3 scripts/lifecycle.py shadow-row \
-        --date <merge date> --task "<slug> (<repo>#<pr> …)" --tier notify \
-        --gate "<cell>" --action <action> --stage <1|2> --apply
-      ```
-
-      Without `--apply` it prints the row and the new count line and writes
-      nothing — that is how you check the cells before committing to them.
-      The row then rides the same commit and push as the record and the
-      dashboard; it is never a commit of its own.
+   5. **Append** — the `--tier notify --gate "<cell>" --action <action>
+      --stage <1|2>` flags on the `close` verb above do it (`shadow-row` is
+      the verb underneath). The dry run prints the row and the new count line
+      before anything is written; the row rides the same commit and push as
+      the record and the dashboard, never a commit of its own.
    6. **Name it in the ledger** (sub-step 7): "shadow row appended, count
       N/40".
 

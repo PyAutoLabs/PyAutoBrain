@@ -288,6 +288,35 @@ fi
 #     the branch, so the first few failures already answer the question for
 #     all of them. Grinding through 99 doomed pushes just buries the reason
 #     and burns the API budget.
+# WHICH line of a failed push is the reason. `grep -m1 error|fatal` looked
+# enough until a run hit git's own chatter first: with `push.negotiate` set,
+# git 2.43 emits `fatal: --negotiate-only needs one or more
+# --negotiation-tip=*` followed by `warning: push negotiation failed;
+# proceeding anyway` BEFORE the push it then goes on to make and have refused.
+# The first `fatal:` in the output was therefore a harmless fallback notice,
+# and the actual `remote: error: denying ref deletion` three lines below it was
+# never printed. Versions also differ in what they say and whether the server's
+# words arrive `remote:`-prefixed, so rank rather than take-the-first: the
+# server's own refusal, then git's per-ref rejection line, then any remaining
+# error, then whatever there is. Noise lines are dropped outright — they
+# describe a retry, not a failure.
+push_failure_reason() {
+    local raw="$1" line
+    local clean
+    clean=$(printf '%s\n' "$raw" \
+        | sed 's/\r$//; s/^remote:[[:space:]]*//; s/[[:space:]]*$//' \
+        | grep -v '^$' \
+        | grep -viE 'negotiat|^warning:|^to |^everything up-to-date')
+    for pat in \
+        '(denying|denied|permission|forbidden|protected|not allowed|pre-receive)' \
+        '^!?[[:space:]]*\[(remote )?rejected\]|\[rejected\]' \
+        '^(error|fatal):'
+    do
+        line=$(grep -iEm1 "$pat" <<<"$clean") && [ -n "$line" ] && { printf '%s\n' "$line"; return 0; }
+    done
+    head -1 <<<"$clean"
+}
+
 deleted=0 failed=0 n=0 streak=0
 for entry in "${safe[@]}"; do
     b="${entry%%	*}"
@@ -298,7 +327,7 @@ for entry in "${safe[@]}"; do
     if err=$(g push origin --delete "$b" 2>&1); then
         echo "  deleted  $b"; deleted=$((deleted + 1)); streak=0
     else
-        reason=$(grep -iEm1 'error|fatal|denied|forbidden|protected' <<<"$err" | sed 's/^remote: *//;s/[[:space:]]*$//')
+        reason=$(push_failure_reason "$err")
         echo "  FAILED   $b — ${reason:-no error text returned}"
         failed=$((failed + 1)); streak=$((streak + 1))
         if [[ "$streak" -ge 3 ]]; then

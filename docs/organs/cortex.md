@@ -65,15 +65,18 @@ same split as **Heart ↔ vitals** and **Gut ↔ hygiene**.
 
 | Verb | What it does |
 |------|--------------|
-| `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY] [--skip-pull]` | **The door.** Pull every active project through its own sync CLI (streamed; one project's failure does not stop the sweep), print each project's `jobs` output verbatim where its ledger lists runs, stamp `checkin.yaml`, re-render the board, push the ledger where the rule allows, and print a summary **by project** — Now, the runs, the last entries, the `cortex.py` lines likely typed next. `--dry-run` (the default) says what it would do and reaches nothing |
+| `pull [--project KEY] [--dry-run]` | **The laptop leg.** Pull every active project through its own sync CLI (streamed; one project's failure does not stop the sweep) and print each project's `jobs` output verbatim. Writes nothing; where no `local_path` exists (web, mobile) it exits 2 and says so |
+| `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY]` | **The door, on any surface.** Stamp `checkin.yaml`, re-render the board, push the ledger where the rule allows, and print a summary **by project** — Now, the runs as the ledger holds them, the last entries, the `cortex.py` lines likely typed next. Shells out to no sync CLI. `--dry-run` (the default) writes nothing |
 | `census [--json]` | What the Cortex is holding — per project: status, runs by state, log length, last update; the totals; the last check-in stamp |
 | `dashboard --check` \| `--apply` | The generated board, `dashboard.md` + `dashboard.html`. `--check` exits **1** on drift — the contract the Cortex's `dashboard_refresh.yml` runs on. The two pages are generated: never hand-edit them |
 | `issue [--project KEY] [--apply]` | The concise ledger block (Now, Runs, the last five) that sits at the top of each project's GitHub issue, between two markers; `--apply` writes it there through `gh` — never creates an issue |
 
-**Checking in is one command.** `pyauto-brain cortex checkin --apply` pulls,
-shows, renders and pushes on `claude/checkin-<date>` when `gh` is logged in
-and the checkout is clean on `main`, then ends with the by-project summary the
-human reads back — and then records what they say with `scripts/cortex.py`.
+**Checking in is two commands, one per machine.** On the laptop,
+`pyauto-brain cortex pull` pulls and shows what the cluster says. Anywhere,
+`pyauto-brain cortex checkin --apply --push` stamps, renders and pushes on
+`claude/checkin-<date>` when the checkout is clean on `main` with a resolvable
+`origin` (no `gh` needed), then ends with the by-project summary the human
+reads back — and then records what they say with `scripts/cortex.py`.
 
 ## The board
 

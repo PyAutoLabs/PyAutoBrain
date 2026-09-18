@@ -4,11 +4,7 @@ Factored out of `ship_library.md`. The body skill is authoritative for the flow;
 this file holds the verbatim PR format, the API-Changes rules, and the
 workspace-impact analysis.
 
-> **GitHub surface.** The `gh` commands below name the *operation*, not
-> necessarily the command: a Claude Code remote session has no `gh` and
-> reaches GitHub through the `mcp__github__*` tools instead. Probe once
-> (`command -v gh`) and translate via
-> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+> No `gh` on a remote session — map each `gh` step via [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
 
 ## Writing the `## API Changes` section (judgement — stays in the reasoning model)
 
@@ -80,6 +76,16 @@ schema in that file's header; outcome starts `parked`/blank and is set at the
 human's merge decision) and push Mind with
 `prompt_sync_push "mind: autonomy_log — <task> at PR-open"`.
 
+**Which table.** The calibration row goes in the **first** table of that
+file — the five-cell `| date | task | effective level | gates | outcome |`
+table under the top heading — as the last row of its final segment, in date
+order. It never goes at the end of the file: the table that sits there is the
+**Shadow window** (`## Shadow window`), which is `/prm`'s alone, tier-`notify`
+only, appended at close-out with a fixed `human action` vocabulary. Six
+supervised rows landed there at PR-open between 2026-09-13 and 2026-09-17 and
+broke `tests/test_autonomy_log_shadow.py` on every Mind CI run until they were
+moved (2026-09-17).
+
 ## Execution contract (feature-dev — the mechanical ship step)
 
 This is the dev workflow's own git execution (commit/push/feature-PR), not a
@@ -103,8 +109,9 @@ Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
 5. Return a structured summary: one line per repo with test pass/fail counts,
    commit SHA, and PR URL.
 
-In local-dev this is delegated to an execution-tier subagent (mechanical execution); the
-reasoning model drafts the commit/PR text first and consumes the subagent's
+In local-dev Anthropic delegates this to its execution tier; OpenAI runs inline
+unless a bounded exception in `../MODEL_DELEGATION.md` applies. The judgment
+model drafts the commit/PR text first and consumes any worker's
 result. In other environments run the same steps directly.
 
 ## Workspace-impact analysis
@@ -164,7 +171,7 @@ and `/review_release` clears it once a release has actually published.
 **Shipped (option iii passed):** offer to merge the library PR
 (`gh pr merge <n> --merge --auto`), post a "Shipped" comment (PRs, summary,
 optional session notes), then record completion — the dated record **is** the
-ledger (issues #71/#81; the monolithic `complete.md` was retired 2026-07-16):
+ledger (issues #71/#81):
 - **Draft the rich completion body** to a temp file — `## <slug>`, `issue`,
   `completed: <date>`, `library-pr:`, any uncleared `pending-release:` carried
   over from the `active.md` row, then the summary/traps/notes bullets.

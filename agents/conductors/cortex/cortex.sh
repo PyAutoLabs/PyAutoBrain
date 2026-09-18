@@ -5,19 +5,23 @@
 #
 # Reasons over PyAutoCortex, the organ that holds the science body map and one
 # ledger per project (Now, Runs, Log): renders the Cortex board (dashboard.md
-# + dashboard.html, published to Pages), runs the check-in (each project's own
-# sync CLI, its `jobs` output verbatim) and syncs the ledger block onto each
-# project's issue. It records cluster facts and the human's words, never a
-# verdict of its own — a run is submitted only on the human's ask, and a
-# result or lesson is logged only in their words.
+# + dashboard.html, published to Pages), runs the check-in (stamp, render,
+# push, read the ledger back by project — on any surface), pulls the cluster
+# through each project's own sync CLI (the laptop only, where the science
+# roots are) and syncs the ledger block onto each project's issue. It records
+# cluster facts and the human's words, never a verdict of its own — a run is
+# submitted only on the human's ask, and a result or lesson is logged only in
+# their words.
 #
 # Usage:
 #   cortex.sh                          # census (default)
 #   cortex.sh census --json            # machine-readable
 #   cortex.sh dashboard --check        # exit 1 if the pages are stale
 #   cortex.sh dashboard --apply        # write dashboard.md + dashboard.html
-#   cortex.sh checkin --dry-run        # what it would pull; reaches nothing
-#   cortex.sh checkin --apply          # the check-in: pull, jobs, stamp, render, push
+#   cortex.sh pull                     # the laptop: each project's pull, then jobs verbatim
+#   cortex.sh pull --dry-run           # what it would pull; reaches nothing
+#   cortex.sh checkin --dry-run        # what it would write; writes nothing
+#   cortex.sh checkin --apply          # the check-in: stamp, render, push, read back
 #   cortex.sh issue [--apply]          # the ledger block for each project's issue
 #   cortex.sh <verb> --cortex <dir>    # point at another PyAutoCortex checkout
 

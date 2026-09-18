@@ -30,10 +30,8 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 - **`/health worktrees`** → follow the worktree dashboard procedure in
   `PyAutoHeart/skills/worktree_status/reference.md`.
 
-`/health` is the **only** health command. The former `/health_check`,
-`/pyauto-status`, `/pyauto-status-full`, and `/worktree_status` are retired as
-top-level commands and live on as the `check`, `status`, `full`, and
-`worktrees` legs above — the door is the Brain, the procedures are Heart's.
+`/health` is the **only** health command — the door is the Brain, the
+procedures are Heart's.
 
 On the shell side, the same vocabulary applies: `health` (git-sync dashboard),
 `health release`, and `health audit` (see `PyAutoHeart/scripts/health.sh`) — a

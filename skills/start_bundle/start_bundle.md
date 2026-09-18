@@ -2,12 +2,12 @@
 
 A **bundle** is a set of *independent* PyAutoMind prompts worked in one
 orchestrated session. The session model is the **architect**: it plans and
-judges, and delegates the implementation of each member to an execution-tier
-subagent (see [`WORKFLOW.md`](../WORKFLOW.md) — Fable > Opus > Sonnet; a Fable
-*or* an Opus session delegates member implementation to Opus, and Sonnet only
-takes the really simple mechanical phases). Bundles come from the PyAutoMind
-dashboard's **Bundles** section — pinned entries in `PyAutoMind/bundles.md`, or
-proposals it computes from the backlog — or from a human naming several prompts.
+judges, and applies the provider policy to each member (see
+[`MODEL_DELEGATION.md`](../MODEL_DELEGATION.md)). Anthropic retains its
+execution tier; OpenAI delegates only bounded parallel or log-heavy work.
+Bundles come from the PyAutoMind dashboard's
+**Bundles** section — pinned entries in `PyAutoMind/bundles.md`, or proposals it
+computes from the backlog — or from a human naming several prompts.
 
 **A bundle is not an epic.** An epic is ordered and phase-gated: one phase at a
 time, through its ledger. A bundle has no order at all. If the members turn out
@@ -55,12 +55,12 @@ from `origin/main` — never all of them on one branch, which would collapse the
 bundle into a single PR. Members whose repos do not overlap have separate
 worktrees and may run in parallel.
 
-### 4. Delegate each member to a subagent
+### 4. Execute each member under the provider policy
 
-One subagent per member (`Agent(model="opus", …)` from a Fable session; the
-execution tier of [`WORKFLOW.md`](../WORKFLOW.md) otherwise), passing the
-subagent prompt contract from that file: the worktree path, the repo list, the
-branch to work on, the member's issue plan, and the instruction to stop and
+Anthropic uses one execution-tier subagent per member. OpenAI delegates only
+independent parallel or log-heavy members; otherwise it works inline. Pass a
+worker the bounded contract from `MODEL_DELEGATION.md`: worktree, repo list,
+the branch to work on, the member's issue plan, and the instruction to stop and
 report verbatim on failure rather than editing tests to pass. The architect
 session keeps planning, judgment, registry updates and everything user-facing.
 

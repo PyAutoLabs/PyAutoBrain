@@ -15,11 +15,7 @@ entry point, not an agent. Read [`../WORKFLOW.md`](../WORKFLOW.md) for the organ
 boundary, readiness gate and execution-environment model; PR format, merge gate
 and issue/Mind formats are in [`reference.md`](reference.md).
 
-> **GitHub surface.** The `gh` commands below name the *operation*, not
-> necessarily the command: a Claude Code remote session has no `gh` and
-> reaches GitHub through the `mcp__github__*` tools instead. Probe once
-> (`command -v gh`) and translate via
-> [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
+> No `gh` on a remote session — map each `gh` step via [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
 
 ## Steps
 
@@ -56,14 +52,15 @@ pyauto-heart readiness --json        # GREEN / YELLOW / RED
 ```
 
 Workspace **smoke tests** are part of Heart's verdict. **GREEN** → execute.
-**YELLOW** → proceed only on explicit acknowledgement. **RED** → stop —
-**unless** a human authorizes the narrow corrective-PR exception naming the
-exact RED reason (`AUTONOMY.md` "Corrective-PR exception for Heart RED"), which
-permits commit/push/PR-open of one reason-scoped fix only, never merge or
-release. When that exception is in play, **surface the exact RED reason
-string(s) verbatim from `pyauto-heart readiness`** and the specific corrective
-request, so the human authorizes the quote the agent provided rather than
-hunting for the wording. If the
+**YELLOW** → proceed only on explicit acknowledgement. **RED** → stop; an
+autonomous run parks. After surfacing the exact current RED reasons and passed
+applicable tests/smoke/review, including the reason strings verbatim from
+`pyauto-heart readiness`, a live human may authorize the canonical
+`AUTONOMY.md` "Human override for Heart RED (development only)" or the narrower
+"Corrective-PR exception for Heart RED" for a causal fix. Follow the selected
+canonical section's scope and four record sinks exactly. Neither path permits
+release or bypassing CI; merge requires its own current human command and green
+required GitHub checks. If the
 organism CLIs are unavailable, run `/smoke_test` (with `activate.sh` sourced) as
 the gate and treat any failure as RED. Under `--auto`, this step is the
 four-leg **autonomous-ship gate** (`AUTONOMY.md` "The autonomous-ship gate");
@@ -76,14 +73,17 @@ cross-reference step per
 [`reference.md`](reference.md) → "Execution contract": verify the branch (never
 auto-switch), regenerate notebooks from scripts (never edit `notebooks/`
 directly), `gh pr create --label pending-release`, verify the label, and
-cross-reference the upstream library PR if linked. In local-dev delegate to a
-execution-tier subagent; elsewhere run directly. Any failure → stop and report.
+cross-reference the upstream library PR if linked. In local-dev Anthropic
+delegates to its execution tier; OpenAI runs inline unless a bounded exception
+applies. Elsewhere run directly. Any failure → stop and report.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
 3 note); ship without interactive sign-off, add the `## Validation checklist`
 to the PR body (`../ship_library/reference.md` → "Validation checklist
 (--auto)"), **stop at PR-open**, append the calibration row to
-`PyAutoMind/autonomy_log.md`, set `active.md` to awaiting-merge. Failed leg →
+`PyAutoMind/autonomy_log.md` (its **first** table, never the Shadow window at
+the end — `../ship_library/reference.md` → "Which table"), set `active.md` to
+awaiting-merge. Failed leg →
 park per [`../../AUTONOMY.md`](../../AUTONOMY.md). Step 5's merge is skipped
 entirely — merge stays human.
 

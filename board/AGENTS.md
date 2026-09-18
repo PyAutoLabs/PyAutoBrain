@@ -133,10 +133,12 @@ Env: `PYAUTO_ROOT` (workspace root holding `PyAutoMind/`), `BOARD_GH`
 A Claude Code remote session (web/mobile) cannot reach either of the board's
 data sources by default:
 
-- **`gh` is not installed.** The overnight sweep, the version stamps, the
-  community scan and the pending-release search all run through it. Without it
-  they cannot ask — which is not the same as asking and getting nothing, and
-  the render now says so (`could not read`, never `no runs`).
+- **`gh` is not installed**, and installing one does not help
+  ([`../skills/GITHUB_ACCESS.md`](../skills/GITHUB_ACCESS.md) has the measured
+  reason). The overnight sweep, the version stamps, the community scan and the
+  pending-release search all run through it. Without it they cannot ask — which
+  is not the same as asking and getting nothing, and the render now says so
+  (`could not read`, never `no runs`).
 - **The sibling Pages boards are refused by the egress policy.** The proxy
   answers `403` to `CONNECT` for `<org>.github.io`, so `board.json` and
   `badge.json` — the Heart's readiness surface among them — are unreadable.
@@ -201,9 +203,9 @@ Three rules the seam does not get to bend:
 
 The alternative to the seam is an org admin connecting the Claude GitHub App,
 after which `$GH_TOKEN` would work from a subprocess and `gh_json()` could
-become a plain REST helper on every surface. Probed 2026-08-27: 200 on `/user`
-and `/rate_limit`, **403 on every repo-scoped path**. Re-probe before assuming
-this seam is still needed — it is meant to be deletable.
+become a plain REST helper on every surface. It did not when it was measured
+(`../skills/GITHUB_ACCESS.md`). Re-probe before assuming this seam is still
+needed — it is meant to be deletable.
 
 To get a complete board in a remote session, the environment needs outbound
 access to the Pages host. That is cloud-environment configuration on claude.ai,
