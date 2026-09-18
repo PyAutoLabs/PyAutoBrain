@@ -7,13 +7,25 @@ checkout that lack explicit file pathspecs, or that pass directories.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bin"))
 from mind_commit_guard import check_command  # noqa: E402
 
 MIND = "/home/jammy/Code/PyAutoLabs/PyAutoMind"
+HOOK = Path(__file__).resolve().parents[1] / "bin" / "mind_commit_guard.py"
+
+
+def run_codex_hook(payload):
+    body = payload if isinstance(payload, str) else json.dumps(payload)
+    return subprocess.run(
+        [sys.executable, str(HOOK)], input=body, capture_output=True, text=True
+    )
 
 
 def test_bare_commit_in_mind_denied():
@@ -194,3 +206,57 @@ def test_simple_shapes_still_denied_after_v13(tmp_path):
     (mind / "active").mkdir(parents=True)
     assert check_command(f'cd {mind} && git commit -m "m"') is not None
     assert check_command(f'git -C {mind} commit -m "m" -- active/') is not None
+
+
+def test_codex_pre_tool_use_payload_denies_unsafe_mind_commit(tmp_path):
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    result = run_codex_hook({
+        "session_id": "codex-session",
+        "turn_id": "turn-1",
+        "tool_name": "Bash",
+        "tool_use_id": "call-1",
+        "cwd": str(mind),
+        "hook_event_name": "PreToolUse",
+        "tool_input": {"command": 'git commit -m "unsafe"'},
+    })
+    assert result.returncode == 0
+    decision = json.loads(result.stdout)["hookSpecificOutput"]
+    assert decision["hookEventName"] == "PreToolUse"
+    assert decision["permissionDecision"] == "deny"
+
+
+def test_codex_pre_tool_use_payload_allows_safe_mind_commit(tmp_path):
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    (mind / "active.md").write_text("task\n")
+    result = run_codex_hook({
+        "turn_id": "turn-2",
+        "tool_name": "Bash",
+        "cwd": str(mind),
+        "hook_event_name": "PreToolUse",
+        "tool_input": {
+            "command": 'git commit -m "safe" -- active.md'
+        },
+    })
+    assert result.returncode == 0
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("payload", ["not-json", "[]", '{"tool_name":"Bash","tool_input":7}'])
+def test_codex_malformed_payload_fails_open_without_crashing(payload):
+    result = run_codex_hook(payload)
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_codex_project_config_registers_mind_and_deliverable_guards():
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / ".codex" / "hooks.json").read_text())
+    groups = config["hooks"]["PreToolUse"]
+    commands = [group["hooks"][0]["command"] for group in groups]
+    assert [group["matcher"] for group in groups][0] == "Bash"
+    assert all("git rev-parse --show-toplevel" in command for command in commands)
+    assert any("bin/mind_commit_guard.py" in command for command in commands)
+    assert any("end-at-deliverable.sh" in command for command in commands)

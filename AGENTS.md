@@ -263,3 +263,10 @@ outlives the turn to wait for CI, a review or a merge: no `send_later`, no
 armed hourly check-ins on 2026-08-31, and a mobile `/prm` re-armed a 60-minute
 `send_later` hourly all night on 2026-09-03 with no task active, draining usage.
 <!-- repos_sync:deliverable:end -->
+
+Codex loads this repo's generated safety registrations from `.codex/hooks.json`
+only after the project layer and exact current hook hash are reviewed and trusted
+with `/hooks`; changed or untrusted hooks are skipped. The adapter registers the
+shared-Mind commit guard and end-at-deliverable guard. It intentionally does not
+copy the Claude remote-session Python `SessionStart` bootstrap; local Codex work
+continues to source the workspace `activate.sh` normally.
