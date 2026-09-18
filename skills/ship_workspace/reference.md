@@ -51,7 +51,8 @@ step. Per workspace repo, after the readiness gate is GREEN:
    commit SHA, PR URL, and confirmation of the cross-reference comment.
 
 Only edit files in `scripts/`; notebooks are regenerated, never hand-edited. In
-local-dev delegate this to an execution-tier subagent; elsewhere run it directly.
+In local-dev Anthropic delegates this to its execution tier; OpenAI runs inline
+unless a bounded exception in `../MODEL_DELEGATION.md` applies. Elsewhere run directly.
 
 ## Library-first merge gate
 

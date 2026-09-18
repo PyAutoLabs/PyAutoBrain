@@ -1,361 +1,104 @@
 # PyAuto workflow skills — shared reference
 
-The `start_*` / `ship_*` skills are the
-**development-workflow entry points** of the PyAuto organism. They are *not*
-independent reasoning systems: each one is a thin entry point that delegates to
-the organs. This file is the shared context every workflow skill points at, so
-the individual skill files can stay short.
+The `start_*` and `ship_*` skills are entry points, not independent reasoning
+systems. Mind owns task state, Brain plans and coordinates, Memory supplies
+read-only context, Heart gates shipping, and Hands handles releases only.
 
-## Organ boundary (who owns what)
+## Call chains
 
-The organs and boundaries are defined once in
-[`../ORGANISM.md`](../ORGANISM.md). What the workflow skills need to know on
-top of that: Mind owns the workflow **state** (`active.md` / `planned.md` /
-the `complete/` records, the prompt taxonomy), and Build owns **no dev-workflow skills**
-— it is the release/packaging executor only.
-
-A workflow skill reasons through **Brain**, gates ship through **Heart**, records
-state in **Mind**, and pulls context from **Memory**. The **dev-workflow's own
-git mechanics** (worktrees, branches, commits, feature PRs) are part of feature
-development — they are **not** Build's job. **Build is release work only**
-(PyPI/tags/notebooks); `ship_*` *calls* Build only at actual release time. A
-skill never re-implements another organ's job.
-
-## The call chains
-
-```
-start_dev      →  Brain Feature Agent  →  Mind task  +  Memory context  →  plan  →  start_library/start_workspace
-ship_library   →  Brain dev-workflow   →  Brain vitals faculty  →  Heart (GREEN/YELLOW/RED)  →  commit / push / feature-PR
-ship_workspace →  Brain dev-workflow   →  Brain vitals faculty  →  Heart  →  commit / push / feature-PR
-release (later)→  Brain Build/Release Agent  →  Brain vitals faculty  →  Heart  →  PyAutoHands (tag / notebooks / PyPI)
+```text
+start_dev      → Brain feature decision → Mind task + plan → start_library/workspace
+ship_*         → Brain review/vitals → Heart gate → commit/push/feature PR
+release        → Brain release decision → Heart gate → Hands
 ```
 
-`ship_*` is **feature-development** work: the commit/push/feature-PR is the dev
-workflow's own execution, gated by Heart. It is **not** a Build task. Build is
-release/packaging only; `ship_*` reaches Build solely to trigger the release step
-once changes are ready to publish.
+Development worktrees, commits, and feature PRs belong to the dev workflow,
+not Hands. Autonomy checkpoints are defined once in `../AUTONOMY.md`; default
+runs present and wait, while explicit `--auto` runs follow that contract.
 
-Brain agents consult one another — e.g. the Build Agent never queries Heart
-directly; it asks the vitals faculty, and only the vitals faculty talks to the Heart
-organ. The same applies when the dev workflow consults the vitals faculty for its
-ship gate.
-
-## Autonomy (how much human checkpointing)
-
-The human checkpoints across these skills — plan approval, ship PR sign-off,
-Heart YELLOW acknowledgement, merge/close, the `pre_build` version ask,
-post-merge cleanup — are governed by **the autonomy contract**,
-[`../AUTONOMY.md`](../AUTONOMY.md): what each Mind-prompt `Autonomy:` level
-(`safe`/`supervised`/`human-required`) does at each checkpoint, the
-per-work-type caps, and the hard invariants (merge is always human; autonomous
-runs end at PR-open). Levels bind **only** under an explicit `--auto` launch;
-default runs present-and-wait at every checkpoint, exactly as the steps below
-describe. Do not restate checkpoint rules in a skill body — link the contract.
-The gate's automatic-review leg is the **review faculty**
-(`bin/pyauto-brain review --task <name>`; `agents/faculties/review/AGENTS.md`).
-
-## Brain agent entry points
-
-Reasoning is delegated to PyAutoBrain agents (`PyAutoBrain/AGENTS.md` is authoritative):
+## Brain entry points
 
 ```bash
-bin/pyauto-brain feature [<work-type>/<target>/<task>.md]  # classify + plan a task (Feature/Bug/Refactor/… routing)
-bin/pyauto-brain build   [--dry-run]                       # consult vitals, then delegate execution to Build
-bin/pyauto-brain release                                   # release door → Build Agent release mode (gate + pre_build)
-bin/pyauto-brain vitals                                    # one health tick + the unified dashboard card
+bin/pyauto-brain feature <prompt>
+bin/pyauto-brain review --task <name>
+bin/pyauto-brain vitals
+bin/pyauto-brain build --dry-run
 ```
 
-If a dedicated agent for a work type does not exist yet (e.g. Docs/Research),
-the Feature Agent's routing applies the closest available reasoning and the
-missing agent is recorded as a follow-up — the skill still runs end-to-end.
+If Brain is unavailable, emulate the requested decision from `PyAutoBrain/AGENTS.md`
+and this file, and say that it was emulated.
 
-When `pyauto-brain` is not on `PATH` and no PyAutoBrain checkout is present
-(e.g. a GitHub-only session), perform the same reasoning inline following this
-file and `PyAutoBrain/AGENTS.md`, and note that the agent was emulated.
+## Model delegation
 
-## Model delegation (judgment tier plans, execution tier ships)
+Provider policies are intentionally asymmetric. Anthropic retains mandatory
+execution delegation: Fable → Opus and Opus → Opus, with Sonnet only for the
+documented mechanical floor. OpenAI performs routine sequential edits, tests,
+and git steps inline; use Sol workers selectively for independent parallel
+work, substantial noisy execution or independent progress, and independent
+review. Wall-clock duration alone does not force a worker. A Brain role or faculty
+consultation does not itself require a new LLM worker.
 
-The workflow skills split work across **capability tiers**, then resolve those
-tiers within the provider family and subagent mechanism exposed by the current
-harness. Do not carry model names or invocation syntax from one provider or
-harness into another:
+Read [`MODEL_DELEGATION.md`](MODEL_DELEGATION.md) before assigning a worker. It
+contains the preserved Anthropic heartbeat, mechanical, tutorial, bundle, and
+Cortex rules plus the bounded worker contract.
 
-- **Judgment tier** — the session model itself. Planning, orchestration, risk
-  judgment, and anything user-facing. Never delegated, never handed *up*.
-- **Execution tier** — the model assigned below for the session's provider
-  family, delegated through the harness's subagent mechanism when available.
+## Memory and planning
 
-The tiers are resolved from the model the session is actually running on. Do
-not assume the provider, session model, or subagent-call syntax:
+For substantial architectural or scientific planning, consult
+`bin/pyauto-brain memory "<topic>"`, read only the cited pages, and proceed
+honestly when it has no matches. PyAutoMemory citations never enter public
+user-facing output.
 
-| Provider family | Session model | Judgment tier (in-session) | Execution tier (subagents) |
-|-----------------|---------------|----------------------------|----------------------------|
-| Anthropic | **Fable** | Fable — the architect: all planning and decomposition | **Opus** — *all* remaining work |
-| Anthropic | **Opus** | Opus | **Opus** — Sonnet only for the simple-and-mechanical floor below |
-| Anthropic | **Sonnet** | Sonnet | Sonnet (nothing below; run inline) |
-| OpenAI | **Astra** | Astra — the architect: all planning and decomposition | **Sol** — *all* remaining work |
-| OpenAI | **Sol** | Sol | **Sol** |
+`start_dev` produces both a short human plan and a detailed issue plan, surveys
+only affected repos, then uses Mind's `create_issue` primitive. Do not duplicate
+issue or lifecycle mechanics in Brain.
 
-No default mapping is defined here for other models, including Terra or Luna.
-When the harness cannot target the named execution model or has no subagent
-mechanism, follow the cross-harness fallback below and execute directly.
+## Heart gate
 
-A **Fable or Astra session is the architect**. It plans, decomposes, judges and
-talks to the user, then hands *every* execution phase to its family's execution
-tier: Fable → Opus; Astra → Sol. This includes implementation, edits, tests and
-tutorial prose, not only the mechanical shell/git steps listed below.
+Before `ship_*`, use the vitals faculty for the authoritative verdict:
 
-An **Opus or Sol session delegates to the same model** for execution: Opus →
-Opus; Sol → Sol. Use the current harness's native subagent call and exact model
-identifier. In particular, do not use Anthropic-specific
-`Agent(model="opus", …)` syntax or an Opus target from an OpenAI session.
+- GREEN: continue.
+- YELLOW: show exact reasons and require the acknowledgement defined by the
+  autonomy contract.
+- STALE: may pass for development only as defined by the canonical Heart
+  contract; it remains a release blocker.
+- RED: stop. After the exact reason strings are quoted verbatim from the
+  current Heart verdict and validation is shown, a live human may use
+  `AUTONOMY.md` "Human override for Heart RED (development only)" or the
+  narrower "Corrective-PR exception for Heart RED". Neither permits a release,
+  CI bypass, or merge.
 
-Within the Anthropic family, **Sonnet is the exception, not the default:** it
-gets a phase only when that phase is *really simple and mechanical* — a fixed
-recipe of shell/git steps with no design decisions in it, where a wrong answer
-surfaces immediately as a failed command. If you are weighing whether a phase
-is mechanical enough for Sonnet, it isn't: send it to Opus. The OpenAI policy
-has no corresponding lower mechanical tier; those phases stay on Sol.
+Applicable tests, downstream smoke checks for public API changes, independent
+review, and Heart form the ship gate. Merge is always a current human action.
 
-The main session stays on the judgment tier; bulk execution moves to the
-execution tier — no manual model toggling, and no waiting to be told which
-model to use.
+## Cross-harness behavior
 
-**Scope: every task, not only the workflow skills.** The ladder is a property
-of the *session*, not of `start_dev`. Direct work on the organs (Brain, Mind,
-Heart, Hands, Memory, Gut, Nerves), hygiene and cleanup sweeps, skill/doc
-edits, one-off fixes, profiling runs and diagnostics that execute code all
-delegate the same way. A Fable, Opus, Astra or Sol session should say which
-model it is running on in its opening line and treat "should this be a
-subagent?" as the first question for any task. **Stays in-session (no
-delegation):** answering from context already loaded; reading a handful of
-files; edits of a few lines in files already read; and anything that is itself
-a conversation with the user — plans, decisions, reviews, judgment calls.
-Everything else is a delegation candidate; when in doubt, delegate one
-coherent phase and keep the judgment.
+- `/name` means use that skill; skill-aware harnesses follow its `SKILL.md`.
+- Plan Mode means present-and-wait unless explicit `--auto` changes that gate.
+- With no prompt, first create a concise Mind draft containing the original
+  request verbatim.
+- If a requested worker is unavailable, execute directly without weakening
+  permissions, review, or health gates.
+- `gh` commands name GitHub operations; remote sessions translate them through
+  `GITHUB_ACCESS.md`.
 
-**The simple-and-mechanical floor — always delegated when the harness supports
-subagents, and the only phases an Anthropic Opus session may hand to Sonnet:**
+## Task state and worktrees
 
-- `ship_library` — step 3 (test, commit, push, open PR).
-- `ship_workspace` — step 3 (commit, push, smoke test, open PR, cross-reference).
-- `pre_build` — step 2 (format, generate, version bump, stage, commit, push,
-  dispatch workflow).
+Mind paths are workspace-root-relative: `PyAutoMind/active.md`, `planned.md`,
+and prompt lifecycle `draft/ → active/ → complete/YYYY/MM/`. Use Mind's
+lifecycle and prompt-sync scripts; do not hand-roll state transitions.
 
-That list is a floor, not a ceiling. Everything above it that is still
-*execution* — `start_library` / `start_workspace` source edits, script
-authoring, test writing, fix loops, doc and skill edits, hygiene sweeps,
-diagnostics — goes to the **Opus** execution tier from a Fable *or* an Opus
-session, or to the **Sol** execution tier from an Astra *or* a Sol session, one
-subagent per coherent phase, using the same prompt contract below.
+Local tasks use `PyAutoBrain/bin/worktree.sh` and
+`feature/<task-name>` branches. `worktree_check_conflict` fails closed when it
+cannot read the registry. A repo bullet beneath an active task's `repos:` is a
+claim; tasks touching the same repo serialize unless a human explicitly
+authorizes coordination. Source the generated `activate.sh` before Python or
+tests.
 
-**Several tasks in one session — `start_bundle`.** The ladder above scales a
-single task across tiers; a **bundle** scales one session across several
-*independent* tasks. The PyAutoMind dashboard's Bundles section proposes them
-(and `PyAutoMind/bundles.md` pins them); [`start_bundle/start_bundle.md`](start_bundle/start_bundle.md)
-is the contract: the architect session reads every member, runs `/start_dev`
-per member (one issue each — the no-bulk-issue rule is unchanged), creates
-**one shared worktree per repo** for the whole bundle, delegates each member's
-implementation to its own execution-tier subagent under the prompt contract
-below, and ships **one PR per member** so `/prm` closes each out unchanged.
-Within one repo the members are sequenced (a worktree holds one branch at a
-time); across repos they may run in parallel. A bundle is never an epic — if
-the members need an order, it belongs in `epics.md` instead.
+In web/CI sessions, use available clones and explicit cache/PYTHONPATH settings.
+The same Mind registry provides continuity across environments.
 
-**Stays in the judgment tier:** planning (`start_dev`), environment setup
-(`start_library`/`start_workspace`), release triage (`review_release`);
-identifying affected repos, drafting the commit message and full PR body
-(`## API Changes` / `## Scripts Changed`), workspace-impact analysis, the
-library-first merge gate, the merge decision, `active.md` / completion-record
-updates, and final issue comments. In `pre_build`: validating clean `main`,
-asking for the minor version, printing the summary.
-
-**Subagent prompt contract (all delegated calls):**
-
-- **Inputs the judgment tier passes:** worktree path / `$WT_ROOT`, repo list,
-  pre-drafted commit message, pre-drafted PR body (paste verbatim via HEREDOC —
-  never rewrite), relevant URLs (library PR, issue), target branch, labels.
-- **Subagent's job:** run the named shell steps exactly. `source activate.sh`
-  before `pytest` / `smoke_test`. Verify the branch is `feature/<task-name>`
-  before committing — never auto-switch branches. **Never modify code to make
-  tests or smoke tests pass.** On failure, stop and return the failure verbatim
-  (failing test names + traceback tail, or the shell error).
-- **Subagent returns:** one line per repo — test/smoke pass-fail counts, commit
-  SHA, PR URL, cross-reference/dispatch confirmations.
-- **Judgment tier after return:** interpret failures, decide routing, update
-  registries, talk to the user.
-
-**Cortex project work.** Science projects delegate the same way. The Cortex
-holds one ledger per project (`PyAutoCortex/projects/<key>.md` — Now, Runs,
-Log), and `/cortex`'s board carries a **resume** chip per active project: read
-the ledger, then the project's own `ledger` file from its `projects.yaml` row,
-then — when the row declares an `assistant:` — that assistant's `AGENTS.md`.
-Paste that prompt verbatim into the execution-tier subagent; it enters the
-project through the assistant it names. The subagent **finishes** by telling
-the judgment tier what it saw and **returns two parts**: what it found in the
-results (the human decides what to log — a `result` or `lesson` entry is
-written only in the human's words, with `scripts/cortex.py log`), and
-assistant drift — any skill or wiki page that was wrong, missing or stale. The
-judgment tier files each drift item through `/intake` against the assistant
-repo; nobody edits the assistant from the Cortex chat. A row that says
-`assistant: none` routes through no assistant and the work is plain workspace
-work. The heartbeat below applies whenever the run is a long one.
-
-**Progress heartbeat (delegations expected to run > ~15 min).** Subagents have
-no clock, so a wall-clock cadence cannot be promised; milestones can. The
-judgment tier passes a progress-file path (under the session scratchpad, e.g.
-`$SCRATCHPAD/progress-<label>.log`) and instructs the subagent to **append one
-line per milestone** — phase started/finished, test run outcome with counts,
-commit SHA, a blocker hit — spaced so a healthy run writes roughly every
-10–20 min (`echo "$(date +%H:%M) <milestone>" >> <file>`; never rewrite the
-file, never write more than one line per milestone). Before spawning, the
-judgment tier arms a persistent `Monitor` (`tail -F <file>`) so each line
-lands in the main window as a single notification; it stops the monitor when
-the subagent returns. Keep the lines short — this is a pulse, not a log. For
-detail, the harness's subagent view (select the agent) shows the full
-transcript live and costs nothing; the heartbeat is for knowing *whether* to
-look, not a substitute for looking.
-
-**Tutorial-prose split** (separate from skill delegation — depends on what the
-reader is there to learn):
-
-- **Opus in the Anthropic family; Sol in the OpenAI family** for narrative
-  science-teaching scripts where the
-  docstrings/comments are the product: tutorials in `autofit_workspace`,
-  `autogalaxy_workspace`, `autolens_workspace` (`overview_*`, `start_here.py`,
-  `howto*`). Sonnet drifts to generic textbook phrasing and misses domain
-  framing here, so Anthropic prose never goes below Opus. Fable and Opus
-  sessions delegate it to Opus; Astra and Sol sessions delegate it to Sol.
-- **Short API-usage notes** — not the Opus prose register — for code-heavy,
-  doc-light scripts: `*_workspace_test`, `euclid_strong_lens_modeling_pipeline`
-  glue, and developer/regression/smoke/parity scripts. Authoring these still
-  goes to the family's execution tier (Opus or Sol); Sonnet only takes one in
-  the Anthropic family when the script is a near-copy of an existing sibling
-  and the work is pure mechanical adaptation.
-- Heuristic: *"is the reader here to learn science, or to exercise code?"*
-  Science → full teaching prose. Code → terse notes. Either way the writer is
-  Opus or Sol unless an Anthropic job is a mechanical copy.
-
-## Consult Memory before substantial planning
-
-Before committing to a plan, consult the **memory faculty**
-(`bin/pyauto-brain memory "<topic>"`; `agents/faculties/memory/AGENTS.md`)
-whenever historical, scientific or architectural context would improve the
-decision — prior architectural decisions, literature summaries, previous
-implementations, previously failed approaches, design rationale. It returns a
-cited digest (pointers + snippets) over PyAutoMemory, `autolens_assistant` and
-Mind history; read only the cited pages. Memory stays read-only context with
-no layout coupling; an empty digest means proceed without memory context —
-never invent it. Privacy seam: PyAutoMemory citations never reach public
-user-facing output (the faculty doc is the rule's home).
-
-## Heart readiness gate (for ship_*)
-
-```bash
-pyauto-heart readiness --json    # authoritative GREEN / YELLOW / RED verdict
-```
-
-- **GREEN** → proceed to execution.
-- **YELLOW** → surface the warnings; proceed only with explicit user
-  acknowledgement (a human checkpoint at **every** autonomy level —
-  [`../AUTONOMY.md`](../AUTONOMY.md)).
-- **RED** → stop and report what failed; an autonomous run parks before any
-  exception can be considered. After the exact current RED reasons and passed
-  applicable tests/smoke/review are surfaced, including the reason strings
-  verbatim from `pyauto-heart readiness`, a live human may authorize the
-  development-only override ([`../AUTONOMY.md`](../AUTONOMY.md)
-  "Human override for Heart RED (development only)"), or may authorize the
-  narrower causal-fix path ("Corrective-PR exception for Heart RED"). Follow
-  the selected canonical section's scope and record sinks exactly. Neither
-  path permits release or a CI bypass; merge requires its own current human
-  command and green required GitHub checks.
-
-Tests/smoke runs that feed the verdict are Heart's domain — invoke them through
-the vitals faculty rather than re-deriving pass/fail criteria in the skill.
-
-## Cross-harness notes (apply to every workflow skill)
-
-- `/name` references mean "use that skill"; a harness without slash commands
-  follows the same body file directly.
-- "Plan Mode" means: present the plan and wait for explicit user approval
-  before any file edit (checkpoint 1 of [`../AUTONOMY.md`](../AUTONOMY.md);
-  under an explicit `--auto` launch the contract's level table applies).
-- If the user gives a development task with **no** PyAutoMind prompt path,
-  first write a concise prompt under the right `<work-type>/<target>/` folder
-  (original request verbatim), then continue with that path.
-- Where a body delegates mechanical execution to an execution-tier subagent, a
-  harness without subagents performs the same steps directly, preserving the
-  judgment/mechanical split above.
-
-## Execution environments
-
-There is **no special "mobile" or "phone" mode** — PyAutoBrain runs the same
-workflow in any environment. A skill runs the same logic in any of:
-
-| Environment | What it means | Repo access |
-|-------------|---------------|-------------|
-| `local-dev` | Local Claude Code / Codex with the `~/Code/PyAutoLabs/` checkouts | task worktrees under `~/Code/PyAutoLabs-wt/<task>/` + `activate.sh` |
-| `web-github` | Claude or Codex web, GitHub-only (no local tree) | the session's checked-out clones; set `PYTHONPATH` + cache dirs manually |
-| `ci-only` | Runs inside CI | the workflow's checkout |
-| `analysis-only` | Read/inspect, no code execution | read via GitHub API or the checkout |
-
-Detect environment, don't branch the whole skill on it: if a task worktree root
-exists under `~/Code/PyAutoLabs-wt/<task>/`, use it and `source` its
-`activate.sh`; otherwise operate on the clones present in the working directory
-and export `PYTHONPATH`/`NUMBA_CACHE_DIR`/`MPLCONFIGDIR` yourself. Continuity
-across environments needs no special ceremony: PyAutoMind's `active.md` is the
-shared task state, so any environment reads it and continues an in-flight task.
-
-## Mind registry coupling (paths are workspace-root-anchored)
-
-Workflow skills read and write Mind state via **workspace-root-relative** paths
-that resolve from any sibling repo:
-
-- `PyAutoMind/active.md`, `PyAutoMind/planned.md` (live ledgers)
-- Prompt **files** advance `draft/ → active/ → complete/<YYYY>/<MM>/`; the dated
-  record IS the completion ledger (`complete.md` retired 2026-07-16, issue #81).
-  `PyAutoMind/scripts/lifecycle.py` owns the writes (`record`, `move`) and
-  drift-checks them (`check`). See `PyAutoMind/complete/AGENTS.md` (issues #71/#81).
-- `source PyAutoMind/scripts/prompt_sync.sh` → `prompt_sync_push "<msg>"` (commit+push registry)
-
-`prompt_sync_push` pushes **the branch you are on**, never a hardcoded `main` —
-on a laptop that branch is `main`; on a branch-scoped surface (the phone,
-claude.ai/code, any `claude/**` flow) it is the session's branch. **That is the
-whole job either way.** A registry/prompt/record/dashboard diff is *ledger*, and
-`PyAutoMind/.github/workflows/mind_ledger_merge.yml` merges a ledger-only
-`claude/**` push into `main` and deletes the branch, unattended — no PR, and
-nothing for the human to merge afterwards. Do not leave a Mind branch hanging,
-and do not ask for it to be merged.
-
-The gate is default-deny and blocks on code: a push that also touches
-`PyAutoMind/scripts/`, `tests/`, `.github/`, `skills/`, `policy/`, `docs/`,
-`repos.yaml` or the prose pages waits for a human — say so rather than implying
-the state landed. `python3 scripts/ledger_merge.py classify --base origin/main`
-in the Mind checkout answers it before you push; the contract is
-`PyAutoMind/REFERENCE.md` "How the ledger lands".
-
-`active.md` task schema, the completion-record schema, and the prompt taxonomy
-(`draft/feature/<target>/`, `draft/bug/<target>/`, …) are documented in
-`PyAutoMind/README.md`. **Under `draft/`, the first folder is the work type, the
-second is the target repo/domain.**
-
-## Worktree / branch model (local-dev)
-
-Task worktrees keep parallel work isolated (`PyAutoBrain/bin/worktree.sh`):
-`worktree_create`, `worktree_add_repo`, `worktree_check_conflict`,
-`worktree_list_claimed`, `worktree_remove`. Branch convention: `feature/<task-name>`
-(lowercase kebab-case). Worktrees, branches, commits and feature PRs are the
-**dev workflow's own git mechanics** — feature-development work, **not** Build.
-Build is reached only for the release/packaging step (PyPI/tags/notebooks).
-
-`worktree_check_conflict` **fails closed**: it reads `active.md` under
-`$PYAUTO_MAIN` (default `$HOME/Code/PyAutoLabs`) and exits `3` with
-`CANNOT VERIFY` when that registry cannot be resolved, instead of reporting
-"no conflict" from a read that never happened (#225). In `web-github` / `ci-only`
-environments set `PYAUTO_MAIN` to the directory holding the PyAutoMind checkout,
-or pass `--allow-missing-registry` to proceed knowingly unguarded.
-
-## Repo → GitHub owner mapping
+## Repository routing
 
 <!-- repos_sync:begin -->
 All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/euclid_assistant`, `Jammy2211/admin_jammy`.

@@ -10,10 +10,9 @@ This is a **workflow entry point, not an agent** — classification, planning an
 risk judgement belong to Brain. Read
 [`../WORKFLOW.md`](../WORKFLOW.md) first: it defines the organ boundary, the
 Brain-agent entry points, Memory consultation, the execution-environment model,
-the provider-aware **model-delegation policy** (Anthropic: Fable → Opus and
-Opus → Opus, with Sonnet only for the really simple mechanical `ship_*` /
-`pre_build` recipes; OpenAI: Astra → Sol and Sol → Sol), and the Mind registry
-paths used below.
+the provider-aware **model-delegation policy** (Anthropic retains Fable → Opus
+and Opus → Opus; OpenAI works inline by default with bounded exceptions), and
+the Mind registry paths used below.
 
 > No `gh` on a remote session — map each `gh` step via [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md).
 

@@ -1,6 +1,6 @@
 ---
 name: start-library
-description: Set up PyAutoLabs source-library development after start_dev — create or resume task worktrees for the PyAuto* libraries, register claimed repos in PyAutoMind, and prepare for source edits.
+description: Create or resume claimed PyAuto library worktrees after start-dev and prepare them for source edits.
 ---
 
 # Start Library

@@ -186,6 +186,98 @@ def test_project_discovery_tree_is_current():
     assert "DRIFT" not in result.stdout
 
 
+def test_workspace_policy_write_is_idempotent_and_preserves_symlink(tmp_path):
+    root = _pyauto_root(tmp_path)
+    target = tmp_path / "root-agents.md"
+    target.write_text(
+        "before\n<!-- pyauto:model-delegation:begin -->\nold\n<!-- pyauto:model-delegation:end -->\n<!-- pyauto:model-delegation-pointer:begin -->\nold pointer\n<!-- pyauto:model-delegation-pointer:end -->\nafter\n"
+    )
+    (root / "AGENTS.md").symlink_to(target)
+    env = os.environ | {"PYAUTO_ROOT": str(root)}
+    for _ in range(2):
+        subprocess.run(
+            ["bash", str(INSTALLER), "--write-workspace-policy"], env=env, check=True
+        )
+    assert (root / "AGENTS.md").is_symlink()
+    assert target.read_text().count("<!-- pyauto:model-delegation:begin -->") == 1
+    subprocess.run(
+        ["bash", str(INSTALLER), "--check-workspace-policy"], env=env, check=True
+    )
+
+
+def test_workspace_policy_migrates_legacy_block(tmp_path):
+    root = _pyauto_root(tmp_path)
+    agents = root / "AGENTS.md"
+    agents.write_text(
+        "# Rules\n- **Delegate execution to a subagent — for every task.**\n"
+        "  old provider policy\n- **Never rewrite pushed history.** Keep this.\n"
+        "- **Model delegation** (provider-aware defaults: old)\n"
+        "  → `PyAutoBrain/skills/WORKFLOW.md`.\n"
+    )
+    env = os.environ | {"PYAUTO_ROOT": str(root)}
+    subprocess.run(
+        ["bash", str(INSTALLER), "--write-workspace-policy"], env=env, check=True
+    )
+    text = agents.read_text()
+    assert "old provider policy" not in text
+    assert "pyauto:model-delegation:begin" in text
+    assert "Never rewrite pushed history" in text
+
+
+def test_workspace_policy_rejects_malformed_target_without_writing(tmp_path):
+    root = _pyauto_root(tmp_path)
+    agents = root / "AGENTS.md"
+    original = "before\n<!-- pyauto:model-delegation:begin -->\nunterminated\n"
+    agents.write_text(original)
+    result = subprocess.run(
+        ["bash", str(INSTALLER), "--write-workspace-policy"],
+        env=os.environ | {"PYAUTO_ROOT": str(root)},
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert agents.read_text() == original
+
+
+def test_workspace_policy_rejects_reversed_legacy_block_without_writing(tmp_path):
+    root = _pyauto_root(tmp_path)
+    agents = root / "AGENTS.md"
+    original = (
+        "- **Never rewrite pushed history.** Keep this.\n"
+        "- **Delegate execution to a subagent — for every task.**\n"
+        "- **Model delegation** (provider-aware defaults: old)\n"
+        "  → `PyAutoBrain/skills/WORKFLOW.md`.\n"
+    )
+    agents.write_text(original)
+    result = subprocess.run(
+        ["bash", str(INSTALLER), "--write-workspace-policy"],
+        env=os.environ | {"PYAUTO_ROOT": str(root)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert agents.read_text() == original
+
+
+def test_workspace_policy_rejects_reversed_pointer_markers(tmp_path):
+    root = _pyauto_root(tmp_path)
+    agents = root / "AGENTS.md"
+    original = (
+        "<!-- pyauto:model-delegation:begin -->\npolicy\n<!-- pyauto:model-delegation:end -->\n"
+        "<!-- pyauto:model-delegation-pointer:end -->\npointer\n"
+        "<!-- pyauto:model-delegation-pointer:begin -->\n"
+    )
+    agents.write_text(original)
+    result = subprocess.run(
+        ["bash", str(INSTALLER), "--write-workspace-policy"],
+        env=os.environ | {"PYAUTO_ROOT": str(root)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert agents.read_text() == original
+
+
 def test_command_surface_covers_every_public_agent():
     agents = public_agents()
     assert agents
@@ -194,7 +286,6 @@ def test_command_surface_covers_every_public_agent():
     end = text.index("<!-- pyauto:commands:end -->")
     surface = text[begin:end]
     missing = [
-        name for name in sorted(agents)
-        if f"`bin/pyauto-brain {name}`" not in surface
+        name for name in sorted(agents) if f"`bin/pyauto-brain {name}`" not in surface
     ]
     assert missing == []

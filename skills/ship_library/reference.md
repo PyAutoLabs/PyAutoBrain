@@ -109,8 +109,9 @@ Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
 5. Return a structured summary: one line per repo with test pass/fail counts,
    commit SHA, and PR URL.
 
-In local-dev this is delegated to an execution-tier subagent (mechanical execution); the
-reasoning model drafts the commit/PR text first and consumes the subagent's
+In local-dev Anthropic delegates this to its execution tier; OpenAI runs inline
+unless a bounded exception in `../MODEL_DELEGATION.md` applies. The judgment
+model drafts the commit/PR text first and consumes any worker's
 result. In other environments run the same steps directly.
 
 ## Workspace-impact analysis

@@ -76,4 +76,5 @@ example
 :hidden:
 
 agent_failure_modes
+codex_usage
 ```
