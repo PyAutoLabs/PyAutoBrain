@@ -1,6 +1,6 @@
 ---
 name: ship-workspace
-description: Ship PyAutoLabs workspace and tutorial changes — validate scripts, commit, push, open pending-release PRs behind the library-first merge gate, and update the issue and PyAutoMind task state.
+description: Validate and ship PyAuto workspace or tutorial changes behind the library-first gate, then update Mind state.
 ---
 
 # Ship Workspace

@@ -1,6 +1,6 @@
 ---
 name: start-dev
-description: Default entry point for PyAutoLabs development tasks — implement, fix, add, change, refactor, migrate, optimize, document, test, ship, or open a PR — even when the user does not say start_dev. Not for pure questions, reviews, status checks, or explicit workflow opt-outs.
+description: Plan and register PyAutoLabs development work, then route it to a library or workspace worktree. Not for questions, reviews, status, or explicit workflow opt-outs.
 ---
 
 # Start Dev

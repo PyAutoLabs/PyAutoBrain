@@ -1,6 +1,6 @@
 ---
 name: ship-library
-description: Ship PyAutoLabs source-library changes — run tests, commit, push, open pending-release PRs, analyze downstream workspace impact, and update the issue and PyAutoMind task state.
+description: Validate and ship PyAuto library changes to pending-release PRs, including downstream impact and Mind state.
 ---
 
 # Ship Library

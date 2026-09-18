@@ -73,8 +73,9 @@ cross-reference step per
 [`reference.md`](reference.md) → "Execution contract": verify the branch (never
 auto-switch), regenerate notebooks from scripts (never edit `notebooks/`
 directly), `gh pr create --label pending-release`, verify the label, and
-cross-reference the upstream library PR if linked. In local-dev delegate to a
-execution-tier subagent; elsewhere run directly. Any failure → stop and report.
+cross-reference the upstream library PR if linked. In local-dev Anthropic
+delegates to its execution tier; OpenAI runs inline unless a bounded exception
+applies. Elsewhere run directly. Any failure → stop and report.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
 3 note); ship without interactive sign-off, add the `## Validation checklist`

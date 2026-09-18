@@ -76,7 +76,8 @@ On GREEN, run the dev workflow's own test → commit → push → feature-PR ste
 worktree, confirm the branch is `feature/<task-name>` (never auto-switch),
 commit, push, `gh pr create --label pending-release`, and verify the label
 landed. This is feature-development git work, not a Build/release step. In
-local-dev delegate the mechanical part to an execution-tier subagent; elsewhere run it
+local-dev Anthropic delegates the mechanical part to its execution tier;
+OpenAI runs it inline unless a bounded exception applies. Elsewhere run it
 directly. If any step fails, stop and report — do not proceed.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
