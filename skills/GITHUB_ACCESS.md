@@ -113,6 +113,8 @@ leave it that way.
 | Create a branch | `gh api -X POST .../git/refs` | `create_branch` |
 | Releases | `gh release view/list` | `get_latest_release`, `list_releases`, `get_release_by_tag` |
 | Who am I | `gh api user` | `get_me` |
+| Read the Discussions hub (list, one thread, its comments) | `gh api repos/<o>/<r>/discussions[/<n>[/comments]]` | *(no MCP tool)* — raw REST with the session token works, see below |
+| Create, answer or convert a Discussion | `gh api graphql` (`createDiscussion`) / the issue sidebar | **nobody in a session** — REST Discussions is read-only, GraphQL is refused; the human clicks (`PyAutoMind/policy/community_surface.md`) |
 | Be woken by CI / comments on a PR | *(no equivalent — a CLI polls)* | `subscribe_pr_activity`, `unsubscribe_pr_activity` exist but are **not to be armed** — sessions end at their deliverable; use `unsubscribe_pr_activity` only to clear a stale subscription |
 
 Tool names are given unprefixed; the harness exposes them as
@@ -128,6 +130,22 @@ end at their deliverable — judge once, report, stop
 re-run of `/prm`, not a timer this session leaves running;
 `unsubscribe_pr_activity` is here only to clear a stale subscription an older
 run left behind.
+
+## Measured again, 2026-09-17: raw REST works for attached repos
+
+The 2026-08-27 table above was measured through an installed `gh`. From a
+remote session's own shell, `curl https://api.github.com/repos/<o>/<r>/...`
+with `Authorization: bearer $GH_TOKEN` (the token the harness sets) **is
+served** for every repository attached to the session — issues, comments,
+the repo record, and the read-only Discussions endpoints
+(`.../discussions`, `.../discussions/<n>`, `.../discussions/<n>/comments`).
+What is still refused, each with its own message: `api.github.com/graphql`
+(every query), `search/issues` (not repository-scoped), any repo not attached
+to the session, `github.com/...` HTML (403), and `POST .../discussions` (a
+GitHub 404 — the REST Discussions API is read-only). So a conductor written
+against `gh api repos/...` REST paths runs in a remote session by pointing
+`COMMUNITY_GH` at a two-line `curl` shim; one written against GraphQL or
+`search/` does not. The rule stands: do not install `gh`.
 
 ## What the MCP surface cannot do
 

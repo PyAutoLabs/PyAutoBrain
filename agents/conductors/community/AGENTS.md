@@ -1,9 +1,9 @@
 # Community agent
 
 > **Tier: conductor** — a front-door agent you *drive*. The *Ears* — the
-> organism's receptive language function: it hears the community (user-filed
-> GitHub issues and pull requests across every repo) and drafts what the
-> organism says back; the
+> organism's receptive language function: it hears the community (the
+> Discussions hub where users ask, plus user-filed GitHub issues and pull
+> requests across every repo) and drafts what the organism says back; the
 > human remains the mouth. Wernicke to the Workspace Agent's Broca: that
 > *Voice* speaks to users through examples and tutorials, this agent
 > *comprehends and converses* — it reads an outsider's issue, judges whether
@@ -28,14 +28,19 @@ gates every outward message.
 
 | Mode | Surface | Consumed by |
 |------|---------|-------------|
-| `scan` *(default)* | every `PyAutoMind/repos.yaml` repo → open issues **and PRs** authored by non-self humans (bots filtered), with **awaiting-response** detection (the conversation's last word is not ours) ranked by waiting time, plus open PRs with **review requested** from a self login (any author) | `/community` step 1; the `/wake_up` community sensory leg |
-| `triage <ref>` | one issue or PR → context-sufficiency signals (code block, traceback, versions, expected-vs-actual, data pointer), missing-signal clarifying-question seeds, comment tail, route; a PR ref adds the **change-shape block** (draft, files, +/-, requested reviewers, mergeable state, head→base) | `/community` steps 2–3 |
+| `scan` *(default)* | the **Discussions hub**'s open threads (unanswered = no accepted answer and the last word is not ours) + every `PyAutoMind/repos.yaml` repo → open issues **and PRs** authored by non-self humans (bots filtered), with **awaiting-response** detection (the conversation's last word is not ours) ranked by waiting time, plus open PRs with **review requested** from a self login (any author) | `/community` step 1; the board's community sensory leg |
+| `triage <ref>` | one discussion, issue or PR → context-sufficiency signals (code block, traceback, versions, expected-vs-actual, data pointer), missing-signal clarifying-question seeds, comment tail, route; a discussion ref routes to **answer in the thread** (a confirmed bug gets an issue with a link back); a PR ref adds the **change-shape block** (draft, files, +/-, requested reviewers, mergeable state, head→base) | `/community` steps 2–3 |
 
 ```
 pyauto-brain community                    # scan: who is waiting on us?
 pyauto-brain community scan --json
-pyauto-brain community triage <issue-or-PR url | owner/repo#N> [--json]
+pyauto-brain community triage <discussion/issue/PR url | owner/repo#N> [--json]
 ```
+
+The hub is `COMMUNITY_HUB` (default `PyAutoLabs/.github` — the org's
+Discussions, the one surface users post to, decided in
+`PyAutoMind/policy/community_surface.md`). A discussion is named by its URL on
+every surface, because `owner/repo#N` reads as an issue.
 
 Repo enumeration comes from `PyAutoMind/repos.yaml` (the body map) under
 `PYAUTO_ROOT`; the org is searched wholesale, non-org homes individually.
@@ -52,6 +57,15 @@ failed search degrades honestly (`degraded:` in the surface), never silently.
   and presented to the human before posting. The CLI itself never mutates
   GitHub. Autonomy for community work is `human-required` by design; `--auto`
   changes nothing here.
+- **Users ask on the hub; the development flow stays on issues.** That is
+  `PyAutoMind/policy/community_surface.md`, and this conductor is its
+  reader: a question, a help request or an idea is answered in its
+  Discussions thread; a report with a reproducer is an issue and routes to
+  `/start_dev_for_user`; a discussion that turns out to be a bug gets an
+  issue opened with a link back and the thread marked answered with the
+  issue link. No session can post to, answer or convert a Discussion (the
+  REST Discussions API is read-only, GraphQL is refused) — the human's click
+  is always the last step.
 - **Conversation state lives on GitHub + Mind, never here.** Labels
   (`needs-info`, `pending-release`) and the issue thread itself are the
   conversation's memory; in-flight dev state is the `user-facing: true` entry
@@ -91,6 +105,10 @@ failed search degrades honestly (`degraded:` in the surface), never silently.
 
 ## Capability audit — what the modes read
 
+- **Discussions hub** (`gh api repos/<hub>/discussions`, `.../discussions/<n>`,
+  `.../discussions/<n>/comments`): the REST Discussions surface, read-only —
+  state, lock, category, `answer_chosen_at`, comment count, last commenter.
+  Served to remote sessions through the proxy (measured 2026-09-17).
 - **GitHub search** (`gh api search/issues`): `org:PyAutoLabs` plus the
   non-org homes from `repos.yaml`; three passes per qualifier group —
   `is:issue is:open -author:<self>`, `is:pr is:open -author:<self>`, and

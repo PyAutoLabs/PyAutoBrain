@@ -3,17 +3,21 @@
 
 The Ears — the organism's receptive language function (Wernicke to the
 Workspace Agent's Broca/Voice: that agent speaks through examples; this one
-hears the community). It reads the outside world's GitHub issues and emits
-deterministic surfaces the /community skill reasons over:
+hears the community). It reads the outside world's GitHub threads — the
+Discussions hub where users ask (PyAutoMind/policy/community_surface.md) and
+the issues/PRs outsiders still file — and emits deterministic surfaces the
+/community skill reasons over:
 
-  scan     every repos.yaml repo -> open issues AND pull requests raised by
-           non-self humans (awaiting-response detection, waiting-time
-           ranking) + open PRs with review requested from a self login
-           (the /wake_up community sensory leg)
-  triage   one issue or PR -> context-sufficiency signals + routing surface;
-           PR refs additionally carry the change-shape block (draft, files,
-           additions/deletions, requested reviewers, mergeable state)
-           (the judgment — actionable vs ask-for-more — stays in the session)
+  scan     the hub's open discussions (unanswered = no accepted answer and
+           the last word is not ours) + every repos.yaml repo -> open issues
+           AND pull requests raised by non-self humans (awaiting-response
+           detection, waiting-time ranking) + open PRs with review requested
+           from a self login (the board's community sensory leg)
+  triage   one discussion, issue or PR -> context-sufficiency signals +
+           routing surface; PR refs additionally carry the change-shape block
+           (draft, files, additions/deletions, requested reviewers, mergeable
+           state) (the judgment — actionable vs ask-for-more — stays in the
+           session)
 
 The conductor NEVER posts, labels or edits anything on GitHub and never writes
 files. Every outward message is drafted in the /community skill session and
@@ -53,6 +57,11 @@ SELF_LOGINS = [
     if s.strip()
 ]
 PRIMARY_ORG = "PyAutoLabs"
+# The one Discussions hub users post to (PyAutoMind/policy/community_surface.md,
+# decision 1): the org's Discussions, hosted on the neutral profile repo
+# PyAutoLabs/.github. Every library and workspace points here; the repos
+# themselves keep Discussions off.
+HUB = os.environ.get("COMMUNITY_HUB", "PyAutoLabs/.github")
 SCAN_DETAIL_CAP = 30  # issues that get a per-issue last-commenter lookup
 # Pause between search-API calls — the scan makes up to six, and GitHub's
 # secondary rate limit trips on rapid bursts (hermetic tests set it to 0).
@@ -155,6 +164,54 @@ def issue_repo(item):
     return "/".join(item.get("repository_url", "").split("/")[-2:])
 
 
+def list_discussions(hub):
+    """The hub's open discussions (REST, read-only — the only Discussions
+    surface a remote session is served); None when unreadable."""
+    return gh_json([f"repos/{hub}/discussions", "-f", "per_page=100", "-f", "state=open"])
+
+
+def discussion_last_commenter(hub, number):
+    comments = gh_json([f"repos/{hub}/discussions/{number}/comments", "-f", "per_page=100"])
+    if not comments:
+        return None
+    return (comments[-1].get("user") or {}).get("login")
+
+
+def _discussion_entry(d, hub):
+    return {
+        "type": "discussion",
+        "repo": hub,
+        "number": d.get("number"),
+        "title": d.get("title", ""),
+        "author": (d.get("user") or {}).get("login"),
+        "url": d.get("html_url"),
+        "category": (d.get("category") or {}).get("name"),
+        "answered": d.get("answer_chosen_at") is not None,
+        "labels": [l.get("name") for l in d.get("labels", []) or []],
+        "comments": d.get("comments", 0),
+        "updated_at": d.get("updated_at"),
+        "waiting_days": days_since(d.get("updated_at")),
+        "last_actor": None,
+        "awaiting_response": None,
+    }
+
+
+def hub_discussions(hub, degraded):
+    """Open, unlocked, human-authored threads on the hub. An accepted answer
+    settles a thread (awaiting_response=False without a comment lookup);
+    otherwise the last word decides, exactly as for an issue."""
+    items = list_discussions(hub)
+    if items is None:
+        degraded.append(f"{hub} discussions listing failed (gh auth? Discussions off?)")
+        return []
+    entries = []
+    for d in items:
+        if d.get("state", "open") != "open" or d.get("locked") or is_bot(d.get("user")):
+            continue
+        entries.append(_discussion_entry(d, hub))
+    return entries
+
+
 def _entry(item, kind):
     return {
         "type": kind,
@@ -207,29 +264,37 @@ def build_scan():
     # per-item lookups; uncapped entries keep awaiting_response=None (unknown).
     # Uses issue-conversation comments (PR review-thread comments are a known
     # v2 limit, recorded in AGENTS.md).
-    conversations = issues + prs
+    discussions = hub_discussions(HUB, degraded)
+    for entry in discussions:
+        if entry["answered"]:
+            entry["awaiting_response"] = False
+    conversations = issues + prs + [d for d in discussions if not d["answered"]]
     for entry in sorted(
         conversations, key=lambda e: e["updated_at"] or "", reverse=True
     )[:SCAN_DETAIL_CAP]:
-        actor = (
-            entry["author"]
-            if entry["comments"] == 0
-            else last_commenter(entry["repo"], entry["number"])
-        )
+        if entry["comments"] == 0:
+            actor = entry["author"]
+        elif entry["type"] == "discussion":
+            actor = discussion_last_commenter(entry["repo"], entry["number"])
+        else:
+            actor = last_commenter(entry["repo"], entry["number"])
         entry["last_actor"] = actor
         entry["awaiting_response"] = actor is not None and actor not in SELF_LOGINS
 
-    awaiting = [e for e in conversations if e["awaiting_response"]]
+    awaiting = [e for e in issues + prs + discussions if e["awaiting_response"]]
     awaiting.sort(key=lambda e: e["waiting_days"] or 0, reverse=True)
     return {
         "self_logins": SELF_LOGINS,
         "org": PRIMARY_ORG,
+        "hub": HUB,
         "extra_repos": extra,
+        "open_discussions": discussions,
         "open_external_issues": issues,
         "open_external_prs": prs,
         "awaiting_review": review_requested,
         "awaiting_response": awaiting,
         "counts": {
+            "open_discussions": len(discussions),
             "open_external": len(issues),
             "open_external_prs": len(prs),
             "awaiting_review": len(review_requested),
@@ -238,8 +303,10 @@ def build_scan():
         "degraded": degraded,
         "next_action": (
             "pick an item -> `community triage <ref>` -> the /community session "
-            "assesses context, drafts the reply for human approval, and routes "
-            "actionable work via /start_dev_for_user; this surface posts nothing"
+            "assesses context, drafts the reply for human approval (a discussion "
+            "is answered in its thread; a confirmed bug gets an issue with a link "
+            "back), and routes actionable work via /start_dev_for_user; this "
+            "surface posts nothing"
         ),
     }
 
@@ -247,17 +314,18 @@ def build_scan():
 def print_scan(s):
     print("== CommunityScan — the Ears (reads only; posts nothing) ==")
     print(f"Self logins:          {', '.join(s['self_logins'])}")
+    print(f"Hub (discussions):    {s['hub']}")
     print(f"Searched:             org:{s['org']}"
           + (f" + {len(s['extra_repos'])} non-org repo(s)" if s["extra_repos"] else ""))
     for d in s["degraded"]:
         print(f"DEGRADED:             {d}")
     c = s["counts"]
+    print(f"Open discussions:     {c['open_discussions']} on the hub")
     print(f"Open external:        {c['open_external']} issue(s), {c['open_external_prs']} PR(s)"
-          f"  (awaiting our response: {c['awaiting_response']})")
+          f"  (awaiting our response: {c['awaiting_response']} incl. discussions)")
     for e in s["awaiting_response"]:
         days = f"{e['waiting_days']:.0f}d" if e["waiting_days"] is not None else "?"
-        kind = "PR " if e["type"] == "pr" else ""
-        print(f"  ! {kind}{e['repo']}#{e['number']} [{days} waiting] @{e['author']}: {e['title'][:70]}")
+        print(f"  ! {ref_label(e)} [{days} waiting] @{e['author']}: {e['title'][:70]}")
     for e in s["open_external_issues"] + s["open_external_prs"]:
         if not e["awaiting_response"]:
             state = "ours-to-watch" if e["awaiting_response"] is False else "unchecked"
@@ -270,14 +338,34 @@ def print_scan(s):
     print(f"Next action:          {s['next_action']}")
 
 
-def parse_issue_ref(ref):
+def ref_label(entry):
+    """How a conversation is named on a surface (and pasted back into
+    `community triage`): `owner/repo#N` for an issue, `PR owner/repo#N` for
+    a PR, the full URL for a discussion (`#N` would read as an issue)."""
+    if entry["type"] == "discussion":
+        return entry["url"] or f"{entry['repo']}/discussions/{entry['number']}"
+    kind = "PR " if entry["type"] == "pr" else ""
+    return f"{kind}{entry['repo']}#{entry['number']}"
+
+
+def parse_ref(ref):
+    """(owner/repo, number, kind) — kind is 'discussion' for a discussion
+    ref, else 'conversation' (issue or PR; the fetch tells them apart)."""
+    m = re.match(r"(?:https?://github\.com/)?([^/#\s]+/[^/#\s]+)/discussions/(\d+)/?$", ref)
+    if m:
+        return m.group(1), int(m.group(2)), "discussion"
     m = re.match(r"https?://github\.com/([^/]+/[^/]+)/(?:issues|pull)/(\d+)", ref)
     if m:
-        return m.group(1), int(m.group(2))
+        return m.group(1), int(m.group(2)), "conversation"
     m = re.match(r"([^/#\s]+/[^/#\s]+)#(\d+)$", ref)
     if m:
-        return m.group(1), int(m.group(2))
-    fail(5, f"cannot parse ref '{ref}' — use a full issue/PR URL or owner/repo#N")
+        return m.group(1), int(m.group(2)), "conversation"
+    fail(5, f"cannot parse ref '{ref}' — use a full issue/PR/discussion URL or owner/repo#N")
+
+
+def parse_issue_ref(ref):
+    owner_repo, number, _ = parse_ref(ref)
+    return owner_repo, number
 
 
 def pr_block(owner_repo, number):
@@ -300,13 +388,7 @@ def pr_block(owner_repo, number):
     }
 
 
-def build_triage(ref):
-    owner_repo, number = parse_issue_ref(ref)
-    issue = gh_json([f"repos/{owner_repo}/issues/{number}"])
-    if issue is None:
-        fail(4, f"cannot fetch {owner_repo}#{number} (gh auth? does it exist?)")
-    body = issue.get("body") or ""
-
+def _signals(body):
     low = body.lower()
     present = {
         "code_block": "```" in body,
@@ -320,9 +402,11 @@ def build_triage(ref):
         for key, ask in TRIAGE_SIGNALS
         if not present[key]
     ]
+    return present, missing
 
-    comments = gh_json([f"repos/{owner_repo}/issues/{number}/comments", "-f", "per_page=100"]) or []
-    tail = [
+
+def _tail(comments):
+    return [
         {
             "author": (c.get("user") or {}).get("login"),
             "created_at": c.get("created_at"),
@@ -330,6 +414,67 @@ def build_triage(ref):
         }
         for c in comments[-3:]
     ]
+
+
+def build_discussion_triage(owner_repo, number):
+    d = gh_json([f"repos/{owner_repo}/discussions/{number}"])
+    if d is None:
+        fail(4, f"cannot fetch discussion {owner_repo}/discussions/{number} "
+                "(gh auth? Discussions enabled there?)")
+    body = d.get("body") or ""
+    present, missing = _signals(body)
+    comments = gh_json([f"repos/{owner_repo}/discussions/{number}/comments", "-f", "per_page=100"]) or []
+    tail = _tail(comments)
+    last = tail[-1]["author"] if tail else (d.get("user") or {}).get("login")
+    answered = d.get("answer_chosen_at") is not None
+    return {
+        "type": "discussion",
+        "pr": None,
+        "repo": owner_repo,
+        "number": number,
+        "url": d.get("html_url"),
+        "title": d.get("title", ""),
+        "author": (d.get("user") or {}).get("login"),
+        "author_is_external": not is_self(d.get("user")),
+        "state": d.get("state"),
+        "category": (d.get("category") or {}).get("name"),
+        "answered": answered,
+        "labels": [l.get("name") for l in d.get("labels", []) or []],
+        "body": body,
+        "signals_present": present,
+        "signals_missing": missing,
+        "comment_tail": tail,
+        "awaiting_response": (not answered) and last not in SELF_LOGINS,
+        "route": (
+            f"answer in the thread {d.get('html_url')} — the session drafts the "
+            "reply, the human posts it and marks the answer; a confirmed bug -> "
+            "open the issue on the target repo with a link back, route it via "
+            "/start_dev_for_user, and mark the thread answered with the issue link"
+        ),
+        "reminders": [
+            "the session judges sufficiency — these signals are heuristics, not a verdict",
+            "every outward reply is drafted and shown to the human before posting",
+            "a discussion is the user's surface: never convert it to an issue in place — "
+            "open the issue (reproducer required) and link both ways",
+            "no session can post to, answer or convert a Discussion (REST is read-only, "
+            "GraphQL is refused) — the human's click is the last step",
+        ],
+    }
+
+
+def build_triage(ref):
+    owner_repo, number, kind = parse_ref(ref)
+    if kind == "discussion":
+        return build_discussion_triage(owner_repo, number)
+    issue = gh_json([f"repos/{owner_repo}/issues/{number}"])
+    if issue is None:
+        fail(4, f"cannot fetch {owner_repo}#{number} (gh auth? does it exist?)")
+    body = issue.get("body") or ""
+
+    present, missing = _signals(body)
+
+    comments = gh_json([f"repos/{owner_repo}/issues/{number}/comments", "-f", "per_page=100"]) or []
+    tail = _tail(comments)
     last = tail[-1]["author"] if tail else (issue.get("user") or {}).get("login")
 
     is_pr = "pull_request" in issue
@@ -366,12 +511,14 @@ def build_triage(ref):
 
 
 def print_triage(t):
-    kind = "PR" if t["type"] == "pr" else "issue"
+    kind = t["type"] if t["type"] == "discussion" else ("PR" if t["type"] == "pr" else "issue")
     print(f"== CommunityTriage — {t['repo']}#{t['number']} ({kind}) ==")
     print(f"Title:                {t['title']}")
     print(f"Author:               @{t['author']}"
           + (" (external)" if t["author_is_external"] else " (self)"))
     print(f"State:                {t['state']}   Labels: {', '.join(t['labels']) or '(none)'}")
+    if t["type"] == "discussion":
+        print(f"Category:             {t['category'] or '(none)'}   Answered: {t['answered']}")
     if t["pr"]:
         p = t["pr"]
         reviewers = ", ".join(p["requested_reviewers"]) or "(none)"
@@ -401,7 +548,7 @@ def main():
     parser.add_argument("mode", nargs="?", default="scan",
                         help="scan (default) | triage <issue-ref>")
     parser.add_argument("ref", nargs="?", default=None,
-                        help="triage only: issue/PR URL or owner/repo#N")
+                        help="triage only: issue/PR/discussion URL or owner/repo#N")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -410,7 +557,7 @@ def main():
         print(json.dumps(surface, indent=2)) if args.json else print_scan(surface)
     elif args.mode == "triage":
         if not args.ref:
-            fail(5, "triage needs an issue ref — a full URL or owner/repo#N")
+            fail(5, "triage needs a ref — an issue/PR/discussion URL or owner/repo#N")
         surface = build_triage(args.ref)
         print(json.dumps(surface, indent=2)) if args.json else print_triage(surface)
     else:
