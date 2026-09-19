@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agents'))
-from _repo_paths import manifest_paths, repo_path
+from _repo_paths import manifest_paths, package_paths, repo_path
 
 
 def git(path, *args):
@@ -143,8 +143,18 @@ def plan(root, state, bundles_root=None, manifest_root=None):
             name = Path(old).name
             relative = str(Path(new).relative_to(root))
             after = re.sub(re.escape(old) + r'(?=[/"\s:<]|$)', lambda _: new, after)
-            for prefix in ('$PROJECT_DIR$/', '$MODULE_DIR$/', './'):
+            for prefix in ('$PROJECT_DIR$/', '$MODULE_DIR$/', './', '${CLAUDE_PROJECT_DIR}/', '$CLAUDE_PROJECT_DIR/', '${PYAUTO_ROOT}/', '$PYAUTO_ROOT/'):
                 after = re.sub(re.escape(prefix + name) + r'(?=[/"\s<]|$)', lambda _, p=prefix, r=relative: p+r, after)
+        if path == root / '.claude/settings.json':
+            settings = json.loads(after)
+            import_roots = [str(remap(p, moves)) for p in package_paths(root)]
+            if import_roots:
+                if (root / 'PyAutoHeart').is_dir():
+                    import_roots.append(str(root / 'PyAutoHeart'))
+                environment = settings.setdefault('env', {})
+                previous = environment.get('PYTHONPATH', '')
+                environment['PYTHONPATH'] = os.pathsep.join(import_roots + ([previous] if previous else []))
+                after = json.dumps(settings, indent=2) + '\n'
         if before != after:
             configs.append({'path': str(path), 'old': before, 'new': after})
     activation = root / 'activate.sh'
