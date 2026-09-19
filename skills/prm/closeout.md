@@ -153,4 +153,3 @@ the record is pending. Leg 4 needs **both** checkouts (state is Mind's, renderer
 is Brain's): with only Mind, sweep and reconcile and leave the render to
 `dashboard_refresh.yml`; with neither, call the leg pending rather than implying
 the page is true. 5 and 6 are local-only — name 5 outstanding, say nothing of 6.
-

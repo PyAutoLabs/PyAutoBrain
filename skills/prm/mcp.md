@@ -24,4 +24,3 @@ mapping page only if something here is missing. Names take the
 
 Steps 5.3-5.7 touch no GitHub API at all; what they need is a checkout, and the
 note at the foot of step 5 says what to do without one.
-

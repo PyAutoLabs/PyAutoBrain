@@ -145,4 +145,3 @@ Agent output is not chat and keeps its defined shape: a `*Decision`, a
 this register does not trim. It governs the prose around them. On Claude Code
 the same default can also be pinned per-tool with an output style, but the
 register above is the portable one — it travels with the repo to every harness.
-
