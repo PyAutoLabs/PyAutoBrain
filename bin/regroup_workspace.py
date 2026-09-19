@@ -102,6 +102,8 @@ def plan(root, state, bundles_root=None, manifest_root=None):
         records.append({'name': name, 'old': str(old), 'new': str(new),
                         'before': snapshot(old), 'worktrees': worktrees})
         moves.append((str(old), str(new)))
+    if any(state.absolute().is_relative_to(Path(old)) for old, _ in moves):
+        raise ValueError('migration journal must be outside every checkout being moved')
     roots = [root]
     if bundles_root is not None and bundles_root.exists():
         roots.append(bundles_root.absolute())
@@ -132,7 +134,8 @@ def plan(root, state, bundles_root=None, manifest_root=None):
     configs = []
     # These are local, workspace-owned paths, not versioned source or shell RCs.
     config_paths = list((root / '.idea').glob('*.xml')) + list((root / '.idea').glob('*.iml'))
-    config_paths += [root / '.claude/settings.json']
+    config_paths += [root / '.claude/settings.json', root / '.codex/hooks.json',
+                     root / 'AGENTS.md', root / 'CLAUDE.md']
     for path in config_paths:
         if not path.is_file() or path.is_symlink():
             continue
@@ -145,12 +148,14 @@ def plan(root, state, bundles_root=None, manifest_root=None):
             after = re.sub(re.escape(old) + r'(?=[/"\s:<]|$)', lambda _: new, after)
             for prefix in ('$PROJECT_DIR$/', '$MODULE_DIR$/', './', '${CLAUDE_PROJECT_DIR}/', '$CLAUDE_PROJECT_DIR/', '${PYAUTO_ROOT}/', '$PYAUTO_ROOT/'):
                 after = re.sub(re.escape(prefix + name) + r'(?=[/"\s<]|$)', lambda _, p=prefix, r=relative: p+r, after)
+            if path.name in ('AGENTS.md', 'CLAUDE.md'):
+                after = re.sub(r'(?<![\w/])' + re.escape(name) + r'(?=/)', lambda _, r=relative: r, after)
         if path == root / '.claude/settings.json':
             settings = json.loads(after)
             import_roots = [str(remap(p, moves)) for p in package_paths(root)]
             if import_roots:
-                if (root / 'PyAutoHeart').is_dir():
-                    import_roots.append(str(root / 'PyAutoHeart'))
+                if repo_path(root, 'PyAutoHeart').is_dir():
+                    import_roots.append(str(remap(repo_path(root, 'PyAutoHeart'), moves)))
                 environment = settings.setdefault('env', {})
                 previous = environment.get('PYTHONPATH', '')
                 environment['PYTHONPATH'] = os.pathsep.join(import_roots + ([previous] if previous else []))
@@ -158,16 +163,25 @@ def plan(root, state, bundles_root=None, manifest_root=None):
         if before != after:
             configs.append({'path': str(path), 'old': before, 'new': after})
     activation = root / 'activate.sh'
+    brain_relative = str(remap(repo_path(root, 'PyAutoBrain'), moves).relative_to(root))
+    heart_relative = str(remap(repo_path(root, 'PyAutoHeart'), moves).relative_to(root))
+    mind_relative = str(remap(repo_path(root, 'PyAutoMind'), moves).relative_to(root))
+    hands_relative = str(remap(repo_path(root, 'PyAutoHands'), moves).relative_to(root))
     activate_text = '''# Source this file after opening a shell in the grouped workspace.
 _pyauto_activation_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export PYAUTO_ROOT="$_pyauto_activation_root"
-_pyauto_import_paths="$(python3 "$PYAUTO_ROOT/PyAutoBrain/agents/_repo_paths.py" pythonpath --root "$PYAUTO_ROOT")" || return
-export PYTHONPATH="$_pyauto_import_paths:$PYAUTO_ROOT/PyAutoHeart${PYTHONPATH:+:$PYTHONPATH}"
+export PYAUTO_BRAIN="$PYAUTO_ROOT/@BRAIN@"
+export PYAUTO_MIND="$PYAUTO_ROOT/@MIND@"
+export PYAUTO_HEART="$PYAUTO_ROOT/@HEART@"
+export PYAUTO_HANDS="$PYAUTO_ROOT/@HANDS@"
+export PATH="$PYAUTO_BRAIN/bin:$PYAUTO_HEART/bin:$PYAUTO_HANDS/bin:$PATH"
+_pyauto_import_paths="$(python3 "$PYAUTO_ROOT/@BRAIN@/agents/_repo_paths.py" pythonpath --root "$PYAUTO_ROOT")" || return
+export PYTHONPATH="$_pyauto_import_paths:$PYAUTO_ROOT/@HEART@${PYTHONPATH:+:$PYTHONPATH}"
 export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-/tmp/numba_cache}"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 mkdir -p "$NUMBA_CACHE_DIR" "$MPLCONFIGDIR"
 unset _pyauto_activation_root _pyauto_import_paths _pyauto_import_repo _pyauto_import_dir
-'''
+'''.replace('@BRAIN@', brain_relative).replace('@HEART@', heart_relative).replace('@MIND@', mind_relative).replace('@HANDS@', hands_relative)
     configs.append({'path': str(activation), 'old': activation.read_text() if activation.exists() else None,
                     'new': activate_text})
     data = {'root': str(root), 'stage': 'planned', 'repos': records,

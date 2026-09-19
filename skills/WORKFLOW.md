@@ -88,7 +88,7 @@ Mind paths are workspace-root-relative: `PyAutoMind/active.md`, `planned.md`,
 and prompt lifecycle `draft/ → active/ → complete/YYYY/MM/`. Use Mind's
 lifecycle and prompt-sync scripts; do not hand-roll state transitions.
 
-Local tasks use `PyAutoBrain/bin/worktree.sh` and
+Local tasks use the Brain checkout's `bin/worktree.sh` and
 `feature/<task-name>` branches. `worktree_check_conflict` fails closed when it
 cannot read the registry. A repo bullet beneath an active task's `repos:` is a
 claim; tasks touching the same repo serialize unless a human explicitly
@@ -106,5 +106,5 @@ All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/eu
 **Library repos:** PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoReduce, PyAutoCTI.
 **Workspace repos:** autofit_workspace, autogalaxy_workspace, autolens_workspace, autocti_workspace, autoreduce_workspace, autofit_workspace_test, autogalaxy_workspace_test, autolens_workspace_test, autocti_workspace_test, HowToFit, HowToGalaxy, HowToLens, euclid_strong_lens_modeling_pipeline.
 
-Generated from `PyAutoMind/repos.yaml`; edit there, then run `python3 PyAutoMind/scripts/repos_sync.py --write`.
+Generated from `PyAutoMind/repos.yaml`; edit there, then run `python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/repos_sync.py" --write`.
 <!-- repos_sync:end -->

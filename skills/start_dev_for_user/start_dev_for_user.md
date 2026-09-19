@@ -81,7 +81,7 @@ developer review** — template in [`reference.md`](reference.md) → "Plan comm
 ### 6. Conflict check + register (Mind)
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 
@@ -96,7 +96,7 @@ repo, branch, classification, plus the user-facing reminder
 ([`reference.md`](reference.md) → "Routing note"). Push Mind:
 
 ```bash
-source PyAutoMind/scripts/prompt_sync.sh
+source "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/prompt_sync.sh"
 prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill> [user-facing]"
 ```
 

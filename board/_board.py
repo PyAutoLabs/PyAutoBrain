@@ -109,7 +109,7 @@ def load_policy():
 def repo_homes():
     """Every `github:` home in PyAutoMind/repos.yaml (regex, no yaml needed —
     same parse the community conductor uses). [] when the Mind is absent."""
-    body_map = PYAUTO_ROOT / "PyAutoMind" / "repos.yaml"
+    body_map = repo_path(PYAUTO_ROOT, "PyAutoMind") / "repos.yaml"
     if not body_map.is_file():
         return []
     return re.findall(
@@ -626,7 +626,7 @@ def collect_resume(org, degraded):
     compose, don't recompute), the task files on deck (each with the header
     facets the Mind already gave it), the queue length, and open
     pending-release PRs."""
-    mind = PYAUTO_ROOT / "PyAutoMind"
+    mind = repo_path(PYAUTO_ROOT, "PyAutoMind")
     counts = {}
     tasks = []
     queue_len = None
@@ -687,7 +687,7 @@ def collect_cortex():
     None and the strip simply does not appear — a science organ nobody has
     cloned is not a degraded morning.
     """
-    dash = PYAUTO_ROOT / "PyAutoCortex" / "dashboard.md"
+    dash = repo_path(PYAUTO_ROOT, "PyAutoCortex") / "dashboard.md"
     if not dash.is_file():
         return None
     counts = {}
@@ -798,7 +798,7 @@ def _judgement_chip(value, cap=28):
 def collect_autonomy():
     """The tail of the Mind's autonomy calibration log — what ran unattended
     lately and how it ended (read verbatim; the log stays the record)."""
-    log = PYAUTO_ROOT / "PyAutoMind" / "autonomy_log.md"
+    log = repo_path(PYAUTO_ROOT, "PyAutoMind") / "autonomy_log.md"
     if not log.is_file():
         return []
     rows = re.findall(

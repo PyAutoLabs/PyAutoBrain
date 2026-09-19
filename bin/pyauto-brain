@@ -180,7 +180,9 @@ ensure_session_environment() {
   [[ "${CLAUDE_CODE_REMOTE:-}" == "true" ]] || return 0
   [[ -z "${PYAUTO_SKIP_BOOTSTRAP:-}" ]] || return 0
   local boot
-  boot="$PYAUTO_ROOT/PyAutoMind/scripts/session_bootstrap.sh"
+  local mind_checkout
+  mind_checkout="$(resolve_mind)" || return 0
+  boot="$mind_checkout/scripts/session_bootstrap.sh"
   [[ -x "$boot" ]] || return 0
   bash "$boot" >/dev/null 2>&1 || true
 }

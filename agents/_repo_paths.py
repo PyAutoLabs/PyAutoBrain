@@ -40,7 +40,7 @@ def manifest_paths(root: Path) -> dict[str, Path]:
     two/four-space mapping grammar, including quoted path scalars, and validate
     every explicit placement. Other metadata is deliberately not interpreted.
     """
-    manifest = Path(root) / 'PyAutoMind' / 'repos.yaml'
+    manifest = bootstrap_repo_path(Path(root), 'PyAutoMind') / 'repos.yaml'
     if not manifest.is_file():
         return {}
     paths: dict[str, Path] = {}
@@ -92,6 +92,31 @@ def _families(root: Path):
                 yield path
 
 
+def bootstrap_repo_path(root: Path, name: str, required: bool = False) -> Path:
+    """Find an infrastructure checkout before its manifest can be loaded.
+
+    Bounded discovery uses the same flat/one-family boundary as normal lookup,
+    without consulting Mind (which may itself be the repository being located).
+    """
+    root = Path(root)
+    name = _name(name)
+    candidates = [root / name]
+    candidates.extend(family / name for family in _families(root)
+                      if is_checkout(family / name)
+                      or (not (root / name).is_dir() and name == 'PyAutoMind'
+                          and (family / name / 'repos.yaml').is_file()))
+    existing = {}
+    for path in candidates:
+        if path.is_dir():
+            existing.setdefault(path.resolve(), path)
+    if len(existing) > 1:
+        raise ValueError(f'{name}: ambiguous checkouts: ' + ', '.join(map(str, existing.values())))
+    result = next(iter(existing.values()), root / name)
+    if required and not is_checkout(result):
+        raise FileNotFoundError(f'{name}: repository checkout missing at {result}')
+    return result
+
+
 def iter_checkouts(root: Path) -> list[Path]:
     """Actual flat or family checkouts, including symlinked bundle dependencies.
 
@@ -126,7 +151,8 @@ def repo_path(root: Path, name: str, required: bool = False) -> Path:
     if len(declared.parts) > 1 and (root / declared.parts[0]).is_symlink():
         raise ValueError(f'{name}: repository family must not be a symlink: {root / declared.parts[0]}')
     candidates = [root / name, root / declared]
-    candidates.extend(family / name for family in _families(root))
+    candidates.extend(family / name for family in _families(root)
+                      if is_checkout(family / name))
     existing: dict[Path, Path] = {}
     for path in candidates:
         if path.is_dir():
@@ -148,7 +174,7 @@ def package_paths(root: Path) -> list[Path]:
     """Import roots for packages declared by the body map, in manifest order."""
     root = Path(root)
     declared = manifest_paths(root)
-    manifest = root / 'PyAutoMind/repos.yaml'
+    manifest = bootstrap_repo_path(root, 'PyAutoMind') / 'repos.yaml'
     if not manifest.is_file():
         return []
     names = []

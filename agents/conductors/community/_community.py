@@ -47,6 +47,7 @@ from pathlib import Path
 # a non-existent tree in a remote session and reported empty rather than
 # failing.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import repo_path
 import _pyauto_root  # noqa: E402
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
@@ -104,7 +105,7 @@ def gh_json(args):
 def repo_homes():
     """Every `github:` home in PyAutoMind/repos.yaml (regex, stdlib-only —
     no yaml dependency in the Brain)."""
-    body_map = PYAUTO_ROOT / "PyAutoMind" / "repos.yaml"
+    body_map = repo_path(PYAUTO_ROOT, "PyAutoMind") / "repos.yaml"
     if not body_map.is_file():
         fail(4, f"body map not found: {body_map} (set PYAUTO_ROOT)")
     homes = re.findall(

@@ -2,7 +2,7 @@
 
 **The morning routine no longer runs through this skill.** It is now:
 
-1. **Terminal** (local, not a Claude chat): `bash PyAutoBrain/bin/morning.sh` —
+1. **Terminal** (local, not a Claude chat): `bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/morning.sh"` —
    the sync + clean-slate leg (ff-only pull of every repo, git-aware cleanup of
    regenerable artifacts). `--digest` appends the board's markdown digest.
 2. **The Brain board** — `https://<org>.github.io/PyAutoBrain/` (rendered by
@@ -23,7 +23,7 @@ the identical digest in a terminal when a page is not at hand.
 
 `/wake_up` stays a working door, for a stale board or a no-browser session:
 
-1. **Local sync/clean** — run `bash PyAutoBrain/bin/morning.sh` (auto-run is
+1. **Local sync/clean** — run `bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/morning.sh"` (auto-run is
    safe: both steps are the recoverable, git-aware ones — sync skips repos
    with real uncommitted work; clean-slate deletes only untracked regenerable
    artifacts and reports orphan datasets instead of removing them). Skip with

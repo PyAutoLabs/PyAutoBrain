@@ -109,3 +109,19 @@ def test_pythonpath_follows_manifest_package_order(tmp_path):
     first = checkout(tmp_path / 'science/Demo')
     second = checkout(tmp_path / 'Other')
     assert paths.package_paths(tmp_path) == [first, second]
+
+
+def test_grouped_mind_bootstraps_its_own_manifest(tmp_path):
+    bootstrap_repo_path = paths.bootstrap_repo_path
+    manifest_paths = paths.manifest_paths
+    package_paths = paths.package_paths
+    mind = tmp_path / 'organs/PyAutoMind'
+    mind.mkdir(parents=True)
+    (mind / '.git').mkdir()
+    (mind / 'repos.yaml').write_text('repos:\n  PyAutoMind:\n    path: organs/PyAutoMind\n  Demo:\n    path: science/Demo\n    package: demo\n')
+    assert bootstrap_repo_path(tmp_path, 'PyAutoMind', required=True) == mind
+    assert manifest_paths(tmp_path)['Demo'] == Path('science/Demo')
+    assert package_paths(tmp_path) == [tmp_path / 'science/Demo']
+    (tmp_path / 'PyAutoMind').mkdir()
+    with pytest.raises(ValueError, match='ambiguous'):
+        manifest_paths(tmp_path)

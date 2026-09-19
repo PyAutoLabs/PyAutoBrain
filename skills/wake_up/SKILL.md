@@ -7,6 +7,6 @@ description: Superseded morning door — the routine now lives on the Brain boar
 
 Follow [`wake_up.md`](wake_up.md) exactly. The morning routine is now the
 **Brain board** (`https://<org>.github.io/PyAutoBrain/`) plus one terminal
-command (`bash PyAutoBrain/bin/morning.sh`); this skill is the fallback that
+command (`bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/morning.sh"`); this skill is the fallback that
 runs the same legs interactively. Auto-run only the non-destructive steps and
 surface everything destructive for approval.

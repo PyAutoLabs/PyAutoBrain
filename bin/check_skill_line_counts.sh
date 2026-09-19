@@ -16,7 +16,7 @@ set -euo pipefail
 
 LIMIT="${1:-200}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+. "$SCRIPT_DIR/_pyauto_root.sh"
 . "$SCRIPT_DIR/_repo_paths.sh"
 for _repo in PyAutoMind PyAutoBrain PyAutoHeart PyAutoHands autolens_profiling; do
   pyauto_repo_path "$_repo" "$PYAUTO_ROOT" >/dev/null || exit $?

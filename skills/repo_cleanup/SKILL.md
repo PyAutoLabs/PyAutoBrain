@@ -83,7 +83,7 @@ environments". Branch buckets only; stashes and worktrees stay laptop-only.
 ### 1. Setup
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 ```
 
 Provides `worktree_list_claimed`, `worktree_root_path`, `PYAUTO_LIBS`,

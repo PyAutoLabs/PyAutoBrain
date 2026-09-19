@@ -73,6 +73,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from _hygiene_repos import resolve_map  # noqa: E402
+sys.path.insert(0, str(HERE.parents[2]))
+from _repo_paths import repo_path  # noqa: E402
+import _pyauto_root  # noqa: E402
 
 DEFAULT_HEART = "PyAuto" + "Heart"   # an organ: framework identity, not an instance fact
 BOARD_FILENAME = "board.json"
@@ -96,7 +99,7 @@ def pyauto_root() -> Path:
     if root:
         return Path(root)
     # .../<checkout>/agents/conductors/hygiene/_hygiene_ci.py -> the repos' parent
-    return HERE.parents[3]
+    return _pyauto_root.pyauto_root()
 
 
 def candidate_sources(explicit: str | None, heart_repo: str) -> list[str]:
@@ -110,7 +113,7 @@ def candidate_sources(explicit: str | None, heart_repo: str) -> list[str]:
     if org:
         out.append(f"https://{org.lower()}.github.io/{heart_repo}/{BOARD_FILENAME}")
     for rel in (Path("board") / BOARD_FILENAME, Path("docs") / BOARD_FILENAME, Path(BOARD_FILENAME)):
-        out.append(str(pyauto_root() / heart_repo / rel))
+        out.append(str(repo_path(pyauto_root(), heart_repo) / rel))
     return out
 
 
@@ -255,7 +258,7 @@ def levers_from_text(text: str) -> list[dict]:
 
 def attach_levers(items: list[dict], scripts_root: Path) -> None:
     for item in items:
-        path = scripts_root / str(item.get("repo") or "") / str(item.get("entry") or "")
+        path = repo_path(scripts_root, str(item.get("repo") or "")) / str(item.get("entry") or "")
         try:
             text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else None
         except OSError:

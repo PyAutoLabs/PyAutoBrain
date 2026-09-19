@@ -42,6 +42,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import bootstrap_repo_path  # noqa: E402
+from _pyauto_root import pyauto_root  # noqa: E402
+
 MAP_FILENAME = "repos.yaml"
 
 # The Mind is an organ, so its directory name is framework identity rather than
@@ -66,10 +70,11 @@ def candidate_map_paths() -> list[Path]:
     if override and Path(override).is_dir():
         return [Path(override)]
     candidates: list[Path] = []
-    candidates.append(brain_parent / MIND_REPO)
+    candidates.append(bootstrap_repo_path(pyauto_root(), MIND_REPO))
     root = os.environ.get("PYAUTO_ROOT")
     if root:
-        candidates.append(Path(root) / MIND_REPO)
+        candidates.append(bootstrap_repo_path(Path(root), MIND_REPO))
+    candidates.append(brain_parent / MIND_REPO)
     home = Path.home()
     candidates += [home / MIND_REPO, home / "Code" / MIND_REPO]
     return candidates
