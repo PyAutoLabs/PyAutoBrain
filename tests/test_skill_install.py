@@ -304,7 +304,7 @@ def test_registered_discovery_adapters_and_scoped_write(tmp_path):
     assistant.mkdir(parents=True)
     skills = assistant / 'skills'
     skills.mkdir()
-    (skills / 'al_plot.md').write_text('---\nname: al_plot\ndescription: ' + 'Plot a lens. ' * 50 + '\n---\n\nBody.\n')
+    (skills / 'al_plot.md').write_text('---\nname: al_plot\ndescription: ' + 'Plot a <lens> with A > B. ' * 80 + '\n---\n\nBody.\n')
     (skills / '_helper.md').write_text('# Helper\n')
     (skills / 'README.md').write_text('# Readme\n')
     workspace = root / 'lens' / 'autolens_workspace'
@@ -322,6 +322,9 @@ def test_registered_discovery_adapters_and_scoped_write(tmp_path):
     adapter = assistant / '.codex/skills/autolens-assistant-al-plot/SKILL.md'
     assert adapter.is_file()
     assert 'name: autolens-assistant-al-plot' in adapter.read_text()
+    desc_line = next(line for line in adapter.read_text().splitlines() if line.startswith('description: '))
+    assert len(desc_line) < 1050
+    assert '<' not in desc_line and '>' not in desc_line
     assert (adapter.parent / '../../../skills/al_plot.md').resolve() == skills / 'al_plot.md'
     assert not (assistant / '.claude/commands/_helper.md').exists()
     assert (assistant / '.claude/skills/_helper.md').is_symlink()
@@ -378,3 +381,120 @@ def test_scoped_discovery_rejects_cross_repo_codex_collision(tmp_path):
     assert result.returncode == 2
     assert 'Codex skill collision foo-bar-run' in result.stderr
     assert not (root / 'foo_bar' / '.codex').exists()
+
+
+def test_discovery_preserves_unrelated_user_symlinks_and_rejects_target_conflict(tmp_path):
+    root = tmp_path / 'PyAutoLabs'
+    mind = root / 'PyAutoMind'
+    mind.mkdir(parents=True)
+    (mind / 'repos.yaml').write_text('repos:\n  sample_assistant:\n    path: sample_assistant\n')
+    repo = root / 'sample_assistant'
+    skills = repo / 'skills'
+    skills.mkdir(parents=True)
+    (skills / 'run.md').write_text('---\nname: run\ndescription: Run.\n---\n')
+    user = repo / '.claude/skills/custom.md'
+    user.parent.mkdir(parents=True)
+    user.symlink_to('../../notes/custom.md')
+    env = os.environ | {'PYAUTO_ROOT': str(root)}
+    def call(mode):
+        return subprocess.run(['bash', str(INSTALLER), mode, 'sample_assistant'],
+                              env=env, capture_output=True, text=True)
+    assert call('--write-project-discovery').returncode == 0
+    assert user.is_symlink() and os.readlink(user) == '../../notes/custom.md'
+    assert call('--check-project-discovery').returncode == 0
+    expected_link = repo / '.claude/skills/run.md'
+    expected_link.unlink()
+    expected_link.symlink_to('../../notes/run.md')
+    original_adapter = (repo / '.codex/skills/sample-assistant-run/SKILL.md').read_text()
+    assert call('--write-project-discovery').returncode == 2
+    assert os.readlink(expected_link) == '../../notes/run.md'
+    assert (repo / '.codex/skills/sample-assistant-run/SKILL.md').read_text() == original_adapter
+
+
+def test_discovery_detects_same_repo_normalized_name_collision(tmp_path):
+    root = tmp_path / 'PyAutoLabs'
+    mind = root / 'PyAutoMind'
+    mind.mkdir(parents=True)
+    (mind / 'repos.yaml').write_text('repos:\n  sample_assistant:\n    path: sample_assistant\n')
+    skills = root / 'sample_assistant' / 'skills'
+    skills.mkdir(parents=True)
+    (skills / 'first.md').write_text('---\nname: same_name\ndescription: First.\n---\n')
+    (skills / 'second.md').write_text('---\nname: same-name\ndescription: Second.\n---\n')
+    result = subprocess.run(['bash', str(INSTALLER), '--write-project-discovery', 'sample_assistant'],
+                            env=os.environ | {'PYAUTO_ROOT': str(root)}, capture_output=True, text=True)
+    assert result.returncode == 2
+    assert 'duplicate discovery path' in result.stderr
+    assert not (root / 'sample_assistant' / '.codex').exists()
+
+
+def test_discovery_repairs_broken_managed_link(tmp_path):
+    root = tmp_path / 'PyAutoLabs'
+    mind = root / 'PyAutoMind'
+    mind.mkdir(parents=True)
+    (mind / 'repos.yaml').write_text('repos:\n  sample_assistant:\n    path: sample_assistant\n')
+    skills = root / 'sample_assistant' / 'skills'
+    skills.mkdir(parents=True)
+    (skills / 'run.md').write_text('---\nname: run\ndescription: Run.\n---\n')
+    env = os.environ | {'PYAUTO_ROOT': str(root)}
+    def call(mode):
+        return subprocess.run(['bash', str(INSTALLER), mode, 'sample_assistant'],
+                              env=env, capture_output=True, text=True)
+    assert call('--write-project-discovery').returncode == 0
+    link = root / 'sample_assistant' / '.claude/skills/run.md'
+    (skills / 'run.md').unlink()
+    assert link.is_symlink() and not link.exists()
+    assert call('--check-project-discovery').returncode == 1
+    assert call('--write-project-discovery').returncode == 0
+    assert not link.is_symlink()
+
+
+def test_removed_organ_skill_reports_dangling_codex_link_without_deleting(tmp_path):
+    root = tmp_path / 'PyAutoLabs'
+    mind = root / 'PyAutoMind'
+    mind.mkdir(parents=True)
+    (mind / 'repos.yaml').write_text('repos:\n  PyAutoHeart:\n    path: PyAutoHeart\n')
+    repo = root / 'PyAutoHeart'
+    skill = repo / 'skills' / 'pulse'
+    skill.mkdir(parents=True)
+    (skill / 'SKILL.md').write_text('---\nname: pulse\ndescription: Read pulse.\n---\n')
+    env = os.environ | {'PYAUTO_ROOT': str(root)}
+    def call(mode):
+        return subprocess.run(['bash', str(INSTALLER), mode, 'PyAutoHeart'],
+                              env=env, capture_output=True, text=True)
+    assert call('--write-project-discovery').returncode == 0
+    codex_link = repo / '.codex/skills/pulse'
+    (skill / 'SKILL.md').unlink()
+    skill.rmdir()
+    assert codex_link.is_symlink() and not codex_link.exists()
+    assert call('--check-project-discovery').returncode == 1
+    write = call('--write-project-discovery')
+    assert write.returncode == 2
+    assert 'pulse' in write.stdout
+    assert codex_link.is_symlink()
+
+
+def test_discovery_refuses_symlinked_surface_even_with_no_expected_links(tmp_path):
+    root = tmp_path / 'PyAutoLabs'
+    mind = root / 'PyAutoMind'
+    mind.mkdir(parents=True)
+    (mind / 'repos.yaml').write_text('repos:\n  sample_assistant:\n    path: sample_assistant\n')
+    repo = root / 'sample_assistant'
+    (repo / 'skills').mkdir(parents=True)
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    user_link = outside / 'custom.md'
+    user_link.symlink_to('../../skills/custom.md')
+    (repo / '.claude').mkdir()
+    (repo / '.claude/commands').symlink_to(outside, target_is_directory=True)
+    env = os.environ | {'PYAUTO_ROOT': str(root)}
+    for mode in ('--check-project-discovery', '--write-project-discovery'):
+        result = subprocess.run(['bash', str(INSTALLER), mode, 'sample_assistant'],
+                                env=env, capture_output=True, text=True)
+        assert result.returncode == 0
+        assert user_link.is_symlink()
+    (repo / 'skills/run.md').write_text('---\nname: run\ndescription: Run.\n---\n')
+    result = subprocess.run(['bash', str(INSTALLER), '--write-project-discovery', 'sample_assistant'],
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 2
+    assert '.claude/commands' in result.stdout
+    assert user_link.is_symlink()
