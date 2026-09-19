@@ -52,7 +52,7 @@ EMPTY_SEARCHES = {
 
 
 def _discussion(hub, number, login, title, comments=0, answered=False,
-                category="Q&A", state="open", locked=False):
+                category="Help & Questions", state="open", locked=False):
     return {
         "number": number,
         "title": title,
@@ -321,9 +321,12 @@ def test_scan_hears_the_hub_and_only_unanswered_threads_await(tmp_path):
 @pytest.mark.parametrize("category,answered,awaiting", [
     ("Announcements", False, False),
     ("Show and tell", False, False),
-    ("Q&A", False, True),
-    ("Proposals", False, True),
-    ("Proposals", True, False),
+    ("Help & Questions", False, True),
+    ("Help & Questions", True, False),
+    ("Ideas & Proposals", False, True),
+    ("Ideas & Proposals", True, False),
+    ("Bugs & Errors", False, True),
+    ("Bugs & Errors", True, False),
 ])
 def test_discussion_category_and_answer_control_response(
     tmp_path, category, answered, awaiting,
@@ -408,11 +411,11 @@ def test_triage_discussion_ref_routes_to_the_thread(tmp_path):
         assert t["type"] == "discussion" and t["pr"] is None
         assert t["repo"] == HUB and t["number"] == 11
         assert t["author_is_external"] and t["awaiting_response"]
-        assert t["category"] == "Q&A" and t["answered"] is False
+        assert t["category"] == "Help & Questions" and t["answered"] is False
         assert "answer in the thread" in t["route"]
         assert "/start_dev_for_user" in t["route"]
         # Nothing in the run hit the issues endpoints for a discussion ref.
     calls = (tmp_path / "gh_calls.log").read_text()
     assert "/issues/" not in calls
     text = _run(["triage", f"{HUB}/discussions/11"], tmp_path, stub).stdout
-    assert "(discussion)" in text and "Category:             Q&A" in text
+    assert "(discussion)" in text and "Category:             Help & Questions" in text

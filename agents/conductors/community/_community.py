@@ -458,7 +458,7 @@ def build_discussion_triage(owner_repo, number):
             "reply, the human posts it and, in an answerable category, marks "
             "the settling answer; a confirmed bug or accepted proposal -> "
             "open the issue on the target repo with a link back, route it via "
-            "/start_dev_for_user. For Proposals, mark the verdict comment "
+            "/start_dev_for_user. In Ideas & Proposals, mark the verdict comment "
             "(acceptance with the issue link, or a recorded no) as the answer"
         ),
         "reminders": [

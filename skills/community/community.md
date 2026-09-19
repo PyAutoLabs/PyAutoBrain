@@ -45,10 +45,13 @@ docs: `bin/pyauto-brain help community`.
      as the accepted answer. If the thread is a bug with a reproducer or an
      accepted implementation proposal, open the issue on the target repo
      (quote the thread, link it) and route it via `/start_dev_for_user`.
-     For **Proposals**, mark the verdict comment — acceptance with the issue
+     In **Ideas & Proposals**, mark the verdict comment — acceptance with the issue
      link, or a recorded no — as the accepted answer; this is what stops the
-     Ears chasing the thread. **Ideas** is for wishes without a design or an
-     offer to build. Non-answerable categories have no accept button;
+     Ears chasing the thread. Feature wishes and concrete designs share
+     that category. **Help & Questions** covers code and scientific help;
+     **Bugs & Errors** covers errors and suspected defects to investigate.
+     Confirmed reproducible defects still get linked repository issues.
+     Non-answerable categories have no accept button;
      Announcements and Show and tell remain ours to watch and can still be
      triaged explicitly. Never convert a thread in
      place, and never ask a user to re-file: the hub is *their* surface.
