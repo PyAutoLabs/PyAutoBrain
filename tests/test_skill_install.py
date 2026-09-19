@@ -297,17 +297,17 @@ def test_registered_discovery_adapters_and_scoped_write(tmp_path):
     mind.mkdir(parents=True)
     (mind / 'repos.yaml').write_text(
         'repos:\n  PyAutoBrain:\n    path: PyAutoBrain\n'
-        '  autolens_assistant:\n    path: lens/autolens_assistant\n'
-        '  autolens_workspace:\n    path: lens/autolens_workspace\n')
+        '  example_assistant:\n    path: lens/example_assistant\n    category: assistant\n'
+        '  example_workspace:\n    path: lens/example_workspace\n    category: workspace\n')
     (root / 'PyAutoBrain').symlink_to(BRAIN_HOME, target_is_directory=True)
-    assistant = root / 'lens' / 'autolens_assistant'
+    assistant = root / 'lens' / 'example_assistant'
     assistant.mkdir(parents=True)
     skills = assistant / 'skills'
     skills.mkdir()
     (skills / 'al_plot.md').write_text('---\nname: al_plot\ndescription: ' + 'Plot a <lens> with A > B. ' * 80 + '\n---\n\nBody.\n')
     (skills / '_helper.md').write_text('# Helper\n')
     (skills / 'README.md').write_text('# Readme\n')
-    workspace = root / 'lens' / 'autolens_workspace'
+    workspace = root / 'lens' / 'example_workspace'
     neutral = workspace / 'skills' / 'open_result'
     neutral.mkdir(parents=True)
     (neutral / 'SKILL.md').write_text('---\nname: open_result\ndescription: Open a result.\n---\n')
@@ -315,24 +315,24 @@ def test_registered_discovery_adapters_and_scoped_write(tmp_path):
     def call(mode, *repos):
         return subprocess.run(['bash', str(INSTALLER), mode, *repos], env=env,
                               capture_output=True, text=True)
-    assert call('--check-project-discovery', 'autolens_assistant').returncode == 1
-    assert call('--write-project-discovery', 'autolens_assistant').returncode == 0
+    assert call('--check-project-discovery', 'example_assistant').returncode == 1
+    assert call('--write-project-discovery', 'example_assistant').returncode == 0
     assert not (workspace / '.codex').exists()
     assert (assistant / '.claude/commands/al_plot.md').is_symlink()
-    adapter = assistant / '.codex/skills/autolens-assistant-al-plot/SKILL.md'
+    adapter = assistant / '.codex/skills/example-assistant-al-plot/SKILL.md'
     assert adapter.is_file()
-    assert 'name: autolens-assistant-al-plot' in adapter.read_text()
+    assert 'name: example-assistant-al-plot' in adapter.read_text()
     desc_line = next(line for line in adapter.read_text().splitlines() if line.startswith('description: '))
     assert len(desc_line) < 1050
     assert '<' not in desc_line and '>' not in desc_line
     assert (adapter.parent / '../../../skills/al_plot.md').resolve() == skills / 'al_plot.md'
     assert not (assistant / '.claude/commands/_helper.md').exists()
     assert (assistant / '.claude/skills/_helper.md').is_symlink()
-    assert call('--write-project-discovery', 'autolens_workspace').returncode == 0
+    assert call('--write-project-discovery', 'example_workspace').returncode == 0
     assert (workspace / '.claude/skills/open_result').is_symlink()
-    assert (workspace / '.codex/skills/autolens-workspace-open-result/SKILL.md').is_file()
-    assert call('--check-project-discovery', 'autolens_assistant', 'autolens_workspace').returncode == 0
-    assert call('--write-project-discovery', 'autolens_assistant', 'autolens_workspace').returncode == 0
+    assert (workspace / '.codex/skills/example-workspace-open-result/SKILL.md').is_file()
+    assert call('--check-project-discovery', 'example_assistant', 'example_workspace').returncode == 0
+    assert call('--write-project-discovery', 'example_assistant', 'example_workspace').returncode == 0
 
 
 def test_discovery_detects_drift_and_preserves_user_file(tmp_path):
@@ -452,7 +452,7 @@ def test_removed_organ_skill_reports_dangling_codex_link_without_deleting(tmp_pa
     root = tmp_path / 'PyAutoLabs'
     mind = root / 'PyAutoMind'
     mind.mkdir(parents=True)
-    (mind / 'repos.yaml').write_text('repos:\n  PyAutoHeart:\n    path: PyAutoHeart\n')
+    (mind / 'repos.yaml').write_text('repos:\n  PyAutoHeart:\n    path: PyAutoHeart\n    category: organ\n')
     repo = root / 'PyAutoHeart'
     skill = repo / 'skills' / 'pulse'
     skill.mkdir(parents=True)
@@ -498,3 +498,21 @@ def test_discovery_refuses_symlinked_surface_even_with_no_expected_links(tmp_pat
     assert result.returncode == 2
     assert '.claude/commands' in result.stdout
     assert user_link.is_symlink()
+
+
+def test_project_category_keeps_existing_directory_skill_name(tmp_path):
+    root = tmp_path / 'PyAutoLabs'
+    mind = root / 'PyAutoMind'
+    mind.mkdir(parents=True)
+    (mind / 'repos.yaml').write_text(
+        'repos:\n  analysis_project:\n    path: analysis_project\n    category: project\n')
+    skill = root / 'analysis_project' / 'skills' / 'profile_likelihood'
+    skill.mkdir(parents=True)
+    (skill / 'SKILL.md').write_text(
+        '---\nname: profile-likelihood\ndescription: Profile a likelihood.\n---\n')
+    result = subprocess.run(
+        ['bash', str(INSTALLER), '--write-project-discovery', 'analysis_project'],
+        env=os.environ | {'PYAUTO_ROOT': str(root)}, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (root / 'analysis_project/.codex/skills/profile-likelihood').is_symlink()
+    assert not (root / 'analysis_project/.codex/skills/analysis-project-profile-likelihood').exists()
