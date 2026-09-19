@@ -107,6 +107,8 @@ _SHARED_GENERIC = [
 # in a domain assistant, but the near-empty framework scaffold (generic) in the
 # domain-agnostic base — so each profile places it, not this shared set.
 _SHARED_DOMAIN = [
+    # Generated names/targets belong to the parent; regenerate for the newborn.
+    ".codex/skills/*",
     "dataset/*",
     "README.md",                  # science framing + the example prompts
     "hpc/*",
@@ -154,9 +156,7 @@ REFERENCE_PROFILES = {
             "scripts/*.py",               # bundled science scripts (a named lens)
             *_SHARED_DOMAIN,
         ],
-        # Generated wrappers carry this reference's namespace and skill targets.
-        # Regenerate them from the newborn's inventory after adapting its skills.
-        "mixed": [*_SHARED_MIXED, ".codex/skills/*"],
+        "mixed": _SHARED_MIXED,
         "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc"],
     },
     # The domain-agnostic base: `af_*` inference skills and the *statistics*
@@ -182,7 +182,7 @@ REFERENCE_PROFILES = {
                                           # the worked prompts are domain
             *_SHARED_DOMAIN,
         ],
-        "mixed": [*_SHARED_MIXED, ".codex/skills/*"],
+        "mixed": _SHARED_MIXED,
         "scaffold_dirs": ["dataset", "hpc"],
     },
 }
