@@ -77,4 +77,5 @@ example
 
 agent_failure_modes
 codex_usage
+workspace_layout
 ```
