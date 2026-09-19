@@ -143,7 +143,7 @@ def plan(root, state, bundles_root=None, manifest_root=None):
             name = Path(old).name
             relative = str(Path(new).relative_to(root))
             after = re.sub(re.escape(old) + r'(?=[/"\s:<]|$)', lambda _: new, after)
-            for prefix in ('$PROJECT_DIR$/', '$MODULE_DIR$/', './'):
+            for prefix in ('$PROJECT_DIR$/', '$MODULE_DIR$/', './', '${CLAUDE_PROJECT_DIR}/', '$CLAUDE_PROJECT_DIR/', '${PYAUTO_ROOT}/', '$PYAUTO_ROOT/'):
                 after = re.sub(re.escape(prefix + name) + r'(?=[/"\s<]|$)', lambda _, p=prefix, r=relative: p+r, after)
         if before != after:
             configs.append({'path': str(path), 'old': before, 'new': after})

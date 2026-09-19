@@ -41,6 +41,8 @@ def fixture(tmp_path):
     (dependency / 'Demo').symlink_to(repo, target_is_directory=True)
     (root / '.idea').mkdir()
     (root / '.idea/vcs.xml').write_text('<path value="$PROJECT_DIR$/Demo"/>')
+    (root / '.claude').mkdir()
+    (root / '.claude/settings.json').write_text('{"hook": "${CLAUDE_PROJECT_DIR}/Demo/hook.py"}')
     return root, repo, bundles, task
 
 
@@ -58,12 +60,14 @@ def test_apply_and_rollback_preserve_dirty_data_and_linked_worktree(tmp_path):
     assert git(task / 'Demo', 'branch', '--show-current') == 'task'
     assert (bundles / 'other/Demo').resolve() == new
     assert 'science/Demo' in (root / '.idea/vcs.xml').read_text()
+    assert '${CLAUDE_PROJECT_DIR}/science/Demo/hook.py' in (root / '.claude/settings.json').read_text()
     migration.rollback(journal, data)
     assert migration.snapshot(repo) == before
     assert not new.exists()
     assert (bundles / 'other/Demo').resolve() == repo
     assert git(task / 'Demo', 'branch', '--show-current') == 'task'
     assert 'science/Demo' not in (root / '.idea/vcs.xml').read_text()
+    assert '${CLAUDE_PROJECT_DIR}/Demo/hook.py' in (root / '.claude/settings.json').read_text()
 
 
 def test_stale_plan_cannot_overwrite_new_user_work(tmp_path):
