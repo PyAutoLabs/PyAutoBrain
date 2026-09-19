@@ -56,7 +56,7 @@ read the shared workflow instructions and ran `bin/pyauto-brain help` successful
 - The four workspace skill bodies moved byte-for-byte to their neutral locations.
 - Brain `tests/test_skill_install.py`: 22 tests passed, covering body-map categories, collisions,
   metadata bounds, drift, protected files/links, and symlinked discovery roots.
-- Brain clone-profile suite: 35 tests passed. Generated adapters are classified
+- Brain clone-profile suite: 37 tests passed. Generated adapters are classified
   for both reference assistants; the lensing-assistant tracked boundary passes.
   The inference assistant retains 11 pre-existing unclassified script/notebook
   paths, with no new unclassified discovery paths. Tenant firewall check passed.
