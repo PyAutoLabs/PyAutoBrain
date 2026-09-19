@@ -20,7 +20,7 @@ def fixture(tmp_path):
     root.mkdir()
     (root / '.pyauto-root').touch()
     (root / 'PyAutoMind').mkdir()
-    (root / 'PyAutoMind/repos.yaml').write_text('repos:\n  Demo:\n    path: science/Demo\n')
+    (root / 'PyAutoMind/repos.yaml').write_text('repos:\n  Demo:\n    path: science/Demo\n    package: demo\n')
     repo = root / 'Demo'
     repo.mkdir()
     git(repo, 'init', '-q')
@@ -61,6 +61,8 @@ def test_apply_and_rollback_preserve_dirty_data_and_linked_worktree(tmp_path):
     assert (bundles / 'other/Demo').resolve() == new
     assert 'science/Demo' in (root / '.idea/vcs.xml').read_text()
     assert '${CLAUDE_PROJECT_DIR}/science/Demo/hook.py' in (root / '.claude/settings.json').read_text()
+    import json
+    assert json.loads((root / '.claude/settings.json').read_text())['env']['PYTHONPATH'] == str(new)
     migration.rollback(journal, data)
     assert migration.snapshot(repo) == before
     assert not new.exists()
