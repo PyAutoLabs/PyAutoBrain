@@ -54,8 +54,12 @@ read the shared workflow instructions and ran `bin/pyauto-brain help` successful
 - All eight phase-3 repository discovery checks passed; canonical references
   resolved and existing Claude links remained usable.
 - The four workspace skill bodies moved byte-for-byte to their neutral locations.
-- Brain `tests/test_skill_install.py`: 21 tests passed, covering collisions,
+- Brain `tests/test_skill_install.py`: 22 tests passed, covering body-map categories, collisions,
   metadata bounds, drift, protected files/links, and symlinked discovery roots.
+- Brain clone-profile suite: 35 tests passed. Generated adapters are classified
+  for both reference assistants; the lensing-assistant tracked boundary passes.
+  The inference assistant retains 11 pre-existing unclassified script/notebook
+  paths, with no new unclassified discovery paths. Tenant firewall check passed.
 - Mind `tests/test_ledger_merge.py`: 26 tests passed, including ledger allow and
   source-code deny for both `claude/**` and `codex/**`, and workflow triggers.
 - Mind `tests/test_codex_hook_sync.py`: 8 tests passed for generated hook config,
