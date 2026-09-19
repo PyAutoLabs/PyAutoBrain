@@ -11,3 +11,7 @@ Shared context and cross-harness notes: [`../WORKFLOW.md`](../WORKFLOW.md).
 Maintain the **library-first rule**: linked workspace work follows the upstream
 library PR and must use that PR's API-change summary. Do not duplicate or
 reinterpret the workflow here — if it changes, edit `start_workspace.md`.
+
+Read only the applicable step/environment from linked references, not all files.
+Reuse unchanged instructions already loaded; follow [CONTEXT.md](../CONTEXT.md)
+for bounded output and repository paths.

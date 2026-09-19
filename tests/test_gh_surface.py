@@ -187,7 +187,8 @@ def test_the_close_out_carries_its_own_mcp_calls():
     the trap back in place.
     """
     prm = (SKILLS / "prm" / "prm.md").read_text()
-    lane = prm.split("### The `mcp` lane")[1].split("## 1.")[0]
+    assert "[mcp.md](mcp.md)" in prm
+    lane = (SKILLS / "prm" / "mcp.md").read_text().split("### The `mcp` lane")[1].split("## 1.")[0]
     for call in ("pull_request_read", "actions_list", "get_job_logs",
                  "merge_pull_request", "add_issue_comment", "issue_write",
                  "get_file_contents"):

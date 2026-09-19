@@ -11,7 +11,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 Treat the request as PyAutoMind work-type **`research/`** — exploratory
 investigation, design notes, or scientific background *before* implementation. If
-no prompt path exists, create one under `PyAutoMind/research/<target>/<name>.md`
+no prompt path exists, create one under `PyAutoMind/draft/research/<target>/<name>.md`
 (original request verbatim). Research typically produces notes/decisions rather
 than a PR; consult the **memory faculty** (`bin/pyauto-brain memory "<topic>"`)
 for prior art and record findings back to Mind. Escalate to `/feature` once

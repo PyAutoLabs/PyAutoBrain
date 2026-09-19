@@ -1,5 +1,4 @@
 <!-- pyauto:model-delegation-pointer:begin -->
-- **Model delegation** (Anthropic execution tier; OpenAI direct-by-default;
-  bounded workers; tutorial and Cortex behavior)
-  → `PyAutoBrain/skills/MODEL_DELEGATION.md`.
+- **Model delegation** (provider rules, bounded workers, teaching and Cortex)
+  → `skills/MODEL_DELEGATION.md` in the resolved Brain checkout.
 <!-- pyauto:model-delegation-pointer:end -->

@@ -53,3 +53,9 @@ Compare medians only across similar task types and report unknown sessions.
 Treat the current Astra Medium configuration as the baseline; do not change
 local model configuration merely to manufacture a comparison. Do not claim
 savings until both usage and outcome/correction evidence support it.
+
+## Static context budgets
+
+Use [context_efficiency.md](context_efficiency.md) for the September follow-up,
+Mind’s token-load checker and post-merge root activation. Static byte/line
+reductions are not measured task-token savings.

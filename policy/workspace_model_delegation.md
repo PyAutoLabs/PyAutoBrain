@@ -6,5 +6,5 @@
   needing separate context, or independent review. Duration alone is not a
   reason to spawn. Brain roles are not automatic LLM spawns. State the
   session model before the first delegation decision. Full policy:
-  `PyAutoBrain/skills/MODEL_DELEGATION.md`.
+  `skills/MODEL_DELEGATION.md` in the resolved Brain checkout.
 <!-- pyauto:model-delegation:end -->

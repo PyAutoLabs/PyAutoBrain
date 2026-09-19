@@ -95,12 +95,8 @@ agents_surface_block() {
      markers — edit the registry there and re-run. Checked by
      `PyAutoBrain/bin/install.sh --check-agents-surface`. -->
 
-The PyAuto **command surface** — every agent verb, runnable on any tool (Claude,
-Codex, Cursor; CLI or web) as `bin/pyauto-brain <verb>`. This block lives once in
-**PyAutoBrain**'s auto-loaded AGENTS.md, which is present in every session, so the
-full verb set is always in context — no per-organ copy needed. Invoking a verb
-runs its entrypoint here in PyAutoBrain. On Claude Code the same verbs are also
-the `/<verb>` slash commands.
+Run from the Brain checkout. Read the selected agent's `AGENTS.md` only when
+invoking it; `bin/pyauto-brain help <verb>` exposes its full contract.
 
 **Conductors** — front doors you drive (decide *and* act):
 
