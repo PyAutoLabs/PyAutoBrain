@@ -16,7 +16,7 @@ newer flags are absent, so everything below sticks to `gh pr` / `gh api`.
 # From the current branch (local checkout)
 gh pr view --json number,url,title,headRefName,state,labels
 
-# Explicit target, no checkout needed (mobile / Codex)
+# Explicit target, no checkout needed (remote session)
 gh pr view <n> -R <owner>/<repo> --json number,url,title,headRefName,state
 
 # Candidates when nothing is claimed: open PRs in one repo

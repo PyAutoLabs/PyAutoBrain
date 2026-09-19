@@ -16,14 +16,14 @@ See the **[PyAutoBrain Dashboard](https://pyautolabs.github.io/PyAutoBrain/)**
 for the organism's morning and general starting point: what ran overnight, the
 Heart's readiness headline, who in the community is waiting on a reply, what
 to resume, and the upkeep doors — each actionable row with a one-tap 📋
-copy-for-Claude command. Regenerated each morning; the local sync/clean leg is
+copyable agent command. Regenerated each morning; the local sync/clean leg is
 one terminal command, `bash bin/morning.sh` — or schedule it overnight on the
 dev box with `bash bin/morning_timer.sh install`, so the board is already
 fresh when you wake.
 
 ## How PyAutoBrain works
 
-You drive it in plain English, through short slash commands in a Claude Code
+You drive it in plain English, through discoverable skills in Codex or slash commands in Claude Code
 chat: `/intake` to file an idea, `/start_dev` to begin a task, `/health` for a
 check-up — or just `/route <what you want>` and the Brain picks the right
 door. The generated table in [AGENTS.md](AGENTS.md) is the roster — every
@@ -60,7 +60,7 @@ CLI, which runs straight from this checkout (no pip install):
 bin/pyauto-brain help                      # list every conductor and faculty
 bin/pyauto-brain route "fix the failing lens smoke test"   # plain English in
 bin/pyauto-brain vitals                    # read the Heart's readiness verdict
-bash bin/install.sh                        # symlink every organ's skills into ~/.claude
+bash bin/install.sh                        # install shared skills for Claude Code and Codex
 ```
 
 Project discovery is generated separately from the registered repository body

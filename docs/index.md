@@ -77,5 +77,6 @@ example
 
 agent_failure_modes
 codex_usage
+agent_harness_smoke
 workspace_layout
 ```

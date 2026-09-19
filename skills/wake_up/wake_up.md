@@ -27,7 +27,7 @@ the identical digest in a terminal when a page is not at hand.
    safe: both steps are the recoverable, git-aware ones — sync skips repos
    with real uncommitted work; clean-slate deletes only untracked regenerable
    artifacts and reports orphan datasets instead of removing them). Skip with
-   a one-line note when there is no local workspace (mobile/codex).
+   a one-line note when there is no local workspace (remote session without a checkout).
 2. **The digest** — run `bin/pyauto-brain board` and relay its markdown digest
    (it needs only an authenticated `gh`; degraded sections are listed
    honestly). If the board CLI cannot run, fall back to the underlying

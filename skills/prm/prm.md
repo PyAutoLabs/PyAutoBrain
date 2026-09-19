@@ -36,8 +36,8 @@ command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
 
 - **`gh`** (local CLI) — `$PYAUTO_ROOT` (`bin/_pyauto_root.sh`) holds the
   sibling repos; branch detection and worktree cleanup are available.
-- **`mcp`** (mobile, web, Codex) — no multi-repo checkout and **no `gh` at
-  all**: GitHub is the `mcp__github__*` surface, mapped step by step in
+- **`mcp`** (a session without authenticated `gh`) — when no local multi-repo
+  checkout is available, GitHub is the `mcp__github__*` surface, mapped step by step in
   [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md). Drive every step through it,
   **skip the local-only cleanup** with a one-line note, never `cd` into a repo
   that isn't there, and never report the close-out blocked for want of `gh`.
@@ -287,10 +287,9 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
 
    **Push the branch you are on — never force `main`.** On a laptop that branch
    *is* `main`. On a branch-scoped surface (the phone, claude.ai/code, any
-   `claude/**` flow) it is the session's branch, and pushing it is the whole
+   `claude/**` or `codex/**` flow) it is the session's branch, and pushing it is the whole
    job: a close-out diff is ledger by construction, so
-   `mind_ledger_merge.yml` merges it into `main` and deletes the branch within
-   a minute — no PR, and no "merge that branch too" left for the human. Say in
+   `mind_ledger_merge.yml` merges it into `main` and can delete the branch after its checks pass — no PR, and no "merge that branch too" left for the human. Say in
    the ledger that the Mind branch was pushed and will land itself. Two things
    change that: the close-out also touched `scripts/`, `.github/`, `skills/` or
    another code path (then the branch waits for a human — say so plainly), or
