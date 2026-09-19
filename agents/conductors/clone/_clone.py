@@ -172,6 +172,7 @@ REFERENCE_PROFILES = {
             *_SHARED_GENERIC,
             "skills/af_*.md",             # generic inference skills
             ".claude/skills/af_*.md",     # ... and their harness mirrors
+            ".claude/commands/af_*.md",
             "wiki/core/*",                # statistics/inference reference
             "wiki/literature/*",          # the near-empty literature scaffold
         ],
@@ -181,7 +182,7 @@ REFERENCE_PROFILES = {
                                           # the worked prompts are domain
             *_SHARED_DOMAIN,
         ],
-        "mixed": _SHARED_MIXED,
+        "mixed": [*_SHARED_MIXED, ".codex/skills/*"],
         "scaffold_dirs": ["dataset", "hpc"],
     },
 }
