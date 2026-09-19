@@ -129,6 +129,10 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import repo_path, iter_checkouts  # noqa: E402
+
 # Backtick-quoted spans, and bare scripts//notebooks/ path mentions.
 BACKTICK_REFERENCE = re.compile(r"`([^`\n]{1,200}?)`")
 BARE_PATH_REFERENCE = re.compile(
@@ -285,7 +289,8 @@ def line_of(offsets: list[int], position: int) -> int:
 
 def repository_paths(root: Path) -> list[Path]:
     """Return user-facing ``*_workspace`` and ``HowTo*`` repositories."""
-    candidates = [*root.glob("*_workspace"), *root.glob("HowTo*")]
+    candidates = [*iter_checkouts(root), *root.glob("*_workspace"), *root.glob("HowTo*")]
+    candidates = [p for p in candidates if p.name.endswith("_workspace") or p.name.startswith("HowTo")]
     return sorted(
         {path.resolve() for path in candidates if (path / "scripts").is_dir()},
         key=lambda path: path.name.lower(),
@@ -355,12 +360,14 @@ class Resolver:
     def __init__(self, root: Path):
         self.root = root
         self.indexes: dict[str, RepositoryIndex] = {}
-        self.siblings = {path.name for path in root.iterdir() if path.is_dir()}
+        if not root.is_dir():
+            raise FileNotFoundError(root)
+        self.siblings = {path.name for path in (iter_checkouts(root) or root.iterdir()) if path.is_dir()}
         self.suppressed = 0
 
     def index(self, name: str) -> RepositoryIndex | None:
         if name not in self.indexes:
-            path = self.root / name
+            path = repo_path(self.root, name)
             if not path.is_dir():
                 return None
             self.indexes[name] = RepositoryIndex(path)

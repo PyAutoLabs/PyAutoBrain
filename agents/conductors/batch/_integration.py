@@ -42,6 +42,10 @@ import os
 import subprocess
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import repo_path  # noqa: E402
+
 BRAIN = Path(__file__).resolve().parents[3]
 WORKTREE_SH = BRAIN / "bin" / "worktree.sh"
 
@@ -217,7 +221,7 @@ def ensure_root(slot: str, repo_dirs: list, notes: list):
             return None
         return root
     for name in repo_dirs:
-        if (root / name / ".git").exists():
+        if (repo_path(root, name) / ".git").exists():
             continue
         proc = _worktree_sh("worktree_add_repo", slot, name)
         if proc.returncode != 0:

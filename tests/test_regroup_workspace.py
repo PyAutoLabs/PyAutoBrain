@@ -1,0 +1,102 @@
+"""Exercise real Git administration and reversible data/link preservation."""
+import importlib.util
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'agents'))
+spec = importlib.util.spec_from_file_location('regroup_under_test', ROOT / 'bin/regroup_workspace.py')
+migration = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(migration)
+
+
+def git(path, *args):
+    return subprocess.check_output(['git', '-C', str(path), *args], text=True).strip()
+
+
+def fixture(tmp_path):
+    root = tmp_path / 'workspace'
+    root.mkdir()
+    (root / '.pyauto-root').touch()
+    (root / 'PyAutoMind').mkdir()
+    (root / 'PyAutoMind/repos.yaml').write_text('repos:\n  Demo:\n    path: science/Demo\n')
+    repo = root / 'Demo'
+    repo.mkdir()
+    git(repo, 'init', '-q')
+    git(repo, 'config', 'user.email', 'test@example.org')
+    git(repo, 'config', 'user.name', 'Test')
+    (repo / '.gitignore').write_text('output/\n')
+    git(repo, 'add', '.gitignore')
+    git(repo, 'commit', '-qm', 'initial')
+    (repo / 'output').mkdir()
+    (repo / 'output/result.bin').write_bytes(b'irreplaceable result')
+    (repo / 'untracked.txt').write_text('user work')
+    bundles = tmp_path / 'bundles'
+    task = bundles / 'task'
+    task.mkdir(parents=True)
+    git(repo, 'worktree', 'add', '-qb', 'task', str(task / 'Demo'))
+    dependency = bundles / 'other'
+    dependency.mkdir()
+    (dependency / 'Demo').symlink_to(repo, target_is_directory=True)
+    (root / '.idea').mkdir()
+    (root / '.idea/vcs.xml').write_text('<path value="$PROJECT_DIR$/Demo"/>')
+    return root, repo, bundles, task
+
+
+def test_apply_and_rollback_preserve_dirty_data_and_linked_worktree(tmp_path):
+    root, repo, bundles, task = fixture(tmp_path)
+    journal = tmp_path / 'journal.json'
+    data = migration.plan(root, journal, bundles)
+    before = migration.snapshot(repo)
+    migration.apply(journal, data)
+    new = root / 'science/Demo'
+    assert not repo.exists()
+    assert (new / 'output/result.bin').read_bytes() == b'irreplaceable result'
+    assert (new / 'untracked.txt').read_text() == 'user work'
+    assert migration.snapshot(new) == before
+    assert git(task / 'Demo', 'branch', '--show-current') == 'task'
+    assert (bundles / 'other/Demo').resolve() == new
+    assert 'science/Demo' in (root / '.idea/vcs.xml').read_text()
+    migration.rollback(journal, data)
+    assert migration.snapshot(repo) == before
+    assert not new.exists()
+    assert (bundles / 'other/Demo').resolve() == repo
+    assert git(task / 'Demo', 'branch', '--show-current') == 'task'
+    assert 'science/Demo' not in (root / '.idea/vcs.xml').read_text()
+
+
+def test_stale_plan_cannot_overwrite_new_user_work(tmp_path):
+    import pytest
+    root, repo, bundles, _ = fixture(tmp_path)
+    journal = tmp_path / 'journal.json'
+    data = migration.plan(root, journal, bundles)
+    (repo / 'new-work.txt').write_text('arrived after plan')
+    with pytest.raises(ValueError, match='source changed'):
+        migration.apply(journal, data)
+    assert repo.exists()
+    assert not (root / 'science/Demo').exists()
+
+
+def test_destination_family_cannot_redirect_move(tmp_path):
+    import pytest
+    root, repo, bundles, _ = fixture(tmp_path)
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    journal = tmp_path / 'journal.json'
+    data = migration.plan(root, journal, bundles)
+    (root / 'science').symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match='family must be a real directory'):
+        migration.apply(journal, data)
+    assert repo.exists()
+    assert not (outside / 'Demo').exists()
+
+
+def test_journal_does_not_follow_preexisting_temp_link(tmp_path):
+    journal = tmp_path / 'journal.json'
+    important = tmp_path / 'important.txt'
+    important.write_text('KEEP')
+    journal.with_suffix('.json.tmp').symlink_to(important)
+    migration.save(journal, {'stage': 'planned'})
+    assert important.read_text() == 'KEEP'
+    assert 'planned' in journal.read_text()

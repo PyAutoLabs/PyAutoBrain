@@ -25,6 +25,7 @@
 set -o pipefail
 
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_pyauto_root.sh"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_repo_paths.sh"
 PYAUTO_MAIN="${PYAUTO_MAIN:-$PYAUTO_ROOT}"
 PYAUTO_WT_ROOT="${PYAUTO_WT_ROOT:-${PYAUTO_MAIN}-wt}"
 
@@ -82,7 +83,8 @@ EOF
 # worktree_create and worktree_add_repo.
 _worktree_add_one() {
   local task="$1" repo="$2"
-  local repo_src="$PYAUTO_MAIN/$repo"
+  local repo_src
+  repo_src="$(pyauto_repo_path "$repo" "$PYAUTO_MAIN")" || return 1
   local repo_dest="$PYAUTO_WT_ROOT/$task/$repo"
   local branch="${PYAUTO_WT_BRANCH:-feature/$task}"
 
@@ -121,6 +123,8 @@ worktree_create() {
 
   local root
   root="$(worktree_root_path "$task")"
+  local repo_listing
+  repo_listing="$(pyauto_repo_list "$PYAUTO_MAIN")" || return 1
 
   if [[ -e "$root" ]]; then
     echo "worktree_create: $root already exists. Refusing to overwrite." >&2
@@ -158,14 +162,30 @@ EOF
     fi
   done
 
-  # Symlink every other top-level entry in PyAutoLabs back to the main checkout
-  # so relative paths (admin_jammy/, autolens_workspace/, etc.) keep resolving.
-  local entry name
+  # Keep task bundles flat: every declared checkout gets its canonical name,
+  # even when the main workspace stores it inside a family directory.
+  local entry name family
+  local -A families=()
+  while IFS=$'\t' read -r name entry; do
+    [[ -n "$entry" ]] || continue
+    if [[ "$(dirname "$entry")" != "$PYAUTO_MAIN" ]]; then
+      family="$(basename "$(dirname "$entry")")"
+      families["$family"]=1
+    fi
+  done <<< "$repo_listing"
   for entry in "$PYAUTO_MAIN"/*; do
     name="$(basename "$entry")"
+    [[ -n "${families[$name]:-}" ]] && continue
+    [[ -d "$entry/.git" || -f "$entry/.git" ]] && continue
     [[ -e "$root/$name" ]] && continue  # already a real worktree
     ln -s "$entry" "$root/$name"
   done
+  while IFS=$'\t' read -r name entry; do
+    [[ -n "$name" && -n "$entry" ]] || continue
+    [[ -d "$entry" ]] || continue
+    [[ -e "$root/$name" ]] && continue
+    ln -s "$entry" "$root/$name"
+  done <<< "$repo_listing"
 
   worktree_activate_script "$task" > "$root/activate.sh"
   chmod +x "$root/activate.sh"
@@ -211,7 +231,9 @@ worktree_add_repo() {
 
   if ! _worktree_add_one "$task" "$repo"; then
     # Best-effort: restore the symlink so the root is not left half-broken.
-    ln -s "$PYAUTO_MAIN/$repo" "$repo_dest" 2>/dev/null || true
+    local repo_src
+    repo_src="$(pyauto_repo_path "$repo" "$PYAUTO_MAIN")" || return 1
+    ln -s "$repo_src" "$repo_dest" 2>/dev/null || true
     return 1
   fi
 
@@ -232,7 +254,7 @@ worktree_add_repo() {
 # squash-merged branch) returns 1 = "not stale" and the caller proceeds.
 worktree_claim_is_stale() {
   local task="$1" root="$2"
-  local active="$PYAUTO_MAIN/PyAutoMind/active.md"
+  local active="$(pyauto_repo_path PyAutoMind "$PYAUTO_MAIN")/active.md"
   [[ -f "$active" ]] || return 1
   grep -Eq "^## ${task}([[:space:]]|\$)" "$active" || return 1
 
@@ -307,13 +329,15 @@ worktree_remove() {
     [[ -L "$entry" ]] && continue
     [[ -e "$entry/.git" ]] || continue     # linked worktrees have .git as a FILE
     name="$(basename "$entry")"
-    git -C "$PYAUTO_MAIN/$name" worktree remove --force "$entry" || {
+    local repo_src
+    repo_src="$(pyauto_repo_path "$name" "$PYAUTO_MAIN")" || return 1
+    git -C "$repo_src" worktree remove --force "$entry" || {
       echo "worktree_remove: failed to remove worktree for $name" >&2
       return 1
     }
     # Belt-and-braces: prune stale metadata in case `remove` left a "prunable"
     # entry behind (seen on some git versions).
-    git -C "$PYAUTO_MAIN/$name" worktree prune
+    git -C "$repo_src" worktree prune
   done
 
   # Unlink the remaining symlinks + activate.sh, then rmdir.
@@ -336,7 +360,7 @@ worktree_remove() {
 # it cannot be found. Split out so a caller can tell "nothing is claimed" apart
 # from "I could not read the registry" — see worktree_check_conflict.
 worktree_registry_path() {
-  local active="$PYAUTO_MAIN/PyAutoMind/active.md"
+  local active="$(pyauto_repo_path PyAutoMind "$PYAUTO_MAIN")/active.md"
   # Back-compat: fall back to the pre-rename PyAutoPrompt/ path if present.
   [[ -f "$active" ]] || active="$PYAUTO_MAIN/PyAutoPrompt/active.md"
   [[ -f "$active" ]] || return 3

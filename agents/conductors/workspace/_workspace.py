@@ -36,6 +36,7 @@ from pathlib import Path
 # failing.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
+from _repo_paths import repo_path  # noqa: E402
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
 
@@ -103,7 +104,7 @@ def fail(code, msg):
 
 def read_intent(arg):
     """The intent text: a PyAutoMind prompt path if it resolves, else raw text."""
-    for base in (Path(arg), PYAUTO_ROOT / "PyAutoMind" / arg):
+    for base in (Path(arg), repo_path(PYAUTO_ROOT, "PyAutoMind") / arg):
         if base.is_file():
             return base.read_text(encoding="utf-8"), str(base)
     return arg, None
@@ -136,7 +137,7 @@ def detect_family(text):
 
 
 def scripts_root(repo):
-    return PYAUTO_ROOT / repo / "scripts"
+    return repo_path(PYAUTO_ROOT, repo) / "scripts"
 
 
 def example_packages(repo):

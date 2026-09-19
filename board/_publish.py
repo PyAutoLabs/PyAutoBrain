@@ -40,6 +40,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agents"))
+from _repo_paths import iter_checkouts  # noqa: E402
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 PYAUTO_ROOT = Path(os.environ.get("PYAUTO_ROOT", BRAIN_HOME.parent))
 DEVBOX_FILE = Path(os.environ.get(
@@ -98,7 +101,7 @@ def collect_worktrees():
     rows = []
     if not PYAUTO_ROOT.is_dir():
         return rows
-    for repo in sorted(PYAUTO_ROOT.iterdir()):
+    for repo in sorted(iter_checkouts(PYAUTO_ROOT)):
         if not (repo / ".git").exists():
             continue
         branch = _git_out(repo, "branch", "--show-current") or "?"

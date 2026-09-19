@@ -23,6 +23,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import iter_checkouts, repo_path  # noqa: E402
+
 # The one workspace-root resolver, shared with bin/_pyauto_root.sh, so a
 # remote session (checkouts under /home/user, $HOME=/root) resolves the same
 # tree a developer box does.
@@ -149,7 +153,7 @@ def in_place_repos(task: str) -> list[Path]:
         if in_block:
             m = re.match(r"^  - ([A-Za-z0-9_-]+):", line)
             if m:
-                repos.append(pyauto_root / m.group(1))
+                repos.append(repo_path(pyauto_root, m.group(1)))
             else:
                 in_block = False
     return [r for r in repos if (r / ".git").exists()]
@@ -164,7 +168,7 @@ def resolve_repos(task: str | None, repos: list[str]) -> list[Path]:
         # Claimed repos are real directories (not symlinks) holding a .git
         # file/dir — worktree_create symlinks everything unclaimed.
         return sorted(
-            p for p in root.iterdir()
+            p for p in iter_checkouts(root)
             if p.is_dir() and not p.is_symlink() and (p / ".git").exists()
         )
     return [Path(r).resolve() for r in repos]

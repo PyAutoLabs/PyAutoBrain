@@ -38,6 +38,10 @@ import sys
 import warnings
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import repo_path  # noqa: E402
+
 # Workspace prose blocks contain LaTeX (\sigma, \epsilon, ...), so parsing them
 # emits a SyntaxWarning per occurrence. That is the scanned repo's business, not
 # a signal from this scan, and it would bury the report.
@@ -87,7 +91,7 @@ def unguarded(root: Path) -> list[dict]:
     findings: list[dict] = []
 
     for name in WORKSPACES:
-        workspace = root / name
+        workspace = repo_path(root, name)
         if not (workspace / ".git").exists():
             continue
 

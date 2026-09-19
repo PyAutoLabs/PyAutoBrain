@@ -102,9 +102,15 @@ SCAN_REPOS=("${CODE_REPOS[@]}" "${WS_REPOS[@]}")
 # silently drop it: the very bug this change repairs, re-created one line down.
 # `docs` was pinned to three named repos and so never noticed a fourth acquiring
 # Sphinx docs. Presence is the honest test in both cases.
-repo_is_checked_out() { [[ -d "$ROOT/$1/.git" || -f "$ROOT/$1/.git" ]]; }
-repo_ships_distribution() { [[ -f "$ROOT/$1/pyproject.toml" ]]; }
-repo_ships_api_docs() { [[ -d "$ROOT/$1/docs/api" ]]; }
+declare -A CHECKOUT_DIRS=()
+CHECKOUT_LIST="$(pyauto_repo_list "$ROOT")" || exit $?
+while IFS=$'\t' read -r _checkout_name _checkout_path; do
+  [[ -n "$_checkout_name" ]] && CHECKOUT_DIRS["$_checkout_name"]="$_checkout_path"
+done <<< "$CHECKOUT_LIST"
+repo_dir() { printf '%s' "${CHECKOUT_DIRS[$1]:-$ROOT/$1}"; }
+repo_is_checked_out() { local dir; dir="$(repo_dir "$1")" || return 1; [[ -e "$dir/.git" ]]; }
+repo_ships_distribution() { [[ -f "$(repo_dir "$1")/pyproject.toml" ]]; }
+repo_ships_api_docs() { [[ -d "$(repo_dir "$1")/docs/api" ]]; }
 
 # MANAGED_PRESENT — how many declared repos are actually checked out under
 # $ROOT. Zero means the repo-array modes saw NOTHING, and their counts would be
@@ -185,7 +191,7 @@ declare -A MODE_KIND=(
 prescan_tidy() {
   local branches=0 stashes=0 gone=0 dirty=0 scanned=0 repo dir
   for repo in "${CODE_REPOS[@]}"; do
-    dir="$ROOT/$repo"
+    dir="$(repo_dir "$repo")"
     repo_is_checked_out "$repo" || continue
     scanned=$((scanned + 1))
     local b s g cur
@@ -216,7 +222,7 @@ prescan_deps() {
     repo_is_checked_out "$repo" || continue
     scanned=$((scanned + 1))
     repo_ships_distribution "$repo" || continue
-    pj="$ROOT/$repo/pyproject.toml"
+    pj="$(repo_dir "$repo")/pyproject.toml"
     files=$((files + 1))
     local c
     c=$(grep -oE '[<>=!~]=?[[:space:]]*[0-9]' "$pj" 2>/dev/null | grep -cE '<|==' || true)
@@ -234,7 +240,7 @@ prescan_docs() {
     scanned=$((scanned + 1))
     repo_ships_api_docs "$repo" || continue
     doc_repos=$((doc_repos + 1))
-    d="$ROOT/$repo/docs/api"
+    d="$(repo_dir "$repo")/docs/api"
     local n c
     n=$(find "$d" -maxdepth 1 -name '*.rst' 2>/dev/null | wc -l | tr -d ' ')
     c=$(grep -rhE '^\s*\.\.\s+currentmodule::' "$d" 2>/dev/null | wc -l | tr -d ' ')
@@ -252,7 +258,7 @@ prescan_docs() {
 prescan_crlf() {
   local scripts=0 cosmetic=0 scanned=0 sdetail="" repo dir sh_n exe_list exe_n py_n
   for repo in "${SCAN_REPOS[@]}"; do
-    dir="$ROOT/$repo"
+    dir="$(repo_dir "$repo")"
     repo_is_checked_out "$repo" || continue
     scanned=$((scanned + 1))
     # .sh with CRLF (all shell scripts break)
@@ -328,7 +334,7 @@ prescan_refs() {
 prescan_artifacts() {
   local total=0 scanned=0 detail="" repo dir n
   for repo in "${SCAN_REPOS[@]}"; do
-    dir="$ROOT/$repo"
+    dir="$(repo_dir "$repo")"
     repo_is_checked_out "$repo" || continue
     scanned=$((scanned + 1))
     local leaked
@@ -351,7 +357,7 @@ prescan_artifacts() {
 prescan_packaging() {
   local total=0 scanned=0 detail="" dir repo candidate rel repo_count
   for repo in "${CODE_REPOS[@]}"; do
-    dir="$ROOT/$repo"
+    dir="$(repo_dir "$repo")"
     repo_is_checked_out "$repo" || continue
     scanned=$((scanned + 1))
     repo_count=0
@@ -538,7 +544,7 @@ fi
 enumerate_condemn_candidates() {
   local repo dir def br cur
   for repo in "${CODE_REPOS[@]}"; do
-    dir="$ROOT/$repo"
+    dir="$(repo_dir "$repo")"
     repo_is_checked_out "$repo" || continue
     def=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
     [[ -n "$def" ]] || def=main
@@ -600,7 +606,7 @@ run_tidy() {
     else
       slug="${repo,,}-${loc//[^A-Za-z0-9]/-}"
       echo "  - ${repo}:${loc} — ${typ}, unmerged → archive then condemn:"
-      echo "      (cd $ROOT/$repo && $GUT_CMD archive ${loc} ${slug})"
+      echo "      (cd $(repo_dir "$repo") && $GUT_CMD archive ${loc} ${slug})"
       echo "      condemned.md: type=${typ} locator=${loc} merged=${merged} sweep-after=${sweep_after} archive-ref=refs/heads/archive/condemned/${slug}"
     fi
   done <<< "$rows"

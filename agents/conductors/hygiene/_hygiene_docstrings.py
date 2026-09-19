@@ -11,6 +11,10 @@ import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import iter_checkouts  # noqa: E402
+
 
 TRIPLE_QUOTE = re.compile(r"(?i)^[ruf]*(?:\"\"\"|''')")
 
@@ -36,7 +40,8 @@ class ParseError:
 
 def repository_paths(root: Path) -> list[Path]:
     """Return user-facing ``*_workspace`` and ``HowTo*`` repositories."""
-    candidates = [*root.glob("*_workspace"), *root.glob("HowTo*")]
+    candidates = [*iter_checkouts(root), *root.glob("*_workspace"), *root.glob("HowTo*")]
+    candidates = [p for p in candidates if p.name.endswith("_workspace") or p.name.startswith("HowTo")]
     return sorted(
         {path.resolve() for path in candidates if (path / "scripts").is_dir()},
         key=lambda path: path.name.lower(),

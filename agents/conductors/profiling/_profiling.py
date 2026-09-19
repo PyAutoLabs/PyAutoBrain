@@ -48,6 +48,7 @@ from typing import Any
 # failing.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
+from _repo_paths import repo_path  # noqa: E402
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
 HEART_STATE_DIR = Path(os.environ.get("HEART_STATE_DIR", Path.home() / ".pyauto-heart"))
@@ -100,7 +101,7 @@ ACTIONABLE_CLASSIFICATIONS = ("cache-regression", "autotune-regression", "librar
 def workspace_root(explicit: str | None = None) -> Path:
     if explicit:
         return Path(explicit)
-    return PYAUTO_ROOT / "autolens_profiling"
+    return repo_path(PYAUTO_ROOT, "autolens_profiling")
 
 
 def _module_literal(py_path: Path, name: str):

@@ -12,6 +12,7 @@
 # remote session ($HOME=/root, checkouts under /home/user) and report empty
 # rather than fail.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../bin/_pyauto_root.sh"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../bin/_repo_paths.sh"
 
 # _resolve_bin <command-name> <fallback-path> — echo a runnable invocation or
 # print an install hint to stderr and return 127.
@@ -34,11 +35,15 @@ _resolve_bin() {
 # organism). The former name was `pyauto-pulse` (the back-compat shim has since
 # been removed); the canonical command is `pyauto-heart`.
 resolve_heart() {
-  _resolve_bin pyauto-heart "$PYAUTO_ROOT/PyAutoHeart/bin/pyauto-heart"
+  local checkout
+  checkout="$(pyauto_repo_path PyAutoHeart "$PYAUTO_ROOT")" || return $?
+  _resolve_bin pyauto-heart "$checkout/bin/pyauto-heart"
 }
 
 resolve_autohands() {
-  _resolve_bin autohands "$PYAUTO_ROOT/PyAutoHands/bin/autohands"
+  local checkout
+  checkout="$(pyauto_repo_path PyAutoHands "$PYAUTO_ROOT")" || return $?
+  _resolve_bin autohands "$checkout/bin/autohands"
 }
 
 # _resolve_dir <env-var-name> <repo-name> — echo the path to a sibling PyAuto
@@ -54,6 +59,8 @@ _resolve_dir() {
   # (organs are typically cloned side by side), so check it first.
   local brain_parent
   brain_parent="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+  c="$(pyauto_repo_path "$repo" "$PYAUTO_ROOT")" || return 1
+  if [[ -d "$c" ]]; then printf '%s' "$c"; return 0; fi
   # $PYAUTO_ROOT already resolves to the checkout parent on a developer box,
   # so the old instance-named entry here was redundant as well as wrong
   # anywhere else.

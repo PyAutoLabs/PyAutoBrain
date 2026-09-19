@@ -24,6 +24,7 @@
 set -u
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_pyauto_root.sh"
 ROOT="$PYAUTO_ROOT"
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_repo_paths.sh"
 OWNER=PyAutoLabs
 VERPAT='[0-9]{4}\.[0-9]+\.[0-9]+\.[0-9]+'
 
@@ -62,8 +63,9 @@ repos=()
 vers=()
 for s in "${STAMPS[@]}"; do
     repo="${s%%:*}"; path="${s#*:}"
-    if [ -f "$ROOT/$repo/$path" ]; then
-        v=$(grep -oE "$VERPAT" "$ROOT/$repo/$path" 2>/dev/null | head -1)
+    checkout="$(pyauto_repo_path "$repo" "$ROOT")" || exit $?
+    if [ -f "$checkout/$path" ]; then
+        v=$(grep -oE "$VERPAT" "$checkout/$path" 2>/dev/null | head -1)
     elif [ "$gh_ok" -eq 1 ]; then
         v=$(gh api "repos/$OWNER/$repo/contents/$path" -q '.content' 2>/dev/null \
             | base64 -d 2>/dev/null | grep -oE "$VERPAT" | head -1)

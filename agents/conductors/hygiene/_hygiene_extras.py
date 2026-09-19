@@ -52,6 +52,10 @@ import sys
 import tomllib
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import iter_checkouts  # noqa: E402
+
 # The extra mode=release installs for every library, and therefore the coverage
 # mode=smoke is expected to match.
 RELEASE_EXTRA = "optional"
@@ -97,7 +101,7 @@ def libraries(root: Path) -> dict[str, tuple[str, dict]]:
         return {}
 
     found: dict[str, tuple[str, dict]] = {}
-    for checkout in sorted(p for p in root.iterdir() if p.is_dir()):
+    for checkout in sorted(p for p in (set(iter_checkouts(root)) | set(root.iterdir())) if p.is_dir()):
         pyproject = checkout / "pyproject.toml"
         try:
             data = tomllib.loads(pyproject.read_text())
