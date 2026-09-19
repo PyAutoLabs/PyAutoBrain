@@ -52,6 +52,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 import _pyauto_root  # noqa: E402
+from _repo_paths import repo_path  # noqa: E402
 
 
 def _default_root() -> str:
@@ -136,8 +137,10 @@ def diff_detail(root: str, pairs=PAIRS) -> list[tuple[str, str, list[str]]]:
     """
     records: list[tuple[str, str, list[str]]] = []
     for lib_rel, ws_rel in pairs:
-        lib_dir = os.path.join(root, lib_rel)
-        ws_dir = os.path.join(root, ws_rel)
+        lib_repo, _, lib_subdir = lib_rel.partition("/")
+        ws_repo, _, ws_subdir = ws_rel.partition("/")
+        lib_dir = str(repo_path(root, lib_repo) / lib_subdir)
+        ws_dir = str(repo_path(root, ws_repo) / ws_subdir)
         if not (os.path.isdir(lib_dir) and os.path.isdir(ws_dir)):
             continue
         repo = ws_rel.split("/")[0]
@@ -173,7 +176,7 @@ def library_config_relpaths(root: str, libraries=LIBRARIES) -> set[str]:
     reachability reference the orphan check compares against."""
     out: set[str] = set()
     for repo, pkg in libraries:
-        cfg = os.path.join(root, repo, pkg, "config")
+        cfg = str(repo_path(root, repo) / pkg / "config")
         if os.path.isdir(cfg):
             out |= _yaml_relpaths(cfg)
     return out

@@ -28,6 +28,7 @@
 set -u
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+. "$HERE/_pyauto_root.sh"
 . "$HERE/_repo_paths.sh"
 
 echo "== morning: sync every repo to main (ff-only; real work is skipped) =="
@@ -51,7 +52,7 @@ if [ "${1:-}" != "--no-publish" ]; then
     # saw (the observation expires after 48h). Publishing it here, beside the
     # Brain's, is what keeps those eight rows lit — they went grey because this
     # leg did not exist and the last hand-run was a week old.
-    heart_checkout="$(pyauto_repo_path PyAutoHeart "$HERE/../..")" || exit $?
+    heart_checkout="$(pyauto_repo_path PyAutoHeart "$PYAUTO_ROOT")" || exit $?
     heart="$heart_checkout/bin/pyauto-heart"
     if [ -x "$heart" ]; then
         echo

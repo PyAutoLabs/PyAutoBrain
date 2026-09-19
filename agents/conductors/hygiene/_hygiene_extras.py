@@ -54,7 +54,7 @@ from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _repo_paths import iter_checkouts  # noqa: E402
+from _repo_paths import iter_checkouts, repo_path  # noqa: E402
 
 # The extra mode=release installs for every library, and therefore the coverage
 # mode=smoke is expected to match.
@@ -117,7 +117,7 @@ def install_roots(
     root: Path, step: re.Pattern[str]
 ) -> list[tuple[str, tuple[str, ...]]]:
     """Requirement roots the given install step passes to pip, in order."""
-    workflow = root / WORKFLOW
+    workflow = repo_path(root, WORKFLOW.parts[0]) / Path(*WORKFLOW.parts[1:])
     if not workflow.exists():
         return []
 
@@ -210,7 +210,7 @@ def closure(
 
 def missing(root: Path) -> tuple[list[dict], str | None]:
     """Return (findings, skip-reason). A skip-reason means nothing was scannable."""
-    if not (root / WORKFLOW).exists():
+    if not (repo_path(root, WORKFLOW.parts[0]) / Path(*WORKFLOW.parts[1:])).exists():
         return [], f"{WORKFLOW} is not present under the scan root"
 
     checkouts = libraries(root)

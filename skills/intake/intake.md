@@ -36,7 +36,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    until the page that offers the task is rebuilt:
 
    ```bash
-   cd $PYAUTO_MAIN/PyAutoMind
+   cd "${PYAUTO_MIND:-$(test -d "$PYAUTO_MAIN/organs/PyAutoMind" && echo "$PYAUTO_MAIN/organs/PyAutoMind" || echo "$PYAUTO_MAIN/PyAutoMind")}"
    pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
    pyauto-brain intake dashboard --check     # must print "…are current"
    source scripts/prompt_sync.sh && prompt_sync_push "intake: file <name>"

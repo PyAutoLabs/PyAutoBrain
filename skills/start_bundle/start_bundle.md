@@ -40,7 +40,7 @@ issue, and never open issues for members you have not planned.
 Create the worktree **once** for the whole bundle, not once per member:
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_create <bundle-slug> <repo1> [repo2 ...]
 ```
 

@@ -16,7 +16,7 @@ the worktree helpers, the execution-environment model, and the registry paths.
 ### 1. Conflict guard
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 
@@ -49,7 +49,7 @@ library work ships first (`/ship_library`), workspace follows.
 ### 4. Create the task worktree (feature-dev mechanics, local-dev)
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_create <task-name> <repo1> [repo2 ...]
 ```
 
@@ -93,7 +93,7 @@ The `  - <repo>` bullets under `repos:` are the claim — they are what
 informational and may be omitted. Then:
 
 ```bash
-source PyAutoMind/scripts/prompt_sync.sh
+source "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/prompt_sync.sh"
 prompt_sync_push "prompt: register <task-name> library repos in active.md"
 ```
 

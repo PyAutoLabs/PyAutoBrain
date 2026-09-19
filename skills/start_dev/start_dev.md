@@ -75,7 +75,7 @@ Default runs without the flag are unchanged: present-and-wait.
 ### 0. Sync + resume check (Mind)
 
 ```bash
-source PyAutoMind/scripts/prompt_sync.sh
+source "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/prompt_sync.sh"
 prompt_sync_new_prompts          # sweep up any new local prompt ideas (no-op if none)
 ```
 
@@ -143,7 +143,7 @@ routing decision.
 ### 6. Register in Mind + route
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 
@@ -163,7 +163,7 @@ classification.
 registration (active.md / planned.md) added in step 6:
 
 ```bash
-source PyAutoMind/scripts/prompt_sync.sh
+source "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/prompt_sync.sh"
 prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill>"
 ```
 

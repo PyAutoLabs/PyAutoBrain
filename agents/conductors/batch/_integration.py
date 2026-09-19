@@ -45,6 +45,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _repo_paths import repo_path  # noqa: E402
+from _pyauto_root import pyauto_root  # noqa: E402
 
 BRAIN = Path(__file__).resolve().parents[3]
 WORKTREE_SH = BRAIN / "bin" / "worktree.sh"
@@ -82,7 +83,7 @@ def workspace_root() -> Path:
     operator's word and always wins; otherwise it is the parent of this Brain
     checkout, which is true in every environment the organism runs in.
     """
-    return Path(os.environ.get("PYAUTO_ROOT") or BRAIN.parent)
+    return pyauto_root()
 
 
 def task_name(slot: str) -> str:
@@ -182,9 +183,10 @@ def plan_jobs(members: list, order: list, notes: list) -> list:
                                  "want_sha": str(p.get("head_sha") or "")})
     jobs = []
     for g in groups.values():
-        if not (workspace_root() / g["dir"] / ".git").exists():
+        checkout = repo_path(workspace_root(), g["dir"])
+        if not (checkout / ".git").exists():
             notes.append(f"{g['repo']}: no checkout at "
-                         f"{workspace_root() / g['dir']} — left out of the "
+                         f"{checkout} — left out of the "
                          f"integration root")
             continue
         jobs.append(g)

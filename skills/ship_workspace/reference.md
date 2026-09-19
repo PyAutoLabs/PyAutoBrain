@@ -120,7 +120,7 @@ SHIP_EOF
    (all the state `lifecycle.py check` drift-checks):
 
 ```bash
-python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <YYYY-MM-DD> --from-file <tmp> --prompt <active-filename> --apply
+python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/lifecycle.py" record <slug> --date <YYYY-MM-DD> --from-file <tmp> --prompt <active-filename> --apply
 ```
 
 Push Mind: `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.

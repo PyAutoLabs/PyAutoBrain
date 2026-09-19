@@ -50,8 +50,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEFAULT_PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PYAUTO_ROOT="${PYAUTO_ROOT:-$DEFAULT_PYAUTO_ROOT}"
+. "$SCRIPT_DIR/_pyauto_root.sh"
 . "$SCRIPT_DIR/_repo_paths.sh"
 for _repo in PyAutoMind PyAutoBrain PyAutoMemory PyAutoHeart PyAutoHands autolens_profiling PyAutoFit; do
   pyauto_repo_path "$_repo" "$PYAUTO_ROOT" >/dev/null || exit $?

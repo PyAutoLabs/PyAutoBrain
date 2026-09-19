@@ -62,6 +62,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[3]
 # The one workspace-root resolver (agents/_pyauto_root.py, mirrored by
 # bin/_pyauto_root.sh) — never a literal path.
 sys.path.insert(0, str(BRAIN_HOME / "agents"))
+from _repo_paths import repo_path
 import _pyauto_root  # noqa: E402
 
 # The shared board theme: the one place that answers "what does a one-tap
@@ -103,7 +104,7 @@ def resolve_root(explicit: str | None = None) -> Path:
     sibling = BRAIN_HOME.parent / CORTEX_REPO
     if sibling.is_dir():
         return sibling
-    return _pyauto_root.pyauto_root() / CORTEX_REPO
+    return repo_path(_pyauto_root.pyauto_root(), CORTEX_REPO)
 
 
 _SCRIPTS: dict[str, object] = {}

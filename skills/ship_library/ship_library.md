@@ -24,7 +24,7 @@ PR format, the execution contract, and the impact analysis are in
 Read `PyAutoMind/active.md` for the task's `worktree:` and `repos:` list.
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 WT_ROOT=~/Code/PyAutoLabs-wt/<task-name>
 source "$WT_ROOT/activate.sh"
 ```

@@ -41,7 +41,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    debris), `/cli_noise_clean`, `/dep_audit`, `/audit_docs` — for the full audit,
    or for `perf` route slow imports/functions to `/refactor` / `/bug` (JAX-adapt
    is a judgement call, never automatic). For `packaging`, preview with
-   `DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging`, then run it without `DRY_RUN` to
+   `DRY_RUN=1 "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/clean_slate.sh" --packaging`, then run it without `DRY_RUN` to
    remove only the reported generated directories. For `docstrings`, `escapes` and `refs`, route the
    exact reported findings to `/refactor`; the Hygiene scan remains read-only.
    A `refs` finding is the reference **as written** — judge the intended target

@@ -53,6 +53,8 @@ from _sizing import (  # noqa: E402
 # same ranking function the `/memory` verb prints — one recall implementation.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "faculties" / "memory"))
 import _memory  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _repo_paths import repo_path  # noqa: E402
 
 # The shared board theme: the one place that answers "what does a one-tap board
 # look like". Presentation only — the stylesheet, the hero, the pills — so this
@@ -559,7 +561,7 @@ MEMORY_QUERY_WORDS = 200
 def _memory_home(mind: Path) -> Path | None:
     """The PyAutoMemory checkout beside this Mind, or None when it is absent."""
     override = os.environ.get("PYAUTO_MEMORY", "")
-    home = Path(override) if override else mind.parent / "PyAutoMemory"
+    home = Path(override) if override else repo_path(mind.parent, "PyAutoMemory")
     return home if home.is_dir() else None
 
 

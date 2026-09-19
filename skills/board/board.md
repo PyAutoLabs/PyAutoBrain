@@ -39,7 +39,7 @@ nothing; every chip on it routes back through the real doors.
    human-gated job; closing issues stays `/issue_cleanup`'s; deletion stays
    `/repo_cleanup`'s. The board only names the door.
 4. The local sync/clean leg is not yours to run from chat — it is the
-   terminal command `bash PyAutoBrain/bin/morning.sh` on the human's machine.
+   terminal command `bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/morning.sh"` on the human's machine.
 
 Publishing (`--apply`) is CI's job (`brain_board.yml`); run it manually only
 when asked to debug the render, writing under `_site/` or a scratch dir.

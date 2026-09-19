@@ -42,9 +42,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agents"))
 from _repo_paths import iter_checkouts  # noqa: E402
+from _pyauto_root import pyauto_root  # noqa: E402
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-PYAUTO_ROOT = Path(os.environ.get("PYAUTO_ROOT", BRAIN_HOME.parent))
+PYAUTO_ROOT = pyauto_root()
 DEVBOX_FILE = Path(os.environ.get(
     "BOARD_DEVBOX_FILE", BRAIN_HOME / "state" / "devbox_board.json"))
 HYGIENE_CMD = os.environ.get(

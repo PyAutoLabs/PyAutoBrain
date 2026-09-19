@@ -43,6 +43,7 @@ from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _pyauto_root import pyauto_root
 from _repo_paths import repo_path  # noqa: E402
 
 # --- the PyAutoMind taxonomy (mirrors PyAutoMind/ROUTING.md) -----------------
@@ -92,7 +93,7 @@ def norm_work_type(value: str) -> str:
 
 BRAIN_HOME = Path(__file__).resolve().parents[3]
 POLICY_PATH = BRAIN_HOME / "config" / "policy.yaml"
-BODY_MAP_PATH = repo_path(BRAIN_HOME.parent, "PyAutoMind") / "repos.yaml"
+BODY_MAP_PATH = repo_path(pyauto_root(), "PyAutoMind") / "repos.yaml"
 
 _POLICY_CACHE: dict = {}
 

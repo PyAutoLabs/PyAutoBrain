@@ -31,7 +31,7 @@ present as symlinks. Replace each affected workspace symlink with a real worktre
 on the same branch:
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_add_repo <task-name> autofit_workspace      # one call per affected workspace repo
 ```
 
@@ -42,7 +42,7 @@ runs happen inside `$WT_ROOT/<workspace_repo>`.
 ## Creating a worktree for a standalone workspace task
 
 ```bash
-source PyAutoBrain/bin/worktree.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_create <task-name> <workspace_repo1> [workspace_repo2 ...]
 ```
 
@@ -55,7 +55,7 @@ Before `/ship_workspace` runs, assert the canonical `pending-release` label so
 the later `gh pr create --label pending-release` cannot silently fail:
 
 ```bash
-bash PyAutoBrain/bin/ensure_workspace_labels.sh
+bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/ensure_workspace_labels.sh"
 ```
 
 It is idempotent (no-op when nothing drifted) and bootstraps the label where

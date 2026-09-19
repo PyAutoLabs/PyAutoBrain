@@ -102,7 +102,7 @@ Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
    (paste the drafted body verbatim via HEREDOC). Then **verify the label
    landed**: `gh pr view <n> --json labels --jq '[.labels[].name]'`. If
    `pending-release` is absent, stop and report — usually the label doesn't
-   exist on the repo; fix with `bash PyAutoBrain/bin/ensure_workspace_labels.sh`
+   exist on the repo; fix with `bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/ensure_workspace_labels.sh"`
    then `gh pr edit <n> --add-label pending-release`.
    If `gh pr create`/`gh pr edit` errors (SSH-URL origin, classic-Projects
    GraphQL failure), use the `gh api` fallbacks in `skills/OPERATIONS.md`.
@@ -178,7 +178,7 @@ ledger (issues #71/#81):
 - **Write the record** — one step: it folds + removes the `active/` prompt,
   refreshes `complete/index.md`, and prunes the task's `active.md` section
   (all the state `lifecycle.py check` drift-checks):
-  `python3 PyAutoMind/scripts/lifecycle.py record <slug> --date <completed> --from-file <tmp> --prompt <active-filename> --apply`
+  `python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/lifecycle.py" record <slug> --date <completed> --from-file <tmp> --prompt <active-filename> --apply`
 
 Then push Mind with
 `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.

@@ -8,10 +8,11 @@ recap, and the execution-environment fallback.
 
 ## Audit canonical checkouts
 
-For each in-scope repo at `$PYAUTO_MAIN/<repo>`:
+For each in-scope repo resolved from `$PYAUTO_MAIN`:
 
 ```bash
-repo_path="$PYAUTO_MAIN/<repo>"
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/_repo_paths.sh"
+repo_path="$(pyauto_repo_path "<repo>" "$PYAUTO_MAIN")"
 [[ -d "$repo_path/.git" ]] || { echo "skip: $repo_path (not a git repo)"; continue; }
 current=$(git -C "$repo_path" branch --show-current)
 dirty=$(git -C "$repo_path" status --porcelain | head)
@@ -29,7 +30,7 @@ any content not already in `origin/main`?** Use the blessed tool, never a
 hand-rolled ahead-count or `git cherry`/`merge-tree` one-off (those were wrong
 three times — docs/agent_failure_modes.md D1/D2):
 ```bash
-source PyAutoBrain/bin/branch_contribution.sh
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/branch_contribution.sh"
 branch_contribution "$repo_path" <branch> origin/main   # MERGED/ABSORBED = safe; CONTRIBUTES = keep/inspect; UNKNOWN = never delete
 ```
 An ahead-count alone over-reports (a squash-/cherry-merged branch is "ahead" yet

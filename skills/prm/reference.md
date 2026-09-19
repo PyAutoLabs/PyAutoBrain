@@ -197,7 +197,7 @@ gh api -X PATCH repos/<owner>/<repo>/issues/<n> -f state=closed --jq .state   # 
 ### 3. Mind: active/ → complete/
 
 ```bash
-cd $PYAUTO_MAIN/PyAutoMind
+cd "${PYAUTO_MIND:-$(test -d "$PYAUTO_MAIN/organs/PyAutoMind" && echo "$PYAUTO_MAIN/organs/PyAutoMind" || echo "$PYAUTO_MAIN/PyAutoMind")}"
 git rev-parse --abbrev-ref HEAD          # must be main — check BEFORE writing
 python3 scripts/lifecycle.py record <slug>   --date <YYYY-MM-DD> --from-file <body.md> --prompt <prompt.md> --apply
 ```
@@ -248,7 +248,7 @@ current.
 prompt:
 
 ```bash
-cd $PYAUTO_MAIN/PyAutoMind
+cd "${PYAUTO_MIND:-$(test -d "$PYAUTO_MAIN/organs/PyAutoMind" && echo "$PYAUTO_MAIN/organs/PyAutoMind" || echo "$PYAUTO_MAIN/PyAutoMind")}"
 grep -rn "<slug>\|<prompt-filename>" draft/ active/ epics.md \
      active.md planned.md parked.md condemned.md
 ```
@@ -264,7 +264,7 @@ without asking. A folder is the handful this merge could plausibly have
 finished:
 
 ```bash
-BRAIN=$PYAUTO_MAIN/PyAutoBrain/agents/conductors/intake/_intake.py
+BRAIN="${PYAUTO_BRAIN:-$(test -d "$PYAUTO_MAIN/organs/PyAutoBrain" && echo "$PYAUTO_MAIN/organs/PyAutoBrain" || echo "$PYAUTO_MAIN/PyAutoBrain")}/agents/conductors/intake/_intake.py"
 python3 "$BRAIN" --mind . reconcile draft/<work-type>/<target>
 ```
 
@@ -351,7 +351,7 @@ Then remove it properly — never `rm -rf`:
 
 ```bash
 export PYAUTO_MAIN=$HOME/Code/PyAutoLabs
-source PyAutoBrain/bin/worktree.sh && worktree_remove <task>
+source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh" && worktree_remove <task>
 ```
 
 It **refuses** on a dirty repo, and on a merged task whose `active.md` claim is

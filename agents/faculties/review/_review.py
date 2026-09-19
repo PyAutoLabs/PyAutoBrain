@@ -135,7 +135,7 @@ def in_place_repos(task: str) -> list[Path]:
     entry lists its repos there and the checkouts live at the workspace root.
     """
     pyauto_root = _pyauto_root.pyauto_root()
-    active = pyauto_root / "PyAutoMind" / "active.md"
+    active = repo_path(pyauto_root, "PyAutoMind") / "active.md"
     if not active.exists():
         return []
     repos: list[Path] = []

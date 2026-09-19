@@ -106,3 +106,27 @@ def test_journal_does_not_follow_preexisting_temp_link(tmp_path):
     migration.save(journal, {'stage': 'planned'})
     assert important.read_text() == 'KEEP'
     assert 'planned' in journal.read_text()
+
+
+def test_moving_manifest_checkout_keeps_journal_and_rollback_working(tmp_path):
+    import pytest
+    root, _, bundles, _ = fixture(tmp_path)
+    mind = root / 'PyAutoMind'
+    manifest = mind / 'repos.yaml'
+    manifest.write_text(manifest.read_text() + '  PyAutoMind:\n    path: organs/PyAutoMind\n')
+    git(mind, 'init', '-q')
+    git(mind, 'config', 'user.email', 'test@example.org')
+    git(mind, 'config', 'user.name', 'Test')
+    git(mind, 'add', 'repos.yaml')
+    git(mind, 'commit', '-qm', 'manifest')
+    with pytest.raises(ValueError, match='journal must be outside'):
+        migration.plan(root, mind / 'journal.json', bundles)
+    journal = tmp_path / 'journal.json'
+    data = migration.plan(root, journal, bundles)
+    migration.apply(journal, data)
+    assert migration.manifest_paths(root)['Demo'] == Path('science/Demo')
+    assert not mind.exists()
+    assert journal.exists()
+    migration.verify(data)
+    migration.rollback(journal, data)
+    assert manifest.exists()
