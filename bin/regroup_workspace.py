@@ -162,6 +162,24 @@ def plan(root, state, bundles_root=None, manifest_root=None):
                 after = json.dumps(settings, indent=2) + '\n'
         if before != after:
             configs.append({'path': str(path), 'old': before, 'new': after})
+    # Older bundles predate organ environment overrides. Sourcing them after
+    # the canonical activation must select their own flat dependency links.
+    task_roots = {Path(wt).parent for row in records for wt in row['worktrees']
+                  if wt != row['old']}
+    if bundles_root is not None and bundles_root.is_dir():
+        task_roots.update(p for p in bundles_root.iterdir() if p.is_dir() and not p.is_symlink())
+    import shlex
+    for task_root in sorted(task_roots):
+        task_activation = task_root / 'activate.sh'
+        if not task_activation.is_file() or task_activation.is_symlink():
+            continue
+        before = task_activation.read_text()
+        exports = '\n# Select this bundle after a canonical workspace activation.\n'
+        for variable, name in [('BRAIN', 'PyAutoBrain'), ('MIND', 'PyAutoMind'),
+                               ('HEART', 'PyAutoHeart'), ('HANDS', 'PyAutoHands')]:
+            exports += f'export PYAUTO_{variable}={shlex.quote(str(task_root / name))}\n'
+        exports += 'export PATH="$PYAUTO_BRAIN/bin:$PYAUTO_HEART/bin:$PYAUTO_HANDS/bin:$PATH"\n'
+        configs.append({'path': str(task_activation), 'old': before, 'new': before + exports})
     activation = root / 'activate.sh'
     brain_relative = str(remap(repo_path(root, 'PyAutoBrain'), moves).relative_to(root))
     heart_relative = str(remap(repo_path(root, 'PyAutoHeart'), moves).relative_to(root))

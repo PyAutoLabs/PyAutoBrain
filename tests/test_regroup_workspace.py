@@ -36,6 +36,7 @@ def fixture(tmp_path):
     task = bundles / 'task'
     task.mkdir(parents=True)
     git(repo, 'worktree', 'add', '-qb', 'task', str(task / 'Demo'))
+    (task / 'activate.sh').write_text('export PYAUTO_ROOT=' + str(task) + '\n')
     dependency = bundles / 'other'
     dependency.mkdir()
     (dependency / 'Demo').symlink_to(repo, target_is_directory=True)
@@ -63,7 +64,9 @@ def test_apply_and_rollback_preserve_dirty_data_and_linked_worktree(tmp_path):
     assert '${CLAUDE_PROJECT_DIR}/science/Demo/hook.py' in (root / '.claude/settings.json').read_text()
     import json
     assert json.loads((root / '.claude/settings.json').read_text())['env']['PYTHONPATH'] == str(new)
+    assert f'export PYAUTO_MIND={task}/PyAutoMind' in (task / 'activate.sh').read_text()
     migration.rollback(journal, data)
+    assert 'PYAUTO_MIND=' not in (task / 'activate.sh').read_text()
     assert migration.snapshot(repo) == before
     assert not new.exists()
     assert (bundles / 'other/Demo').resolve() == repo
