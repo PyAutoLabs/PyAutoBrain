@@ -28,7 +28,7 @@ gates every outward message.
 
 | Mode | Surface | Consumed by |
 |------|---------|-------------|
-| `scan` *(default)* | the **Discussions hub**'s open threads (unanswered = no accepted answer and the last word is not ours) + every `PyAutoMind/repos.yaml` repo → open issues **and PRs** authored by non-self humans (bots filtered), with **awaiting-response** detection (the conversation's last word is not ours) ranked by waiting time, plus open PRs with **review requested** from a self login (any author) | `/community` step 1; the board's community sensory leg |
+| `scan` *(default)* | the **Discussions hub**'s open threads (awaiting-response = no accepted answer and the last word is not ours, except Announcements and Show and tell, which remain ours to watch) + every `PyAutoMind/repos.yaml` repo → open issues **and PRs** authored by non-self humans (bots filtered), with **awaiting-response** detection (the conversation's last word is not ours) ranked by waiting time, plus open PRs with **review requested** from a self login (any author) | `/community` step 1; the board's community sensory leg |
 | `triage <ref>` | one discussion, issue or PR → context-sufficiency signals (code block, traceback, versions, expected-vs-actual, data pointer), missing-signal clarifying-question seeds, comment tail, route; a discussion ref routes to **answer in the thread** (a confirmed bug gets an issue with a link back); a PR ref adds the **change-shape block** (draft, files, +/-, requested reviewers, mergeable state, head→base) | `/community` steps 2–3 |
 
 ```
@@ -62,10 +62,19 @@ failed search degrades honestly (`degraded:` in the surface), never silently.
   reader: a question, a help request or an idea is answered in its
   Discussions thread; a report with a reproducer is an issue and routes to
   `/start_dev_for_user`; a discussion that turns out to be a bug gets an
-  issue opened with a link back and the thread marked answered with the
-  issue link. No session can post to, answer or convert a Discussion (the
+  issue opened with a link back. Accepted implementation proposals follow
+  that same issue route; the human marks the verdict comment as the accepted
+  answer in Ideas & Proposals, whether acceptance with the issue link or a recorded
+  no. Accepted answers settle threads in answerable categories only.
+  No session can post to, answer or convert a Discussion (the
   REST Discussions API is read-only, GraphQL is refused) — the human's click
   is always the last step.
+- **Broadcasts are ours to watch.** Announcements and Show and tell remain
+  visible and can be triaged explicitly, but an outside comment does not
+  put them in awaiting-response. Help & Questions, Ideas & Proposals, and
+  Bugs & Errors follow the last-word rule until an accepted answer settles
+  the thread. Bugs & Errors is for investigation; confirmed reproducible
+  defects are tracked on linked repository issues.
 - **Conversation state lives on GitHub + Mind, never here.** Labels
   (`needs-info`, `pending-release`) and the issue thread itself are the
   conversation's memory; in-flight dev state is the `user-facing: true` entry

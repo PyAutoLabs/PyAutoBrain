@@ -1135,12 +1135,12 @@ def render_md(data):
                     if e.get("waiting_days") is not None else "?")
             L.append(f"  - `/community triage {community_ref(e)}` "
                      f"[{days} waiting] @{e['author']}: {e['title'][:70]}")
-        for e in c["open_external_issues"] + c["open_external_prs"]:
+        for e in c["open_external_issues"] + c["open_external_prs"] + c.get("open_discussions", []):
             if (e.get("type"), e["repo"], e["number"]) in awaiting_keys:
                 continue
             note = ("ours to watch" if e.get("awaiting_response") is False
                     else "unchecked")
-            L.append(f"  - `/community triage {e['repo']}#{e['number']}` "
+            L.append(f"  - `/community triage {community_ref(e)}` "
                      f"[{note}] @{e['author']}: {e['title'][:70]}")
         for e in c["awaiting_review"]:
             L.append(f"  - `/community triage {e['repo']}#{e['number']}` "
@@ -1499,7 +1499,7 @@ def render_html(data):
             days = f"{waited:.0f}d waiting" if waited is not None else "waiting"
             H.append(community_row(
                 e, days, "r" if (waited or 0) >= COMMUNITY_STALE_DAYS else "y"))
-        for e in c["open_external_issues"] + c["open_external_prs"]:
+        for e in c["open_external_issues"] + c["open_external_prs"] + c.get("open_discussions", []):
             if (e.get("type"), e["repo"], e["number"]) in awaiting_keys:
                 continue
             note = ("ours to watch" if e.get("awaiting_response") is False
