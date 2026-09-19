@@ -55,6 +55,6 @@ For a two-surface refresh, use that module's `routing_table`/`owner_map` and
 `write_block` APIs rather than writing every other repository's generated files.
 The task root preview is the review artifact; installation is not a merge grant.
 
-[CONTEXT.md](../skills/CONTEXT.md) defines bounded results and completed-phase
+[CONTEXT.md](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/skills/CONTEXT.md) defines bounded results and completed-phase
 handoffs. Continue authorized work; fresh sessions are a human choice at natural
 boundaries, not a reason for agents to stop early.

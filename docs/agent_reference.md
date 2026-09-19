@@ -19,7 +19,7 @@ when it should.
 ## The organism
 
 The organs, their boundaries, and the `Brain → Heart (gate) → Build (execute)`
-call chain are defined **once** in [`ORGANISM.md`](../ORGANISM.md) — this repo
+call chain are defined **once** in [`ORGANISM.md`](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/ORGANISM.md) — this repo
 hosts that canonical page; every other organ links to it. In one line: the
 Mind decides *what*, the Brain (this repo) figures out *how*, the Heart gates,
 the Hands build, Memory knows what the science says.
@@ -36,13 +36,13 @@ Mind  →  Build Agent  →  vitals faculty  →  Heart  →  GREEN/YELLOW/RED
                       →  Build Agent  →  Build (execute)
 ```
 
-The consult graph is a DAG (see [`ORGANISM.md`](../ORGANISM.md)): conductors
+The consult graph is a DAG (see [`ORGANISM.md`](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/ORGANISM.md)): conductors
 consult faculties; faculties read their sensor organ; a conductor never
 consults another conductor — if it wants one's opinion, that opinion should be
 a faculty. The Build Agent is the reusable template for this pattern.
 
 How much human checkpointing a workflow run needs is defined once in
-[`AUTONOMY.md`](../AUTONOMY.md) — the autonomy contract mapping each Mind-prompt
+[`AUTONOMY.md`](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/AUTONOMY.md) — the autonomy contract mapping each Mind-prompt
 `Autonomy:` level to behaviour at every checkpoint.
 
 ## Specialist reasoning agents
@@ -88,7 +88,7 @@ and read each agent's own `AGENTS.md` for its full role.
 
 ## The command surface (Brain implicit)
 
-The verb table in [AGENTS.md](../AGENTS.md) is the machinery; humans drive it through short commands
+The verb table in [AGENTS.md](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/AGENTS.md) is the machinery; humans drive it through short commands
 (`/intake`, `/feature`, …) in Claude Code, or discoverable skills in Claude and
 Codex. The Brain stays **implicit** — you type a verb, or plain natural language
 via `/route`, and it routes to the right agent; normal usage never says
@@ -112,7 +112,7 @@ readiness, community, resume, upkeep — as one-tap 📋 payloads, and
 The command bodies live in `skills/<verb>/<verb>.md`; thin `SKILL.md` wrappers
 make the same canonical workflows discoverable to skill-aware harnesses.
 `bin/install.sh` installs both surfaces without duplicating their bodies. Shared
-architecture prose is in [`skills/COMMANDS.md`](../skills/COMMANDS.md); the
+architecture prose is in [`skills/COMMANDS.md`](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/skills/COMMANDS.md); the
 work-type taxonomy the router uses is `PyAutoMind/ROUTING.md`.
 
 ## Chat register: concise by default
