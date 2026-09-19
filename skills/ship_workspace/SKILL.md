@@ -13,3 +13,7 @@ issue/Mind formats). Shared context and cross-harness notes:
 `## Scripts Changed` PR-body contract and the **library-first merge gate** for
 linked workspace PRs. Do not duplicate or reinterpret the workflow here — if it
 changes, edit `ship_workspace.md`.
+
+Read only the applicable step/environment from linked references, not all files.
+Reuse unchanged instructions already loaded; follow [CONTEXT.md](../CONTEXT.md)
+for bounded output and repository paths.

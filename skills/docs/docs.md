@@ -11,7 +11,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 Treat the request as PyAutoMind work-type **`docs/`** — documentation, examples,
 notebooks, or tutorial prose. If no prompt path exists, create one under
-`PyAutoMind/docs/<target>/<name>.md` (original request verbatim), then run
+`PyAutoMind/draft/docs/<target>/<name>.md` (original request verbatim), then run
 **`/start_dev`** on it. `start_dev` routes through the Brain, and the tutorial
 The judgment/execution tier split in `../WORKFLOW.md` applies. Taxonomy:
 `PyAutoMind/ROUTING.md`.

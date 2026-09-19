@@ -13,3 +13,7 @@ contract and impact analysis). Shared context and cross-harness notes:
 `## API Changes` PR-body contract — `/start_workspace`, release review, and
 downstream workspace migration depend on it. Do not duplicate or reinterpret
 the workflow here — if it changes, edit `ship_library.md`.
+
+Read only the applicable step/environment from linked references, not all files.
+Reuse unchanged instructions already loaded; follow [CONTEXT.md](../CONTEXT.md)
+for bounded output and repository paths.

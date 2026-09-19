@@ -4,6 +4,9 @@ The `start_*` and `ship_*` skills are entry points, not independent reasoning
 systems. Mind owns task state, Brain plans and coordinates, Memory supplies
 read-only context, Heart gates shipping, and Hands handles releases only.
 
+Read [CONTEXT.md](CONTEXT.md) once for bounded reads/output, phase handoffs and
+grouped/flat path resolution. Reuse unchanged instructions already loaded.
+
 ## Call chains
 
 ```text
@@ -25,7 +28,7 @@ bin/pyauto-brain vitals
 bin/pyauto-brain build --dry-run
 ```
 
-If Brain is unavailable, emulate the requested decision from `PyAutoBrain/AGENTS.md`
+If Brain is unavailable, emulate the requested decision from its `AGENTS.md`
 and this file, and say that it was emulated.
 
 ## Model delegation
@@ -84,7 +87,7 @@ review, and Heart form the ship gate. Merge is always a current human action.
 
 ## Task state and worktrees
 
-Mind paths are workspace-root-relative: `PyAutoMind/active.md`, `planned.md`,
+Mind paths are relative to its resolved checkout: `active.md`, `planned.md`,
 and prompt lifecycle `draft/ → active/ → complete/YYYY/MM/`. Use Mind's
 lifecycle and prompt-sync scripts; do not hand-roll state transitions.
 
@@ -106,5 +109,5 @@ All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/eu
 **Library repos:** PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoReduce, PyAutoCTI.
 **Workspace repos:** autofit_workspace, autogalaxy_workspace, autolens_workspace, autocti_workspace, autoreduce_workspace, autofit_workspace_test, autogalaxy_workspace_test, autolens_workspace_test, autocti_workspace_test, HowToFit, HowToGalaxy, HowToLens, euclid_strong_lens_modeling_pipeline.
 
-Generated from `PyAutoMind/repos.yaml`; edit there, then run `python3 PyAutoMind/scripts/repos_sync.py --write`.
+Generated from `PyAutoMind/repos.yaml`; from the resolved Mind checkout, edit `repos.yaml`, then run `python3 scripts/repos_sync.py --write`.
 <!-- repos_sync:end -->

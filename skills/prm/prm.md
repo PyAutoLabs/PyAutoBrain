@@ -5,7 +5,9 @@ moment they are genuinely green, then close the task out — issue closed, promp
 moved `active/` → `complete/`, `dashboard.md` reconciled and regenerated,
 worktree and local branches removed — and hand back a ledger.
 
-Each step below has a matching section in [`reference.md`](reference.md) carrying
+Load this procedure once. Skip the MCP lane on local CLI; on MCP skip local
+command recipes. Read the close-out only after merging. Reuse unchanged
+references already loaded. Each step below has a matching section in [`reference.md`](reference.md) carrying
 its commands, failure signatures and reasoning (the close-out's sub-steps are its
 numbered §1-7); read it when you run the step.
 Routing: `PyAutoBrain/skills/COMMANDS.md`. `/prm` sequences owners it never
@@ -44,25 +46,7 @@ command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
   `/prm` **deletes no remote branch on any surface** (step 5.6), so nothing here
   needs the second probe that step used to carry.
 
-### The `mcp` lane, step by step
-
-Every GitHub call a close-out makes, so a mobile run reads this page and the
-mapping page only if something here is missing. Names take the
-`mcp__github__` prefix; `ToolSearch` fetches a schema that is not loaded.
-
-| Step | Call |
-|---|---|
-| 1 resolve | `list_pull_requests` (state `open`), or `pull_request_read` `get` for a known number. Mind's `active.md` via `get_file_contents` |
-| 2 judge CI | `pull_request_read` `get_check_runs` — every check on the head commit, in one call. Then `pull_request_read` `get` for `mergeable` / `merge_state_status` |
-| 2 by workflow | `actions_list` `list_workflow_runs` **has no `head_sha` filter** (`workflow_runs_filter` is actor/branch/event/status only): filter by `branch`, then match `head_sha` yourself, or you will judge a stale run. Legs: `actions_list` `list_workflow_jobs`, `resource_id` = run id |
-| 3 stop | **No call.** On this surface step 3 is judge-once-then-stop: no `subscribe_pr_activity`, no `send_later`. Report where each PR stands and end the turn; the human re-runs `/prm` when CI is green |
-| 3 red | `get_job_logs` with `run_id`, `failed_only: true`, `return_content: true` — **before** anything else, the blob is purged |
-| 4 merge | `merge_pull_request` (`merge_method: "merge"`), then `pull_request_read` `get` to confirm `MERGED`; `unsubscribe_pr_activity` only to clear a stale subscription an older run left |
-| 5.2 issue | `add_issue_comment`, then `issue_write` `update` with `state: "closed"` and `state_reason: "completed"` — an unset reason is what leaves an issue reading "closed as not planned" |
-| 5.1 proof | git, not GitHub — and `--is-ancestor` needs an unshallowed clone (`reference.md` §1) |
-
-Steps 5.3-5.7 touch no GitHub API at all; what they need is a checkout, and the
-note at the foot of step 5 says what to do without one.
+On MCP, read [mcp.md](mcp.md) for the exact calls; do not load local recipes.
 
 ## 1. Resolve the target PR(s)
 
@@ -124,36 +108,9 @@ before checks are green, it expires: arm no waiter or auto-merge, stop, and
 require the human to invoke `/prm` again. This permission never reaches a
 release or release rehearsal.
 
-1. **The Heart freeze window — library PRs only.** A release validation is a
-   window in which the library `main`s must not move: a merge landing inside it
-   invalidates the evidence and restales the rehearsal (~75 minutes, measured
-   2026-08-29). Heart's flag says whether one is open:
-
-   ```bash
-   pyauto-heart freeze --show      # exit 3 = frozen; 0 = clear or expired
-   ```
-
-   Active **and** a target PR is in a **library** repo (the `category: library`
-   entries of `PyAutoMind/repos.yaml`) → stop, report the `FROZEN: …` line
-   verbatim, and say when it expires. Organ and workspace repos are not gated;
-   a workspace PR whose library half is held waits on the library-first gate
-   below anyway. Where Heart is not installed (mobile, web, CI) there is
-   nothing to read — say so in one line; an absent flag is not a freeze.
-
-   **`--thaw "<why>"` is the only way past**, and it is loggable by
-   construction: merge, then append one row to `PyAutoMind/autonomy_log.md`
-   under a `## Freeze overrides` heading (create the section, with this header,
-   on first use) —
-
-   ```
-   | date | task / PR | freeze reason | until | thawed by | why |
-   ```
-
-   — in the same Mind push the close-out already makes (step 5.4). The override
-   exists because a freeze is advice about evidence, not a protected branch,
-   and an unloggable override is one people route around instead of recording.
-   Never thaw silently, and never thaw to get past a red check: this gate is
-   about *when*, and step 2 is about *whether*.
+1. **Library freeze gate:** for library PRs, read [freeze.md](freeze.md) and
+   check Heart's freeze flag. Stop when frozen unless the human supplied
+   `--thaw "<why>"`; record that override. Never thaw past red CI.
 2. **Library PR first.** The workspace PR may not merge until its upstream
    library PR is `MERGED` — the library-first gate
    ([`../ship_workspace/reference.md`](../ship_workspace/reference.md)). Refuse
@@ -171,150 +128,13 @@ refused by GitHub, report the reason verbatim and stop.
 
 ## 5. Close the task out
 
-Typing `/prm` authorized all of this; the only questions are the guards in step
-6. Order is forced by the tooling, so do not reorder:
-
-1. **Prove every branch merged, per repo** — a `complete/` record is a write-up,
-   not a merge receipt, and a task may have shipped in waves. Ask git, per repo
-   the task claims, never the record. Any repo with unmerged commits and no open
-   PR **stops the close-out**: a half-merged task must not be recorded complete.
-2. **Issue** — post the "Shipped" comment (template: `../ship_library/reference.md`
-   → "Issue comments + Mind state"), then close it. `gh issue close` is broken in
-   this gh; use the REST path.
-3. **Mind: `active/` → `complete/`** — draft the completion body, then one
-   verb does the whole Mind-side close-out — the record, the prompt's
-   removal, the `active.md` row (and any `parked.md`/`planned.md` pointer),
-   the shadow row when the tier is `notify`, and `complete/index.md`:
-
-   ```bash
-   python3 scripts/lifecycle.py close <slug> --date <merge date> \
-     --from-file <body.md> --pr <Repo#N …> [--tier notify --gate "<cell>" \
-     --action <action> --stage <1|2>]            # dry run: prints every step
-   python3 scripts/lifecycle.py close … --apply  # then does them
-   ```
-
-   Read the dry run before `--apply`: it names the record path, the file it
-   removes, the entry it drops and every cross-reference you must repoint
-   (`draft/`, `active/`, `epics.md`, the registries — it never rewrites those
-   itself). It refuses a record that already exists and a slug it cannot
-   resolve; `--prompt <bare-filename>` names the prompt when the slug does
-   not. `lifecycle.py record …` remains underneath for the record alone.
-
-   **Record the scope you merged, not the scope you filed.** On a partial merge,
-   record what shipped and re-file the remainder as a fresh
-   `draft/<work-type>/<target>/` prompt pointing back at the record. Recording a
-   prompt whole on a partial merge is what leaves half-done work on the dashboard
-   as pickable backlog.
-
-   **Carry `pending-release:` into the record.** A library PR merged here is not
-   a released library, and the `active.md` row that held that fact is about to
-   be pruned. Copy every uncleared `- pending-release: <lib>@<pr-url>` line from
-   the row into the completion body, so the obligation outlives the row and the
-   dashboard's **Pending release** section keeps showing it. `/prm` never
-   clears the key — only `/review_release` does, on a release that actually
-   published (`PyAutoMind/REFERENCE.md` → "The pending-release chain").
-
-   **3b. Shadow row — tier-`notify` only.** The tier-`notify` auto-merge
-   decision is pre-registered over **40 candidates**, and this close-out is
-   where the window is fed. It used to hang off a batch review slot, which
-   runs only when a batch is launched; close-out happens on every shipped
-   task. Do it only after sub-step 1 proved every branch `MERGED` — the row
-   records what the human *did* with the PR, and before the merge there is
-   nothing to record.
-
-   1. **Tier.** The prompt's declared `Consequence:` header wins; with no
-      header, `bin/pyauto-brain sizing <prompt>`. Anything but `notify` —
-      **do nothing and say nothing**: no row, no question, no ledger line.
-   2. **Gate cell.** Copy it from the task's ship calibration row in
-      `PyAutoMind/autonomy_log.md` — `ship_library` / `ship_workspace` wrote
-      it at PR-open. No such row (a task that never went through ship)? Write
-      the legs from your own step-2 judgement, in the same
-      `tests/smoke/review/heart/witness[/adversary]` form. Never invent a
-      greener gate than the one that ran.
-   3. **Stage.** `2` if an independent-model adversary leg ran on this task,
-      else `1`. Stage 1 and stage 2 are never pooled, so this is not a
-      judgement call: the leg either ran or it did not.
-   4. **The one question.** Ask the human exactly this, and ask nothing else:
-
-      > Merged unchanged, or did you change something substantive first?
-      > (substantive = a change you would have minded finding already merged:
-      > a changed default, a user-visible error message, a removed or weakened
-      > test, a renamed public thing, a wrong docs claim)
-
-      → `merged-unchanged` / `merged-after-substantive-change`. `not-merged`
-      is what gets recorded when `/prm` stopped on a guard (step 6) and never
-      reached the question — never a guess at what the answer would have been.
-   5. **Append** — the `--tier notify --gate "<cell>" --action <action>
-      --stage <1|2>` flags on the `close` verb above do it (`shadow-row` is
-      the verb underneath). The dry run prints the row and the new count line
-      before anything is written; the row rides the same commit and push as
-      the record and the dashboard, never a commit of its own.
-   6. **Name it in the ledger** (sub-step 7): "shadow row appended, count
-      N/40".
-
-   Protocol, power calculation and the **pre-registered decision rule** live in
-   the tier-`notify` protocol prompt, folded under `## Original prompt` in
-   `PyAutoMind/complete/2026/09/prm-shadow-row-notify-tier.md` — read it
-   before interpreting the table.
-4. **Mind: leave the page true** — the close-out is finished when `dashboard.md`
-   stops offering this work, not when the claim is released.
-   `dashboard_refresh.yml` heals a stale *render*, never a stale *prompt*, so
-   this leg belongs to `/prm` and to nothing else.
-
-   1. **Sweep** — grep the slug and the prompt filename across `draft/`,
-      `active/`, `epics.md` and the registry files; repoint or remove every hit
-      the merge falsified (an unblocked `blocked-by:`, a finished epic phase, a
-      `superseded-by:` chain that now ends in a record).
-   2. **Reconcile** — `pyauto-brain intake reconcile draft/<work-type>/<target>`
-      over the shipped prompt's folder plus any the merged diff lands in;
-      folder-scoped, never whole-backlog. **Proof retires, resemblance reports**:
-      a sibling this merge provably covers gets its own record and `git rm` under
-      the same `/prm` authorization; one that merely *looks* alike gets a ledger
-      line and the `/intake reconcile` door — never a second question (step 6
-      owns the only one).
-   3. **Regenerate — always**, whatever 1 and 2 found; moving a prompt into
-      `complete/` changes the page by itself, so this leg has no "nothing
-      changed" exit, only a `--check` that says the render is current:
-
-      ```bash
-      pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
-      pyauto-brain intake dashboard --check     # must print "…are current"
-      ```
-
-   Never hand-edit either page. Commit the render **with** the record, then
-   `lifecycle.py check` and push Mind. `git show --stat HEAD` must name both
-   dashboard files beside the record, or leg 3 did not happen.
-
-   **Push the branch you are on — never force `main`.** On a laptop that branch
-   *is* `main`. On a branch-scoped surface (the phone, claude.ai/code, any
-   `claude/**` or `codex/**` flow) it is the session's branch, and pushing it is the whole
-   job: a close-out diff is ledger by construction, so
-   `mind_ledger_merge.yml` merges it into `main` and can delete the branch after its checks pass — no PR, and no "merge that branch too" left for the human. Say in
-   the ledger that the Mind branch was pushed and will land itself. Two things
-   change that: the close-out also touched `scripts/`, `.github/`, `skills/` or
-   another code path (then the branch waits for a human — say so plainly), or
-   `lifecycle.py check` fails (then it was never going to merge; fix the drift).
-   `python3 scripts/ledger_merge.py classify --base origin/main` in the Mind
-   checkout tells you which of the three you are in.
-5. **Worktree** — `worktree_remove <task>`, never `rm -rf`. It refuses on a dirty
-   repo and on a claim still registered in `active.md` — which is exactly why
-   step 3 comes first.
-6. **Local branches only** — delete a local `feature/<task>` left in the
-   canonical checkout, never one whose merge you did not prove in sub-step 1.
-   **The remote branch is not yours to delete**: GitHub removes a merged head
-   itself, and `branch_sweep*.yml` / `/repo_cleanup` collect what escapes.
-   Nothing to do, and no ledger line — not "deferred", not "blocked".
-7. **Report the ledger** — PRs merged, issue closed, record path, `active.md`
-   released, **dashboard regenerated** (plus any sibling retired, any suspect
-   left standing with its `/intake reconcile` prefix), worktree removed, and
-   anything skipped. That dashboard line is not prose: if you cannot write it,
-   leg 4.3 did not run — go back and run it.
-
-**On `mcp`:** 1 and 2 run as usual; 3 works if PyAutoMind is checked out, else
-the record is pending. Leg 4 needs **both** checkouts (state is Mind's, renderer
-is Brain's): with only Mind, sweep and reconcile and leave the render to
-`dashboard_refresh.yml`; with neither, call the leg pending rather than implying
-the page is true. 5 and 6 are local-only — name 5 outstanding, say nothing of 6.
+After every target PR is confirmed merged, **read and execute
+[closeout.md](closeout.md)** in order. It retains the complete mandatory
+procedure: prove each claimed branch merged, close the issue, move the prompt
+with `lifecycle.py close`, retain pending-release obligations, record any
+notify-tier shadow row, reconcile references and regenerate the dashboard,
+then remove the worktree and local branches. No close-out on partial evidence.
+Use the current step's [reference section](reference.md), not the whole file.
 
 ## 6. The only guards that stop you
 

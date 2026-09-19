@@ -23,13 +23,13 @@ the Mind registry paths used below.
 /start_dev <prompt-file-path> --auto   # autonomous mode per ../AUTONOMY.md (see "--auto mode")
 ```
 
-Prompts live under `<work-type>/<target>/` (first folder = work type, second =
+Prompts live under `draft/<work-type>/<target>/` (first folder = work type, second =
 target repo/domain). Pre-migration `<target>/<name>.md` paths still resolve.
-Examples: `bug/autofit/factor_graph_instance_iteration.md`,
-`feature/autoarray/oversampling.md`.
+Examples: `draft/bug/autofit/factor_graph_instance_iteration.md`,
+`draft/feature/autoarray/oversampling.md`.
 
 If the user gives a development task with **no** prompt path, first write a
-concise prompt file under the right `PyAutoMind/<work-type>/<target>/` folder
+concise prompt file under the resolved Mind checkout’s `draft/<work-type>/<target>/` folder
 (include the original request verbatim), then continue with that path. Never
 write one under `human_review/` — that folder is shipped work awaiting a human's
 sign-off, not work to start, and it is filed only by an explicit `/intake`
@@ -70,6 +70,9 @@ Everything downstream (`ship_*` under `--auto`) is gated by the four-leg
 autonomous-ship gate and **ends at PR-open** — merge stays a human act.
 Default runs without the flag are unchanged: present-and-wait.
 
+Resolve paths once using [CONTEXT.md](../CONTEXT.md). Read only the reference
+section required by the current step; a prior accepted plan remains approved.
+
 ## Flow
 
 ### 0. Sync + resume check (Mind)
@@ -87,8 +90,10 @@ the shared task state, so no special handoff step is needed across environments.
 ### 1. Read the prompt
 
 Normalize the argument (strip whitespace/backticks/angle-brackets; if it's a
-markdown link `[label](path)`, take the path in the last `](…)`). Read
-`PyAutoMind/<normalized>`. If missing, report and list prompts in that folder.
+markdown link `[label](path)`, take its target). Resolve Mind once. Accept a
+Mind-relative path, or strip the resolved Mind root / its workspace-relative
+prefix (`organs/PyAutoMind/` or `PyAutoMind/`) exactly once. Never prepend Mind
+to an already resolved path. Read the resulting file inside that checkout. If missing, report and list prompts in that folder.
 
 ### 2. Route through the Feature Agent (Brain + Memory)
 
