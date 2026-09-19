@@ -64,6 +64,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 # looked in the wrong tree.
 sys.path.insert(0, str(BRAIN_HOME / "agents"))
 import _pyauto_root  # noqa: E402
+from _repo_paths import repo_path  # noqa: E402
 
 PYAUTO_ROOT, ROOT_REASON = _pyauto_root.workspace_root_reason()
 GH = os.environ.get("BOARD_GH", "gh")
@@ -341,7 +342,7 @@ def _local_published_json(repo, name):
     reporting nothing.
     """
     for rel in (Path("board") / name, Path("docs") / name, Path(name)):
-        candidate = PYAUTO_ROOT / repo / rel
+        candidate = repo_path(PYAUTO_ROOT, repo) / rel
         try:
             if candidate.is_file():
                 return json.loads(candidate.read_text(encoding="utf-8"))
@@ -522,7 +523,7 @@ def collect_versions(stamps, org, reference_repo, degraded):
     for s in stamps:
         repo, _, path = str(s).partition(":")
         v = None
-        local = PYAUTO_ROOT / repo / path
+        local = repo_path(PYAUTO_ROOT, repo) / path
         if local.is_file():
             m = re.search(VERPAT, local.read_text(encoding="utf-8", errors="replace"))
             v = m.group(0) if m else None

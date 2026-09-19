@@ -52,12 +52,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULT_PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PYAUTO_ROOT="${PYAUTO_ROOT:-$DEFAULT_PYAUTO_ROOT}"
+. "$SCRIPT_DIR/_repo_paths.sh"
+for _repo in PyAutoMind PyAutoBrain PyAutoMemory PyAutoHeart PyAutoHands autolens_profiling PyAutoFit; do
+  pyauto_repo_path "$_repo" "$PYAUTO_ROOT" >/dev/null || exit $?
+done
 ADMIN_SKILLS_DIR="$PYAUTO_ROOT/admin_jammy/skills"
-MIND_SKILLS_DIR="$PYAUTO_ROOT/PyAutoMind/skills"
-BRAIN_SKILLS_DIR="$PYAUTO_ROOT/PyAutoBrain/skills"
-HEART_SKILLS_DIR="$PYAUTO_ROOT/PyAutoHeart/skills"
-BUILD_SKILLS_DIR="$PYAUTO_ROOT/PyAutoHands/skills"
-PROFILING_SKILLS_DIR="$PYAUTO_ROOT/autolens_profiling/skills"
+MIND_SKILLS_DIR="$(pyauto_repo_path PyAutoMind "$PYAUTO_ROOT")/skills"
+BRAIN_SKILLS_DIR="$(pyauto_repo_path PyAutoBrain "$PYAUTO_ROOT")/skills"
+HEART_SKILLS_DIR="$(pyauto_repo_path PyAutoHeart "$PYAUTO_ROOT")/skills"
+BUILD_SKILLS_DIR="$(pyauto_repo_path PyAutoHands "$PYAUTO_ROOT")/skills"
+PROFILING_SKILLS_DIR="$(pyauto_repo_path autolens_profiling "$PYAUTO_ROOT")/skills"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 
@@ -144,7 +148,7 @@ write_agents_surface() {
   local blockfile repo agents
   blockfile="$(mktemp)"; agents_surface_block > "$blockfile"
   for repo in "${ORGAN_REPOS[@]}"; do
-    agents="$PYAUTO_ROOT/$repo/AGENTS.md"
+    agents="$(pyauto_repo_path "$repo" "$PYAUTO_ROOT")/AGENTS.md"
     if [ ! -f "$agents" ]; then
       echo "skipped (absent): $agents"; continue
     fi
@@ -160,7 +164,7 @@ check_agents_surface() {
   local blockfile repo agents cur drift=0
   blockfile="$(mktemp)"; agents_surface_block > "$blockfile"
   for repo in "${ORGAN_REPOS[@]}"; do
-    agents="$PYAUTO_ROOT/$repo/AGENTS.md"
+    agents="$(pyauto_repo_path "$repo" "$PYAUTO_ROOT")/AGENTS.md"
     if [ ! -f "$agents" ]; then
       echo "skipped (absent): $agents"; continue
     fi
@@ -325,7 +329,7 @@ _discovery_actual() {
 write_project_discovery() {
   local repo repo_dir link target d
   for repo in "${DISCOVERY_REPOS[@]}"; do
-    repo_dir="$PYAUTO_ROOT/$repo"
+    repo_dir="$(pyauto_repo_path "$repo" "$PYAUTO_ROOT")"
     if [ ! -d "$repo_dir/skills" ]; then echo "skipped (no skills/): $repo_dir"; continue; fi
     # Drop our managed symlinks (only symlinks — never real files) so a removed
     # or renamed skill does not leave a stale committed link.
@@ -348,7 +352,7 @@ check_project_discovery() {
   local repos=("${DISCOVERY_REPOS[@]}")
   [ "$#" -gt 0 ] && repos=("$@")
   for repo in "${repos[@]}"; do
-    repo_dir="$PYAUTO_ROOT/$repo"
+    repo_dir="$(pyauto_repo_path "$repo" "$PYAUTO_ROOT")"
     [ -d "$repo_dir/skills" ] || continue
     want="$(_discovery_manifest "$repo_dir")"
     got="$(_discovery_actual "$repo_dir")"
@@ -380,7 +384,7 @@ esac
 # web-github, ci-only). When a root repo is not checked out, it is simply
 # skipped — the skills from the roots that ARE present still install.
 
-if [ -d "$PYAUTO_ROOT/PyAutoFit" ] || [ -d "$HOME/Code/PyAutoLabs/PyAutoFit" ]; then
+if [ -d "$(pyauto_repo_path PyAutoFit "$PYAUTO_ROOT")" ] || [ -d "$HOME/Code/PyAutoLabs/PyAutoFit" ]; then
   echo "Environment: local-dev (PyAuto repos detected)"
 else
   echo "Environment: web-github / ci-only (clone roots on demand)"

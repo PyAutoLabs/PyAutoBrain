@@ -53,6 +53,7 @@ from pathlib import Path
 # failing.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
+from _repo_paths import repo_path, iter_checkouts  # noqa: E402
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
 
@@ -203,7 +204,7 @@ def fail(code, msg):
 
 
 def repo_root(name):
-    path = PYAUTO_ROOT / name
+    path = repo_path(PYAUTO_ROOT, name)
     if not (path / ".git").exists():
         fail(4, f"repo '{name}' not checked out at {path}")
     return path
@@ -343,7 +344,7 @@ def build_decision(args):
     ws = workspace_shape(workspace_root_)
     if not ws["start_here"] and "start_here" not in " ".join(ws["script_dirs"]):
         risks.append("workspace has no scripts/start_here.py — weak front-door signal")
-    if (PYAUTO_ROOT / target).exists():
+    if (repo_path(PYAUTO_ROOT, target)).exists():
         risks.append(f"target '{target}' already exists locally — name collision")
 
     return {
@@ -415,7 +416,7 @@ def reference_library(reference_name):
     derived from its name (e.g. autolens_assistant -> autolens, PyAutoLens)."""
     package = reference_name.replace("_assistant", "")
     want = f"pyauto{package[4:]}" if package.startswith("auto") else None
-    for child in sorted(PYAUTO_ROOT.iterdir()):
+    for child in sorted(set(iter_checkouts(PYAUTO_ROOT)) | set(PYAUTO_ROOT.iterdir())):
         if child.is_dir() and child.name.lower() == want:
             return package, child.name
     fail(4, f"cannot resolve the reference's library repo for '{reference_name}'")
@@ -556,7 +557,7 @@ def apply_seed(args, decision):
     plan_path = Path(tempfile.mkstemp(prefix="clone_plan_", suffix=".json")[1])
     plan_path.write_text(json.dumps(plan, indent=2))
 
-    seed_script = PYAUTO_ROOT / "PyAutoHands" / "autohands" / "clone_seed.py"
+    seed_script = repo_path(PYAUTO_ROOT, "PyAutoHands") / "autohands" / "clone_seed.py"
     if not seed_script.exists():
         fail(4, f"Build primitive not found: {seed_script}")
     cmd = [sys.executable, str(seed_script), str(plan_path)]
@@ -634,7 +635,7 @@ def discover_targets(reference_name):
     """Sibling assistants checked out beside the reference."""
     return sorted(
         child.name
-        for child in PYAUTO_ROOT.iterdir()
+        for child in (set(iter_checkouts(PYAUTO_ROOT)) | set(PYAUTO_ROOT.iterdir()))
         if child.is_dir()
         and child.name.endswith("_assistant")
         and child.name != reference_name

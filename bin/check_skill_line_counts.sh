@@ -17,14 +17,18 @@ set -euo pipefail
 LIMIT="${1:-200}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PYAUTO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+. "$SCRIPT_DIR/_repo_paths.sh"
+for _repo in PyAutoMind PyAutoBrain PyAutoHeart PyAutoHands autolens_profiling; do
+  pyauto_repo_path "$_repo" "$PYAUTO_ROOT" >/dev/null || exit $?
+done
 
 ROOTS=(
   "$PYAUTO_ROOT/admin_jammy/skills"         # vestigial (hosts no skills)
-  "$PYAUTO_ROOT/PyAutoMind/skills"
-  "$PYAUTO_ROOT/PyAutoBrain/skills"
-  "$PYAUTO_ROOT/PyAutoHeart/skills"
-  "$PYAUTO_ROOT/PyAutoHands/skills"
-  "$PYAUTO_ROOT/autolens_profiling/skills"
+  "$(pyauto_repo_path PyAutoMind "$PYAUTO_ROOT")/skills"
+  "$(pyauto_repo_path PyAutoBrain "$PYAUTO_ROOT")/skills"
+  "$(pyauto_repo_path PyAutoHeart "$PYAUTO_ROOT")/skills"
+  "$(pyauto_repo_path PyAutoHands "$PYAUTO_ROOT")/skills"
+  "$(pyauto_repo_path autolens_profiling "$PYAUTO_ROOT")/skills"
 )
 
 over=0
