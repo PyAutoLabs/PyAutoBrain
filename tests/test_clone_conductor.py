@@ -64,6 +64,8 @@ def test_unknown_reference_fails_cleanly():
         # the domain-agnostic base keeps af_* inference skills as GENERIC
         ("skills/af_compose_model.md", "generic"),
         (".claude/skills/af_wrap_likelihood.md", "generic"),
+        (".claude/commands/af_wrap_likelihood.md", "generic"),
+        (".codex/skills/example-assistant-af-wrap-likelihood/SKILL.md", "domain"),
         # ...and wiki/core teaches statistics here, so it too is GENERIC
         ("wiki/core/index.md", "generic"),
         ("wiki/core/concepts/priors.md", "generic"),
@@ -92,6 +94,11 @@ def test_autofit_profile_classification(path, expected):
         # domain has, if any.
         ("skills/euclid_model_lens.md", "domain"),
         (".claude/skills/euclid_hpc_runs.md", "domain"),
+        (".claude/commands/al_plot_tracer.md", "domain"),
+        (".claude/commands/euclid_hpc_runs.md", "domain"),
+        (".claude/commands/init-slam.md", "domain"),
+        (".claude/commands/contribute-upstream.md", "generic"),
+        (".codex/skills/example-assistant-al-plot-tracer/SKILL.md", "domain"),
         ("wiki/euclid/index.md", "domain"),
         ("wiki/euclid/entities/vis.md", "domain"),
         ("wiki/euclid/bibliography/euclid.bib", "domain"),
@@ -130,3 +137,16 @@ def test_wiki_core_and_skills_flip_between_references():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+@pytest.mark.parametrize("reference", ["autofit_assistant", "autolens_assistant"])
+def test_generated_codex_wrappers_are_excluded_from_seed_copy_sets(monkeypatch, reference):
+    # apply_seed passes generic + mixed to the copying primitive. A generated
+    # wrapper may refer to a domain skill omitted from that newborn; copying it
+    # would leave a discoverable but broken skill even after name substitutions.
+    wrapper = ".codex/skills/example-assistant-science-fit/SKILL.md"
+    monkeypatch.setattr(clone, "tracked_files", lambda root: [wrapper, "AGENTS.md"])
+    sets = clone.partition(Path("unused"), clone.REFERENCE_PROFILES[reference])
+    assert wrapper in sets["domain"]
+    assert wrapper not in sets["generic"] + sets["mixed"]
+    assert not sets["unclassified"]

@@ -63,6 +63,22 @@ bin/pyauto-brain vitals                    # read the Heart's readiness verdict
 bash bin/install.sh                        # symlink every organ's skills into ~/.claude
 ```
 
+Project discovery is generated separately from the registered repository body
+map. For example, after adding an assistant skill:
+
+```bash
+bash bin/install.sh --write-project-discovery autolens_assistant
+bash bin/install.sh --check-project-discovery autolens_assistant
+```
+
+Without repository arguments these commands cover registered checkouts with
+canonical `skills/` content. Flat assistant skills keep their Claude names and
+get namespaced Codex adapters; workspace skills use neutral
+`skills/<name>/SKILL.md` bodies. Codex discovery descriptions are bounded summaries;
+the linked canonical file retains the full instructions. Commit the generated
+adapters with the skill. Regeneration checks name collisions across the installed
+repository inventory and refuses conflicting user-owned destinations.
+
 The eight organs the Brain coordinates — Brain (reasoning), Mind (intent),
 Cortex (learning what is true), Memory (knowledge), Heart (health), Hands
 (release), Nerves (configuration), Gut (shedding) — are defined once in

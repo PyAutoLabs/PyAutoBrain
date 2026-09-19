@@ -97,6 +97,8 @@ _SHARED_GENERIC = [
     ".claude/hooks/*", ".claude/settings.json", ".codex/hooks.json", ".gemini/*",
     ".claude/skills/_*", ".claude/skills/start-new-project*",
     ".claude/skills/contribute-upstream*",
+    ".claude/commands/_*", ".claude/commands/start-new-project*",
+    ".claude/commands/contribute-upstream*",
 ]
 
 # Domain content a newborn regenerates/stubs rather than copies blind, shared
@@ -105,6 +107,8 @@ _SHARED_GENERIC = [
 # in a domain assistant, but the near-empty framework scaffold (generic) in the
 # domain-agnostic base — so each profile places it, not this shared set.
 _SHARED_DOMAIN = [
+    # Generated names/targets belong to the parent; regenerate for the newborn.
+    ".codex/skills/*",
     "dataset/*",
     "README.md",                  # science framing + the example prompts
     "hpc/*",
@@ -133,6 +137,8 @@ REFERENCE_PROFILES = {
         ),
         "generic": _SHARED_GENERIC,
         "domain": [
+            ".claude/commands/al_*.md",
+            ".claude/commands/euclid_*.md", ".claude/commands/init-slam.md",
             "skills/al_*.md",             # every al_* skill body
             ".claude/skills/al_*.md",     # ... and their harness mirrors
             "skills/init-slam.md", ".claude/skills/init-slam.md",  # SLAM = lensing
@@ -166,6 +172,7 @@ REFERENCE_PROFILES = {
             *_SHARED_GENERIC,
             "skills/af_*.md",             # generic inference skills
             ".claude/skills/af_*.md",     # ... and their harness mirrors
+            ".claude/commands/af_*.md",
             "wiki/core/*",                # statistics/inference reference
             "wiki/literature/*",          # the near-empty literature scaffold
         ],
