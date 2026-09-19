@@ -106,5 +106,5 @@ All repos live at `PyAutoLabs/<local dir name>` on GitHub, except: `Jammy2211/eu
 **Library repos:** PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoReduce, PyAutoCTI.
 **Workspace repos:** autofit_workspace, autogalaxy_workspace, autolens_workspace, autocti_workspace, autoreduce_workspace, autofit_workspace_test, autogalaxy_workspace_test, autolens_workspace_test, autocti_workspace_test, HowToFit, HowToGalaxy, HowToLens, euclid_strong_lens_modeling_pipeline.
 
-Generated from `PyAutoMind/repos.yaml`; edit there, then run `python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/repos_sync.py" --write`.
+Generated from `PyAutoMind/repos.yaml`; edit there, then run `python3 PyAutoMind/scripts/repos_sync.py --write`.
 <!-- repos_sync:end -->
