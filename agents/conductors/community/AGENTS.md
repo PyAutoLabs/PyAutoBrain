@@ -66,6 +66,10 @@ failed search degrades honestly (`degraded:` in the surface), never silently.
   issue link. No session can post to, answer or convert a Discussion (the
   REST Discussions API is read-only, GraphQL is refused) — the human's click
   is always the last step.
+- **Broadcasts are ours to watch.** Announcements and Show and tell remain
+  visible and can be triaged explicitly, but an outside comment does not
+  put them in awaiting-response. Q&A and Proposals follow the last-word
+  rule until an accepted answer settles the thread.
 - **Conversation state lives on GitHub + Mind, never here.** Labels
   (`needs-info`, `pending-release`) and the issue thread itself are the
   conversation's memory; in-flight dev state is the `user-facing: true` entry

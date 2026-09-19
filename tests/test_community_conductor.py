@@ -13,6 +13,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
@@ -314,6 +316,70 @@ def test_scan_hears_the_hub_and_only_unanswered_threads_await(tmp_path):
     text = _run(["scan"], tmp_path, stub).stdout
     assert f"https://github.com/{HUB}/discussions/11" in text
     assert "Open discussions:     3 on the hub" in text
+
+
+@pytest.mark.parametrize("category,answered,awaiting", [
+    ("Announcements", False, False),
+    ("Show and tell", False, False),
+    ("Q&A", False, True),
+    ("Proposals", False, True),
+    ("Proposals", True, False),
+])
+def test_discussion_category_and_answer_control_response(
+    tmp_path, category, answered, awaiting,
+):
+    discussion = _discussion(
+        HUB, 21, "Jammy2211", "a community thread", comments=1,
+        category=category, answered=answered,
+    )
+    discussion["body"] = "Context remains available for manual triage."
+    stub = _fabricate(tmp_path, {
+        **EMPTY_SEARCHES,
+        "discussions.json": [discussion],
+        "discussion.json": discussion,
+        "discussion_comments.json": [
+            {"user": {"login": "visitor"}, "created_at": "2026-07-10T01:00:00Z",
+             "body": "an outside comment"},
+        ],
+    })
+    scan = _run(["scan", "--json"], tmp_path, stub)
+    assert scan.returncode == 0, scan.stderr
+    surface = json.loads(scan.stdout)
+    assert surface["open_discussions"][0]["awaiting_response"] is awaiting
+    assert len(surface["awaiting_response"]) == int(awaiting)
+    assert surface["counts"]["open_discussions"] == 1
+
+    triage = _run(["triage", f"{HUB}/discussions/21", "--json"], tmp_path, stub)
+    assert triage.returncode == 0, triage.stderr
+    context = json.loads(triage.stdout)
+    assert context["awaiting_response"] is awaiting
+    assert context["category"] == category
+    assert context["body"] == discussion["body"]
+    assert context["comment_tail"][0]["author"] == "visitor"
+    assert context["signals_missing"]
+    assert "answer in the thread" in context["route"]
+
+
+def test_broadcasts_do_not_consume_the_scan_detail_budget(tmp_path):
+    broadcasts = [
+        _discussion(HUB, number, "Jammy2211", "release news", comments=1,
+                    category="Announcements")
+        for number in range(30)
+    ]
+    question = _discussion(HUB, 40, "asker", "still need help", comments=1)
+    question["updated_at"] = "2026-07-09T00:00:00Z"
+    stub = _fabricate(tmp_path, {
+        **EMPTY_SEARCHES,
+        "discussions.json": broadcasts + [question],
+        "discussion_comments.json": [{"user": {"login": "visitor"}, "body": "hi"}],
+    })
+    result = _run(["scan", "--json"], tmp_path, stub)
+    assert result.returncode == 0, result.stderr
+    surface = json.loads(result.stdout)
+    assert [e["number"] for e in surface["awaiting_response"]] == [40]
+    assert all(e["awaiting_response"] is False for e in surface["open_discussions"][:30])
+    calls = (tmp_path / "gh_calls.log").read_text()
+    assert calls.count("/comments") == 1
 
 
 def test_triage_discussion_ref_routes_to_the_thread(tmp_path):

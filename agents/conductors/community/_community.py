@@ -9,7 +9,7 @@ the issues/PRs outsiders still file — and emits deterministic surfaces the
 /community skill reasons over:
 
   scan     the hub's open discussions (unanswered = no accepted answer and
-           the last word is not ours) + every repos.yaml repo -> open issues
+           the last word is not ours, except broadcast categories) + every repos.yaml repo -> open issues
            AND pull requests raised by non-self humans (awaiting-response
            detection, waiting-time ranking) + open PRs with review requested
            from a self login (the board's community sensory leg)
@@ -63,6 +63,7 @@ PRIMARY_ORG = "PyAutoLabs"
 # PyAutoLabs/.github. Every library and workspace points here; the repos
 # themselves keep Discussions off.
 HUB = os.environ.get("COMMUNITY_HUB", "PyAutoLabs/.github")
+BROADCAST_CATEGORIES = {"Announcements", "Show and tell"}
 SCAN_DETAIL_CAP = 30  # issues that get a per-issue last-commenter lookup
 # Pause between search-API calls — the scan makes up to six, and GitHub's
 # secondary rate limit trips on rapid bursts (hermetic tests set it to 0).
@@ -200,7 +201,8 @@ def _discussion_entry(d, hub):
 def hub_discussions(hub, degraded):
     """Open, unlocked, human-authored threads on the hub. An accepted answer
     settles a thread (awaiting_response=False without a comment lookup);
-    otherwise the last word decides, exactly as for an issue."""
+    broadcast categories remain ours to watch; otherwise the last word
+    decides, exactly as for an issue."""
     items = list_discussions(hub)
     if items is None:
         degraded.append(f"{hub} discussions listing failed (gh auth? Discussions off?)")
@@ -267,9 +269,11 @@ def build_scan():
     # v2 limit, recorded in AGENTS.md).
     discussions = hub_discussions(HUB, degraded)
     for entry in discussions:
-        if entry["answered"]:
+        if entry["answered"] or entry["category"] in BROADCAST_CATEGORIES:
             entry["awaiting_response"] = False
-    conversations = issues + prs + [d for d in discussions if not d["answered"]]
+    conversations = issues + prs + [
+        d for d in discussions if d["awaiting_response"] is None
+    ]
     for entry in sorted(
         conversations, key=lambda e: e["updated_at"] or "", reverse=True
     )[:SCAN_DETAIL_CAP]:
@@ -428,6 +432,7 @@ def build_discussion_triage(owner_repo, number):
     tail = _tail(comments)
     last = tail[-1]["author"] if tail else (d.get("user") or {}).get("login")
     answered = d.get("answer_chosen_at") is not None
+    category = (d.get("category") or {}).get("name")
     return {
         "type": "discussion",
         "pr": None,
@@ -438,14 +443,17 @@ def build_discussion_triage(owner_repo, number):
         "author": (d.get("user") or {}).get("login"),
         "author_is_external": not is_self(d.get("user")),
         "state": d.get("state"),
-        "category": (d.get("category") or {}).get("name"),
+        "category": category,
         "answered": answered,
         "labels": [l.get("name") for l in d.get("labels", []) or []],
         "body": body,
         "signals_present": present,
         "signals_missing": missing,
         "comment_tail": tail,
-        "awaiting_response": (not answered) and last not in SELF_LOGINS,
+        "awaiting_response": (
+            not answered and category not in BROADCAST_CATEGORIES
+            and last is not None and last not in SELF_LOGINS
+        ),
         "route": (
             f"answer in the thread {d.get('html_url')} — the session drafts the "
             "reply, the human posts it and marks the answer; a confirmed bug -> "
