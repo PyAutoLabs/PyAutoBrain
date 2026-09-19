@@ -92,6 +92,11 @@ def test_autofit_profile_classification(path, expected):
         # domain has, if any.
         ("skills/euclid_model_lens.md", "domain"),
         (".claude/skills/euclid_hpc_runs.md", "domain"),
+        (".claude/commands/al_plot_tracer.md", "domain"),
+        (".claude/commands/euclid_hpc_runs.md", "domain"),
+        (".claude/commands/init-slam.md", "domain"),
+        (".claude/commands/contribute-upstream.md", "generic"),
+        (".codex/skills/example-assistant-al-plot-tracer/SKILL.md", "mixed"),
         ("wiki/euclid/index.md", "domain"),
         ("wiki/euclid/entities/vis.md", "domain"),
         ("wiki/euclid/bibliography/euclid.bib", "domain"),
