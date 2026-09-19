@@ -97,6 +97,8 @@ _SHARED_GENERIC = [
     ".claude/hooks/*", ".claude/settings.json", ".codex/hooks.json", ".gemini/*",
     ".claude/skills/_*", ".claude/skills/start-new-project*",
     ".claude/skills/contribute-upstream*",
+    ".claude/commands/_*", ".claude/commands/start-new-project*",
+    ".claude/commands/contribute-upstream*",
 ]
 
 # Domain content a newborn regenerates/stubs rather than copies blind, shared
@@ -133,6 +135,8 @@ REFERENCE_PROFILES = {
         ),
         "generic": _SHARED_GENERIC,
         "domain": [
+            ".claude/commands/al_*.md",
+            ".claude/commands/euclid_*.md", ".claude/commands/init-slam.md",
             "skills/al_*.md",             # every al_* skill body
             ".claude/skills/al_*.md",     # ... and their harness mirrors
             "skills/init-slam.md", ".claude/skills/init-slam.md",  # SLAM = lensing
@@ -150,7 +154,9 @@ REFERENCE_PROFILES = {
             "scripts/*.py",               # bundled science scripts (a named lens)
             *_SHARED_DOMAIN,
         ],
-        "mixed": _SHARED_MIXED,
+        # Generated wrappers carry this reference's namespace and skill targets.
+        # Regenerate them from the newborn's inventory after adapting its skills.
+        "mixed": [*_SHARED_MIXED, ".codex/skills/*"],
         "scaffold_dirs": ["wiki/core", "wiki/literature", "dataset", "hpc"],
     },
     # The domain-agnostic base: `af_*` inference skills and the *statistics*
@@ -166,6 +172,7 @@ REFERENCE_PROFILES = {
             *_SHARED_GENERIC,
             "skills/af_*.md",             # generic inference skills
             ".claude/skills/af_*.md",     # ... and their harness mirrors
+            ".claude/commands/af_*.md",
             "wiki/core/*",                # statistics/inference reference
             "wiki/literature/*",          # the near-empty literature scaffold
         ],
@@ -175,7 +182,7 @@ REFERENCE_PROFILES = {
                                           # the worked prompts are domain
             *_SHARED_DOMAIN,
         ],
-        "mixed": _SHARED_MIXED,
+        "mixed": [*_SHARED_MIXED, ".codex/skills/*"],
         "scaffold_dirs": ["dataset", "hpc"],
     },
 }

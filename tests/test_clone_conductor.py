@@ -64,6 +64,8 @@ def test_unknown_reference_fails_cleanly():
         # the domain-agnostic base keeps af_* inference skills as GENERIC
         ("skills/af_compose_model.md", "generic"),
         (".claude/skills/af_wrap_likelihood.md", "generic"),
+        (".claude/commands/af_wrap_likelihood.md", "generic"),
+        (".codex/skills/example-assistant-af-wrap-likelihood/SKILL.md", "mixed"),
         # ...and wiki/core teaches statistics here, so it too is GENERIC
         ("wiki/core/index.md", "generic"),
         ("wiki/core/concepts/priors.md", "generic"),
@@ -92,6 +94,11 @@ def test_autofit_profile_classification(path, expected):
         # domain has, if any.
         ("skills/euclid_model_lens.md", "domain"),
         (".claude/skills/euclid_hpc_runs.md", "domain"),
+        (".claude/commands/al_plot_tracer.md", "domain"),
+        (".claude/commands/euclid_hpc_runs.md", "domain"),
+        (".claude/commands/init-slam.md", "domain"),
+        (".claude/commands/contribute-upstream.md", "generic"),
+        (".codex/skills/example-assistant-al-plot-tracer/SKILL.md", "mixed"),
         ("wiki/euclid/index.md", "domain"),
         ("wiki/euclid/entities/vis.md", "domain"),
         ("wiki/euclid/bibliography/euclid.bib", "domain"),
