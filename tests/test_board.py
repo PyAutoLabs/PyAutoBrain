@@ -167,6 +167,7 @@ def _default_fixtures(**overrides):
         "annotations.json": [],
         "comm_issues.json": EMPTY_SEARCH,
         "comm_prs.json": EMPTY_SEARCH,
+        "comm_discussions.json": [],
         "comments.json": [],
     }
     fx.update(overrides)
@@ -258,6 +259,7 @@ for arg in "$@"; do
     q=org:*is:issue*)                 cat "{fixture_dir}/comm_issues.json"; exit 0 ;;
     q=org:*is:pr*)                    cat "{fixture_dir}/comm_prs.json"; exit 0 ;;
     q=repo:*)                         cat "{fixture_dir}/comm_prs.json"; exit 0 ;;
+    repos/*/discussions)              cat "{fixture_dir}/comm_discussions.json"; exit 0 ;;
     */comments)                       cat "{fixture_dir}/comments.json"; exit 0 ;;
   esac
 done
@@ -549,6 +551,30 @@ def test_every_community_conversation_gets_its_own_chip(tmp_path):
     md = _run([], tmp_path, stub).stdout
     assert "`/community triage ExampleOrg/RepoA#7`" in md
     assert "`/community triage ExampleOrg/RepoB#9`" in md
+
+
+def test_broadcast_discussion_is_visible_as_ours_to_watch(tmp_path):
+    url = "https://github.com/ExampleOrg/RepoA/discussions/21"
+    thread = {
+        **_community_item("ExampleOrg/RepoA", 21, "visitor", "release feedback"),
+        "html_url": url,
+        "category": {"name": "Announcements"},
+        "state": "open",
+        "answer_chosen_at": None,
+    }
+    stub = _fabricate(tmp_path, _default_fixtures(**{
+        "comm_discussions.json": [thread],
+    }))
+    page_result = _run(["--html"], tmp_path, stub)
+    assert page_result.returncode == 0, page_result.stderr
+    page = page_result.stdout
+    assert f'data-cmd="/community triage {url}"' in page
+    assert "ours to watch" in page
+    md_result = _run([], tmp_path, stub)
+    assert md_result.returncode == 0, md_result.stderr
+    md = md_result.stdout
+    assert f"`/community triage {url}` [ours to watch]" in md
+    assert "0 awaiting our reply" in md
 
 
 def test_boards_footer_lists_the_family_without_self(tmp_path):

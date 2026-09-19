@@ -18,7 +18,8 @@ docs: `bin/pyauto-brain help community`.
 
    Emits a **CommunityScan**: the Discussions hub's open threads (the
    surface users post to — `PyAutoMind/policy/community_surface.md`;
-   unanswered = no accepted answer and the last word is not ours), plus open
+   awaiting-response = no accepted answer and the last word is not ours,
+   except Announcements and Show and tell, which stay ours to watch), plus open
    issues **and PRs** authored by non-self humans across every `repos.yaml`
    repo, with awaiting-response detection ranked by waiting time, plus open
    PRs with review requested from you. The Brain board runs this same scan
@@ -40,10 +41,16 @@ docs: `bin/pyauto-brain help community`.
 
 3. **Converse — drafts only.** Based on your judgment:
    - **A discussion** → answer **in the thread**: draft the reply, the human
-     posts it and marks it as the answer. If the thread is a bug with a
-     reproducer, open the issue on the target repo (quote the thread, link
-     it), route that issue via `/start_dev_for_user`, and have the human mark
-     the thread answered with the issue link. Never convert a thread in
+     posts it. In an answerable category, the human marks the settling reply
+     as the accepted answer. If the thread is a bug with a reproducer or an
+     accepted implementation proposal, open the issue on the target repo
+     (quote the thread, link it) and route it via `/start_dev_for_user`.
+     For **Proposals**, mark the verdict comment — acceptance with the issue
+     link, or a recorded no — as the accepted answer; this is what stops the
+     Ears chasing the thread. **Ideas** is for wishes without a design or an
+     offer to build. Non-answerable categories have no accept button;
+     Announcements and Show and tell remain ours to watch and can still be
+     triaged explicitly. Never convert a thread in
      place, and never ask a user to re-file: the hub is *their* surface.
      No session can post to, answer or convert a Discussion — the REST API
      is read-only and GraphQL is refused — so the human's click is the last

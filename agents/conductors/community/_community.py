@@ -331,11 +331,10 @@ def print_scan(s):
     for e in s["awaiting_response"]:
         days = f"{e['waiting_days']:.0f}d" if e["waiting_days"] is not None else "?"
         print(f"  ! {ref_label(e)} [{days} waiting] @{e['author']}: {e['title'][:70]}")
-    for e in s["open_external_issues"] + s["open_external_prs"]:
+    for e in s["open_external_issues"] + s["open_external_prs"] + s["open_discussions"]:
         if not e["awaiting_response"]:
             state = "ours-to-watch" if e["awaiting_response"] is False else "unchecked"
-            kind = "PR " if e["type"] == "pr" else ""
-            print(f"  - {kind}{e['repo']}#{e['number']} ({state}) @{e['author']}: {e['title'][:70]}")
+            print(f"  - {ref_label(e)} ({state}) @{e['author']}: {e['title'][:70]}")
     if s["awaiting_review"]:
         print(f"Review requested:     {c['awaiting_review']}")
         for e in s["awaiting_review"]:
@@ -456,9 +455,11 @@ def build_discussion_triage(owner_repo, number):
         ),
         "route": (
             f"answer in the thread {d.get('html_url')} — the session drafts the "
-            "reply, the human posts it and marks the answer; a confirmed bug -> "
+            "reply, the human posts it and, in an answerable category, marks "
+            "the settling answer; a confirmed bug or accepted proposal -> "
             "open the issue on the target repo with a link back, route it via "
-            "/start_dev_for_user, and mark the thread answered with the issue link"
+            "/start_dev_for_user. For Proposals, mark the verdict comment "
+            "(acceptance with the issue link, or a recorded no) as the answer"
         ),
         "reminders": [
             "the session judges sufficiency — these signals are heuristics, not a verdict",

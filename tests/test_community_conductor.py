@@ -358,6 +358,14 @@ def test_discussion_category_and_answer_control_response(
     assert context["comment_tail"][0]["author"] == "visitor"
     assert context["signals_missing"]
     assert "answer in the thread" in context["route"]
+    assert "accepted proposal" in context["route"]
+    assert "in an answerable category" in context["route"]
+
+    readable = _run(["scan"], tmp_path, stub)
+    assert readable.returncode == 0, readable.stderr
+    assert discussion["html_url"] in readable.stdout
+    if not awaiting:
+        assert f"{discussion['html_url']} (ours-to-watch)" in readable.stdout
 
 
 def test_broadcasts_do_not_consume_the_scan_detail_budget(tmp_path):
