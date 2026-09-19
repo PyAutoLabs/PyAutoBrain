@@ -108,3 +108,15 @@ def test_seed_pages_are_not_a_recall_surface(tmp_path):
     d = _memory.digest("quasars", m, None, None, 10)
     assert d["pages"], "the verified pages must still be found"
     assert all("seed/" not in p["page"] for p in d["pages"])
+
+
+def test_canonical_schema_is_recalled_instead_of_claude_adapter(tmp_path):
+    m = _memory_repo(tmp_path)
+    (m / "wiki/AGENTS.md").write_text("# Shared schema\ncanonical-schema-marker\n")
+    (m / "wiki/CLAUDE.md").write_text("@AGENTS.md\n")
+    digest = _memory.digest("canonical-schema-marker", m, None, None, limit=8)
+    assert [p["page"] for p in digest["pages"]] == ["wiki/AGENTS.md"]
+    root_files = {str(f.relative_to(m)) for label, _, f in _memory.surfaces(m, None, None)
+                  if label == "PyAutoMemory/root"}
+    assert "wiki/AGENTS.md" in root_files
+    assert "wiki/CLAUDE.md" not in root_files

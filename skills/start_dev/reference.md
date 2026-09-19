@@ -27,7 +27,7 @@ create_issue's base template):
 ```markdown
 ## <task-name>
 - issue: <issue-url>
-- session: claude --resume <session-id>
+- session: <actual harness; known session ID or URL, otherwise unavailable>
 - status: <library-dev | workspace-dev>
 - worktree: ~/Code/PyAutoLabs-wt/<task-name>
 - repos:
@@ -195,3 +195,8 @@ execution environments (see [`../WORKFLOW.md`](../WORKFLOW.md)):
 
 This is the same reasoning in every environment — only the source of branch state
 differs (local git vs GitHub API). It is not a separate "mobile mode".
+
+Resume metadata must describe the active harness. Record `codex resume <id>` or
+`claude --resume <id>` only when that harness and its real session ID are known;
+otherwise retain the known harness and mark the ID unavailable. Preserve earlier
+session records verbatim when resuming work from another harness.

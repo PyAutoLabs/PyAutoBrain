@@ -78,7 +78,7 @@ Update the task entry to record the worktree path and claimed repos:
 ```markdown
 ## <task-name>
 - issue: <issue-url>
-- session: claude --resume <session-id>
+- session: <actual harness; known session ID or URL, otherwise unavailable>
 - status: library-dev
 - worktree: ~/Code/PyAutoLabs-wt/<task-name>
 - repos:
@@ -110,3 +110,8 @@ test directories, and the implementation steps. End with: "When done, run
 - If `active.md` has multiple issues, ask which one to work on.
 - If a repo is already on the correct feature branch, skip creation and note it.
 - If a repo has uncommitted changes, warn before switching branches.
+
+Resume metadata must describe the active harness. Record `codex resume <id>` or
+`claude --resume <id>` only when that harness and its real session ID are known;
+otherwise retain the known harness and mark the ID unavailable. Preserve earlier
+session records verbatim when resuming work from another harness.
