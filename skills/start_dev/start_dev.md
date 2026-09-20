@@ -165,8 +165,7 @@ cannot be read, fail closed; never infer "no conflict" from missing local files.
 - **No conflict, local:** register `status: library-dev | workspace-dev` and the
   real `worktree:` path.
 - **No conflict, GitHub-control-only:** register the same status, real
-  `session:` / `location:` metadata and repo branch claims, but **no
-  `worktree:` field**. A later execution environment resumes the same
+  `session:` / `location:` metadata and repo branch claims, and record **no fake `worktree:` field**. A later execution environment resumes the same
   branch/commit.
 - **Conflict:** register in `PyAutoMind/planned.md` (blocked) and tell the user
   what's holding the repo.
