@@ -42,6 +42,79 @@ Discussions, the one surface users post to, decided in
 `PyAutoMind/policy/community_surface.md`). A discussion is named by its URL on
 every surface, because `owner/repo#N` reads as an issue.
 
+## Slack notification relay (operational runbook)
+
+Slack delivery is an external notification edge, not a Community Agent mode.
+The public Discussion remains the source of truth and the conductor remains
+read-only. Use GitHub's official Slack app in the designated workspace's
+`#general` channel; do not add a webhook, token or channel identifier to this
+repository.
+
+Before changing the channel, run `/github subscribe list` and `/github
+subscribe list features` in `#general`. Confirm that the channel is the intended
+public PyAutoLabs channel, the GitHub app can access `PyAutoLabs/.github`, and
+the person making the change is allowed to manage the workspace integration.
+If `PyAutoLabs/.github` is already subscribed, preserve its existing intentional
+features and add only `discussions`. Preserve all other repository subscriptions.
+
+The intended subscription is:
+
+```text
+/github subscribe PyAutoLabs/.github discussions
+```
+
+Use no category filter: that covers the five current Discussion categories
+(Announcements, Bugs & Errors, Help & Questions, Ideas & Proposals, Show and
+tell) and future categories. GitHub's native `discussions` feature reports
+discussions being created or answered; it does not report every reply, edit or
+reaction. If this is a new repository subscription and it enables default
+development traffic, remove only those features from this repository:
+
+```text
+/github unsubscribe PyAutoLabs/.github issues pulls commits releases deployments
+```
+
+Verify the live state with the two list commands above, then create one clearly
+marked test Discussion after human approval. Record the workspace, channel,
+setup owner, enabled features, test Discussion URL, observed message shape and
+verification date on the task issue. The expected result is one channel message
+with useful author/title context and a working public link, without
+`@channel`, `@here` or `@everyone`. Do not replay historical Discussions, and
+do not copy private Slack replies back to GitHub.
+
+Rollback is:
+
+```text
+/github unsubscribe PyAutoLabs/.github discussions
+```
+
+If native created-and-answered delivery cannot meet the requirement, stop and
+obtain approval for a separately designed event-driven fallback; retries,
+deduplication and rendering untrusted titles as inert text become required at
+that point.
+
+GitHub documents the event list and commands in its
+[Slack notification guide](https://docs.github.com/en/integrations/how-tos/slack/customize-notifications).
+
+### Live setup (2026-09-20)
+
+Jammy2211 installed the GitHub Slack app for PyAutoLabs and subscribed the
+PyAutoLabs workspace's `#general` channel to
+`PyAutoLabs/.github discussions`. The app's
+`/github subscribe list features` response showed `discussions` as the only
+enabled feature for that repository. No category filter is configured, so the
+subscription applies to all five current categories and future categories.
+
+The operator created [test Discussion #21](https://github.com/orgs/PyAutoLabs/discussions/21)
+in Help & Questions at 15:17 UTC and observed one GitHub app message in the
+channel with the author, title, category, repository and link. This verifies
+delivery for a newly created discussion; coverage of other categories and
+future external authors follows from the unfiltered subscription, rather than
+separate live tests. The workspace URL was originally `pyautolens.slack.com`
+at test time and changed to `pyautolabs.slack.com` later on 2026-09-20;
+the operator confirmed the new workspace name is PyAutoLabs. Slack redirects
+the old URL to the new one. Use the rollback command above to disable delivery.
+
 Repo enumeration comes from `PyAutoMind/repos.yaml` (the body map) under
 `PYAUTO_ROOT`; the org is searched wholesale, non-org homes individually.
 GitHub access is the `gh` CLI — `COMMUNITY_GH` overrides the binary (hermetic
