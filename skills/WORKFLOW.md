@@ -70,10 +70,14 @@ generated artefacts), route that coherent phase to an execution environment
 from the outset; Chat or another orchestration surface can still retain the
 Brain decisions and user conversation.
 
-Independent review is evidence, not a second look by the author: the same
-conversation that wrote a branch cannot self-certify the review faculty's
-independence. Delegate only the review phase when that is the sole missing
-capability.
+When the selected workflow path requires independent review, it is evidence,
+not a second look by the author: the same conversation that wrote a branch
+cannot self-certify the review faculty's independence. That requirement is
+path-specific — notably the review-faculty leg of the `--auto`
+autonomous-ship gate and the independent-adversary cases defined by
+`AUTONOMY.md` — not a universal prerequisite for an ordinary human-approved
+merge. Delegate only the review phase when the active path actually requires
+it.
 
 **Heart remains separate from CI.** Exact-head CI can satisfy applicable test or
 smoke evidence; it never substitutes for the authoritative Heart verdict. If the
@@ -135,8 +139,15 @@ Before `ship_*`, use the vitals faculty for the authoritative verdict:
   narrower "Corrective-PR exception for Heart RED". Neither permits a release,
   CI bypass, or merge.
 
-Applicable tests, downstream smoke checks for public API changes, independent
-review, and Heart form the ship gate. Merge is always a current human action.
+Applicable tests, downstream smoke checks for public API changes, and Heart
+remain the ordinary development evidence. Review requirements depend on the
+selected path: under `--auto`, the autonomous-ship gate requires
+review-faculty `CLEAN` as defined by `AUTONOMY.md`; the independent-adversary
+leg remains limited to the batch/experiment cases defined there. For an
+ordinary human-approved ship/merge, a separate review-faculty `CLEAN` verdict
+is **not a universal prerequisite** unless another explicit repository,
+branch-protection, or task rule requires it. Merge is always a current human
+action and still requires the applicable GitHub checks.
 
 ## Cross-harness behavior
 
