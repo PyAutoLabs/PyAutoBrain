@@ -99,7 +99,7 @@ GitHub documents the event list and commands in its
 ### Live setup (2026-09-20)
 
 Jammy2211 installed the GitHub Slack app for PyAutoLabs and subscribed the
-`pyautolens.slack.com` workspace's `#general` channel to
+PyAutoLabs workspace's `#general` channel to
 `PyAutoLabs/.github discussions`. The app's
 `/github subscribe list features` response showed `discussions` as the only
 enabled feature for that repository. No category filter is configured, so the
@@ -110,7 +110,10 @@ in Help & Questions at 15:17 UTC and observed one GitHub app message in the
 channel with the author, title, category, repository and link. This verifies
 delivery for a newly created discussion; coverage of other categories and
 future external authors follows from the unfiltered subscription, rather than
-separate live tests. Use the rollback command above to disable delivery.
+separate live tests. The workspace URL was originally `pyautolens.slack.com`
+at test time and changed to `pyautolabs.slack.com` later on 2026-09-20;
+the operator confirmed the new workspace name is PyAutoLabs. Slack redirects
+the old URL to the new one. Use the rollback command above to disable delivery.
 
 Repo enumeration comes from `PyAutoMind/repos.yaml` (the body map) under
 `PYAUTO_ROOT`; the org is searched wholesale, non-org homes individually.
