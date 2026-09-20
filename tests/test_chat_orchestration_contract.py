@@ -69,6 +69,20 @@ def test_remote_conflicts_still_use_mind_repo_claims():
     assert "fail closed" in reference
 
 
+def test_human_merge_does_not_inherit_the_auto_review_gate():
+    workflow = _read("skills/WORKFLOW.md")
+    autonomy = _read("AUTONOMY.md")
+    library = _read("skills/ship_library/ship_library.md")
+    workspace = _read("skills/ship_workspace/ship_workspace.md")
+
+    assert "not a universal prerequisite" in workflow
+    assert "under `--auto`" in workflow
+    assert "review-faculty `CLEAN`" in workflow
+    assert "An unattended ship" in autonomy
+    assert "Under `--auto`" in library
+    assert "Under `--auto`" in workspace
+
+
 def test_ci_evidence_never_becomes_heart_or_independent_review():
     workflow = _read("skills/WORKFLOW.md")
     library = _read("skills/ship_library/ship_library.md")
