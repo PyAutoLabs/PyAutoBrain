@@ -29,10 +29,10 @@ WT_ROOT=~/Code/PyAutoLabs-wt/<task-name>
 source "$WT_ROOT/activate.sh"
 ```
 
-In-scope repos are the workspace/tutorial repos only. If any **library** repo has
-uncommitted changes in the worktree, stop and tell the user to ship them with
-`/ship_library`. Legacy/no-worktree and other execution environments behave as in
-WORKFLOW.md (working-directory clones, manual `PYTHONPATH`).
+In-scope repos are the workspace/tutorial repos only. If a local worktree has
+uncommitted **library** changes, stop and ship them through `/ship_library`.
+A GitHub-control-only task has no local dirty-state claim to make: resolve each
+workspace branch and exact head through GitHub and inspect the remote diff.
 
 ### 2. Draft commit message + PR body (reasoning model)
 
@@ -60,22 +60,31 @@ applicable tests/smoke/review, including the reason strings verbatim from
 "Corrective-PR exception for Heart RED" for a causal fix. Follow the selected
 canonical section's scope and four record sinks exactly. Neither path permits
 release or bypassing CI; merge requires its own current human command and green
-required GitHub checks. If the
-organism CLIs are unavailable, run `/smoke_test` (with `activate.sh` sourced) as
-the gate and treat any failure as RED. Under `--auto`, this step is the
-four-leg **autonomous-ship gate** (`AUTONOMY.md` "The autonomous-ship gate");
-do not restate it here.
+required GitHub checks. If the organism CLIs are unavailable, use WORKFLOW.md's capability/evidence
+rules: run smoke locally when a runtime exists; otherwise consume existing
+**exact-head** Actions evidence only when its jobs exercise the required smoke
+scope, or hand off only that validation phase. Notebook generation or other
+required generated artefacts also require a real runtime and cannot be inferred
+from source edits. CI never substitutes for Heart: obtain fresh authoritative
+Heart readiness evidence separately, or stop at that missing evidence.
+
+Under `--auto`, this step is the four-leg **autonomous-ship gate**
+(`AUTONOMY.md` "The autonomous-ship gate"); do not restate it here. A
+same-conversation reread is not an independent review.
 
 ### 4. Execute the ship (feature-dev)
 
-On GREEN, run the dev workflow's own commit → push → smoke → feature-PR →
-cross-reference step per
-[`reference.md`](reference.md) → "Execution contract": verify the branch (never
-auto-switch), regenerate notebooks from scripts (never edit `notebooks/`
-directly), `gh pr create --label pending-release`, verify the label, and
-cross-reference the upstream library PR if linked. In local-dev Anthropic
-delegates to its execution tier; OpenAI runs inline unless a bounded exception
-applies. Elsewhere run directly. Any failure → stop and report.
+On a Heart outcome permitted by WORKFLOW.md / AUTONOMY.md, perform the
+feature-dev commit/push/validation/PR/cross-reference contract. A local runtime
+regenerates notebooks from scripts and runs smoke normally. A
+GitHub-control-only surface may perform branch/commit/PR operations but **must
+delegate notebook generation and any missing smoke/runtime evidence** before the
+branch is PR-ready; it then verifies the returned commit and exact-head checks.
+Never edit generated notebooks by hand to avoid the execution requirement.
+
+Provider model delegation still follows MODEL_DELEGATION.md; missing capability
+uses its bounded cross-environment handoff. Any failed step or evidence leg →
+stop and report.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
 3 note); ship without interactive sign-off, add the `## Validation checklist`
