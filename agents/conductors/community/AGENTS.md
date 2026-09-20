@@ -96,6 +96,21 @@ that point.
 GitHub documents the event list and commands in its
 [Slack notification guide](https://docs.github.com/en/integrations/how-tos/slack/customize-notifications).
 
+### Live setup (2026-09-20)
+
+Jammy2211 installed the GitHub Slack app for PyAutoLabs and subscribed the
+workspace's `#general` channel to `PyAutoLabs/.github discussions`. The app's
+`/github subscribe list features` response showed `discussions` as the only
+enabled feature for that repository. No category filter is configured, so the
+subscription applies to all five current categories and future categories.
+
+The operator created [test Discussion #21](https://github.com/orgs/PyAutoLabs/discussions/21)
+in Help & Questions at 15:17 UTC and observed one GitHub app message in the
+channel with the author, title, category, repository and link. This verifies
+delivery for a newly created discussion; coverage of other categories and
+future external authors follows from the unfiltered subscription, rather than
+separate live tests. Use the rollback command above to disable delivery.
+
 Repo enumeration comes from `PyAutoMind/repos.yaml` (the body map) under
 `PYAUTO_ROOT`; the org is searched wholesale, non-org homes individually.
 GitHub access is the `gh` CLI — `COMMUNITY_GH` overrides the binary (hermetic
