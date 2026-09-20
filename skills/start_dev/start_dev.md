@@ -147,15 +147,29 @@ routing decision.
 
 ### 6. Register in Mind + route
 
+First resolve the current surface's capabilities (WORKFLOW.md).
+
+**Local/worktree-capable surface:**
+
 ```bash
 source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/worktree.sh"
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 
-- **No conflict:** register the task in `PyAutoMind/active.md` with
-  `status: library-dev | workspace-dev` and the `worktree:` path.
-- **Conflict (non-zero):** register in `PyAutoMind/planned.md` (blocked) and tell
-  the user what's blocking it.
+**GitHub-control-only surface (no clone/worktree):** do not skip the conflict
+guard. Read the current `PyAutoMind/active.md` through GitHub and inspect every
+other task's `repos:` bullets. Any target repo claimed by another active task
+is the same hard conflict the local helper would report. If current Mind state
+cannot be read, fail closed; never infer "no conflict" from missing local files.
+
+- **No conflict, local:** register `status: library-dev | workspace-dev` and the
+  real `worktree:` path.
+- **No conflict, GitHub-control-only:** register the same status, real
+  `session:` / `location:` metadata and repo branch claims, but **no
+  `worktree:` field**. A later execution environment resumes the same
+  branch/commit.
+- **Conflict:** register in `PyAutoMind/planned.md` (blocked) and tell the user
+  what's holding the repo.
 
 Registry-entry formats are in [`reference.md`](reference.md) → "Registry
 entries". Then route: library → `/start_library`; workspace → `/start_workspace`;
@@ -175,6 +189,9 @@ prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill>"
 ## Notes
 
 - Always present the issue body for review before creating it.
-- If `gh auth status` fails, tell the user to run `! gh auth login`.
+- Resolve GitHub operations through `GITHUB_ACCESS.md`. Only a shell-`gh`
+  surface can meaningfully use `gh auth login`; a connected GitHub action
+  surface has its own permissions and must never be repaired with an OpenAI API
+  key or browser/session credential.
 - Long-form detail (issue-body template, registry formats) is in
   [`reference.md`](reference.md).
