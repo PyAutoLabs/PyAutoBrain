@@ -202,7 +202,7 @@ execution environments (see [`../WORKFLOW.md`](../WORKFLOW.md)):
   authenticated GitHub operation surface instead of local `git -C`. **Do not
   skip task-claim checks**: fetch current `PyAutoMind/active.md` and compare the
   target repos against every other entry's `repos:` bullets. If Mind cannot be
-  read, the conflict check is unverifiable and the run fails closed.
+  read, the conflict check is unverifiable and the run **must fail closed**.
 - **Remote/CI with clones:** use the clones for branch/dirty state, but the same
   current Mind `repos:` claims remain authoritative for cross-session
   conflicts.
