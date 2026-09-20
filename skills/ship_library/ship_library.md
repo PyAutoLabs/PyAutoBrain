@@ -29,10 +29,12 @@ WT_ROOT=~/Code/PyAutoLabs-wt/<task-name>
 source "$WT_ROOT/activate.sh"
 ```
 
-Legacy entries with no `worktree:` fall back to the main checkouts — warn that
-the task pre-dates the worktree flow and is not parallel-safe. In other execution
-environments (web-github / ci-only), use the working-directory clones with
-`PYTHONPATH` exported (WORKFLOW.md).
+A task with a real `worktree:` uses it. A clone+shell surface without a task
+worktree may use its working-directory clone with the documented environment
+settings. A **GitHub-control-only** task deliberately has no `worktree:`:
+resolve each claimed `repos:` branch and exact head commit through GitHub,
+inspect its diff against `main`, and never fall back to a canonical local
+checkout that this surface does not possess.
 
 ### 2. Draft commit message + PR body (reasoning model)
 
@@ -62,23 +64,40 @@ tests/smoke/review, a live human may authorize the canonical `AUTONOMY.md`
 "Corrective-PR exception for Heart RED" for a causal fix. Follow the selected
 canonical section's scope and four record sinks exactly. Neither path permits
 release or bypassing CI; merge requires its own current human command and green
-required GitHub checks. If `pyauto-brain`/`pyauto-heart` are
-unavailable, run the per-repo `pytest <test_dir>/ -x` inside the worktree as the
-gate and treat any failure as RED (WORKFLOW.md). Under `--auto`, this step is
-the four-leg **autonomous-ship gate** — tests (+ downstream dependents on
-public-API changes), smoke, review-faculty CLEAN, Heart — per
-`AUTONOMY.md` "The autonomous-ship gate"; do not restate it here.
+required GitHub checks. If the organism CLIs are unavailable, use WORKFLOW.md's capability/evidence
+rules rather than weakening the gate:
+
+- a runtime-capable surface runs the required per-repo tests/smoke directly;
+- a no-runtime GitHub-control surface may consume **existing exact-head GitHub
+  Actions evidence** only when the workflow/legs cover the required test scope;
+  verify the branch head SHA and each relevant conclusion;
+- if the required execution evidence is absent, hand off only that validation
+  phase;
+- CI is never a Heart verdict. Read fresh authoritative Heart readiness evidence
+  from an available Heart surface; if that cannot be obtained here, obtain only
+  that bounded evidence before shipping.
+
+Under `--auto`, this step is the four-leg **autonomous-ship gate** — tests
+(+ downstream dependents on public-API changes), smoke, review-faculty CLEAN,
+Heart — per `AUTONOMY.md` "The autonomous-ship gate"; do not restate it here.
+A same-conversation reread is not an independent review.
 
 ### 4. Execute the ship (feature-dev)
 
-On GREEN, run the dev workflow's own test → commit → push → feature-PR step per
-[`reference.md`](reference.md) → "Execution contract": run tests inside the
-worktree, confirm the branch is `feature/<task-name>` (never auto-switch),
-commit, push, `gh pr create --label pending-release`, and verify the label
-landed. This is feature-development git work, not a Build/release step. In
-local-dev Anthropic delegates the mechanical part to its execution tier;
-OpenAI runs it inline unless a bounded exception applies. Elsewhere run it
-directly. If any step fails, stop and report — do not proceed.
+On a Heart outcome permitted by WORKFLOW.md / AUTONOMY.md, execute the dev
+workflow's test/evidence → commit/push → feature-PR step per
+[`reference.md`](reference.md) → "Execution contract". A local worktree runs
+the commands there. A GitHub-control-only surface verifies the existing remote
+feature branch and exact head, uses repository/GitHub write operations for the
+remaining commit/PR mechanics, and verifies required exact-head Actions
+evidence. It must not claim a local test it did not run. If generation, imports
+or another runtime step is still required, perform the bounded execution
+handoff before PR-ready status.
+
+This is feature-development git work, not a Build/release step. Provider model
+delegation still follows MODEL_DELEGATION.md; capability absence is handled by
+its cross-environment handoff rather than by provider-name conditionals. If any
+step or evidence leg fails, stop and report — do not proceed.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
 3 note); then ship **without interactive sign-off** — the PR body additionally
