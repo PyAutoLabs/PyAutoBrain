@@ -46,7 +46,7 @@ every surface, because `owner/repo#N` reads as an issue.
 
 Slack delivery is an external notification edge, not a Community Agent mode.
 The public Discussion remains the source of truth and the conductor remains
-read-only. Use GitHub's official Slack app in the PyAutoLabs workspace's
+read-only. Use GitHub's official Slack app in the designated workspace's
 `#general` channel; do not add a webhook, token or channel identifier to this
 repository.
 
@@ -99,7 +99,8 @@ GitHub documents the event list and commands in its
 ### Live setup (2026-09-20)
 
 Jammy2211 installed the GitHub Slack app for PyAutoLabs and subscribed the
-workspace's `#general` channel to `PyAutoLabs/.github discussions`. The app's
+`pyautolens.slack.com` workspace's `#general` channel to
+`PyAutoLabs/.github discussions`. The app's
 `/github subscribe list features` response showed `discussions` as the only
 enabled feature for that repository. No category filter is configured, so the
 subscription applies to all five current categories and future categories.
