@@ -31,6 +31,70 @@ bin/pyauto-brain build --dry-run
 If Brain is unavailable, emulate the requested decision from its `AGENTS.md`
 and this file, and say that it was emulated.
 
+## Orchestration capabilities and execution evidence
+
+The **orchestration environment** is the scientist-facing session currently
+driving the task. The **execution environment** is wherever a particular phase
+obtains the evidence it needs. They may be the same place, but they need not be.
+Neither is an organ and neither owns task state: Mind remains the sole lifecycle
+record.
+
+Reason about capabilities, not product names. Probe the current surface once and
+use only capabilities it actually exposes:
+
+- `repository-read` / `repository-write` — inspect or change repository files;
+- `github-control` — branches, commits, issues, PRs, reviews and Actions state;
+- `local-filesystem` / `shell-runtime` — checkout-local files, commands and imports;
+- `test-execution` — unit/integration/smoke commands in a real runtime;
+- `worktrees` — isolated local task checkouts;
+- `independent-review` — a reviewer genuinely independent of the authoring context;
+- `remote-compute` — SSH/HPC/GPU or other environment-specific execution.
+
+A model/provider/app name does not imply any item in that list. In particular, a
+connected Chat surface may expose read-only GitHub access, read/write GitHub
+actions, or no GitHub action at all. Detect what is present; fail closed on what
+is absent.
+
+For each phase, identify the **required evidence** first. Stay in the current
+orchestration environment when its capabilities can honestly produce it. An
+existing repository CI workflow on the exact branch head may provide applicable
+test/smoke evidence when it runs the required scope; verify the head SHA and
+individual legs rather than treating "CI green" as a generic proof. Do not add a
+throwaway workflow merely to obtain a shell.
+
+When a capability is missing, delegate the **smallest coherent phase** that
+needs it and return its diff/commit plus decision-relevant evidence to the same
+Mind task. If substantial implementation itself is runtime-dependent
+(scientific/numerical debugging, profiling, HPC, environment inspection,
+generated artefacts), route that coherent phase to an execution environment
+from the outset; Chat or another orchestration surface can still retain the
+Brain decisions and user conversation.
+
+Independent review is evidence, not a second look by the author: the same
+conversation that wrote a branch cannot self-certify the review faculty's
+independence. Delegate only the review phase when that is the sole missing
+capability.
+
+**Heart remains separate from CI.** Exact-head CI can satisfy applicable test or
+smoke evidence; it never substitutes for the authoritative Heart verdict. If the
+current surface cannot read fresh authoritative Heart evidence, obtaining that
+evidence is itself a bounded missing-capability step.
+
+`Lane:` remains an intrinsic scheduling requirement (`any` or `local-dev`)
+for a task that genuinely needs local data/output/SSH resources. It is not the
+name of the orchestrating product and must not grow a `chatgpt`, `codex` or
+`claude` value.
+
+### No OpenAI API fallback
+
+The ordinary-Chat route has **no API billing path**. Never use an OpenAI SDK,
+Responses API, API Platform key, `OPENAI_API_KEY`, browser/session credential
+reuse, or a local Brain process that programmatically starts a ChatGPT
+conversation as a fallback. If the current Chat lacks a capability, use only an
+explicitly selected supported execution surface (for example existing GitHub
+Actions, Codex/Work, local shell or HPC) or stop at that phase. This invariant
+does not depend on the user's API billing settings.
+
 ## Model delegation
 
 Provider policies are intentionally asymmetric. Anthropic retains mandatory
@@ -80,10 +144,11 @@ review, and Heart form the ship gate. Merge is always a current human action.
 - Plan Mode means present-and-wait unless explicit `--auto` changes that gate.
 - With no prompt, first create a concise Mind draft containing the original
   request verbatim.
-- If a requested worker is unavailable, execute directly without weakening
-  permissions, review, or health gates.
-- `gh` commands name GitHub operations; remote sessions translate them through
-  `GITHUB_ACCESS.md`.
+- If a requested worker is unavailable, execute directly only when the current
+  surface has the required capability; otherwise use the bounded cross-environment
+  handoff in `MODEL_DELEGATION.md` or stop without weakening any gate.
+- `gh` commands name GitHub operations; map those operations onto the authenticated
+  GitHub-control surface actually available via `GITHUB_ACCESS.md`.
 
 ## Task state and worktrees
 
@@ -98,8 +163,10 @@ claim; tasks touching the same repo serialize unless a human explicitly
 authorizes coordination. Source the generated `activate.sh` before Python or
 tests.
 
-In web/CI sessions, use available clones and explicit cache/PYTHONPATH settings.
-The same Mind registry provides continuity across environments.
+In web/CI sessions with clones, use those clones and explicit cache/PYTHONPATH
+settings. A GitHub-control-only session may have no clone at all: it operates on
+remote branches/files and records no fake `worktree:` path. The same Mind
+registry and branch/commit provide continuity across environments.
 
 ## Repository routing
 

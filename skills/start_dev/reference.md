@@ -24,6 +24,8 @@ create_issue's base template):
 
 ### active.md (no conflict — task can start)
 
+Local/worktree-capable surface:
+
 ```markdown
 ## <task-name>
 - issue: <issue-url>
@@ -33,10 +35,22 @@ create_issue's base template):
 - repos:
 ```
 
+GitHub-control-only surface:
+
+```markdown
+## <task-name>
+- issue: <issue-url>
+- session: <actual harness; known session ID or URL, otherwise unavailable>
+- location: github-api-only (no local clone or task worktree)
+- status: <library-dev | workspace-dev>
+- repos:
+  - <repo>: feature/<task-name>
+```
+
 `status` follows the classification: library work or both → `library-dev`;
-workspace work → `workspace-dev`. The `worktree:` directory does not exist yet
-(`/start_library` creates it); `repos:` starts empty and is filled when branches
-are created.
+workspace work → `workspace-dev`. Record a `worktree:` only when that path
+really exists. The `repos:` bullets are the cross-environment claims; they are
+required even when no local worktree exists.
 
 ### planned.md (conflict — task is queued)
 
@@ -53,8 +67,9 @@ are created.
 ```
 
 A "conflict" means another `active.md` entry already claims one of the target
-repos via its `worktree:` field. Tasks editing different repos run in parallel;
-two tasks wanting the same repo must serialise. After a blocking task ships,
+repos in its `repos:` block. `worktree:` is location metadata, not the claim.
+Tasks editing different repos run in parallel; two tasks wanting the same repo
+must serialise. After a blocking task ships,
 `/health status` shows the queued task as ready, then `/start_library` or
 `/start_workspace` begins it.
 
@@ -183,15 +198,18 @@ PyAutoMind. Shared organ boundary and the execution-environment model are in
 The steps above assume a local-dev checkout with task worktrees. In other
 execution environments (see [`../WORKFLOW.md`](../WORKFLOW.md)):
 
-- **web-github / analysis-only** (no local tree): skip the worktree checks
-  (`worktree_list_claimed`, `worktree_check_conflict`) and read branch state via
-  the GitHub API instead of local `git -C`:
-  ```bash
-  gh api repos/<owner>/<repo>/branches --jq '.[].name' | head -10
-  gh api repos/<owner>/<repo>/branches/<branch> --jq '.name' 2>/dev/null
-  ```
-  Use the repo → owner mapping in WORKFLOW.md. Suggest the branch name and present
-  the summary as normal; on resume, verify branches via the API.
+- **GitHub-control-only** (no local tree): read current branch state through the
+  authenticated GitHub operation surface instead of local `git -C`. **Do not
+  skip task-claim checks**: fetch current `PyAutoMind/active.md` and compare the
+  target repos against every other entry's `repos:` bullets. If Mind cannot be
+  read, the conflict check is unverifiable and the run **must fail closed**.
+- **Remote/CI with clones:** use the clones for branch/dirty state, but the same
+  current Mind `repos:` claims remain authoritative for cross-session
+  conflicts.
+
+Use the repo → owner mapping in WORKFLOW.md. Suggest the branch name and present
+the same summary in every environment; on resume, verify the remote branch and
+exact commit through GitHub when no clone exists.
 
 This is the same reasoning in every environment — only the source of branch state
 differs (local git vs GitHub API). It is not a separate "mobile mode".

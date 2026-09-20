@@ -1,9 +1,34 @@
-# GitHub access: `gh` is not always there
+# GitHub access: operations first, clients second
 
 Shared by every skill that touches GitHub. Read this once, at the top of a run,
 and act on what it says for the rest of the run.
 
-## The problem this page exists for
+## Canonical contract
+
+The workflow asks for **GitHub operations**, not a particular client. Resolve
+the authenticated GitHub-control surface once, then keep using it consistently:
+
+1. a local shell may have authenticated `gh`;
+2. a remote/chat harness may expose native GitHub actions/tools instead, with a
+   repository scope and a read/write subset fixed by that connection;
+3. a surface may be read-only or have no GitHub write capability at all.
+
+Do not infer permissions from "ChatGPT", "Codex", "Claude", mobile, web, or a
+model name. Inspect the actions/permissions actually exposed. Do not perform a
+dummy write just to probe access: use the first required operation, and if the
+provider denies it, downgrade that capability and route the missing phase.
+
+The `gh` commands in skill bodies are executable commands only on the first
+surface. Elsewhere they name the operation to perform. The MCP column below is
+one measured adapter, not the architecture; another connected GitHub surface
+may expose equivalent actions under different names.
+
+**No API fallback:** GitHub access in the ordinary-Chat route must never be
+replaced with the OpenAI API, an OpenAI API key, ChatGPT browser automation, or
+session-credential reuse. Those are not GitHub clients and are not execution
+fallbacks.
+
+## The remote-session problem this page originally existed for
 
 Most of the workflow was written on a developer box, where `gh` is installed and
 authenticated, so the skills spell their GitHub steps as `gh` commands — 19 skill
@@ -24,20 +49,27 @@ completion record logged it after the fact:
 So: decide once, up front, which surface you have, and read the procedure
 through that lens.
 
-## Decide once, at the start of the run
+## Resolve the GitHub-control surface once
+
+When a shell is available, the established probe remains:
 
 ```bash
 command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
-    && echo "gh" || echo "mcp"
+    && echo "gh" || echo "native-tools"
 ```
 
 - **`gh`** — follow the skill's commands as written.
-- **`mcp`** — the `gh` lines are *the operation to perform*, not the command to
-  run. Translate with the table below. Do not try to install `gh` (the next
-  section says why it would not help), and do not report the task as blocked: the MCP surface can do everything the close-out
-  needs — deleting a branch is not one of the things it needs (below).
+- **native GitHub actions/tools** — treat each `gh` line as the operation to
+  perform and translate it to the equivalent authenticated action. The mapping
+  below records the currently measured MCP names; use equivalent operations on
+  another connected surface.
+- **no matching write action** — the current surface is not repository-write /
+  GitHub-control capable for that phase. Do not install credentials, improvise a
+  browser automation route, or call an OpenAI API; use the bounded execution
+  handoff or stop.
 
-A session cannot be half-and-half. Probe once; don't re-probe per step.
+Select one authenticated control surface for the run and do not mix credentials
+or raw-token workarounds. Do not re-probe per step.
 
 ## Installing `gh` does not work — measured, 2026-08-27
 
@@ -85,7 +117,7 @@ straight into the 403s above — the failure mode the probe exists to prevent.
 The probe is only honest while `gh` is absent, which is the strongest reason to
 leave it that way.
 
-## The mapping
+## Measured `gh` ↔ MCP adapter mapping
 
 | Operation | `gh` | MCP tool |
 |---|---|---|
@@ -117,8 +149,10 @@ leave it that way.
 | Create, answer or convert a Discussion | `gh api graphql` (`createDiscussion`) / the issue sidebar | **nobody in a session** — REST Discussions is read-only, GraphQL is refused; the human clicks (`PyAutoMind/policy/community_surface.md`) |
 | Be woken by CI / comments on a PR | *(no equivalent — a CLI polls)* | `subscribe_pr_activity`, `unsubscribe_pr_activity` exist but are **not to be armed** — sessions end at their deliverable; use `unsubscribe_pr_activity` only to clear a stale subscription |
 
-Tool names are given unprefixed; the harness exposes them as
-`mcp__github__<name>`. If a name is not loaded, `ToolSearch` fetches its schema.
+Tool names are given unprefixed for the measured MCP adapter; that harness
+exposes them as `mcp__github__<name>`. Other connected GitHub surfaces may use
+different action names. Match operation semantics and permissions, not these
+wire names.
 
 That last row is the one capability a run must **not** take. A subscription or
 a `send_later` reminder outlives the session's deliverable and wakes turns
@@ -160,12 +194,12 @@ against `gh api repos/...` REST paths runs in a remote session by pointing
   repository set at start; `add_repo` extends it. A call outside that scope is
   denied — that is the scope working, not an auth problem to route around.
 
-## Two rules that apply on both surfaces
+## Two rules that apply on every surface
 
-1. **Every comment, review or reply you author ends with the attribution
-   footer** — a blank line, a `---` rule, then
-   `_Generated by [Claude Code](https://claude.ai/code)_`. The server strips
-   duplicates, so include it even where the tool adds one.
+1. **Do not fabricate harness attribution.** If repository policy requires an
+   attribution footer, identify the actual harness when it is known; otherwise
+   use the repository's provider-neutral wording. Never stamp a Chat/Codex run
+   as Claude (or vice versa) merely because an older adapter example did.
 2. **Be frugal.** Post when a round resolves the task, hits a real blocker, or
    raises a question. The diff is the record; don't narrate each fix.
 

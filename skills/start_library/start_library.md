@@ -20,11 +20,12 @@ source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain 
 worktree_check_conflict <task-name> <repo1> [repo2 ...]
 ```
 
-A conflict only fires when another `active.md` entry already claims one of the
-target repos via its `worktree:` field (tasks on different repos run in
-parallel). On non-zero exit, **block** and show the holding task, its worktree
-and branch; the only options are finish that task first, or abort. If the repo
-appears under the **same** task (resuming), proceed.
+A conflict fires when another `active.md` entry claims one of the target repos
+in its `repos:` block (tasks on different repos run in parallel). On a
+worktree-capable surface the helper performs this check. On a
+GitHub-control-only surface, read current `active.md` through GitHub and apply
+the same rule; fail closed if it cannot be read. On conflict, **block** and show
+the holding task plus any recorded worktree/branch. Same task = resuming.
 
 ### 2. Read the active issue (Mind)
 
@@ -65,15 +66,24 @@ Before running Python, pytest, or smoke tests in this session, run:
   source ~/Code/PyAutoLabs-wt/<task-name>/activate.sh
 ```
 
-**Other execution environments** (web-github / ci-only — see WORKFLOW.md): there
-is no local worktree. Operate on the clones present in the working directory,
-`git checkout -b feature/<task-name>`, and export `PYTHONPATH` (the library
-repos), `NUMBA_CACHE_DIR=/tmp/numba_cache`, `MPLCONFIGDIR=/tmp/matplotlib`
-manually. Register the repos in `active.md` without a `worktree:` field.
+**Other capability surfaces** (see WORKFLOW.md):
+
+- **clone + shell, no task worktree:** operate on the provided clone, create or
+  resume `feature/<task-name>`, export the documented cache/PYTHONPATH values,
+  and register no fake `worktree:`.
+- **GitHub-control-only, no clone:** create or resume
+  `feature/<task-name>` through the GitHub branch operation from current
+  `main`, then edit/commit files through repository-write operations. Register
+  `session:`, `location: github-api-only (no local clone or task worktree)`
+  and each `repos:` branch claim; omit `worktree:`. This surface may
+  implement repository changes but cannot claim local imports/tests.
+- **no repository-write capability:** stop before branch creation and use the
+  bounded execution handoff. Do not fall back to an OpenAI API call.
 
 ### 5. Register repos in active.md (Mind) + push
 
-Update the task entry to record the worktree path and claimed repos:
+Update the task entry to record the real execution location and claimed repos.
+The local form is:
 
 ```markdown
 ## <task-name>
@@ -87,8 +97,9 @@ Update the task entry to record the worktree path and claimed repos:
 ```
 
 The `  - <repo>` bullets under `repos:` are the claim — they are what
-`worktree_check_conflict` compares to detect collisions from other sessions
-(`worktree:` is reported alongside, but claims nothing on its own). Both
+`worktree_check_conflict` (or its GitHub-only equivalent) compares to detect
+collisions from other sessions. `worktree:` is location metadata only and is
+omitted when no worktree exists. Both
 `  - <repo>: <branch>` and `  - <repo> (<branch>)` parse; the branch is
 informational and may be omitted. Then:
 

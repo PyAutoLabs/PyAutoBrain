@@ -22,9 +22,11 @@ source "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain 
 worktree_check_conflict <task-name> <workspace_repo1> [workspace_repo2 ...]
 ```
 
-Conflict only fires when another `active.md` entry claims a target workspace repo
-via its `worktree:` field. On non-zero exit, block (finish the holding task or
-abort). Same task = resuming → proceed.
+Conflict fires when another `active.md` entry claims a target workspace repo
+in its `repos:` block. Use the worktree helper when available; on a
+GitHub-control-only surface read current `active.md` through GitHub and apply
+the same rule. If the registry cannot be read, fail closed. Same task =
+resuming → proceed.
 
 ### 2. Mode detection (Mind)
 
@@ -70,12 +72,18 @@ summary" (worktree root, activation reminder, repos to edit, scripts, the
 scripts-only/never-notebooks rule). End: "When done, run `/ship_workspace` to
 validate and create PRs."
 
-**Other execution environments** (web-github / ci-only — see WORKFLOW.md): no
-local worktree; operate on the clones in the working directory, branch with
-`git checkout -b feature/<task-name>`, export `PYTHONPATH`/`NUMBA_CACHE_DIR`/
-`MPLCONFIGDIR` manually, and register repos in `active.md` without a `worktree:`
-field. `active.md` is the shared task state across environments — no special
-handoff step is needed.
+**Other capability surfaces** (see WORKFLOW.md): a clone+shell surface may use
+the clone directly and manual cache/PYTHONPATH settings. A
+**GitHub-control-only** surface creates/resumes the feature branch through
+GitHub operations, edits only the canonical `scripts/` sources through
+repository-write operations, and records
+`location: github-api-only (no local clone or task worktree)` plus the
+`repos:` branch claims with no `worktree:` field. Notebook regeneration,
+imports and smoke execution remain missing capabilities and are delegated as a
+bounded later phase. A surface with no repository-write capability stops before
+branch creation; it never falls back to an OpenAI API call. `active.md` and
+the exact branch/commit are the cross-environment handoff — no second state
+object is created.
 
 ## Notes
 

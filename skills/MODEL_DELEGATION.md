@@ -44,6 +44,38 @@ review faculty remains independent for both provider families.
 No default is defined for other model families. If a requested worker is not
 available, execute in-session without changing safety or approval gates.
 
+## Cross-environment capability handoff
+
+A missing execution capability does not make the execution environment the new
+orchestrator. The current scientist-facing session keeps planning, Mind state,
+approval gates and final judgment; hand off only the smallest coherent phase
+whose required evidence cannot be produced here.
+
+A cross-environment packet carries:
+
+- the existing Mind task / issue;
+- repository, branch and exact starting commit;
+- one coherent objective and permitted files/scope;
+- required commands, runtime/scientific checks or review question;
+- explicit "do not broaden/redesign unrelated work";
+- requested return: resulting commit/diff (if any), pass/fail counts and only
+  decision-relevant failure/environment evidence.
+
+The receiving environment resumes the existing branch; it does not create a
+second task or lifecycle. The orchestrator consumes the returned evidence and
+continues the same Brain → review/vitals → Heart → PR flow.
+
+**Independent review is a separate capability.** A conversation that authored
+the branch cannot satisfy the independent-review leg by rereading its own diff.
+If no independent worker/reviewer is available in the current surface, hand off
+only the review phase or require human review.
+
+**No OpenAI API fallback.** An ordinary ChatGPT orchestration route must never
+turn a missing worker/runtime into an OpenAI SDK, Responses API,
+`OPENAI_API_KEY`, browser/session automation or other separately billed API
+call. Use an explicitly chosen supported execution surface or stop at the
+missing phase.
+
 ## Bounded worker contract
 
 - Pass only the worktree, affected files, accepted plan, required commands,
