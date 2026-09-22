@@ -9,11 +9,11 @@
         "summary": ""
       },
       {
-        "count": 57,
+        "count": 84,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "14/14 code repos: 44 stale branches, 4 stashes, 8 [gone] refs, 1 dirty checkouts"
+        "summary": "14/14 code repos: 69 stale branches, 4 stashes, 9 [gone] refs, 2 dirty checkouts"
       },
       {
         "count": 0,
@@ -37,11 +37,11 @@
         "summary": "1 script(s) across 8 repo(s) with LaTeX damaged by string escapes: 2 warned, 1 silent (0 file(s) have ONLY silent damage, which a warning-only sweep would miss); 0 read error(s)"
       },
       {
-        "count": 12,
+        "count": 11,
         "delegate": "/refactor",
         "mode": "refs",
         "status": "finding",
-        "summary": "12 folder-list defects (12 dead references, 0 undocumented folders) in 7 files across 3/8 repos; 291 unresolvable refs skipped"
+        "summary": "11 folder-list defects (11 dead references, 0 undocumented folders) in 6 files across 3/8 repos; 289 unresolvable refs skipped"
       },
       {
         "count": 0,
@@ -86,11 +86,11 @@
         "summary": "38 capped/pinned specifiers across 8 pyproject.toml (14/14 code repos present)"
       },
       {
-        "count": 119,
+        "count": 120,
         "delegate": "/audit_docs",
         "mode": "docs",
         "status": "surface",
-        "summary": "33 api .rst files, 119 currentmodule directives across 4 repos with docs/api (14/14 code repos present)"
+        "summary": "33 api .rst files, 120 currentmodule directives across 4 repos with docs/api (14/14 code repos present)"
       },
       {
         "count": 20,
@@ -102,7 +102,7 @@
     ]
   },
   "schema": 1,
-  "ts": "2026-09-17T20:39:23Z",
+  "ts": "2026-09-22T05:40:28Z",
   "worktrees": [
     {
       "ahead": 0,
@@ -112,9 +112,16 @@
       "stashes": 1
     },
     {
+      "ahead": 5,
+      "branch": "claude/checkin-2026-09-19",
+      "dirty": true,
+      "repo": "PyAutoCortex",
+      "stashes": 0
+    },
+    {
       "ahead": 0,
-      "branch": "main",
-      "dirty": false,
+      "branch": "codex/vis-magnitude-catalogue-top1000",
+      "dirty": true,
       "repo": "PyAutoMind",
       "stashes": 3
     }
