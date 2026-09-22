@@ -154,6 +154,7 @@ REFERENCE_PROFILES = {
             "wiki/literature/*",          # a shipped lensing paper corpus
             "paper/*",                    # this assistant's own JOSS paper
             "scripts/*.py",               # bundled science scripts (a named lens)
+            "scripts/abell_1201/README.md", # named-lens inputs, priors and run protocol
             *_SHARED_DOMAIN,
         ],
         "mixed": _SHARED_MIXED,

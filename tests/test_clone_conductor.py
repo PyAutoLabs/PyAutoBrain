@@ -108,8 +108,11 @@ def test_autofit_profile_classification(path, expected):
         # Bundled science scripts are tied to a named lens...
         ("scripts/model_cosmos_web_ring.py", "domain"),
         ("scripts/prepare_cosmos_web_ring.py", "domain"),
+        ("scripts/abell_1201/README.md", "domain"),
+        ("scripts/abell_1201/build_model.py", "domain"),
         # ...but scripts/'s own docs are framework, not science.
         ("scripts/AGENTS.md", "generic"),
+        ("scripts/README.md", "generic"),
         # .mcp.json only wires `autoassistant.mcp` — generic tooling, so the
         # wiring carries no domain either and clones verbatim.
         (".mcp.json", "generic"),
