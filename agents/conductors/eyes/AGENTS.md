@@ -4,9 +4,11 @@
 > function* — the organism's sense of its own appearance: it owns the
 > render → present → critique → delegate loop over a project's visualization
 > surface. It consults the read-only memory faculty for style/paper context
-> like every conductor; it never renders (the workspace's own
-> `gallery/gallery_run.sh` does), never edits plot source, and
-> delegates every accepted change via intake → start_dev.
+> like every conductor; it never renders (the **PyAutoEyes** organ's harness
+> does — `gallery/gallery_run.sh` in each instance), never edits plot source,
+> and delegates every accepted change via intake → start_dev. The conductor
+> drives the Eyes organ exactly as vitals reads the Heart: the organ renders
+> and holds the figures, the conductor judges them with the human.
 
 Grown from demonstrated need: the organism produces rich visualizations
 (imaging / interferometer / point_source / multi / cluster) but had no formal
@@ -22,7 +24,12 @@ The deterministic core consumes any **visualization workspace**: a repo with
 visualization scripts, plus `output/gallery/` from its gallery builder. The
 workspace root is always a CLI argument — the `.py`/`.sh` here name no
 repositories (tenant firewall); the instance pointer lives in this prose and
-in the `/eyes` skill. Reference instance: `autolens_workspace_test`.
+in the `/eyes` skill. Default instance: the **PyAutoEyes** lens gallery,
+`organs/PyAutoEyes/lens` (the organ holds one instance subtree per library —
+lens, galaxy, fit, cti; PyAutoEyes phase 1 moves today's flat checkout into
+`lens/`, so until it lands the instance root is `organs/PyAutoEyes` itself).
+`autolens_workspace_test` remains a secondary instance (its `gallery/`
+harness is retired by PyAutoEyes phase 5).
 
 ## Modes
 
@@ -35,7 +42,7 @@ in the `/eyes` skill. Reference instance: `autolens_workspace_test`.
 ## The loop (driven by the `/eyes` skill)
 
 1. `eyes survey <workspace>` — establish what needs (re)rendering.
-2. Render in the workspace: `bash gallery/gallery_run.sh` (`--all`
+2. Render in the instance: `bash gallery/gallery_run.sh` (`--all`
    adds the slow tier + JAX variants), which ends in the gallery builder's
    own `--check`.
 3. Present: the embedded gallery for the human; the agent reads figure PNGs
@@ -50,8 +57,8 @@ in the `/eyes` skill. Reference instance: `autolens_workspace_test`.
 ## Boundaries
 
 - Decision-only, stdlib-only core: reads the filesystem, writes nothing.
-- Rendering and figure regeneration belong to the workspace; the conductor
-  only tells you they are stale.
+- Rendering and figure regeneration belong to the Eyes organ (or the
+  workspace instance); the conductor only tells you they are stale.
 - Paper-informed passes (`review --against`): the reference figures are
   gathered by the session (PDF pages read directly, or panels extracted to a
   directory) — the core never fetches anything. The reviewing session reads

@@ -5,16 +5,20 @@ visualization surface, via PyAutoBrain's **Eyes Agent** (the *perceptive
 function*). You never name the Brain; this command is the door.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`. The default
-visualization workspace is **`autolens_workspace_test`** (the reference
-instance of the gallery contract from epic PyAutoBrain#117 Phase 1); pass a
-different workspace root to review another project.
+visualization instance is the **PyAutoEyes** lens gallery,
+**`organs/PyAutoEyes/lens`** — the Eyes organ holds one rendered gallery per
+library (lens, galaxy, fit, cti). PyAutoEyes phase 1 moves today's flat
+checkout into `lens/`; until it lands, pass `organs/PyAutoEyes` itself.
+`autolens_workspace_test` (the original reference instance from epic
+PyAutoBrain#117 Phase 1) remains a secondary instance; pass a different
+instance root to review another project.
 
 ## Do
 
 1. **Survey** — `bin/pyauto-brain eyes survey <workspace-root>`: per-script
    figure inventory, stale renders (producer script newer than its figures),
    never-rendered gaps, gallery currency.
-2. **Render** what the survey flags, in the workspace itself:
+2. **Render** what the survey flags, in the instance itself:
    `bash gallery/gallery_run.sh [<domain>|--all]` (ends in the
    builder's own `--check`; `--all` adds the slow tier + JAX variants). Then
    `python gallery/gallery_build.py --embed` and copy
@@ -49,7 +53,7 @@ panels):
 
 ## Boundary
 
-- The Eyes Agent decides and routes; the workspace renders; intake/start_dev
-  ship. No step edits plots directly from critique.
+- The Eyes Agent decides and routes; the PyAutoEyes organ (or a workspace
+  instance) renders and holds the figures; intake/start_dev ship. No step edits plots directly from critique.
 - The core never fetches papers or figures — the session gathers reference
   material; the conductor only lists what it is given.

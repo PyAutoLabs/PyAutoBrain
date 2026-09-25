@@ -20,6 +20,7 @@ organs plan, build, test and release it, and you make every judgment call.
 | **Hands** | PyAutoHands | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
 | **Nerves** | PyAutoNerves | The configuration/serialization layer (`autonerves`) — layered config with overrides, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. Connects the organism's conventions to every library; the base layer the scientific libraries all import. |
 | **Gut** | PyAutoGut | Owns the lifecycle of *condemned self-material* — stale branches, stashes, dead code/tests. Holds each as a durable, recoverable git ref through a transit window and **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
+| **Eyes** | PyAutoEyes | Sees *what the figures look like* — one rendered gallery per library (lens, galaxy, fit, cti) of every visualizer output on realistic data, the harness that renders them, the instance registry and the board that is the single point of contact for the visual behaviour of the whole ecosystem. Plain git PNGs, re-rendered on library release. The Eyes see what is true of the figures — the perception mirror of the Heart (what the software shows, not whether it is healthy); the Brain's Eyes conductor drives it and does the judging, as vitals reads Heart. Renders and holds figures; never judges them and never edits library plot code (critiques route through intake). |
 
 *Hands* and *Build* name the **same organ** (PyAutoHands) throughout this
 document: the organ is the **Hands**, and *Build* is the call-chain step it
@@ -66,12 +67,16 @@ human types); let faculties multiply behind them.
 New capability grows as a **faculty** (cheap: one directory, one doc, one
 script), not as a repo. A new organ costs an `AGENTS.md`, a `CLAUDE.md` stub,
 install wiring, a body-map row and boundary prose — it must earn that by
-owning state or effects no existing organ can. Two capabilities have earned
+owning state or effects no existing organ can. Three capabilities have earned
 organ status that way. Configuration/signalling is the **Nerves**
 (PyAutoNerves), the base config/serialization layer every library imports — new
 config surfaces belong there, not in a new organ. Keeping track of what is
 true is the **Cortex** (PyAutoCortex), the second organ to earn it: it owns
 state no organ owned before — the science body map and the per-project
 ledgers — so science runs and the human's notes on them belong there, not in
-the Mind. The human interaction layer is the command surface (`/route` + the
+the Mind. Seeing what the software shows is the **Eyes** (PyAutoEyes): it owns
+the perception lifecycle — every library's rendered figures, their manifests,
+the one render harness, the instance registry and the board — state that was
+copy-pasted between workspace repos before, so figures belong there, not in a
+per-library gallery. The human interaction layer is the command surface (`/route` + the
 verb commands), which is part of Brain.

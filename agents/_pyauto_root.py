@@ -65,6 +65,7 @@ SIBLING_ORGANS = (
     "PyAutoHands",
     "PyAutoNerves",
     "PyAutoGut",
+    "PyAutoEyes",
 )
 
 # A workspace root says so itself by holding this file. It is deliberately

@@ -74,7 +74,10 @@ PACKAGING_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 # whose dataset/ is auto-simulated but whose results/ are tracked witnesses — it
 # is swept by its own tooling, never here. autolens_jax_joss was excluded here
 # for the same reason (JWST cosmos_web_ring); its local checkout was removed in
-# 2026-09 (PyAutoBrain#389) and the repo lives on GitHub only.
+# 2026-09 (PyAutoBrain#389) and the repo lives on GitHub only. The Eyes organ
+# (organs/PyAutoEyes) is excluded too: its instances' dataset/ trees are the
+# tracked realistic inputs its galleries are rendered from and its PNG renders
+# are the tracked record (re-rendered on library release only) — never wiped.
 DATASET_REPOS=(autolens_workspace autogalaxy_workspace autofit_workspace \
                autocti_workspace HowToLens HowToGalaxy HowToFit)
 # Committed dataset files above this size are flagged as repo bloat.
