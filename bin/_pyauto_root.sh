@@ -85,7 +85,7 @@ _pyauto_marked_root() {
 _pyauto_is_root() {
     [ -d "$1/PyAutoMind" ] || [ -d "$1/PyAutoHeart" ] || [ -d "$1/PyAutoHands" ] \
         || [ -d "$1/PyAutoMemory" ] || [ -d "$1/PyAutoGut" ] || [ -d "$1/PyAutoNerves" ] \
-        || [ -d "$1/PyAutoCortex" ]
+        || [ -d "$1/PyAutoCortex" ] || [ -d "$1/PyAutoEyes" ]
 }
 
 # Assigns PYAUTO_ROOT and PYAUTO_ROOT_REASON rather than printing: one

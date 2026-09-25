@@ -17,6 +17,7 @@ it and adds the framework/instance distinction an adopter needs.
 | **Hands** | PyAutoHands | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
 | **Nerves** | PyAutoNerves | *Connects* — the configuration/serialization layer (`autonerves`): layered config, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. The base layer every library imports. |
 | **Gut** | PyAutoGut | *Sheds* — the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds each as a durable, recoverable git ref through a transit window, then **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
+| **Eyes** | PyAutoEyes | *Sees* — one rendered gallery per library (lens, galaxy, fit, cti) of every visualizer output on realistic data, the render harness, the instance registry and the board: the single point of contact for what the software shows. The perception mirror of the Heart (what the software shows, not whether it is healthy); renders and holds figures, never judges them — the Brain's Eyes conductor does. |
 
 Everything else — the libraries being developed, their example workspaces,
 test suites, tutorials — is a **satellite**: a capability the organism works
@@ -43,10 +44,11 @@ The organs split on one line that matters for adoption:
   pipelines. Domain facts appear only in declared config surfaces (tables
   and policy files, not logic), and a drift check — the
   {ref}`tenant firewall <tenant-firewall>` — keeps it that way.
-- **Instance organs — Mind, Cortex, Memory, Gut.** Committed state, ledgers,
-  knowledge, and shed material. These are *inherently yours*: an adopter never
-  forks the upstream Mind, Cortex, Memory or Gut content, they create their own
-  repos with the same documented shape.
+- **Instance organs — Mind, Cortex, Memory, Gut, Eyes.** Committed state,
+  ledgers, knowledge, shed material, and rendered figures. These are
+  *inherently yours*: an adopter never forks the upstream Mind, Cortex, Memory,
+  Gut or Eyes content, they create their own repos with the same documented
+  shape.
 
 One more principle worth knowing before you read anything else:
 **one canonical page per fact.** Organ boundaries live in ORGANISM.md;
