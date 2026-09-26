@@ -108,8 +108,16 @@ def test_autofit_profile_classification(path, expected):
         # Bundled science scripts are tied to a named lens...
         ("scripts/model_cosmos_web_ring.py", "domain"),
         ("scripts/prepare_cosmos_web_ring.py", "domain"),
-        ("scripts/abell_1201/README.md", "domain"),
-        ("scripts/abell_1201/build_model.py", "domain"),
+        ("scripts/cosmos_web_ring/fit_cosmos_web_ring.py", "domain"),
+        ("scripts/cosmos_web_ring/README.md", "domain"),
+        ("scripts/cosmos_web_ring/results/README.md", "domain"),
+        ("scripts/cosmos_web_ring/results/good/subplot_fit.png", "domain"),
+        ("scripts/cosmos_web_ring/results/good/result.json", "domain"),
+        # The public greeting skill and the Colab notebook are domain too.
+        ("skills/al_greeting_cosmos_web_ring.md", "domain"),
+        ("docs/colab/cosmos_web_ring_colab.py", "domain"),
+        ("docs/colab/cosmos_web_ring_colab.ipynb", "domain"),
+        ("docs/images/cosmos_web_ring_rgb.png", "domain"),
         # ...but scripts/'s own docs are framework, not science.
         ("scripts/AGENTS.md", "generic"),
         ("scripts/README.md", "generic"),
@@ -120,6 +128,15 @@ def test_autofit_profile_classification(path, expected):
 )
 def test_autolens_profile_classification(path, expected):
     assert _classify(path, clone.REFERENCE_PROFILES["autolens_assistant"]) == expected
+
+
+def test_retired_abell_1201_domain_path_is_gone():
+    """The Abell 1201 demo was removed (autolens_assistant#136): its README
+    must not linger as a boundary entry, and a stray non-.py file under the old
+    directory would now be unclassified rather than silently domain."""
+    autolens = clone.REFERENCE_PROFILES["autolens_assistant"]
+    assert not any("abell_1201" in p for p in autolens["domain"])
+    assert _classify("scripts/abell_1201/README.md", autolens) == "unclassified"
 
 
 def test_wiki_core_and_skills_flip_between_references():

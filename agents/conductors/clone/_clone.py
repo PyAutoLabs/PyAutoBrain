@@ -154,7 +154,11 @@ REFERENCE_PROFILES = {
             "wiki/literature/*",          # a shipped lensing paper corpus
             "paper/*",                    # this assistant's own JOSS paper
             "scripts/*.py",               # bundled science scripts (a named lens)
-            "scripts/abell_1201/README.md", # named-lens inputs, priors and run protocol
+            # The COSMOS-Web Ring reference fit: its README and recorded
+            # results (PNG/JSON/README) are named-lens science, like the
+            # scripts themselves (`scripts/*.py` already covers the .py).
+            "scripts/cosmos_web_ring/README.md",
+            "scripts/cosmos_web_ring/results/*",
             *_SHARED_DOMAIN,
         ],
         "mixed": _SHARED_MIXED,
