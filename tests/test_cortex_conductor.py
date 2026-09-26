@@ -337,6 +337,95 @@ def test_check_exit_codes_are_the_refresh_workflow_contract(tmp_path):
     assert r.returncode in (1, 2, 3)
 
 
+# --- the cockpit feed (state.json, board/_state.py v1; PyAutoBrain#418) ---
+sys.path.insert(0, str(BRAIN_HOME / "board"))
+import copy  # noqa: E402
+
+import _state  # noqa: E402
+
+import datetime as _dt  # noqa: E402
+
+#: an hour after the skeleton's `checkin.yaml` stamp — inside the window
+FRESH = _dt.datetime(2026, 9, 2, 10, 0, tzinfo=_dt.timezone.utc)
+STALE = _dt.datetime(2026, 9, 10, 10, 0, tzinfo=_dt.timezone.utc)
+
+
+def _feed(c, monkeypatch, now=FRESH):
+    monkeypatch.setattr(_cortex, "_now", lambda: now)
+    state = json.loads(_cortex.render_state(c))
+    assert _state.validate_state(state) == []
+    return state
+
+
+def test_a_running_run_is_an_info_item_with_its_resume_payload(skeleton, monkeypatch):
+    c = _cortex.census(skeleton)
+    state = _feed(c, monkeypatch)
+    assert (state["organ"], state["repo"]) == ("cortex", "PyAutoCortex")
+    assert state["status"] == "yellow"
+    assert state["headline"] == "YELLOW — 2 active · 1 running"
+    assert state["updated"] == "2026-09-02T10:00:00Z"
+    [item] = state["items"]
+    assert item["severity"] == "info"
+    assert item["text"] == "example: 3002_[0-3] running (ral)"
+    assert item["prompt"] == _cortex.resume_payload("example", c["projects"]["example"])
+    assert item["url"] == _cortex.ledger_of(c, "example")["issue_url"]
+
+
+def test_a_stale_checkin_is_a_yellow_item_carrying_the_checkin_payload(skeleton, monkeypatch):
+    assert _cortex.checkin_stale("2026-09-02T09:00Z", FRESH) is False
+    assert _cortex.checkin_stale("2026-09-02T09:00Z", STALE) is True
+    assert _cortex.checkin_stale("", FRESH) is True
+    c = _cortex.census(skeleton)
+    state = _feed(c, monkeypatch, STALE)
+    first = state["items"][0]
+    assert first["severity"] == "yellow" and "check-in stale" in first["text"]
+    assert first["prompt"] == _cortex.checkin_payload(c)
+
+
+def test_nothing_running_and_a_fresh_checkin_is_green(skeleton, monkeypatch):
+    c = copy.deepcopy(_cortex.census(skeleton))
+    for d in c["ledgers"]:
+        d["runs"] = [r for r in d["runs"] if r["state"] != "running"]
+    c["counts"]["running"] = 0
+    state = _feed(c, monkeypatch)
+    assert state["status"] == "green"
+    assert state["headline"] == "2 active · 0 running"
+    assert state["items"] == []
+
+
+def test_no_ledgers_is_a_grey_feed(skeleton, monkeypatch):
+    c = dict(_cortex.census(skeleton), ledgers=[])
+    state = _feed(c, monkeypatch)
+    assert state["status"] == "grey" and state["items"] == []
+
+
+def test_a_problem_is_a_red_item_linked_to_its_ledger(skeleton, monkeypatch):
+    c = dict(_cortex.census(skeleton),
+             problems=["projects/example.md: run 3003 listed twice",
+                       "projects.yaml: ghost is missing status"])
+    state = _feed(c, monkeypatch)
+    assert state["status"] == "red"
+    red = [i for i in state["items"] if i["severity"] == "red"]
+    assert [i["text"] for i in red] == c["problems"]
+    assert red[0]["url"] == _cortex.ledger_of(c, "example")["issue_url"]
+    assert red[1]["url"] is None, "a projects.yaml problem names no ledger"
+
+
+def test_check_is_clean_after_apply_when_only_the_render_stamp_moved(tmp_skeleton):
+    assert _run(["dashboard", "--cortex", str(tmp_skeleton), "--apply"]).returncode == 0
+    feed = tmp_skeleton / "state.json"
+    state = json.loads(feed.read_text())
+    assert _state.validate_state(state) == []
+    state["updated"] = "2020-01-01T00:00:00Z"
+    feed.write_text(json.dumps(state, indent=2) + "\n")
+    r = _run(["dashboard", "--cortex", str(tmp_skeleton), "--check"])
+    assert r.returncode == 0, r.stderr
+    state["headline"] = "GREEN — invented"
+    feed.write_text(json.dumps(state, indent=2) + "\n")
+    r = _run(["dashboard", "--cortex", str(tmp_skeleton), "--check"])
+    assert r.returncode == 1 and "state.json" in r.stderr
+
+
 # --- pull: the laptop leg ---------------------------------------------------
 def _tree_bytes(root: Path) -> dict:
     return {p.relative_to(root).as_posix(): p.read_bytes()
@@ -466,6 +555,10 @@ def test_apply_stamps_renders_and_reads_each_ledger_back(tmp_skeleton, tmp_path)
     assert stamp.split()[1] in (tmp_skeleton / "dashboard.md").read_text()
     assert (tmp_skeleton / "dashboard.html").is_file()
     assert "push: off" in out
+    # the cockpit feed is rendered by the same check-in, fresh by construction
+    feed = json.loads((tmp_skeleton / "state.json").read_text())
+    assert _state.validate_state(feed) == []
+    assert not any("check-in stale" in i["text"] for i in feed["items"])
 
 
 def test_apply_checks_in_where_no_science_root_exists(tmp_skeleton, tmp_path):

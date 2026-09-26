@@ -1815,3 +1815,87 @@ def test_pending_release_renders_on_the_html_page_too(tmp_path):
     html = _intake.render_dashboard_html(_intake.census(mind))
     assert 'id="pending-release"' in html
     assert '<a href="https://github.com/ExampleOrg/Widgets/pull/7">Widgets#7</a>' in html
+
+
+# --------------------------------------------------------------------------- #
+# the cockpit feed — state.json (board/_state.py, contract v1; PyAutoBrain#418)
+#
+# The third render of the one census. Its items carry the payloads the page
+# already copies, and `--check` must ignore its `updated` render stamp the way
+# it ignores the page's generation date — or the self-heal commits hourly.
+# --------------------------------------------------------------------------- #
+sys.path.insert(0, str(BRAIN_HOME / "board"))
+import json  # noqa: E402
+
+import _state  # noqa: E402
+
+
+def _feed(mind: Path) -> dict:
+    return json.loads(_intake.render_state(_intake.census(mind)))
+
+
+def test_apply_writes_a_state_feed_that_satisfies_the_contract(tmp_path):
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/urgent.md": _prompt("Urgent widget", priority="high")},
+        registries={"repos.yaml": REPOS_YAML})
+    assert _intake.main(["--mind", str(mind), "--apply", "dashboard"]) == 0
+    state = json.loads((mind / "state.json").read_text(encoding="utf-8"))
+    assert _state.validate_state(state) == []
+    assert (state["organ"], state["repo"]) == ("mind", "PyAutoMind")
+    assert state["pages_url"] == "https://exampleorg.github.io/PyAutoMind/"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", state["updated"])
+    # a pick is waiting: yellow, and the pick carries the page's own payload
+    assert state["status"] == "yellow"
+    assert state["headline"] == "YELLOW — 1 picks · 0 in flight"
+    pick = state["items"][-1]
+    assert pick["severity"] == "info"
+    assert pick["prompt"] == "/start_dev draft/feature/widgets/urgent.md"
+    assert pick["url"] == ("https://github.com/ExampleOrg/PyAutoMind/blob/main/"
+                           "draft/feature/widgets/urgent.md")
+
+
+def test_an_awaiting_merge_row_is_a_yellow_item_linking_its_pr(tmp_path):
+    mind = _mind(tmp_path,
+                 active={"widget_rework.md": _prompt("Widget rework")},
+                 registries={"active.md": PR_LEDGER_ACTIVE})
+    state = _feed(mind)
+    assert _state.validate_state(state) == []
+    assert state["status"] == "yellow"
+    item = state["items"][0]
+    assert item["severity"] == "yellow"
+    assert item["text"].startswith("Widget rework — library-shipped, awaiting-merge")
+    assert item["url"] == "https://github.com/ExampleOrg/Widgets/pull/7", \
+        "the first PR is the door, not the issue"
+    assert item["prompt"] == "/start_dev active/widget_rework.md"
+    # no repos.yaml: nothing to derive a Pages site from, still a valid feed
+    assert state["pages_url"] == "./"
+
+
+def test_an_awaiting_input_row_turns_the_feed_red(tmp_path):
+    mind = _mind(tmp_path,
+                 active={"widget_rework.md": _prompt("Widget rework")},
+                 registries={"active.md": PR_LEDGER_ACTIVE.replace(
+                     "library-shipped, awaiting-merge", "awaiting-input")})
+    state = _feed(mind)
+    assert state["status"] == "red"
+    assert state["headline"].startswith("RED — ")
+    assert state["items"][0]["severity"] == "red"
+
+
+def test_an_empty_mind_is_a_grey_feed(tmp_path):
+    state = _feed(_mind(tmp_path))
+    assert _state.validate_state(state) == []
+    assert state["status"] == "grey" and state["items"] == []
+
+
+def test_check_is_clean_after_apply_when_only_the_clock_moved(tmp_path, monkeypatch):
+    mind = _mind(tmp_path, drafts={"bug/widgets/one.md": _prompt("Bug one")})
+    monkeypatch.setattr(_intake, "_now_iso", lambda: "2026-01-01T00:00:00Z")
+    assert _intake.main(["--mind", str(mind), "--apply", "dashboard"]) == 0
+    monkeypatch.setattr(_intake, "_now_iso", lambda: "2027-12-31T23:59:59Z")
+    assert _intake.main(["--mind", str(mind), "dashboard", "--check"]) == 0
+    # ...but a changed feed body is drift
+    feed = mind / "state.json"
+    feed.write_text(feed.read_text(encoding="utf-8").replace(
+        '"status": "green"', '"status": "red"'), encoding="utf-8")
+    assert _intake.main(["--mind", str(mind), "dashboard", "--check"]) == 1

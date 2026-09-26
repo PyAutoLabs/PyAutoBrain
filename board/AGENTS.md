@@ -73,6 +73,10 @@ per organ). The contract lives in `board/state_schema.json` and is enforced by
 emits it via `render_state` (`--state`, and `--apply` writes it). Other organs
 emit the same shape and validate before publishing with
 `python PyAutoBrain/board/_state.py _site/state.json` — runnable from any cwd.
+The Mind and Cortex feeds are emitted HERE, by their Brain renderers
+(`intake --apply dashboard`, `cortex dashboard --apply` / `checkin`, each
+`render_state`), committed beside their `dashboard.html` and published by those
+repos' `pages_dashboard.yml`.
 
 ## Look (`_theme.py`)
 

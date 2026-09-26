@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "organ": "cortex",
+  "repo": "PyAutoCortex",
+  "status": "yellow",
+  "headline": "YELLOW — 2 active · 1 running",
+  "updated": "2026-09-26T03:35:12Z",
+  "pages_url": "https://someorg.github.io/PyAutoCortex/",
+  "items": [
+    {
+      "severity": "yellow",
+      "text": "check-in stale — last 2026-09-25T18:10Z",
+      "url": null,
+      "prompt": "/cortex — on the laptop: `pyauto-brain cortex pull` — pull every active science project through its own sync CLI and show me where each run stands.\n/cortex — anywhere: `pyauto-brain cortex checkin --apply --push` — stamp, re-render and push the board since the last check-in (2026-09-25T18:10Z), then read me the by-project summary. Record nothing about results — I will tell you what to log."
+    },
+    {
+      "severity": "info",
+      "text": "example: 3002_[0-3] running (ral)",
+      "url": "https://github.com/SomeOrg/example/issues/7",
+      "prompt": "/cortex — resume example: read PyAutoCortex projects/example.md (Now, Runs, Log) and then /tmp/example/wiki/state.md; tell me where I left off and what I said I would do next. Submit nothing and log nothing until I say."
+    }
+  ]
+}

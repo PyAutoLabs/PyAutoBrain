@@ -29,7 +29,7 @@ note`).
 | `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY]` | **Where is my science?** | the door — the sequence below, ending in a summary keyed by project; reaches no cluster; exit **1** when the tree does not check |
 | `census [--json]` | What is the Cortex holding? | per project: status, summary, runs by state, log length, last update; totals (active projects, runs open, runs running); the check-in stamp; the problems `cortex.py check` would report |
 | `dashboard --check` | Are the committed pages current? | exit 0 current · **1 stale** · 2 no checkout · 3 unreadable tree |
-| `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` |
+| `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` + `state.json` — the organ-cockpit feed (`board/_state.py` v1): red on `cortex.py check` problems, yellow while a run is running or the check-in is stale (the page script's 180-min rule, judged at render), items carry `checkin_payload` / `resume_payload`; `--check` ignores its `updated` |
 | `issue [--project KEY] [--apply]` | What sits at the top of each project's issue? | the fenced ledger block (`cortex.py`'s `issue_block`) per project with an `Issue:`; `--apply` writes it into the issue body through `gh` (replacing the block between the markers, or prepending it); never creates an issue; exit **1** without `gh` |
 
 ```
@@ -133,7 +133,7 @@ It writes nothing: no stamp, no pages, no ledger. `--dry-run` prints the exact
 
 ### `checkin` — the door
 
-1. **Stamp + render.** `checkin.yaml`, then `dashboard.md` + `dashboard.html`.
+1. **Stamp + render.** `checkin.yaml`, then `dashboard.md` + `dashboard.html` + `state.json`.
 2. **Push** (the rule below).
 3. **Summarise, by project** — printed **last**, so a chat sees it above the
    fold: `key — summary`, Now, the runs **as the ledger holds them**, the last
