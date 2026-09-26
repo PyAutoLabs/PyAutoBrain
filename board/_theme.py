@@ -48,8 +48,8 @@ unclassed emphasis takes the organ's hue.
 
 `ORGANS` is the palette table, keyed by the same board names as
 `config/policy.yaml` `board: boards:` — that mapping is the declared config
-surface an adopting fork replaces, so no repo is named here. Five of the six
-palettes are sampled from the actual logo files: the mark, the glyph colour
+surface an adopting fork replaces, so no repo is named here. Every palette
+but the umbrella's is sampled from the actual logo files: the mark, the glyph colour
 and the wordmark's own tagline, straight off `logo.png` in each organ's repo.
 The
 umbrella board has no logo, so its accent and tagline are designed to sit in
@@ -104,6 +104,17 @@ ORGANS = {
         "tagline": "Build. Execute. Deliver.",
         "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
         "hero": ("#372100", "#000000"),
+    },
+    # Gut — sampled off PyAutoGut/logo.png: the lime glyph (#8ad414, the
+    # logo's dominant bright colour) over the dark-olive vignette (#1f3006).
+    # Lime is far too light to read on white (1.8:1), so the light-scheme ink
+    # is the same hue taken down to #3f7a00 (5.3:1 on #fff); the dark-scheme
+    # ink #8fe01a reads at 11.6:1 on #0d1117.
+    "gut": {
+        "organ": "Gut",
+        "tagline": "Delete. Clean. Keep healthy.",
+        "ink_light": "#3f7a00", "ink_dark": "#8fe01a", "glow": "#8ad414",
+        "hero": ("#1f3006", "#000000"),
     },
     # The umbrella is the one board with no logo to sample: the accent and
     # the tagline are designed to sit in the family rather than read off a
@@ -277,6 +288,24 @@ MARKS = {
         '<circle cx="14.6" cy="34.6" r="1" fill="currentColor" stroke="none"/>'
         '<path d="M3.8,26.2 L11.6,26.2 M2.2,30.4 L8.6,30.4 '
         'M5.0,34.6 L9.4,34.6"/>'
+    ),
+    # Gut — a lidded bin with ribs, speed lines entering from the left and
+    # the void badge (a ringed cross) over its lower-right corner, inside a
+    # closed ring, as on the logo.
+    "gut": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<path d="M14.6,17.4 L33.0,17.4 L33.0,15.2 Q33.0,14.2 32.0,14.2 '
+        'L15.6,14.2 Q14.6,14.2 14.6,15.2 Z"/>'
+        '<path d="M20.6,14.2 L20.6,12.2 Q20.6,11.4 21.4,11.4 L26.2,11.4 '
+        'Q27.0,11.4 27.0,12.2 L27.0,14.2"/>'
+        '<path d="M16.2,17.4 L17.8,34.4 Q17.95,35.8 19.3,35.8 L26.0,35.8 '
+        'M31.4,17.4 L30.8,25.0"/>'
+        '<path d="M20.6,20.6 L21.2,32.6 M23.8,20.6 L23.8,32.6 '
+        'M27.0,20.6 L26.7,27.6"/>'
+        '<path d="M8.4,21.4 L13.4,21.4 M7.4,25.0 L13.8,25.0 '
+        'M9.2,28.6 L14.2,28.6"/>'
+        '<circle cx="31.6" cy="32.2" r="5.4"/>'
+        '<path d="M29.7,30.3 L33.5,34.1 M33.5,30.3 L29.7,34.1"/>'
     ),
     # Umbrella — no logo to sample, so the family language (ring, line-art,
     # node dots) applied to the double helix the board already carried.
