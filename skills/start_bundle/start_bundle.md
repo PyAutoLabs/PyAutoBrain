@@ -19,6 +19,12 @@ The bundle is an orchestration convenience, never a batching of the record.
 
 ## Steps
 
+**Heart at the door — once, before step 1.** Run `bin/heart_feed.py` and act
+on it exactly as [`start_dev`](../start_dev/start_dev.md) step 0a "Heart at the
+door" says (GREEN/YELLOW/STALE/GREY continue, RED stops the whole bundle before
+any member is planned). Once per bundle is enough; the per-member `/start_dev`
+runs need not repeat it within the same sitting.
+
 ### 1. Read every member first
 
 Read each member prompt in full *before* planning any of them. Confirm they are
