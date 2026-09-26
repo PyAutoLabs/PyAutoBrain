@@ -54,6 +54,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _theme import (  # noqa: E402
     JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
 )
+# The organ cockpit feed contract (state.json) — the validator every organ
+# shares, so this board cannot publish a feed the cockpit would reject.
+from _state import build_state  # noqa: E402
 
 THEME_ORGAN = "brain"  # whose logo this page wears
 
@@ -1010,6 +1013,103 @@ def render_badge(data):
     }, indent=2) + "\n"
 
 
+# badge_color speaks shields.io; the cockpit feed speaks its own small enum.
+STATE_STATUS = {"red": "red", "orange": "yellow", "lightgrey": "grey",
+                "brightgreen": "green"}
+# The phone shows a glance, not the whole board: past this many rows the
+# pages_url is the door. Heart blockers are already capped at
+# HEART_BLOCKER_CAP upstream; this bounds the sum of every section.
+STATE_ITEM_CAP = 20
+
+
+def _iso_generated(data):
+    """The render time as ISO-8601 UTC.
+
+    The collect keeps its human display form ("%Y-%m-%d %H:%M UTC") — board.json
+    publishes it and must not change shape — so the feed re-reads that string
+    rather than adding a second field to the surface.
+    """
+    try:
+        dt = datetime.strptime(data.get("generated", ""), "%Y-%m-%d %H:%M UTC")
+    except (TypeError, ValueError):
+        dt = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _state_items(data):
+    """The rows the board already renders as asking something of a human —
+    composed, never re-derived: each prompt is the owning organ's own payload
+    (the Heart's /bug line, the Ears' triage ref), carried verbatim."""
+    items = []
+    for b in data.get("heart_blockers") or []:
+        sev = b.get("severity")
+        items.append({
+            "severity": "red" if sev == "red" else "yellow",
+            "text": " ".join(f"Heart: {b.get('text') or '?'}".split()),
+            "url": b.get("run_url") or b.get("repo_url"),
+            "prompt": b.get("prompt") or b.get("command"),
+        })
+    for r in data.get("overnight") or []:
+        where = f"{r['repo']}/{r['workflow']}"
+        if r.get("unreadable"):
+            items.append({"severity": "info",
+                          "text": f"overnight: could not read {where}",
+                          "url": None, "prompt": None})
+        elif r.get("conclusion") not in (None, "success"):
+            items.append({
+                "severity": "red",
+                "text": f"overnight: {where} {r['conclusion']}",
+                "url": r.get("url"),
+                # The same payload the page's 📋 chip carries for this row.
+                "prompt": (f"/bug overnight: {where} concluded "
+                           f"{r['conclusion']} — {r['url'] or 'no run url'}"),
+            })
+        elif r.get("blocked"):
+            items.append({"severity": "yellow",
+                          "text": f"overnight: {where} blocked at a gate",
+                          "url": r.get("url"), "prompt": None})
+    for e in (data.get("community") or {}).get("awaiting_response") or []:
+        waited = e.get("waiting_days")
+        days = f" ({waited:.0f}d)" if waited is not None else ""
+        items.append({
+            "severity": ("yellow" if (waited or 0) >= COMMUNITY_STALE_DAYS
+                         else "info"),
+            "text": " ".join(f"community: {e['repo']}#{e['number']} awaiting a "
+                             f"reply{days}".split()),
+            "url": e.get("url"),
+            "prompt": f"/community triage {community_ref(e)}",
+        })
+    for d in data.get("degraded") or []:
+        items.append({"severity": "info",
+                      "text": " ".join(f"degraded: {d}".split()),
+                      "url": None, "prompt": None})
+    order = {"red": 0, "yellow": 1, "info": 2}
+    items.sort(key=lambda i: order[i["severity"]])  # stable: section order kept
+    return items[:STATE_ITEM_CAP]
+
+
+def render_state(data):
+    """state.json — the organ cockpit feed (board/_state.py, contract v1).
+
+    Same verdict as the badge (status mirrors badge_color, headline is the
+    badge message) plus the actionable rows, so the cockpit never disagrees
+    with the badge beside it.
+    """
+    repo = data.get("repo") or "PyAutoBrain"
+    pages_url = (data.get("boards") or {}).get("brain") or \
+        f"https://{str(data.get('org', '')).lower()}.github.io/{repo}/"
+    state = build_state(
+        organ="brain",
+        repo=repo,
+        status=STATE_STATUS.get(badge_color(data), "grey"),
+        headline=headline(data),
+        updated=_iso_generated(data),
+        pages_url=pages_url,
+        items=_state_items(data),
+    )
+    return json.dumps(state, indent=2) + "\n"
+
+
 def _overnight_line(r):
     if r.get("unreadable"):
         return f"? {r['repo']}/{r['workflow']} — could not read (see Degraded)"
@@ -1667,9 +1767,12 @@ def main():
     parser.add_argument("--json", action="store_true", help="the raw surface")
     parser.add_argument("--badge", action="store_true",
                         help="badge.json (the cross-board headline contract)")
+    parser.add_argument("--state", action="store_true",
+                        help="state.json (the organ cockpit feed, "
+                             "board/_state.py)")
     parser.add_argument("--apply", action="store_true",
-                        help="write index.html + badge.json + board.json + "
-                             "board.md into --out")
+                        help="write index.html + badge.json + state.json + "
+                             "board.json + board.md into --out")
     parser.add_argument("--out", default="_site", help="--apply output dir")
     parser.add_argument("--github-data", metavar="FILE",
                         help="pre-fetched `gh api` responses ({endpoint: "
@@ -1687,9 +1790,11 @@ def main():
         out.mkdir(parents=True, exist_ok=True)
         (out / "index.html").write_text(render_html(data), encoding="utf-8")
         (out / "badge.json").write_text(render_badge(data), encoding="utf-8")
+        (out / "state.json").write_text(render_state(data), encoding="utf-8")
         (out / "board.json").write_text(render_json(data), encoding="utf-8")
         (out / "board.md").write_text(render_md(data), encoding="utf-8")
-        print(f"board: wrote {out}/index.html + badge.json + board.json + board.md")
+        print(f"board: wrote {out}/index.html + badge.json + state.json + "
+              "board.json + board.md")
         return
     if args.html:
         print(render_html(data), end="")
@@ -1697,6 +1802,8 @@ def main():
         print(render_json(data), end="")
     elif args.badge:
         print(render_badge(data), end="")
+    elif args.state:
+        print(render_state(data), end="")
     else:
         print(render_md(data))
 

@@ -1,0 +1,43 @@
+{
+  "$comment": "The organ cockpit feed, contract v1 (PyAutoBrain#416). Every organ board publishes state.json beside its badge.json (the one-line headline contract) and its board.json (organ-specific detail). state.json is the per-organ MACHINE surface the cockpit and the phone read: one status, one headline, and the rows that ask something of a human. This file documents the contract; board/_state.py is the executable validator (stdlib only, no jsonschema) — `python PyAutoBrain/board/_state.py _site/state.json` from any cwd.",
+  "description": "Organ cockpit state feed (schema_version 1).",
+  "schema_version": 1,
+  "fields": {
+    "schema_version": "integer, always 1 for this contract; a breaking change bumps it and the validator refuses unknown versions",
+    "organ": "string, the organ key (brain, heart, hands, mind, memory, ...) — the same key board/_theme.py ORGANS uses",
+    "repo": "string, the organ's repository name (e.g. PyAutoBrain)",
+    "status": "one of green | yellow | red | stale | grey. green = read everything, found nothing; yellow = needs attention; red = blocking; stale = the evidence is too old to trust; grey = could not read enough to say",
+    "headline": "string, one non-empty line — the sentence a reader acts on",
+    "updated": "string, ISO-8601 UTC timestamp of the render, ending in Z or +00:00 (e.g. 2026-09-26T05:31:00Z)",
+    "pages_url": "string, the organ's published board page",
+    "items": "array of objects, the actionable rows, most urgent first; may be empty",
+    "items[].severity": "one of red | yellow | info",
+    "items[].text": "string, one non-empty line describing the row",
+    "items[].url": "optional string or null — the GitHub link that evidences the row (run, issue, PR)",
+    "items[].prompt": "optional string or null — the copy-for-Claude payload, verbatim from the organ that owns the signal"
+  },
+  "required": ["schema_version", "organ", "repo", "status", "headline", "updated", "pages_url", "items"],
+  "example": {
+    "schema_version": 1,
+    "organ": "brain",
+    "repo": "PyAutoBrain",
+    "status": "red",
+    "headline": "2 need you",
+    "updated": "2026-09-26T05:31:00Z",
+    "pages_url": "https://pyautolabs.github.io/PyAutoBrain/",
+    "items": [
+      {
+        "severity": "red",
+        "text": "Heart: PyAutoLens nightly smoke red",
+        "url": "https://github.com/PyAutoLabs/PyAutoHeart/actions/runs/123",
+        "prompt": "/bug Heart board: PyAutoLens nightly smoke red — https://github.com/PyAutoLabs/PyAutoHeart/actions/runs/123"
+      },
+      {
+        "severity": "yellow",
+        "text": "community: PyAutoLabs/PyAutoLens#1 awaiting a reply (3d)",
+        "url": "https://github.com/PyAutoLabs/PyAutoLens/issues/1",
+        "prompt": "/community triage PyAutoLabs/PyAutoLens#1"
+      }
+    ]
+  }
+}

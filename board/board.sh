@@ -12,7 +12,8 @@
 #   board.sh --html          # the one-tap html page
 #   board.sh --json          # the raw surface
 #   board.sh --badge         # badge.json (the cross-board headline contract)
-#   board.sh --apply [--out DIR]   # write index.html + badge.json +
+#   board.sh --state         # state.json (the organ cockpit feed, _state.py)
+#   board.sh --apply [--out DIR]   # write index.html + badge.json + state.json +
 #                                  #   board.json + board.md (default _site/)
 #   board.sh publish [--dry-run] [--no-hygiene]
 #                            # dev-box leg (_publish.py): distill hygiene +
