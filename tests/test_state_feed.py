@@ -37,7 +37,7 @@ def _fixture(name):
 # ------------------------------------------------------------- validator ----
 
 
-@pytest.mark.parametrize("name", ["brain", "heart"])
+@pytest.mark.parametrize("name", ["brain", "heart", "mind", "cortex"])
 def test_the_fixtures_satisfy_the_contract(name):
     assert _state.validate_state(_fixture(name)) == []
 

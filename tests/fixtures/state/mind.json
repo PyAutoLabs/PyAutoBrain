@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "organ": "mind",
+  "repo": "PyAutoMind",
+  "status": "yellow",
+  "headline": "YELLOW — 3 picks · 2 in flight",
+  "updated": "2026-09-26T03:26:41Z",
+  "pages_url": "https://someorg.github.io/PyAutoMind/",
+  "items": [
+    {
+      "severity": "yellow",
+      "text": "Widget rework — library-shipped, awaiting-merge",
+      "url": "https://github.com/SomeOrg/Widgets/pull/7",
+      "prompt": "/start_dev active/widget_rework.md"
+    },
+    {
+      "severity": "yellow",
+      "text": "pending release: Widgets Widgets#7 — Widget rework",
+      "url": "https://github.com/SomeOrg/Widgets/pull/7",
+      "prompt": null
+    },
+    {
+      "severity": "info",
+      "text": "pick: Urgent widget",
+      "url": "https://github.com/SomeOrg/PyAutoMind/blob/main/draft/feature/widgets/urgent.md",
+      "prompt": "/start_dev draft/feature/widgets/urgent.md"
+    }
+  ]
+}

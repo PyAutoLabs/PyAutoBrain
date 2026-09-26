@@ -72,6 +72,10 @@ sys.path.insert(0, str(BRAIN_HOME / "board"))
 from _theme import (  # noqa: E402
     JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
 )
+# The organ-cockpit feed contract (board/_state.py, state.json v1) — the same
+# constructor the Brain board uses, so this renderer cannot write a feed the
+# cockpit would reject.
+from _state import build_state  # noqa: E402
 
 THEME_ORGAN = "cortex"  # whose logo this page wears
 CORTEX_REPO = "PyAutoCortex"  # an organ name, not an instance fact
@@ -696,9 +700,126 @@ def dashboard_body(page: str) -> str:
     return "\n".join(l for l in page.splitlines() if keep(l))
 
 
+# ------------------------------------------------------- the cockpit feed ---
+# The third render of the one census (PyAutoBrain#418): `state.json`, the
+# per-organ machine surface the cockpit and the phone read (board/_state.py,
+# contract v1). Every prompt is a payload the page already copies —
+# `checkin_payload`, `resume_payload` — composed, never re-derived.
+STATE_ITEM_CAP = 20
+
+
+def _now() -> _dt.datetime:
+    """The render clock (one seam, so tests can move it)."""
+    return _dt.datetime.now(_dt.timezone.utc)
+
+
+def checkin_stale(stamp: str, now: _dt.datetime | None = None) -> bool:
+    """The page script's freshness rule (`_CHECKIN_JS`), in Python: a missing
+    or unparseable stamp, or one older than CHECKIN_FRESH_MINUTES, is stale.
+    The page judges on the reader's clock at load; the feed judges at render."""
+    if not stamp:
+        return True
+    try:
+        then = _dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if then.tzinfo is None:
+        return True
+    now = now or _now()
+    return (now - then).total_seconds() / 60 > CHECKIN_FRESH_MINUTES
+
+
+def _problem_ledger(c: dict, problem: str) -> dict | None:
+    """The ledger a `cortex.py check` problem names (`projects/<key>.md: …`)."""
+    for d in c["ledgers"]:
+        if problem.startswith(f"{d['rel']}:"):
+            return d
+    return None
+
+
+def _state_items(c: dict, stale: bool) -> list:
+    items = []
+    for p in c["problems"]:
+        d = _problem_ledger(c, p)
+        items.append({"severity": "red", "text": " ".join(p.split()),
+                      "url": (d or {}).get("issue_url") or None,
+                      "prompt": None})
+    if stale:
+        items.append({"severity": "yellow",
+                      "text": f"check-in stale — last "
+                              f"{c.get('checkin') or CHECKIN_NEVER}",
+                      "url": None, "prompt": checkin_payload(c)})
+    for d in c["ledgers"]:
+        row = c["projects"].get(d["key"], {})
+        for r in d["runs"]:
+            if r["state"] != "running":
+                continue
+            items.append({
+                "severity": "info",
+                "text": " ".join(f"{d['key']}: {r['ident']} running "
+                                 f"({r['partition'] or '?'})".split()),
+                "url": d.get("issue_url") or None,
+                "prompt": resume_payload(d["key"], row)})
+    order = {"red": 0, "yellow": 1, "info": 2}
+    items.sort(key=lambda i: order[i["severity"]])  # stable: section order kept
+    return items[:STATE_ITEM_CAP]
+
+
+def render_state(c: dict) -> str:
+    """`state.json` — the Cortex's organ-cockpit feed, as JSON text.
+
+    Status: red when `cortex.py check` reports problems; yellow when a run is
+    on the cluster or the check-in is stale; green otherwise; grey when there
+    is no ledger at all. Headline `A active · R running`, state-word prefixed
+    when not green."""
+    now = _now().replace(microsecond=0)
+    n = c["counts"]
+    stale = checkin_stale(c.get("checkin") or "", now)
+    if not c["ledgers"]:
+        status = "grey"
+    elif c["problems"]:
+        status = "red"
+    elif n["running"] > 0 or stale:
+        status = "yellow"
+    else:
+        status = "green"
+    line = f"{n['active']} active · {n['running']} running"
+    if status == "grey":
+        line = "no project ledgers"
+    home = c.get("home", "")
+    state = build_state(
+        organ="cortex",
+        repo=home.rstrip("/").rsplit("/", 1)[-1] if home else CORTEX_REPO,
+        status=status,
+        headline=line if status == "green" else f"{status.upper()} — {line}",
+        updated=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # the Pages site this feed is served from; relative when underivable
+        pages_url=_pages_url(home) or "./",
+        items=_state_items(c, stale) if c["ledgers"] else [],
+    )
+    return json.dumps(state, indent=2) + "\n"
+
+
+def state_body(text: str) -> str:
+    """The feed minus its `updated` render stamp — what `--check` compares
+    (`dashboard_body`'s job for the pages)."""
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(obj, dict):
+        obj.pop("updated", None)
+    return json.dumps(obj, sort_keys=True)
+
+
+def page_body(name: str, text: str) -> str:
+    return state_body(text) if name == "state.json" else dashboard_body(text)
+
+
 def render_pages(c: dict) -> dict:
     return {"dashboard.md": render_dashboard(c),
-            "dashboard.html": render_dashboard_html(c)}
+            "dashboard.html": render_dashboard_html(c),
+            "state.json": render_state(c)}
 
 
 def cmd_dashboard(root: Path, c: dict, a) -> int:
@@ -708,10 +829,10 @@ def cmd_dashboard(root: Path, c: dict, a) -> int:
         for name, want in pages.items():
             target = root / name
             on_disk = _read(target) if target.is_file() else ""
-            if dashboard_body(on_disk) != dashboard_body(want):
+            if page_body(name, on_disk) != page_body(name, want):
                 stale.append(name)
         if not stale:
-            print("dashboard.md + dashboard.html are current")
+            print("dashboard.md + dashboard.html + state.json are current")
             return RC_OK
         print(f"{' + '.join(stale)} stale — regenerate with "
               "`pyauto-brain cortex dashboard --apply`", file=sys.stderr)
@@ -1109,7 +1230,7 @@ def cmd_checkin(root: Path, mod, a) -> int:
         for n in notes:
             print(f"\nnote: {n}")
         print(f"\nwould stamp {CHECKIN_FILE}, re-render dashboard.md + "
-              "dashboard.html, and read back "
+              "dashboard.html + state.json, and read back "
               f"{len(keys)} project(s). Run with --apply to check in.")
         print("The pull is its own verb, on the laptop: "
               "`pyauto-brain cortex pull`.")
