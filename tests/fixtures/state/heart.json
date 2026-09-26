@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "organ": "heart",
+  "repo": "PyAutoHeart",
+  "status": "red",
+  "headline": "RED — 2 blockers",
+  "updated": "2026-09-26T04:12:00+00:00",
+  "pages_url": "https://pyautolabs.github.io/PyAutoHeart/",
+  "items": [
+    {
+      "severity": "red",
+      "text": "PyAutoLens: workspace smoke red (3 scripts failed)",
+      "url": "https://github.com/PyAutoLabs/PyAutoHeart/actions/runs/18011111111",
+      "prompt": "/bug Heart board: PyAutoLens workspace smoke red — https://github.com/PyAutoLabs/PyAutoHeart/actions/runs/18011111111"
+    },
+    {
+      "severity": "yellow",
+      "text": "PyAutoGalaxy: python matrix 3.13 leg failed",
+      "url": "https://github.com/PyAutoLabs/PyAutoHands/actions/runs/18011122222",
+      "prompt": "/bug Heart board: PyAutoGalaxy python matrix 3.13 leg failed — https://github.com/PyAutoLabs/PyAutoHands/actions/runs/18011122222"
+    }
+  ]
+}

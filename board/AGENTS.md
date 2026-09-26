@@ -57,8 +57,22 @@ bin/pyauto-brain board publish        # dev-box leg: distill hygiene + worktree
 
 Publishing is `.github/workflows/brain_board.yml`: a morning cron plus manual
 dispatch renders `--apply` output and deploys it to GitHub Pages (page +
-`badge.json` + `board.json` + `board.md`). Nothing is committed to the repo —
+`badge.json` + `state.json` + `board.json` + `board.md`). Nothing is committed to the repo —
 the board is served, not stored, so a daily refresh makes no commit noise.
+
+## The cockpit feed (`state.json`)
+
+`state.json` is the **cockpit feed** — the per-organ machine surface the
+cockpit and the phone read: one `status` (green/yellow/red/stale/grey), one
+`headline`, an ISO-8601 UTC `updated`, the `pages_url`, and the actionable
+`items` (severity, text, GitHub `url`, copy-for-Claude `prompt`). It sits next
+to `badge.json` (the one-line headline contract; the feed's status and
+headline mirror it) and `board.json` (organ-specific detail, a different shape
+per organ). The contract lives in `board/state_schema.json` and is enforced by
+`board/_state.py` (stdlib only, `build_state` + `validate_state`); this board
+emits it via `render_state` (`--state`, and `--apply` writes it). Other organs
+emit the same shape and validate before publishing with
+`python PyAutoBrain/board/_state.py _site/state.json` — runnable from any cwd.
 
 ## Look (`_theme.py`)
 

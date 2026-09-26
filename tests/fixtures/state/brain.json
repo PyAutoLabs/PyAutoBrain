@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "organ": "brain",
+  "repo": "PyAutoBrain",
+  "status": "yellow",
+  "headline": "2 need you",
+  "updated": "2026-09-26T05:31:00Z",
+  "pages_url": "https://pyautolabs.github.io/PyAutoBrain/",
+  "items": [
+    {
+      "severity": "yellow",
+      "text": "overnight: PyAutoLabs/PyAutoBrain/nightly-release.yml blocked at a gate",
+      "url": "https://github.com/PyAutoLabs/PyAutoBrain/actions/runs/18012345678",
+      "prompt": null
+    },
+    {
+      "severity": "info",
+      "text": "community: PyAutoLabs/PyAutoLens#512 awaiting a reply (2d)",
+      "url": "https://github.com/PyAutoLabs/PyAutoLens/issues/512",
+      "prompt": "/community triage PyAutoLabs/PyAutoLens#512"
+    }
+  ]
+}
