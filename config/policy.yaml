@@ -171,4 +171,5 @@ board:
     memory: PyAutoMemory
     heart: PyAutoHeart
     hands: PyAutoHands
+    gut: PyAutoGut
     organism: PyAutoScientist

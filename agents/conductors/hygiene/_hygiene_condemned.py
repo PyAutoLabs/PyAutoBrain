@@ -5,7 +5,10 @@ The hygiene conductor drives PyAutoGut but owns none of the storage: it reads
 the `condemned.md` manifest (the Mind catalog of condemned self-material) and
 classifies each entry by its transit clock — **due** (sweep-after date reached,
 ready to void) vs **pending** (still in the transit window, recoverable). It
-emits a plan; the actual void is delegated to `pyauto-gut void`. Stdlib only —
+emits a plan; the actual void is delegated to `pyauto-gut void`. `ref_name`
+maps an entry to the Gut ref it archives to; PyAutoGut's board collector and
+its void workflow import this module from a checked-out Brain for the same
+parse, so the ledger is read one way everywhere. Stdlib only —
 the conductor never drags a dependency into the Brain.
 
 Usage:
@@ -52,6 +55,36 @@ def parse_manifest(text):
     if cur and (cur.get("type") or cur.get("locator")):
         entries.append(cur)
     return entries
+
+
+# The archive namespace every Gut ref lives under. `ref_name` reads the
+# `archive-ref` field — never the `##` heading, which is a human title and
+# differs from the ref name (e.g. heading `pyautohands/pre-2023-history`,
+# ref `pyautohands-pre-2023-history`).
+ARCHIVE_NS = "refs/heads/archive/condemned/"
+_REF_RE = re.compile(re.escape(ARCHIVE_NS) + r"([A-Za-z0-9._*][A-Za-z0-9._/*-]*)")
+
+
+def ref_name(entry):
+    """The Gut ref name `<name>` an entry archives to, or None.
+
+    Reads the first `refs/heads/archive/condemned/<name>` in the entry's
+    `archive-ref` field, tolerating the backticks, `@ <sha>` and
+    `on <Repo> origin` decorations the ledger actually carries. None means
+    the entry has no Gut ref at all — `n/a` (a merged branch or a committed
+    deletion whose bytes live in remote history), a local backup path, or no
+    field. A batch entry that archived many refs under one prefix returns
+    the glob as written (e.g. `pyautomind-*`); the caller expands it against
+    the refs it can see. A trailing `.` or `/` (sentence punctuation) is
+    stripped.
+    """
+    text = (entry.get("archive-ref") or "").strip()
+    if not text or text.strip("`").lower().startswith("n/a"):
+        return None
+    m = _REF_RE.search(text)
+    if not m:
+        return None
+    return m.group(1).rstrip("./") or None
 
 
 def _parse_date(s):

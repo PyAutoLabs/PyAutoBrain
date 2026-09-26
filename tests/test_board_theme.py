@@ -203,7 +203,7 @@ def test_board_links_reads_the_declared_family_in_file_order():
     # the order `config/policy.yaml` declares — the ruled organ order.
     links = _theme.board_links("https://example.invalid")
     assert list(links) == ["brain", "mind", "cortex", "memory",
-                           "heart", "hands", "organism"]
+                           "heart", "hands", "gut", "organism"]
     assert list(links) == POLICY_BOARDS
     assert links["cortex"] == "https://example.invalid/PyAutoCortex/"
 
@@ -225,7 +225,8 @@ def test_board_links_renders_the_family_footer_end_to_end():
     footer = _theme.boards_footer(
         _theme.board_links("https://example.invalid", "heart"), "heart")
     order = re.findall(r'data-organ="(\w+)"', footer)
-    assert order == ["brain", "mind", "cortex", "memory", "hands", "organism"]
+    assert order == ["brain", "mind", "cortex", "memory", "hands", "gut",
+                     "organism"]
 
 
 def test_board_links_returns_nothing_when_the_config_is_unreadable():
@@ -314,3 +315,21 @@ def test_a_bare_list_lines_up_with_the_rest_of_the_page():
     # The lists that are layout rather than prose keep their own zero.
     assert re.search(r"\.stats\{[^}]*padding:0", css, re.S)
     assert re.search(r"\.boards\{[^}]*padding:0", css, re.S)
+
+
+def test_the_gut_board_is_in_the_family_and_readable():
+    # PyAutoGut#9: the Gut joined the board family — a palette sampled off its
+    # logo, a drawn mark, and accents that pass the same contrast bar.
+    assert "gut" in POLICY_BOARDS
+    o = _theme.ORGANS["gut"]
+    assert o["organ"] == "Gut"
+    assert _contrast(o["ink_light"], "#ffffff") >= 4.5
+    assert _contrast(o["ink_dark"], "#0d1117") >= 4.5
+    assert "gut" in _theme.MARKS and "<circle" in _theme.MARKS["gut"]
+    assert _theme.MARKS["gut"] in _theme.hero("gut", "Dashboard")
+
+
+def test_every_theme_entry_but_the_umbrella_is_a_declared_board():
+    # The reverse of the palette check: a palette for a board nobody declares
+    # is a footer chip that can never appear.
+    assert set(_theme.ORGANS) <= set(POLICY_BOARDS) | {"organism"}
