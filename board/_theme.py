@@ -105,6 +105,18 @@ ORGANS = {
         "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
         "hero": ("#372100", "#000000"),
     },
+    # Nerves — sampled off PyAutoNerves/logo.png: the electric-violet neuron
+    # (#7523fe, the logo's dominant bright colour) over the deep-purple
+    # vignette (#1d0c30). The glyph colour itself reads at 6.1:1 on white but
+    # only 3.1:1 on #0d1117, so each scheme gets its own ink off the same hue:
+    # #6420e0 (7.4:1 on #fff) and #a27aff (6.1:1 on #0d1117). Bluer than the
+    # Memory violet, as the two logos are.
+    "nerves": {
+        "organ": "Nerves",
+        "tagline": "Signal. Connect. Understand.",
+        "ink_light": "#6420e0", "ink_dark": "#a27aff", "glow": "#7523fe",
+        "hero": ("#1d0c30", "#000000"),
+    },
     # Gut — sampled off PyAutoGut/logo.png: the lime glyph (#8ad414, the
     # logo's dominant bright colour) over the dark-olive vignette (#1f3006).
     # Lime is far too light to read on white (1.8:1), so the light-scheme ink
@@ -288,6 +300,32 @@ MARKS = {
         '<circle cx="14.6" cy="34.6" r="1" fill="currentColor" stroke="none"/>'
         '<path d="M3.8,26.2 L11.6,26.2 M2.2,30.4 L8.6,30.4 '
         'M5.0,34.6 L9.4,34.6"/>'
+    ),
+    # Nerves — a neuron: branching dendrites round a nucleated soma, a
+    # myelinated axon running right into node-tipped terminals, and the
+    # signal arcs either side of it, inside a closed ring, as on the logo.
+    "nerves": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<circle cx="16" cy="23" r="3.4"/>'
+        '<circle cx="16" cy="23" r="1.3" fill="currentColor" stroke="none"/>'
+        '<path d="M13.4,20.8 L10.2,17 L8.4,13.2 M10.2,17 L7,16.4 '
+        'M15,19.7 L14.2,14.4 L12.6,11 M14.2,14.4 L16.6,11.2 '
+        'M12.7,24 L8.4,24.6 L6.2,22.4 M8.4,24.6 L6.4,27.4 '
+        'M13.8,25.8 L11.2,30.4 L11.6,34.2 M11.2,30.4 L8.4,31.8 '
+        'M16.8,26.3 L17.8,31 L16,35"/>'
+        '<path d="M19.4,23 L21,23 M24.4,23 L25.2,23 M28.6,23 L29.4,23 '
+        'M32.8,23 L34.8,23 L37.8,19.6 M34.8,23 L38.4,23 '
+        'M34.8,23 L37.8,26.4"/>'
+        '<rect x="21" y="21.6" width="3.4" height="2.8" rx="1"/>'
+        '<rect x="25.2" y="21.6" width="3.4" height="2.8" rx="1"/>'
+        '<rect x="29.4" y="21.6" width="3.4" height="2.8" rx="1"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="38.2" cy="19.2" r="1"/><circle cx="38.9" cy="23" r="1"/>'
+        '<circle cx="38.2" cy="26.8" r="1"/></g>'
+        '<path d="M30.4,13.6 A10,10 0 0 1 35.4,17.2 '
+        'M32.4,10.8 A13,13 0 0 1 38.4,15.2 '
+        'M30.4,32.4 A10,10 0 0 0 35.4,28.8 '
+        'M32.4,35.2 A13,13 0 0 0 38.4,30.8"/>'
     ),
     # Gut — a lidded bin with ribs, speed lines entering from the left and
     # the void badge (a ringed cross) over its lower-right corner, inside a

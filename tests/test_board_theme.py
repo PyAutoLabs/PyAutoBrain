@@ -203,7 +203,7 @@ def test_board_links_reads_the_declared_family_in_file_order():
     # the order `config/policy.yaml` declares — the ruled organ order.
     links = _theme.board_links("https://example.invalid")
     assert list(links) == ["brain", "mind", "cortex", "memory",
-                           "heart", "hands", "gut", "organism"]
+                           "heart", "hands", "nerves", "gut", "organism"]
     assert list(links) == POLICY_BOARDS
     assert links["cortex"] == "https://example.invalid/PyAutoCortex/"
 
@@ -225,8 +225,8 @@ def test_board_links_renders_the_family_footer_end_to_end():
     footer = _theme.boards_footer(
         _theme.board_links("https://example.invalid", "heart"), "heart")
     order = re.findall(r'data-organ="(\w+)"', footer)
-    assert order == ["brain", "mind", "cortex", "memory", "hands", "gut",
-                     "organism"]
+    assert order == ["brain", "mind", "cortex", "memory", "hands", "nerves",
+                     "gut", "organism"]
 
 
 def test_board_links_returns_nothing_when_the_config_is_unreadable():
@@ -327,6 +327,21 @@ def test_the_gut_board_is_in_the_family_and_readable():
     assert _contrast(o["ink_dark"], "#0d1117") >= 4.5
     assert "gut" in _theme.MARKS and "<circle" in _theme.MARKS["gut"]
     assert _theme.MARKS["gut"] in _theme.hero("gut", "Dashboard")
+
+
+def test_the_nerves_board_is_in_the_family_and_readable():
+    # PyAutoNerves#172: the Nerves joined the board family — a palette sampled
+    # off its logo, a drawn neuron mark, accents that pass the contrast bar,
+    # and a footer slot in the ruled organ order (after Hands, before Gut).
+    assert "nerves" in POLICY_BOARDS
+    assert POLICY_BOARDS.index("hands") < POLICY_BOARDS.index("nerves") \
+        < POLICY_BOARDS.index("gut")
+    o = _theme.ORGANS["nerves"]
+    assert o["organ"] == "Nerves"
+    assert _contrast(o["ink_light"], "#ffffff") >= 4.5
+    assert _contrast(o["ink_dark"], "#0d1117") >= 4.5
+    assert "nerves" in _theme.MARKS and "<circle" in _theme.MARKS["nerves"]
+    assert _theme.MARKS["nerves"] in _theme.hero("nerves", "Board")
 
 
 def test_every_theme_entry_but_the_umbrella_is_a_declared_board():
