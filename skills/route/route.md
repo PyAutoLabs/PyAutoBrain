@@ -7,6 +7,15 @@ typed shortcuts into the same routing.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
+## Heart at the door
+
+When the inferred route enters development (`/feature`, `/bug`, `/refactor`,
+`/workspace`, `/docs`, `/research` heading into `/start_dev`), run
+`bin/heart_feed.py` **before dispatch** and act on it exactly as
+[`start_dev`](../start_dev/start_dev.md) step 0a "Heart at the door" says — a
+RED stops before any planning. Read-only routes (`/health`, status questions)
+skip it; `/health` is where a RED is fixed.
+
 ## Classify → dispatch
 
 Infer the work-type from the request using the taxonomy in

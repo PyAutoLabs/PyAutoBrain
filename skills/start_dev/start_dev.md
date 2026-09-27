@@ -75,6 +75,25 @@ section required by the current step; a prior accepted plan remains approved.
 
 ## Flow
 
+### 0a. Heart at the door
+
+Before anything else — before the resume check, before planning — run the
+read-only helper (never a tick) and show its first line to the user:
+
+```bash
+python3 "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/heart_feed.py"
+```
+
+- **GREEN** (exit 0) → continue.
+- **YELLOW / STALE** (exit 1) → print the reasons and continue; the YELLOW
+  acknowledgement stays a ship-time act (`ship_*` step 3), unchanged.
+- **RED** (exit 2) → **stop before planning**; quote every reason verbatim.
+  The human may invoke [`../../AUTONOMY.md`](../../AUTONOMY.md)
+  "Human override for Heart RED (development only)" to proceed — record it on
+  the issue when invoked.
+- **GREY / unreachable** (exit 3) → say so and continue.
+- **`--auto` + RED** → park the run before any issue is opened.
+
 ### 0. Sync + resume check (Mind)
 
 ```bash
