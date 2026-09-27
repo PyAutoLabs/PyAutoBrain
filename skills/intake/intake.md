@@ -107,6 +107,11 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   not infer, and a review is never a required step — the user asks for one, or
   there isn't one. A declared review is also never demoted to `triage/`: with no
   target resolved it files flat at `draft/human_review/<slug>.md`.
+- **An outsider's report is not intake's to file.** A question, idea or bug
+  report from a user or collaborator (or their agent) belongs on the org
+  Discussions hub — draft the post (title, category, body) for the human per
+  `PyAutoMind/policy/where_to_file.md`; never a repo issue. Intake files a Mind
+  prompt only once the maintainer decides to act on such a report.
 - Writes happen **only** under `--apply`; the default is a read-only dry run.
 - **Machine sources** (scholar research runs, Heart findings, profiling
   results) stage as provenance-tagged `ideas.md` bullets — `- [from: <source>]
