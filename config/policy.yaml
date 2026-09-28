@@ -170,6 +170,7 @@ board:
     mind: PyAutoMind
     cortex: PyAutoCortex
     memory: PyAutoMemory
+    eyes: PyAutoEyes
     heart: PyAutoHeart
     hands: PyAutoHands
     nerves: PyAutoNerves

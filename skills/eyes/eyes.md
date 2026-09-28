@@ -17,12 +17,14 @@ and track one library's figures — producers, datasets, tracked PNGs,
 `gallery/gallery_run.sh` harness; **the organ PyAutoEyes** is the
 cross-project dashboard that reads each project repo's tracked manifest and
 links to its PNGs — it renders nothing and copies no figures. The organ's
-`registry.yaml` listing every instance arrives in PyAutoEyes phase 1b/2;
-until then the instance is named here and in the conductor's AGENTS.md.
+`registry.yaml` lists every instance. Name one with `--instance <name>` (the
+lens instance is `lens`), or hand the conductor the PyAutoEyes root to cover
+them all.
 
 ## Do
 
-1. **Survey** — `bin/pyauto-brain eyes survey <workspace-root>`: per-script
+1. **Survey**: `bin/pyauto-brain eyes survey --instance <name>` (or
+   `<workspace-root>`, or the PyAutoEyes root for every instance): per-script
    figure inventory, stale renders (producer script newer than its figures),
    never-rendered gaps, gallery currency.
 2. **Render** what the survey flags, in the instance itself:
@@ -30,7 +32,8 @@ until then the instance is named here and in the conductor's AGENTS.md.
    builder's own `--check`; `--all` adds the slow tier + JAX variants). Then
    `python gallery/gallery_build.py --embed` and copy
    `output/gallery/gallery_embedded.html` out (e.g. `towin`) for the human.
-3. **Review** — `bin/pyauto-brain eyes review <workspace-root>`: read each
+3. **Review**: `bin/pyauto-brain eyes review --instance <name>` (or
+   `<workspace-root>`): read each
    figure batch directly (PNG reads in-session), collect the human's
    critiques plus your own suggestions as notes against the emitted
    `note_schema`, tagging each with its edit surface (`config` /
@@ -39,6 +42,23 @@ until then the instance is named here and in the conductor's AGENTS.md.
 4. **Delegate** — one `/intake` prompt per coherent accepted change, then
    `/start_dev` as usual (config + script surfaces → workspace PR; `plot_api`
    → library PR). **Never edit plot source inside the review session.**
+
+## From the dashboard
+
+The PyAutoEyes dashboard (<https://pyautolabs.github.io/PyAutoEyes/>) gives
+every figure two critique routes, and neither files anything by itself:
+
+- **`/eyes review <instance> <figure>`**: the human pastes it here. Resolve
+  the instance with `--instance <instance>`, read that one figure (and its
+  siblings from the same producer, for context), and continue at step 3 with
+  a single-figure batch.
+- **Suggest an improvement**: a pre-filled `eyes-critique` issue on the
+  project repo, which the human files. Treat an open one as a critique note
+  whose `accepted` field is still false. Discuss it, and on explicit
+  agreement file the `/intake` prompt (step 4) and link the issue from it.
+
+The dashboard also lists the open PyAutoMind drafts that mention each instance
+(its open critiques), so check there before filing a duplicate.
 
 ## Paper-informed pass ("restyle to match this paper")
 

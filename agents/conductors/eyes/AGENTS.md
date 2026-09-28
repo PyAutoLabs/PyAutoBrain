@@ -34,9 +34,18 @@ and track one library's figures — producers, datasets, tracked PNGs,
 `GALLERY.md`, a tracked `gallery/viz_manifest.yaml` and the
 `gallery/gallery_run.sh` harness; **the organ PyAutoEyes** is the
 cross-project dashboard that reads each project repo's tracked manifest and
-links to its PNGs — it renders nothing and copies no figures. The organ's
-`registry.yaml` listing every instance arrives in PyAutoEyes phase 1b/2;
-until then the instance is named here and in the `/eyes` skill.
+links to its PNGs — it renders nothing and copies no figures.
+
+**Instances by name.** The organ's `registry.yaml` is the list of
+instances, and it is data rather than code. `--instance <name>` (repeatable)
+resolves an instance's checkout through it: first `path` (grouped layout),
+then `repo` (flat task bundle), under the workspace root. The organ checkout
+is found at `$PYAUTO_EYES`, then beside this Brain, then through
+`_repo_paths` (PyAutoEyes). Hand `survey` or `review` the organ root itself to
+cover every registered instance. An instance with no local checkout is skipped
+with a note on stderr, never guessed at. A resolved instance's survey also
+checks that the registry's tracked `manifest` path is present. The `.py` names
+the organ and no instance, and a test pins that.
 
 ## Modes
 
@@ -45,6 +54,7 @@ until then the instance is named here and in the `/eyes` skill.
 | `survey` | What figures exist, what is stale, what was never rendered, is the gallery current? | `EyesSurvey` — per-script inventory, stale/gap/orphan lists, gallery currency, next action |
 | `review` | What do I look at, in what order, and how do critiques become work? | `EyesReviewSurface` — ordered figure batches for the agentic read loop + the critique-note schema and edit-surface routing |
 | `review --against <dir>` | Paper-informed pass: how should these figures change to match this paper's conventions? | the same surface + `reference_figures` (the paper's extracted panels); notes then carry a `reference` |
+| either mode, several instances | The same question across the registry (`--instance a --instance b`, or the organ root) | `EyesInstanceSet` under `--json`: `decisions` (one per local instance, each carrying `instance`) and `skipped` (instance and reason); plain text prints each decision in turn |
 
 ## The loop (driven by the `/eyes` skill)
 
@@ -60,6 +70,16 @@ until then the instance is named here and in the `/eyes` skill.
    script, or dataset/simulator inputs.
 5. Delegate: one intake prompt per coherent accepted change, routed through
    start_dev. **Never edit plot source in-session.**
+
+Critiques can also start on the PyAutoEyes dashboard. Each figure there has a
+copyable `/eyes review <instance> <figure>` line (paste it into a session and
+this loop starts at step 3 for that figure) and a **Suggest an improvement**
+link. That link opens a pre-filled `eyes-critique` issue on the project repo,
+which a human files. Such an issue is raw input for step 5, the same as a
+note: the dashboard files nothing, and nothing ships without intake →
+start_dev. The dashboard lists open critiques (the PyAutoMind drafts that
+mention an instance) and calls this conductor's `--json survey` for its
+per-instance survey line.
 
 ## Boundaries
 
@@ -80,8 +100,13 @@ until then the instance is named here and in the `/eyes` skill.
 
 ```bash
 bin/pyauto-brain eyes survey <workspace-root>
+bin/pyauto-brain eyes survey --instance <name>          # through PyAutoEyes registry.yaml
+bin/pyauto-brain eyes survey <PyAutoEyes-root>          # every registered instance
 bin/pyauto-brain eyes review <workspace-root> [--batch N] [--against <reference-dir>]
+bin/pyauto-brain eyes review --instance <name> [--batch N]
 bin/pyauto-brain eyes --json survey <workspace-root>
 ```
 
-Exit codes: 0 decision emitted · 4 not a visualization workspace.
+Exit codes: 0 decision emitted · 2 unknown instance or unreadable registry ·
+4 not a visualization workspace (or no registered instance is checked out
+here).
