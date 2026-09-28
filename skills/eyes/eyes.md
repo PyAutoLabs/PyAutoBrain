@@ -5,13 +5,20 @@ visualization surface, via PyAutoBrain's **Eyes Agent** (the *perceptive
 function*). You never name the Brain; this command is the door.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`. The default
-visualization instance is the **PyAutoEyes** lens gallery,
-**`organs/PyAutoEyes/lens`** — the Eyes organ holds one rendered gallery per
-library (lens, galaxy, fit, cti). PyAutoEyes phase 1 moves today's flat
-checkout into `lens/`; until it lands, pass `organs/PyAutoEyes` itself.
-`autolens_workspace_test` (the original reference instance from epic
-PyAutoBrain#117 Phase 1) remains a secondary instance; pass a different
-instance root to review another project.
+visualization instance is the lens visualization project repo,
+**`lens/autolens_visualization`**. `autolens_workspace_test` (the original
+reference instance from epic PyAutoBrain#117 Phase 1) remains a secondary
+instance; pass a different instance root to review another project.
+
+Two layers (human decision 2026-09-28): **project repos**
+`<lib>_visualization` (lens first: `lens/autolens_visualization`) make, store
+and track one library's figures — producers, datasets, tracked PNGs,
+`GALLERY.md`, a tracked `gallery/viz_manifest.yaml` and the
+`gallery/gallery_run.sh` harness; **the organ PyAutoEyes** is the
+cross-project dashboard that reads each project repo's tracked manifest and
+links to its PNGs — it renders nothing and copies no figures. The organ's
+`registry.yaml` listing every instance arrives in PyAutoEyes phase 1b/2;
+until then the instance is named here and in the conductor's AGENTS.md.
 
 ## Do
 
