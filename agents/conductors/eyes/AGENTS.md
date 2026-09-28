@@ -4,11 +4,11 @@
 > function* — the organism's sense of its own appearance: it owns the
 > render → present → critique → delegate loop over a project's visualization
 > surface. It consults the read-only memory faculty for style/paper context
-> like every conductor; it never renders (the **PyAutoEyes** organ's harness
-> does — `gallery/gallery_run.sh` in each instance), never edits plot source,
-> and delegates every accepted change via intake → start_dev. The conductor
-> drives the Eyes organ exactly as vitals reads the Heart: the organ renders
-> and holds the figures, the conductor judges them with the human.
+> like every conductor; it never renders (each visualization project repo's
+> harness does — `gallery/gallery_run.sh`), never edits plot source, and
+> delegates every accepted change via intake → start_dev. The project repos
+> render and hold the figures, the **PyAutoEyes** organ is the dashboard over
+> them, and the conductor judges them with the human.
 
 Grown from demonstrated need: the organism produces rich visualizations
 (imaging / interferometer / point_source / multi / cluster) but had no formal
@@ -24,12 +24,19 @@ The deterministic core consumes any **visualization workspace**: a repo with
 visualization scripts, plus `output/gallery/` from its gallery builder. The
 workspace root is always a CLI argument — the `.py`/`.sh` here name no
 repositories (tenant firewall); the instance pointer lives in this prose and
-in the `/eyes` skill. Default instance: the **PyAutoEyes** lens gallery,
-`organs/PyAutoEyes/lens` (the organ holds one instance subtree per library —
-lens, galaxy, fit, cti; PyAutoEyes phase 1 moves today's flat checkout into
-`lens/`, so until it lands the instance root is `organs/PyAutoEyes` itself).
-`autolens_workspace_test` remains a secondary instance (its `gallery/`
-harness is retired by PyAutoEyes phase 5).
+in the `/eyes` skill. Default instance: the lens visualization project repo,
+**`lens/autolens_visualization`**. `autolens_workspace_test` remains a
+secondary instance (its `gallery/` harness is retired by PyAutoEyes phase 5).
+
+Two layers (human decision 2026-09-28): **project repos**
+`<lib>_visualization` (lens first: `lens/autolens_visualization`) make, store
+and track one library's figures — producers, datasets, tracked PNGs,
+`GALLERY.md`, a tracked `gallery/viz_manifest.yaml` and the
+`gallery/gallery_run.sh` harness; **the organ PyAutoEyes** is the
+cross-project dashboard that reads each project repo's tracked manifest and
+links to its PNGs — it renders nothing and copies no figures. The organ's
+`registry.yaml` listing every instance arrives in PyAutoEyes phase 1b/2;
+until then the instance is named here and in the `/eyes` skill.
 
 ## Modes
 
@@ -57,8 +64,9 @@ harness is retired by PyAutoEyes phase 5).
 ## Boundaries
 
 - Decision-only, stdlib-only core: reads the filesystem, writes nothing.
-- Rendering and figure regeneration belong to the Eyes organ (or the
-  workspace instance); the conductor only tells you they are stale.
+- Rendering and figure regeneration belong to the visualization project
+  repo (the instance); the PyAutoEyes organ only aggregates them on its
+  dashboard; the conductor only tells you they are stale.
 - Paper-informed passes (`review --against`): the reference figures are
   gathered by the session (PDF pages read directly, or panels extracted to a
   directory) — the core never fetches anything. The reviewing session reads
