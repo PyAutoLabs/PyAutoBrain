@@ -9,18 +9,18 @@
         "summary": ""
       },
       {
-        "count": 84,
+        "count": 113,
         "delegate": "condemn \u2192 condemned.md (async; 'hygiene sweep' voids)",
         "mode": "tidy",
         "status": "debris",
-        "summary": "14/14 code repos: 69 stale branches, 4 stashes, 9 [gone] refs, 2 dirty checkouts"
+        "summary": "15/15 code repos: 92 stale branches, 5 stashes, 15 [gone] refs, 1 dirty checkouts"
       },
       {
         "count": 0,
         "delegate": "/refactor",
         "mode": "crlf",
         "status": "clean",
-        "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 19/19 scanned repos"
+        "summary": "0 executable scripts w/ CRLF (BREAK on HPC \u2014 normalise + add .gitattributes eol=lf): ; 167 .py w/ CRLF (cosmetic \u2014 leave, or '* text=auto' going forward) across 20/20 scanned repos"
       },
       {
         "count": 31,
@@ -37,11 +37,11 @@
         "summary": "1 script(s) across 8 repo(s) with LaTeX damaged by string escapes: 2 warned, 1 silent (0 file(s) have ONLY silent damage, which a warning-only sweep would miss); 0 read error(s)"
       },
       {
-        "count": 11,
+        "count": 12,
         "delegate": "/refactor",
         "mode": "refs",
         "status": "finding",
-        "summary": "11 folder-list defects (11 dead references, 0 undocumented folders) in 6 files across 3/8 repos; 289 unresolvable refs skipped"
+        "summary": "12 folder-list defects (12 dead references, 0 undocumented folders) in 7 files across 3/8 repos; 283 unresolvable refs skipped"
       },
       {
         "count": 0,
@@ -62,14 +62,14 @@
         "delegate": "/repo_cleanup",
         "mode": "artifacts",
         "status": "clean",
-        "summary": "0 tracked files look like leaked outputs/data across 19/19 scanned repos: (fix: gitignore + git rm --cached)"
+        "summary": "0 tracked files look like leaked outputs/data across 20/20 scanned repos: (fix: gitignore + git rm --cached)"
       },
       {
-        "count": 0,
+        "count": 4,
         "delegate": "PyAutoBrain/bin/clean_slate.sh --packaging",
         "mode": "packaging",
-        "status": "clean",
-        "summary": "0 ignored top-level packaging directories (*.egg-info/build) across 14/14 code repos present: (clean: DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging, then run without DRY_RUN)"
+        "status": "debris",
+        "summary": "4 ignored top-level packaging directories (*.egg-info/build) across 15/15 code repos present: PyAutoArray:2 PyAutoFit:2 (clean: DRY_RUN=1 PyAutoBrain/bin/clean_slate.sh --packaging, then run without D"
       },
       {
         "count": null,
@@ -83,27 +83,48 @@
         "delegate": "/dep_audit",
         "mode": "deps",
         "status": "surface",
-        "summary": "38 capped/pinned specifiers across 8 pyproject.toml (14/14 code repos present)"
+        "summary": "38 capped/pinned specifiers across 8 pyproject.toml (15/15 code repos present)"
       },
       {
         "count": 120,
         "delegate": "/audit_docs",
         "mode": "docs",
         "status": "surface",
-        "summary": "33 api .rst files, 120 currentmodule directives across 4 repos with docs/api (14/14 code repos present)"
+        "summary": "33 api .rst files, 120 currentmodule directives across 4 repos with docs/api (15/15 code repos present)"
       },
       {
-        "count": 20,
+        "count": 25,
         "delegate": "/refactor",
         "mode": "config",
         "status": "surface",
-        "summary": "20 library config keys absent downstream (review/mirror): autofit_workspace:4 autogalaxy_workspace:15 autolens_workspace:1"
+        "summary": "25 library config keys absent downstream (review/mirror): autofit_workspace:5 autogalaxy_workspace:19 autolens_workspace:1"
       }
     ]
   },
   "schema": 1,
-  "ts": "2026-09-22T05:40:28Z",
+  "ts": "2026-09-28T15:52:40Z",
   "worktrees": [
+    {
+      "ahead": 0,
+      "branch": "feature/pyautoeyes-birth-organ-row",
+      "dirty": false,
+      "repo": ".github",
+      "stashes": 0
+    },
+    {
+      "ahead": 0,
+      "branch": "feature/pages-gallery",
+      "dirty": false,
+      "repo": "COWLS_COSMOS_Web_Lens_Survey",
+      "stashes": 0
+    },
+    {
+      "ahead": 0,
+      "branch": "main",
+      "dirty": true,
+      "repo": "autolens_workspace_developer",
+      "stashes": 0
+    },
     {
       "ahead": 0,
       "branch": "main",
@@ -120,10 +141,10 @@
     },
     {
       "ahead": 0,
-      "branch": "codex/vis-magnitude-catalogue-top1000",
-      "dirty": true,
+      "branch": "main",
+      "dirty": false,
       "repo": "PyAutoMind",
-      "stashes": 3
+      "stashes": 4
     }
   ]
 }
