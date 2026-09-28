@@ -34,6 +34,9 @@ SURFACE_KEYS = {
     # The science organ's own counts (its dashboard.md counts table), None
     # when no Cortex is checked out.
     "cortex",
+    # The Eyes organ's own counts (the head of its dashboard.md), None when
+    # no Eyes is checked out.
+    "eyes",
 }
 
 AUTONOMY_LOG = """\
@@ -184,6 +187,27 @@ CORTEX_DASHBOARD_MD = """\
 | [Projects](#projects) | 3 |
 """
 
+# The head of the Eyes' generated board is its counts table; its body carries
+# one table per figure domain, which the strip must not count.
+EYES_DASHBOARD_MD = """\
+# PyAutoEyes — visualization dashboard
+
+| Where | Count |
+|-------|------:|
+| [Instances](#instances) | 2 |
+| [Figures](#instances) | 40 |
+| [Behind](#instances) | 1 |
+| [Critiques](#instances) | 3 |
+
+## Instances
+
+| [alpha](#alpha) | 7 | 9 |
+
+## alpha
+
+| [fit.png](https://example.invalid/fit.png) | 5 |
+"""
+
 
 def _fabricate(tmp_path, fixtures, heart_board=None):
     """A PYAUTO_ROOT with a fabricated Mind, file:// sibling-board badges, and
@@ -216,6 +240,9 @@ def _fabricate(tmp_path, fixtures, heart_board=None):
     cortex = tmp_path / "PyAutoCortex"
     cortex.mkdir()
     (cortex / "dashboard.md").write_text(CORTEX_DASHBOARD_MD)
+    eyes = tmp_path / "PyAutoEyes"
+    eyes.mkdir()
+    (eyes / "dashboard.md").write_text(EYES_DASHBOARD_MD)
 
     # One badge per sibling board named in the declared config surface —
     # read from policy.yaml so no board repo name is hardcoded here.
@@ -308,6 +335,26 @@ def test_the_cortex_strip_composes_the_cortex_own_counts(tmp_path):
     (tmp_path / "no_cortex" / "PyAutoCortex" / "dashboard.md").unlink()
     r = _run(["--json"], tmp_path / "no_cortex", stub)
     assert json.loads(r.stdout)["cortex"] is None
+
+
+def test_the_eyes_strip_composes_the_eyes_own_head_counts(tmp_path):
+    """The Eyes decides its own numbers; the Brain board reads only the
+    counts table at the head of its page (the body's per-domain tables are
+    not counts), links its board, and shows nothing when no Eyes is here."""
+    s, _ = _surface(tmp_path)
+    assert s["eyes"] == {"Instances": 2, "Figures": 40, "Behind": 1,
+                         "Critiques": 3}
+    assert s["boards"]["eyes"].endswith("/PyAutoEyes/")
+    stub = _fabricate(tmp_path / "md", _default_fixtures())
+    md = _run([], tmp_path / "md", stub).stdout
+    assert "- Eyes: instances 2 · figures 40 · behind 1 · critiques 3" in md
+    page = _run(["--html"], tmp_path / "md", stub)
+    assert page.returncode == 0, page.stderr
+    assert "Eyes board" in page.stdout and 'data-organ="eyes"' in page.stdout
+    stub = _fabricate(tmp_path / "no_eyes", _default_fixtures())
+    (tmp_path / "no_eyes" / "PyAutoEyes" / "dashboard.md").unlink()
+    r = _run(["--json"], tmp_path / "no_eyes", stub)
+    assert json.loads(r.stdout)["eyes"] is None
 
 
 def test_json_surface_is_complete_and_derives_org(tmp_path):

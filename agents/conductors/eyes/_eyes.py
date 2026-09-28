@@ -18,6 +18,13 @@ Modes:
                   figures (a paper's extracted panels) ride along as
                   reference context; notes may then carry a `reference`
 
+Instances by name: `--instance <name>` (repeatable) resolves a checkout
+through the PyAutoEyes organ's `registry.yaml` — the registry is data, so
+this file still names no instance. Handing either mode the organ root
+itself (a directory holding `registry.yaml`) covers every registered
+instance. A registered instance with no local checkout is skipped with a
+note, never guessed at.
+
 Decision-only, stdlib-only: reads the filesystem, writes nothing, renders
 nothing (rendering is the workspace's `gallery/gallery_run.sh`), and
 never edits plot source — accepted critiques route to intake/start_dev.
@@ -25,8 +32,24 @@ never edits plot source — accepted critiques route to intake/start_dev.
 
 import argparse
 import json
+import os
+import re
 import sys
 from pathlib import Path
+
+BRAIN_HOME = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(BRAIN_HOME / "agents"))
+import _pyauto_root  # noqa: E402
+from _repo_paths import repo_path  # noqa: E402
+
+# The organ that holds the instance registry — an organ name, not an
+# instance fact (the same footing as the Cortex conductor's CORTEX_REPO).
+EYES_REPO = "PyAutoEyes"
+REGISTRY_FILE = "registry.yaml"
+
+# Exit codes: 0 decision emitted · 2 unknown instance / unreadable registry
+# · 4 not a visualization workspace (or no registered instance is local).
+RC_OK, RC_REGISTRY, RC_NOT_WORKSPACE = 0, 2, 4
 
 # Any script whose stem contains this token is treated as a figure producer;
 # its images land in scripts/<domain>/images/<stem>/.
@@ -80,23 +103,31 @@ def scan(root: Path) -> dict:
     return {"records": records}
 
 
-def gallery_status(root: Path, records) -> dict:
+def gallery_status(root: Path, records, tracked_manifest: str | None = None) -> dict:
     gallery = root / "output" / "gallery"
     html = gallery / "gallery.html"
     manifest = gallery / "viz_manifest.yaml"
     newest = max((r["newest_png_mtime"] for r in records
                   if r["newest_png_mtime"] is not None), default=None)
     built = html.is_file()
-    return {
+    status = {
         "built": built,
         "manifest": manifest.is_file(),
         "stale": (built and newest is not None
                   and newest > html.stat().st_mtime),
         "path": str(gallery.relative_to(root)),
     }
+    if tracked_manifest is not None:
+        # The registry row names the manifest the project repo commits (the
+        # organ's read contract); the local output/gallery build is optional.
+        status["tracked_manifest"] = {
+            "path": tracked_manifest,
+            "present": (root / tracked_manifest).is_file(),
+        }
+    return status
 
 
-def survey(root: Path) -> dict:
+def survey(root: Path, tracked_manifest: str | None = None) -> dict:
     records = scan(root)["records"]
     return {
         "kind": "EyesSurvey",
@@ -109,10 +140,110 @@ def survey(root: Path) -> dict:
                     if not r["script_exists"]],
         "stale_renders": [f"{r['domain']}/{r['script']}" for r in records
                           if r["stale"]],
-        "gallery": gallery_status(root, records),
+        "gallery": gallery_status(root, records, tracked_manifest),
         "next_action": ("run the workspace's gallery/gallery_run.sh "
                         "for stale/missing renders, then `eyes review`"),
     }
+
+
+# -------------------------------------------------------------- registry ---
+class RegistryError(Exception):
+    """The organ registry is missing, unreadable, or lacks a named instance."""
+
+
+def eyes_root(explicit: str | None = None) -> Path:
+    """Where the PyAutoEyes organ is: `explicit` → `$PYAUTO_EYES` → beside
+    this Brain checkout → `repo_path($PYAUTO_ROOT, PyAutoEyes)`."""
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    env = os.environ.get("PYAUTO_EYES")
+    if env:
+        return Path(env).expanduser().resolve()
+    sibling = BRAIN_HOME.parent / EYES_REPO
+    if (sibling / REGISTRY_FILE).is_file():
+        return sibling.resolve()
+    return repo_path(_pyauto_root.pyauto_root(), EYES_REPO).resolve()
+
+
+_ROW = re.compile(r"^  - (\w+):\s*(.*?)\s*$")
+_FIELD = re.compile(r"^    (\w+):\s*(.*?)\s*$")
+
+
+def _scalar(raw: str) -> str:
+    raw = raw.split(" #", 1)[0].strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
+        return raw[1:-1]
+    return raw
+
+
+def read_registry(organ: Path) -> list[dict]:
+    """The `instances:` rows of the organ's registry.yaml, stdlib-only.
+
+    The registry is a flat list of string mappings (validated by the organ's
+    own `pyauto-eyes check`); this reads exactly that shape and nothing
+    more, so the conductor needs no YAML dependency.
+    """
+    path = organ / REGISTRY_FILE
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RegistryError(f"cannot read the instance registry {path}: {exc}") from exc
+    rows, active = [], False
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.rstrip() == "instances:":
+            active = True
+            continue
+        if not active:
+            continue
+        if not line.startswith(" "):
+            break
+        m = _ROW.match(line)
+        if m:
+            rows.append({m[1]: _scalar(m[2])})
+            continue
+        m = _FIELD.match(line)
+        if m and rows:
+            rows[-1][m[1]] = _scalar(m[2])
+    rows = [r for r in rows if r.get("name")]
+    if not rows:
+        raise RegistryError(f"no instances in {path}")
+    return rows
+
+
+def is_organ_root(path: Path) -> bool:
+    """A directory holding the instance registry and no figure tree of its own."""
+    return (path / REGISTRY_FILE).is_file() and not (path / "scripts").is_dir()
+
+
+def instance_checkout(row: dict, organ: Path) -> Path | None:
+    """A registered instance's local checkout: grouped `<root>/<path>`, then
+    flat `<root>/<repo>`, for the workspace root and the roots the organ
+    itself sits under. None when it is not on this machine."""
+    roots = [_pyauto_root.pyauto_root(), organ.parent.parent, organ.parent]
+    seen = []
+    for base in roots:
+        if base in seen:
+            continue
+        seen.append(base)
+        for rel in (row.get("path"), row.get("repo")):
+            if rel and (base / rel / "scripts").is_dir():
+                return (base / rel).resolve()
+    return None
+
+
+def select_instances(organ: Path, names: list[str] | None) -> list[dict]:
+    rows = read_registry(organ)
+    if not names:
+        return rows
+    known = {r["name"]: r for r in rows}
+    missing = [n for n in names if n not in known]
+    if missing:
+        raise RegistryError(
+            f"no instance {', '.join(map(repr, missing))} in {organ / REGISTRY_FILE} "
+            f"(known: {', '.join(known)})")
+    return [known[n] for n in names]
 
 
 REFERENCE_SUFFIXES = (".png", ".jpg", ".jpeg")
@@ -158,6 +289,8 @@ def review(root: Path, batch: int, against: Path | None = None) -> dict:
 
 def _print_survey(s: dict):
     print("== EyesSurvey ==")
+    if s.get("instance"):
+        print(f"Instance:       {s['instance']}")
     print(f"Workspace:      {s['workspace']}")
     print(f"Domains:        {', '.join(s['domains']) or '(none)'}")
     for r in s["records"]:
@@ -172,11 +305,17 @@ def _print_survey(s: dict):
     state = "not built" if not g["built"] else ("STALE" if g["stale"] else "current")
     print(f"Gallery:        {g['path']} — {state}"
           f"{' (manifest missing)' if g['built'] and not g['manifest'] else ''}")
+    tracked = g.get("tracked_manifest")
+    if tracked:
+        print(f"Tracked manifest: {tracked['path']} — "
+              f"{'present' if tracked['present'] else 'MISSING'}")
     print(f"Next action:    {s['next_action']}")
 
 
 def _print_review(r: dict):
     print("== EyesReviewSurface ==")
+    if r.get("instance"):
+        print(f"Instance:       {r['instance']}")
     print(f"Workspace:      {r['workspace']}")
     print(f"Figures:        {r['n_figures']} in {len(r['batches'])} "
           f"batch(es) of <= {r['batch_size']}")
@@ -191,24 +330,60 @@ def _print_review(r: dict):
     print(f"Next action:    {r['next_action']}")
 
 
+def _targets(args):
+    """[(instance name or None, checkout, tracked manifest or None)] plus the
+    skipped instances [(name, reason)]. Raises RegistryError."""
+    names = args.instance or []
+    if args.workspace is None and not names:
+        raise SystemExit("eyes: give a workspace root, the PyAutoEyes organ "
+                         "root, or --instance <name>")
+    if args.workspace is not None and not names:
+        root = Path(args.workspace).resolve()
+        if not is_organ_root(root):
+            return [(None, root, None)], []
+        organ = root
+    elif args.workspace is not None:
+        organ = Path(args.workspace).resolve()
+        if not is_organ_root(organ):
+            raise SystemExit("eyes: --instance with a positional root needs "
+                             "the PyAutoEyes organ root there")
+    else:
+        organ = eyes_root()
+    targets, skipped = [], []
+    for row in select_instances(organ, names):
+        checkout = instance_checkout(row, organ)
+        if checkout is None:
+            skipped.append((row["name"], f"no local checkout at {row.get('path') or row.get('repo')}"))
+        else:
+            targets.append((row["name"], checkout, row.get("manifest")))
+    return targets, skipped
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="eyes")
     parser.add_argument("--json", action="store_true")
     sub = parser.add_subparsers(dest="mode", required=True)
     for mode in ("survey", "review"):
         p = sub.add_parser(mode)
-        p.add_argument("workspace", help="visualization-workspace root")
+        p.add_argument("workspace", nargs="?", default=None,
+                       help="visualization-workspace root, or the PyAutoEyes "
+                            "organ root (every registered instance)")
+        p.add_argument("--instance", action="append", metavar="NAME",
+                       help="a registered instance, resolved through the "
+                            "PyAutoEyes registry.yaml (repeatable)")
         if mode == "review":
             p.add_argument("--batch", type=int, default=8)
             p.add_argument("--against", default=None,
                            help="reference-figure directory (paper-informed pass)")
     args = parser.parse_args(argv)
 
-    root = Path(args.workspace).resolve()
-    if not (root / "scripts").is_dir():
-        print(f"eyes: not a visualization workspace (no scripts/): {root}",
-              file=sys.stderr)
-        return 4
+    try:
+        targets, skipped = _targets(args)
+    except RegistryError as exc:
+        print(f"eyes: {exc}", file=sys.stderr)
+        return RC_REGISTRY
+    for name, reason in skipped:
+        print(f"eyes: instance {name}: {reason} — skipped", file=sys.stderr)
 
     against = None
     if args.mode == "review" and args.against is not None:
@@ -218,17 +393,44 @@ def main(argv=None) -> int:
                 for f in against.rglob("*"))):
             print(f"eyes: no reference figures (png/jpg) under: {against}",
                   file=sys.stderr)
-            return 4
+            return RC_NOT_WORKSPACE
 
-    decision = (survey(root) if args.mode == "survey"
-                else review(root, args.batch, against))
+    decisions = []
+    for name, root, tracked in targets:
+        if not (root / "scripts").is_dir():
+            print(f"eyes: not a visualization workspace (no scripts/): {root}",
+                  file=sys.stderr)
+            if name is None:
+                return RC_NOT_WORKSPACE
+            skipped.append((name, f"not a visualization workspace: {root}"))
+            continue
+        decision = (survey(root, tracked) if args.mode == "survey"
+                    else review(root, args.batch, against))
+        if name is not None:
+            decision = {"instance": name, **decision}
+        decisions.append(decision)
+    if not decisions:
+        print("eyes: no registered instance has a local checkout here",
+              file=sys.stderr)
+        return RC_NOT_WORKSPACE
+
+    registry_run = targets and targets[0][0] is not None
     if args.json:
-        print(json.dumps(decision, indent=2))
-    elif args.mode == "survey":
-        _print_survey(decision)
+        if registry_run and (len(decisions) > 1 or skipped):
+            print(json.dumps({
+                "kind": "EyesInstanceSet",
+                "mode": args.mode,
+                "decisions": decisions,
+                "skipped": [{"instance": n, "reason": r} for n, r in skipped],
+            }, indent=2))
+        else:
+            print(json.dumps(decisions[0], indent=2))
     else:
-        _print_review(decision)
-    return 0
+        for i, decision in enumerate(decisions):
+            if i:
+                print()
+            (_print_survey if args.mode == "survey" else _print_review)(decision)
+    return RC_OK
 
 
 if __name__ == "__main__":

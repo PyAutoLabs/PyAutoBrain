@@ -93,6 +93,17 @@ ORGANS = {
         "glow2": "#8b5cf6",
         "hero": ("#221345", "#000000"),
     },
+    # Eyes — the organ has no logo file yet, so, like the umbrella, its
+    # accent is designed to sit in the family: an iris gold, kept well clear
+    # of the Hands orange beside it in the footer. #7d6300 reads at 5.7:1 on
+    # #fff and #f5c518 at 11.6:1 on #0d1117. The tagline is the one the
+    # organ's own dashboard already wears.
+    "eyes": {
+        "organ": "Eyes",
+        "tagline": "See. Compare. Improve.",
+        "ink_light": "#7d6300", "ink_dark": "#f5c518", "glow": "#ffc933",
+        "hero": ("#2e2503", "#000000"),
+    },
     "heart": {
         "organ": "Heart",
         "tagline": "Check. Validate. Protect.",
@@ -265,6 +276,23 @@ MARKS = {
         'Q35.4,15.2 37.6,15.2 Q35.4,15.2 35.4,13.0 Z"/>'
         '<path d="M15.8,21.8 Q15.8,23.4 14.2,23.4 Q15.8,23.4 15.8,25.0 '
         'Q15.8,23.4 17.4,23.4 Q15.8,23.4 15.8,21.8 Z"/>'
+    ),
+    # Eyes — an open eye: the almond lid, the iris ring and its pupil, and
+    # three node-tipped lashes, inside a closed ring (no logo file yet).
+    "eyes": (
+        '<circle cx="24" cy="24" r="20.4"/>'
+        '<path d="M9.6,25.2 C14.2,17.6 19.0,14.8 24,14.8 '
+        'C29.0,14.8 33.8,17.6 38.4,25.2 '
+        'C33.8,32.8 29.0,35.6 24,35.6 '
+        'C19.0,35.6 14.2,32.8 9.6,25.2 Z"/>'
+        '<circle cx="24" cy="25.2" r="6.4"/>'
+        '<path d="M24,14.8 L24,9.8 M17.2,16.4 L15.2,12.2 '
+        'M30.8,16.4 L32.8,12.2"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="24" cy="25.2" r="2.8"/>'
+        '<circle cx="24" cy="8.6" r="1.3"/>'
+        '<circle cx="14.7" cy="11.1" r="1.3"/>'
+        '<circle cx="33.3" cy="11.1" r="1.3"/></g>'
     ),
     # Heart — a heart outline crossed by an ECG trace, with the check badge
     # sitting in the ring's lower-right gap.

@@ -202,7 +202,7 @@ def test_board_links_reads_the_declared_family_in_file_order():
     # ad-hoc order). This helper is the one read, so the order it returns is
     # the order `config/policy.yaml` declares — the ruled organ order.
     links = _theme.board_links("https://example.invalid")
-    assert list(links) == ["brain", "mind", "cortex", "memory",
+    assert list(links) == ["brain", "mind", "cortex", "memory", "eyes",
                            "heart", "hands", "nerves", "gut", "organism"]
     assert list(links) == POLICY_BOARDS
     assert links["cortex"] == "https://example.invalid/PyAutoCortex/"
@@ -225,8 +225,8 @@ def test_board_links_renders_the_family_footer_end_to_end():
     footer = _theme.boards_footer(
         _theme.board_links("https://example.invalid", "heart"), "heart")
     order = re.findall(r'data-organ="(\w+)"', footer)
-    assert order == ["brain", "mind", "cortex", "memory", "hands", "nerves",
-                     "gut", "organism"]
+    assert order == ["brain", "mind", "cortex", "memory", "eyes", "hands",
+                     "nerves", "gut", "organism"]
 
 
 def test_board_links_returns_nothing_when_the_config_is_unreadable():

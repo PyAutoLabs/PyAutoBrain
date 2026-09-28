@@ -679,6 +679,25 @@ def collect_resume(org, degraded):
             "pending_prs": pending}
 
 
+_COUNT_ROW = re.compile(r"^\|\s*\[([^\]]+)\]\([^)]*\)[^|]*\|\s*(\d+)\s*\|", re.M)
+
+
+def _dashboard_counts(repo, head_only=False):
+    """`{label: n}` from an organ's generated `dashboard.md` counts table
+    (`| [Label](#anchor) | n |` rows), or None when the organ is not checked
+    out or its board has never been rendered. `head_only` reads only the part
+    above the first `## ` section, for a board whose body carries tables of
+    its own."""
+    dash = repo_path(PYAUTO_ROOT, repo) / "dashboard.md"
+    if not dash.is_file():
+        return None
+    text = dash.read_text(encoding="utf-8")
+    if head_only:
+        text = re.split(r"^## ", text, maxsplit=1, flags=re.M)[0]
+    counts = {label: int(n) for label, n in _COUNT_ROW.findall(text)}
+    return counts or None
+
+
 def collect_cortex():
     """The Cortex's own generated counts (its `dashboard.md` counts table —
     compose, don't recompute), or None.
@@ -690,16 +709,20 @@ def collect_cortex():
     None and the strip simply does not appear — a science organ nobody has
     cloned is not a degraded morning.
     """
-    dash = repo_path(PYAUTO_ROOT, "PyAutoCortex") / "dashboard.md"
-    if not dash.is_file():
-        return None
-    counts = {}
-    for label, n in re.findall(
-        r"^\|\s*\[([^\]]+)\]\([^)]*\)[^|]*\|\s*(\d+)\s*\|",
-        dash.read_text(encoding="utf-8"), re.M,
-    ):
-        counts[label] = int(n)
-    return counts or None
+    return _dashboard_counts("PyAutoCortex")
+
+
+def collect_eyes(repo="PyAutoEyes"):
+    """The Eyes' own generated counts (instances, figures, behind, critiques —
+    the counts table at the head of its `dashboard.md`), or None.
+
+    Composed exactly as the Cortex strip is: the organ's renderer decides the
+    numbers, the Brain board only shows them. Only the head of the page is
+    read, because the body carries one table per figure domain. No Eyes
+    checkout, or no rendered board, is not a degraded morning either — the
+    strip just does not appear.
+    """
+    return _dashboard_counts(repo, head_only=True)
 
 
 def collect_open_issues(org, degraded):
@@ -903,6 +926,7 @@ def collect():
     community = collect_community(degraded)
     resume = collect_resume(org, degraded)
     cortex = collect_cortex()
+    eyes = collect_eyes(board_family.get("eyes", "PyAutoEyes"))
     open_issues = collect_open_issues(org, degraded)
     boards = {name: f"{pages_base}/{repo}/"
               for name, repo in board_family.items()}
@@ -921,6 +945,7 @@ def collect():
         "community": community,
         "resume": resume,
         "cortex": cortex,
+        "eyes": eyes,
         "open_issues": open_issues,
         "hygiene": collect_hygiene(degraded),
         "devbox": collect_devbox(),
@@ -1258,6 +1283,11 @@ def render_md(data):
                  + " · ".join(f"{k.lower()} {n}"
                               for k, n in data["cortex"].items())
                  + f" — [Cortex board]({data['boards'].get('cortex', '')})")
+    if data.get("eyes"):
+        L.append("- Eyes: "
+                 + " · ".join(f"{k.lower()} {n}"
+                              for k, n in data["eyes"].items())
+                 + f" — [Eyes board]({data['boards'].get('eyes', '')})")
     for t in data["resume"]["tasks"]:
         L.append(f"  - `/start_dev {t['path']}` — {t['title'][:70]}")
     pending = data["resume"]["pending_prs"]
@@ -1625,6 +1655,13 @@ def render_html(data):
             "board \u2197</a>"
             + pills(*[(f"{k.lower()} {n}", "" if i == 0 else "n")
                       for i, (k, n) in enumerate(data["cortex"].items())])))
+    if data.get("eyes"):
+        eyes_url = data["boards"].get("eyes", "")
+        H.append(_plain(
+            f'Figures on the <a href="{_attr(eyes_url)}">Eyes '
+            "board \u2197</a>"
+            + pills(*[(f"{k.lower()} {n}", "" if i == 0 else "n")
+                      for i, (k, n) in enumerate(data["eyes"].items())])))
     for t in data["resume"]["tasks"]:
         # An in-flight task wears the header facets the Mind gave it, so it
         # looks like itself on both pages — same pills, same order.
