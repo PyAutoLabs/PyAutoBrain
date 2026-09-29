@@ -1,8 +1,8 @@
 # Eyes — PyAutoEyes
 
 **What it owns:** the *perception lifecycle* as a **cross-project dashboard**
-over the `<lib>_visualization` project repos (lens first:
-`autolens_visualization`) — the registry of those repos, the read contract of
+over the `<lib>_visualization` project repos (`autolens_visualization` and
+`autogalaxy_visualization`) — the registry of those repos, the read contract of
 their tracked `gallery/viz_manifest.yaml` manifests and the board that links to
 their PNGs. The project repos render and hold the figures; the organ renders
 nothing and copies no figures. The Eyes are the perception mirror of the
@@ -29,7 +29,8 @@ Each instance is a project repo `<lib>_visualization` with the same layout —
 renders, a tracked `gallery/viz_manifest.yaml` (every figure's producer,
 domain, source type, path, size and content hash, plus the stack it was
 rendered with), `output/gallery/gallery.html` and a `GALLERY.md` index.
-`autolens_visualization` is the first; galaxy, fit and cti follow. The organ's
+`autolens_visualization` and `autogalaxy_visualization` are registered; fit
+and cti follow. The organ's
 instance registry (`registry.yaml`, PyAutoEyes phase 1b/2) names every
 instance, its library and its domains, and the board shows each one's figure
 count, stale renders, gaps and open critiques — the single point of contact

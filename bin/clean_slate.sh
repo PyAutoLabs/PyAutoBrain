@@ -76,7 +76,8 @@ PACKAGING_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 # for the same reason (JWST cosmos_web_ring); its local checkout was removed in
 # 2026-09 (PyAutoBrain#389) and the repo lives on GitHub only. The
 # visualization project repos (`<lib>_visualization`, category project in the
-# body map; the lens one sits under lens/) are excluded too: their dataset/
+# body map; the lens one sits under lens/, the galaxy one under galaxy/) are
+# excluded too: their dataset/
 # trees are the tracked realistic inputs their galleries are rendered from (the
 # lens hst imaging is a byte-identical copy of autolens_profiling's) and their
 # PNG renders are the tracked record (re-rendered on library release only) —
