@@ -6,19 +6,22 @@ function*). You never name the Brain; this command is the door.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`. The default
 visualization instance is the lens visualization project repo,
-**`lens/autolens_visualization`**. `autolens_workspace_test` (the original
+**`lens/autolens_visualization`**; the galaxy project repo
+**`galaxy/autogalaxy_visualization`** is the second instance. `autolens_workspace_test` (the original
 reference instance from epic PyAutoBrain#117 Phase 1) remains a secondary
 instance; pass a different instance root to review another project.
 
 Two layers (human decision 2026-09-28): **project repos**
-`<lib>_visualization` (lens first: `lens/autolens_visualization`) make, store
+`<lib>_visualization` (two today: `lens/autolens_visualization` and
+`galaxy/autogalaxy_visualization`) make, store
 and track one library's figures — producers, datasets, tracked PNGs,
 `GALLERY.md`, a tracked `gallery/viz_manifest.yaml` and the
 `gallery/gallery_run.sh` harness; **the organ PyAutoEyes** is the
 cross-project dashboard that reads each project repo's tracked manifest and
 links to its PNGs — it renders nothing and copies no figures. The organ's
 `registry.yaml` lists every instance. Name one with `--instance <name>` (the
-lens instance is `lens`), or hand the conductor the PyAutoEyes root to cover
+lens instance is `lens`, the galaxy instance `galaxy` — e.g.
+`--instance galaxy`), or hand the conductor the PyAutoEyes root to cover
 them all.
 
 ## Do
