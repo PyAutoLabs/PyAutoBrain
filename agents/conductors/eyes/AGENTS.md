@@ -28,8 +28,11 @@ in the `/eyes` skill. Default instance: the lens visualization project repo,
 **`lens/autolens_visualization`**; the galaxy project repo
 **`galaxy/autogalaxy_visualization`** is the second registered instance
 (`--instance galaxy`), then **`fit/autofit_visualization`** (`--instance fit`)
-and **`cti/autocti_visualization`** (`--instance cti`). `autolens_workspace_test` remains a
-secondary instance (its `gallery/` harness is retired by PyAutoEyes phase 5).
+and **`cti/autocti_visualization`** (`--instance cti`). These four registered
+instances are the only Eyes targets: `autolens_workspace_test`'s `gallery/`
+harness was retired in PyAutoEyes phase 5 (PyAutoEyes#6), and its
+`scripts/<domain>/visualization/` scripts remain ordinary workspace_test
+regression scripts, not an instance.
 
 Two layers (human decision 2026-09-28): **project repos**
 `<lib>_visualization` (four today: `lens/autolens_visualization`,

@@ -12,6 +12,8 @@ Heart: the Heart says whether the software is *healthy*; the Eyes show what it
 
 **Repo:** [PyAutoLabs/PyAutoEyes](https://github.com/PyAutoLabs/PyAutoEyes)
 
+**Dashboard:** <https://pyautolabs.github.io/PyAutoEyes/>
+
 ## The defining function: seeing
 
 Every PyAuto library draws, on one shared plotting API — and the figures a
@@ -36,6 +38,12 @@ instance registry (`registry.yaml`, PyAutoEyes phase 1b/2) names every
 instance, its library and its domains, and the board shows each one's figure
 count, stale renders, gaps and open critiques — the single point of contact
 for the visual behaviour of the whole ecosystem.
+
+Beside the board, the organ publishes two machine surfaces: `badge.json`, a
+one-line headline, and `state.json`, the organ-cockpit feed (contract v1 in
+`PyAutoBrain/board/state_schema.json`). The feed is what puts the Eyes on the
+[organ cockpit](https://pyautolabs.github.io/cockpit/) alongside the other
+organs.
 
 ## The driver split
 
@@ -63,8 +71,23 @@ inherently yours. You do not fork this repo's figures; you create your own
 Eyes with the same shape, over your own libraries' visualization project
 repos.
 
-The birth of this organ is tracked in the `pyautoeyes-birth` epic
-([PyAutoMind#437](https://github.com/PyAutoLabs/PyAutoMind/issues/437) is
-phase 0). Phase 1a (PyAutoMind#446) moved the lens gallery back into its own
-project repo, `autolens_visualization`, with the tracked manifest; phase 1b
-strips the organ to the dashboard skeleton and adds the registry.
+The organ was born through the `pyautoeyes-birth` epic:
+
+- **Phase 0** ([PyAutoMind#437](https://github.com/PyAutoLabs/PyAutoMind/issues/437))
+  added the organ row to the body map.
+- **Phase 1a** ([PyAutoMind#446](https://github.com/PyAutoLabs/PyAutoMind/issues/446))
+  moved the lens gallery back into its own project repo,
+  `autolens_visualization`, with the tracked manifest.
+- **Phase 1b** ([PyAutoMind#448](https://github.com/PyAutoLabs/PyAutoMind/issues/448))
+  stripped the organ to the dashboard skeleton and added the registry.
+- **Phase 2** ([PyAutoMind#451](https://github.com/PyAutoLabs/PyAutoMind/issues/451))
+  built the dashboard, the conductor's registry reading and the Brain board chip.
+- **Phase 3** ([PyAutoMind#452](https://github.com/PyAutoLabs/PyAutoMind/issues/452))
+  registered the galaxy instance, `autogalaxy_visualization`.
+- **Phase 4** ([PyAutoMind#455](https://github.com/PyAutoLabs/PyAutoMind/issues/455))
+  registered the fit and CTI instances, `autofit_visualization` and
+  `autocti_visualization`.
+- **Phase 5** ([PyAutoEyes#6](https://github.com/PyAutoLabs/PyAutoEyes/issues/6))
+  retired the pre-organ `autolens_workspace_test/gallery/` harness, linked the
+  dashboard from the public surfaces and lit the Eyes card on the organ
+  cockpit with `state.json`.

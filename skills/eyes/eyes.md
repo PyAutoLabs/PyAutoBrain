@@ -8,9 +8,12 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`. The default
 visualization instance is the lens visualization project repo,
 **`lens/autolens_visualization`**; the galaxy project repo
 **`galaxy/autogalaxy_visualization`** is the second instance, then
-**`fit/autofit_visualization`** and **`cti/autocti_visualization`**. `autolens_workspace_test` (the original
-reference instance from epic PyAutoBrain#117 Phase 1) remains a secondary
-instance; pass a different instance root to review another project.
+**`fit/autofit_visualization`** and **`cti/autocti_visualization`**. These four
+registered instances are the only Eyes targets. `autolens_workspace_test` (the
+original reference instance from epic PyAutoBrain#117 Phase 1) is no longer an
+instance: its `gallery/` harness was retired in PyAutoEyes phase 5
+(PyAutoEyes#6), and its visualization scripts remain ordinary workspace_test
+regression scripts. Pass a different instance root to review another project.
 
 Two layers (human decision 2026-09-28): **project repos**
 `<lib>_visualization` (four today: `lens/autolens_visualization`,
