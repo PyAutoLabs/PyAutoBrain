@@ -55,9 +55,15 @@ docs: `bin/pyauto-brain help community`.
      Announcements and Show and tell remain ours to watch and can still be
      triaged explicitly. Never convert a thread in
      place, and never ask a user to re-file: the hub is *their* surface.
-     No session can post to, answer or convert a Discussion — the REST API
-     is read-only and GraphQL is refused — so the human's click is the last
-     step of every discussion round.
+     Posting is surface-dependent: a **remote/proxied session** (web, mobile,
+     MCP) cannot post to, answer or convert a Discussion — the REST
+     Discussions API is read-only and the proxy refuses GraphQL — so there
+     the human's click is the last step. A **local CLI with an authenticated
+     `gh`** can: once the human has approved the text, post with
+     `addDiscussionComment`, settle with `markDiscussionCommentAsAnswer` and
+     close with `closeDiscussion` (recipes in
+     [`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md) → "Discussions"). The
+     approval of the text is the gate on every surface; the click is not.
    - **Actionable** → route into `/start_dev_for_user <url>` — it owns the
      receipt comment, the clarification gate, the plan comment and the
      milestone cadence. Do not re-implement its templates here.

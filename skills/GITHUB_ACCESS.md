@@ -146,7 +146,8 @@ leave it that way.
 | Releases | `gh release view/list` | `get_latest_release`, `list_releases`, `get_release_by_tag` |
 | Who am I | `gh api user` | `get_me` |
 | Read the Discussions hub (list, one thread, its comments) | `gh api repos/<o>/<r>/discussions[/<n>[/comments]]` | *(no MCP tool)* — raw REST with the session token works, see below |
-| Create, answer or convert a Discussion | `gh api graphql` (`createDiscussion`) / the issue sidebar | **nobody in a session** — REST Discussions is read-only, GraphQL is refused; the human clicks (`PyAutoMind/policy/community_surface.md`) |
+| Post to, answer or close a Discussion | `gh api graphql` (`addDiscussionComment`, `markDiscussionCommentAsAnswer`, `closeDiscussion` — see "Discussions" below) | **nobody on a proxied surface** — REST Discussions is read-only and the proxy refuses GraphQL; the human clicks (`PyAutoMind/policy/community_surface.md`) |
+| Create or convert a Discussion | `gh api graphql` (`createDiscussion`) / the issue sidebar | **nobody on a proxied surface** — the human clicks |
 | Be woken by CI / comments on a PR | *(no equivalent — a CLI polls)* | `subscribe_pr_activity`, `unsubscribe_pr_activity` exist but are **not to be armed** — sessions end at their deliverable; use `unsubscribe_pr_activity` only to clear a stale subscription |
 
 Tool names are given unprefixed for the measured MCP adapter; that harness
@@ -208,3 +209,30 @@ against `gh api repos/...` REST paths runs in a remote session by pointing
 Shell scripts in this repo must not assume `gh`. Source `bin/_gh.sh` and call
 `require_gh` — it exits with the pointer to this page instead of letting
 `command not found` surface as a confusing failure two steps later.
+
+## Discussions (local `gh` only)
+
+Measured 2026-09-30 from a local CLI with the user's `gh` token on
+`orgs/PyAutoLabs/discussions/13` (repo `PyAutoLabs/.github`): all three
+mutations succeed. A proxied session gets the refusal recorded in
+`PyAutoMind/policy/community_surface.md`; that refusal is the proxy's, not
+GitHub's. The text is always approved by the human before any of these run.
+
+```bash
+# ids: the discussion node id and, after posting, the comment node id
+gh api graphql -f query='query { repository(owner:"PyAutoLabs", name:".github") {
+  discussion(number: N) { id comments(first: 50) { nodes { id author { login } } } } } }'
+
+# post the approved reply (body from a file, verbatim)
+gh api graphql -f query='mutation($d: ID!, $b: String!) {
+  addDiscussionComment(input:{discussionId:$d, body:$b}) { comment { id url } } }' \
+  -f d=<discussion id> -f b="$(cat reply.md)"
+
+# settle an answerable category (Help & Questions, Ideas & Proposals, Bugs & Errors)
+gh api graphql -f query='mutation { markDiscussionCommentAsAnswer(input:{id:"<comment id>"}) {
+  discussion { isAnswered } } }'
+
+# close when the thread is done (RESOLVED | OUTDATED | DUPLICATE)
+gh api graphql -f query='mutation { closeDiscussion(input:{discussionId:"<discussion id>", reason:RESOLVED}) {
+  discussion { closed stateReason } } }'
+```

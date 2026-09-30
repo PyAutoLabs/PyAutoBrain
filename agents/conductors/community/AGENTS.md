@@ -139,9 +139,13 @@ failed search degrades honestly (`degraded:` in the surface), never silently.
   that same issue route; the human marks the verdict comment as the accepted
   answer in Ideas & Proposals, whether acceptance with the issue link or a recorded
   no. Accepted answers settle threads in answerable categories only.
-  No session can post to, answer or convert a Discussion (the
-  REST Discussions API is read-only, GraphQL is refused) — the human's click
-  is always the last step.
+  Posting is surface-dependent: a remote/proxied session cannot post to,
+  answer or convert a Discussion (the REST Discussions API is read-only and
+  the proxy refuses GraphQL), so there the human's click is the last step;
+  a local CLI with an authenticated `gh` can do all three through GraphQL
+  (`addDiscussionComment`, `markDiscussionCommentAsAnswer`,
+  `closeDiscussion` — `skills/GITHUB_ACCESS.md` → "Discussions") once the
+  human has approved the text. The approval is the gate, not the click.
 - **Broadcasts are ours to watch.** Announcements and Show and tell remain
   visible and can be triaged explicitly, but an outside comment does not
   put them in awaiting-response. Help & Questions, Ideas & Proposals, and

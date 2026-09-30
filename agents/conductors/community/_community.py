@@ -466,8 +466,9 @@ def build_discussion_triage(owner_repo, number):
             "every outward reply is drafted and shown to the human before posting",
             "a discussion is the user's surface: never convert it to an issue in place — "
             "open the issue (reproducer required) and link both ways",
-            "no session can post to, answer or convert a Discussion (REST is read-only, "
-            "GraphQL is refused) — the human's click is the last step",
+            "a remote/proxied session cannot post to, answer or convert a Discussion "
+            "(REST is read-only, the proxy refuses GraphQL) — there the human clicks; a local "
+            "CLI with authenticated gh can, via GraphQL, once the human has approved the text",
         ],
     }
 
