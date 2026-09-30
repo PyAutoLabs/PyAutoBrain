@@ -131,6 +131,11 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
   human asks for a run in the session, the agent submits it with the
   project's own sync CLI (its `submit` / `push-submit` verb) and records the
   job id at once with `cortex.py run <key> <jobid> "<what>"`.
+  CPU-only arrays go on `ral` only — never `gpu`, `ral,gpu` or `gpu,ral`,
+  even when ral is busy; check `gres/gpu` in `scontrol show job` before
+  calling a run GPU; never reorder, hold or cancel another campaign's jobs
+  without the human's OK (human rule, 2026-09-30; rule and exemption in
+  PyAutoCortex `REFERENCE.md` → `partition`).
 - **Never write a result or lesson the human did not say.** The conductor
   scores nothing, rules nothing, drafts no verdict. A `result` or `lesson`
   entry is the human's words, verbatim, on their ask.

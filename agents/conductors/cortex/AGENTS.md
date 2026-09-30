@@ -11,7 +11,9 @@
 > a result, never drafts a ruling, never writes a `result` or `lesson` entry
 > the human did not say. A run is submitted only on the human's ask (by the
 > agent in the session, through the project's own sync CLI), and every ledger
-> write is a `scripts/cortex.py` verb.
+> write is a `scripts/cortex.py` verb. CPU-only arrays are never submitted to
+> RAL's `gpu` partition (nor `ral,gpu`) — human rule, 2026-09-30; see
+> PyAutoCortex `REFERENCE.md` → `partition`.
 
 The same split the organism already uses twice — **Heart ↔ vitals**, **Gut ↔
 hygiene**: the organ keeps the state, the conductor reasons over it. A ledger
