@@ -806,20 +806,56 @@ def boards_footer(links, current):
             f'Boards:</li>{chips}</ul>') if chips else ""
 
 
+# A conservative product budget, not a provider's changing transport limit.
+MAX_PROMPT_CHARS = 50_000
+
+# Also embedded by standalone batch packets. Eyes mirrors the ceiling because
+# its renderer intentionally works without a Brain checkout.
+PROMPT_GUARD_JS = """\
+const MAX_PROMPT_CHARS = __MAX_PROMPT_CHARS__;
+function promptFits(text){
+  let count=0;for(const character of text){if(++count>MAX_PROMPT_CHARS)return false;}
+  return true;
+}
+function guardPrompt(text, button){
+  let status=document.getElementById('prompt-budget-status');
+  if(promptFits(text)){
+    if(status){if(status.dataset.url)URL.revokeObjectURL(status.dataset.url);status.remove();}
+    return true;
+  }
+  if(!status){status=document.createElement('p');status.id='prompt-budget-status';
+    status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    button.insertAdjacentElement('afterend',status);}
+  if(status.dataset.url)URL.revokeObjectURL(status.dataset.url);
+  status.textContent='Not copied: this request exceeds the 50,000-character budget. '+
+    'Download the complete request and attach the file to your coding chat. Nothing was cut off. ';
+  const link=document.createElement('a');
+  link.href=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));
+  status.dataset.url=link.href;link.download='dashboard-request.txt';
+  link.textContent='Download complete request';status.appendChild(link);
+  return false;
+}
+""".replace("__MAX_PROMPT_CHARS__", str(MAX_PROMPT_CHARS))
+
 # Shared by every board: one tap on a payload button copies it and flashes ✓.
 # The textarea path covers browsers without the async clipboard API.
-JS = """\
+JS = PROMPT_GUARD_JS + """\
 async function copyCmd(b){
   const cmd=b.dataset.cmd;
-  try{await navigator.clipboard.writeText(cmd);}
+  if(!guardPrompt(cmd,b))return;
+  let copied=false;
+  try{await navigator.clipboard.writeText(cmd);copied=true;}
   catch(e){const t=document.createElement("textarea");t.value=cmd;
-    document.body.appendChild(t);t.select();document.execCommand("copy");
-    t.remove();}
+    document.body.appendChild(t);
+    try{t.select();copied=document.execCommand("copy")===true;}
+    catch(e){copied=false;}finally{t.remove();}}
   const old=b.textContent;
-  b.textContent="\\u2713";b.classList.add("ok");
+  b.textContent=copied?"\\u2713":"Copy failed";
+  if(copied)b.classList.add("ok");
   setTimeout(()=>{b.textContent=old;b.classList.remove("ok");},1200);}
 document.addEventListener("click",e=>{
-  const b=e.target.closest("button.copy");if(b)copyCmd(b);});
+  const b=e.target.closest("button.copy");
+  if(b && guardPrompt(b.dataset.cmd,b))copyCmd(b);});
 """
 
 

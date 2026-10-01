@@ -2165,6 +2165,10 @@ def _organ(d: dict) -> dict:
 
 
 def _members_js(d: dict) -> str:
+    # Packet pages are standalone and do not embed the family click handler.
+    sys.path.insert(0, str(BRAIN / "board"))
+    from _theme import PROMPT_GUARD_JS
+
     members = [{"id": s["id"], "slug": s["slug"], "health": s["health"],
                 "reviewable": s.get("reviewable", True)}
                for s in d["members"]]
@@ -2186,7 +2190,7 @@ def _members_js(d: dict) -> str:
             ("%%DEFAULT_DECISION%%", organ["default_decision"]),
             ("%%GITHUB_NEW%%", (f"{home}/new/main" if home else ""))):
         js = js.replace(token, value)
-    return "<script>\n" + js + "</script>"
+    return "<script>\n" + PROMPT_GUARD_JS + js + "</script>"
 
 
 def _callout(d: dict) -> str:
