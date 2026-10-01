@@ -311,7 +311,10 @@ REPOS_YAML = "repos:\n  PyAutoMind:\n    github: ExampleOrg/PyAutoMind\n"
 
 
 def _html(mind: Path) -> str:
-    return _intake.render_dashboard_html(_intake.census(mind))
+    from copy_contract import assert_portable_copy_payloads
+    page = _intake.render_dashboard_html(_intake.census(mind))
+    assert_portable_copy_payloads(page)
+    return page
 
 
 def test_html_task_has_a_copy_button_holding_the_command(tmp_path):
