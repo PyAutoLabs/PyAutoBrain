@@ -16,7 +16,7 @@ organs plan, build, test and release it, and you make every judgment call.
 | **Mind** | PyAutoMind | Decides *what* — intent, goals, priorities, workflow state, the prompt registry and taxonomy. Also holds the body map (`repos.yaml`, the single source of repo identity). |
 | **Cortex** | PyAutoCortex | Keeps track of *what is true* — the science body map (`projects.yaml`) and **one ledger per science project** (`## Now`, the `## Runs` on the cluster, a `## Log` that only gets longer); the science mirror of the Mind (runs and a dated log ↔ prompts and PRs). Not a task tracker: it records cluster facts and the human's words, never a verdict of its own. |
 | **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (the `complete/` records, issues), not here. |
-| **Eyes** | PyAutoEyes | Sees *what the figures look like* — one rendered gallery per library (lens, galaxy, fit, cti) of every visualizer output on realistic data, the harness that renders them, the instance registry and the board that is the single point of contact for the visual behaviour of the whole ecosystem. Plain git PNGs, re-rendered on library release. The Eyes see what is true of the figures — the perception mirror of the Heart (what the software shows, not whether it is healthy); the Brain's Eyes conductor drives it and does the judging, as vitals reads Heart. Renders and holds figures; never judges them and never edits library plot code (critiques route through intake). |
+| **Eyes** | PyAutoEyes | Sees *what the figures look like* across the `<lib>_visualization` project repos. Owns the instance registry, the manifest read contract and the dashboard that links to project-owned PNGs. Project repos own producers, render harnesses, figures and manifests; Eyes renders no figures and copies none. The Brain's Eyes conductor drives review and judgment; accepted critiques route through intake, never directly into library plot code. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. `pyauto-heart readiness` is the **authoritative** GREEN/YELLOW/RED "is it safe to release?" gate. An observer: never writes into other repos, never triggers Build. |
 | **Hands** | PyAutoHands | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
 | **Nerves** | PyAutoNerves | The configuration/serialization layer (`autonerves`) — layered config with overrides, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. Connects the organism's conventions to every library; the base layer the scientific libraries all import. |
@@ -32,6 +32,37 @@ Nerves repo was likewise renamed PyAutoConf → PyAutoNerves, its package
 The scientific libraries (PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens) and
 the workspaces are **capabilities the organism uses, not organs**. The full
 inventory is `PyAutoMind/repos.yaml`.
+
+## Responsibility roles
+
+**Library, project and organ** name responsibilities, not levels in a strict
+containment tree. A **repository** is the versioned container for those
+responsibilities; it is not a separate middle level.
+
+| Role | Responsibility | Examples |
+|------|----------------|----------|
+| **Library** | Reusable capabilities, their APIs and behavioral contracts. | The scientific libraries and the `autonerves` package. |
+| **Project** | Concrete applications, examples or measurement environments; their producers, execution details and local artifacts. | User workspaces, tutorials, profiling, inference and visualization repos. |
+| **Organ** | An organism-wide responsibility with explicitly owned state or effects and interfaces to other roles. | Mind's development intent, Cortex's science records, Eyes' cross-project view. |
+
+Relationships can cross these roles: several projects can use one library,
+and several organs can read evidence from one project. Nerves is an organ
+that also supplies a library package. Eyes demonstrates a project-to-organ
+read contract; it does not make evidence aggregation the definition of every
+organ or move project producers into the organ. Cortex retains science
+records and the human's observations; project artifacts do not replace them.
+
+**Workspace** retains its established meaning for example/tutorial projects
+and, when qualified, a local checkout environment. The broader project role
+can include workspace-family, `howto` and `project` categories without renaming
+them.
+The category in `PyAutoMind/repos.yaml` still selects the repository's existing
+workflow and validation/release contract, as described in the
+[category contract](docs/satellites.md). In particular, the `project` category's
+"no release mechanics" expectation does not transfer to every repo serving a
+project role. A responsibility role is not a `category: project` filter or a new registry
+field. The body map's existing `role` and `public_role` strings remain descriptive
+text, not a responsibility-role classification.
 
 ## The call chain (always this order)
 
@@ -75,8 +106,10 @@ true is the **Cortex** (PyAutoCortex), the second organ to earn it: it owns
 state no organ owned before — the science body map and the per-project
 ledgers — so science runs and the human's notes on them belong there, not in
 the Mind. Seeing what the software shows is the **Eyes** (PyAutoEyes): it owns
-the perception lifecycle — every library's rendered figures, their manifests,
-the one render harness, the instance registry and the board — state that was
-copy-pasted between workspace repos before, so figures belong there, not in a
-per-library gallery. The human interaction layer is the command surface (`/route` + the
-verb commands), which is part of Brain.
+the cross-project instance registry, manifest read contract and dashboard.
+Each visualization project retains its render harness, figures and generated
+manifest; the organ reads those manifests and links to the figures. The
+Brain's Eyes conductor owns review and judgment. A dashboard alone does not
+waive the state-or-effects requirement for a new organ. The human interaction
+layer is the command surface (`/route` + the verb commands), which is part of
+Brain.

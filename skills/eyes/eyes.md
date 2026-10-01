@@ -88,7 +88,9 @@ panels):
 
 ## Boundary
 
-- The Eyes Agent decides and routes; the PyAutoEyes organ (or a workspace
-  instance) renders and holds the figures; intake/start_dev ship. No step edits plots directly from critique.
+- The Eyes Agent decides and routes; the `<lib>_visualization` project repos
+  render and hold figures and publish their manifests. PyAutoEyes owns the
+  registry, manifest read contract and dashboard that links to those figures;
+  intake/start_dev ship accepted changes. No step edits plots directly from critique.
 - The core never fetches papers or figures — the session gathers reference
   material; the conductor only lists what it is given.

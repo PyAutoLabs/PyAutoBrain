@@ -6,6 +6,14 @@ the category is a contract: it says what the repo is for and what the
 organism expects of it. You don't need the live instance's repos; you need
 repos that honour the contracts your body map declares.
 
+Categories are distinct from the canonical
+[library, project and organ responsibility roles](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/ORGANISM.md#responsibility-roles).
+The project role includes workspace-family, `howto` and `project` categories; it is
+not a category rename or a filter for `category: project`. Resolve a repo by
+its body-map identity and retain its declared category's workflow and release
+expectations. In particular, a workspace serving a project role keeps its
+workspace gates; the `project` row's "no release mechanics" does not apply to it.
+
 | Category | What it is for | What the organism expects of it |
 |----------|----------------|--------------------------------|
 | `organ` | The organism repos themselves. | Framework identity — names survive a fork; excluded from the tenant firewall's instance-fact tokens. |
