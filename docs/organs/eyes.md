@@ -1,6 +1,6 @@
 # Eyes — PyAutoEyes
 
-**What it owns:** the *perception lifecycle* as a **cross-project dashboard**
+**What it owns:** the **cross-project visualization view**
 over the `<lib>_visualization` project repos (`autolens_visualization`,
 `autogalaxy_visualization`, `autofit_visualization` and
 `autocti_visualization`) — the registry of those repos, the read contract of
@@ -67,9 +67,9 @@ conductor reasons over it.
 ## For an adopter
 
 Like Mind, Cortex, Memory and Gut, the Eyes are an **instance organ** —
-inherently yours. You do not fork this repo's figures; you create your own
-Eyes with the same shape, over your own libraries' visualization project
-repos.
+inherently yours. You create your own Eyes registry and dashboard over your
+own libraries' visualization project repos. Those projects produce and retain
+the figures; the organ reads their manifests and links to them.
 
 The organ was born through the `pyautoeyes-birth` epic:
 
