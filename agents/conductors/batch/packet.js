@@ -258,6 +258,7 @@
 
   if (copyBtn) {
     copyBtn.addEventListener("click", function () {
+      if (!guardPrompt(currentMd, copyBtn)) return;
       var done = function () { flash(copyBtn, "Copied ✓"); };
       var fallback = function () {
         try {
