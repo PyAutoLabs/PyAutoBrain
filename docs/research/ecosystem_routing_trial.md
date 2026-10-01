@@ -123,6 +123,8 @@ produced by each project, dashboard responsibilities, and the Brain/Cortex/Heart
 boundaries. This trial neither implements nor validates those future organs.
 The separately filed inference documentation reconciliation also remains separate.
 These are proposed follow-ups for human prioritization, not newly filed tasks.
+The subsequent authorized [organ specification](profiling_inference_organs.md)
+defines the proposed read contracts and rollout without changing this trial.
 
 This study has six curated hypothetical cases, an authored answer key, one paired
 sample and one model family. The fixed order, common answer scaffold, source
