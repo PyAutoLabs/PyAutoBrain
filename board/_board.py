@@ -5,7 +5,7 @@ The sixth one-tap board: a generated page at the Brain's GitHub Pages URL
 holding everything /wake_up used to assemble interactively — the overnight
 scheduled-run sweep, the Heart's readiness headline, version-stamp consistency,
 the community's waiting conversations, resume context from the Mind, and the
-upkeep doors — each actionable row carrying a one-tap 📋 copy-for-Claude
+upkeep doors — each actionable row carrying a one-tap 📋 copy-for-assistant
 payload. The morning routine becomes: run `bin/morning.sh` in a terminal
 (the local sync/clean leg), open this board, tap what needs you.
 
@@ -52,7 +52,7 @@ from pathlib import Path
 # this page and the Mind dashboard are visibly the same family.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _theme import (  # noqa: E402
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats, portable_prompt,
 )
 # The organ cockpit feed contract (state.json) — the validator every organ
 # shares, so this board cannot publish a feed the cockpit would reject.
@@ -81,7 +81,7 @@ BLOCKED_STEP_PREFIX = "Blocked at a gate"
 VERPAT = r"[0-9]{4}\.[0-9]+\.[0-9]+\.[0-9]+"
 
 # The local morning leg — the one thing the board cannot do for you. Rendered
-# as a copyable TERMINAL command (not a Claude payload) at the top of the page.
+# as a copyable TERMINAL command (not an AI prompt) at the top of the page.
 MORNING_CMD = "bash PyAutoBrain/bin/morning.sh"
 
 
@@ -329,7 +329,7 @@ COMMUNITY_STALE_DAYS = 7
 
 
 def community_ref(e):
-    """The ref a `/community triage` chip carries: `owner/repo#N` for an
+    """The ref a `Use the community skill. triage` chip carries: `owner/repo#N` for an
     issue or PR, the thread URL for a discussion (`#N` would read as an
     issue — see the conductor's `parse_ref`)."""
     if e.get("type") == "discussion":
@@ -1028,6 +1028,18 @@ def badge_color(data):
 # --------------------------------------------------------------- renders ----
 
 
+def _portable_board_data(value):
+    """Keep legacy feeds readable across clients without changing commands."""
+    if isinstance(value, list):
+        return [_portable_board_data(item) for item in value]
+    if isinstance(value, dict):
+        return {key: (portable_prompt(item)
+                      if key in {"prompt", "delegate"} and isinstance(item, str)
+                      else _portable_board_data(item))
+                for key, item in value.items()}
+    return value
+
+
 def render_badge(data):
     """The cross-board headline contract the umbrella router consumes."""
     return json.dumps({
@@ -1087,7 +1099,7 @@ def _overnight_state_item(r):
                      "startup_failure": "failed", "action_required": "action_required",
                      "queued": "active", "in_progress": "active", "waiting": "active",
                      "pending": "active", "requested": "active"}.get(conclusion, "unknown")
-        prompt = (f"/bug overnight: {where} concluded "
+        prompt = (f"Use the bug skill. overnight: {where} concluded "
                   f"{conclusion} — {r.get('url') or 'no run url'}")
         item.update(severity="info" if canonical == "active" else "red",
                     state=canonical, text=f"overnight: {where} {conclusion}",
@@ -1132,7 +1144,7 @@ def _state_items(data):
             "text": " ".join(f"community: {e['repo']}#{e['number']} awaiting a "
                              f"reply{days}".split()),
             "url": e.get("url"),
-            "prompt": f"/community triage {community_ref(e)}",
+            "prompt": f"Use the community skill. triage {community_ref(e)}",
         })
     for d in data.get("degraded") or []:
         items.append({"severity": "info",
@@ -1150,6 +1162,7 @@ def render_state(data):
     badge message) plus the actionable rows, so the cockpit never disagrees
     with the badge beside it.
     """
+    data = _portable_board_data(data)
     repo = data.get("repo") or "PyAutoBrain"
     pages_url = (data.get("boards") or {}).get("brain") or \
         f"https://{str(data.get('org', '')).lower()}.github.io/{repo}/"
@@ -1180,6 +1193,7 @@ def _overnight_line(r):
 def render_md(data):
     """The terminal/GitHub digest — the same prioritized card /wake_up used
     to emit, generated instead of assembled."""
+    data = _portable_board_data(data)
     blocking, attention = verdict(data)
     spark = sparkline(data.get("history") or [])
     L = [
@@ -1221,9 +1235,9 @@ def render_md(data):
     L.append("## ❤️ Readiness & release")
     if data["heart"]:
         L.append(f"- Heart verdict: **{data['heart'].get('message', '?')}** — "
-                 f"[board]({data['boards'].get('heart', '')}) · re-run via `/health`")
+                 f"[board]({data['boards'].get('heart', '')}) · re-run via the health skill")
     else:
-        L.append("- Heart board unreachable — consult `/health` directly")
+        L.append("- Heart board unreachable — consult the health skill directly")
     plan = data.get("heart_plan")
     if plan:
         # The gaps are worth one line, not N: the Heart already wrote the plan
@@ -1283,25 +1297,25 @@ def render_md(data):
                  f"{counts['open_external']} external issue(s), "
                  f"{counts['open_external_prs']} external PR(s) open — "
                  f"**{counts['awaiting_response']} awaiting our reply** "
-                 "(respond via `/community`; never auto-reply)")
+                 "(respond via `Use the community skill.`; never auto-reply)")
         awaiting_keys = {(e.get("type"), e["repo"], e["number"]) for e in c["awaiting_response"]}
         for e in c["awaiting_response"]:
             days = (f"{e['waiting_days']:.0f}d"
                     if e.get("waiting_days") is not None else "?")
-            L.append(f"  - `/community triage {community_ref(e)}` "
+            L.append(f"  - `Use the community skill. triage {community_ref(e)}` "
                      f"[{days} waiting] @{e['author']}: {e['title'][:70]}")
         for e in c["open_external_issues"] + c["open_external_prs"] + c.get("open_discussions", []):
             if (e.get("type"), e["repo"], e["number"]) in awaiting_keys:
                 continue
             note = ("ours to watch" if e.get("awaiting_response") is False
                     else "unchecked")
-            L.append(f"  - `/community triage {community_ref(e)}` "
+            L.append(f"  - `Use the community skill. triage {community_ref(e)}` "
                      f"[{note}] @{e['author']}: {e['title'][:70]}")
         for e in c["awaiting_review"]:
-            L.append(f"  - `/community triage {e['repo']}#{e['number']}` "
+            L.append(f"  - `Use the community skill. triage {e['repo']}#{e['number']}` "
                      f"[review requested] @{e['author']}: {e['title'][:70]}")
     else:
-        L.append("- scan unavailable — run `/community` for the live surface")
+        L.append("- scan unavailable — run `Use the community skill.` for the live surface")
     L.append("")
     L.append("## 🔄 Resume")
     counts = data["resume"]["counts"]
@@ -1319,7 +1333,7 @@ def render_md(data):
                               for k, n in data["eyes"].items())
                  + f" — [Eyes board]({data['boards'].get('eyes', '')})")
     for t in data["resume"]["tasks"]:
-        L.append(f"  - `/start_dev {t['path']}` — {t['title'][:70]}")
+        L.append(f"  - `Use the start-dev skill. {t['path']}` — {t['title'][:70]}")
     pending = data["resume"]["pending_prs"]
     if pending:
         L.append(f"- {len(pending)} pending-release PR(s):")
@@ -1331,9 +1345,9 @@ def render_md(data):
     L.append("## 🧹 Upkeep")
     if data["open_issues"] is not None:
         L.append(f"- {data['open_issues']} open issue(s) org-wide — reconcile "
-                 "via `/issue_cleanup` (closing stays confirmation-gated)")
-    L.append("- `/hygiene` — code-quality debt sweep")
-    L.append("- `/repo_cleanup` — stale branches / stashes / dirty checkouts (local)")
+                 "via `Use the issue-cleanup skill.` (closing stays confirmation-gated)")
+    L.append("- `Use the hygiene skill.` — code-quality debt sweep")
+    L.append("- `Use the repo-cleanup skill.` — stale branches / stashes / dirty checkouts (local)")
     L.append("")
     hygiene = data.get("hygiene")
     if hygiene:
@@ -1394,10 +1408,12 @@ def _attr(s):
 
 
 def _row(text_html, payload, term=False):
-    """One actionable row: a copy button (📋 Claude payload, ⌨ terminal
+    """One actionable row: a copy button (📋 AI prompt, ⌨ terminal
     command) then the text."""
+    if not term:
+        payload = portable_prompt(payload)
     icon, cls, label = ("⌨", "copy term", "Copy the terminal command") \
-        if term else ("📋", "copy", "Copy the Claude command")
+        if term else ("📋", "copy", "Copy the AI prompt")
     return (f'<div class="task"><button class="{cls}" data-cmd="{_attr(payload)}" '
             f'aria-label="{label}">{icon}</button><p>{text_html}</p></div>')
 
@@ -1455,6 +1471,7 @@ _OUTCOME_TONES = {"amended": "y", "rejected": "r", "reverted": "r"}
 # actionable row — and dressed by the shared board theme, so this page and
 # that one are visibly the same family (board/_theme.py).
 def render_html(data):
+    data = _portable_board_data(data)
     blocking, attention = verdict(data)
     esc = html.escape
     H = [
@@ -1472,7 +1489,7 @@ def render_html(data):
         hero(THEME_ORGAN, "Board",
              "The organism's morning door — what ran overnight, who is "
              "waiting, and what needs you. Tap 📋 to put a command on your "
-             "clipboard for a Claude Code chat; ⌨ rows are terminal "
+             "clipboard for an AI assistant chat; ⌨ rows are terminal "
              "commands."),
     ]
     verdict_cls = "bad" if blocking else ("warn" if attention else "ok")
@@ -1501,7 +1518,7 @@ def render_html(data):
     H.append("<h2>⌨ Morning sync (local)</h2>")
     H.append(_row(
         "Sync every repo to main + clean generated cruft — run in a terminal "
-        "at the workspace root, not in a Claude chat.",
+        "at the workspace root, not in an AI assistant chat.",
         MORNING_CMD, term=True))
 
     H.append("<h2>🌙 Overnight</h2>")
@@ -1532,7 +1549,7 @@ def render_html(data):
         # escaped here.
         text = subject + reason + pills((r["repo"], ""), (state, tone))
         if failed and not r["blocked"]:
-            H.append(_row(text, f"/bug overnight: {r['repo']}/{r['workflow']} "
+            H.append(_row(text, f"Use the bug skill. overnight: {r['repo']}/{r['workflow']} "
                                 f"concluded {r['conclusion']} — "
                                 f"{r['url'] or 'no run url'}"))
         else:
@@ -1544,14 +1561,14 @@ def render_html(data):
         msg = data["heart"].get("message", "?")
         H.append(_row(
             f'Heart verdict — <a href="{_attr(heart_url)}">Heart board ↗</a>'
-            + pills((msg, _verdict_tone(msg))), "/health"))
+            + pills((msg, _verdict_tone(msg))), "Use the health skill."))
     else:
         H.append(_row("Heart board unreachable — consult the clinician "
-                      "directly." + pills(("unreachable", "y")), "/health"))
+                      "directly." + pills(("unreachable", "y")), "Use the health skill."))
     plan = data.get("heart_plan")
     if plan:
         # One tap for the whole stale tier, above the gaps it closes: the
-        # Claude prompt always, the shell chain when the Heart could offer one.
+        # AI prompt always, the shell chain when the Heart could offer one.
         H.append(_row(f'Clear all {plan.get("count", "?")} evidence gaps — one prompt'
                       + pills(("stale", "y")), plan["prompt"]))
         if plan.get("command"):
@@ -1614,7 +1631,7 @@ def render_html(data):
                     f'<code>{esc(r["version"] or "?")}</code> ≠ consensus '
                     f'<code>{esc(v["consensus"])}</code>'
                     + pills((r["repo"], ""), ("drift", "r")),
-                    f"/bug version drift: {r['repo']} stamp {r['version']} is "
+                    f"Use the bug skill. version drift: {r['repo']} stamp {r['version']} is "
                     f"out of step with the coupled-set consensus {v['consensus']}"))
     else:
         H.append(_plain('<span class="muted">no stamps resolved</span>'))
@@ -1633,7 +1650,7 @@ def render_html(data):
                     (f'{counts["open_external_prs"]} PR(s)', "n"),
                     (f'{counts["awaiting_response"]} awaiting our reply',
                      "y" if counts["awaiting_response"] else "g")),
-            "/community"))
+            "Use the community skill."))
 
         def community_row(e, note, tone):
             """Every conversation gets its own one-tap triage chip.
@@ -1651,7 +1668,7 @@ def render_html(data):
             return _row(
                 f'{link} @{esc(e["author"])}: {title}'
                 + pills((kind, ""), (note, tone)),
-                f"/community triage {community_ref(e)}")
+                f"Use the community skill. triage {community_ref(e)}")
 
         awaiting_keys = {(e.get("type"), e["repo"], e["number"]) for e in c["awaiting_response"]}
         for e in c["awaiting_response"]:
@@ -1668,7 +1685,7 @@ def render_html(data):
         for e in c["awaiting_review"]:
             H.append(community_row(e, "review requested", "y"))
     else:
-        H.append(_row("Scan unavailable — run the Ears directly.", "/community"))
+        H.append(_row("Scan unavailable — run the Ears directly.", "Use the community skill."))
 
     H.append("<h2>🔄 Resume</h2>")
     counts = data["resume"]["counts"]
@@ -1701,7 +1718,7 @@ def render_html(data):
             + pills(facets.get("target"), facets.get("difficulty"),
                     facets.get("autonomy"), facets.get("priority"),
                     work_type=facets.get("type")),
-            f"/start_dev {t['path']}"))
+            f"Use the start-dev skill. {t['path']}"))
     pending = data["resume"]["pending_prs"]
     if pending:
         for p in pending:
@@ -1709,7 +1726,7 @@ def render_html(data):
                 f'<a href="{_attr(p["url"])}">{esc(p["repo"])}#{p["number"]}'
                 f'</a> — {esc(p["title"][:70])}'
                 + pills(("pending-release", "y")),
-                f"/prm {p['url']}"))
+                f"Use the prm skill. {p['url']}"))
     elif pending is not None:
         H.append(_plain('<span class="muted">no pending-release PRs open</span>'))
 
@@ -1721,11 +1738,11 @@ def render_html(data):
                   if data["open_issues"] is not None else "")
     for text, door in (
         (f"{issue_note}reconcile the trackers (closing stays "
-         "confirmation-gated).", "/issue_cleanup"),
+         "confirmation-gated).", "Use the issue-cleanup skill."),
         ("Code-quality debt sweep — slow tests, CLI noise, dep-cap drift "
-         "(the Hygiene section below is its scan).", "/hygiene"),
+         "(the Hygiene section below is its scan).", "Use the hygiene skill."),
         ("Stale branches, stashes, dirty checkouts (runs locally).",
-         "/repo_cleanup"),
+         "Use the repo-cleanup skill."),
     ):
         H.append(_row(text + pills((door, "")), door))
 
@@ -1739,7 +1756,7 @@ def render_html(data):
         if flagged:
             for row in flagged:
                 H.append(_row(_hygiene_row(row),
-                              str(row.get("delegate") or "/hygiene")))
+                              str(row.get("delegate") or "Use the hygiene skill.")))
         else:
             H.append(_plain("Every mode came back clean"
                             + pills(("nothing flagged", "g"))))
@@ -1761,7 +1778,7 @@ def render_html(data):
                 if row.get("status") in HYGIENE_QUIET_STATUSES:
                     continue
                 H.append(_row(_hygiene_row(row),
-                              str(row.get("delegate") or "/hygiene")))
+                              str(row.get("delegate") or "Use the hygiene skill.")))
         for wt in devbox.get("worktrees", []):
             # Unpushed work and a dirty tree are the things that lose work;
             # a stash is a note to self. Tone them accordingly.
@@ -1796,16 +1813,16 @@ def render_html(data):
             # world: a conductor acts, a faculty only opines. Accent the
             # actors; leave the read-only ones quiet.
             H.append(_row(
-                f'<b>/{esc(d["verb"])}</b> — {esc(d["desc"])}'
+                f'<b>{esc(d["verb"].replace("_", "-"))}</b> — {esc(d["desc"])}'
                 + pills((d["tier"], "" if d["tier"] == "conductor" else "n")),
-                f"/{d['verb']}"))
+                f"Use the {d['verb'].replace('_', '-')} skill."))
         skills = [d for d in doors if d["tier"] == "skill"]
         if skills:
             H.append('<p class="muted">Workflow doors — compositions and '
                      'dev-flow entries, no agent of their own:</p>')
             for d in skills:
-                H.append(_row(f'<b>/{esc(d["verb"])}</b> — {esc(d["desc"])}'
-                              + pills(("workflow", "n")), f"/{d['verb']}"))
+                H.append(_row(f'<b>{esc(d["verb"].replace("_", "-"))}</b> — {esc(d["desc"])}'
+                              + pills(("workflow", "n")), f"Use the {d['verb'].replace('_', '-')} skill."))
         H.append("</details>")
 
     if data["degraded"]:
@@ -1821,6 +1838,7 @@ def render_html(data):
 
 
 def render_json(data):
+    data = _portable_board_data(data)
     return json.dumps(data, indent=2) + "\n"
 
 

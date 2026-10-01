@@ -1,7 +1,7 @@
 """board/_theme.py — the shared look of the one-tap board family.
 
 Every organ publishes the same kind of page: a phone-first, self-contained
-list of rows, each carrying a 📋 copy-for-Claude payload. Until now each
+list of rows, each carrying a 📋 copy-for-assistant payload. Until now each
 renderer carried its own copy of the same GitHub-grey stylesheet, so the
 family looked like six unrelated pages that happened to share a layout — and
 none of them looked like the organ whose logo sits at the top of its README.
@@ -821,3 +821,22 @@ async function copyCmd(b){
 document.addEventListener("click",e=>{
   const b=e.target.closest("button.copy");if(b)copyCmd(b);});
 """
+
+
+def portable_prompt(payload):
+    """Adapt legacy AI door payloads; never reinterpret arbitrary shell paths.
+
+    Fresh producers emit prose directly. This handles older cached board feeds
+    and configured delegates while those producers roll out independently.
+    """
+    import re
+
+    match = re.match(
+        r"^/(health|bug|release|start[-_]dev|start[-_]bundle|route|cortex|"
+        r"community|prm|issue[-_]cleanup|hygiene|repo[-_]cleanup|"
+        r"feature|refactor|docs|research|workspace|build|board|eyes|memory|"
+        r"profiling|batch|vitals|samplers|sizing|intake|cli[-_]noise[-_]clean|"
+        r"dep[-_]audit|audit[-_]docs|ci[-_]speedup)(?=\s|$)", payload)
+    if not match:
+        return payload
+    return f"Use the {match[1].replace('_', '-')} skill." + payload[match.end():]

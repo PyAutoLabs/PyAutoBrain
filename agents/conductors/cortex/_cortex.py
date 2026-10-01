@@ -370,7 +370,7 @@ def _task_row(summary: str, payload: str) -> str:
 def _html_task(text_html: str, payload: str) -> str:
     """One row on the HTML page: a real copy button, then the text."""
     return (f'<div class="task"><button class="copy" '
-            f'data-cmd="{_attr(payload)}" aria-label="Copy the Claude '
+            f'data-cmd="{_attr(payload)}" aria-label="Copy the AI '
             f'command">📋</button><p>{text_html}</p></div>')
 
 
@@ -402,10 +402,10 @@ def checkin_payload(c: dict) -> str:
     the same machine: the pull needs the laptop the science lives on, the
     check-in itself runs on whatever surface you are holding."""
     return "\n".join([
-        "/cortex — on the laptop: `pyauto-brain cortex pull` — pull every "
+        "Use the cortex skill. — on the laptop: `pyauto-brain cortex pull` — pull every "
         "active science project through its own sync CLI and show me where "
         "each run stands.",
-        f"/cortex — anywhere: `pyauto-brain cortex checkin --apply --push` — "
+        f"Use the cortex skill. — anywhere: `pyauto-brain cortex checkin --apply --push` — "
         f"stamp, re-render and push the board since the last check-in "
         f"({c.get('checkin') or CHECKIN_NEVER}), then read me the by-project "
         "summary. Record nothing about results — I will tell you what to log.",
@@ -416,7 +416,7 @@ def resume_payload(key: str, row: dict) -> str:
     """The one chip a project card carries: pick up where the human left off.
     Every path is the row's; the assistant is named, never read here."""
     ledger = f"{row.get('local_path', '')}/{row.get('ledger', '')}"
-    text = (f"/cortex — resume {key}: read {CORTEX_REPO} projects/{key}.md "
+    text = (f"Use the cortex skill. — resume {key}: read {CORTEX_REPO} projects/{key}.md "
             f"(Now, Runs, Log) and then {ledger}")
     assistant = (row.get("assistant") or "none").strip()
     if assistant != "none":

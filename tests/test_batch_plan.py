@@ -179,7 +179,7 @@ def test_dispatch_payloads_carry_no_decisions():
     """The launch is the human's act, so what they perform should carry nothing
     still to be decided — everything was decided when they approved the batch."""
     d = _batch.plan([rec("draft/x/y/z.md")], budget=100)
-    assert d["dispatch"] == ["/start_dev draft/x/y/z.md --auto"]
+    assert d["dispatch"] == ["Use the start-dev skill. draft/x/y/z.md --auto"]
 
 
 # ------------------------------------------------- the derived review queue --
