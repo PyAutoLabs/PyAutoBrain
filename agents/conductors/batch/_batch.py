@@ -359,7 +359,7 @@ def _dispatch_payload(r: dict) -> str:
     perform should carry no decisions — everything decided was decided when they
     approved the batch.
     """
-    return f"/start_dev {r['path']} --auto"
+    return f"Use the start-dev skill. {r['path']} --auto"
 
 
 def emit(d: dict) -> None:

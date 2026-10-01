@@ -252,7 +252,7 @@ def test_backlog_and_picks_carry_a_start_dev_copy_block(tmp_path):
     mind = _mind(tmp_path, drafts={
         "bug/widgets/one.md": _prompt("Bug one", priority="high")})
     page = _page(mind)
-    fence = "```\n/start_dev draft/bug/widgets/one.md\n```"
+    fence = "```\nUse the start-dev skill. draft/bug/widgets/one.md\n```"
     head, backlog = page.split("## In flight")[0], page.split("## Backlog")[1]
     assert fence in head and "<details><summary>📋 " in head, \
         "the Start-here picks must carry the copy block"
@@ -275,7 +275,7 @@ def test_task_row_is_one_line_with_no_repeated_label(tmp_path):
 def test_in_flight_copy_block_targets_the_active_prompt(tmp_path):
     mind = _mind(tmp_path, active={"widget_rework.md": _prompt("Widget rework")})
     flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
-    assert "\n/start_dev active/widget_rework.md\n" in flight
+    assert "\nUse the start-dev skill. active/widget_rework.md\n" in flight
 
 
 def test_registry_row_copy_block_prefers_its_prompt_path(tmp_path):
@@ -285,8 +285,8 @@ def test_registry_row_copy_block_prefers_its_prompt_path(tmp_path):
         "# Parked\n\n## with-prompt\n- prompt: active/widget_rework.md\n"
         "\n## lonely-slug\n")})
     parked = _page(mind).split("## Parked")[1].split("## Planned")[0]
-    assert "\n/start_dev active/widget_rework.md\n" in parked
-    assert ("\n/route resume the parked PyAutoMind task lonely-slug — "
+    assert "\nUse the start-dev skill. active/widget_rework.md\n" in parked
+    assert ("\nUse the route skill. resume the parked PyAutoMind task lonely-slug — "
             "its record is in parked.md\n") in parked
 
 
@@ -317,7 +317,7 @@ def _html(mind: Path) -> str:
 def test_html_task_has_a_copy_button_holding_the_command(tmp_path):
     mind = _mind(tmp_path, drafts={"bug/widgets/one.md": _prompt("Bug one")})
     html = _html(mind)
-    assert ('<button class="copy" data-cmd="/start_dev '
+    assert ('<button class="copy" data-cmd="Use the start-dev skill. '
             'draft/bug/widgets/one.md"') in html
     assert "navigator.clipboard.writeText" in html, \
         "the page must carry its own clipboard script — that is its point"
@@ -463,7 +463,7 @@ def test_epics_section_sits_at_the_bottom_with_a_resume_prompt(tmp_path):
     assert "PROGRAMME.md" in epics
     # The copy payload is a procedure — work out the state, then continue.
     assert "work out the last completed phase" in epics
-    assert "/start_dev" in epics
+    assert "Use the start-dev skill" in epics
     # A slug-only entry still lists (tolerant, like the other registries).
     assert "bare-epic" in epics
 
@@ -753,7 +753,7 @@ def test_the_html_twin_carries_the_same_feed_with_real_copy_buttons(tmp_path):
     assert html.index("Backlog") < html.index("<h2>Recent") < html.index("<h2>Epics") \
         if "<h2>Epics" in html else True
     assert '<table class="recent">' in html
-    assert 'data-cmd="/start_dev active/sprocket_calibration.md"' in html
+    assert 'data-cmd="Use the start-dev skill. active/sprocket_calibration.md"' in html
 
 
 def test_a_live_row_wears_its_date_where_the_task_is(tmp_path):
@@ -867,7 +867,7 @@ def test_a_dated_draft_is_in_the_feed(tmp_path):
     rows = _intake.census(mind)["recent"]
     assert [(r["date"], r["event"], r["title"]) for r in rows] == [
         ("2026-08-20", "filed", "Sprocket work")]
-    assert rows[0]["payload"] == "/start_dev draft/feature/widgets/sprocket.md"
+    assert rows[0]["payload"] == "Use the start-dev skill. draft/feature/widgets/sprocket.md"
 
 
 def test_an_undated_draft_stays_out(tmp_path):
@@ -1121,7 +1121,7 @@ def test_the_bundle_prompt_states_the_orchestration_contract(tmp_path):
     prompt = _intake.bundle_prompt(_intake.auto_bundles(_intake.census(mind))[0])
     assert "judgment tier" in prompt
     assert "draft/feature/widgets/a.md" in prompt
-    assert "/start_dev <member prompt>" in prompt
+    assert "start-dev skill for EACH member prompt" in prompt
     assert "one issue" in prompt and "bulk issue queue" in prompt
     assert "One shared worktree per repo" in prompt
     assert "PyAutoBrain/skills/WORKFLOW.md" in prompt
@@ -1129,8 +1129,8 @@ def test_the_bundle_prompt_states_the_orchestration_contract(tmp_path):
     assert "one execution delegate per member" in prompt
     assert "direct-execution fallback" in prompt
     assert "ONE PR per task" in prompt
-    assert "/prm" in prompt
-    assert "/ship_library" in prompt
+    assert "prm skill" in prompt
+    assert "ship-library skill" in prompt
     assert "Fa" + "ble" not in prompt
     assert "Op" + "us" not in prompt
     assert "Agent(" + "model=" not in prompt
@@ -1578,7 +1578,7 @@ def test_human_review_is_its_own_section_not_backlog(tmp_path):
     assert "| [Backlog](#backlog) (`draft/`) | 1 |" in page
     assert "| [Human review](#human-review) (`draft/human_review/`) | 1 |" in page
     # The row hands out a review prompt, never a /start_dev.
-    assert "/start_dev draft/human_review" not in page
+    assert "Use the start-dev skill. draft/human_review" not in page
     assert "so I can sign it off" in section
     # Highest priority is a pick list; a review is not pickable work.
     assert "Check the widget rollout" not in page.split("## In flight")[0]
@@ -1849,7 +1849,7 @@ def test_apply_writes_a_state_feed_that_satisfies_the_contract(tmp_path):
     assert state["headline"] == "YELLOW — 1 picks · 0 in flight"
     pick = state["items"][-1]
     assert pick["severity"] == "info"
-    assert pick["prompt"] == "/start_dev draft/feature/widgets/urgent.md"
+    assert pick["prompt"] == "Use the start-dev skill. draft/feature/widgets/urgent.md"
     assert pick["url"] == ("https://github.com/ExampleOrg/PyAutoMind/blob/main/"
                            "draft/feature/widgets/urgent.md")
 
@@ -1866,7 +1866,7 @@ def test_an_awaiting_merge_row_is_a_yellow_item_linking_its_pr(tmp_path):
     assert item["text"].startswith("Widget rework — library-shipped, awaiting-merge")
     assert item["url"] == "https://github.com/ExampleOrg/Widgets/pull/7", \
         "the first PR is the door, not the issue"
-    assert item["prompt"] == "/start_dev active/widget_rework.md"
+    assert item["prompt"] == "Use the start-dev skill. active/widget_rework.md"
     # no repos.yaml: nothing to derive a Pages site from, still a valid feed
     assert state["pages_url"] == "./"
 

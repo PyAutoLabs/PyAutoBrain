@@ -348,3 +348,15 @@ def test_every_theme_entry_but_the_umbrella_is_a_declared_board():
     # The reverse of the palette check: a palette for a board nobody declares
     # is a footer chip that can never appear.
     assert set(_theme.ORGANS) <= set(POLICY_BOARDS) | {"organism"}
+
+
+def test_legacy_dashboard_prompts_preserve_arguments_and_paths():
+    for door in ("health", "start_dev", "cli_noise_clean", "dep_audit",
+                 "audit_docs", "ci_speedup"):
+        suffix = " draft/bug/widgets/task.md --auto\nKeep user edits."
+        assert _theme.portable_prompt("/" + door + suffix) == (
+            "Use the " + door.replace("_", "-") + " skill." + suffix)
+    for shell in ("/tmp/script", "/health/check", "bash bin/morning.sh",
+                  "pyauto-heart tick && pyauto-heart readiness",
+                  "Use the health skill. Inspect CI."):
+        assert _theme.portable_prompt(shell) == shell

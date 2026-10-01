@@ -540,7 +540,7 @@ def _next_action(proposed, confidence, work_type=None):
                 "afterwards it stands on the dashboard's Human review section "
                 "until you sign it off.")
     return (f"Review the header, then `--apply` to write {proposed}; "
-            "afterwards `/start_dev {}` routes it.".format(proposed))
+            "afterwards `Use the start-dev skill. {}` routes it.".format(proposed))
 
 
 # --- apply (the only writing path) -------------------------------------------
@@ -901,7 +901,7 @@ def _epic_prompt(e: dict) -> str:
         "rows in PyAutoMind/active.md, and the referenced repos' open issues "
         "and PRs, to work out the last completed phase and what is currently "
         "in flight. Then pick the next logical step and continue it through "
-        "the normal workflow (/start_dev — filing the phase's prompt first "
+        "the normal workflow (Use the start-dev skill — filing the phase's prompt first "
         "if none exists), updating the ledger as the work advances.")
     if e.get("notes"):
         parts.append(f"Note: {e['notes']}")
@@ -1261,7 +1261,7 @@ def bundle_prompt(b: dict) -> str:
     session from the member prompts themselves. The contract it states is the
     `start_bundle` skill's, in short form: one issue per member (the no-bulk-
     issue rule still holds), one shared worktree per repo, per-task PRs so
-    `/prm` closes each member out unchanged.
+    the prm skill closes each member out unchanged.
     """
     members = [m["path"] for m in b["members"]]
     L = [f"You are the judgment tier for the PyAutoMind bundle "
@@ -1274,15 +1274,15 @@ def bundle_prompt(b: dict) -> str:
         L += ["", f"Why they are bundled: {b['rationale']}"]
     L += [
         "",
-        "Contract (the `start_bundle` skill is the full body):",
+        "Contract (the `start-bundle` skill is the full body):",
         "1. Read each member prompt above in full, and plan all of them "
         "before editing anything. The members are independent — if any turns "
         "out to depend on another, say so and drop it from the bundle.",
-        "2. Run `/start_dev <member prompt>` for EACH member: one plan, one "
+        "2. Use the start-dev skill for EACH member prompt: one plan, one "
         "issue, one registry entry per member. Never file them as a bulk "
         "issue queue and never merge them into one issue.",
         "3. One shared worktree per repo, not one per member: run "
-        "`/start_library` (or `/start_workspace`) once, naming the bundle as "
+        "the start-library skill (or the start-workspace skill) once, naming the bundle as "
         "the task and listing every member's repos. A worktree holds one "
         "branch at a time, so inside it members are worked one at a time, "
         "each on its own `feature/<member-task>` branch cut from "
@@ -1295,8 +1295,8 @@ def bundle_prompt(b: dict) -> str:
         "unavailable, follow WORKFLOW's direct-execution fallback. The "
         "current session plans, judges and talks to the user; the execution "
         "delegate edits, tests and reports back.",
-        "5. Ship each member on its own: `/ship_library` or "
-        "`/ship_workspace`, ONE PR per task, so `/prm` closes each member out "
+        "5. Ship each member on its own: the ship-library skill or "
+        "the ship-workspace skill, ONE PR per task, so the prm skill closes each member out "
         "unchanged. Never one PR for the bundle.",
         "6. Report per member: issue, branch, PR, and pass/fail counts.",
     ]
@@ -1399,7 +1399,7 @@ BUNDLE_TABLE_HEAD_REPO = ["| Prompt | Repo | Difficulty | Priority | Status |",
 BUNDLE_BLURB = (
     "Sets of INDEPENDENT tasks that make sense in one orchestrated session: "
     "an architect session plans them, subagents implement them, and every "
-    "member still gets its own issue and its own PR — so `/prm` closes each "
+    "member still gets its own issue and its own PR — so the prm skill closes each "
     "one out unchanged. Not an epic: nothing here is ordered or phase-gated, "
     "and every member also appears in its usual section above — a bundle is "
     "an extra view of the backlog, never a replacement. Pinned bundles "
@@ -1562,19 +1562,19 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
         if r.get("date"):
             events.append({"date": r["date"], "event": r.get("event") or "issued",
                            "title": r["title"], "path": r["path"],
-                           "payload": f"/start_dev {r['path']}"})
+                           "payload": f"Use the start-dev skill. {r['path']}"})
     # The backlog is the LARGEST pool of work the Mind holds — 150 prompts
     # against a handful of live rows — so a feed that skipped it could see
     # almost none of what has been happening. Epic members stay out, as they do
     # in every pick list on the page: they are worked in order through their
-    # epic, and a Recent row hands out a standalone `/start_dev`.
+    # epic, and a Recent row hands out a standalone the start-dev skill.
     for r in c.get("records") or []:
         if r.get("date") and not r.get("epic"):
             events.append({"date": r["date"], "event": "filed",
                            "title": r["title"], "path": r["path"],
-                           "payload": f"/start_dev {r['path']}"})
+                           "payload": f"Use the start-dev skill. {r['path']}"})
     # Flagging a task for review IS an event on the work in hand, and it hands
-    # out its own payload rather than a `/start_dev` (there is nothing to start).
+    # out its own payload rather than a the start-dev skill (there is nothing to start).
     for r in c.get("human_review") or []:
         if r.get("date"):
             events.append({"date": r["date"], "event": "review",
@@ -1986,7 +1986,7 @@ def _pick_key(r: dict) -> tuple:
 # `human_review/` prompts are the one section of the page that is not work to
 # start. The task already shipped; what is outstanding is a person reading it
 # and saying it is sound. So its 📋 hands out a read-and-report prompt rather
-# than a `/start_dev`, and it ends by naming both exits — sign off (retire the
+# than a the start-dev skill, and it ends by naming both exits — sign off (retire the
 # prompt) or don't (file the follow-up) — because a review that stops at
 # "looks fine" leaves the row on the board forever.
 HUMAN_REVIEW_BLURB = (
@@ -2085,8 +2085,8 @@ def _task_row(summary: str, payload: str) -> str:
     fenced code blocks. So every task row is a `<details>` whose summary IS
     the task line — the 📋 toggle sits at the left of the text, costing no
     extra line and no repeated label — and whose hidden body is the fenced
-    message that routes Claude to the task: tap the row, tap copy, paste into
-    a Claude Code chat. The blank lines around the fence and after
+    message that routes the assistant to the task: tap the row, tap copy, paste into
+    an AI assistant chat. The blank lines around the fence and after
     `</details>` are what make GitHub's renderer treat the fence as markdown
     and the next row as a new element rather than raw HTML — do not remove
     them. The summary is HTML (see `_summary_label`); markdown would not
@@ -2118,8 +2118,8 @@ def _registry_payload(e: dict, key: str, verb: str) -> str:
     """
     prompt = (e["prompt"].split() or [""])[0]
     if prompt.endswith(".md"):
-        return f"/start_dev {prompt}"
-    return (f"/route {verb} the {key} PyAutoMind task "
+        return f"Use the start-dev skill. {prompt}"
+    return (f"Use the route skill. {verb} the {key} PyAutoMind task "
             f"{e['slug']} — its record is in {key}.md")
 
 
@@ -2138,7 +2138,7 @@ def _bullet(r: dict) -> str:
     head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
     if facets:
         head += f" — {facets}"
-    return _task_row(head, f"/start_dev {r['path']}")
+    return _task_row(head, f"Use the start-dev skill. {r['path']}")
 
 
 def _epic_members(c: dict) -> dict:
@@ -2268,7 +2268,7 @@ def render_dashboard(c: dict) -> str:
     many prompts are there?"), and it must read on a phone (rows over wide
     tables, long sections behind `<details>`, and every task a single
     collapsed row whose 📋 toggle hides its copy block, so picking one from a
-    phone is copy → paste into a Claude chat, not retyping a path — see
+    phone is copy → paste into an AI assistant chat, not retyping a path — see
     `_task_row`). Links are repo-root-relative so they resolve from the
     page's GitHub blob URL.
     """
@@ -2288,7 +2288,7 @@ def render_dashboard(c: dict) -> str:
     L += [
         "Every task the Mind is holding, on one page: what is in flight, what "
         "is parked, and the whole backlog to pick from. Pick a task and run "
-        "its `/start_dev` command in a Claude Code chat to start it. "
+        "its start-dev skill prompt in an AI assistant chat to start it. "
         "[Recent](#recent) is the same work by date — what has been happening "
         "rather than what to do next.",
         "",
@@ -2345,7 +2345,7 @@ def render_dashboard(c: dict) -> str:
         if r["status"]:
             head += f" — {_summary_label(_clip(r['status']))}"
         head += _pr_column(r)
-        flight.append(_task_row(head, f"/start_dev {r['path']}"))
+        flight.append(_task_row(head, f"Use the start-dev skill. {r['path']}"))
     L += _items(flight) or ["- _(nothing in flight)_"]
     L += [""]
 
@@ -2425,7 +2425,7 @@ def render_dashboard(c: dict) -> str:
     if c.get("epics") or stray:
         L += ["## Epics", "",
               "Long-running multi-phase programmes. Each epic's 📋 prompt has "
-              "Claude read its ledger, work out where it stands, and continue "
+              "the assistant read its ledger, work out where it stands, and continue "
               f"from the next logical point. {EPIC_ORDER_CAUTION} "
               "Full record in [`epics.md`](epics.md).", ""]
         for e in c.get("epics") or []:
@@ -2598,7 +2598,7 @@ def _attr(value: str) -> str:
 def _html_task(text_html: str, payload: str) -> str:
     """One task row on the HTML page: a real copy button, then the text."""
     return (f'<div class="task"><button class="copy" '
-            f'data-cmd="{_attr(payload)}" aria-label="Copy the Claude '
+            f'data-cmd="{_attr(payload)}" aria-label="Copy the AI '
             f'command">📋</button><p>{text_html}</p></div>')
 
 
@@ -2627,7 +2627,7 @@ def render_dashboard_html(c: dict) -> str:
             *(_summary_label(x) for x in (r["target"], r["difficulty"],
                                           r["autonomy"], r["priority"])),
             work_type=r["work_type"])
-        return _html_task(text, f"/start_dev {r['path']}")
+        return _html_task(text, f"Use the start-dev skill. {r['path']}")
 
     H = [
         "<!doctype html>",
@@ -2643,8 +2643,8 @@ def render_dashboard_html(c: dict) -> str:
         "<body>",
         hero(THEME_ORGAN, "Dashboard",
              "Every task the Mind is holding. Tap a task's 📋 and its "
-             "<code>/start_dev</code> command is on your clipboard — paste it "
-             "into a Claude Code chat to route Claude straight to that task. "
+             "start-dev skill prompt is on your clipboard — paste it "
+             "into an AI assistant chat to route the assistant straight to that task. "
              '<a href="#recent">Recent</a> is the same work by date — what has '
              "been happening rather than what to do next."),
         # The four numbers a human wants before reading a single row.
@@ -2705,7 +2705,7 @@ def render_dashboard_html(c: dict) -> str:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
         text += _pr_column(r)
-        H.append(_html_task(text, f"/start_dev {r['path']}"))
+        H.append(_html_task(text, f"Use the start-dev skill. {r['path']}"))
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')
 
@@ -2796,7 +2796,7 @@ def render_dashboard_html(c: dict) -> str:
                   f'<td>{link(r["path"], _summary_label(_clip(r["title"], 70)))}</td>',
                   f'<td class="pick"><button class="copy" '
                   f'data-cmd="{_attr(r["payload"])}" aria-label="Copy the '
-                  f'Claude command">📋</button></td>',
+                  f'AI prompt">📋</button></td>',
                   "</tr>"]
         H += ["</table>"]
         rest = len(recent) - RECENT_PAGE
@@ -2939,7 +2939,7 @@ def _state_items(c: dict, picks: list) -> list:
             "text": _one(f"{r['title']} — {_clip(r['status'])}"),
             "url": prs[0]["url"] if prs else (r.get("issue") or None),
             # the row's own 📋 payload on the page
-            "prompt": f"/start_dev {r['path']}"})
+            "prompt": f"Use the start-dev skill. {r['path']}"})
     for r in c.get("human_review") or []:
         title = re.sub(r"^human review:\s*", "", r["title"], flags=re.I)
         items.append({"severity": "yellow",
@@ -2956,12 +2956,12 @@ def _state_items(c: dict, picks: list) -> list:
                           "text": _one(f"waiting on {g['lib']}'s release: "
                                        f"{row['title']}"),
                           "url": row.get("issue") or None,
-                          "prompt": f"/start_dev {row['path']}"})
+                          "prompt": f"Use the start-dev skill. {row['path']}"})
     for r in picks:
         items.append({"severity": "info",
                       "text": _one(f"pick: {r['title']}"),
                       "url": link(r["path"]),
-                      "prompt": f"/start_dev {r['path']}"})
+                      "prompt": f"Use the start-dev skill. {r['path']}"})
     order = {"red": 0, "yellow": 1, "info": 2}
     items.sort(key=lambda i: order[i["severity"]])  # stable: section order kept
     return items[:STATE_ITEM_CAP]

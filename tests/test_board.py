@@ -55,7 +55,7 @@ HEART_PERFORMANCE = {
          "pr_median_s": 640.0, "max_s": 745.0, "runs_counted": 14,
          "state": "warn", "spark": "▁▂▄▅",
          "actions_url": "https://example.invalid/RepoA/actions",
-         "prompt": "/bug smoke gate RepoA: median 9m12s over 14 runs, was 7m"},
+         "prompt": "Use the bug skill. smoke gate RepoA: median 9m12s over 14 runs, was 7m"},
         {"repo": "RepoB", "workflow": "Unit Tests", "median_s": 61.0,
          "max_s": 74.0, "runs_counted": 12, "state": "ok", "prompt": None,
          "actions_url": "https://example.invalid/RepoB/actions"},
@@ -70,7 +70,7 @@ HEART_PERFORMANCE = {
         "repos": [],
         "rows": [{"repo": "RepoA", "entry": "scripts/x.py", "marker": "SLOW",
                   "date": "2026-07-14", "measured": False,
-                  "prompt": "/bug no_run: RepoA scripts/x.py SLOW since "
+                  "prompt": "Use the bug skill. no_run: RepoA scripts/x.py SLOW since "
                             "2026-07-14 with no measurement — retime it"}],
     },
 }
@@ -81,7 +81,7 @@ HEART_PERFORMANCE_EVENT = {
     "workflow": "Smoke Tests",
     "run_url": "https://example.invalid/run/12",
     "duration_s": 300,
-    "prompt": "/bug kill timer: RepoA Smoke Tests TIMEOUT (300s) on "
+    "prompt": "Use the bug skill. kill timer: RepoA Smoke Tests TIMEOUT (300s) on "
               "https://example.invalid/run/12",
 }
 
@@ -93,7 +93,7 @@ HEART_BOARD_JSON = {
         "repo": "RepoA",
         "repo_url": "https://example.invalid/RepoA",
         "run_url": "https://example.invalid/run/9",
-        "prompt": "/bug Heart board: RepoA nightly smoke red — https://example.invalid/run/9",
+        "prompt": "Use the bug skill. Heart board: RepoA nightly smoke red — https://example.invalid/run/9",
         # v3: a stale row carries the command that re-runs its check; a red
         # one has no such remedy — the fix is code, not a re-run.
         "command": None,
@@ -463,16 +463,16 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert "fetch(" not in stripped
     assert "@import" not in stripped
     # One-tap payloads for each actionable row family.
-    assert 'data-cmd="/start_dev active/some_task.md"' in page
-    assert 'data-cmd="/health"' in page
-    assert 'data-cmd="/community"' in page
-    assert 'data-cmd="/issue_cleanup"' in page
-    assert 'data-cmd="/prm https://example.invalid/pr/5"' in page
-    assert "/bug overnight:" in page  # the failing run's payload
+    assert 'data-cmd="Use the start-dev skill. active/some_task.md"' in page
+    assert 'data-cmd="Use the health skill."' in page
+    assert 'data-cmd="Use the community skill."' in page
+    assert 'data-cmd="Use the issue-cleanup skill."' in page
+    assert 'data-cmd="Use the prm skill. https://example.invalid/pr/5"' in page
+    assert "Use the bug skill. overnight:" in page  # the failing run's payload
     # The local morning leg is a TERMINAL chip, not a Claude payload.
     assert 'data-cmd="bash PyAutoBrain/bin/morning.sh"' in page
     # The doors roster is on the page.
-    assert 'data-cmd="/intake"' in page
+    assert 'data-cmd="Use the intake skill."' in page
     # The header line every sibling board carries: the markdown twin and the
     # way back to the repository front door on github.com.
     assert '<a href="board.md">markdown version</a>' in page
@@ -593,11 +593,11 @@ def test_every_community_conversation_gets_its_own_chip(tmp_path):
         ]}}))
     page = _run(["--html"], tmp_path, stub).stdout
     # One 📋 triage chip per conversation — awaiting-reply and watched alike.
-    assert 'data-cmd="/community triage ExampleOrg/RepoA#7"' in page
-    assert 'data-cmd="/community triage ExampleOrg/RepoB#9"' in page
+    assert 'data-cmd="Use the community skill. triage ExampleOrg/RepoA#7"' in page
+    assert 'data-cmd="Use the community skill. triage ExampleOrg/RepoB#9"' in page
     md = _run([], tmp_path, stub).stdout
-    assert "`/community triage ExampleOrg/RepoA#7`" in md
-    assert "`/community triage ExampleOrg/RepoB#9`" in md
+    assert "`Use the community skill. triage ExampleOrg/RepoA#7`" in md
+    assert "`Use the community skill. triage ExampleOrg/RepoB#9`" in md
 
 
 def test_broadcast_discussion_is_visible_as_ours_to_watch(tmp_path):
@@ -615,12 +615,12 @@ def test_broadcast_discussion_is_visible_as_ours_to_watch(tmp_path):
     page_result = _run(["--html"], tmp_path, stub)
     assert page_result.returncode == 0, page_result.stderr
     page = page_result.stdout
-    assert f'data-cmd="/community triage {url}"' in page
+    assert f'data-cmd="Use the community skill. triage {url}"' in page
     assert "ours to watch" in page
     md_result = _run([], tmp_path, stub)
     assert md_result.returncode == 0, md_result.stderr
     md = md_result.stdout
-    assert f"`/community triage {url}` [ours to watch]" in md
+    assert f"`Use the community skill. triage {url}` [ours to watch]" in md
     assert "0 awaiting our reply" in md
 
 
@@ -639,7 +639,7 @@ def test_heart_blockers_render_with_their_own_prompts(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures())
     page = _run(["--html"], tmp_path, stub).stdout
     blocker = HEART_BOARD_JSON["blockers"][0]
-    # The Heart's own /bug prompt is the chip payload — never re-derived.
+    # The Heart's own Use the bug skill. prompt is the chip payload — never re-derived.
     assert f'data-cmd="{blocker["prompt"]}"' in page
     assert "nightly smoke red" in page
     md = _run([], tmp_path, stub).stdout
@@ -653,15 +653,15 @@ HEART_BOARD_STALE = {
         {"text": "install verification not run", "severity": "stale",
          "repo": None, "repo_url": None, "run_url": None,
          "command": "pyauto-heart verify_install --report-json",
-         "prompt": "/health run `pyauto-heart verify_install --report-json` — …"},
+         "prompt": "Use the health skill. run `pyauto-heart verify_install --report-json` — …"},
         {"text": "no release validation for current source", "severity": "stale",
          "repo": None, "repo_url": None, "run_url": None, "command": None,
-         "prompt": "/health dispatch a release rehearsal with `/release rehearse` — …"},
+         "prompt": "Use the health skill. dispatch a release rehearsal with `/release rehearse` — …"},
     ],
     "stale_plan": {
         "count": 2,
         "command": None,
-        "prompt": "/health clear the Heart's 2 evidence gap(s) — …\n1. …\n2. …",
+        "prompt": "Use the health skill. clear the Heart's 2 evidence gap(s) — …\n1. …\n2. …",
     },
 }
 
@@ -799,7 +799,7 @@ def _devbox_payload(ts):
         "hygiene": {"rows": [
             {"mode": "artifacts", "status": "debris", "count": 4,
              "summary": "4 generated packaging leftovers across 2 repos",
-             "delegate": "/repo_cleanup"},
+             "delegate": "Use the repo-cleanup skill."},
             {"mode": "crlf", "status": "clean", "count": 0,
              "summary": "clean", "delegate": "/refactor"},
         ]},
@@ -818,7 +818,7 @@ def test_devbox_observation_renders_age_stamped(tmp_path):
     page = _run(["--html"], tmp_path, stub).stdout
     assert "Dev box" in page and "5h" in page
     assert "packaging leftovers" in page
-    assert 'data-cmd="/repo_cleanup"' in page  # the row's own delegate door
+    assert 'data-cmd="Use the repo-cleanup skill."' in page  # the row's own delegate door
     assert "<b>crlf</b>" not in page  # clean rows are not rendered
     assert "feature/x" in page and "2 unpushed" in page
 
@@ -829,7 +829,7 @@ def _hygiene_stub(tmp_path):
                 "repos_present": 12, "rows": [
                     {"mode": "deps", "kind": "surface", "status": "debris",
                      "count": 3, "summary": "3 dependency caps trail the floor",
-                     "delegate": "/bug"},
+                     "delegate": "Use the bug skill."},
                     {"mode": "crlf", "kind": "debris", "status": "clean",
                      "count": 0, "summary": "clean", "delegate": "/refactor"}]}
     hyg.write_text("#!/usr/bin/env bash\ncat <<'EOF'\n"
@@ -851,7 +851,7 @@ def test_cloud_hygiene_scan_renders_and_supersedes_devbox_rows(tmp_path):
     # rows' own delegate doors; clean rows stay quiet.
     assert "Hygiene" in page and "12/14" in page
     assert "dependency caps trail the floor" in page
-    assert 'data-cmd="/bug"' in page
+    assert 'data-cmd="Use the bug skill."' in page
     # The dev-box section keeps only what the cloud cannot see: worktrees.
     assert "packaging leftovers" not in page
     assert "feature/x" in page
@@ -904,7 +904,7 @@ def _publish_env(tmp_path, hygiene_json=None):
     default_decision = {"decision": "HygieneDecision", "rows": [
         {"mode": "artifacts", "kind": "debris", "status": "debris", "count": 2,
          "summary": f"2 leftovers under {home}/Code somewhere",
-         "delegate": "/repo_cleanup"}]}
+         "delegate": "Use the repo-cleanup skill."}]}
     hyg.write_text("#!/usr/bin/env bash\ncat <<'EOF'\n"
                    + json.dumps(hygiene_json or default_decision)
                    + "\nEOF\n")
@@ -1081,3 +1081,12 @@ def test_a_six_column_shadow_row_still_renders(tmp_path):
     page = _run(["--html"], tmp_path, stub).stdout
     assert "witness holds" not in page
     assert '<span class="pill n">merged-unchanged</span>' in page
+
+
+def test_legacy_copy_payload_is_portable_but_terminal_payload_is_unchanged():
+    import sys
+    sys.path.insert(0, str(BRAIN_HOME / "board"))
+    import _board as b
+    page = b._row("Legacy", "/health Inspect <repo> & preserve edits")
+    assert 'data-cmd="Use the health skill. Inspect &lt;repo&gt; &amp; preserve edits"' in page
+    assert 'data-cmd="/health"' in b._row("Terminal", "/health", term=True)
