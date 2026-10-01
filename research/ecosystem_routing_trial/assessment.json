@@ -1,0 +1,352 @@
+{
+  "method": "Author assessment against the frozen key. Equivalent existing doors count. Context means relevant bounded next-step scope, not an exhaustive implementation checklist: policy excerpts already supplied need not be requested again. Missing later source/test details are noted, not retroactively made mandatory. Scores describe written answers, not executed actions. The context leniencies were chosen at grading time, not frozen beforehand. A stricter reading can favour the checklist on explicit contract coverage; totals depend on this interpretation.",
+  "conditions": {
+    "baseline": {
+      "cases": [
+        {
+          "id": "V1",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_visualization manifest generator / render harness output (gallery/viz_manifest.yaml)",
+              "PyAutoEyes dashboard (reads manifest, emits the given path verbatim)"
+            ],
+            "decision": "Brain Eyes conductor (survey/critique of the autolens instance)",
+            "change_owner": "autolens_visualization",
+            "door": "intake (bug) \u2192 Mind prompt \u2192 start_dev",
+            "boundary": "The project repo owns the tracked figure manifest and render harness; PyAutoEyes only reads the manifest and never renders, copies or edits figures; no library plot defect, so autolens plot code is out of scope.",
+            "context": [
+              "The manifest generator script in autolens_visualization and the plots.yaml row for the dataset figure",
+              "The emitted manifest entries (file/domain/source) for the dataset and fit figures to confirm the swap originates upstream of Eyes"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "V2",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_visualization manifest and GALLERY.md (correct relative path, PNG present)",
+              "PyAutoEyes dashboard link construction (<images_base_url><file> join)"
+            ],
+            "decision": "Brain Eyes conductor (or hygiene conductor if treated as organ tooling upkeep)",
+            "change_owner": "PyAutoEyes",
+            "door": "intake (bug) \u2192 Mind prompt \u2192 start_dev",
+            "boundary": "The organ owns registry.yaml, the eyes/ package and dashboard rendering; the project repo's manifest and figures are correct, so no project-repo or library change is warranted.",
+            "context": [
+              "The images_base_url value in PyAutoEyes registry.yaml for the autolens instance",
+              "The eyes/ package code that joins images_base_url with figures[*].file"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "P1",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_profiling result rows (runtime steady-state vs first-call compile, different CPU models, different precision)"
+            ],
+            "decision": "Brain profiling conductor (triage mode)",
+            "change_owner": null,
+            "door": "profiling triage; no re-pin, no bug filing",
+            "boundary": "Runtime and compile axes are separate vocabularies and rows are comparable only within (hardware, jax_version, mixed_precision, cache state); pins are sticky and drift requires newer-than-pin, \u22652.0x and \u22651.0 s gates on a matched cell.",
+            "context": [
+              "A matched repeat on the same hardware, config, precision and dependency versions with warm-up",
+              "A timing breakdown separating compile/first-call from steady-state cost",
+              "Whether the slow row sits in the off-grid or other-hardware bucket rather than grid coverage"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "P2",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_profiling matched steady-state fp64 comparison, isolated reproducer and revision bisection"
+            ],
+            "decision": "Brain profiling conductor (triage classifies as library regression) \u2192 bug conductor plans the repair",
+            "change_owner": "PyAutoArray",
+            "door": "intake (bug) \u2192 Mind prompt \u2192 start_dev",
+            "boundary": "Profiling owns the measurement lifecycle and classifies drift; library regressions route to bug/ via intake; Heart issues no verdict here since no readiness or release question was asked, and the project driver is unchanged so autolens_profiling needs no fix.",
+            "context": [
+              "The bisected PyAutoArray revision range and the reproducer script path",
+              "Whether the regressed primitive is covered by an existing pin so the pin is left in place pending repair"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "I1",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_inference single shorter sampler run (no convergence check, no repeated seeds, samples unreviewed)"
+            ],
+            "decision": "The human scientist; Brain cortex conductor only records what the human says to log",
+            "change_owner": null,
+            "door": "cortex checkin surfaces the observation to the human; samplers faculty for sampler tier/benchmark context; no default change or lesson recorded",
+            "boundary": "Cortex logs nothing inferred from results \u2014 results and lessons are the human's own words on their ask; a default-sampler change would be a library/feature decision requiring intake and a Mind prompt, not a ledger entry.",
+            "context": [
+              "Convergence diagnostics and repeated-seed runs for the shorter sampler",
+              "The human's review of retained samples and their stated conclusion",
+              "Which library (likely PyAutoFit) owns the default and the samplers faculty's current tier assessment"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "I2",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_inference raw timing logs (setup + sampling components)",
+              "autolens_inference result-summary script output (drops setup time)"
+            ],
+            "decision": "Brain profiling/hygiene is not it \u2014 the bug conductor via intake, as a project-repo tooling defect",
+            "change_owner": "autolens_inference",
+            "door": "intake (bug) \u2192 Mind prompt \u2192 start_dev",
+            "boundary": "The project role owns its producers, execution details and local artifacts including the summary script; the sampler records both components correctly, so PyAutoFit is not implicated.",
+            "context": [
+              "The result-summary script's total-cost aggregation code in autolens_inference",
+              "Which existing cost result rows were under-reported and need regeneration after the fix"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        }
+      ],
+      "total": 36,
+      "maximum": 36,
+      "change_owner_correct": 6,
+      "decision_owner_correct": 6
+    },
+    "checklist": {
+      "cases": [
+        {
+          "id": "V1",
+          "scores": {
+            "producer": 1,
+            "decision": 0,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 5,
+          "evidence": {
+            "producer": [
+              "autolens_visualization (generated figure manifest, manifest generator)",
+              "PyAutoEyes (dashboard emitting the manifest path verbatim)"
+            ],
+            "decision": "autolens_visualization project repo \u2014 the REFERENCE.md layering gives the project repo ownership of the tracked figure manifest; the Eyes organ only reads `figures[*].file`",
+            "change_owner": "autolens_visualization",
+            "door": "intake \u2192 start_dev (bug) filed against autolens_visualization; Eyes conductor may surface the finding but routes it through intake, not edit",
+            "boundary": "PyAutoEyes must not patch the manifest or copy/relabel figures; no library plot code is touched since no plot defect is observed; no new organ/agent/record for the project repo",
+            "context": [
+              "autolens_visualization manifest generator source and the offending dataset/fit rows in its tracked manifest",
+              "PyAutoEyes REFERENCE.md 'What the organ reads' (file/domain/source fields) to confirm the organ consumed the path unchanged",
+              "PyAutoMind/repos.yaml entry for autolens_visualization (category \u2192 workflow/validation contract)"
+            ]
+          },
+          "judgment": "Decision field names the code-owning repository rather than the Brain conductor/human. Action door and patch target remain correct."
+        },
+        {
+          "id": "V2",
+          "scores": {
+            "producer": 1,
+            "decision": 0,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 5,
+          "evidence": {
+            "producer": [
+              "autolens_visualization (correct manifest path, GALLERY.md, existing raw PNG)",
+              "PyAutoEyes (dashboard URL join producing the duplicated directory)"
+            ],
+            "decision": "PyAutoEyes organ \u2014 owns `registry.yaml`, the `eyes/` package and `dashboard.md`/`dashboard.html` where `<images_base_url><file>` is built",
+            "change_owner": "PyAutoEyes",
+            "door": "intake \u2192 start_dev (bug) against PyAutoEyes",
+            "boundary": "Project repo and its manifest stay unchanged; no figure rendering/copying moves into the organ; no plot code edit",
+            "context": [
+              "`eyes/` package code that joins `images_base_url` and `figures[*].file`",
+              "`registry.yaml` entry for autolens_visualization (images_base_url, manifest fields)",
+              "REFERENCE.md read contract and `check` integrity test to decide whether a regression test belongs there"
+            ]
+          },
+          "judgment": "Decision field names the code-owning repository rather than the Brain conductor/human. Action door and patch target remain correct."
+        },
+        {
+          "id": "P1",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_profiling (two timing rows of unmatched axis, precision and hardware)"
+            ],
+            "decision": "Brain profiling conductor (`triage`), which classifies drift; Heart is not involved and no verdict is requested",
+            "change_owner": null,
+            "door": "pyauto-brain profiling triage \u2014 classify as non-comparable/new-machine, no re-pin; decline the baseline reset",
+            "boundary": "Rows are comparable only within (hardware, jax_version, mixed_precision, cache state); first-call vs steady-state are different axes; pins are sticky and must not auto-follow; no `bug/` filing and no health verdict",
+            "context": [
+              "A matched repeat on the same axis, hardware, precision and dependency set, with timing breakdown",
+              "autolens_profiling `pins.json` / results tree to confirm which pin and config the earlier row belongs to"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "P2",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_profiling (matched steady-state fp64 reproduction, isolated reproducer, revision bisection)"
+            ],
+            "decision": "Brain profiling conductor `triage` classifies it as a library regression; Mind owns the resulting task record",
+            "change_owner": "PyAutoArray",
+            "door": "intake \u2192 bug conductor plan \u2192 start_dev \u2192 create_issue (one issue, PR in PyAutoArray)",
+            "boundary": "Profiling runs measurement, not repair; Heart issues no verdict since none was requested; the autolens_profiling driver and pin stay unchanged until the fix lands; no release mechanics",
+            "context": [
+              "Bisected PyAutoArray revision range and the isolated reproducer from autolens_profiling",
+              "PyAutoArray entry in PyAutoMind/repos.yaml (library category/workflow)",
+              "Brain `bug/` conductor AGENTS.md for the regression plan format"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "I1",
+          "scores": {
+            "producer": 1,
+            "decision": 1,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 6,
+          "evidence": {
+            "producer": [
+              "autolens_inference (single shorter sampler run without convergence check, seeds or sample review)"
+            ],
+            "decision": "The human scientist \u2014 Cortex records only the human's own result/lesson; the agent reports what it sees and decides nothing",
+            "change_owner": null,
+            "door": "cortex conductor checkin (agent reports observations; human chooses whether to log) with an optional read-only `samplers` faculty opinion; no default change, no lesson entry",
+            "boundary": "Nothing in a ledger is inferred from results; samplers faculty is read-only; promoting a default sampler would be a library change with no supporting evidence or software defect",
+            "context": [
+              "Convergence diagnostics, repeated-seed runs and reviewed samples from autolens_inference's evaluation protocol",
+              "PyAutoCortex `projects/<key>.md` Now/Runs for the relevant project, only if the human asks to record something"
+            ]
+          },
+          "judgment": "Passes the six routing dimensions; see limitations and incidental wording issues below."
+        },
+        {
+          "id": "I2",
+          "scores": {
+            "producer": 1,
+            "decision": 0,
+            "change_owner": 1,
+            "door": 1,
+            "boundary": 1,
+            "context": 1
+          },
+          "total": 5,
+          "evidence": {
+            "producer": [
+              "autolens_inference (raw timing logs with setup+sampling; local result-summary script dropping setup time)"
+            ],
+            "decision": "autolens_inference project repo \u2014 the project role owns producers, execution details and local artifacts, including the summary script",
+            "change_owner": "autolens_inference",
+            "door": "intake \u2192 start_dev (bug) scoped to the autolens_inference summary script",
+            "boundary": "Not a PyAutoFit library defect (sampler records both components correctly); not profiling's domain (inference owns wall-clock price of an answer); Cortex ledger untouched unless the human asks to annotate affected results",
+            "context": [
+              "autolens_inference result-summary script and the raw log schema for setup vs sampling fields",
+              "PyAutoMind/repos.yaml entry for autolens_inference (category \u2192 workflow contract)"
+            ]
+          },
+          "judgment": "Decision field names the code-owning repository rather than the Brain conductor/human. Action door and patch target remain correct."
+        }
+      ],
+      "total": 33,
+      "maximum": 36,
+      "change_owner_correct": 6,
+      "decision_owner_correct": 3
+    }
+  },
+  "grading_notes": [
+    "V1/V2/I2 checklist: separately score the explicitly requested decision-owner field even where another field supplies the proper development door. This is a naming/role-separation failure, not observed unsafe execution.",
+    "V2 baseline accepts the Eyes conductor; its optional hygiene alternative is compatible with tooling-upkeep triage and still a Brain conductor.",
+    "Context passes reflect relevant bounded scope, not optimal retrieval. Both P2 answers omit explicit primitive/caller/test inspection; these are needed later for repair. Baseline I1 speculates about the default-owning library, unnecessary before scientific validation, but requests no PyAutoFit repair and is not broad ecosystem loading. No demonstrated context-efficiency advantage is claimed. This grading-time leniency is not direction-neutral: the checklist requests more contract/instruction items in V1, V2, I1 and I2, as encouraged by its fifth step. A stricter reading could favour it on proposed coverage, without demonstrating retrieval efficiency or warranting adoption from this sample.",
+    "P1 baseline quotes drift thresholds stated only for the compile axis (2x and 1 s) as general drift gates. The rejection of this unmatched comparison remains correct; this overbroad wording should not be adopted as runtime policy.",
+    "P1 checklist says every comparability dimension differs; a dependency-version difference was not supplied. This embellishment does not change its correct refusal.",
+    "All gate statements are planning answers. No approval, re-pin, scientific conclusion or source edit was actually executed. Passing boundary means the proposed route does not violate the relevant case boundary, not that every future workflow step was enumerated.",
+    "P1 baseline includes an unrequested domain_note: null field. This output-schema deviation is reported and retained in both exact and parsed responses without repair; no separate routing deduction is assigned."
+  ]
+}
