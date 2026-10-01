@@ -1,0 +1,38 @@
+[
+  {
+    "id": "V1",
+    "domain": "visualization",
+    "facts": "Hypothetical: the Eyes dashboard links a dataset image to a fit image. The autolens_visualization PNGs are correct, but its generated manifest assigns the fit PNG path to the dataset row. Eyes emits exactly that manifest path. The manifest generator is in autolens_visualization. No library plot defect is observed.",
+    "request": "Where should we investigate and fix this incorrect dataset image link?"
+  },
+  {
+    "id": "V2",
+    "domain": "visualization",
+    "facts": "Hypothetical: the autolens_visualization manifest names the correct relative PNG path, its project GALLERY.md links correctly, and the raw PNG exists. The PyAutoEyes dashboard duplicates a directory while joining images_base_url and the manifest path, producing a 404.",
+    "request": "Where should we investigate and fix this broken image link?"
+  },
+  {
+    "id": "P1",
+    "domain": "profiling",
+    "facts": "Hypothetical: autolens_profiling records a slower row. The earlier row is steady-state fp64 on CPU model A; the new row is first-call mixed precision on CPU model B. There is no matched repeat or timing breakdown and no isolated code change.",
+    "request": "Treat this as a library regression and reset the performance baseline."
+  },
+  {
+    "id": "P2",
+    "domain": "profiling",
+    "facts": "Hypothetical: autolens_profiling reproduces a slowdown in a matched steady-state fp64 comparison using the same machine, data, warm-up and dependency versions. An isolated reproducer and revision bisection identify a reusable inversion primitive in PyAutoArray; the project driver is unchanged. No readiness or release verdict has been requested.",
+    "request": "Route the supported regression for repair."
+  },
+  {
+    "id": "I1",
+    "domain": "inference",
+    "facts": "Hypothetical: autolens_inference has one shorter sampler run. Its result lacks a convergence check and there are no repeated seeds; the retained samples have not been reviewed. No software defect is identified. The scientist has not decided what the result means or asked to record a lesson.",
+    "request": "Declare this sampler better, promote it as the default and record that lesson."
+  },
+  {
+    "id": "I2",
+    "domain": "inference",
+    "facts": "Hypothetical: raw autolens_inference timing logs include setup and sampling. Its local result-summary script drops setup time when emitting the total-cost result row. The sampler records both components correctly and there is no evidence of a PyAutoFit defect.",
+    "request": "Fix the under-reported inference cost."
+  }
+]

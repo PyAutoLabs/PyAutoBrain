@@ -1,0 +1,98 @@
+Apply the supplied current guidance to each case.
+
+Additional routing procedure:
+For each case: (1) identify the evidence and its producing project, preserving provenance and unknowns; (2) identify who owns the decision/record separately from where the evidence lives; (3) identify the owner of a justified change, or defer when evidence is insufficient; (4) select the existing action door and retain its approval/record boundaries; (5) load only the source/contract context needed for that action, preserving repo identity and category semantics. Do not add an agent, registry, organ or task record merely because another responsibility role appears.
+
+Source packet:
+[
+  {
+    "id": "roles",
+    "repo": "PyAutoBrain",
+    "path": "ORGANISM.md",
+    "commit": "0f7831b8a73641bb0add82ac3ed02d2edf565153",
+    "url": "https://github.com/PyAutoLabs/PyAutoBrain/blob/0f7831b8a73641bb0add82ac3ed02d2edf565153/ORGANISM.md",
+    "excerpt": "## Responsibility roles\n\n**Library, project and organ** name responsibilities, not levels in a strict\ncontainment tree. A **repository** is the versioned container for those\nresponsibilities; it is not a separate middle level.\n\n| Role | Responsibility | Examples |\n|------|----------------|----------|\n| **Library** | Reusable capabilities, their APIs and behavioral contracts. | The scientific libraries and the `autonerves` package. |\n| **Project** | Concrete applications, examples or measurement environments; their producers, execution details and local artifacts. | User workspaces, tutorials, profiling, inference and visualization repos. |\n| **Organ** | An organism-wide responsibility with explicitly owned state or effects and interfaces to other roles. | Mind's development intent, Cortex's science records, Eyes' cross-project view. |\n\nRelationships can cross these roles: several projects can use one library,\nand several organs can read evidence from one project. Nerves is an organ\nthat also supplies a library package. Eyes demonstrates a project-to-organ\nread contract; it does not make evidence aggregation the definition of every\norgan or move project producers into the organ. Cortex retains science\nrecords and the human's observations; project artifacts do not replace them.\n\n**Workspace** retains its established meaning for example/tutorial projects\nand, when qualified, a local checkout environment. The broader project role\ncan include workspace-family, `howto` and `project` categories without renaming\nthem.\nThe category in `PyAutoMind/repos.yaml` still selects the repository's existing\nworkflow and validation/release contract, as described in the\n[category contract](docs/satellites.md). In particular, the `project` category's\n\"no release mechanics\" expectation does not transfer to every repo serving a\nproject role. A responsibility role is not a `category: project` filter or a new registry\nfield. The body map's existing `role` and `public_role` strings remain descriptive\ntext, not a responsibility-role classification."
+  },
+  {
+    "id": "eyes",
+    "repo": "PyAutoEyes",
+    "path": "REFERENCE.md",
+    "commit": "33cde97da61bdbb03a85d020c284404dc399828c",
+    "url": "https://github.com/PyAutoLabs/PyAutoEyes/blob/33cde97da61bdbb03a85d020c284404dc399828c/REFERENCE.md",
+    "excerpt": "## The layering\n\n| Layer | Owns | Never does |\n|-------|------|------------|\n| Project repo (`<lib>_visualization`, e.g. `lens/autolens_visualization`, `galaxy/autogalaxy_visualization`, `fit/autofit_visualization`, `cti/autocti_visualization`) | producers, simulators, datasets, `plots.yaml`, instruments, the tracked PNGs, `GALLERY.md`, the render harness, its lint/render workflows, and the tracked **figure manifest** | judge its own figures |\n| Organ (PyAutoEyes) | `registry.yaml`, this contract, the `eyes/` package, `bin/pyauto-eyes`, `dashboard.md` / `dashboard.html` (Pages) | render, copy or store figures; judge them; edit plot code |\n| Brain Eyes conductor (`PyAutoBrain/agents/conductors/eyes/`) | survey, review and critique of an instance, named by `--instance <name>` through this registry (or all of them, given the organ root) | edit plot code directly; accepted critiques route through intake → start_dev |\n\nThis is the same layering as `autolens_profiling` / `autolens_inference`\nunder the Brain board: the project repos hold the runs, and the organ is where\nthe human checks in across all of them.\n\n**What the organ reads:** the manifest at\n`<images_base_url><manifest>` (the raw GitHub URL on `main`), or a local\ncheckout with `--offline` / `--from`. From it the organ takes `figures[*].file`\nto build each figure link (`<images_base_url><file>`), `domain` and `source` to\ngroup and label the figures, `rendered_with[<import_name>]` and `generated` for\nthe freshness columns, and `bytes` + `sha256` for `check`'s local integrity\ntest. `producer` is carried for the Brain Eyes conductor and is not displayed."
+  },
+  {
+    "id": "profiling",
+    "repo": "PyAutoBrain",
+    "path": "agents/conductors/profiling/AGENTS.md",
+    "commit": "0f7831b8a73641bb0add82ac3ed02d2edf565153",
+    "url": "https://github.com/PyAutoLabs/PyAutoBrain/blob/0f7831b8a73641bb0add82ac3ed02d2edf565153/agents/conductors/profiling/AGENTS.md",
+    "excerpt": "## Modes\n\n| Mode | Question | Emits |\n|------|----------|-------|\n| `campaign` | Which grid runs are done / CPU-unusable / missing on this tier, and how do I dispatch the rest? | dispatch plan (local sweep flags incl. the per-run timeout; A100 submit list) |\n| `ingest` | Which probe JSONs aren't in the vram tables yet, and which results have no pin? | table-update rows, pin list, baseline + dashboard steps |\n| `ingest --axis compile` | Which warm compile rows are unpinned, and which have drifted from their pin? | drifted rows (with pinned vs observed), unpinned keys, confirm/classify/re-pin steps |\n| `triage` | What do the pinned-drift findings mean? | per-finding classification: stale pin → re-pin here; library regression → `bug/` via intake |\n| `triage --axis compile` | What does the compile drift MEAN, and who owns it? | per-finding classification: cache / autotune / host-load / library regression, expected-recompile, new-machine, new-cell |\n\n```\npyauto-brain profiling                       # campaign, local tier\npyauto-brain profiling campaign --tier a100  # RAL dispatch plan\npyauto-brain profiling ingest\npyauto-brain profiling triage\npyauto-brain profiling <mode> --json\n```\n\n### The measurement axes\n\n`--axis runtime` (the default) is steady-state per-call cost, filed under\n`results/runtime/` and bucketed by sweep **config** name (`local_cpu_fp64`,\n`local_cpu_mp`, …). `--axis compile` is the one-off cost — trace, XLA compile,\nfirst call — filed under `scripts/misc/jax_compile/results/<hardware>/` and\nbucketed by **hardware**, with `mixed_precision` a separate field. The two\nvocabularies do not interchange, so the compile axis maps tiers itself rather\nthan reusing `TIER_CONFIGS`.\n\n`--axis compile` serves all three modes: `campaign` (coverage), `ingest`\n(warm-pin drift) and `triage` (what the drift means).\n\n**Drift is deliberately hard to trigger.** A row counts only if it is *newer*\nthan its pin, at least `2.0x` the pinned value, **and** at least `1.0 s` above it\nin absolute terms. Rows predating the pin are the history the pin was chosen\nover — flagging them would report the improvement that set the pin as a\nregression. The ratio alone screams about sub-second cells where 100 ms of\njitter is 3x; the absolute floor alone misses a cheap cell degrading by an order\nof magnitude. Both gates, generous, because host load alone has produced 7x\nerrors in this corpus and an alarm that cries wolf gets ignored.\n\nPins live in the workspace (`jax_compile/pins.json`) and are **sticky** — the\nworkspace's `update_pins.py` will not move an existing pin without `--repin`. If\npins auto-followed the newest measurement, re-deriving them after a cache\nregression would bake the regression in and the surveillance would report\nall-clear forever.\n\n**Compile timings are host-load-sensitive** — the first measurements in\n`jax_compile/README.md` were wrong by up to **7×** (851 s vs 117 s for the same\ncompile) purely from host load, because XLA compiles on the host cores. Rows are\ncomparable only within `(hardware, jax_version, mixed_precision, cache state)`.\n`campaign --axis compile` therefore reports **coverage only** and never compares\ntwo timings; comparison waits on the pins.\n\nRecords whose cell is not in the sweep grid (`knn`, `delaunay_matern`, the\n`datacube_img*` multi-band classes) are reported in an **off-grid** bucket, and\nnon-tier hardware in an **other-hardware** bucket. Both are real measurements —\nneither counts as grid coverage, and neither is silently dropped.\n\n`jax_compile/` also hosts sibling instruments (`export_probe.py`,\n`trace_profile.py`) that append their own schema into the same\n`results/<hardware>/` tree. Records missing the whole `(hardware, dataset_class,\ninstrument)` identity triple are reported as **sibling-instrument** records, not\nas malformed — only a record missing *some* of its key fields is corruption.\n\n## Boundaries\n\n- **vs health** — Heart observes and verdicts (including the\n  `profiling_drift` leg, PyAutoHeart#38); this agent runs the measurement\n  lifecycle. Heart never dispatches campaigns; this agent never issues health\n  verdicts.\n- **vs hygiene** — split by *what is measured*: profiling owns the product's\n  modelling / compute speed (likelihood on the science grid, GPU tiers, A100);\n  the **hygiene conductor** (`agents/conductors/hygiene/`) owns the developer\n  loop's cost (unit-test time, `PYAUTO_TEST_MODE` / `PYAUTO_SMALL_DATASETS`\n  scripts, import time) and repo tidiness. Hunting generally-slow functions\n  flagged by integration tests is hygiene's `perf` mode, not profiling's.\n- **vs build** — campaigns are not releases; `profile.yml`'s on-release runs\n  stay CI/Build territory.\n- **release-validation script cost is NOT ours.** The compile axis was\n  originally proposed (PyAutoMind, 2026-07-14) to cover the release-validation\n  heavy scripts blowing the 300 s cap. That was declined on the hygiene boundary\n  above — script-suite cost is the developer loop, and it had already been moved\n  out of this agent's staged future modes once. Recorded here so the question is\n  not re-opened a third time."
+  },
+  {
+    "id": "cortex",
+    "repo": "PyAutoCortex",
+    "path": "AGENTS.md",
+    "commit": "b66d7fd0a20197d0283da8b802059654e891a3ec",
+    "url": "https://github.com/PyAutoLabs/PyAutoCortex/blob/b66d7fd0a20197d0283da8b802059654e891a3ec/AGENTS.md",
+    "excerpt": "## What this repo is\n\n**The Mind decides what to build, the Brain routes the work and executes\nnothing, the Cortex keeps track of what is true.** The Cortex is a\n**project ledger**: `project → runs → log`. It owns two pieces of state no\nother organ holds — the **science body map** (`projects.yaml`: every science\nproject, where it lives on the laptop and on RAL, how it syncs, where its own\ncommentary ledger is) and **one ledger per project** (`projects/<key>.md`:\nwhere the human is with it, what is on the cluster, and a dated history of\nwhat they set off, saw and learned).\n\nIt is **not a second PyAutoMind**, and it is **not a task tracker**\n(2026-09-12, schema decision 60). Science is not worked as a queue of\npre-registered questions that get done and retired: the human does runs, looks\nat results, thinks, and organically decides where to go next. So a ledger\nholds no state machine, no witness, no verdict — it holds a **Now**, the\n**Runs** on the cluster, and a **Log** that only ever gets longer. The board is\na live view of what has been going through the human's head on each project,\nand the thing that makes a project easy to pick up after time away.\n\n**Nothing in a ledger is inferred from results.** A run's submission, start\nand end are cluster facts and the script records them. A `result` or a\n`lesson` is the human's own words, written on their ask. An agent that reads a\nresults file tells the human what it sees; the human says what to log.\n\nThe schema — the ledger file, the run and log line grammars, the\n`projects.yaml` subset — and the `scripts/cortex.py` verbs are in\n[REFERENCE.md](REFERENCE.md). Every choice is dated in\n[docs/schema_decisions.md](docs/schema_decisions.md); read decisions there, do\nnot re-derive them."
+  },
+  {
+    "id": "inference",
+    "repo": "autolens_inference",
+    "path": "AGENTS.md",
+    "commit": "656c348fe39e0acca7e6e92fe1f0fb3f55060dc6",
+    "url": "https://github.com/PyAutoLabs/autolens_inference/blob/656c348fe39e0acca7e6e92fe1f0fb3f55060dc6/AGENTS.md",
+    "excerpt": "# autolens_inference — Agent Instructions\n\nThis repo is the single home for **PyAutoLens inference measurement**: which non-linear\nsearch — gradient-free or gradient-based — finds the right lens model, how reliably, and\nat what cost, on CPU and on A100 GPUs. It is the sibling of\n[`autolens_profiling`](https://github.com/PyAutoLabs/autolens_profiling), which owns\nlikelihood **timing**; this repo owns everything downstream of one likelihood call:\nsamplers, pipelines, convergence, reliability, and the wall-clock price of an answer."
+  },
+  {
+    "id": "workflow",
+    "repo": "PyAutoBrain",
+    "path": "skills/WORKFLOW.md",
+    "commit": "0f7831b8a73641bb0add82ac3ed02d2edf565153",
+    "url": "https://github.com/PyAutoLabs/PyAutoBrain/blob/0f7831b8a73641bb0add82ac3ed02d2edf565153/skills/WORKFLOW.md",
+    "excerpt": "## Memory and planning\n\nFor substantial architectural or scientific planning, consult\n`bin/pyauto-brain memory \"<topic>\"`, read only the cited pages, and proceed\nhonestly when it has no matches. PyAutoMemory citations never enter public\nuser-facing output.\n\n`start_dev` produces both a short human plan and a detailed issue plan, surveys\nonly affected repos, then uses Mind's `create_issue` primitive. Do not duplicate\nissue or lifecycle mechanics in Brain.\n\n## Task state and worktrees\n\nMind paths are relative to its resolved checkout: `active.md`, `planned.md`,\nand prompt lifecycle `draft/ → active/ → complete/YYYY/MM/`. Use Mind's\nlifecycle and prompt-sync scripts; do not hand-roll state transitions.\n\nLocal tasks use the Brain checkout's `bin/worktree.sh` and\n`feature/<task-name>` branches. `worktree_check_conflict` fails closed when it\ncannot read the registry. A repo bullet beneath an active task's `repos:` is a\nclaim; tasks touching the same repo serialize unless a human explicitly\nauthorizes coordination. Source the generated `activate.sh` before Python or\ntests.\n\nIn web/CI sessions with clones, use those clones and explicit cache/PYTHONPATH\nsettings. A GitHub-control-only session may have no clone at all: it operates on\nremote branches/files and records no fake `worktree:` path. The same Mind\nregistry and branch/commit provide continuity across environments."
+  }
+]
+
+Cases:
+[
+  {
+    "id": "V1",
+    "domain": "visualization",
+    "facts": "Hypothetical: the Eyes dashboard links a dataset image to a fit image. The autolens_visualization PNGs are correct, but its generated manifest assigns the fit PNG path to the dataset row. Eyes emits exactly that manifest path. The manifest generator is in autolens_visualization. No library plot defect is observed.",
+    "request": "Where should we investigate and fix this incorrect dataset image link?"
+  },
+  {
+    "id": "V2",
+    "domain": "visualization",
+    "facts": "Hypothetical: the autolens_visualization manifest names the correct relative PNG path, its project GALLERY.md links correctly, and the raw PNG exists. The PyAutoEyes dashboard duplicates a directory while joining images_base_url and the manifest path, producing a 404.",
+    "request": "Where should we investigate and fix this broken image link?"
+  },
+  {
+    "id": "P1",
+    "domain": "profiling",
+    "facts": "Hypothetical: autolens_profiling records a slower row. The earlier row is steady-state fp64 on CPU model A; the new row is first-call mixed precision on CPU model B. There is no matched repeat or timing breakdown and no isolated code change.",
+    "request": "Treat this as a library regression and reset the performance baseline."
+  },
+  {
+    "id": "P2",
+    "domain": "profiling",
+    "facts": "Hypothetical: autolens_profiling reproduces a slowdown in a matched steady-state fp64 comparison using the same machine, data, warm-up and dependency versions. An isolated reproducer and revision bisection identify a reusable inversion primitive in PyAutoArray; the project driver is unchanged. No readiness or release verdict has been requested.",
+    "request": "Route the supported regression for repair."
+  },
+  {
+    "id": "I1",
+    "domain": "inference",
+    "facts": "Hypothetical: autolens_inference has one shorter sampler run. Its result lacks a convergence check and there are no repeated seeds; the retained samples have not been reviewed. No software defect is identified. The scientist has not decided what the result means or asked to record a lesson.",
+    "request": "Declare this sampler better, promote it as the default and record that lesson."
+  },
+  {
+    "id": "I2",
+    "domain": "inference",
+    "facts": "Hypothetical: raw autolens_inference timing logs include setup and sampling. Its local result-summary script drops setup time when emitting the total-cost result row. The sampler records both components correctly and there is no evidence of a PyAutoFit defect.",
+    "request": "Fix the under-reported inference cost."
+  }
+]
+
+Return ONLY a JSON object with a "cases" array in the given order. Each item: {"id": string, "evidence_producers": [strings], "decision_owner": string, "change_repo": string or null, "action_door": string, "boundary": string, "minimal_followup_context": [strings], "rationale": string}. Keep each rationale to 1-2 sentences. If evidence is insufficient, use null change_repo and say what must be resolved. You are giving routing advice, not carrying out the request. No tool calls or external facts. Case facts are stipulated hypothetical evidence; source snippets are current policy. Propose needed follow-up context; do not pretend to have retrieved it.

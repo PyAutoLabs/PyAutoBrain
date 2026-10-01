@@ -1,0 +1,157 @@
+{
+  "V1": {
+    "producer": [
+      "autolens_visualization"
+    ],
+    "decision": [
+      "Brain Eyes conductor with human"
+    ],
+    "change_owner": [
+      "autolens_visualization"
+    ],
+    "door": [
+      "Eyes review/survey then intake/start_dev"
+    ],
+    "boundary": [
+      "Do not edit manifest by hand or blame Eyes/library; fix generator after normal approval"
+    ],
+    "context": [
+      "manifest and generator",
+      "Eyes read contract or registry",
+      "project instructions"
+    ],
+    "exclude": [
+      "unrelated libraries",
+      "all ecosystem repos"
+    ]
+  },
+  "V2": {
+    "producer": [
+      "autolens_visualization figures/manifest",
+      "PyAutoEyes faulty dashboard"
+    ],
+    "decision": [
+      "Brain Eyes conductor with human"
+    ],
+    "change_owner": [
+      "PyAutoEyes"
+    ],
+    "door": [
+      "Eyes review then intake/start_dev"
+    ],
+    "boundary": [
+      "Do not move/rerender correct project artifacts to fix dashboard"
+    ],
+    "context": [
+      "correct manifest and registry",
+      "Eyes URL join/dashboard source",
+      "Eyes instructions"
+    ],
+    "exclude": [
+      "unrelated library source",
+      "all visualization producers"
+    ]
+  },
+  "P1": {
+    "producer": [
+      "autolens_profiling"
+    ],
+    "decision": [
+      "Brain profiling conductor with human"
+    ],
+    "change_owner": [
+      null
+    ],
+    "door": [
+      "profiling triage/campaign or equivalent investigation before intake if defect established"
+    ],
+    "boundary": [
+      "Refuse unsupported regression/re-pin; establish comparability first; Heart owns health"
+    ],
+    "context": [
+      "both result provenance/timing definitions",
+      "profiling instructions/comparison policy"
+    ],
+    "exclude": [
+      "speculative library patch",
+      "entire library stack"
+    ]
+  },
+  "P2": {
+    "producer": [
+      "autolens_profiling"
+    ],
+    "decision": [
+      "Brain profiling/bug conductor with human"
+    ],
+    "change_owner": [
+      "PyAutoArray"
+    ],
+    "door": [
+      "profiling triage then bug/intake/start_dev"
+    ],
+    "boundary": [
+      "Keep baseline/provenance, normal source/worktree/test gates; no invented release verdict"
+    ],
+    "context": [
+      "matched evidence/reproducer/bisection",
+      "PyAutoArray primitive/callers/tests and instructions"
+    ],
+    "exclude": [
+      "all sampler repos",
+      "whole organism"
+    ]
+  },
+  "I1": {
+    "producer": [
+      "autolens_inference"
+    ],
+    "decision": [
+      "human scientist via Brain Cortex conductor; sampler faculty optional opinion"
+    ],
+    "change_owner": [
+      null
+    ],
+    "door": [
+      "Cortex scientific check-in/experiment planning; samplers optional read-only consultation"
+    ],
+    "boundary": [
+      "No automatic lesson/default promotion or proof of reliability from one short run"
+    ],
+    "context": [
+      "result and samples/convergence evidence",
+      "Cortex project row/ledger and contract",
+      "inference instructions"
+    ],
+    "exclude": [
+      "invented inference organ/conductor",
+      "speculative PyAutoFit repair"
+    ]
+  },
+  "I2": {
+    "producer": [
+      "autolens_inference"
+    ],
+    "decision": [
+      "Brain bug/intake development route with human"
+    ],
+    "change_owner": [
+      "autolens_inference"
+    ],
+    "door": [
+      "bug/intake/start_dev"
+    ],
+    "boundary": [
+      "Code repair belongs in Mind, not a Cortex code-edit task or a PyAutoFit patch"
+    ],
+    "context": [
+      "raw logs and emitted result",
+      "local summary producer and tests",
+      "project instructions"
+    ],
+    "exclude": [
+      "all sampler implementation code",
+      "new inference organ"
+    ]
+  }
+}

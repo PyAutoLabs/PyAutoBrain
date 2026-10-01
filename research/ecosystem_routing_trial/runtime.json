@@ -1,0 +1,29 @@
+{
+  "cli_version": "2.1.287 (Claude Code)",
+  "started_utc": "2026-10-01T19:43:11.906931+00:00",
+  "protocol_sha256": "3ac0d3096a752bf1f89cc5caecdcff2426953bb91efeae95b216babe395b62fa",
+  "conditions": {
+    "baseline": {
+      "started_utc": "2026-10-01T19:43:11.907986+00:00",
+      "completed_utc": "2026-10-01T19:43:50.803725+00:00",
+      "resolved_models": [
+        "claude-fable-5-1"
+      ],
+      "num_turns": 1,
+      "permission_denials": [],
+      "result_subtype": "success",
+      "response_sha256": "b7c58baed167e888ca960782ad6cdcb1a4284fc9475d0362f111298d5170706c"
+    },
+    "checklist": {
+      "started_utc": "2026-10-01T19:43:50.803993+00:00",
+      "completed_utc": "2026-10-01T19:44:48.075223+00:00",
+      "resolved_models": [
+        "claude-fable-5-1"
+      ],
+      "num_turns": 1,
+      "permission_denials": [],
+      "result_subtype": "success",
+      "response_sha256": "a03d9014dc9b9a5288c5503dbd5197cb9afe9055e850f1b303b0a63a688b9525"
+    }
+  }
+}

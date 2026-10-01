@@ -1,0 +1,74 @@
+{
+  "status": "frozen-before-evaluation",
+  "frozen_utc": "2026-10-01T19:42:32.380671+00:00",
+  "issue": "PyAutoBrain#444",
+  "hypothesis": "An explicit role-routing checklist improves ownership/action decisions beyond current post-adoption guidance. No improvement is a valid result.",
+  "conditions": [
+    "baseline",
+    "checklist"
+  ],
+  "case_order": [
+    "V1",
+    "V2",
+    "P1",
+    "P2",
+    "I1",
+    "I2"
+  ],
+  "sampling": "One fresh process per condition, all six cases in identical order; no retries selected by answer quality; baseline launched before checklist.",
+  "model_alias": "fable",
+  "effort": "high",
+  "tools": [],
+  "system_prompt_file": "system.txt",
+  "same_cases_and_sources": true,
+  "answer_key_hidden": true,
+  "scoring": {
+    "dimensions": [
+      "producer",
+      "decision",
+      "change_owner",
+      "door",
+      "boundary",
+      "context"
+    ],
+    "unit": "one binary pass per dimension per case, 36 per condition; count change-owner accuracy separately",
+    "method": "Human-readable author assessment using answer_key.json, with concise quotations and independent review. Accept equivalent existing doors and role names. Context pass requires relevant listed follow-up scope without whole-ecosystem loading; does not measure actual retrieval.",
+    "failure": "Wrong/unsupported owner, invented role/door, violated approval/science boundary, or broad unrelated context is a fail on the affected dimension. Malformed output is reported, not silently repaired."
+  },
+  "decision_rule": "No net correctness gain and no clear minimal-context gain => do not mandate checklist. Any gain is hypothesis-generating only; recommend a larger fresh-context/real-task comparison before production changes. No additional framework or organs from this trial.",
+  "limitations": [
+    "six curated hypothetical cases",
+    "one sample per condition",
+    "same fixed order, possible within-response learning",
+    "same model and authored expected key",
+    "no real retrieval, execution or token-cost efficiency measurement",
+    "explicit source guidance may cause ceiling effects",
+    "CLI runtime has common ambient workspace instructions; tools and MCP disabled, no other files retrievable",
+    "no seed guarantee; stochastic/session variation not separated from intervention",
+    "shared structured answer fields already scaffold producer/owner/door reasoning in both conditions; tests marginal checklist value under that scaffold"
+  ],
+  "argv_common": [
+    "-p",
+    "--model",
+    "fable",
+    "--effort",
+    "high",
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "--output-format",
+    "json",
+    "--system-prompt",
+    "<contents of system.txt>"
+  ],
+  "working_directory": "PyAutoBrain worktree; both fresh processes use same cwd",
+  "frozen_files_sha256": {
+    "sources.json": "18c73ae91ff0b8840f6cd874b5e91fe907f4ebe890d739e8c28eae4611a3bf09",
+    "cases.json": "07f93986640dbcef310c146e2cb4c5cb47702188003fc2e5024ddd5ab2891b35",
+    "answer_key.json": "791989f021721f2f1fd397642b5708a5df965776705f36e149dee7dd1d0acf2d",
+    "system.txt": "9d4ba926713afb30481b9acc4356f64b6434d3b7056e641d9f13d9eadb4b0e5d",
+    "baseline_prompt.txt": "237258222e2a02ea56892014fe293407ee069f51e09565b7400768ef28c2905f",
+    "checklist_prompt.txt": "a6e3acfa6f3e7d23534abbf7f4a5947dc0cc2333925ce41f13a3d3c37b9eee3c"
+  }
+}
