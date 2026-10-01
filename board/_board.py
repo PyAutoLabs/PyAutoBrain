@@ -1061,6 +1061,51 @@ def _iso_generated(data):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _overnight_state_item(r):
+    """Describe an observation and existing next steps; never execute them.
+
+    Identity follows the workflow across runs. The run URL is evidence, not
+    identity, so future consumers can compare records without scraping text.
+    """
+    where = f"{r['repo']}/{r['workflow']}"
+    item = {"id": f"overnight:{where}", "url": r.get("url"),
+            "actions": [], "prompt": None}
+    conclusion = r.get("conclusion")
+    if r.get("unreadable"):
+        item.update(severity="info", state="unknown",
+                    text=f"overnight: could not read {where}",
+                    reason="The workflow runs endpoint could not be read.")
+    elif r.get("blocked"):
+        item.update(severity="yellow", state="blocked",
+                    text=f"overnight: {where} blocked at a gate",
+                    reason=" ".join((r.get("blocked_reason") or
+                                     "A successful gate step reported that work was blocked.").split()))
+    elif conclusion in (None, "success"):
+        return None  # This feed is an attention list, not a run inventory.
+    else:
+        canonical = {"failure": "failed", "timed_out": "failed",
+                     "startup_failure": "failed", "action_required": "action_required",
+                     "queued": "active", "in_progress": "active", "waiting": "active",
+                     "pending": "active", "requested": "active"}.get(conclusion, "unknown")
+        prompt = (f"/bug overnight: {where} concluded "
+                  f"{conclusion} — {r.get('url') or 'no run url'}")
+        item.update(severity="info" if canonical == "active" else "red",
+                    state=canonical, text=f"overnight: {where} {conclusion}",
+                    reason=f"GitHub reports the latest workflow run as {conclusion}.")
+        if canonical != "active":
+            item["prompt"] = prompt  # Keep the legacy copy payload compatible.
+            item["actions"].append({"id": "investigate", "label": "Copy investigation prompt",
+                                    "kind": "prompt", "target": prompt,
+                                    "safety": "requires_approval"})
+            item["recommended_action_id"] = "investigate"
+    if r.get("url"):
+        item["actions"].append({"id": "view-run", "label": "View run",
+                                "kind": "link", "target": r["url"], "safety": "read_only"})
+        item.setdefault("recommended_action_id", "view-run")
+    # A blocked gate alone does not prove a scientific/design decision is needed.
+    return item
+
+
 def _state_items(data):
     """The rows the board already renders as asking something of a human —
     composed, never re-derived: each prompt is the owning organ's own payload
@@ -1075,24 +1120,9 @@ def _state_items(data):
             "prompt": b.get("prompt") or b.get("command"),
         })
     for r in data.get("overnight") or []:
-        where = f"{r['repo']}/{r['workflow']}"
-        if r.get("unreadable"):
-            items.append({"severity": "info",
-                          "text": f"overnight: could not read {where}",
-                          "url": None, "prompt": None})
-        elif r.get("conclusion") not in (None, "success"):
-            items.append({
-                "severity": "red",
-                "text": f"overnight: {where} {r['conclusion']}",
-                "url": r.get("url"),
-                # The same payload the page's 📋 chip carries for this row.
-                "prompt": (f"/bug overnight: {where} concluded "
-                           f"{r['conclusion']} — {r['url'] or 'no run url'}"),
-            })
-        elif r.get("blocked"):
-            items.append({"severity": "yellow",
-                          "text": f"overnight: {where} blocked at a gate",
-                          "url": r.get("url"), "prompt": None})
+        item = _overnight_state_item(r)
+        if item is not None:
+            items.append(item)
     for e in (data.get("community") or {}).get("awaiting_response") or []:
         waited = e.get("waiting_days")
         days = f" ({waited:.0f}d)" if waited is not None else ""

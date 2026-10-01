@@ -31,6 +31,11 @@ from datetime import datetime
 SCHEMA_VERSION = 1
 STATUSES = ("green", "yellow", "red", "stale", "grey")
 SEVERITIES = ("red", "yellow", "info")
+ITEM_STATES = ("healthy", "active", "stale", "blocked", "failed",
+               "action_required", "unknown")
+ACTION_KINDS = ("link", "command", "prompt")
+ACTION_SAFETY = ("read_only", "requires_approval", "scientific_judgement",
+                 "never_automatic", "unclassified")
 REQUIRED = ("schema_version", "organ", "repo", "status", "headline",
             "updated", "pages_url", "items")
 ITEM_REQUIRED = ("severity", "text")
@@ -64,6 +69,54 @@ def _one_line(value):
         and "\r" not in value
 
 
+def _item_metadata(item, where):
+    """Optional v1 additions; absence means unknown, never authorization."""
+    errors = []
+    for key in ("id", "reason", "decision", "recommended_action_id"):
+        if key in item and not _one_line(item[key]):
+            errors.append(f"{where}.{key} must be a non-empty single line")
+    if "state" in item and item["state"] not in ITEM_STATES:
+        errors.append(f"{where}.state must be one of {'|'.join(ITEM_STATES)}")
+    if "requires_human_decision" in item:
+        if not isinstance(item["requires_human_decision"], bool):
+            errors.append(f"{where}.requires_human_decision must be boolean")
+        elif item["requires_human_decision"] and not _one_line(item.get("decision")):
+            errors.append(f"{where}.decision is required for a human decision")
+    actions = item.get("actions", [])
+    if not isinstance(actions, list):
+        return errors + [f"{where}.actions must be a list"]
+    ids = []
+    for n, action in enumerate(actions):
+        loc = f"{where}.actions[{n}]"
+        if not isinstance(action, dict):
+            errors.append(f"{loc} must be an object")
+            continue
+        for key in ("id", "label", "target"):
+            if not _one_line(action.get(key)):
+                errors.append(f"{loc}.{key} must be a non-empty single line")
+        if action.get("kind") not in ACTION_KINDS:
+            errors.append(f"{loc}.kind must be one of {'|'.join(ACTION_KINDS)}")
+        if "safety" in action and action["safety"] not in ACTION_SAFETY:
+            errors.append(f"{loc}.safety must be one of {'|'.join(ACTION_SAFETY)}")
+        if action.get("kind") == "link":
+            from urllib.parse import urlsplit
+            try:
+                url = urlsplit(action.get("target", ""))
+                valid = url.scheme in ("http", "https") and bool(url.netloc)
+            except (ValueError, TypeError, AttributeError):
+                valid = False
+            if not valid:
+                errors.append(f"{loc}.target must be an HTTP(S) URL")
+        aid = action.get("id")
+        if isinstance(aid, str):
+            if aid in ids:
+                errors.append(f"{loc}.id must be unique within the item")
+            ids.append(aid)
+    if "recommended_action_id" in item and item["recommended_action_id"] not in ids:
+        errors.append(f"{where}.recommended_action_id must name an action")
+    return errors
+
+
 def validate_state(obj):
     """Every way `obj` breaks the v1 contract, as readable strings.
 
@@ -89,11 +142,19 @@ def validate_state(obj):
     if "updated" in obj and not _is_utc_iso(obj["updated"]):
         errors.append("updated must be an ISO-8601 UTC timestamp ending in Z "
                       f"or +00:00 (got {obj['updated']!r})")
+    if "valid_until" in obj:
+        if not _is_utc_iso(obj["valid_until"]):
+            errors.append("valid_until must be an ISO-8601 UTC timestamp")
+        elif _is_utc_iso(obj.get("updated")) and \
+                datetime.fromisoformat(obj["valid_until"].replace("Z", "+00:00")) < \
+                datetime.fromisoformat(obj["updated"].replace("Z", "+00:00")):
+            errors.append("valid_until must not precede updated")
 
     items = obj.get("items")
     if "items" in obj and not isinstance(items, list):
         errors.append("items must be a list")
         items = []
+    ids = []
     for i, item in enumerate(items or []):
         where = f"items[{i}]"
         if not isinstance(item, dict):
@@ -109,10 +170,16 @@ def validate_state(obj):
         for k in ITEM_OPTIONAL:
             if item.get(k) is not None and not isinstance(item[k], str):
                 errors.append(f"{where}.{k} must be a string or null")
+        errors.extend(_item_metadata(item, where))
+        if isinstance(item.get("id"), str):
+            if item["id"] in ids:
+                errors.append(f"{where}.id must be unique within the feed")
+            ids.append(item["id"])
     return errors
 
 
-def build_state(organ, repo, status, headline, updated, pages_url, items=()):
+def build_state(organ, repo, status, headline, updated, pages_url, items=(), *,
+                valid_until=None):
     """A validated v1 state dict — the one constructor organs should use.
 
     Raises ValueError listing every contract break, so a renderer cannot
@@ -128,6 +195,8 @@ def build_state(organ, repo, status, headline, updated, pages_url, items=()):
         "pages_url": pages_url,
         "items": [dict(item) for item in items],
     }
+    if valid_until is not None:
+        state["valid_until"] = valid_until
     errors = validate_state(state)
     if errors:
         raise ValueError("invalid state: " + "; ".join(errors))

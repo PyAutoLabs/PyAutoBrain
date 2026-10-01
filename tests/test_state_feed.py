@@ -213,3 +213,76 @@ def test_apply_writes_a_valid_state_json_beside_the_badge(tmp_path):
     assert _state.validate_state(state) == []
     cli = _cli(str(out / "state.json"), tmp_path)
     assert cli.returncode == 0 and cli.stdout.strip() == "state: ok"
+
+
+@pytest.mark.parametrize('metadata', [
+    {'state': 'purple'}, {'id': ''}, {'reason': 'two\nlines'},
+    {'requires_human_decision': 'yes'}, {'requires_human_decision': True},
+    {'actions': None}, {'actions': [None]},
+    {'actions': [{'id': 'x', 'label': 'Run', 'kind': 'shell', 'target': 'echo x'}]},
+    {'actions': [{'id': 'x', 'label': 'Run', 'kind': 'prompt', 'target': 'x', 'safety': True}]},
+    {'actions': [{'id': 'x', 'label': 'Run', 'kind': 'link', 'target': 'javascript:alert(1)'}]},
+    {'recommended_action_id': 'missing'},
+])
+def test_optional_metadata_is_validated_when_present(metadata):
+    assert _broken(lambda s: s['items'][0].update(metadata))
+
+
+def test_decision_and_action_round_trip_without_invented_safety():
+    s = _fixture('brain')
+    s['items'][0].update(id='decision:strategy', state='action_required',
+        requires_human_decision=True, decision='Which strategy should we use?',
+        actions=[{'id': 'context', 'label': 'Read context', 'kind': 'link',
+                  'target': 'https://example.invalid/context'}], recommended_action_id='context')
+    assert _state.validate_state(s) == []
+    assert 'safety' not in s['items'][0]['actions'][0]
+    s['items'].append(copy.deepcopy(s['items'][0]))
+    assert any('unique within the feed' in e for e in _state.validate_state(s))
+    s['items'].pop()
+    s['items'][0]['actions'] *= 2
+    assert any('unique within the item' in e for e in _state.validate_state(s))
+
+
+def test_producer_declared_freshness_deadline():
+    s = _fixture('brain')
+    s['valid_until'] = '2026-10-01T00:00:00Z'
+    assert _state.validate_state(s) == []
+    s['valid_until'] = '2020-01-01T00:00:00Z'
+    assert any('precede' in e for e in _state.validate_state(s))
+    s['valid_until'] = 'not a time'
+    assert any('valid_until' in e for e in _state.validate_state(s))
+
+
+@pytest.mark.parametrize('conclusion,blocked,unreadable,expected', [
+    ('failure', False, False, 'failed'), ('timed_out', False, False, 'failed'),
+    ('success', True, False, 'blocked'), (None, False, True, 'unknown'),
+    ('cancelled', False, False, 'unknown'), ('in_progress', False, False, 'active'),
+    ('queued', False, False, 'active'), ('action_required', False, False, 'action_required'),
+])
+def test_overnight_state_preserves_evidence_and_distinguishes_outcomes(conclusion, blocked, unreadable, expected):
+    import _board
+    row = dict(repo='Example/Engine', workflow='nightly.yml', conclusion=conclusion,
+               blocked=blocked, unreadable=unreadable, blocked_reason='Gate blocked: approval missing',
+               url=None if unreadable else 'https://example.invalid/runs/1')
+    item = _board._overnight_state_item(row)
+    assert item['state'] == expected
+    assert item['url'] == row['url']
+    assert item['reason']
+    assert 'requires_human_decision' not in item
+    state = _fixture('brain')
+    state['items'] = [item]
+    assert _state.validate_state(state) == []
+    if blocked:
+        assert item['reason'] == row['blocked_reason']
+        assert item['recommended_action_id'] == 'view-run'
+    if expected == 'failed':
+        action = item['actions'][0]
+        assert action['kind'] == 'prompt' and action['target'] == item['prompt']
+        assert action['safety'] == 'requires_approval'
+    row['url'] = 'https://example.invalid/runs/2'
+    assert _board._overnight_state_item(row)['id'] == item['id']
+
+
+def test_successful_overnight_work_adds_no_attention_noise():
+    import _board
+    assert _board._overnight_state_item(dict(repo='Example/Engine', workflow='nightly.yml', conclusion='success')) is None

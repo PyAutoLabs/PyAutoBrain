@@ -247,3 +247,39 @@ The allowlist is per environment; there is no organization-level one, so an
 environment you add later starts from the defaults again. And none of this
 installs `gh` — that is not in the image at all, so GitHub still goes through
 the MCP tools (`PyAutoBrain/skills/GITHUB_ACCESS.md`).
+
+## Human-first, machine-readable cockpit evolution
+
+Keep the cockpit a presentation of owner-published state. Extend the shared
+`state.json` contract incrementally when it improves the human interface; do
+not infer truth from rendered HTML or duplicate an organ's readiness policy.
+The optional v1 additions in `state_schema.json` describe attention items with
+stable `id`, canonical `state`, `reason`, `actions`, `recommended_action_id`,
+and explicit `requires_human_decision` / `decision` when the source knows a
+human choice is needed. Legacy producers and colour fields remain supported.
+
+Canonical item states mean: `healthy` (checks satisfied), `active` (work in
+progress), `stale` (evidence expired), `blocked` (a prerequisite prevents work),
+`failed` (an operation failed), `action_required` (an explicit next intervention
+is needed), and `unknown` (insufficient evidence). Severity is a separate fact.
+Never map every red colour to failed or every blocked gate to human judgement.
+Overnight workflow rows are the first producer: stable repo/workflow identity,
+GitHub conclusion or gate annotation as reason, and run URL as evidence. This
+is an attention list, not an inventory; successful unblocked runs are omitted.
+Cancellation is unknown, not proof of failure or a request to restart.
+
+Actions exist as descriptors independent of buttons: id, label, kind
+(`link`, `command`, `prompt`) and target. Commands/prompts are copied for a human
+to invoke through existing tools; a prompt is a manual handoff, not executable
+shell. Safety is descriptive (`read_only`, `requires_approval`,
+`scientific_judgement`, `never_automatic`, `unclassified`), never authorization.
+Absent safety means unclassified. Detection, description and recommendation
+execute nothing. No generic executor or new permissions infrastructure is added.
+
+`updated` is the feed generation time, not last success or source-check time.
+Optional `valid_until` is an owner-declared deadline at or after `updated`;
+absence supplies no expiry policy. Preserve evidence URLs and do not invent
+source timestamps. Stable identities and structured values can support later
+comparisons without a message bus or persistent monitoring service. A future
+executor must retain execution evidence; copied prompts do not claim an action
+was run or succeeded.

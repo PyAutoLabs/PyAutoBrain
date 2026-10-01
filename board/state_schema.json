@@ -14,9 +14,27 @@
     "items[].severity": "one of red | yellow | info",
     "items[].text": "string, one non-empty line describing the row",
     "items[].url": "optional string or null — the GitHub link that evidences the row (run, issue, PR)",
-    "items[].prompt": "optional string or null — the copy-for-Claude payload, verbatim from the organ that owns the signal"
+    "items[].prompt": "optional string or null — the copy-for-Claude payload, verbatim from the organ that owns the signal",
+    "valid_until": "optional ISO-8601 UTC timestamp >= updated; producer-declared freshness deadline. Missing means no declared age policy, never a guessed global TTL.",
+    "items[].id": "optional non-empty single line, unique within feed; stable workstream identity across runs, independent of text and order",
+    "items[].state": "optional canonical workflow state: healthy | active | stale | blocked | failed | action_required | unknown. Separate from severity and the legacy organ status; no generic colour-to-workflow mapping.",
+    "items[].reason": "optional non-empty single line explaining the observed evidence; url retains its evidence link role",
+    "items[].actions": "optional list of action descriptors: id (unique within item), label, kind (link | command | prompt), target (non-empty single line), optional safety. link targets must be HTTP(S). A prompt is a manual handoff, not an executable command.",
+    "items[].actions[].safety": "optional read_only | requires_approval | scientific_judgement | never_automatic | unclassified; absent means unclassified. Descriptive metadata, never authorization. No action is executed by detection or rendering.",
+    "items[].recommended_action_id": "optional id naming one of this item’s actions",
+    "items[].requires_human_decision": "optional boolean; absence means unspecified, not false. true requires decision text; a blocked workflow alone does not imply human judgement.",
+    "items[].decision": "optional non-empty single line naming the human choice; required when requires_human_decision is true"
   },
-  "required": ["schema_version", "organ", "repo", "status", "headline", "updated", "pages_url", "items"],
+  "required": [
+    "schema_version",
+    "organ",
+    "repo",
+    "status",
+    "headline",
+    "updated",
+    "pages_url",
+    "items"
+  ],
   "example": {
     "schema_version": 1,
     "organ": "brain",
