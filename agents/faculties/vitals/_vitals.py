@@ -71,16 +71,19 @@ def read_published(pages_base, heart_repo):
 
 
 def verdict_of(badge, board):
-    """The organism-wide verdict word. The badge's `message` is the headline
-    contract every board publishes (`GREEN`, `RED 3 blockers`, ...); a board
-    that carries its own `verdict` is the fallback for a badge that did not
-    arrive."""
+    """The explicit release verdict; older publishes fall back to the badge.
+
+    Current badges headline monitoring, which cannot stand in for a release
+    gate. Heart retains the release verdict in board.json.
+    """
+    own = str((board or {}).get("verdict", "") or "").strip().upper()
+    if own in VERDICTS:
+        return own
     message = str((badge or {}).get("message", "") or "").strip()
     head = message.split()[0].upper() if message else ""
     if head in VERDICTS:
         return head
-    own = str((board or {}).get("verdict", "") or "").strip().upper()
-    return own if own in VERDICTS else "UNKNOWN"
+    return "UNKNOWN"
 
 
 def board_timestamp(board):

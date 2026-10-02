@@ -152,3 +152,22 @@ machine caller can tell "Heart says STALE" from "Heart unreachable" (`4`).
   a later, explicitly-scoped follow-up.
 - **Never escalate an unknown to GREEN or RED.** An unknown is YELLOW — surface
   it, recommend the leg that resolves it, and checkpoint.
+
+## Dashboard monitoring scope
+
+`bin/pyauto-brain health --scope dashboard [--json] [assess|triage|recommend]`
+reads Heart's dashboard inventory without ticking, dispatching or writing state.
+The default scope remains `release`; `--scope release` makes it explicit.
+
+Dashboard scope adopts `board.monitoring.status`, `score` and `complete` from
+Heart, forwarding its checks, findings, applicability, evidence, penalties,
+blocked reasons and action payloads unchanged. It uses the Heart CLI when
+available and the existing published-board reader otherwise. Heart owns all
+coverage judgments and remedies; the conductor presents them for review.
+
+Re-read after the chosen action completes. Stop only when Heart reports a
+complete green monitoring inventory with no unresolved findings. Release GREEN
+alone never ends this loop. Missing, malformed or unsupported inventory is
+explicitly unknown and incomplete (exit 4); an incomplete green inventory also
+exits 4. Red/yellow/stale retain exits 3/2/6; grey exits 4. Completion exits 0.
+The JSON retains `release_verdict` and `release_score` as separate context.
