@@ -28,7 +28,7 @@ BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SURFACE_KEYS = {
     "generated", "org", "repo", "overnight", "heart", "heart_blockers",
-    "heart_plan", "performance",
+    "heart_plan", "heart_monitoring", "performance",
     "hands", "versions", "community", "resume", "open_issues", "hygiene",
     "devbox", "autonomy", "doors", "boards", "degraded", "history",
     # The science organ's own counts (its dashboard.md counts table), None
@@ -1094,3 +1094,16 @@ def test_legacy_copy_payload_is_portable_but_terminal_payload_is_unchanged():
     page = b._row("Legacy", "/health Inspect <repo> & preserve edits")
     assert 'data-cmd="Use the health skill. Inspect &lt;repo&gt; &amp; preserve edits"' in page
     assert 'data-cmd="/health"' in b._row("Terminal", "/health", term=True)
+
+
+def test_monitoring_headline_keeps_release_verdict_separate(tmp_path):
+    heart_board = {**HEART_BOARD_JSON, "verdict": "green",
+                   "monitoring": {"score": 72, "status": "red", "complete": False}}
+    stub = _fabricate(tmp_path, _default_fixtures(), heart_board)
+    md = _run([], tmp_path, stub).stdout
+    assert "Monitoring score: **72/100**" in md
+    assert "Heart verdict: **GREEN**" in md
+    page = _run(["--html"], tmp_path, stub).stdout
+    assert "Monitoring score" in page
+    assert "72/100" in page
+    assert "pyauto-brain health --scope dashboard" in page

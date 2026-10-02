@@ -915,6 +915,11 @@ def collect():
     # One read of the Heart's machine surface, two consumers: the blockers
     # and the test-performance block.
     heart_board = fetch_heart_board(pages_base, heart_repo, degraded)
+    # Badge headlines now describe monitoring; release labels and gates use
+    # Heart's explicit compatibility verdict from board.json.
+    if isinstance(heart_board, dict) and heart_board.get("verdict"):
+        heart = dict(heart or {})
+        heart["message"] = str(heart_board["verdict"]).upper()
     heart_blockers = extract_heart_blockers(heart_board)
     heart_plan = extract_heart_plan(heart_board)
     performance = extract_heart_performance(
@@ -937,6 +942,7 @@ def collect():
         "repo": board_family.get("brain", "PyAutoBrain"),
         "overnight": overnight,
         "heart": heart,
+        "heart_monitoring": (heart_board or {}).get("monitoring"),
         "heart_blockers": heart_blockers,
         "heart_plan": heart_plan,
         "performance": performance,
@@ -1233,6 +1239,11 @@ def render_md(data):
             L.append(f"  - {r['blocked_reason']}")
     L.append("")
     L.append("## ❤️ Readiness & release")
+    monitoring = data.get("heart_monitoring")
+    if isinstance(monitoring, dict) and type(monitoring.get("score")) is int:
+        L.append(f"- Monitoring score: **{monitoring['score']}/100** — "
+                 f"{monitoring.get('status', 'unknown')} · complete: "
+                 f"{monitoring.get('complete', False)} · `pyauto-brain health --scope dashboard`")
     if data["heart"]:
         L.append(f"- Heart verdict: **{data['heart'].get('message', '?')}** — "
                  f"[board]({data['boards'].get('heart', '')}) · re-run via the health skill")
@@ -1556,6 +1567,13 @@ def render_html(data):
             H.append(_plain(text))
 
     H.append("<h2>❤️ Readiness &amp; release</h2>")
+    monitoring = data.get("heart_monitoring")
+    if isinstance(monitoring, dict) and type(monitoring.get("score")) is int:
+        H.append(_row(
+            "Monitoring score — " + _plain(str(monitoring["score"]) + "/100 · "
+                + str(monitoring.get("status", "unknown")) + " · complete: "
+                + str(monitoring.get("complete", False))),
+            "pyauto-brain health --scope dashboard"))
     heart_url = data["boards"].get("heart", "")
     if data["heart"]:
         msg = data["heart"].get("message", "?")

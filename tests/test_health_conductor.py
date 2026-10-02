@@ -56,7 +56,7 @@ def _run(tmp_path, readiness, *args):
     heart = stub_dir / "pyauto-heart"
     heart.write_text(
         "#!/usr/bin/env bash\n"
-        'if [[ "${1:-}" == "readiness" ]]; then cat "$STUB_READINESS"; fi\n'
+        'if [[ "${1:-}" == "readiness" || "${1:-}" == "dashboard" ]]; then cat "$STUB_READINESS"; fi\n'
         "exit 0\n"
     )
     heart.chmod(0o755)
@@ -281,3 +281,89 @@ def test_human_render_shows_the_evidence_gap_section(tmp_path):
     assert "? [validate] no release validation for current source" in out
     assert "pyauto-brain release validate" in out
     assert "UNKNOWN" not in out
+
+
+def _monitoring(**updates):
+    inventory = {"schema_version": 1, "status": "green", "score": 100,
+                 "complete": True, "counts": {}, "checks": [],
+                 "findings": [], "penalties": []}
+    inventory.update(updates)
+    return {"verdict": "green", "score": 100, "monitoring": inventory}
+
+
+def test_dashboard_green_release_preserves_findings_and_actions(tmp_path):
+    finding = {"id": "ci:a", "family": "ci", "subject": "library-a",
+               "status": "red", "summary": "CI failed", "owner": "Heart",
+               "applicable": True, "evidence": {"url": "https://example.test/run"},
+               "action": {"kind": "prompt", "payload": "Repair this exact CI failure"},
+               "blocked_reason": None}
+    board = _monitoring(status="red", score=85, complete=False,
+                        findings=[finding], checks=[finding])
+    result = _run(tmp_path, board, "--scope", "dashboard", "--json")
+    data = json.loads(result.stdout)
+    assert result.returncode == EXIT_RED
+    assert data["score"] == 85
+    assert data["release_verdict"] == "green"
+    assert data["findings"] == [finding]
+    assert data["recommendation"]["heart_action"] == finding["action"]
+
+
+def test_dashboard_complete_inventory_stops(tmp_path):
+    result = _run(tmp_path, _monitoring(), "--scope=dashboard", "--json")
+    assert result.returncode == EXIT_GREEN
+    assert json.loads(result.stdout)["complete"] is True
+
+
+def test_dashboard_incomplete_green_inventory_cannot_stop(tmp_path):
+    result = _run(tmp_path, _monitoring(complete=False), "--scope", "dashboard", "--json")
+    assert result.returncode == EXIT_UNKNOWN
+    data = json.loads(result.stdout)
+    assert data["complete"] is False
+    assert data["recommendation"]["action"] == "blocked"
+
+
+def test_dashboard_missing_or_malformed_inventory_is_explicit(tmp_path):
+    for inventory in (None, {}, {"schema_version": 1}, "broken"):
+        result = _run(tmp_path, {"verdict": "green", "monitoring": inventory},
+                      "--scope", "dashboard", "--json")
+        assert result.returncode == EXIT_UNKNOWN
+        data = json.loads(result.stdout)
+        assert data["complete"] is False
+        assert "inventory" in data["blocked_reason"]
+
+
+def test_dashboard_human_read_forwards_command_and_blocked_reason(tmp_path):
+    finding = {"status": "stale", "summary": "Inventory unavailable",
+               "blocked_reason": "Token unavailable",
+               "action": {"kind": "command", "payload": "pyauto-heart tick"}}
+    result = _run(tmp_path, _monitoring(status="stale", complete=False,
+                                       findings=[finding]), "--scope", "dashboard")
+    assert result.returncode == EXIT_STALE
+    assert "Token unavailable" in result.stdout
+    assert "pyauto-heart tick" in result.stdout
+    assert "release-healthy" not in result.stdout
+
+
+def test_release_scope_remains_compatible(tmp_path):
+    result = _run(tmp_path, {"verdict": "green", "score": 100},
+                  "--scope", "release", "--json")
+    assert result.returncode == EXIT_GREEN
+    assert json.loads(result.stdout)["recommendation"]["action"] == "none"
+
+
+def test_unknown_health_scope_is_usage_error(tmp_path):
+    assert _run(tmp_path, {}, "--scope", "unrecognised").returncode == EXIT_USAGE
+
+
+def test_dashboard_statuses_and_inconsistent_findings_never_report_completion(tmp_path):
+    for status, expected in (("grey", EXIT_UNKNOWN), ("yellow", EXIT_YELLOW),
+                             ("stale", EXIT_STALE), ("red", EXIT_RED)):
+        result = _run(tmp_path, _monitoring(status=status, complete=False),
+                      "--scope", "dashboard", "--json")
+        assert result.returncode == expected
+        assert json.loads(result.stdout)["status"] == status
+    finding = {"status": "yellow", "summary": "Still unresolved"}
+    result = _run(tmp_path, _monitoring(findings=[finding]),
+                  "--scope", "dashboard", "--json")
+    assert result.returncode == EXIT_UNKNOWN
+    assert json.loads(result.stdout)["findings"] == [finding]

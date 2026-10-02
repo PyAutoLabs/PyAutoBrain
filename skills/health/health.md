@@ -36,3 +36,22 @@ procedures are Heart's.
 On the shell side, the same vocabulary applies: `health` (git-sync dashboard),
 `health release`, and `health audit` (see `PyAutoHeart/scripts/health.sh`) — a
 separate local convenience layer, not this command.
+
+## Dashboard monitoring scope
+
+`bin/pyauto-brain health --scope dashboard [--json] [assess|triage|recommend]`
+reads Heart's dashboard inventory without ticking, dispatching or writing state.
+The default scope remains `release`; `--scope release` makes it explicit.
+
+Dashboard scope adopts `board.monitoring.status`, `score` and `complete` from
+Heart, forwarding its checks, findings, applicability, evidence, penalties,
+blocked reasons and action payloads unchanged. It uses the Heart CLI when
+available and the existing published-board reader otherwise. Heart owns all
+coverage judgments and remedies; the conductor presents them for review.
+
+Re-read after the chosen action completes. Stop only when Heart reports a
+complete green monitoring inventory with no unresolved findings. Release GREEN
+alone never ends this loop. Missing, malformed or unsupported inventory is
+explicitly unknown and incomplete (exit 4); an incomplete green inventory also
+exits 4. Red/yellow/stale retain exits 3/2/6; grey exits 4. Completion exits 0.
+The JSON retains `release_verdict` and `release_score` as separate context.

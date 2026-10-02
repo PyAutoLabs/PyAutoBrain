@@ -45,6 +45,8 @@
 #   health.sh assess          # same as the no-arg assess
 #   health.sh triage          # triage + recommend only (no card re-render)
 #   health.sh recommend       # the single recommended next checkpoint only
+#   health.sh --scope dashboard [--json] [sub]  # read-only monitoring inventory
+#   health.sh --scope release [--json] [sub]    # default release readiness
 #   health.sh --json [sub]     # machine footing for the Brain session
 #   health.sh -h|--help       # this header
 #
@@ -70,9 +72,14 @@ source "$HERE/../../_common.sh"
 # ---------------------------------------------------------------------------
 sub="assess"
 json_only=0
-for arg in "$@"; do
+scope="release"
+while [[ $# -gt 0 ]]; do
+  arg="$1"
+  shift
   case "$arg" in
     --json) json_only=1 ;;
+    --scope) scope="${1:-}"; [[ $# -gt 0 ]] && shift ;;
+    --scope=*) scope="${arg#--scope=}" ;;
     -h|--help)
       # Print only the comment header block (stop at the first non-comment line,
       # so the help never bleeds into `set -uo pipefail` / `source ...`).
@@ -88,6 +95,26 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [[ "$scope" != "release" && "$scope" != "dashboard" ]]; then
+  echo "health: scope must be release or dashboard" >&2
+  exit 5
+fi
+
+# Dashboard monitoring is a read-only Heart inventory, with its own completion
+# contract. It never refreshes checks, dispatches actions, or consults release
+# GREEN as a stopping condition.
+if [[ "$scope" == "dashboard" ]]; then
+  dashboard_args=(--mode "$sub")
+  [[ "$json_only" -eq 1 ]] && dashboard_args+=(--json)
+  if heart="$(resolve_heart 2>/dev/null)"; then
+    bash "$(_agents_dir)/faculties/vitals/vitals.sh" dashboard --json 2>/dev/null |
+      python3 "$HERE/dashboard.py" "${dashboard_args[@]}"
+    exit $?
+  fi
+  python3 "$HERE/dashboard.py" --published "${dashboard_args[@]}"
+  exit $?
+fi
 
 # ---------------------------------------------------------------------------
 # Locate the vitals faculty (the single component that talks to Heart) and the

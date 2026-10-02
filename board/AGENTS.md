@@ -34,8 +34,10 @@ extra state: each render reads yesterday's page, appends today, caps at 30).
 
 **Compose, don't recompute** — the board re-derives nothing. The community
 section imports the community conductor's `build_scan()`; the resume counts
-are parsed from the Mind's own generated `dashboard.md`; readiness comes from
-the Heart board's published badge. Every unreachable source degrades into an
+are parsed from the Mind's own generated `dashboard.md`; release readiness comes from
+the Heart board's explicit `verdict` (older publishes fall back to the badge).
+Monitoring headlines use Heart's `monitoring.score`, status and completion;
+the published badge can describe monitoring independently of release readiness. Every unreachable source degrades into an
 honest "Degraded" row, never fabricated content.
 
 **Read-only** — the collect half touches only read-only `gh` endpoints and

@@ -133,3 +133,9 @@ def test_blockers_are_never_capped_out_of_a_scoped_read(published, monkeypatch,
     assert _vitals.main(["--scope", "RepoA"]) == 0
     out = capsys.readouterr().out
     assert "RepoA: install verification not run" in out
+
+
+def test_release_verdict_uses_board_when_badge_describes_monitoring():
+    badge = {"message": "Monitoring RED · 72; release GREEN"}
+    assert _vitals.verdict_of(badge, {"verdict": "green"}) == "GREEN"
+    assert _vitals.verdict_of({"message": "GREEN"}, {"verdict": "red"}) == "RED"
