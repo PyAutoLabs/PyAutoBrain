@@ -103,6 +103,8 @@ def test_refactor_test_witness_loads():
 # statement that the repo has no test suite — not a licence to skip one.
 WITNESS_EXEMPT = {
     "PyAutoGut": "no test suite (bin/ + docs only, verified at PyAutoBrain#269)",
+    "PyAutoPulse": "organ row born 2026-10-02 (profiling-organ-birth phase 0); "
+                   "phase 2 adds tests/ and the witness row",
 }
 
 

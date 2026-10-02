@@ -79,10 +79,10 @@ the linked canonical file retains the full instructions. Commit the generated
 adapters with the skill. Regeneration checks name collisions across the installed
 repository inventory and refuses conflicting user-owned destinations.
 
-The nine organs the Brain coordinates — Brain (reasoning), Mind (intent),
+The ten organs the Brain coordinates — Brain (reasoning), Mind (intent),
 Cortex (learning what is true), Memory (knowledge), Eyes (seeing the
-figures), Heart (health), Hands (release), Nerves (configuration), Gut
-(shedding) —
+figures), Heart (health), Hands (release), Pulse (feeling how fast it runs),
+Nerves (configuration), Gut (shedding) —
 are defined once in
 [ORGANISM.md](ORGANISM.md), which this
 repo hosts. Agent contracts and the generated command table are in
