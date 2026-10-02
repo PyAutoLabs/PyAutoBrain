@@ -21,6 +21,14 @@ and board show how fast each `<lib>_profiling` project runs, but it never
 judges. This command's `triage` is the only judge of what a timing or a drift
 means; the projects keep their producers, results, pins and drift policy.
 
+The Pulse board (strip on the Brain board, card on the organ cockpit) is where
+cross-project drift candidates and their provenance are read; `autolens_profiling`
+owns the producers, pins and drift policy. A `/profiling triage <comparison_key>`
+prompt copied from a Pulse drift item names one comparison row on the Pulse
+board: open that row, read the pair of records and their evidence paths, then
+judge with the `triage` verb (which takes no target — the key is where to look,
+not an argument).
+
 The Profiling Agent **reasons; it never runs sweeps or edits source.** The
 classification is the result for CPU-unusable cells; full timings for those
 belong to the A100 rows.
