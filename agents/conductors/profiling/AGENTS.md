@@ -103,6 +103,14 @@ as malformed — only a record missing *some* of its key fields is corruption.
   loop's cost (unit-test time, `PYAUTO_TEST_MODE` / `PYAUTO_SMALL_DATASETS`
   scripts, import time) and repo tidiness. Hunting generally-slow functions
   flagged by integration tests is hygiene's `perf` mode, not profiling's.
+- **vs the Pulse** — the **Pulse** organ (PyAutoPulse, `ORGANISM.md`) holds
+  the cross-project view: the registry of `<lib>_profiling` projects, the
+  versioned `profiling-summary` read contract, ingest receipts and the board.
+  It validates the exchange contract only and never judges; this conductor
+  (`triage`) stays the only judge of what a timing or a drift means, with the
+  human. The projects keep their producers, results, pins and drift policy.
+  Same split as Heart ↔ vitals and Eyes ↔ the Eyes conductor. (Organ row
+  born in PyAutoMind#463; its reader and board arrive in phase 2.)
 - **vs build** — campaigns are not releases; `profile.yml`'s on-release runs
   stay CI/Build territory.
 - **release-validation script cost is NOT ours.** The compile axis was

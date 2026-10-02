@@ -82,7 +82,10 @@ PACKAGING_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
 # lens hst imaging is a byte-identical copy of autolens_profiling's) and their
 # PNG renders are the tracked record (re-rendered on library release only) —
 # never wiped. The Eyes organ (organs/PyAutoEyes) is the cross-project dashboard
-# over such project repos and holds no datasets of its own to wipe.
+# over such project repos and holds no datasets of its own to wipe. The Pulse
+# organ (organs/PyAutoPulse) is likewise the cross-project profiling dashboard
+# over the <lib>_profiling project repos: it reads their summaries and holds no
+# datasets of its own to wipe.
 DATASET_REPOS=(autolens_workspace autogalaxy_workspace autofit_workspace \
                autocti_workspace HowToLens HowToGalaxy HowToFit)
 # Committed dataset files above this size are flagged as repo bloat.

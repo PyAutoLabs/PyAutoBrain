@@ -19,6 +19,7 @@ organs plan, build, test and release it, and you make every judgment call.
 | **Eyes** | PyAutoEyes | Sees *what the figures look like* across the `<lib>_visualization` project repos. Owns the instance registry, the manifest read contract and the dashboard that links to project-owned PNGs. Project repos own producers, render harnesses, figures and manifests; Eyes renders no figures and copies none. The Brain's Eyes conductor drives review and judgment; accepted critiques route through intake, never directly into library plot code. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. `pyauto-heart readiness` is the **authoritative** GREEN/YELLOW/RED "is it safe to release?" gate. An observer: never writes into other repos, never triggers Build. |
 | **Hands** | PyAutoHands | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
+| **Pulse** | PyAutoPulse | Feels *how fast the organism runs* across the `<lib>_profiling` project repos. Owns the profiling instance registry, the versioned `profiling-summary` read contract, the ingest receipts (resolved commit per project per render) and the cross-project board. Validates the exchange contract only; project repos own producers, results, pins, drift policy and their own Pages page. Never moves pins, combines unmatched timings, applies the compile threshold to runtime, computes an ecosystem-wide speed score or issues a readiness verdict; the Brain's profiling conductor (`triage`) is the only judge. |
 | **Nerves** | PyAutoNerves | The configuration/serialization layer (`autonerves`) — layered config with overrides, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. Connects the organism's conventions to every library; the base layer the scientific libraries all import. |
 | **Gut** | PyAutoGut | Owns the lifecycle of *condemned self-material* — stale branches, stashes, dead code/tests. Holds each as a durable, recoverable git ref through a transit window and **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 
@@ -98,7 +99,7 @@ human types); let faculties multiply behind them.
 New capability grows as a **faculty** (cheap: one directory, one doc, one
 script), not as a repo. A new organ costs an `AGENTS.md`, a `CLAUDE.md` stub,
 install wiring, a body-map row and boundary prose — it must earn that by
-owning state or effects no existing organ can. Three capabilities have earned
+owning state or effects no existing organ can. Four capabilities have earned
 organ status that way. Configuration/signalling is the **Nerves**
 (PyAutoNerves), the base config/serialization layer every library imports — new
 config surfaces belong there, not in a new organ. Keeping track of what is
@@ -109,7 +110,13 @@ the Mind. Seeing what the software shows is the **Eyes** (PyAutoEyes): it owns
 the cross-project instance registry, manifest read contract and dashboard.
 Each visualization project retains its render harness, figures and generated
 manifest; the organ reads those manifests and links to the figures. The
-Brain's Eyes conductor owns review and judgment. A dashboard alone does not
+Brain's Eyes conductor owns review and judgment. Feeling how fast the software
+runs is the **Pulse** (PyAutoPulse), the fourth: the same layering over the
+`<lib>_profiling` project repos — it owns the profiling instance registry, the
+versioned `profiling-summary` read contract, the ingest receipts and the
+cross-project board, while each profiling project keeps its producers, results
+and drift policy and the Brain's profiling conductor stays the only judge. A
+dashboard alone does not
 waive the state-or-effects requirement for a new organ. The human interaction
 layer is the command surface (`/route` + the verb commands), which is part of
 Brain.

@@ -16,6 +16,7 @@ it and adds the framework/instance distinction an adopter needs.
 | **Eyes** | PyAutoEyes | *Sees* — the cross-project visualization registry, manifest read contract and dashboard. Project repos render and hold figures; Eyes links to them. The Brain's Eyes conductor handles judgment. |
 | **Heart** | PyAutoHeart | Decides whether the organism is *healthy*. `pyauto-heart readiness` is the authoritative GREEN/YELLOW/RED release gate. An observer: never writes into other repos, never triggers a build. |
 | **Hands** | PyAutoHands | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
+| **Pulse** | PyAutoPulse | *Feels* — the cross-project profiling registry, the versioned `profiling-summary` read contract, ingest receipts and dashboard. Project repos produce and hold timings; Pulse validates the exchange and links to them. The Brain's profiling conductor handles judgment. |
 | **Nerves** | PyAutoNerves | *Connects* — the configuration/serialization layer (`autonerves`): layered config, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. The base layer every library imports. |
 | **Gut** | PyAutoGut | *Sheds* — the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds each as a durable, recoverable git ref through a transit window, then **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 
@@ -34,8 +35,9 @@ is the container, and a workspace is one familiar kind of project.
 
 These roles do not replace the {doc}`repository categories <../satellites>` or
 change their workflow and release gates. Profiling, inference and visualization
-repos illustrate the project role; Eyes provides an existing cross-project
-organ view. The project-to-organ boundary is described in {doc}`../organs/eyes`.
+repos illustrate the project role; Eyes and Pulse provide cross-project organ
+views over the visualization and profiling projects. The project-to-organ
+boundary is described in {doc}`../organs/eyes` and {doc}`../organs/pulse`.
 
 ## The call chain
 
@@ -57,10 +59,10 @@ The organs split on one line that matters for adoption:
   pipelines. Domain facts appear only in declared config surfaces (tables
   and policy files, not logic), and a drift check — the
   {ref}`tenant firewall <tenant-firewall>` — keeps it that way.
-- **Instance organs — Mind, Cortex, Memory, Eyes, Gut.** Committed state,
-  ledgers, knowledge, visualization registries and shed material. These are
-  *inherently yours*: an adopter never forks the upstream Mind, Cortex, Memory,
-  Eyes or Gut content, they create their own repos with the same documented
+- **Instance organs — Mind, Cortex, Memory, Eyes, Pulse, Gut.** Committed
+  state, ledgers, knowledge, visualization and profiling registries and shed
+  material. These are *inherently yours*: an adopter never forks the upstream
+  Mind, Cortex, Memory, Eyes, Pulse or Gut content, they create their own repos with the same documented
   shape.
 
 One more principle worth knowing before you read anything else:
