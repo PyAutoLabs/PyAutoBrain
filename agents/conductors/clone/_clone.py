@@ -116,6 +116,8 @@ _SHARED_DOMAIN = [
                                   # a new domain writes its own
     "benchmarks/truth/*",         # hidden reference values behind the one-shot
                                   # cards — never copied, the domain regenerates them
+    "benchmarks/datasets/*",      # frozen input data a one-shot card ships (e.g. a
+                                  # simulated lens) — domain science, regrown per clone
     # A newborn starts with empty runs/ and regenerates RESULTS.md.
     "benchmarks/runs/*", "benchmarks/RESULTS.md",
 ]
