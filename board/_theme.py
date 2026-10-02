@@ -116,6 +116,17 @@ ORGANS = {
         "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
         "hero": ("#372100", "#000000"),
     },
+    # Pulse — no logo file yet, so, like Eyes, the accent is designed to sit
+    # in the family: a monitor-trace emerald in the one hue gap left between
+    # the Gut lime and the Mind teal. #0b7a4b reads at 5.4:1 on #fff and
+    # #34d399 at 9.8:1 on #0d1117. The tagline is the one the organ's own
+    # dashboard wears.
+    "pulse": {
+        "organ": "Pulse",
+        "tagline": "Measure. Trace. Compare.",
+        "ink_light": "#0b7a4b", "ink_dark": "#34d399", "glow": "#2ee88f",
+        "hero": ("#062b1c", "#000000"),
+    },
     # Nerves — sampled off PyAutoNerves/logo.png: the electric-violet neuron
     # (#7523fe, the logo's dominant bright colour) over the deep-purple
     # vignette (#1d0c30). The glyph colour itself reads at 6.1:1 on white but
@@ -328,6 +339,18 @@ MARKS = {
         '<circle cx="14.6" cy="34.6" r="1" fill="currentColor" stroke="none"/>'
         '<path d="M3.8,26.2 L11.6,26.2 M2.2,30.4 L8.6,30.4 '
         'M5.0,34.6 L9.4,34.6"/>'
+    ),
+    # Pulse — a stopwatch: a closed ring with its crown on top, crossed by a
+    # monitor trace (flat, one sharp beat, flat) with a node on the peak
+    # (no logo file yet).
+    "pulse": (
+        '<circle cx="24" cy="25.6" r="18.8"/>'
+        '<path d="M21.2,4.2 L26.8,4.2 M24,4.2 L24,6.8"/>'
+        '<path d="M8.4,27.2 L17.0,27.2 L19.6,22.4 L22.6,35.0 '
+        'L26.4,14.8 L29.4,27.2 L39.6,27.2"/>'
+        '<g fill="currentColor" stroke="none">'
+        '<circle cx="26.4" cy="14.8" r="1.5"/>'
+        '<circle cx="24" cy="4.2" r="1.3"/></g>'
     ),
     # Nerves — a neuron: branching dendrites round a nucleated soma, a
     # myelinated axon running right into node-tipped terminals, and the
