@@ -725,6 +725,21 @@ def collect_eyes(repo="PyAutoEyes"):
     return _dashboard_counts(repo, head_only=True)
 
 
+def collect_pulse(repo="PyAutoPulse"):
+    """The Pulse's own generated counts (projects, records, comparisons,
+    drifted, refused pairs, cached, failed — the counts table at the head of
+    its `dashboard.md`), or None.
+
+    Composed exactly as the Eyes strip is: the organ's renderer decides the
+    numbers, the Brain board only shows them — a drifted count is the
+    producer's say-so, never a Brain verdict (judgment is the profiling
+    conductor's `triage`). Only the head of the page is read, because the
+    body carries one table per project. No Pulse checkout, or no rendered
+    board, is not a degraded morning either — the strip just does not appear.
+    """
+    return _dashboard_counts(repo, head_only=True)
+
+
 def collect_open_issues(org, degraded):
     """Total open issues across the org — the /issue_cleanup pointer count
     (the audit itself stays that skill's confirmation-gated job)."""
@@ -932,6 +947,7 @@ def collect():
     resume = collect_resume(org, degraded)
     cortex = collect_cortex()
     eyes = collect_eyes(board_family.get("eyes", "PyAutoEyes"))
+    pulse = collect_pulse(board_family.get("pulse", "PyAutoPulse"))
     open_issues = collect_open_issues(org, degraded)
     boards = {name: f"{pages_base}/{repo}/"
               for name, repo in board_family.items()}
@@ -952,6 +968,7 @@ def collect():
         "resume": resume,
         "cortex": cortex,
         "eyes": eyes,
+        "pulse": pulse,
         "open_issues": open_issues,
         "hygiene": collect_hygiene(degraded),
         "devbox": collect_devbox(),
@@ -1343,6 +1360,11 @@ def render_md(data):
                  + " · ".join(f"{k.lower()} {n}"
                               for k, n in data["eyes"].items())
                  + f" — [Eyes board]({data['boards'].get('eyes', '')})")
+    if data.get("pulse"):
+        L.append("- Pulse: "
+                 + " · ".join(f"{k.lower()} {n}"
+                              for k, n in data["pulse"].items())
+                 + f" — [Pulse board]({data['boards'].get('pulse', '')})")
     for t in data["resume"]["tasks"]:
         L.append(f"  - `Use the start-dev skill. {t['path']}` — {t['title'][:70]}")
     pending = data["resume"]["pending_prs"]
@@ -1727,6 +1749,13 @@ def render_html(data):
             "board \u2197</a>"
             + pills(*[(f"{k.lower()} {n}", "" if i == 0 else "n")
                       for i, (k, n) in enumerate(data["eyes"].items())])))
+    if data.get("pulse"):
+        pulse_url = data["boards"].get("pulse", "")
+        H.append(_plain(
+            f'Run times on the <a href="{_attr(pulse_url)}">Pulse '
+            "board \u2197</a>"
+            + pills(*[(f"{k.lower()} {n}", "" if i == 0 else "n")
+                      for i, (k, n) in enumerate(data["pulse"].items())])))
     for t in data["resume"]["tasks"]:
         # An in-flight task wears the header facets the Mind gave it, so it
         # looks like itself on both pages — same pills, same order.

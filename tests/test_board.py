@@ -37,6 +37,9 @@ SURFACE_KEYS = {
     # The Eyes organ's own counts (the head of its dashboard.md), None when
     # no Eyes is checked out.
     "eyes",
+    # The Pulse organ's own counts (the head of its dashboard.md), None when
+    # no Pulse is checked out.
+    "pulse",
 }
 
 AUTONOMY_LOG = """\
@@ -208,6 +211,26 @@ EYES_DASHBOARD_MD = """\
 | [fit.png](https://example.invalid/fit.png) | 5 |
 """
 
+# The head of the Pulse's generated board is its counts table; its body
+# carries one table per project, which the strip must not count.
+PULSE_DASHBOARD_MD = """\
+# PyAutoPulse — profiling dashboard
+
+| Where | Count |
+|-------|------:|
+| [Projects](#projects) | 1 |
+| [Records](#projects) | 159 |
+| [Comparisons](#projects) | 145 |
+| [Drifted](#projects) | 0 |
+| [Refused pairs](#projects) | 0 |
+| [Cached](#projects) | 0 |
+| [Failed](#projects) | 0 |
+
+## Projects
+
+| [alpha_profiling](#alpha_profiling) | 7 | 9 |
+"""
+
 
 def _fabricate(tmp_path, fixtures, heart_board=None):
     """A PYAUTO_ROOT with a fabricated Mind, file:// sibling-board badges, and
@@ -243,6 +266,9 @@ def _fabricate(tmp_path, fixtures, heart_board=None):
     eyes = tmp_path / "PyAutoEyes"
     eyes.mkdir()
     (eyes / "dashboard.md").write_text(EYES_DASHBOARD_MD)
+    pulse = tmp_path / "PyAutoPulse"
+    pulse.mkdir()
+    (pulse / "dashboard.md").write_text(PULSE_DASHBOARD_MD)
 
     # One badge per sibling board named in the declared config surface —
     # read from policy.yaml so no board repo name is hardcoded here.
@@ -355,6 +381,28 @@ def test_the_eyes_strip_composes_the_eyes_own_head_counts(tmp_path):
     (tmp_path / "no_eyes" / "PyAutoEyes" / "dashboard.md").unlink()
     r = _run(["--json"], tmp_path / "no_eyes", stub)
     assert json.loads(r.stdout)["eyes"] is None
+
+
+def test_the_pulse_strip_composes_the_pulse_own_head_counts(tmp_path):
+    """The Pulse decides its own numbers; the Brain board reads only the
+    counts table at the head of its page (the body's per-project tables are
+    not counts), links its board, and shows nothing when no Pulse is here."""
+    s, _ = _surface(tmp_path)
+    assert s["pulse"] == {"Projects": 1, "Records": 159, "Comparisons": 145,
+                          "Drifted": 0, "Refused pairs": 0, "Cached": 0,
+                          "Failed": 0}
+    assert s["boards"]["pulse"].endswith("/PyAutoPulse/")
+    stub = _fabricate(tmp_path / "md", _default_fixtures())
+    md = _run([], tmp_path / "md", stub).stdout
+    assert ("- Pulse: projects 1 · records 159 · comparisons 145 · "
+            "drifted 0 · refused pairs 0 · cached 0 · failed 0") in md
+    page = _run(["--html"], tmp_path / "md", stub)
+    assert page.returncode == 0, page.stderr
+    assert "Pulse board" in page.stdout and 'data-organ="pulse"' in page.stdout
+    stub = _fabricate(tmp_path / "no_pulse", _default_fixtures())
+    (tmp_path / "no_pulse" / "PyAutoPulse" / "dashboard.md").unlink()
+    r = _run(["--json"], tmp_path / "no_pulse", stub)
+    assert json.loads(r.stdout)["pulse"] is None
 
 
 def test_json_surface_is_complete_and_derives_org(tmp_path):

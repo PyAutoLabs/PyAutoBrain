@@ -21,7 +21,7 @@ copy-for-Claude payload:
 | ⏱ Test performance | the Heart board's published `performance` block — rendered verbatim, never re-derived | each row's own prompt |
 | 🏷️ Version consistency | the coupled-set stamps (`board: version_stamps`) | `/bug version drift: …` |
 | 💬 Community | the Ears (`community scan`, reused wholesale) — every open conversation gets a row | `/community`, `/community triage <ref>` |
-| 🔄 Resume | the Mind's registry + generated counts; pending-release PRs | `/start_dev …`, `/prm <url>` |
+| 🔄 Resume | the Mind's registry + generated counts; the Cortex, Eyes and Pulse strips (each organ's own `dashboard.md` head counts, display-only, never in `state.json`); pending-release PRs | `/start_dev …`, `/prm <url>` |
 | 🧹 Upkeep | open-issue count; the cleanup doors | `/issue_cleanup`, `/hygiene`, `/repo_cleanup` |
 | 🧼 Hygiene | the hygiene conductor's own `--json` pre-scan, run IN this render (BOARD_HYGIENE_SCAN=1; brain_board.yml checks out the body-map scan set blobless+sparse first) — no machine involved | each row's own delegate door |
 | 🖥️ Dev box | `state/devbox_board.json` — worktree state (unpushed/dirty/stashes — the one thing only the dev box can see; its hygiene rows render only when no cloud scan ran), pushed by `board publish` (morning.sh's last step); age-stamped, stale at 48h, dropped after 7d | — |

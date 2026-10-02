@@ -12,7 +12,8 @@ the Eyes: the Eyes show what the software *shows*; the Pulse feels how fast it
 **Repo:** [PyAutoLabs/PyAutoPulse](https://github.com/PyAutoLabs/PyAutoPulse)
 
 **Status:** organ row registered (phase 0 of the `profiling-organ-birth`
-epic); the registry, reader, receipts, board and workflows arrive in phase 2.
+epic); the registry, reader, receipts, board and workflows arrived in phase 2;
+phase 3 puts the organ on the Brain board and the organ cockpit.
 Design: `docs/research/profiling_inference_organs.md` in the Brain repo.
 
 ## The defining function: feeling the pulse
@@ -40,6 +41,13 @@ reader, an empty sibling repo is never manufactured to fill the row.
 The board shows one row per registered project with scope, evidence time, last
 fetch, coverage and links, and keeps missing or refused evidence visible beside
 valid data. A valid empty feed says "no measurements", never "all passed".
+
+Beside the board, the organ publishes two machine surfaces: `badge.json`, a
+one-line headline, and `state.json`, the organ-cockpit feed (contract v1 in
+`PyAutoBrain/board/state_schema.json`). The feed is what puts the Pulse on the
+[organ cockpit](https://pyautolabs.github.io/cockpit/) alongside the other
+organs; the Brain board's Resume section carries a Pulse strip composed from
+the head counts of the organ's own `dashboard.md`.
 
 ## The driver split
 
@@ -76,3 +84,7 @@ The organ is being born through the `profiling-organ-birth` epic:
   the lens profiling project.
 - **Phase 0** ([PyAutoMind#463](https://github.com/PyAutoLabs/PyAutoMind/issues/463))
   added the organ row to the body map.
+- **Phase 3** ([PyAutoBrain#450](https://github.com/PyAutoLabs/PyAutoBrain/issues/450))
+  added the Pulse strip to the Brain board and the Pulse card to the organ
+  cockpit, and named the Pulse board in the profiling conductor's prose as
+  where drift candidates are read.

@@ -110,7 +110,19 @@ as malformed — only a record missing *some* of its key fields is corruption.
   (`triage`) stays the only judge of what a timing or a drift means, with the
   human. The projects keep their producers, results, pins and drift policy.
   Same split as Heart ↔ vitals and Eyes ↔ the Eyes conductor. (Organ row
-  born in PyAutoMind#463; its reader and board arrive in phase 2.)
+  born in PyAutoMind#463; its reader and board arrived in phase 2.)
+- **Where drift candidates are read** — the
+  [Pulse board](https://pyautolabs.github.io/PyAutoPulse/) (strip on the
+  Brain board's Resume section, card on the organ cockpit) is where
+  cross-project drift candidates and their provenance (the resolved commit
+  per project, the pair of records, the evidence paths) are read.
+  `autolens_profiling` owns the measurement semantics: its producers, pins
+  and drift policy. A `/profiling triage <comparison_key>` prompt copied from
+  a Pulse drift item names one comparison row on the Pulse board: open that
+  row, read the pair of records and their evidence paths, then judge with the
+  `triage` verb. The key is a pointer for the human/agent reading the board —
+  `triage` itself takes no target argument and still sweeps every pinned
+  finding.
 - **vs build** — campaigns are not releases; `profile.yml`'s on-release runs
   stay CI/Build territory.
 - **release-validation script cost is NOT ours.** The compile axis was
