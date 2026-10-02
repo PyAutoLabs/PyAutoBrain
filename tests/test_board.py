@@ -228,7 +228,7 @@ PULSE_DASHBOARD_MD = """\
 
 ## Projects
 
-| [autolens_profiling](#autolens_profiling) | 7 | 9 |
+| [alpha_profiling](#alpha_profiling) | 7 | 9 |
 """
 
 
