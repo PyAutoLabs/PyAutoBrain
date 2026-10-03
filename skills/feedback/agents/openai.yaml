@@ -1,0 +1,6 @@
+interface:
+  display_name: "Share Feedback"
+  short_description: "Draft feedback from PyAutoLabs sessions"
+  default_prompt: "Use $feedback to draft a report from this session for me to review and share with PyAutoLabs."
+policy:
+  allow_implicit_invocation: true
