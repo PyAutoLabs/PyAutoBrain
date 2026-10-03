@@ -98,3 +98,37 @@ def test_maintainer_case_matches_producer_identity():
     surface = adapt(snapshot, state)
     assert surface["counts"]["open_external_prs"] == 0
     assert surface["counts"]["awaiting_review"] == 1
+
+
+def delivery_fixture():
+    discussion = row('discussion', closed=True, awaiting=False)
+    snapshot, state = evidence([discussion])
+    refs = [{'kind': k, 'repo': 'ExampleOrg/RepoA', 'url': 'https://github.com/ExampleOrg/RepoA/' + suffix}
+            for k, suffix in [('issue', 'issues/2'), ('PR', 'pull/3'), ('release', 'releases/tag/v1')]]
+    snapshot['follow_through'] = [{'discussion': discussion['url'], 'state': 'available',
+                                   'update_owed': True, 'evidence': refs, 'gaps': []}]
+    return snapshot, state
+
+
+def test_delivery_preserves_settlement_and_stale_projection():
+    snapshot, state = delivery_fixture()
+    result = adapt(snapshot, state)
+    assert not result['open_discussions'] and not result['awaiting_response']
+    assert result['follow_through'][0]['update_owed'] is True
+    result = _ears_feed.adapt(snapshot, state, [], 'ExampleOrg', 'ExampleOrg/RepoA',
+                             current=datetime.now(timezone.utc) + timedelta(days=1))
+    assert result['follow_through'][0]['state'] == 'unknown'
+    assert result['follow_through'][0]['observed_state'] == 'available'
+    assert result['follow_through'][0]['update_owed'] is None
+
+
+@pytest.mark.parametrize('change', ['link', 'extra_body', 'state', 'missing_release', 'unknown_update'])
+def test_invalid_delivery_rejected(change):
+    snapshot, state = delivery_fixture()
+    d = snapshot['follow_through'][0]
+    if change == 'link': d['evidence'][0]['url'] = 'javascript:alert(1)'
+    elif change == 'extra_body': d['body'] = 'RAW TRANSCRIPT'
+    elif change == 'state': d['state'] = 'guaranteed'
+    elif change == 'missing_release': d['evidence'].pop()
+    else: d['state'] = 'unknown'
+    with pytest.raises(ValueError): adapt(snapshot, state)
