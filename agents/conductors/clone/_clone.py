@@ -187,6 +187,8 @@ REFERENCE_PROFILES = {
             "wiki/literature/*",          # the near-empty literature scaffold
         ],
         "domain": [
+            "scripts/start_here/*",       # bundled Gaussian example, regrow per domain
+            "scripts/experimental_colab.py", "notebooks/experimental_colab.ipynb",
             "docs/*",                     # setup + archive pages: agent-access
                                           # mechanics read the same everywhere,
                                           # the worked prompts are domain
