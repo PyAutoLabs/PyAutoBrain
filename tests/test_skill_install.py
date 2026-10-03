@@ -85,11 +85,15 @@ def test_installer_keeps_commands_and_installs_both_skill_homes(tmp_path):
         text=True,
     )
 
-    for name in ("intake", "start_dev"):
+    for name in ("intake", "start_dev", "feedback"):
         assert (claude_home / "skills" / name).is_symlink()
         assert (claude_home / "commands" / f"{name}.md").is_symlink()
 
     assert (codex_home / "skills" / "intake").is_symlink()
+    assert (codex_home / "skills" / "feedback").is_symlink()
+    assert (claude_home / "commands" / "feedback.md").resolve() == (
+        BRAIN_HOME / "skills" / "feedback" / "feedback.md"
+    ).resolve()
     assert (codex_home / "skills" / "start-dev").is_symlink()
     assert not (codex_home / "skills" / "start_dev").exists()
 

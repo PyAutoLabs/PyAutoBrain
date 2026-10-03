@@ -21,6 +21,13 @@ PyAutoMind `active/community_communication_agent_listen_and_respond.md`
 
 ## Modes
 
+The session-side [`/feedback`](../../../skills/feedback/feedback.md) workflow
+solicits user-reviewed reports from the current session or selected logs. It
+also offers a portable invitation for users of other agents. It drafts only,
+does not call the scanner, and adds no CLI mode or registry. Submitted reports
+arrive on the existing hub and follow ordinary scan/triage. The report's
+`feedback-report: v1` marker is a format label, not evidence of approval.
+
 Both modes are live, deterministic and **read-only** — they emit surfaces the
 `/community` skill session reasons over. The judgment (actionable vs
 ask-for-more, the reply prose, the routing call) is the session's; the human
