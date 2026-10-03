@@ -114,13 +114,40 @@ only for **library** repos. `--thaw "<why>"` merges anyway and appends the
 override row to `PyAutoMind/autonomy_log.md` (`## Freeze overrides`). An
 expired flag reads as clear, so a forgotten `--set` never blocks anyone.
 
-## Shadow row (tier-`notify`)
+## Tiered merge
+
+Since 2026-10-02 a PR may also reach this procedure **without** a human typing
+`/prm`: `ship_library` / `ship_workspace` hand a declared-`notify` or
+witnessed-`glance` task here after PR-open, under the merge authorization the
+approved plan (or `--auto` / batch launch) stated. The rule is
+[`../../AUTONOMY.md`](../../AUTONOMY.md) "Merge authority follows Consequence —
+2026-10-02"; this procedure runs from step 2 exactly as written, with three
+differences:
+
+- **The wait (step 3).** One background `gh pr checks <n> --watch`, capped
+  ~60 min by the Bash call's own timeout, then the full step-2 judgment. It is
+  a process of this session — never a `send_later`, wake-up, cron, routine or
+  subscription — so `end_at_deliverable` holds as written. Cap reached, or no
+  authenticated `gh` (mobile, web): judge once, merge only if already green,
+  else report and end; the human runs `/prm`.
+- **Extra refusals (step 4).** Never merge a `decision-taken` PR, a Heart
+  RED-override or corrective-PR-exception ship, red / pending / conflicting
+  CI, or a SKIPPED test leg — report and stop; the human runs `/prm`. The
+  library-first, sibling-branch and data-worktree guards apply verbatim.
+- **The merge call.** `gh pr merge <n> --merge` as a **bare, unchained** Bash
+  call (no `&&`, `;` or pipe); if the permission layer denies it, stop and
+  report — never retry it another way. For `glance`, the close-out appends the
+  Shadow-window row (`merged-unchanged`, closeout.md 3b) and the ledger is the
+  human's post-merge summary.
+
+## Shadow row (tier-`glance`)
 
 The other row `/prm` appends to `PyAutoMind/autonomy_log.md`, and the only one
-that is routine: one per tier-`notify` candidate, under `## Shadow window`
-(prm.md step 5.3b). The window is the pre-registered evidence base for the
-question "may an agent ever merge its own low-consequence work?", counted to
-**40** candidates rather than run to a date.
+that is routine: one per tier-`glance` candidate, under `## Shadow window`
+(closeout.md step 5.3b). Until 2026-10-02 the window counted tier-`notify`
+candidates toward 40; `notify` auto-merge was then granted at 13/40, all
+clean, and the window re-scoped to `glance` auto-merges, counted to **20**
+clean rows (`AUTONOMY.md` "Merge authority follows Consequence — 2026-10-02").
 
 ```
 | date | task | tier | gate (tests/smoke/review/heart/witness[/adversary]) | human action | stage |
@@ -130,9 +157,9 @@ question "may an agent ever merge its own low-consequence work?", counted to
 |------|---------------------|
 | `date` | the merge date — when the PR actually went in, not when `/prm` ran |
 | `task` | the slug plus the PR refs, e.g. `my-task (PyAutoBrain#364 / PR#365)` |
-| `tier` | `notify`, and only `notify` — the prompt's declared `Consequence:` header wins over `bin/pyauto-brain sizing <prompt>` |
+| `tier` | `glance`, and only `glance` — the prompt's **declared** `Consequence:` header; an auto-merge never comes from a sizing-inferred tier |
 | `gate` | copied verbatim from the task's ship calibration row (written at PR-open by `ship_library` / `ship_workspace`); absent → the legs from the `/prm` step-2 judgement, same form |
-| `human action` | `merged-unchanged` / `merged-after-substantive-change` / `not-merged` — nothing else |
+| `human action` | `merged-unchanged` / `merged-after-substantive-change` / `not-merged` / `reverted` — nothing else; an auto-merge records `merged-unchanged` at merge and the human amends it |
 | `stage` | `2` if an independent-model adversary leg ran, else `1`; never pooled |
 
 `not-merged` is for a close-out that stopped on a guard before the question was
@@ -141,7 +168,7 @@ asked, never a guess at the answer. **Append only after every branch reads
 the PR, so before the merge there is nothing to record.
 
 `python3 scripts/lifecycle.py shadow-row … --apply` writes the row and rewrites
-the section's `Count toward 40:` line from the table; without `--apply` it
+the section's `Count toward 20:` line from the table; without `--apply` it
 prints both and writes nothing. The row rides the close-out's existing Mind
 commit and push — never its own.
 

@@ -15,6 +15,9 @@ runs to the end without asking again — but still refuses on red, pending,
 conflicting, an unmerged upstream library PR or sibling branch, and asks once
 before deleting a worktree holding irreplaceable data products.
 
+The shipping session also runs it in-turn for a declared `notify` / witnessed
+`glance` task its approved plan authorized (`prm.md` "Tiered merge").
+
 Read only the applicable step/environment from linked references, not all files.
 Reuse unchanged instructions already loaded; follow [CONTEXT.md](../CONTEXT.md)
 for bounded output and repository paths.

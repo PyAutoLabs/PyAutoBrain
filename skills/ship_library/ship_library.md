@@ -103,7 +103,7 @@ step or evidence leg fails, stop and report — do not proceed.
 3 note); then ship **without interactive sign-off** — the PR body additionally
 carries the `## Validation checklist` section
 ([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run
-**stops at PR-open** (merge stays human, always), a calibration row is
+**stops at PR-open** unless step 6's declared tier merges it, a calibration row is
 appended to `PyAutoMind/autonomy_log.md` (its **first** table, never the
 Shadow window at the end — [`reference.md`](reference.md) → "Which table"),
 and `active.md` moves to
@@ -120,7 +120,8 @@ Analyse downstream workspace impact and present data-driven options — see
   "Library PR Created" progress comment, set `active.md` to
   `library-shipped, workspace-pending`, add `library-pr:`, push Mind.
 - **(iii)** no workspace impact → run `/smoke_test` (with `activate.sh` sourced).
-  On pass, offer to merge the library PR, post a "Shipped" comment, write the
+  On pass — unless step 6's tiered merge applies, whose `/prm` close-out does
+  all of this itself — offer to merge the library PR, post a "Shipped" comment, write the
   dated completion record (`lifecycle.py record` — also refreshes the index
   and prunes the `active.md` entry), push Mind. On fail, report and suggest `/start_workspace`
   (likely option ii); do not merge, do not clean up `active.md`.
@@ -128,10 +129,35 @@ Analyse downstream workspace impact and present data-driven options — see
 Comment templates and Mind-state transitions are in [`reference.md`](reference.md)
 → "Issue comments + Mind state".
 
-**Under `--auto`:** run the same analysis but never merge and never offer to —
-post the data-driven recommendation (i/ii/iii, affected scripts) to the issue
-and end the run at PR-open. Routing into `/start_workspace` happens on the
+**Under `--auto`:** run the same analysis but never merge or offer to here —
+the only merge is step 6's tiered one — post the data-driven recommendation
+(i/ii/iii, affected scripts) to the issue and end the run at PR-open (or at
+step 6's merge). Routing into `/start_workspace` happens on the
 next human (or queued) launch.
+
+### 6. Merge by declared tier (post-PR-open)
+
+Who merges follows the prompt's **declared** `Consequence:` header —
+[`../../AUTONOMY.md`](../../AUTONOMY.md) "Merge authority follows Consequence
+— 2026-10-02" is the rule; this step only routes to it:
+
+- **`notify`**, or **`glance` with the `Witness:` check passed**, and the
+  approved plan (or `--auto` / batch launch) stated `auto-merge on green` →
+  wait for CI **inside this turn** (one background `gh pr checks <n> --watch`,
+  capped ~60 min; no timer, wake-up or subscription), then run the
+  [`/prm`](../prm/prm.md) procedure from its step 2 — judge, merge, close-out —
+  exactly as a human-typed `/prm` would. For `glance`, the close-out appends
+  the Shadow-window row and the ledger ends with the post-merge summary.
+  When step 5 routed the task to `/start_workspace` (options i / ii), merge the
+  library PR but **run no close-out** — the task stays open as
+  `library-shipped, workspace-pending`, and the close-out runs at the workspace
+  PR's own tiered merge.
+- **`judge`, no declared header**, a `decision-taken` PR, a Heart RED-override
+  or corrective-PR-exception ship, or any red / pending-at-cap / conflicting /
+  SKIPPED leg → **stop at PR-open**; the human runs `/prm`.
+
+`gh pr merge` is a bare, unchained Bash call; if denied, stop and report.
+
 
 ## Notes
 
