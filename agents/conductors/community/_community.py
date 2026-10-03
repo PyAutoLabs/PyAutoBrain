@@ -84,8 +84,8 @@ def gh_json(args):
         r = subprocess.run(
             [GH, "api", *args], capture_output=True, text=True, timeout=120
         )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        fail(4, f"cannot run '{GH} api': {e}")
+    except (OSError, subprocess.TimeoutExpired):
+        return None
     if r.returncode != 0:
         return None
     try:
@@ -95,7 +95,7 @@ def gh_json(args):
 
 
 def is_self(user):
-    return (user or {}).get("login") in SELF_LOGINS
+    return ((user or {}).get("login") or "").casefold() in {s.casefold() for s in SELF_LOGINS}
 
 
 def days_since(iso):
@@ -192,7 +192,7 @@ def pr_block(owner_repo, number):
     }
 
 
-def _signals(body):
+def _signals(body, category=None):
     low = body.lower()
     present = {
         "code_block": "```" in body,
@@ -201,9 +201,30 @@ def _signals(body):
         "expected_vs_actual": bool(re.search(r"expect|should\b|instead\b", low)),
         "data_pointer": bool(re.search(r"\.fits\b|zenodo|drive\.google|dataset", low)),
     }
+    present.update({
+        "assumptions": bool(re.search(r"assum|prior|model", low)),
+        "inference_goal": bool(re.search(r"infer|measure|constrain|estimate|scientific question", low)),
+        "use_case": bool(re.search(r"use.case|workflow|currently|need to", low)),
+        "desired_outcome": bool(re.search(r"would like|goal|outcome|enable|so that", low)),
+    })
+    signals = TRIAGE_SIGNALS
+    if category == "Help & Questions":
+        signals = (
+            ("assumptions", "the scientific assumptions or model you are using"),
+            ("data_pointer", "the data and relevant characteristics of the dataset"),
+            ("inference_goal", "the inference goal and what you are trying to understand"),
+        )
+    elif category == "Ideas & Proposals":
+        signals = (
+            ("use_case", "the use case and current workflow this would improve"),
+            ("desired_outcome", "the desired outcome and how you would judge success"),
+        )
+    elif category in BROADCAST_CATEGORIES:
+        signals = ()
+    present = {key: present[key] for key, _ in signals}
     missing = [
         {"signal": key, "ask": ask}
-        for key, ask in TRIAGE_SIGNALS
+        for key, ask in signals
         if not present[key]
     ]
     return present, missing
@@ -220,18 +241,48 @@ def _tail(comments):
     ]
 
 
+def _comments(owner_repo, number, kind, thread):
+    """One bounded GET only. Discussion replies and PR reviews are not read here."""
+    raw = gh_json([f"repos/{owner_repo}/{kind}/{number}/comments",
+                   "-X", "GET", "-f", "per_page=100"])
+    valid = isinstance(raw, list) and all(isinstance(c, dict) for c in raw)
+    comments = raw[:100] if valid else []
+    reasons = []
+    count = thread.get("comments")
+    if not valid:
+        reasons.append("comments unavailable or malformed")
+    elif len(raw) >= 100:
+        reasons.append("100-comment bound reached; later comments may be missing")
+    elif not isinstance(count, int) or isinstance(count, bool) or count != len(raw):
+        reasons.append("reported comment count missing or differs from bounded read")
+    if kind == "discussions":
+        reasons.append("nested Discussion replies are not covered by this bounded read")
+    if "pull_request" in thread:
+        reasons.append("PR reviews and inline review threads are not covered by this bounded read")
+    if any(not (c.get("user") or {}).get("login") for c in comments):
+        reasons.append("comment author deleted or unknown")
+    tail = _tail(comments)
+    last = comments[-1].get("user") if comments else thread.get("user")
+    if not (last or {}).get("login"):
+        reasons.append("latest author deleted or unknown")
+    return tail, {
+        "status": "unavailable" if not valid else "partial" if reasons else "complete",
+        "limit": 100, "observed": len(comments), "reported": count,
+        "tail_scope": "last three of the bounded read, not necessarily latest in thread",
+        "reasons": reasons,
+    }, None if reasons else not is_self(last)
+
+
 def build_discussion_triage(owner_repo, number):
     d = gh_json([f"repos/{owner_repo}/discussions/{number}"])
     if d is None:
         fail(4, f"cannot fetch discussion {owner_repo}/discussions/{number} "
                 "(gh auth? Discussions enabled there?)")
     body = d.get("body") or ""
-    present, missing = _signals(body)
-    comments = gh_json([f"repos/{owner_repo}/discussions/{number}/comments", "-f", "per_page=100"]) or []
-    tail = _tail(comments)
-    last = tail[-1]["author"] if tail else (d.get("user") or {}).get("login")
-    answered = d.get("answer_chosen_at") is not None
     category = (d.get("category") or {}).get("name")
+    present, missing = _signals(body, category)
+    tail, coverage, awaiting = _comments(owner_repo, number, "discussions", d)
+    answered = d.get("answer_chosen_at") is not None
     return {
         "type": "discussion",
         "pr": None,
@@ -240,7 +291,7 @@ def build_discussion_triage(owner_repo, number):
         "url": d.get("html_url"),
         "title": d.get("title", ""),
         "author": (d.get("user") or {}).get("login"),
-        "author_is_external": not is_self(d.get("user")),
+        "author_is_external": not is_self(d.get("user")) if (d.get("user") or {}).get("login") else None,
         "state": d.get("state"),
         "category": category,
         "answered": answered,
@@ -249,23 +300,23 @@ def build_discussion_triage(owner_repo, number):
         "signals_present": present,
         "signals_missing": missing,
         "comment_tail": tail,
-        "awaiting_response": (
-            not answered and category not in BROADCAST_CATEGORIES
-            and last is not None and last not in SELF_LOGINS
-        ),
+        "comment_coverage": coverage,
+        "awaiting_response": False if answered or category in BROADCAST_CATEGORIES else awaiting,
+        "delivery_state": "unknown",
         "route": (
             f"answer in the thread {d.get('html_url')} — the session drafts the "
             "reply, the human posts it and, in an answerable category, marks "
             "the settling answer; a confirmed bug or accepted proposal -> "
             "open the issue on the target repo with a link back, route it via "
             "/start_dev_for_user. In Ideas & Proposals, mark the verdict comment "
-            "(acceptance with the issue link, or a recorded no) as the answer"
+            "(acceptance with the issue link, or a recorded no) as the answer; "
+            "acceptance is a decision, not evidence of implementation or delivery"
         ),
         "reminders": [
             "the session judges sufficiency — these signals are heuristics, not a verdict",
             "every outward reply is drafted and shown to the human before posting",
             "a discussion is the user's surface: never convert it to an issue in place — "
-            "open the issue (reproducer required) and link both ways",
+            "open the issue (reproducer for bugs; use case and outcome for proposals) and link both ways",
             "a remote/proxied session cannot post to, answer or convert a Discussion "
             "(REST is read-only, the proxy refuses GraphQL) — there the human clicks; a local "
             "CLI with authenticated gh can, via GraphQL, once the human has approved the text",
@@ -284,9 +335,7 @@ def build_triage(ref):
 
     present, missing = _signals(body)
 
-    comments = gh_json([f"repos/{owner_repo}/issues/{number}/comments", "-f", "per_page=100"]) or []
-    tail = _tail(comments)
-    last = tail[-1]["author"] if tail else (issue.get("user") or {}).get("login")
+    tail, coverage, awaiting = _comments(owner_repo, number, "issues", issue)
 
     is_pr = "pull_request" in issue
     return {
@@ -297,14 +346,15 @@ def build_triage(ref):
         "url": issue.get("html_url"),
         "title": issue.get("title", ""),
         "author": (issue.get("user") or {}).get("login"),
-        "author_is_external": not is_self(issue.get("user")),
+        "author_is_external": not is_self(issue.get("user")) if (issue.get("user") or {}).get("login") else None,
         "state": issue.get("state"),
         "labels": [l.get("name") for l in issue.get("labels", [])],
         "body": body,
         "signals_present": present,
         "signals_missing": missing,
         "comment_tail": tail,
-        "awaiting_response": last not in SELF_LOGINS,
+        "comment_coverage": coverage,
+        "awaiting_response": awaiting,
         "route": (
             f"human review of PR {issue.get('html_url')} — session drafts the "
             f"review comments (this is NOT the ship-gate review faculty)"
@@ -326,7 +376,8 @@ def print_triage(t):
     print(f"== CommunityTriage — {t['repo']}#{t['number']} ({kind}) ==")
     print(f"Title:                {t['title']}")
     print(f"Author:               @{t['author']}"
-          + (" (external)" if t["author_is_external"] else " (self)"))
+          + (" (unknown)" if t["author_is_external"] is None else
+             " (external)" if t["author_is_external"] else " (self)"))
     print(f"State:                {t['state']}   Labels: {', '.join(t['labels']) or '(none)'}")
     if t["type"] == "discussion":
         print(f"Category:             {t['category'] or '(none)'}   Answered: {t['answered']}")
@@ -337,6 +388,9 @@ def print_triage(t):
               f"   draft={p['draft']}   mergeable={p['mergeable_state']}   {p['head']} -> {p['base']}")
         print(f"Review requested:     {reviewers}")
     print(f"Awaiting response:    {t['awaiting_response']}")
+    print(f"Comment coverage:     {t['comment_coverage']['status']} (bounded to 100)")
+    for reason in t["comment_coverage"]["reasons"]:
+        print(f"Coverage gap:         {reason}")
     print("Context signals:")
     for key, ok in t["signals_present"].items():
         print(f"  {'+' if ok else '-'} {key}")
@@ -345,7 +399,7 @@ def print_triage(t):
         for m in t["signals_missing"]:
             print(f"  ? {m['ask']}")
     if t["comment_tail"]:
-        print("Comment tail:")
+        print("Comment tail (last three of bounded read):")
         for c in t["comment_tail"]:
             print(f"  @{c['author']} ({c['created_at']}): {c['excerpt'][:100]}")
     print(f"Route:                {t['route']}")
