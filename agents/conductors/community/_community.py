@@ -139,6 +139,9 @@ def print_scan(s):
         print(f"Review requested:     {c['awaiting_review']}")
         for e in s["awaiting_review"]:
             print(f"  * {e['repo']}#{e['number']} @{e['author']}: {e['title'][:70]}")
+    for delivery in s.get('follow_through', []):
+        owed = ' — contributor update owed' if delivery['update_owed'] is True else ''
+        print(f"Delivery:             {delivery['discussion']} — {delivery['state']}{owed}")
     print(f"Next action:          {s['next_action']}")
 
 

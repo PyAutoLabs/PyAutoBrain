@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import urllib.request
+from urllib.parse import unquote
 from datetime import datetime, timedelta, timezone
 
 MAX_BYTES = 8 * 1024 * 1024
@@ -76,6 +77,42 @@ def validate(snapshot, state):
                 raise ValueError("invalid conversation state")
         if row.get("waiting_since") is not None:
             timestamp(row["waiting_since"])
+        if 'closed' in row and type(row['closed']) is not bool:
+            raise ValueError('invalid closed state')
+    validate_delivery(snapshot.get('follow_through', []), snapshot['conversations'])
+
+
+def validate_delivery(rows, conversations):
+    """Validate the optional projection without depending on an Ears checkout."""
+    discussions = {r['url'] for r in conversations if r['kind'] == 'discussion'}
+    seen = set()
+    if not isinstance(rows, list):
+        raise ValueError('invalid delivery projection')
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {'discussion', 'state', 'update_owed', 'evidence', 'gaps'}:
+            raise ValueError('unknown delivery fields')
+        if row['discussion'] not in discussions or row['discussion'] in seen:
+            raise ValueError('invalid delivery source')
+        seen.add(row['discussion'])
+        if row['state'] not in {'accepted', 'in_development', 'merged_unreleased', 'available', 'declined', 'unknown'}:
+            raise ValueError('invalid delivery state')
+        if row['update_owed'] is not None and (type(row['update_owed']) is not bool or row['state'] != 'available'):
+            raise ValueError('invalid delivery update')
+        if not isinstance(row['gaps'], list) or any(not isinstance(g, str) for g in row['gaps']):
+            raise ValueError('invalid delivery gaps')
+        if not isinstance(row['evidence'], list):
+            raise ValueError('invalid delivery evidence')
+        kinds = set()
+        for e in row['evidence']:
+            if not isinstance(e, dict) or set(e) != {'url', 'repo', 'kind'} or not REPO.fullmatch(e['repo']):
+                raise ValueError('invalid delivery reference')
+            suffix = {'issue': r'issues/[1-9][0-9]*', 'PR': r'pull/[1-9][0-9]*',
+                      'release': r'releases/tag/[A-Za-z0-9_.%/-]+'}.get(e['kind'])
+            if not suffix or not re.fullmatch(r'https://github\.com/' + re.escape(e['repo']) + '/' + suffix, e['url']) or '..' in unquote(e['url']).split('/'):
+                raise ValueError('unsafe delivery reference')
+            kinds.add(e['kind'])
+        if row['state'] == 'available' and (kinds != {'issue', 'PR', 'release'} or row['gaps']):
+            raise ValueError('available delivery lacks evidence')
 
 
 def adapt(snapshot, state, self_logins, org, hub, current=None):
@@ -101,14 +138,14 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
         # unknown; do not infer a last actor or fetch comments to fill them.
         since = source.get("waiting_since")
         row = {k: source[k] for k in ("repo", "number", "title", "author", "url", "category", "answered", "coverage", "cached")}
-        row.update(type=source["kind"], labels=[], comments=None,
+        row.update(type=source["kind"], closed=source.get('closed', False), labels=[], comments=None,
                    updated_at=None, last_actor=None,
                    awaiting_response=None if stale or source["cached"] else source["awaiting_response"],
                    waiting_days=round(max(0, (generated - timestamp(since)).total_seconds()) / 86400, 1) if since else None,
                    review_requested=source["review_requested"],
                    observed_awaiting_response=source["awaiting_response"])
         rows.append(row)
-    discussions = [r for r in rows if r["type"] == "discussion"]
+    discussions = [r for r in rows if r["type"] == "discussion" and not r['closed']]
     issues = [r for r in rows if r["type"] == "issue"]
     selves = {login.casefold() for login in self_logins}
     prs = [r for r in rows if r["type"] == "pr" and r["author"].casefold() not in selves and not r["author"].endswith("[bot]")]
@@ -117,6 +154,12 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
     unknown = sum(r["awaiting_response"] is None or r["coverage"] != "complete" for r in rows)
     if unknown:
         degraded.append(f"Ears: {unknown} conversation(s) with unknown response state or incomplete coverage")
+    delivery = [dict(r, observed_state=r['state'],
+                     state='unknown' if stale else r['state'],
+                     update_owed=None if stale else r['update_owed'])
+                for r in snapshot.get('follow_through', [])]
+    if any(r['state'] == 'unknown' for r in delivery):
+        degraded.append('Delivery evidence is incomplete; unknown is not delivered')
     return {
         "self_logins": self_logins, "org": org, "hub": hub,
         "extra_repos": [r["repo"] for r in receipts if not r["repo"].startswith(org + "/")],
@@ -127,6 +170,7 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
                    "awaiting_response": len(awaiting), "unknown": unknown},
         "degraded": degraded, "generated": snapshot["generated"],
         "stale": stale, "source": "ears", "coverage": receipts,
+        "follow_through": delivery,
         "valid_until": state["valid_until"],
         "next_action": "Use community triage <ref> to assess context and draft a reply for human approval; this surface posts nothing",
     }
