@@ -14,6 +14,7 @@ it and adds the framework/instance distinction an adopter needs.
 | **Cortex** | PyAutoCortex | *Keeps track of what is true* — the science body map (`projects.yaml`) and one ledger per science project (`## Now`, the `## Runs` on the cluster, a `## Log` that only gets longer); the science mirror of the Mind (runs and a dated log ↔ prompts and PRs). Not a task tracker: it records cluster facts and the human's words, never a verdict of its own. |
 | **Memory** | PyAutoMemory | *Knows* — long-term domain knowledge: literature wikis, concepts, bibliographies. Pull-only; consulted, never load-bearing at runtime. |
 | **Eyes** | PyAutoEyes | *Sees* — the cross-project visualization registry, manifest read contract and dashboard. Project repos render and hold figures; Eyes links to them. The Brain's Eyes conductor handles judgment. |
+| **Ears** | PyAutoEars | The Ears — the community listening organ: owns read-only public conversation collection, the versioned community snapshot contract, coverage receipts and the dashboard. GitHub conversations remain authoritative; Brain’s Community conductor owns judgement, reply drafts and development routing, and Mind owns task state. Never posts replies, labels or issues, exports raw transcripts or private sources, or treats unknown coverage as no work. |
 | **Heart** | PyAutoHeart | Decides whether the organism is *healthy*. `pyauto-heart readiness` is the authoritative GREEN/YELLOW/RED release gate. An observer: never writes into other repos, never triggers a build. |
 | **Hands** | PyAutoHands | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
 | **Pulse** | PyAutoPulse | *Feels* — the cross-project profiling registry, the versioned `profiling-summary` read contract, ingest receipts and dashboard. Project repos produce and hold timings; Pulse validates the exchange and links to them. The Brain's profiling conductor handles judgment. |
@@ -59,10 +60,10 @@ The organs split on one line that matters for adoption:
   pipelines. Domain facts appear only in declared config surfaces (tables
   and policy files, not logic), and a drift check — the
   {ref}`tenant firewall <tenant-firewall>` — keeps it that way.
-- **Instance organs — Mind, Cortex, Memory, Eyes, Pulse, Gut.** Committed
+- **Instance organs — Mind, Cortex, Memory, Eyes, Ears, Pulse, Gut.** Committed
   state, ledgers, knowledge, visualization and profiling registries and shed
   material. These are *inherently yours*: an adopter never forks the upstream
-  Mind, Cortex, Memory, Eyes, Pulse or Gut content, they create their own repos with the same documented
+  Mind, Cortex, Memory, Eyes, Ears, Pulse or Gut content, they create their own repos with the same documented
   shape.
 
 One more principle worth knowing before you read anything else:

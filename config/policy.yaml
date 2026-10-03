@@ -126,6 +126,7 @@ test_witness:
   pyautomind: PyAutoMind/tests
   pyautocortex: PyAutoCortex/tests
   pyautoeyes: PyAutoEyes/tests
+  pyautoears: PyAutoEars/tests
   pyautopulse: PyAutoPulse/tests
   # PyAutoGut has no test suite — deliberately absent, so the conductor's
   # "strengthen tests first" advice is correct there rather than noise.
@@ -172,6 +173,7 @@ board:
     cortex: PyAutoCortex
     memory: PyAutoMemory
     eyes: PyAutoEyes
+    ears: PyAutoEars
     heart: PyAutoHeart
     hands: PyAutoHands
     pulse: PyAutoPulse
