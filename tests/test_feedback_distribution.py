@@ -37,7 +37,9 @@ def test_clone_boundary_keeps_portable_skill_generic():
     import sys
     sys.path.insert(0, str(ROOT / 'agents/conductors/clone'))
     import _clone
-    patterns = _clone.reference_profile('autolens_assistant')['generic']
-    for path in ('skills/feedback.md', '.claude/skills/feedback.md', '.claude/commands/feedback.md'):
-        assert _clone.match_any(path, patterns)
-    assert not _clone.match_any('.codex/skills/autolens-assistant-feedback/SKILL.md', patterns)
+    for reference in _clone.REFERENCE_PROFILES:
+        patterns = _clone.reference_profile(reference)['generic']
+        for path in ('skills/feedback.md', '.claude/skills/feedback.md', '.claude/commands/feedback.md'):
+            assert _clone.match_any(path, patterns)
+        namespace = reference.replace('_', '-')
+        assert not _clone.match_any(f'.codex/skills/{namespace}-feedback/SKILL.md', patterns)
