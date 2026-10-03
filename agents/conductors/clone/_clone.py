@@ -81,6 +81,7 @@ _SHARED_GENERIC = [
     "modes/*",                    # Teacher/Assistant mode machinery
     "skills/_style.md", "skills/_bootstrap_skill.md", "skills/README.md",
     "skills/start-new-project*", "skills/contribute-upstream*",
+    "skills/feedback.md",          # portable user-reviewed feedback, no domain
     "sources.yaml", "sources/*",  # the source-registry pattern
     "autoassistant/*",            # API gate + wiki-currency + benchmark tooling
     ".mcp.json",                  # wires the results-inspector MCP, which is
@@ -97,8 +98,10 @@ _SHARED_GENERIC = [
     ".claude/hooks/*", ".claude/settings.json", ".codex/hooks.json", ".gemini/*",
     ".claude/skills/_*", ".claude/skills/start-new-project*",
     ".claude/skills/contribute-upstream*",
+    ".claude/skills/feedback.md",
     ".claude/commands/_*", ".claude/commands/start-new-project*",
     ".claude/commands/contribute-upstream*",
+    ".claude/commands/feedback.md",
 ]
 
 # Domain content a newborn regenerates/stubs rather than copies blind, shared
