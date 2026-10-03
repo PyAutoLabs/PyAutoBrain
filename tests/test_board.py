@@ -292,6 +292,20 @@ def _fabricate(tmp_path, fixtures, heart_board=None):
     (pages / brain_repo / "board.json").write_text(
         json.dumps(BRAIN_PREV_BOARD_JSON))
 
+    # Community comes only from the organ's published snapshot/state pair.
+    from ears_fixtures import row, write_feed
+    community_rows = []
+    for key, kind in (("comm_issues.json", "issue"), ("comm_prs.json", "pr"),
+                      ("comm_discussions.json", "discussion")):
+        raw = fixtures.get(key, [])
+        raw = raw.get("items", []) if isinstance(raw, dict) else raw
+        for item in raw:
+            repo = item.get("repository_url", "https://api.github.com/repos/ExampleOrg/.github").split("/repos/")[-1]
+            actor = (item.get("user") or {}).get("login", "visitor")
+            community_rows.append(row(kind, item["number"], repo,
+                awaiting=item.get("ears_awaiting", True), author=actor, title=item["title"]))
+    write_feed(pages / board_cfg["boards"].get("ears", "PyAutoEars"), community_rows)
+
     fixture_dir = tmp_path / "fixtures"
     fixture_dir.mkdir()
     for name, payload in fixtures.items():
@@ -657,6 +671,7 @@ def test_broadcast_discussion_is_visible_as_ours_to_watch(tmp_path):
     thread = {
         **_community_item("ExampleOrg/RepoA", 21, "visitor", "release feedback"),
         "html_url": url,
+        "ears_awaiting": False,  # Ears owns broadcast classification.
         "category": {"name": "Announcements"},
         "state": "open",
         "answer_chosen_at": None,
@@ -1060,8 +1075,7 @@ def test_missing_mind_degrades_honestly(tmp_path):
     s = json.loads(r.stdout)
     # Org falls back to the Brain checkout's own remote; the community and
     # resume sections degrade into listed reasons, never fabricated content.
-    assert s["community"] is None
-    assert any("community" in d for d in s["degraded"])
+    assert s["community"]["source"] == "ears"
     assert any("resume" in d for d in s["degraded"])
     assert s["resume"]["tasks"] == []
 

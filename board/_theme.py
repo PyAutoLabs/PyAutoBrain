@@ -104,6 +104,12 @@ ORGANS = {
         "ink_light": "#7d6300", "ink_dark": "#f5c518", "glow": "#ffc933",
         "hero": ("#2e2503", "#000000"),
     },
+    "ears": {
+        "organ": "Ears",
+        "tagline": "Listen. Understand. Follow through.",
+        "ink_light": "#96520b", "ink_dark": "#ffc078", "glow": "#ffc078",
+        "hero": ("#36200d", "#080503"),
+    },
     "heart": {
         "organ": "Heart",
         "tagline": "Check. Validate. Protect.",
@@ -307,6 +313,11 @@ MARKS = {
     ),
     # Heart — a heart outline crossed by an ECG trace, with the check badge
     # sitting in the ring's lower-right gap.
+    "ears": (
+        '<path stroke="currentColor" d="M15 22c-5-18 23-23 24-4 '
+        '0 9-10 10-11 19-1 8-12 8-13 0m6-17c-1-9 11-10 12-2 '
+        '0 5-8 6-8 12"/>'
+    ),
     "heart": (
         '<path d="M30.4,43.4 A20.4,20.4 0 1 1 43.2,31.0"/>'
         '<path d="M24.0,34.5 L15.3,25.8 '

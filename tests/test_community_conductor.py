@@ -131,65 +131,10 @@ def _run(args, tmp_path, stub):
     )
 
 
-def test_scan_json_is_a_complete_surface_and_filters_bots(tmp_path):
-    stub = _fabricate(tmp_path, {
-        **EMPTY_SEARCHES,
-        "search_org_issues.json": {"items": [
-            _item("PyAutoLabs/PyAutoLens", 1, "some_user", "lens model crashes"),
-            _item("PyAutoLabs/PyAutoLens", 2, "dependabot[bot]", "bump", user_type="Bot"),
-        ]},
-    })
-    r = _run(["scan", "--json"], tmp_path, stub)
-    assert r.returncode == 0, r.stderr
-    s = json.loads(r.stdout)
-    assert set(s) == SCAN_KEYS
-    assert s["org"] == "PyAutoLabs"
-    assert s["extra_repos"] == ["Jammy2211/admin_jammy"]
-    assert [e["author"] for e in s["open_external_issues"]] == ["some_user"]
-    assert s["open_external_issues"][0]["type"] == "issue"
-    assert s["counts"] == {
-        "open_discussions": 0, "open_external": 1, "open_external_prs": 0,
-        "awaiting_review": 0, "awaiting_response": 1,
-    }
-    # Uncommented external issue: the author had the last word -> awaiting us.
-    assert s["awaiting_response"][0]["last_actor"] == "some_user"
 
 
-def test_scan_last_word_ours_is_not_awaiting(tmp_path):
-    stub = _fabricate(tmp_path, {
-        **EMPTY_SEARCHES,
-        "search_org_issues.json": {"items": [
-            _item("PyAutoLabs/PyAutoLens", 3, "some_user", "feature request", comments=2),
-        ]},
-        "comments.json": [
-            {"user": {"login": "some_user"}, "created_at": "t1", "body": "ping"},
-            {"user": {"login": "Jammy2211"}, "created_at": "t2", "body": "on it"},
-        ],
-    })
-    s = json.loads(_run(["scan", "--json"], tmp_path, stub).stdout)
-    assert s["counts"]["awaiting_response"] == 0
-    assert s["open_external_issues"][0]["awaiting_response"] is False
-    assert s["open_external_issues"][0]["last_actor"] == "Jammy2211"
 
 
-def test_scan_hears_external_prs_and_review_requests(tmp_path):
-    stub = _fabricate(tmp_path, {
-        **EMPTY_SEARCHES,
-        "search_org_prs.json": {"items": [
-            _item("PyAutoLabs/PyAutoLens", 40, "contributor", "add cored profile"),
-        ]},
-        "search_org_review.json": {"items": [
-            _item("PyAutoLabs/PyAutoFit", 41, "rhayes777", "please review: validation"),
-        ]},
-    })
-    s = json.loads(_run(["scan", "--json"], tmp_path, stub).stdout)
-    assert s["counts"]["open_external_prs"] == 1
-    assert s["counts"]["awaiting_review"] == 1
-    pr = s["open_external_prs"][0]
-    assert pr["type"] == "pr" and pr["author"] == "contributor"
-    # An uncommented external PR is a conversation awaiting our response too.
-    assert any(e["type"] == "pr" and e["number"] == 40 for e in s["awaiting_response"])
-    assert s["awaiting_review"][0]["repo"] == "PyAutoLabs/PyAutoFit"
 
 
 def test_triage_issue_signals_and_missing_asks(tmp_path):
@@ -245,17 +190,6 @@ def test_triage_pr_ref_carries_the_change_shape_block(tmp_path):
     assert "human review" in t["route"] and "/start_dev_for_user" not in t["route"]
 
 
-def test_never_writes_and_never_mutates_github(tmp_path):
-    stub = _fabricate(tmp_path, EMPTY_SEARCHES)
-    before = {p for p in tmp_path.rglob("*")}
-    r = _run(["scan", "--json"], tmp_path, stub)
-    assert r.returncode == 0, r.stderr
-    after = {p for p in tmp_path.rglob("*")}
-    assert after - before == {tmp_path / "gh_calls.log"}
-    calls = (tmp_path / "gh_calls.log").read_text()
-    assert "-X POST" not in calls and "-X PATCH" not in calls and "-X DELETE" not in calls
-    # Every call is `gh api` reads driven through the one entry point.
-    assert all(line.startswith("api ") for line in calls.strip().splitlines())
 
 
 def test_bad_ref_and_unknown_mode_fail_loudly(tmp_path):
@@ -265,57 +199,11 @@ def test_bad_ref_and_unknown_mode_fail_loudly(tmp_path):
     assert _run(["gossip"], tmp_path, stub).returncode == 5
 
 
-def test_scan_degrades_honestly_when_search_fails(tmp_path):
-    stub = _fabricate(tmp_path, {"comments.json": []})  # no search fixtures -> stub exits 1
-    r = _run(["scan", "--json"], tmp_path, stub)
-    assert r.returncode == 0, r.stderr
-    s = json.loads(r.stdout)
-    assert s["counts"]["open_external"] == 0
-    # 2 qualifier groups (org + non-org) x 3 searches (issue, pr, review),
-    # plus the hub's discussions listing.
-    assert len(s["degraded"]) == 7
-    assert any("discussions" in d for d in s["degraded"])
 
 
 HUB = "PyAutoLabs/.github"
 
 
-def test_scan_hears_the_hub_and_only_unanswered_threads_await(tmp_path):
-    """The Discussions hub (policy/community_surface.md) is scanned beside
-    the trackers: an accepted answer settles a thread without a comment
-    lookup; otherwise the last word decides, as for an issue. Closed,
-    locked and bot threads never surface."""
-    stub = _fabricate(tmp_path, {
-        **EMPTY_SEARCHES,
-        "discussions.json": [
-            _discussion(HUB, 11, "asker", "how do I mask my data?"),
-            _discussion(HUB, 12, "asker", "answered already", comments=2, answered=True),
-            _discussion(HUB, 13, "asker", "we replied last", comments=1),
-            _discussion(HUB, 14, "asker", "converted issue", state="closed"),
-            _discussion(HUB, 15, "asker", "locked thread", locked=True),
-            {**_discussion(HUB, 16, "dependabot[bot]", "bot post"),
-             "user": {"login": "dependabot[bot]", "type": "Bot"}},
-        ],
-        "discussion_comments.json": [{"user": {"login": "Jammy2211"}, "body": "hi"}],
-    })
-    r = _run(["scan", "--json"], tmp_path, stub)
-    assert r.returncode == 0, r.stderr
-    s = json.loads(r.stdout)
-    assert s["hub"] == HUB
-    assert s["counts"]["open_discussions"] == 3
-    assert {d["number"] for d in s["open_discussions"]} == {11, 12, 13}
-    by_number = {d["number"]: d for d in s["open_discussions"]}
-    assert by_number[11]["awaiting_response"] is True
-    assert by_number[12]["awaiting_response"] is False and by_number[12]["answered"]
-    assert by_number[13]["awaiting_response"] is False
-    assert [e["number"] for e in s["awaiting_response"]] == [11]
-    assert s["awaiting_response"][0]["type"] == "discussion"
-    assert s["awaiting_response"][0]["url"].endswith("/discussions/11")
-    # The human-readable surface names a discussion by its URL — `#N`
-    # would read as an issue when pasted back into `triage`.
-    text = _run(["scan"], tmp_path, stub).stdout
-    assert f"https://github.com/{HUB}/discussions/11" in text
-    assert "Open discussions:     3 on the hub" in text
 
 
 @pytest.mark.parametrize("category,answered,awaiting", [
@@ -345,13 +233,6 @@ def test_discussion_category_and_answer_control_response(
              "body": "an outside comment"},
         ],
     })
-    scan = _run(["scan", "--json"], tmp_path, stub)
-    assert scan.returncode == 0, scan.stderr
-    surface = json.loads(scan.stdout)
-    assert surface["open_discussions"][0]["awaiting_response"] is awaiting
-    assert len(surface["awaiting_response"]) == int(awaiting)
-    assert surface["counts"]["open_discussions"] == 1
-
     triage = _run(["triage", f"{HUB}/discussions/21", "--json"], tmp_path, stub)
     assert triage.returncode == 0, triage.stderr
     context = json.loads(triage.stdout)
@@ -364,33 +245,6 @@ def test_discussion_category_and_answer_control_response(
     assert "accepted proposal" in context["route"]
     assert "in an answerable category" in context["route"]
 
-    readable = _run(["scan"], tmp_path, stub)
-    assert readable.returncode == 0, readable.stderr
-    assert discussion["html_url"] in readable.stdout
-    if not awaiting:
-        assert f"{discussion['html_url']} (ours-to-watch)" in readable.stdout
-
-
-def test_broadcasts_do_not_consume_the_scan_detail_budget(tmp_path):
-    broadcasts = [
-        _discussion(HUB, number, "Jammy2211", "release news", comments=1,
-                    category="Announcements")
-        for number in range(30)
-    ]
-    question = _discussion(HUB, 40, "asker", "still need help", comments=1)
-    question["updated_at"] = "2026-07-09T00:00:00Z"
-    stub = _fabricate(tmp_path, {
-        **EMPTY_SEARCHES,
-        "discussions.json": broadcasts + [question],
-        "discussion_comments.json": [{"user": {"login": "visitor"}, "body": "hi"}],
-    })
-    result = _run(["scan", "--json"], tmp_path, stub)
-    assert result.returncode == 0, result.stderr
-    surface = json.loads(result.stdout)
-    assert [e["number"] for e in surface["awaiting_response"]] == [40]
-    assert all(e["awaiting_response"] is False for e in surface["open_discussions"][:30])
-    calls = (tmp_path / "gh_calls.log").read_text()
-    assert calls.count("/comments") == 1
 
 
 def test_triage_discussion_ref_routes_to_the_thread(tmp_path):

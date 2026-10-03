@@ -17,6 +17,7 @@ organs plan, build, test and release it, and you make every judgment call.
 | **Cortex** | PyAutoCortex | Keeps track of *what is true* — the science body map (`projects.yaml`) and **one ledger per science project** (`## Now`, the `## Runs` on the cluster, a `## Log` that only gets longer); the science mirror of the Mind (runs and a dated log ↔ prompts and PRs). Not a task tracker: it records cluster facts and the human's words, never a verdict of its own. |
 | **Memory** | PyAutoMemory | Long-term knowledge — *what the science says* (literature wikis, concepts, bibliographies). Operational history — *what the organism did* — lives in Mind (the `complete/` records, issues), not here. |
 | **Eyes** | PyAutoEyes | Sees *what the figures look like* across the `<lib>_visualization` project repos. Owns the instance registry, the manifest read contract and the dashboard that links to project-owned PNGs. Project repos own producers, render harnesses, figures and manifests; Eyes renders no figures and copies none. The Brain's Eyes conductor drives review and judgment; accepted critiques route through intake, never directly into library plot code. |
+| **Ears** | PyAutoEars | The Ears — the community listening organ: owns read-only public conversation collection, the versioned community snapshot contract, coverage receipts and the dashboard. GitHub conversations remain authoritative; Brain’s Community conductor owns judgement, reply drafts and development routing, and Mind owns task state. Never posts replies, labels or issues, exports raw transcripts or private sources, or treats unknown coverage as no work. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. `pyauto-heart readiness` is the **authoritative** GREEN/YELLOW/RED "is it safe to release?" gate. An observer: never writes into other repos, never triggers Build. |
 | **Hands** | PyAutoHands | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
 | **Pulse** | PyAutoPulse | Feels *how fast the organism runs* across the `<lib>_profiling` project repos. Owns the profiling instance registry, the versioned `profiling-summary` read contract, the ingest receipts (resolved commit per project per render) and the cross-project board. Validates the exchange contract only; project repos own producers, results, pins, drift policy and their own Pages page. Never moves pins, combines unmatched timings, applies the compile threshold to runtime, computes an ecosystem-wide speed score or issues a readiness verdict; the Brain's profiling conductor (`triage`) is the only judge. |
@@ -99,7 +100,7 @@ human types); let faculties multiply behind them.
 New capability grows as a **faculty** (cheap: one directory, one doc, one
 script), not as a repo. A new organ costs an `AGENTS.md`, a `CLAUDE.md` stub,
 install wiring, a body-map row and boundary prose — it must earn that by
-owning state or effects no existing organ can. Four capabilities have earned
+owning state or effects no existing organ can. Five capabilities have earned
 organ status that way. Configuration/signalling is the **Nerves**
 (PyAutoNerves), the base config/serialization layer every library imports — new
 config surfaces belong there, not in a new organ. Keeping track of what is
@@ -115,7 +116,10 @@ runs is the **Pulse** (PyAutoPulse), the fourth: the same layering over the
 `<lib>_profiling` project repos — it owns the profiling instance registry, the
 versioned `profiling-summary` read contract, the ingest receipts and the
 cross-project board, while each profiling project keeps its producers, results
-and drift policy and the Brain's profiling conductor stays the only judge. A
+and drift policy and the Brain's profiling conductor stays the only judge. Community listening is the **Ears** (PyAutoEars), the fifth: it owns the
+versioned public conversation snapshot, collection coverage receipts and board.
+GitHub owns conversations; Brain owns judgement and approved response routing;
+Mind owns tasks. Unknown or stale coverage never becomes a no-work claim. A
 dashboard alone does not
 waive the state-or-effects requirement for a new organ. The human interaction
 layer is the command surface (`/route` + the verb commands), which is part of

@@ -84,7 +84,7 @@ _pyauto_marked_root() {
 # a legitimate root, so accept any organ sibling.
 _pyauto_is_root() {
     [ -d "$1/PyAutoMind" ] || [ -d "$1/PyAutoCortex" ] || [ -d "$1/PyAutoMemory" ] \
-        || [ -d "$1/PyAutoEyes" ] || [ -d "$1/PyAutoHeart" ] || [ -d "$1/PyAutoHands" ] \
+        || [ -d "$1/PyAutoEars" ] || [ -d "$1/PyAutoEyes" ] || [ -d "$1/PyAutoHeart" ] || [ -d "$1/PyAutoHands" ] \
         || [ -d "$1/PyAutoPulse" ] || [ -d "$1/PyAutoNerves" ] || [ -d "$1/PyAutoGut" ]
 }
 

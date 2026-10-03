@@ -559,7 +559,7 @@ def collect_versions(stamps, org, reference_repo, degraded):
     }
 
 
-def collect_community(degraded):
+def collect_community(degraded, base=None):
     """The Ears' scan surface, reused wholesale (never re-derived): import the
     community conductor and call its build_scan()."""
     sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "community"))
@@ -568,7 +568,9 @@ def collect_community(degraded):
     os.environ.setdefault("COMMUNITY_GH", GH)
     try:
         import _community
-        return _community.build_scan()
+        surface = _community.build_scan(base)
+        degraded.extend(surface["degraded"])
+        return surface
     except SystemExit as e:
         degraded.append(f"community: scan unavailable (exit {e.code})")
     except Exception as e:  # a degraded section, never a dead board
@@ -943,7 +945,7 @@ def collect():
     versions = collect_versions(
         board_cfg.get("version_stamps", []), org,
         board_cfg.get("reference_release_repo"), degraded)
-    community = collect_community(degraded)
+    community = collect_community(degraded, f"{pages_base}/{board_family.get('ears', 'PyAutoEars')}")
     resume = collect_resume(org, degraded)
     cortex = collect_cortex()
     eyes = collect_eyes(board_family.get("eyes", "PyAutoEyes"))
@@ -1317,10 +1319,15 @@ def render_md(data):
     else:
         L.append("- no stamps resolved")
     L.append("")
-    L.append("## 💬 Community")
+    L.append("## 💬 Community · Ears")
+    L.append(f"[Ears board]({data['boards'].get('ears', '')})")
     c = data["community"]
     if c:
         counts = c["counts"]
+        if c.get("generated"):
+            L.append(f"- Ears observed {c['generated']}; valid until {c.get('valid_until', 'unknown')}. Open Ears for current evidence.")
+        for gap in c.get("degraded", []):
+            L.append(f"- **Coverage:** {gap}")
         L.append(f"- {counts.get('open_discussions', 0)} discussion(s) on the hub, "
                  f"{counts['open_external']} external issue(s), "
                  f"{counts['open_external_prs']} external PR(s) open — "
@@ -1679,17 +1686,23 @@ def render_html(data):
         H.append(f'<p class="muted">Latest release tag {esc(v["reference"])} — '
                  "the frozen source stamp trailing it is expected.</p>")
 
-    H.append("<h2>💬 Community</h2>")
+    H.append("<h2>💬 Community · Ears</h2>")
+    if data["boards"].get("ears"):
+        H.append(_plain(f'<a href="{_attr(data["boards"]["ears"])}">Open Ears board ↗</a>'))
     c = data["community"]
     if c:
         counts = c["counts"]
+        if c.get("generated"):
+            H.append(_plain("Ears observed " + esc(c["generated"]) + "; valid until " + esc(c.get("valid_until", "unknown")) + ". Open Ears for current evidence."))
+        for gap in c.get("degraded", []):
+            H.append(_plain('<span class="muted">Coverage: ' + esc(gap) + "</span>"))
         H.append(_row(
             'Replies stay human-gated in <code>/community</code>.'
             + pills((f'{counts.get("open_discussions", 0)} discussion(s)', ""),
                     (f'{counts["open_external"]} issue(s)', "n"),
                     (f'{counts["open_external_prs"]} PR(s)', "n"),
                     (f'{counts["awaiting_response"]} awaiting our reply',
-                     "y" if counts["awaiting_response"] else "g")),
+                     "y" if counts["awaiting_response"] or c.get("degraded") else "g")),
             "Use the community skill."))
 
         def community_row(e, note, tone):

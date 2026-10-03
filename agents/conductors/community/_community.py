@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """agents/conductors/community/_community.py — core for the Community Agent.
 
-The Ears — the organism's receptive language function (Wernicke to the
+Brain's community judgement conductor (Wernicke to the
 Workspace Agent's Broca/Voice: that agent speaks through examples; this one
 hears the community). It reads the outside world's GitHub threads — the
 Discussions hub where users ask (PyAutoMind/policy/community_surface.md) and
 the issues/PRs outsiders still file — and emits deterministic surfaces the
 /community skill reasons over:
 
-  scan     the hub's open discussions (unanswered = no accepted answer and
-           the last word is not ours, except broadcast categories) + every repos.yaml repo -> open issues
-           AND pull requests raised by non-self humans (awaiting-response
-           detection, waiting-time ranking) + open PRs with review requested
-           from a self login (the board's community sensory leg)
+  scan     published PyAutoEars snapshot/state -> legacy scan JSON; source
+           coverage and freshness remain explicit, with no GitHub rescan
   triage   one discussion, issue or PR -> context-sufficiency signals +
            routing surface; PR refs additionally carry the change-shape block
            (draft, files, additions/deletions, requested reviewers, mergeable
@@ -23,7 +20,8 @@ The conductor NEVER posts, labels or edits anything on GitHub and never writes
 files. Every outward message is drafted in the /community skill session and
 gated on the human; dev work routes through /start_dev_for_user.
 
-Stdlib-only. GitHub access is the `gh` CLI (override with COMMUNITY_GH for
+Stdlib-only. Scan reads the public Ears feed (COMMUNITY_EARS_URL override).
+Triage GitHub access is the `gh` CLI (override with COMMUNITY_GH for
 hermetic tests). Exit codes: 0 surface emitted · 4 inputs unresolvable ·
 5 bad usage.
 """
@@ -36,7 +34,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,7 +44,6 @@ from pathlib import Path
 # a non-existent tree in a remote session and reported empty rather than
 # failing.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _repo_paths import repo_path
 import _pyauto_root  # noqa: E402
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
@@ -64,11 +60,6 @@ PRIMARY_ORG = "PyAutoLabs"
 # themselves keep Discussions off.
 HUB = os.environ.get("COMMUNITY_HUB", "PyAutoLabs/.github")
 BROADCAST_CATEGORIES = {"Announcements", "Show and tell"}
-SCAN_DETAIL_CAP = 30  # issues that get a per-issue last-commenter lookup
-# Pause between search-API calls — the scan makes up to six, and GitHub's
-# secondary rate limit trips on rapid bursts (hermetic tests set it to 0).
-SEARCH_PAUSE_S = float(os.environ.get("COMMUNITY_SEARCH_PAUSE", "2"))
-
 # Context signals a well-formed report tends to carry. Each is (key, ask) —
 # the ask is the clarifying-question seed the skill session redrafts in its
 # own words when the signal is missing.
@@ -103,25 +94,6 @@ def gh_json(args):
         return None
 
 
-def repo_homes():
-    """Every `github:` home in PyAutoMind/repos.yaml (regex, stdlib-only —
-    no yaml dependency in the Brain)."""
-    body_map = repo_path(PYAUTO_ROOT, "PyAutoMind") / "repos.yaml"
-    if not body_map.is_file():
-        fail(4, f"body map not found: {body_map} (set PYAUTO_ROOT)")
-    homes = re.findall(
-        r"^\s+github:\s*(\S+)\s*$", body_map.read_text(encoding="utf-8"), re.M
-    )
-    if not homes:
-        fail(4, f"no `github:` entries parsed from {body_map}")
-    return homes
-
-
-def is_bot(user):
-    login = (user or {}).get("login", "")
-    return (user or {}).get("type") == "Bot" or login.endswith("[bot]")
-
-
 def is_self(user):
     return (user or {}).get("login") in SELF_LOGINS
 
@@ -134,194 +106,22 @@ def days_since(iso):
     return round((datetime.now(timezone.utc) - then).total_seconds() / 86400, 1)
 
 
-def search_open(qualifier, kind, extra_quals=""):
-    """Open issues or PRs (`kind` = issue|pr) matching the qualifier; None on
-    a failed search."""
-    q = f"{qualifier} is:{kind} is:open"
-    if extra_quals:
-        q += f" {extra_quals}"
-    if SEARCH_PAUSE_S:
-        time.sleep(SEARCH_PAUSE_S)
-    data = gh_json(["-X", "GET", "search/issues", "-f", f"q={q}", "-f", "per_page=50"])
-    if data is None:
-        return None
-    return data.get("items", [])
-
-
-def search_external(qualifier, kind):
-    not_self = " ".join(f"-author:{login}" for login in SELF_LOGINS)
-    return search_open(qualifier, kind, not_self)
-
-
-def last_commenter(owner_repo, number):
-    """Login of the newest comment's author; None when uncommented/unreadable."""
-    comments = gh_json([f"repos/{owner_repo}/issues/{number}/comments", "-f", "per_page=100"])
-    if not comments:
-        return None
-    return (comments[-1].get("user") or {}).get("login")
-
-
-def issue_repo(item):
-    # search/issues items carry the repo only inside repository_url.
-    return "/".join(item.get("repository_url", "").split("/")[-2:])
-
-
-def list_discussions(hub):
-    """The hub's open discussions (REST, read-only — the only Discussions
-    surface a remote session is served); None when unreadable."""
-    return gh_json([f"repos/{hub}/discussions", "-f", "per_page=100", "-f", "state=open"])
-
-
-def discussion_last_commenter(hub, number):
-    comments = gh_json([f"repos/{hub}/discussions/{number}/comments", "-f", "per_page=100"])
-    if not comments:
-        return None
-    return (comments[-1].get("user") or {}).get("login")
-
-
-def _discussion_entry(d, hub):
-    return {
-        "type": "discussion",
-        "repo": hub,
-        "number": d.get("number"),
-        "title": d.get("title", ""),
-        "author": (d.get("user") or {}).get("login"),
-        "url": d.get("html_url"),
-        "category": (d.get("category") or {}).get("name"),
-        "answered": d.get("answer_chosen_at") is not None,
-        "labels": [l.get("name") for l in d.get("labels", []) or []],
-        "comments": d.get("comments", 0),
-        "updated_at": d.get("updated_at"),
-        "waiting_days": days_since(d.get("updated_at")),
-        "last_actor": None,
-        "awaiting_response": None,
-    }
-
-
-def hub_discussions(hub, degraded):
-    """Open, unlocked, human-authored threads on the hub. An accepted answer
-    settles a thread (awaiting_response=False without a comment lookup);
-    broadcast categories remain ours to watch; otherwise the last word
-    decides, exactly as for an issue."""
-    items = list_discussions(hub)
-    if items is None:
-        degraded.append(f"{hub} discussions listing failed (gh auth? Discussions off?)")
-        return []
-    entries = []
-    for d in items:
-        if d.get("state", "open") != "open" or d.get("locked") or is_bot(d.get("user")):
-            continue
-        entries.append(_discussion_entry(d, hub))
-    return entries
-
-
-def _entry(item, kind):
-    return {
-        "type": kind,
-        "repo": issue_repo(item),
-        "number": item.get("number"),
-        "title": item.get("title", ""),
-        "author": (item.get("user") or {}).get("login"),
-        "url": item.get("html_url"),
-        "labels": [l.get("name") for l in item.get("labels", [])],
-        "comments": item.get("comments", 0),
-        "updated_at": item.get("updated_at"),
-        "waiting_days": days_since(item.get("updated_at")),
-        "last_actor": None,
-        "awaiting_response": None,
-    }
-
-
-def _searched(qualifiers, kind, degraded, external=True):
-    """Run one search per qualifier group, folding failures into `degraded`."""
-    entries = []
-    tag = kind if external else "review-requested"
-    for label, qualifier in qualifiers:
-        items = (
-            search_external(qualifier, kind)
-            if external
-            else search_open(qualifier, kind, "review-requested:" + SELF_LOGINS[0])
-        )
-        if items is None:
-            degraded.append(f"{label} {tag} search failed (gh auth? rate limit?)")
-            continue
-        entries += [_entry(i, kind) for i in items if not is_bot(i.get("user"))]
-    return entries
-
-
-def build_scan():
-    homes = repo_homes()
-    extra = [h for h in homes if not h.startswith(f"{PRIMARY_ORG}/")]
-    qualifiers = [(f"org:{PRIMARY_ORG}", f"org:{PRIMARY_ORG}")]
-    if extra:
-        qualifiers.append(("non-org", " ".join(f"repo:{h}" for h in extra)))
-
-    degraded = []
-    issues = _searched(qualifiers, "issue", degraded)
-    prs = _searched(qualifiers, "pr", degraded)
-    # Review requests target a self login regardless of author (a bot's PR
-    # asking for review is still ours to answer, so no external filter).
-    review_requested = _searched(qualifiers, "pr", degraded, external=False)
-
-    # Awaiting-response = the conversation's last word is not ours. Cap the
-    # per-item lookups; uncapped entries keep awaiting_response=None (unknown).
-    # Uses issue-conversation comments (PR review-thread comments are a known
-    # v2 limit, recorded in AGENTS.md).
-    discussions = hub_discussions(HUB, degraded)
-    for entry in discussions:
-        if entry["answered"] or entry["category"] in BROADCAST_CATEGORIES:
-            entry["awaiting_response"] = False
-    conversations = issues + prs + [
-        d for d in discussions if d["awaiting_response"] is None
-    ]
-    for entry in sorted(
-        conversations, key=lambda e: e["updated_at"] or "", reverse=True
-    )[:SCAN_DETAIL_CAP]:
-        if entry["comments"] == 0:
-            actor = entry["author"]
-        elif entry["type"] == "discussion":
-            actor = discussion_last_commenter(entry["repo"], entry["number"])
-        else:
-            actor = last_commenter(entry["repo"], entry["number"])
-        entry["last_actor"] = actor
-        entry["awaiting_response"] = actor is not None and actor not in SELF_LOGINS
-
-    awaiting = [e for e in issues + prs + discussions if e["awaiting_response"]]
-    awaiting.sort(key=lambda e: e["waiting_days"] or 0, reverse=True)
-    return {
-        "self_logins": SELF_LOGINS,
-        "org": PRIMARY_ORG,
-        "hub": HUB,
-        "extra_repos": extra,
-        "open_discussions": discussions,
-        "open_external_issues": issues,
-        "open_external_prs": prs,
-        "awaiting_review": review_requested,
-        "awaiting_response": awaiting,
-        "counts": {
-            "open_discussions": len(discussions),
-            "open_external": len(issues),
-            "open_external_prs": len(prs),
-            "awaiting_review": len(review_requested),
-            "awaiting_response": len(awaiting),
-        },
-        "degraded": degraded,
-        "next_action": (
-            "pick an item -> `community triage <ref>` -> the /community session "
-            "assesses context, drafts the reply for human approval (a discussion "
-            "is answered in its thread; a confirmed bug gets an issue with a link "
-            "back), and routes actionable work via /start_dev_for_user; this "
-            "surface posts nothing"
-        ),
-    }
+def build_scan(base=None):
+    """Compatibility surface over Ears' published evidence; no GitHub scan."""
+    from _ears_feed import load
+    base = base or os.environ.get(
+        "COMMUNITY_EARS_URL", f"https://{PRIMARY_ORG.lower()}.github.io/PyAutoEars")
+    try:
+        return load(base, SELF_LOGINS, PRIMARY_ORG, HUB)
+    except ValueError as exc:
+        fail(4, str(exc))
 
 
 def print_scan(s):
     print("== CommunityScan — the Ears (reads only; posts nothing) ==")
     print(f"Self logins:          {', '.join(s['self_logins'])}")
     print(f"Hub (discussions):    {s['hub']}")
-    print(f"Searched:             org:{s['org']}"
-          + (f" + {len(s['extra_repos'])} non-org repo(s)" if s["extra_repos"] else ""))
+    print(f"Ears observed:        {s['generated']}")
     for d in s["degraded"]:
         print(f"DEGRADED:             {d}")
     c = s["counts"]

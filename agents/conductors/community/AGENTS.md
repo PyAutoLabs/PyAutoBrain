@@ -1,6 +1,7 @@
 # Community agent
 
-> **Tier: conductor** — a front-door agent you *drive*. The *Ears* — the
+> **Tier: conductor** — a front-door agent you *drive*. Brain judgement over
+> **PyAutoEars**, the
 > organism's receptive language function: it hears the community (the
 > Discussions hub where users ask, plus user-filed GitHub issues and pull
 > requests across every repo) and drafts what the organism says back; the
@@ -35,7 +36,7 @@ gates every outward message.
 
 | Mode | Surface | Consumed by |
 |------|---------|-------------|
-| `scan` *(default)* | the **Discussions hub**'s open threads (awaiting-response = no accepted answer and the last word is not ours, except Announcements and Show and tell, which remain ours to watch) + every `PyAutoMind/repos.yaml` repo → open issues **and PRs** authored by non-self humans (bots filtered), with **awaiting-response** detection (the conversation's last word is not ours) ranked by waiting time, plus open PRs with **review requested** from a self login (any author) | `/community` step 1; the board's community sensory leg |
+| `scan` *(default)* | published Ears snapshot/state adapted to the existing scan JSON; observed response/review states, source gaps and freshness, without a second collection path | `/community` step 1; Brain board |
 | `triage <ref>` | one discussion, issue or PR → context-sufficiency signals (code block, traceback, versions, expected-vs-actual, data pointer), missing-signal clarifying-question seeds, comment tail, route; a discussion ref routes to **answer in the thread** (a confirmed bug gets an issue with a link back); a PR ref adds the **change-shape block** (draft, files, +/-, requested reviewers, mergeable state, head→base) | `/community` steps 2–3 |
 
 ```
@@ -122,13 +123,15 @@ at test time and changed to `pyautolabs.slack.com` later on 2026-09-20;
 the operator confirmed the new workspace name is PyAutoLabs. Slack redirects
 the old URL to the new one. Use the rollback command above to disable delivery.
 
-Repo enumeration comes from `PyAutoMind/repos.yaml` (the body map) under
-`PYAUTO_ROOT`; the org is searched wholesale, non-org homes individually.
-GitHub access is the `gh` CLI — `COMMUNITY_GH` overrides the binary (hermetic
-tests), `COMMUNITY_SELF` the self logins (default `Jammy2211`),
-`COMMUNITY_SEARCH_PAUSE` the inter-search sleep (default 2s — the scan makes
-up to six search calls and GitHub's secondary rate limit trips on bursts). A
-failed search degrades honestly (`degraded:` in the surface), never silently.
+Collection and repository enumeration belong to PyAutoEars. Scan reads its
+published `snapshot.json` and matching `state.json`; `COMMUNITY_EARS_URL`
+overrides the public base for other deployments and offline fixtures.
+Unavailable or malformed feeds exit 4; no fallback GitHub search runs. Stale
+and cached response observations become unknown, retaining their recorded
+value separately. Counts describe observations, never complete coverage.
+Triage still uses `gh` (`COMMUNITY_GH` override); `COMMUNITY_SELF` supplies
+maintainer logins for triage and compatibility grouping. `COMMUNITY_HUB`
+retains the existing hub identity. Search pause/detail-cap options are retired.
 
 ## Fundamental principles
 
@@ -162,8 +165,8 @@ failed search degrades honestly (`degraded:` in the surface), never silently.
 - **Conversation state lives on GitHub + Mind, never here.** Labels
   (`needs-info`, `pending-release`) and the issue thread itself are the
   conversation's memory; in-flight dev state is the `user-facing: true` entry
-  in `PyAutoMind/active.md`. The conductor owns no registry, no cache, no
-  paired repo.
+  in `PyAutoMind/active.md`. The conductor owns no registry or cache. PyAutoEars owns collection,
+  versioned evidence, receipts and the listening dashboard; Brain owns judgement.
 - **Delegate the conversation's dev half.** Actionable issues route into
   `/start_dev_for_user`, which already owns the receipt comment, the
   clarification gate, the plan comment and the milestone cadence
@@ -193,24 +196,16 @@ failed search degrades honestly (`degraded:` in the surface), never silently.
 - **vs the review faculty** — an external PR surfaced here routes to a
   *human review with session-drafted comments*; the review faculty judges
   only our own feature branches for the autonomous-ship gate, never
-  community PRs. Known v2 limit: awaiting-response reads PR *conversation*
-  comments — review-thread comments don't count as our reply yet.
+  community PRs. Ears includes PR review evidence in its scan receipts;
+  the per-thread triage context is still a bounded read, not full history.
 
-## Capability audit — what the modes read
+## Capability audit — what the current surface can observe
 
-- **Discussions hub** (`gh api repos/<hub>/discussions`, `.../discussions/<n>`,
-  `.../discussions/<n>/comments`): the REST Discussions surface, read-only —
-  state, lock, category, `answer_chosen_at`, comment count, last commenter.
-  Served to remote sessions through the proxy (measured 2026-09-17).
-- **GitHub search** (`gh api search/issues`): `org:PyAutoLabs` plus the
-  non-org homes from `repos.yaml`; three passes per qualifier group —
-  `is:issue is:open -author:<self>`, `is:pr is:open -author:<self>`, and
-  `is:pr is:open review-requested:<self>` — bot authors post-filtered on the
-  external passes.
-- **Issue/PR conversation comments** (`gh api repos/<o>/<r>/issues/<n>/comments`):
-  last-actor detection for awaiting-response (capped at 30 items per scan)
-  and the triage comment tail.
-- **Pull detail** (`gh api repos/<o>/<r>/pulls/<n>`): the triage change-shape
-  block for PR refs.
-- **PyAutoMind `repos.yaml`**: the body map, parsed for `github:` homes
-  (regex, stdlib-only — the Brain takes no yaml dependency).
+- **Published Ears evidence**: versioned public metadata only, matching
+  observation times and a freshness deadline. Source receipts and nullable
+  response state pass through. URLs must match canonical GitHub identities.
+- **Discussion / issue / PR detail**: a selected thread's context and bounded
+  comment tail for human-led triage; no bulk collection in Brain.
+- **Pull detail**: triage change shape (files, +/-, draft, reviewers, base/head).
+- **Coverage limits**: Ears' current nested Discussion reply coverage is partial.
+  A successful read is not complete coverage, nor proof that work is delivered.
