@@ -37,7 +37,7 @@ gates every outward message.
 | Mode | Surface | Consumed by |
 |------|---------|-------------|
 | `scan` *(default)* | published Ears snapshot/state adapted to the existing scan JSON; observed response/review states, source gaps and freshness, without a second collection path | `/community` step 1; Brain board |
-| `triage <ref>` | one discussion, issue or PR → context-sufficiency signals (code block, traceback, versions, expected-vs-actual, data pointer), missing-signal clarifying-question seeds, comment tail, route; a discussion ref routes to **answer in the thread** (a confirmed bug gets an issue with a link back); a PR ref adds the **change-shape block** (draft, files, +/-, requested reviewers, mergeable state, head→base) | `/community` steps 2–3 |
+| `triage <ref>` | one discussion, issue or PR → category-sensitive context signals (scientific assumptions/data/inference for Help; reproduction for Bugs; use case/outcome for Ideas; no checklist for broadcasts), clarifying-question seeds, bounded comment tail and coverage receipt, route; a discussion ref routes to **answer in the thread** (a confirmed bug gets an issue with a link back); a PR ref adds the **change-shape block** (draft, files, +/-, requested reviewers, mergeable state, head→base) | `/community` steps 2–3 |
 
 ```
 pyauto-brain community                    # scan: who is waiting on us?
@@ -207,5 +207,10 @@ retains the existing hub identity. Search pause/detail-cap options are retired.
 - **Discussion / issue / PR detail**: a selected thread's context and bounded
   comment tail for human-led triage; no bulk collection in Brain.
 - **Pull detail**: triage change shape (files, +/-, draft, reviewers, base/head).
-- **Coverage limits**: Ears' current nested Discussion reply coverage is partial.
-  A successful read is not complete coverage, nor proof that work is delivered.
+- **Triage coverage limits**: the selected-thread REST read is bounded to 100
+  comments. Its displayed tail is the last three of that bounded read, not
+  necessarily the latest in the thread. Failures, deleted authors and count
+  mismatches remain explicit; nested Discussion replies and PR review threads
+  are not fetched. Incomplete evidence yields unknown response state.
+  Accepted answers and broadcasts can suppress response chasing; accepting a
+  proposal never establishes delivery. Ears owns broader collection coverage.

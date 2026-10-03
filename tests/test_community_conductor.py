@@ -27,7 +27,7 @@ TRIAGE_KEYS = {
     "type", "pr", "repo", "number", "url", "title", "author",
     "author_is_external", "state", "labels", "body", "signals_present",
     "signals_missing", "comment_tail", "awaiting_response", "route",
-    "reminders",
+    "reminders", "comment_coverage",
 }
 
 REPOS_YAML = """\
@@ -209,11 +209,11 @@ HUB = "PyAutoLabs/.github"
 @pytest.mark.parametrize("category,answered,awaiting", [
     ("Announcements", False, False),
     ("Show and tell", False, False),
-    ("Help & Questions", False, True),
+    ("Help & Questions", False, None),
     ("Help & Questions", True, False),
-    ("Ideas & Proposals", False, True),
+    ("Ideas & Proposals", False, None),
     ("Ideas & Proposals", True, False),
-    ("Bugs & Errors", False, True),
+    ("Bugs & Errors", False, None),
     ("Bugs & Errors", True, False),
 ])
 def test_discussion_category_and_answer_control_response(
@@ -240,7 +240,7 @@ def test_discussion_category_and_answer_control_response(
     assert context["category"] == category
     assert context["body"] == discussion["body"]
     assert context["comment_tail"][0]["author"] == "visitor"
-    assert context["signals_missing"]
+    assert bool(context["signals_missing"]) is (category not in {"Announcements", "Show and tell"})
     assert "answer in the thread" in context["route"]
     assert "accepted proposal" in context["route"]
     assert "in an answerable category" in context["route"]
@@ -264,7 +264,7 @@ def test_triage_discussion_ref_routes_to_the_thread(tmp_path):
         assert set(t) >= TRIAGE_KEYS | {"category", "answered"}
         assert t["type"] == "discussion" and t["pr"] is None
         assert t["repo"] == HUB and t["number"] == 11
-        assert t["author_is_external"] and t["awaiting_response"]
+        assert t["author_is_external"] and t["awaiting_response"] is None
         assert t["category"] == "Help & Questions" and t["answered"] is False
         assert "answer in the thread" in t["route"]
         assert "/start_dev_for_user" in t["route"]
@@ -273,3 +273,69 @@ def test_triage_discussion_ref_routes_to_the_thread(tmp_path):
     assert "/issues/" not in calls
     text = _run(["triage", f"{HUB}/discussions/11"], tmp_path, stub).stdout
     assert "(discussion)" in text and "Category:             Help & Questions" in text
+
+
+@pytest.mark.parametrize("category,keys", [
+    ("Help & Questions", {"assumptions", "data_pointer", "inference_goal"}),
+    ("Bugs & Errors", {"code_block", "traceback", "version", "expected_vs_actual", "data_pointer"}),
+    ("Ideas & Proposals", {"use_case", "desired_outcome"}),
+    ("Announcements", set()), ("Show and tell", set()),
+])
+def test_category_sensitive_clarifying_questions(tmp_path, category, keys):
+    discussion = _discussion(HUB, 5, "visitor", "question", category=category)
+    stub = _fabricate(tmp_path, {**EMPTY_SEARCHES, "discussion.json": discussion})
+    result = _run(["triage", f"{HUB}/discussions/5", "--json"], tmp_path, stub)
+    context = json.loads(result.stdout)
+    assert {s["signal"] for s in context["signals_missing"]} == keys
+    assert "delivery" in context["route"]
+    assert context["delivery_state"] == "unknown"
+
+
+@pytest.mark.parametrize("comments,reported,author,expected,status", [
+    ([], 0, "visitor", True, "complete"),
+    ([{"user": {"login": "jammy2211"}}], 1, "visitor", False, "complete"),
+    ([], 0, None, None, "partial"),
+    ([{"user": None}], 1, "visitor", None, "partial"),
+    (None, 0, "visitor", None, "unavailable"),
+    ({"message": "failure"}, 0, "visitor", None, "unavailable"),
+    ([], 3, "visitor", None, "partial"),
+    ([{"user": {"login": "Jammy2211"}}] * 100, 101, "visitor", None, "partial"),
+])
+def test_bounded_comments_never_invent_response_state(
+    tmp_path, comments, reported, author, expected, status,
+):
+    issue = _item("PyAutoLabs/PyAutoLens", 4, author, "test", comments=reported)
+    stub = _fabricate(tmp_path, {**EMPTY_SEARCHES, "issue.json": issue,
+                                 "comments.json": comments})
+    result = _run(["triage", "PyAutoLabs/PyAutoLens#4", "--json"], tmp_path, stub)
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)
+    assert context["awaiting_response"] is expected
+    assert context["comment_coverage"]["status"] == status
+    assert len(context["comment_tail"]) <= 3
+    assert "-X GET -f per_page=100" in (tmp_path / "gh_calls.log").read_text()
+    if author is None:
+        assert context["author_is_external"] is None
+
+
+def test_comment_endpoint_failure_keeps_context_but_unknown(tmp_path):
+    issue = _item("PyAutoLabs/PyAutoLens", 4, "visitor", "test")
+    fixtures = {**EMPTY_SEARCHES, "issue.json": issue}
+    del fixtures["comments.json"]
+    stub = _fabricate(tmp_path, fixtures)
+    result = _run(["triage", "PyAutoLabs/PyAutoLens#4", "--json"], tmp_path, stub)
+    assert result.returncode == 0
+    context = json.loads(result.stdout)
+    assert context["comment_coverage"]["status"] == "unavailable"
+    assert context["awaiting_response"] is None
+
+
+def test_scientific_help_does_not_request_traceback_for_sufficient_context(tmp_path):
+    discussion = _discussion(HUB, 5, "visitor", "scientific help")
+    discussion["body"] = "My model assumes an SIE lens. The dataset is imaging; I want to infer the slope."
+    stub = _fabricate(tmp_path, {**EMPTY_SEARCHES, "discussion.json": discussion})
+    result = _run(["triage", f"{HUB}/discussions/5", "--json"], tmp_path, stub)
+    context = json.loads(result.stdout)
+    assert context["signals_missing"] == []
+    assert "traceback" not in context["signals_present"]
+    assert context["awaiting_response"] is None
