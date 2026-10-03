@@ -48,6 +48,14 @@ command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 \
 
 On MCP, read [mcp.md](mcp.md) for the exact calls; do not load local recipes.
 
+## Tiered merge — the shipping session runs this procedure
+
+Since 2026-10-02 `ship_*` hands a declared-`notify` or witnessed-`glance` task
+here after PR-open, authorized by its approved plan or launch (`AUTONOMY.md`
+"Merge authority follows Consequence"). Run from step 2 as written, with the
+bounded wait, extra refusals and bare merge call in
+[`reference.md`](reference.md) → "Tiered merge".
+
 ## 1. Resolve the target PR(s)
 
 In order: explicit argument → current branch (`gh pr view --json`) → the claimed
@@ -66,6 +74,8 @@ every run for the sha and every job in it, and treat anything not `completed` as
 *not ready* — not "green so far". An empty run list is not green either. Read
 `mergeable` / `mergeStateStatus` too: `UNSTABLE` is pending-or-red, and
 `CONFLICTING` / `BEHIND` / `BLOCKED` stops the run whatever the checks say.
+A test leg whose conclusion is `skipped` is **not green** — skipped ≠ passed:
+name it in the report; a tiered merge stops on it.
 
 ## 3. Wait, or stop
 
@@ -73,6 +83,8 @@ every run for the sha and every job in it, and treat anything not `completed` as
   in-turn poll on a local CLI, and nothing at all on mobile or web. Under
   `--no-wait`, do not even poll: judge once, report and stop — which on
   mobile and web is now the only behaviour the flag or its absence can produce.
+  (A tiered merge's ~60-min background watch is the one other in-turn wait —
+  `reference.md` "Tiered merge".)
 
   - **Stop (mobile, web — required there).** Report where each target PR
     stands — per-leg counts, `2/4 legs done`, red or pending named — then
@@ -115,7 +127,8 @@ release or release rehearsal.
    library PR is `MERGED` — the library-first gate
    ([`../ship_workspace/reference.md`](../ship_workspace/reference.md)). Refuse
    otherwise; there is no `--auto`-flag workaround.
-3. `gh pr merge <n> --merge` per PR (`-R owner/repo` when you have no checkout),
+3. `gh pr merge <n> --merge` per PR (`-R owner/repo` when you have no checkout)
+   — one bare, unchained Bash call per PR; a denied merge stops the run —
    then confirm the state is `MERGED` — queued or auto-merge is not merged. Never
    `--delete-branch`: it takes the local branch too, orphaning a task worktree.
 4. **Clear anything an older run left armed.** Step 3 arms nothing, so this is
@@ -132,7 +145,7 @@ After every target PR is confirmed merged, **read and execute
 [closeout.md](closeout.md)** in order. It retains the complete mandatory
 procedure: prove each claimed branch merged, close the issue, move the prompt
 with `lifecycle.py close`, retain pending-release obligations, record any
-notify-tier shadow row, reconcile references and regenerate the dashboard,
+glance-tier shadow row, reconcile references and regenerate the dashboard,
 then remove the worktree and local branches. No close-out on partial evidence.
 Use the current step's [reference section](reference.md), not the whole file.
 
@@ -160,8 +173,10 @@ Stop and report instead of pressing on when:
   Heart is not something a merge shortcut may re-judge. The **freeze** flag
   (step 4) is a different thing and does not re-run anything: readiness answers
   "is the organism healthy", the freeze answers "is a validation window open
-  right now". Nor does merge ever stop
-  being human: `/prm` is a human-typed door, never invoked by the `--auto` queue.
+  right now". Merge stops being a human-typed act only where a declared
+  `notify` / witnessed `glance` tier and an approved plan or launch grant it
+  ("Tiered merge"); otherwise `/prm` is a human-typed door, never
+  invoked by the `--auto` queue.
 - A task with no issue, no Mind prompt, or no worktree (a direct wiring change,
   say) skips those sub-steps and says so — not an error. That licence does **not**
   extend to the dashboard regen, skippable only where the close-out wrote nothing

@@ -20,7 +20,7 @@ Where the dev workflow stops for a human today:
 | 1 | **Plan approval** — present the plan, wait for explicit approval before any edit | `start_dev` (Plan Mode) |
 | 2 | **Ship PR sign-off** — review of `## API Changes` / `## Scripts Changed` before commit/push/PR | `ship_library` / `ship_workspace` |
 | 3 | **Heart YELLOW acknowledgement** — warnings surfaced, proceed only on explicit go-ahead | ship gate (`skills/WORKFLOW.md` "Heart readiness gate") |
-| 4 | **Merge / issue close** — offered after shipping, never automatic | post-ship |
+| 4 | **Merge / issue close** — by the declared `Consequence:` tier: `notify` / `glance` merged in-turn by the shipping session on green CI; `judge` or undeclared offered after shipping, never automatic ("Merge authority follows Consequence", 2026-10-02) | post-ship / `/prm` |
 | 5 | **Version ask** — the minor-version choice | `pre_build` |
 | 6 | **Post-merge cleanup confirmation** — worktree removal, branch deletion, registry moves | `ship_*` cleanup |
 
@@ -32,7 +32,7 @@ Where the dev workflow stops for a human today:
 | Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere — except under an explicit `--auto` launch, where it resolves to decide-and-flag (below; 2026-09-07) | present + wait |
 | Heart YELLOW | park, unless the reason set was human-acknowledged at launch (see the autonomous-ship gate) | same as `safe` | present + wait |
 | Heart RED | stop, report | stop, report | stop, report — a live human may separately invoke the development override or corrective-PR exception below; neither is an autonomy level |
-| Merge / close | human, always | human, always | human, always |
+| Merge / close | by declared `Consequence:` (2026-10-02 section) | by declared `Consequence:` | by declared `Consequence:` |
 | Version ask | n/a — release stays `human-required` (sole exception: the scheduled-nightly standing grant, dated below) | n/a | ask |
 | Cleanup | proceed + log | proceed + log | confirm |
 
@@ -240,8 +240,9 @@ An interactive `supervised` run parks at ship sign-off exactly as above —
 the human is one message away, so the round-trip is free. Under an explicit
 `--auto` launch the ship checkpoint instead resolves to **decide-and-flag**
 (next section, extended to it 2026-09-07): the run ships to an open PR and the
-decision is flagged there. Merge stays a human act either way, and no run ever
-bypasses the gate — checkpoint-and-continue frees the human's session, not the
+decision is flagged there. A `decision-taken` PR is never auto-merged — its
+merge stays a human act whatever its tier ("Merge authority follows
+Consequence"), and no run ever bypasses the gate — checkpoint-and-continue frees the human's session, not the
 checkpoint.
 
 ### Decide-and-flag (`--auto` launches) — 2026-08-30, extended 2026-09-07
@@ -443,6 +444,88 @@ own `batches/AGENTS.md` drops both: the Heart gates releases, not runs), and
 **their absence there is never read as an unacknowledged RED** — the fields are
 not missing, they do not exist on that schema.
 
+## Merge authority follows Consequence — 2026-10-02
+
+**Who merges is decided by the task's declared `Consequence:` tier**
+(`PyAutoMind/REFERENCE.md` "The review-cost model"), not by its autonomy level.
+Approved by the human 2026-10-02; this section is that dated doctrine edit.
+
+| Declared `Consequence:` | Who merges | What the human reads |
+|---|---|---|
+| `notify` | the **shipping session**: it waits for CI inside its turn, merges on green, then runs the `/prm` close-out itself | the close-out ledger |
+| `glance` | the shipping session, exactly as `notify` — **only if the `Witness:` check passed** | a **post-merge summary**; each auto-merge appends one Shadow-window row (below) |
+| `judge` | the human, by `/prm` — unchanged | the PR |
+| *no header* | the human, by `/prm` — unchanged | the PR |
+
+**Declared means written in the prompt.** A tier the sizing faculty would infer
+for a header-less prompt never carries merge authority — a missing header is
+`judge` for this purpose, whatever `bin/pyauto-brain sizing` says.
+
+**The evidence** (cited for the grant, as "Graduation and demotion" requires):
+
+- ~200 recent merged PRs across 8 repos carried **0 reviews**, and most merged
+  **under an hour** after opening with 1–2 commits — the human merge on this
+  organism's own low-consequence work is a click, not a review.
+- `PyAutoMind/autonomy_log.md`, first table: **120 `merged-unchanged` / 12
+  `amended` / 2 `rejected` / 2 `reverted`**.
+- The tier-`notify` Shadow window stood at **13/40, all clean**. The human
+  grants `notify` early by this edit rather than waiting out the window, and
+  **re-scopes the window to `glance`**.
+
+**The authorization is given at plan time, never assumed later.**
+
+- **Plan approval at `start_dev` is the merge authorization.** The plan must
+  state the declared tier and the **merge mode** (`auto-merge on green` or
+  `human /prm`); approving that plan authorizes that merge. A plan that does not
+  state them authorizes no merge.
+- Under **`--auto`** or a **batch**, the launch / slot approval is the
+  authorization, bounded exactly as the launch is ("What a batch launch is").
+- **Multi-phase epics chain**: a phase that auto-merged hands to the next phase
+  without re-asking, and the chain **stops** at a `judge`-tier phase, any
+  failure, Heart RED, or scope the approved plan did not name.
+
+**The in-turn wait.** After PR-open, the shipping session waits for CI **inside
+its own turn**: one background `gh pr checks <n> --watch` capped at **~60 min**
+(the Bash call's own timeout). That is a process of this session, not a timer:
+no `send_later`, `ScheduleWakeup`, cron, routine or `subscribe_pr_activity`
+(`PyAutoMind/policy/end_at_deliverable.md` stands as written). When it returns,
+CI is judged exactly as `/prm` step 2 judges it — every run, every leg — and on
+green the merge and close-out run per `skills/prm/` in full. Cap reached, or a
+surface with no authenticated `gh` (mobile, web): judge once, merge only if
+already green, otherwise report and end; the human runs `/prm`.
+
+**Never auto-merged, at any tier:**
+
+- a PR carrying the **`decision-taken`** label (decide-and-flag);
+- a ship under the **Heart RED development override** or the **corrective-PR
+  exception** — both keep their own separate human merge command;
+- **red, pending or conflicting** CI, or a non-`CLEAN` merge state;
+- a **SKIPPED** test leg — skipped is not green.
+
+The `/prm` guards apply verbatim: the **library-first** gate, the
+**sibling-branch** proof (every claimed branch merged before close-out) and the
+**data-worktree** question. **`gh pr merge` is a bare, unchained Bash call**
+(no `&&`, no `;`, no pipe) so the permission layer sees exactly one merge; if
+it is denied, stop and report — never retry it another way. On MCP the merge
+is the single `merge_pull_request` call, with the same rule.
+
+**The `glance` Shadow window.** Each auto-merged `glance` PR appends one row to
+`PyAutoMind/autonomy_log.md` "Shadow window" at close-out, recorded
+`merged-unchanged` at merge (`lifecycle.py close … --tier glance`). The human
+reads the post-merge summary and **amends the row** if they find something
+substantive (`merged-after-substantive-change`), or marks it `reverted`.
+`glance` is **confirmed at 20 clean rows**. **Any revert demotes that tier back
+to a human `/prm`** immediately, by dated doctrine edit citing the row — and a
+reverted `notify` merge demotes `notify` the same way.
+
+**Later step, not now:** GitHub's native `--auto` merge (`gh pr merge --auto`,
+`enable_pr_auto_merge`) would let the wait outlive the turn without a timer.
+It is not adopted here; it needs its own doctrine edit.
+
+*Revert condition:* any reverted auto-merge demotes its tier (above); an
+auto-merge found to have bypassed one of the never-auto-merge rules retires this
+section and returns every merge to `/prm`.
+
 ## Human override for Heart RED (development only)
 
 Heart RED still parks every autonomous run and blocks every release. After the
@@ -597,14 +680,19 @@ tier), never by weakening leg 4.
 
 ## Hard invariants (every level, no exceptions)
 
-- **Merge and issue-close are human acts.** An explicit future flag may extend
-  autonomy to merge; it does not exist and must not be assumed.
+- **Merge and issue-close are human acts, except as "Merge authority follows
+  Consequence" (2026-10-02) grants them** — a declared `notify` or witnessed
+  `glance` task, authorized at plan or launch approval, merged in-turn on green
+  CI. Nothing else extends autonomy to merge; GitHub native auto-merge is not
+  adopted and must not be assumed.
 - **Releases are human acts, with one dated exception.** The scheduled-nightly
   standing grant (2026-07-09, above) is the only path that ships a release
   without a per-release human; it is activity-gated, Heart-GREEN-gated and
   kill-switchable. Every other release is `human-required`.
 - **Autonomous runs end at PR-open**, with the PR body carrying the plan, the
-  review verdict, test/smoke counts, and a validation checklist.
+  review verdict, test/smoke counts, and a validation checklist — or, for a
+  declared `notify` / witnessed `glance` task, at the in-turn merge and
+  close-out that section grants.
 - **Never modify code to make tests or smoke tests pass.**
 - **Heart YELLOW/RED is never acknowledged autonomously.** A launch-time
   human acknowledgement of a named reason set is a human acknowledgement — it
@@ -649,10 +737,13 @@ tier), never by weakening leg 4.
 ## Consumers
 
 - `start_dev` — `--auto` usage, effective-level computation, plan-to-issue
-  for `safe`, launch-acknowledgement recording (its "--auto mode" section).
+  for `safe`, launch-acknowledgement recording (its "--auto mode" section);
+  the plan's tier + merge-mode line.
+- `prm` — the CI judgment, merge guards and close-out every merge runs,
+  human-typed or tiered.
 - `ship_library` / `ship_workspace` — the four-leg gate at step 4 (five under a
   batch launch), stop at
-  PR-open, validation checklist, calibration append; the RED-handling step
+  PR-open (or the tiered in-turn merge), validation checklist, calibration append; the RED-handling step
   points here for both the development-only human override and the narrower
   corrective-PR exception.
 

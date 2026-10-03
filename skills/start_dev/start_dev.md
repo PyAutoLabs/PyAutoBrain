@@ -55,7 +55,8 @@ activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
 3. **`supervised`** → the **ship checkpoint does not park**: it resolves to
    decide-and-flag ([`../../AUTONOMY.md`](../../AUTONOMY.md),
    "Decide-and-flag") — ship through the autonomous-ship gate, flag the
-   decision in the PR body, and **end at PR-open** (merge stays human). Every
+   decision in the PR body, and **end at PR-open** (a `decision-taken` PR is
+   never auto-merged, whatever its tier). Every
    *other* judgment gate — a scope/design fork the plan didn't settle, a second
    flagged decision, a hard blocker — still becomes a batched issue question
    with an `awaiting-input` park (the contract's "Checkpoint-and-continue"
@@ -67,7 +68,9 @@ activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
    ship gate's leg 4 reads it; it never extends to new reasons.
 
 Everything downstream (`ship_*` under `--auto`) is gated by the four-leg
-autonomous-ship gate and **ends at PR-open** — merge stays a human act.
+autonomous-ship gate and **ends at PR-open** — or, for a declared `notify` /
+witnessed `glance` task, at the in-turn tiered merge, which the `--auto` or
+batch launch approval authorizes (the plan's tier + merge-mode line, step 3).
 Default runs without the flag are unchanged: present-and-wait.
 
 Resolve paths once using [CONTEXT.md](../CONTEXT.md). Read only the reference
@@ -144,6 +147,22 @@ Two levels: a **high-level** plan (3–8 plain-English bullets, no code) and a
 **detailed** plan (file paths, function/class names, changes per step, key
 trade-offs, testing approach). The detailed plan must be good enough that a
 fresh session could start from the issue alone.
+
+The high-level plan ends with one **tier + merge mode** line — the prompt's
+**declared** `Consequence:` (never a sizing-inferred one) and what happens at
+PR-open, per [`../../AUTONOMY.md`](../../AUTONOMY.md) "Merge authority follows
+Consequence — 2026-10-02":
+
+```
+Tier: notify — merge mode: auto-merge on green (in-turn wait, then /prm close-out)
+Tier: glance — merge mode: auto-merge on green if the Witness passes, post-merge summary
+Tier: judge (or undeclared) — merge mode: human /prm
+```
+
+**Approving the plan authorizes that merge mode** — no second ask at PR-open.
+A plan without the line authorizes no merge. A multi-phase epic's approval
+chains each auto-merged phase into the next without re-asking, stopping at a
+`judge`-tier phase, a failure, Heart RED or scope the plan did not name.
 
 ### 4. Survey branches
 

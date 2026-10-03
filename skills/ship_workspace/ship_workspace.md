@@ -93,12 +93,33 @@ to the PR body (`../ship_library/reference.md` → "Validation checklist
 `PyAutoMind/autonomy_log.md` (its **first** table, never the Shadow window at
 the end — `../ship_library/reference.md` → "Which table"), set `active.md` to
 awaiting-merge. Failed leg →
-park per [`../../AUTONOMY.md`](../../AUTONOMY.md). Step 5's merge is skipped
-entirely — merge stays human.
+park per [`../../AUTONOMY.md`](../../AUTONOMY.md). Step 5's offered merge is
+skipped entirely — the only merge is step 4b's tiered one.
+
+### 4b. Merge by declared tier (post-PR-open)
+
+Who merges follows the prompt's **declared** `Consequence:` header —
+[`../../AUTONOMY.md`](../../AUTONOMY.md) "Merge authority follows Consequence
+— 2026-10-02" is the rule; this step only routes to it:
+
+- **`notify`**, or **`glance` with the `Witness:` check passed**, and the
+  approved plan (or `--auto` / batch launch) stated `auto-merge on green` →
+  wait for CI **inside this turn** (one background `gh pr checks <n> --watch`,
+  capped ~60 min; no timer, wake-up or subscription), then run the
+  [`/prm`](../prm/prm.md) procedure from its step 2 — judge, merge, close-out —
+  exactly as a human-typed `/prm` would — the library-first gate included (a
+  workspace PR whose library PR is not `MERGED` stops there). For `glance`, the close-out appends
+  the Shadow-window row and the ledger ends with the post-merge summary.
+- **`judge`, no declared header**, a `decision-taken` PR, a Heart RED-override
+  or corrective-PR-exception ship, or any red / pending-at-cap / conflicting /
+  SKIPPED leg → **stop at PR-open**; the human runs `/prm`.
+
+`gh pr merge` is a bare, unchained Bash call; if denied, stop and report.
 
 ### 5. Merge (library-first gate)
 
-Offer to merge (never force). If linked to an upstream library PR, enforce the
+Reached only when step 4b did not merge. Offer to merge (never force). If
+linked to an upstream library PR, enforce the
 **library-first merge gate** — the library PR must be `MERGED` before the
 workspace PR may merge; refuse otherwise (no `gh pr merge --auto`-flag
 workaround — unrelated to the workflow's `--auto` mode, which never merges).

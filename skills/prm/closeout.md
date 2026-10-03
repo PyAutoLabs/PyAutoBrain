@@ -9,8 +9,11 @@ All Mind paths below are relative to the resolved Mind checkout.
 
 ## 5. Close the task out
 
-Typing `/prm` authorized all of this; the only questions are the guards in step
-6. Order is forced by the tooling, so do not reorder:
+Typing `/prm` authorized all of this — and so did the approved plan or launch
+of a tiered merge (prm.md "Tiered merge"), which runs this same close-out
+in-turn after its bounded wait; the shipping session never leaves a waiter,
+timer or subscription behind to do it later. The only questions are the guards
+in step 6. Order is forced by the tooling, so do not reorder:
 
 1. **Prove every branch merged, per repo** — a `complete/` record is a write-up,
    not a merge receipt, and a task may have shipped in waves. Ask git, per repo
@@ -22,11 +25,11 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
 3. **Mind: `active/` → `complete/`** — draft the completion body, then one
    verb does the whole Mind-side close-out — the record, the prompt's
    removal, the `active.md` row (and any `parked.md`/`planned.md` pointer),
-   the shadow row when the tier is `notify`, and `complete/index.md`:
+   the shadow row when the tier is `glance`, and `complete/index.md`:
 
    ```bash
    python3 scripts/lifecycle.py close <slug> --date <merge date> \
-     --from-file <body.md> --pr <Repo#N …> [--tier notify --gate "<cell>" \
+     --from-file <body.md> --pr <Repo#N …> [--tier glance --gate "<cell>" \
      --action <action> --stage <1|2>]            # dry run: prints every step
    python3 scripts/lifecycle.py close … --apply  # then does them
    ```
@@ -52,16 +55,15 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
    clears the key — only `/review_release` does, on a release that actually
    published (`PyAutoMind/REFERENCE.md` → "The pending-release chain").
 
-   **3b. Shadow row — tier-`notify` only.** The tier-`notify` auto-merge
-   decision is pre-registered over **40 candidates**, and this close-out is
-   where the window is fed. It used to hang off a batch review slot, which
-   runs only when a batch is launched; close-out happens on every shipped
-   task. Do it only after sub-step 1 proved every branch `MERGED` — the row
-   records what the human *did* with the PR, and before the merge there is
-   nothing to record.
+   **3b. Shadow row — tier-`glance` only.** Since 2026-10-02 the window
+   counts tier-`glance` merges toward **20 clean rows** (`notify` was granted
+   then at 13/40, all clean — `../../AUTONOMY.md` "Merge authority follows
+   Consequence — 2026-10-02"). Do it only after sub-step 1 proved every branch
+   `MERGED` — the row records what happened to the PR, and before the merge
+   there is nothing to record.
 
-   1. **Tier.** The prompt's declared `Consequence:` header wins; with no
-      header, `bin/pyauto-brain sizing <prompt>`. Anything but `notify` —
+   1. **Tier.** The prompt's **declared** `Consequence:` header — never a
+      tier `bin/pyauto-brain sizing` would infer. Anything but `glance` —
       **do nothing and say nothing**: no row, no question, no ledger line.
    2. **Gate cell.** Copy it from the task's ship calibration row in
       `PyAutoMind/autonomy_log.md` — `ship_library` / `ship_workspace` wrote
@@ -72,28 +74,36 @@ Typing `/prm` authorized all of this; the only questions are the guards in step
    3. **Stage.** `2` if an independent-model adversary leg ran on this task,
       else `1`. Stage 1 and stage 2 are never pooled, so this is not a
       judgement call: the leg either ran or it did not.
-   4. **The one question.** Ask the human exactly this, and ask nothing else:
+   4. **The action.**
+      - **Tiered merge** (prm.md "Tiered merge" — the shipping session merged
+        it): record `merged-unchanged` at merge and **ask nothing**. The
+        human reads the post-merge summary and amends the row to
+        `merged-after-substantive-change` if they find something
+        substantive, or `reverted` if it was backed out — a `reverted` row
+        demotes `glance` back to a human `/prm`.
+      - **Human-typed `/prm`**: ask exactly this, and nothing else:
 
-      > Merged unchanged, or did you change something substantive first?
-      > (substantive = a change you would have minded finding already merged:
-      > a changed default, a user-visible error message, a removed or weakened
-      > test, a renamed public thing, a wrong docs claim)
+        > Merged unchanged, or did you change something substantive first?
+        > (substantive = a change you would have minded finding already merged:
+        > a changed default, a user-visible error message, a removed or weakened
+        > test, a renamed public thing, a wrong docs claim)
 
-      → `merged-unchanged` / `merged-after-substantive-change`. `not-merged`
-      is what gets recorded when `/prm` stopped on a guard (step 6) and never
-      reached the question — never a guess at what the answer would have been.
-   5. **Append** — the `--tier notify --gate "<cell>" --action <action>
+        → `merged-unchanged` / `merged-after-substantive-change`.
+      `not-merged` is what gets recorded when `/prm` stopped on a guard (step 6)
+      and never reached the merge — never a guess at what would have happened.
+   5. **Append** — the `--tier glance --gate "<cell>" --action <action>
       --stage <1|2>` flags on the `close` verb above do it (`shadow-row` is
       the verb underneath). The dry run prints the row and the new count line
       before anything is written; the row rides the same commit and push as
       the record and the dashboard, never a commit of its own.
    6. **Name it in the ledger** (sub-step 7): "shadow row appended, count
-      N/40".
+      N/20" — and, for a tiered merge, end the ledger with the post-merge
+      summary the human reads in place of the PR: what merged, the witness
+      result, and the one-command revert.
 
-   Protocol, power calculation and the **pre-registered decision rule** live in
-   the tier-`notify` protocol prompt, folded under `## Original prompt` in
-   `PyAutoMind/complete/2026/09/prm-shadow-row-notify-tier.md` — read it
-   before interpreting the table.
+   The window's header in `PyAutoMind/autonomy_log.md` carries the rule; the
+   earlier tier-`notify` protocol is folded under `## Original prompt` in
+   `PyAutoMind/complete/2026/09/prm-shadow-row-notify-tier.md`.
 4. **Mind: leave the page true** — the close-out is finished when `dashboard.md`
    stops offering this work, not when the claim is released.
    `dashboard_refresh.yml` heals a stale *render*, never a stale *prompt*, so

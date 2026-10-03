@@ -80,8 +80,9 @@ human's merge decision) and push Mind with
 file — the five-cell `| date | task | effective level | gates | outcome |`
 table under the top heading — as the last row of its final segment, in date
 order. It never goes at the end of the file: the table that sits there is the
-**Shadow window** (`## Shadow window`), which is `/prm`'s alone, tier-`notify`
-only, appended at close-out with a fixed `human action` vocabulary. Six
+**Shadow window** (`## Shadow window`), which is the close-out's alone,
+tier-`glance` only (tier-`notify` until 2026-10-02), appended at close-out with
+a fixed `human action` vocabulary. Six
 supervised rows landed there at PR-open between 2026-09-13 and 2026-09-17 and
 broke `tests/test_autonomy_log_shadow.py` on every Mind CI run until they were
 moved (2026-09-17).
