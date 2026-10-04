@@ -139,6 +139,12 @@ ORGANS = {
     # only 3.1:1 on #0d1117, so each scheme gets its own ink off the same hue:
     # #6420e0 (7.4:1 on #fff) and #a27aff (6.1:1 on #0d1117). Bluer than the
     # Memory violet, as the two logos are.
+    "insight": {
+        "organ": "Insight",
+        "tagline": "Infer. Inspect. Understand.",
+        "ink_light": "#995500", "ink_dark": "#ffc163", "glow": "#ffb347",
+        "hero": ("#392600", "#000000"),
+    },
     "nerves": {
         "organ": "Nerves",
         "tagline": "Signal. Connect. Understand.",
@@ -366,6 +372,10 @@ MARKS = {
     # Nerves — a neuron: branching dendrites round a nucleated soma, a
     # myelinated axon running right into node-tipped terminals, and the
     # signal arcs either side of it, inside a closed ring, as on the logo.
+    "insight": (
+        '<circle cx="24" cy="20" r="13"/>'
+        '<path d="M18,32 L18,38 L30,38 L30,32 M20,43 L28,43 M24,7 L24,20 L31,24"/>'
+    ),
     "nerves": (
         '<circle cx="24" cy="24" r="20.4"/>'
         '<circle cx="16" cy="23" r="3.4"/>'

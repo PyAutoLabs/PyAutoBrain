@@ -269,3 +269,14 @@ proposal uses public repository contracts as its inspectable evidence.
 [inference]: https://github.com/PyAutoLabs/autolens_inference/blob/656c348fe39e0acca7e6e92fe1f0fb3f55060dc6/AGENTS.md
 [cortex]: https://github.com/PyAutoLabs/PyAutoCortex/blob/b66d7fd0a20197d0283da8b802059654e891a3ec/REFERENCE.md
 [board]: https://github.com/PyAutoLabs/PyAutoBrain/blob/6ea15719854f19a3c9a8f2d0c828fbfdfbc8e3cc/board/state_schema.json
+
+## Implementation reconciliation — 4 October 2026
+
+The human selected **PyAutoInsight**, key `insight`, for inference. The 2–3
+October Pulse campaign control room supersedes the evidence-only intent split
+in this original proposal: Pulse and Insight own their domain campaign intent
+and pending tasks. Mind retains bounded implementation PR lifecycle and claims;
+Cortex retains authoritative scientific run records, observations and human
+conclusions. Project producers and execution drivers remain project-owned.
+Insight follows this boundary with no new conductor and no revival of the
+retired inference programme. See [Insight](../organs/insight.md).

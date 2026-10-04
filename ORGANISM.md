@@ -20,7 +20,8 @@ organs plan, build, test and release it, and you make every judgment call.
 | **Ears** | PyAutoEars | The Ears — the community listening organ: owns read-only public conversation collection, the versioned community snapshot contract, coverage receipts and the dashboard. GitHub conversations remain authoritative; Brain’s Community conductor owns judgement, reply drafts and development routing, and Mind owns task state. Never posts replies, labels or issues, exports raw transcripts or private sources, or treats unknown coverage as no work. |
 | **Heart** | PyAutoHeart | Determines whether the organism is healthy. `pyauto-heart readiness` is the **authoritative** GREEN/YELLOW/RED "is it safe to release?" gate. An observer: never writes into other repos, never triggers Build. |
 | **Hands** | PyAutoHands | Builds and releases — packaging, tagging, notebook generation, PyPI via `release.yml`. A pure executor: runs no readiness checks and never re-derives a gate decision. |
-| **Pulse** | PyAutoPulse | Feels *how fast the organism runs* across the `<lib>_profiling` project repos. Owns the profiling instance registry, the versioned `profiling-summary` read contract, the ingest receipts (resolved commit per project per render) and the cross-project board. Validates the exchange contract only; project repos own producers, results, pins, drift policy and their own Pages page. Never moves pins, combines unmatched timings, applies the compile threshold to runtime, computes an ecosystem-wide speed score or issues a readiness verdict; the Brain's profiling conductor (`triage`) is the only judge. |
+| **Pulse** | PyAutoPulse | Feels *how fast the organism runs* across the `<lib>_profiling` project repos. Owns profiling campaign intent and pending domain tasks, the profiling instance registry, the versioned `profiling-summary` read contract, the ingest receipts (resolved commit per project per render) and the cross-project board. Validates the exchange contract only; project repos own producers, results, pins, drift policy and their own Pages page. Never moves pins, combines unmatched timings, applies the compile threshold to runtime, computes an ecosystem-wide speed score or issues a readiness verdict; the Brain's profiling conductor (`triage`) is the only judge. |
+| **Insight** | PyAutoInsight | Owns inference campaign intent and pending domain tasks, the cross-project inference instance registry, versioned `inference-summary` read contract, ingest receipts and evidence dashboard. Projects own execution, producers and raw samples; Cortex owns scientific run records, observations and human conclusions; Mind owns bounded implementation lifecycle and repository claims. Never infers scientific acceptance from execution, ranks incompatible runs or submits compute on refresh. |
 | **Nerves** | PyAutoNerves | The configuration/serialization layer (`autonerves`) — layered config with overrides, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. Connects the organism's conventions to every library; the base layer the scientific libraries all import. |
 | **Gut** | PyAutoGut | Owns the lifecycle of *condemned self-material* — stale branches, stashes, dead code/tests. Holds each as a durable, recoverable git ref through a transit window and **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 
@@ -119,8 +120,13 @@ cross-project board, while each profiling project keeps its producers, results
 and drift policy and the Brain's profiling conductor stays the only judge. Community listening is the **Ears** (PyAutoEars), the fifth: it owns the
 versioned public conversation snapshot, collection coverage receipts and board.
 GitHub owns conversations; Brain owns judgement and approved response routing;
-Mind owns tasks. Unknown or stale coverage never becomes a no-work claim. A
-dashboard alone does not
+Mind owns tasks. Unknown or stale coverage never becomes a no-work claim.
+
+**Insight** (PyAutoInsight) owns inference campaign coordination and pending
+domain tasks, plus its inference exchange contract, instance registry, receipts
+and evidence board. It uses project drivers and existing Brain routes, with no
+new conductor. Cortex remains authoritative for scientific records and
+conclusions; Mind retains implementation lifecycle and claims. A dashboard alone does not
 waive the state-or-effects requirement for a new organ. The human interaction
 layer is the command surface (`/route` + the verb commands), which is part of
 Brain.

@@ -3,7 +3,7 @@
 PyAutoScientist is a working, opinionated reference implementation of an
 **AI-agent development organism** for human-led, natural-language software
 development: a set of ten git repositories — Brain, Mind, Cortex, Memory,
-Eyes, Ears, Heart, Hands, Pulse, Nerves, Gut — through which you lead a multi-repo project in
+Eyes, Ears, Heart, Hands, Pulse, Insight, Nerves, Gut — through which you lead a multi-repo project in
 plain English. You
 describe what you want; AI agents plan, implement, test, gate and release
 it; you make every judgment call.
@@ -62,6 +62,7 @@ organs/ears
 organs/heart
 organs/build
 organs/pulse
+organs/insight
 organs/gut
 ```
 
