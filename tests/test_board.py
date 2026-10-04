@@ -40,6 +40,7 @@ SURFACE_KEYS = {
     # The Pulse organ's own counts (the head of its dashboard.md), None when
     # no Pulse is checked out.
     "pulse",
+    "insight",
 }
 
 AUTONOMY_LOG = """\
@@ -1169,3 +1170,22 @@ def test_monitoring_headline_keeps_release_verdict_separate(tmp_path):
     assert "Monitoring score" in page
     assert "72/100" in page
     assert "pyauto-brain health --scope dashboard" in page
+
+
+def test_insight_strip_reads_owner_counts_without_duplicating_science(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
+    insight = tmp_path / "PyAutoInsight"
+    insight.mkdir()
+    (insight / "dashboard.md").write_text(
+        "# Insight\n\n| [Projects](#results) | 2 |\n| [Failed](#results) | 1 |\n\n"
+        "## Results\n| alpha_inference | 999 |\n")
+    result = _run(["--json"], tmp_path, stub)
+    assert result.returncode == 0, result.stderr
+    surface = json.loads(result.stdout)
+    assert surface["insight"] == {"Projects": 2, "Failed": 1}
+    assert surface["boards"]["insight"].endswith("/PyAutoInsight/")
+    page = _run(["--html"], tmp_path, stub)
+    assert "Insight board" in page.stdout
+    (insight / "dashboard.md").unlink()
+    result = _run(["--json"], tmp_path, stub)
+    assert json.loads(result.stdout)["insight"] is None

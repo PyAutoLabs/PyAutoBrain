@@ -81,7 +81,7 @@ repository inventory and refuses conflicting user-owned destinations.
 
 The eleven organs the Brain coordinates — Brain (reasoning), Mind (intent),
 Cortex (learning what is true), Memory (knowledge), Eyes (seeing the
-figures), Ears (community listening), Heart (health), Hands (release), Pulse (feeling how fast it runs),
+figures), Ears (community listening), Heart (health), Hands (release), Pulse (feeling how fast it runs), Insight (inference campaigns and evidence),
 Nerves (configuration), Gut (shedding) —
 are defined once in
 [ORGANISM.md](ORGANISM.md), which this

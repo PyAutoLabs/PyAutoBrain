@@ -23,6 +23,7 @@ Infer the work-type from the request using the taxonomy in
 
 | The request is about… | Route to |
 |-----------------------|----------|
+| inference campaign updates, direction or ideas | `PyAutoInsight/CHECKIN.md`; retain the overall sweep when focusing a campaign |
 | a new capability, or "what should I work on next" | `/feature` |
 | building, shipping, releasing, publishing | `/build` |
 | failing tests, readiness, "is it safe / green?" | `/health` |

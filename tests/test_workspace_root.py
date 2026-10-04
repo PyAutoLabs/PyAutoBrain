@@ -308,3 +308,8 @@ def test_env_override_is_honoured_and_the_marker_only_changes_the_reason(tmp_pat
 
     # Either way it beats the marker this checkout actually sits under.
     assert elsewhere != root
+
+
+def test_insight_only_sibling_marks_workspace_in_both_resolvers(tmp_path):
+    root, brain = _fake_workspace(tmp_path, also=("PyAutoInsight",), marker=False)
+    assert _both_resolvers_say(brain) == (root, "beside this checkout")
