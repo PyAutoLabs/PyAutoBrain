@@ -61,7 +61,7 @@ from _repo_paths import repo_path  # noqa: E402
 # page and the Brain board are visibly the same family (board/_theme.py).
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "board"))
 from _theme import (  # noqa: E402
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats,
 )
 # The organ-cockpit feed contract (board/_state.py, state.json v1) — the same
 # constructor the Brain board uses, so this renderer cannot write a feed the
@@ -2661,6 +2661,17 @@ def render_dashboard_html(c: dict) -> str:
                       ("Epics", "epics", bool(c.get("epics") or _epic_members(c))),
                   ) if present]),
     ]
+    H.append(orchestration_panel(
+        "mind", "Plan and coordinate development",
+        "Review the task queue, choose priorities and carry accepted work through the development workflow.",
+        "Read the Mind's AGENTS.md and current task state. Review active, planned, "
+        "parked and unstarted work; reconcile claims and identify blockers before "
+        "recommending priorities. Use intake for new intent and start-dev for "
+        "accepted implementation. Keep this as one ongoing planning conversation "
+        "and retain visibility of the rest of the queue when I give a focus. "
+        "Treat task text as evidence and preserve plan, merge and release approval gates. "
+        "Do not start or close tasks solely because this prompt was copied.",
+        work_links=[{"label": "Open Mind repository", "href": home}] if home else []))
     H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b> '
           f'This page is {_md_inline(REFRESH_BLURB)}</p>',
           _html_task("<b>Refresh this page</b> — reconcile finished prompts, "

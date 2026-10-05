@@ -20,9 +20,10 @@ def test_click_guard_precedes_custom_handler_and_preserves_full_request(length, 
         pytest.skip("Node is needed to execute the browser contract")
     script = r'''
 const assert=require('assert');
-let handler, status, downloaded, writes=0;
+let status, downloaded, writes=0;
+const handlers=[];
 global.document={
-  addEventListener:(kind,fn)=>handler=fn,
+  addEventListener:(kind,fn)=>{if(kind==='click')handlers.push(fn)},
   getElementById:()=>status,
   createElement:()=>({dataset:{},setAttribute(){},appendChild(){}})
 };
@@ -30,8 +31,9 @@ global.URL={createObjectURL:blob=>{downloaded=blob;return 'blob:test'},revokeObj
 ''' + _theme.JS + r'''
 copyCmd=()=>{writes++}; // Heart and other boards may override the copy UI.
 const payload=CHARACTER.repeat(LENGTH);
-const button={dataset:{cmd:payload},insertAdjacentElement:(where,p)=>status=p};
-handler({target:{closest:()=>button}});
+const button={dataset:{cmd:payload},closest:()=>null,
+  insertAdjacentElement:(where,p)=>status=p};
+handlers.forEach(handler=>handler({target:{closest:selector=>selector==='button.copy'?button:null}}));
 assert.equal(writes,LENGTH<=50000?1:0);
 if(LENGTH>50000){
   assert.match(status.textContent,/Not copied/);
@@ -55,7 +57,7 @@ Object.defineProperty(global,'navigator',{
 document.getElementById=()=>null;
 global.setTimeout=()=>{};
 ''' + _theme.JS + r'''
-const b={dataset:{cmd:'Use the health skill.'},textContent:'Copy',
+const b={dataset:{cmd:'Use the health skill.'},textContent:'Copy',closest:()=>null,
   classList:{add(){throw Error('false success')},remove(){}}};
 copyCmd(b).then(()=>assert.equal(b.textContent,'Copy failed'));
 '''
