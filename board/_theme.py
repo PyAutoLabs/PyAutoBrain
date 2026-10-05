@@ -469,6 +469,7 @@ def mark(key):
 # inside every page, and these pages are opened on phones over mobile data.
 _CSS = """\
 :root{color-scheme:light dark;--bg:#fff;--fg:#1f2328;--muted:#59636e;
+ --board-max:77.5rem;--board-gutter:1rem;--board-measure:65ch;
  --line:#d8dee4;--btn:#f6f8fa;--ok:#1a7f37;--warn:#9a6700;--bad:#d1242f;
  --accent:%(ink_light)s;--tint:%(ink_light)s14;--edge:%(ink_light)s3d;
  /* the ink that READS on a solid --accent fill: the accent is a dark ink on
@@ -490,17 +491,18 @@ _CSS = """\
    inherited, so setting it here covers markup this module has never seen.
    The three max-width/overflow rules do the same job for the things that
    cannot be wrapped: an image, a table, a code block. */
-body{margin:0 auto;max-width:44rem;padding:0 1rem 4rem;background:var(--bg);
+body{margin:0 auto;max-width:var(--board-max);padding:0 var(--board-gutter) 4rem;background:var(--bg);
  color:var(--fg);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",
  Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%%;
  overflow-wrap:anywhere}
-/* 44rem is a PHONE reading measure, and these boards are read on laptops too.
-   Above the cap the column stops being a measure and starts being a waste:
-   the data boards (Heart's check table, Mind's task lists) run ~40 short
-   lines down a 704px strip with the rest of the screen empty. One step up on
-   laptop-class viewports, and only there — every narrower screen keeps the
-   phone shape byte for byte. */
-@media(min-width:64rem){body{max-width:60rem}}
+/* The outer maximum includes gutters (border-box); it never sets a minimum
+   viewport width. Data uses the available space, prose has its own measure.
+   Match the existing inset-hero breakpoint rather than adding another step.
+   See docs/board-sizing.md for consumer responsibilities and adoption. */
+@media(min-width:46rem){:root{--board-gutter:1.5rem}}
+:where(p,.board-prose){max-width:var(--board-measure)}
+/* Masthead text and status panels occupy their full component width. */
+.hero p,.verdict{max-width:none}
 img,svg,table{max-width:100%%}
 pre{overflow-x:auto}
 a{color:var(--accent);text-decoration:none}
@@ -525,7 +527,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
  color:var(--accent);background:var(--tint);border:1px solid var(--edge);
  padding:.05em .35em;border-radius:5px}
 /* --- hero: the logo, rendered as type ---------------------------------- */
-.hero{margin:0 -1rem 1.4rem;padding:2.1rem 1.4rem 1.7rem;position:relative;
+.hero{margin:0 calc(-1 * var(--board-gutter)) 1.4rem;padding:2.1rem 1.4rem 1.7rem;position:relative;
  overflow:hidden;text-align:center;color:#fff;background:var(--hero-base);
  background-image:radial-gradient(78%% 104%% at 50%% 14%%,
   var(--hero-lift) 0%%,var(--hero-base) 72%%)}

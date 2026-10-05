@@ -250,6 +250,29 @@ def test_stats_render_pairs_and_vanish_when_empty():
 # this module has never seen.
 
 
+def test_sizing_contract_is_shared_by_every_board():
+    # Consumers may override these public presentation tokens; palette changes
+    # must not silently give an organ a different page or reading measure.
+    for key in POLICY_BOARDS:
+        sheet = _theme.css(key)
+        assert "--board-max:77.5rem" in sheet
+        assert "--board-gutter:1rem" in sheet
+        assert "--board-measure:65ch" in sheet
+        body = re.search(r"^body\{(.*?)\}", sheet, re.S | re.M).group(1)
+        assert "max-width:var(--board-max)" in body
+        assert "min-width" not in body
+        assert "var(--board-gutter)" in body
+
+
+def test_prose_measure_does_not_constrain_tables_or_centre_the_hero_off_axis():
+    sheet = _theme.css("brain")
+    assert ":where(p,.board-prose){max-width:var(--board-measure)}" in sheet
+    assert ".hero p,.verdict{max-width:none}" in sheet
+    # Hero bleed and page padding share the same token on compact screens.
+    assert "calc(-1 * var(--board-gutter))" in sheet
+    assert "@media(min-width:46rem){:root{--board-gutter:1.5rem}}" in sheet
+
+
 def test_wrapping_is_the_page_default_not_a_per_component_opt_in():
     css = _theme.css("mind")
     body = re.search(r"^body\{(.*?)\}", css, re.S | re.M).group(1)
