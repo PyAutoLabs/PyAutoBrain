@@ -1542,7 +1542,21 @@ def render_html(data):
              "The organism's morning door — what ran overnight, who is "
              "waiting, and what needs you. Tap 📋 to put a command on your "
              "clipboard for an AI assistant chat; ⌨ rows are terminal "
-             "commands."),
+             "commands.", navigation=[
+                 {"label": label, "href": "#" + target, "count": count}
+                 for (count, label), target in zip(section_counts(data),
+                     ("overnight", "readiness", "community", "resume", "upkeep"))
+             ] + [{"label": "Morning sync", "href": "#morning"},
+                  {"label": "Versions", "href": "#versions"}]
+             + [{"label": label, "href": "#" + target}
+                for label, target, present in (
+                    ("Test performance", "performance", data.get("performance") is not None),
+                    ("Hygiene", "hygiene", bool(data.get("hygiene"))),
+                    ("Dev box", "devbox", bool(data.get("devbox"))),
+                    ("Autonomous runs", "autonomy", bool(data.get("autonomy"))),
+                    ("All doors", "doors", bool(data.get("doors"))),
+                    ("Unavailable sources", "degraded", bool(data.get("degraded"))),
+                ) if present]),
     ]
     verdict_cls = "bad" if blocking else ("warn" if attention else "ok")
     spark = sparkline(data.get("history") or [])
@@ -1558,7 +1572,6 @@ def render_html(data):
     # that can ask something of them, so the strip doubles as a contents
     # page. `–` where a source was unreachable: an absent count is never a
     # zero here, the same contract the rows keep.
-    H.append(stats(*section_counts(data)))
     # The sibling boards' header line: the markdown twin (written beside
     # index.html by --apply, so the relative href resolves on Pages) and the
     # way back to the repository front door on github.com.
@@ -1567,13 +1580,13 @@ def render_html(data):
               "/blob/main/README.md")
         H.append('<p class="muted mdsrc"><a href="board.md">markdown '
                  f'version</a> · <a href="{_attr(gh)}">GitHub Page</a></p>')
-    H.append("<h2>⌨ Morning sync (local)</h2>")
+    H.append("<a id=\"morning\"></a><h2>⌨ Morning sync (local)</h2>")
     H.append(_row(
         "Sync every repo to main + clean generated cruft — run in a terminal "
         "at the workspace root, not in an AI assistant chat.",
         MORNING_CMD, term=True))
 
-    H.append("<h2>🌙 Overnight</h2>")
+    H.append("<a id=\"overnight\"></a><h2>🌙 Overnight</h2>")
     for r in data["overnight"]:
         # The workflow is the row's subject; its repo and its conclusion are
         # facets, so they read as pills — the repo in the organ accent
@@ -1607,7 +1620,7 @@ def render_html(data):
         else:
             H.append(_plain(text))
 
-    H.append("<h2>❤️ Readiness &amp; release</h2>")
+    H.append("<a id=\"readiness\"></a><h2>❤️ Readiness &amp; release</h2>")
     monitoring = data.get("heart_monitoring")
     if isinstance(monitoring, dict) and type(monitoring.get("score")) is int:
         H.append(_row(
@@ -1656,7 +1669,7 @@ def render_html(data):
     # carry their own prompts, this end never re-derives one.
     perf = data.get("performance")
     if perf is not None:
-        H.append("<h2>⏱ Test performance</h2>")
+        H.append("<a id=\"performance\"></a><h2>⏱ Test performance</h2>")
         if perf.get("flagged"):
             for f in perf["flagged"]:
                 link = (f' <a href="{_attr(f["url"])}">run ↗</a>'
@@ -1678,7 +1691,7 @@ def render_html(data):
                 + pills(("nothing flagged", "g"))))
 
     v = data["versions"]
-    H.append("<h2>🏷️ Version consistency</h2>")
+    H.append("<a id=\"versions\"></a><h2>🏷️ Version consistency</h2>")
     if v["consensus"] and v["drift"] == 0:
         H.append(_plain(
             f'The coupled set agrees at <code>{esc(v["consensus"])}</code>'
@@ -1698,7 +1711,7 @@ def render_html(data):
         H.append(f'<p class="muted">Latest release tag {esc(v["reference"])} — '
                  "the frozen source stamp trailing it is expected.</p>")
 
-    H.append("<h2>💬 Community · Ears</h2>")
+    H.append("<a id=\"community\"></a><h2>💬 Community · Ears</h2>")
     if data["boards"].get("ears"):
         H.append(_plain(f'<a href="{_attr(data["boards"]["ears"])}">Open Ears board ↗</a>'))
     c = data["community"]
@@ -1752,7 +1765,7 @@ def render_html(data):
     else:
         H.append(_row("Scan unavailable — run the Ears directly.", "Use the community skill."))
 
-    H.append("<h2>🔄 Resume</h2>")
+    H.append("<a id=\"resume\"></a><h2>🔄 Resume</h2>")
     counts = data["resume"]["counts"]
     mind_url = data["boards"].get("mind", "")
     if counts:
@@ -1809,7 +1822,7 @@ def render_html(data):
     elif pending is not None:
         H.append(_plain('<span class="muted">no pending-release PRs open</span>'))
 
-    H.append("<h2>🧹 Upkeep</h2>")
+    H.append("<a id=\"upkeep\"></a><h2>🧹 Upkeep</h2>")
     # Standing invitations rather than state, so the one pill each carries is
     # the door it routes to — what the 📋 puts on the clipboard, visible
     # without tapping it.
@@ -1827,7 +1840,7 @@ def render_html(data):
 
     hygiene = data.get("hygiene")
     if hygiene:
-        H.append(f'<h2>🧼 Hygiene <span class="muted">(scanned this render — '
+        H.append(f'<a id="hygiene"></a><h2>🧼 Hygiene <span class="muted">(scanned this render — '
                  f'{hygiene.get("repos_present")}/{hygiene.get("repos_declared")} '
                  "repos present)</span></h2>")
         flagged = [r for r in hygiene["rows"]
@@ -1844,7 +1857,7 @@ def render_html(data):
     if devbox:
         stale = (' — <span class="warn">STALE</span>'
                  if devbox.get("stale") else "")
-        H.append(f'<h2>🖥️ Dev box <span class="muted">(observed '
+        H.append(f'<a id="devbox"></a><h2>🖥️ Dev box <span class="muted">(observed '
                  f'{age_label(devbox["age_h"])} ago via morning.sh{stale})</span></h2>')
         if devbox.get("stale"):
             H.append(_row("Refresh the dev-box observation — run in a "
@@ -1872,7 +1885,7 @@ def render_html(data):
             H.append(_plain("worktree" + pills(*facets)))
 
     if data.get("autonomy"):
-        H.append('<h2>🤖 Autonomous runs <span class="muted">(the calibration '
+        H.append('<a id="autonomy"></a><h2>🤖 Autonomous runs <span class="muted">(the calibration '
                  "log's tail)</span></h2>")
         for a in data["autonomy"]:
             H.append(_plain(
@@ -1883,7 +1896,7 @@ def render_html(data):
 
     doors = data["doors"]
     if doors:
-        H.append("<h2>🚪 All doors</h2>")
+        H.append("<a id=\"doors\"></a><h2>🚪 All doors</h2>")
         H.append("<details><summary>every agent and workflow door</summary>")
         for d in doors:
             if d["tier"] == "skill":
@@ -1905,7 +1918,7 @@ def render_html(data):
         H.append("</details>")
 
     if data["degraded"]:
-        H.append("<h2>Degraded</h2>")
+        H.append("<a id=\"degraded\"></a><h2>Degraded</h2>")
         for d in data["degraded"]:
             H.append(_plain(f'<span class="warn">{esc(d)}</span>'))
 

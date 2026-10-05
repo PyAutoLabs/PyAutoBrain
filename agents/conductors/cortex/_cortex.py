@@ -618,9 +618,12 @@ def render_dashboard_html(c: dict) -> str:
         f"{c['generated']} — regenerate, do not hand-edit -->",
         f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}</style>",
         "</head>", "<body>",
-        hero(THEME_ORGAN, "Dashboard", _esc(INTRO)),
-        stats((n["running"], "Running"), (n["open"], "Open"),
-              (n["active"], "Projects")),
+        hero(THEME_ORGAN, "Dashboard", _esc(INTRO), navigation=[
+            {"label": "Running", "href": "#summary", "count": n["running"]},
+            {"label": "Open", "href": "#summary", "count": n["open"]},
+            {"label": "Projects", "href": "#projects", "count": n["active"]},
+            {"label": "Check in", "href": "#checkin-box"},
+        ]),
         # One line, deliberately: the `--check` normaliser drops it whole so
         # a date change is not drift.
         f'<div class="fresh"><p class="muted">Last updated '

@@ -12,10 +12,44 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRAIN_HOME / "board"))
 
 import _theme  # noqa: E402
+
+
+def test_navigation_preserves_zero_unknown_and_count_free_links():
+    markup = _theme.navigation_cards([
+        {"href": "#zero", "label": "Empty queue", "count": 0},
+        {"href": "#unknown", "label": "Coverage", "count": "Unknown"},
+        {"href": "#projects", "label": "Projects"},
+    ])
+    assert 'board-nav-count">0<' in markup
+    assert 'board-nav-count">Unknown<' in markup
+    assert markup.count('class="board-nav-count"') == 2
+    assert markup.count('class="board-nav-card"') == 3
+    assert _theme.navigation_cards([]) == ""
+
+
+@pytest.mark.parametrize("href", ["javascript:alert(1)", "data:text/html,x",
+                                   "//example.com", "\\\\example.com", "\n#x"])
+def test_navigation_rejects_active_or_ambiguous_destinations(href):
+    with pytest.raises(ValueError):
+        _theme.navigation_cards([{"href": href, "label": "Open"}])
+
+
+def test_navigation_escapes_owner_text_and_follows_the_banner():
+    markup = _theme.hero("brain", "Board", "Description", navigation=[{
+        "href": "#a&b", "label": '<img src=x onerror="bad">',
+        "count": "<unknown>", "context": "A & B",
+    }])
+    assert '</header><nav class="board-nav"' in markup
+    assert markup.index('</nav>') < markup.index('class="lede"')
+    assert '<img src=x' not in markup
+    assert 'href="#a&amp;b"' in markup
+    assert '&lt;unknown&gt;' in markup and 'A &amp; B' in markup
 
 # The board family declared in config/policy.yaml — the theme must dress all
 # of it, not just the two boards that adopted it first.
