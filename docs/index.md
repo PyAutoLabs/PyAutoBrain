@@ -73,6 +73,7 @@ organs/gut
 satellites
 adoption/guide
 adoption/config_surfaces
+board-sizing
 example
 ```
 
