@@ -82,6 +82,17 @@ repos' `pages_dashboard.yml`.
 
 ## Look (`_theme.py`)
 
+The [responsive sizing standard](../docs/board-sizing.md) separates the outer
+board from its reading measure. The shared theme caps the border-box at
+`77.5rem` (1240px at the default root size), with `1rem` gutters below `46rem`
+and `1.5rem` above. Paragraphs and `.board-prose` use a `65ch` maximum;
+mastheads, status panels, data tables and metric rows can use the full width.
+Use the `--board-max`, `--board-gutter` and `--board-measure` tokens instead of
+copying dimensions. The standard sets no minimum page width and never hides
+page overflow. Dense tables need a labelled, keyboard-accessible local scroll
+container in their owning renderer; a wider desktop maximum cannot fix that
+markup. Keep local exceptions and adoption evidence in the linked matrix.
+
 `board/_theme.py` is the one place that answers *what does a one-tap board
 look like* — the stylesheet, the hero, the facet pills, the family footer.
 Presentation only: no state, no collection, no policy. It is shared, not
