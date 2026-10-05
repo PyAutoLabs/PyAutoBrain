@@ -417,3 +417,44 @@ def test_legacy_dashboard_prompts_preserve_arguments_and_paths():
                   "pyauto-heart tick && pyauto-heart readiness",
                   "Use the health skill. Inspect CI."):
         assert _theme.portable_prompt(shell) == shell
+
+
+def test_orchestration_panel_keeps_work_links_in_visible_and_portable_context():
+    from html import unescape
+    page = _theme.orchestration_panel(
+        'example', 'Review <work>', 'A & B', '/board check',
+        work_links=[{'label': 'Open work repo', 'href': 'https://github.com/Example/Work'},
+                    {'label': 'Community hub', 'href': 'https://github.com/orgs/Example/discussions'}])
+    assert 'Review &lt;work&gt;' in page and 'A &amp; B' in page
+    assert '<a href="https://github.com/Example/Work">Open work repo</a>' in page
+    preview = unescape(re.search(r'data-orchestration-prompt[^>]*>(.*?)</textarea>', page, re.S)[1])
+    assert preview == ('Use the board skill. check\n\nWork on GitHub:\n'
+                       '- Open work repo: https://github.com/Example/Work\n'
+                       '- Community hub: https://github.com/orgs/Example/discussions')
+    assert 'readonly' in page and 'aria-live="polite"' in page
+
+
+@pytest.mark.parametrize('url', ['javascript:alert(1)', '//github.com/Example/Work',
+                                 'https://github.com.evil.test/Example/Work',
+                                 'https://user@github.com/Example/Work',
+                                 'https://github.com/Example/Work\n',
+                                 'https://github.com\\@evil.test/Example/Work',
+                                 'https://github.com/'])
+def test_orchestration_rejects_unsafe_work_destinations(url):
+    with pytest.raises(ValueError):
+        _theme.orchestration_panel('demo', 'Title', 'Description', 'Prompt',
+                                  work_links=[{'label': 'Work', 'href': url}])
+
+
+def test_orchestration_unknown_destination_and_escaped_prompt():
+    from html import unescape
+    prompt = 'Read </textarea><script>alert(1)</script>\nKeep “Unicode” 🧠 intact.'
+    page = _theme.orchestration_panel('demo', 'Title', 'Description', prompt)
+    assert 'Work repository unavailable' in page
+    assert '<script>' not in page
+    assert unescape(re.search(r'data-orchestration-prompt[^>]*>(.*?)</textarea>', page, re.S)[1]) == prompt
+    with pytest.raises(ValueError):
+        _theme.orchestration_panel('bad" id', 'Title', 'Description', prompt)
+    with pytest.raises(ValueError):
+        _theme.orchestration_panel('demo', 'Title', 'Description', prompt,
+                                  work_links=[{'label': 'Injected\ncommand', 'href': 'https://github.com/a/b'}])

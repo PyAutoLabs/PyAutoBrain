@@ -283,9 +283,11 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     nav = re.search(r'<nav class="board-nav".*?</nav>', html, re.S).group()
     for target in re.findall(r'href="#([^"]+)"', nav):
         assert f'id="{target}"' in html
-    assert html.count('<button class="copy"') == 3
+    assert html.count('<button class="copy"') == 2
+    assert html.count('<button type="button" class="orchestration-copy"') == 1
     assert 'data-cmd="Use the cortex skill. — resume example:' in html
-    assert 'data-cmd="Use the cortex skill. — on the laptop: `pyauto-brain cortex pull`' in html
+    assert 'data-orchestration-prompt readonly' in html
+    assert 'Use the cortex skill. — on the laptop: `pyauto-brain cortex pull`' in html
     assert "`pyauto-brain cortex checkin --apply --push`" in html
     assert '<time id="checkin" datetime="2026-09-02T09:00Z">2026-09-02T09:00Z</time>' in html
     assert "fresh-bad" in html and _cortex._CHECKIN_JS in html

@@ -70,7 +70,7 @@ import _pyauto_root  # noqa: E402
 # this page is visibly the same family as the Mind's and the Brain's.
 sys.path.insert(0, str(BRAIN_HOME / "board"))
 from _theme import (  # noqa: E402
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero, pills, stats,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats,
 )
 # The organ-cockpit feed contract (board/_state.py, state.json v1) — the same
 # constructor the Brain board uses, so this renderer cannot write a feed the
@@ -609,6 +609,15 @@ def render_dashboard_html(c: dict) -> str:
     home = c.get("home", "")
     blob = f"{home}/blob/main/" if home else ""
     n = c["counts"]
+    work_links = [{"label": "Open Cortex repository", "href": home}] if home else []
+    seen = {home}
+    for key, project in c["projects"].items():
+        remote = str(project.get("remote") or "")
+        if project.get("status") == "active" and re.fullmatch(r"[\w.-]+/[\w.-]+", remote):
+            url = "https://github.com/" + remote
+            if url not in seen:
+                work_links.append({"label": "Open " + key, "href": url})
+                seen.add(url)
     H = [
         "<!doctype html>", '<html lang="en">', "<head>",
         '<meta charset="utf-8">',
@@ -624,6 +633,10 @@ def render_dashboard_html(c: dict) -> str:
             {"label": "Projects", "href": "#projects", "count": n["active"]},
             {"label": "Check in", "href": "#checkin-box"},
         ]),
+        orchestration_panel(
+            "cortex", "Check in on the science",
+            "Review projects and runs together, then record what you have learned.",
+            checkin_payload(c), work_links=work_links, copy_label=CHECKIN_LABEL),
         # One line, deliberately: the `--check` normaliser drops it whole so
         # a date change is not drift.
         f'<div class="fresh"><p class="muted">Last updated '
@@ -639,8 +652,7 @@ def render_dashboard_html(c: dict) -> str:
         H += [f"<li><code>{_esc(p)}</code></li>" for p in c["problems"][:10]]
         H += ["</ul>"]
     stamp = c.get("checkin") or ""
-    H += [_html_task(_esc(CHECKIN_LABEL), checkin_payload(c)),
-          f'<div class="checkin" id="checkin-box">'
+    H += [f'<div class="checkin" id="checkin-box">'
           f'<span class="mark" id="checkin-mark"></span><div>'
           f'<span class="label">Last check-in</span>'
           f'<time id="checkin" datetime="{_attr(stamp)}">'

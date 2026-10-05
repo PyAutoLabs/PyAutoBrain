@@ -597,6 +597,31 @@ button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
 button.copy:hover{border-color:var(--accent);color:var(--accent)}
 button.copy.ok{color:var(--ok);border-color:var(--ok);background:transparent}
 button.copy.term{font-size:.95rem}
+/* The owner supplies meaning and destinations; the family owns the controls. */
+.orchestration-panel{border:1px solid var(--line);border-radius:16px;padding:1.5rem;
+ margin:1.5rem 0;background:linear-gradient(120deg,var(--tint),var(--bg));min-width:0}
+.orchestration-head{display:flex;gap:1.25rem;justify-content:space-between;align-items:start}
+.orchestration-panel h2{margin:0;border:0;padding:0;font-size:1.45rem}
+.orchestration-panel h2:after{display:none}
+.orchestration-head p{margin:.5rem 0 1rem}
+.orchestration-links{display:flex;flex-wrap:wrap;gap:.5rem;max-width:100%%}
+.orchestration-links a{display:inline-block;padding:.5rem .75rem;border:1px solid var(--line);
+ border-radius:8px;background:var(--bg);font-weight:600}
+.orchestration-controls{display:flex;gap:1rem;align-items:end;flex-wrap:wrap;margin:.75rem 0}
+.orchestration-direction{flex:1;min-width:min(100%%,15rem)}
+.orchestration-panel label{display:block;font-weight:600;margin-bottom:.35rem}
+.orchestration-panel textarea{display:block;width:100%%;max-width:100%%;resize:vertical;
+ box-sizing:border-box;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);
+ border-radius:8px;padding:.75rem;white-space:pre-wrap}
+.orchestration-panel [data-orchestration-prompt]{margin-top:.75rem;font-size:.9rem}
+.orchestration-copy{font:inherit;font-weight:650;background:var(--accent);color:var(--bg);
+ border:0;border-radius:8px;padding:.85rem 1rem;cursor:pointer;min-height:44px;max-width:100%%}
+.orchestration-panel :focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.orchestration-status{margin:.5rem 0 0;color:var(--muted)}
+.orchestration-status:empty{display:none}
+@media(max-width:46rem){.orchestration-panel{padding:1rem}.orchestration-head{display:block}
+ .orchestration-copy{width:100%%}.orchestration-links{margin-bottom:1rem}}
+
 /* A copy button with a WORDED face is a chip, not an icon. The rule above is
    a fixed 2.6rem square — right for a bare clipboard glyph, a trap for a
    label: the text wraps inside 42px into a one-word-per-line column and
@@ -747,6 +772,58 @@ def navigation_cards(items, label="Board sections"):
                      f'{_html.escape(str(item["label"]))}</span>{note}</a>')
     return (f'<nav class="board-nav" aria-label="{_html.escape(label, quote=True)}">'
             + "".join(cards) + "</nav>") if cards else ""
+
+
+def orchestration_panel(key, title, description, prompt, *, work_links=(),
+                        copy_label="Copy check-in prompt"):
+    """Render one owner's portable work prompt and trusted GitHub destinations.
+
+    Keys must be unique within the page. Missing destination metadata is shown
+    explicitly rather than guessing a repository. The exact preview is copied;
+    free-form direction never changes the configured work destinations.
+    """
+    import re
+    from urllib.parse import urlsplit
+
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", key):
+        raise ValueError("Panel key must be a simple, unique HTML identifier")
+    links, context = [], []
+    for item in work_links:
+        url, label = str(item["href"]), str(item["label"])
+        parsed = urlsplit(url)
+        if (url != url.strip() or any(c.isspace() or ord(c) < 32 for c in url)
+                or "\\" in url or parsed.scheme != "https"
+                or parsed.netloc != "github.com" or not parsed.path.strip("/")):
+            raise ValueError("Work destinations must be HTTPS links on github.com")
+        # Labels are also plain text in the prompt; disallow line injection.
+        if not label.strip() or any(c in label for c in "\r\n"):
+            raise ValueError("Work destination labels must be nonempty, single-line text")
+        links.append(f'<a href="{_html.escape(url, quote=True)}">'
+                     f'{_html.escape(label)}</a>')
+        context.append(f"- {label}: {url}")
+    base = portable_prompt(prompt).replace("\r\n", "\n").replace("\r", "\n")
+    if context:
+        base += "\n\nWork on GitHub:\n" + "\n".join(context)
+    destinations = ("".join(links) if links else
+                    '<span class="muted">Work repository unavailable in this snapshot.</span>')
+    esc = _html.escape
+    ident = "orchestration-" + key
+    return (
+        f'<section class="orchestration-panel" id="{ident}" '
+        f'aria-labelledby="{ident}-heading" data-orchestration-panel>'
+        f'<div class="orchestration-head"><div><h2 id="{ident}-heading">{esc(title)}</h2>'
+        f'<p>{esc(description)}</p></div>'
+        f'<nav class="orchestration-links" aria-label="Work on GitHub">{destinations}</nav></div>'
+        '<div class="orchestration-controls"><div class="orchestration-direction">'
+        f'<label for="{ident}-direction">Optional direction</label>'
+        f'<textarea id="{ident}-direction" rows="2" data-orchestration-direction '
+        'placeholder="Focus on a task, project or question"></textarea></div>'
+        f'<button type="button" class="orchestration-copy" data-orchestration-copy>{esc(copy_label)}</button></div>'
+        f'<details data-orchestration-preview><summary>Read the prompt</summary>'
+        f'<label class="sr-only" for="{ident}-prompt">Exact prompt to copy</label>'
+        f'<textarea id="{ident}-prompt" data-orchestration-prompt readonly rows="8">{esc(base)}</textarea>'
+        '</details><p class="orchestration-status" role="status" aria-live="polite"></p></section>'
+    )
 
 
 def hero(key, kind, lede_html="", *, navigation=()):
@@ -905,12 +982,14 @@ function promptFits(text){
   return true;
 }
 function guardPrompt(text, button){
-  let status=document.getElementById('prompt-budget-status');
+  const panel=button.closest('[data-orchestration-panel]');
+  const statusId=panel?panel.id+'-budget-status':'prompt-budget-status';
+  let status=document.getElementById(statusId);
   if(promptFits(text)){
     if(status){if(status.dataset.url)URL.revokeObjectURL(status.dataset.url);status.remove();}
     return true;
   }
-  if(!status){status=document.createElement('p');status.id='prompt-budget-status';
+  if(!status){status=document.createElement('p');status.id=statusId;
     status.setAttribute('role','status');status.setAttribute('aria-live','polite');
     button.insertAdjacentElement('afterend',status);}
   if(status.dataset.url)URL.revokeObjectURL(status.dataset.url);
@@ -944,6 +1023,47 @@ document.addEventListener("click",e=>{
   const b=e.target.closest("button.copy");
   if(b && guardPrompt(b.dataset.cmd,b))copyCmd(b);});
 """
+
+ORCHESTRATION_JS = """\
+function orchestrationSync(panel){
+  const preview=panel.querySelector('[data-orchestration-prompt]');
+  const direction=panel.querySelector('[data-orchestration-direction]').value.trim();
+  preview.value=preview.defaultValue+(direction?'\\n\\nOptional direction (user context):\\n'+direction:'');
+  panel.querySelector('.orchestration-status').textContent='';
+  return preview.value;
+}
+document.addEventListener('input',event=>{
+  if(event.target.matches('[data-orchestration-direction]')){
+    orchestrationSync(event.target.closest('[data-orchestration-panel]'));
+  }
+});
+document.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-orchestration-copy]');
+  if(!button)return;
+  const panel=button.closest('[data-orchestration-panel]');
+  const text=orchestrationSync(panel);
+  const status=panel.querySelector('.orchestration-status');
+  if(!guardPrompt(text,button))return;
+  let copied=false;
+  try{await navigator.clipboard.writeText(text);copied=true;}
+  catch(error){
+    const preview=panel.querySelector('[data-orchestration-prompt]');
+    panel.querySelector('[data-orchestration-preview]').open=true;
+    preview.focus();preview.select();
+    try{copied=document.execCommand('copy')===true;}catch(error){copied=false;}
+  }
+  // A slow permission response must not claim a subsequently edited prompt was copied.
+  if(panel.querySelector('[data-orchestration-prompt]').value!==text){
+    status.textContent=copied?'The previous prompt was copied. Copy again to include your latest direction.':
+      'Copy unavailable. Open the preview and select the current prompt to copy manually.';
+  }else{
+    status.textContent=copied?'Prompt copied. Paste it into your coding chat.':
+      'Copy unavailable. The full prompt is selected below; copy it manually.';
+  }
+});
+"""
+JS += ORCHESTRATION_JS
+
 
 
 def portable_prompt(payload):

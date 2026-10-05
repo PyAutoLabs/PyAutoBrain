@@ -43,6 +43,11 @@ The consultation graph is a DAG: conductors consult faculties, not conductors.
 See [ORGANISM.md](ORGANISM.md) for boundaries and [AUTONOMY.md](AUTONOMY.md)
 for checkpoint rules. Add a role only on demonstrated need.
 
+Before changing shared board presentation, read the applicable contract in
+[shared organism standards](docs/standards.md). Reuse the shared component,
+identify its affected consumers and validate adoption; keep domain meanings and
+work destinations in their owning renderers.
+
 For development use [skills/WORKFLOW.md](skills/WORKFLOW.md), then the invoked
 skill. Read only its current step and applicable environment. Reuse unchanged
 instructions already loaded; use [context discipline](skills/CONTEXT.md).
