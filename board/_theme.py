@@ -778,6 +778,7 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
                         copy_label="Copy check-in prompt"):
     """Render one owner's portable work prompt and trusted GitHub destinations.
 
+    Description is accepted for compatibility but not displayed.
     Keys must be unique within the page. Missing destination metadata is shown
     explicitly rather than guessing a repository. The exact preview is copied;
     free-form direction never changes the configured work destinations.
@@ -812,7 +813,7 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
         f'<section class="orchestration-panel" id="{ident}" '
         f'aria-labelledby="{ident}-heading" data-orchestration-panel>'
         f'<div class="orchestration-head"><div><h2 id="{ident}-heading">{esc(title)}</h2>'
-        f'<p>{esc(description)}</p></div>'
+        '</div>'
         f'<nav class="orchestration-links" aria-label="Work on GitHub">{destinations}</nav></div>'
         '<div class="orchestration-controls"><div class="orchestration-direction">'
         f'<label for="{ident}-direction">Optional direction</label>'
@@ -829,17 +830,18 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
 def hero(key, kind, lede_html="", *, navigation=()):
     """The masthead: the organ's logo re-drawn — mark, wordmark, rule, tagline.
 
+    `lede_html` is accepted for compatibility but not displayed.
     `kind` is what this page *is* under the wordmark ("Dashboard", "Board"),
     so the mark stays the organ's and the page keeps its own name.
     """
     o = organ(key)
-    lede = f'<p class="lede">{lede_html}</p>' if lede_html else ""
+    # Legacy prose arguments remain accepted for downstream compatibility.
     return (f'<header class="hero"><span class="orb">{mark(key)}</span>'
             f'<h1>{WORD}<b>{o["organ"]}</b>'
             f'<span class="kind">{kind}</span></h1>'
             f'<div class="rule"></div>'
             f'<p class="tag">{o["tagline"]}</p></header>'
-            f'{navigation_cards(navigation)}{lede}')
+            f'{navigation_cards(navigation)}')
 
 
 # Facet vocabulary → pill tone. Anything unlisted falls back to the neutral

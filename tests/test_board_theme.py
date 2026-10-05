@@ -46,7 +46,7 @@ def test_navigation_escapes_owner_text_and_follows_the_banner():
         "count": "<unknown>", "context": "A & B",
     }])
     assert '</header><nav class="board-nav"' in markup
-    assert markup.index('</nav>') < markup.index('class="lede"')
+    assert 'class="lede"' not in markup and 'Description' not in markup
     assert '<img src=x' not in markup
     assert 'href="#a&amp;b"' in markup
     assert '&lt;unknown&gt;' in markup and 'A &amp; B' in markup
@@ -163,7 +163,7 @@ def test_the_hero_reproduces_the_logo_wordmark():
     page = _theme.hero("mind", "Dashboard", "lede text")
     assert f'{_theme.WORD}<b>{_theme.ORGANS["mind"]["organ"]}</b>' in page
     assert _theme.ORGANS["mind"]["tagline"] in page
-    assert "Dashboard" in page and "lede text" in page
+    assert "Dashboard" in page and "lede text" not in page
 
 
 def test_pills_tone_the_exception_and_leave_the_default_neutral():
@@ -425,7 +425,7 @@ def test_orchestration_panel_keeps_work_links_in_visible_and_portable_context():
         'example', 'Review <work>', 'A & B', '/board check',
         work_links=[{'label': 'Open work repo', 'href': 'https://github.com/Example/Work'},
                     {'label': 'Community hub', 'href': 'https://github.com/orgs/Example/discussions'}])
-    assert 'Review &lt;work&gt;' in page and 'A &amp; B' in page
+    assert 'Review &lt;work&gt;' in page and 'A &amp; B' not in page
     assert '<a href="https://github.com/Example/Work">Open work repo</a>' in page
     preview = unescape(re.search(r'data-orchestration-prompt[^>]*>(.*?)</textarea>', page, re.S)[1])
     assert preview == ('Use the board skill. check\n\nWork on GitHub:\n'

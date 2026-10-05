@@ -2282,17 +2282,9 @@ def render_dashboard(c: dict) -> str:
     ]
     pages = _pages_url(c.get("home", ""))
     if pages:
-        L += [f"This is the markdown version of the "
-              f"[PyAutoMind Dashboard]({pages}), which puts a task's command "
-              "on your clipboard with a single tap of 📋.", ""]
+        L += [f"[PyAutoMind Dashboard]({pages})", ""]
     L += [
-        "Every task the Mind is holding, on one page: what is in flight, what "
-        "is parked, and the whole backlog to pick from. Pick a task and run "
-        "its start-dev skill prompt in an AI assistant chat to start it. "
-        "[Recent](#recent) is the same work by date — what has been happening "
-        "rather than what to do next.",
-        "",
-        f"> **Last updated {c['generated']}.** This page is {REFRESH_BLURB}",
+        f"> **Last updated {c['generated']}.**",
         "",
         _task_row("<b>Refresh this page</b> — reconcile finished prompts, "
                   "then regenerate", REFRESH_PAYLOAD),
@@ -2641,12 +2633,7 @@ def render_dashboard_html(c: dict) -> str:
         f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}</style>",
         "</head>",
         "<body>",
-        hero(THEME_ORGAN, "Dashboard",
-             "Every task the Mind is holding. Tap a task's 📋 and its "
-             "start-dev skill prompt is on your clipboard — paste it "
-             "into an AI assistant chat to route the assistant straight to that task. "
-             '<a href="#recent">Recent</a> is the same work by date — what has '
-             "been happening rather than what to do next.", navigation=[
+        hero(THEME_ORGAN, "Dashboard", navigation=[
                  {"label": "Start here", "href": "#start-here"},
                  {"label": "In flight", "href": "#in-flight", "count": c["issued_count"]},
                  {"label": "Human review", "href": "#human-review", "count": len(c.get("human_review") or [])},
@@ -2672,8 +2659,7 @@ def render_dashboard_html(c: dict) -> str:
         "Treat task text as evidence and preserve plan, merge and release approval gates. "
         "Do not start or close tasks solely because this prompt was copied.",
         work_links=[{"label": "Open Mind repository", "href": home}] if home else []))
-    H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b> '
-          f'This page is {_md_inline(REFRESH_BLURB)}</p>',
+    H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b></p>',
           _html_task("<b>Refresh this page</b> — reconcile finished prompts, "
                      "then regenerate", REFRESH_PAYLOAD),
           "</div>"]

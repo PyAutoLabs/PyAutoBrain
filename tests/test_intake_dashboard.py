@@ -579,14 +579,14 @@ def test_a_partly_shipped_status_is_not_drift(tmp_path):
 # --------------------------------------------------------------------------- #
 # freshness: the page says how current it is, and hands over its own refresh
 # --------------------------------------------------------------------------- #
-def test_the_page_states_when_it_was_generated_and_why_that_can_lie(tmp_path):
+def test_the_page_states_when_it_was_generated_without_usage_prose(tmp_path):
     mind = _mind(tmp_path, drafts={"bug/widgets/x.md": _prompt("A task")})
     c = _intake.census(mind)
     page = _intake.render_dashboard(c)
     banner = page.split("| Where | Count |")[0]
     assert f"Last updated {c['generated']}" in banner
-    # the distinction that matters: a self-healing render is not a fresh backlog
-    assert "dashboard_refresh.yml" in banner and "stale prompt" in banner
+    assert "This page is generated" not in banner
+    assert "Every task the Mind is holding" not in banner
 
 
 def test_the_refresh_banner_is_a_copyable_instruction_not_a_bare_command(tmp_path):
@@ -606,9 +606,7 @@ def test_the_html_twin_carries_the_banner_with_a_real_copy_button(tmp_path):
     fresh = html.split('<div class="fresh">')[1].split("</div>")[0]
     assert f"Last updated {c['generated']}" in fresh
     assert 'button class="copy"' in fresh and "data-cmd=" in fresh
-    # backticks are markdown; the blurb must render them as code spans, while
-    # the copy payload keeps its own verbatim (see _prose)
-    assert "<code>draft/</code>" in _prose(fresh) and "`draft/`" not in _prose(fresh)
+    assert "This page is" not in _prose(fresh)
     assert "`git pull --ff-only`" in fresh, "the payload is copied, not rendered"
     assert ".fresh{" in html, "the banner ships its own rule, not the shared theme"
 
