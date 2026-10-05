@@ -85,7 +85,7 @@ def test_unknown_declared_target_falls_back_with_a_note():
 # --- 3. Repos -----------------------------------------------------------------
 
 def test_declared_repos_taken_as_written_in_order():
-    text = ("Type: maintenance\nTarget: autofit\nRepos:\n- PyAutoFit\n- PyAutoConf\n\n"
+    text = ("Type: maintenance\nTarget: autofit\nRepos:\n- PyAutoFit\n- PyAutoNerves\n\n"
             "The priors config drifts between autofit and autoarray; the "
             "workspaces also carry stale copies.")
     d = analyse(text, "test")
