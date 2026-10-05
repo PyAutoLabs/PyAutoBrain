@@ -3,7 +3,10 @@
 The Ears panel is the reference: one chat for the board's work, a prominent copy
 action, optional direction, an exact selectable preview and links to where the
 work happens. The common order is logo/banner, section navigation, then the
-orchestration panel and truthful freshness/context before the content.
+orchestration panel and content. These are single-user operational boards: omit
+paragraphs explaining what the dashboard does or how to use it. Keep concise
+headings, controls, work links and actual status/evidence. Legacy hero ledes and
+panel descriptions remain accepted by the API but are not displayed.
 
 ## Component contract
 
