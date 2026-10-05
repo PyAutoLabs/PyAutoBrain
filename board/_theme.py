@@ -562,6 +562,17 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
 .hero .tag{margin:0;font-size:.63rem;font-weight:600;
  letter-spacing:.3em;text-transform:uppercase;color:var(--glow);opacity:.9}
 .lede{margin:0 0 .9rem}
+/* Section links share a shape whether or not the owner has a useful count. */
+.board-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%%,10rem),1fr));
+ gap:.75rem;margin:1.5rem 0;min-width:0}
+.board-nav-card{display:flex;flex-direction:column;justify-content:center;gap:.25rem;
+ min-width:0;min-height:5.5rem;padding:1rem;border:1px solid var(--line);
+ border-top:3px solid var(--accent);border-radius:12px;background:var(--btn);
+ color:var(--fg);text-decoration:none}
+.board-nav-card:hover{background:var(--tint);text-decoration:none;border-color:var(--accent)}
+.board-nav-card:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.board-nav-count{font-size:1.8rem;font-weight:700;line-height:1.15;color:var(--accent)}
+.board-nav-label{font-weight:650}.board-nav-context{font-size:.8rem;color:var(--muted)}
 /* --- sections ---------------------------------------------------------- */
 h2{font-size:1.1rem;margin:2.1rem 0 .3rem;padding:0 0 .35rem;font-weight:650;
  position:relative;color:var(--accent);border-bottom:2px solid var(--edge)}
@@ -709,7 +720,36 @@ def css(key):
 
 
 # ------------------------------------------------------------- components ---
-def hero(key, kind, lede_html=""):
+def navigation_cards(items, label="Board sections"):
+    """Section links with owner-supplied labels, optional counts and context.
+
+    Each item has ``href`` and ``label``; ``count=None`` omits the number,
+    while a textual count such as "Unknown" preserves missing evidence.
+    This presentation helper neither collects nor interprets board data.
+    """
+    from urllib.parse import urlsplit
+
+    cards = []
+    for item in items:
+        href = str(item["href"])
+        if (not href or href != href.strip() or any(ord(c) < 32 for c in href)
+                or "\\" in href or href.startswith("//")
+                or urlsplit(href).scheme.lower() not in ("", "http", "https")):
+            raise ValueError("Navigation destination must be an anchor or safe web link")
+        count = item.get("count")
+        value = (f'<span class="board-nav-count">{_html.escape(str(count))}</span>'
+                 if count is not None else "")
+        context = item.get("context")
+        note = (f'<span class="board-nav-context">{_html.escape(str(context))}</span>'
+                if context else "")
+        cards.append(f'<a class="board-nav-card" href="{_html.escape(href, quote=True)}">'
+                     f'{value}<span class="board-nav-label">'
+                     f'{_html.escape(str(item["label"]))}</span>{note}</a>')
+    return (f'<nav class="board-nav" aria-label="{_html.escape(label, quote=True)}">'
+            + "".join(cards) + "</nav>") if cards else ""
+
+
+def hero(key, kind, lede_html="", *, navigation=()):
     """The masthead: the organ's logo re-drawn — mark, wordmark, rule, tagline.
 
     `kind` is what this page *is* under the wordmark ("Dashboard", "Board"),
@@ -721,7 +761,8 @@ def hero(key, kind, lede_html=""):
             f'<h1>{WORD}<b>{o["organ"]}</b>'
             f'<span class="kind">{kind}</span></h1>'
             f'<div class="rule"></div>'
-            f'<p class="tag">{o["tagline"]}</p></header>{lede}')
+            f'<p class="tag">{o["tagline"]}</p></header>'
+            f'{navigation_cards(navigation)}{lede}')
 
 
 # Facet vocabulary → pill tone. Anything unlisted falls back to the neutral

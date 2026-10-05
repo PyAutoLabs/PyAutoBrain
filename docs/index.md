@@ -74,6 +74,7 @@ satellites
 adoption/guide
 adoption/config_surfaces
 board-sizing
+board-navigation
 example
 ```
 

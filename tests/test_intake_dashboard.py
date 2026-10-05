@@ -1902,3 +1902,12 @@ def test_check_is_clean_after_apply_when_only_the_clock_moved(tmp_path, monkeypa
     feed.write_text(feed.read_text(encoding="utf-8").replace(
         '"status": "green"', '"status": "red"'), encoding="utf-8")
     assert _intake.main(["--mind", str(mind), "dashboard", "--check"]) == 1
+
+
+def test_navigation_cards_follow_banner_and_have_existing_targets(tmp_path):
+    page = _html(_mind(tmp_path, drafts={"feature/widgets/one.md": _prompt("One")}))
+    assert '</header><nav class="board-nav"' in page
+    nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
+    for target in re.findall(r'href="#([^"]+)"', nav):
+        assert f'id="{target}"' in page
+    assert 'board-nav-count">0</span><span class="board-nav-label">In flight' in nav

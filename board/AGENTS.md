@@ -82,6 +82,11 @@ repos' `pages_dashboard.yml`.
 
 ## Look (`_theme.py`)
 
+Use the [shared section navigation](../docs/board-navigation.md) via
+`hero(..., navigation=items)`: banner, linked cards, then freshness/context.
+Owners supply safe destinations, labels and optional counts; no duplicate card
+CSS or changes to data/action semantics.
+
 The [responsive sizing standard](../docs/board-sizing.md) separates the outer
 board from its reading measure. The shared theme caps the border-box at
 `77.5rem` (1240px at the default root size), with `1rem` gutters below `46rem`

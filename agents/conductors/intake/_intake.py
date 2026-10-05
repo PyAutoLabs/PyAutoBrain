@@ -2646,12 +2646,20 @@ def render_dashboard_html(c: dict) -> str:
              "start-dev skill prompt is on your clipboard — paste it "
              "into an AI assistant chat to route the assistant straight to that task. "
              '<a href="#recent">Recent</a> is the same work by date — what has '
-             "been happening rather than what to do next."),
-        # The four numbers a human wants before reading a single row.
-        stats((c["issued_count"], "In flight"),
-              (len(c.get("human_review") or []), "Human review"),
-              (len(c["parked"]), "Parked"),
-              (len(c["planned"]), "Planned"), (c["total"], "Backlog")),
+             "been happening rather than what to do next.", navigation=[
+                 {"label": "Start here", "href": "#start-here"},
+                 {"label": "In flight", "href": "#in-flight", "count": c["issued_count"]},
+                 {"label": "Human review", "href": "#human-review", "count": len(c.get("human_review") or [])},
+                 {"label": "Parked", "href": "#parked", "count": len(c["parked"])},
+                 {"label": "Planned", "href": "#planned", "count": len(c["planned"])},
+                 {"label": "Backlog", "href": "#backlog", "count": c["total"]},
+             ] + [{"label": label, "href": "#" + target}
+                  for label, target, present in (
+                      ("Pending release", "pending-release", bool(c.get("pending_release"))),
+                      ("Bundles", "bundles", bool(bundle_cards(c))),
+                      ("Recent", "recent", bool(c.get("recent"))),
+                      ("Epics", "epics", bool(c.get("epics") or _epic_members(c))),
+                  ) if present]),
     ]
     H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b> '
           f'This page is {_md_inline(REFRESH_BLURB)}</p>',
@@ -2668,7 +2676,7 @@ def render_dashboard_html(c: dict) -> str:
         H += [f"<li><code>{_attr(d)}</code></li>" for d in c["drift"]]
         H += ["</ul>"]
     H.append(_status_box_html(c["batch"]))
-    H += ["<h2>Start here</h2>"]
+    H += ['<a id="start-here"></a><h2>Start here</h2>']
 
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
@@ -2690,7 +2698,11 @@ def render_dashboard_html(c: dict) -> str:
         # registry file is the full record, the page is the view.
         a = (f' <a class="mdsrc" href="{_attr(blob + src)}">markdown '
              "version</a>") if blob else ""
-        return f"<h2>{title}{a}</h2>"
+        anchor = {"In flight": "in-flight", "Parked": "parked",
+                  "Planned": "planned", "Backlog": "backlog",
+                  "Bundles": "bundles", "Epics": "epics"}.get(title)
+        prefix = f'<a id="{anchor}"></a>' if anchor else ""
+        return prefix + f"<h2>{title}{a}</h2>"
 
     H += [h2("In flight", "active.md"),
           '<p class="muted">Issued — each has an open GitHub issue and '

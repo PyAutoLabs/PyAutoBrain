@@ -560,12 +560,16 @@ def test_the_header_strip_counts_every_section_that_can_ask_something(tmp_path):
     page = _run(["--html"], tmp_path, stub).stdout
     for label in ("Overnight red", "Blockers", "Awaiting", "In flight",
                   "Open issues"):
-        assert f"<span>{label}</span>" in page
+        assert f'<span class="board-nav-label">{label}</span>' in page
+    assert '</header><nav class="board-nav"' in page
+    nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
+    for target in re.findall(r'href="#([^"]+)"', nav):
+        assert f'id="{target}"' in page
     # Seven overnight jobs all red in this fixture, one in-flight task, and
     # the org issue count straight off the search.
-    assert "<b>7</b><span>Overnight red</span>" in page
-    assert "<b>1</b><span>In flight</span>" in page
-    assert "<b>42</b><span>Open issues</span>" in page
+    assert "<span class=\"board-nav-count\">7</span><span class=\"board-nav-label\">Overnight red</span>" in page
+    assert "<span class=\"board-nav-count\">1</span><span class=\"board-nav-label\">In flight</span>" in page
+    assert "<span class=\"board-nav-count\">42</span><span class=\"board-nav-label\">Open issues</span>" in page
 
 
 def test_an_unreadable_source_counts_as_a_dash_not_a_zero(tmp_path):
@@ -574,9 +578,9 @@ def test_an_unreadable_source_counts_as_a_dash_not_a_zero(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures(**{
         "issue_count.json": {}, "comm_issues.json": {}, "comm_prs.json": {}}))
     page = _run(["--html"], tmp_path, stub, {"BOARD_PAGES_BASE": "file:///nope"}).stdout
-    assert "<b>–</b><span>Blockers</span>" in page
-    assert "<b>–</b><span>Open issues</span>" in page
-    assert "<b>0</b><span>Open issues</span>" not in page
+    assert "<span class=\"board-nav-count\">–</span><span class=\"board-nav-label\">Blockers</span>" in page
+    assert "<span class=\"board-nav-count\">–</span><span class=\"board-nav-label\">Open issues</span>" in page
+    assert "<span class=\"board-nav-count\">0</span><span class=\"board-nav-label\">Open issues</span>" not in page
 
 
 def test_an_overnight_row_wears_its_repo_and_its_conclusion(tmp_path):
