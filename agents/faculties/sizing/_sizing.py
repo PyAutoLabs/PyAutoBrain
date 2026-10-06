@@ -444,11 +444,13 @@ LANE_VALUES = ("any", "local-dev")
 # external contributor's request. Judged from the prompt's own words.
 # Kept deliberately specific. A loose keyword here does not fail safe in the way
 # it first appears: it grades everything `judge`, the tier starves, and the model
-# stops discriminating at all. `raise` alone matched "praise" and every prose
-# mention of raising a question; `raises ` earns its place, bare `raise` does not.
+# stops discriminating at all. The 233-prompt campaign regrade moved 15 prompts
+# from judge to glance after dropping `raises `; all carried declared tiers.
+# Crash descriptions are not error-contract changes; `error contract` covers
+# the latter without judging every symptom that names a raised exception.
 JUDGE_SURFACE_KEYWORDS = [
     "public api", "default value", "defaults to", "error contract",
-    "raises ", "science policy", "external contributor", "external reporter",
+    "science policy", "external contributor", "external reporter",
     "user-filed", "reported by", "backwards-compat", "backwards compat",
     "breaking change",
 ]
@@ -495,6 +497,7 @@ def declared_header(text: str) -> dict:
            "declared_autonomy": None, "status": None,
            "priority": None, "blocked_by": [], "closes_when": [],
            "declared_consequence": None, "witness": None,
+           "witness_none_reason": None, "unknown_unattended": None,
            "declared_review_minutes": None, "declared_unattended": None,
            "lane": None}
     in_fence = False
@@ -538,8 +541,13 @@ def declared_header(text: str) -> dict:
             v = value.lower()
             if v in CONSEQUENCE_TIERS and out["declared_consequence"] is None:
                 out["declared_consequence"] = v
-        elif key == "witness" and out["witness"] is None:
-            out["witness"] = value
+        elif key == "witness" and out["witness"] is None \
+                and out["witness_none_reason"] is None:
+            none = re.match(r"^none\b\s*[—-]?\s*(.*)", value, re.I)
+            if none:
+                out["witness_none_reason"] = none.group(1)
+            else:
+                out["witness"] = value
         elif key == "review-minutes" and out["declared_review_minutes"] is None:
             m2 = re.search(r"\d+", value)
             if m2:
@@ -552,6 +560,8 @@ def declared_header(text: str) -> dict:
             v = _norm_level(value)
             if v in UNATTENDED_LEVELS and out["declared_unattended"] is None:
                 out["declared_unattended"] = v
+            elif v not in UNATTENDED_LEVELS and out["unknown_unattended"] is None:
+                out["unknown_unattended"] = value
     return out
 
 
@@ -818,6 +828,8 @@ def estimate_consequence(p: dict, factors: dict | None = None):
     reasons = []
 
     # 1. Work types whose deliverable is never a quietly-mergeable diff.
+    if p["work_type"] == "triage":
+        return "judge", ["work-type triage: classification still open"]
     if p["work_type"] in ("release", HUMAN_REVIEW):
         return "judge", [f"work-type {p['work_type']} is a human act by contract"]
 
@@ -828,6 +840,11 @@ def estimate_consequence(p: dict, factors: dict | None = None):
 
     # 3. The default that makes the model bite.
     if not witness:
+        if p.get("witness_none_reason") is not None:
+            reason = "Witness: none declared"
+            if p["witness_none_reason"]:
+                reason += f" — {p['witness_none_reason']}"
+            return "judge", [reason]
         return "judge", ["no Witness: declared — nothing to check but the diff"]
     reasons.append(f"witness declared: {witness[:60]}")
 
@@ -861,6 +878,8 @@ def estimate_unattended(p: dict, level: str, factors: dict | None = None):
     """
     if factors is None:
         _, _, factors = estimate_difficulty(p)
+    if p["work_type"] == "triage":
+        return "never", ["work-type triage: classification still open"]
     if p["work_type"] in ("release", HUMAN_REVIEW):
         return "never", [f"work-type {p['work_type']} is human-driven by contract"]
     if p.get("declared_autonomy") == "human-required":
@@ -912,6 +931,10 @@ def effective_unattended(p: dict, level: str, factors: dict | None = None,
     """
     derived, reasons = estimate_unattended(p, level, factors)
     grade = p.get("declared_unattended") or derived
+    if p.get("unknown_unattended") is not None:
+        reasons = reasons + [
+            f"unknown Unattended: {p['unknown_unattended']} — expected "
+            + ", ".join(UNATTENDED_LEVELS)]
     if grade == "ready" and derived_level == "too-large":
         reasons = reasons + [
             "CAUTION: the heuristic derives too-large; the declared level won."
