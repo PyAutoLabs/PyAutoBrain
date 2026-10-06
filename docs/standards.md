@@ -8,7 +8,7 @@ identify affected consumers, and validate adoption in those consumers.
 |---|---|---|
 | [Responsive sizing](board-sizing.md) | All organism boards | `board/_theme.py::css` |
 | [Banner and navigation](board-navigation.md) | All organism boards | `hero`, `navigation_cards` |
-| [Orchestration panel](board-orchestration.md) | All organism boards; staged adoption | `orchestration_panel`, shared `JS` |
+| [Orchestration panel](board-orchestration.md) | All organism boards | `orchestration_panel`, shared `JS` |
 
 ## Ownership and discovery
 
@@ -45,6 +45,18 @@ and verification agree. Store transient progress in Mind task records; keep
 enduring rules here. Do not add a new framework or repository merely to hold a
 standard.
 
-The orchestration initiative introduces this discovery contract first; the
-Mind-generated all-repo instruction rollout and Scientist entry links are the
-next phase. This page does not claim those consumers have already migrated.
+Mind generates the discovery block from `policy/shared_standards.md` with
+`scripts/repos_sync.py`. `repos.yaml` explicitly marks board owners. For a
+bounded rollout, use `--write --only "shared-standards blocks (generated)"`
+with repeated `--repo NAME` selections; this changes only the selected
+repositories' `AGENTS.md` blocks. Unknown selections, malformed markers and
+symlink write targets fail before writes. Check the same selection with
+`--check`; omit `--repo` for the full available-checkout audit. Coverage output
+names missing checkouts separately, so a partial checkout is never a claim
+of universal adoption.
+
+Generated instruction changes still require repository claims. Track deferred
+consumers explicitly in Mind rather than excluding them permanently from the
+standard. The [discovery rollout](https://github.com/PyAutoLabs/PyAutoMind/issues/474)
+and [panel adoption](https://github.com/PyAutoLabs/PyAutoEars/issues/15) carry the
+PR and publication evidence; source changes alone do not prove a live page.

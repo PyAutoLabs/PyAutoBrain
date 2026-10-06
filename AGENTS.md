@@ -175,3 +175,16 @@ with `/hooks`; changed or untrusted hooks are skipped. The adapter registers the
 shared-Mind commit guard and end-at-deliverable guard. It intentionally does not
 copy the Claude remote-session Python `SessionStart` bootstrap; local Codex work
 continues to source the workspace `activate.sh` normally.
+
+<!-- repos_sync:standards:begin -->
+## Shared standards
+
+Before changing a shared interface, consult the applicable
+[organism standard](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/docs/standards.md)
+on demand, identify affected consumers, and validate their adoption. Change
+generated guidance at its canonical source and regenerate.
+
+For board changes, follow the applicable sizing, navigation and orchestration
+standards and reuse Brain’s shared components. Keep domain data, prompt meaning
+and approval boundaries with the board’s owner.
+<!-- repos_sync:standards:end -->

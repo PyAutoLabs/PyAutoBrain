@@ -60,27 +60,30 @@ Different panels must not overwrite one another's input, preview or feedback.
 
 ## Adoption matrix
 
-| Board | Renderer owner | Prompt and work destination | Phase |
-|---|---|---|---|
-| Brain | Brain `board/_board.py` | Operational review; configured Brain repository | Core |
-| Mind | Brain intake conductor | Task planning; resolved Mind repository | Core |
-| Cortex | Brain Cortex conductor | Existing check-in; Cortex and active registered project remotes | Core |
-| Ears | Ears | Existing community check-in; Community Hub and relevant work repos | Pilot |
-| Heart | Heart | Existing systematic repair instructions; Heart work repository | Pilot |
-| Hands | Hands | Release coordination with existing approval gates | Consumers |
-| Memory | Memory | Knowledge/reading workflow with existing approval gates | Consumers |
-| Pulse | Pulse | Profiling check-in and registered project repositories | Consumers |
-| Insight | Insight | Inference check-in and registered project repositories | Consumers |
-| Nerves | Nerves | Configuration work and relevant repositories | Consumers |
-| Gut | Gut | Retention/recovery workflow, preserving destructive-action approval | Consumers |
-| Eyes | Eyes | Figure review and registered project repositories | Consumers |
-| Scientist | Scientist | Organism routing and the relevant organ repositories | Consumers |
+| Board | Renderer owner | Prompt and work destination |
+|---|---|---|
+| Brain | Brain `board/_board.py` | Operational review; configured Brain repository |
+| Mind | Brain intake conductor | Task planning; resolved Mind repository |
+| Cortex | Brain Cortex conductor | Existing check-in; Cortex and active registered project remotes |
+| Ears | Ears `ears/board.py` | Existing community check-in; Community Hub companion, configured Ears repo and publicly verified snapshot work repos |
+| Heart | Heart `heart/dashboard.py` | Existing systematic repair instructions; Heart work repository |
+| Hands | Hands `autohands/board.py` | Release review with existing approval gates; resolved Hands remote; distinct release/rehearsal/validation actions retained |
+| Memory | Memory `scripts/board.py` | Knowledge and reading queue review; resolved Memory remote; paper actions retained |
+| Pulse | Pulse `pulse/campaigns.py` and `pulse/board.py` | Existing profiling check-in; Pulse ledger and every registered project repository; separate systematic-fix action retained |
+| Insight | Insight `insight/campaigns.py` and `insight/board.py` | Existing inference check-in; Insight ledger and registered inference project repositories |
+| Nerves | Nerves `scripts/board.py` index | Configuration review; Nerves and named source repositories from the collected body-map identities; source detail pages retain their specific controls |
+| Gut | Gut `scripts/board.py` | Retention/recovery review; Gut and the associated Mind retention ledger; permanent void still requires explicit human authorization |
+| Eyes | Eyes `eyes/board.py` | Figure review; Eyes plus every registered visualization project repository; per-figure copy/critique actions retained |
+| Scientist | Scientist `scripts/organism_board.py` | Operational routing; each displayed board's work repository; existing door commands retained |
 
-The later phases must audit destinations and preserve existing payloads before
-adoption; this table is not a claim of completed rollout. Heart moves its
-recognizable systematic-fix action into the top panel without competing duplicate
-primary controls. The standards-discovery rollout is tracked alongside these
-migrations in Mind.
+These are the owner implementations and destination rules. Mind's
+[consumer phase](https://github.com/PyAutoLabs/PyAutoEars/issues/15) records the
+per-repository PRs and post-merge publication evidence. Heart's recognizable
+systematic-fix action occupies the top panel without a duplicate primary
+action. Optional direction focuses the work without replacing the general
+remit or changing trusted repository metadata. A campaign identifier alone is
+not a repository identity: do not invent remotes for unregistered projects or
+publish private project metadata merely to populate a link.
 
 ## Verification
 
