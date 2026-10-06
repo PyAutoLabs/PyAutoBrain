@@ -611,3 +611,153 @@ def test_triage_writes_nothing_to_the_workspace(tmp_path):
     _triage(ws)
     after = {p: p.stat().st_mtime_ns for p in ws.rglob("*") if p.is_file()}
     assert before == after, "the conductor reasons and delegates; it never edits the workspace"
+
+
+# Source taxonomy contract: no scientific imports or implicit archive acceptance.
+def _source_catalogue(ws, *, published=False):
+    routes = [
+        {"legacy": "scripts/imaging/likelihood_runtime/mge.py",
+         "path": "scripts/imaging/mge/likelihood_runtime.py",
+         "dataset": "imaging", "model": "mge", "measurement": "likelihood_runtime"},
+        {"legacy": "scripts/interferometer/likelihood_runtime/pixelization.py",
+         "path": "scripts/interferometer/rectangular/likelihood_runtime.py",
+         "dataset": "interferometer", "model": "rectangular", "measurement": "likelihood_runtime"},
+    ]
+    doc = {"schema": "profiling-script-routes", "version": 1, "routes": routes,
+           "runtime_cells": [
+               {"dataset": "imaging", "model": "mge", "instruments": ["hst", "jwst"], "path": routes[0]["path"]},
+               {"dataset": "interferometer", "model": "pixelization", "instruments": ["sma"], "path": routes[1]["path"]},
+           ],
+           "compile_probe": {"path": "scripts/misc/jax_compile/probe.py", "transforms": ["jit", "vag"],
+                             "builder_status": "unavailable", "reason": "No replacement per-cell builder."}}
+    for row in routes:
+        path = ws / row["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("raise RuntimeError('scientific source MUST NOT execute')\n")
+    path = ws / ("dashboard/catalogue.json" if published else "catalogue/script_routes.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"schema": "profiling-summary", "version": 2, "script_routes": doc}
+                               if published else doc))
+    # Prove successful new-producer routing never scrapes the old Python surface.
+    (ws / "scripts/misc/likelihood_runtime/sweep.py").write_text("this is not parseable Python!")
+    return path, doc
+
+
+def test_source_catalogue_replaces_sweep_ast_without_importing(tmp_path):
+    ws = _workspace(tmp_path)
+    _source_catalogue(ws)
+    p = _run(["campaign", "--json"], ws)
+    assert p.returncode == 0, p.stderr
+    d = json.loads(p.stdout)
+    assert d["grid_cells"] == 3 and d["runs_missing"] == 6
+    assert d["source_routing"]["source"] == "catalogue/script_routes.json"
+    assert len(d["source_routing"]["sha256"]) == 64
+    assert "not an accepted baseline" in d["evidence_qualification"]
+    assert "--per-run-timeout 3600" in d["dispatch_plan"][0]
+    assert not list((ws / "results").rglob("*.json"))
+
+
+def test_published_catalogue_routes_without_python_grid(tmp_path):
+    ws = _workspace(tmp_path)
+    _source_catalogue(ws, published=True)
+    p = _run(["campaign", "--json"], ws)
+    assert p.returncode == 0, p.stderr
+    d = json.loads(p.stdout)
+    assert d["grid_cells"] == 3
+    assert d["source_routing"]["source"] == "dashboard/catalogue.json"
+
+
+def test_legacy_grid_fallback_is_explicit(tmp_path):
+    p = _run(["campaign", "--json"], _workspace(tmp_path))
+    assert p.returncode == 0
+    assert "Legacy AST fallback" in json.loads(p.stdout)["source_routing"]["qualification"]
+
+
+def test_missing_grid_is_unknown_not_zero_coverage(tmp_path):
+    ws = _workspace(tmp_path)
+    (ws / "scripts/misc/likelihood_runtime/sweep.py").unlink()
+    p = _run(["campaign", "--json"], ws)
+    assert p.returncode == 4
+    d = json.loads(p.stdout)
+    assert "coverage is unknown" in d["error"]
+    assert "runs_missing" not in d
+
+
+def test_malformed_new_producer_never_falls_back(tmp_path):
+    ws = _workspace(tmp_path)
+    path, doc = _source_catalogue(ws)
+    # Even if the old grid still works, invalid new data must remain visible.
+    (ws / "scripts/misc/likelihood_runtime/sweep.py").write_text(FIXTURE_CELLS)
+    for bad in ("{", "[]", json.dumps({**doc, "version": 999}),
+                json.dumps({**doc, "runtime_cells": doc["runtime_cells"] * 2})):
+        path.write_text(bad)
+        p = _run(["campaign", "--json"], ws)
+        assert p.returncode == 4
+        assert "error" in json.loads(p.stdout)
+
+
+def test_unsafe_or_mismatched_routes_fail_closed(tmp_path):
+    ws = _workspace(tmp_path)
+    path, doc = _source_catalogue(ws)
+    for bad in ("../escape.py", "scripts/../../escape.py", "scripts/imaging/mge/$(touch-pwn).py"):
+        doc["routes"][0]["path"] = bad
+        path.write_text(json.dumps(doc))
+        p = _run(["campaign", "--json"], ws)
+        assert p.returncode == 4
+        assert "error" in json.loads(p.stdout)
+    path, doc = _source_catalogue(ws)
+    doc["runtime_cells"][0]["path"] = doc["routes"][1]["path"]
+    path.write_text(json.dumps(doc))
+    assert _run(["campaign", "--json"], ws).returncode == 4
+
+
+def test_known_unavailable_compile_builder_has_no_dispatch(tmp_path):
+    ws = _workspace(tmp_path)
+    _source_catalogue(ws)
+    (ws / "scripts/misc/jax_compile/probe.py").write_text("not parseable Python!")
+    p = _run(["campaign", "--axis", "compile", "--json"], ws)
+    assert p.returncode == 0, p.stderr
+    d = json.loads(p.stdout)
+    assert d["transforms"] == ["jit", "vag"]
+    assert d["runs_missing"] == 6
+    assert d["dispatch_plan"] == []
+    assert "No replacement per-cell builder" in d["next_action"]
+
+
+def test_absent_declared_sources_are_visible_and_not_dispatched(tmp_path):
+    ws = _workspace(tmp_path)
+    _, doc = _source_catalogue(ws)
+    (ws / doc["routes"][0]["path"]).unlink()
+    p = _run(["campaign", "--json"], ws)
+    d = json.loads(p.stdout)
+    assert d["source_routing"]["missing_sources"] == [doc["routes"][0]["path"]]
+    assert d["dispatch_plan"] == []
+
+
+def test_archived_runtime_presence_stays_unreviewed(tmp_path):
+    ws = _workspace(tmp_path)
+    _source_catalogue(ws)
+    row = ws / "results/runtime/interferometer/pixelization/sma/pixelization_local_cpu_fp64.json"
+    row.parent.mkdir(parents=True)
+    row.write_text('{}')
+    p = _run(["campaign", "--json"], ws)
+    d = json.loads(p.stdout)
+    assert d["runs_done"] == 1
+    assert "unreviewed coverage" in d["evidence_qualification"]
+    assert row.read_text() == '{}'
+
+
+def test_compile_dispatch_uses_declared_probe_and_requires_its_source(tmp_path):
+    ws = _workspace(tmp_path)
+    path, doc = _source_catalogue(ws)
+    doc["compile_probe"].update(path="scripts/misc/jax_compile/alternative.py", builder_status="available")
+    path.write_text(json.dumps(doc))
+    p = _run(["campaign", "--axis", "compile", "--json"], ws)
+    d = json.loads(p.stdout)
+    assert d["dispatch_plan"] == []
+    assert doc["compile_probe"]["path"] in d["source_routing"]["missing_sources"]
+    (ws / doc["compile_probe"]["path"]).write_text("raise RuntimeError('must never execute')")
+    p = _run(["campaign", "--axis", "compile", "--json"], ws)
+    d = json.loads(p.stdout)
+    assert d["dispatch_plan"]
+    assert all("python3 scripts/misc/jax_compile/alternative.py " in command for command in d["dispatch_plan"])

@@ -32,3 +32,19 @@ not an argument).
 The Profiling Agent **reasons; it never runs sweeps or edits source.** The
 classification is the result for CPU-unusable cells; full timings for those
 belong to the A100 rows.
+
+## Source catalogue and evidence qualification
+
+Read the project's `catalogue/script_routes.json` first, then the published v2
+catalogue's `script_routes` extension. The conductor validates this stdlib-only
+contract and reports its source/digest. Legacy sweep AST routing remains only for
+projects without the new producer; invalid new data is an error, not a fallback.
+
+Model-first source paths do not rename historical cell IDs or result paths.
+Archive coverage is unreviewed evidence, never baseline acceptance or a claim of
+current performance. Missing metadata stays unknown. An unavailable compile
+builder or absent canonical source suppresses dispatch, with the reason visible.
+Campaign commands are plans only; baseline measurement and acceptance require a
+separate human-authorized campaign. CPU caps and the RAL CPU partition policy
+remain unchanged. Pulse owns campaign intent, Cortex scientific records and Mind
+bounded implementation tasks; this routing change moves none of that ownership.
