@@ -771,6 +771,28 @@ def test_root_resolution_order(tmp_path, monkeypatch):
     assert _cortex.resolve_root().name == "PyAutoCortex"
 
 
+def test_a_fixture_tree_finds_the_schema_its_checkout_ships(skeleton):
+    """A data root need not be a checkout: the fixture has no `scripts/`, and
+    the script that governs it is the one shipped beside it."""
+    assert (skeleton / "scripts").exists() is False
+    assert _cortex.find_script(skeleton) == cortex_root() / "scripts" / "cortex.py"
+
+
+def test_find_script_walks_the_symlinked_path_not_the_resolved_one(tmp_path):
+    """A bundle worktree links `PyAutoCortex` to the canonical checkout: the
+    script found for a tree under the link is named under the link, so it
+    compares equal to the checkout the caller resolved (#471)."""
+    real = tmp_path / "real"
+    (real / "scripts").mkdir(parents=True)
+    (real / "scripts" / "cortex.py").write_text("", encoding="utf-8")
+    (real / "tests" / "fixtures" / "skeleton").mkdir(parents=True)
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / "PyAutoCortex").symlink_to(real, target_is_directory=True)
+    tree = wt / "PyAutoCortex" / "tests" / "fixtures" / "skeleton"
+    assert _cortex.find_script(tree) == wt / "PyAutoCortex" / "scripts" / "cortex.py"
+
+
 def test_the_conductor_is_mind_free_and_names_no_instance_path():
     src = CONDUCTOR.read_text(encoding="utf-8")
     assert not re.search(r"^(?:from|import) _(?:intake|sizing)\b", src, re.M)

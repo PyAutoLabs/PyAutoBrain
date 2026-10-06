@@ -118,7 +118,7 @@ def find_script(root: Path) -> Path | None:
     """The `scripts/cortex.py` that governs the tree at `root`: in the root,
     then its ancestors (a fixture tree lives inside its checkout), then the
     resolved checkout — the schema that reads a tree is the one beside it."""
-    for candidate in (root, *root.resolve().parents):
+    for candidate in (root, *root.absolute().parents):
         script = candidate / "scripts" / "cortex.py"
         if script.is_file():
             return script
