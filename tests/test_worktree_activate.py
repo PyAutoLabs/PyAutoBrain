@@ -66,7 +66,12 @@ def _assert_own_activate(bundle, task):
     assert activate.is_file()
     text = activate.read_text()
     assert f'export PYAUTO_TASK="{task}"' in text
-    assert f"{bundle}/PyAutoFit" in text
+    # The bundle's own library paths are on its PYTHONPATH. PyAutoNerves (an
+    # organ, first in PYAUTO_LIBS) stands in for the library list: satellite
+    # repo names in organ code trip the tenant firewall
+    # (PyAutoMind/scripts/repos_sync.py).
+    assert f'export PYAUTO_ROOT="{bundle}"' in text
+    assert f'export PYTHONPATH="{bundle}/PyAutoNerves:' in text
 
 
 def test_create_leaves_root_activate_untouched(workspace, tmp_path):
