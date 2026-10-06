@@ -458,3 +458,27 @@ def test_orchestration_unknown_destination_and_escaped_prompt():
     with pytest.raises(ValueError):
         _theme.orchestration_panel('demo', 'Title', 'Description', prompt,
                                   work_links=[{'label': 'Injected\ncommand', 'href': 'https://github.com/a/b'}])
+
+
+def test_organ_heading_keeps_legacy_payload_and_links_identical():
+    """Changing presentation must not change what the human copies or opens."""
+    from html import unescape
+    kwargs = {'work_links': [{'label': 'Work', 'href': 'https://github.com/Example/Work'}]}
+    legacy = _theme.orchestration_panel('demo', '<Title>', 'Subtitle', 'Use the board skill.', **kwargs)
+    page = _theme.orchestration_panel('demo', '<Title>', 'Subtitle', 'Use the board skill.',
+                                      organ='ears', **kwargs)
+    strip_heading = lambda s: re.sub(r'<h2\b.*?</h2>', '', s, flags=re.S)
+    assert strip_heading(page) == strip_heading(legacy)
+    heading = re.search(r'<h2\b.*?</h2>', page)[0]
+    assert '<strong>Ears</strong>' in heading
+    assert unescape(re.sub('<[^>]+>', '', heading)) == 'Use your Ears to hear the community'
+    assert 'id="orchestration-demo-heading"' in heading
+    assert 'Subtitle' not in page
+
+
+def test_prompt_heading_escapes_attributes_and_rejects_unknown_organ():
+    heading = _theme.prompt_heading('mind', heading_id='x" onmouseover="bad')
+    assert 'id="x&quot; onmouseover=&quot;bad"' in heading
+    assert '<strong>Mind</strong>' in heading
+    with pytest.raises(KeyError):
+        _theme.prompt_heading('<script>')

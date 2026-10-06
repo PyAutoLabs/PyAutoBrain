@@ -636,7 +636,7 @@ def render_dashboard_html(c: dict) -> str:
         orchestration_panel(
             "cortex", "Check in on the science",
             "Review projects and runs together, then record what you have learned.",
-            checkin_payload(c), work_links=work_links, copy_label=CHECKIN_LABEL),
+            checkin_payload(c), work_links=work_links, copy_label=CHECKIN_LABEL, organ="cortex"),
         # One line, deliberately: the `--check` normaliser drops it whole so
         # a date change is not drift.
         f'<div class="fresh"><p class="muted">Last updated '

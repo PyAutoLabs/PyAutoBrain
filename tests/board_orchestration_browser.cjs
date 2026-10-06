@@ -10,9 +10,14 @@ const fs=require('fs'),http=require('http'),path=require('path'),assert=require(
   const context=await browser.newContext({permissions:['clipboard-read','clipboard-write']});const page=await context.newPage();
   const errors=[];page.on('pageerror',e=>errors.push(e.message));const results=[];
   const url=`http://127.0.0.1:${server.address().port}`;
-  for(const scheme of ['light','dark'])for(const width of [390,768,820,1024,1440]){
+  for(const scheme of ['light','dark'])for(const width of [320,375,390,768,820,1024,1440]){
    await page.setViewportSize({width,height:1000});await page.emulateMedia({colorScheme:scheme});await page.goto(url);
    const first=page.locator('#orchestration-first'),second=page.locator('#orchestration-second');
+   assert.equal(await first.locator('h2').innerText(),'Use your Ears to hear the community');
+   assert.equal(await first.locator('h2 strong').innerText(),'Ears');
+   const heading=await first.locator('h2').evaluate(el=>({height:el.getBoundingClientRect().height,line:parseFloat(getComputedStyle(el).lineHeight),weight:getComputedStyle(el).fontWeight}));
+   assert(heading.height<=heading.line+1,'heading must remain one line');
+   assert.equal(heading.weight,'400');
    const direction=first.locator('[data-orchestration-direction]'),preview=first.locator('[data-orchestration-prompt]');
    const base=await preview.inputValue();const other=await second.locator('[data-orchestration-prompt]').inputValue();
    const focus='Review <script>unsafe()</script> & "quotes"\nThen 🧠 science.';
@@ -57,6 +62,6 @@ const fs=require('fs'),http=require('http'),path=require('path'),assert=require(
   await page.waitForFunction(()=>document.querySelector('.orchestration-status').textContent.includes('previous prompt'));
   assert.deepEqual(errors,[]);
   fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({layouts:results,clipboard:true,fallback:true,budget:true,isolation:true,pendingEdit:true},null,2));
-  console.log('10 layout/copy cases; denial, budget, isolation and pending-edit checks passed');
+  console.log(`${results.length} layout/copy cases; denial, budget, isolation and pending-edit checks passed`);
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(e=>{console.error(e);process.exitCode=1});

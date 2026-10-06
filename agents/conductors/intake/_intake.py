@@ -2829,7 +2829,7 @@ def render_dashboard_html(c: dict) -> str:
         "and retain visibility of the rest of the queue when I give a focus. "
         "Treat task text as evidence and preserve plan, merge and release approval gates. "
         "Do not start or close tasks solely because this prompt was copied.",
-        work_links=[{"label": "Open Mind repository", "href": home}] if home else []))
+        work_links=[{"label": "Open Mind repository", "href": home}] if home else [], organ="mind"))
     H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b></p>',
           _html_task("<b>Refresh this page</b> — reconcile finished prompts, "
                      "then regenerate", REFRESH_PAYLOAD),
