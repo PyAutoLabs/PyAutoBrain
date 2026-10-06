@@ -175,7 +175,9 @@ lifecycle and prompt-sync scripts; do not hand-roll state transitions.
 
 Local tasks use the Brain checkout's `bin/worktree.sh` and
 `feature/<task-name>` branches. `worktree_check_conflict` fails closed when it
-cannot read the registry. A repo bullet beneath an active task's `repos:` is a
+cannot read the registry, and warns (exit unchanged) on on-disk worktrees no
+`active.md`/`parked.md` claim covers; `worktree_audit_orphans` is the
+report-only sweep. A repo bullet beneath an active task's `repos:` is a
 claim; tasks touching the same repo serialize unless a human explicitly
 authorizes coordination. Source the generated `activate.sh` before Python or
 tests.

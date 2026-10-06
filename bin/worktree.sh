@@ -474,10 +474,121 @@ worktree_list_claimed() {
   ' "$active"
 }
 
+# _worktree_canon <path> -> absolute, ~-expanded, symlink-resolved path.
+_worktree_canon() {
+  local p="$1"
+  [[ "$p" == "~" || "$p" == "~/"* ]] && p="$HOME${p:1}"
+  readlink -m -- "$p" 2>/dev/null || printf '%s\n' "${p%/}"
+}
+
+# _worktree_claim_roots
+# Emits `<ledger>\t<task>\t<canonical-worktree-path>` for every entry with a
+# `worktree:` field in active.md and (when present) parked.md. A parked claim
+# is deliberate, so it exempts its worktree from "orphan" too. Returns 3 when
+# active.md cannot be resolved (same fail-closed contract as the guard).
+_worktree_claim_roots() {
+  local active parked ledger file task wt
+  active="$(worktree_registry_path)" || return 3
+  parked="$(dirname "$active")/parked.md"
+  for file in "$active" "$parked"; do
+    [[ -f "$file" ]] || continue
+    ledger="$(basename "$file" .md)"
+    while IFS=$'\t' read -r task wt; do
+      [[ -n "$wt" && "$wt" != "-" ]] || continue
+      printf '%s\t%s\t%s\n' "$ledger" "$task" "$(_worktree_canon "$wt")"
+    done < <(awk '/^## /{task=$2; next} /^- worktree:/{print task "\t" $3}' "$file")
+  done
+}
+
+# _worktree_covering_claim <canonical-path> <claim-roots-text>
+# Echoes `<ledger>\t<task>` of the first claim whose worktree path equals the
+# given path or is a parent of it (bundle roots like <root>/<task>/RepoA).
+# Returns 1 when no claim covers it.
+_worktree_covering_claim() {
+  local path="$1" ledger task root
+  while IFS=$'\t' read -r ledger task root; do
+    [[ -n "$root" ]] || continue
+    if [[ "$path" == "$root" || "$path" == "$root/"* ]]; then
+      printf '%s\t%s\n' "$ledger" "$task"
+      return 0
+    fi
+  done <<< "$2"
+  return 1
+}
+
+# worktree_list_on_disk <repo>
+# Emits `<path>\t<branch>` for each LINKED git worktree of the repo's canonical
+# checkout that exists on disk (the main checkout itself is skipped). Branch is
+# `(detached)` for a detached HEAD. Read-only.
+worktree_list_on_disk() {
+  local repo="$1" dir path branch
+  dir="$(pyauto_repo_path "$repo" "$PYAUTO_MAIN" 2>/dev/null)" || return 0
+  [[ -e "$dir/.git" ]] || return 0
+  while IFS=$'\t' read -r path branch; do
+    [[ -d "$path" ]] && printf '%s\t%s\n' "$path" "$branch"
+  done < <(git -C "$dir" worktree list --porcelain 2>/dev/null | awk '
+    function emit() { if (n > 1 && path != "") printf "%s\t%s\n", path, branch; path = "" }
+    /^worktree / { emit(); n++; path = substr($0, 10); branch = "(detached)"; next }
+    /^branch /   { branch = substr($0, 8); sub(/^refs\/heads\//, "", branch); next }
+    END          { emit() }
+  ')
+}
+
+# worktree_audit_orphans [repo ...]
+# REPORT-ONLY sweep (removes nothing). For every repo (default: every checkout
+# pyauto_repo_list finds under $PYAUTO_MAIN), lists each on-disk linked worktree
+# that no active.md/parked.md claim covers:
+#   ORPHAN\t<repo>\t<path>\t<branch>\tahead=N\tbehind=M\tdirty=K
+# and each active.md-claimed worktree with no commits ahead of origin/main and
+# no changed files (a claim that may have died before doing anything):
+#   STALE?\t<task>\t<repo>\t<path>\t<branch>
+# ahead/behind are `?` when origin/main does not resolve. The list is for a
+# human to confirm in /repo_cleanup. Returns 3 when active.md is unreadable.
+worktree_audit_orphans() {
+  local roots repos repo path branch claim ledger task ahead behind dirty counts
+  local orphans=0 stale=0
+  roots="$(_worktree_claim_roots)" || {
+    echo "worktree_audit_orphans: CANNOT VERIFY — no active.md under \$PYAUTO_MAIN=${PYAUTO_MAIN:-<unset>}" >&2
+    return 3
+  }
+  if (( $# )); then
+    repos="$(printf '%s\n' "$@")"
+  else
+    repos="$(pyauto_repo_list "$PYAUTO_MAIN" | cut -f1)"
+  fi
+  while IFS= read -r repo; do
+    [[ -n "$repo" ]] || continue
+    while IFS=$'\t' read -r path branch; do
+      ahead="?" behind="?"
+      if git -C "$path" rev-parse --verify -q origin/main >/dev/null 2>&1; then
+        counts="$(git -C "$path" rev-list --left-right --count HEAD...origin/main 2>/dev/null)"
+        read -r ahead behind <<< "$counts"
+      fi
+      dirty="$(GIT_OPTIONAL_LOCKS=0 git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+      if claim="$(_worktree_covering_claim "$(_worktree_canon "$path")" "$roots")"; then
+        IFS=$'\t' read -r ledger task <<< "$claim"
+        if [[ "$ledger" == "active" && "$ahead" == "0" && "$dirty" == "0" ]]; then
+          printf 'STALE?\t%s\t%s\t%s\t%s\n' "$task" "$repo" "$path" "$branch"
+          stale=$((stale + 1))
+        fi
+      else
+        printf 'ORPHAN\t%s\t%s\t%s\tahead=%s\tbehind=%s\tdirty=%s\n' \
+          "$repo" "$path" "$branch" "$ahead" "$behind" "$dirty"
+        orphans=$((orphans + 1))
+      fi
+    done < <(worktree_list_on_disk "$repo")
+  done <<< "$repos"
+  echo "worktree_audit_orphans: $orphans orphan(s), $stale stale? claim(s) — report only, nothing removed"
+}
+
 # worktree_check_conflict [--allow-missing-registry] <task-name> <repo1> [repo2 ...]
 # Exits 0 if none of the requested repos are claimed by a different task.
 # Exits 1 and prints the conflicts to stderr otherwise.
 # Exits 3 when the registry cannot be resolved — see below.
+# Claims are read from active.md only (not planned.md/parked.md). Separately,
+# each requested repo's on-disk linked worktrees that no active.md/parked.md
+# `worktree:` path covers are printed as `WARNING:` lines; these never change
+# the exit code (#470).
 #
 # THIS GUARD FAILS CLOSED. It used to return 0 when `active.md` could not be
 # found, which meant a cloud/web/CI session (where the roots were not under the
@@ -518,6 +629,19 @@ worktree_check_conflict() {
         rc=1
       fi
     done < <(worktree_list_claimed)
+  done
+  # Unregistered on-disk worktrees (#470): the claims above come only from
+  # active.md, so a linked worktree no ledger mentions was invisible here.
+  # Warn per requested repo; the exit code is deliberately unchanged (a hard
+  # conflict would block nearly every task while historical orphans exist).
+  # The cross-repo sweep is worktree_audit_orphans, kept out of the guard.
+  local roots path branch
+  roots="$(_worktree_claim_roots)"
+  for want in "$@"; do
+    while IFS=$'\t' read -r path branch; do
+      _worktree_covering_claim "$(_worktree_canon "$path")" "$roots" >/dev/null && continue
+      echo "WARNING: $want has unregistered worktree $path ($branch)" >&2
+    done < <(worktree_list_on_disk "$want")
   done
   return $rc
 }
