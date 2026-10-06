@@ -40,7 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "facultie
 from _sizing import (  # noqa: E402
     WORK_TYPES, HUMAN_REVIEW, MANUAL_ONLY_WORK_TYPES,
     LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
-    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, declared_header,
+    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, norm_work_type,
+    declared_header,
     declared_inline, effective_difficulty, strip_declarations, _hits,
     effective_consequence, effective_unattended, effective_review_minutes,
     policy as _sizing_policy, BODY_MAP_PATH,
@@ -221,6 +222,136 @@ def _repos_in(text: str) -> list:
     return sorted(m for m in found if m in KNOWN_REPOS)
 
 
+# --- the declared header block (PyAutoBrain#472) ------------------------------
+# Raw input is often a pasted prompt that already carries a header block. The
+# sizing faculty's `declared_header` reads the closed-vocabulary keys and
+# returns None for a value it does not recognise — correct for the faculty, but
+# it left intake silently inferring over a declared `Type: hygiene`. Intake
+# therefore reads the RAW declared values itself and says what it did with them.
+#
+# Unknown declared types are not a hard error: an `intake ideas` batch must not
+# abort on one bullet. Common near-misses map through this table with a visible
+# note; anything else files to triage/ with a note naming the valid set.
+_TYPE_ALIASES = {
+    "hygiene": "maintenance",
+    "upkeep": "maintenance",
+    "tests": "test",
+    "documentation": "docs",
+}
+
+# Keys that may sit in a prompt's leading header block. `Repos:`/`Themes:` are
+# the list keys (a bare `Key:` then `- ` bullets).
+_HEADER_BLOCK_KEYS = (
+    "type", "target", "difficulty", "autonomy", "priority", "status", "issued",
+    "filed", "epic", "phase", "bundle", "blocked-by", "closes-when",
+    "consequence", "witness", "review-minutes", "unattended", "lane", "memory",
+    "repos", "themes",
+)
+_LIST_KEYS = ("repos", "themes")
+# A block counts as a header only if it declares at least one of these — a lone
+# free-text key ("Status: the dashboard is stale …") is a sentence, not a header.
+_ANCHOR_KEYS = ("type", "target", "repos", "difficulty", "autonomy", "priority")
+_BLOCK_KEY_RE = re.compile(
+    r"^(" + "|".join(re.escape(k) for k in _HEADER_BLOCK_KEYS) + r")\s*:\s*(.*)$",
+    re.I)
+
+
+def _split_header(text: str):
+    """(heading, header_lines, body) for a prompt-shaped raw input.
+
+    Strips a leading `# heading` plus the contiguous header block that follows
+    it, but only when that block is made of KNOWN header keys (with `Repos:` /
+    `Themes:` bullets and blank lines), declares at least one anchor key, and is
+    closed by a blank line or the end of the text. Anything else — a first line
+    that merely opens with "Status:" in a running paragraph, say — is prose and
+    is returned untouched as the body, with an empty heading and no header.
+    """
+    lines = text.splitlines()
+    i, n = 0, len(lines)
+    while i < n and not lines[i].strip():
+        i += 1
+    heading = ""
+    if i < n and re.match(r"^#\s+\S", lines[i].strip()):
+        heading = lines[i].strip().lstrip("#").strip()
+        i += 1
+    block, keys, in_list, j = [], set(), False, i
+    while j < n:
+        s = lines[j].strip()
+        if not s:
+            in_list = False
+            if keys and j + 1 < n and lines[j + 1].strip() and \
+                    not _BLOCK_KEY_RE.match(lines[j + 1].strip()):
+                break  # blank line closing the block, prose follows
+            j += 1
+            continue
+        if in_list and _LIST_BULLET.match(lines[j]):
+            block.append(lines[j])
+            j += 1
+            continue
+        m = _BLOCK_KEY_RE.match(s)
+        if not m:
+            break
+        key = m.group(1).lower()
+        if key in _LIST_KEYS and not m.group(2).strip():
+            in_list = True
+        elif key in _LIST_KEYS or m.group(2).strip():
+            in_list = False
+        else:
+            break  # a bare non-list key is not a header line
+        keys.add(key)
+        block.append(lines[j])
+        j += 1
+    closed = j >= n or not lines[j].strip()
+    body = "\n".join(lines[j:]).strip()
+    if not (keys & set(_ANCHOR_KEYS)) or not closed or not re.search(r"\w", body):
+        # No header block. A heading alone is still the title source, but the
+        # body is left verbatim so nothing the author wrote is dropped.
+        return heading, [], text
+    return heading, block, body
+
+
+def _declared_type(raw: str | None):
+    """(work_type or None, note or None) for a raw declared `Type:` value."""
+    if not raw:
+        return None, None
+    value = norm_work_type(raw.split(" #", 1)[0])
+    if value in WORK_TYPES:
+        return value, None
+    if value in _TYPE_ALIASES:
+        mapped = _TYPE_ALIASES[value]
+        return mapped, (f"Type {raw.strip()} declared → unknown, using {mapped}.")
+    return None, (f"Type {raw.strip()} declared is not a work type (valid: "
+                  f"{', '.join(sorted(WORK_TYPES))}) — filed to triage/ for a "
+                  "human to re-home.")
+
+
+def _declared_target(raw: str | None):
+    """(target key or None, note or None) for a raw declared `Target:` value."""
+    if not raw:
+        return None, None
+    value = raw.split(" #", 1)[0].strip().strip("`*_")
+    t = normalise_repo(value)
+    if t in KNOWN_REPOS or t == "workspaces":
+        return t, None
+    return None, (f"Target {value} declared is not a known repo — inferred "
+                  "the target from the prose instead.")
+
+
+def _declared_repos(raw: list):
+    """(repos in declared order, notes) for a raw declared `Repos:` list."""
+    repos, notes = [], []
+    for item in raw:
+        value = item.split(" #", 1)[0].strip().strip("`*_").strip()
+        r = normalise_repo(value)
+        if r in KNOWN_REPOS:
+            if r not in repos:
+                repos.append(r)
+        elif value:
+            notes.append(f"Repos entry {value} declared is not a known repo — "
+                         "dropped.")
+    return repos, notes
+
+
 def classify_work_type(text: str):
     """Return (work_type, confidence, per_type_hits).
 
@@ -345,7 +476,16 @@ def analyse(text: str, source: str, themes=None):
     already carries is kept; absent that too, the prompt is simply un-themed —
     formalisation never waits on a theme.
     """
-    repos = _repos_in(text)
+    # A pasted prompt's own header block (PyAutoBrain#472): read its raw
+    # Type/Target/Repos so a value the faculty does not recognise is reported,
+    # not silently replaced by inference, and keep it out of the title.
+    heading, header_lines, body = _split_header(text)
+    raw_header = parse_header(text)
+    notes = []
+    declared_repos, repo_notes = _declared_repos(parse_list_header(text, "Repos"))
+    notes += repo_notes
+    # Declared repos are taken as written, in order; prose mentions add nothing.
+    repos = declared_repos or _repos_in(text)
     # What the input DECLARES outranks what its prose merely suggests — the same
     # rule the feature and bug conductors apply (the faculty owns it). Raw
     # conception input may carry a full header block (a pasted prompt) or state
@@ -360,9 +500,26 @@ def analyse(text: str, source: str, themes=None):
     }.items() if v}
 
     work_type, confidence, type_hits = classify_work_type(text)
+    if not declared.get("type") and raw_header.get("type"):
+        mapped, type_note = _declared_type(raw_header["type"])
+        if type_note:
+            notes.append(type_note)
+        if mapped:
+            declared["type"] = mapped
+        else:
+            # Unknown and unmapped: the inferred type rides along as the
+            # provisional guess, but the filing goes to triage/.
+            confidence = "low"
     if declared.get("type"):
         work_type, confidence = declared["type"], "high"
-    target, target_display, repos = infer_target(text, repos)
+    declared_target, target_note = _declared_target(raw_header.get("target"))
+    if target_note:
+        notes.append(target_note)
+    if declared_target:
+        target, target_display = (declared_target,
+                                  REPO_DISPLAY.get(declared_target, declared_target))
+    else:
+        target, target_display, repos = infer_target(text, repos)
 
     # Build a prompt-shaped dict the shared sizing faculty understands.
     p = {"text": text, "repos": repos, "words": len(text.split()),
@@ -394,7 +551,13 @@ def analyse(text: str, source: str, themes=None):
     themes = [k for k in dict.fromkeys(_theme_key(t) for t in (themes or []))
               if k] or parse_theme_list(text)
 
-    title = _title(strip_declarations(text, decl_spans))
+    if heading or header_lines:
+        # Title from the heading, else the first line after the header block —
+        # never a header line itself.
+        title_src = heading or body
+        title = _title(strip_declarations(title_src, declared_inline(title_src)[1]))
+    else:
+        title = _title(strip_declarations(text, decl_spans))
     slug = _slug(title)
     folder = work_type if confidence != "low" else "triage"
     if folder == HUMAN_REVIEW:
@@ -430,7 +593,9 @@ def analyse(text: str, source: str, themes=None):
         "type_signals": type_hits,
         "target": target,
         "target_display": target_display,
+        "target_source": "declared" if declared_target else "inferred",
         "repos_affected": repos,
+        "repos_source": "declared" if declared_repos else "inferred",
         "themes": themes,
         "difficulty": level,
         "difficulty_score": score,
@@ -458,8 +623,9 @@ def analyse(text: str, source: str, themes=None):
         "workflow": workflow,
         "proposed_path": proposed,
         "header": header,
-        "risks": _risks(level, factors, confidence, target, declared, estimated,
-                        witness=p["witness"], consequence=consequence),
+        "risks": notes + _risks(level, factors, confidence, target, declared,
+                                estimated, witness=p["witness"],
+                                consequence=consequence),
         "next_action": _next_action(proposed, confidence, folder),
     }
 
@@ -621,6 +787,11 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
     cites = memory_citations(mind, decision.get("title", ""), body_text)
     decision["memory"] = cites
     decision["header"] = _with_memory(decision["header"], cites)
+    # The input's own header block (and its heading) is already rendered in
+    # the decision's header — do not echo it into the body (PyAutoBrain#472).
+    _heading, header_lines, body = _split_header(body_text)
+    if header_lines:
+        body_text = body
     dest.write_text(decision["header"] + "\n\n" + body_text.strip() + note,
                     encoding="utf-8")
     return str(rel)
@@ -4156,8 +4327,10 @@ def emit_human(d: dict):
     wt_mark = ("declared" if d.get("work_type_source") == "declared"
                else f"confidence: {d['classification_confidence']}")
     print(f"Work-type:            {d['work_type']}  ({wt_mark})")
-    print(f"Target:               {d['target_display']}")
-    print(f"Repos resolved:       {', '.join(d['repos_affected']) or '(none)'}")
+    t_mark = " (declared)" if d.get("target_source") == "declared" else ""
+    r_mark = " (declared)" if d.get("repos_source") == "declared" else ""
+    print(f"Target:               {d['target_display']}{t_mark}")
+    print(f"Repos resolved:       {', '.join(d['repos_affected']) or '(none)'}{r_mark}")
     if d.get("difficulty_source") == "declared":
         print(f"Difficulty:           {d['difficulty']} (declared; heuristic derived "
               f"{d['difficulty_derived']}, score {d['difficulty_score']})")
