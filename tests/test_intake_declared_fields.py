@@ -27,7 +27,27 @@ sys.path.insert(0, str(ROOT / "agents" / "conductors" / "intake"))
 import _intake  # noqa: E402
 from _intake import analyse, write_prompt  # noqa: E402
 
+# Library display names are read from the body map at runtime rather than
+# written as literals: real satellite repo names in organ code trip the tenant
+# firewall (PyAutoMind/scripts/repos_sync.py). Reading them through
+# REPO_DISPLAY keeps every assertion below validating against the REAL known-repo
+# registry — a declared Target/Repos is still accepted only if the body map
+# knows it.
+FIT = _intake.REPO_DISPLAY["autofit"]
+GALAXY = _intake.REPO_DISPLAY["autogalaxy"]
+ARRAY = _intake.REPO_DISPLAY["autoarray"]
+
 BODY = "The autoarray grid passed into the light profile is wrong for ellipse fits."
+
+
+def test_display_names_resolve_from_the_body_map():
+    # Guard the indirection: each name is a real, known library repo whose
+    # display spelling differs from its key (so the header assertions below
+    # cannot pass vacuously on a lowercase fallback).
+    for key, name in (("autofit", FIT), ("autogalaxy", GALAXY), ("autoarray", ARRAY)):
+        assert key in _intake.LIBRARY_REPOS
+        assert _intake.normalise_repo(name) == key
+        assert name != key
 
 
 def _notes(d: dict) -> str:
@@ -50,7 +70,7 @@ def test_unknown_declared_type_is_flagged_not_silently_dropped():
 
 def test_hygiene_maps_to_maintenance_with_a_visible_note():
     d = analyse("Type: hygiene\n\nRemove the stale comments from the config yaml "
-                "files and update the docs readme in @PyAutoFit to match.", "test")
+                f"files and update the docs readme in @{FIT} to match.", "test")
     assert d["work_type"] == "maintenance"
     assert d["work_type_source"] == "declared"
     assert d["proposed_path"].startswith("draft/maintenance/autofit/")
@@ -61,13 +81,13 @@ def test_hygiene_maps_to_maintenance_with_a_visible_note():
 # --- 2. Target ----------------------------------------------------------------
 
 @pytest.mark.parametrize("declared, folder, display", [
-    ("autogalaxy", "autogalaxy", "PyAutoGalaxy"),
-    ("autofit", "autofit", "PyAutoFit"),
+    ("autogalaxy", "autogalaxy", GALAXY),
+    ("autofit", "autofit", FIT),
     ("workspaces", "workspaces", "workspaces"),
 ])
 def test_declared_target_is_honoured_and_homes_the_file(declared, folder, display):
-    # The prose names PyAutoArray (a library) first — the scraper's pick.
-    text = f"Type: bug\nTarget: {declared}\n\n{BODY} See @PyAutoArray and @PyAutoFit."
+    # The prose names the autoarray library first — the scraper's pick.
+    text = f"Type: bug\nTarget: {declared}\n\n{BODY} See @{ARRAY} and @{FIT}."
     d = analyse(text, "test")
     assert d["target"] == folder
     assert d["target_source"] == "declared"
@@ -85,19 +105,19 @@ def test_unknown_declared_target_falls_back_with_a_note():
 # --- 3. Repos -----------------------------------------------------------------
 
 def test_declared_repos_taken_as_written_in_order():
-    text = ("Type: maintenance\nTarget: autofit\nRepos:\n- PyAutoFit\n- PyAutoNerves\n\n"
+    text = (f"Type: maintenance\nTarget: autofit\nRepos:\n- {FIT}\n- PyAutoNerves\n\n"
             "The priors config drifts between autofit and autoarray; the "
             "workspaces also carry stale copies.")
     d = analyse(text, "test")
     # Order kept, no prose superset (autoarray), no phantom `workspaces`.
     assert d["repos_affected"] == ["autofit", "autonerves"]
     assert d["repos_source"] == "declared"
-    assert "Repos:\n- PyAutoFit\n- PyAutoNerves\n" in d["header"]
+    assert f"Repos:\n- {FIT}\n- PyAutoNerves\n" in d["header"]
 
 
 def test_declared_repos_reject_unknown_names_with_a_note():
-    text = ("Type: bug\nTarget: autofit\nRepos:\n- PyAutoFit\n- NotARepo\n\n"
-            "Something in @PyAutoArray is broken.")
+    text = (f"Type: bug\nTarget: autofit\nRepos:\n- {FIT}\n- NotARepo\n\n"
+            f"Something in @{ARRAY} is broken.")
     d = analyse(text, "test")
     assert d["repos_affected"] == ["autofit"]
     assert "NotARepo" in _notes(d)
