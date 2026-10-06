@@ -19,7 +19,7 @@ from _intake import (  # noqa: E402
     HEADER_FIELDS, analyse, infer_autonomy, parse_header,
 )
 
-RAW = "Tidy the @PyAutoBrain board copy so a 403 reads as an egress block.\n"
+RAW = "Type: maintenance\nTidy the @PyAutoBrain board copy so a 403 reads as an egress block.\n"
 WITNESSED = RAW + "Witness: the degraded row renders and a test pins its text.\n"
 
 
