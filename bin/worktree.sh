@@ -113,8 +113,12 @@ _worktree_add_one() {
 # Creates $PYAUTO_WT_ROOT/<task>/ and inside it:
 #   - a real git worktree for each listed repo, on branch feature/<task>
 #     (or checked out if the branch already exists)
-#   - a symlink back to $PYAUTO_MAIN/<name> for every other top-level entry
-#   - activate.sh with the per-task PYTHONPATH / cache overrides
+#   - a symlink back to $PYAUTO_MAIN/<name> for every other top-level entry,
+#     EXCEPT the names worktree_create writes itself (activate.sh and the
+#     root marker) — a linked activate.sh would make the write below follow
+#     the link and clobber the unversioned workspace-root file (#469)
+#   - activate.sh with the per-task PYTHONPATH / cache overrides, always a
+#     regular file of its own (any pre-existing link is removed first)
 # The branch is created from the repo's default branch if it doesn't exist.
 # Accepts both library repos (PyAutoFit, etc.) and workspace repos
 # (autolens_workspace, etc.).
@@ -171,6 +175,9 @@ EOF
   # even when the main workspace stores it inside a family directory.
   local entry name family
   local -A families=()
+  # Names this function writes into the bundle root itself: never symlink
+  # them, or the write would land in $PYAUTO_MAIN (#469).
+  local -A own=([activate.sh]=1 ["$PYAUTO_ROOT_MARKER"]=1)
   while IFS=$'\t' read -r name entry; do
     [[ -n "$entry" ]] || continue
     if [[ "$(dirname "$entry")" != "$PYAUTO_MAIN" ]]; then
@@ -181,22 +188,62 @@ EOF
   for entry in "$PYAUTO_MAIN"/*; do
     name="$(basename "$entry")"
     [[ -n "${families[$name]:-}" ]] && continue
+    [[ -n "${own[$name]:-}" ]] && continue
     [[ -d "$entry/.git" || -f "$entry/.git" ]] && continue
     [[ -e "$root/$name" ]] && continue  # already a real worktree
     ln -s "$entry" "$root/$name"
   done
   while IFS=$'\t' read -r name entry; do
     [[ -n "$name" && -n "$entry" ]] || continue
+    [[ -n "${own[$name]:-}" ]] && continue
     [[ -d "$entry" ]] || continue
     [[ -e "$root/$name" ]] && continue
     ln -s "$entry" "$root/$name"
   done <<< "$repo_listing"
 
+  # Belt-and-braces: remove whatever is there (a symlink included) so the
+  # redirect below creates a fresh regular file and can never follow a link
+  # into the workspace root.
+  rm -f "$root/activate.sh"
   worktree_activate_script "$task" > "$root/activate.sh"
   chmod +x "$root/activate.sh"
 
   echo "worktree_create: ready at $root"
   echo "  activate with: source $root/activate.sh"
+}
+
+# worktree_repair_activate [task-name ...]
+# Opt-in, never called automatically. Converts a bundle activate.sh that is a
+# SYMLINK (pre-#469 damage: it pointed at the workspace-root activate.sh, so
+# every bundle followed whichever task wrote the root last) into a regenerated
+# regular file. With no arguments, scans every bundle under $PYAUTO_WT_ROOT.
+# Acts on bundle paths only: the link is removed, its target is never resolved
+# or written, and the workspace root is never touched. Regular-file
+# activate.sh entries are left as they are.
+worktree_repair_activate() {
+  local -a tasks=("$@")
+  local b task
+  if [[ ${#tasks[@]} -eq 0 ]]; then
+    for b in "$PYAUTO_WT_ROOT"/*/; do
+      [[ -d "$b" ]] || continue
+      tasks+=("$(basename "$b")")
+    done
+  fi
+  local repaired=0
+  for task in "${tasks[@]}"; do
+    b="$(worktree_root_path "$task")"
+    if [[ ! -d "$b" ]]; then
+      echo "worktree_repair_activate: $b does not exist — skipping" >&2
+      continue
+    fi
+    [[ -L "$b/activate.sh" ]] || continue
+    rm -f "$b/activate.sh" || return 1
+    worktree_activate_script "$task" > "$b/activate.sh" || return 1
+    chmod +x "$b/activate.sh"
+    echo "worktree_repair_activate: regenerated $b/activate.sh"
+    repaired=$((repaired + 1))
+  done
+  echo "worktree_repair_activate: $repaired bundle activate.sh file(s) repaired"
 }
 
 # worktree_add_repo <task-name> <repo>
