@@ -590,7 +590,7 @@ h3{font-size:.98rem;margin:1.3rem 0 .2rem;font-weight:650;color:var(--accent)}
 .task{display:flex;gap:.6rem;align-items:flex-start;padding:.45rem .35rem;
  margin:0 -.35rem;border-bottom:1px solid var(--line);border-radius:7px}
 .task:hover{background:var(--tint);box-shadow:inset 2px 0 0 var(--accent)}
-.task p{margin:.25rem 0 0;flex:1}
+.task p{margin:.25rem 0 0;flex:1;min-width:0}
 button.copy{flex:0 0 auto;width:2.6rem;height:2.6rem;font-size:1.1rem;
  border:1px solid var(--edge);border-radius:9px;background:var(--tint);
  cursor:pointer;color:var(--accent);transition:border-color .12s,color .12s}
@@ -600,9 +600,14 @@ button.copy.term{font-size:.95rem}
 /* The owner supplies meaning and destinations; the family owns the controls. */
 .orchestration-panel{border:1px solid var(--line);border-radius:16px;padding:1.5rem;
  margin:1.5rem 0;background:linear-gradient(120deg,var(--tint),var(--bg));min-width:0}
-.orchestration-head{display:flex;gap:1.25rem;justify-content:space-between;align-items:start}
+.orchestration-head{display:flex;flex-wrap:wrap;gap:1.25rem;justify-content:space-between;align-items:start}
 .orchestration-panel h2{margin:0;border:0;padding:0;font-size:1.45rem}
 .orchestration-panel h2:after{display:none}
+h2.prompt-heading.prompt-heading{font-size:clamp(.875rem,3.2vw,1.45rem);font-weight:400;
+line-height:1.35;white-space:nowrap;letter-spacing:normal;border:0;padding:0;margin:1rem 0}
+h2.prompt-heading strong{font-weight:700}
+h2.prompt-heading:after{display:none}
+.orchestration-panel h2.prompt-heading{margin:0}
 .orchestration-head p{margin:.5rem 0 1rem}
 .orchestration-links{display:flex;flex-wrap:wrap;gap:.5rem;max-width:100%%}
 .orchestration-links a{display:inline-block;padding:.5rem .75rem;border:1px solid var(--line);
@@ -774,8 +779,38 @@ def navigation_cards(items, label="Board sections"):
             + "".join(cards) + "</nav>") if cards else ""
 
 
+_PROMPT_HEADINGS = {
+    "brain": ("Plan your next move with your ", "Brain", ""),
+    "mind": ("Put your ", "Mind", " to work"),
+    "cortex": ("Explore science with your ", "Cortex", ""),
+    "ears": ("Use your ", "Ears", " to hear the community"),
+    "heart": ("Keep your ", "Heart", " healthy"),
+    "hands": ("Ship with your ", "Hands", ""),
+    "memory": ("Build your ", "Memory", ""),
+    "pulse": ("Check your ", "Pulse", ""),
+    "insight": ("Find your next ", "Insight", ""),
+    "nerves": ("Check your ", "Nerves", " for config drift"),
+    "gut": ("Clear out your ", "Gut", ""),
+    "eyes": ("Review figures with your ", "Eyes", ""),
+    "scientist": ("Work with your ", "Scientist", ""),
+}
+
+
+def prompt_heading(organ, *, heading_id=None):
+    """Render the approved action heading; only the organ name is emphasized.
+
+    Organ identity selects fixed plain text, never caller-supplied markup.
+    Unknown organs fail explicitly instead of showing a misleading heading.
+    """
+    before, name, after = _PROMPT_HEADINGS[organ]
+    ident = (f' id="{_html.escape(str(heading_id), quote=True)}"'
+             if heading_id is not None else "")
+    return (f'<h2 class="prompt-heading"{ident}>{_html.escape(before)}'
+            f'<strong>{_html.escape(name)}</strong>{_html.escape(after)}</h2>')
+
+
 def orchestration_panel(key, title, description, prompt, *, work_links=(),
-                        copy_label="Copy check-in prompt"):
+                        copy_label="Copy check-in prompt", organ=None):
     """Render one owner's portable work prompt and trusted GitHub destinations.
 
     Description is accepted for compatibility but not displayed.
@@ -809,10 +844,12 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
                     '<span class="muted">Work repository unavailable in this snapshot.</span>')
     esc = _html.escape
     ident = "orchestration-" + key
+    heading = (prompt_heading(organ, heading_id=ident + "-heading") if organ else
+               f'<h2 id="{ident}-heading">{esc(title)}</h2>')
     return (
         f'<section class="orchestration-panel" id="{ident}" '
         f'aria-labelledby="{ident}-heading" data-orchestration-panel>'
-        f'<div class="orchestration-head"><div><h2 id="{ident}-heading">{esc(title)}</h2>'
+        f'<div class="orchestration-head"><div>{heading}'
         '</div>'
         f'<nav class="orchestration-links" aria-label="Work on GitHub">{destinations}</nav></div>'
         '<div class="orchestration-controls"><div class="orchestration-direction">'

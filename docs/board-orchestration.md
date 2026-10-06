@@ -11,9 +11,18 @@ panel descriptions remain accepted by the API but are not displayed.
 ## Component contract
 
 Use `board/_theme.py::orchestration_panel(key, title, description, prompt,
-work_links=(), copy_label='Copy check-in prompt')` and the shared stylesheet and
+work_links=(), copy_label='Copy check-in prompt', organ=None)` and the shared stylesheet and
 `JS`. Each panel needs a unique simple key. Headings, descriptions, labels,
 prompts and user direction are plain text, never interpreted as HTML.
+
+Supply the lowercase `organ` key for the approved action heading. The shared
+`prompt_heading(organ, heading_id=None)` helper also serves existing owner-specific
+controls without changing their prompts. It selects fixed text and emphasizes only
+the organ name with `strong`; it never accepts arbitrary heading HTML. Titles for
+legacy callers remain escaped plain text. All thirteen organ headings live in
+`board/_theme.py`; reuse that mapping rather than copying sentences into renderers.
+Keep each heading on one line with responsive typography; do not hide overflow or
+truncate words. Omit explanatory subtitles and preserve work links/copy controls.
 
 `work_links` is an ordered list of mappings with `label` and `href`. Destinations
 must be HTTPS GitHub links. These owner-supplied links appear beside the controls
