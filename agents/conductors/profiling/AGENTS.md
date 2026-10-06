@@ -88,8 +88,23 @@ as malformed — only a record missing *some* of its key fields is corruption.
 - **Profiling records and flags; it never adjudicates library correctness** —
   that is autolens_workspace_test's remit. Triage classifies and routes; it
   never plans a library debug inside the profiling repo.
-- Stdlib-only: the workspace's grid and tables are read via `ast` literal
-  parsing, never imported (importing would drag the JAX stack into the Brain).
+- Stdlib-only: source routes and the runtime grid come from the project's versioned
+  `catalogue/script_routes.json`, or `dashboard/catalogue.json`'s v2 `script_routes`
+  extension. Local source declarations take precedence over a published copy.
+  Scientific modules are never imported. The routing SHA-256 identifies the bytes
+  read, not the measured software revision or evidence freshness.
+- Pre-migration projects explicitly fall back to the legacy sweep `CELLS` AST.
+  Malformed/unknown new catalogues fail closed; absent/unreadable grids report
+  unknown coverage, never an empty successful campaign. Existing VRAM tables and
+  pre-migration compile transform declarations retain their literal AST readers.
+- Source routing and result identity are separate: `rectangular` source folders
+  retain legacy `pixelization` output IDs. Runtime and compile coverage remain
+  separate; archived presence is unreviewed coverage, not an accepted baseline.
+  Missing settings and baseline acceptance stay unknown. No temporal chart is added.
+- The catalogue exposes compile transforms and builder availability. A declared
+  unavailable/unknown compile builder emits no compile dispatch commands. Missing
+  local canonical sources also suppress dispatch until the project is synchronized.
+  Legacy checkouts retain the old decision surface, with explicit fallback status.
 
 ## Boundaries
 

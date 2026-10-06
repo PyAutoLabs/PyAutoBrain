@@ -25,8 +25,8 @@ Three modes (design decision recorded in the founding Mind prompt,
   workspace; library regression → file a `bug/` prompt via intake. Never
   debug libraries inside the profiling repo (the phase-2 boundary rule).
 
-Stdlib-only. The workspace's python modules are read via `ast` literal
-parsing (importing them would drag the JAX stack into the Brain).
+Stdlib-only. The project source catalogue supplies routing; pre-migration
+grids and remaining tables use literal AST readers, never scientific imports.
 Exit codes: 0 decision · 4 missing input · 5 usage.
 """
 
@@ -49,6 +49,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
 from _repo_paths import repo_path  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _catalogue import read_catalogue  # noqa: E402
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
 HEART_STATE_DIR = Path(os.environ.get("HEART_STATE_DIR", Path.home() / ".pyauto-heart"))
@@ -124,9 +127,30 @@ def _module_literal(py_path: Path, name: str):
     return None
 
 
+def grid_info(ws: Path) -> dict[str, Any]:
+    catalogue = read_catalogue(ws)
+    if catalogue is not None:
+        return catalogue
+    path = ws / "scripts/misc/likelihood_runtime/sweep.py"
+    if not path.is_file():
+        raise ValueError("No source catalogue or legacy sweep grid; coverage is unknown")
+    cells = _module_literal(path, "CELLS")
+    if not cells:
+        raise ValueError("Legacy sweep CELLS is missing or nonliteral; coverage is unknown")
+    return {
+        "grid": cells, "source": path.relative_to(ws).as_posix(),
+        "version": None, "sha256": None, "runtime_cells": [], "compile_probe": None,
+        "missing_sources": [],
+        "qualification": "Legacy AST fallback: project source catalogue is not yet available.",
+    }
+
+
 def load_grid(ws: Path) -> list[tuple[str, str, tuple[str, ...]]]:
-    cells = _module_literal(ws / "scripts" / "misc" / "likelihood_runtime" / "sweep.py", "CELLS")
-    return cells or []
+    return grid_info(ws)["grid"]
+
+
+def routing_evidence(info):
+    return {key: value for key, value in info.items() if key != "grid"}
 
 
 def load_tables(ws: Path) -> dict[str, Any]:
@@ -145,10 +169,13 @@ def compile_dir(ws: Path) -> Path:
 def load_transforms(ws: Path) -> tuple[str, ...]:
     """probe.py's transform axis, read from the workspace rather than copied.
 
-    The list is a module-level literal in `jax_compile/probe.py`, so the same
-    ast route `load_grid` uses keeps the Brain from drifting out of sync with
-    the instrument. `FALLBACK_TRANSFORMS` only covers probe.py being absent."""
-    got = _module_literal(compile_dir(ws) / "probe.py", "TRANSFORMS")
+    The catalogue supplies transforms when declared; pre-migration probes use
+    a module-level literal. FALLBACK_TRANSFORMS covers an absent legacy probe."""
+    catalogue = read_catalogue(ws)
+    if catalogue is not None and catalogue["compile_probe"] is not None:
+        return tuple(catalogue["compile_probe"]["transforms"])
+    path = compile_dir(ws) / "probe.py"
+    got = _module_literal(path, "TRANSFORMS") if path.is_file() else None
     return tuple(got) if got else FALLBACK_TRANSFORMS
 
 
@@ -229,7 +256,8 @@ def compile_tier_of(hardware: str | None) -> str:
 def campaign(ws: Path, tier: str) -> dict[str, Any]:
     if tier not in TIER_CONFIGS:
         return {"agent": "profiling", "mode": "campaign", "error": f"unknown tier {tier!r}"}
-    grid = load_grid(ws)
+    routing = grid_info(ws)
+    grid = routing["grid"]
     runtime = ws / "results" / "runtime"
     done: list[str] = []
     unusable: list[str] = []
@@ -262,6 +290,9 @@ def campaign(ws: Path, tier: str) -> dict[str, Any]:
         submits = sorted(p.name for p in (ws / "hpc" / "batch_gpu").glob("submit_*"))
         dispatch = [f"sbatch hpc/batch_gpu/{s}  (on the RAL checkout, post-pull)" for s in submits]
 
+    if routing["missing_sources"]:
+        dispatch = []
+
     return {
         "agent": "profiling",
         "mode": "campaign",
@@ -277,8 +308,12 @@ def campaign(ws: Path, tier: str) -> dict[str, Any]:
             "per-call > 60 s renders unusable; both mean GPU-only "
             "(results/notes/design_lock_in.md)"
         ),
+        "source_routing": routing_evidence(routing),
+        "evidence_qualification": "Archive presence is unreviewed coverage, not an accepted baseline or current-performance claim. Missing metadata remains unknown.",
         "dispatch_plan": dispatch,
         "next_action": (
+            "source routes are missing locally; synchronize the captured project before dispatch"
+            if routing["missing_sources"] else
             "all runs accounted for — proceed to ingest"
             if not missing
             else f"dispatch the {tier} plan ({len(missing)} runs outstanding)"
@@ -297,7 +332,8 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
     if tier not in TIER_CONFIGS:
         return {"agent": "profiling", "mode": "campaign", "error": f"unknown tier {tier!r}"}
 
-    grid = load_grid(ws)
+    routing = grid_info(ws)
+    grid = routing["grid"]
     transforms = load_transforms(ws)
     on_grid = {
         (cls, model, inst)
@@ -364,7 +400,7 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
     if tier == "local":
         for (cls, model, inst), tfs in sorted(missing_by_cell.items(), key=lambda kv: str(kv[0])):
             dispatch.append(
-                f"python3 scripts/misc/jax_compile/probe.py --dataset-class {cls} "
+                f"python3 {routing['compile_probe']['path'] if routing.get('compile_probe') else 'scripts/misc/jax_compile/probe.py'} --dataset-class {cls} "
                 f"--model-type {model}"
                 + (f" --instrument {inst}" if inst else "")
                 + f" --transforms {','.join(tfs)} --cache-dir <dir> --tag <cold|warm>"
@@ -372,6 +408,11 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
     else:
         submits = sorted(p.name for p in (ws / "hpc" / "batch_gpu").glob("submit_*"))
         dispatch = [f"sbatch hpc/batch_gpu/{s}  (on the RAL checkout, post-pull)" for s in submits]
+
+    probe = routing.get("compile_probe")
+    unavailable = probe is not None and probe["builder_status"] != "available"
+    if unavailable or routing["missing_sources"]:
+        dispatch = []
 
     return {
         "agent": "profiling",
@@ -393,8 +434,14 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
             "within (hardware, jax_version, mixed_precision, cache state). This "
             "mode reports COVERAGE only — it never compares two timings."
         ),
+        "source_routing": routing_evidence(routing),
+        "evidence_qualification": "Archive presence is unreviewed coverage, not an accepted baseline or current-performance claim. Missing metadata remains unknown.",
         "dispatch_plan": dispatch,
         "next_action": (
+            "source routes are missing locally; synchronize the captured project before dispatch"
+            if routing["missing_sources"] else
+            "compile dispatch unavailable: " + str(probe.get("reason", "builder status is unknown"))
+            if unavailable else
             "compile grid fully covered on this tier"
             if not missing
             else f"dispatch the {tier} compile plan ({len(missing)} cell/transform runs outstanding)"
@@ -819,6 +866,12 @@ def emit_human(d: dict[str, Any]) -> None:
     if d.get("error"):
         print(f"ERROR: {d['error']}")
         return
+    if d.get("source_routing"):
+        print(f"Source routing:        {d['source_routing']['source']}")
+        if d["source_routing"].get("qualification"):
+            print(d["source_routing"]["qualification"])
+    if d.get("evidence_qualification"):
+        print(f"Qualification:        {d['evidence_qualification']}")
     if d["mode"] == "campaign" and d.get("axis") == "compile":
         print(f"Tier:                 {d['tier']}")
         print(f"Transforms:           {', '.join(d['transforms'])}")
@@ -935,12 +988,18 @@ def main(argv=None) -> int:
         print(f"profiling: workspace not found: {ws}", file=sys.stderr)
         return 4
 
-    if a.mode == "campaign":
-        d = campaign_compile(ws, a.tier) if a.axis == "compile" else campaign(ws, a.tier)
-    elif a.mode == "ingest":
-        d = ingest_compile(ws) if a.axis == "compile" else ingest(ws)
-    else:
-        d = triage_compile(ws) if a.axis == "compile" else triage(ws)
+    try:
+        if a.mode == "campaign":
+            d = campaign_compile(ws, a.tier) if a.axis == "compile" else campaign(ws, a.tier)
+        elif a.mode == "ingest":
+            d = ingest_compile(ws) if a.axis == "compile" else ingest(ws)
+        else:
+            d = triage_compile(ws) if a.axis == "compile" else triage(ws)
+    except (ValueError, OSError, SyntaxError) as exc:
+        d = {"agent": "profiling", "mode": a.mode, "error": str(exc),
+             "evidence_qualification": "Source routing unavailable; coverage is unknown."}
+        print(json.dumps(d, indent=2)) if a.as_json else emit_human(d)
+        return 4
 
     d = _strip_internal(d)
     print(json.dumps(d, indent=2)) if a.as_json else emit_human(d)
