@@ -520,6 +520,7 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     sys.path.insert(0, str(BRAIN_HOME / "board"))
     from copy_contract import assert_portable_copy_payloads
     assert_portable_copy_payloads(page)
+    assert "coordinate work across ExampleOrg." in page
     # Self-containment: inline script and href anchors are allowed; external
     # ASSETS are not (the invariant the Heart board's tests settled on).
     # data-cmd payloads legitimately carry URLs, so strip them first.
