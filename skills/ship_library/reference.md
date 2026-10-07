@@ -99,9 +99,13 @@ Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
 2. If the worktree is not on `feature/<task-name>`, stop and report — never
    auto-switch branches.
 3. `git -C "$WT_ROOT/<repo>" add -A && git commit -m "<message>" && git push -u origin feature/<task-name>`.
-4. `gh pr create --label "pending-release" --title "<title>" --body "<body>"`
-   (paste the drafted body verbatim via HEREDOC). Then **verify the label
-   landed**: `gh pr view <n> --json labels --jq '[.labels[].name]'`. If
+4. `gh pr create --title "<title>" --body "<body>"` (paste the drafted body
+   verbatim via HEREDOC), adding `--label "pending-release"` **only when the
+   repo is in the **published set** — PyAutoNerves, PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens (`PUBLISHED_REPOS` in `PyAutoMind/scripts/lifecycle.py`, which mirrors the PyPI `release` job of PyAutoHands' `release.yml`)**. An organ (Brain, Heart, Mind, Hands, …), PyAutoCTI,
+   PyAutoReduce or any other repo ships on merge or is never published, so no
+   release could ever clear the label — never apply it there. For a
+   published-set PR, **verify the label landed**:
+   `gh pr view <n> --json labels --jq '[.labels[].name]'`. If
    `pending-release` is absent, stop and report — usually the label doesn't
    exist on the repo; fix with `bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/ensure_workspace_labels.sh"`
    then `gh pr edit <n> --add-label pending-release`.
@@ -156,26 +160,33 @@ each). A row whose `status:` says `awaiting-merge` / `PR open` / `shipped` and
 carries no `*-pr:` is drift — `lifecycle.py check` exits 1 on it, because it is
 a task `/prm` cannot close.
 
-**And the pending-release link.** Every PR this skill opens carries the
-`pending-release` label, so also write
+**And the pending-release link — published set only.** For every PR this
+skill opened with the `pending-release` label (published-set repos only, step
+4 above), also write
 
 ```markdown
 - pending-release: <LibraryRepo>@<pr-url>
 ```
 
-on the `active.md` row — one line per merged-but-unpublished library PR. That
+on the `active.md` row — one line per merged-but-unpublished library PR, the
+full PR URL, nothing else on the line. A PR in any other repo gets **no**
+line, and there is never a placeholder (`pending-release: none …`, `Repo#N`
+short forms): `lifecycle.py check` fails on a value that is not
+`<published-repo>@<pr-url>`, because no release could ever clear it. That
 is the Mind's half of the chain in `REFERENCE.md` → "The pending-release
 chain": GitHub's label and the Hands release stay the source of truth, Mind
 holds only the link. The dashboard's **Pending release** section renders it,
-and `/review_release` clears it once a release has actually published.
+and `/review_release` clears it once a release has actually published
+(`lifecycle.py clear-released --version <v>`).
 
 **Shipped (option iii passed):** offer to merge the library PR
 (`gh pr merge <n> --merge --auto`), post a "Shipped" comment (PRs, summary,
 optional session notes), then record completion — the dated record **is** the
 ledger (issues #71/#81):
 - **Draft the rich completion body** to a temp file — `## <slug>`, `issue`,
-  `completed: <date>`, `library-pr:`, any uncleared `pending-release:` carried
-  over from the `active.md` row, then the summary/traps/notes bullets.
+  `completed: <date>`, `library-pr:`, any uncleared well-formed
+  `pending-release: <lib>@<pr-url>` lines carried over from the `active.md` row
+  (none at all when the row has none — never a placeholder), then the summary/traps/notes bullets.
 - **Write the record** — one step: it folds + removes the `active/` prompt,
   refreshes `complete/index.md`, and prunes the task's `active.md` section
   (all the state `lifecycle.py check` drift-checks):

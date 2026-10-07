@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # ensure_workspace_labels.sh — idempotently assert the canonical `pending-release`
-# label on every PyAutoLabs workspace, _test, HowTo, euclid, and library repo.
+# label on every PUBLISHED library repo (the only repos whose PRs carry it).
+#
+# The published set is defined once, as PUBLISHED_REPOS in
+# PyAutoMind/scripts/lifecycle.py (it mirrors the PyPI `release` job matrix of
+# PyAutoHands/.github/workflows/release.yml); REPOS below must equal it.
+# Workspace, _test, HowTo, euclid, CTI and organ repos used to be listed here,
+# but nothing ever publishes them, so no release could clear the label there:
+# 1500+ merged PRs accumulated it before 2026-10-07. Their existing label
+# definitions are harmless and left alone — this script just stops asserting them.
 #
 # Usage: bash PyAutoBrain/bin/ensure_workspace_labels.sh
 #
@@ -28,24 +36,11 @@ LABEL_NAME="pending-release"
 # Owner/name pairs must match PyAutoMind/repos.yaml (the body map);
 # `python3 PyAutoMind/scripts/repos_sync.py --check` flags drift.
 REPOS=(
-    PyAutoLabs/autolens_workspace
-    PyAutoLabs/autogalaxy_workspace
-    PyAutoLabs/autofit_workspace
-    PyAutoLabs/HowToLens
-    PyAutoLabs/HowToGalaxy
-    PyAutoLabs/HowToFit
-    PyAutoLabs/autolens_workspace_test
-    PyAutoLabs/autogalaxy_workspace_test
-    PyAutoLabs/autofit_workspace_test
-    PyAutoLabs/euclid_strong_lens_modeling_pipeline
+    PyAutoLabs/PyAutoNerves
+    PyAutoLabs/PyAutoFit
     PyAutoLabs/PyAutoArray
     PyAutoLabs/PyAutoGalaxy
     PyAutoLabs/PyAutoLens
-    PyAutoLabs/PyAutoNerves
-    PyAutoLabs/PyAutoFit
-    PyAutoLabs/PyAutoCTI
-    PyAutoLabs/autocti_workspace
-    PyAutoLabs/autocti_workspace_test
 )
 
 . "$(dirname "${BASH_SOURCE[0]}")/_gh.sh"

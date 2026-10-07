@@ -39,11 +39,11 @@ step. Per workspace repo, after the readiness gate is GREEN:
 3. `source "$WT_ROOT/activate.sh"`, then run `/smoke_test`. Smoke runs feed
    Heart's verdict — any failure means **stop**, return the failures verbatim, do
    not create the PR, do not try to fix the scripts.
-4. `gh pr create --repo <owner/repo> --head feature/<task-name> --label "pending-release" --title "<title>" --body "<body>"`
-   (paste the drafted body verbatim via HEREDOC). Verify the label landed
-   (`gh pr view <n> --json labels --jq '[.labels[].name]'`); if absent, fix with
-   `ensure_workspace_labels.sh` + `gh pr edit <n> --add-label pending-release`.
-   If `gh pr create`/`gh pr edit` errors (SSH-URL origin, classic-Projects
+4. `gh pr create --repo <owner/repo> --head feature/<task-name> --title "<title>" --body "<body>"`
+   (paste the drafted body verbatim via HEREDOC). **No `pending-release`
+   label:** workspace repos are never published to PyPI, so no release clears
+   it — the label belongs to published-set library PRs only
+   (`PyAutoMind/REFERENCE.md` → "The pending-release chain"). If `gh pr create`/`gh pr edit` errors (SSH-URL origin, classic-Projects
    GraphQL failure), use the `gh api` fallbacks in `skills/OPERATIONS.md`.
 5. If a library PR URL was passed in, cross-reference it:
    `gh pr comment <library-PR-number> --body "Workspace PR: <workspace-PR-URL>"`.
@@ -111,7 +111,9 @@ SHIP_EOF
 - completed: <YYYY-MM-DD>
 - library-pr: <library PR URL — if linked>
 - workspace-pr: <workspace PR URL(s)>
-- pending-release: <lib>@<pr-url>   # any still uncleared, carried from active.md
+- pending-release: <lib>@<pr-url>   # only well-formed lines still uncleared on the
+                                    # active.md row (published-set libraries); omit
+                                    # the key entirely when there are none
 - summary: <what landed, gotchas, follow-ups>
 ```
 

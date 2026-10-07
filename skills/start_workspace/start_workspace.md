@@ -49,9 +49,7 @@ gh issue view <number> --repo <owner/repo> --json comments --jq '.comments[].bod
    [`reference.md`](reference.md) → "Linked-mode API-change impact".
 3. Attach the affected workspace repos to the existing task worktree (from
    `/start_library`) — `reference.md` → "Attaching workspace repos".
-4. Assert the `pending-release` label — `reference.md` → "pending-release label
-   guard".
-5. Register in `active.md` (extend `repos:`, set `status: workspace-dev`, add
+4. Register in `active.md` (extend `repos:`, set `status: workspace-dev`, add
    `library-pr:`) and push — `reference.md` → "active.md registration".
 
 ### 4. Standalone mode
@@ -62,8 +60,7 @@ gh issue view <number> --repo <owner/repo> --json comments --jq '.comments[].bod
    standalone workspace task".
 4. Register in `active.md` (`status: workspace-dev`, worktree + workspace repos)
    and push.
-5. Assert the `pending-release` label.
-6. Explore the scripts to modify/create.
+5. Explore the scripts to modify/create.
 
 ### 5. Present "ready to develop"
 
