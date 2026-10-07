@@ -2,7 +2,7 @@
 
 First regression net for `agents/faculties/memory/_memory.py`. What matters:
 the root entry surfaces (index.md, reading-queue.md, bibliography/README.md,
-wiki/CLAUDE.md) are part of the corpus — they were invisible before #239 even
+wiki/AGENTS.md) are part of the corpus — they were invisible before #239 even
 though PyAutoMemory/AGENTS.md tells every agent to index them first; surface
 labels stay repo-name-first (digest()'s exit-4 logic splits on '/'); ranking
 and the no-hits path behave; and the conductors' printed PyAutoMemory pointers
@@ -27,7 +27,7 @@ def _memory_repo(tmp_path: Path) -> Path:
     (m / "index.md").write_text("# Index\nthe entry surface mentions quasars\n")
     (m / "reading-queue.md").write_text("# Reading queue\n\nquasar paper one\n")
     (m / "bibliography" / "README.md").write_text("# Bib\nadding a quasar paper\n")
-    (m / "wiki" / "CLAUDE.md").write_text("# Schema\nstatus flags\n")
+    (m / "wiki" / "AGENTS.md").write_text("# Schema\nstatus flags\n")
     (m / "wiki" / "demo" / "concepts" / "quasars.md").write_text(
         "---\nstatus: drafted\n---\nquasars lens light\n")
     return m
@@ -37,7 +37,7 @@ def test_root_entry_surfaces_are_in_the_corpus(tmp_path):
     m = _memory_repo(tmp_path)
     triples = list(_memory.surfaces(m, None, None))
     root_files = {f.name for name, _, f in triples if name == "PyAutoMemory/root"}
-    assert root_files == {"index.md", "reading-queue.md", "README.md", "CLAUDE.md"}
+    assert root_files == {"index.md", "reading-queue.md", "README.md", "AGENTS.md"}
     # the wiki pages still arrive under their sub-wiki label
     assert any(name == "PyAutoMemory/demo" for name, _, _ in triples)
 
@@ -113,6 +113,7 @@ def test_seed_pages_are_not_a_recall_surface(tmp_path):
 def test_canonical_schema_is_recalled_instead_of_claude_adapter(tmp_path):
     m = _memory_repo(tmp_path)
     (m / "wiki/AGENTS.md").write_text("# Shared schema\ncanonical-schema-marker\n")
+    # A leftover per-tool pointer file must never displace the shared schema.
     (m / "wiki/CLAUDE.md").write_text("@AGENTS.md\n")
     digest = _memory.digest("canonical-schema-marker", m, None, None, limit=8)
     assert [p["page"] for p in digest["pages"]] == ["wiki/AGENTS.md"]

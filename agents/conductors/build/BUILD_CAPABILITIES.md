@@ -3,7 +3,7 @@
 This audit records the execution surface the PyAutoBrain Build Agent reasons over
 and **calls**. The agent must treat every item here as a PyAutoHands capability,
 not as logic to reimplement inside Brain. Source of truth: the `autohands`
-dispatcher (`PyAutoHands/bin/autohands`) and `PyAutoHands/CLAUDE.md`.
+dispatcher (`PyAutoHands/bin/autohands`) and `PyAutoHands/AGENTS.md`.
 
 ## Execution capabilities (the Build Agent calls these)
 
@@ -51,8 +51,8 @@ per-workspace `config/build/{no_run,profile_smoke,visualise_notebooks}.yaml`.
 ## Boundary audit — execution vs. health
 
 PyAutoHands is meant to be a **pure executor**: it runs no readiness checks of
-its own. Confirmed against `PyAutoHands/CLAUDE.md` ("PyAutoHands is the executor
-… it runs **no** release-readiness checks of its own").
+its own. Confirmed against `PyAutoHands/AGENTS.md` ("PyAutoHands is the **executor**
+… It runs no release-readiness checks of its own").
 
 It does, however, still expose **health-shim commands** that delegate to the
 health authority (PyAutoHeart):

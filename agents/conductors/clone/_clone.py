@@ -72,7 +72,7 @@ SEED_SECTION = "## Assistant-as-template"
 
 # Framework/infrastructure shared by every assistant, regardless of domain.
 _SHARED_GENERIC = [
-    "AGENTS.md", "CLAUDE.md", "LICENSE", ".gitignore", ".gitattributes",
+    "AGENTS.md", "LICENSE", ".gitignore", ".gitattributes",
     "Makefile", "__init__.py", "activate.sh", "version.txt",
     "AI_POLICY.md", "CITATIONS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
     # (No chat-mode counterpart of AGENTS.md and no generated chat bundles: the
@@ -93,7 +93,11 @@ _SHARED_GENERIC = [
                                   # but the file and its schema are framework
     ".github/*",                  # wiki-currency / citation workflows
     "wiki/README.md", "wiki/project/*",   # project wiki rules + profile template
-    "scripts/AGENTS.md", "scripts/CLAUDE.md", "scripts/README.md",
+    "scripts/AGENTS.md", "scripts/README.md",
+    # Legacy per-tool pointer files, still present in older references until
+    # they are retired (harnesses now read AGENTS.md natively). Matched only
+    # when present, so their absence is harmless.
+    "CLAUDE.md", "scripts/CLAUDE.md",
     # Harness mirrors of the generic machinery (.claude/, .codex/, .gemini/):
     ".claude/hooks/*", ".claude/settings.json", ".codex/hooks.json", ".gemini/*",
     ".claude/skills/_*", ".claude/skills/start-new-project*",

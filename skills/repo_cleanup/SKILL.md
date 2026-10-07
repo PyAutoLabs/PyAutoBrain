@@ -32,7 +32,7 @@ execution-environment model: [`../WORKFLOW.md`](../WORKFLOW.md).
 > the recommendation; run this skill to act on it.
 
 **Distinct from:** `/health worktrees` (Heart read-only diagnostic — consulted here,
-but this also mutates); post-merge cleanup in `CLAUDE.md` (once per shipped task —
+but this also mutates); post-merge cleanup in the ship skill / prm close-out (once per shipped task —
 this covers residue when that flow is skipped); the start_dev branch survey
 (task start — this is between-tasks hygiene).
 

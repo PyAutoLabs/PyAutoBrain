@@ -135,7 +135,8 @@ def plan(root, state, bundles_root=None, manifest_root=None):
     # These are local, workspace-owned paths, not versioned source or shell RCs.
     config_paths = list((root / '.idea').glob('*.xml')) + list((root / '.idea').glob('*.iml'))
     config_paths += [root / '.claude/settings.json', root / '.codex/hooks.json',
-                     root / 'AGENTS.md', root / 'CLAUDE.md']
+                     root / 'AGENTS.md',
+                     root / 'CLAUDE.md']  # legacy pointer; skipped when absent
     for path in config_paths:
         if not path.is_file() or path.is_symlink():
             continue
