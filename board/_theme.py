@@ -624,8 +624,21 @@ h2.prompt-heading:after{display:none}
 .orchestration-panel :focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .orchestration-status{margin:.5rem 0 0;color:var(--muted)}
 .orchestration-status:empty{display:none}
+.orchestration-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.5rem 1rem;font-size:.8rem}
+.orchestration-footer>[data-orchestration-preview]{grid-column:1/-1;grid-row:1;margin:0}
+.orchestration-footer>[data-orchestration-preview]>summary{width:max-content;max-width:100%%}
+.orchestration-freshness{grid-column:2;grid-row:1;align-self:start;display:flex;flex-wrap:wrap;gap:.35rem .75rem;align-items:baseline}
+.orchestration-freshness details{margin:0;padding:0;border:0;background:none}
+.orchestration-freshness summary{font:inherit;color:inherit;cursor:pointer}
+.orchestration-freshness time{display:block;font-size:.75rem}
+.orchestration-freshness[data-freshness="green"]{color:var(--ok)}
+.orchestration-freshness[data-freshness="yellow"]{color:var(--warn)}
+.orchestration-freshness[data-freshness="red"]{color:var(--bad)}
+.orchestration-freshness[data-freshness="grey"]{color:var(--muted)}
+.orchestration-freshness a{font:inherit}
 @media(max-width:46rem){.orchestration-panel{padding:1rem}.orchestration-head{display:block}
- .orchestration-copy{width:100%%}.orchestration-links{margin-bottom:1rem}}
+ .orchestration-copy{width:100%%}.orchestration-links{margin-bottom:1rem}
+ .orchestration-footer{display:block}.orchestration-freshness{margin-top:.5rem}}
 
 /* A copy button with a WORDED face is a chip, not an icon. The rule above is
    a fixed 2.6rem square — right for a bare clipboard glyph, a trap for a
@@ -809,8 +822,59 @@ def prompt_heading(organ, *, heading_id=None):
             f'<strong>{_html.escape(name)}</strong>{_html.escape(after)}</h2>')
 
 
+def _refresh_stamp(value):
+    """Normalize only precise, timezone-aware owner timestamps; never invent one."""
+    from datetime import datetime, timezone
+
+    if isinstance(value, str):
+        if not _re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)", value):
+            return None
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        return None
+    try:
+        return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except (ValueError, OverflowError):
+        return None
+
+
+def _freshness_footer(refreshed_at, refresh_url):
+    from urllib.parse import urlsplit
+
+    stamp = _refresh_stamp(refreshed_at)
+    if stamp:
+        label = "Last updated " + stamp.replace("T", " ").replace("Z", " UTC")
+        clock = (f'<details data-freshness-stamp data-refreshed-at="{stamp}">'
+                 f'<summary><span data-freshness-label>{label}</span></summary>'
+                 f'<time datetime="{stamp}">{label.removeprefix("Last updated ")}</time></details>')
+    else:
+        clock = '<span data-freshness-stamp>Last updated unavailable</span>'
+    action = '<span class="muted">Update unavailable</span>'
+    if refresh_url is not None:
+        url = str(refresh_url)
+        parsed = urlsplit(url)
+        if (url != url.strip() or any(c.isspace() or ord(c) < 32 for c in url)
+                or "\\" in url or parsed.scheme != "https" or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None):
+            raise ValueError("Refresh destinations must be unambiguous HTTPS links")
+        action = (f'<a data-refresh-link href="{_html.escape(url, quote=True)}" '
+                  'title="Open the dashboard refresh controls">↻ Update</a>')
+    return ('<div class="orchestration-freshness" data-freshness="grey">'
+            + clock + action + '</div>')
+
+
+def normalize_refresh_stamp(page):
+    """Exclude the refresh clock alone from owner content-drift comparisons."""
+    return _re.sub(r'<details data-freshness-stamp\b[^>]*>.*?</details>',
+                   '<details data-freshness-stamp></details>', page, flags=_re.S)
+
+
 def orchestration_panel(key, title, description, prompt, *, work_links=(),
-                        copy_label="Copy check-in prompt", organ=None):
+                        copy_label="Copy check-in prompt", organ=None,
+                        refreshed_at=None, refresh_url=None):
     """Render one owner's portable work prompt and trusted GitHub destinations.
 
     Description is accepted for compatibility but not displayed.
@@ -857,10 +921,12 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
         f'<textarea id="{ident}-direction" rows="2" data-orchestration-direction '
         'placeholder="Focus on a task, project or question"></textarea></div>'
         f'<button type="button" class="orchestration-copy" data-orchestration-copy>{esc(copy_label)}</button></div>'
+        '<div class="orchestration-footer">'
         f'<details data-orchestration-preview><summary>Read the prompt</summary>'
         f'<label class="sr-only" for="{ident}-prompt">Exact prompt to copy</label>'
         f'<textarea id="{ident}-prompt" data-orchestration-prompt readonly rows="8">{esc(base)}</textarea>'
-        '</details><p class="orchestration-status" role="status" aria-live="polite"></p></section>'
+        '</details>' + _freshness_footer(refreshed_at, refresh_url) + '</div>'
+        '<p class="orchestration-status" role="status" aria-live="polite"></p></section>'
     )
 
 
@@ -1101,7 +1167,34 @@ document.addEventListener('click',async event=>{
   }
 });
 """
-JS += ORCHESTRATION_JS
+FRESHNESS_JS = """\
+function updateDashboardFreshness(now=Date.now()){
+  document.querySelectorAll('.orchestration-freshness').forEach(footer=>{
+    const stamp=footer.querySelector('[data-refreshed-at]');
+    if(!stamp)return;
+    const age=now-Date.parse(stamp.dataset.refreshedAt);
+    const label=stamp.querySelector('[data-freshness-label]');
+    if(!Number.isFinite(age)||age<0){
+      footer.dataset.freshness='grey';
+      label.textContent='Last updated unavailable';
+      return;
+    }
+    const minutes=Math.floor(age/60000),hours=Math.floor(age/3600000),days=Math.floor(age/86400000);
+    const amount=days||hours||minutes;
+    const unit=days?'day':hours?'hour':'minute';
+    label.textContent='Last updated '+(minutes===0?'just now':amount+' '+unit+(amount===1?'':'s')+' ago');
+    footer.dataset.freshness=age<3600000?'green':age<86400000?'yellow':'red';
+  });
+}
+function startDashboardFreshness(){
+  updateDashboardFreshness();
+  if(document.querySelector('[data-refreshed-at]'))setInterval(updateDashboardFreshness,30000);
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startDashboardFreshness,{once:true});
+else startDashboardFreshness();
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateDashboardFreshness();});
+"""
+JS += ORCHESTRATION_JS + FRESHNESS_JS
 
 
 
