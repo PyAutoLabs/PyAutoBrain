@@ -99,8 +99,7 @@ human types); let faculties multiply behind them.
 ## Growth rule: no new organs by default
 
 New capability grows as a **faculty** (cheap: one directory, one doc, one
-script), not as a repo. A new organ costs an `AGENTS.md`, a `CLAUDE.md` stub,
-install wiring, a body-map row and boundary prose — it must earn that by
+script), not as a repo. A new organ costs an `AGENTS.md`, install wiring, a body-map row and boundary prose — it must earn that by
 owning state or effects no existing organ can. Five capabilities have earned
 organ status that way. Configuration/signalling is the **Nerves**
 (PyAutoNerves), the base config/serialization layer every library imports — new

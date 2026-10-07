@@ -76,8 +76,8 @@ cannot self-certify the review faculty's independence. That requirement is
 path-specific — notably the review-faculty leg of the `--auto`
 autonomous-ship gate and the independent-adversary cases defined by
 `AUTONOMY.md` — not a universal prerequisite for an ordinary human-approved
-merge. Delegate only the review phase when the active path actually requires
-it.
+merge. When the active path actually requires it, delegate only the review
+phase, or require human review if no independent reviewer is available.
 
 **Heart remains separate from CI.** Exact-head CI can satisfy applicable test or
 smoke evidence; it never substitutes for the authoritative Heart verdict. If the
@@ -89,29 +89,11 @@ for a task that genuinely needs local data/output/SSH resources. It is not the
 name of the orchestrating product and must not grow a `chatgpt`, `codex` or
 `claude` value.
 
-### No OpenAI API fallback
-
-The ordinary-Chat route has **no API billing path**. Never use an OpenAI SDK,
-Responses API, API Platform key, `OPENAI_API_KEY`, browser/session credential
-reuse, or a local Brain process that programmatically starts a ChatGPT
-conversation as a fallback. If the current Chat lacks a capability, use only an
-explicitly selected supported execution surface (for example existing GitHub
-Actions, Codex/Work, local shell or HPC) or stop at that phase. This invariant
-does not depend on the user's API billing settings.
+**No OpenAI API fallback** — see [`MODEL_DELEGATION.md`](MODEL_DELEGATION.md).
 
 ## Model delegation
 
-Provider policies are intentionally asymmetric. Anthropic retains mandatory
-execution delegation: Fable → Opus and Opus → Opus, with Sonnet only for the
-documented mechanical floor. OpenAI performs routine sequential edits, tests,
-and git steps inline; use Sol workers selectively for independent parallel
-work, substantial noisy execution or independent progress, and independent
-review. Wall-clock duration alone does not force a worker. A Brain role or faculty
-consultation does not itself require a new LLM worker.
-
-Read [`MODEL_DELEGATION.md`](MODEL_DELEGATION.md) before assigning a worker. It
-contains the preserved Anthropic heartbeat, mechanical, tutorial, bundle, and
-Cortex rules plus the bounded worker contract.
+Read [`MODEL_DELEGATION.md`](MODEL_DELEGATION.md) before assigning a worker.
 
 ## Memory and planning
 

@@ -6,8 +6,8 @@ of every scientific workflow or every agent product.
 
 ## Shared instructions and adapters
 
-`AGENTS.md` holds shared policy, including nested folder instructions.
-`CLAUDE.md` imports the sibling file. Public assistant skills retain their flat
+`AGENTS.md` holds shared policy, including nested folder instructions, and
+every supported harness reads it natively. Public assistant skills retain their flat
 canonical Markdown; workspace skills live at `skills/<name>/SKILL.md`.
 Generated Claude links and Codex adapters refer to these same bodies. Canonical
 instructions retain the full skill description when the discovery description
@@ -74,8 +74,8 @@ read the shared workflow instructions and ran `bin/pyauto-brain help` successful
   and compatibility with older checkouts.
 - Memory board suite: 62 tests passed with `PYAUTO_BRAIN` unset for its isolated
   workspace-resolution fixture; structure and wikilink validation passed.
-- Eight nested instruction migrations preserve their original bodies except
-  references updated from `CLAUDE.md` to `AGENTS.md`.
+- Eight nested instruction migrations preserve their original bodies, moved
+  into `AGENTS.md`.
 
 The hook fixtures exercise the shared scripts and adapter generation; they do
 not prove that a user's installed session has trusted or invoked project hooks.

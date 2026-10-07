@@ -95,7 +95,7 @@ reimplement inside Brain.
   `worktree_drift.sh`, `script_timing.py`, `test_run.py`, `version_skew.py`.
 - Config: `config/repos.yaml`, including thresholds and `noise_globs`.
 - Tests: `tests/`, expected to run quickly with stdlib + PyYAML only.
-- Docs / agent guidance: `README.md`, `AGENTS.md`, `CLAUDE.md`.
+- Docs / agent guidance: `README.md`, `AGENTS.md`.
 
 ## PyAutoHands delegation audit
 

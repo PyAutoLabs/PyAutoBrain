@@ -1,6 +1,6 @@
 ---
 name: community
-description: Hear and answer the PyAuto community through the PyAutoBrain Community Agent — scan the Discussions hub and every repo for user threads awaiting a response, triage one discussion or issue's context sufficiency, then draft human-approved replies and route actionable work via start_dev_for_user. Use when responding to external users' GitHub discussions or issues, or checking what the community is waiting on.
+description: Hear and answer the PyAuto community via the Community Agent — scan Discussions and all repos for threads awaiting a reply, triage, draft human-approved replies, route work via start_dev_for_user. Use for external users' GitHub discussions or issues.
 ---
 
 # Community

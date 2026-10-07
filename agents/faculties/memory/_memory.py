@@ -41,9 +41,8 @@ def surfaces(memory: Path | None, assistant: Path | None, mind: Path | None):
         # queue, the bibliography workflow, and the wiki schema. Without
         # these the front door PyAutoMemory/AGENTS.md points every agent at
         # ("index first") was invisible to this faculty (PyAutoBrain#239).
-        schema = "wiki/AGENTS.md" if (memory / "wiki/AGENTS.md").is_file() else "wiki/CLAUDE.md"
         for rel in ("index.md", "reading-queue.md",
-                    "bibliography/README.md", schema):
+                    "bibliography/README.md", "wiki/AGENTS.md"):
             f = memory / rel
             if f.is_file():
                 yield "PyAutoMemory/root", memory, f

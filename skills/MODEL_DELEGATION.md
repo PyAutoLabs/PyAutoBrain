@@ -65,15 +65,16 @@ The receiving environment resumes the existing branch; it does not create a
 second task or lifecycle. The orchestrator consumes the returned evidence and
 continues the same Brain → review/vitals → Heart → PR flow.
 
-**Independent review is a separate capability.** A conversation that authored
-the branch cannot satisfy the independent-review leg by rereading its own diff.
-If no independent worker/reviewer is available in the current surface, hand off
-only the review phase or require human review.
+**Independent review is a separate capability** — when it is required and how
+to supply it: [`WORKFLOW.md`](WORKFLOW.md) (execution-environment section).
 
-**No OpenAI API fallback.** An ordinary ChatGPT orchestration route must never
-turn a missing worker/runtime into an OpenAI SDK, Responses API,
-`OPENAI_API_KEY`, browser/session automation or other separately billed API
-call. Use an explicitly chosen supported execution surface or stop at the
+**No OpenAI API fallback.** An ordinary ChatGPT orchestration route has no API
+billing path: never turn a missing worker/runtime into an OpenAI SDK,
+Responses API, API Platform key, `OPENAI_API_KEY`, browser/session credential
+reuse, a local Brain process that programmatically starts a ChatGPT
+conversation, or any other separately billed call — regardless of the user's
+API billing settings. Use an explicitly chosen supported execution surface
+(existing GitHub Actions, Codex/Work, local shell or HPC) or stop at the
 missing phase.
 
 ## Bounded worker contract

@@ -1,6 +1,6 @@
 ---
 name: issue-cleanup
-description: Reconcile the PyAuto GitHub issue trackers — audit every open issue against the PyAutoMind completion records and merged PRs, bucket them (shipped / weak evidence / deliberately open / in flight / external / unreconciled), then close only what a human confirms. Use for tracker drift, stale issue backlogs, or "are any of these already done?".
+description: Reconcile the PyAuto GitHub issue trackers — audit open issues against Mind completion records and merged PRs, bucket them, close only what a human confirms. Use for tracker drift, stale issue backlogs, or "are any of these already done?".
 ---
 
 # Issue Cleanup

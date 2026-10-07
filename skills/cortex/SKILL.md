@@ -1,6 +1,6 @@
 ---
 name: cortex
-description: Check in on the science — run the PyAutoBrain Cortex Agent's two doors ('cortex pull' on the laptop, which pulls every active project through its own sync CLI and shows where each run stands; 'cortex checkin' anywhere, which stamps, re-renders and pushes the board) and read each project's ledger back to the human — Now, the runs, the last entries — then record what they say with the Cortex's own cortex.py verbs. Use for science runs and project ledgers; never for development tasks, which are the Mind's.
+description: Check in on the science via the Cortex Agent — 'cortex pull' on the laptop (pull each project's runs) and 'cortex checkin' anywhere (stamp, re-render, push the board) — and read ledgers back. Use for science runs and ledgers; never dev tasks.
 ---
 
 # Cortex

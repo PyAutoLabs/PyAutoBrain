@@ -39,6 +39,11 @@
 #   bash PyAutoBrain/bin/install.sh --write-workspace-policy # refresh root AGENTS.md delegation block
 #   bash PyAutoBrain/bin/install.sh --check-workspace-policy # drift-check that block
 #
+# The workspace-policy block (policy/workspace_model_delegation.md) is the one
+# versioned home for workspace-wide delegation and slash-command notes; every
+# harness reads the root AGENTS.md natively, so no per-tool instruction file
+# carries a copy.
+#
 # The command-surface modes are the agent-agnostic half of command discovery:
 # per-tool symlinks (above) are absent in cloud/web sessions, which load only
 # committed repo files — so the verb → purpose → `bin/pyauto-brain <verb>` index

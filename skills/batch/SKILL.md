@@ -1,6 +1,6 @@
 ---
 name: batch
-description: Compose the next unattended batch through the PyAutoBrain Batch Agent — the BatchDecision, planned against the slot's review-minute budget rather than a task count, with backpressure, lane detection and the one-member-per-library-repo rule. Use when picking what to run in a shift, or asking what fits in a review slot. It proposes; approving it in the slot is what launches a batch.
+description: Compose the next unattended batch via the Batch Agent — a BatchDecision planned against the slot's review-minute budget, with backpressure and lane rules. Use when picking what to run in a shift or what fits in a review slot. It only proposes.
 ---
 
 # Batch

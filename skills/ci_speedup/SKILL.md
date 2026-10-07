@@ -1,6 +1,6 @@
 ---
 name: ci-speedup
-description: Pick the slowest parts of CI off the PyAutoHeart board — smoke scripts, unit tests, workflow gates — name why each is slow, and drive the speed-up through the dev flow (a smoke-profile override, an in-script reduction, a cache or CI change), re-timing under the smoke profile before it ships. Use for "why is CI slow", "speed up the smoke tests", or the periodic CI-cost sweep; never for modelling speed (that is /profiling).
+description: Find the slowest CI parts on the PyAutoHeart board (smoke scripts, unit tests, workflow gates), and drive speed-ups through the dev flow. Use for "why is CI slow", "speed up the smoke tests", or the CI-cost sweep; never modelling speed (/profiling).
 ---
 
 # CI speed-up
