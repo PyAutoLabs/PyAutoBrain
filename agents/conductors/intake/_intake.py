@@ -62,6 +62,7 @@ from _repo_paths import repo_path  # noqa: E402
 # page and the Brain board are visibly the same family (board/_theme.py).
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "board"))
 from _theme import (  # noqa: E402
+    section_layout,
     JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats,
     normalize_refresh_stamp,
 )
@@ -3053,7 +3054,9 @@ def render_dashboard_html(c: dict) -> str:
     if footer:
         H.append(footer)
     H += [f"<script>{_THEME_JS}{_MORE_JS}</script>", "</body>", "</html>"]
-    return "\n".join(H) + "\n"
+    return section_layout("\n".join(H) + "\n", {
+        "start-here": {"count": len({r["path"] for r in high[:PICK_LIST_MAX] + quick[:PICK_LIST_MAX]})}
+    })
 
 
 def _dashboard_body(page: str) -> str:

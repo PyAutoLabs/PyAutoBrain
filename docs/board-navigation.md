@@ -1,7 +1,7 @@
 # Shared board navigation
 
-Every board uses the same top order: organ logo/banner, section navigation
-cards, freshness/context, then its content. The cards are real links, not
+Every board uses the same top order: organ logo/banner, slogan/orchestration
+panel (including its freshness controls), section navigation cards, then its content. The cards are real links, not
 JavaScript-only hidden tabs. Counts are optional; an unknown count is never
 silently rendered as zero. Each owner supplies meaningful destinations and
 keeps ownership of collection, health, freshness and action semantics.
@@ -11,7 +11,9 @@ keeps ownership of collection, health, freshness and action semantics.
 `board/_theme.py::hero(key, kind, lede_html='', navigation=())` retains its
 existing positional API. The optional keyword inserts
 `navigation_cards(items, label='Board sections')` directly after the masthead
-and before the description. Existing consumers without navigation are unchanged.
+and before the description. `section_layout(page, summaries=None)` composes the
+finished owner HTML into the standard order, moving the orchestration panel above
+these cards. Existing `hero` callers retain their positional API.
 
 Each item is a mapping with `href` and `label`, plus optional `count` and
 `context`. Text is escaped. Destinations accept local anchors, relative links
@@ -24,6 +26,34 @@ fluid grid. They use the [shared sizing standard](board-sizing.md). Do not
 copy card CSS into another repository or use the accent to imply health. Keep
 existing section anchors; only render links whose targets exist. Multiple
 counts may link to one meaningful summary, as Ears' follow-through cards do.
+
+## Collapsible major sections
+
+Every owner passes its completed HTML through `section_layout`. The shared
+adapter wraps major H2 groups in native `details`/`summary`, initially closed.
+The original headings, stable anchors, content and copy payloads are retained;
+existing disclosures and headings inside cards, tables and the orchestration
+panel are not wrapped again. The adapter preserves the original HTML bytes
+inside each group rather than serializing or interpreting domain content.
+A section wrapper with one heading stays together; unwrapped heading groups end
+at the next major heading, section, navigation, footer or script. Nested detail
+controls retain their own state. The slogan panel itself stays visible.
+
+Headers reuse optional counts already supplied by the owner on navigation cards.
+An owner can additionally pass `summaries={section_id: {count, status, label}}`.
+Zero remains visible; absent counts remain absent. Status and label are escaped,
+and statuses have visible text as well as colour. The theme never aggregates
+health or derives counts from prose. Existing descriptive heading summaries stay
+visible. Mind's Start Here count is the number of unique tasks actually shown in
+its two recommendation lists. Heart's Observed checks uses its own check states:
+red, then yellow, then stale evidence, then unknown; green requires observed
+passing evidence. This is independent of release readiness.
+
+The shared JavaScript reveals ancestor disclosures on initial fragments, hash
+changes and repeated link clicks. Navigation remains real anchor links. Native
+summaries work by keyboard without JavaScript; JavaScript additionally handles
+deep-link reveal and opening all content for printing, restoring closed states
+afterwards. Other sections remain independently expandable.
 
 ## Renderer ownership and rollout
 
@@ -58,15 +88,15 @@ handler. Do not hide evidence age or change feeds to make the layout look fresh.
 ## Validation
 
 Renderer checks cover safe links, escaped labels, optional/zero/unknown counts,
-header ordering and live anchor destinations. Browser validation covers 390,
+header ordering, section boundaries, zero/unknown summaries and live anchor destinations. Browser validation covers 390,
 768, 820, 1024 and 1440px in light/dark, long labels, keyboard navigation and
 count-free cards. Whole-page overflow and existing copy/disclosure behavior
 remain part of each consumer's validation; a shared CSS change alone is not
 proof of adoption.
 
-The core implementation passed 1186 Brain tests and a strict Sphinx build.
+The previous navigation-only rollout passed 1186 Brain tests and a strict Sphinx build.
 Thirty Chromium cases exercised the three owner renderers at five widths in
-light/dark: cards immediately followed the banner, every target existed, every
+light/dark: cards immediately followed the banner in that earlier layout, every target existed, every
 card fit the viewport with a touch-sized target, keyboard activation navigated
 to the section, and no whole-page overflow occurred. Screenshots below use
 synthetic test data, not current operational state.

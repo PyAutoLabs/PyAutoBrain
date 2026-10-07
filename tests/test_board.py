@@ -562,7 +562,7 @@ def test_the_header_strip_counts_every_section_that_can_ask_something(tmp_path):
     for label in ("Overnight red", "Blockers", "Awaiting", "In flight",
                   "Open issues"):
         assert f'<span class="board-nav-label">{label}</span>' in page
-    assert '</header><nav class="board-nav"' in page
+    assert page.index('class="hero"') < page.index('class="orchestration-panel"') < page.index('class="board-nav"')
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
     for target in re.findall(r'href="#([^"]+)"', nav):
         assert f'id="{target}"' in page

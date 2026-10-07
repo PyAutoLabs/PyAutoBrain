@@ -1621,7 +1621,7 @@ def test_human_review_renders_on_the_html_twin(tmp_path):
     mind = _mind(tmp_path, drafts={
         "human_review/widgets/checked.md": _review("Check the widget rollout")})
     html = _intake.render_dashboard_html(_intake.census(mind))
-    section = html.split('<a id="human-review"></a>')[1].split("<h2>")[1]
+    section = html.split('<a id="human-review"></a>')[1].split('<details class="board-section">')[0]
     assert "Check the widget rollout" in section
     assert "so I can sign it off" in section
     # The blurb's markdown must not print literally on a page that renders HTML.
@@ -1907,8 +1907,15 @@ def test_check_is_clean_after_apply_when_only_the_clock_moved(tmp_path, monkeypa
 
 def test_navigation_cards_follow_banner_and_have_existing_targets(tmp_path):
     page = _html(_mind(tmp_path, drafts={"feature/widgets/one.md": _prompt("One")}))
-    assert '</header><nav class="board-nav"' in page
+    assert page.index('class="hero"') < page.index('class="orchestration-panel"') < page.index('class="board-nav"')
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
     for target in re.findall(r'href="#([^"]+)"', nav):
         assert f'id="{target}"' in page
     assert 'board-nav-count">0</span><span class="board-nav-label">In flight' in nav
+
+
+def test_start_here_summary_counts_unique_visible_tasks(tmp_path):
+    mind = _mind(tmp_path, drafts={
+        'feature/widgets/one.md': _prompt('One', priority='high', autonomy='safe', difficulty='small')})
+    page = _html(mind)
+    assert '<h2>Start here</h2><span class="section-badge">1</span>' in page
