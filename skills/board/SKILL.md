@@ -1,6 +1,6 @@
 ---
 name: board
-description: Read the PyAutoBrain operational board — the organism's morning surface (overnight runs, readiness, community, resume, upkeep). Links the published Pages board or relays `pyauto-brain board`'s live digest; read-only — every action routes through the door the board's chips name. Use for a morning status glance or when asked what needs attention.
+description: Read the PyAutoBrain operational board — the morning surface (overnight runs, readiness, community, resume, upkeep) — via the Pages board or `pyauto-brain board`; read-only. Use for a morning status glance or when asked what needs attention.
 ---
 
 # Board

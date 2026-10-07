@@ -1,6 +1,6 @@
 ---
 name: feedback
-description: Draft user-reviewed feedback about using PyAutoLabs software and assistants, including goals, successes, friction and evidence. Use when a user asks to share feedback, summarize their experience for maintainers, or prepare an agent-assisted retrospective. Produces a draft for the existing Discussions hub; never posts it.
+description: Draft user-reviewed feedback on using PyAutoLabs software and assistants (goals, successes, friction, evidence). Use to share feedback, summarize experience for maintainers, or prepare an agent-assisted retrospective. Drafts only; never posts.
 ---
 
 # Feedback

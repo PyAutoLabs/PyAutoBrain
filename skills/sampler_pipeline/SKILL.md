@@ -1,6 +1,6 @@
 ---
 name: sampler-pipeline
-description: Trial a new non-linear sampler through the ingest → prototype → profile → promote pipeline — point it at a sampler's GitHub repo, get it running on the standard problem and on a likelihood the user owns (MLTracker diagnostics, benchmark comparison), then (if warranted) the full PyAutoFit implementation. Use when the user wants to try, benchmark, or promote a sampler / search / MCMC / nested-sampling / HMC method, or gives a sampler repo URL.
+description: Trial a new non-linear sampler via ingest → prototype → profile → promote, up to a full PyAutoFit implementation. Use to try, benchmark or promote a sampler / search / MCMC / nested-sampling / HMC method, or given a sampler repo URL.
 ---
 
 # Sampler Pipeline: Prototype → Profile → Promote

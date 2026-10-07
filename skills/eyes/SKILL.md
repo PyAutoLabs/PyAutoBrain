@@ -1,6 +1,6 @@
 ---
 name: eyes
-description: Run the visualization review loop through the PyAutoBrain Eyes Agent — survey a visualization workspace's figure surface, render via its gallery harness, review figures with the human, and route accepted critiques to intake/start_dev. Use when the user wants to look at, judge, or update the organism's plots and figures.
+description: Run the visualization review loop via the Eyes Agent — survey a figure surface, render via its gallery harness, review figures with the human, route critiques to intake/start_dev. Use to look at, judge or update the organism's plots and figures.
 ---
 
 # Eyes
