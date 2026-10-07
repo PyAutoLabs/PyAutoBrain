@@ -573,6 +573,23 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
 .board-nav-card:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .board-nav-count{font-size:1.8rem;font-weight:700;line-height:1.15;color:var(--accent)}
 .board-nav-label{font-weight:650}.board-nav-context{font-size:.8rem;color:var(--muted)}
+
+/* Shared major-section disclosures; owner-provided summaries stay visible. */
+details.board-section{margin:1rem 0;border:1px solid var(--line);border-radius:10px;padding:0}
+.board-section>summary{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;padding:1rem;cursor:pointer;list-style:none;min-height:48px}
+.board-section>summary::-webkit-details-marker{display:none}
+.board-section>summary::before{content:"▸";color:var(--accent);flex:none}
+.board-section[open]>summary::before{content:"▾"}
+.board-section>summary>h2{display:inline;margin:0;padding:0;border:0;flex:1;min-width:0;font-size:1.15rem}
+.board-section>summary>h2::after{display:none}
+.board-section>summary:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.board-section-body{padding:0 1rem 1rem;min-width:0}
+.section-badge{font-size:.8rem;border:1px solid currentColor;border-radius:999px;padding:.15rem .55rem;white-space:normal}
+.section-status-red{color:#b42318}.section-status-yellow{color:#8a5700}.section-status-green{color:#18733c}
+.section-status-stale,.section-status-unknown{color:var(--muted)}
+@media(prefers-color-scheme:dark){.section-status-red{color:#ff9188}.section-status-yellow{color:#eac15c}.section-status-green{color:#7bd49c}}
+@media print{.board-section-body{display:block!important}.board-section>summary{break-after:avoid}}
+
 /* --- sections ---------------------------------------------------------- */
 h2{font-size:1.1rem;margin:2.1rem 0 .3rem;padding:0 0 .35rem;font-weight:650;
  position:relative;color:var(--accent);border-bottom:2px solid var(--edge)}
@@ -1215,3 +1232,191 @@ def portable_prompt(payload):
     if not match:
         return payload
     return f"Use the {match[1].replace('_', '-')} skill." + payload[match.end():]
+
+
+def section_layout(page, summaries=None):
+    """Compose an owner's rendered board into the shared disclosure layout.
+
+    Preserve the owner's HTML verbatim, including IDs and copy payloads. Only
+    major heading groups are wrapped; existing details and card headings are
+    left alone. Optional summaries map section IDs to owner-supplied count,
+    status and label fields. This helper never infers health from prose.
+    """
+    from html.parser import HTMLParser
+
+    class Tree(HTMLParser):
+        def __init__(self, source):
+            super().__init__(convert_charrefs=False)
+            self.source = source
+            self.lines = [0]
+            self.lines.extend(m.end() for m in _re.finditer("\n", source))
+            self.nodes = []
+            self.stack = []
+            self.feed(source)
+
+        def source_offset(self):
+            line, column = self.getpos()
+            return self.lines[line - 1] + column
+
+        def handle_starttag(self, tag, attrs):
+            start = self.source_offset()
+            node = dict(tag=tag, attrs=dict(attrs), start=start,
+                        inner=start + len(self.get_starttag_text()),
+                        end=None, close=None, parent=self.stack[-1] if self.stack else None,
+                        children=[])
+            if self.stack:
+                self.stack[-1]['children'].append(node)
+            self.nodes.append(node)
+            if tag in {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+                       'link', 'meta', 'param', 'source', 'track', 'wbr'}:
+                node['end'] = node['close'] = node['inner']
+            else:
+                self.stack.append(node)
+
+        def handle_startendtag(self, tag, attrs):
+            self.handle_starttag(tag, attrs)
+            if self.stack and self.stack[-1]['start'] == self.source_offset():
+                node = self.stack.pop()
+                node['end'] = node['close'] = node['inner']
+
+        def handle_endtag(self, tag):
+            for index in range(len(self.stack) - 1, -1, -1):
+                if self.stack[index]['tag'] == tag:
+                    for node in self.stack[index:]:
+                        node['close'] = self.source_offset()
+                        node['end'] = self.source.find('>', self.source_offset()) + 1
+                    del self.stack[index:]
+                    break
+
+    tree = Tree(page)
+    summaries = summaries or {}
+
+    def classes(node):
+        return (node['attrs'].get('class') or '').split()
+
+    def ancestors(node):
+        node = node['parent']
+        while node:
+            yield node
+            node = node['parent']
+
+    def headings(node):
+        return [n for n in tree.nodes if n['tag'] == 'h2'
+                and node['start'] <= n['start'] < (node['end'] or len(page))]
+
+    edits = []
+    nav = next((n for n in tree.nodes if 'board-nav' in classes(n)), None)
+    panel = next((n for n in tree.nodes if 'orchestration-panel' in classes(n)), None)
+    if nav and panel and nav['end'] and panel['end'] and nav['end'] <= panel['start']:
+        edits += [(nav['start'], nav['start'], page[panel['start']:panel['end']] + '\n'),
+                  (panel['start'], panel['end'], '')]
+
+    # Counts remain owner-supplied: reuse the values on the owner's nav cards.
+    nav_counts = {}
+    if nav:
+        for link in tree.nodes:
+            href = link['attrs'].get('href') or ''
+            if 'board-nav-card' not in classes(link) or not href.startswith('#'):
+                continue
+            count = next((n for n in tree.nodes if 'board-nav-count' in classes(n)
+                          and link['start'] < n['start'] < link['end']), None)
+            if count:
+                label = next((n for n in tree.nodes if 'board-nav-label' in classes(n)
+                              and link['start'] < n['start'] < link['end']), None)
+                nav_counts.setdefault(href[1:], []).append((
+                    _html.unescape(page[count['inner']:count['close']]),
+                    _html.unescape(page[label['inner']:label['close']]) if label else ''))
+
+    covered_until = -1
+    for heading in (n for n in tree.nodes if n['tag'] == 'h2' and n['end']):
+        lineage = list(ancestors(heading))
+        if heading['start'] < covered_until or any(
+            n['tag'] in {'details', 'nav', 'header', 'aside', 'article', 'table'}
+            or set(classes(n)) & {'orchestration-panel', 'card', 'file'} for n in lineage
+        ):
+            continue
+        # A section/group wrapper belongs to its heading; a body/main is shared.
+        scope = heading
+        for parent in lineage:
+            if parent['tag'] in {'body', 'main', 'html'} or len(headings(parent)) != 1:
+                break
+            scope = parent
+        if not scope['end'] or not scope['parent']:
+            continue
+        start, end = scope['start'], scope['end']
+        ident = heading['attrs'].get('id') or scope['attrs'].get('id')
+        if scope is heading:
+            siblings = scope['parent']['children']
+            pos = next(i for i, n in enumerate(siblings) if n is scope)
+            if pos and siblings[pos - 1]['tag'] == 'a':
+                previous = siblings[pos - 1]
+                if previous['attrs'].get('id') and not page[previous['inner']:previous['close']].strip():
+                    start = previous['start']
+                    ident = ident or previous['attrs']['id']
+            end = scope['parent']['close'] or end
+            for sibling in siblings[pos + 1:]:
+                if (sibling['tag'] in {'h2', 'footer', 'script', 'nav'} or headings(sibling)
+                        or set(classes(sibling)) & {'boards-footer', 'boards'}):
+                    end = sibling['start']
+                    # Leave a preceding empty anchor with the next heading.
+                    idx = next(i for i, n in enumerate(siblings) if n is sibling)
+                    prev = siblings[idx - 1]
+                    if prev['tag'] == 'a' and prev['attrs'].get('id'):
+                        end = prev['start']
+                    break
+        info = summaries.get(ident, {})
+        if not info and ident in nav_counts and '<span' not in page[heading['inner']:heading['close']]:
+            heading_text = _html.unescape(_re.sub('<[^>]*>', '', page[heading['inner']:heading['close']])).lower()
+            values = nav_counts[ident]
+            info = {'count': ' · '.join(
+                count if len(values) == 1 and label.lower() in heading_text else f'{count} {label}'
+                for count, label in values)}
+        badges = ''
+        if info.get('count') is not None:
+            badges += '<span class="section-badge">' + _html.escape(str(info['count'])) + '</span>'
+        status = info.get('status')
+        if status is not None:
+            tone = status if status in {'red', 'yellow', 'green', 'stale', 'unknown'} else 'unknown'
+            badges += (f'<span class="section-badge section-status-{tone}">'
+                       + _html.escape(str(info.get('label') or status)) + '</span>')
+        title = page[heading['start']:heading['end']]
+        content = page[start:heading['start']] + page[heading['end']:end]
+        replacement = ('<details class="board-section"><summary>' + title + badges
+                       + '</summary><div class="board-section-body">' + content + '</div></details>')
+        edits.append((start, end, replacement))
+        covered_until = end
+    for start, end, replacement in sorted(edits, key=lambda edit: (edit[0], edit[1]), reverse=True):
+        page = page[:start] + replacement + page[end:]
+    return page
+
+
+SECTION_JS = r"""
+(function(){
+  if(typeof window==='undefined') return;
+  function reveal(){
+    var id;
+    try { id=decodeURIComponent(location.hash.slice(1)); } catch(e) { return; }
+    var target=id && document.getElementById(id);
+    if(!target) return;
+    for(var p=target;p;p=p.parentElement) if(p.tagName==='DETAILS') p.open=true;
+    requestAnimationFrame(function(){target.scrollIntoView({block:'start'});});
+  }
+  window.addEventListener('hashchange',reveal);
+  document.addEventListener('click',function(event){
+    var link=event.target.closest('a[href]');
+    if(link && link.hash && link.origin===location.origin && link.pathname===location.pathname)
+      setTimeout(reveal,0);
+  });
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',reveal);
+  else reveal();
+  var printed=[];
+  window.addEventListener('beforeprint',function(){
+    printed=Array.from(document.querySelectorAll('details:not([open])'));
+    printed.forEach(function(node){node.open=true;});
+  });
+  window.addEventListener('afterprint',function(){
+    printed.forEach(function(node){node.open=false;}); printed=[];
+  });
+})();
+"""
+JS += SECTION_JS

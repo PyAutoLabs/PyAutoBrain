@@ -52,6 +52,7 @@ from pathlib import Path
 # this page and the Mind dashboard are visibly the same family.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _theme import (  # noqa: E402
+    section_layout,
     JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats, portable_prompt,
 )
 # The organ cockpit feed contract (state.json) — the validator every organ
@@ -1964,7 +1965,7 @@ def render_html(data):
     if footer:
         H.append(footer)
     H += [f"<script>{_THEME_JS}</script>", "</body>", "</html>"]
-    return "\n".join(H) + "\n"
+    return section_layout("\n".join(H) + "\n")
 
 
 def render_json(data):
