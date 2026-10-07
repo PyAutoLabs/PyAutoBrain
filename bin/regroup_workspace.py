@@ -135,8 +135,7 @@ def plan(root, state, bundles_root=None, manifest_root=None):
     # These are local, workspace-owned paths, not versioned source or shell RCs.
     config_paths = list((root / '.idea').glob('*.xml')) + list((root / '.idea').glob('*.iml'))
     config_paths += [root / '.claude/settings.json', root / '.codex/hooks.json',
-                     root / 'AGENTS.md',
-                     root / 'CLAUDE.md']  # legacy pointer; skipped when absent
+                     root / 'AGENTS.md']
     for path in config_paths:
         if not path.is_file() or path.is_symlink():
             continue
@@ -149,7 +148,7 @@ def plan(root, state, bundles_root=None, manifest_root=None):
             after = re.sub(re.escape(old) + r'(?=[/"\s:<]|$)', lambda _: new, after)
             for prefix in ('$PROJECT_DIR$/', '$MODULE_DIR$/', './', '${CLAUDE_PROJECT_DIR}/', '$CLAUDE_PROJECT_DIR/', '${PYAUTO_ROOT}/', '$PYAUTO_ROOT/'):
                 after = re.sub(re.escape(prefix + name) + r'(?=[/"\s<]|$)', lambda _, p=prefix, r=relative: p+r, after)
-            if path.name in ('AGENTS.md', 'CLAUDE.md'):
+            if path.name == 'AGENTS.md':
                 after = re.sub(r'(?<![\w/])' + re.escape(name) + r'(?=/)', lambda _, r=relative: r, after)
         if path == root / '.claude/settings.json':
             settings = json.loads(after)

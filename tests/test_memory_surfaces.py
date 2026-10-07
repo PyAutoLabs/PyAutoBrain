@@ -110,14 +110,14 @@ def test_seed_pages_are_not_a_recall_surface(tmp_path):
     assert all("seed/" not in p["page"] for p in d["pages"])
 
 
-def test_canonical_schema_is_recalled_instead_of_claude_adapter(tmp_path):
+def test_canonical_schema_is_recalled_instead_of_tool_adapter(tmp_path):
     m = _memory_repo(tmp_path)
     (m / "wiki/AGENTS.md").write_text("# Shared schema\ncanonical-schema-marker\n")
-    # A leftover per-tool pointer file must never displace the shared schema.
-    (m / "wiki/CLAUDE.md").write_text("@AGENTS.md\n")
+    # A per-tool adapter file beside it must never displace the shared schema.
+    (m / "wiki/GEMINI.md").write_text("@AGENTS.md\n")
     digest = _memory.digest("canonical-schema-marker", m, None, None, limit=8)
     assert [p["page"] for p in digest["pages"]] == ["wiki/AGENTS.md"]
     root_files = {str(f.relative_to(m)) for label, _, f in _memory.surfaces(m, None, None)
                   if label == "PyAutoMemory/root"}
     assert "wiki/AGENTS.md" in root_files
-    assert "wiki/CLAUDE.md" not in root_files
+    assert "wiki/GEMINI.md" not in root_files

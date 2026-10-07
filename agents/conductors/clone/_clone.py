@@ -94,10 +94,6 @@ _SHARED_GENERIC = [
     ".github/*",                  # wiki-currency / citation workflows
     "wiki/README.md", "wiki/project/*",   # project wiki rules + profile template
     "scripts/AGENTS.md", "scripts/README.md",
-    # Legacy per-tool pointer files, still present in older references until
-    # they are retired (harnesses now read AGENTS.md natively). Matched only
-    # when present, so their absence is harmless.
-    "CLAUDE.md", "scripts/CLAUDE.md",
     # Harness mirrors of the generic machinery (.claude/, .codex/, .gemini/):
     ".claude/hooks/*", ".claude/settings.json", ".codex/hooks.json", ".gemini/*",
     ".claude/skills/_*", ".claude/skills/start-new-project*",
