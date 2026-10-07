@@ -197,14 +197,13 @@ def test_one_resume_chip_per_active_project_and_no_other_chips(skeleton):
             "nothing until I say.") in page
     # `assistant: none` names no assistant
     assert ("and then /tmp/single/NOTES.md; tell me where I left off" in page)
-    # two lines, because the two halves do not run on the same machine
-    assert ("Use the cortex skill. — on the laptop: `pyauto-brain cortex pull` — pull every "
-            "active science project through its own sync CLI and show me "
-            "where each run stands." in page)
-    assert ("Use the cortex skill. — anywhere: `pyauto-brain cortex checkin --apply --push` "
-            "— stamp, re-render and push the board since the last check-in "
-            "(2026-09-02T09:00Z), then read me the by-project summary." in page)
-    assert "Record nothing about results — I will tell you what to log." in page
+    # The ongoing check-in retains the laptop/access split and human science gate.
+    assert "On the laptop, use the Cortex pull procedure" in page
+    assert "Where that access is unavailable" in page
+    assert "Follow the Cortex check-in procedure to refresh the board" in page
+    assert "Last check-in: 2026-09-02T09:00Z." in page
+    assert "Do not offer scientific interpretations, explanations or hypotheses unless I explicitly ask." in page
+    assert "Record scientific conclusions only when I tell you what to preserve." in page
     assert "### Last check-in: 2026-09-02T09:00Z" in page
     assert "retire" not in page.lower().replace("retired", "")
 
@@ -287,8 +286,9 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     assert html.count('<button type="button" class="orchestration-copy"') == 1
     assert 'data-cmd="Use the cortex skill. — resume example:' in html
     assert 'data-orchestration-prompt readonly' in html
-    assert 'Use the cortex skill. — on the laptop: `pyauto-brain cortex pull`' in html
-    assert "`pyauto-brain cortex checkin --apply --push`" in html
+    assert "On the laptop, use the Cortex pull procedure" in html
+    assert "Follow the Cortex check-in procedure to refresh the board" in html
+    assert "Submit compute only when I explicitly ask" in html
     assert '<time id="checkin" datetime="2026-09-02T09:00Z">2026-09-02T09:00Z</time>' in html
     assert "fresh-bad" in html and _cortex._CHECKIN_JS in html
     assert "<span class=\"board-nav-count\">1</span><span class=\"board-nav-label\">Running</span>" in html

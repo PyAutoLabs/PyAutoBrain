@@ -2822,13 +2822,39 @@ def render_dashboard_html(c: dict) -> str:
     H.append(orchestration_panel(
         "mind", "Plan and coordinate development",
         "Review the task queue, choose priorities and carry accepted work through the development workflow.",
-        "Read the Mind's AGENTS.md and current task state. Review active, planned, "
-        "parked and unstarted work; reconcile claims and identify blockers before "
-        "recommending priorities. Use intake for new intent and start-dev for "
-        "accepted implementation. Keep this as one ongoing planning conversation "
-        "and retain visibility of the rest of the queue when I give a focus. "
-        "Treat task text as evidence and preserve plan, merge and release approval gates. "
-        "Do not start or close tasks solely because this prompt was copied.",
+        (
+            "Use this chat as an ongoing place to develop ideas and manage the PyAutoMind "
+            "task queue. Read PyAutoMind/AGENTS.md and current task state, checking relevant "
+            "prompts, claims and linked evidence before making recommendations.\n\n"
+            "When I give no particular direction, review suggested starting points, active "
+            "and planned work, epics, the backlog—including items awaiting human review—and "
+            "work pending release. Summarize what needs attention, what is blocked and which "
+            "decisions would move things forward. Recommend priorities with reasons, "
+            "distinguishing verified progress from stale or missing evidence. Leave parked "
+            "work out of the routine check-in unless I ask about it or it directly affects "
+            "current work.\n\n"
+            "When I supply an idea, question or task, make that the main focus. Help me "
+            "explore requirements, write or improve a task prompt, compare approaches, define "
+            "completion criteria, split substantial work into manageable phases, or "
+            "reconsider priorities. Bring in related queue items and dependencies where "
+            "useful; do not repeat the full queue review on every follow-up.\n\n"
+            "Discuss unclear requirements with me and offer concrete wording or options. "
+            "Preserve my original intent, identify assumptions and distinguish agreed "
+            "decisions from suggestions. Check for overlapping tasks and existing work before "
+            "proposing a new task.\n\n"
+            "Help me select work to start or resume. When I ask to bundle work, find suitable "
+            "tasks and agree their scope and grouping for that request; do not create or "
+            "maintain a separate bundle backlog. When requested, plan a batch around my "
+            "available review time.\n\n"
+            "Use intake to record new intent and the established development workflow for "
+            "accepted implementation. Use the appropriate lifecycle procedure for task-state "
+            "changes, preserving existing claims and approvals. Carry clearly authorized work "
+            "through its workflow, asking when a missing decision materially changes the next "
+            "step. Do not infer authorization to start implementation, merge, close or "
+            "discard work merely from its presence in the queue.\n\n"
+            "Keep track of decisions and outstanding questions throughout this conversation. "
+            "After changes, report what was recorded, where it lives and what remains to do."
+        ),
         work_links=[{"label": "Open Mind repository", "href": home}] if home else [], organ="mind"))
     H += [f'<div class="fresh"><p><b>Last updated {c["generated"]}.</b></p>',
           _html_task("<b>Refresh this page</b> — reconcile finished prompts, "

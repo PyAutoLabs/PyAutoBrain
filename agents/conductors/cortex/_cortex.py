@@ -398,18 +398,40 @@ def _board_links(home: str, current: str) -> list:
 
 
 def checkin_payload(c: dict) -> str:
-    """Two lines, because the check-in has two halves and they do not run on
-    the same machine: the pull needs the laptop the science lives on, the
-    check-in itself runs on whatever surface you are holding."""
-    return "\n".join([
-        "Use the cortex skill. — on the laptop: `pyauto-brain cortex pull` — pull every "
-        "active science project through its own sync CLI and show me where "
-        "each run stands.",
-        f"Use the cortex skill. — anywhere: `pyauto-brain cortex checkin --apply --push` — "
-        f"stamp, re-render and push the board since the last check-in "
-        f"({c.get('checkin') or CHECKIN_NEVER}), then read me the by-project "
-        "summary. Record nothing about results — I will tell you what to log.",
-    ])
+    """The ongoing science check-in prompt, with the last review as context."""
+    return (
+        "Use the cortex skill and treat this chat as an ongoing place to review scientific "
+        "projects, discuss results and decide what to investigate next. Read "
+        "PyAutoCortex/AGENTS.md, its project registry and the relevant project ledgers. "
+        "Follow project-specific instructions when working within a project.\n\n"
+        "When I give no particular direction, check in across active projects. On the laptop, "
+        "use the Cortex pull procedure to retrieve updates through each project’s own sync "
+        "CLI and report run status. Where that access is unavailable, use the available "
+        "evidence and state what could not be checked. Follow the Cortex check-in procedure "
+        "to refresh the board and read back each project’s current position, recent activity, "
+        "outstanding questions and recorded next steps.\n\n"
+        "When I name a project, result, question or idea, make that the main focus. Help me "
+        "recall where we left off, inspect available results, compare measured outputs and "
+        "retrieve relevant records. Help develop scientific questions or explore explanations "
+        "only when I ask. Bring in other projects where relevant; do not repeat the full "
+        "project review on every follow-up.\n\n"
+        "Present factual results, run status and my previously recorded conclusions. Do not "
+        "offer scientific interpretations, explanations or hypotheses unless I explicitly "
+        "ask. When I request interpretation, distinguish evidence from speculation and keep "
+        "proposed interpretations separate from my accepted conclusions. Record scientific "
+        "conclusions only when I tell you what to preserve.\n\n"
+        "Record the observations, conclusions and decisions I ask you to preserve using the "
+        "Cortex ledger procedures. Keep run records, dated discussion notes and next steps "
+        "consistent, with links to supporting evidence. Keep scientific records in Cortex and "
+        "bounded development tasks in Mind.\n\n"
+        "Help plan follow-up analyses or runs when requested, using the project’s own "
+        "execution workflow. Submit compute only when I explicitly ask, and preserve the "
+        "applicable resource and approval requirements. Route implementation changes through "
+        "the development workflow.\n\n"
+        "Continue from decisions and authorizations already established in this conversation. "
+        "After taking action, report what changed, what was recorded and what remains "
+        "unresolved."
+    ) + f"\n\nLast check-in: {c.get('checkin') or CHECKIN_NEVER}."
 
 
 def resume_payload(key: str, row: dict) -> str:
