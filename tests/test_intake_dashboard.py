@@ -623,8 +623,8 @@ def test_html_sections_link_their_markdown_source(tmp_path):
                                        "repos.yaml": REPOS_YAML})
     html = _html(mind)
     for src in ("active.md", "epics.md", "planned.md"):
-        assert f'/blob/main/{src}">markdown version</a>' in html, src
-    assert '/tree/main/draft">markdown version</a>' in html
+        assert f'/blob/main/{src}" title="Markdown version" aria-label="Markdown version"><svg' in html, src
+    assert '/tree/main/draft" title="Markdown version" aria-label="Markdown version"><svg' in html
     # The page header also links back to the repository front door.
     assert '/blob/main/README.md">GitHub Page</a>' in html
 

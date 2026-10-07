@@ -108,3 +108,13 @@ synthetic test data, not current operational state.
 ![Brain desktop navigation](board-navigation/brain-desktop.png)
 
 ![Cortex phone navigation](board-navigation/cortex-phone.png)
+
+### Markdown source links
+
+The shared section layout renders links labelled “markdown version” as small
+document icons, preserving the owner’s URL. Section icons sit at the right of
+the summary after its count/status badges; page-level source icons sit at the
+right of their utility row. Each link has a “Markdown version” tooltip and
+accessible name, visible keyboard focus and a 44px click target. Following the
+link does not toggle the disclosure. Other Markdown links retain their labels.
+This presentation is applied when a consuming board is next regenerated.

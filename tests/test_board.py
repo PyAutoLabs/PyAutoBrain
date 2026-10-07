@@ -543,7 +543,7 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert 'data-cmd="Use the intake skill."' in page
     # The header line every sibling board carries: the markdown twin and the
     # way back to the repository front door on github.com.
-    assert '<a href="board.md">markdown version</a>' in page
+    assert '<a href="board.md" class="board-source-link" title="Markdown version" aria-label="Markdown version"><svg' in page
     assert ('<a href="https://github.com/ExampleOrg/PyAutoBrain/blob/main/'
             'README.md">GitHub Page</a>') in page
 
