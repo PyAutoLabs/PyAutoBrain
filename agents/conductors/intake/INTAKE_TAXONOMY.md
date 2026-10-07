@@ -175,11 +175,10 @@ Nothing puts a task here automatically and no workflow requires it: review is
 opt-in, not a lifecycle stage. An empty section means nothing has been flagged,
 not that nothing shipped.
 
-**On the dashboard** it is its own top-level section, directly under *In flight*
-— both are live obligations, and a review sunk below a 140-prompt backlog would
-never be read. It is kept out of `census()["records"]` entirely, which keeps it
-out of the backlog count, the pick lists, the work-type sections, the bundler and
-the epics in one move. Its 📋 hands out a read-and-report prompt rather than a
+**On the dashboard** it is a nested category at the top of *Backlog*, with
+its own count and review actions. It contributes once to the Backlog navigation
+count, but stays outside `census()["records"]`, development picks and epics.
+Its 📋 hands out a read-and-report prompt rather than a
 `/start_dev` (there is nothing to start) that ends by naming both exits — sign
 off and retire the prompt, or file the follow-up with `/intake` — because a
 review that stops at "looks fine" leaves the row on the board forever.

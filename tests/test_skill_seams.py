@@ -18,7 +18,7 @@ def _read(rel):
 
 
 def test_entry_skills_name_the_step():
-    for rel in ("start_dev/start_dev.md", "start_bundle/start_bundle.md",
+    for rel in ("start_dev/start_dev.md",
                 "route/route.md"):
         assert STEP in _read(rel), rel
 

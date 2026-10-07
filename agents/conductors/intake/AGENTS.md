@@ -103,11 +103,10 @@ would claim nothing is known.
 `Themes:` is written at formalisation, directly under `Repos:` and in the same
 list shape (`intake classify --themes mge,jax-gradient`, primary keyword
 first). `Target:` says where the code lives; `Themes:` says what the work is
-about, and it is what the auto-bundler groups on. The vocabulary is
+about, helping select related work when requested. The vocabulary is
 `PyAutoMind/themes.md` — a markdown list a human edits, read by `parse_themes`,
 never a second copy in here. Optional and never blocking: a prompt formalises
-with or without it, an unknown keyword still groups (⚠️ on the card, counted in
-the page's Hygiene section), and an un-themed prompt falls back to `Target:`.
+with or without it. Unknown keywords are counted in the page's Hygiene section.
 
 ## Modes
 
@@ -116,16 +115,16 @@ the page's Hygiene section), and an un-themed prompt falls back to `Target:`.
 | **classify** | `intake "<text>"` / `intake classify --file P` | classify one raw input; `--apply` writes the prompt |
 | **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
-| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, human review, parked, planned, backlog, bundles, recent, epics; `--apply` writes `PyAutoMind/dashboard.md` + `dashboard.html` + `state.json` (the organ-cockpit feed, `board/_state.py` v1: red when a task awaits input/is blocked or prompts drift, yellow when work waits on a merge/release/review or picks exist; items carry the page's own copy payloads), `--check` exits 1 on drift (ignoring the page date and the feed's `updated`) |
+| **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, pending release, planned, backlog (including human review), recent, epics; `--apply` writes `PyAutoMind/dashboard.md` + `dashboard.html` + `state.json` (the organ-cockpit feed, `board/_state.py` v1: red when a task awaits input/is blocked or prompts drift, yellow when work waits on a merge/release/review or picks exist; items carry the page's own copy payloads), `--check` exits 1 on drift (ignoring the page date and the feed's `updated`) |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`), and pair live prompts that look like the same work filed twice; always read-only — retiring stays human |
 | **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source: identifiers the prompts name that exist upstream, and lines they quote that are **gone** — the two signals that see a prompt with no Mind-side trace. Opt-in; the default path is offline |
 
 **Recent** is the one section laid out by *date* rather than by state: the 50
-newest events on the **work in hand** — issued, parked, filed — merged across
-every live bucket (the `draft/` backlog included, which is most of them:
+newest events on the **work in hand** — issued, filed, flagged for review — merged across
+live buckets, excluding parked work (the `draft/` backlog included, which is most of them:
 150 prompts against a handful of registry rows) and sitting between the
-Bundles and the Epics. Epic members stay out, as they do in every pick list on the
+Backlog and Epics. Epic members stay out, as they do in every pick list on the
 page — they are worked in order through their epic, and a Recent row hands out
 a standalone `/start_dev`. It *holds* 50
 and *shows* 10 (`RECENT_MAX` / `RECENT_PAGE`): the table is a glance, not a
@@ -134,44 +133,10 @@ log, so the rest is one tap away — a `…` button on the Pages twin, and neste
 script. Every other
 section answers "what should I do now?"; recency is orthogonal to state, so
 none of them can answer "what has been happening?". Dates come from the
-registry key that names the event (`issued:` / `parked:` / `filed:`, PyAutoMind
+registry key that names the event (`issued:` / `filed:`, PyAutoMind
 REFERENCE.md "Task dates") or a prompt's own `Issued:` header.
 
-**Bundles** read the backlog a second way — as *sessions* rather than as
-tasks — and sit directly under it. A bundle is a set of **independent** prompts
-worth running in one orchestrated session (`start_bundle`: one issue and one PR
-per member, one shared worktree per repo), which makes it the exact opposite of
-an epic: no order, no phase gate, and members stay in every pick list above,
-because a bundle is an additional VIEW and never a replacement. Two sources:
-**pinned** entries in `PyAutoMind/bundles.md` (plus any prompt whose header says
-`Bundle: <slug>`), and **auto** bundles this renderer computes — no epic
-member, no declared `Blocked-by:`, no `human-required`, no `too-large`, packed
-under a size cap (`BUNDLE_*`: small 1 / medium 2 / large 4 points, cap 8, at
-most one large, 2-4 members).
-
-Auto bundles are pooled by `_pool_key`: a prompt's **primary theme** (the first
-`Themes:` bullet) when it has one — the topical key, cross-repo by design — and
-its **`Target:`** when it does not, which is what the bundler keyed on before
-themes existed, so an un-themed backlog renders exactly as it did. Every prompt
-has one key, so it lands in at most one auto bundle. Inside a pool
-`_pack_by_affinity` seeds with the most pickable member (priority, then path)
-and then adds whichever remaining candidate that still fits shares the most
-keywords with the seed (Jaccard over the whole list; ties: priority, then the
-seed's repo, then path) — so a large pool splits by what the work is about
-rather than by filename order. With no themes every overlap is 0.0 and this
-reduces, member for member, to the old priority-then-path first fit. A
-theme-keyed card is titled `<primary>` plus the keywords every member shares
-(`mge · jax-gradient`) and its members table carries a **Repo** column, because
-it is cross-repo by construction; a Target-keyed card keeps `<target> — bundle
-n` and no column, where that column would be a constant.
-The proposals are then ranked (most urgent member, then biggest session, then
-slug) and only the first `BUNDLE_LIST_MAX` reach the page, with a footer saying
-what was left off and that pinning keeps it — the same pick-list-not-inventory
-rule as `PICK_LIST_MAX`. Pinned bundles are never capped.
-Auto bundles are **render-only**: recomputed on every render and never written
-back, so the nightly refresh commits no churn and a proposal that stops making
-sense stops being proposed. `Blocked-by:` reads as unresolved whatever GitHub
-says — this renderer makes no network call.
+Group related work only when the human asks at task launch; no bundle registry or automatic proposals are maintained.
 
 Shipped work is deliberately **not** in the feed and `complete/` is never
 opened to render it: the ledger is a thousand records deep and takes ~200 a

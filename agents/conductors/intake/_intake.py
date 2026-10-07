@@ -245,7 +245,7 @@ _TYPE_ALIASES = {
 # the list keys (a bare `Key:` then `- ` bullets).
 _HEADER_BLOCK_KEYS = (
     "type", "target", "difficulty", "autonomy", "priority", "status", "issued",
-    "filed", "epic", "phase", "bundle", "blocked-by", "closes-when",
+    "filed", "epic", "phase", "blocked-by", "closes-when",
     "consequence", "witness", "review-minutes", "unattended", "lane", "memory",
     "repos", "themes",
 )
@@ -642,8 +642,7 @@ def _render_header(title, work_type, target_display, repos, level, autonomy,
     # `Themes:` rides directly under `Repos:` — the same list shape, and the
     # pair reads as "where the code lives, then what the work is about"
     # (vocabulary: `PyAutoMind/themes.md`). Optional and never blocking: a
-    # prompt formalises with or without it, and the auto-bundler falls back to
-    # `Target:` for anything un-themed.
+    # prompt formalises with or without it.
     if themes:
         lines.append("Themes:")
         lines += [f"- {t}" for t in themes]
@@ -841,8 +840,7 @@ def parse_header(text: str) -> dict:
     Only scans the top of the file so a stray "Status:" deep in prose does not
     fire; first occurrence of each field wins. No YAML — the blessed convention.
     `Epic:`/`Phase:` are optional epic-membership fields (dashboard grouping),
-    `Bundle:` the same for a pinned bundle (`bundles.md`); `Blocked-by:` is the
-    declared gate the dashboard reads as "not startable on its own";
+    `Blocked-by:` is the declared gate the dashboard reads as "not startable on its own";
     `Filed:`/`Issued:` are the prompt's own date, keyed by the state it was in
     when that happened (PyAutoMind REFERENCE.md "Task dates"). None are in
     HEADER_FIELDS, so their absence is never header hygiene.
@@ -850,7 +848,7 @@ def parse_header(text: str) -> dict:
     fields = {}
     for line in text.splitlines()[:30]:
         m = re.match(r"(Type|Target|Difficulty|Autonomy|Priority|Status|"
-                     r"Issued|Filed|Epic|Phase|Bundle|Blocked-by|"
+                     r"Issued|Filed|Epic|Phase|Blocked-by|"
                      r"Consequence|Witness|Review-minutes|Unattended|Lane|"
                      r"Memory):\s*(\S.*)",
                      line.strip())
@@ -1081,62 +1079,9 @@ def _epic_prompt(e: dict) -> str:
     return " ".join(parts)
 
 
-# `bundles.md` — the Mind's registry of PINNED bundles: sets of INDEPENDENT
-# prompts a human has decided are worth doing in one orchestrated session.
-# Same H2-slug + `- key: value` shape as epics.md, plus a `members:` list of
-# prompt paths written as `  - <path>` bullets (the active.md `repos:` idiom).
-#
-# A bundle is NOT an epic. An epic is ordered and phase-gated — one phase at a
-# time, worked through its ledger — so its members are pulled OUT of every pick
-# list. A bundle is a flat set of independent tasks that happen to suit one
-# session: they can be worked in any order, so members stay in their usual
-# sections and a bundle is an additional VIEW of the backlog, never a
-# replacement for it.
-_BUNDLE_FIELDS = ("title", "rationale", "status")
-
-# One member of a pinned bundle: an indented bullet under `- members:`. Top-
-# level `- key: value` lines close the list (they match _REG_FIELD first).
-_MEMBER_BULLET = re.compile(r"^\s+-\s+(\S+)")
-
-
-def parse_bundles(path: Path) -> list:
-    """Parse `bundles.md` into `[{slug, title, members, rationale, status}]`.
-
-    Tolerant like parse_epics: a slug alone still yields a record; absent file
-    -> empty list (a freshly-spawned Mind has no bundles). `- members:` opens
-    a list — every indented `  - <path>` bullet under it is one prompt path,
-    and the next top-level `- key:` field closes it.
-    """
-    if not path.is_file():
-        return []
-    entries, cur, in_members = [], None, False
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        head = _REG_HEAD.match(line)
-        if head:
-            cur = {"slug": head.group(1), "members": [], "origin": "pinned"}
-            cur.update({k: "" for k in _BUNDLE_FIELDS})
-            entries.append(cur)
-            in_members = False
-            continue
-        if cur is None:
-            continue
-        field = _REG_FIELD.match(line)
-        if field:
-            in_members = field.group(1) == "members"
-            if field.group(1) in _BUNDLE_FIELDS and not cur[field.group(1)]:
-                cur[field.group(1)] = field.group(2).strip()
-            continue
-        member = _MEMBER_BULLET.match(line)
-        if in_members and member:
-            cur["members"].append(member.group(1))
-    return entries
-
-
 # --- themes: what the work is ABOUT ------------------------------------------
 # `Target:` says where a prompt's code LIVES — a mechanical key (one worktree
-# per repo), which made the auto-bundler read as "three things that live in
-# autoarray". `Themes:` says what the work is ABOUT, which is the useful
-# grouping and is routinely cross-repo. Same list shape as `Repos:`: a bare
+# per repo). `Themes:` says what the work is ABOUT, which may cross repos. Same list shape as `Repos:`: a bare
 # `Themes:` line then `- keyword` bullets, first bullet = the PRIMARY theme.
 _LIST_BULLET = re.compile(r"^\s*-\s+(\S.*?)\s*$")
 
@@ -1172,8 +1117,7 @@ def _theme_key(value: str) -> str:
 def parse_theme_list(text: str) -> list:
     """A prompt's `Themes:` keywords — normalised, de-duplicated, order kept.
 
-    Order is the whole signal: the first keyword is the grouping key, the rest
-    are packing affinity, so this must never sort.
+    Preserve the author's order, with the primary theme first.
     """
     out = []
     for raw in parse_list_header(text, "Themes"):
@@ -1213,472 +1157,6 @@ def unknown_themes(themes: list, vocab: dict) -> list:
     if not vocab:
         return []
     return [t for t in themes if t not in vocab]
-
-
-# What a bundle COSTS. One session carries a few independent tasks; the cap is
-# what stops a "bundle" becoming a to-do list. Points rather than a count,
-# because four small tasks and one large one are not the same session:
-# small=1, medium=2, large=4 — and cap 8, which is exactly the two shapes the
-# design names (1 large + 3 small = 7; 4 medium = 8) and nothing bigger. At
-# most one large member, so the cap can never be spent on two of them.
-# Unknown difficulty (`-`, the headerless prompts) counts as medium: the middle
-# estimate, never the free one.
-BUNDLE_SIZE_POINTS = {"small": 1, "medium": 2, "large": 4}
-BUNDLE_UNKNOWN_POINTS = 2
-BUNDLE_POINT_CAP = 8
-BUNDLE_MAX_MEMBERS = 4
-BUNDLE_MAX_LARGE = 1
-BUNDLE_MIN_MEMBERS = 2
-
-# How many AUTO bundles reach the page. Same rule as PICK_LIST_MAX below and
-# for the same reason: a section is read to be picked from, and one card per
-# repo in the Mind is an inventory, not a pick list. Pinned bundles are never
-# capped — a human put them there. The cut is ranked, not arbitrary (see
-# `bundle_cards`), and the footer says what was left off and how to keep it.
-BUNDLE_LIST_MAX = 8
-
-
-def _bundle_points(rows: list) -> int:
-    """A bundle's total size in points (see BUNDLE_SIZE_POINTS)."""
-    return sum(BUNDLE_SIZE_POINTS.get(r.get("difficulty", "-"),
-                                      BUNDLE_UNKNOWN_POINTS) for r in rows)
-
-
-def _auto_excluded(r: dict, pinned: set) -> str:
-    """Why a draft prompt cannot join an AUTO bundle — `''` when it can.
-
-    A bundle is worked with the members running as independent, mostly
-    unattended subagent tasks, so anything that is not independently startable
-    stays out: epic members (worked in phase order through their epic), a
-    prompt a human already pinned or headed `Bundle:` (it belongs to that
-    bundle, not to a computed one), a declared `Blocked-by:` gate, a task whose
-    autonomy says a human must drive it, and `too-large` work that is a session
-    on its own. `Blocked-by:` reads as UNRESOLVED here whatever GitHub says:
-    this renderer never makes a network call (it runs bare in PyAutoMind's
-    `dashboard_refresh.yml`), and proposing a gated task is the more expensive
-    mistake. A prompt with no target folder (`-`) cannot be grouped by repo at
-    all, so it is not proposed either.
-    """
-    if r.get("epic"):
-        return "epic member"
-    if r["path"] in pinned or r.get("bundle"):
-        return "pinned"
-    if (r.get("header") or {}).get("blocked-by"):
-        return "blocked-by"
-    if r.get("autonomy") == "human-required":
-        return "human-required"
-    if r.get("difficulty") == "too-large":
-        return "too-large"
-    if r.get("target", "-") == "-":
-        return "no target"
-    return ""
-
-
-def _jaccard(a: list, b: list) -> float:
-    """Keyword overlap of two theme lists; 0.0 when either side is empty."""
-    sa, sb = set(a), set(b)
-    return len(sa & sb) / len(sa | sb) if sa and sb else 0.0
-
-
-def _pool_key(r: dict) -> tuple:
-    """The auto-bundler's grouping key: PRIMARY THEME, else `Target`.
-
-    `("theme", <first Themes: bullet>)` when the prompt declares one — the
-    topical key, and cross-repo by design. `("target", <folder>)` otherwise,
-    which is exactly what the bundler keyed on before themes existed, so an
-    un-themed backlog groups unchanged. Every prompt has exactly one key, so
-    it lands in at most one auto bundle.
-    """
-    themes = r.get("themes") or []
-    return ("theme", themes[0]) if themes else ("target", r["target"])
-
-
-def _pack_by_affinity(rows: list) -> list:
-    """Pack one pool into bundles under the size caps, by keyword affinity.
-
-    Seed with the most pickable member (priority, then path); then repeatedly
-    add whichever remaining candidate that still FITS shares the most keywords
-    with the seed (Jaccard over the whole `Themes:` list), ties broken by
-    priority, then by sharing the seed's repo, then by path. When nothing fits,
-    the bundle closes and the next seeds from what is left — so a large pool
-    splits by what the work is about rather than by filename order.
-
-    Not "close the pack at the first thing that does not fit": a candidate that
-    is too big is skipped, not terminal, or two large tasks in a row would
-    leave the first alone in a pack of one (which is then dropped — the
-    highest-priority member of the pool, silently missing from the page).
-
-    With no themes anywhere every overlap is 0.0 and the tie-breaks reduce to
-    priority-then-path, which is the first-fit pass this replaced, member for
-    member.
-    """
-    rest = sorted(rows, key=lambda r: (PRIORITY_RANK.get(r["priority"], 9),
-                                       r["path"]))
-    packs = []
-    while rest:
-        seed, rest = rest[0], rest[1:]
-        pack = [seed]
-        points = BUNDLE_SIZE_POINTS.get(seed["difficulty"], BUNDLE_UNKNOWN_POINTS)
-        large = 1 if seed["difficulty"] == "large" else 0
-        while True:
-            best, best_i = None, -1
-            for i, r in enumerate(rest):
-                cost = BUNDLE_SIZE_POINTS.get(r["difficulty"],
-                                              BUNDLE_UNKNOWN_POINTS)
-                is_large = 1 if r["difficulty"] == "large" else 0
-                if (points + cost > BUNDLE_POINT_CAP
-                        or len(pack) >= BUNDLE_MAX_MEMBERS
-                        or large + is_large > BUNDLE_MAX_LARGE):
-                    continue
-                rank = (-_jaccard(seed.get("themes") or [],
-                                  r.get("themes") or []),
-                        PRIORITY_RANK.get(r["priority"], 9),
-                        0 if r["target"] == seed["target"] else 1,
-                        r["path"])
-                if best is None or rank < best:
-                    best, best_i = rank, i
-            if best_i < 0:
-                break
-            r = rest.pop(best_i)
-            pack.append(r)
-            points += BUNDLE_SIZE_POINTS.get(r["difficulty"],
-                                             BUNDLE_UNKNOWN_POINTS)
-            large += 1 if r["difficulty"] == "large" else 0
-        packs.append(pack)
-    return packs
-
-
-def _shared_secondaries(pack: list, primary: str) -> list:
-    """The keywords EVERY member of a pack carries, minus the primary theme.
-
-    Ordered by the seed's own list, because that is the order a human wrote
-    and the only one that is not an alphabetisation of somebody's tags.
-    """
-    shared = set.intersection(*[set(m.get("themes") or []) for m in pack])
-    return [t for t in (pack[0].get("themes") or [])
-            if t != primary and t in shared]
-
-
-def _theme_title(theme: str, pack: list, n: int) -> str:
-    """`mge · jax-gradient` — the primary theme plus what every member shares.
-
-    Numbered only from the second bundle of a pool onwards: a bundle is picked
-    BY NAME (the title rides in the copied prompt), so two cards may not carry
-    the same one, but the common single-bundle pool should read as its theme
-    and nothing else.
-    """
-    title = " · ".join([theme] + _shared_secondaries(pack, theme))
-    return title if n == 1 else f"{title} — bundle {n}"
-
-
-def _unknown_in(rows: list) -> list:
-    """Every `Themes:` keyword a card's members carry that `themes.md` lacks."""
-    out = []
-    for r in rows:
-        for t in r.get("unknown_themes") or []:
-            if t not in out:
-                out.append(t)
-    return sorted(out)
-
-
-def auto_bundles(c: dict) -> list:
-    """Propose bundles from the backlog — deterministic, and render-only.
-
-    Never written back to `bundles.md`: only human pins are persisted, so the
-    nightly re-render commits no churn and a proposal that stops making sense
-    simply stops being proposed. Same input -> same output, always.
-
-    Prompts are pooled by `_pool_key` — primary theme when they declare one,
-    target repo when they do not — and each pool is packed by `_pack_by_affinity`
-    under the size cap. A pack of one is not a bundle, so it is dropped rather
-    than shown.
-    """
-    pinned = {m for b in (c.get("bundles") or []) for m in b["members"]}
-    groups: dict = {}
-    for r in c.get("records") or []:
-        if not _auto_excluded(r, pinned):
-            groups.setdefault(_pool_key(r), []).append(r)
-    out, used = [], {}
-    # Pools sort by their key TEXT, theme and target alike, so a mixed backlog
-    # interleaves alphabetically rather than listing every theme before every
-    # repo — and a Mind with no themes at all keeps exactly its old order.
-    for kind, key in sorted(groups, key=lambda k: (k[1], k[0])):
-        for pack in _pack_by_affinity(groups[(kind, key)]):
-            if len(pack) < BUNDLE_MIN_MEMBERS:
-                continue
-            # Numbered per KEY TEXT rather than per pool, so a theme and a
-            # target that happen to share a name cannot mint the same slug.
-            used[key] = n = used.get(key, 0) + 1
-            out.append({
-                "slug": f"auto-{key}-{n}",
-                # Numbered, not described: two proposals over the same repo
-                # would otherwise carry the same name on the page and in the
-                # copied prompt, and a bundle is picked by name.
-                "title": (_theme_title(key, pack, n) if kind == "theme"
-                          else f"{key} — bundle {n}"),
-                "origin": "auto", "pool": kind,
-                "theme": key if kind == "theme" else "",
-                "target": key if kind == "target" else "",
-                "members": pack, "rationale": "", "status": "",
-                "unknown": False, "unknown_themes": _unknown_in(pack),
-                "points": _bundle_points(pack),
-            })
-    return out
-
-
-def bundle_prompt(b: dict) -> str:
-    """The one-tap orchestration prompt: run this whole bundle in one session.
-
-    A procedure, not a snapshot — like `_epic_prompt`, everything that could go
-    stale (issue numbers, branch names, who is left) is worked out by the
-    session from the member prompts themselves. The contract it states is the
-    `start_bundle` skill's, in short form: one issue per member (the no-bulk-
-    issue rule still holds), one shared worktree per repo, per-task PRs so
-    the prm skill closes each member out unchanged.
-    """
-    members = [m["path"] for m in b["members"]]
-    L = [f"You are the judgment tier for the PyAutoMind bundle "
-         f"'{b.get('title') or b['slug']}' — {len(members)} INDEPENDENT tasks "
-         "run in one orchestrated session.",
-         "",
-         "Members:"]
-    L += [f"- {p}" for p in members]
-    if b.get("rationale"):
-        L += ["", f"Why they are bundled: {b['rationale']}"]
-    L += [
-        "",
-        "Contract (the `start-bundle` skill is the full body):",
-        "1. Read each member prompt above in full, and plan all of them "
-        "before editing anything. The members are independent — if any turns "
-        "out to depend on another, say so and drop it from the bundle.",
-        "2. Use the start-dev skill for EACH member prompt: one plan, one "
-        "issue, one registry entry per member. Never file them as a bulk "
-        "issue queue and never merge them into one issue.",
-        "3. One shared worktree per repo, not one per member: run "
-        "the start-library skill (or the start-workspace skill) once, naming the bundle as "
-        "the task and listing every member's repos. A worktree holds one "
-        "branch at a time, so inside it members are worked one at a time, "
-        "each on its own `feature/<member-task>` branch cut from "
-        "`origin/main`; members in different repos may run in parallel.",
-        "4. For each member, resolve the execution tier from "
-        "`PyAutoBrain/skills/WORKFLOW.md`, then delegate implementation "
-        "through the current harness's native subagent mechanism, one "
-        "execution delegate per member, with the member's issue plan, the "
-        "worktree path and the branch to use. If that mechanism is "
-        "unavailable, follow WORKFLOW's direct-execution fallback. The "
-        "current session plans, judges and talks to the user; the execution "
-        "delegate edits, tests and reports back.",
-        "5. Ship each member on its own: the ship-library skill or "
-        "the ship-workspace skill, ONE PR per task, so the prm skill closes each member out "
-        "unchanged. Never one PR for the bundle.",
-        "6. Report per member: issue, branch, PR, and pass/fail counts.",
-    ]
-    return "\n".join(L)
-
-
-def bundle_cards(c: dict) -> list:
-    """Every bundle the page renders: pinned first (registry order), then auto.
-
-    One place computes this so `render_dashboard` and its HTML twin cannot
-    drift apart. Pinned members are prompt paths in `bundles.md` plus any
-    prompt whose own header says `Bundle: <slug>`; a path that resolves to no
-    filed prompt still renders (as itself), because a bundle naming a prompt
-    that has moved is exactly the drift worth seeing. A `Bundle:` slug that is
-    in no registry entry gets its own card flagged `unknown` — the same
-    loud-not-silent treatment an unregistered `Epic:` gets.
-
-    Auto bundles are then RANKED and capped at `BUNDLE_LIST_MAX`: most urgent
-    member first (a bundle is only as pickable as its most urgent task), then
-    the biggest session, then slug as a stable tie-break. Ranking before
-    cutting is the whole point — an alphabetical cut would show whichever
-    repos sort early rather than whichever sessions are worth running.
-    """
-    by_path = {r["path"]: r for r in c.get("records") or []}
-    declared: dict = {}
-    for r in c.get("records") or []:
-        if r.get("bundle"):
-            declared.setdefault(r["bundle"], []).append(r)
-
-    def _resolve(paths):
-        rows = []
-        for p in paths:
-            rows.append(by_path.get(p) or {
-                "path": p, "title": p, "difficulty": "-", "priority": "-",
-                "status": "-", "work_type": "-", "target": "-",
-                "autonomy": "-", "missing": []})
-        return rows
-
-    cards = []
-    for b in c.get("bundles") or []:
-        rows = _resolve(b["members"])
-        seen = {r["path"] for r in rows}
-        rows += sorted((r for r in declared.get(b["slug"], [])
-                        if r["path"] not in seen), key=lambda r: r["path"])
-        cards.append({**b, "members": rows, "unknown": False,
-                      "unknown_themes": _unknown_in(rows),
-                      "points": _bundle_points(rows)})
-    known = {b["slug"] for b in c.get("bundles") or []}
-    for slug in sorted(s for s in declared if s not in known):
-        rows = sorted(declared[slug], key=lambda r: r["path"])
-        cards.append({"slug": slug, "title": slug, "origin": "pinned",
-                      "members": rows, "rationale": "", "status": "",
-                      "unknown": True, "unknown_themes": _unknown_in(rows),
-                      "points": _bundle_points(rows)})
-    auto = auto_bundles(c)
-    ranked = sorted(auto, key=lambda b: (
-        min(PRIORITY_RANK.get(m.get("priority", "-"), 9) for m in b["members"]),
-        -b["points"], b["slug"]))
-    shown = ranked[:BUNDLE_LIST_MAX]
-    for b in shown:
-        # What the footer needs, carried on the cards rather than recomputed:
-        # both renderers ask the same question and must give the same answer.
-        b["auto_total"] = len(auto)
-    return cards + shown
-
-
-def _bundle_footer(cards: list) -> str:
-    """`Showing 8 of 20 auto bundles …` — `''` when nothing was left off.
-
-    A cut is only honest if the page says it happened, and pinning is the
-    answer to "but I wanted that one", so the line carries both.
-    """
-    shown = [b for b in cards if b["origin"] == "auto"]
-    total = max((b.get("auto_total", 0) for b in shown), default=0)
-    if total <= len(shown):
-        return ""
-    return (f"Showing {len(shown)} of {total} auto bundles — pin one in "
-            "`bundles.md` to keep it on the page.")
-
-
-def _bundle_head(b: dict) -> str:
-    """A bundle card's summary line: name, size, where it came from."""
-    origin = "auto — proposed" if b["origin"] == "auto" else "pinned"
-    head = (f"<b>{_summary_label(b.get('title') or b['slug'])}</b> — "
-            f"{len(b['members'])} task(s) · {b['points']} pts · {origin}")
-    if b.get("status"):
-        head += f" — {_summary_label(_clip(b['status']))}"
-    return head
-
-
-BUNDLE_TABLE_HEAD = ["| Prompt | Difficulty | Priority | Status |",
-                     "|--------|------------|----------|--------|"]
-
-# A theme-keyed bundle is cross-repo by design, so its members must say WHERE
-# each task lives. A target-keyed (fallback) or pinned card does not get the
-# column: every row would carry the same value, and a constant column is noise.
-BUNDLE_TABLE_HEAD_REPO = ["| Prompt | Repo | Difficulty | Priority | Status |",
-                          "|--------|------|------------|----------|--------|"]
-
-BUNDLE_BLURB = (
-    "Sets of INDEPENDENT tasks that make sense in one orchestrated session: "
-    "an architect session plans them, subagents implement them, and every "
-    "member still gets its own issue and its own PR — so the prm skill closes each "
-    "one out unchanged. Not an epic: nothing here is ordered or phase-gated, "
-    "and every member also appears in its usual section above — a bundle is "
-    "an extra view of the backlog, never a replacement. Pinned bundles "
-    "are the human record in `bundles.md`; auto bundles are recomputed "
-    "from the backlog every time this page is rendered and are proposals, "
-    "never records.")
-
-BUNDLE_RUN_LABEL = ("<b>Run this bundle</b> — one session, one issue and one "
-                    "PR per member")
-
-
-def _bundle_rows_md(b: dict) -> list:
-    """A bundle's members as a table: what each one costs and where it stands.
-
-    The page's other lists are rows-not-tables because a 133-row backlog has to
-    read on a phone (`_bullet`); a bundle has at most four members, and the
-    question here is not "which do I pick?" but "what am I taking on in one
-    session?" — which is a comparison, and comparisons are tables.
-    """
-    repo = b.get("pool") == "theme"
-    rows = list(BUNDLE_TABLE_HEAD_REPO if repo else BUNDLE_TABLE_HEAD)
-    for r in b["members"]:
-        link = f"<a href=\"{r['path']}\">{_summary_label(_clip(r['title'], 70))}</a>"
-        cells = [_cell(link)]
-        if repo:
-            cells.append(_cell(_summary_label(r.get("target", "-"))))
-        cells += [_cell(r.get("difficulty", "-")), _cell(r.get("priority", "-")),
-                  _cell(_summary_label(_clip(r.get("status", "-"), 40)))]
-        rows.append("| " + " | ".join(cells) + " |")
-    return rows
-
-
-def _bundle_section(cards: list) -> list:
-    """The `## Bundles` section of `dashboard.md`."""
-    L = ["## Bundles", "",
-         BUNDLE_BLURB + " Full record in [`bundles.md`](bundles.md).", ""]
-    for b in cards:
-        head = _bundle_head(b)
-        if b.get("unknown"):
-            head += " — ⚠️ not in `bundles.md`"
-        if b.get("unknown_themes"):
-            head += (" — ⚠️ theme(s) not in `themes.md`: "
-                     + _summary_label(", ".join(b["unknown_themes"])))
-        L += ["<details>", f"<summary>{head}</summary>", ""]
-        L += _items([_task_row(BUNDLE_RUN_LABEL, bundle_prompt(b))])
-        if b.get("rationale"):
-            L += ["", _summary_label(b["rationale"])]
-        L += [""] + _bundle_rows_md(b) + ["", "</details>", ""]
-    footer = _bundle_footer(cards)
-    if footer:
-        L += [f"_{footer}_", ""]
-    return L
-
-
-# Bundle members render as a real table on the Pages twin, and the shared board
-# theme styles only `table.recent` — so the rule travels with the section
-# rather than with the page head, which keeps the head byte-identical on a Mind
-# that has no bundles at all.
-_BUNDLE_CSS = """\
-table.bundle{width:100%;border-collapse:collapse;font-size:.95em;
- margin:.1rem 0 .7rem}
-table.bundle td,table.bundle th{border-bottom:1px solid var(--line);
- padding:.35rem .5rem;text-align:left}
-table.bundle th{color:var(--muted);font-weight:600;font-size:.85em}
-table.bundle td.facet{white-space:nowrap;color:var(--muted);font-size:.85em}
-"""
-
-
-def _bundle_section_html(cards: list, blob: str) -> list:
-    """The Bundles section of `dashboard.html` — same cards, real copy buttons."""
-    H = [f"<style>{_BUNDLE_CSS}</style>",
-         f'<p class="muted">{_summary_label(BUNDLE_BLURB)}</p>']
-    for b in cards:
-        head = _bundle_head(b)
-        if b.get("unknown"):
-            head += " — ⚠️ not in bundles.md"
-        if b.get("unknown_themes"):
-            head += (" — ⚠️ theme(s) not in themes.md: "
-                     + _summary_label(", ".join(b["unknown_themes"])))
-        H += ["<details>", f"<summary>{head}</summary>",
-              _html_task(BUNDLE_RUN_LABEL, bundle_prompt(b))]
-        if b.get("rationale"):
-            H.append(f'<p class="muted">{_summary_label(b["rationale"])}</p>')
-        repo = b.get("pool") == "theme"
-        H += ['<table class="bundle">',
-              "<tr><th>Prompt</th>" + ("<th>Repo</th>" if repo else "")
-              + "<th>Difficulty</th><th>Priority</th>"
-              "<th>Status</th></tr>"]
-        for r in b["members"]:
-            H += ["<tr>",
-                  f'<td><a href="{_attr(blob + r["path"])}">'
-                  f'{_summary_label(_clip(r["title"], 70))}</a></td>']
-            if repo:
-                H.append('<td class="facet">'
-                         f'{_summary_label(r.get("target", "-"))}</td>')
-            H += [
-                  f'<td class="facet">{_summary_label(r.get("difficulty", "-"))}</td>',
-                  f'<td class="facet">{_summary_label(r.get("priority", "-"))}</td>',
-                  f'<td class="facet">'
-                  f'{_summary_label(_clip(r.get("status", "-"), 40))}</td>',
-                  "</tr>"]
-        H += ["</table>", "</details>"]
-    footer = _bundle_footer(cards)
-    if footer:
-        H.append(f'<p class="muted">{_summary_label(footer)}</p>')
-    return H
 
 
 def _clip(text: str, limit: int = 130) -> str:
@@ -1753,7 +1231,7 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
             events.append({"date": r["date"], "event": "review",
                            "title": r["title"], "path": r["path"],
                            "payload": _review_payload(r)})
-    for key, verb in (("parked", "resume"), ("planned", "start")):
+    for key, verb in (("planned", "start"),):
         for e in c.get(key) or []:
             if e.get("date"):
                 events.append({"date": e["date"],
@@ -1784,7 +1262,7 @@ def census(mind: Path) -> dict:
     # `human_review/` prompts are collected apart from the backlog: they are not
     # work to pick up, they are shipped work waiting on a person. Keeping them
     # out of `records` keeps them out of the pick lists, the work-type sections,
-    # the bundler, the epics and the backlog count in one move.
+    # the epics and the backlog count in one move.
     reviews = []
     vocab = parse_themes(mind)
     for wt in WORK_TYPES:
@@ -1831,11 +1309,7 @@ def census(mind: Path) -> dict:
                 "status": header.get("status", "-"),
                 "epic": header.get("epic", ""),
                 "phase": phase,
-                # Bundle membership a human PINNED in the prompt itself; auto
-                # bundles never write here (see `auto_bundles`).
-                "bundle": header.get("bundle", ""),
-                # What the work is ABOUT (`themes.md` vocabulary); the first
-                # keyword is the auto-bundler's grouping key.
+                # What the work is ABOUT (`themes.md` vocabulary).
                 "themes": themes,
                 "unknown_themes": stray,
                 # `Filed:` normally; `Issued:` only on a prompt that has been
@@ -1940,7 +1414,6 @@ def census(mind: Path) -> dict:
         "human_review": sorted(reviews, key=_pick_key),
         "in_flight": in_flight,
         "epics": parse_epics(mind / "epics.md"),
-        "bundles": parse_bundles(mind / "bundles.md"),
         "theme_vocab": vocab,
         "theme_flags": theme_flags,
         "witness_flags": witness_flags,
@@ -2337,7 +1810,7 @@ def _epic_members(c: dict) -> dict:
 
 RECENT_BLURB = (
     "The {n} newest things to happen to the work in hand, newest first — "
-    "issued, parked, filed. Every other section on this page is laid out by "
+    "issued, filed, flagged for review. Every other section on this page is laid out by "
     "state, which is exactly why none of them can answer \u201cwhat has been "
     "happening?\u201d. Shipped work is not here: it is read from "
     "`complete/index.md`, and a thousand records deep it would crowd out "
@@ -2433,6 +1906,26 @@ def _fits_a_slot(records: list) -> list:
     return sorted(ready, key=lambda r: (cost(r), _pick_key(r)))
 
 
+def _dashboard_navigation(c: dict) -> list:
+    """Seven stable destinations, counted from the content actually rendered."""
+    standalone = sorted((r for r in c["records"] if not r.get("epic")), key=_pick_key)
+    high = [r for r in standalone if r["priority"] == "high"][:PICK_LIST_MAX]
+    quick = _fits_a_slot(standalone)[:PICK_LIST_MAX]
+    epics = {e["slug"] for e in c.get("epics") or []} | set(_epic_members(c))
+    return [
+        {"label": "Start here", "href": "#start-here",
+         "count": len({r["path"] for r in high + quick})},
+        {"label": "In flight", "href": "#in-flight", "count": c["issued_count"]},
+        {"label": "Planned", "href": "#planned", "count": len(c["planned"])},
+        {"label": "Backlog", "href": "#backlog",
+         "count": c["total"] + len(c.get("human_review") or [])},
+        {"label": "Pending release", "href": "#pending-release",
+         "count": len(c.get("pending_release") or [])},
+        {"label": "Recent", "href": "#recent", "count": len(c.get("recent") or [])},
+        {"label": "Epics", "href": "#epics", "count": len(epics)},
+    ]
+
+
 def render_dashboard(c: dict) -> str:
     """Render the census as the Mind's task page (`dashboard.md`).
 
@@ -2465,14 +1958,10 @@ def render_dashboard(c: dict) -> str:
         "",
         "| Where | Count |",
         "|-------|------:|",
-        f"| [In flight](#in-flight) (`active/`) | {c['issued_count']} |",
-        f"| [Human review](#human-review) (`draft/human_review/`) | "
-        f"{len(c.get('human_review') or [])} |",
-        f"| [Parked](#parked) (`parked.md`) | {len(c['parked'])} |",
-        f"| [Planned](#planned) (`planned.md`) | {len(c['planned'])} |",
-        f"| [Backlog](#backlog) (`draft/`) | {c['total']} |",
-        "",
     ]
+    L += [f"| [{item['label']}]({item['href']}) | {item['count']} |"
+          for item in _dashboard_navigation(c)]
+    L += [""]
     if c.get("drift"):
         L += ["> ⚠️ **Needs lifecycle reconciliation** — these draft prompts "
               "record a fix PR in their body: the work looks done, but the "
@@ -2517,19 +2006,7 @@ def render_dashboard(c: dict) -> str:
 
     L += _pending_release_section(c.get("pending_release") or [])
 
-    # Directly under In flight: both are live obligations, and a review that
-    # sank below the 140-prompt backlog would never be read.
-    reviews = c.get("human_review") or []
-    L += ["## Human review", "", HUMAN_REVIEW_BLURB, ""]
-    L += _items([_task_row(_review_head(r), _review_payload(r))
-                 for r in reviews]) or ["- _(nothing awaiting review)_"]
-    L += [""]
-
     for key, heading, verb, blurb in (
-        ("parked", "Parked", "resume",
-         "Started or scoped, not currently in flight — "
-         "resume by moving the row back to `active.md`. "
-         "Full detail in [`parked.md`](parked.md)."),
         ("planned", "Planned", "start",
          "Scoped but not started; some are not yet prompt "
          "files. Full detail in [`planned.md`](planned.md)."),
@@ -2554,8 +2031,17 @@ def render_dashboard(c: dict) -> str:
                    "listed only under [Epics](#epics) below."
                    if n_members else "")
     L += [f"## Backlog", "",
-          f"**{c['total']}** filed prompts, not started. Each section is sorted "
+          f"**{c['total']}** unstarted prompts and "
+          f"**{len(c.get('human_review') or [])}** awaiting human review. "
+          "Unstarted prompts are sorted "
           f"most-pickable first (priority, then size).{member_note}", ""]
+    reviews = c.get("human_review") or []
+    L += ['<a id="human-review"></a>', "<details>",
+          f"<summary><b>Human review</b> — {len(reviews)}</summary>", "",
+          HUMAN_REVIEW_BLURB, ""]
+    L += _items([_task_row(_review_head(r), _review_payload(r))
+                 for r in reviews]) or ["- _(nothing awaiting review)_"]
+    L += ["", "</details>", ""]
     for wt in c["by_work_type"]:
         rows = [r for r in standalone if r["work_type"] == wt]
         if not rows:
@@ -2564,21 +2050,16 @@ def render_dashboard(c: dict) -> str:
         L += _items([_bullet(r) for r in rows])
         L += ["", "</details>", ""]
 
-    # Bundles read the backlog ABOVE a second way — as sessions rather than
-    # as tasks — so they sit directly under it, before the page turns to
-    # "what has been happening". Members are not removed from anything above:
-    # a bundle is an extra view, never a replacement (unlike an epic).
-    cards = bundle_cards(c)
-    if cards:
-        L += _bundle_section(cards)
-
     # Recency is orthogonal to state, so it gets its own table rather than a
     # column on any section above. A table, not the page's usual copy rows:
     # this section is read, not picked from — the task's own section is where
     # it is picked up.
     recent = c.get("recent") or []
+    L += ["## Recent", ""]
+    if not recent:
+        L += ["_(no recent activity)_", ""]
     if recent:
-        L += ["## Recent", "", _recent_blurb(recent), ""]
+        L += [_recent_blurb(recent), ""]
         L += _recent_pages(recent)
         L += ["", "_Dates come from each task's registry entry — "
               "`lifecycle.py dates` reports anything undated._", ""]
@@ -2588,8 +2069,11 @@ def render_dashboard(c: dict) -> str:
     # member standalone out of order from a work-type section above.
     known = {e["slug"] for e in c.get("epics") or []}
     stray = [s for s in members if s not in known]
+    L += ["## Epics", ""]
+    if not c.get("epics") and not stray:
+        L += ["_(no epics)_", ""]
     if c.get("epics") or stray:
-        L += ["## Epics", "",
+        L += [
               "Long-running multi-phase programmes. Each epic's 📋 prompt has "
               "the assistant read its ledger, work out where it stands, and continue "
               f"from the next logical point. {EPIC_ORDER_CAUTION} "
@@ -2720,14 +2204,10 @@ def _pr_column(r: dict) -> str:
 
 
 def _pending_release_section(groups: list) -> list:
-    """The Pending release section, or nothing at all when the chain is empty.
-
-    Omitted rather than rendered empty: a heading that is almost always
-    followed by "(none)" trains the eye to skip it, and the whole value of this
-    section is that its presence means something is waiting."""
-    if not groups:
-        return []
+    """Pending repositories, with a stable destination even when empty."""
     L = ["## Pending release", "", PENDING_RELEASE_BLURB, ""]
+    if not groups:
+        L += ["_(nothing pending release)_", ""]
     for g in groups:
         L += [f"**{_summary_label(g['lib'])}**", ""]
         rows = []
@@ -2807,20 +2287,8 @@ def render_dashboard_html(c: dict) -> str:
         f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}</style>",
         "</head>",
         "<body>",
-        hero(THEME_ORGAN, "Dashboard", navigation=[
-                 {"label": "Start here", "href": "#start-here"},
-                 {"label": "In flight", "href": "#in-flight", "count": c["issued_count"]},
-                 {"label": "Human review", "href": "#human-review", "count": len(c.get("human_review") or [])},
-                 {"label": "Parked", "href": "#parked", "count": len(c["parked"])},
-                 {"label": "Planned", "href": "#planned", "count": len(c["planned"])},
-                 {"label": "Backlog", "href": "#backlog", "count": c["total"]},
-             ] + [{"label": label, "href": "#" + target}
-                  for label, target, present in (
-                      ("Pending release", "pending-release", bool(c.get("pending_release"))),
-                      ("Bundles", "bundles", bool(bundle_cards(c))),
-                      ("Recent", "recent", bool(c.get("recent"))),
-                      ("Epics", "epics", bool(c.get("epics") or _epic_members(c))),
-                  ) if present]),
+        hero(THEME_ORGAN, "Dashboard", navigation=_dashboard_navigation(c),
+             navigation_columns=7),
     ]
     H.append(orchestration_panel(
         "mind", "Plan and coordinate development",
@@ -2897,9 +2365,9 @@ def render_dashboard_html(c: dict) -> str:
         # registry file is the full record, the page is the view.
         a = (f' <a class="mdsrc" href="{_attr(blob + src)}">markdown '
              "version</a>") if blob else ""
-        anchor = {"In flight": "in-flight", "Parked": "parked",
+        anchor = {"In flight": "in-flight",
                   "Planned": "planned", "Backlog": "backlog",
-                  "Bundles": "bundles", "Epics": "epics"}.get(title)
+                  "Epics": "epics"}.get(title)
         prefix = f'<a id="{anchor}"></a>' if anchor else ""
         return prefix + f"<h2>{title}{a}</h2>"
 
@@ -2921,9 +2389,11 @@ def render_dashboard_html(c: dict) -> str:
         H.append('<p class="muted">(nothing in flight)</p>')
 
     groups = c.get("pending_release") or []
+    H += ['<a id="pending-release"></a>' + h2("Pending release", "active.md"),
+          f'<p class="muted">{_md_inline(PENDING_RELEASE_BLURB)}</p>']
+    if not groups:
+        H.append('<p class="muted">(nothing pending release)</p>')
     if groups:
-        H += ['<a id="pending-release"></a>' + h2("Pending release", "active.md"),
-              f'<p class="muted">{_md_inline(PENDING_RELEASE_BLURB)}</p>']
         for g in groups:
             H.append(f"<h3>{_summary_label(g['lib'])}</h3>")
             items = [f'<li><a href="{_attr(pr["url"])}">{pr["label"]}</a> '
@@ -2935,24 +2405,7 @@ def render_dashboard_html(c: dict) -> str:
                 items or ["<li>(no PR recorded — the gate names this library "
                           "only)</li>"]) + "</ul>")
 
-    reviews = c.get("human_review") or []
-    H += ['<a id="human-review"></a>'
-          + h2("Human review", "draft/human_review").replace(
-              "/blob/main/draft", "/tree/main/draft"),
-          f'<p class="muted">{_md_inline(HUMAN_REVIEW_BLURB)}</p>']
-    for r in reviews:
-        text = link(r["path"], _summary_label(r["title"]))
-        text += pills(*(_summary_label(x) for x in
-                        (r["target"], r["autonomy"], r["priority"])),
-                      work_type=HUMAN_REVIEW)
-        if r.get("date"):
-            text += f'<span class="facets">{_dated(r)}</span>'
-        H.append(_html_task(text, _review_payload(r)))
-    if not reviews:
-        H.append('<p class="muted">(nothing awaiting review)</p>')
-
-    for key, heading, verb in (("parked", "Parked", "resume"),
-                               ("planned", "Planned", "start")):
+    for key, heading, verb in (("planned", "Planned", "start"),):
         rows = c[key]
         H += [h2(heading, f"{key}.md"), "<details>",
               f"<summary>{len(rows)} task(s)</summary>"]
@@ -2975,8 +2428,26 @@ def render_dashboard_html(c: dict) -> str:
     member_note = (f" {n_members} of them belong to an epic and are listed "
                    "only under Epics below." if n_members else "")
     H += [h2("Backlog", "draft").replace("/blob/main/draft", "/tree/main/draft"),
-          f'<p class="muted">{c["total"]} filed prompts, not started — '
-          f"sorted most-pickable first (priority, then size).{member_note}</p>"]
+          f'<p class="muted">{c["total"]} unstarted prompts and '
+          f'{len(c.get("human_review") or [])} awaiting human review. '
+          f"Unstarted prompts are sorted most-pickable first (priority, then size).{member_note}</p>"]
+    reviews = c.get("human_review") or []
+    H += ['<details id="human-review">',
+          f'<summary>Human review — {len(reviews)}</summary>',
+          f'<p class="muted">{_md_inline(HUMAN_REVIEW_BLURB)}</p>']
+    for r in reviews:
+        text = link(r["path"], _summary_label(r["title"]))
+        text += pills(*(_summary_label(x) for x in
+                        (r["target"], r["autonomy"], r["priority"])),
+                      work_type=HUMAN_REVIEW)
+        if r.get("date"):
+            text += f'<span class="facets">{_dated(r)}</span>'
+        H.append(_html_task(text, _review_payload(r)))
+    if not reviews:
+        H.append('<p class="muted">(nothing awaiting review)</p>')
+
+    H.append("</details>")
+
     for wt in c["by_work_type"]:
         rows = [r for r in standalone if r["work_type"] == wt]
         if not rows:
@@ -2985,16 +2456,13 @@ def render_dashboard_html(c: dict) -> str:
         H += [record_row(r) for r in rows]
         H += ["</details>"]
 
-    cards = bundle_cards(c)
-    if cards:
-        H += [h2("Bundles", "bundles.md")] + _bundle_section_html(cards, blob)
-
     recent = c.get("recent") or []
+    H += ['<a id="recent"></a>' + h2("Recent", "dashboard.md#recent")]
+    if not recent:
+        H.append('<p class="muted">(no recent activity)</p>')
     if recent:
-        H += ['<a id="recent"></a>' + h2("Recent", "dashboard.md#recent"),
-              # `_summary_label` turns the blurb's `code` spans into <code>;
-              # markdown backticks render literally on this page.
-              f'<p class="muted">{_summary_label(_recent_blurb(recent))}</p>',
+        # Render authored inline markup instead of literal backticks.
+        H += [f'<p class="muted">{_summary_label(_recent_blurb(recent))}</p>',
               '<table class="recent">']
         for i, r in enumerate(recent):
             # Every row ships in the DOM; the ones past the first page start
@@ -3017,8 +2485,11 @@ def render_dashboard_html(c: dict) -> str:
 
     known = {e["slug"] for e in c.get("epics") or []}
     stray = [s for s in members if s not in known]
+    H += [h2("Epics", "epics.md")]
+    if not c.get("epics") and not stray:
+        H.append('<p class="muted">(no epics)</p>')
     if c.get("epics") or stray:
-        H += [h2("Epics", "epics.md"),
+        H += [
               '<p class="muted">Long-running multi-phase programmes — 📋 '
               "copies a prompt that works out where the epic stands from its "
               f"ledger and continues it from the next logical point. "
@@ -3054,9 +2525,7 @@ def render_dashboard_html(c: dict) -> str:
     if footer:
         H.append(footer)
     H += [f"<script>{_THEME_JS}{_MORE_JS}</script>", "</body>", "</html>"]
-    return section_layout("\n".join(H) + "\n", {
-        "start-here": {"count": len({r["path"] for r in high[:PICK_LIST_MAX] + quick[:PICK_LIST_MAX]})}
-    })
+    return section_layout("\n".join(H) + "\n")
 
 
 def _dashboard_body(page: str) -> str:

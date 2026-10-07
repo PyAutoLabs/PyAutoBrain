@@ -4,7 +4,7 @@
 WHY. The Heart gate used to be consulted only at ship time, so a session could
 plan and build a whole branch on top of a RED organism and only learn it at the
 end. The human's rule is "fix Heart before development"; this helper is what
-`start_dev` / `start_bundle` / `route` run FIRST (step 0a "Heart at the door")
+`start_dev` / `route` run FIRST (step 0a "Heart at the door")
 so the verdict is on screen before any plan is made.
 
 WHAT IT READS. The Heart's published organ-cockpit feed — `state.json`, the v1

@@ -1,1 +1,0 @@
-../../skills/start_bundle/start_bundle.md
