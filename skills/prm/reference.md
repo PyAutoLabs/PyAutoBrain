@@ -27,8 +27,9 @@ gh api repos/PyAutoLabs/PyAutoMind/contents/active.md --jq '.content' \
   | base64 -d | grep -iE 'library-pr:|workspace-pr:|issue:|  - '
 ```
 
-Feature PRs from `/ship_*` carry the `pending-release` label — a useful filter,
-never a merge blocker (the label describes the release state of the change, not
+Published-set library PRs from `/ship_library` carry the `pending-release`
+label (organ and workspace PRs never do) — a useful filter, never a merge
+blocker (the label describes the release state of the change, not
 the mergeability of the PR).
 
 ## CI: every run, every leg

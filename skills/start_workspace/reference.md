@@ -49,18 +49,6 @@ worktree_create <task-name> <workspace_repo1> [workspace_repo2 ...]
 Same semantics as the library variant (real worktrees on `feature/<task-name>`,
 symlinks for everything else, `activate.sh` written).
 
-## pending-release label guard
-
-Before `/ship_workspace` runs, assert the canonical `pending-release` label so
-the later `gh pr create --label pending-release` cannot silently fail:
-
-```bash
-bash "${PYAUTO_BRAIN:-$(test -d organs/PyAutoBrain && echo organs/PyAutoBrain || echo PyAutoBrain)}/bin/ensure_workspace_labels.sh"
-```
-
-It is idempotent (no-op when nothing drifted) and bootstraps the label where
-missing. If it exits non-zero, stop and surface the failure.
-
 ## active.md registration
 
 Linked mode — keep the `worktree:` from `/start_library`, extend `repos:` with

@@ -49,9 +49,15 @@ in step 6. Order is forced by the tooling, so do not reorder:
 
    **Carry `pending-release:` into the record.** A library PR merged here is not
    a released library, and the `active.md` row that held that fact is about to
-   be pruned. Copy every uncleared `- pending-release: <lib>@<pr-url>` line from
-   the row into the completion body, so the obligation outlives the row and the
-   dashboard's **Pending release** section keeps showing it. `/prm` never
+   be pruned. Copy every uncleared, well-formed
+   `- pending-release: <lib>@<pr-url>` line from the row into the completion
+   body verbatim, so the obligation outlives the row and the dashboard's
+   **Pending release** section keeps showing it. Carry **only** those: a row
+   with none gets none in the record — never a `pending-release: none …`
+   placeholder, never a `Repo#N` short form, never a link to a repo outside the
+   published set (PyAutoNerves, PyAutoFit, PyAutoArray, PyAutoGalaxy,
+   PyAutoLens). Drop such a line rather than copying it; `lifecycle.py check`
+   fails on it. `/prm` never
    clears the key — only `/review_release` does, on a release that actually
    published (`PyAutoMind/REFERENCE.md` → "The pending-release chain").
 
