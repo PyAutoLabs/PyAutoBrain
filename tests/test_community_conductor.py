@@ -27,7 +27,7 @@ TRIAGE_KEYS = {
     "type", "pr", "repo", "number", "url", "title", "author",
     "author_is_external", "state", "labels", "body", "signals_present",
     "signals_missing", "comment_tail", "awaiting_response", "route",
-    "reminders", "comment_coverage",
+    "reminders", "comment_coverage", "viewer_can_reopen", "follow_up_review",
 }
 
 REPOS_YAML = """\
@@ -210,11 +210,11 @@ HUB = "PyAutoLabs/.github"
     ("Announcements", False, False),
     ("Show and tell", False, False),
     ("Help & Questions", False, None),
-    ("Help & Questions", True, False),
+    ("Help & Questions", True, None),
     ("Ideas & Proposals", False, None),
-    ("Ideas & Proposals", True, False),
+    ("Ideas & Proposals", True, None),
     ("Bugs & Errors", False, None),
-    ("Bugs & Errors", True, False),
+    ("Bugs & Errors", True, None),
 ])
 def test_discussion_category_and_answer_control_response(
     tmp_path, category, answered, awaiting,

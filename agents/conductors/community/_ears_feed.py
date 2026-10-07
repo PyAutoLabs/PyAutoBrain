@@ -79,7 +79,31 @@ def validate(snapshot, state):
             timestamp(row["waiting_since"])
         if 'closed' in row and type(row['closed']) is not bool:
             raise ValueError('invalid closed state')
+        validate_follow_up(row)
     validate_delivery(snapshot.get('follow_through', []), snapshot['conversations'])
+
+
+def validate_follow_up(row):
+    if "follow_up" not in row:
+        return
+    f = row["follow_up"]
+    if not isinstance(f, dict) or set(f) != {"review_needed", "since", "url"}:
+        raise ValueError("invalid follow-up observation")
+    if f["review_needed"] is not None and type(f["review_needed"]) is not bool:
+        raise ValueError("invalid follow-up state")
+    if row["kind"] not in {"issue", "discussion"} or not (row.get("closed") or row["answered"]):
+        raise ValueError("follow-up lacks settled thread")
+    if f["review_needed"] is True:
+        timestamp(f["since"])
+        anchor = "discussioncomment" if row["kind"] == "discussion" else "issuecomment"
+        if not isinstance(f["url"], str) or not re.fullmatch(re.escape(row["url"]) + rf"(#{anchor}-[1-9][0-9]*)?", f["url"]):
+            raise ValueError("invalid follow-up source")
+        if row["coverage"] != "complete" or row["awaiting_response"] is not True or row["waiting_since"] != f["since"]:
+            raise ValueError("inconsistent follow-up evidence")
+    elif f["since"] is not None or f["url"] is not None:
+        raise ValueError("inactive follow-up carries candidate")
+    if row["awaiting_response"] is not f["review_needed"]:
+        raise ValueError("inconsistent follow-up response")
 
 
 def validate_delivery(rows, conversations):
@@ -144,9 +168,14 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
                    waiting_days=round(max(0, (generated - timestamp(since)).total_seconds()) / 86400, 1) if since else None,
                    review_requested=source["review_requested"],
                    observed_awaiting_response=source["awaiting_response"])
+        if "follow_up" in source:
+            row["follow_up"] = dict(source["follow_up"],
+                                    review_needed=None if stale or source["cached"] else source["follow_up"]["review_needed"])
+            row["observed_follow_up"] = source["follow_up"]
         rows.append(row)
     discussions = [r for r in rows if r["type"] == "discussion" and not r['closed']]
-    issues = [r for r in rows if r["type"] == "issue"]
+    issues = [r for r in rows if r["type"] == "issue" and not r["closed"]
+              and r["author"].casefold() not in {login.casefold() for login in self_logins}]
     selves = {login.casefold() for login in self_logins}
     prs = [r for r in rows if r["type"] == "pr" and r["author"].casefold() not in selves and not r["author"].endswith("[bot]")]
     reviews = [r for r in rows if r["review_requested"]]
@@ -171,6 +200,7 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
         "degraded": degraded, "generated": snapshot["generated"],
         "stale": stale, "source": "ears", "coverage": receipts,
         "follow_through": delivery,
+        "follow_up_review": [r for r in rows if "follow_up" in r and r["follow_up"]["review_needed"] is not False],
         "valid_until": state["valid_until"],
         "next_action": "Use community triage <ref> to assess context and draft a reply for human approval; this surface posts nothing",
     }
