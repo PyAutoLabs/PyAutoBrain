@@ -20,6 +20,48 @@ sys.path.insert(0, str(BRAIN_HOME / "board"))
 import _theme  # noqa: E402
 
 
+@pytest.mark.parametrize('stamp', [None, '', '2026-10-07', '2026-10-07T12:00:00',
+                                   '2026-99-07T12:00:00Z', '<script>bad()</script>'])
+def test_refresh_unknown_does_not_invent_a_timestamp(stamp):
+    page = _theme.orchestration_panel('demo', 'Title', '', 'Prompt', refreshed_at=stamp)
+    assert 'Last updated unavailable' in page
+    assert 'data-refreshed-at=' not in page
+    assert '<script>bad()' not in page
+    assert 'Update unavailable' in page
+
+
+def test_refresh_normalizes_timezone_without_changing_copied_prompt():
+    from html import unescape
+    page = _theme.orchestration_panel('demo', 'Title', '', 'Prompt',
+        refreshed_at='2026-10-07T12:30:00+01:00',
+        refresh_url='https://github.com/Example/Board/actions/workflows/refresh.yml?a=1&b=2')
+    assert 'data-refreshed-at="2026-10-07T11:30:00Z"' in page
+    assert '<time datetime="2026-10-07T11:30:00Z">2026-10-07 11:30:00 UTC</time>' in page
+    assert 'refresh.yml?a=1&amp;b=2' in page
+    assert unescape(re.search(r'data-orchestration-prompt[^>]*>(.*?)</textarea>', page, re.S)[1]) == 'Prompt'
+
+
+@pytest.mark.parametrize('url', ['javascript:alert(1)', '//example.com', 'http://example.com',
+                                 'https://user:password@example.com', 'https://example.com\\evil',
+                                 'https://example.com/\nnext', ' https://example.com'])
+def test_refresh_rejects_ambiguous_or_active_urls(url):
+    with pytest.raises(ValueError):
+        _theme.orchestration_panel('demo', 'Title', '', 'Prompt', refresh_url=url)
+
+
+def test_drift_normalization_excludes_only_refresh_time():
+    def panel(stamp, url='https://github.com/Example/Board/actions'):
+        return _theme.orchestration_panel('demo', 'Title', '', 'Prompt',
+                                          refreshed_at=stamp, refresh_url=url)
+    a = panel('2026-10-07T11:30:00Z')
+    b = panel('2026-10-08T11:30:00Z')
+    assert a != b
+    assert _theme.normalize_refresh_stamp(a) == _theme.normalize_refresh_stamp(b)
+    assert _theme.normalize_refresh_stamp(a) != _theme.normalize_refresh_stamp(
+        panel('2026-10-07T11:30:00Z', 'https://github.com/Example/Other/actions'))
+    assert _theme.normalize_refresh_stamp(a) != _theme.normalize_refresh_stamp(panel(None))
+
+
 def test_navigation_preserves_zero_unknown_and_count_free_links():
     markup = _theme.navigation_cards([
         {"href": "#zero", "label": "Empty queue", "count": 0},
@@ -108,7 +150,7 @@ def test_the_accent_is_the_pages_type_colour_not_only_its_link_colour():
     # organ top to bottom rather than as grey chrome under a coloured hero.
     sheet = _theme.css("brain")
     for rule in ("h2{", "h3{", "summary{", "code{"):
-        block = sheet[sheet.index(rule):sheet.index("}", sheet.index(rule))]
+        block = re.search(r'(?:^|})\s*' + re.escape(rule) + r'([^}]+)', sheet, re.M)[1]
         assert "color:var(--accent)" in block, rule
     # …and unclassed emphasis — the head of a row, a count, a label.
     assert "b:not([class]),strong:not([class]){color:var(--accent)}" in sheet

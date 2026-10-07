@@ -602,9 +602,12 @@ def test_the_refresh_banner_is_a_copyable_instruction_not_a_bare_command(tmp_pat
 def test_the_html_twin_carries_the_banner_with_a_real_copy_button(tmp_path):
     mind = _mind(tmp_path, drafts={"bug/widgets/x.md": _prompt("A task")})
     c = _intake.census(mind)
+    c['home'] = 'https://github.com/Example/Mind'
     html = _intake.render_dashboard_html(c)
     fresh = html.split('<div class="fresh">')[1].split("</div>")[0]
-    assert f"Last updated {c['generated']}" in fresh
+    assert 'Last updated' not in fresh
+    assert f'data-refreshed-at="{c["refreshed_at"]}"' in html
+    assert '/actions/workflows/dashboard_refresh.yml' in html
     assert 'button class="copy"' in fresh and "data-cmd=" in fresh
     assert "This page is" not in _prose(fresh)
     assert "`git pull --ff-only`" in fresh, "the payload is copied, not rendered"

@@ -11,7 +11,8 @@ panel descriptions remain accepted by the API but are not displayed.
 ## Component contract
 
 Use `board/_theme.py::orchestration_panel(key, title, description, prompt,
-work_links=(), copy_label='Copy check-in prompt', organ=None)` and the shared stylesheet and
+work_links=(), copy_label='Copy check-in prompt', organ=None, refreshed_at=None,
+refresh_url=None)` and the shared stylesheet and
 `JS`. Each panel needs a unique simple key. Headings, descriptions, labels,
 prompts and user direction are plain text, never interpreted as HTML.
 
@@ -57,6 +58,67 @@ Copy feedback uses a live status region. If clipboard access fails, open and
 select the complete preview for manual copying. Without JavaScript, default
 prompt text and work links remain accessible through native HTML controls.
 Different panels must not overwrite one another's input, preview or feedback.
+
+## Last updated footer
+
+Every panel has the same small footer beneath the copy controls: **Read the
+prompt** on the left, **Last updated …** and **↻ Update** on the right. It wraps
+below the preview control on narrow screens. Brain owns the markup, typography,
+wording and browser clock; owners supply the refresh timestamp and destination.
+
+`refreshed_at` is the last successful collection of the information displayed
+in the panel. Supply a precise timezone-aware ISO-8601 timestamp (seconds
+required) or an aware Python datetime. It is not a scientific evidence date,
+last content-change date, check-in, verdict time or the time a browser opens the
+page. A rerender of cached inputs must preserve the successful-refresh receipt;
+a new successful collection may update the receipt even when content is unchanged.
+Keep existing evidence-age and health indicators and feed semantics intact.
+
+The browser shows `Last updated 23 minutes ago` (or `just now`, hours, days),
+with one common policy: green below one hour, yellow from one hour to below
+24 hours, red at 24 hours and above. These colours describe snapshot freshness,
+never health or scientific qualification. Missing, malformed, date-only,
+timezone-less or future timestamps show grey `Last updated unavailable`.
+Future stamps remain available for inspection but cannot look fresh. A native
+keyboard-accessible disclosure reveals the exact UTC date and time. Without
+JavaScript, valid timestamps remain readable in UTC; no freshness colour is
+guessed. Age advances every 30 seconds and when the tab becomes visible, without
+network requests or changing the source timestamp.
+
+`refresh_url` opens the owner's existing HTTPS refresh controls. A link to a
+GitHub Actions workflow opens its control surface; clicking it does not claim
+that a refresh has run. Never substitute a page reload, publication-only action,
+scientific compute submission or destructive action. Missing destinations show
+`Update unavailable`. Refresh metadata stays out of the copied prompt.
+
+Whole-board aggregation uses the oldest successful refresh across all displayed
+sources. If collection failed or a required source has no receipt, show unknown
+instead of taking the newest surviving timestamp. Source-specific panels may
+use their own narrower scope. No-change content-drift checks may use
+`normalize_refresh_stamp(page)` to exclude only the refresh clock; changes to
+destinations, prompts and other presentation must still be detected.
+
+### Timestamp and action adoption
+
+| Board | Successful refresh source | Update workflow |
+|---|---|---|
+| Brain | collected `generated`, unknown when degraded; no clock fallback | `brain_board.yml` |
+| Mind | census `refreshed_at`, independent of date-only generation label | `dashboard_refresh.yml` |
+| Cortex | census `refreshed_at`, unknown on census problems | `dashboard_refresh.yml` |
+| Ears | snapshot `generated` with complete collection receipts | `pages.yml` |
+| Heart | collection snapshot `ts`, never verdict fallback | `heart-health.yml` |
+| Hands | snapshot `generated`, unknown on collection errors | `release_board.yml` |
+| Memory | snapshot `generated` | `knowledge_board.yml` |
+| Pulse | oldest successful ingest refresh receipt, preserved offline | `dashboard_refresh.yml` |
+| Insight | oldest successful ingest refresh receipt, preserved offline | `dashboard_refresh.yml` |
+| Nerves | snapshot `generated`, unknown on collection errors | `nerves_board.yml` |
+| Gut | snapshot `generated`, unknown on collection errors/missing ref listing | `gut_board.yml` |
+| Eyes | oldest successful manifest collection `captured_at`, not figure age | `dashboard_refresh.yml` |
+| Scientist | snapshot `generated`, unknown when any headline is unavailable | `organism_board.yml` |
+
+URLs come from the owning repository identity. This matrix describes source
+adoption; live publication is verified after the corresponding owner PRs merge.
+The shared component must land before consumers of its new keyword arguments.
 
 ## Adoption matrix
 

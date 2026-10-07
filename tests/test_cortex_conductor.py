@@ -338,6 +338,20 @@ def test_a_date_only_rerender_is_not_drift(skeleton):
         assert _cortex.dashboard_body(a) == _cortex.dashboard_body(b)
 
 
+def test_successful_census_refresh_is_precise_and_not_content_drift(skeleton):
+    c = _cortex.census(skeleton)
+    assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', c['refreshed_at'])
+    c.update(home='https://github.com/Example/Cortex', problems=[])
+    first = _cortex.render_dashboard_html(c)
+    later = _cortex.render_dashboard_html(dict(c, refreshed_at='2027-12-31T10:00:00Z'))
+    assert f'data-refreshed-at="{c["refreshed_at"]}"' in first
+    assert '/actions/workflows/dashboard_refresh.yml' in first
+    assert _cortex.dashboard_body(first) == _cortex.dashboard_body(later)
+    failed = _cortex.render_dashboard_html(dict(c, problems=['unreadable ledger']))
+    assert 'data-refreshed-at=' not in failed
+    assert 'Last updated unavailable' in failed
+
+
 def test_check_exit_codes_are_the_refresh_workflow_contract(tmp_path):
     assert _run(["dashboard", "--check", "--cortex", str(tmp_path / "nowhere")]).returncode == 2
     (tmp_path / "bare").mkdir()

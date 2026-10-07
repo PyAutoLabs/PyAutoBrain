@@ -23,6 +23,7 @@ const assert=require('assert');
 let status, downloaded, writes=0;
 const handlers=[];
 global.document={
+  querySelectorAll:()=>[],querySelector:()=>null,
   addEventListener:(kind,fn)=>{if(kind==='click')handlers.push(fn)},
   getElementById:()=>status,
   createElement:()=>({dataset:{},setAttribute(){},appendChild(){}})
@@ -51,6 +52,7 @@ def test_clipboard_rejection_never_flashes_success():
     script = r'''
 const assert=require('assert');
 global.document={addEventListener(){},body:{appendChild(){}},
+  querySelectorAll:()=>[],querySelector:()=>null,
   createElement:()=>({select(){},remove(){}}),execCommand:()=>false};
 Object.defineProperty(global,'navigator',{
   value:{clipboard:{writeText:async()=>{throw Error('denied')}}}});
