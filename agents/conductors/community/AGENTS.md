@@ -148,7 +148,8 @@ retains the existing hub identity. Search pause/detail-cap options are retired.
   issue opened with a link back. Accepted implementation proposals follow
   that same issue route; the human marks the verdict comment as the accepted
   answer in Ideas & Proposals, whether acceptance with the issue link or a recorded
-  no. Accepted answers settle threads in answerable categories only.
+  no. Accepted answers settle earlier activity in answerable categories only.
+  Later external comments can require follow-up review without reopening.
   Posting is surface-dependent: a remote/proxied session cannot post to,
   answer or convert a Discussion (the REST Discussions API is read-only and
   the proxy refuses GraphQL), so there the human's click is the last step;
@@ -160,7 +161,7 @@ retains the existing hub identity. Search pause/detail-cap options are retired.
   visible and can be triaged explicitly, but an outside comment does not
   put them in awaiting-response. Help & Questions, Ideas & Proposals, and
   Bugs & Errors follow the last-word rule until an accepted answer settles
-  the thread. Bugs & Errors is for investigation; confirmed reproducible
+  earlier activity. New comments after settlement need review. Bugs & Errors is for investigation; confirmed reproducible
   defects are tracked on linked repository issues.
 - **Conversation state lives on GitHub + Mind, never here.** Labels
   (`needs-info`, `pending-release`) and the issue thread itself are the
@@ -214,3 +215,24 @@ retains the existing hub identity. Search pause/detail-cap options are retired.
   are not fetched. Incomplete evidence yields unknown response state.
   Accepted answers and broadcasts can suppress response chasing; accepting a
   proposal never establishes delivery. Ears owns broader collection coverage.
+
+## Follow-ups without reopening
+
+Treat Ears `follow_up.review_needed` as activity evidence, not a judgment that
+reopening is required. Inspect new source comments and nested replies in context:
+classify acknowledgement, actionable request, or uncertainty, explain why, and
+recommend a response, reopening the same thread, a linked new task, or a
+clarifying question. A later maintainer message clears the observed waiting
+signal but is not proof the request was implemented. A fresh external comment
+restores it. Unknown coverage cannot establish that nothing is owed.
+
+Contributors may lack permission to reopen. A comment is sufficient to request
+attention; never make reopening a prerequisite or instruct a contributor to
+reopen as the only path. Direct triage reads `viewerCanReopen` for the acting
+account when possible; this says nothing about the contributor's permission.
+If false or unknown, refer reopening to a maintainer with permission. Do not
+conflate reopening, unlocking, and clearing an accepted answer. Each outward
+reply or state change still needs explicit authorization. The conductor's
+bounded direct comment read leaves response state unknown on settled threads
+when it cannot establish full post-settlement coverage; the Ears scan provides
+the paginated evidence. Fetch full relevant comments before making a judgment.

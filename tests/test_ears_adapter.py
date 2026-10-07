@@ -132,3 +132,38 @@ def test_invalid_delivery_rejected(change):
     elif change == 'missing_release': d['evidence'].pop()
     else: d['state'] = 'unknown'
     with pytest.raises(ValueError): adapt(snapshot, state)
+
+
+def followup_row(kind='discussion', **extra):
+    r = row(kind, closed=True, answered=kind == 'discussion', **extra)
+    anchor = 'discussioncomment' if kind == 'discussion' else 'issuecomment'
+    r['follow_up'] = {'review_needed': True, 'since': r['waiting_since'],
+                      'url': r['url'] + f'#{anchor}-42'}
+    return r
+
+
+@pytest.mark.parametrize('kind', ['discussion', 'issue'])
+def test_closed_followups_are_attention_not_open_conversations(kind):
+    s = adapt(*evidence([followup_row(kind)]))
+    assert s['counts']['open_discussions'] == s['counts']['open_external'] == 0
+    assert s['counts']['awaiting_response'] == 1
+    assert s['follow_up_review'][0]['follow_up']['review_needed'] is True
+
+
+@pytest.mark.parametrize('cached,stale', [(True, False), (False, True)])
+def test_expired_followup_retains_observation_without_current_claim(cached, stale):
+    snapshot, state = evidence([followup_row(cached=cached)])
+    if stale: state['status'] = 'stale'
+    s = adapt(snapshot, state)
+    candidate = s['follow_up_review'][0]
+    assert candidate['follow_up']['review_needed'] is None
+    assert candidate['observed_follow_up']['review_needed'] is True
+    assert not s['awaiting_response']
+
+
+@pytest.mark.parametrize('field,value', [('url', 'javascript:alert(1)'), ('since', None),
+                                        ('review_needed', 1), ('body', 'not allowed')])
+def test_invalid_followup_fails_closed(field, value):
+    r = followup_row(); r['follow_up'][field] = value
+    with pytest.raises((ValueError, TypeError, AttributeError)):
+        adapt(*evidence([r]))

@@ -139,6 +139,9 @@ def print_scan(s):
         print(f"Review requested:     {c['awaiting_review']}")
         for e in s["awaiting_review"]:
             print(f"  * {e['repo']}#{e['number']} @{e['author']}: {e['title'][:70]}")
+    for candidate in s.get('follow_up_review', []):
+        state = "needs review" if candidate['follow_up']['review_needed'] else "unknown; refresh/check coverage"
+        print(f"Follow-up:            {ref_label(candidate)} — {state} (contributor reopening not required)")
     for delivery in s.get('follow_through', []):
         owed = ' — contributor update owed' if delivery['update_owed'] is True else ''
         print(f"Delivery:             {delivery['discussion']} — {delivery['state']}{owed}")
@@ -276,6 +279,37 @@ def _comments(owner_repo, number, kind, thread):
     }, None if reasons else not is_self(last)
 
 
+FOLLOW_UP_GUIDANCE = (
+    "Inspect new comments and nested replies after closure or the accepted answer in context. "
+    "Distinguish an acknowledgement from an actionable request or an uncertain follow-up; "
+    "explain the evidence and recommend a response, reopening, a linked new task, or clarification. "
+    "Contributors may lack permission to reopen: a comment is enough to request attention. "
+    "viewer_can_reopen describes only the authenticated acting account, never the contributor. "
+    "If permission is false or unknown, route reopening to a maintainer with permission. "
+    "Reopening, unlocking and clearing an accepted answer are separate actions; "
+    "never perform them or post a reply without explicit authorization. "
+    "A bounded or incomplete comment read cannot establish that no follow-up is owed."
+)
+
+
+def reopen_capability(owner_repo, number, kind):
+    """Read only the acting viewer's capability; never infer another user's role."""
+    owner, name = owner_repo.split("/")
+    field = "discussion" if kind == "discussion" else "issue"
+    query = ("query($owner:String!, $name:String!, $number:Int!) { "
+             "repository(owner:$owner, name:$name) { " + field +
+             "(number:$number) { viewerCanReopen } } }")
+    data = gh_json(["graphql", "-f", "query=" + query, "-f", "owner=" + owner,
+                    "-f", "name=" + name, "-F", "number=" + str(number)])
+    try:
+        if data.get("errors"):
+            return None
+        value = data["data"]["repository"][field]["viewerCanReopen"]
+        return value if type(value) is bool else None
+    except (AttributeError, KeyError, TypeError):
+        return None
+
+
 def build_discussion_triage(owner_repo, number):
     d = gh_json([f"repos/{owner_repo}/discussions/{number}"])
     if d is None:
@@ -286,6 +320,7 @@ def build_discussion_triage(owner_repo, number):
     present, missing = _signals(body, category)
     tail, coverage, awaiting = _comments(owner_repo, number, "discussions", d)
     answered = d.get("answer_chosen_at") is not None
+    settled = answered or d.get("state") == "closed"
     return {
         "type": "discussion",
         "pr": None,
@@ -304,7 +339,9 @@ def build_discussion_triage(owner_repo, number):
         "signals_missing": missing,
         "comment_tail": tail,
         "comment_coverage": coverage,
-        "awaiting_response": False if answered or category in BROADCAST_CATEGORIES else awaiting,
+        "awaiting_response": False if category in BROADCAST_CATEGORIES else awaiting,
+        "follow_up_review": FOLLOW_UP_GUIDANCE if settled else None,
+        "viewer_can_reopen": reopen_capability(owner_repo, number, "discussion") if d.get("state") == "closed" else None,
         "delivery_state": "unknown",
         "route": (
             f"answer in the thread {d.get('html_url')} — the session drafts the "
@@ -357,7 +394,11 @@ def build_triage(ref):
         "signals_missing": missing,
         "comment_tail": tail,
         "comment_coverage": coverage,
-        "awaiting_response": awaiting,
+        # A closed issue's creation or pre-closure comments are not a new
+        # follow-up. This bounded triage does not reconstruct closure history.
+        "awaiting_response": None if issue.get("state") == "closed" and not is_pr else awaiting,
+        "follow_up_review": FOLLOW_UP_GUIDANCE if issue.get("state") == "closed" and not is_pr else None,
+        "viewer_can_reopen": reopen_capability(owner_repo, number, "issue") if issue.get("state") == "closed" and not is_pr else None,
         "route": (
             f"human review of PR {issue.get('html_url')} — session drafts the "
             f"review comments (this is NOT the ship-gate review faculty)"
@@ -391,6 +432,9 @@ def print_triage(t):
               f"   draft={p['draft']}   mergeable={p['mergeable_state']}   {p['head']} -> {p['base']}")
         print(f"Review requested:     {reviewers}")
     print(f"Awaiting response:    {t['awaiting_response']}")
+    if t.get("follow_up_review"):
+        print(f"Follow-up review:     {t['follow_up_review']}")
+        print(f"Viewer can reopen:    {t.get('viewer_can_reopen')}")
     print(f"Comment coverage:     {t['comment_coverage']['status']} (bounded to 100)")
     for reason in t["comment_coverage"]["reasons"]:
         print(f"Coverage gap:         {reason}")
