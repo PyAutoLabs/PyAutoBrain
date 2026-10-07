@@ -760,6 +760,13 @@ a.go{display:inline-block;margin-top:.15rem;padding:.35rem .8rem;
  background:var(--warn)}
 a.go:hover{opacity:.9;text-decoration:none}
 .mdsrc{font-size:.85em}
+.board-source-link{display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;border-radius:6px;color:var(--muted);text-decoration:none}
+.board-source-link:hover{color:var(--accent);background:var(--btn)}
+.board-source-link:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.board-source-link svg{width:18px;height:18px;pointer-events:none}
+p:has(>.board-source-link){display:flex;align-items:center;gap:.5rem;max-width:none}
+p>.board-source-link{order:1;margin-left:auto}
+.board-section>summary>.board-source-link{margin-left:auto}
 """
 
 # One organ chip colour per scheme, appended to the sheet so the family
@@ -1244,8 +1251,9 @@ def portable_prompt(payload):
 def section_layout(page, summaries=None):
     """Compose an owner's rendered board into the shared disclosure layout.
 
-    Preserve the owner's HTML verbatim, including IDs and copy payloads. Only
-    major heading groups are wrapped; existing details and card headings are
+    Preserve owner IDs, destinations and copy payloads. Markdown source links
+    become accessible icons; major heading groups are wrapped, while existing
+    details and card headings are
     left alone. Optional summaries map section IDs to owner-supplied count,
     status and label fields. This helper never infers health from prose.
     """
@@ -1296,6 +1304,41 @@ def section_layout(page, summaries=None):
                     break
 
     tree = Tree(page)
+    # Normalize the existing source-link convention once for every consumer.
+    # Match the complete label, never arbitrary links to Markdown documents.
+    source_edits = []
+    for node in tree.nodes:
+        if node['tag'] != 'a' or not node['end'] or not node['attrs'].get('href'):
+            continue
+        label = _html.unescape(_re.sub('<[^>]*>', '', page[node['inner']:node['close']])).strip()
+        if label.lower() != 'markdown version':
+            continue
+        attrs = dict(node['attrs'])
+        attrs['class'] = (attrs.get('class', '') + ' board-source-link').strip()
+        attrs['title'] = attrs['aria-label'] = 'Markdown version'
+        attributes = ''.join(' ' + key + (f'="{_html.escape(value, quote=True)}"'
+                             if value is not None else '') for key, value in attrs.items())
+        icon = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+                'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" '
+                'aria-hidden="true" focusable="false">'
+                '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8Z"/>'
+                '<path d="M14 3v5h5M8 12h8M8 16h6"/></svg>')
+        start, end = node['start'], node['end']
+        parent = node['parent']
+        if parent and parent['tag'] == 'p':
+            # Page-level links share a utility row; its separator is redundant
+            # once the source link moves to the far right.
+            trailing = _re.match(r'\s*·\s*', page[end:parent['close']])
+            preceding = _re.search(r'\s*·\s*$', page[parent['inner']:start])
+            if trailing:
+                end += trailing.end()
+            elif preceding:
+                start = parent['inner'] + preceding.start()
+        source_edits.append((start, end, '<a' + attributes + '>' + icon + '</a>'))
+    for start, end, replacement in reversed(source_edits):
+        page = page[:start] + replacement + page[end:]
+    if source_edits:
+        tree = Tree(page)
     summaries = summaries or {}
 
     def classes(node):
@@ -1387,8 +1430,15 @@ def section_layout(page, summaries=None):
             badges += (f'<span class="section-badge section-status-{tone}">'
                        + _html.escape(str(info.get('label') or status)) + '</span>')
         title = page[heading['start']:heading['end']]
+        sources = [n for n in tree.nodes if n['tag'] == 'a' and n['end']
+                   and 'board-source-link' in classes(n)
+                   and heading['inner'] <= n['start'] < heading['close']]
+        source_links = ''.join(page[n['start']:n['end']] for n in sources)
+        for node in reversed(sources):
+            left, right = node['start'] - heading['start'], node['end'] - heading['start']
+            title = title[:left] + title[right:]
         content = page[start:heading['start']] + page[heading['end']:end]
-        replacement = ('<details class="board-section"><summary>' + title + badges
+        replacement = ('<details class="board-section"><summary>' + title + badges + source_links
                        + '</summary><div class="board-section-body">' + content + '</div></details>')
         edits.append((start, end, replacement))
         covered_until = end
