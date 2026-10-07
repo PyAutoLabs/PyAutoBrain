@@ -109,11 +109,6 @@ call, so the Brain is not bypassed):
   Code chat and Codex alike; the worktree half is local-only and is reported as
   outstanding elsewhere.
 
-- **`/start_bundle`** — one session, several **independent** PyAutoMind prompts
-  in the same repo (the dashboard's Bundles card). Every member still goes
-  through `/start_dev` and ships its own issue and PR, so `/prm` closes each one
-  out unchanged; the door only orchestrates.
-
 - **`sampler_pipeline`** — the ingest → prototype → profile → promote trial of a
   new non-linear sampler: reason with the samplers faculty, then do each stage
   as ordinary dev work through `/start_dev` → `ship_*`. Promotion to a PyAutoFit

@@ -9,7 +9,7 @@ Executable tooling for the PyAuto organism.
 - **`heart_feed.py`** — "Heart at the door": reads the Heart's published
   `state.json` (fallback: local `pyauto-heart readiness --json`), read-only,
   never ticks; exit 0 green · 1 yellow/stale · 2 red · 3 grey. Run first by
-  `start_dev` step 0a, `start_bundle` and `route`.
+  `start_dev` step 0a and `route`.
 
 The installer and guard used to live in `admin_jammy/skills/`. They moved here
 because they are organism-wide infrastructure, not admin_jammy's own tooling —

@@ -157,9 +157,7 @@ def test_every_backlog_prompt_is_one_collapsed_row_not_a_wide_table(tmp_path):
         "feature/widgets/two.md": _prompt("Feature two"),
     })
     page = _page(mind)
-    # The Backlog SECTION, not "everything after Backlog": Bundles renders a
-    # members table directly below it (a bundle is a comparison of four rows,
-    # not a 133-row pick list), and that table is not a backlog regression.
+    # Limit this assertion to Backlog; Recent has its own table.
     backlog = page.split("## Backlog")[1].split("\n## ")[0]
     assert ('<details><summary>📋 <a href="draft/bug/widgets/one.md">'
             "Bug one</a> — ") in backlog
@@ -190,7 +188,7 @@ def test_in_flight_links_the_registry_issue_and_its_live_status(tmp_path):
     mind = _mind(tmp_path,
                  active={"widget_rework.md": _prompt("Widget rework")},
                  registries={"active.md": ACTIVE_MD})
-    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
     assert ('<a href="https://github.com/ExampleOrg/Widgets/issues/42">'
             "issue #42</a>") in flight, \
         "the link must be the matched URL, not the field's trailing prose"
@@ -218,13 +216,14 @@ def test_parked_prompt_still_in_active_is_not_listed_in_flight(tmp_path):
         },
     )
     page = _page(mind)
-    flight = page.split("## In flight")[1].split("## Parked")[0]
+    flight = page.split("## In flight")[1].split("## Pending release")[0]
     assert "gadget_polish.md" in flight
     assert "widget_rework.md" not in flight, \
         "a parked prompt must not double-list as in flight"
-    parked = page.split("## Parked")[1].split("## Planned")[0]
-    assert "widget_rework.md" in parked
-    assert "| [In flight](#in-flight) (`active/`) | 1 |" in page
+    assert "## Parked" not in page
+    assert "widget_rework.md" not in page
+    assert _intake.census(mind)["parked"][0]["slug"] == "widget-rework"
+    assert "| [In flight](#in-flight) | 1 |" in page
 
 
 def test_in_flight_prompt_with_no_registry_row_claims_no_issue(tmp_path):
@@ -232,15 +231,15 @@ def test_in_flight_prompt_with_no_registry_row_claims_no_issue(tmp_path):
     body = _prompt("Orphan task") + \
         "\nFollow-up to https://github.com/ExampleOrg/Widgets/issues/7 (unrelated).\n"
     mind = _mind(tmp_path, active={"orphan.md": body})
-    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
     assert "Orphan task" in flight
     assert "issues/7" not in flight
 
 
 def test_registry_entry_without_fields_still_lists(tmp_path):
-    mind = _mind(tmp_path, registries={"parked.md": "# Parked\n\n## lonely-slug\n"})
-    parked = _page(mind).split("## Parked")[1].split("## Planned")[0]
-    assert "<b>lonely-slug</b>" in parked
+    mind = _mind(tmp_path, registries={"planned.md": "# Planned\n\n## lonely-slug\n"})
+    planned = _page(mind).split("## Planned")[1].split("## Backlog")[0]
+    assert "<b>lonely-slug</b>" in planned
 
 
 # --------------------------------------------------------------------------- #
@@ -274,20 +273,20 @@ def test_task_row_is_one_line_with_no_repeated_label(tmp_path):
 
 def test_in_flight_copy_block_targets_the_active_prompt(tmp_path):
     mind = _mind(tmp_path, active={"widget_rework.md": _prompt("Widget rework")})
-    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
     assert "\nUse the start-dev skill. active/widget_rework.md\n" in flight
 
 
 def test_registry_row_copy_block_prefers_its_prompt_path(tmp_path):
-    """A parked row naming its prompt gets `/start_dev`; a bare slug has no
+    """A planned row naming its prompt gets `/start_dev`; a bare slug has no
     start_dev target, so it routes as free prose instead."""
-    mind = _mind(tmp_path, registries={"parked.md": (
-        "# Parked\n\n## with-prompt\n- prompt: active/widget_rework.md\n"
+    mind = _mind(tmp_path, registries={"planned.md": (
+        "# Planned\n\n## with-prompt\n- prompt: active/widget_rework.md\n"
         "\n## lonely-slug\n")})
-    parked = _page(mind).split("## Parked")[1].split("## Planned")[0]
-    assert "\nUse the start-dev skill. active/widget_rework.md\n" in parked
-    assert ("\nUse the route skill. resume the parked PyAutoMind task lonely-slug — "
-            "its record is in parked.md\n") in parked
+    planned = _page(mind).split("## Planned")[1].split("## Backlog")[0]
+    assert "\nUse the start-dev skill. active/widget_rework.md\n" in planned
+    assert ("\nUse the route skill. start the planned PyAutoMind task lonely-slug — "
+            "its record is in planned.md\n") in planned
 
 
 def test_copy_details_never_swallow_the_next_row(tmp_path):
@@ -475,7 +474,7 @@ def _epic_prompt_body(title, epic, phase=None, priority="high"):
     phase_line = f"Phase: {phase}\n" if phase is not None else ""
     return (f"# {title}\n\nType: feature\nTarget: widgets\n"
             f"Difficulty: medium\nAutonomy: supervised\nPriority: {priority}\n"
-            f"Status: formalised\nEpic: jax-profiling\n{phase_line}\nBody.\n")
+            f"Status: formalised\nEpic: {epic}\n{phase_line}\nBody.\n")
 
 
 def test_epic_members_leave_the_pick_lists_and_work_type_sections(tmp_path):
@@ -614,16 +613,16 @@ def test_the_html_twin_carries_the_banner_with_a_real_copy_button(tmp_path):
     assert ".fresh{" in html, "the banner ships its own rule, not the shared theme"
 
 
-def test_no_epics_file_means_no_epics_section(tmp_path):
+def test_no_epics_file_renders_an_empty_destination(tmp_path):
     page = _page(_mind(tmp_path, active={"one.md": _prompt("Solo task")}))
-    assert "## Epics" not in page, "a spawned Mind without epics.md stays clean"
+    assert "## Epics" in page and "_(no epics)_" in page
 
 
 def test_html_sections_link_their_markdown_source(tmp_path):
     mind = _mind(tmp_path, registries={"epics.md": _EPICS,
                                        "repos.yaml": REPOS_YAML})
     html = _html(mind)
-    for src in ("active.md", "epics.md", "parked.md", "planned.md"):
+    for src in ("active.md", "epics.md", "planned.md"):
         assert f'/blob/main/{src}">markdown version</a>' in html, src
     assert '/tree/main/draft">markdown version</a>' in html
     # The page header also links back to the repository front door.
@@ -658,7 +657,7 @@ def test_recent_merges_every_live_state_into_one_dated_feed(tmp_path):
     section on the page can answer."""
     page = _page(_recent_mind(tmp_path))
     recent = page.split("## Recent")[1]
-    for slug in ("Sprocket calibration", "flywheel-balance", "gearbox-survey"):
+    for slug in ("Sprocket calibration", "gearbox-survey"):
         assert slug in recent
     assert "| Date | Event | Task |" in recent
 
@@ -669,7 +668,7 @@ def test_shipped_work_is_not_in_the_feed(tmp_path):
     can act on, on the page whose whole job is work in hand."""
     mind = _recent_mind(tmp_path, n_records=40)
     rows = _intake.census(mind)["recent"]
-    assert len(rows) == 3
+    assert len(rows) == 2
     assert not any("shipped" in r["title"] for r in rows)
     assert "shipped-00" not in _page(mind)
 
@@ -687,7 +686,6 @@ def test_recent_names_the_event_each_date_records(tmp_path):
     rows = _intake.census(_recent_mind(tmp_path))["recent"]
     assert {r["title"]: r["event"] for r in rows} == {
         "Sprocket calibration": "issued",
-        "flywheel-balance": "parked",
         "gearbox-survey": "filed",
     }
 
@@ -711,14 +709,15 @@ def test_an_undated_task_is_absent_rather_than_sorted_to_the_bottom(tmp_path):
     mind = _mind(tmp_path, registries={
         "planned.md": "## gearbox-survey\n- status: planned\n"})
     assert _intake.census(mind)["recent"] == []
-    assert "## Recent" not in _page(mind)
+    assert "_(no recent activity)_" in _page(mind)
 
 
 def test_recent_links_a_registry_row_to_its_own_entry_not_the_file_top(tmp_path):
     """parked.md is long enough that landing at its top is not the same as
     landing on the task."""
     page = _page(_recent_mind(tmp_path))
-    assert 'href="parked.md#flywheel-balance"' in page
+    assert 'href="planned.md#gearbox-survey"' in page
+    assert "flywheel-balance" not in page
 
 
 def test_an_in_flight_prompt_can_be_dated_by_its_own_header(tmp_path):
@@ -765,9 +764,9 @@ def test_a_live_row_wears_its_date_where_the_task_is(tmp_path):
     than against one issued in May, so the date rides on the row too — not
     only down in the Recent feed."""
     page = _page(_recent_mind(tmp_path))
-    flight = page.split("## In flight")[1].split("## Parked")[0]
+    flight = page.split("## In flight")[1].split("## Pending release")[0]
     assert "issued 2026-08-19" in flight
-    assert "parked 2026-08-18" in page.split("## Parked")[1].split("## Planned")[0]
+    assert "flywheel-balance" not in page
     assert "filed 2026-07-01" in page.split("## Planned")[1].split("## Backlog")[0]
 
 
@@ -904,368 +903,7 @@ def test_issued_beats_filed_on_a_prompt_carrying_both(tmp_path):
     assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]
 
 
-# --------------------------------------------------------------------------- #
-# bundles: several INDEPENDENT tasks in one orchestrated session
-# --------------------------------------------------------------------------- #
-# A bundle is the opposite of an epic. An epic is ordered and phase-gated, and
-# its members are pulled out of every pick list; a bundle is a flat set whose
-# members stay exactly where they were and gain a second, session-shaped view.
-# Pinned bundles are the human record in `bundles.md`; auto bundles are computed
-# at render time and never written anywhere — so these tests drive the renderer
-# against a fixture Mind and assert on the page, never on a file.
-_BUNDLES = """# Bundles
-
-## euclid-tidy
-- title: Euclid pipeline tidy-up
-- members:
-  - draft/feature/widgets/pinned_one.md
-  - draft/feature/widgets/pinned_two.md
-- rationale: same reviewer, same afternoon
-- status: proposed 2026-08-27
-"""
-
-
-def _bundle_page(mind: Path) -> str:
-    return _page(mind).split("## Bundles")[1].split("\n## ")[0]
-
-
-def _card_titles(section: str) -> list:
-    return re.findall(r"<summary><b>([^<]+)</b> — \d+ task\(s\)", section)
-
-
-def test_auto_bundles_group_by_target_repo(tmp_path):
-    """Independent tasks bundle only with tasks in the same repo — a session
-    that spans two repos is two worktrees and two sets of tests."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/a.md": _prompt("Widget A"),
-        "feature/widgets/b.md": _prompt("Widget B"),
-        "bug/gadgets/c.md": _prompt("Gadget C").replace("Target: widgets",
-                                                        "Target: gadgets"),
-        "bug/gadgets/d.md": _prompt("Gadget D").replace("Target: widgets",
-                                                        "Target: gadgets"),
-    })
-    bundles = _intake.auto_bundles(_intake.census(mind))
-    assert [b["slug"] for b in bundles] == ["auto-gadgets-1", "auto-widgets-1"]
-    assert [[m["title"] for m in b["members"]] for b in bundles] == [
-        ["Gadget C", "Gadget D"], ["Widget A", "Widget B"]]
-
-
-def test_a_lone_prompt_is_not_a_bundle(tmp_path):
-    """One task is a task. The minimum is two, or the section is just the
-    backlog again with extra words."""
-    mind = _mind(tmp_path, drafts={"feature/widgets/only.md": _prompt("Only")})
-    assert _intake.auto_bundles(_intake.census(mind)) == []
-    assert "## Bundles" not in _page(mind)
-
-
-def test_each_exclusion_keeps_a_prompt_out_of_the_auto_pool(tmp_path):
-    """Everything a bundle member must be: startable on its own, unblocked,
-    not already spoken for, and not a session in itself."""
-    blocked = _prompt("Blocked one").replace(
-        "Status: formalised", "Status: formalised\nBlocked-by: Widgets#12")
-    mind = _mind(tmp_path, registries={"epics.md": _EPICS,
-                                       "bundles.md": _BUNDLES}, drafts={
-        "feature/widgets/ok_one.md": _prompt("Fine one"),
-        "feature/widgets/ok_two.md": _prompt("Fine two"),
-        "feature/widgets/blocked.md": blocked,
-        "feature/widgets/human.md": _prompt("Human one",
-                                            autonomy="human-required"),
-        "feature/widgets/huge.md": _prompt("Huge one", difficulty="too-large"),
-        "feature/widgets/phase.md": _epic_prompt_body("Phase one",
-                                                      "jax-profiling", 1),
-        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
-        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
-        "feature/widgets/headed.md": _prompt("Header-pinned").replace(
-            "Status: formalised", "Status: formalised\nBundle: euclid-tidy"),
-    })
-    auto = _intake.auto_bundles(_intake.census(mind))
-    assert [m["title"] for b in auto for m in b["members"]] == ["Fine one",
-                                                               "Fine two"]
-
-
-def test_a_declared_gate_reads_as_unresolved(tmp_path):
-    """The renderer makes no network call (it runs bare in the Mind's refresh
-    workflow), so a `Blocked-by:` is treated as still closed — proposing a
-    gated task is the more expensive mistake."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/a.md": _prompt("Open one"),
-        "feature/widgets/b.md": _prompt("Gated one").replace(
-            "Status: formalised", "Status: formalised\nBlocked-by: Widgets#1")})
-    assert _intake.auto_bundles(_intake.census(mind)) == []
-
-
-def test_the_size_cap_starts_a_new_bundle(tmp_path):
-    """Points, not counts: one large task plus three small ones is a session;
-    a second large one is the next session."""
-    drafts = {f"feature/widgets/s{i}.md": _prompt(f"Small {i}",
-                                                  difficulty="small")
-              for i in range(3)}
-    drafts["feature/widgets/l1.md"] = _prompt("Large one", difficulty="large",
-                                              priority="high")
-    drafts["feature/widgets/l2.md"] = _prompt("Large two", difficulty="large",
-                                              priority="high")
-    drafts["feature/widgets/s9.md"] = _prompt("Small nine", difficulty="small",
-                                              priority="high")
-    bundles = _intake.auto_bundles(_intake.census(_mind(tmp_path, drafts=drafts)))
-    assert [[m["title"] for m in b["members"]] for b in bundles] == [
-        ["Large one", "Small nine", "Small 0", "Small 1"],
-        ["Large two", "Small 2"]]
-    assert [b["points"] for b in bundles] == [7, 5]
-    for b in bundles:
-        assert b["points"] <= _intake.BUNDLE_POINT_CAP
-        assert len(b["members"]) <= _intake.BUNDLE_MAX_MEMBERS
-        assert sum(m["difficulty"] == "large" for m in b["members"]) <= 1
-
-
-def test_four_medium_tasks_are_one_bundle(tmp_path):
-    """The other shape the cap is drawn around (4 × medium = 8 points)."""
-    drafts = {f"feature/widgets/m{i}.md": _prompt(f"Medium {i}")
-              for i in range(4)}
-    bundles = _intake.auto_bundles(_intake.census(_mind(tmp_path, drafts=drafts)))
-    assert len(bundles) == 1 and bundles[0]["points"] == 8
-    assert len(bundles[0]["members"]) == 4
-
-
-def test_auto_bundles_are_priority_ordered_and_deterministic(tmp_path):
-    """Most-pickable first, and the same input renders the same page — the
-    nightly re-render must not churn the section every time it runs."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/b_low.md": _prompt("Low one", priority="low"),
-        "feature/widgets/a_high.md": _prompt("High one", priority="high"),
-        "feature/widgets/c_high.md": _prompt("High two", priority="high"),
-    })
-    c = _intake.census(mind)
-    assert [m["title"] for m in _intake.auto_bundles(c)[0]["members"]] == [
-        "High one", "High two", "Low one"]
-    assert _intake.auto_bundles(c) == _intake.auto_bundles(_intake.census(mind))
-    assert _bundle_page(mind) == _bundle_page(mind)
-
-
-def test_a_bundle_member_still_appears_in_the_backlog(tmp_path):
-    """A bundle is an extra VIEW of the backlog, never a replacement — the
-    opposite of an epic, whose members leave every pick list."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/a.md": _prompt("Widget A", priority="high"),
-        "feature/widgets/b.md": _prompt("Widget B", priority="high")})
-    page = _page(mind)
-    backlog = page.split("## Backlog")[1].split("\n## ")[0]
-    assert "Widget A" in backlog and "Widget B" in backlog
-    assert "Widget A" in page.split("## Start here")[1].split("## In flight")[0]
-
-
-def test_pinned_bundles_come_first_and_carry_their_registry_prose(tmp_path):
-    """`bundles.md` is the human record; the proposals follow it."""
-    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
-        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
-        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
-        "feature/widgets/loose_a.md": _prompt("Loose A"),
-        "feature/widgets/loose_b.md": _prompt("Loose B"),
-    })
-    section = _bundle_page(mind)
-    assert _card_titles(section) == ["Euclid pipeline tidy-up", "widgets — bundle 1"]
-    assert "same reviewer, same afternoon" in section
-    assert "proposed 2026-08-27" in section
-    assert section.index("Pinned one") < section.index("Loose A")
-    assert "· pinned" in section and "· auto — proposed" in section
-
-
-def test_a_pinned_member_leaves_the_auto_pool(tmp_path):
-    """A pinned prompt belongs to its bundle, not to a computed one."""
-    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
-        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
-        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
-    })
-    assert _intake.auto_bundles(_intake.census(mind)) == []
-
-
-def test_a_header_declared_member_joins_its_pinned_bundle(tmp_path):
-    """`Bundle: <slug>` in a prompt header is the second way to pin — the
-    dashboard merges it into the registry entry's members."""
-    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
-        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
-        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
-        "feature/widgets/headed.md": _prompt("Header-pinned").replace(
-            "Status: formalised", "Status: formalised\nBundle: euclid-tidy"),
-    })
-    cards = _intake.bundle_cards(_intake.census(mind))
-    assert [m["title"] for m in cards[0]["members"]] == [
-        "Pinned one", "Pinned two", "Header-pinned"]
-
-
-def test_a_member_of_an_unregistered_bundle_still_groups_loudly(tmp_path):
-    """A typo shows up on the page instead of silently rendering nothing —
-    the same treatment an unregistered `Epic:` slug gets."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/one.md": _prompt("Stray one").replace(
-            "Status: formalised", "Status: formalised\nBundle: no-such-bundle"),
-    })
-    section = _bundle_page(mind)
-    assert "no-such-bundle" in section
-    assert "not in `bundles.md`" in section
-    assert "Stray one" in section
-    html = _intake.render_dashboard_html(_intake.census(mind))
-    assert "not in bundles.md" in _prose(html)
-
-
-def test_a_missing_member_prompt_still_renders(tmp_path):
-    """A pinned path that resolves to no filed prompt is exactly the drift
-    worth seeing — it renders as itself rather than vanishing."""
-    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
-        "feature/widgets/pinned_one.md": _prompt("Pinned one")})
-    section = _bundle_page(mind)
-    assert "draft/feature/widgets/pinned_two.md" in section
-
-
-def test_the_bundle_prompt_states_the_orchestration_contract(tmp_path):
-    """The 📋 payload is the whole contract: one issue and one PR per member,
-    one shared worktree per repo, execution delegated a rung down."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/a.md": _prompt("Widget A"),
-        "feature/widgets/b.md": _prompt("Widget B")})
-    prompt = _intake.bundle_prompt(_intake.auto_bundles(_intake.census(mind))[0])
-    assert "judgment tier" in prompt
-    assert "draft/feature/widgets/a.md" in prompt
-    assert "start-dev skill for EACH member prompt" in prompt
-    assert "one issue" in prompt and "bulk issue queue" in prompt
-    assert "One shared worktree per repo" in prompt
-    assert "PyAutoBrain/skills/WORKFLOW.md" in prompt
-    assert "current harness's native subagent mechanism" in prompt
-    assert "one execution delegate per member" in prompt
-    assert "direct-execution fallback" in prompt
-    assert "ONE PR per task" in prompt
-    assert "prm skill" in prompt
-    assert "ship-library skill" in prompt
-    assert "Fa" + "ble" not in prompt
-    assert "Op" + "us" not in prompt
-    assert "Agent(" + "model=" not in prompt
-
-
-def test_bundles_sit_between_backlog_and_recent_on_both_pages(tmp_path):
-    """Bundles read the backlog a second way, so they sit under it — and the
-    page still turns to Recent afterwards."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/a.md": _prompt("Widget A").replace(
-            "Status: formalised", "Status: formalised\nFiled: 2026-08-20"),
-        "feature/widgets/b.md": _prompt("Widget B").replace(
-            "Status: formalised", "Status: formalised\nFiled: 2026-08-21")})
-    page = _page(mind)
-    assert page.index("## Backlog") < page.index("## Bundles") \
-        < page.index("## Recent")
-    html = _intake.render_dashboard_html(_intake.census(mind))
-    assert html.index("<h2>Backlog") < html.index("<h2>Bundles") \
-        < html.index("<h2>Recent")
-    section = html.split("<h2>Bundles")[1].split("<h2>")[0]
-    assert '<table class="bundle">' in section
-    assert '<button class="copy"' in section
-
-
-def test_the_section_is_absent_from_a_mind_with_no_bundles(tmp_path):
-    """No cards, no section — and no stylesheet or heading left behind."""
-    mind = _mind(tmp_path, drafts={"feature/widgets/only.md": _prompt("Only")})
-    assert "## Bundles" not in _page(mind)
-    html = _intake.render_dashboard_html(_intake.census(mind))
-    assert "<h2>Bundles" not in html and "table.bundle" not in html
-
-
-def test_dashboard_check_is_idempotent_with_bundles(tmp_path, capsys):
-    """`--apply` then `--check` must be clean, or `dashboard_refresh.yml`
-    self-heals a commit every night."""
-    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts={
-        "feature/widgets/pinned_one.md": _prompt("Pinned one"),
-        "feature/widgets/pinned_two.md": _prompt("Pinned two"),
-        "feature/widgets/loose_a.md": _prompt("Loose A"),
-        "feature/widgets/loose_b.md": _prompt("Loose B"),
-    })
-    assert _intake.main(["--mind", str(mind), "--apply", "dashboard"]) == 0
-    assert _intake.main(["--mind", str(mind), "dashboard", "--check"]) == 0
-    assert "current" in capsys.readouterr().out
-
-
-# --------------------------------------------------------------------------- #
-# bundles: the section is a pick list, so it is ranked and capped
-# --------------------------------------------------------------------------- #
-def _targets(tmp_path, n, **kw):
-    """A Mind with `n` bundle-able target repos, two identical prompts each."""
-    return _mind(tmp_path, drafts={
-        f"feature/t{i:02d}/{name}.md": _prompt(f"T{i:02d} {name}", **kw)
-        for i in range(n) for name in ("a", "b")})
-
-
-def test_auto_bundles_are_ranked_before_they_are_cut(tmp_path):
-    """Most urgent member first (a bundle is only as pickable as its most
-    urgent task), then the biggest session, then slug — so the cap keeps the
-    bundles worth running rather than the repos that sort early."""
-    mind = _mind(tmp_path, drafts={
-        "feature/aaa/a.md": _prompt("Aaa one"),
-        "feature/aaa/b.md": _prompt("Aaa two"),
-        "feature/bbb/a.md": _prompt("Bbb one", priority="high"),
-        "feature/bbb/b.md": _prompt("Bbb two", priority="high"),
-        "feature/ccc/a.md": _prompt("Ccc one", difficulty="large",
-                                    priority="high"),
-        "feature/ccc/b.md": _prompt("Ccc two", difficulty="small"),
-        "feature/ccc/c.md": _prompt("Ccc three", difficulty="small"),
-        "feature/ddd/a.md": _prompt("Ddd one", difficulty="small",
-                                    priority="low"),
-        "feature/ddd/b.md": _prompt("Ddd two", difficulty="small",
-                                    priority="low"),
-    })
-    cards = _intake.bundle_cards(_intake.census(mind))
-    assert [b["slug"] for b in cards] == ["auto-ccc-1", "auto-bbb-1",
-                                          "auto-aaa-1", "auto-ddd-1"]
-    assert [b["points"] for b in cards] == [6, 4, 4, 2]
-
-
-def test_only_the_first_page_of_auto_bundles_reaches_the_page(tmp_path):
-    """One card per repo in the Mind is an inventory, not a pick list."""
-    cards = _intake.bundle_cards(_intake.census(_targets(tmp_path, 12)))
-    assert len(cards) == _intake.BUNDLE_LIST_MAX == 8
-    # Equal rank throughout, so the tie-break decides: slug, ascending.
-    assert [b["slug"] for b in cards] == [f"auto-t{i:02d}-1" for i in range(8)]
-    section = _bundle_page(_targets(tmp_path, 12))
-    assert section.count("· auto — proposed") == 8
-
-
-def test_a_cut_section_says_so_and_says_how_to_keep_one(tmp_path):
-    """Truncation is only honest if the page reports it, and pinning is the
-    answer to "but I wanted that one"."""
-    mind = _targets(tmp_path, 12)
-    line = ("Showing 8 of 12 auto bundles — pin one in `bundles.md` to keep "
-            "it on the page.")
-    assert f"_{line}_" in _bundle_page(mind)
-    html = _prose(_intake.render_dashboard_html(_intake.census(mind)))
-    assert ("Showing 8 of 12 auto bundles — pin one in "
-            "<code>bundles.md</code> to keep it on the page.") in html
-
-
-def test_an_uncut_section_has_no_footer(tmp_path):
-    mind = _targets(tmp_path, 3)
-    assert "Showing" not in _bundle_page(mind)
-    html = _prose(_intake.render_dashboard_html(_intake.census(mind)))
-    assert "auto bundles — pin one" not in html
-
-
-def test_pinned_bundles_are_never_capped(tmp_path):
-    """A human put them there; the cap is only ever spent on proposals."""
-    drafts = {f"feature/t{i:02d}/{name}.md": _prompt(f"T{i:02d} {name}")
-              for i in range(12) for name in ("a", "b")}
-    drafts["feature/widgets/pinned_one.md"] = _prompt("Pinned one")
-    drafts["feature/widgets/pinned_two.md"] = _prompt("Pinned two")
-    mind = _mind(tmp_path, registries={"bundles.md": _BUNDLES}, drafts=drafts)
-    cards = _intake.bundle_cards(_intake.census(mind))
-    assert cards[0]["slug"] == "euclid-tidy"
-    assert len(cards) == _intake.BUNDLE_LIST_MAX + 1
-    # The footer counts AUTO bundles only — the pinned card is not a proposal.
-    assert "Showing 8 of 12 auto bundles" in _bundle_page(mind)
-
-
-# --------------------------------------------------------------------------- #
-# themes: what the work is ABOUT, and the bundles keyed on it
-# --------------------------------------------------------------------------- #
-# `Target:` says where the code lives — a mechanical key, one worktree per repo,
-# which made the proposals read as "three things that live in autoarray". A
-# prompt's `Themes:` list says what the work is about, which is the useful
-# grouping and is routinely cross-repo. The vocabulary is a markdown list in
-# `PyAutoMind/themes.md`, so a human adds a theme without touching the Brain.
+# Optional thematic metadata remains useful when selecting work.
 _THEMES = """# Themes
 
 The controlled vocabulary for a prompt's `Themes:` header.
@@ -1305,127 +943,7 @@ def test_a_prompts_theme_list_keeps_the_order_it_was_written_in(tmp_path):
                                                          "mge"]
 
 
-def test_a_primary_theme_pools_across_repos(tmp_path):
-    """The point of the whole feature: one bundle about MGE, not one bundle
-    per repo that MGE happens to touch."""
-    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a.md": _themed("Widget MGE", "mge"),
-        "bug/gadgets/b.md": _themed("Gadget MGE", "mge", target="gadgets"),
-    })
-    bundles = _intake.auto_bundles(_intake.census(mind))
-    assert [b["slug"] for b in bundles] == ["auto-mge-1"]
-    assert bundles[0]["title"] == "mge"
-    assert [m["title"] for m in bundles[0]["members"]] == ["Gadget MGE",
-                                                          "Widget MGE"]
-    assert {m["target"] for m in bundles[0]["members"]} == {"widgets", "gadgets"}
-
-
-def test_a_theme_bundle_names_every_members_repo(tmp_path):
-    """A theme bundle is cross-repo by construction, so the members table has
-    to say where each task lives — a Target-keyed card never needs to, because
-    the column would be a constant."""
-    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a.md": _themed("Widget MGE", "mge"),
-        "bug/gadgets/b.md": _themed("Gadget MGE", "mge", target="gadgets"),
-        "feature/doodads/c.md": _prompt("Plain C").replace("Target: widgets",
-                                                           "Target: doodads"),
-        "feature/doodads/d.md": _prompt("Plain D").replace("Target: widgets",
-                                                           "Target: doodads"),
-    })
-    # Pools sort by key text, so the Target-keyed `doodads` card is first.
-    plain, themed = _bundle_page(mind).split("<summary><b>mge")
-    assert "| Prompt | Repo | Difficulty | Priority | Status |" in themed
-    assert "| gadgets |" in themed and "| widgets |" in themed
-    assert "| Prompt | Difficulty | Priority | Status |" in plain
-    assert "| Prompt | Repo |" not in plain
-    html = _intake.render_dashboard_html(_intake.census(mind))
-    cards = html.split("<h2>Bundles")[1].split("<h2>")[0].split("<details>")
-    assert "<th>Repo</th>" not in cards[1] and "<th>Repo</th>" in cards[2]
-
-
-def test_affinity_packing_beats_filename_order(tmp_path):
-    """Inside a pool the next member is the one that shares the most keywords
-    with the seed — so a big pool splits by what the work is about, not by
-    whichever filename sorts early."""
-    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a_seed.md": _themed(
-            "Seed", "mge", "jax-gradient", "interferometer",
-            difficulty="small", priority="high"),
-        "feature/widgets/b_plain.md": _themed("Plain B", "mge",
-                                              difficulty="small"),
-        "feature/widgets/c_overlap.md": _themed("Overlap C", "mge",
-                                                "jax-gradient",
-                                                difficulty="small"),
-        "feature/widgets/d_overlap.md": _themed("Overlap D", "mge",
-                                                "interferometer",
-                                                difficulty="small"),
-        "feature/widgets/e_plain.md": _themed("Plain E", "mge",
-                                              difficulty="small"),
-        "feature/widgets/f_plain.md": _themed("Plain F", "mge",
-                                              difficulty="small"),
-    })
-    bundles = _intake.auto_bundles(_intake.census(mind))
-    assert [[m["title"] for m in b["members"]] for b in bundles] == [
-        ["Seed", "Overlap C", "Overlap D", "Plain B"],
-        ["Plain E", "Plain F"]]
-    assert [b["slug"] for b in bundles] == ["auto-mge-1", "auto-mge-2"]
-    # A pool's second bundle is numbered: a bundle is picked BY NAME, and the
-    # title rides in the copied orchestration prompt.
-    assert [b["title"] for b in bundles] == ["mge", "mge — bundle 2"]
-
-
-def test_a_cards_title_carries_the_keywords_every_member_shares(tmp_path):
-    """`mge · jax-gradient` says what the session is; `mge` alone says it when
-    the members agree on nothing else."""
-    shared = _mind(tmp_path / "shared", registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a.md": _themed("A", "mge", "jax-gradient"),
-        "feature/widgets/b.md": _themed("B", "mge", "jax-gradient"),
-    })
-    assert _intake.auto_bundles(_intake.census(shared))[0]["title"] == \
-        "mge · jax-gradient"
-    split = _mind(tmp_path / "split", registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a.md": _themed("A", "mge", "jax-gradient"),
-        "feature/widgets/b.md": _themed("B", "mge", "interferometer"),
-    })
-    assert _intake.auto_bundles(_intake.census(split))[0]["title"] == "mge"
-
-
-def test_an_unthemed_prompt_falls_back_to_its_target(tmp_path):
-    """Themes are optional, so the old key has to keep working — and the two
-    kinds of pool sit side by side, ordered by their key text."""
-    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a.md": _themed("Themed A", "mge"),
-        "bug/gadgets/b.md": _themed("Themed B", "mge", target="gadgets"),
-        "feature/widgets/c.md": _prompt("Plain C"),
-        "feature/widgets/d.md": _prompt("Plain D"),
-    })
-    bundles = _intake.auto_bundles(_intake.census(mind))
-    assert [b["slug"] for b in bundles] == ["auto-mge-1", "auto-widgets-1"]
-    assert [b["title"] for b in bundles] == ["mge", "widgets — bundle 1"]
-    assert [m["title"] for m in bundles[1]["members"]] == ["Plain C", "Plain D"]
-
-
-def test_every_prompt_lands_in_at_most_one_auto_bundle(tmp_path):
-    """Themes are a list, but only the FIRST one groups — otherwise the same
-    task would be proposed from three cards and picked up twice."""
-    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a.md": _themed("A", "mge", "jax-gradient"),
-        "feature/widgets/b.md": _themed("B", "mge", "jax-gradient"),
-        "feature/widgets/c.md": _themed("C", "jax-gradient", "mge"),
-        "feature/widgets/d.md": _themed("D", "jax-gradient", "dashboard"),
-        "feature/gadgets/e.md": _prompt("E").replace("Target: widgets",
-                                                     "Target: gadgets"),
-        "feature/gadgets/f.md": _prompt("F").replace("Target: widgets",
-                                                     "Target: gadgets"),
-    })
-    bundles = _intake.auto_bundles(_intake.census(mind))
-    paths = [m["path"] for b in bundles for m in b["members"]]
-    assert len(paths) == len(set(paths)) == 6
-    assert [b["slug"] for b in bundles] == ["auto-gadgets-1",
-                                            "auto-jax-gradient-1", "auto-mge-1"]
-
-
-def test_an_unknown_keyword_is_loud_on_the_card_and_counted_in_hygiene(tmp_path):
+def test_an_unknown_keyword_is_counted_in_hygiene(tmp_path):
     """The list must not rot into free-text tags, so a keyword `themes.md`
     does not know still groups — visibly, the way an unregistered `Epic:`
     slug does — and the page says how many prompts carry one."""
@@ -1436,57 +954,14 @@ def test_an_unknown_keyword_is_loud_on_the_card_and_counted_in_hygiene(tmp_path)
     c = _intake.census(mind)
     assert [r["unknown_themes"] for r in c["records"]] == [["no-such-theme"]] * 2
     page = _page(mind)
-    assert "⚠️ theme(s) not in `themes.md`: no-such-theme" in page
     assert "2 prompt(s) with unknown theme keyword(s)" in page
     assert "draft/feature/widgets/a.md — unknown theme keyword(s): " \
         "no-such-theme" in page
-    html = _prose(_intake.render_dashboard_html(c))
-    assert "⚠️ theme(s) not in themes.md: no-such-theme" in html
-
-
-def test_a_mind_with_no_vocabulary_warns_about_nothing(tmp_path):
-    """A freshly-spawned Mind has an empty `themes.md`; shouting at every
-    keyword in its backlog would be noise, not hygiene."""
-    mind = _mind(tmp_path, drafts={
-        "feature/widgets/a.md": _themed("A", "whatever"),
-        "feature/widgets/b.md": _themed("B", "whatever")})
-    c = _intake.census(mind)
-    assert c["theme_flags"] == []
-    assert _intake.auto_bundles(c)[0]["slug"] == "auto-whatever-1"
-    assert "unknown theme keyword" not in _page(mind)
-
-
-# The un-themed page must be byte-for-byte what it was before themes existed:
-# 130-odd prompts carry no `Themes:` yet, and a grouping change that also
-# reflowed every existing card would make the backfill diff unreadable.
-_UNTHEMED_HEAD = ("<summary><b>widgets — bundle 1</b> — 2 task(s) · 4 pts · "
-                  "auto — proposed</summary>")
-_UNTHEMED_TABLE = """| Prompt | Difficulty | Priority | Status |
-|--------|------------|----------|--------|
-| <a href="draft/feature/widgets/a.md">Widget A</a> | medium | normal | formalised |
-| <a href="draft/feature/widgets/b.md">Widget B</a> | medium | normal | formalised |"""
-
-
-def test_an_unthemed_backlog_renders_exactly_as_it_did_before_themes(tmp_path):
-    mind = _mind(tmp_path, registries={"themes.md": _THEMES}, drafts={
-        "feature/widgets/a.md": _prompt("Widget A"),
-        "feature/widgets/b.md": _prompt("Widget B")})
-    section = _bundle_page(mind)
-    assert _UNTHEMED_HEAD in section
-    assert _UNTHEMED_TABLE in section
-    assert "| Prompt | Repo |" not in section and "themes.md" not in section
-    bundles = _intake.auto_bundles(_intake.census(mind))
-    assert [b["slug"] for b in bundles] == ["auto-widgets-1"]
-    assert bundles[0]["title"] == "widgets — bundle 1"
-    html = _intake.render_dashboard_html(_intake.census(mind))
-    section = html.split("<h2>Bundles")[1].split("<h2>")[0]
-    assert ("<tr><th>Prompt</th><th>Difficulty</th><th>Priority</th>"
-            "<th>Status</th></tr>") in section
 
 
 def test_formalising_writes_themes_under_repos_and_never_waits_for_one(tmp_path):
     """Intake assigns the keywords at formalisation — but a prompt formalises
-    with or without them, and the bundler falls back to `Target:`."""
+    with or without them."""
     # An organ repo, not a satellite one: the tenant firewall bars instance
     # repo names from organ code, and a made-up name would resolve to no repo
     # at all — leaving no `Repos:` block for the themes to land under.
@@ -1558,7 +1033,7 @@ def test_declaring_a_type_does_not_leak_into_the_derived_title(tmp_path):
     assert d["proposed_path"].endswith("check_the_widget_fit_quality.md")
 
 
-def test_human_review_is_its_own_section_not_backlog(tmp_path):
+def test_human_review_is_nested_in_backlog_without_becoming_a_dev_pick(tmp_path):
     """Shipped work waiting on a person is not work to pick up.
 
     It must not inflate the backlog count, appear in the pick lists, or sink
@@ -1576,11 +1051,12 @@ def test_human_review_is_its_own_section_not_backlog(tmp_path):
     assert all(r["work_type"] != "human_review" for r in c["records"])
 
     page = _page(mind)
-    section = page.split("## Human review")[1].split("## Parked")[0]
+    section = page.split('<a id="human-review"></a>')[1].split("<summary><b>feature</b>")[0]
     assert "Check the widget rollout" in section
     assert "Widget A" not in section
-    assert "| [Backlog](#backlog) (`draft/`) | 1 |" in page
-    assert "| [Human review](#human-review) (`draft/human_review/`) | 1 |" in page
+    assert "| [Backlog](#backlog) | 2 |" in page
+    assert "| [Human review]" not in page
+    assert page.index("## Backlog") < page.index('<a id="human-review"></a>') < page.index("## Recent")
     # The row hands out a review prompt, never a /start_dev.
     assert "Use the start-dev skill. draft/human_review" not in page
     assert "so I can sign it off" in section
@@ -1592,7 +1068,7 @@ def test_human_review_section_renders_empty_rather_than_vanishing(tmp_path):
     """An absent section reads as "nothing to review"; so must an empty one —
     but only the section says which, so it is always drawn."""
     page = _page(_mind(tmp_path, drafts={"feature/widgets/a.md": _prompt("A")}))
-    section = page.split("## Human review")[1].split("## Parked")[0]
+    section = page.split('<a id="human-review"></a>')[1].split("<summary><b>feature</b>")[0]
     assert "_(nothing awaiting review)_" in section
     assert "nothing has been flagged, not that nothing shipped" in section
 
@@ -1621,7 +1097,7 @@ def test_human_review_renders_on_the_html_twin(tmp_path):
     mind = _mind(tmp_path, drafts={
         "human_review/widgets/checked.md": _review("Check the widget rollout")})
     html = _intake.render_dashboard_html(_intake.census(mind))
-    section = html.split('<a id="human-review"></a>')[1].split('<details class="board-section">')[0]
+    section = html.split('<details id="human-review">')[1].split("</details>")[0]
     assert "Check the widget rollout" in section
     assert "so I can sign it off" in section
     # The blurb's markdown must not print literally on a page that renders HTML.
@@ -1729,7 +1205,7 @@ def test_in_flight_rows_link_every_pr_key_labelled_by_repo(tmp_path):
     mind = _mind(tmp_path,
                  active={"widget_rework.md": _prompt("Widget rework")},
                  registries={"active.md": PR_LEDGER_ACTIVE})
-    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
     for label, url in (("Widgets#7", "https://github.com/ExampleOrg/Widgets/pull/7"),
                        ("Gadgets#8", "https://github.com/ExampleOrg/Gadgets/pull/8"),
                        ("widgets_workspace#9",
@@ -1749,7 +1225,7 @@ def test_the_older_single_line_comma_form_of_a_pr_key_still_links(tmp_path):
             "- status: shipped\n"
             "- library-pr: https://github.com/ExampleOrg/Widgets/pull/7, "
             "https://github.com/ExampleOrg/Gadgets/pull/8\n")})
-    flight = _page(mind).split("## In flight")[1].split("## Parked")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
     assert "Widgets#7" in flight and "Gadgets#8" in flight
 
 
@@ -1790,7 +1266,7 @@ def test_pending_release_groups_the_prs_and_the_tasks_waiting_on_them(tmp_path):
             "- pending-release: Sprockets@https://github.com/ExampleOrg/Sprockets/pull/3\n"
             "\n## Original prompt\n\n"
             "- pending-release: Decoys@https://github.com/ExampleOrg/Decoys/pull/99\n")})
-    section = _page(mind).split("## Pending release")[1].split("## Human review")[0]
+    section = _page(mind).split("## Pending release")[1].split("## Planned")[0]
     assert "**Widgets**" in section and "**Sprockets**" in section
     assert "[Widgets#7](https://github.com/ExampleOrg/Widgets/pull/7)" in section
     assert "Sprockets#3" in section, \
@@ -1801,14 +1277,13 @@ def test_pending_release_groups_the_prs_and_the_tasks_waiting_on_them(tmp_path):
     assert "never a live GitHub query" in section
 
 
-def test_an_empty_pending_release_section_is_omitted_entirely(tmp_path):
+def test_an_empty_pending_release_section_keeps_its_destination(tmp_path):
     mind = _mind(tmp_path,
                  active={"widget_rework.md": _prompt("Widget rework")},
                  registries={"active.md": ACTIVE_MD})
     page = _page(mind)
-    assert "## Pending release" not in page
-    assert "## Pending release" not in _intake.render_dashboard_html(
-        _intake.census(mind))
+    assert "## Pending release" in page and "nothing pending release" in page
+    assert 'id="pending-release"' in _intake.render_dashboard_html(_intake.census(mind))
 
 
 def test_pending_release_renders_on_the_html_page_too(tmp_path):
@@ -1919,3 +1394,54 @@ def test_start_here_summary_counts_unique_visible_tasks(tmp_path):
         'feature/widgets/one.md': _prompt('One', priority='high', autonomy='safe', difficulty='small')})
     page = _html(mind)
     assert '<h2>Start here</h2><span class="section-badge">1</span>' in page
+
+
+
+def test_seven_navigation_counts_and_nested_review(tmp_path):
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/one.md": _prompt("One", priority="high", unattended="ready"),
+        "feature/widgets/two.md": _prompt("Two", unattended="ready"),
+        "feature/widgets/phase.md": _epic_prompt_body("Phase", "unregistered", 1),
+        "human_review/widgets/review.md": _review("Review shipped work"),
+    }, registries={"epics.md": _EPICS, "active.md": PENDING_ACTIVE})
+    c = _intake.census(mind)
+    page = _intake.render_dashboard_html(c)
+    nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
+    counts = re.findall(r'board-nav-count">(\d+)</span><span class="board-nav-label">([^<]+)', nav)
+    assert [(label, int(count)) for count, label in counts] == [
+        ("Start here", 2), ("In flight", c["issued_count"]),
+        ("Planned", 0), ("Backlog", 4),
+        ("Pending release", len(c["pending_release"])),
+        ("Recent", len(c["recent"])), ("Epics", len(c["epics"]) + 1)]
+    assert 'style="--nav-columns:7"' in nav
+    assert "Human review" not in nav and "Parked" not in nav and "Bundles" not in nav
+    backlog = page.split('<a id="backlog"></a>')[1].split('<a id="recent"></a>')[0]
+    assert '<details id="human-review">' in backlog
+    assert 'Review shipped work' in backlog
+    assert '<h2>Human review' not in page
+    assert 'Use the start-dev skill. draft/human_review' not in page
+
+
+def test_empty_mind_has_seven_zero_count_destinations(tmp_path):
+    c = _intake.census(_mind(tmp_path))
+    page = _intake.render_dashboard_html(c)
+    nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
+    assert nav.count('board-nav-count">0</span>') == 7
+    for target in re.findall(r'href="#([^"]+)"', nav):
+        assert page.count(f'id="{target}"') == 1
+    assert page.count('<details class="board-section">') == 7
+    assert "nothing pending release" in page and "no epics" in page
+
+
+def test_legacy_bundle_registry_and_headers_do_not_create_functionality(tmp_path):
+    mind = _mind(tmp_path, drafts={
+        "feature/widgets/a.md": _prompt("A") + "\nBundle: legacy\n",
+        "feature/widgets/b.md": _prompt("B"),
+    }, registries={"bundles.md": "# Bundles\n\n## legacy\n- members:\n  - draft/feature/widgets/a.md\n"})
+    c = _intake.census(mind)
+    assert "bundles" not in c
+    assert all("bundle" not in r and "bundle" not in r["header"] for r in c["records"])
+    assert c["total"] == 2
+    for page in (_intake.render_dashboard(c), _intake.render_dashboard_html(c)):
+        assert "Bundles" not in page and "start-bundle" not in page
+        assert "draft/feature/widgets/a.md" in page and "draft/feature/widgets/b.md" in page

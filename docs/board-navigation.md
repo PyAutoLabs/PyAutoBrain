@@ -8,9 +8,9 @@ keeps ownership of collection, health, freshness and action semantics.
 
 ## Component contract
 
-`board/_theme.py::hero(key, kind, lede_html='', navigation=())` retains its
+`board/_theme.py::hero(key, kind, lede_html='', navigation=(), navigation_columns=None)` retains its
 existing positional API. The optional keyword inserts
-`navigation_cards(items, label='Board sections')` directly after the masthead
+`navigation_cards(items, label='Board sections', columns=None)` directly after the masthead
 and before the description. `section_layout(page, summaries=None)` composes the
 finished owner HTML into the standard order, moving the orchestration panel above
 these cards. Existing `hero` callers retain their positional API.
@@ -22,7 +22,11 @@ and control characters. `count=None` omits the value; `0` remains visible;
 `'Unknown'` is a valid owner-supplied state. The theme does not calculate counts.
 
 Cards share the organ's accent, a large target, visible keyboard focus and a
-fluid grid. They use the [shared sizing standard](board-sizing.md). Do not
+fluid grid. Owners may opt into 1–12 desktop columns through
+`hero(..., navigation_columns=n)` or `navigation_cards(..., columns=n)`. This
+applies at 64rem and wider; narrower screens retain fluid wrapping. Mind opts
+into seven columns; other consumers keep their existing layout. They use the
+[shared sizing standard](board-sizing.md). Do not
 copy card CSS into another repository or use the accent to imply health. Keep
 existing section anchors; only render links whose targets exist. Multiple
 counts may link to one meaningful summary, as Ears' follow-through cards do.
@@ -62,7 +66,7 @@ The authoritative membership is `config/policy.yaml` → `board.boards`.
 | Board | Source owner | Integration |
 |---|---|---|
 | Brain | Brain `board/_board.py` | Shared component; section-owned counts plus count-free navigation |
-| Mind | Brain `agents/conductors/intake/_intake.py` | Shared component; active/review/planned/backlog counts and optional sections |
+| Mind | Brain `agents/conductors/intake/_intake.py` | Shared component; seven stable sections; human review nested under Backlog |
 | Cortex | Brain `agents/conductors/cortex/_cortex.py` | Shared component; running/open/projects counts and check-in link |
 | Ears | Ears `ears/board.py`, `ears/presentation.py` | Downstream reference migration; readable freshness below navigation |
 | Memory | Memory `scripts/board.py` | Downstream shared-theme consumer |

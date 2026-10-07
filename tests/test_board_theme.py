@@ -524,3 +524,17 @@ def test_prompt_heading_escapes_attributes_and_rejects_unknown_organ():
     assert '<strong>Mind</strong>' in heading
     with pytest.raises(KeyError):
         _theme.prompt_heading('<script>')
+
+
+
+def test_navigation_desktop_columns_are_opt_in_and_propagated_by_hero():
+    items = [{"label": "One", "href": "#one"}]
+    assert "--nav-columns" not in _theme.navigation_cards(items)
+    assert 'style="--nav-columns:7"' in _theme.navigation_cards(items, columns=7)
+    assert 'style="--nav-columns:7"' in _theme.hero("mind", "Dashboard", navigation=items, navigation_columns=7)
+
+
+@pytest.mark.parametrize("columns", [0, 13, True, "7", "7;display:none", 2.5])
+def test_navigation_columns_reject_invalid_values(columns):
+    with pytest.raises(ValueError):
+        _theme.navigation_cards([], columns=columns)

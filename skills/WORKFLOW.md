@@ -109,7 +109,7 @@ issue or lifecycle mechanics in Brain.
 ## Heart gate
 
 **At the door:** development entry (`start_dev` step 0a "Heart at the door",
-mirrored by `start_bundle` and `route`) first reads the Heart's published feed
+mirrored by `route`) first reads the Heart's published feed
 with the read-only `bin/heart_feed.py` — RED stops before planning, YELLOW/STALE
 warn and continue. It is a light early read, never a tick; the ship-time gate
 below is unchanged and still authoritative.

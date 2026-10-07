@@ -565,6 +565,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
 /* Section links share a shape whether or not the owner has a useful count. */
 .board-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%%,10rem),1fr));
  gap:.75rem;margin:1.5rem 0;min-width:0}
+@media(min-width:64rem){
+ .board-nav[style]{grid-template-columns:repeat(var(--nav-columns),minmax(0,1fr))}}
 .board-nav-card{display:flex;flex-direction:column;justify-content:center;gap:.25rem;
  min-width:0;min-height:5.5rem;padding:1rem;border:1px solid var(--line);
  border-top:3px solid var(--accent);border-radius:12px;background:var(--btn);
@@ -780,15 +782,19 @@ def css(key):
 
 
 # ------------------------------------------------------------- components ---
-def navigation_cards(items, label="Board sections"):
+def navigation_cards(items, label="Board sections", *, columns=None):
     """Section links with owner-supplied labels, optional counts and context.
 
     Each item has ``href`` and ``label``; ``count=None`` omits the number,
     while a textual count such as "Unknown" preserves missing evidence.
+    ``columns`` optionally fixes the desktop grid (at 64rem and wider);
+    narrower screens keep the fluid grid.
     This presentation helper neither collects nor interprets board data.
     """
     from urllib.parse import urlsplit
 
+    if columns is not None and (type(columns) is not int or not 1 <= columns <= 12):
+        raise ValueError("Navigation columns must be an integer from 1 to 12")
     cards = []
     for item in items:
         href = str(item["href"])
@@ -805,7 +811,8 @@ def navigation_cards(items, label="Board sections"):
         cards.append(f'<a class="board-nav-card" href="{_html.escape(href, quote=True)}">'
                      f'{value}<span class="board-nav-label">'
                      f'{_html.escape(str(item["label"]))}</span>{note}</a>')
-    return (f'<nav class="board-nav" aria-label="{_html.escape(label, quote=True)}">'
+    layout = f' style="--nav-columns:{columns}"' if columns is not None else ""
+    return (f'<nav class="board-nav"{layout} aria-label="{_html.escape(label, quote=True)}">'
             + "".join(cards) + "</nav>") if cards else ""
 
 
@@ -947,7 +954,7 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
     )
 
 
-def hero(key, kind, lede_html="", *, navigation=()):
+def hero(key, kind, lede_html="", *, navigation=(), navigation_columns=None):
     """The masthead: the organ's logo re-drawn — mark, wordmark, rule, tagline.
 
     `lede_html` is accepted for compatibility but not displayed.
@@ -961,7 +968,7 @@ def hero(key, kind, lede_html="", *, navigation=()):
             f'<span class="kind">{kind}</span></h1>'
             f'<div class="rule"></div>'
             f'<p class="tag">{o["tagline"]}</p></header>'
-            f'{navigation_cards(navigation)}')
+            f'{navigation_cards(navigation, columns=navigation_columns)}')
 
 
 # Facet vocabulary → pill tone. Anything unlisted falls back to the neutral
@@ -1224,7 +1231,7 @@ def portable_prompt(payload):
     import re
 
     match = re.match(
-        r"^/(health|bug|release|start[-_]dev|start[-_]bundle|route|cortex|"
+        r"^/(health|bug|release|start[-_]dev|route|cortex|"
         r"community|prm|issue[-_]cleanup|hygiene|repo[-_]cleanup|"
         r"feature|refactor|docs|research|workspace|build|board|eyes|memory|"
         r"profiling|batch|vitals|samplers|sizing|intake|cli[-_]noise[-_]clean|"
