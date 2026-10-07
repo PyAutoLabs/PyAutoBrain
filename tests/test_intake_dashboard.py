@@ -188,7 +188,7 @@ def test_in_flight_links_the_registry_issue_and_its_live_status(tmp_path):
     mind = _mind(tmp_path,
                  active={"widget_rework.md": _prompt("Widget rework")},
                  registries={"active.md": ACTIVE_MD})
-    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Planned")[0]
     assert ('<a href="https://github.com/ExampleOrg/Widgets/issues/42">'
             "issue #42</a>") in flight, \
         "the link must be the matched URL, not the field's trailing prose"
@@ -216,7 +216,7 @@ def test_parked_prompt_still_in_active_is_not_listed_in_flight(tmp_path):
         },
     )
     page = _page(mind)
-    flight = page.split("## In flight")[1].split("## Pending release")[0]
+    flight = page.split("## In flight")[1].split("## Planned")[0]
     assert "gadget_polish.md" in flight
     assert "widget_rework.md" not in flight, \
         "a parked prompt must not double-list as in flight"
@@ -231,7 +231,7 @@ def test_in_flight_prompt_with_no_registry_row_claims_no_issue(tmp_path):
     body = _prompt("Orphan task") + \
         "\nFollow-up to https://github.com/ExampleOrg/Widgets/issues/7 (unrelated).\n"
     mind = _mind(tmp_path, active={"orphan.md": body})
-    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Planned")[0]
     assert "Orphan task" in flight
     assert "issues/7" not in flight
 
@@ -273,7 +273,7 @@ def test_task_row_is_one_line_with_no_repeated_label(tmp_path):
 
 def test_in_flight_copy_block_targets_the_active_prompt(tmp_path):
     mind = _mind(tmp_path, active={"widget_rework.md": _prompt("Widget rework")})
-    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Planned")[0]
     assert "\nUse the start-dev skill. active/widget_rework.md\n" in flight
 
 
@@ -312,7 +312,8 @@ REPOS_YAML = "repos:\n  PyAutoMind:\n    github: ExampleOrg/PyAutoMind\n"
 def _html(mind: Path) -> str:
     from copy_contract import assert_portable_copy_payloads
     page = _intake.render_dashboard_html(_intake.census(mind))
-    assert_portable_copy_payloads(page)
+    if 'data-cmd="' in page:
+        assert_portable_copy_payloads(page)
     return page
 
 
@@ -454,12 +455,11 @@ _EPICS = """# Epics
 """
 
 
-def test_epics_section_sits_at_the_bottom_with_a_resume_prompt(tmp_path):
-    """Epics group at the bottom — after the Backlog, so members and their
-    programme read as one unit rather than scattering through the page."""
+def test_epics_section_follows_start_here_with_a_resume_prompt(tmp_path):
+    """Epics follow Start here, with their members and resume prompt together."""
     mind = _mind(tmp_path, registries={"epics.md": _EPICS})
     page = _page(mind)
-    assert page.index("## Backlog") < page.index("## Epics")
+    assert page.index("## Start here") < page.index("## Epics") < page.index("## In flight")
     epics = page.split("## Epics")[1]
     assert "JAX inference programme" in epics
     assert "PROGRAMME.md" in epics
@@ -488,7 +488,8 @@ def test_epic_members_leave_the_pick_lists_and_work_type_sections(tmp_path):
     })
     page = _page(mind)
     epics_at = page.index("## Epics")
-    body, epics = page[:epics_at], page[epics_at:]
+    flight_at = page.index("## In flight")
+    body, epics = page[:epics_at] + page[flight_at:], page[epics_at:flight_at]
     assert "Phase one" not in body and "Phase two" not in body
     assert "Standalone thing" in body
     # Grouped under the epic, phase order, with the resume prompt first and
@@ -497,8 +498,7 @@ def test_epic_members_leave_the_pick_lists_and_work_type_sections(tmp_path):
         < epics.index("Phase one") < epics.index("Phase two")
     assert "2 queued prompt(s), in order" in epics
     assert "in order through the epic" in epics
-    # The Backlog header points at where the members went.
-    assert "belong to an epic" in body
+    assert "belong to an epic" not in body
 
 
 def test_phaseless_members_sort_after_phased_by_filename(tmp_path):
@@ -588,29 +588,22 @@ def test_the_page_states_when_it_was_generated_without_usage_prose(tmp_path):
     assert "Every task the Mind is holding" not in banner
 
 
-def test_the_refresh_banner_is_a_copyable_instruction_not_a_bare_command(tmp_path):
+def test_redundant_refresh_prompt_is_removed(tmp_path):
     mind = _mind(tmp_path, drafts={"bug/widgets/x.md": _prompt("A task")})
     banner = _page(mind).split("| Where | Count |")[0]
-    assert "📋" in banner, "the banner uses the same one-tap idiom as a task row"
-    for step in ("lifecycle.py record", "git pull --ff-only",
-                 "pyauto-brain intake --apply dashboard"):
-        assert step in banner, step
-    assert "never hand-edit" in banner.lower()
+    assert "Refresh this page" not in banner
+    assert "lifecycle.py record" not in banner
 
 
-def test_the_html_twin_carries_the_banner_with_a_real_copy_button(tmp_path):
+def test_html_retains_update_button_without_redundant_refresh_prompt(tmp_path):
     mind = _mind(tmp_path, drafts={"bug/widgets/x.md": _prompt("A task")})
     c = _intake.census(mind)
     c['home'] = 'https://github.com/Example/Mind'
     html = _intake.render_dashboard_html(c)
-    fresh = html.split('<div class="fresh">')[1].split("</div>")[0]
-    assert 'Last updated' not in fresh
     assert f'data-refreshed-at="{c["refreshed_at"]}"' in html
     assert '/actions/workflows/dashboard_refresh.yml' in html
-    assert 'button class="copy"' in fresh and "data-cmd=" in fresh
-    assert "This page is" not in _prose(fresh)
-    assert "`git pull --ff-only`" in fresh, "the payload is copied, not rendered"
-    assert ".fresh{" in html, "the banner ships its own rule, not the shared theme"
+    assert 'Refresh this page' not in html
+    assert '<div class="fresh">' not in html
 
 
 def test_no_epics_file_renders_an_empty_destination(tmp_path):
@@ -625,8 +618,8 @@ def test_html_sections_link_their_markdown_source(tmp_path):
     for src in ("active.md", "epics.md", "planned.md"):
         assert f'/blob/main/{src}" title="Markdown version" aria-label="Markdown version"><svg' in html, src
     assert '/tree/main/draft" title="Markdown version" aria-label="Markdown version"><svg' in html
-    # The page header also links back to the repository front door.
-    assert '/blob/main/README.md">GitHub Page</a>' in html
+    # Redundant header links are removed; section source icons remain.
+    assert '/blob/main/README.md">GitHub Page</a>' not in html
 
 
 # --------------------------------------------------------------------------- #
@@ -696,11 +689,11 @@ def test_recent_is_newest_first(tmp_path):
         (r["date"] for r in rows), reverse=True)
 
 
-def test_recent_sits_after_the_backlog_and_before_the_epics(tmp_path):
+def test_recent_sits_after_backlog_and_before_pending_release(tmp_path):
     mind = _recent_mind(tmp_path)
     (mind / "epics.md").write_text(_EPICS, encoding="utf-8")
     page = _page(mind)
-    assert page.index("## Backlog") < page.index("## Recent") < page.index("## Epics")
+    assert page.index("## Backlog") < page.index("## Recent") < page.index("## Pending release")
 
 
 def test_an_undated_task_is_absent_rather_than_sorted_to_the_bottom(tmp_path):
@@ -753,8 +746,7 @@ def test_a_date_in_another_fields_prose_does_not_count_as_a_date(tmp_path):
 def test_the_html_twin_carries_the_same_feed_with_real_copy_buttons(tmp_path):
     html = _intake.render_dashboard_html(_intake.census(_recent_mind(tmp_path)))
     assert "<h2>Recent" in html
-    assert html.index("Backlog") < html.index("<h2>Recent") < html.index("<h2>Epics") \
-        if "<h2>Epics" in html else True
+    assert html.index("<h2>Backlog") < html.index("<h2>Recent") < html.index("<h2>Pending release")
     assert '<table class="recent">' in html
     assert 'data-cmd="Use the start-dev skill. active/sprocket_calibration.md"' in html
 
@@ -764,7 +756,7 @@ def test_a_live_row_wears_its_date_where_the_task_is(tmp_path):
     than against one issued in May, so the date rides on the row too — not
     only down in the Recent feed."""
     page = _page(_recent_mind(tmp_path))
-    flight = page.split("## In flight")[1].split("## Pending release")[0]
+    flight = page.split("## In flight")[1].split("## Planned")[0]
     assert "issued 2026-08-19" in flight
     assert "flywheel-balance" not in page
     assert "filed 2026-07-01" in page.split("## Planned")[1].split("## Backlog")[0]
@@ -849,11 +841,10 @@ def _prose(html: str) -> str:
     return re.sub(r'data-cmd="[^"]*"', "data-cmd=\"\"", html)
 
 
-def test_the_html_blurb_renders_its_code_spans(tmp_path):
-    """The blurb is shared with the markdown page; its backticks would
-    otherwise print literally here."""
+def test_recent_explanatory_blurb_is_removed(tmp_path):
     html = _prose(_intake.render_dashboard_html(_intake.census(_many(tmp_path, 80))))
-    assert "<code>complete/index.md</code>" in html
+    assert "<code>complete/index.md</code>" not in html
+    assert "newest things to happen" not in html
     assert "`complete/index.md`" not in html
 
 
@@ -1070,7 +1061,7 @@ def test_human_review_section_renders_empty_rather_than_vanishing(tmp_path):
     page = _page(_mind(tmp_path, drafts={"feature/widgets/a.md": _prompt("A")}))
     section = page.split('<a id="human-review"></a>')[1].split("<summary><b>feature</b>")[0]
     assert "_(nothing awaiting review)_" in section
-    assert "nothing has been flagged, not that nothing shipped" in section
+    assert "nothing has been flagged, not that nothing shipped" not in section
 
 
 def test_human_review_body_may_name_its_shipped_pr_without_reading_as_drift(
@@ -1100,8 +1091,7 @@ def test_human_review_renders_on_the_html_twin(tmp_path):
     section = html.split('<details id="human-review">')[1].split("</details>")[0]
     assert "Check the widget rollout" in section
     assert "so I can sign it off" in section
-    # The blurb's markdown must not print literally on a page that renders HTML.
-    assert "**you**" not in html and "<b>you</b>" in html
+    assert "Shipped work waiting on" not in section
 
 
 # --------------------------------------------------------------------------- #
@@ -1151,8 +1141,8 @@ def test_button_appears_once_collected_is_stamped(tmp_path):
 
 def test_a_reviewed_batch_disappears_from_the_box(tmp_path):
     mind = _mind(tmp_path, batches={"2026-09-02-pm.md": DEV_RECORD_REVIEWED})
-    assert "No batch in flight." in _page(mind)
-    assert "No batch in flight." in _html(mind)
+    assert "No batch in flight." not in _page(mind)
+    assert "No batch in flight." not in _html(mind)
 
 
 def test_a_review_file_on_disk_closes_the_slot_without_a_reviewed_at_key(tmp_path):
@@ -1162,13 +1152,13 @@ def test_a_review_file_on_disk_closes_the_slot_without_a_reviewed_at_key(tmp_pat
         "2026-09-03-pm.md": DEV_RECORD_COLLECTED,
         "reviews/2026-09-03-pm.md": "# Batch review 2026-09-03-pm\n",
     })
-    assert "No batch in flight." in _page(mind)
+    assert "No batch in flight." not in _page(mind)
 
 
-def test_empty_mind_renders_the_fixture(tmp_path):
+def test_empty_mind_omits_batch_placeholder(tmp_path):
     mind = _mind(tmp_path)
-    assert "No batch in flight." in _page(mind)
-    assert "No batch in flight." in _html(mind)
+    assert "No batch in flight." not in _page(mind)
+    assert "No batch in flight." not in _html(mind)
 
 
 def test_batch_box_md_and_html_agree_on_slugs_and_the_review_url(tmp_path):
@@ -1205,7 +1195,7 @@ def test_in_flight_rows_link_every_pr_key_labelled_by_repo(tmp_path):
     mind = _mind(tmp_path,
                  active={"widget_rework.md": _prompt("Widget rework")},
                  registries={"active.md": PR_LEDGER_ACTIVE})
-    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Planned")[0]
     for label, url in (("Widgets#7", "https://github.com/ExampleOrg/Widgets/pull/7"),
                        ("Gadgets#8", "https://github.com/ExampleOrg/Gadgets/pull/8"),
                        ("widgets_workspace#9",
@@ -1225,7 +1215,7 @@ def test_the_older_single_line_comma_form_of_a_pr_key_still_links(tmp_path):
             "- status: shipped\n"
             "- library-pr: https://github.com/ExampleOrg/Widgets/pull/7, "
             "https://github.com/ExampleOrg/Gadgets/pull/8\n")})
-    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Planned")[0]
     assert "Widgets#7" in flight and "Gadgets#8" in flight
 
 
@@ -1250,7 +1240,7 @@ def test_a_pending_release_badge_is_read_from_the_ledger_not_github(tmp_path):
                  active={"widget_rework.md": _prompt("Widget rework"),
                          "gadget_polish.md": _prompt("Gadget polish")},
                  registries={"active.md": PENDING_ACTIVE})
-    flight = _page(mind).split("## In flight")[1].split("## Pending release")[0]
+    flight = _page(mind).split("## In flight")[1].split("## Planned")[0]
     assert "⏳ pending release: Widgets" in flight
     assert "⏸ waiting on Widgets's release" in flight
 
@@ -1274,7 +1264,7 @@ def test_pending_release_groups_the_prs_and_the_tasks_waiting_on_them(tmp_path):
     assert "Decoys" not in section, \
         "the appended Original prompt is not the record's own fields"
     assert "⏸ waiting: [Gadget polish]" in section
-    assert "never a live GitHub query" in section
+    assert "never a live GitHub query" not in section
 
 
 def test_an_empty_pending_release_section_keeps_its_destination(tmp_path):
@@ -1409,10 +1399,10 @@ def test_seven_navigation_counts_and_nested_review(tmp_path):
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
     counts = re.findall(r'board-nav-count">(\d+)</span><span class="board-nav-label">([^<]+)', nav)
     assert [(label, int(count)) for count, label in counts] == [
-        ("Start here", 2), ("In flight", c["issued_count"]),
-        ("Planned", 0), ("Backlog", 4),
-        ("Pending release", len(c["pending_release"])),
-        ("Recent", len(c["recent"])), ("Epics", len(c["epics"]) + 1)]
+        ("Start here", 2), ("Epics", len(c["epics"]) + 1),
+        ("In flight", c["issued_count"]), ("Planned", 0), ("Backlog", 4),
+        ("Recent", len(c["recent"])),
+        ("Pending release", len(c["pending_release"]))]
     assert 'style="--nav-columns:7"' in nav
     assert "Human review" not in nav and "Parked" not in nav and "Bundles" not in nav
     backlog = page.split('<a id="backlog"></a>')[1].split('<a id="recent"></a>')[0]

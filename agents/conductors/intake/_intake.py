@@ -1180,7 +1180,7 @@ def _clip(text: str, limit: int = 130) -> str:
 # work in hand. `complete/index.md` is where shipped work is read.
 # How deep the feed goes, and how much of it is on screen at once. The table
 # is a glance, not a log: ten rows answer "what has been happening?" without
-# pushing the Epics below a scroll, and the rest is one tap away — so a quiet
+# a long scroll, and the rest is one tap away — so a quiet
 # week still shows a fortnight of context and a busy one does not bury it.
 RECENT_MAX = 50
 RECENT_PAGE = 10
@@ -1636,14 +1636,6 @@ def _pick_key(r: dict) -> tuple:
 # than a the start-dev skill, and it ends by naming both exits — sign off (retire the
 # prompt) or don't (file the follow-up) — because a review that stops at
 # "looks fine" leaves the row on the board forever.
-HUMAN_REVIEW_BLURB = (
-    "Shipped work waiting on **you** — tasks a human asked to check before "
-    "calling them done. Nothing lands here on its own: a task only gets a "
-    "review row when someone files one (`/intake` with `Type: human review`), "
-    "so an empty section means nothing has been flagged, not that nothing "
-    "shipped."
-)
-
 HUMAN_REVIEW_PAYLOAD = """\
 Walk me through the completed work described in `{path}` so I can sign it off.
 
@@ -1808,18 +1800,6 @@ def _epic_members(c: dict) -> dict:
     return groups
 
 
-RECENT_BLURB = (
-    "The {n} newest things to happen to the work in hand, newest first — "
-    "issued, filed, flagged for review. Every other section on this page is laid out by "
-    "state, which is exactly why none of them can answer \u201cwhat has been "
-    "happening?\u201d. Shipped work is not here: it is read from "
-    "`complete/index.md`, and a thousand records deep it would crowd out "
-    "everything anyone can still act on.")
-
-RECENT_PAGING_NOTE = (
-    " Showing the newest {page}; \u2026 opens the next {page}.")
-
-
 def _dated(row: dict) -> str:
     """`— issued 2026-08-19`, the facet every live task row now carries.
 
@@ -1831,14 +1811,6 @@ def _dated(row: dict) -> str:
         return ""
     event = EVENT_LABEL.get(row.get("event", ""), row.get("event") or "dated")
     return f" — {event} {row['date']}"
-
-
-def _recent_blurb(rows: list) -> str:
-    """The section's prose — the paging sentence only when there IS paging."""
-    text = RECENT_BLURB.format(n=len(rows))
-    if len(rows) > RECENT_PAGE:
-        text += RECENT_PAGING_NOTE.format(page=RECENT_PAGE)
-    return text
 
 
 RECENT_TABLE_HEAD = ["| Date | Event | Task |", "|------|-------|------|"]
@@ -1915,14 +1887,14 @@ def _dashboard_navigation(c: dict) -> list:
     return [
         {"label": "Start here", "href": "#start-here",
          "count": len({r["path"] for r in high + quick})},
+        {"label": "Epics", "href": "#epics", "count": len(epics)},
         {"label": "In flight", "href": "#in-flight", "count": c["issued_count"]},
         {"label": "Planned", "href": "#planned", "count": len(c["planned"])},
         {"label": "Backlog", "href": "#backlog",
          "count": c["total"] + len(c.get("human_review") or [])},
+        {"label": "Recent", "href": "#recent", "count": len(c.get("recent") or [])},
         {"label": "Pending release", "href": "#pending-release",
          "count": len(c.get("pending_release") or [])},
-        {"label": "Recent", "href": "#recent", "count": len(c.get("recent") or [])},
-        {"label": "Epics", "href": "#epics", "count": len(epics)},
     ]
 
 
@@ -1953,9 +1925,6 @@ def render_dashboard(c: dict) -> str:
     L += [
         f"> **Last updated {c['generated']}.**",
         "",
-        _task_row("<b>Refresh this page</b> — reconcile finished prompts, "
-                  "then regenerate", REFRESH_PAYLOAD),
-        "",
         "| Where | Count |",
         "|-------|------:|",
     ]
@@ -1968,11 +1937,12 @@ def render_dashboard(c: dict) -> str:
               "prompt never advanced, so it still renders as backlog:", ""]
         L += [f"> - `{d}`" for d in c["drift"]]
         L += [""]
-    L += [_status_box_md(c["batch"]), ""]
+    if c["batch"] is not None:
+        L += [_status_box_md(c["batch"]), ""]
     L += ["## Start here", ""]
 
     # Epic members never appear in the pick lists or the work-type sections —
-    # they are worked in order through their epic (bottom of the page).
+    # they are worked in order through their epic below Start here.
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
     high = [r for r in standalone if r["priority"] == "high"]
@@ -1988,85 +1958,6 @@ def render_dashboard(c: dict) -> str:
         L += _items([_bullet(r) for r in shown]) or ["- _(none right now)_"]
         L += [""]
 
-    L += ["## In flight", "",
-          "Issued — each has an open GitHub issue and usually a branch. The "
-          "full record for each is in [`active.md`](active.md).", ""]
-    flight = []
-    for r in c["in_flight"]:
-        head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
-        if r["issue_no"]:
-            head += f" — <a href=\"{r['issue']}\">issue #{r['issue_no']}</a>"
-        head += _dated(r)
-        if r["status"]:
-            head += f" — {_summary_label(_clip(r['status']))}"
-        head += _pr_column(r)
-        flight.append(_task_row(head, f"Use the start-dev skill. {r['path']}"))
-    L += _items(flight) or ["- _(nothing in flight)_"]
-    L += [""]
-
-    L += _pending_release_section(c.get("pending_release") or [])
-
-    for key, heading, verb, blurb in (
-        ("planned", "Planned", "start",
-         "Scoped but not started; some are not yet prompt "
-         "files. Full detail in [`planned.md`](planned.md)."),
-    ):
-        rows = c[key]
-        L += [f"## {heading}", "", blurb, "",
-              "<details>", f"<summary><b>{len(rows)}</b> task(s)</summary>", ""]
-        items = []
-        for e in rows:
-            head = f"<b>{_summary_label(e['slug'])}</b>"
-            if e["issue_no"]:
-                head += f" — <a href=\"{e['issue']}\">issue #{e['issue_no']}</a>"
-            head += _dated(e)
-            if e["status"]:
-                head += f" — {_summary_label(_clip(e['status']))}"
-            items.append(_task_row(head, _registry_payload(e, key, verb)))
-        L += _items(items) or ["- _(none)_"]
-        L += ["", "</details>", ""]
-
-    n_members = sum(len(v) for v in members.values())
-    member_note = (f" **{n_members}** of them belong to an epic and are "
-                   "listed only under [Epics](#epics) below."
-                   if n_members else "")
-    L += [f"## Backlog", "",
-          f"**{c['total']}** unstarted prompts and "
-          f"**{len(c.get('human_review') or [])}** awaiting human review. "
-          "Unstarted prompts are sorted "
-          f"most-pickable first (priority, then size).{member_note}", ""]
-    reviews = c.get("human_review") or []
-    L += ['<a id="human-review"></a>', "<details>",
-          f"<summary><b>Human review</b> — {len(reviews)}</summary>", "",
-          HUMAN_REVIEW_BLURB, ""]
-    L += _items([_task_row(_review_head(r), _review_payload(r))
-                 for r in reviews]) or ["- _(nothing awaiting review)_"]
-    L += ["", "</details>", ""]
-    for wt in c["by_work_type"]:
-        rows = [r for r in standalone if r["work_type"] == wt]
-        if not rows:
-            continue
-        L += ["<details>", f"<summary><b>{wt}</b> — {len(rows)}</summary>", ""]
-        L += _items([_bullet(r) for r in rows])
-        L += ["", "</details>", ""]
-
-    # Recency is orthogonal to state, so it gets its own table rather than a
-    # column on any section above. A table, not the page's usual copy rows:
-    # this section is read, not picked from — the task's own section is where
-    # it is picked up.
-    recent = c.get("recent") or []
-    L += ["## Recent", ""]
-    if not recent:
-        L += ["_(no recent activity)_", ""]
-    if recent:
-        L += [_recent_blurb(recent), ""]
-        L += _recent_pages(recent)
-        L += ["", "_Dates come from each task's registry entry — "
-              "`lifecycle.py dates` reports anything undated._", ""]
-
-    # Epics live at the bottom, whole: each epic's resume prompt sits with its
-    # queued member prompts, grouped and phase-ordered, so nobody picks a
-    # member standalone out of order from a work-type section above.
     known = {e["slug"] for e in c.get("epics") or []}
     stray = [s for s in members if s not in known]
     L += ["## Epics", ""]
@@ -2101,6 +1992,68 @@ def render_dashboard(c: dict) -> str:
                   "queued prompt(s) — ⚠️ not in `epics.md`</summary>", ""]
             L += _items([_bullet(r) for r in rows])
             L += ["", "</details>", ""]
+
+    L += ["## In flight", ""]
+    flight = []
+    for r in c["in_flight"]:
+        head = f"<a href=\"{r['path']}\">{_summary_label(r['title'])}</a>"
+        if r["issue_no"]:
+            head += f" — <a href=\"{r['issue']}\">issue #{r['issue_no']}</a>"
+        head += _dated(r)
+        if r["status"]:
+            head += f" — {_summary_label(_clip(r['status']))}"
+        head += _pr_column(r)
+        flight.append(_task_row(head, f"Use the start-dev skill. {r['path']}"))
+    L += _items(flight) or ["- _(nothing in flight)_"]
+    L += [""]
+
+    for key, heading, verb, blurb in (
+        ("planned", "Planned", "start",
+         "Scoped but not started; some are not yet prompt "
+         "files. Full detail in [`planned.md`](planned.md)."),
+    ):
+        rows = c[key]
+        L += [f"## {heading}", "", blurb, "",
+              "<details>", f"<summary><b>{len(rows)}</b> task(s)</summary>", ""]
+        items = []
+        for e in rows:
+            head = f"<b>{_summary_label(e['slug'])}</b>"
+            if e["issue_no"]:
+                head += f" — <a href=\"{e['issue']}\">issue #{e['issue_no']}</a>"
+            head += _dated(e)
+            if e["status"]:
+                head += f" — {_summary_label(_clip(e['status']))}"
+            items.append(_task_row(head, _registry_payload(e, key, verb)))
+        L += _items(items) or ["- _(none)_"]
+        L += ["", "</details>", ""]
+
+    L += ["## Backlog", ""]
+    reviews = c.get("human_review") or []
+    L += ['<a id="human-review"></a>', "<details>",
+          f"<summary><b>Human review</b> — {len(reviews)}</summary>", ""]
+    L += _items([_task_row(_review_head(r), _review_payload(r))
+                 for r in reviews]) or ["- _(nothing awaiting review)_"]
+    L += ["", "</details>", ""]
+    for wt in c["by_work_type"]:
+        rows = [r for r in standalone if r["work_type"] == wt]
+        if not rows:
+            continue
+        L += ["<details>", f"<summary><b>{wt}</b> — {len(rows)}</summary>", ""]
+        L += _items([_bullet(r) for r in rows])
+        L += ["", "</details>", ""]
+
+    # Recency is orthogonal to state, so it gets its own table rather than a
+    # column on any section above. A table, not the page's usual copy rows:
+    # this section is read, not picked from — the task's own section is where
+    # it is picked up.
+    recent = c.get("recent") or []
+    L += ["## Recent", ""]
+    if not recent:
+        L += ["_(no recent activity)_", ""]
+    if recent:
+        L += _recent_pages(recent)
+        L += ["", "_Dates come from each task's registry entry — "
+              "`lifecycle.py dates` reports anything undated._", ""]
 
     # Hygiene is the page's only audit section: what a human should tidy, not
     # what to pick. Each flag class is its own count line + `<details>` list.
@@ -2141,6 +2094,8 @@ def render_dashboard(c: dict) -> str:
         for i, block in enumerate(blocks):
             L += ([""] if i else []) + block
 
+    L += [""] + _pending_release_section(c.get("pending_release") or [])
+
     boards = _board_links(c.get("home", ""))
     if boards:
         L += ["", "Boards: " + " · ".join(f"[{n}]({u})" for n, u in boards)]
@@ -2179,14 +2134,6 @@ document.addEventListener("click",e=>{
 # (see `_summary_label`) — and it is deliberately a suffix on the task line
 # rather than a real table column: the page is read on a phone, where a
 # five-column table wraps into unreadability.
-PENDING_RELEASE_BLURB = (
-    "Library PRs the ledger records as merged but not yet released, and the "
-    "in-flight tasks waiting on each. Rendered from the ledger — `active.md` "
-    "and the `complete/` records — never a live GitHub query; the Brain "
-    "board's `pending-release` search is the fresh view, this is what the Mind "
-    "believes.")
-
-
 def _pr_column(r: dict) -> str:
     """The `— PRs: Repo#N, Repo#N` suffix, plus the ledger's own badges."""
     out = ""
@@ -2205,7 +2152,7 @@ def _pr_column(r: dict) -> str:
 
 def _pending_release_section(groups: list) -> list:
     """Pending repositories, with a stable destination even when empty."""
-    L = ["## Pending release", "", PENDING_RELEASE_BLURB, ""]
+    L = ["## Pending release", ""]
     if not groups:
         L += ["_(nothing pending release)_", ""]
     for g in groups:
@@ -2329,20 +2276,13 @@ def render_dashboard_html(c: dict) -> str:
         work_links=[{"label": "Open Mind repository", "href": home}] if home else [], organ="mind",
         refreshed_at=c.get("refreshed_at"),
         refresh_url=home + "/actions/workflows/dashboard_refresh.yml" if home else None))
-    H += ['<div class="fresh">',
-          _html_task("<b>Refresh this page</b> — reconcile finished prompts, "
-                     "then regenerate", REFRESH_PAYLOAD),
-          "</div>"]
-    if home:
-        H.append(f'<p class="muted mdsrc">'
-                 f'{link("dashboard.md", "markdown version")} · '
-                 f'{link("README.md", "GitHub Page")}</p>')
     if c.get("drift"):
         H += ['<p>⚠️ <b>Needs lifecycle reconciliation</b> — draft prompts '
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
         H += [f"<li><code>{_attr(d)}</code></li>" for d in c["drift"]]
         H += ["</ul>"]
-    H.append(_status_box_html(c["batch"]))
+    if c["batch"] is not None:
+        H.append(_status_box_html(c["batch"]))
     H += ['<a id="start-here"></a><h2>Start here</h2>']
 
     members = _epic_members(c)
@@ -2370,118 +2310,6 @@ def render_dashboard_html(c: dict) -> str:
                   "Epics": "epics"}.get(title)
         prefix = f'<a id="{anchor}"></a>' if anchor else ""
         return prefix + f"<h2>{title}{a}</h2>"
-
-    H += [h2("In flight", "active.md"),
-          '<p class="muted">Issued — each has an open GitHub issue and '
-          "usually a branch.</p>"]
-    for r in c["in_flight"]:
-        text = link(r["path"], _summary_label(r["title"]))
-        if r["issue_no"]:
-            text += f' — <a href="{_attr(r["issue"])}">issue #{r["issue_no"]}</a>'
-        if r.get("date"):
-            text += f'<span class="facets">{_dated(r)}</span>'
-        if r["status"]:
-            text += (f' — <span class="facets">'
-                     f'{_summary_label(_clip(r["status"]))}</span>')
-        text += _pr_column(r)
-        H.append(_html_task(text, f"Use the start-dev skill. {r['path']}"))
-    if not c["in_flight"]:
-        H.append('<p class="muted">(nothing in flight)</p>')
-
-    groups = c.get("pending_release") or []
-    H += ['<a id="pending-release"></a>' + h2("Pending release", "active.md"),
-          f'<p class="muted">{_md_inline(PENDING_RELEASE_BLURB)}</p>']
-    if not groups:
-        H.append('<p class="muted">(nothing pending release)</p>')
-    if groups:
-        for g in groups:
-            H.append(f"<h3>{_summary_label(g['lib'])}</h3>")
-            items = [f'<li><a href="{_attr(pr["url"])}">{pr["label"]}</a> '
-                     f'<span class="facets">{_summary_label(pr["source"])}</span></li>'
-                     for pr in g["prs"]]
-            items += [f'<li>⏸ waiting: {link(row["path"], _summary_label(row["title"]))}'
-                      "</li>" for row in g["gated"]]
-            H.append("<ul>" + "".join(
-                items or ["<li>(no PR recorded — the gate names this library "
-                          "only)</li>"]) + "</ul>")
-
-    for key, heading, verb in (("planned", "Planned", "start"),):
-        rows = c[key]
-        H += [h2(heading, f"{key}.md"), "<details>",
-              f"<summary>{len(rows)} task(s)</summary>"]
-        for e in rows:
-            text = f"<b>{_summary_label(e['slug'])}</b>"
-            if e["issue_no"]:
-                text += (f' — <a href="{_attr(e["issue"])}">'
-                         f'issue #{e["issue_no"]}</a>')
-            if e.get("date"):
-                text += f'<span class="facets">{_dated(e)}</span>'
-            if e["status"]:
-                text += (f' — <span class="facets">'
-                         f'{_summary_label(_clip(e["status"]))}</span>')
-            H.append(_html_task(text, _registry_payload(e, key, verb)))
-        if not rows:
-            H.append('<p class="muted">(none)</p>')
-        H.append("</details>")
-
-    n_members = sum(len(v) for v in members.values())
-    member_note = (f" {n_members} of them belong to an epic and are listed "
-                   "only under Epics below." if n_members else "")
-    H += [h2("Backlog", "draft").replace("/blob/main/draft", "/tree/main/draft"),
-          f'<p class="muted">{c["total"]} unstarted prompts and '
-          f'{len(c.get("human_review") or [])} awaiting human review. '
-          f"Unstarted prompts are sorted most-pickable first (priority, then size).{member_note}</p>"]
-    reviews = c.get("human_review") or []
-    H += ['<details id="human-review">',
-          f'<summary>Human review — {len(reviews)}</summary>',
-          f'<p class="muted">{_md_inline(HUMAN_REVIEW_BLURB)}</p>']
-    for r in reviews:
-        text = link(r["path"], _summary_label(r["title"]))
-        text += pills(*(_summary_label(x) for x in
-                        (r["target"], r["autonomy"], r["priority"])),
-                      work_type=HUMAN_REVIEW)
-        if r.get("date"):
-            text += f'<span class="facets">{_dated(r)}</span>'
-        H.append(_html_task(text, _review_payload(r)))
-    if not reviews:
-        H.append('<p class="muted">(nothing awaiting review)</p>')
-
-    H.append("</details>")
-
-    for wt in c["by_work_type"]:
-        rows = [r for r in standalone if r["work_type"] == wt]
-        if not rows:
-            continue
-        H += ["<details>", f"<summary>{wt} — {len(rows)}</summary>"]
-        H += [record_row(r) for r in rows]
-        H += ["</details>"]
-
-    recent = c.get("recent") or []
-    H += ['<a id="recent"></a>' + h2("Recent", "dashboard.md#recent")]
-    if not recent:
-        H.append('<p class="muted">(no recent activity)</p>')
-    if recent:
-        # Render authored inline markup instead of literal backticks.
-        H += [f'<p class="muted">{_summary_label(_recent_blurb(recent))}</p>',
-              '<table class="recent">']
-        for i, r in enumerate(recent):
-            # Every row ships in the DOM; the ones past the first page start
-            # hidden, so revealing them is a flag flip rather than a re-render
-            # — and a reader with JS off sees the whole feed rather than ten
-            # rows and a dead button.
-            H += ["<tr hidden>" if i >= RECENT_PAGE else "<tr>",
-                  f'<td class="when">{r["date"]}</td>',
-                  f'<td class="what">{_summary_label(r["event"])}</td>',
-                  f'<td>{link(r["path"], _summary_label(_clip(r["title"], 70)))}</td>',
-                  f'<td class="pick"><button class="copy" '
-                  f'data-cmd="{_attr(r["payload"])}" aria-label="Copy the '
-                  f'AI prompt">📋</button></td>',
-                  "</tr>"]
-        H += ["</table>"]
-        rest = len(recent) - RECENT_PAGE
-        if rest > 0:
-            H += [f'<button class="more" data-page="{RECENT_PAGE}">'
-                  f'… {min(RECENT_PAGE, rest)} more ({rest} left)</button>']
 
     known = {e["slug"] for e in c.get("epics") or []}
     stray = [s for s in members if s not in known]
@@ -2520,6 +2348,106 @@ def render_dashboard_html(c: dict) -> str:
                   "prompt(s) — ⚠️ not in epics.md</summary>"]
             H += [record_row(r) for r in rows]
             H += ["</details>"]
+
+    H += [h2("In flight", "active.md")]
+    for r in c["in_flight"]:
+        text = link(r["path"], _summary_label(r["title"]))
+        if r["issue_no"]:
+            text += f' — <a href="{_attr(r["issue"])}">issue #{r["issue_no"]}</a>'
+        if r.get("date"):
+            text += f'<span class="facets">{_dated(r)}</span>'
+        if r["status"]:
+            text += (f' — <span class="facets">'
+                     f'{_summary_label(_clip(r["status"]))}</span>')
+        text += _pr_column(r)
+        H.append(_html_task(text, f"Use the start-dev skill. {r['path']}"))
+    if not c["in_flight"]:
+        H.append('<p class="muted">(nothing in flight)</p>')
+
+    for key, heading, verb in (("planned", "Planned", "start"),):
+        rows = c[key]
+        H += [h2(heading, f"{key}.md"), "<details>",
+              f"<summary>{len(rows)} task(s)</summary>"]
+        for e in rows:
+            text = f"<b>{_summary_label(e['slug'])}</b>"
+            if e["issue_no"]:
+                text += (f' — <a href="{_attr(e["issue"])}">'
+                         f'issue #{e["issue_no"]}</a>')
+            if e.get("date"):
+                text += f'<span class="facets">{_dated(e)}</span>'
+            if e["status"]:
+                text += (f' — <span class="facets">'
+                         f'{_summary_label(_clip(e["status"]))}</span>')
+            H.append(_html_task(text, _registry_payload(e, key, verb)))
+        if not rows:
+            H.append('<p class="muted">(none)</p>')
+        H.append("</details>")
+
+    H += [h2("Backlog", "draft").replace("/blob/main/draft", "/tree/main/draft")]
+    reviews = c.get("human_review") or []
+    H += ['<details id="human-review">',
+          f'<summary>Human review — {len(reviews)}</summary>']
+    for r in reviews:
+        text = link(r["path"], _summary_label(r["title"]))
+        text += pills(*(_summary_label(x) for x in
+                        (r["target"], r["autonomy"], r["priority"])),
+                      work_type=HUMAN_REVIEW)
+        if r.get("date"):
+            text += f'<span class="facets">{_dated(r)}</span>'
+        H.append(_html_task(text, _review_payload(r)))
+    if not reviews:
+        H.append('<p class="muted">(nothing awaiting review)</p>')
+
+    H.append("</details>")
+
+    for wt in c["by_work_type"]:
+        rows = [r for r in standalone if r["work_type"] == wt]
+        if not rows:
+            continue
+        H += ["<details>", f"<summary>{wt} — {len(rows)}</summary>"]
+        H += [record_row(r) for r in rows]
+        H += ["</details>"]
+
+    recent = c.get("recent") or []
+    H += ['<a id="recent"></a>' + h2("Recent", "dashboard.md#recent")]
+    if not recent:
+        H.append('<p class="muted">(no recent activity)</p>')
+    if recent:
+        H += ['<table class="recent">']
+        for i, r in enumerate(recent):
+            # Every row ships in the DOM; the ones past the first page start
+            # hidden, so revealing them is a flag flip rather than a re-render
+            # — and a reader with JS off sees the whole feed rather than ten
+            # rows and a dead button.
+            H += ["<tr hidden>" if i >= RECENT_PAGE else "<tr>",
+                  f'<td class="when">{r["date"]}</td>',
+                  f'<td class="what">{_summary_label(r["event"])}</td>',
+                  f'<td>{link(r["path"], _summary_label(_clip(r["title"], 70)))}</td>',
+                  f'<td class="pick"><button class="copy" '
+                  f'data-cmd="{_attr(r["payload"])}" aria-label="Copy the '
+                  f'AI prompt">📋</button></td>',
+                  "</tr>"]
+        H += ["</table>"]
+        rest = len(recent) - RECENT_PAGE
+        if rest > 0:
+            H += [f'<button class="more" data-page="{RECENT_PAGE}">'
+                  f'… {min(RECENT_PAGE, rest)} more ({rest} left)</button>']
+
+    groups = c.get("pending_release") or []
+    H += ['<a id="pending-release"></a>' + h2("Pending release", "active.md")]
+    if not groups:
+        H.append('<p class="muted">(nothing pending release)</p>')
+    if groups:
+        for g in groups:
+            H.append(f"<h3>{_summary_label(g['lib'])}</h3>")
+            items = [f'<li><a href="{_attr(pr["url"])}">{pr["label"]}</a> '
+                     f'<span class="facets">{_summary_label(pr["source"])}</span></li>'
+                     for pr in g["prs"]]
+            items += [f'<li>⏸ waiting: {link(row["path"], _summary_label(row["title"]))}'
+                      "</li>" for row in g["gated"]]
+            H.append("<ul>" + "".join(
+                items or ["<li>(no PR recorded — the gate names this library "
+                          "only)</li>"]) + "</ul>")
 
     footer = boards_footer(dict(_board_links(home)), THEME_ORGAN)
     if footer:
