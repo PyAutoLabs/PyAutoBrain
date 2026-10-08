@@ -102,12 +102,9 @@ removed); `/brain
 <agent>` is the raw passthrough. Every command routes **through** the Brain;
 none replaces it.
 
-The morning routine is not a command at all: the **Brain board**
-(`board/_board.py`, published to the Brain's GitHub Pages URL each morning by
-`brain_board.yml`) carries what `/wake_up` used to assemble — overnight runs,
-readiness, community, resume, upkeep — as one-tap 📋 payloads, and
-`bin/morning.sh` is the local sync/clean leg you run in a terminal.
-`/wake_up` remains only as the fallback door when the board is unreachable.
+The **Brain board** (`board/_board.py`, published by `brain_board.yml`)
+is the agents/workflows directory, with overnight exceptions and maintenance.
+Use its task prompt to clarify intent and route work to the owning organ.
 
 The command bodies live in `skills/<verb>/<verb>.md`; thin `SKILL.md` wrappers
 make the same canonical workflows discoverable to skill-aware harnesses.

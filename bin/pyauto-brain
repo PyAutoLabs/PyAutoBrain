@@ -111,7 +111,7 @@ AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 # CONDUCTOR/FACULTY orders so the generated cross-organ command-surface block
 # (install.sh --write-agents-surface) is untouched.
 AGENT_SCRIPT[board]="$BRAIN_HOME/board/board.sh"
-AGENT_DESC[board]="The operational board — render the morning surface (overnight runs, readiness, community, resume, upkeep) as md/html/json/badge; published to Pages by brain_board.yml"
+AGENT_DESC[board]="Agents and workflows, overnight exceptions and maintenance; render md/html/json/badge for Pages"
 SURFACE_ORDER=(board)
 
 cmd_help() {

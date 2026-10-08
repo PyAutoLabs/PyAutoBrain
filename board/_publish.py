@@ -6,10 +6,10 @@ worktree state are local-machine facts. This is the sanctioned enrichment path
 (the Heart's heart/publish.py pattern): the dev box distills BOTH into
 ``state/devbox_board.json``, commits, and pushes to the Brain's own repo —
 brain_board.yml re-publishes on that push, so the board shows them age-stamped
-("observed Nh ago via morning.sh"), going stale at 48h and dropping after 7d.
+("observed Nh ago"), going stale at 48h and dropping after 7d.
 
-The natural caller is ``bin/morning.sh`` — the one command a human already
-runs each morning on the machine that has the observations.
+Run ``pyauto-brain board publish`` explicitly on the machine holding the
+observations. Heart owns its separate tick/publish commands.
 
 Distilled, never raw:
   * hygiene — the conductor's own fast pre-scan (`hygiene.sh --json`, the

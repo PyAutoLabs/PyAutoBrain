@@ -1,35 +1,15 @@
 name: Brain Board
 
-# Publishes the Brain's operational board — the organism's morning door — to
-# this repo's GitHub Pages URL: the page (index.html), its badge.json (the
-# cross-board headline contract the umbrella router consumes), the raw
-# board.json, and the markdown twin board.md.
-#
-# The board replaces the interactive /wake_up skill: everything that skill
-# assembled by driving doors in sequence (overnight scheduled-run sweep, the
-# Heart's readiness headline, version-stamp consistency, the community scan,
-# resume context from the Mind, the upkeep doors) is collected here on a
-# schedule and rendered with one-tap copy-for-Claude payloads. The renderer is
-# board/_board.py; its vocabulary is config/policy.yaml `board:`.
-#
-# Unlike the Mind dashboard (self-healed into the repo, because its state IS
-# the repo), nothing here is committed: the board's data is time-varying, so
-# it is served from the Pages artifact only — a daily refresh makes no commit
-# noise and can never drift against a repo copy.
-#
-# Cadence: 05:30 UTC daily — after the 02:00 nightly release driver and the
-# Heart's 05:00 heart-health refresh (which rewrites the badge this board
-# reads), before the human's morning. GitHub cron jitters 0–3 h under load,
-# so the page stamps its own generation time and every consumer should trust
-# that stamp over the schedule. workflow_dispatch is the manual refresh
-# (also what a human taps when the board says it is stale).
+# Publishes the agents/workflows directory, overnight exceptions and maintenance.
+# Generated artifacts are served from Pages; owning organs retain their evidence.
+# The daily refresh and manual dispatch collect current read-only inputs.
 
 on:
   schedule:
     - cron: "30 5 * * *"
   workflow_dispatch:
-  # A dev-box publish (`pyauto-brain board publish`, usually morning.sh's
-  # last step) pushes state/devbox_board.json to main — republish so the
+  # A dev-box publish (`pyauto-brain board publish`, an explicit local
+  # action) pushes state/devbox_board.json to main — republish so the
   # board shows this morning's local observations a minute later.
   #
   # And whenever the page's own code changes. Merging a renderer or theme

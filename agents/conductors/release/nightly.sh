@@ -104,7 +104,7 @@ log() { printf '== nightly: %s\n' "$*"; }
 
 # notify <emoji> <text> — one Slack message per terminal outcome (design §6).
 # A missing webhook is a loud warning, never a crash: the run's own log +
-# wake_up-digest watchdog still cover it.
+# overnight-status watchdog still cover it.
 notify() {
   local emoji="$1" text="$2"
   printf '%s %s\n' "$emoji" "$text"

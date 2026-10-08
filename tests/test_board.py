@@ -366,115 +366,26 @@ def _surface(tmp_path, fixtures=None):
 # ----------------------------------------------------------------- surface --
 
 
-def test_the_cortex_strip_composes_the_cortex_own_counts(tmp_path):
-    """The science organ renders its own board and decides its own sections;
-    the Brain board shows those numbers rather than re-deriving them, and
-    degrades to nothing at all when no Cortex is checked out."""
-    s, _ = _surface(tmp_path)
-    assert s["cortex"] == {"Running": 1, "Open": 4, "Projects": 3}
-    stub = _fabricate(tmp_path / "no_cortex", _default_fixtures())
-    (tmp_path / "no_cortex" / "PyAutoCortex" / "dashboard.md").unlink()
-    r = _run(["--json"], tmp_path / "no_cortex", stub)
-    assert json.loads(r.stdout)["cortex"] is None
 
 
-def test_the_eyes_strip_composes_the_eyes_own_head_counts(tmp_path):
-    """The Eyes decides its own numbers; the Brain board reads only the
-    counts table at the head of its page (the body's per-domain tables are
-    not counts), links its board, and shows nothing when no Eyes is here."""
-    s, _ = _surface(tmp_path)
-    assert s["eyes"] == {"Instances": 2, "Figures": 40, "Behind": 1,
-                         "Critiques": 3}
-    assert s["boards"]["eyes"].endswith("/PyAutoEyes/")
-    stub = _fabricate(tmp_path / "md", _default_fixtures())
-    md = _run([], tmp_path / "md", stub).stdout
-    assert "- Eyes: instances 2 · figures 40 · behind 1 · critiques 3" in md
-    page = _run(["--html"], tmp_path / "md", stub)
-    assert page.returncode == 0, page.stderr
-    assert "Eyes board" in page.stdout and 'data-organ="eyes"' in page.stdout
-    stub = _fabricate(tmp_path / "no_eyes", _default_fixtures())
-    (tmp_path / "no_eyes" / "PyAutoEyes" / "dashboard.md").unlink()
-    r = _run(["--json"], tmp_path / "no_eyes", stub)
-    assert json.loads(r.stdout)["eyes"] is None
 
 
-def test_the_pulse_strip_composes_the_pulse_own_head_counts(tmp_path):
-    """The Pulse decides its own numbers; the Brain board reads only the
-    counts table at the head of its page (the body's per-project tables are
-    not counts), links its board, and shows nothing when no Pulse is here."""
-    s, _ = _surface(tmp_path)
-    assert s["pulse"] == {"Projects": 1, "Records": 159, "Comparisons": 145,
-                          "Drifted": 0, "Refused pairs": 0, "Cached": 0,
-                          "Failed": 0}
-    assert s["boards"]["pulse"].endswith("/PyAutoPulse/")
-    stub = _fabricate(tmp_path / "md", _default_fixtures())
-    md = _run([], tmp_path / "md", stub).stdout
-    assert ("- Pulse: projects 1 · records 159 · comparisons 145 · "
-            "drifted 0 · refused pairs 0 · cached 0 · failed 0") in md
-    page = _run(["--html"], tmp_path / "md", stub)
-    assert page.returncode == 0, page.stderr
-    assert "Pulse board" in page.stdout and 'data-organ="pulse"' in page.stdout
-    stub = _fabricate(tmp_path / "no_pulse", _default_fixtures())
-    (tmp_path / "no_pulse" / "PyAutoPulse" / "dashboard.md").unlink()
-    r = _run(["--json"], tmp_path / "no_pulse", stub)
-    assert json.loads(r.stdout)["pulse"] is None
 
 
 def test_json_surface_is_complete_and_derives_org(tmp_path):
-    s, _ = _surface(tmp_path)
-    assert set(s) == SURFACE_KEYS
-    assert s["org"] == "ExampleOrg"  # derived from the fabricated body map
-    # Overnight rows: one per policy job, owner defaulted onto the derived org.
-    assert s["overnight"], "policy overnight_jobs rendered no rows"
-    for row in s["overnight"]:
-        # `unreadable` distinguishes "asked, no runs" from "could not ask" —
-        # without it a board that cannot reach GitHub renders every row as
-        # "no runs", which is a claim it has not earned.
-        assert set(row) == {"repo", "workflow", "conclusion", "age_h", "url",
-                            "blocked", "blocked_reason", "unreadable"}
-        assert row["repo"].startswith("ExampleOrg/")
-        assert row["conclusion"] == "success"
-    # Versions: every stamp resolves to the fixture, so consensus + no drift.
-    v = s["versions"]
-    assert v["consensus"] == VERSION
-    assert v["drift"] == 0
-    assert v["reference"] == VERSION
-    # Heart headline via the file:// badge (the cross-board contract), plus
-    # the structured blockers from its published machine surface, verbatim.
-    assert s["heart"]["message"] == "GREEN"
-    assert s["heart_blockers"] == HEART_BOARD_JSON["blockers"]
-    assert s["hands"]["message"] == "GREEN"
-    # Autonomy strip: the log's tail, and the self-carrying trend history.
-    assert [a["task"] for a in s["autonomy"]] == [
-        "first-task (#1)", "second-task (#2)"]
-    assert s["history"][0] == {"date": "2026-08-20", "need_you": 3}
-    assert len(s["history"]) == 2 and s["history"][1]["need_you"] == 0
-    assert s["devbox"] is None  # no observation published in this fixture
-    # Resume: the Mind's own generated counts + the task file + the queue.
-    assert s["resume"]["counts"]["In flight"] == 1
-    assert s["resume"]["counts"]["Backlog"] == 152
-    assert s["resume"]["tasks"] == [{
-        "path": "active/some_task.md", "title": "Fix the fixture widget",
-        "facets": {"type": "bug", "target": "RepoA", "difficulty": "large",
-                   "autonomy": "supervised", "priority": "high"}}]
-    assert s["resume"]["queue_len"] == 2
-    assert s["resume"]["pending_prs"][0]["repo"] == "ExampleOrg/RepoA"
-    assert s["open_issues"] == 42
-    # Community section reuses the Ears' scan surface wholesale.
-    assert s["community"]["counts"]["awaiting_response"] == 0
-    # The doors roster covers every agent (dispatcher registry, both tiers)
-    # AND every workflow door (skills/ minus the agents).
-    verbs = {d["verb"] for d in s["doors"]}
-    assert {"intake", "health", "vitals"} <= verbs
-    skill_verbs = {d["verb"] for d in s["doors"] if d["tier"] == "skill"}
-    assert {"route", "prm", "start_dev", "issue_cleanup"} <= skill_verbs
-    for d in s["doors"]:
-        if d["tier"] == "skill":
-            assert d["desc"], d["verb"]  # frontmatter description parsed
-    assert "board" not in verbs    # the page never lists itself
-    assert "wake_up" not in verbs  # superseded BY this page
-    # Sibling boards resolved against the pages base.
-    assert s["boards"]["heart"].endswith("/PyAutoHeart/")
+    data, log = _surface(tmp_path)
+    assert set(data) == SURFACE_KEYS
+    assert data["org"] == "ExampleOrg"
+    assert data["heart"] is None and data["community"] is None
+    assert data["resume"]["tasks"] == [] and data["versions"]["stamps"] == []
+    assert data["autonomy"] == data["history"] == []
+    assert data["performance"] is not None
+    assert {"intake", "health", "vitals", "prm", "start_dev"} <= {d["verb"] for d in data["doors"]}
+    assert "wake_up" not in {d["verb"] for d in data["doors"]}
+    calls = log.read_text()
+    assert "/contents/" not in calls
+    assert "graphql" not in calls
+    assert "search/issues?q=is:pr" not in calls
 
 
 def test_all_green_is_clear_to_work(tmp_path):
@@ -482,7 +393,7 @@ def test_all_green_is_clear_to_work(tmp_path):
     r = _run(["--badge"], tmp_path, stub)
     badge = json.loads(r.stdout)
     assert badge == {"schemaVersion": 1, "label": "brain",
-                     "message": "clear to work", "color": "brightgreen"}
+                     "message": "Agents & workflows", "color": "brightgreen"}
 
 
 def test_overnight_failure_is_blocking_and_red(tmp_path):
@@ -491,9 +402,9 @@ def test_overnight_failure_is_blocking_and_red(tmp_path):
     r = _run(["--badge"], tmp_path, stub)
     badge = json.loads(r.stdout)
     assert badge["color"] == "red"
-    assert badge["message"].endswith("need you")
+    assert badge["message"].endswith("overnight item(s) to review")
     md = _run([], tmp_path, stub).stdout
-    assert "🚨 Blocking" in md
+    assert "Review overnight work" in md and "failure" in md
 
 
 def test_blocked_gate_is_attention_not_blocking(tmp_path):
@@ -520,7 +431,7 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     sys.path.insert(0, str(BRAIN_HOME / "board"))
     from copy_contract import assert_portable_copy_payloads
     assert_portable_copy_payloads(page)
-    assert "coordinate work across ExampleOrg." in page
+    assert "unspecified task into a concrete next step" in page
     # Self-containment: inline script and href anchors are allowed; external
     # ASSETS are not (the invariant the Heart board's tests settled on).
     # data-cmd payloads legitimately carry URLs, so strip them first.
@@ -531,14 +442,14 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert "fetch(" not in stripped
     assert "@import" not in stripped
     # One-tap payloads for each actionable row family.
-    assert 'data-cmd="Use the start-dev skill. active/some_task.md"' in page
+    assert 'data-cmd="Use the start-dev skill."' in page
     assert 'data-cmd="Use the health skill."' in page
     assert 'data-cmd="Use the community skill."' in page
     assert 'data-cmd="Use the issue-cleanup skill."' in page
-    assert 'data-cmd="Use the prm skill. https://example.invalid/pr/5"' in page
+    assert 'data-cmd="Use the prm skill."' in page
     assert "Use the bug skill. overnight:" in page  # the failing run's payload
     # The local morning leg is a TERMINAL chip, not a Claude payload.
-    assert 'data-cmd="bash PyAutoBrain/bin/morning.sh"' in page
+    assert "morning.sh" not in page
     # The doors roster is on the page.
     assert 'data-cmd="Use the intake skill."' in page
     # Keep the Markdown source without the redundant repository link.
@@ -553,33 +464,23 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
 # state, its tier — so the board is scannable rather than merely blue.
 
 
-def test_the_header_strip_counts_every_section_that_can_ask_something(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures(**{
-        "runs.json": _run_json("failure")}))
+def test_navigation_matches_the_reduced_scope(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
     page = _run(["--html"], tmp_path, stub).stdout
-    for label in ("Overnight red", "Blockers", "Awaiting", "In flight",
-                  "Open issues"):
-        assert f'<span class="board-nav-label">{label}</span>' in page
-    assert page.index('class="hero"') < page.index('class="orchestration-panel"') < page.index('class="board-nav"')
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
-    for target in re.findall(r'href="#([^"]+)"', nav):
+    targets = re.findall(r'href="#([^"]+)"', nav)
+    assert targets == ["agents", "overnight", "maintenance"]
+    for target in targets:
         assert f'id="{target}"' in page
-    # Seven overnight jobs all red in this fixture, one in-flight task, and
-    # the org issue count straight off the search.
-    assert "<span class=\"board-nav-count\">7</span><span class=\"board-nav-label\">Overnight red</span>" in page
-    assert "<span class=\"board-nav-count\">1</span><span class=\"board-nav-label\">In flight</span>" in page
-    assert "<span class=\"board-nav-count\">42</span><span class=\"board-nav-label\">Open issues</span>" in page
+    assert page.index('<h2>Agents &amp; workflows') < page.index('<h2>Review overnight work') < page.index('<h2>Maintenance')
 
 
-def test_an_unreadable_source_counts_as_a_dash_not_a_zero(tmp_path):
-    """The strip is read before the rows; it must not promise a quiet morning
-    the board could not actually see."""
-    stub = _fabricate(tmp_path, _default_fixtures(**{
-        "issue_count.json": {}, "comm_issues.json": {}, "comm_prs.json": {}}))
+def test_unavailable_performance_is_local_to_maintenance(tmp_path):
+    stub = _fabricate(tmp_path, _default_fixtures())
     page = _run(["--html"], tmp_path, stub, {"BOARD_PAGES_BASE": "file:///nope"}).stdout
-    assert "<span class=\"board-nav-count\">–</span><span class=\"board-nav-label\">Blockers</span>" in page
-    assert "<span class=\"board-nav-count\">–</span><span class=\"board-nav-label\">Open issues</span>" in page
-    assert "<span class=\"board-nav-count\">0</span><span class=\"board-nav-label\">Open issues</span>" not in page
+    assert "Performance evidence unavailable" in page
+    assert "Degraded" not in page
+    assert 'id="readiness"' not in page
 
 
 def test_an_overnight_row_wears_its_repo_and_its_conclusion(tmp_path):
@@ -592,33 +493,12 @@ def test_an_overnight_row_wears_its_repo_and_its_conclusion(tmp_path):
     assert '<span class="pill r">failure</span>' in page
     green = _run(["--html"], tmp_path,
                  _fabricate(tmp_path / "green", _default_fixtures())).stdout
-    assert '<span class="pill g">success</span>' in green
+    assert '<span class="pill g">success</span>' not in green
+    assert "No overnight exceptions reported" in green
 
 
-def test_an_in_flight_task_wears_the_minds_own_facets(tmp_path):
-    """A task looks like itself on both pages: the board reads the header the
-    Mind wrote and renders the same pills the Mind dashboard gives it."""
-    stub = _fabricate(tmp_path, _default_fixtures())
-    page = _run(["--html"], tmp_path, stub).stdout
-    assert '<span class="pill w">🐛 bug</span>' in page
-    assert '<span class="pill">RepoA</span>' in page       # target = identity
-    assert '<span class="pill y">large</span>' in page     # judgement = tone
-    assert '<span class="pill r">high</span>' in page
-    assert '<span class="pill n">supervised</span>' in page  # the default
 
 
-def test_a_pill_is_never_a_guess():
-    """No header, a lone field line, or one that starts well down the file:
-    prose, not a header. A row with nothing to say wears nothing."""
-    import sys
-    sys.path.insert(0, str(BRAIN_HOME / "board"))
-    from _board import FACET_KEYS, prompt_facets  # noqa: E402
-    blank = dict.fromkeys(FACET_KEYS, "")
-    assert prompt_facets("# Just a title\n\nSome prose.\n") == blank
-    assert prompt_facets("# t\n\nprose\n\nPriority: low\n") == blank
-    assert prompt_facets("\n" * 9 + "Type: bug\nPriority: high\n") == blank
-    # A partial header is still a header.
-    assert prompt_facets("Type: bug\nPriority: high\n")["priority"] == "high"
 
 
 def test_a_door_is_accented_only_when_it_acts(tmp_path):
@@ -626,7 +506,7 @@ def test_a_door_is_accented_only_when_it_acts(tmp_path):
     page = _run(["--html"], tmp_path, stub).stdout
     assert '<span class="pill">conductor</span>' in page
     assert '<span class="pill n">faculty</span>' in page
-    assert '<span class="pill n">workflow</span>' in page
+    assert '<span class="pill n">skill</span>' in page
 
 
 def test_apply_writes_the_four_pages_files(tmp_path):
@@ -653,46 +533,8 @@ def _community_item(repo, number, login, title, comments=0):
     }
 
 
-def test_every_community_conversation_gets_its_own_chip(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures(**{
-        "comm_issues.json": {"items": [
-            _community_item("ExampleOrg/RepoA", 7, "some_user",
-                            "lens model crashes"),
-            _community_item("ExampleOrg/RepoB", 9, "other_user",
-                            "docs question", comments=2),
-        ]}}))
-    page = _run(["--html"], tmp_path, stub).stdout
-    # One 📋 triage chip per conversation — awaiting-reply and watched alike.
-    assert 'data-cmd="Use the community skill. triage ExampleOrg/RepoA#7"' in page
-    assert 'data-cmd="Use the community skill. triage ExampleOrg/RepoB#9"' in page
-    md = _run([], tmp_path, stub).stdout
-    assert "`Use the community skill. triage ExampleOrg/RepoA#7`" in md
-    assert "`Use the community skill. triage ExampleOrg/RepoB#9`" in md
 
 
-def test_broadcast_discussion_is_visible_as_ours_to_watch(tmp_path):
-    url = "https://github.com/ExampleOrg/RepoA/discussions/21"
-    thread = {
-        **_community_item("ExampleOrg/RepoA", 21, "visitor", "release feedback"),
-        "html_url": url,
-        "ears_awaiting": False,  # Ears owns broadcast classification.
-        "category": {"name": "Announcements"},
-        "state": "open",
-        "answer_chosen_at": None,
-    }
-    stub = _fabricate(tmp_path, _default_fixtures(**{
-        "comm_discussions.json": [thread],
-    }))
-    page_result = _run(["--html"], tmp_path, stub)
-    assert page_result.returncode == 0, page_result.stderr
-    page = page_result.stdout
-    assert f'data-cmd="Use the community skill. triage {url}"' in page
-    assert "ours to watch" in page
-    md_result = _run([], tmp_path, stub)
-    assert md_result.returncode == 0, md_result.stderr
-    md = md_result.stdout
-    assert f"`Use the community skill. triage {url}` [ours to watch]" in md
-    assert "0 awaiting our reply" in md
 
 
 def test_boards_footer_lists_the_family_without_self(tmp_path):
@@ -706,16 +548,6 @@ def test_boards_footer_lists_the_family_without_self(tmp_path):
     assert 'data-organ="brain"' not in footer  # a board never links itself
 
 
-def test_heart_blockers_render_with_their_own_prompts(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures())
-    page = _run(["--html"], tmp_path, stub).stdout
-    blocker = HEART_BOARD_JSON["blockers"][0]
-    # The Heart's own Use the bug skill. prompt is the chip payload — never re-derived.
-    assert f'data-cmd="{blocker["prompt"]}"' in page
-    assert "nightly smoke red" in page
-    md = _run([], tmp_path, stub).stdout
-    assert blocker["prompt"] in md
-    assert "Shipped: **GREEN**" in md  # the Hands headline joined the section
 
 
 HEART_BOARD_STALE = {
@@ -737,116 +569,20 @@ HEART_BOARD_STALE = {
 }
 
 
-def test_a_stale_heart_offers_the_one_plan_that_clears_every_gap(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_STALE)
-    page = _run(["--html"], tmp_path, stub).stdout
-    plan = HEART_BOARD_STALE["stale_plan"]
-
-    # The Heart's own plan is the chip payload — the Brain never derives one.
-    assert html.escape(plan["prompt"], quote=True) in page
-    assert "Clear all 2 evidence gaps" in page
-    # Each gap still arrives with the command that closes it, forwarded whole.
-    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
-    assert [b["command"] for b in s["heart_blockers"]] == [
-        "pyauto-heart verify_install --report-json", None]
-    assert s["heart_plan"]["count"] == 2
-    # The digest spends one line on the tier, not one per gap.
-    md = _run([], tmp_path, stub).stdout
-    assert "Evidence gaps: 2 — clear them all: `pyauto-heart fix stale`" in md
 
 
-def test_a_plan_with_a_command_chain_offers_the_terminal_door(tmp_path):
-    chain = "pyauto-heart verify_install --report-json && pyauto-heart tick"
-    board = {**HEART_BOARD_STALE,
-             "stale_plan": {**HEART_BOARD_STALE["stale_plan"], "command": chain}}
-    stub = _fabricate(tmp_path, _default_fixtures(), board)
-
-    page = _run(["--html"], tmp_path, stub).stdout
-    assert f'data-cmd="{html.escape(chain, quote=True)}"' in page
-    assert "copy term" in page          # the ⌨ terminal chip, not the 📋 one
-    md = _run([], tmp_path, stub).stdout
-    assert f"clear them all: `{chain}`" in md
 
 
-def test_a_heart_board_without_a_plan_renders_none(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures())   # no stale_plan published
-    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
-    assert s["heart_plan"] is None
-    assert "Evidence gaps:" not in _run([], tmp_path, stub).stdout
 
 
-def test_test_performance_rows_carry_their_own_prompts(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_WITH_EVENT)
-    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
-    perf = s["performance"]
-    assert (perf["gates_total"], perf["gates_warn"], perf["events"]) == (2, 1, 1)
-    assert perf["no_run_totals"]["unmeasured_slow"] == 7
-    assert perf["board_url"].endswith("/PyAutoHeart/")
-    # Worst first: the hang event, then the slowed gate, then the SLOW marker
-    # nobody ever measured. A healthy gate is not a row.
-    assert [f["prompt"] for f in perf["flagged"]] == [
-        HEART_PERFORMANCE_EVENT["prompt"],
-        HEART_PERFORMANCE["gates"][0]["prompt"],
-        HEART_PERFORMANCE["no_run"]["rows"][0]["prompt"],
-    ]
-    page = _run(["--html"], tmp_path, stub).stdout
-    assert "⏱ Test performance" in page
-    # Every row's chip is the Heart's own prompt, verbatim — never re-derived.
-    for f in perf["flagged"]:
-        assert f'data-cmd="{f["prompt"]}"' in page
-    assert 'href="https://example.invalid/run/12"' in page
-    assert "Unit Tests" not in page  # the ok gate carries nothing to act on
-    md = _run([], tmp_path, stub).stdout
-    assert "## ⏱ Test performance" in md
-    for f in perf["flagged"]:
-        assert f"`{f['prompt']}`" in md
 
 
-def test_a_hang_event_is_attention_not_blocking(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_WITH_EVENT)
-    badge = json.loads(_run(["--badge"], tmp_path, stub).stdout)
-    # Timing rows stay advisory; a run that hung is a morning fact.
-    assert badge["color"] == "orange"
-    assert badge["message"] == "1 need you"
-    assert "🚨 Blocking" not in _run([], tmp_path, stub).stdout
 
 
-def test_nothing_flagged_renders_one_quiet_row(tmp_path):
-    quiet = {**HEART_PERFORMANCE,
-             "gates": [{**g, "state": "ok"} for g in HEART_PERFORMANCE["gates"]],
-             "no_run": {**HEART_PERFORMANCE["no_run"], "rows": []}}
-    stub = _fabricate(tmp_path, _default_fixtures(),
-                      {**HEART_BOARD_JSON, "performance": quiet})
-    page = _run(["--html"], tmp_path, stub).stdout
-    assert "2 gates timed" in page
-    assert '<span class="pill g">nothing flagged</span>' in page
-    assert "full timings ↗" in page
-    # The markdown twin has no pills, so it keeps saying it in words.
-    assert "2 gates timed · nothing flagged" in _run([], tmp_path, stub).stdout
 
 
-def test_heart_board_without_performance_renders_no_section(tmp_path):
-    """An older Heart publish: no section, and NOT a degraded row."""
-    stub = _fabricate(tmp_path, _default_fixtures(), HEART_BOARD_NO_PERFORMANCE)
-    s = json.loads(_run(["--json"], tmp_path, stub).stdout)
-    assert s["performance"] is None
-    assert s["heart_blockers"] == HEART_BOARD_JSON["blockers"]  # untouched
-    assert not any("performance" in d or "board.json unreachable" in d
-                   for d in s["degraded"])
-    assert "Test performance" not in _run(["--html"], tmp_path, stub).stdout
-    assert "Test performance" not in _run([], tmp_path, stub).stdout
 
 
-def test_a_malformed_performance_block_never_breaks_the_render(tmp_path):
-    """The producer is a sibling organ — field drift costs a row, not a page."""
-    stub = _fabricate(tmp_path, _default_fixtures(), {
-        **HEART_BOARD_JSON,
-        "performance": {"gates": "not-a-list", "events": None,
-                        "no_run": {"rows": [{"repo": "RepoA"}, "junk"]}}})
-    r = _run(["--html"], tmp_path, stub)
-    assert r.returncode == 0, r.stderr
-    assert "0 gates timed" in r.stdout
-    assert '<span class="pill g">nothing flagged</span>' in r.stdout
 
 
 def test_blocked_gate_annotation_renders_inline(tmp_path):
@@ -887,7 +623,7 @@ def test_devbox_observation_renders_age_stamped(tmp_path):
     (tmp_path / "devbox_board.json").write_text(
         json.dumps(_devbox_payload(fresh)))
     page = _run(["--html"], tmp_path, stub).stdout
-    assert "Dev box" in page and "5h" in page
+    assert "Local observations" in page and "5h" in page
     assert "packaging leftovers" in page
     assert 'data-cmd="Use the repo-cleanup skill."' in page  # the row's own delegate door
     assert "<b>crlf</b>" not in page  # clean rows are not rendered
@@ -1061,96 +797,21 @@ def test_board_never_hits_a_mutating_endpoint(tmp_path):
 # --------------------------------------------------------------- degrading --
 
 
-def test_missing_mind_degrades_honestly(tmp_path):
+def test_retired_sections_absent_from_html_and_markdown(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures())
-    env_root = tmp_path / "elsewhere"
-    env_root.mkdir()
-    env = {
-        **os.environ,
-        "PYAUTO_ROOT": str(env_root),
-        "BOARD_GH": str(stub),
-        "BOARD_PAGES_BASE": f"file://{tmp_path}/pages",
-        "COMMUNITY_GH": str(stub),
-        "COMMUNITY_SEARCH_PAUSE": "0",
-    }
-    r = subprocess.run([str(BRAIN), "board", "--json"],
-                       capture_output=True, text=True, env=env, cwd=tmp_path)
-    assert r.returncode == 0, r.stderr
-    s = json.loads(r.stdout)
-    # Org falls back to the Brain checkout's own remote; the community and
-    # resume sections degrade into listed reasons, never fabricated content.
-    assert s["community"]["source"] == "ears"
-    assert any("resume" in d for d in s["degraded"])
-    assert s["resume"]["tasks"] == []
+    for args in (["--html"], []):
+        page = _run(args, tmp_path, stub).stdout
+        for label in ("Morning sync", "Readiness &", "Version consistency", "Community Ears", "## Resume", "Autonomous runs", "Degraded", "need you", " · trend", "GitHub Page"):
+            assert label not in page
+        assert "Investigate slow tests" in page
+        assert "ci-speedup skill" in page
 
 
 # ------------------------------------------------------- the autonomy chips --
 
 
-def test_a_judgement_cell_becomes_a_chip_sized_label(tmp_path):
-    """The log writes its two judgement columns as `<verdict> (<why>)`, because
-    it is a record read as a table. A pill cannot wrap, so the whole sentence
-    used to render as one chip a thousand pixels wide — the board scrolled
-    sideways on a phone, and the tone lookups (which key off the bare verdict)
-    silently fell through to neutral on every such row."""
-    log = AUTONOMY_LOG + (
-        "| 2026-08-03 | third-task (#3) "
-        "| safe (feature medium cap; same resumed acknowledged launch and "
-        "campaign merge authorization) | tests pass "
-        "| merged-unchanged (RepoA#535 merge b9d9927f; issue left open) |\n"
-        "| 2026-08-04 | fourth-task (#4) "
-        "| human-authorized merge after accepted smoke exception and "
-        "independent review | tests pass | amended |\n")
-    stub = _fabricate(tmp_path, _default_fixtures())
-    (tmp_path / "PyAutoMind" / "autonomy_log.md").write_text(log)
-    page = _run(["--html"], tmp_path, stub).stdout
-    # The verdict is the chip; the why stays in the log.
-    assert '<span class="pill g">safe</span>' in page
-    assert '<span class="pill n">merged-unchanged</span>' in page
-    assert "campaign merge authorization" not in page
-    # No parenthetical to cut? Then the head is elided, never left full length.
-    assert '"pill n">human-authorized merge afte…</span>' in page
 
 
-def test_a_six_column_shadow_row_still_renders(tmp_path):
-    """The ledger grew a second table. `/prm` close-out appends one row per
-    tier-`notify` candidate under `## Shadow window`, and that table has SIX
-    columns (`date | task | tier | gate | human action | stage`) against the
-    calibration table's five.
-
-    The strip's regex reads columns 1, 2, 3 and 5 and skips the rest, so a
-    six-column row lands as tier-in-the-level-chip and human-action-in-the-
-    outcome-chip — which is the same pair of judgements the strip exists to
-    show ("what ran unattended lately and how it ended"), so the regex is left
-    alone. What must not happen is a crash, a half-parsed row, or the gate
-    sentence leaking into a pill; this pins all three.
-    """
-    log = AUTONOMY_LOG + (
-        "\n## Shadow window\n\n"
-        "| date | task | tier | gate (tests/smoke/review/heart/witness"
-        "[/adversary]) | human action | stage |\n"
-        "|------|------|------|------|--------------|-------|\n"
-        "| 2026-08-05 | fifth-task (RepoA#5 / PR#6) | notify "
-        "| tests 12 pass / smoke n/a / review CLEAN / heart GREEN / witness "
-        "holds | merged-unchanged | 1 |\n")
-    stub = _fabricate(tmp_path, _default_fixtures())
-    (tmp_path / "PyAutoMind" / "autonomy_log.md").write_text(log)
-    r = _run(["--json"], tmp_path, stub)
-    assert r.returncode == 0, r.stderr
-    rows = json.loads(r.stdout)["autonomy"]
-
-    assert rows[-1] == {"date": "2026-08-05",
-                        "task": "fifth-task (RepoA#5 / PR#6)",
-                        "level": "notify",
-                        "outcome": "merged-unchanged"}
-    # The calibration rows above it are unaffected — one table did not eat the
-    # other.
-    assert [a["task"] for a in rows[:-1]] == ["first-task (#1)",
-                                              "second-task (#2)"]
-    # The gate cell is a sentence, not a chip: it stays in the log.
-    page = _run(["--html"], tmp_path, stub).stdout
-    assert "witness holds" not in page
-    assert '<span class="pill n">merged-unchanged</span>' in page
 
 
 def test_legacy_copy_payload_is_portable_but_terminal_payload_is_unchanged():
@@ -1160,35 +821,3 @@ def test_legacy_copy_payload_is_portable_but_terminal_payload_is_unchanged():
     page = b._row("Legacy", "/health Inspect <repo> & preserve edits")
     assert 'data-cmd="Use the health skill. Inspect &lt;repo&gt; &amp; preserve edits"' in page
     assert 'data-cmd="/health"' in b._row("Terminal", "/health", term=True)
-
-
-def test_monitoring_headline_keeps_release_verdict_separate(tmp_path):
-    heart_board = {**HEART_BOARD_JSON, "verdict": "green",
-                   "monitoring": {"score": 72, "status": "red", "complete": False}}
-    stub = _fabricate(tmp_path, _default_fixtures(), heart_board)
-    md = _run([], tmp_path, stub).stdout
-    assert "Monitoring score: **72/100**" in md
-    assert "Heart verdict: **GREEN**" in md
-    page = _run(["--html"], tmp_path, stub).stdout
-    assert "Monitoring score" in page
-    assert "72/100" in page
-    assert "pyauto-brain health --scope dashboard" in page
-
-
-def test_insight_strip_reads_owner_counts_without_duplicating_science(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures())
-    insight = tmp_path / "PyAutoInsight"
-    insight.mkdir()
-    (insight / "dashboard.md").write_text(
-        "# Insight\n\n| [Projects](#results) | 2 |\n| [Failed](#results) | 1 |\n\n"
-        "## Results\n| alpha_inference | 999 |\n")
-    result = _run(["--json"], tmp_path, stub)
-    assert result.returncode == 0, result.stderr
-    surface = json.loads(result.stdout)
-    assert surface["insight"] == {"Projects": 2, "Failed": 1}
-    assert surface["boards"]["insight"].endswith("/PyAutoInsight/")
-    page = _run(["--html"], tmp_path, stub)
-    assert "Insight board" in page.stdout
-    (insight / "dashboard.md").unlink()
-    result = _run(["--json"], tmp_path, stub)
-    assert json.loads(result.stdout)["insight"] is None

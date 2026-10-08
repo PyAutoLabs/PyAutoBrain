@@ -126,8 +126,8 @@ nothing has set it up — this block is what does.
 Users invoke verbs or natural language; Brain stays implicit. `/docs` and
 `/research` fix a dev work type; `/prm` merges and closes out a task; `/brain`
 is a raw passthrough. Canonical bodies are `skills/<verb>/<verb>.md`, discovered
-through thin `SKILL.md` wrappers. The morning surface is `board/`; local sync
-uses `bin/morning.sh`. `/wake_up` is the fallback when the board is unavailable.
+through thin `SKILL.md` wrappers. The agents/workflows directory is `board/`; it routes unspecified tasks and
+retains compact overnight and maintenance surfaces.
 
 Answer first, briefly; link instead of pasting. Expand plans awaiting approval,
 decision surfaces, failures/blockers and requested explanations enough to judge.

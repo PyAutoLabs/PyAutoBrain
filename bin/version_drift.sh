@@ -45,7 +45,7 @@ echo
 
 # repo:path — the coupled release-train stamps (libraries only). The Brain
 # board renders this same check on Pages (board/_board.py reads the list from
-# config/policy.yaml `board: version_stamps`) — keep the two lists in step
+# the release contract) — keep this utility independent of the Brain page
 # until this script reads that block too. The
 # charge-transfer (CTI) calibration stack is intentionally excluded: it is
 # not on the coupled train and carries its own version line. Workspaces

@@ -13,13 +13,9 @@ delegates everything else: it holds no state (the Mind's job), runs no health
 checks (the Heart's), and never releases anything itself (the Hands').
 
 See the **[PyAutoBrain Dashboard](https://pyautolabs.github.io/PyAutoBrain/)**
-for the organism's morning and general starting point: what ran overnight, the
-Heart's readiness headline, who in the community is waiting on a reply, what
-to resume, and the upkeep doors — each actionable row with a one-tap 📋
-copyable agent command. Regenerated each morning; the local sync/clean leg is
-one terminal command, `bash bin/morning.sh` — or schedule it overnight on the
-dev box with `bash bin/morning_timer.sh install`, so the board is already
-fresh when you wake.
+for agents and workflows, a starting point for unspecified tasks, overnight
+exceptions and maintenance. Brain interprets intent and coordinates work;
+operational evidence stays with its owning organ.
 
 ## How PyAutoBrain works
 

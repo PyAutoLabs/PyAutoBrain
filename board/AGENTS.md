@@ -1,270 +1,77 @@
-# The Brain Board — the operational surface (the morning door)
+# Brain board — agents and workflows
 
-> Tier: **surface** — a generated page, not an agent. It decides nothing and
-> opines on nothing; it reads what the organs already publish and renders it.
-> (Contrast conductors, which act, and faculties, which judge — this only
-> shows. The precedent is the Mind dashboard, which lives with the intake
-> conductor; the Heart and Hands boards are the sibling shapes.)
+Read-only directory and task-routing surface. Brain clarifies intent, plans,
+consults faculties and coordinates workflows. Mind owns task state; Heart owns
+health and test/CI timing evidence; Hands owns release execution; Ears owns
+community collection. The board does not duplicate their dashboards.
 
-The sixth one-tap board, live at the Brain's GitHub Pages URL
-(`https://<org>.github.io/PyAutoBrain/`): the organism's **morning and
-general starting point**. It replaces the interactive `/wake_up` composition —
-everything that skill assembled by driving doors in sequence is collected on a
-schedule and rendered as one page, each actionable row carrying a one-tap 📋
-copy-for-Claude payload:
+## Visible surface
 
-| Section | Signal owner | One-tap payload |
-|---------|--------------|-----------------|
-| ⌨ Morning sync | `bin/morning.sh` (local) | the terminal command itself |
-| 🌙 Overnight | scheduled workflows (`config/policy.yaml board: overnight_jobs`); a ⏸ blocked gate's ::warning annotation is rendered inline | `/bug … — <run url>` on failures |
-| ❤️ Readiness & release | the Heart board's `badge.json` + `board.json` (structured blockers, each carrying its OWN `/bug` prompt — or, for an evidence gap, the `command` that re-runs its check — plus `stale_plan`, the one payload that closes every gap; all rendered verbatim, never re-derived) and the Hands badge | `/health`, the plan's prompt or command chain, the blockers' own prompts |
-| ⏱ Test performance | the Heart board's published `performance` block — rendered verbatim, never re-derived | each row's own prompt |
-| 🏷️ Version consistency | the coupled-set stamps (`board: version_stamps`) | `/bug version drift: …` |
-| 💬 Community | the Ears (`community scan`, reused wholesale) — every open conversation gets a row | `/community`, `/community triage <ref>` |
-| 🔄 Resume | the Mind's registry + generated counts; the Cortex, Eyes, Pulse and Insight strips (each organ's own `dashboard.md` head counts, display-only, never in `state.json`); pending-release PRs | `/start_dev …`, `/prm <url>` |
-| 🧹 Upkeep | open-issue count; the cleanup doors | `/issue_cleanup`, `/hygiene`, `/repo_cleanup` |
-| 🧼 Hygiene | the hygiene conductor's own `--json` pre-scan, run IN this render (BOARD_HYGIENE_SCAN=1; brain_board.yml checks out the body-map scan set blobless+sparse first) — no machine involved | each row's own delegate door |
-| 🖥️ Dev box | `state/devbox_board.json` — worktree state (unpushed/dirty/stashes — the one thing only the dev box can see; its hygiene rows render only when no cloud scan ran), pushed by `board publish` (morning.sh's last step); age-stamped, stale at 48h, dropped after 7d | — |
-| 🤖 Autonomous runs | the tail of the Mind's `autonomy_log.md`, verbatim | — |
-| 🚪 All doors | `bin/pyauto-brain`'s own registry (never a second copy) | `/<verb>` |
+1. Agents & workflows, generated from the dispatcher registry and installed
+   skill sources. Conductors coordinate, faculties advise, workflows execute
+   procedures. Keep this the first content section.
+2. A shared orchestration panel for an unspecified task (shared layout places
+   it beside the banner controls). Focus on the user's request and route it.
+3. Review overnight work: only failures, blocked gates, pending/missing runs
+   and unavailable evidence. Successful routine runs remain in machine data.
+4. Maintenance: issue/repo cleanup, Hygiene findings and local observations,
+   plus an actionable CI-speedup entry linked to Heart's timing evidence.
 
-The header also carries a **trend sparkline** — the "N need you" count per
-day, handed forward through the published `board.json` itself (no commits, no
-extra state: each render reads yesterday's page, appends today, caps at 30).
+No morning sync, community section/shortcut, readiness/release, versions,
+resume, autonomous history, need-you/trend banner or global Degraded section.
+Explain unavailable retained evidence locally; never present a failed read as
+an empty successful check. Do not remove conductors merely because their
+operational evidence lives in another organ.
 
-**Compose, don't recompute** — the board re-derives nothing. The community
-section imports the community conductor's `build_scan()`; the resume counts
-are parsed from the Mind's own generated `dashboard.md`; release readiness comes from
-the Heart board's explicit `verdict` (older publishes fall back to the badge).
-Monitoring headlines use Heart's `monitoring.score`, status and completion;
-the published badge can describe monitoring independently of release readiness. Every unreachable source degrades into an
-honest "Degraded" row, never fabricated content.
+## Collection and compatibility
 
-**Read-only** — the collect half touches only read-only `gh` endpoints and
-public Pages URLs. It never posts, labels, or edits anything on GitHub, and
-never writes files outside `--apply`'s output directory.
+`board/_board.py` collects overnight jobs from `config/policy.yaml`, Heart's
+performance evidence, open issue counts, Hygiene and explicit dev-box publishes.
+Retired source collectors are not called. Deprecated board.json keys remain
+empty for existing readers. state.json retains the shared v1 schema; badge and
+state describe Brain's overnight coordination only, never release readiness.
+The internal `degraded` list remains diagnostic metadata and keeps freshness
+unknown when a required read fails, but is not a global page section.
 
-## Running
+`bin/pyauto-brain board` renders Markdown; `--html`, `--json`, `--badge`,
+`--state` select other formats. `--apply --out <dir>` writes the published
+artifacts. `.github/workflows/brain_board.yml` owns scheduled publication.
 
-```bash
-bin/pyauto-brain board                # markdown digest in the terminal
-bin/pyauto-brain board --html         # the one-tap page
-bin/pyauto-brain board --badge        # the cross-board headline contract
-bin/pyauto-brain board --apply        # write _site/ (what brain_board.yml serves)
-bin/pyauto-brain board publish        # dev-box leg: distill hygiene + worktree
-                                      #   state into state/devbox_board.json and
-                                      #   push (morning.sh runs this for you;
-                                      #   --dry-run prints, --no-hygiene is fast)
-```
+## Local evidence and retired morning routine
 
-Publishing is `.github/workflows/brain_board.yml`: a morning cron plus manual
-dispatch renders `--apply` output and deploys it to GitHub Pages (page +
-`badge.json` + `state.json` + `board.json` + `board.md`). Nothing is committed to the repo —
-the board is served, not stored, so a daily refresh makes no commit noise.
+Morning sync, its timer installer and the wake-up skill are retired. Independent
+sync/cleanup utilities remain available for explicit maintenance. They are never
+run by opening the dashboard.
 
-## The cockpit feed (`state.json`)
+Brain local observations remain explicit: `pyauto-brain board publish`.
+Heart owns its independent commands: `pyauto-heart tick` followed on success by
+`pyauto-heart publish`. These need a local machine; a cloud dashboard refresh
+cannot observe its checkouts. Do not imply automatic local publication.
 
-`state.json` is the **cockpit feed** — the per-organ machine surface the
-cockpit and the phone read: one `status` (green/yellow/red/stale/grey), one
-`headline`, an ISO-8601 UTC `updated`, the `pages_url`, and the actionable
-`items` (severity, text, GitHub `url`, copy-for-Claude `prompt`). It sits next
-to `badge.json` (the one-line headline contract; the feed's status and
-headline mirror it) and `board.json` (organ-specific detail, a different shape
-per organ). The contract lives in `board/state_schema.json` and is enforced by
-`board/_state.py` (stdlib only, `build_state` + `validate_state`); this board
-emits it via `render_state` (`--state`, and `--apply` writes it). Other organs
-emit the same shape and validate before publishing with
-`python PyAutoBrain/board/_state.py _site/state.json` — runnable from any cwd.
-The Mind and Cortex feeds are emitted HERE, by their Brain renderers
-(`intake --apply dashboard`, `cortex dashboard --apply` / `checkin`, each
-`render_state`), committed beside their `dashboard.html` and published by those
-repos' `pages_dashboard.yml`.
+Existing installations should disable the old `pyauto-morning.timer` or remove
+the crontab entry marked `# pyauto-morning` before updating. No replacement
+background task is installed. Uninstall only the retired routine, not unrelated
+Heart publishing or user schedules.
 
-## Look (`_theme.py`)
+## Shared presentation
 
-Use the [shared section navigation](../docs/board-navigation.md) via
-`hero(..., navigation=items)`: banner, linked cards, then freshness/context.
-Owners supply safe destinations, labels and optional counts; no duplicate card
-CSS or changes to data/action semantics.
-
-The [responsive sizing standard](../docs/board-sizing.md) separates the outer
-board from its reading measure. The shared theme caps the border-box at
-`77.5rem` (1240px at the default root size), with `1rem` gutters below `46rem`
-and `1.5rem` above. Paragraphs and `.board-prose` use a `65ch` maximum;
-mastheads, status panels, data tables and metric rows can use the full width.
-Use the `--board-max`, `--board-gutter` and `--board-measure` tokens instead of
-copying dimensions. The standard sets no minimum page width and never hides
-page overflow. Dense tables need a labelled, keyboard-accessible local scroll
-container in their owning renderer; a wider desktop maximum cannot fix that
-markup. Keep local exceptions and adoption evidence in the linked matrix.
-
-`board/_theme.py` is the one place that answers *what does a one-tap board
-look like* — the stylesheet, the hero, the facet pills, the family footer.
-Presentation only: no state, no collection, no policy. It is shared, not
-copied: this board and the Mind dashboard (rendered by the intake conductor)
-both import it, so a change to the look lands on the whole family at once
-rather than drifting page by page.
-
-Each organ has an accent sampled from its own logo, and every board opens
-with a dark hero reproducing that logo's wordmark — white `PyAuto`, the organ
-name in its accent, the logo's tagline underneath. Below the hero the organ
-keeps speaking: the accent is the page's **type colour**, so section
-headings, disclosure summaries, code spans and the emphasised head of a row
-are all in the organ's hue. Only the running prose stays near-black, because
-these are lists people scan on a phone before breakfast.
-
-*A phone before breakfast* is a size, not a mood: the sheet makes wrapping the
-page **default** (`overflow-wrap` on `body`, inherited), so a run URL or a
-dotted test id in markup the theme has never seen — an organ's own reasons
-list, details block or footer — cannot push the page sideways. A board that
-needs a column on one line (`white-space:nowrap`) still may; what it must not
-do is re-declare the wrap per component, which is how the family drifted into
-one page that scrolled and one that did not.
-
-Colour is information, never decoration: the accent is organ identity; pills
-are row facets, toned so that only the *exception* is coloured (`supervised`
-is 9 of 10 prompts in the Mind, so it stays neutral — tinting it would paint
-the backlog and say nothing); `ok`/`warn`/`bad` stay reserved for verdict
-semantics. `ORGANS` holds the palette — five of the six are sampled from the
-real logo files; the umbrella board has no logo to sample, so its accent and
-tagline are designed to sit in the family instead.
-
-**This board's own facets.** Every row here says what it is in the same
-vocabulary the Mind dashboard uses. The accent is what the row *is* — the
-repo a workflow belongs to, the kind of a community conversation, the target
-of an in-flight task, a door that acts (a conductor) rather than one that only
-opines. A tone is what the row *says*: a conclusion, a Heart verdict, a
-version stamp off consensus, how long someone has waited on a reply. An
-in-flight task is the one row that composes rather than invents — it reads
-the `Type:`/`Target:`/`Difficulty:`/`Autonomy:`/`Priority:` header the Mind
-already wrote, so a task looks like itself on both pages. Above the sections,
-a header strip carries one number per section that can ask something of a
-human; a source that could not be read counts `–`, never a zero.
-
-The accent is the page's **type colour**, not merely its link colour: the
-things that give a page its shape — section headings, disclosure summaries,
-code spans, the emphasised head of a row — are set in the organ's hue, so a
-board reads as its organ from top to bottom instead of as grey GitHub chrome
-under a coloured masthead. Only the running prose stays near-black. That
-reservation is literal in the stylesheet: the accent rule is `b:not([class])`,
-so an element carrying a semantic class — `ok`, `warn`, `bad`, `muted`, a pill
-tone — keeps the colour that class means, and only unclassed emphasis takes
-the organ's hue.
-
-## Configuration
-
-Instance vocabulary lives in `config/policy.yaml` under `board:` (the declared
-config surface an adopting fork replaces): `overnight_jobs` (repo:workflow
-pairs for the sweep), `version_stamps` (repo:path pairs for the consistency
-check), `reference_release_repo`, `heart_board`, and `boards` (the sibling
-board links). The org/owner is derived from the Mind's body map
-(`PyAutoMind/repos.yaml`) at runtime — never hardcoded here.
-
-Env: `PYAUTO_ROOT` (workspace root holding `PyAutoMind/`), `BOARD_GH`
-(the gh binary; hermetic tests point it at a stub), `BOARD_PAGES_BASE`
-(sibling-board base URL; tests point it at `file://` fixtures).
+Follow [standards](../docs/standards.md), especially navigation and orchestration.
+Reuse `_theme.py`; keep Brain-specific changes in this renderer. Other boards
+must retain their own controls, content and owning evidence. HTML and Markdown
+must agree; escape owner data and preserve exact portable copy payloads.
 
 ## Reading the board in a remote session
 
-A Claude Code remote session (web/mobile) cannot reach either of the board's
-data sources by default:
+Without gh, `--github-data <file>` accepts endpoint-keyed JSON supplied by the
+agent's GitHub tools. An endpoint absent from that file or explicitly null means
+unavailable, never an empty result. Malformed JSON is fatal. Preserve responses
+verbatim. Each configured overnight workflow reads
+`repos/<org>/<repo>/actions/workflows/<workflow>/runs?per_page=1`, with optional
+`repos/<org>/<repo>/actions/runs/<id>/jobs` for blocked-gate evidence.
 
-- **`gh` is not installed**, and installing one does not help
-  ([`../skills/GITHUB_ACCESS.md`](../skills/GITHUB_ACCESS.md) has the measured
-  reason). The overnight sweep, the version stamps, the community scan and the
-  pending-release search all run through it. Without it they cannot ask — which
-  is not the same as asking and getting nothing, and the render now says so
-  (`could not read`, never `no runs`).
-- **The sibling Pages boards are refused by the egress policy.** The proxy
-  answers `403` to `CONNECT` for `<org>.github.io`, so `board.json` and
-  `badge.json` — the Heart's readiness surface among them — are unreadable.
-  Retrying never helps; the reason is named in the Degraded section rather than
-  reported as a flake. Where the sibling repo is checked out, the board falls
-  back to its local `board/board.json`.
-
-So a remote render is expected to be partial. It carries a **⚠️ Degraded
-render** banner above the sections, a per-leg reason at the foot, a headline
-qualified with `partial view (N legs unread)`, and a grey badge rather than a
-green one — a green badge is only ever emitted by a render that read
-everything and found nothing wrong.
-
-### `--github-data`: handing the renderer what it cannot fetch
-
-A remote session's GitHub access is the `mcp__github__*` tools, and those are
-an **agent** capability — `_board.py` is a subprocess and cannot reach them,
-however it is invoked. So the fetching moves to the only thing that can do it:
-the `/board` skill gathers, writes a file, and passes it to the renderer, which
-stays pure.
-
-```
-pyauto-brain board --github-data <file>
-```
-
-The file is a JSON object keyed by the endpoint **exactly as `gh_json()`
-receives it** — the same string that would follow `gh api`:
-
-```json
-{
-  "repos/Org/PyAutoBrain/actions/workflows/nightly-release.yml/runs?per_page=1":
-      { "workflow_runs": [ … ] },
-  "repos/Org/PyAutoBrain/actions/runs/42/jobs": { "jobs": [ … ] },
-  "repos/Org/PyAutoBrain/check-runs/98/annotations": [ … ]
-}
-```
-
-Keying on the call site's own string is deliberate: injected and live data are
-interchangeable by construction rather than by convention, and a key that
-drifts simply misses.
-
-Store each response **as GitHub returns it** — the renderer reads the API's own
-field names, and a gatherer that reshapes them produces rows that look like a
-render bug rather than a bad file. The overnight row needs `conclusion`,
-`status`, `created_at` (the age; `updated_at` is *not* the field read) and
-`html_url` per run, and `jobs[].conclusion` where the blocked-at-a-gate
-refinement is wanted.
-
-Three rules the seam does not get to bend:
-
-1. **A miss is *could not ask*.** An endpoint absent from the file yields
-   `None`, exactly as an absent `gh` does, and the leg renders `could not
-   read`. It must never become an empty answer — that is the failure the
-   degraded-render work exists to prevent, and it is how a board goes green by
-   never looking.
-2. **An explicit `null` means the gatherer's own fetch failed** — same
-   outcome, stated rather than implied. `{"workflow_runs": []}` is the
-   opposite: a real answer that happens to be empty.
-3. **A malformed or missing file is fatal, not degrading.** Every leg reading
-   `could not read` renders as a GitHub outage; if the truth is that the
-   gatherer wrote a broken file, the board must say so instead.
-
-The alternative to the seam is an org admin connecting the Claude GitHub App,
-after which `$GH_TOKEN` would work from a subprocess and `gh_json()` could
-become a plain REST helper on every surface. It did not when it was measured
-(`../skills/GITHUB_ACCESS.md`). Re-probe before assuming this seam is still
-needed — it is meant to be deletable.
-
-To get a complete board in a remote session, the environment needs outbound
-access to the Pages host. That is cloud-environment configuration on claude.ai,
-not something this repo can set: open the environment selector at
-`claude.ai/code` (the cloud icon above the message box), edit the environment,
-set **Network access** to **Custom**, and add `*.github.io` — keeping **Also
-include default list of common package managers** checked, or the session loses
-PyPI and GitHub too. It takes effect on the next session, not the running one.
-
-Two hosts worth knowing about while you are there:
-
-- `*.blob.core.windows.net` — where GitHub Actions stores run artifacts and
-  logs. Blocked by default, which is why a workflow's own drift report could
-  not be downloaded and the run had to be reproduced locally instead
-  (`PyAutoMind/complete/2026/08/wiki-currency-baseline-drift.md`). It is a
-  broad entry: all of Azure Blob Storage, not just GitHub's buckets.
-- `objects.githubusercontent.com` and `raw.githubusercontent.com` are already
-  in the default Trusted list — they need no entry.
-
-The allowlist is per environment; there is no organization-level one, so an
-environment you add later starts from the defaults again. And none of this
-installs `gh` — that is not in the image at all, so GitHub still goes through
-the MCP tools (`PyAutoBrain/skills/GITHUB_ACCESS.md`).
+`BOARD_GH` and `BOARD_PAGES_BASE` support hermetic fixtures. A failed Pages
+read may use an owning repo's local published artifact; it must not manufacture
+freshness. Public artifacts must never leak private local paths or credentials.
 
 ## Human-first, machine-readable cockpit evolution
 

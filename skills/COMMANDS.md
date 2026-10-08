@@ -78,17 +78,6 @@ symmetry. The taxonomy they tag is `PyAutoMind/ROUTING.md`.
 own no agent and re-implement no reasoning (all judgment defers to the doors they
 call, so the Brain is not bypassed):
 
-- **`/wake_up`** — **superseded by the Brain board** (the generated morning
-  surface `board/_board.py` renders and `brain_board.yml` publishes to Pages:
-  overnight sweep, readiness headline, version consistency, community scan,
-  resume context, upkeep doors — each row a one-tap 📋 payload). The local leg
-  is one terminal command, `bin/morning.sh` (sync via `bin/pull_all_main.sh` +
-  clean via `bin/clean_slate.sh`). Invoked anyway, the skill runs that local
-  leg and relays `pyauto-brain board`'s digest — the fallback for a stale or
-  unreachable board. Auto-runs only the non-destructive steps; surfaces
-  destructive cleanup for approval. Interactive/terminal only (the automated
-  morning webhooks are separate).
-
 - **`/prm`** — the wrap-up door and **full task close-out**: *"PR, CI green, then
   merge"* — the last thing a human types for a task. Watches the feature PR's
   checks until **every** workflow run and **every** matrix leg for the head sha is
