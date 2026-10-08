@@ -149,3 +149,15 @@ provenance. Mind tracks implementation tasks. Project campaigns retain their
 original stack identity; adoption changes the default for new work only through
 an explicit operation. Dashboard refreshes collect and render, never install,
 submit compute or mutate live environments.
+
+## Broca — assistant evidence
+
+PyAutoBroca owns assistant evaluation history, collection receipts and the
+assistant upkeep board. Broca is a public repository; committed evidence must be
+suitable for publication, with raw transcripts and private project data excluded. Public assistants retain definitions and reproducible
+runners, remain independently usable, and never depend on Broca. Brain interprets
+evidence and routes accepted changes through Mind; Cortex retains science
+records, Heart retains readiness. Benchmarks and maintenance inventory are
+separate evidence kinds. Missing or incomparable results never establish a pass.
+Broca's board consumes the shared presentation contract; its unhosted board registration
+must not create a broken public Pages link. Hosted publication is a separate step. Broca does not automatically launch model or HPC campaigns.

@@ -102,8 +102,23 @@ POLICY_BOARDS = re.findall(
               re.M).group(1), re.M)
 
 
+PRIVATE_BOARDS = re.findall(
+    r"^    (\w+): \S+$",
+    re.search(r"^  private_boards:\n((?:    \w+: \S+\n)+)",
+              (BRAIN_HOME / "config" / "policy.yaml").read_text(),
+              re.M).group(1), re.M)
+
+
+def test_private_boards_have_identity_without_public_navigation():
+    assert "broca" in PRIVATE_BOARDS
+    assert not set(PRIVATE_BOARDS) & set(POLICY_BOARDS)
+    for key in PRIVATE_BOARDS:
+        assert key in _theme.ORGANS and key in _theme.MARKS
+        assert _theme.prompt_heading(key)
+
+
 def test_every_declared_board_has_a_complete_palette_entry():
-    for key in POLICY_BOARDS:
+    for key in POLICY_BOARDS + PRIVATE_BOARDS:
         assert key in _theme.ORGANS, key
         o = _theme.ORGANS[key]
         for field in ("organ", "tagline",
@@ -446,7 +461,7 @@ def test_the_nerves_board_is_in_the_family_and_readable():
 def test_every_theme_entry_but_the_umbrella_is_a_declared_board():
     # The reverse of the palette check: a palette for a board nobody declares
     # is a footer chip that can never appear.
-    assert set(_theme.ORGANS) <= set(POLICY_BOARDS) | {"organism"}
+    assert set(_theme.ORGANS) <= set(POLICY_BOARDS + PRIVATE_BOARDS) | {"organism"}
 
 
 def test_legacy_dashboard_prompts_preserve_arguments_and_paths():
