@@ -22,9 +22,11 @@ The entrypoint inventories the sampler machinery deterministically:
 ```
 samplers.sh [--json]
   -> tiers: minimal (autofit_workspace_developer/searches_minimal)
-            archive (autofit_workspace_developer/searches)
+            archive (autofit_workspace_developer/searches, minus any
+                     name that is promoted again)
             integration (autofit_workspace_test/scripts/searches)
-            promoted (PyAutoFit autofit/non_linear/search/<group>/<module>)
+            promoted (PyAutoFit `autofit/__init__.py` exports + _LAZY_ATTRS,
+                      one <group>/<pkg>/<Class> row per search class)
   -> the findings maturation lane (below):
             experiment probes   (autolens_workspace_developer/searches_minimal)
             experiment findings (the same tier's *_findings.md, name + verdict)
@@ -34,6 +36,14 @@ samplers.sh [--json]
   -> the latest minimal-tier benchmark table (output/comparison.txt)
   -> tier gaps: prototyped-never-promoted, promoted-never-integration-tested
 ```
+
+The gap rule is keyed on exported class names, never on module directories
+(one directory can hold several searches: `mle/bfgs` is BFGS + LBFGS). An
+integration script covers a class when its stem, with variant suffixes such
+as `_jax` stripped, equals the class name; a `searches_minimal` prototype is
+promoted when its stem, with `_simple`/`_jax`/`_mlp`/`_profile`/`_sweep`…
+stripped, equals an exported class or a `PROTOTYPE_ALIASES` family
+(`dynesty`, `nuts`).
 
 Surfaces are resolved as sibling checkouts (`PYAUTO_FIT`,
 `PYAUTO_FIT_DEVELOPER`, `PYAUTO_FIT_TEST`, `PYAUTO_LENS_DEVELOPER`,

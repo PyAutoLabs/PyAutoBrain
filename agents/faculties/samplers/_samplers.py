@@ -23,21 +23,30 @@ import json
 import sys
 from pathlib import Path
 
-# Map script/module basenames to a canonical sampler family so tiers can be
-# compared. Suffixes like _jax/_jit/_grad/_simple are variants, not families.
-VARIANT_SUFFIXES = ("_simple", "_jax", "_jit", "_grad")
-ALIASES = {
-    "nuts": "nuts", "blackjaxnuts": "nuts", "blackjax": "nuts",
-    "dynestystatic": "dynesty", "dynestydynamic": "dynesty",
-    "bfgs": "lbfgs",
+# Script basenames carry variant suffixes that are not part of the sampler's
+# name: `nautilus_jax_mlp` is a Nautilus prototype, `Nautilus_jax` a Nautilus
+# integration script. Stripped repeatedly from the right, so stacked variants
+# (`_jax_mlp`) collapse to the family.
+VARIANT_SUFFIXES = ("_simple", "_jax", "_jit", "_grad", "_mlp", "_profile",
+                    "_sweep")
+# A prototype stem that names a family rather than one exported class. Every
+# other stem matches an exported class by case-insensitive equality.
+PROTOTYPE_ALIASES = {
+    "dynesty": ("DynestyStatic", "DynestyDynamic"),
+    "nuts": ("BlackJAXNUTS",),
 }
 
 
 def family_of(name: str) -> str:
+    """Lower-cased stem with every trailing variant suffix removed."""
     base = name.lower()
-    for suf in VARIANT_SUFFIXES:
-        base = base.removesuffix(suf)
-    return ALIASES.get(base, base)
+    while True:
+        for suf in VARIANT_SUFFIXES:
+            if base.endswith(suf) and len(base) > len(suf):
+                base = base[: -len(suf)]
+                break
+        else:
+            return base
 
 
 def _py_stems(directory: Path) -> list[str]:
@@ -51,31 +60,92 @@ def tier_minimal(developer: Path) -> list[str]:
     return _py_stems(developer / "searches_minimal")
 
 
-def tier_archive(developer: Path) -> list[str]:
+def tier_archive(developer: Path, promoted_classes=()) -> list[str]:
+    """Removed-sampler archive directories, minus any that are promoted.
+
+    A search can be archived and later re-mainlined; its archive copy is then
+    superseded, and listing it here would count one search in two tiers.
+    """
     root = developer / "searches"
     if not root.is_dir():
         return []
+    live = {c.lower() for c in promoted_classes}
     return sorted(d.name for d in root.iterdir()
-                  if d.is_dir() and not d.name.startswith(("_", ".")))
+                  if d.is_dir() and not d.name.startswith(("_", "."))
+                  and d.name.lower() not in live)
 
 
 def tier_integration(test: Path) -> list[str]:
     return _py_stems(test / "scripts" / "searches")
 
 
-def tier_promoted(autofit: Path) -> list[str]:
-    """Package inventory: autofit/non_linear/search/<group>/<sampler>/."""
-    root = autofit / "autofit" / "non_linear" / "search"
-    if not root.is_dir():
-        return []
-    out = []
-    for group in sorted(root.iterdir()):
-        if not group.is_dir() or group.name.startswith("_"):
-            continue
-        for pkg in sorted(group.iterdir()):
-            if pkg.is_dir() and not pkg.name.startswith("_"):
-                out.append(f"{group.name}/{pkg.name}")
+_SEARCH_PKG = "non_linear.search."
+
+
+def _search_location(module: str) -> str | None:
+    """`<group>/<pkg>` for a concrete search module, else None.
+
+    A concrete search lives at `non_linear.search.<group>.<pkg>[...].search[...]`
+    (e.g. `mcmc.blackjax.nuts.search`, `nest.dynesty.search.static`). Helpers in
+    the same tree (`abstract_search`, `mcmc.auto_correlations`,
+    `mle.multi_start_gradient.convergence`) have no `search` segment below the
+    group and are not searches.
+    """
+    module = module.removeprefix("autofit.")
+    if not module.startswith(_SEARCH_PKG):
+        return None
+    parts = module[len(_SEARCH_PKG):].split(".")
+    if len(parts) < 3 or "search" not in parts[2:]:
+        return None
+    return f"{parts[0]}/{parts[1]}"
+
+
+def exported_searches(autofit: Path) -> dict[str, str]:
+    """{class name: `<group>/<pkg>`} for every search `autofit` exports.
+
+    Parsed (never imported) from `autofit/__init__.py`: the eager
+    `from .non_linear.search... import X` lines plus the `_LAZY_ATTRS` table,
+    which is how optional-dependency searches (NSS, SMC) are exported. Keyed on
+    the exported class, not the module directory, because one directory can
+    hold several searches (`mle/bfgs`: BFGS + LBFGS; `mcmc/blackjax`:
+    BlackJAXNUTS + SMC; `mle/multi_start_gradient`: four MultiStart*).
+    """
+    init = autofit / "autofit" / "__init__.py"
+    if not init.is_file():
+        return {}
+    try:
+        tree = ast.parse(init.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return {}
+    out: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module:
+            loc = _search_location(node.module)
+            if loc:
+                for alias in node.names:
+                    out[alias.asname or alias.name] = loc
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target.id]
+        if "_LAZY_ATTRS" in targets and isinstance(node.value, ast.Dict):
+            for key, val in zip(node.value.keys, node.value.values):
+                if not (isinstance(key, ast.Constant)
+                        and isinstance(val, ast.Tuple) and val.elts
+                        and isinstance(val.elts[0], ast.Constant)
+                        and isinstance(val.elts[0].value, str)):
+                    continue
+                loc = _search_location(val.elts[0].value)
+                if loc:
+                    out[key.value] = loc
     return out
+
+
+def tier_promoted(autofit: Path) -> list[str]:
+    """Exported search classes as `<group>/<pkg>/<Class>`."""
+    return sorted(f"{loc}/{cls}"
+                  for cls, loc in exported_searches(autofit).items())
 
 
 # --------------------------------------------------------------------------
@@ -201,18 +271,28 @@ def benchmarks(developer: Path) -> dict:
 
 
 def gaps(minimal, integration, promoted) -> list[str]:
-    """Tier-mismatch findings, phrased for the consulting conductor."""
-    min_fams = {family_of(n) for n in minimal}
-    int_fams = {family_of(n) for n in integration}
-    pro_fams = {family_of(n.split("/", 1)[1]) for n in promoted}
+    """Tier-mismatch findings, phrased for the consulting conductor.
+
+    `promoted` holds `<group>/<pkg>/<Class>` rows (or bare class names); every
+    comparison is against the exported class. An integration script covers a
+    class when its stem, `_jax` and other variants stripped, equals the class
+    name (case-insensitive); a prototype is promoted when its family equals an
+    exported class or a PROTOTYPE_ALIASES entry names one.
+    """
+    classes = {row.rsplit("/", 1)[-1] for row in promoted}
+    by_lower = {c.lower(): c for c in classes}
+    covered = {family_of(n) for n in integration}
     out = []
-    for fam in sorted(min_fams - pro_fams):
-        out.append(f"'{fam}' is prototyped in searches_minimal but has no "
-                   f"PyAutoFit implementation — promotion candidate")
-    for fam in sorted(pro_fams - int_fams):
-        out.append(f"promoted search '{fam}' has no "
-                   f"autofit_workspace_test/scripts/searches integration "
-                   f"script")
+    for fam in sorted({family_of(n) for n in minimal}):
+        names = PROTOTYPE_ALIASES.get(fam, (fam,))
+        if not any(n.lower() in by_lower for n in names):
+            out.append(f"'{fam}' is prototyped in searches_minimal but has no "
+                       f"PyAutoFit implementation — promotion candidate")
+    for cls in sorted(classes):
+        if cls.lower() not in covered:
+            out.append(f"promoted search '{cls}' has no "
+                       f"autofit_workspace_test/scripts/searches integration "
+                       f"script")
     return out
 
 
@@ -234,7 +314,7 @@ def digest(autofit, developer, test, lens_developer=None, inference=None) -> dic
         d["surfaces_present"].append("autofit_workspace_developer")
         minimal = tier_minimal(developer)
         d["tiers"]["minimal (searches_minimal)"] = minimal
-        d["tiers"]["archive (searches)"] = tier_archive(developer)
+        d["tiers"]["archive (searches)"] = []  # filled once promoted is known
         d["benchmarks"] = benchmarks(developer)
     if test and test.is_dir():
         d["surfaces_present"].append("autofit_workspace_test")
@@ -243,7 +323,10 @@ def digest(autofit, developer, test, lens_developer=None, inference=None) -> dic
     if autofit and autofit.is_dir():
         d["surfaces_present"].append("PyAutoFit")
         promoted = tier_promoted(autofit)
-        d["tiers"]["promoted (autofit/non_linear/search)"] = promoted
+        d["tiers"]["promoted (autofit exports)"] = promoted
+    if "archive (searches)" in d["tiers"]:
+        d["tiers"]["archive (searches)"] = tier_archive(
+            developer, [row.rsplit("/", 1)[-1] for row in promoted])
     if lens_developer and lens_developer.is_dir():
         d["surfaces_present"].append(SURFACE_LENS_DEVELOPER)
         d["tiers"][TIER_LENS_PROBES] = tier_lens_probes(lens_developer)
