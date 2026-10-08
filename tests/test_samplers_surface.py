@@ -143,3 +143,99 @@ def test_empty_mature_surface_yields_no_cells(tmp_path):
     (empty / "scripts" / "imaging" / "likelihood_runtime" / "mge.py").write_text("x = 1\n")
     d = _digest("--inference", str(empty))
     assert d["tiers"][_samplers.TIER_LENS_MATURE] == []
+
+
+# --------------------------------------------------------------------------
+# The tier-gap rule, keyed on exported class names
+# --------------------------------------------------------------------------
+
+_AUTOFIT_INIT = '''\
+from .non_linear.search.abstract_search import NonLinearSearch
+from .non_linear.search.mcmc.auto_correlations import AutoCorrelationsSettings
+from .non_linear.search.mcmc.blackjax.nuts.search import BlackJAXNUTS
+from .non_linear.search.nest.nautilus.search import Nautilus
+from .non_linear.search.nest.dynesty.search.static import DynestyStatic
+from .non_linear.search.mle.drawer.search import Drawer
+from .non_linear.search.mle.bfgs.search import BFGS
+from .non_linear.search.mle.bfgs.search import LBFGS
+from .non_linear.search.mle.multi_start_gradient.search import MultiStartAdam
+from .non_linear.search.mle.multi_start_gradient.search import MultiStartLion
+from .non_linear.search.mle.multi_start_gradient.convergence import (
+    ConvergenceSettings,
+)
+
+_LAZY_ATTRS = {
+    "NSS": ("autofit.non_linear.search.nest.nss.search", "NSS"),
+    "SMC": ("autofit.non_linear.search.mcmc.blackjax.smc.search", "SMC"),
+    "Aggregator": ("autofit.database.aggregator", "Aggregator"),
+    "db": ("autofit.database", None),
+}
+'''
+
+
+def _make_fit_family(root: Path) -> dict:
+    """Library + developer + test checkouts reproducing every live trap: one
+    module dir holding several classes (bfgs, blackjax, multi_start_gradient),
+    lazily exported searches, an archived search that was re-mainlined, and
+    prototype stems with stacked variant suffixes."""
+    autofit = root / "library"
+    (autofit / "autofit").mkdir(parents=True)
+    (autofit / "autofit" / "__init__.py").write_text(_AUTOFIT_INIT)
+    developer = root / "developer"
+    for name in ("nss", "pyswarms"):
+        (developer / "searches" / name).mkdir(parents=True)
+    minimal = developer / "searches_minimal"
+    minimal.mkdir(parents=True)
+    for stem in ("nautilus_simple", "nautilus_jax_mlp", "nautilus_profile",
+                 "nautilus_sweep", "dynesty_simple", "nuts_jax",
+                 "cmaes_simple"):
+        (minimal / f"{stem}.py").write_text("# prototype\n")
+    test = root / "test"
+    searches = test / "scripts" / "searches"
+    searches.mkdir(parents=True)
+    for stem in ("BlackJAXNUTS", "Nautilus_jax", "DynestyStatic", "LBFGS",
+                 "MultiStartAdam", "MultiStartResurrect", "NSS", "__init__"):
+        (searches / f"{stem}.py").write_text("# integration\n")
+    return {"autofit": autofit, "developer": developer, "test": test}
+
+
+def test_promoted_tier_is_keyed_on_exported_classes(tmp_path):
+    autofit = _make_fit_family(tmp_path)["autofit"]
+    assert _samplers.exported_searches(autofit) == {
+        "BlackJAXNUTS": "mcmc/blackjax", "SMC": "mcmc/blackjax",
+        "Nautilus": "nest/nautilus", "DynestyStatic": "nest/dynesty",
+        "NSS": "nest/nss", "Drawer": "mle/drawer", "BFGS": "mle/bfgs",
+        "LBFGS": "mle/bfgs", "MultiStartAdam": "mle/multi_start_gradient",
+        "MultiStartLion": "mle/multi_start_gradient",
+    }
+
+
+def test_family_of_strips_stacked_variant_suffixes():
+    assert _samplers.family_of("nautilus_jax_mlp") == "nautilus"
+    assert _samplers.family_of("nautilus_profile") == "nautilus"
+    assert _samplers.family_of("nautilus_sweep") == "nautilus"
+    assert _samplers.family_of("Nautilus_jax") == "nautilus"
+    assert _samplers.family_of("MultiStartAdam") == "multistartadam"
+
+
+def test_gap_rule_reports_only_true_gaps(tmp_path):
+    paths = _make_fit_family(tmp_path)
+    d = _digest("--autofit", str(paths["autofit"]),
+                "--developer", str(paths["developer"]),
+                "--test", str(paths["test"]))
+    gaps = d["gaps"]
+    missing = sorted(g.split("'")[1] for g in gaps
+                     if "integration script" in g)
+    # SMC shares mcmc/blackjax with BlackJAXNUTS and BFGS shares mle/bfgs with
+    # LBFGS — a directory-keyed rule hid both. MultiStartAdam.py covers its
+    # class, so the multi_start_gradient directory is no longer a false
+    # positive; MultiStartLion, with no script, is a true gap.
+    assert missing == ["BFGS", "Drawer", "MultiStartLion", "SMC"]
+    candidates = sorted(g.split("'")[1] for g in gaps
+                        if "promotion candidate" in g)
+    # nautilus variants collapse onto the exported class; only the genuinely
+    # unpromoted prototype remains
+    assert candidates == ["cmaes"]
+    # NSS was re-mainlined, so its archive copy is not a second tier entry
+    assert d["tiers"]["archive (searches)"] == ["pyswarms"]
+    assert sum("NSS" in g for g in gaps) == 0
