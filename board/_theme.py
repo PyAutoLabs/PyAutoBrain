@@ -68,11 +68,13 @@ its own background (light on `#fff`, dark on `#0d1117`).
 #        vignette: a tinted lift behind the wordmark falling to near-black.
 ORGANS = {
     "broca": {
+        "function": "Assistants",
         "organ": "Broca", "tagline": "Evaluate. Maintain. Improve.",
         "ink_light": "#8b3e68", "ink_dark": "#f4a5ce", "glow": "#f4a5ce",
         "hero": ("#351329", "#09030a"),
     },
     "brain": {
+        "function": "Orchestration",
         "organ": "Brain",
         "tagline": "Reason. Plan. Decide.",
         "ink_light": "#2159c9", "ink_dark": "#6f9dff", "glow": "#4d8bff",
@@ -80,18 +82,21 @@ ORGANS = {
         "hero": ("#16234f", "#000312"),
     },
     "mind": {
+        "function": "Planning",
         "organ": "Mind",
         "tagline": "Intent. Priority. Flow.",
         "ink_light": "#0a7d72", "ink_dark": "#2ee6cf", "glow": "#00d1ba",
         "hero": ("#07302b", "#000000"),
     },
     "cortex": {
+        "function": "Science",
         "organ": "Cortex",
         "tagline": "Question. Run. Rule.",
         "ink_light": "#a5177d", "ink_dark": "#ff7ad9", "glow": "#ff4fc3",
         "hero": ("#340a2a", "#000000"),
     },
     "memory": {
+        "function": "Knowledge",
         "organ": "Memory",
         "tagline": "Remember. Learn. Evolve.",
         "ink_light": "#6b34d6", "ink_dark": "#b37eff", "glow": "#b37eff",
@@ -104,24 +109,28 @@ ORGANS = {
     # #fff and #f5c518 at 11.6:1 on #0d1117. The tagline is the one the
     # organ's own dashboard already wears.
     "eyes": {
+        "function": "Visualization",
         "organ": "Eyes",
         "tagline": "See. Compare. Improve.",
         "ink_light": "#7d6300", "ink_dark": "#f5c518", "glow": "#ffc933",
         "hero": ("#2e2503", "#000000"),
     },
     "ears": {
+        "function": "Community",
         "organ": "Ears",
         "tagline": "Listen. Understand. Follow through.",
         "ink_light": "#96520b", "ink_dark": "#ffc078", "glow": "#ffc078",
         "hero": ("#36200d", "#080503"),
     },
     "heart": {
+        "function": "Tests",
         "organ": "Heart",
         "tagline": "Check. Validate. Protect.",
         "ink_light": "#b50f1a", "ink_dark": "#ff6b73", "glow": "#ff1c28",
         "hero": ("#37080d", "#000000"),
     },
     "hands": {
+        "function": "Releases",
         "organ": "Hands",
         "tagline": "Build. Execute. Deliver.",
         "ink_light": "#9a5400", "ink_dark": "#ffa733", "glow": "#ff9201",
@@ -133,6 +142,7 @@ ORGANS = {
     # #34d399 at 9.8:1 on #0d1117. The tagline is the one the organ's own
     # dashboard wears.
     "pulse": {
+        "function": "Profiling",
         "organ": "Pulse",
         "tagline": "Measure. Trace. Compare.",
         "ink_light": "#0b7a4b", "ink_dark": "#34d399", "glow": "#2ee88f",
@@ -145,18 +155,21 @@ ORGANS = {
     # #6420e0 (7.4:1 on #fff) and #a27aff (6.1:1 on #0d1117). Bluer than the
     # Memory violet, as the two logos are.
     "insight": {
+        "function": "Inference",
         "organ": "Insight",
         "tagline": "Infer. Inspect. Understand.",
         "ink_light": "#995500", "ink_dark": "#ffc163", "glow": "#ffb347",
         "hero": ("#392600", "#000000"),
     },
     "dna": {
+        "function": "Environments",
         "organ": "DNA",
         "tagline": "Specify. Compare. Evolve.",
         "ink_light": "#087b88", "ink_dark": "#67e8f9", "glow": "#22d3ee",
         "hero": ("#08343c", "#00060a"),
     },
     "nerves": {
+        "function": "Configuration",
         "organ": "Nerves",
         "tagline": "Signal. Connect. Understand.",
         "ink_light": "#6420e0", "ink_dark": "#a27aff", "glow": "#7523fe",
@@ -168,6 +181,7 @@ ORGANS = {
     # is the same hue taken down to #3f7a00 (5.3:1 on #fff); the dark-scheme
     # ink #8fe01a reads at 11.6:1 on #0d1117.
     "gut": {
+        "function": "Cleanup",
         "organ": "Gut",
         "tagline": "Delete. Clean. Keep healthy.",
         "ink_light": "#3f7a00", "ink_dark": "#8fe01a", "glow": "#8ad414",
@@ -177,6 +191,7 @@ ORGANS = {
     # the tagline are designed to sit in the family rather than read off a
     # file. Replace both from the logo if that repo ever grows one.
     "organism": {
+        "function": "Overview",
         "organ": "Scientist",
         "tagline": "Describe. Build. Release.",
         "ink_light": "#0b6fa4", "ink_dark": "#5ec7f5", "glow": "#38bdf8",
@@ -991,14 +1006,14 @@ def hero(key, kind, lede_html="", *, navigation=(), navigation_columns=None):
     """The masthead: the organ's logo re-drawn — mark, wordmark, rule, tagline.
 
     `lede_html` is accepted for compatibility but not displayed.
-    `kind` is what this page *is* under the wordmark ("Dashboard", "Board"),
-    so the mark stays the organ's and the page keeps its own name.
+    `kind` remains accepted for compatibility with existing renderers.
+    The grey label describes the organ's function, from the shared metadata.
     """
     o = organ(key)
     # Legacy prose arguments remain accepted for downstream compatibility.
     return (f'<header class="hero"><span class="orb">{mark(key)}</span>'
             f'<h1>{WORD}<b>{o["organ"]}</b>'
-            f'<span class="kind">{kind}</span></h1>'
+            f'<span class="kind">{o["function"]}</span></h1>'
             f'<div class="rule"></div>'
             f'<p class="tag">{o["tagline"]}</p></header>'
             f'{navigation_cards(navigation, columns=navigation_columns)}')
