@@ -70,7 +70,7 @@ The prototype contract (what makes its row comparable):
 - Benchmark honestly: no `pure_callback` under single-JIT (constant-folding),
   `vmap` for traced-input timings, compiled closures cached.
 - If the candidate targets real likelihoods (lensing MGE / pixelization /
-  interferometer), extend to `autolens_profiling` use-case runs before any
+  interferometer), extend to `autolens_inference` use-case runs before any
   promotion argument — the 1D Gaussian alone never justifies promotion.
 - Record durable findings in `PyAutoMemory/wiki/methods` (update
   `concepts/sampler-benchmarks.md`).
@@ -84,11 +84,12 @@ comparable row · converged · concrete win · implementation cost justified).
   `NonLinearSearch` subclass under
   `autofit/non_linear/search/<group>/<name>/`, plus an integration script in
   `autofit_workspace_test/scripts/searches/` (and a `*_jax` variant when the
-  likelihood is jittable), run end-to-end before shipping. The full
-  six-point package anatomy (search.py, samples.py, `af.` export, dependency
-  extra + the PyPI git-URL gotcha, numpy-only unit tests, workspace config
-  mirroring) and the reference implementations to read first are in
-  [`reference.md`](reference.md) Stages 3–4. The prompt runs
+  likelihood is jittable), run end-to-end before shipping, plus the
+  documentation surfaces that list searches. The five-point package anatomy
+  (search.py, samples.py, `af.` export, dependency extra + the PyPI git-URL
+  gotcha, numpy-only unit tests), the reference implementations to read
+  first and the documentation checklist are in
+  [`reference.md`](reference.md) Stages 3–5. The prompt runs
   `start_dev → ship_library` as a normal library task — library source is
   edited inside that task's worktree, never ad hoc.
 - **Archive** → the prototype stays in `searches_minimal/` as the record;
@@ -109,6 +110,6 @@ comparable row · converged · concrete win · implementation cost justified).
   an already-promoted search on a new likelihood class runs the separate
   **findings lane** (faculty AGENTS.md → "the maturation lane"): experiment
   in `autolens_workspace_developer/searches_minimal/` → mature first-class
-  cells + knowledge in `autolens_profiling` → user lessons in the
+  cells + knowledge in `autolens_inference` → user lessons in the
   `autolens_workspace` guides. Precedent: wsdev#117 (pixelized
   MultiStartProdigy).

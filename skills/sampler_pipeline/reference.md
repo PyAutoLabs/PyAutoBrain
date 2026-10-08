@@ -95,7 +95,7 @@ exercise on real lensing likelihoods — and cube → physical stays inside
 (the priors-jax-native work; without it a `pure_callback` hop costs ~18
 ms/eval and erases the on-device advantage, per the HPC profiling
 findings). Owned-likelihood scripts live beside the Gaussian ones (or in
-`autolens_profiling` for HPC-scale runs) — their numbers go in the
+`autolens_inference` for HPC-scale runs) — their numbers go in the
 promotion argument, not in `comparison.txt`, which stays a same-problem
 table.
 
@@ -110,9 +110,10 @@ table.
   (constant-folding fakes 20–30×); time through `vmap` with traced inputs;
   cache compiled closures. Full list: the faculty's AGENTS.md.
 - Real-likelihood evidence (required before any promotion argument): run
-  the candidate on lensing use cases via `autolens_profiling` — the
-  `/profile_likelihood` skill drives the sweep machinery; A100/HPC runs go
-  through that repo's conventions.
+  the candidate on lensing use cases via `autolens_inference` — its
+  `scripts/<dataset>/searches/<sampler>/<model_type>.py` cells are the mature
+  tier; A100/HPC runs go through that repo's conventions. Per-evaluation
+  likelihood cost stays with the `/profile_likelihood` skill.
 - Record durable findings in `PyAutoMemory/wiki/methods/concepts/
   sampler-benchmarks.md` (internal; never cited in public output).
 
@@ -138,15 +139,10 @@ A new search package `autofit/non_linear/search/<group>/<name>/` needs:
 4. **Dependency** — optional extra in `pyproject.toml`. Gotcha: PyPI
    rejects git-URL dependencies in uploaded wheels ("400 Can't have direct
    dependency") — fork-only deps get a manual-install comment in
-   `pyproject.toml` and a post-extras install step in the CI jobs (the
-   `[nss]` extra is the worked example).
+   `pyproject.toml` and a post-extras install step in the CI jobs.
 5. **Unit tests** — `test_autofit/non_linear/search/<group>/test_<name>.py`,
    **numpy-only** (library unit tests never import JAX; cross-backend checks
    live in workspace_test).
-6. **Config surfaces** — if the search introduces new output/config keys,
-   mirror them into each workspace's config (workspace configs override
-   library defaults; a default-on key without the mirror fires warnings in
-   every consumer).
 
 This is a normal library task: Mind prompt via `/intake`, `start_dev`,
 worktree, plan, `ship_library`.
@@ -170,6 +166,73 @@ cd autofit_workspace_test && python scripts/searches/<Name>.py
   scripts are deliberately **not** in the curated smoke lists — never grow
   `smoke_tests.txt` to exercise a sampler.
 
+## Stage 5 — documentation
+
+A search is not promoted until the surfaces that list searches name it. No
+registry generates these yet, so this is the interim checklist (library
+first; generated files — notebooks, `llms-full.txt`, `workspace_index.json`
+— regenerate via PyAutoHands and are never hand-edited). Skip a row only when
+its condition does not apply.
+
+**PyAutoFit**
+- `docs/api/searches.rst` entry and the committed
+  `docs/api/_autosummary/autofit.<Name>.rst` stub
+- `docs/cookbooks/search.md` — contents list and a section
+- `docs/overview/natural_language.md` — family / JAX list
+- `docs/installation/overview.md` — dependency list (new dependency only)
+- `docs/general/citations.md`, `files/citations.bib`, `files/citations.md`,
+  `files/citation.tex`
+- `AGENTS.md` package-map line
+
+**autofit_workspace**
+- `scripts/searches/<family>.py` section (smoke-tested) and
+  `scripts/searches/README.md`
+- `scripts/cookbooks/search.py` — mirror of the RTD cookbook section
+- `scripts/plot/<name>_plotter.py` (search-specific plots only)
+- `llms.txt`, `CITATIONS.md`
+
+**autofit_workspace_test / autofit_workspace_developer**
+- the Stage 4 integration script(s)
+- `searches_minimal/<name>_simple.py` and its `output/comparison.txt` row
+  (the pre-promotion evidence, already written in Stage 2)
+
+**HowToFit** (new family or capability only)
+- `scripts/chapter_1_introduction/tutorial_3_non_linear_search.py` and/or
+  `tutorial_6_gradients.py`; `CITATIONS.md`
+
+**Downstream libraries and workspaces** (kept in lockstep)
+- `guides/modeling/searches.py` in autolens_workspace and
+  autogalaxy_workspace (plus `guides/plot/searches.py` when the search has
+  plots)
+- `chapter_optional/tutorial_searches.py` in HowToLens and HowToGalaxy
+- `docs/api/modeling.rst` in PyAutoLens, PyAutoGalaxy and PyAutoCTI
+- `docs/general/citations.*` in PyAutoLens, PyAutoGalaxy and PyAutoCTI;
+  `CITATIONS.*` in PyAutoLens, PyAutoGalaxy, PyAutoCTI, autolens_workspace,
+  autogalaxy_workspace, HowToLens and HowToGalaxy
+- `docs/installation/overview.*` in PyAutoGalaxy and PyAutoCTI (new
+  dependency only)
+
+**Assistants**
+- autofit_assistant: `skills/af_configure_search.md`,
+  `wiki/core/concepts/non_linear_search.md` (roster table), the family page
+  under `wiki/core/concepts/`, `initialization_and_chaining.md`
+  (provider/consumer role), `wiki/core/stack/autofit.md`
+- autolens_assistant: `skills/al_configure_search.md`,
+  `wiki/core/concepts/non_linear_search.md`
+- autogalaxy_assistant: `skills/ag_configure_search.md`,
+  `wiki/core/concepts/non_linear_search.md`
+
+**Organs and galleries**
+- the samplers faculty's `AGENTS.md` judgment tables
+- `PyAutoMemory/wiki/methods/concepts/sampler-benchmarks.md` (internal)
+- `autofit_visualization/scripts/samples/visualization.py` and its
+  regenerated manifest (search-specific plots only)
+
+Each repo's documentation edit ships through its normal workflow
+(`ship_library` for the libraries, `ship_workspace` for the rest), library
+first. Re-run `bin/pyauto-brain samplers` afterwards: the new class must no
+longer appear in the tier gaps.
+
 ## Running the pipeline under `--auto`
 
 "Point at a repo and go" maps onto the autonomy contract
@@ -181,7 +244,7 @@ cd autofit_workspace_test && python scripts/searches/<Name>.py
    **promote-or-archive call is the one judgment gate**, posted as a batched
    question on the issue (checkpoint-and-continue), or pre-answered at
    launch ("if it converges and beats X on my likelihood, proceed").
-2. **Promotion task** (Stages 3–4; a normal `feature/autofit` library task):
+2. **Promotion task** (Stages 3–5; a normal `feature/autofit` library task):
    runs `start_dev → ship_library` under the same contract — implementation
    proceeds, ship sign-off checkpoints, PR-open ends the run.
 
