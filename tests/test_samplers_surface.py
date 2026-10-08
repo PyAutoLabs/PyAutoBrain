@@ -178,7 +178,7 @@ def _make_fit_family(root: Path) -> dict:
     module dir holding several classes (bfgs, blackjax, multi_start_gradient),
     lazily exported searches, an archived search that was re-mainlined, and
     prototype stems with stacked variant suffixes."""
-    autofit = root / "PyAutoFit"
+    autofit = root / "library"
     (autofit / "autofit").mkdir(parents=True)
     (autofit / "autofit" / "__init__.py").write_text(_AUTOFIT_INIT)
     developer = root / "developer"
