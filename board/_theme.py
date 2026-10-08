@@ -929,8 +929,12 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
         # Labels are also plain text in the prompt; disallow line injection.
         if not label.strip() or any(c in label for c in "\r\n"):
             raise ValueError("Work destination labels must be nonempty, single-line text")
+        # Repository buttons use the destination's name; companion surfaces
+        # such as the organization Community Hub keep their descriptive label.
+        parts = parsed.path.strip("/").split("/")
+        display_label = parts[1] if len(parts) >= 2 and parts[0] not in {"orgs", "users"} else label
         links.append(f'<a href="{_html.escape(url, quote=True)}">'
-                     f'{_html.escape(label)}</a>')
+                     f'{_html.escape(display_label)}</a>')
         context.append(f"- {label}: {url}")
     base = portable_prompt(prompt).replace("\r\n", "\n").replace("\r", "\n")
     if context:

@@ -31,7 +31,7 @@ note`).
 | `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY]` | **Where is my science?** | the door — the sequence below, ending in a summary keyed by project; reaches no cluster; exit **1** when the tree does not check |
 | `census [--json]` | What is the Cortex holding? | per project: status, summary, runs by state, log length, last update; totals (active projects, runs open, runs running); the check-in stamp; the problems `cortex.py check` would report |
 | `dashboard --check` | Are the committed pages current? | exit 0 current · **1 stale** · 2 no checkout · 3 unreadable tree |
-| `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` + `state.json` — the organ-cockpit feed (`board/_state.py` v1): red on `cortex.py check` problems, yellow while a run is running or the check-in is stale (the page script's 180-min rule, judged at render), items carry `checkin_payload` / `resume_payload`; `--check` ignores its `updated` |
+| `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` + `state.json` — the organ-cockpit feed (`board/_state.py` v1): red on `cortex.py check` problems, yellow while a run is running or the check-in is stale (the feed's 180-min rule, judged at render), items carry `checkin_payload` / `resume_payload`; `--check` ignores its `updated` |
 | `issue [--project KEY] [--apply]` | What sits at the top of each project's issue? | the fenced ledger block (`cortex.py`'s `issue_block`) per project with an `Issue:`; `--apply` writes it into the issue body through `gh` (replacing the block between the markers, or prepending it); never creates an issue; exit **1** without `gh` |
 
 ```
@@ -78,8 +78,8 @@ The page opens on the door: a counts table (`Running`, `Open`, `Projects` —
 what `board/_board.py` reads for the Brain board's Cortex strip), the
 **check-in chip** — two lines, because the check-in has two halves that do
 not run on the same machine: `pyauto-brain cortex pull` on the laptop, then
-`pyauto-brain cortex checkin --apply --push` anywhere — and the **last
-check-in** stamp under it. Then **Summary**: one row per active project, four
+`pyauto-brain cortex checkin --apply --push` anywhere — and the shared
+**Last updated / Update** footer. Then **Summary**: one row per active project, four
 narrow columns (`Project | Running | Open | Last update`) so it fits a phone.
 Then **Projects**: a `### <key> — <summary>` card per project with a ledger —
 active first in `projects.yaml` order, then planned/dormant, with the retired
@@ -98,8 +98,9 @@ chips anywhere — retiring is `scripts/cortex.py retire`, a typed verb.
 **`checkin.yaml`** is the one-key file (`refreshed: <UTC ISO 8601>`) the
 door writes before rendering. `census()` reads it into `c["checkin"]`;
 missing means "never checked in", unparseable is a `problems` line. The
-stamp means *last check-in*, never last render, and the HTML twin computes
-its age on the **viewer's** clock and reddens it once stale.
+stamp means *last check-in*, never last render. The cockpit feed keeps its
+180-minute check-in freshness rule; the HTML uses the shared panel refresh
+footer and omits the old standalone check-in widget.
 
 `--check` compares the pages with the generation comment **and** the visible
 `Last updated` banner stripped, so a re-render on a new date is not drift.

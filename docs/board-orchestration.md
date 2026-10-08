@@ -27,7 +27,11 @@ truncate words. Omit explanatory subtitles and preserve work links/copy controls
 
 `work_links` is an ordered list of mappings with `label` and `href`. Destinations
 must be HTTPS GitHub links. These owner-supplied links appear beside the controls
-and are appended under **Work on GitHub** in the portable prompt. They are fixed
+and are appended under **Work on GitHub** in the portable prompt. Repository
+buttons display the repository name from the destination URL, without the owner
+prefix or “Open”/“repository” filler. Non-repository companion destinations keep
+their supplied labels; portable prompt metadata retains its original labels.
+Every primary panel copy button uses **Copy check-in prompt**. They are fixed
 metadata; typing a focus does not rewrite them. Avoid putting the same URL list
 in the base prompt as well. Missing metadata displays an explicit unavailable
 message, never an invented destination.
@@ -60,6 +64,9 @@ prompt text and work links remain accessible through native HTML controls.
 Different panels must not overwrite one another's input, preview or feedback.
 
 ## Last updated footer
+
+Omit redundant **GitHub Page** links and the legacy standalone Cortex
+last-check-in/stale widget. Keep underlying check-in records and feed semantics.
 
 Every panel has the same small footer beneath the copy controls: **Read the
 prompt** on the left, **Last updated …** and **↻ Update** on the right. It wraps

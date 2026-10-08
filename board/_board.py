@@ -1612,13 +1612,10 @@ def render_html(data):
     # page. `–` where a source was unreachable: an absent count is never a
     # zero here, the same contract the rows keep.
     # The sibling boards' header line: the markdown twin (written beside
-    # index.html by --apply, so the relative href resolves on Pages) and the
-    # way back to the repository front door on github.com.
+    # index.html by --apply, so the relative href resolves on Pages).
     if data.get("org") and data.get("repo"):
-        gh = (f'https://github.com/{data["org"]}/{data["repo"]}'
-              "/blob/main/README.md")
         H.append('<p class="muted mdsrc"><a href="board.md">markdown '
-                 f'version</a> · <a href="{_attr(gh)}">GitHub Page</a></p>')
+                 f'version</a></p>')
     H.append("<a id=\"morning\"></a><h2>⌨ Morning sync (local)</h2>")
     H.append(_row(
         "Sync every repo to main + clean generated cruft — run in a terminal "
