@@ -15,7 +15,7 @@
 Grown from demonstrated need: user-filed issues were handled ad-hoc (paste the
 GitHub link into an agent chat), the `start_dev_for_user` skill already owned
 the downstream dev entry, and the founding prompt asked for both a dedicated
-listening/communicating agent and a `/wake_up` summary of what the community
+listening/communicating agent and an Ears board summary of what the community
 is waiting on. Founding prompt:
 PyAutoMind `active/community_communication_agent_listen_and_respond.md`
 (issue PyAutoBrain#119).

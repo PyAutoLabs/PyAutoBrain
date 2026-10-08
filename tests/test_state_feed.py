@@ -174,17 +174,10 @@ def test_the_brain_board_state_satisfies_the_contract(tmp_path):
                                "brightgreen": "green"}[badge["color"]]
 
 
-def test_a_red_heart_blocker_is_a_red_item_with_its_link_and_prompt(tmp_path):
+def test_heart_blockers_stay_on_the_heart_feed(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures())
     state = json.loads(_run(["--state"], tmp_path, stub).stdout)
-    blocker = HEART_BOARD_JSON["blockers"][0]
-    matches = [i for i in state["items"] if blocker["text"] in i["text"]]
-    assert matches, state["items"]
-    item = matches[0]
-    assert item["severity"] == "red"
-    assert item["url"] == blocker["run_url"]
-    assert item["prompt"] == blocker["prompt"]  # verbatim, never re-derived
-    assert state["items"][0]["severity"] == "red"  # most urgent first
+    assert not any("Heart:" in row["text"] for row in state["items"])
 
 
 def test_a_failed_overnight_run_is_a_red_item_with_its_run_url(tmp_path):

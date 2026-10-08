@@ -18,7 +18,7 @@
 #   board.sh publish [--dry-run] [--no-hygiene]
 #                            # dev-box leg (_publish.py): distill hygiene +
 #                            #   worktree state into state/devbox_board.json
-#                            #   and push it (morning.sh's last step)
+#                            #   and push it explicitly
 
 set -uo pipefail
 

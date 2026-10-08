@@ -1,6 +1,6 @@
 ---
 name: board
-description: Read the PyAutoBrain operational board — the morning surface (overnight runs, readiness, community, resume, upkeep) — via the Pages board or `pyauto-brain board`; read-only. Use for a morning status glance or when asked what needs attention.
+description: Read the PyAutoBrain agents/workflows directory, overnight exceptions and maintenance via Pages or `pyauto-brain board`; read-only. Use to discover a workflow or inspect Brain-owned coordination.
 ---
 
 # Board

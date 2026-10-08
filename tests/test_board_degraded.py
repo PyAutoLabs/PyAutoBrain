@@ -80,7 +80,7 @@ def test_a_workflow_with_no_runs_says_so():
 def test_a_workflow_that_could_not_be_read_does_not_claim_no_runs():
     line = _board._overnight_line(_row(unreadable=True))
     assert "no runs" not in line, "an unaskable workflow still reports as empty"
-    assert "could not read" in line
+    assert "evidence unavailable" in line
 
 
 def test_the_two_states_render_differently():
@@ -94,7 +94,7 @@ def test_the_two_states_render_differently():
 
 def test_a_complete_board_with_nothing_wrong_is_clear_and_green():
     data = _surface()
-    assert _board.headline(data) == "clear to work"
+    assert _board.headline(data) == "Agents & workflows"
     assert _board.badge_color(data) == "brightgreen"
 
 
@@ -120,19 +120,17 @@ def test_real_findings_still_outrank_degradation():
     _board.verdict = lambda d: (blocking, attention)
     try:
         assert _board.badge_color(data) == "red"
-        assert "need you" in _board.headline(data)
+        assert "overnight item(s) to review" in _board.headline(data)
     finally:
         _board.verdict = _real
 
 
-def test_banner_appears_at_the_top_not_only_the_foot():
-    """A reader who stops after the headline must still learn the render is
-    partial — the foot section alone did not reach them."""
-    md = _board.render_md(_surface(degraded=["overnight: could not read x"]))
-    head, sep, foot = md.partition("## Degraded")
-    assert sep, "no Degraded section at all"
-    assert "Degraded render" in head, "the banner is not above the sections"
-    assert "could not read x" in foot, "the detail left the foot section"
+def test_unavailable_run_is_explained_locally_without_global_banner():
+    data = _surface(degraded=["overnight: could not read x"],
+                    overnight=[_row(unreadable=True)])
+    md = _board.render_md(data)
+    assert "evidence unavailable" in md
+    assert "## Degraded" not in md and "Degraded render" not in md
 
 
 def test_a_healthy_board_carries_no_banner():

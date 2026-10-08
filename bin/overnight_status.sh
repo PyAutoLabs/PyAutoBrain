@@ -79,7 +79,7 @@ if [ "$fails" -eq 0 ] && [ "$blocked" -eq 0 ]; then
     echo "Overnight: all scheduled jobs green."
 fi
 # Separate `if`s, not `[ … ] && echo`: a false test as the script's last command
-# would make it exit non-zero and read as a tool failure to /wake_up.
+# would make it exit non-zero and read as a tool failure to the Brain board.
 if [ "$fails" -gt 0 ]; then
     echo "Overnight: $fails job(s) not green — see above."
 fi
