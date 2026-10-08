@@ -165,7 +165,6 @@ board:
     brain: PyAutoBrain
     mind: PyAutoMind
     cortex: PyAutoCortex
-    broca: PyAutoBroca
     memory: PyAutoMemory
     eyes: PyAutoEyes
     ears: PyAutoEars
@@ -175,5 +174,6 @@ board:
     insight: PyAutoInsight
     dna: PyAutoDNA
     nerves: PyAutoNerves
+    broca: PyAutoBroca
     gut: PyAutoGut
     organism: PyAutoScientist

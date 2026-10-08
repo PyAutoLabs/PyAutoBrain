@@ -211,7 +211,8 @@ def test_the_hero_reproduces_the_logo_wordmark():
     page = _theme.hero("mind", "Dashboard", "lede text")
     assert f'{_theme.WORD}<b>{_theme.ORGANS["mind"]["organ"]}</b>' in page
     assert _theme.ORGANS["mind"]["tagline"] in page
-    assert "Dashboard" in page and "lede text" not in page
+    assert '<span class="kind">Planning</span>' in page
+    assert "Dashboard" not in page and "lede text" not in page
 
 
 def test_pills_tone_the_exception_and_leave_the_default_neutral():
@@ -284,8 +285,8 @@ def test_board_links_reads_the_declared_family_in_file_order():
     # ad-hoc order). This helper is the one read, so the order it returns is
     # the order `config/policy.yaml` declares — the ruled organ order.
     links = _theme.board_links("https://example.invalid")
-    assert list(links) == ["brain", "mind", "cortex", "broca", "memory", "eyes", "ears",
-                           "heart", "hands", "pulse", "insight", "dna", "nerves", "gut", "organism"]
+    assert list(links) == ["brain", "mind", "cortex", "memory", "eyes", "ears",
+                           "heart", "hands", "pulse", "insight", "dna", "nerves", "broca", "gut", "organism"]
     assert list(links) == POLICY_BOARDS
     assert links["cortex"] == "https://example.invalid/PyAutoCortex/"
 
@@ -307,8 +308,8 @@ def test_board_links_renders_the_family_footer_end_to_end():
     footer = _theme.boards_footer(
         _theme.board_links("https://example.invalid", "heart"), "heart")
     order = re.findall(r'data-organ="(\w+)"', footer)
-    assert order == ["brain", "mind", "cortex", "broca", "memory", "eyes", "ears", "hands",
-                     "pulse", "insight", "dna", "nerves", "gut", "organism"]
+    assert order == ["brain", "mind", "cortex", "memory", "eyes", "ears", "hands",
+                     "pulse", "insight", "dna", "nerves", "broca", "gut", "organism"]
 
 
 def test_board_links_returns_nothing_when_the_config_is_unreadable():

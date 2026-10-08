@@ -8,6 +8,32 @@ keeps ownership of collection, health, freshness and action semantics.
 
 ## Component contract
 
+The grey label beneath each software name describes the organ's function. It
+comes from `board/_theme.py::ORGANS`, regardless of legacy renderer `kind`
+arguments. Logos, wordmarks, taglines and banner styling are unchanged.
+
+| Organ | Function |
+|---|---|
+| Brain | Orchestration |
+| Mind | Planning |
+| Cortex | Science |
+| Memory | Knowledge |
+| Eyes | Visualization |
+| Ears | Community |
+| Heart | Tests |
+| Hands | Releases |
+| Pulse | Profiling |
+| Insight | Inference |
+| DNA | Environments |
+| Nerves | Configuration |
+| Broca | Assistants |
+| Gut | Cleanup |
+| Scientist | Overview |
+
+The shared navigation follows `config/policy.yaml` → `board.boards`, with Broca
+immediately after Nerves. Consumers adopt these labels and this order when their
+boards are regenerated with the updated Brain checkout.
+
 `board/_theme.py::hero(key, kind, lede_html='', navigation=(), navigation_columns=None)` retains its
 existing positional API. The optional keyword inserts
 `navigation_cards(items, label='Board sections', columns=None)` directly after the masthead
