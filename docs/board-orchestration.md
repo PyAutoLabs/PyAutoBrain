@@ -118,6 +118,7 @@ destinations, prompts and other presentation must still be detected.
 | Memory | snapshot `generated` | `knowledge_board.yml` |
 | Pulse | oldest successful ingest refresh receipt, preserved offline | `dashboard_refresh.yml` |
 | Insight | oldest successful ingest refresh receipt, preserved offline | `dashboard_refresh.yml` |
+| DNA | DNA inventory collection receipts; unknown while any required environment is unobserved | `pages.yml` |
 | Nerves | snapshot `generated`, unknown on collection errors | `nerves_board.yml` |
 | Gut | snapshot `generated`, unknown on collection errors/missing ref listing | `gut_board.yml` |
 | Eyes | oldest successful manifest collection `captured_at`, not figure age | `dashboard_refresh.yml` |
@@ -140,6 +141,7 @@ The shared component must land before consumers of its new keyword arguments.
 | Memory | Memory `scripts/board.py` | Knowledge and reading queue review; resolved Memory remote; paper actions retained |
 | Pulse | Pulse `pulse/campaigns.py` and `pulse/board.py` | Existing profiling check-in; Pulse ledger and every registered project repository; separate systematic-fix action retained |
 | Insight | Insight `insight/campaigns.py` and `insight/board.py` | Existing inference check-in; Insight ledger and registered inference project repositories |
+| DNA | DNA `dna/board.py` | Stack inventory, compatibility and upgrade check-in; DNA work repository; refresh never installs packages or promotes a stack |
 | Nerves | Nerves `scripts/board.py` index | Configuration review; Nerves and named source repositories from the collected body-map identities; source detail pages retain their specific controls |
 | Gut | Gut `scripts/board.py` | Retention/recovery review; Gut and the associated Mind retention ledger; permanent void still requires explicit human authorization |
 | Eyes | Eyes `eyes/board.py` | Figure review; Eyes plus every registered visualization project repository; per-figure copy/critique actions retained |

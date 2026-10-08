@@ -73,6 +73,7 @@ The authoritative membership is `config/policy.yaml` → `board.boards`.
 | Heart | Heart `heart/dashboard.py` | Downstream shared-theme consumer; retain readiness semantics |
 | Hands | Hands `autohands/board.py` | Downstream shared-theme consumer |
 | Pulse | Pulse `pulse/board.py` | Downstream shared-theme consumer |
+| DNA | DNA `dna/board.py` | Shared components; environment, compatibility, decision and campaign sections |
 | Nerves | Nerves `scripts/board.py` | Downstream shared-theme consumer |
 | Gut | Gut `scripts/board.py` | Downstream shared-theme consumer |
 | Scientist | Scientist `scripts/organism_board.py` | Downstream shared-theme consumer |
