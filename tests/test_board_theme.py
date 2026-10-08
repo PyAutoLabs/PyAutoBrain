@@ -102,23 +102,14 @@ POLICY_BOARDS = re.findall(
               re.M).group(1), re.M)
 
 
-PRIVATE_BOARDS = re.findall(
-    r"^    (\w+): \S+$",
-    re.search(r"^  private_boards:\n((?:    \w+: \S+\n)+)",
-              (BRAIN_HOME / "config" / "policy.yaml").read_text(),
-              re.M).group(1), re.M)
-
-
-def test_private_boards_have_identity_without_public_navigation():
-    assert "broca" in PRIVATE_BOARDS
-    assert not set(PRIVATE_BOARDS) & set(POLICY_BOARDS)
-    for key in PRIVATE_BOARDS:
-        assert key in _theme.ORGANS and key in _theme.MARKS
-        assert _theme.prompt_heading(key)
+def test_broca_is_a_public_board_with_shared_identity():
+    assert "broca" in POLICY_BOARDS
+    assert "broca" in _theme.ORGANS and "broca" in _theme.MARKS
+    assert _theme.prompt_heading("broca")
 
 
 def test_every_declared_board_has_a_complete_palette_entry():
-    for key in POLICY_BOARDS + PRIVATE_BOARDS:
+    for key in POLICY_BOARDS:
         assert key in _theme.ORGANS, key
         o = _theme.ORGANS[key]
         for field in ("organ", "tagline",
@@ -293,7 +284,7 @@ def test_board_links_reads_the_declared_family_in_file_order():
     # ad-hoc order). This helper is the one read, so the order it returns is
     # the order `config/policy.yaml` declares — the ruled organ order.
     links = _theme.board_links("https://example.invalid")
-    assert list(links) == ["brain", "mind", "cortex", "memory", "eyes", "ears",
+    assert list(links) == ["brain", "mind", "cortex", "broca", "memory", "eyes", "ears",
                            "heart", "hands", "pulse", "insight", "dna", "nerves", "gut", "organism"]
     assert list(links) == POLICY_BOARDS
     assert links["cortex"] == "https://example.invalid/PyAutoCortex/"
@@ -316,7 +307,7 @@ def test_board_links_renders_the_family_footer_end_to_end():
     footer = _theme.boards_footer(
         _theme.board_links("https://example.invalid", "heart"), "heart")
     order = re.findall(r'data-organ="(\w+)"', footer)
-    assert order == ["brain", "mind", "cortex", "memory", "eyes", "ears", "hands",
+    assert order == ["brain", "mind", "cortex", "broca", "memory", "eyes", "ears", "hands",
                      "pulse", "insight", "dna", "nerves", "gut", "organism"]
 
 
@@ -461,7 +452,7 @@ def test_the_nerves_board_is_in_the_family_and_readable():
 def test_every_theme_entry_but_the_umbrella_is_a_declared_board():
     # The reverse of the palette check: a palette for a board nobody declares
     # is a footer chip that can never appear.
-    assert set(_theme.ORGANS) <= set(POLICY_BOARDS + PRIVATE_BOARDS) | {"organism"}
+    assert set(_theme.ORGANS) <= set(POLICY_BOARDS) | {"organism"}
 
 
 def test_legacy_dashboard_prompts_preserve_arguments_and_paths():
