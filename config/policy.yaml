@@ -130,6 +130,7 @@ test_witness:
   pyautopulse: PyAutoPulse/tests
   pyautoinsight: PyAutoInsight/tests
   pyautodna: PyAutoDNA/tests
+  pyautobroca: PyAutoBroca/tests
   # PyAutoGut has no test suite — deliberately absent, so the conductor's
   # "strengthen tests first" advice is correct there rather than noise.
 
@@ -160,6 +161,9 @@ board:
   # carries; each renderer skips its own entry). Parsed by board/_board.py
   # (yaml) and by the Mind renderer's footer (stdlib regex on this block —
   # keep one `name: Repo` pair per line).
+  # Private boards are registered separately and never added to public Pages links.
+  private_boards:
+    broca: PyAutoBroca
   boards:
     brain: PyAutoBrain
     mind: PyAutoMind

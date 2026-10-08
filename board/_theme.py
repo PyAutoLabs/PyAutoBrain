@@ -67,6 +67,11 @@ its own background (light on `#fff`, dark on `#0d1117`).
 # hero:  (lift, base) — the hero's radial gradient, echoing each logo's
 #        vignette: a tinted lift behind the wordmark falling to near-black.
 ORGANS = {
+    "broca": {
+        "organ": "Broca", "tagline": "Evaluate. Maintain. Improve.",
+        "ink_light": "#8b3e68", "ink_dark": "#f4a5ce", "glow": "#f4a5ce",
+        "hero": ("#351329", "#09030a"),
+    },
     "brain": {
         "organ": "Brain",
         "tagline": "Reason. Plan. Decide.",
@@ -191,6 +196,10 @@ ORGANS = {
 # are ~1KB of path data, stay sharp on any screen, and take the accent.
 # Keep them that way — a mark is a logo's glyph in line art, not a rendering.
 MARKS = {
+    "broca": (
+        '<path stroke="currentColor" d="M13 8h22a8 8 0 0 1 8 8v13a8 8 0 0 1-8 8H23l-10 7v-7a8 8 0 0 1-8-8V16a8 8 0 0 1 8-8Z"/>'
+        '<path d="M12 24h5l3-8 6 16 4-10 3 2h4"/>'
+    ),
     # Brain — a circuit brain: two lobed hemispheres either side of a spine,
     # each branching into elbowed, node-tipped traces, inside a ring.
     "brain": (
@@ -835,6 +844,7 @@ def navigation_cards(items, label="Board sections", *, columns=None):
 
 
 _PROMPT_HEADINGS = {
+    "broca": ("Improve your assistants with ", "Broca", ""),
     "brain": ("Plan your next move with your ", "Brain", ""),
     "mind": ("Put your ", "Mind", " to work"),
     "cortex": ("Explore science with your ", "Cortex", ""),
