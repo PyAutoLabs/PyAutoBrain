@@ -161,7 +161,7 @@ board:
   # carries; each renderer skips its own entry). Parsed by board/_board.py
   # (yaml) and by the Mind renderer's footer (stdlib regex on this block —
   # keep one `name: Repo` pair per line).
-  # Private boards are registered separately and never added to public Pages links.
+  # Unhosted/private boards are registered separately, without public Pages links.
   private_boards:
     broca: PyAutoBroca
   boards:
