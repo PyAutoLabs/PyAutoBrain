@@ -541,11 +541,9 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert 'data-cmd="bash PyAutoBrain/bin/morning.sh"' in page
     # The doors roster is on the page.
     assert 'data-cmd="Use the intake skill."' in page
-    # The header line every sibling board carries: the markdown twin and the
-    # way back to the repository front door on github.com.
+    # Keep the Markdown source without the redundant repository link.
     assert '<a href="board.md" class="board-source-link" title="Markdown version" aria-label="Markdown version"><svg' in page
-    assert ('<a href="https://github.com/ExampleOrg/PyAutoBrain/blob/main/'
-            'README.md">GitHub Page</a>') in page
+    assert 'GitHub Page</a>' not in page
 
 
 # --------------------------------------------------------------- the look --

@@ -468,11 +468,12 @@ def test_orchestration_panel_keeps_work_links_in_visible_and_portable_context():
         work_links=[{'label': 'Open work repo', 'href': 'https://github.com/Example/Work'},
                     {'label': 'Community hub', 'href': 'https://github.com/orgs/Example/discussions'}])
     assert 'Review &lt;work&gt;' in page and 'A &amp; B' not in page
-    assert '<a href="https://github.com/Example/Work">Open work repo</a>' in page
+    assert '<a href="https://github.com/Example/Work">Work</a>' in page
     preview = unescape(re.search(r'data-orchestration-prompt[^>]*>(.*?)</textarea>', page, re.S)[1])
     assert preview == ('Use the board skill. check\n\nWork on GitHub:\n'
                        '- Open work repo: https://github.com/Example/Work\n'
                        '- Community hub: https://github.com/orgs/Example/discussions')
+    assert '<a href="https://github.com/orgs/Example/discussions">Community hub</a>' in page
     assert 'readonly' in page and 'aria-live="polite"' in page
 
 

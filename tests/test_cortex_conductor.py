@@ -289,8 +289,11 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     assert "On the laptop, use the Cortex pull procedure" in html
     assert "Follow the Cortex check-in procedure to refresh the board" in html
     assert "Submit compute only when I explicitly ask" in html
-    assert '<time id="checkin" datetime="2026-09-02T09:00Z">2026-09-02T09:00Z</time>' in html
-    assert "fresh-bad" in html and _cortex._CHECKIN_JS in html
+    assert 'id="checkin-box"' not in html
+    assert 'stale, paste the check-in' not in html
+    assert 'Copy check-in prompt' in html
+    assert 'data-freshness-stamp' in html
+    assert 'GitHub Page</a>' not in html
     assert "<span class=\"board-nav-count\">1</span><span class=\"board-nav-label\">Running</span>" in html
     assert "<span class=\"board-nav-count\">1</span><span class=\"board-nav-label\">Open</span>" in html
     assert "<span class=\"board-nav-count\">2</span><span class=\"board-nav-label\">Projects</span>" in html

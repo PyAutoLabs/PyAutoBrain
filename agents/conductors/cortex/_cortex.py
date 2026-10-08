@@ -595,38 +595,10 @@ _FRESH_CSS = (
     "table.map{width:100%;border-collapse:collapse;font-size:.95em}"
     "table.map th{text-align:left;color:var(--muted);font-weight:600}"
     "table.map td,table.map th{border-bottom:1px solid var(--line);padding:.4rem .5rem .4rem 0;vertical-align:top}"
-    ".checkin{display:flex;gap:.9rem;align-items:center;padding:.9rem 1.2rem;border:2px solid var(--line);border-radius:.6rem;margin:.2rem 0 1.4rem}"
-    ".checkin .mark{font-size:2rem;line-height:1}"
-    ".checkin .label{display:block;font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}"
-    ".checkin time{font-size:1.6rem;font-weight:700;font-variant-numeric:tabular-nums;display:block}"
-    ".checkin .note{font-size:.85rem;color:var(--muted)}"
-    ".checkin.fresh-ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}"
-    ".checkin.fresh-ok .mark{color:var(--ok)}"
-    ".checkin.fresh-bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}"
-    ".checkin.fresh-bad .mark{color:var(--bad)}"
     ".project h3{font-size:1.35rem;font-weight:700;padding-bottom:.2rem;border-bottom:2px solid var(--accent);letter-spacing:.01em;margin-top:1.6rem}"
     ".pathchip{display:inline-block;background:var(--accent);color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;padding:.12em .5em;border-radius:.3rem;overflow-wrap:anywhere}"
     "@media(prefers-color-scheme:dark){.pathchip{background:color-mix(in srgb,var(--accent) 55%,#000)}}"
     ".stale{color:var(--bad);font-weight:600}")
-
-# The page is static, so a stamp is never stale *at render* — it is stale on
-# the reader's clock, 3 h later, on a different day. So the age is computed
-# on load, here, and nowhere else: the box is neutral until this runs.
-_CHECKIN_JS = (
-    "(function(){var e=document.getElementById('checkin'),"
-    "b=document.getElementById('checkin-box'),"
-    "m=document.getElementById('checkin-mark'),"
-    "n=document.getElementById('checkin-note');if(!e||!b)return;"
-    "var t=e.getAttribute('datetime'),d=t?new Date(t):null;"
-    "if(!d||isNaN(d.getTime())||(Date.now()-d.getTime())/60000>"
-    f"{CHECKIN_FRESH_MINUTES}){{"
-    "b.classList.add('fresh-bad');e.classList.add('stale');"
-    "if(m)m.textContent='✗';"
-    "if(n)n.textContent=t?'stale, paste the check-in':'never checked in';"
-    "}else{b.classList.add('fresh-ok');if(m)m.textContent='✓';"
-    "var a=Math.round((Date.now()-d.getTime())/60000);"
-    "if(n)n.textContent='fresh · '+(a<60?a+' min':Math.round(a/60)+' h')"
-    "+' ago';}})();")
 
 
 def render_dashboard_html(c: dict) -> str:
@@ -656,32 +628,23 @@ def render_dashboard_html(c: dict) -> str:
             {"label": "Running", "href": "#summary", "count": n["running"]},
             {"label": "Open", "href": "#summary", "count": n["open"]},
             {"label": "Projects", "href": "#projects", "count": n["active"]},
-            {"label": "Check in", "href": "#checkin-box"},
+            {"label": "Check in", "href": "#orchestration-cortex"},
         ]),
         orchestration_panel(
             "cortex", "Check in on the science",
             "Review projects and runs together, then record what you have learned.",
-            checkin_payload(c), work_links=work_links, copy_label=CHECKIN_LABEL, organ="cortex",
+            checkin_payload(c), work_links=work_links, organ="cortex",
             refreshed_at=c.get("refreshed_at") if not c.get("problems") else None,
             refresh_url=home + "/actions/workflows/dashboard_refresh.yml" if home else None),
     ]
     if home:
         H.append(f'<p class="muted mdsrc"><a href="{_attr(blob + "dashboard.md")}">'
-                 f'markdown version</a> · <a href="{_attr(blob + "README.md")}">'
-                 "GitHub Page</a></p>")
+                 f'markdown version</a></p>')
     if c["problems"]:
         H += ['<p>⚠️ <b>The tree does not check</b> — '
               "<code>scripts/cortex.py check</code> reports:</p>", "<ul>"]
         H += [f"<li><code>{_esc(p)}</code></li>" for p in c["problems"][:10]]
         H += ["</ul>"]
-    stamp = c.get("checkin") or ""
-    H += [f'<div class="checkin" id="checkin-box">'
-          f'<span class="mark" id="checkin-mark"></span><div>'
-          f'<span class="label">Last check-in</span>'
-          f'<time id="checkin" datetime="{_attr(stamp)}">'
-          f'{_esc(stamp or CHECKIN_NEVER)}</time>'
-          f'<span class="note" id="checkin-note"></span></div></div>']
-
     H += ['<a id="summary"></a><h2>Summary</h2>', '<table class="map">',
           "<tr><th>Project</th><th>Running</th><th>Open</th>"
           "<th>Last update</th></tr>"]
@@ -720,8 +683,7 @@ def render_dashboard_html(c: dict) -> str:
     footer = boards_footer(dict(_board_links(home, THEME_ORGAN)), THEME_ORGAN)
     if footer:
         H.append(footer)
-    H += [f"<script>{_THEME_JS}</script>",
-          f"<script>{_CHECKIN_JS}</script>", "</body>", "</html>"]
+    H += [f"<script>{_THEME_JS}</script>", "</body>", "</html>"]
     return section_layout("\n".join(H) + "\n")
 
 
@@ -752,9 +714,9 @@ def _now() -> _dt.datetime:
 
 
 def checkin_stale(stamp: str, now: _dt.datetime | None = None) -> bool:
-    """The page script's freshness rule (`_CHECKIN_JS`), in Python: a missing
+    """The cockpit feed's check-in freshness rule: a missing
     or unparseable stamp, or one older than CHECKIN_FRESH_MINUTES, is stale.
-    The page judges on the reader's clock at load; the feed judges at render."""
+    The feed judges at render; the panel refresh clock is independent."""
     if not stamp:
         return True
     try:
