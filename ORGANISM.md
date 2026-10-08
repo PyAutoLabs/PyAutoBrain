@@ -159,5 +159,6 @@ runners, remain independently usable, and never depend on Broca. Brain interpret
 evidence and routes accepted changes through Mind; Cortex retains science
 records, Heart retains readiness. Benchmarks and maintenance inventory are
 separate evidence kinds. Missing or incomparable results never establish a pass.
-Broca's board consumes the shared presentation contract; its unhosted board registration
-must not create a broken public Pages link. Hosted publication is a separate step. Broca does not automatically launch model or HPC campaigns.
+Broca's board consumes the shared presentation contract; its public board registration
+links to the GitHub Pages dashboard. Broca’s Actions workflow publishes only the
+rendered saved snapshot, without collecting evidence or advancing its freshness. Broca does not automatically launch model or HPC campaigns.

@@ -161,13 +161,11 @@ board:
   # carries; each renderer skips its own entry). Parsed by board/_board.py
   # (yaml) and by the Mind renderer's footer (stdlib regex on this block —
   # keep one `name: Repo` pair per line).
-  # Unhosted/private boards are registered separately, without public Pages links.
-  private_boards:
-    broca: PyAutoBroca
   boards:
     brain: PyAutoBrain
     mind: PyAutoMind
     cortex: PyAutoCortex
+    broca: PyAutoBroca
     memory: PyAutoMemory
     eyes: PyAutoEyes
     ears: PyAutoEars
