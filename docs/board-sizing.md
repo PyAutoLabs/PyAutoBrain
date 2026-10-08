@@ -61,6 +61,7 @@ adoption. This task edits Brain only; other repository entries are audit results
 | Hands | `PyAutoHands/autohands/board.py` → shared theme | Automatic; no outer override found | `release_board.yml` renders with Brain checkout |
 | Pulse | `PyAutoPulse/pulse/board.py` → `pulse/setup_browser.py::theme()` | Automatic: current main already imports Brain; intake's independent-width assessment is obsolete | Refresh regenerates HTML using Brain, then Pages copies it |
 | Insight | `PyAutoInsight/insight/board.py` → `insight/theme.py` | Independent 1200px main container and 16px gutters; explicit adoption and overflow repair follow-up | Refresh generates output; Pages copies it and validates feed with Brain |
+| DNA | `PyAutoDNA/dna/board.py` → shared theme | New consumer; requires matching Brain registration and DNA merge, then publication verification | `pages.yml` renders and publishes |
 | Nerves | `PyAutoNerves/scripts/board.py` → shared theme | Automatic; no outer override found | `nerves_board.yml` renders with Brain checkout |
 | Gut | `PyAutoGut/scripts/board.py` → shared theme | Automatic; no outer override found | `gut_board.yml` renders with Brain checkout |
 | Scientist | `PyAutoScientist/scripts/organism_board.py` → shared theme | Automatic for the organ board; embedded/cockpit presentation needs its own later verification | `organism_board.yml` renders with Brain checkout |

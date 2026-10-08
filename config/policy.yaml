@@ -129,6 +129,7 @@ test_witness:
   pyautoears: PyAutoEars/tests
   pyautopulse: PyAutoPulse/tests
   pyautoinsight: PyAutoInsight/tests
+  pyautodna: PyAutoDNA/tests
   # PyAutoGut has no test suite — deliberately absent, so the conductor's
   # "strengthen tests first" advice is correct there rather than noise.
 
@@ -170,6 +171,7 @@ board:
     hands: PyAutoHands
     pulse: PyAutoPulse
     insight: PyAutoInsight
+    dna: PyAutoDNA
     nerves: PyAutoNerves
     gut: PyAutoGut
     organism: PyAutoScientist

@@ -26,6 +26,7 @@ Canonical boundaries live in `PyAutoBrain/ORGANISM.md`; the full body map
 | **Hands** | PyAutoHands | Packaging, tagging, notebook generation, PyPI release execution. |
 | **Pulse** | PyAutoPulse | The Pulse — cross-project profiling dashboard over the `<lib>_profiling` repos: campaign intent, instance registry, the versioned `profiling-summary` read contract, ingest receipts and the Pages board. Validates the contract only; never judges, scores or issues verdicts (the Brain's profiling conductor judges). |
 | **Insight** | PyAutoInsight | Inference campaign intent, the cross-project inference instance registry, the versioned `inference-summary` read contract, ingest receipts and the evidence dashboard. Projects execute, Cortex records the science, Mind owns task state; never infers scientific acceptance or submits compute. |
+| **DNA** | PyAutoDNA | Software-stack specifications, environment inventory receipts, support rationale, upgrade campaigns and adoption history. Brain coordinates, Heart validates readiness, Hands releases, Nerves enforces runtime compatibility; collection never upgrades environments. |
 | **Nerves** | PyAutoNerves | The Nerves — the configuration/serialization layer connecting workspace conventions to libraries (layered config, version handshake, test_mode), delivered as the `autonerves` package. |
 | **Gut** | PyAutoGut | Lifecycle of condemned self-material (stale branches, stashes, dead code/tests): held as recoverable git refs through a transit window, voided on a sweep. The storage mirror of Memory. |
 

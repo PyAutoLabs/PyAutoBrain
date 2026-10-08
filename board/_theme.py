@@ -145,6 +145,12 @@ ORGANS = {
         "ink_light": "#995500", "ink_dark": "#ffc163", "glow": "#ffb347",
         "hero": ("#392600", "#000000"),
     },
+    "dna": {
+        "organ": "DNA",
+        "tagline": "Specify. Compare. Evolve.",
+        "ink_light": "#087b88", "ink_dark": "#67e8f9", "glow": "#22d3ee",
+        "hero": ("#08343c", "#00060a"),
+    },
     "nerves": {
         "organ": "Nerves",
         "tagline": "Signal. Connect. Understand.",
@@ -375,6 +381,11 @@ MARKS = {
     "insight": (
         '<circle cx="24" cy="20" r="13"/>'
         '<path d="M18,32 L18,38 L30,38 L30,32 M20,43 L28,43 M24,7 L24,20 L31,24"/>'
+    ),
+    "dna": (
+        '<path stroke="currentColor" d="M15,5 C15,19 33,29 33,43 M33,5 C33,19 15,29 15,43"/>'
+        '<path d="M15.5,8 L32.5,8 M18,15 L30,15 M21,21 L27,21 '
+        'M21,27 L27,27 M18,33 L30,33 M15.5,40 L32.5,40"/>'
     ),
     "nerves": (
         '<circle cx="24" cy="24" r="20.4"/>'
@@ -833,6 +844,7 @@ _PROMPT_HEADINGS = {
     "memory": ("Build your ", "Memory", ""),
     "pulse": ("Check your ", "Pulse", ""),
     "insight": ("Find your next ", "Insight", ""),
+    "dna": ("Check your ", "DNA", " for stack drift"),
     "nerves": ("Check your ", "Nerves", " for config drift"),
     "gut": ("Clear out your ", "Gut", ""),
     "eyes": ("Review figures with your ", "Eyes", ""),
