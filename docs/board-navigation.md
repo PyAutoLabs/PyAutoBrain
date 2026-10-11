@@ -40,7 +40,10 @@ existing positional API. The optional keyword inserts
 `navigation_cards(items, label='Board sections', columns=None)` directly after the masthead
 and before the description. `section_layout(page, summaries=None)` composes the
 finished owner HTML into the standard order, moving the orchestration panel above
-these cards. Existing `hero` callers retain their positional API.
+these cards. Existing `hero` callers retain their positional API. Its optional keyword-only
+`display_name` replaces the wordmark with escaped instance-owned text, leaving
+the organ mark, function and palette unchanged. Omitting it preserves the
+existing wordmark. Scientist uses it for independently named instance profiles.
 
 Each item is a mapping with `href` and `label`, plus optional `count` and
 `context`. Text is escaped. Destinations accept local anchors, relative links

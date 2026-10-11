@@ -8,6 +8,8 @@ framework organs is domain-free logic you pull from upstream.
 | Surface | Organ | What it declares |
 |---------|-------|------------------|
 | `repos.yaml` | Mind (yours) | The body map — every repo's GitHub home, category, role. The single source the rest are checked against. |
+| Profile passed with `--instance` | Scientist | Opt-in instance name, canonical repository ID, Pages URL, project-config path and explicitly connected organs; see the [starter preview](https://github.com/PyAutoLabs/PyAutoScientist/blob/main/STARTER.md). |
+| Project configuration referenced by the profile | Scientist | Explicit project/resource relationships and public visibility; repository identity still comes from Mind. |
 | `config/repos.yaml` | Heart | What to poll and gate: repo groups, required CI workflows, thresholds, dirty-file noise patterns. |
 | `pre_build.sh` — the `run_workspace` table | Hands | One row per workspace: repo, package, flags, parent library. |
 | `agents/faculties/sizing/_sizing.py` | Brain | The library/workspace repo sets and aliases used to size and route tasks. |
