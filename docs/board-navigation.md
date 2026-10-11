@@ -31,7 +31,8 @@ arguments. Logos, wordmarks, taglines and banner styling are unchanged.
 | Scientist | Overview |
 
 The shared navigation follows `config/policy.yaml` → `board.boards`, with Broca
-immediately after Nerves. Consumers adopt these labels and this order when their
+immediately after Nerves and Scientist first. Every board’s footer excludes its
+own entry; Scientist’s organ footer sits below its dashboard cards. Consumers adopt these labels and this order when their
 boards are regenerated with the updated Brain checkout.
 
 `board/_theme.py::hero(key, kind, lede_html='', navigation=(), navigation_columns=None)` retains its
