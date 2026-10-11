@@ -273,13 +273,65 @@ def run(root: Path, names: list[str], write: bool) -> int:
     return 2 if has_conflict and write else int(drift and not write)
 
 
+def starter(root: Path, write: bool) -> int:
+    """Expose registered Brain/Mind skills locally without changing either repo."""
+    root = root.resolve()
+    if not root.is_dir():
+        raise ValueError('starter workspace root must exist')
+    registry = manifest_paths(root)
+    wanted = {}
+    for name in ('PyAutoBrain', 'PyAutoMind'):
+        if name not in registry:
+            raise ValueError(f'starter requires registered {name}')
+        path = repo_path(root, name)
+        if not (path / 'skills').is_dir():
+            raise ValueError(f'{name}: skills directory missing')
+        discovered = expected(name, path, 'organ')
+        selected = {rel: data for rel, (kind, data) in discovered.items()
+                    if rel.startswith('.claude/skills/') and kind == 'symlink'}
+        if not selected:
+            raise ValueError(f'{name}: no discoverable skills')
+        for rel, target in selected.items():
+            if rel in wanted:
+                raise ValueError(f'starter skill collision: {rel}')
+            source = ((path / rel).parent / target).resolve()
+            if not source.exists():
+                raise ValueError(f'{name}: missing canonical skill {source}')
+            wanted[rel] = os.path.relpath(source.resolve(), (root / rel).parent)
+    # Preflight every path, including parents, before writing any link.
+    for parent in (root / '.claude', root / '.claude/skills'):
+        if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+            raise ValueError(f'protected starter discovery parent: {parent}')
+    missing = []
+    for rel, target in wanted.items():
+        item = root / rel
+        if item.is_symlink():
+            if os.readlink(item) != target:
+                raise ValueError(f'protected starter discovery link: {item}')
+        elif item.exists():
+            raise ValueError(f'protected starter discovery entry: {item}')
+        else:
+            missing.append(rel)
+    if write:
+        (root / '.claude/skills').mkdir(parents=True, exist_ok=True)
+        for rel in missing:
+            (root / rel).symlink_to(wanted[rel])
+    print(f"{'READY' if write or not missing else 'MISSING'}: starter discovery: "
+          f'{len(wanted)} skills, {len(missing)} ' + ('created' if write else 'missing'))
+    return int(bool(missing) and not write)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('write', 'check'))
+    parser.add_argument('mode', choices=('write', 'check', 'starter-write', 'starter-check'))
     parser.add_argument('repos', nargs='*')
     parser.add_argument('--root', type=Path, default=Path(os.environ.get('PYAUTO_ROOT', '.')))
     args = parser.parse_args()
     try:
+        if args.mode.startswith('starter-'):
+            if args.repos:
+                raise ValueError('starter modes select registered Brain and Mind only; omit repo arguments')
+            return starter(args.root, args.mode == 'starter-write')
         return run(args.root, args.repos, args.mode == 'write')
     except (ValueError, OSError) as error:
         print(f'project discovery: {error}', file=sys.stderr)

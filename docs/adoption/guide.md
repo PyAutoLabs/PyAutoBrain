@@ -99,3 +99,102 @@ quarter), with no compatibility promises on `main`. Fork-and-pull at your
 own pace; pin what you depend on; expect churn. Issues and PRs are welcome,
 but the pace is set by the live instance's needs. Each organ carries this
 disclaimer in its `CONTRIBUTING.md`.
+
+## Minimal local pilot: Claude skill discovery
+
+This opt-in path connects the starter pieces without running the user-wide
+installer. It prepares local skill discovery; it does not install or authenticate
+Claude Code, publish anything, or certify the full development/release workflow.
+Use an already installed Claude Code and Python with PyYAML. Heart remains
+required before shipping; discovering a skill never bypasses its own gates.
+
+Use one workspace directory with flat `PyAutoBrain`, `PyAutoScientist` and
+`PyAutoMind` directories. Keep compatible framework checkouts pinned to revisions
+you have validated. The local directory names are framework lookup slots; the
+Scientist display name and GitHub repository names remain your choices.
+
+1. From the workspace root, generate a new empty Mind using a trusted existing
+   Mind source checkout (the destination must not already exist):
+
+   ```sh
+   python3 /path/to/Mind-source/scripts/spawn.py --minimal-mind --write PyAutoMind
+   ```
+
+2. Populate **your** `PyAutoMind/repos.yaml`. Replace these fictitious GitHub
+   identities with your own or the explicit framework sources you use. Registration
+   does not create repositories, verify access or activate an organ:
+
+   ```yaml
+   categories:
+     organ: {}
+   repos:
+     PyAutoBrain:
+       github: ExampleResearch/PyAutoBrain
+       category: organ
+     PyAutoMind:
+       github: ExampleResearch/ResearchPlans
+       category: organ
+     PyAutoScientist:
+       github: ExampleResearch/MiraScientist
+       category: organ
+   ```
+
+3. Create user-owned Scientist configuration in a new directory:
+
+   ```sh
+   python3 PyAutoScientist/scripts/starter.py instance --repos PyAutoMind/repos.yaml \
+     --name "Mira Scientist" --repo PyAutoScientist \
+     --pages-url https://example.invalid/mira/ --apply
+   ```
+
+4. Preview missing workspace-local links, write them, then check them:
+
+   ```sh
+   python3 PyAutoBrain/bin/project_discovery.py starter-check --root .
+   python3 PyAutoBrain/bin/project_discovery.py starter-write --root .
+   python3 PyAutoBrain/bin/project_discovery.py starter-check --root .
+   ```
+
+   The first check exits 1 while links are missing. Write creates relative links
+   in **this workspace's** `.claude/skills` to the registered Brain and Mind
+   skills. It never writes user-wide settings, either source repository, or a
+   Codex discovery directory. Existing unrelated skills are preserved. Any
+   conflicting destination or symlinked discovery parent rejects the whole plan
+   before writing. Repeating write is a no-op when links match. Stale or custom
+   links are not deleted; inspect conflicts yourself after moving checkouts.
+
+5. Start a fresh Claude session **at the workspace root**, scoped to this Mind:
+
+   ```sh
+   PYAUTO_ROOT="$PWD" claude
+   ```
+
+   Give it this first request:
+
+   > Read instance/SETUP.md, PyAutoMind/AGENTS.md, PyAutoMind/repos.yaml and
+   > PyAutoBrain/AGENTS.md. Inspect existing task state before changing anything.
+   > Help me connect one existing project using PyAutoScientist/PROJECTS.md.
+   > Ask for missing identity, purpose and visibility; don't assume an assistant.
+   > Keep source material in its owning project. Validate and show a local preview.
+   > Don't publish, install optional organs, run science or change access.
+
+6. Validate the profile and render locally, using the same explicit Brain source:
+
+   ```sh
+   PYAUTO_BRAIN="$PWD/PyAutoBrain" python3 PyAutoScientist/scripts/organism_board.py \
+     --instance instance/instance.json --repos PyAutoMind/repos.yaml --check-instance
+   PYAUTO_BRAIN="$PWD/PyAutoBrain" python3 PyAutoScientist/scripts/organism_board.py \
+     --instance instance/instance.json --repos PyAutoMind/repos.yaml --html
+   ```
+
+   Save the HTML output to a scratch file. Project entries are private by default;
+   only explicitly public projects/resources appear in the dashboard projection.
+   Memory, assistants and other organs remain optional. Keep canonical identities
+   in Mind, project relationships in the instance, and project content at source.
+
+The acceptance checkpoint is a real fresh session discovering the local skills,
+reading the correct Mind and preserving records while connecting a project. CLI
+and filesystem tests alone do not prove that conversational behavior; record it
+before calling an adopter's harness validated. If Claude does not discover the
+local skills, stop and diagnose its configuration rather than running the global
+installer or silently falling back to another Scientist's state.
