@@ -180,21 +180,6 @@ def test_heart_blockers_stay_on_the_heart_feed(tmp_path):
     assert not any("Heart:" in row["text"] for row in state["items"])
 
 
-def test_a_failed_overnight_run_is_a_red_item_with_its_run_url(tmp_path):
-    from test_board import _run_json
-    stub = _fabricate(tmp_path, _default_fixtures(**{
-        "runs.json": _run_json("failure")}))
-    state = json.loads(_run(["--state"], tmp_path, stub).stdout)
-    assert _state.validate_state(state) == []
-    assert state["status"] == "red"
-    overnight = [i for i in state["items"] if i["text"].startswith("overnight:")]
-    assert overnight and all(i["severity"] == "red" for i in overnight)
-    assert overnight[0]["url"] == "https://example.invalid/run/1"
-    # The page's own 📋 payload for the row, not a second phrasing of it.
-    page = _run(["--html"], tmp_path, stub).stdout
-    assert f'data-cmd="{overnight[0]["prompt"]}"' in page
-
-
 def test_apply_writes_a_valid_state_json_beside_the_badge(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures())
     out = tmp_path / "site"

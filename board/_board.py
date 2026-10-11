@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Brain's agents/workflows directory, overnight exceptions and maintenance entry.
+"""Brain's agents/workflows directory and maintenance entry.
 
 Read-only collection feeds HTML, Markdown and version-compatible machine feeds.
 Other organs own operational evidence; Brain plans and routes work.
@@ -194,8 +194,10 @@ def age_label(hours):
 
 
 def collect_overnight(jobs, org, degraded):
-    """Latest run of each scheduled workflow (the what-ran-while-I-slept
-    glance), with the blocked-at-a-gate refinement from overnight_status.sh."""
+    """Legacy explicit diagnostic helper; never called by dashboard collection.
+
+    This latest-run view cannot establish activity across a requested period.
+    """
     rows = []
     for job in jobs:
         repo, _, wf = str(job).partition(":")
@@ -596,7 +598,6 @@ def collect():
     degraded = []
     board_family = board_cfg.get("boards") or {}
     heart_repo = board_cfg.get("heart_board", "PyAutoHeart")
-    overnight = collect_overnight(board_cfg.get("overnight_jobs", []), org, degraded)
     # Heart owns performance evidence; Brain offers the investigation workflow.
     heart_board = fetch_heart_board(pages_base, heart_repo, degraded)
     performance = extract_heart_performance(heart_board, f"{pages_base}/{heart_repo}/")
@@ -608,7 +609,7 @@ def collect():
         "generated": now.strftime("%Y-%m-%d %H:%M UTC"),
         "org": org,
         "repo": board_family.get("brain", "PyAutoBrain"),
-        "overnight": overnight,
+        "overnight": [],  # Retired compatibility field; Scientist reviews on demand.
         "heart": None,
         "heart_monitoring": None,
         "heart_blockers": [],
@@ -638,17 +639,6 @@ def collect():
 # --------------------------------------------------------------- verdict ----
 
 
-def verdict(data):
-    """Classify overnight exceptions only; other organs own their verdicts."""
-    blocking, attention = [], []
-    for r in data["overnight"]:
-        if r["conclusion"] not in (None, "success"):
-            blocking.append(f"overnight: {r['repo']}/{r['workflow']} {r['conclusion']}")
-        elif r["blocked"]:
-            attention.append(f"overnight: {r['repo']}/{r['workflow']} blocked at a gate")
-    return blocking, attention
-
-
 def headline(data):
     """The one line a reader acts on — qualified by how much was actually read.
 
@@ -658,9 +648,7 @@ def headline(data):
     brightgreen: the strongest possible all-clear, from a board that had asked
     nothing. Absence of findings is not a finding.
     """
-    blocking, attention = verdict(data)
-    n = len(blocking) + len(attention)
-    core = "Agents & workflows" if n == 0 else f"{n} overnight item(s) to review"
+    core = "Agents & workflows"
     unread = len(data.get("degraded") or [])
     if unread:
         core += f" · partial view ({unread} leg{'s' if unread != 1 else ''} unread)"
@@ -668,13 +656,7 @@ def headline(data):
 
 
 def badge_color(data):
-    blocking, attention = verdict(data)
-    if blocking:
-        return "red"
-    if attention:
-        return "orange"
-    # Nothing found AND nothing unread is the only green. Nothing found because
-    # nothing could be asked is grey, not green.
+    # Directory/evidence availability only, never a workflow or release verdict.
     if data.get("degraded"):
         return "lightgrey"
     return "brightgreen"
@@ -775,26 +757,11 @@ def _overnight_state_item(r):
     return item
 
 
-def _state_items(data):
-    """The rows the board already renders as asking something of a human —
-    composed, never re-derived: each prompt is the owning organ's own payload
-    (the Heart's /bug line, the Ears' triage ref), carried verbatim."""
-    items = []
-    for r in data.get("overnight") or []:
-        item = _overnight_state_item(r)
-        if item is not None:
-            items.append(item)
-    order = {"red": 0, "yellow": 1, "info": 2}
-    items.sort(key=lambda i: order[i["severity"]])  # stable: section order kept
-    return items[:STATE_ITEM_CAP]
-
-
 def render_state(data):
     """state.json — the organ cockpit feed (board/_state.py, contract v1).
 
-    Same verdict as the badge (status mirrors badge_color, headline is the
-    badge message) plus the actionable rows, so the cockpit never disagrees
-    with the badge beside it.
+    Directory/evidence availability mirrors the badge. Operational activity
+    remains with its owners and Scientist reviews it on demand.
     """
     data = _portable_board_data(data)
     repo = data.get("repo") or "PyAutoBrain"
@@ -807,7 +774,7 @@ def render_state(data):
         headline=headline(data),
         updated=_iso_generated(data),
         pages_url=pages_url,
-        items=_state_items(data),
+        items=(),  # No scheduled activity digest; owners keep operational evidence.
     )
     return json.dumps(state, indent=2) + "\n"
 
@@ -850,15 +817,6 @@ def render_md(data):
             if door["tier"] == tier:
                 verb = door["verb"].replace("_", "-")
                 lines.append(f"- **{verb}** — {door['desc']} · Use the {verb} skill.")
-    lines += ["", "## Review overnight work"]
-    runs = review_runs(data)
-    for run in runs:
-        lines.append(_overnight_line(run))
-        item = _overnight_state_item(run)
-        if item and item.get("prompt"):
-            lines.append(f"  {item['prompt']}")
-    if not runs:
-        lines.append("No overnight exceptions reported.")
     lines += ["", "## Maintenance"]
     lines += [f"- {label}: {prompt}" for label, prompt in MAINTENANCE_ACTIONS]
     heart = data.get("boards", {}).get("heart", "")
@@ -919,7 +877,6 @@ def render_html(data):
          f"<style>{_theme_css(THEME_ORGAN)}</style></head><body>",
          hero(THEME_ORGAN, "Agents & workflows", navigation=[
              {"label": "Agents & workflows", "href": "#agents"},
-             {"label": "Review overnight work", "href": "#overnight"},
              {"label": "Maintenance", "href": "#maintenance"}])]
     work_links = ([{"label": "Open work repository", "href":
                    f"https://github.com/{data['org']}/{data['repo']}"}]
@@ -952,45 +909,6 @@ def render_html(data):
                               + pills((tier, "" if tier == "conductor" else "n")),
                               f"Use the {verb} skill."))
         H.append("</details>")
-    H.append('<a id="overnight"></a><h2>Review overnight work</h2>')
-    if not review_runs(data):
-        H.append(_plain("No overnight exceptions reported."))
-    for r in review_runs(data):
-        # The workflow is the row's subject; its repo and its conclusion are
-        # facets, so they read as pills — the repo in the organ accent
-        # (identity) and the conclusion in its verdict tone.
-        link = f' — <a href="{_attr(r["url"])}">run ↗</a>' if r["url"] else ""
-        age = (f' <span class="muted">({age_label(r["age_h"])})</span>'
-               if r["conclusion"] is not None else "")
-        subject = f'<b>{esc(r["workflow"])}</b>{age}{link}'
-        failed = r["conclusion"] not in (None, "success")
-        if r.get("unreadable"):
-            state, tone, reason = "could not read", "y", ""
-        elif r["conclusion"] is None:
-            state, tone, reason = "no runs", "n", ""
-        elif r["blocked"]:
-            state, tone = "blocked at a gate", "y"
-            reason = ('<br><span class="muted">no change made — '
-                      f'{esc(r["blocked_reason"])}</span>'
-                      if r.get("blocked_reason") else
-                      '<br><span class="muted">no change made</span>')
-        elif not failed:
-            state, tone, reason = "success", "g", ""
-        else:
-            state, tone, reason = r["conclusion"], "r", ""
-        # pills() escapes its own values; only the hand-built html above is
-        # escaped here.
-        text = subject + reason + pills((r["repo"], ""), (state, tone))
-        if failed and not r["blocked"]:
-            H.append(_row(text, f"Use the bug skill. overnight: {r['repo']}/{r['workflow']} "
-                                f"concluded {r['conclusion']} — "
-                                f"{r['url'] or 'no run url'}"))
-        else:
-            if r["blocked"]:
-                H.append(_row(text, f"Investigate the blocked overnight workflow {r['repo']}/{r['workflow']} using {r['url'] or 'the owning workflow'}. Read the gate reason and route the next action; do not bypass the gate."))
-            else:
-                H.append(_plain(text))
-
     H.append('<a id="maintenance"></a><h2>Maintenance</h2>')
     for label, prompt in MAINTENANCE_ACTIONS:
         H.append(_row(esc(label), prompt))
