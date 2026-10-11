@@ -546,3 +546,12 @@ def test_navigation_desktop_columns_are_opt_in_and_propagated_by_hero():
 def test_navigation_columns_reject_invalid_values(columns):
     with pytest.raises(ValueError):
         _theme.navigation_cards([], columns=columns)
+
+
+def test_hero_instance_name_is_escaped_without_mutating_shared_branding():
+    original = _theme.hero('organism', 'Dashboard')
+    named = _theme.hero('organism', 'Dashboard', display_name='Mira & <Research>')
+    assert '<b>Mira &amp; &lt;Research&gt;</b>' in named
+    assert _theme.MARKS['organism'] in named
+    assert _theme.ORGANS['organism']['function'] in named
+    assert _theme.hero('organism', 'Dashboard') == original

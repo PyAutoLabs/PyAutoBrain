@@ -7,6 +7,15 @@ improvements cleanly forever after. There is deliberately no shared
 deployment, no "generic edition", and no stability promise on `main` — see
 {ref}`the disclaimer <stability>` below.
 
+## Independent starter preview
+
+The Scientist adoption pilot now offers an opt-in, independently named empty
+[local dashboard preview](https://github.com/PyAutoLabs/PyAutoScientist/blob/main/STARTER.md).
+It separates instance identity and selected organ connections from the renderer,
+and does not require the full organ family. It does not yet bootstrap a working
+Mind or harness, activate organs or deploy an independent site. The existing
+full-stack walkthrough below remains separate from this smaller pilot path.
+
 ## Prerequisites — what PyAutoScientist *is*
 
 These are the product, not incidental choices. If they don't fit how you

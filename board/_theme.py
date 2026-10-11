@@ -1002,17 +1002,19 @@ def orchestration_panel(key, title, description, prompt, *, work_links=(),
     )
 
 
-def hero(key, kind, lede_html="", *, navigation=(), navigation_columns=None):
+def hero(key, kind, lede_html="", *, navigation=(), navigation_columns=None, display_name=None):
     """The masthead: the organ's logo re-drawn — mark, wordmark, rule, tagline.
 
     `lede_html` is accepted for compatibility but not displayed.
     `kind` remains accepted for compatibility with existing renderers.
     The grey label describes the organ's function, from the shared metadata.
+    `display_name` optionally replaces the wordmark with escaped instance text.
     """
     o = organ(key)
+    wordmark = f'{WORD}<b>{o["organ"]}</b>' if display_name is None else f'<b>{_esc(display_name)}</b>'
     # Legacy prose arguments remain accepted for downstream compatibility.
     return (f'<header class="hero"><span class="orb">{mark(key)}</span>'
-            f'<h1>{WORD}<b>{o["organ"]}</b>'
+            f'<h1>{wordmark}'
             f'<span class="kind">{o["function"]}</span></h1>'
             f'<div class="rule"></div>'
             f'<p class="tag">{o["tagline"]}</p></header>'
