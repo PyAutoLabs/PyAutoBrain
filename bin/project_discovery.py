@@ -275,7 +275,7 @@ def run(root: Path, names: list[str], write: bool) -> int:
 
 def starter(root: Path, write: bool) -> int:
     """Expose registered Brain/Mind skills locally without changing either repo."""
-    root = root.absolute()
+    root = root.resolve()
     if not root.is_dir():
         raise ValueError('starter workspace root must exist')
     registry = manifest_paths(root)

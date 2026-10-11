@@ -71,3 +71,17 @@ def test_duplicate_skill_rejected(workspace):
     with pytest.raises(ValueError, match='collision'):
         discovery.starter(workspace, True)
     assert not (workspace / '.claude').exists()
+
+
+def test_workspace_alias_uses_physical_link_base(workspace):
+    alias_parent = workspace / 'aliases'
+    alias_parent.mkdir()
+    alias = alias_parent / 'workspace'
+    alias.symlink_to(workspace, target_is_directory=True)
+    assert discovery.starter(alias, True) == 0
+    link = workspace / '.claude/skills/feature'
+    assert link.exists()
+    assert link.resolve() == workspace / 'PyAutoBrain/skills/feature'
+    assert discovery.starter(alias, False) == 0
+    assert discovery.starter(workspace, False) == 0
+    assert discovery.starter(alias, True) == 0
