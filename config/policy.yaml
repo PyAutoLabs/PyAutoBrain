@@ -142,20 +142,9 @@ release:
                    HowToFit, HowToGalaxy, HowToLens]
   tag_repo: PyAutoLabs/PyAutoLens
 
-# The Brain board (board/_board.py): scheduled workflows for overnight review
-# and sibling board destinations. Owner/org is derived from the Mind's body map at runtime, so entries
-# here are repo-relative unless a home lies outside the primary org.
-# overnight_jobs mirrors bin/overnight_status.sh (its CLI complement) — keep
-# the two lists in step until the script reads this block too.
+# Brain board destinations. Activity review belongs to Scientist on demand;
+# there is no scheduled overnight workflow inventory in this board.
 board:
-  overnight_jobs:
-    - PyAutoBrain:nightly-release.yml
-    - PyAutoHeart:heart-health.yml
-    - PyAutoHeart:workspace-smoke.yml
-    - PyAutoHands:python_matrix.yml
-    - PyAutoMind:arxiv_papers.yml
-    - PyAutoMind:spawn_drift.yml
-    - autolens_assistant:wiki-currency.yml
   heart_board: PyAutoHeart
   # The full one-tap board family (the cross-board footer nav every board
   # carries; each renderer skips its own entry). Parsed by board/_board.py

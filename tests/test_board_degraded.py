@@ -112,25 +112,12 @@ def test_a_degraded_board_is_not_green():
     assert _board.badge_color(_surface(degraded=["a"])) != "brightgreen"
 
 
-def test_real_findings_still_outrank_degradation():
-    """Degradation qualifies the headline; it must not mask an actual blocker."""
-    data = _surface(degraded=["a", "b"])
-    blocking, attention = ["something is on fire"], []
-    _real = _board.verdict
-    _board.verdict = lambda d: (blocking, attention)
-    try:
-        assert _board.badge_color(data) == "red"
-        assert "overnight item(s) to review" in _board.headline(data)
-    finally:
-        _board.verdict = _real
-
-
-def test_unavailable_run_is_explained_locally_without_global_banner():
-    data = _surface(degraded=["overnight: could not read x"],
-                    overnight=[_row(unreadable=True)])
-    md = _board.render_md(data)
-    assert "evidence unavailable" in md
-    assert "## Degraded" not in md and "Degraded render" not in md
+def test_retired_overnight_rows_do_not_reappear_on_brain():
+    data = _surface(overnight=[_row(unreadable=True), _row(conclusion="failure")])
+    for rendered in (_board.render_md(data), _board.render_html(data)):
+        assert "Review overnight work" not in rendered
+        assert "Org/Repo" not in rendered
+    assert json.loads(_board.render_state(data))["items"] == []
 
 
 def test_a_healthy_board_carries_no_banner():
@@ -179,3 +166,19 @@ def test_local_checkout_answers_when_the_published_copy_is_unreachable(tmp_path,
     assert board["blockers"][0]["text"] == "from the local tree"
     assert degraded, "a fallback answer must still be flagged as degraded"
     assert "local" in degraded[0]
+
+
+def test_board_collection_never_polls_overnight_jobs(monkeypatch):
+    import pytest
+    monkeypatch.setattr(_board, 'load_policy', lambda: {'overnight_jobs': ['Org/Repo:nightly.yml']})
+    monkeypatch.setattr(_board, 'repo_homes', lambda: {})
+    monkeypatch.setattr(_board, 'derive_org', lambda _: 'Example')
+    monkeypatch.setattr(_board, 'collect_overnight', lambda *a: pytest.fail('retired overnight poll'))
+    monkeypatch.setattr(_board, 'gh_json', lambda *a: pytest.fail('unexpected GitHub call'))
+    monkeypatch.setattr(_board, 'fetch_heart_board', lambda *a: {})
+    monkeypatch.setattr(_board, 'extract_heart_performance', lambda *a: {})
+    monkeypatch.setattr(_board, 'collect_open_issues', lambda *a: {})
+    monkeypatch.setattr(_board, 'collect_hygiene', lambda *a: {})
+    monkeypatch.setattr(_board, 'collect_devbox', lambda: {})
+    monkeypatch.setattr(_board, 'collect_doors', lambda: [])
+    assert _board.collect()['overnight'] == []

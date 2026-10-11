@@ -12,9 +12,7 @@ community collection. The board does not duplicate their dashboards.
    procedures. Keep this the first content section.
 2. A shared orchestration panel for an unspecified task (shared layout places
    it beside the banner controls). Focus on the user's request and route it.
-3. Review overnight work: only failures, blocked gates, pending/missing runs
-   and unavailable evidence. Successful routine runs remain in machine data.
-4. Maintenance: issue/repo cleanup, Hygiene findings and local observations,
+3. Maintenance: issue/repo cleanup, Hygiene findings and local observations,
    plus an actionable CI-speedup entry linked to Heart's timing evidence.
 
 No morning sync, community section/shortcut, readiness/release, versions,
@@ -25,11 +23,14 @@ operational evidence lives in another organ.
 
 ## Collection and compatibility
 
-`board/_board.py` collects overnight jobs from `config/policy.yaml`, Heart's
-performance evidence, open issue counts, Hygiene and explicit dev-box publishes.
+`board/_board.py` collects Heart's performance evidence, open issue counts,
+Hygiene and explicit dev-box publishes. It does not poll overnight workflows.
+Scientist reviews dated owner records and workflow runs on demand for the
+requested period; no scheduled digest or duplicate activity ledger is created.
 Retired source collectors are not called. Deprecated board.json keys remain
 empty for existing readers. state.json retains the shared v1 schema; badge and
-state describe Brain's overnight coordination only, never release readiness.
+state describe availability of Brain's directory and maintenance evidence,
+never overnight outcomes or release readiness.
 The internal `degraded` list remains diagnostic metadata and keeps freshness
 unknown when a required read fails, but is not a global page section.
 
@@ -65,9 +66,9 @@ must agree; escape owner data and preserve exact portable copy payloads.
 Without gh, `--github-data <file>` accepts endpoint-keyed JSON supplied by the
 agent's GitHub tools. An endpoint absent from that file or explicitly null means
 unavailable, never an empty result. Malformed JSON is fatal. Preserve responses
-verbatim. Each configured overnight workflow reads
-`repos/<org>/<repo>/actions/workflows/<workflow>/runs?per_page=1`, with optional
-`repos/<org>/<repo>/actions/runs/<id>/jobs` for blocked-gate evidence.
+verbatim. This adapter supports retained sources; it does not re-enable
+retired overnight collection. Legacy explicit diagnostic helpers remain for
+compatibility, separate from board publication.
 
 `BOARD_GH` and `BOARD_PAGES_BASE` support hermetic fixtures. A failed Pages
 read may use an owning repo's local published artifact; it must not manufacture

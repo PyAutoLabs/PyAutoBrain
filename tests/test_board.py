@@ -396,27 +396,15 @@ def test_all_green_is_clear_to_work(tmp_path):
                      "message": "Agents & workflows", "color": "brightgreen"}
 
 
-def test_overnight_failure_is_blocking_and_red(tmp_path):
+def test_overnight_runs_no_longer_change_brain_badge_or_feed(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures(**{
         "runs.json": _run_json("failure")}))
-    r = _run(["--badge"], tmp_path, stub)
-    badge = json.loads(r.stdout)
-    assert badge["color"] == "red"
-    assert badge["message"].endswith("overnight item(s) to review")
-    md = _run([], tmp_path, stub).stdout
-    assert "Review overnight work" in md and "failure" in md
-
-
-def test_blocked_gate_is_attention_not_blocking(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures(**{
-        "jobs.json": {"jobs": [{"steps": [
-            {"name": "Blocked at a gate — no release made",
-             "conclusion": "success"}]}]}}))
-    r = _run(["--badge"], tmp_path, stub)
-    badge = json.loads(r.stdout)
-    assert badge["color"] == "orange"
-    html_page = _run(["--html"], tmp_path, stub).stdout
-    assert "blocked at a gate" in html_page
+    badge = json.loads(_run(["--badge"], tmp_path, stub).stdout)
+    assert badge["message"] == "Agents & workflows"
+    assert badge["color"] == "brightgreen"
+    assert json.loads(_run(["--json"], tmp_path, stub).stdout)["overnight"] == []
+    assert json.loads(_run(["--state"], tmp_path, stub).stdout)["items"] == []
+    assert "Review overnight work" not in _run([], tmp_path, stub).stdout
 
 
 # -------------------------------------------------------------------- html --
@@ -447,7 +435,7 @@ def test_html_is_self_contained_with_one_tap_payloads(tmp_path):
     assert 'data-cmd="Use the community skill."' in page
     assert 'data-cmd="Use the issue-cleanup skill."' in page
     assert 'data-cmd="Use the prm skill."' in page
-    assert "Use the bug skill. overnight:" in page  # the failing run's payload
+    assert "Use the bug skill. overnight:" not in page  # Scientist owns this entry
     # The local morning leg is a TERMINAL chip, not a Claude payload.
     assert "morning.sh" not in page
     # The doors roster is on the page.
@@ -469,10 +457,11 @@ def test_navigation_matches_the_reduced_scope(tmp_path):
     page = _run(["--html"], tmp_path, stub).stdout
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
     targets = re.findall(r'href="#([^"]+)"', nav)
-    assert targets == ["agents", "overnight", "maintenance"]
+    assert targets == ["agents", "maintenance"]
     for target in targets:
         assert f'id="{target}"' in page
-    assert page.index('<h2>Agents &amp; workflows') < page.index('<h2>Review overnight work') < page.index('<h2>Maintenance')
+    assert page.index('<h2>Agents &amp; workflows') < page.index('<h2>Maintenance')
+    assert 'id="overnight"' not in page
 
 
 def test_unavailable_performance_is_local_to_maintenance(tmp_path):
@@ -481,24 +470,6 @@ def test_unavailable_performance_is_local_to_maintenance(tmp_path):
     assert "Performance evidence unavailable" in page
     assert "Degraded" not in page
     assert 'id="readiness"' not in page
-
-
-def test_an_overnight_row_wears_its_repo_and_its_conclusion(tmp_path):
-    stub = _fabricate(tmp_path, _default_fixtures(**{
-        "runs.json": _run_json("failure")}))
-    page = _run(["--html"], tmp_path, stub).stdout
-    # The repo is identity, so it takes the accent; the conclusion is a
-    # judgement, so it takes a tone.
-    assert '<span class="pill">ExampleOrg/PyAutoBrain</span>' in page
-    assert '<span class="pill r">failure</span>' in page
-    green = _run(["--html"], tmp_path,
-                 _fabricate(tmp_path / "green", _default_fixtures())).stdout
-    assert '<span class="pill g">success</span>' not in green
-    assert "No overnight exceptions reported" in green
-
-
-
-
 
 
 def test_a_door_is_accented_only_when_it_acts(tmp_path):
@@ -585,7 +556,7 @@ HEART_BOARD_STALE = {
 
 
 
-def test_blocked_gate_annotation_renders_inline(tmp_path):
+def test_blocked_gate_annotation_is_not_aggregated_on_brain(tmp_path):
     stub = _fabricate(tmp_path, _default_fixtures(**{
         "jobs.json": {"jobs": [{"id": 77, "steps": [
             {"name": "Blocked at a gate — no release made",
@@ -596,7 +567,7 @@ def test_blocked_gate_annotation_renders_inline(tmp_path):
                         "was made.",
              "annotation_level": "warning"}]}))
     page = _run(["--html"], tmp_path, stub).stdout
-    assert "The driver stopped at a gate (exit 3)" in page
+    assert "The driver stopped at a gate (exit 3)" not in page
 
 
 def _devbox_payload(ts):
