@@ -126,15 +126,25 @@ table.
 
 A new search package `autofit/non_linear/search/<group>/<name>/` needs:
 
-1. **`search.py`** — subclass of the group abstract (`AbstractNest` /
-   `AbstractMCMC` / `AbstractMLE`): config kwargs on `__init__`, a `_fit()`
-   that drives the external sampler API through autofit's `Fitness`,
-   checkpoint/resume through `paths` (see NSS's pickle + `NullPaths`
-   handling), an `is_test_mode` short-circuit, and an internal-state holder
-   if the sampler carries one (cf. `_NSSInternal`).
+1. **`search.py`** — subclass of `autofit.NonLinearSearch`. Declare the
+   static capabilities (`posterior_kind = PosteriorKind.WEIGHTED | CHAIN |
+   POINT`, `test_mode_budget = {...}`, …) and apply that kind's defaults in
+   `__init__` from `autofit.non_linear.search.posterior_kind`
+   (`initializer=WEIGHTED.nested_initializer_for(initializer)`,
+   `self.clipper = POINT.clipper_for(clipper)`,
+   `self.auto_correlation_settings = CHAIN.auto_correlation_settings_for(...)`).
+   Set `samples_cls`. Implement `run(ctx)` + `raw_samples_from`
+   (`docs/design/run_ctx.md`) rather than `_fit`, driving the external
+   sampler API through autofit's `Fitness`, with checkpoint/resume through
+   `paths` (see NSS's pickle + `NullPaths` handling) and an internal-state
+   holder if the sampler carries one (cf. `_NSSInternal`). The test-mode
+   reduction comes from `test_mode_budget` through the post-init hook alone,
+   so do not apply it again in `__init__` and do not short-circuit the run
+   in test mode. The search-level `seed` is inherited; do not add a `seed`
+   kwarg unless the backend needs it as a static identifier field.
 2. **`samples.py`** — a `Samples` subclass converting sampler output into
-   autofit samples (cf. `NSSamples(SamplesNest)` — ~25 lines when the group
-   abstract does the heavy lifting).
+   autofit samples (cf. `NSSamples(SamplesNest)` — ~25 lines on top of
+   `SamplesNest`).
 3. **Public export** — `autofit/__init__.py` (`af.<Name>` is the API).
 4. **Dependency** — optional extra in `pyproject.toml`. Gotcha: PyPI
    rejects git-URL dependencies in uploaded wheels ("400 Can't have direct
