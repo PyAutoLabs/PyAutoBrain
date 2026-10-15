@@ -481,10 +481,9 @@ def run_line(r: dict) -> str:
 
 # A project is one disclosure: the closed summary is everything a glance
 # needs (name, purpose, the recorded run counts, the ledger's newest date);
-# opening it shows the current position, the resume chip, the runs as an
-# aligned table, and — each collapsed again — the recent history and the
-# technical locations. Every field is the parsed ledger's own; nothing is
-# read out of a run's prose.
+# opening it shows registration and locations, then current position with
+# an icon-only resume action, the runs table and collapsed recent history.
+# Every field is the parsed ledger's own; nothing is read out of a run's prose.
 LOG_SHOWN = 5
 
 
@@ -511,15 +510,38 @@ def _history_label(d: dict) -> str:
     return f"Recent log — {shown} of {len(d['log'])} {noun}"
 
 
+def _registration(d: dict) -> tuple[str, str]:
+    """Display explicit registration facts without changing the source ledger."""
+    now = d["now"]
+    match = re.match(
+        r"Registered (\d{4}-\d{2}-\d{2})(?: \(PyAutoCortex#\d+\))?:\s*", now
+    )
+    if match:
+        try:
+            _dt.date.fromisoformat(match[1])
+        except ValueError:
+            pass  # malformed metadata remains visible as source prose
+        else:
+            return match[1], now[match.end():]
+    opened = [e["date"] for e in d["log"]
+              if e["kind"] == "note" and e["text"].strip() == "ledger opened"]
+    return min(opened) if opened else "not recorded", now
+
+
 def _card_md(d: dict, row: dict, blob: str) -> list[str]:
     issue = (f"[{d['issue']}]({d['issue_url']})" if d["issue_url"]
              else "no issue yet")
+    registered, now = _registration(d)
     L = [f'<details id="project-{_attr(d["key"])}"><summary><b>{_esc(d["key"])}</b> — '
          f"{_esc(d['summary'])} · {_esc(_overview_text(d))}</summary>", "",
-         f"{d['status']} · {d['partition']} · {issue}", "",
-         "**Current position**", "", _md_text(d["now"]) or "_(nothing yet)_", ""]
+         f"**Registered:** {registered}", "",
+         f"**Local:** `` {d['local_path']} ``", "",
+         f"**RAL:** `` {d['ral_root']} ``", "",
+         "**Current position**", "", _md_text(now) or "_(nothing yet)_", ""]
     if d["status"] == "active":
-        L += [_task_row(f"resume {d['key']}", resume_payload(d["key"], row)), ""]
+        L += [_task_row("", resume_payload(d["key"], row)).replace(
+            "<summary>📋 </summary>",
+            f'<summary title="Copy resume prompt for {_attr(d["key"])}">📋</summary>'), ""]
     L += [f"**Runs** ({len(d['runs'])})", ""]
     if d["runs"]:
         L += ["| Job | State | Partition | Date | Description |",
@@ -538,24 +560,26 @@ def _card_md(d: dict, row: dict, blob: str) -> list[str]:
     L += ["", f"<details><summary>{_history_label(d)}</summary>", ""]
     L += [f"- {e['date']} — *{e['kind']}* — {_md_text(e['text'])}"
           for e in d["log"][:LOG_SHOWN]] or ["- _empty_"]
-    L += ["", f"[full log]({_ledger_link(d, blob)})", "", "</details>", "",
-          "<details><summary>Locations</summary>", "",
-          f"- Ledger: [{d['rel']}]({_ledger_link(d, blob)})",
-          f"- Local: `` {d['local_path']} ``",
-          f"- RAL: `` {d['ral_root']} ``", "", "</details>", "", "</details>", ""]
+    L += ["", f"[full log]({_ledger_link(d, blob)})", "",
+          f"{d['status']} · {d['partition']} · {issue}", "",
+          "</details>", "", "</details>", ""]
     return L
 
 
-def _full_text_html(text: str, clip: int) -> str:
+def _full_text_html(text: str, clip: int, *, clauses: bool = False) -> str:
     """A description that fits is plain text; a longer one is a disclosure
     whose summary is the clipped line and whose body is the whole text —
     keyboard-reachable (`<summary>` is focusable) and never truncated away."""
+    def display(value: str) -> str:
+        # Split literal prose separators before escaping; never split entities.
+        return ";<br> ".join(_esc(part) for part in value.split("; ")) if clauses else _esc(value)
+
     if not _clipped(text, clip):
-        return _esc(text)
+        return display(text)
     short = _clip(text, clip)
-    return (f'<details class="full"><summary><span class="clip">{_esc(short)}</span>'
+    return (f'<details class="full"><summary><span class="clip">{display(short)}</span>'
             f'<span class="less">show less</span></summary>'
-            f"<p>{_esc(text)}</p></details>")
+            f"<p>{display(text)}</p></details>")
 
 
 def _runs_table_html(d: dict) -> list[str]:
@@ -571,7 +595,7 @@ def _runs_table_html(d: dict) -> list[str]:
                  f'<td class="state" data-label="State"><span class="pill {tone}">{_esc(r["state"])}</span></td>'
                  f'<td class="part" data-label="Partition">{_esc(r["partition"])}</td>'
                  f'<td class="date">{_esc(r["date"])}</td>'
-                 f'<td class="what">{_full_text_html(r["what"], RUN_CLIP)}</td></tr>')
+                 f'<td class="what">{_full_text_html(r["what"], RUN_CLIP, clauses=True)}</td></tr>')
     H += ["</tbody>", "</table>"]
     return H
 
@@ -579,18 +603,26 @@ def _runs_table_html(d: dict) -> list[str]:
 def _card_html(d: dict, row: dict, blob: str) -> list[str]:
     issue = (f'<a href="{_attr(d["issue_url"])}">{_esc(d["issue"])}</a>'
              if d["issue_url"] else "no issue yet")
+    registered, now = _registration(d)
     H = [f'<details class="project" id="project-{_attr(d["key"])}">',
          f'<summary><h3>{_esc(d["key"])}</h3>'
          f'<span class="purpose">{_esc(d["summary"])}</span>'
          f'<span class="meta">{_esc(_overview_text(d))}</span></summary>',
          '<div class="project-body">',
-         f'<p class="muted">{_esc(d["status"])} · {_esc(d["partition"])} · {issue}</p>',
+         '<dl class="where">',
+         f'<dt>Registered:</dt><dd>{_esc(registered)}</dd>',
+         f'<dt>Local:</dt><dd>{_esc(d["local_path"])}</dd>',
+         f'<dt>RAL:</dt><dd>{_esc(d["ral_root"])}</dd>',
+         '</dl><div class="position"><div class="position-text">',
          "<h4>Current position</h4>",
-         "<p>" + ("<br>".join(_esc(x) for x in d["now"].split("\n"))
-                  if d["now"] else '<span class="muted">(nothing yet)</span>')
-         + "</p>"]
+         "<p>" + ("<br>".join(_esc(x) for x in now.split("\n"))
+                  if now else '<span class="muted">(nothing yet)</span>')
+         + "</p></div>"]
     if d["status"] == "active":
-        H.append(_html_task(f"resume {_esc(d['key'])}", resume_payload(d["key"], row)))
+        label = _attr(f"Copy resume prompt for {d['key']}")
+        H.append(f'<button class="copy resume" aria-label="{label}" title="{label}" '
+                 f'data-cmd="{_attr(resume_payload(d["key"], row))}">📋</button>')
+    H.append("</div>")
     H.append(f"<h4>Runs ({len(d['runs'])})</h4>")
     H += _runs_table_html(d)
     H.append(f'<details class="sub"><summary>{_esc(_history_label(d))}</summary>')
@@ -602,12 +634,8 @@ def _card_html(d: dict, row: dict, blob: str) -> list[str]:
     else:
         H.append('<p class="muted">empty</p>')
     H += [f'<p class="muted"><a href="{_attr(_ledger_link(d, blob))}">full log</a></p>',
-          "</details>",
-          '<details class="sub"><summary>Locations</summary><dl class="where">',
-          f'<dt>Ledger</dt><dd><a href="{_attr(_ledger_link(d, blob))}">{_esc(d["rel"])}</a></dd>',
-          f'<dt>Local</dt><dd><span class="pathchip">{_esc(d["local_path"])}</span></dd>',
-          f'<dt>RAL</dt><dd><span class="pathchip">{_esc(d["ral_root"])}</span></dd>',
-          "</dl></details>", "</div>", "</details>"]
+          f'<p class="muted">{_esc(d["status"])} · {_esc(d["partition"])} · {issue}</p>',
+          "</details>", "</div>", "</details>"]
     return H
 
 
@@ -708,8 +736,13 @@ _FRESH_CSS = (
     "details.full>p{margin:.2rem 0 0}"
     "details.sub{margin:.6rem 0}"
     "ul.log{margin:.3rem 0;padding-left:1.2rem}"
-    "dl.where{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.3rem .8rem;margin:.4rem 0}"
+    "dl.where{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.3rem .8rem;margin:1rem 0;color:var(--accent)}"
     "dl.where dd{margin:0;min-width:0}"
+    ".position{display:flex;align-items:flex-start;gap:.8rem}"
+    ".position-text{flex:1;min-width:0}"
+    ".position-text h4{margin-top:.3rem}"
+    ".position .resume{flex:none;min-width:44px;min-height:44px;margin-top:.2rem}"
+    "table.runs td.what{line-height:1.6}"
     "@media(max-width:34rem){"
     "table.runs,table.runs tbody{display:block}"
     "table.runs thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}"

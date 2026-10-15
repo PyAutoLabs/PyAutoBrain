@@ -188,7 +188,8 @@ def test_the_summary_table_has_four_narrow_columns_and_active_rows_only(skeleton
 def test_one_resume_chip_per_active_project_and_no_other_chips(skeleton):
     page = _cortex.render_dashboard(_cortex.census(skeleton))
     chips = re.findall(r"<summary>📋 ([^<]+)</summary>", page)
-    assert chips == ["check in since last time", "resume example", "resume single"]
+    assert chips == ["check in since last time"]
+    assert page.count('<summary title="Copy resume prompt for ') == 2
     # the paste, verbatim
     assert ("Use the cortex skill. — resume example: read PyAutoCortex projects/example.md "
             "(Now, Runs, Log) and then /tmp/example/wiki/project/state.md and "
@@ -211,9 +212,7 @@ def test_one_resume_chip_per_active_project_and_no_other_chips(skeleton):
 def _md_card(page: str, key: str) -> str:
     """One project's disclosure in dashboard.md, opening tag to its close."""
     start = page.index(f'<details id="project-{key}">')
-    # the card's own close is the `</details>` that ends a blank-line block
-    # after the Locations fold
-    loc = page.index("<details><summary>Locations</summary>", start)
+    loc = page.index("[full log]", start)
     close = "</details>\n\n</details>"
     return page[start:page.index(close, loc) + len(close)]
 
@@ -240,17 +239,17 @@ def test_an_expanded_card_shows_position_runs_table_history_and_locations(skelet
     assert "| `3002_[0-3]` | running | ral | 2026-09-01 | wave 2, four seeds on the corrected settings |" in card
     assert ("| `3003` | open | gpu | 2026-09-02 | joint fit on the same four seeds "
             "chained after 3002 with afterok |") in card
-    # the order is resume chip → runs → history → locations
-    assert (card.index("📋 resume example") < card.index("**Runs**")
-            < card.index("<summary>Recent log — 5 of 7 entries</summary>")
-            < card.index("<summary>Locations</summary>"))
+    assert (card.index("**Registered:**") < card.index("**Local:**")
+            < card.index("**RAL:**") < card.index("**Current position**")
+            < card.index('title="Copy resume prompt for example"') < card.index("**Runs**")
+            < card.index("<summary>Recent log — 5 of 7 entries</summary>"))
+    assert "<summary>Locations</summary>" not in card
     last = card.split("Recent log — 5 of 7 entries")[1].split("[full log]")[0]
     assert len([ln for ln in last.splitlines() if ln.startswith("- ")]) == 5
     assert "- 2026-09-01 — *lesson* — the adapt image" in last
     assert "3001_[0-3] submitted" not in last  # the sixth entry
-    where = card.split("<summary>Locations</summary>")[1]
-    assert "- Ledger: [projects/example.md](projects/example.md)" in where
-    assert "- Local: `` /tmp/example ``" in where and "- RAL: `` /mnt/ral/example ``" in where
+    assert "[full log](projects/example.md)" in card
+    assert "**Local:** `` /tmp/example ``" in card and "**RAL:** `` /mnt/ral/example ``" in card
     single = _md_card(page, "single")
     assert "no issue yet" in single and "**Runs** (0)\n\n_nothing on the cluster_" in single
     assert "<summary>Recent log — 1 of 1 entry</summary>" in single
@@ -343,7 +342,7 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     nav = re.search(r'<nav class="board-nav".*?</nav>', html, re.S).group()
     for target in re.findall(r'href="#([^"]+)"', nav):
         assert f'id="{target}"' in html
-    assert html.count('<button class="copy"') == 2
+    assert html.count('<button class="copy resume"') == 2
     assert html.count('<button type="button" class="orchestration-copy"') == 1
     assert 'data-cmd="Use the cortex skill. — resume example:' in html
     assert 'data-orchestration-prompt readonly' in html
@@ -365,7 +364,7 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     assert '<details class="project" id="project-example" open' not in html
     assert "<details><summary>1 retired</summary>" in html
     assert "<h4>No ledger</h4>" in html
-    assert 'class="pathchip">/tmp/example</span>' in html
+    assert '<dt>Local:</dt><dd>/tmp/example</dd>' in html
 
 
 def test_the_html_escapes_the_ledgers_text(tmp_skeleton):
@@ -396,8 +395,9 @@ def test_the_html_card_is_a_keyboard_disclosure_with_an_aligned_runs_table(skele
     # the resume chip stays on the card, before the runs; history and paths fold
     assert card.index('data-cmd="Use the cortex skill. — resume example:') < card.index("<h4>Runs (2)</h4>")
     assert '<details class="sub"><summary>Recent log — 5 of 7 entries</summary>' in card
-    assert '<details class="sub"><summary>Locations</summary><dl class="where">' in card
-    assert '<dd><span class="pathchip">/mnt/ral/example</span></dd>' in card
+    assert '<summary>Locations</summary>' not in card
+    assert '<dt>RAL:</dt><dd>/mnt/ral/example</dd>' in card
+    assert card.index('<dl class="where">') < card.index('<h4>Current position</h4>')
     # keyboard focus is visible; the table stacks under the shared phone breakpoint
     assert "details.project>summary:focus-visible" in html
     assert "@media(max-width:34rem){table.runs,table.runs tbody{display:block}" in html
@@ -941,3 +941,49 @@ def test_the_dispatcher_lists_the_verb():
     for verb in ("census", "dashboard", "pull", "checkin", "issue"):
         assert verb in r.stdout
     assert "collect" not in r.stdout and "gates" not in r.stdout
+
+
+@pytest.mark.parametrize("prefix,date", [
+    ("Registered 2026-10-15 (PyAutoCortex#67): ", "2026-10-15"),
+    ("Registered 2026-10-15: ", "2026-10-15"),
+    ("", "2026-09-01"),
+])
+def test_registration_metadata_preserves_ledger_and_copy_payload(skeleton, prefix, date):
+    from copy import deepcopy
+    from html import unescape
+    c = _cortex.census(skeleton)
+    d = next(d for d in c["ledgers"] if d["key"] == "single")
+    d["now"] = prefix + "SLACS sample <ready> & no runs yet."
+    original = deepcopy(c)
+    html = _cortex.render_dashboard_html(c)
+    card = html.split('id="project-single"')[1]
+    assert f'<dt>Registered:</dt><dd>{date}</dd>' in card
+    assert "PyAutoCortex#67" not in card
+    assert "SLACS sample &lt;ready&gt; &amp; no runs yet." in card
+    button = re.search(r'<button class="copy resume"([^>]+)>📋</button>', card)
+    assert button and 'aria-label="Copy resume prompt for single"' in button[1]
+    payload = unescape(re.search(r'data-cmd="([^"]+)"', button[1])[1])
+    assert payload == _cortex.resume_payload("single", c["projects"]["single"])
+    assert c == original
+    md = _md_card(_cortex.render_dashboard(c), "single")
+    assert f"**Registered:** {date}" in md and "PyAutoCortex#67" not in md
+
+
+def test_registration_missing_or_malformed_never_uses_updated_date(skeleton):
+    c = _cortex.census(skeleton)
+    d = next(d for d in c["ledgers"] if d["key"] == "single")
+    d["log"] = []
+    d["now"] = "Registered 2026-99-99 (PyAutoCortex#67): keep this text"
+    assert _cortex._registration(d) == ("not recorded", d["now"])
+    assert '<dt>Registered:</dt><dd>not recorded</dd>' in _cortex.render_dashboard_html(c)
+
+
+def test_run_clauses_wrap_without_changing_scientific_text_or_escaping():
+    from html import unescape
+    text = "job B <test>; 1250-pixel mesh (8c / 96gb / 48 h); reloads A & keeps settings"
+    for clip in (20, 200):
+        result = _cortex._full_text_html(text, clip, clauses=True)
+        full = re.search(r"<p>(.*?)</p>", result)[1] if clip == 20 else result
+        assert ";<br> " in full and "<test>" not in full
+        assert unescape(full.replace("<br>", "")) == text
+    assert "<br>" not in _cortex._full_text_html(text, 200)
