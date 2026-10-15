@@ -25,36 +25,47 @@ samplers.sh [--json]
             archive (autofit_workspace_developer/searches, minus any
                      name that is promoted again)
             integration (autofit_workspace_test/scripts/searches)
-            promoted (PyAutoFit `autofit/__init__.py` exports + _LAZY_ATTRS,
-                      one <group>/<pkg>/<Class> row per search class)
+            promoted (the search manifest of the PyAutoFit checkout,
+                      `python -m autofit search-manifest --json` — one
+                      <group>/<pkg>/<Name> row per registry entry; the AST
+                      of `autofit/__init__.py` exports + _LAZY_ATTRS is the
+                      fallback when autofit cannot be imported)
   -> the findings maturation lane (below):
             experiment probes   (autolens_workspace_developer/searches_minimal)
             experiment findings (the same tier's *_findings.md, name + verdict)
             mature              (autolens_inference — one row per
-                                 sampler/dataset_class/model_type cell;
-                                 empty until autolens-inference phase 3)
+                                 sampler/dataset_class/model_type cell)
+            mature              (autofit_inference — its cells, plus one
+                                 <task>/<Search>: <status> row per search
+                                 catalogue cell, catalogue/search_catalogue.json)
   -> the latest minimal-tier benchmark table (output/comparison.txt)
   -> tier gaps: prototyped-never-promoted, promoted-never-integration-tested
 ```
 
-The gap rule is keyed on exported class names, never on module directories
-(one directory can hold several searches: `mle/bfgs` is BFGS + LBFGS). An
-integration script covers a class when its stem, with variant suffixes such
-as `_jax` stripped, equals the class name; a `searches_minimal` prototype is
+The gap rule is keyed on search names, never on module directories
+(one directory can hold several searches: `mle/bfgs` is BFGS + LBFGS). With
+the manifest, a search is integration-tested when the file its registry
+`integration_test` anchor names exists in the test checkout; on the AST
+fallback, an integration script covers a class when its stem, with variant
+suffixes such as `_jax` stripped, equals the class name. A `searches_minimal` prototype is
 promoted when its stem, with `_simple`/`_jax`/`_mlp`/`_profile`/`_sweep`…
 stripped, equals an exported class or a `PROTOTYPE_ALIASES` family
 (`dynesty`, `nuts`).
 
 Surfaces are resolved as sibling checkouts (`PYAUTO_FIT`,
 `PYAUTO_FIT_DEVELOPER`, `PYAUTO_FIT_TEST`, `PYAUTO_LENS_DEVELOPER`,
-`PYAUTO_INFERENCE` override); absent ones are
-reported, never fatal. Exit codes: `0` digest · `4` no surface · `5` usage.
+`PYAUTO_INFERENCE`, `PYAUTO_FIT_INFERENCE` override); absent ones are
+reported, never fatal. `--manifest FILE` reads a saved manifest dump instead
+of importing the checkout. Exit codes: `0` digest · `4` no surface · `5` usage.
 
 A mature-tier cell is read from its leaf's `run_search(sampler=,
-dataset_class=, model_type=)` declaration, **not** from its path — the two
-disagree on the live tree (the `cluster/searches/*/mge.py` leaves declare the
-`group` dataset class), and the declaration is what the runner acts on. The
-lane tiers are inventory only; they feed no `gaps` rule.
+dataset_class=, model_type=)` or `run_point_search(...)` declaration, **not**
+from its path — the two disagree on the live tree (the
+`cluster/searches/*/mge.py` leaves declare the `group` dataset class), and the
+declaration is what the runner acts on. `run_point_search` leaves take the
+runner's defaults (`nautilus`, `point_source`) for omitted keywords and their
+stem as the model type, wherever they sit under `scripts/`. The lane tiers are
+inventory only; they feed no `gaps` rule.
 
 ## Judgment: matching sampler to likelihood
 
