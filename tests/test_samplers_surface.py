@@ -294,8 +294,38 @@ def test_unreadable_manifest_falls_back_to_the_ast(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"schema": "search-manifest@0", "searches": []}))
     d = _digest("--autofit", str(paths["autofit"]), "--manifest", str(bad))
-    assert d["manifest"]["source"].startswith("AST fallback")
+    # the explicit file's failure is named, not hidden behind "not importable"
+    assert d["manifest"]["source"].startswith("AST fallback (--manifest")
     assert "nest/nss/NSS" in d["tiers"]["promoted (autofit exports)"]
+
+
+def test_manifest_file_alone_is_a_surface(tmp_path):
+    manifest = _manifest_file(tmp_path, [
+        ("Nautilus", "non_linear.search.nest.nautilus.search", None)])
+    d = _digest("--manifest", str(manifest))
+    assert "search manifest" in d["surfaces_present"]
+    assert d["tiers"]["promoted (autofit exports)"] == ["nest/nautilus/Nautilus"]
+
+
+def test_checkout_manifest_subprocess_path(tmp_path):
+    """No --manifest: the manifest is printed by `python -m autofit` with the
+    checkout first on PYTHONPATH, and a failing module degrades to the AST."""
+    good = tmp_path / "good"
+    (good / "autofit").mkdir(parents=True)
+    (good / "autofit" / "__init__.py").write_text("")
+    (good / "autofit" / "__main__.py").write_text(
+        "import json\nprint(json.dumps({'schema': 'search-manifest@1', "
+        "'autofit_version': '0.0.1', 'searches': [{'name': 'Zeta', "
+        "'class_path': 'autofit.non_linear.search.mcmc.zeta.search.Zeta'}]}))\n")
+    d = _digest("--autofit", str(good))
+    assert d["tiers"]["promoted (autofit exports)"] == ["mcmc/zeta/Zeta"]
+    assert d["manifest"]["source"].startswith("search manifest of the checkout")
+    broken = tmp_path / "broken"
+    (broken / "autofit").mkdir(parents=True)
+    (broken / "autofit" / "__init__.py").write_text(_AUTOFIT_INIT)
+    (broken / "autofit" / "__main__.py").write_text("raise SystemExit(3)\n")
+    d = _digest("--autofit", str(broken))
+    assert d["manifest"]["source"] == "AST fallback (autofit not importable)"
 
 
 # --------------------------------------------------------------------------
@@ -312,6 +342,11 @@ def test_point_runner_leaf_declares_a_cell_outside_searches(tmp_path):
         "run_point_search(sampler=\"nautilus\", default_instrument=\"simple\")\n"
     )
     (leaf / "notes.py").write_text("# not a cell: no runner call, not searches-shaped\n")
+    # a run_search helper with no model_type is not a cell (no stem default)...
+    (leaf / "helper.py").write_text(
+        "run_search(sampler=\"emcee\", dataset_class=\"imaging\")\n")
+    # ...and a non-literal sampler is unreadable, never the runner default
+    (leaf / "dynamic.py").write_text("run_point_search(sampler=SAMPLER)\n")
     cells = _digest("--inference", str(root))["tiers"][_samplers.TIER_LENS_MATURE]
     # dataset_class comes from the runner's default, model_type from the stem
     assert cells == ["nautilus/group/mge", "nautilus/imaging/mge",

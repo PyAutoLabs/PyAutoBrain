@@ -180,7 +180,7 @@ def load_manifest(autofit: Path | None = None,
                 os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
             proc = subprocess.run(
                 [sys.executable, "-m", "autofit", "search-manifest", "--json"],
-                capture_output=True, text=True, env=env, timeout=300)
+                capture_output=True, text=True, env=env, timeout=60)
             if proc.returncode != 0:
                 return None
             text = proc.stdout
@@ -243,6 +243,8 @@ RUNNERS = {
     "run_search": {},
     "run_point_search": {"sampler": "nautilus", "dataset_class": "point_source"},
 }
+# Runners whose leaves name no model_type: the leaf's stem stands in for it.
+STEM_MODEL_TYPE = {"run_point_search"}
 
 
 def tier_lens_probes(lens_developer: Path) -> list[str]:
@@ -297,15 +299,19 @@ def _declared_cell(leaf: Path) -> tuple[str, str, str] | None:
         name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
         if name not in RUNNERS:
             continue
+        given = {k.arg: k.value for k in node.keywords if k.arg}
+        if any(not (isinstance(v, ast.Constant) and isinstance(v.value, str))
+               for k, v in given.items()
+               if k in ("sampler", "dataset_class", "model_type")):
+            # A declaration keyword that is not a string literal cannot be read
+            # statically; falling back to a runner default would mislabel it.
+            return None
         kw = dict(RUNNERS[name])
-        kw.update({
-            k.arg: k.value.value
-            for k in node.keywords
-            if k.arg and isinstance(k.value, ast.Constant)
-            and isinstance(k.value.value, str)
-        })
-        kw.setdefault("model_type", leaf.stem)
-        if {"sampler", "dataset_class"} <= kw.keys():
+        kw.update({k: v.value for k, v in given.items()
+                   if isinstance(v, ast.Constant) and isinstance(v.value, str)})
+        if name in STEM_MODEL_TYPE:
+            kw.setdefault("model_type", leaf.stem)
+        if {"sampler", "dataset_class", "model_type"} <= kw.keys():
             return kw["sampler"], kw["dataset_class"], kw["model_type"]
     return None
 
@@ -452,17 +458,26 @@ def digest(autofit, developer, test, lens_developer=None, inference=None,
         manifest = load_manifest(autofit, manifest_file)
     if autofit and autofit.is_dir():
         d["surfaces_present"].append("PyAutoFit")
+    elif manifest is not None:
+        d["surfaces_present"].append("search manifest")
     if manifest is not None:
         promoted = manifest_promoted(manifest)
         d["tiers"]["promoted (autofit exports)"] = promoted
-        d["manifest"] = {"source": str(manifest_file) if manifest_file
-                         else "python -m autofit search-manifest --json",
+        # A checkout's __version__ string is not a release; name the checkout.
+        d["manifest"] = {"source": f"file {manifest_file}" if manifest_file
+                         else f"search manifest of the checkout {autofit}",
                          "schema": manifest["schema"],
                          "autofit_version": manifest.get("autofit_version")}
     elif autofit and autofit.is_dir():
         promoted = tier_promoted(autofit)
         d["tiers"]["promoted (autofit exports)"] = promoted
-        d["manifest"] = {"source": "AST fallback (autofit not importable)"}
+        d["manifest"] = {"source": (f"AST fallback (--manifest {manifest_file} "
+                                    f"unreadable or not {MANIFEST_SCHEMA})")
+                         if manifest_file else
+                         "AST fallback (autofit not importable)"}
+    elif manifest_file:
+        d["manifest"] = {"source": f"unusable: --manifest {manifest_file} "
+                                   f"unreadable or not {MANIFEST_SCHEMA}"}
     if "archive (searches)" in d["tiers"]:
         d["tiers"]["archive (searches)"] = tier_archive(
             developer, [row.rsplit("/", 1)[-1] for row in promoted])
@@ -494,7 +509,8 @@ def emit_human(d: dict) -> None:
     print(f"surfaces present: {', '.join(d['surfaces_present']) or 'NONE'}")
     if d.get("manifest"):
         m = d["manifest"]
-        version = f" (autofit {m['autofit_version']})" if m.get("autofit_version") else ""
+        version = (f" (reports __version__ {m['autofit_version']})"
+                   if m.get("autofit_version") else "")
         print(f"search catalogue from: {m['source']}{version}")
     if d.get("fit_inference_catalogue"):
         c = d["fit_inference_catalogue"]
