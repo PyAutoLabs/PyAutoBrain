@@ -352,6 +352,12 @@ def _clipped(text: str, n: int) -> bool:
     return len(" ".join((text or "").split())) > n
 
 
+def _md_text(value: str) -> str:
+    """Ledger prose inside a markdown fold: `<` and `&` as entities, so a
+    literal `</details>` in a ledger line cannot close the card on GitHub."""
+    return str(value).replace("&", "&amp;").replace("<", "&lt;")
+
+
 def _cell(value: str) -> str:
     return str(value).replace("|", "\\|")
 
@@ -508,10 +514,10 @@ def _history_label(d: dict) -> str:
 def _card_md(d: dict, row: dict, blob: str) -> list[str]:
     issue = (f"[{d['issue']}]({d['issue_url']})" if d["issue_url"]
              else "no issue yet")
-    L = [f'<details id="project-{d["key"]}"><summary><b>{_esc(d["key"])}</b> — '
+    L = [f'<details id="project-{_attr(d["key"])}"><summary><b>{_esc(d["key"])}</b> — '
          f"{_esc(d['summary'])} · {_esc(_overview_text(d))}</summary>", "",
          f"{d['status']} · {d['partition']} · {issue}", "",
-         "**Current position**", "", d["now"] or "_(nothing yet)_", ""]
+         "**Current position**", "", _md_text(d["now"]) or "_(nothing yet)_", ""]
     if d["status"] == "active":
         L += [_task_row(f"resume {d['key']}", resume_payload(d["key"], row)), ""]
     L += [f"**Runs** ({len(d['runs'])})", ""]
@@ -519,24 +525,24 @@ def _card_md(d: dict, row: dict, blob: str) -> list[str]:
         L += ["| Job | State | Partition | Date | Description |",
               "|---|---|---|---|---|"]
         L += [f"| `{r['ident']}` | {r['state']} | {_cell(r['partition'])} | "
-              f"{r['date']} | {_cell(_clip(r['what'], RUN_CLIP))} |"
+              f"{r['date']} | {_cell(_md_text(_clip(r['what'], RUN_CLIP)))} |"
               for r in d["runs"]]
         clipped = [r for r in d["runs"] if _clipped(r["what"], RUN_CLIP)]
         if clipped:
             L += ["", f"<details><summary>Full descriptions ({len(clipped)} "
                   "shortened above)</summary>", ""]
-            L += [f"- `{r['ident']}` — {r['what']}" for r in clipped]
+            L += [f"- `{r['ident']}` — {_md_text(r['what'])}" for r in clipped]
             L += ["", "</details>"]
     else:
         L.append("_nothing on the cluster_")
     L += ["", f"<details><summary>{_history_label(d)}</summary>", ""]
-    L += [f"- {e['date']} — *{e['kind']}* — {e['text']}"
+    L += [f"- {e['date']} — *{e['kind']}* — {_md_text(e['text'])}"
           for e in d["log"][:LOG_SHOWN]] or ["- _empty_"]
     L += ["", f"[full log]({_ledger_link(d, blob)})", "", "</details>", "",
           "<details><summary>Locations</summary>", "",
           f"- Ledger: [{d['rel']}]({_ledger_link(d, blob)})",
-          f"- Local: `{d['local_path']}`",
-          f"- RAL: `{d['ral_root']}`", "", "</details>", "", "</details>", ""]
+          f"- Local: `` {d['local_path']} ``",
+          f"- RAL: `` {d['ral_root']} ``", "", "</details>", "", "</details>", ""]
     return L
 
 
@@ -562,8 +568,8 @@ def _runs_table_html(d: dict) -> list[str]:
     for r in d["runs"]:
         tone = "y" if r["state"] == "running" else "n"
         H.append(f'<tr><td class="job"><code>{_esc(r["ident"])}</code></td>'
-                 f'<td class="state"><span class="pill {tone}">{_esc(r["state"])}</span></td>'
-                 f'<td class="part">{_esc(r["partition"])}</td>'
+                 f'<td class="state" data-label="State"><span class="pill {tone}">{_esc(r["state"])}</span></td>'
+                 f'<td class="part" data-label="Partition">{_esc(r["partition"])}</td>'
                  f'<td class="date">{_esc(r["date"])}</td>'
                  f'<td class="what">{_full_text_html(r["what"], RUN_CLIP)}</td></tr>')
     H += ["</tbody>", "</table>"]
@@ -709,6 +715,7 @@ _FRESH_CSS = (
     "table.runs thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}"
     "table.runs tr{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6rem;padding:.5rem 0;border-bottom:1px solid var(--line)}"
     "table.runs td{display:block;border:0;padding:0}"
+    "table.runs td[data-label]::before{content:attr(data-label) \": \";color:var(--muted);font-size:.85em}"
     "table.runs td.what{flex:1 0 100%;margin-top:.15rem}}"
     ".pathchip{display:inline-block;background:var(--accent);color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;padding:.12em .5em;border-radius:.3rem;overflow-wrap:anywhere}"
     "@media(prefers-color-scheme:dark){.pathchip{background:color-mix(in srgb,var(--accent) 55%,#000)}}"

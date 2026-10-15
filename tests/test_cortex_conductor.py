@@ -214,7 +214,8 @@ def _md_card(page: str, key: str) -> str:
     # the card's own close is the `</details>` that ends a blank-line block
     # after the Locations fold
     loc = page.index("<details><summary>Locations</summary>", start)
-    return page[start:page.index("</details>\n\n</details>", loc) + 22]
+    close = "</details>\n\n</details>"
+    return page[start:page.index(close, loc) + len(close)]
 
 
 def test_a_project_is_a_collapsed_disclosure_with_a_compact_overview(skeleton):
@@ -249,7 +250,7 @@ def test_an_expanded_card_shows_position_runs_table_history_and_locations(skelet
     assert "3001_[0-3] submitted" not in last  # the sixth entry
     where = card.split("<summary>Locations</summary>")[1]
     assert "- Ledger: [projects/example.md](projects/example.md)" in where
-    assert "- Local: `/tmp/example`" in where and "- RAL: `/mnt/ral/example`" in where
+    assert "- Local: `` /tmp/example ``" in where and "- RAL: `` /mnt/ral/example ``" in where
     single = _md_card(page, "single")
     assert "no issue yet" in single and "**Runs** (0)\n\n_nothing on the cluster_" in single
     assert "<summary>Recent log — 1 of 1 entry</summary>" in single
@@ -288,6 +289,9 @@ def test_long_run_and_log_text_is_shortened_with_the_full_text_one_step_away(tmp
     full = page.split("<summary>Full descriptions (1 shortened above)</summary>")[1]
     assert f"- `3003` — {long_what} chained after 3002 with afterok" in full.split("</details>")[0]
     assert f"- 2026-09-02 — *note* — {long_note}" in page  # the folded history is whole
+    led.write_text(led.read_text(encoding="utf-8").replace(long_note, "a </details> b"),
+                   encoding="utf-8")
+    assert "a &lt;/details> b" in _cortex.render_dashboard(_cortex.census(tmp_skeleton))
     html = _cortex.render_dashboard_html(c)
     cell = re.search(r'<td class="what"><details class="full"><summary>'
                      r'<span class="clip">(w+…)</span><span class="less">show less</span>'
@@ -385,8 +389,8 @@ def test_the_html_card_is_a_keyboard_disclosure_with_an_aligned_runs_table(skele
             '\n<thead><tr><th scope="col">Job</th><th scope="col">State</th>'
             '<th scope="col">Partition</th><th scope="col">Date</th>'
             '<th scope="col">Description</th></tr></thead>') in card
-    assert ('<tr><td class="job"><code>3002_[0-3]</code></td><td class="state">'
-            '<span class="pill y">running</span></td><td class="part">ral</td>'
+    assert ('<tr><td class="job"><code>3002_[0-3]</code></td><td class="state" data-label="State">'
+            '<span class="pill y">running</span></td><td class="part" data-label="Partition">ral</td>'
             '<td class="date">2026-09-01</td>') in card
     assert '<span class="pill n">open</span>' in card
     # the resume chip stays on the card, before the runs; history and paths fold
@@ -414,7 +418,8 @@ def test_the_card_overview_and_runs_table_escape_ledger_text(tmp_skeleton):
     assert "wave &lt;img src=x&gt; | 2 on" in html
     page = _cortex.render_dashboard(c)
     assert "<summary><b>example</b> — Does &lt;b&gt;x&lt;/b&gt; &amp; the example" in page
-    # a pipe in a description cannot split the markdown row
+    # a pipe cannot split the markdown row; a tag cannot open or close a fold
+    assert "wave &lt;img src=x> \\| 2 on" in page
     assert " \\| 2 on the corrected settings |" in page
 
 
