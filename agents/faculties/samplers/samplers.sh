@@ -9,7 +9,9 @@
 # the latest minimal-tier benchmark table, with tier-gap findings (prototyped
 # but never promoted; promoted but never integration-tested). It also covers
 # the findings maturation lane: the experiment tier's probes + findings docs
-# and the mature tier's (sampler x dataset_class x model_type) cells. The consulting
+# and the mature tiers' (sampler x dataset_class x model_type) cells, plus the
+# autofit inference search catalogue. The PyAutoFit tiers key on the search
+# manifest (python -m autofit search-manifest --json), AST as the fallback. The consulting
 # agent reads the digest and reasons with AGENTS.md's judgment tables
 # (sampler<->likelihood match, gradient/JAX constraints, initialization
 # chaining). Read-only: never runs a sampler, never writes, never dispatches.
@@ -31,6 +33,9 @@ test_ws="$(_resolve_dir PYAUTO_FIT_TEST autofit_workspace_test 2>/dev/null || tr
 # lane") — present-if-checked-out, exactly like the autofit-side surfaces.
 lens_developer="$(_resolve_dir PYAUTO_LENS_DEVELOPER autolens_workspace_developer 2>/dev/null || true)"
 inference="$(_resolve_dir PYAUTO_INFERENCE autolens_inference 2>/dev/null || true)"
+# The autofit toy-likelihood benchmark: its mature cells and the search
+# catalogue's per-task verdict cells.
+fit_inference="$(_resolve_dir PYAUTO_FIT_INFERENCE autofit_inference 2>/dev/null || true)"
 
 exec python3 "$HERE/_samplers.py" \
   ${autofit:+--autofit "$autofit"} \
@@ -38,4 +43,5 @@ exec python3 "$HERE/_samplers.py" \
   ${test_ws:+--test "$test_ws"} \
   ${lens_developer:+--lens-developer "$lens_developer"} \
   ${inference:+--inference "$inference"} \
+  ${fit_inference:+--fit-inference "$fit_inference"} \
   "$@"

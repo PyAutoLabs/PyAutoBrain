@@ -239,3 +239,144 @@ def test_gap_rule_reports_only_true_gaps(tmp_path):
     # NSS was re-mainlined, so its archive copy is not a second tier entry
     assert d["tiers"]["archive (searches)"] == ["pyswarms"]
     assert sum("NSS" in g for g in gaps) == 0
+
+
+# --------------------------------------------------------------------------
+# The search manifest as the catalogue's source of truth
+# --------------------------------------------------------------------------
+
+
+def _manifest_file(root: Path, searches) -> Path:
+    """A `search-manifest@1` dump; `searches` is [(name, module, anchor)]."""
+    doc = {
+        "schema": "search-manifest@1",
+        "autofit_version": "9.9.9",
+        "families": {},
+        "capability_attributes": [],
+        "searches": [
+            {"name": name, "class_path": f"autofit.{module}.{name}",
+             "family": module.split(".")[2], "integration_test": anchor}
+            for name, module, anchor in searches
+        ],
+    }
+    path = root / "manifest.json"
+    path.write_text(json.dumps(doc))
+    return path
+
+
+def test_manifest_keys_promoted_and_gaps(tmp_path):
+    paths = _make_fit_family(tmp_path)
+    manifest = _manifest_file(tmp_path, [
+        ("Nautilus", "non_linear.search.nest.nautilus.search",
+         "ws_test:scripts/searches/Nautilus_jax.py"),
+        ("LBFGS", "non_linear.search.mle.bfgs.search",
+         "ws_test:scripts/searches/LBFGS.py"),
+        ("Fresh", "non_linear.search.mle.fresh.search",
+         "ws_test:scripts/searches/Fresh.py"),
+    ])
+    d = _digest("--autofit", str(paths["autofit"]),
+                "--developer", str(paths["developer"]),
+                "--test", str(paths["test"]),
+                "--manifest", str(manifest))
+    assert d["manifest"]["autofit_version"] == "9.9.9"
+    # the manifest, not the AST of __init__.py, is the promoted tier
+    assert d["tiers"]["promoted (autofit exports)"] == [
+        "mle/bfgs/LBFGS", "mle/fresh/Fresh", "nest/nautilus/Nautilus"]
+    missing = sorted(g.split("'")[1] for g in d["gaps"]
+                     if "integration script" in g)
+    # coverage is the manifest anchor resolving: Nautilus is covered by the
+    # file its anchor names, Fresh's anchored file does not exist
+    assert missing == ["Fresh"]
+
+
+def test_unreadable_manifest_falls_back_to_the_ast(tmp_path):
+    paths = _make_fit_family(tmp_path)
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"schema": "search-manifest@0", "searches": []}))
+    d = _digest("--autofit", str(paths["autofit"]), "--manifest", str(bad))
+    # the explicit file's failure is named, not hidden behind "not importable"
+    assert d["manifest"]["source"].startswith("AST fallback (--manifest")
+    assert "nest/nss/NSS" in d["tiers"]["promoted (autofit exports)"]
+
+
+def test_manifest_file_alone_is_a_surface(tmp_path):
+    manifest = _manifest_file(tmp_path, [
+        ("Nautilus", "non_linear.search.nest.nautilus.search", None)])
+    d = _digest("--manifest", str(manifest))
+    assert "search manifest" in d["surfaces_present"]
+    assert d["tiers"]["promoted (autofit exports)"] == ["nest/nautilus/Nautilus"]
+
+
+def test_checkout_manifest_subprocess_path(tmp_path):
+    """No --manifest: the manifest is printed by `python -m autofit` with the
+    checkout first on PYTHONPATH, and a failing module degrades to the AST."""
+    good = tmp_path / "good"
+    (good / "autofit").mkdir(parents=True)
+    (good / "autofit" / "__init__.py").write_text("")
+    (good / "autofit" / "__main__.py").write_text(
+        "import json\nprint(json.dumps({'schema': 'search-manifest@1', "
+        "'autofit_version': '0.0.1', 'searches': [{'name': 'Zeta', "
+        "'class_path': 'autofit.non_linear.search.mcmc.zeta.search.Zeta'}]}))\n")
+    d = _digest("--autofit", str(good))
+    assert d["tiers"]["promoted (autofit exports)"] == ["mcmc/zeta/Zeta"]
+    assert d["manifest"]["source"].startswith("search manifest of the checkout")
+    broken = tmp_path / "broken"
+    (broken / "autofit").mkdir(parents=True)
+    (broken / "autofit" / "__init__.py").write_text(_AUTOFIT_INIT)
+    (broken / "autofit" / "__main__.py").write_text("raise SystemExit(3)\n")
+    d = _digest("--autofit", str(broken))
+    assert d["manifest"]["source"] == "AST fallback (autofit not importable)"
+
+
+# --------------------------------------------------------------------------
+# run_point_search leaves and the autofit inference surface
+# --------------------------------------------------------------------------
+
+
+def test_point_runner_leaf_declares_a_cell_outside_searches(tmp_path):
+    root = _make_mature(tmp_path)
+    leaf = root / "scripts" / "point_source" / "simple"
+    leaf.mkdir(parents=True)
+    (leaf / "baseline.py").write_text(
+        "from searches._point_runner import run_point_search\n"
+        "run_point_search(sampler=\"nautilus\", default_instrument=\"simple\")\n"
+    )
+    (leaf / "notes.py").write_text("# not a cell: no runner call, not searches-shaped\n")
+    # a run_search helper with no model_type is not a cell (no stem default)...
+    (leaf / "helper.py").write_text(
+        "run_search(sampler=\"emcee\", dataset_class=\"imaging\")\n")
+    # ...and a non-literal sampler is unreadable, never the runner default
+    (leaf / "dynamic.py").write_text("run_point_search(sampler=SAMPLER)\n")
+    cells = _digest("--inference", str(root))["tiers"][_samplers.TIER_LENS_MATURE]
+    # dataset_class comes from the runner's default, model_type from the stem
+    assert cells == ["nautilus/group/mge", "nautilus/imaging/mge",
+                     "nautilus/point_source/baseline"]
+
+
+def test_fit_inference_surface_lists_cells_and_catalogue(tmp_path):
+    root = tmp_path / "fit_inference"
+    _cell(root, "toy_blend", "emcee", "toy")
+    (root / "catalogue").mkdir()
+    (root / "catalogue" / "search_catalogue.json").write_text(json.dumps({
+        "protocol_id": "toy@1", "ranking": "none",
+        "manifest": {"autofit_version": "9.9.9"},
+        "tasks": {
+            "posterior": {"searches": {"Emcee": {"status": "measured"}}},
+            "evidence": {"searches": {"NSS": {"status": "deferred"}}},
+        },
+    }))
+    d = _digest("--fit-inference", str(root))
+    assert _samplers.SURFACE_FIT_INFERENCE in d["surfaces_present"]
+    assert d["tiers"][_samplers.TIER_FIT_MATURE] == ["emcee/toy_blend/toy"]
+    assert d["tiers"][_samplers.TIER_FIT_CATALOGUE] == [
+        "evidence/NSS: deferred", "posterior/Emcee: measured"]
+    assert d["fit_inference_catalogue"]["protocol_id"] == "toy@1"
+    assert d["gaps"] == []  # inventory only
+
+
+def test_fit_inference_without_catalogue_is_not_fatal(tmp_path):
+    root = tmp_path / "fit_inference"
+    root.mkdir()
+    d = _digest("--fit-inference", str(root))
+    assert d["tiers"][_samplers.TIER_FIT_CATALOGUE] == []
+    assert "fit_inference_catalogue" not in d

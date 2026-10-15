@@ -119,6 +119,20 @@ table.
 
 ## Stage 3 — promotion: the PyAutoFit implementation
 
+**Start from the template**: copy
+`autofit/non_linear/search/_template/search.py` (a complete, runnable
+hill-climber that passes the search conformance suite) to
+`autofit/non_linear/search/<group>/<name>/search.py`; its header lists the
+six PyAutoFit touch points of a new search. The search is promoted when its
+**registry entry** (`autofit/non_linear/search/registry.py`) exists: the
+versioned search manifest (`python -m autofit search-manifest --json`,
+schema `search-manifest@1`) is generated from that registry, and the manifest
+feeds the capability matrix, the generated rosters (PyAutoHands
+`regenerate_search_roster`) and this faculty's promoted tier. The registry
+entry's `example` / `integration_test` anchors must name real files —
+the workspaces' `navigator_check` roster leg resolves them against the
+installed release.
+
 **Reference implementations** (read before writing a line):
 `nest/nss/` — JAX nested sampler, chunked-vmap internals, ~600-line
 `search.py`; `mcmc/blackjax/nuts/` — gradient consumer wired through
@@ -145,7 +159,9 @@ A new search package `autofit/non_linear/search/<group>/<name>/` needs:
 2. **`samples.py`** — a `Samples` subclass converting sampler output into
    autofit samples (cf. `NSSamples(SamplesNest)` — ~25 lines on top of
    `SamplesNest`).
-3. **Public export** — `autofit/__init__.py` (`af.<Name>` is the API).
+3. **Public export and registry entry** — `autofit/__init__.py`
+   (`af.<Name>` is the API) and `registry.py` (the manifest row: family,
+   requirements, `example` and `integration_test` anchors).
 4. **Dependency** — optional extra in `pyproject.toml`. Gotcha: PyPI
    rejects git-URL dependencies in uploaded wheels ("400 Can't have direct
    dependency") — fork-only deps get a manual-install comment in
@@ -178,11 +194,18 @@ cd autofit_workspace_test && python scripts/searches/<Name>.py
 
 ## Stage 5 — documentation
 
-A search is not promoted until the surfaces that list searches name it. No
-registry generates these yet, so this is the interim checklist (library
-first; generated files — notebooks, `llms-full.txt`, `workspace_index.json`
-— regenerate via PyAutoHands and are never hand-edited). Skip a row only when
-its condition does not apply.
+Rosters are generated, not edited: every fenced `search-roster` block
+(autofit_workspace `llms.txt` and `scripts/searches/README.md`, the af/al/ag
+assistants' `*_configure_search.md` and catalogue pages) is re-rendered from
+the installed release's manifest with PyAutoHands
+`autohands regenerate_search_roster --root <checkout>`, and `check_search_roster`
+fails CI when one drifts. They change when a PyAutoFit release carrying the
+registry entry is installed — regenerate them then, never by hand. Notebooks,
+`llms-full.txt` and `workspace_index.json` likewise regenerate via PyAutoHands.
+
+What stays hand-written is the list below — prose, pick tables and judgment
+that say *when* to use a search, which no manifest can generate. Library
+first; skip a row only when its condition does not apply.
 
 **PyAutoFit**
 - `docs/api/searches.rst` entry and the committed
@@ -195,11 +218,11 @@ its condition does not apply.
 - `AGENTS.md` package-map line
 
 **autofit_workspace**
-- `scripts/searches/<family>.py` section (smoke-tested) and
-  `scripts/searches/README.md`
+- `scripts/searches/<family>.py` section (smoke-tested; it is the
+  registry's `example` anchor, `__Search: <Name>__`)
 - `scripts/cookbooks/search.py` — mirror of the RTD cookbook section
 - `scripts/plot/<name>_plotter.py` (search-specific plots only)
-- `llms.txt`, `CITATIONS.md`
+- `CITATIONS.md`
 
 **autofit_workspace_test / autofit_workspace_developer**
 - the Stage 4 integration script(s)
@@ -211,9 +234,11 @@ its condition does not apply.
   `tutorial_6_gradients.py`; `CITATIONS.md`
 
 **Downstream libraries and workspaces** (kept in lockstep)
-- `guides/modeling/searches.py` in autolens_workspace and
-  autogalaxy_workspace (plus `guides/plot/searches.py` when the search has
-  plots)
+- `scripts/guides/modeling/searches.py` in autolens_workspace and
+  autogalaxy_workspace — domain advice only, when the search earns a
+  lensing/galaxy recommendation (every `search = af.<Name>(...)` there is
+  drift-checked against the manifest); plus `guides/plot/searches.py` when
+  the search has plots
 - `chapter_optional/tutorial_searches.py` in HowToLens and HowToGalaxy
 - `docs/api/modeling.rst` in PyAutoLens, PyAutoGalaxy and PyAutoCTI
 - `docs/general/citations.*` in PyAutoLens, PyAutoGalaxy and PyAutoCTI;
@@ -223,14 +248,13 @@ its condition does not apply.
   dependency only)
 
 **Assistants**
-- autofit_assistant: `skills/af_configure_search.md`,
-  `wiki/core/concepts/non_linear_search.md` (roster table), the family page
-  under `wiki/core/concepts/`, `initialization_and_chaining.md`
-  (provider/consumer role), `wiki/core/stack/autofit.md`
-- autolens_assistant: `skills/al_configure_search.md`,
-  `wiki/core/concepts/non_linear_search.md`
-- autogalaxy_assistant: `skills/ag_configure_search.md`,
-  `wiki/core/concepts/non_linear_search.md`
+- the hand-written pick tables and branches only (the roster blocks are
+  generated): autofit_assistant `wiki/core/concepts/non_linear_search.md`
+  "Choosing", the family page under `wiki/core/concepts/`,
+  `initialization_and_chaining.md` (provider/consumer role),
+  `wiki/core/stack/autofit.md`; autolens_assistant and autogalaxy_assistant
+  `wiki/core/api/searches.md` "Picking a search at a glance" and the
+  `*_configure_search.md` branches
 
 **Organs and galleries**
 - the samplers faculty's `AGENTS.md` judgment tables
