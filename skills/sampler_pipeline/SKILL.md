@@ -72,8 +72,14 @@ The prototype contract (what makes its row comparable):
 - If the candidate targets real likelihoods (lensing MGE / pixelization /
   interferometer), extend to `autolens_inference` use-case runs before any
   promotion argument — the 1D Gaussian alone never justifies promotion.
-- Record durable findings in `PyAutoMemory/wiki/methods` (update
-  `concepts/sampler-benchmarks.md`).
+- Record inference campaign intent and coverage through **PyAutoInsight**;
+  keep protocols, per-search statuses and detailed results in the relevant
+  `*_inference` project. Record profiling campaigns and timing/drift evidence
+  through **PyAutoPulse**, with measurements in the `*_profiling` project.
+- Keep only reusable methodological lessons and short links to those owners in
+  **PyAutoMemory**. Durability alone is not a reason to copy campaign records
+  there. Cortex retains scientific run records and human conclusions; Mind
+  tracks implementation work, with performance code in its owning repository.
 
 ## 3. Promote (or archive)
 
