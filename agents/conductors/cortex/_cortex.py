@@ -347,6 +347,17 @@ def _clip(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n - 1].rstrip() + "…"
 
 
+def _clipped(text: str, n: int) -> bool:
+    """Whether `_clip` would shorten the text."""
+    return len(" ".join((text or "").split())) > n
+
+
+def _md_text(value: str) -> str:
+    """Ledger prose inside a markdown fold: `<` and `&` as entities, so a
+    literal `</details>` in a ledger line cannot close the card on GitHub."""
+    return str(value).replace("&", "&amp;").replace("<", "&lt;")
+
+
 def _cell(value: str) -> str:
     return str(value).replace("|", "\\|")
 
@@ -462,65 +473,141 @@ def _ledger_link(d: dict, blob: str) -> str:
     return f"{blob}{d['rel']}" if blob else d["rel"]
 
 
-def _facts_md(d: dict, blob: str) -> str:
-    issue = (f"[{d['issue']}]({d['issue_url']})" if d["issue_url"]
-             else "no issue yet")
-    return (f"{d['status']} · {d['partition']} · {issue} · "
-            f"[{d['rel']}]({_ledger_link(d, blob)}) · "
-            f"local `{_cell(d['local_path'])}` · RAL `{_cell(d['ral_root'])}`")
-
-
-def _facts_html(d: dict, blob: str) -> str:
-    issue = (f'<a href="{_attr(d["issue_url"])}">{_esc(d["issue"])}</a>'
-             if d["issue_url"] else "no issue yet")
-    return (f"{_esc(d['status'])} · {_esc(d['partition'])} · {issue} · "
-            f'<a href="{_attr(_ledger_link(d, blob))}">{_esc(d["rel"])}</a> · '
-            f'local <span class="pathchip">{_esc(d["local_path"])}</span> · '
-            f'RAL <span class="pathchip">{_esc(d["ral_root"])}</span>')
-
-
 def run_line(r: dict) -> str:
+    """One run as a terminal line (the check-in read-back)."""
     return (f"{r['ident']} — {r['state']} — {r['partition']} — {r['date']} — "
             f"{_clip(r['what'], RUN_CLIP)}")
 
 
+# A project is one disclosure: the closed summary is everything a glance
+# needs (name, purpose, the recorded run counts, the ledger's newest date);
+# opening it shows the current position, the resume chip, the runs as an
+# aligned table, and — each collapsed again — the recent history and the
+# technical locations. Every field is the parsed ledger's own; nothing is
+# read out of a run's prose.
+LOG_SHOWN = 5
+
+
+def _overview(d: dict) -> tuple[int, int, str]:
+    running = sum(1 for r in d["runs"] if r["state"] == "running")
+    open_ = sum(1 for r in d["runs"] if r["state"] == "open")
+    return running, open_, d["updated"] or "-"
+
+
+def _overview_text(d: dict) -> str:
+    """The closed card's meta line, in words (both pages)."""
+    running, open_, updated = _overview(d)
+    runs = (f"{running} running · {open_} open" if d["runs"]
+            else "no runs recorded")
+    status = "" if d["status"] == "active" else f"{d['status']} · "
+    return f"{status}{runs} · updated {updated}"
+
+
+def _history_label(d: dict) -> str:
+    shown = min(LOG_SHOWN, len(d["log"]))
+    if not d["log"]:
+        return "Recent log — empty"
+    noun = "entry" if len(d["log"]) == 1 else "entries"
+    return f"Recent log — {shown} of {len(d['log'])} {noun}"
+
+
 def _card_md(d: dict, row: dict, blob: str) -> list[str]:
-    L = [f"### {d['key']} — {_cell(d['summary'])}", "", _facts_md(d, blob), "",
-         "**Now**", "", d["now"] or "_(nothing yet)_", "", "**Runs**", ""]
-    L += [f"- {_cell(run_line(r))}" for r in d["runs"]] or ["- _nothing on the cluster_"]
-    L += ["", "**Last 5**", ""]
-    L += [f"- {e['date']} — *{e['kind']}* — {_cell(_clip(e['text'], LOG_CLIP))}"
-          for e in d["log"][:5]] or ["- _empty_"]
-    L += ["", f"[full log]({_ledger_link(d, blob)})", ""]
+    issue = (f"[{d['issue']}]({d['issue_url']})" if d["issue_url"]
+             else "no issue yet")
+    L = [f'<details id="project-{_attr(d["key"])}"><summary><b>{_esc(d["key"])}</b> — '
+         f"{_esc(d['summary'])} · {_esc(_overview_text(d))}</summary>", "",
+         f"{d['status']} · {d['partition']} · {issue}", "",
+         "**Current position**", "", _md_text(d["now"]) or "_(nothing yet)_", ""]
     if d["status"] == "active":
         L += [_task_row(f"resume {d['key']}", resume_payload(d["key"], row)), ""]
+    L += [f"**Runs** ({len(d['runs'])})", ""]
+    if d["runs"]:
+        L += ["| Job | State | Partition | Date | Description |",
+              "|---|---|---|---|---|"]
+        L += [f"| `{r['ident']}` | {r['state']} | {_cell(r['partition'])} | "
+              f"{r['date']} | {_cell(_md_text(_clip(r['what'], RUN_CLIP)))} |"
+              for r in d["runs"]]
+        clipped = [r for r in d["runs"] if _clipped(r["what"], RUN_CLIP)]
+        if clipped:
+            L += ["", f"<details><summary>Full descriptions ({len(clipped)} "
+                  "shortened above)</summary>", ""]
+            L += [f"- `{r['ident']}` — {_md_text(r['what'])}" for r in clipped]
+            L += ["", "</details>"]
+    else:
+        L.append("_nothing on the cluster_")
+    L += ["", f"<details><summary>{_history_label(d)}</summary>", ""]
+    L += [f"- {e['date']} — *{e['kind']}* — {_md_text(e['text'])}"
+          for e in d["log"][:LOG_SHOWN]] or ["- _empty_"]
+    L += ["", f"[full log]({_ledger_link(d, blob)})", "", "</details>", "",
+          "<details><summary>Locations</summary>", "",
+          f"- Ledger: [{d['rel']}]({_ledger_link(d, blob)})",
+          f"- Local: `` {d['local_path']} ``",
+          f"- RAL: `` {d['ral_root']} ``", "", "</details>", "", "</details>", ""]
     return L
 
 
+def _full_text_html(text: str, clip: int) -> str:
+    """A description that fits is plain text; a longer one is a disclosure
+    whose summary is the clipped line and whose body is the whole text —
+    keyboard-reachable (`<summary>` is focusable) and never truncated away."""
+    if not _clipped(text, clip):
+        return _esc(text)
+    short = _clip(text, clip)
+    return (f'<details class="full"><summary><span class="clip">{_esc(short)}</span>'
+            f'<span class="less">show less</span></summary>'
+            f"<p>{_esc(text)}</p></details>")
+
+
+def _runs_table_html(d: dict) -> list[str]:
+    if not d["runs"]:
+        return ['<p class="muted">nothing on the cluster</p>']
+    H = [f'<table class="runs" aria-label="Runs recorded for {_attr(d["key"])}">',
+         '<thead><tr><th scope="col">Job</th><th scope="col">State</th>'
+         '<th scope="col">Partition</th><th scope="col">Date</th>'
+         '<th scope="col">Description</th></tr></thead>', "<tbody>"]
+    for r in d["runs"]:
+        tone = "y" if r["state"] == "running" else "n"
+        H.append(f'<tr><td class="job"><code>{_esc(r["ident"])}</code></td>'
+                 f'<td class="state" data-label="State"><span class="pill {tone}">{_esc(r["state"])}</span></td>'
+                 f'<td class="part" data-label="Partition">{_esc(r["partition"])}</td>'
+                 f'<td class="date">{_esc(r["date"])}</td>'
+                 f'<td class="what">{_full_text_html(r["what"], RUN_CLIP)}</td></tr>')
+    H += ["</tbody>", "</table>"]
+    return H
+
+
 def _card_html(d: dict, row: dict, blob: str) -> list[str]:
-    H = ['<section class="project">',
-         f"<h3>{_esc(d['key'])} — {_esc(d['summary'])}</h3>",
-         f'<p class="muted">{_facts_html(d, blob)}</p>',
-         "<p><b>Now</b></p>",
+    issue = (f'<a href="{_attr(d["issue_url"])}">{_esc(d["issue"])}</a>'
+             if d["issue_url"] else "no issue yet")
+    H = [f'<details class="project" id="project-{_attr(d["key"])}">',
+         f'<summary><h3>{_esc(d["key"])}</h3>'
+         f'<span class="purpose">{_esc(d["summary"])}</span>'
+         f'<span class="meta">{_esc(_overview_text(d))}</span></summary>',
+         '<div class="project-body">',
+         f'<p class="muted">{_esc(d["status"])} · {_esc(d["partition"])} · {issue}</p>',
+         "<h4>Current position</h4>",
          "<p>" + ("<br>".join(_esc(x) for x in d["now"].split("\n"))
                   if d["now"] else '<span class="muted">(nothing yet)</span>')
-         + "</p>",
-         "<p><b>Runs</b></p>"]
-    if d["runs"]:
-        H += ["<ul>"] + [f"<li>{_esc(run_line(r))}</li>" for r in d["runs"]] + ["</ul>"]
-    else:
-        H.append('<p class="muted">nothing on the cluster</p>')
-    H.append("<p><b>Last 5</b></p>")
-    if d["log"]:
-        H += ["<ul>"] + [f"<li>{_esc(e['date'])} — <i>{_esc(e['kind'])}</i> — "
-                         f"{_esc(_clip(e['text'], LOG_CLIP))}</li>"
-                         for e in d["log"][:5]] + ["</ul>"]
-    else:
-        H.append('<p class="muted">empty</p>')
-    H.append(f'<p class="muted"><a href="{_attr(_ledger_link(d, blob))}">full log</a></p>')
+         + "</p>"]
     if d["status"] == "active":
         H.append(_html_task(f"resume {_esc(d['key'])}", resume_payload(d["key"], row)))
-    H.append("</section>")
+    H.append(f"<h4>Runs ({len(d['runs'])})</h4>")
+    H += _runs_table_html(d)
+    H.append(f'<details class="sub"><summary>{_esc(_history_label(d))}</summary>')
+    if d["log"]:
+        H += ['<ul class="log">'] + [
+            f"<li>{_esc(e['date'])} — <i>{_esc(e['kind'])}</i> — "
+            f"{_full_text_html(e['text'], LOG_CLIP)}</li>"
+            for e in d["log"][:LOG_SHOWN]] + ["</ul>"]
+    else:
+        H.append('<p class="muted">empty</p>')
+    H += [f'<p class="muted"><a href="{_attr(_ledger_link(d, blob))}">full log</a></p>',
+          "</details>",
+          '<details class="sub"><summary>Locations</summary><dl class="where">',
+          f'<dt>Ledger</dt><dd><a href="{_attr(_ledger_link(d, blob))}">{_esc(d["rel"])}</a></dd>',
+          f'<dt>Local</dt><dd><span class="pathchip">{_esc(d["local_path"])}</span></dd>',
+          f'<dt>RAL</dt><dd><span class="pathchip">{_esc(d["ral_root"])}</span></dd>',
+          "</dl></details>", "</div>", "</details>"]
     return H
 
 
@@ -595,7 +682,41 @@ _FRESH_CSS = (
     "table.map{width:100%;border-collapse:collapse;font-size:.95em}"
     "table.map th{text-align:left;color:var(--muted);font-weight:600}"
     "table.map td,table.map th{border-bottom:1px solid var(--line);padding:.4rem .5rem .4rem 0;vertical-align:top}"
-    ".project h3{font-size:1.35rem;font-weight:700;padding-bottom:.2rem;border-bottom:2px solid var(--accent);letter-spacing:.01em;margin-top:1.6rem}"
+    # one project = one disclosure; the closed summary is a wrapping row
+    "details.project{margin:.6rem 0;border:1px solid var(--line);border-radius:10px;padding:0}"
+    "details.project>summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2rem .7rem;padding:.75rem 1rem;min-height:48px;list-style:none;color:var(--fg);font-weight:400}"
+    "details.project>summary::-webkit-details-marker{display:none}"
+    "details.project>summary::before{content:\"\u25b8\";color:var(--accent);flex:none}"
+    "details.project[open]>summary::before{content:\"\u25be\"}"
+    "details.project>summary:focus-visible,details.full>summary:focus-visible,details.sub>summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}"
+    "details.project>summary h3{display:inline;margin:0;padding:0;border:0;font-size:1.1rem;font-weight:700}"
+    "details.project .purpose{flex:1 1 18rem;min-width:0}"
+    "details.project .meta{color:var(--muted);font-size:.88em;font-variant-numeric:tabular-nums}"
+    ".project-body{padding:0 1rem .8rem;border-top:1px solid var(--line)}"
+    ".project-body h4{margin:1rem 0 .4rem;font-size:1rem}"
+    # the runs: aligned columns on a wide screen, stacked rows on a phone
+    "table.runs{width:100%;border-collapse:collapse;font-size:.92em}"
+    "table.runs th{text-align:left;color:var(--muted);font-weight:600;white-space:nowrap;overflow-wrap:normal}"
+    "table.runs td,table.runs th{border-bottom:1px solid var(--line);padding:.35rem .7rem .35rem 0;vertical-align:top}"
+    "table.runs td.job,table.runs td.date,table.runs td.part,table.runs td.state{white-space:nowrap;font-variant-numeric:tabular-nums}"
+    "table.runs td.what{width:100%}"
+    "details.full,details.sub{margin:0}"
+    "details.full>summary{font-weight:400;color:inherit;padding:0}"
+    "details.full>summary .less{display:none;color:var(--muted)}"
+    "details.full[open]>summary .clip{display:none}"
+    "details.full[open]>summary .less{display:inline}"
+    "details.full>p{margin:.2rem 0 0}"
+    "details.sub{margin:.6rem 0}"
+    "ul.log{margin:.3rem 0;padding-left:1.2rem}"
+    "dl.where{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.3rem .8rem;margin:.4rem 0}"
+    "dl.where dd{margin:0;min-width:0}"
+    "@media(max-width:34rem){"
+    "table.runs,table.runs tbody{display:block}"
+    "table.runs thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}"
+    "table.runs tr{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6rem;padding:.5rem 0;border-bottom:1px solid var(--line)}"
+    "table.runs td{display:block;border:0;padding:0}"
+    "table.runs td[data-label]::before{content:attr(data-label) \": \";color:var(--muted);font-size:.85em}"
+    "table.runs td.what{flex:1 0 100%;margin-top:.15rem}}"
     ".pathchip{display:inline-block;background:var(--accent);color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;padding:.12em .5em;border-radius:.3rem;overflow-wrap:anywhere}"
     "@media(prefers-color-scheme:dark){.pathchip{background:color-mix(in srgb,var(--accent) 55%,#000)}}"
     ".stale{color:var(--bad);font-weight:600}")

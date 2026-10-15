@@ -208,25 +208,71 @@ def test_one_resume_chip_per_active_project_and_no_other_chips(skeleton):
     assert "retire" not in page.lower().replace("retired", "")
 
 
-def test_a_project_card_shows_now_runs_and_the_last_five(skeleton):
+def _md_card(page: str, key: str) -> str:
+    """One project's disclosure in dashboard.md, opening tag to its close."""
+    start = page.index(f'<details id="project-{key}">')
+    # the card's own close is the `</details>` that ends a blank-line block
+    # after the Locations fold
+    loc = page.index("<details><summary>Locations</summary>", start)
+    close = "</details>\n\n</details>"
+    return page[start:page.index(close, loc) + len(close)]
+
+
+def test_a_project_is_a_collapsed_disclosure_with_a_compact_overview(skeleton):
     page = _cortex.render_dashboard(_cortex.census(skeleton))
-    card = page.split("### example — ")[1].split("### single — ")[0]
-    assert card.startswith("Does the example pipeline recover the truth on the fixture lens")
+    card = _md_card(page, "example")
+    head = card.splitlines()[0]
+    assert head == ('<details id="project-example"><summary><b>example</b> — Does the '
+                    "example pipeline recover the truth on the fixture lens · 1 running "
+                    "· 1 open · updated 2026-09-02</summary>")
+    assert "<details open" not in page  # every project starts collapsed
+    single = _md_card(page, "single").splitlines()[0]
+    assert single.endswith("· no runs recorded · updated 2026-09-01</summary>")
+
+
+def test_an_expanded_card_shows_position_runs_table_history_and_locations(skeleton):
+    page = _cortex.render_dashboard(_cortex.census(skeleton))
+    card = _md_card(page, "example")
     assert (f"active · both · [example#7](https://github.com/{_owner()}/example/"
-            "issues/7) · [projects/example.md](projects/example.md) · local "
-            "`/tmp/example` · RAL `/mnt/ral/example`") in card
-    assert "**Now**\n\nWave 2 is on the cluster" in card
-    assert "- 3002_[0-3] — running — ral — 2026-09-01 — wave 2, four seeds" in card
-    assert "- 3003 — open — gpu — 2026-09-02 — joint fit on the same four seeds chained" in card
-    last = card.split("**Last 5**")[1].split("[full log]")[0]
+            "issues/7)") in card
+    assert "**Current position**\n\nWave 2 is on the cluster" in card
+    assert "**Runs** (2)\n\n| Job | State | Partition | Date | Description |\n|---|---|---|---|---|\n" in card
+    assert "| `3002_[0-3]` | running | ral | 2026-09-01 | wave 2, four seeds on the corrected settings |" in card
+    assert ("| `3003` | open | gpu | 2026-09-02 | joint fit on the same four seeds "
+            "chained after 3002 with afterok |") in card
+    # the order is resume chip → runs → history → locations
+    assert (card.index("📋 resume example") < card.index("**Runs**")
+            < card.index("<summary>Recent log — 5 of 7 entries</summary>")
+            < card.index("<summary>Locations</summary>"))
+    last = card.split("Recent log — 5 of 7 entries")[1].split("[full log]")[0]
     assert len([ln for ln in last.splitlines() if ln.startswith("- ")]) == 5
     assert "- 2026-09-01 — *lesson* — the adapt image" in last
     assert "3001_[0-3] submitted" not in last  # the sixth entry
-    single = page.split("### single — ")[1]
-    assert "no issue yet" in single and "- _nothing on the cluster_" in single
+    where = card.split("<summary>Locations</summary>")[1]
+    assert "- Ledger: [projects/example.md](projects/example.md)" in where
+    assert "- Local: `` /tmp/example ``" in where and "- RAL: `` /mnt/ral/example ``" in where
+    single = _md_card(page, "single")
+    assert "no issue yet" in single and "**Runs** (0)\n\n_nothing on the cluster_" in single
+    assert "<summary>Recent log — 1 of 1 entry</summary>" in single
 
 
-def test_run_and_log_text_are_truncated_on_the_card(tmp_skeleton):
+def test_an_empty_ledger_renders_every_fold_without_inventing_content(tmp_skeleton):
+    led = tmp_skeleton / "projects" / "single.md"
+    led.write_text(led.read_text(encoding="utf-8").replace(
+        "- 2026-09-01 — note — ledger opened\n", ""), encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    page = _cortex.render_dashboard(c)
+    card = _md_card(page, "single")
+    assert "· no runs recorded · updated -</summary>" in card
+    assert "<summary>Recent log — empty</summary>\n\n- _empty_" in card
+    html = _cortex.render_dashboard_html(c)
+    body = html.split('id="project-single"')[1].split('id="project-')[0]
+    assert "no runs recorded · updated -" in body
+    assert '<p class="muted">nothing on the cluster</p>' in body
+    assert "Recent log — empty" in body and '<p class="muted">empty</p>' in body
+
+
+def test_long_run_and_log_text_is_shortened_with_the_full_text_one_step_away(tmp_skeleton):
     led = tmp_skeleton / "projects" / "example.md"
     text = led.read_text(encoding="utf-8")
     long_what = "w" * 300
@@ -236,30 +282,45 @@ def test_run_and_log_text_are_truncated_on_the_card(tmp_skeleton):
     text = text.replace("- 2026-09-02 — run — 3003 submitted: joint fit on the same four seeds",
                         f"- 2026-09-02 — note — {long_note}")
     led.write_text(text, encoding="utf-8")
-    page = _cortex.render_dashboard(_cortex.census(tmp_skeleton))
-    run = re.search(r"^- 3003 — open — gpu — 2026-09-02 — (w+…)$", page, re.M)
+    c = _cortex.census(tmp_skeleton)
+    page = _cortex.render_dashboard(c)
+    run = re.search(r"^\| `3003` \| open \| gpu \| 2026-09-02 \| (w+…) \|$", page, re.M)
     assert run and len(run.group(1)) == _cortex.RUN_CLIP
-    note = re.search(r"^- 2026-09-02 — \*note\* — (n+…)$", page, re.M)
-    assert note and len(note.group(1)) == _cortex.LOG_CLIP
-    assert long_what not in page and long_note not in page
+    full = page.split("<summary>Full descriptions (1 shortened above)</summary>")[1]
+    assert f"- `3003` — {long_what} chained after 3002 with afterok" in full.split("</details>")[0]
+    assert f"- 2026-09-02 — *note* — {long_note}" in page  # the folded history is whole
+    led.write_text(led.read_text(encoding="utf-8").replace(long_note, "a </details> b"),
+                   encoding="utf-8")
+    assert "a &lt;/details> b" in _cortex.render_dashboard(_cortex.census(tmp_skeleton))
+    html = _cortex.render_dashboard_html(c)
+    cell = re.search(r'<td class="what"><details class="full"><summary>'
+                     r'<span class="clip">(w+…)</span><span class="less">show less</span>'
+                     r"</summary><p>(w+[^<]*)</p></details></td>", html)
+    assert cell and len(cell.group(1)) == _cortex.RUN_CLIP
+    assert cell.group(2) == f"{long_what} chained after 3002 with afterok"
+    assert f'<span class="clip">{"n" * (_cortex.LOG_CLIP - 1)}…</span>' in html
+    assert f"<p>{long_note}</p>" in html
+    # a short description is plain text, not a disclosure
+    assert ('<td class="what">wave 2, four seeds on the corrected settings</td>') in html
 
 
 def test_retired_projects_fold_and_dormant_rows_without_a_ledger_table(skeleton):
     page = _cortex.render_dashboard(_cortex.census(skeleton))
-    assert "### wound_down" not in page
+    assert 'id="project-wound_down"' not in page
     fold = page.split("<details><summary>1 retired</summary>")[1].split("</details>")[0]
     assert "[wound_down](projects/wound_down.md) — A project that finished and was retired — retired 2026-09-01: done" in fold
     table = page.split("#### No ledger")[1]
     assert "| Project | Status | Note |" in table
     assert "| sleeping | dormant | no ledger yet |" in table
-    assert "### sleeping" not in page
+    assert 'id="project-sleeping"' not in page
 
 
 def test_active_cards_lead_and_a_broken_tree_is_said_out_loud(tmp_skeleton):
     """The card order is projects.yaml order, active first; a tree that does
     not check says so on the page rather than rendering as if it did."""
     page = _cortex.render_dashboard(_cortex.census(tmp_skeleton))
-    assert page.index("### example — ") < page.index("### single — ") < page.index("1 retired")
+    assert (page.index('id="project-example"') < page.index('id="project-single"')
+            < page.index("1 retired"))
     led = tmp_skeleton / "projects" / "single.md"
     led.write_text(led.read_text(encoding="utf-8").replace("## Now\n\nNothing", "## Now\n\n\nNothing").replace(
         "Nothing submitted yet; the first run goes out once the dataset is on RAL.", ""),
@@ -300,7 +361,8 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     assert "table.map{width:100%" in html
     assert ("<tr><th>Project</th><th>Running</th><th>Open</th>"
             "<th>Last update</th></tr>") in html
-    assert html.count('<section class="project">') == 2
+    assert html.count('<details class="project" id="project-') == 2
+    assert '<details class="project" id="project-example" open' not in html
     assert "<details><summary>1 retired</summary>" in html
     assert "<h4>No ledger</h4>" in html
     assert 'class="pathchip">/tmp/example</span>' in html
@@ -314,6 +376,51 @@ def test_the_html_escapes_the_ledgers_text(tmp_skeleton):
     html = _cortex.render_dashboard_html(_cortex.census(tmp_skeleton))
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt; &amp; co" in html
+
+
+def test_the_html_card_is_a_keyboard_disclosure_with_an_aligned_runs_table(skeleton):
+    html = _cortex.render_dashboard_html(_cortex.census(skeleton))
+    card = html.split('<details class="project" id="project-example">')[1]
+    card = card.split('<details class="project" id="project-single">')[0]
+    assert card.startswith('\n<summary><h3>example</h3><span class="purpose">Does the example '
+                           'pipeline recover the truth on the fixture lens</span>'
+                           '<span class="meta">1 running · 1 open · updated 2026-09-02</span></summary>')
+    assert ('<table class="runs" aria-label="Runs recorded for example">'
+            '\n<thead><tr><th scope="col">Job</th><th scope="col">State</th>'
+            '<th scope="col">Partition</th><th scope="col">Date</th>'
+            '<th scope="col">Description</th></tr></thead>') in card
+    assert ('<tr><td class="job"><code>3002_[0-3]</code></td><td class="state" data-label="State">'
+            '<span class="pill y">running</span></td><td class="part" data-label="Partition">ral</td>'
+            '<td class="date">2026-09-01</td>') in card
+    assert '<span class="pill n">open</span>' in card
+    # the resume chip stays on the card, before the runs; history and paths fold
+    assert card.index('data-cmd="Use the cortex skill. — resume example:') < card.index("<h4>Runs (2)</h4>")
+    assert '<details class="sub"><summary>Recent log — 5 of 7 entries</summary>' in card
+    assert '<details class="sub"><summary>Locations</summary><dl class="where">' in card
+    assert '<dd><span class="pathchip">/mnt/ral/example</span></dd>' in card
+    # keyboard focus is visible; the table stacks under the shared phone breakpoint
+    assert "details.project>summary:focus-visible" in html
+    assert "@media(max-width:34rem){table.runs,table.runs tbody{display:block}" in html
+    # an anchor to a project opens it (the shared section script walks DETAILS)
+    assert "p.tagName==='DETAILS'" in html
+
+
+def test_the_card_overview_and_runs_table_escape_ledger_text(tmp_skeleton):
+    led = tmp_skeleton / "projects" / "example.md"
+    led.write_text(led.read_text(encoding="utf-8")
+                   .replace("Does the example pipeline", "Does <b>x</b> & the example pipeline")
+                   .replace("wave 2, four seeds on", "wave <img src=x> | 2 on"),
+                   encoding="utf-8")
+    c = _cortex.census(tmp_skeleton)
+    html = _cortex.render_dashboard_html(c)
+    assert "<b>x</b>" not in html and "<img src=x>" not in html
+    assert '<span class="purpose">Does &lt;b&gt;x&lt;/b&gt; &amp; the example' in html
+    assert "wave &lt;img src=x&gt; | 2 on" in html
+    page = _cortex.render_dashboard(c)
+    assert "<summary><b>example</b> — Does &lt;b&gt;x&lt;/b&gt; &amp; the example" in page
+    # a pipe cannot split the markdown row; a tag cannot open or close a fold
+    assert "wave &lt;img src=x> \\| 2 on" in page
+    assert " \\| 2 on the corrected settings |" in page
 
 
 # --- --check / --apply -----------------------------------------------------
