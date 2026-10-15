@@ -37,6 +37,23 @@ The scientific libraries (PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens) and
 the workspaces are **capabilities the organism uses, not organs**. The full
 inventory is `PyAutoMind/repos.yaml`.
 
+## Routing campaign information
+
+Route information by what it describes, not by how long it should be kept.
+Inference campaign intent, coverage and evidence presentation belong to **Insight**;
+profiling campaign intent, timings and drift presentation belong to **Pulse**.
+The corresponding `*_inference` and `*_profiling` project repositories remain
+canonical for protocols, detailed results and measurement provenance. Cortex
+retains scientific run records, observations and human conclusions; Mind retains
+bounded implementation tasks and completion history. Performance code changes
+belong in the affected code repository, linked to their profiling evidence.
+
+**Memory** retains reusable scientific or methodological lessons and short links
+to those owners. Do not copy campaign counts, per-search status tables, timings or
+pending work into Memory as a second campaign record. Before replacing an existing
+summary with a pointer, verify that its evidence is preserved at a merged,
+reachable destination; retain historical provenance until that is true.
+
 ## Responsibility roles
 
 **Library, project and organ** name responsibilities, not levels in a strict

@@ -114,8 +114,14 @@ table.
   `scripts/<dataset>/searches/<sampler>/<model_type>.py` cells are the mature
   tier; A100/HPC runs go through that repo's conventions. Per-evaluation
   likelihood cost stays with the `/profile_likelihood` skill.
-- Record durable findings in `PyAutoMemory/wiki/methods/concepts/
-  sampler-benchmarks.md` (internal; never cited in public output).
+- Record inference campaign intent and coverage through **PyAutoInsight**;
+  keep protocols, per-search statuses and detailed results in the relevant
+  `*_inference` project. Record profiling campaigns and timing/drift evidence
+  through **PyAutoPulse**, with measurements in the `*_profiling` project.
+- Keep only reusable methodological lessons and short links to those owners in
+  **PyAutoMemory**. Durability alone is not a reason to copy campaign records
+  there. Cortex retains scientific run records and human conclusions; Mind
+  tracks implementation work, with performance code in its owning repository.
 
 ## Stage 3 — promotion: the PyAutoFit implementation
 
