@@ -62,16 +62,15 @@ PR or CI), don't make the human wait for the dashboard loop. After each fix:
 2. With `PYAUTO_EYES_SCRATCH` set, the domain's PNGs are mirrored (folder
    replaced, so no stale figures) to
    `$PYAUTO_EYES_SCRATCH/<lib>/<dataset_type>/`, where `<lib>` is the
-   library import name (`autogalaxy`, `autofit`, `autocti`) and
-   `<dataset_type>` is the producer domain `scripts/<domain>/`.
+   library import name (`autolens`, `autogalaxy`, `autofit`, `autocti`) and
+   `<dataset_type>` is the producer domain `scripts/<domain>/` (e.g.
+   `$PYAUTO_EYES_SCRATCH/autolens/imaging/`).
 3. Tell the human that path so they can look straight away. If the variable is
    unset, the mirror is a silent no-op; ask them to run
    `export PYAUTO_EYES_SCRATCH=/mnt/c/Users/Jammy/Science/scratch/eyes`.
 
 The scratch folder is for looking only: nothing in it is committed, and
-judging still follows Review/Delegate above. `autolens_visualization` gains the
-same mirror in phase 2 (after autolens_visualization#7 merges); until then use
-the embedded gallery route from Do step 2 for lens figures.
+judging still follows Review/Delegate above.
 
 ## From the dashboard
 
