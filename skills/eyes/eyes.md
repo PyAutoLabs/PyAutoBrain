@@ -51,6 +51,28 @@ them all.
    `/start_dev` as usual (config + script surfaces → workspace PR; `plot_api`
    → library PR). **Never edit plot source inside the review session.**
 
+## Active image work (on-the-fly)
+
+While a dev session is iterating on plots (in its task worktree, before any
+PR or CI), don't make the human wait for the dashboard loop. After each fix:
+
+1. Re-render just that domain in the worktree:
+   `bash gallery/gallery_run.sh <domain>`, or run the producer and then
+   `python _viz_cli.py scratch <domain>`.
+2. With `PYAUTO_EYES_SCRATCH` set, the domain's PNGs are mirrored (folder
+   replaced, so no stale figures) to
+   `$PYAUTO_EYES_SCRATCH/<lib>/<dataset_type>/`, where `<lib>` is the
+   library import name (`autogalaxy`, `autofit`, `autocti`) and
+   `<dataset_type>` is the producer domain `scripts/<domain>/`.
+3. Tell the human that path so they can look straight away. If the variable is
+   unset, the mirror is a silent no-op; ask them to run
+   `export PYAUTO_EYES_SCRATCH=/mnt/c/Users/Jammy/Science/scratch/eyes`.
+
+The scratch folder is for looking only: nothing in it is committed, and
+judging still follows Review/Delegate above. `autolens_visualization` gains the
+same mirror in phase 2 (after autolens_visualization#7 merges); until then use
+the embedded gallery route from Do step 2 for lens figures.
+
 ## From the dashboard
 
 The PyAutoEyes dashboard (<https://pyautolabs.github.io/PyAutoEyes/>) gives
