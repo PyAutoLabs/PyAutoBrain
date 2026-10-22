@@ -181,7 +181,9 @@ ensure_session_environment() {
   [[ -z "${PYAUTO_SKIP_BOOTSTRAP:-}" ]] || return 0
   local boot
   local mind_checkout
-  mind_checkout="$(resolve_mind)" || return 0
+  # resolve_mind lives in agents/_common.sh, which this dispatcher does not
+  # source; load it inside the substitution's subshell so nothing leaks.
+  mind_checkout="$(. "$AGENTS_DIR/_common.sh" && resolve_mind 2>/dev/null)" || return 0
   boot="$mind_checkout/scripts/session_bootstrap.sh"
   [[ -x "$boot" ]] || return 0
   bash "$boot" >/dev/null 2>&1 || true
