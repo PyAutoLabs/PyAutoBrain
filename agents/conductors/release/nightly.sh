@@ -75,6 +75,9 @@ ANCHOR_VAR="NIGHTLY_LAST_WINDOW_END"
 # Release tags land on every library; one suffices. Which one is release
 # POLICY — read from config/policy.yaml (the declared config surface).
 TAG_REPO="$(python3 -c "import yaml, pathlib; print(yaml.safe_load((pathlib.Path('$HERE').parents[2] / 'config' / 'policy.yaml').read_text())['release']['tag_repo'])")"
+# The released libraries (the PyAuto* entries of the release-relevant set) —
+# every one must carry today's tag before a red live run counts as shipped.
+mapfile -t RELEASE_LIBRARIES < <(python3 -c "import yaml, pathlib; print('\n'.join(r for r in yaml.safe_load((pathlib.Path('$HERE').parents[2] / 'config' / 'policy.yaml').read_text())['release']['relevant_repos'] if r.startswith('PyAuto')))")
 BUILD_REPO="PyAutoLabs/PyAutoHands"
 RELEASE_WORKFLOW="release.yml"
 # Repos whose open `release-blocker` issues stop the night (the release-relevant
@@ -173,6 +176,19 @@ today_re="^${today//./\\.}\\.[0-9]+$"
 released_today() {
   gh api "repos/$TAG_REPO/tags?per_page=50" --jq '.[].name' 2>/dev/null \
     | grep -Eq "$today_re"
+}
+# release_libraries_untagged_today — print each released library that has NO
+# YYYY.M.D.* tag for today. Step 6 needs this rather than TAG_REPO alone: the
+# library `release` jobs run in parallel and tag independently, so on
+# 2026-10-22 (PyAutoHands run 39749945942) PyAutoArray and PyAutoLens tagged and
+# published while PyAutoNerves, PyAutoFit and PyAutoGalaxy failed at their Tag
+# push — and the TAG_REPO probe reported that partial release as shipped.
+release_libraries_untagged_today() {
+  local repo
+  for repo in "${RELEASE_LIBRARIES[@]}"; do
+    gh api "repos/PyAutoLabs/$repo/tags?per_page=50" --jq '.[].name' 2>/dev/null \
+      | grep -Eq "$today_re" || printf '%s\n' "$repo"
+  done
 }
 if released_today; then
   log "a $today.* release tag already exists on $TAG_REPO"
@@ -457,7 +473,16 @@ if ! dispatch_and_await "$BUILD_REPO" "$RELEASE_WORKFLOW" \
   # the anchor behind, so the shipped window would have been re-judged the
   # next night. The tag is the evidence: present means shipped, and the night
   # is reported as shipped with a red smoke leg for a human to look at.
-  if released_today; then
+  # Partial: some libraries published, others did not. Neither "shipped" nor
+  # "no release was made" is true, and the unshipped libraries' changes must
+  # stay in the next night's window — so page it and leave the anchor.
+  mapfile -t untagged < <(release_libraries_untagged_today)
+  missing="$(IFS=,; echo "${untagged[*]}" | sed 's/,/, /g')"
+  if (( ${#untagged[@]} > 0 && ${#untagged[@]} < ${#RELEASE_LIBRARIES[@]} )); then
+    notify "🚨" "*nightly release PARTIAL* — $version published for some libraries but NOT for: $missing. PyPI now mixes versions; a human must finish or supersede it — <${LAST_RUN_URL:-$RUN_URL}|release run>. <$RUN_URL|nightly run>"
+    exit 2
+  fi
+  if (( ${#untagged[@]} == 0 )); then
     notify "⚠️" "*nightly release shipped with a red smoke leg* — $version published, but the release run went red after publishing (the post-release smoke leg is the usual cause) — <${LAST_RUN_URL:-$RUN_URL}|release run>. $summary (window $anchor → $WINDOW_END). <$RUN_URL|nightly run>"
     advance_anchor
     exit 0
