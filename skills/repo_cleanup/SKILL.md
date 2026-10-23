@@ -125,7 +125,8 @@ Format: [`reference.md`](reference.md) → "Recap".
 - Suggest `/health worktrees` first if unsure whether tasks are in flight.
 - A repo that still accumulates merged PR heads has **"Automatically delete head
   branches" off** (Settings → General). That setting prevents the backlog this
-  skill exists to clear, and no sweep substitutes for it — dispatch
-  `repo_settings.yml` (mode `apply`) to turn it on org-wide, then move on.
+  skill exists to clear, and no sweep substitutes for it — have the human run
+  the local `gh api -X PATCH` loop in [`reference.md`](reference.md) (it needs
+  repo admin, which no workflow credential carries), then move on.
 - Cloud-session routing (dispatch `branch_sweep.yml` rather than pushing
   deletes) is in [`reference.md`](reference.md) → "Execution environments".

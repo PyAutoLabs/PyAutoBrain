@@ -86,10 +86,27 @@ jobs:
       - name: Install PyYAML (Heart's only dependency)
         run: pip install --quiet pyyaml
 
+      - name: Mint App token (dispatch + poll the release path, read activity)
+        # The driver dispatches and polls PyAutoHands release.yml and the
+        # PyAutoHeart integrate workflow (actions write), reads main commits and
+        # tags across the release-relevant repos (contents read) and their open
+        # `release-blocker` issues (issues read). That set spans most of the
+        # org, so the token is owner-wide (no `repositories:`). No fallback: a
+        # failed mint fails the job before any gate is judged.
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: PyAutoLabs
+          permission-actions: write
+          permission-contents: read
+          permission-issues: read
+
       - name: Run the nightly driver
         id: driver
         env:
-          GH_TOKEN: ${{ secrets.PAT_PYAUTOLABS }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           PYAUTO_RELEASE_WEBHOOK_URL: ${{ secrets.PYAUTO_RELEASE_WEBHOOK_URL }}
           NIGHTLY_RELEASES: ${{ vars.NIGHTLY_RELEASES }}
           # Scheduled runs have no inputs: default 'false' — ARMED 2026-07-09
