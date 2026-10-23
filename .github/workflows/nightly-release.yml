@@ -92,9 +92,10 @@ jobs:
         # tags across the release-relevant repos (contents read) and their open
         # `release-blocker` issues (issues read), and reads + writes this repo's
         # NIGHTLY_LAST_WINDOW_END anchor variable (variables write — the App's
-        # "Variables" permission; `permission-variables` is not in the action's
-        # generated input list, so the runner warns "Unexpected input", but the
-        # action forwards every `permission-*` input). That set spans most of
+        # "Variables" permission, named `actions_variables` on the installation;
+        # `permission-actions-variables` is not in the action's generated input
+        # list, so the runner warns "Unexpected input", but the action forwards
+        # every `permission-*` input). That set spans most of
         # the org, so the token is owner-wide (no `repositories:`). No
         # fallback: a failed mint fails the job before any gate is judged.
         id: app_token
@@ -106,7 +107,7 @@ jobs:
           permission-actions: write
           permission-contents: read
           permission-issues: read
-          permission-variables: write
+          permission-actions-variables: write
 
       - name: Run the nightly driver
         id: driver
