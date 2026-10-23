@@ -15,7 +15,9 @@ Three modes (design decision recorded in the founding Mind prompt,
 - **campaign** — diff the campaign grid (sweep CELLS × configs) against the
   results tree (done / CPU-unusable / missing) and emit the dispatch plan for
   the requested tier, honouring the CPU-usability policy (per-run timeout,
-  GPU-only markers).
+  GPU-only markers). On a published `profiling-summary@3` catalogue it
+  reports the lifecycle grid instead (planned cells x records, per
+  likelihood x class x measurement: current / stale / superseded / missing).
 - **ingest**  — find probe JSONs not yet reflected in the vram batch tables,
   and campaign results whose instruments have no pinned value, and emit the
   table-update / pinning / baseline / dashboard plan.
@@ -51,7 +53,10 @@ import _pyauto_root  # noqa: E402
 from _repo_paths import repo_path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _catalogue import read_catalogue  # noqa: E402
+from _catalogue import (  # noqa: E402
+    DATASET_TYPES, LOCAL_HOST_PREFIX, is_local_host, parse_setup_id, pin_order,
+    read_catalogue, read_lifecycle,
+)
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
 HEART_STATE_DIR = Path(os.environ.get("HEART_STATE_DIR", Path.home() / ".pyauto-heart"))
@@ -256,6 +261,9 @@ def compile_tier_of(hardware: str | None) -> str:
 def campaign(ws: Path, tier: str) -> dict[str, Any]:
     if tier not in TIER_CONFIGS:
         return {"agent": "profiling", "mode": "campaign", "error": f"unknown tier {tier!r}"}
+    lifecycle = read_lifecycle(ws)
+    if lifecycle is not None:
+        return campaign_lifecycle(ws, tier, lifecycle)
     routing = grid_info(ws)
     grid = routing["grid"]
     runtime = ws / "results" / "runtime"
@@ -317,6 +325,154 @@ def campaign(ws: Path, tier: str) -> dict[str, Any]:
             "all runs accounted for — proceed to ingest"
             if not missing
             else f"dispatch the {tier} plan ({len(missing)} runs outstanding)"
+        ),
+    }
+
+
+# Lifecycle grid (profiling-summary@3 + the mirrored results tree, report §3.7).
+CELL_STATES = ("current", "stale", "superseded", "missing")
+# The §3.7 per-cell scripts; a measurement with no entry has no declared script.
+MEASUREMENT_SCRIPTS = {
+    "runtime": "likelihood_runtime.py",
+    "breakdown": "likelihood_breakdown.py",
+    "gradient": "gradient_breakdown.py",
+}
+# Where each reference host class is submitted. CPU work goes on `ral` only.
+HOST_ROUTES = {
+    "hpc_ral_cpu": "RAL CPU: sbatch --partition=ral (never gpu)",
+    "hpc_a100": "RAL A100: sbatch --partition=gpu --gres=gpu:1",
+}
+
+
+def _cell_id(key) -> str:
+    dataset_type, variant, instrument, setup_id, host_class, model_variant, measurement = key
+    variant_note = "" if model_variant == "default" else f" {model_variant}"
+    return (f"{dataset_type}/{variant}/{instrument} {setup_id}@{host_class}"
+            f"{variant_note} [{measurement}]")
+
+
+def lifecycle_tree(ws: Path) -> dict[tuple, Path]:
+    """`results/<dataset_type>/<variant>/<instrument>/<setup_id>/<host_class>/`
+    directories present, keyed (dataset_type, variant, instrument, setup_id,
+    host_class). A setup directory off the grammar is refused (SetupIdError)."""
+    found: dict[tuple, Path] = {}
+    for dataset_type in DATASET_TYPES:
+        root = ws / "results" / dataset_type
+        if not root.is_dir():
+            continue
+        for setup_dir in sorted(p for p in root.glob("*/*/*") if p.is_dir()):
+            variant, instrument, setup_id = setup_dir.relative_to(root).parts
+            parse_setup_id(setup_id, setup_dir.relative_to(ws).as_posix())
+            for host_dir in sorted(p for p in setup_dir.iterdir() if p.is_dir()):
+                found[(dataset_type, variant, instrument, setup_id, host_dir.name)] = host_dir
+    return found
+
+
+def campaign_lifecycle(ws: Path, tier: str, lifecycle: dict[str, Any]) -> dict[str, Any]:
+    """Coverage of a `profiling-summary@3` catalogue's planned cells.
+
+    Per likelihood x class x measurement, each planned cell is `current` (a
+    current record on a reference host), `stale` (that record's release_pin is
+    behind the catalogue's pin), `superseded` (only superseded records) or
+    `missing`. The class is the producer's declaration, reported as given; a
+    `local_*` host class never counts as current. Plans only — never runs.
+    """
+    pin = pin_order(lifecycle["release_pin"])
+    by_key: dict[tuple, list[dict[str, Any]]] = {}
+    for record in lifecycle["records"]:
+        by_key.setdefault(record["key"], []).append(record)
+    tree = lifecycle_tree(ws)
+
+    cells: list[dict[str, Any]] = []
+    groups: dict[tuple, dict[str, int]] = {}
+    class_mismatches: list[dict[str, Any]] = []
+    for key, declared_class in sorted(lifecycle["planned"].items()):
+        records = by_key.get(key, [])
+        current = [r for r in records if r["status"] == "current" and not is_local_host(key[4])]
+        record = current[0] if current else None
+        if record is not None:
+            behind = pin is not None and (pin_order(record["release_pin"]) or ()) < pin
+            state = "stale" if behind else "current"
+            if record["class"] != declared_class:
+                class_mismatches.append({"cell": _cell_id(key), "planned": declared_class,
+                                         "record": record["id"], "declared": record["class"]})
+        else:
+            state = "superseded" if records else "missing"
+        host_dir = tree.get(key[:5])
+        cells.append({
+            "cell": _cell_id(key),
+            "likelihood": f"{key[0]}/{key[1]}",
+            "class": declared_class,
+            "measurement": key[6],
+            "state": state,
+            "record": record["id"] if record else None,
+            "tree": "absent" if host_dir is None else (
+                "present" if (host_dir / f"{key[6]}.json").is_file() else "directory only"),
+        })
+        group = groups.setdefault((f"{key[0]}/{key[1]}", declared_class, key[6]),
+                                  dict.fromkeys(CELL_STATES, 0))
+        group[state] += 1
+
+    planned = lifecycle["planned"]
+    never_current = [r["id"] for r in lifecycle["records"]
+                     if r["status"] == "current" and is_local_host(r["key"][4])]
+    unplanned = [{"record": r["id"], "class": r["class"], "status": r["status"]}
+                 for r in lifecycle["records"] if r["key"] not in planned]
+    recorded = {r["key"][:5] for r in lifecycle["records"]} | {k[:5] for k in planned}
+    tree_unrecorded = sorted(path.relative_to(ws).as_posix()
+                             for k, path in tree.items() if k not in recorded)
+
+    dispatch: list[str] = []
+    for cell, key in zip(cells, sorted(planned)):
+        if cell["state"] not in ("missing", "stale"):
+            continue
+        route = HOST_ROUTES.get(key[4])
+        if route is None:
+            continue
+        script = MEASUREMENT_SCRIPTS.get(key[6])
+        source = f"scripts/{key[0]}/{key[1]}/{script}" if script else "no declared script"
+        dispatch.append(f"{route} — {cell['cell']} ({cell['state']}; {source}; "
+                        f"per-run cap {DEFAULT_PER_RUN_TIMEOUT}s)")
+
+    counts = {state: sum(1 for c in cells if c["state"] == state) for state in CELL_STATES}
+    outstanding = counts["missing"] + counts["stale"]
+    return {
+        "agent": "profiling",
+        "mode": "campaign",
+        "catalogue": "profiling-summary@3",
+        "tier": tier,
+        "tier_note": "lifecycle grid: each cell is routed by its host_class, not by --tier",
+        "planned_cells": len(cells),
+        "cells_current": counts["current"],
+        "cells_stale": counts["stale"],
+        "cells_superseded": counts["superseded"],
+        "cells_missing": counts["missing"],
+        "records_superseded": sum(1 for r in lifecycle["records"] if r["status"] == "superseded"),
+        "coverage": [
+            {"likelihood": lk, "class": cls, "measurement": m, **group}
+            for (lk, cls, m), group in sorted(groups.items())
+        ],
+        "cells": cells,
+        "never_current": never_current,
+        "unplanned_records": unplanned,
+        "class_mismatches": class_mismatches,
+        "tree_unrecorded": tree_unrecorded,
+        "catalogue_evidence": {k: lifecycle[k] for k in (
+            "source", "sha256", "version", "release_pin", "release_pin_source",
+            "archive_record_count")},
+        "policy": (
+            "Class and status are the producer's declarations, reported as given; "
+            "`optimal` is a Pulse designation decision, never inferred here. "
+            f"`{LOCAL_HOST_PREFIX}*` host classes never count as current. "
+            f"stale = a current record's release_pin behind the catalogue's pin. "
+            f"CPU-usability: per-run wall-clock cap {DEFAULT_PER_RUN_TIMEOUT}s; CPU runs on `ral` only."
+        ),
+        "evidence_qualification": "Catalogue presence is the producer's declaration, not a re-measured or accepted baseline.",
+        "dispatch_plan": dispatch,
+        "next_action": (
+            f"dispatch the lifecycle plan ({outstanding} missing/stale planned cells)"
+            if outstanding else
+            "planned cells all current — proceed to ingest"
         ),
     }
 
@@ -899,6 +1055,34 @@ def emit_human(d: dict[str, Any]) -> None:
             print(f"Malformed records:    {len(d['malformed'])}")
             for m in d["malformed"][:10]:
                 print(f"  {m['record']}: missing {', '.join(m['missing'])} (tag={m['tag']!r})")
+        print(f"Policy:               {d['policy']}")
+        print("Dispatch plan:")
+        for s in d["dispatch_plan"]:
+            print(f"  - {s}")
+    elif d["mode"] == "campaign" and d.get("catalogue") == "profiling-summary@3":
+        ev = d["catalogue_evidence"]
+        print(f"Catalogue:            {ev['source']} (profiling-summary@3, pin "
+              f"{ev['release_pin']} from {ev['release_pin_source']})")
+        print(
+            f"Planned cells:        {d['cells_current']} current · {d['cells_stale']} stale · "
+            f"{d['cells_superseded']} superseded · {d['cells_missing']} missing "
+            f"(of {d['planned_cells']}; {d['records_superseded']} superseded record(s))"
+        )
+        for row in d["coverage"]:
+            print(f"  {row['likelihood']} {row['class']} {row['measurement']}: "
+                  + " · ".join(f"{row[s]} {s}" for s in CELL_STATES))
+        for cell in d["cells"]:
+            if cell["state"] != "current":
+                print(f"  {cell['state']}: {cell['cell']} (tree {cell['tree']})")
+        for rid in d["never_current"]:
+            print(f"  never current (local host): {rid}")
+        for m in d["class_mismatches"]:
+            print(f"  class mismatch: {m['cell']} planned {m['planned']}, "
+                  f"record {m['record']} declares {m['declared']}")
+        if d["unplanned_records"]:
+            print(f"Unplanned records:    {len(d['unplanned_records'])}")
+        for path in d["tree_unrecorded"]:
+            print(f"  tree without a catalogue row: {path}")
         print(f"Policy:               {d['policy']}")
         print("Dispatch plan:")
         for s in d["dispatch_plan"]:

@@ -20,6 +20,7 @@ prompt, PyAutoMind `issued/profiling_agent.md`.
 | Mode | Question | Emits |
 |------|----------|-------|
 | `campaign` | Which grid runs are done / CPU-unusable / missing on this tier, and how do I dispatch the rest? | dispatch plan (local sweep flags incl. the per-run timeout; A100 submit list) |
+| `campaign` on a `profiling-summary@3` catalogue | Per likelihood × class × measurement, which planned cells are current / stale / superseded / missing? | coverage rows, per-cell states, local-host and class-mismatch flags, a plan routed by `host_class` |
 | `ingest` | Which probe JSONs aren't in the vram tables yet, and which results have no pin? | table-update rows, pin list, baseline + dashboard steps |
 | `ingest --axis compile` | Which warm compile rows are unpinned, and which have drifted from their pin? | drifted rows (with pinned vs observed), unpinned keys, confirm/classify/re-pin steps |
 | `triage` | What do the pinned-drift findings mean? | per-finding classification: stale pin → re-pin here; library regression → `bug/` via intake |
@@ -79,6 +80,29 @@ neither counts as grid coverage, and neither is silently dropped.
 instrument)` identity triple are reported as **sibling-instrument** records, not
 as malformed — only a record missing *some* of its key fields is corruption.
 
+### The lifecycle grid (`profiling-summary@3`)
+
+When the published `dashboard/catalogue.json` is `profiling-summary@3`,
+`campaign` diffs its `planned_cells` against its `records` instead of the sweep
+grid. A cell is keyed (likelihood, instrument, `setup_id`, `host_class`,
+`model_variant`, measurement) and is `current` (a current record on a
+reference host), `stale` (that record's `release_pin` is behind the
+catalogue's pin — the envelope's, else the newest record's), `superseded`
+(only superseded records) or `missing`. The mirrored tree
+`results/<dataset_type>/<variant>/<instrument>/<setup_id>/<host_class>/` is
+read when it exists, and a directory with no catalogue row is listed.
+`setup_id` follows `<backend>_<device>_<operator>_<precision>[_<transformer>]`;
+anything else is refused as `SetupIdError`. `local_*` host classes never count
+as current and are flagged. The class is the producer's declaration from a
+Pulse `designation` decision: this conductor reports it, flags a record whose
+class disagrees with its planned cell, and never assigns one. The plan routes
+CPU cells to `--partition=ral` and A100 cells to `gpu` with `--gres`. A v2 or
+absent catalogue keeps the legacy grid byte-identical.
+
+The L0–L7 sequence a likelihood follows (register → figures → profile →
+designate → validate → gradient → samplers → close) is the phase-prompt
+template in [`skills/profiling/lifecycle.md`](../../../skills/profiling/lifecycle.md).
+
 ## Fundamental principles
 
 - **The classification is the result** for CPU-unusable cells (the usability
@@ -123,7 +147,10 @@ as malformed — only a record missing *some* of its key fields is corruption.
   versioned `profiling-summary` read contract, ingest receipts and the board.
   It validates the exchange contract only and never judges; this conductor
   (`triage`) stays the only judge of what a timing or a drift means, with the
-  human. The projects keep their producers, results, pins and drift policy.
+  human. Lookups read `class: optimal` + `status: current` unless asked
+  otherwise; `optimal` is always a Pulse `designation` decision. Full-fit
+  wall-time validation is Pulse's `walltime-validation@1` axis (instance
+  `lens-walltime`, producer autolens_inference), never PyAutoInsight's. The projects keep their producers, results, pins and drift policy.
   Same split as Heart ↔ vitals and Eyes ↔ the Eyes conductor. (Organ row
   born in PyAutoMind#463; its reader and board arrived in phase 2.)
 - **Where drift candidates are read** — the
