@@ -153,6 +153,12 @@ jobs:
           # clones use plain URLs and no credential is ever written into a
           # remote URL or a clone's config.
           gh auth setup-git
+          # Fetches spawn a detached auto-gc/maintenance that can still be
+          # writing into a clone when the loop removes it ("rm: Directory not
+          # empty" failed the 2026-09-27 run and the first App-token audit).
+          # Run it in the foreground instead.
+          git config --global gc.autoDetach false
+          git config --global maintenance.autoDetach false
 
           echo "## Branch sweep (org-wide) — \`$mode\`" >> "$GITHUB_STEP_SUMMARY"
           echo >> "$GITHUB_STEP_SUMMARY"
