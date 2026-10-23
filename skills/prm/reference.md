@@ -393,7 +393,7 @@ directory listing is the only way to find it.
 
 Local branches go with the worktree. **The remote branch is not `/prm`'s to
 delete, on any surface** — GitHub removes a merged PR's head itself, kept on per
-repo by `repo_settings.yml` (`delete_branch_on_merge`), and `branch_sweep.yml` /
+repo by the `delete_branch_on_merge` setting, and `branch_sweep.yml` /
 `branch_sweep_all.yml` collect whatever escapes that: a head pushed without a
 PR, a PR closed unmerged, a repo whose setting is off. `/repo_cleanup` Bucket B
 does the same locally. So run no `git push --delete`, and write no branch line

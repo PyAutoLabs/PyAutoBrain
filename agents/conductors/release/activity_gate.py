@@ -54,8 +54,8 @@ RELEASE_MESSAGE_RE = re.compile(r"^Release \d{4}\.")
 
 # The activity-window anchor format (the NIGHTLY_LAST_WINDOW_END variable and
 # the `since=` parameter of the commits API). Anything else — an API error
-# body, an empty read, trailing garbage — must fall back to the 24h window
-# instead of poisoning the fetch (PyAutoBrain#67, hole 2).
+# body, an empty read, trailing garbage — must stop the night as a driver
+# error instead of poisoning the fetch (PyAutoBrain#67, hole 2).
 ANCHOR_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 

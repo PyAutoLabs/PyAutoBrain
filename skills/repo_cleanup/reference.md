@@ -167,12 +167,10 @@ Never-touched repos fall out with their categories — `autolens_assistant` is a
 names them twice. Brain code may not name satellite repos at all (the tenant
 firewall enforces this; a hardcoded list was written first and rejected).
 
-That boundary is this sweep's alone. `repo_settings.yml` no longer shares it:
-flipping `delete_branch_on_merge` is not deleting a ref, and a body-map-derived
-target set could never see a repo in the window between its creation and its
-registration — so it lists the organisation from the GitHub API instead, and
-uses `--outside-owner` only for the body-map repos an org listing cannot
-return.
+That boundary is this sweep's alone. Flipping `delete_branch_on_merge` (below)
+is not deleting a ref, and a body-map-derived target set could never see a repo
+in the window between its creation and its registration — so that loop lists
+the organisation from the GitHub API instead.
 
 ## Branches that must not simply be deleted
 
@@ -209,13 +207,22 @@ unaffected: their heads live in the fork.)
 survive has *Settings → General → "Automatically delete head branches"* off.
 That single toggle removes each head at merge and stops the backlog forming;
 this sweep is the backstop for what predates it, for branches pushed without a
-PR, and for heads whose PR closed unmerged. There is no repo-settings *tool*,
-but there is a workflow: dispatch **`repo_settings.yml`** in PyAutoBrain (mode
-`apply`) and it turns the setting on across every development repo in the body
-map, including any added since. It also runs weekly, so a repo born after today
-is corrected without anyone noticing it drifted. Report a repo it lists as
-`refused (needs admin)` to the human — that is a PAT scope, not something to
-retry.
+PR, and for heads whose PR closed unmerged. There is no repo-settings *tool* and
+no workflow: the setting needs repo **admin**, which the org's `pyautolabs-bot`
+App deliberately lacks (so it can never delete or reconfigure a repo), so the
+former `repo_settings.yml` sweep was retired. The human runs it locally with
+their own admin credential — rerun it after creating a repo:
+
+```bash
+for r in $(gh repo list PyAutoLabs -L 200 --no-archived --json name --jq '.[].name'); do
+  gh api -X PATCH "repos/PyAutoLabs/$r" -F delete_branch_on_merge=true --jq '"\(.full_name) \(.delete_branch_on_merge)"'
+done
+```
+
+(`-F`, not `-f`: the field is a JSON boolean, and `-f` sends the string
+`"true"`.) A repo under another owner in the body map is not in that listing;
+flip it by hand in its Settings → General. Report any `403` to the human rather
+than retrying.
 
 Whichever environment: resolve each repo's `<owner>/<repo>` from the `github:`
 field in `PyAutoMind/repos.yaml` (the body map is the single source of repo

@@ -189,7 +189,7 @@ against `gh api repos/...` REST paths runs in a remote session by pointing
   the 403 goes to stderr, git then prints `Everything up-to-date` and exits 0, so
   the run cannot tell the delete failed and will report one that never happened.
   Never run it here. No workflow asks you to: GitHub deletes a merged PR's head
-  itself (`repo_settings.yml` keeps that setting on), and `branch_sweep.yml`
+  itself (the per-repo `delete_branch_on_merge` setting), and `branch_sweep.yml`
   sweeps the rest. Nothing about branch cleanup belongs in an MCP-surface run.
 - **Reach a repo outside the session's scope.** The session is scoped to a
   repository set at start; `add_repo` extends it. A call outside that scope is
