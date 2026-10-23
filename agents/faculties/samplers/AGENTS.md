@@ -34,7 +34,11 @@ samplers.sh [--json]
             experiment probes   (autolens_workspace_developer/searches_minimal)
             experiment findings (the same tier's *_findings.md, name + verdict)
             mature              (autolens_inference — one row per
-                                 sampler/dataset_class/model_type cell)
+                                 sampler/dataset_type/variant cell, from
+                                 scripts/<dataset_type>/<variant>/samplers/)
+            wall-time validation (autolens_inference — one row per
+                                 scripts/<dataset_type>/<variant>/validation/
+                                 leaf; listed apart, never a sampler cell)
             mature              (autofit_inference — its cells, plus one
                                  <task>/<Search>: <status> row per search
                                  catalogue cell, catalogue/search_catalogue.json)
@@ -64,7 +68,15 @@ from its path — the two disagree on the live tree (the
 `cluster/searches/*/mge.py` leaves declare the `group` dataset class), and the
 declaration is what the runner acts on. `run_point_search` leaves take the
 runner's defaults (`nautilus`, `point_source`) for omitted keywords and their
-stem as the model type, wherever they sit under `scripts/`. The lane tiers are
+stem as the model type, wherever they sit under `scripts/`. A leaf with no
+readable declaration falls back to its path: autolens_inference's
+`scripts/<dataset_type>/<variant>/samplers/<sampler>.py` (or
+`samplers/<sampler>/<leaf>.py`) gives `<sampler>/<dataset_type>/<variant>`;
+autofit_inference's `scripts/<dataset>/searches/<sampler>/<model_type>.py`
+keeps its shape. `scripts/<dataset_type>/<variant>/validation/` leaves are
+full-fit wall-time validation — a PyAutoPulse evidence axis
+(`walltime-validation@1`, instance `lens-walltime`), never a PyAutoInsight
+artefact — and are listed in their own tier, not as cells. The lane tiers are
 inventory only; they feed no `gaps` rule.
 
 ## Judgment: matching sampler to likelihood
@@ -133,15 +145,16 @@ and promote what matures:
    hand-rolled harnesses, env-knob objectives, findings docs
    (`*_findings.md`). This tier may bypass the `af` search wrapper to probe
    mechanisms; its artifacts are the campaign record, not the product.
-2. **Mature** — `autolens_inference/scripts/<dataset>/searches/<sampler>/`:
+2. **Mature** — `autolens_inference/scripts/<dataset_type>/<variant>/samplers/`:
    when a configuration *works*, it becomes a first-class cell on the
    **library** `af` search, with the *why it works and what was learned* in
    the cell docstring and the section README. Never promote
-   `searches_minimal`-style hand-rolled loops. **Empty until
-   autolens-inference phase 3**: `autolens_profiling` held these cells until
-   its retired inference programme was scrapped (autolens_profiling#245), and
-   the successor repo has not built them yet — an empty mature tier is the
-   expected reading today, not a missing surface.
+   `searches_minimal`-style hand-rolled loops. The live tier holds the
+   imaging `delaunay`/`rectangular` sampler leaves and the
+   `point_source_source/source_plane` cells; the old
+   `scripts/<dataset>/searches/` paths are README pointers only. Insight
+   sampler campaigns run these cells under `setup_mode: auto`, recording
+   `setup_resolved` as provenance.
 3. **User-facing** — `autolens_workspace/scripts/guides/modeling/searches.py`
    (and siblings): the lessons at user altitude — which settings matter and
    when, no campaign internals.
@@ -173,8 +186,9 @@ not inventoried.
   and Brain plans, but never into public user-facing output (the memory
   faculty's AGENTS.md is the rule's home).
 - **Inference campaigns** — `autolens_inference` (A100/HPC search runs on
-  real lensing likelihoods); its `scripts/<dataset>/searches/<sampler>/` cells
-  are the mature tier of the findings lane above. `autolens_profiling` is
+  real lensing likelihoods); its `scripts/<dataset_type>/<variant>/samplers/`
+  cells are the mature tier of the findings lane above, and its
+  `validation/` leaves feed PyAutoPulse's `lens-walltime` instance. `autolens_profiling` is
   likelihood timing only and holds no search cells.
 - **Real-likelihood search experiments** —
   `autolens_workspace_developer/searches_minimal/` (findings docs:

@@ -74,8 +74,12 @@ The prototype contract (what makes its row comparable):
   promotion argument — the 1D Gaussian alone never justifies promotion.
 - Record inference campaign intent and coverage through **PyAutoInsight**;
   keep protocols, per-search statuses and detailed results in the relevant
-  `*_inference` project. Record profiling campaigns and timing/drift evidence
-  through **PyAutoPulse**, with measurements in the `*_profiling` project.
+  `*_inference` project. Insight sampler campaigns record `setup_mode: auto`,
+  with `setup_resolved` as provenance. Record profiling campaigns and
+  timing/drift evidence through **PyAutoPulse**, with measurements in the
+  `*_profiling` project. Full-fit wall-time validation (autolens_inference
+  `validation/` leaves) is a Pulse evidence axis — `walltime-validation@1`,
+  instance `lens-walltime` — never an Insight artefact.
 - Keep only reusable methodological lessons and short links to those owners in
   **PyAutoMemory**. Durability alone is not a reason to copy campaign records
   there. Cortex retains scientific run records and human conclusions; Mind

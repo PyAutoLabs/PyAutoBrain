@@ -29,6 +29,27 @@ board: open that row, read the pair of records and their evidence paths, then
 judge with the `triage` verb (which takes no target — the key is where to look,
 not an argument).
 
+## Reading Pulse and Insight
+
+- Research and check-in lookups read `class: optimal` + `status: current`
+  unless the request asks for secondary, experimental or superseded rows.
+- `optimal` is always a PyAutoPulse `designation` decision. The producer
+  declares `class`; this command reports it and never infers or assigns it.
+- Full-fit wall-time validation is a Pulse evidence axis
+  (`walltime-validation@1`, instance `lens-walltime`, producer
+  autolens_inference), never a PyAutoInsight artefact.
+- PyAutoInsight sampler campaigns record `setup_mode: auto`, with
+  `setup_resolved` as provenance.
+- The Pulse board's selector order is Class (Optimal by default) → Likelihood
+  → Instrument → Hardware class → Measurement.
+
+## Likelihood lifecycle
+
+A new likelihood, or a re-optimisation of an existing one, runs the L0–L7
+sequence in [`lifecycle.md`](lifecycle.md): render its phase prompts and file
+them through `/intake`, one phase at a time. A new likelihood starts at L0; a
+re-optimisation enters at L2.
+
 The Profiling Agent **reasons; it never runs sweeps or edits source.** The
 classification is the result for CPU-unusable cells; full timings for those
 belong to the A100 rows.
@@ -36,7 +57,7 @@ belong to the A100 rows.
 ## Source catalogue and evidence qualification
 
 Read the project's `catalogue/script_routes.json` first, then the published v2
-catalogue's `script_routes` extension. The conductor validates this stdlib-only
+(or v3) catalogue's `script_routes` extension. The conductor validates this stdlib-only
 contract and reports its source/digest. Legacy sweep AST routing remains only for
 projects without the new producer; invalid new data is an error, not a fallback.
 
@@ -44,6 +65,17 @@ Model-first source paths do not rename historical cell IDs or result paths.
 Archive coverage is unreviewed evidence, never baseline acceptance or a claim of
 current performance. Missing metadata stays unknown. An unavailable compile
 builder or absent canonical source suppresses dispatch, with the reason visible.
+When the published `dashboard/catalogue.json` is `profiling-summary@3`,
+`campaign` reports the lifecycle grid instead: per likelihood
+(`<dataset_type>/<variant>`) × class × measurement, each planned cell is
+`current`, `stale` (its current record's `release_pin` is behind the
+catalogue's), `superseded` or `missing`. It reads
+`results/<dataset_type>/<variant>/<instrument>/<setup_id>/<host_class>/` when
+present, refuses a `setup_id` off the
+`<backend>_<device>_<operator>_<precision>[_<transformer>]` grammar
+(`SetupIdError`), and never counts a `local_*` host class as current. A v2 or
+absent catalogue keeps the legacy grid unchanged.
+
 Campaign commands are plans only; baseline measurement and acceptance require a
 separate human-authorized campaign. CPU caps and the RAL CPU partition policy
 remain unchanged. Pulse owns campaign intent, Cortex scientific records and Mind

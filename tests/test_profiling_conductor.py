@@ -761,3 +761,154 @@ def test_compile_dispatch_uses_declared_probe_and_requires_its_source(tmp_path):
     d = json.loads(p.stdout)
     assert d["dispatch_plan"]
     assert all("python3 scripts/misc/jax_compile/alternative.py " in command for command in d["dispatch_plan"])
+
+
+# ---------------------------------------------------------------------------
+# profiling-summary@3: the lifecycle grid over the mirrored results tree
+# ---------------------------------------------------------------------------
+
+PIN = "2026.10.16.2"
+
+
+def _key(dataset_type, variant, instrument, setup_id, host_class, measurement="runtime"):
+    return {"likelihood": {"dataset_type": dataset_type, "variant": variant},
+            "instrument": instrument, "setup_id": setup_id, "host_class": host_class,
+            "model_variant": "default", "measurement": measurement}
+
+
+def _v3_record(rid, key, cls, status, pin=PIN, superseded_by=None):
+    return {**key, "id": rid, "class": cls, "status": status, "release_pin": pin,
+            "superseded_by": superseded_by, "regime": "standard",
+            "metric": "single_call", "unit": "s", "values": {"single_call": 0.01}}
+
+
+A100 = _key("imaging", "delaunay", "hst", "jax_gpu_dense_fp64", "hpc_a100")
+RAL = _key("imaging", "delaunay", "hst", "numba_cpu_sparse_fp64", "hpc_ral_cpu")
+EUCLID = _key("imaging", "delaunay", "euclid", "jax_gpu_dense_fp64", "hpc_a100")
+SMA = _key("interferometer", "mge", "sma", "jax_cpu_dense_fp64_nufft", "hpc_ral_cpu")
+LAPTOP = _key("imaging", "delaunay", "hst", "jax_cpu_dense_fp64", "local_laptop")
+
+
+def _v3_catalogue():
+    return {
+        "schema": "profiling-summary", "version": 3, "project": "fixture",
+        "planned_cells": [{**A100, "class": "optimal"}, {**RAL, "class": "secondary"},
+                          {**EUCLID, "class": "optimal"}, {**SMA, "class": "optimal"}],
+        "records": [
+            _v3_record("a100-now", A100, "optimal", "current"),
+            _v3_record("a100-old", A100, "optimal", "superseded", superseded_by="a100-now"),
+            _v3_record("ral-now", RAL, "secondary", "current", pin="2026.10.4.1"),
+            _v3_record("sma-old", SMA, "optimal", "superseded", superseded_by="sma-gone"),
+            _v3_record("laptop", LAPTOP, "experimental", "current"),
+        ],
+        "archive_record_count": 2,
+    }
+
+
+def _v3_workspace(tmp_path, catalogue=None):
+    """The legacy fixture plus a §3.7 mirrored tree and a published @3 catalogue,
+    so the test also proves the @3 grid wins over the legacy sweep grid."""
+    ws = _workspace(tmp_path)
+    cell = ws / "results/imaging/delaunay/hst/jax_gpu_dense_fp64/hpc_a100"
+    cell.mkdir(parents=True)
+    (cell / "runtime.json").write_text("{}")
+    (ws / "results/imaging/delaunay/hst/numba_cpu_sparse_fp64/hpc_ral_cpu").mkdir(parents=True)
+    (ws / "results/imaging/delaunay/hst/jax_cpu_dense_fp64/local_laptop").mkdir(parents=True)
+    (ws / "dashboard").mkdir()
+    (ws / "dashboard/catalogue.json").write_text(json.dumps(catalogue or _v3_catalogue()))
+    return ws
+
+
+def test_v3_catalogue_reports_class_by_measurement_coverage(tmp_path):
+    p = _run(["campaign", "--json"], _v3_workspace(tmp_path))
+    assert p.returncode == 0, p.stderr
+    d = json.loads(p.stdout)
+    assert d["catalogue"] == "profiling-summary@3"
+    assert (d["planned_cells"], d["cells_current"], d["cells_stale"],
+            d["cells_superseded"], d["cells_missing"]) == (4, 1, 1, 1, 1)
+    assert d["records_superseded"] == 2
+    assert d["coverage"] == [
+        {"likelihood": "imaging/delaunay", "class": "optimal", "measurement": "runtime",
+         "current": 1, "stale": 0, "superseded": 0, "missing": 1},
+        {"likelihood": "imaging/delaunay", "class": "secondary", "measurement": "runtime",
+         "current": 0, "stale": 1, "superseded": 0, "missing": 0},
+        {"likelihood": "interferometer/mge", "class": "optimal", "measurement": "runtime",
+         "current": 0, "stale": 0, "superseded": 1, "missing": 0},
+    ]
+    states = {c["cell"]: (c["state"], c["tree"]) for c in d["cells"]}
+    assert states["imaging/delaunay/hst jax_gpu_dense_fp64@hpc_a100 [runtime]"] == ("current", "present")
+    assert states["imaging/delaunay/hst numba_cpu_sparse_fp64@hpc_ral_cpu [runtime]"] == (
+        "stale", "directory only")
+    assert states["imaging/delaunay/euclid jax_gpu_dense_fp64@hpc_a100 [runtime]"] == ("missing", "absent")
+    # R7: a laptop row is flagged and never counts, whatever its declared status
+    assert d["never_current"] == ["laptop"]
+    assert {"record": "laptop", "class": "experimental", "status": "current"} in d["unplanned_records"]
+    assert d["catalogue_evidence"]["release_pin"] == PIN
+    assert d["catalogue_evidence"]["release_pin_source"] == "newest record"
+
+
+def test_v3_dispatch_routes_by_host_class_and_never_runs(tmp_path):
+    ws = _v3_workspace(tmp_path)
+    before = sorted(str(p) for p in ws.rglob("*"))
+    d = json.loads(_run(["campaign", "--json"], ws).stdout)
+    plan = d["dispatch_plan"]
+    assert len(plan) == 2
+    assert any(s.startswith("RAL CPU: sbatch --partition=ral") and "stale" in s for s in plan)
+    assert any(s.startswith("RAL A100") and "euclid" in s and "missing" in s for s in plan)
+    assert all("scripts/imaging/delaunay/likelihood_runtime.py" in s for s in plan)
+    assert sorted(str(p) for p in ws.rglob("*")) == before
+    human = _run(["campaign"], ws)
+    assert human.returncode == 0 and "profiling-summary@3" in human.stdout
+
+
+def test_v3_reports_class_as_declared_and_flags_mismatch(tmp_path):
+    cat = _v3_catalogue()
+    cat["records"][0]["class"] = "secondary"
+    d = json.loads(_run(["campaign", "--json"], _v3_workspace(tmp_path, cat)).stdout)
+    assert d["class_mismatches"] == [{
+        "cell": "imaging/delaunay/hst jax_gpu_dense_fp64@hpc_a100 [runtime]",
+        "planned": "optimal", "record": "a100-now", "declared": "secondary"}]
+
+
+def test_v3_envelope_pin_wins_and_marks_stale(tmp_path):
+    cat = {**_v3_catalogue(), "release_pin": "2026.11.1.1"}
+    d = json.loads(_run(["campaign", "--json"], _v3_workspace(tmp_path, cat)).stdout)
+    assert d["catalogue_evidence"]["release_pin_source"] == "envelope"
+    assert d["cells_current"] == 0 and d["cells_stale"] == 2
+
+
+def test_v2_published_catalogue_keeps_legacy_campaign_byte_identical(tmp_path):
+    ws = _workspace(tmp_path)
+    legacy = _run(["campaign", "--json"], ws).stdout
+    (ws / "dashboard").mkdir()
+    (ws / "dashboard/catalogue.json").write_text(json.dumps(
+        {"schema": "profiling-summary", "version": 2, "records": [], "planned_cells": []}))
+    assert _run(["campaign", "--json"], ws).stdout == legacy
+    assert "catalogue" not in json.loads(legacy)
+
+
+def test_v3_bad_setup_id_grammar_is_refused_by_name(tmp_path):
+    for bad in ("jax_gpu_fp64", "jax_gpu_dense_fp64_na", "jax_tpu_dense_fp64", "jax_gpu_dense_fp32"):
+        cat = _v3_catalogue()
+        cat["records"][0]["setup_id"] = bad
+        p = _run(["campaign", "--json"], _v3_workspace(tmp_path / bad, cat))
+        assert p.returncode == 4
+        assert json.loads(p.stdout)["error"].startswith("SetupIdError:")
+
+
+def test_v3_bad_tree_directory_grammar_is_refused_by_name(tmp_path):
+    ws = _v3_workspace(tmp_path)
+    (ws / "results/imaging/delaunay/hst/gpu_fast/hpc_a100").mkdir(parents=True)
+    p = _run(["campaign", "--json"], ws)
+    assert p.returncode == 4
+    error = json.loads(p.stdout)["error"]
+    assert error.startswith("SetupIdError:") and "gpu_fast" in error
+
+
+def test_v3_archived_record_and_unknown_class_are_refused(tmp_path):
+    for field, value in (("status", "archived"), ("class", "fastest")):
+        cat = _v3_catalogue()
+        cat["records"][0][field] = value
+        p = _run(["campaign", "--json"], _v3_workspace(tmp_path / value, cat))
+        assert p.returncode == 4
+        assert "records[0]" in json.loads(p.stdout)["error"]

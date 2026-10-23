@@ -231,7 +231,8 @@ SURFACE_INFERENCE = "autolens_inference"
 SURFACE_FIT_INFERENCE = "autofit_inference"
 TIER_LENS_PROBES = "experiment probes (autolens searches_minimal)"
 TIER_LENS_FINDINGS = "experiment findings (autolens searches_minimal)"
-TIER_LENS_MATURE = "mature (autolens_inference searches cells)"
+TIER_LENS_MATURE = "mature (autolens_inference sampler cells)"
+TIER_LENS_VALIDATION = "wall-time validation (autolens_inference validation leaves)"
 TIER_FIT_MATURE = "mature (autofit_inference searches cells)"
 TIER_FIT_CATALOGUE = "mature (autofit_inference search catalogue)"
 FIT_CATALOGUE = Path("catalogue") / "search_catalogue.json"
@@ -316,40 +317,82 @@ def _declared_cell(leaf: Path) -> tuple[str, str, str] | None:
     return None
 
 
-def tier_mature(inference: Path) -> list[str]:
-    """Mature tier: the (sampler x dataset_class x model_type) cell matrix.
+# The lifecycle layout's two leaf kinds under `scripts/<dataset_type>/<variant>/`
+# (autolens_inference's mirrored tree): `samplers/` holds sampler cells,
+# `validation/` holds full-fit wall-time validation runs (a PyAutoPulse evidence
+# axis, `walltime-validation@1`) — never sampler cells.
+SAMPLERS_DIR = "samplers"
+VALIDATION_DIR = "validation"
 
-    Walks every `scripts/**/*.py` leaf under an inference checkout, skipping
-    the `misc/` framework directory and `_`-prefixed helpers, and keeps the
-    leaves that declare a cell through a RUNNERS call — wherever they live
-    (the point-source leaves sit at `scripts/point_source/<instrument>/`, not
-    under a `searches/` directory). A `scripts/<dataset>/searches/<sampler>/
-    <model_type>.py` leaf with no parsable declaration falls back to its path
-    shape rather than vanishing.
 
-    The tier is EMPTY until autolens-inference phase 3 builds these cells
-    (autolens_profiling#245 removed the retired inference programme's copies,
-    and this walk was repointed here rather than left pointing at a tree that
-    no longer exists). An absent or empty `scripts/` returns `[]` — never
-    raises — so an un-cloned or still-empty successor repo is reported as a
-    surface with no cells rather than a crash.
+def _path_cell(rel: tuple[str, ...], stem: str) -> tuple[str, str, str] | None:
+    """The cell a leaf's path implies, for leaves with no parsable declaration.
+
+    Two shapes, both `(sampler, dataset, model-or-variant)`:
+
+    - lifecycle layout: `<dataset_type>/<variant>/samplers/<sampler>.py` or
+      `<dataset_type>/<variant>/samplers/<sampler>/<leaf>.py` -> (sampler,
+      dataset_type, variant);
+    - the older shape, still autofit_inference's: `<dataset>/searches/<sampler>/
+      <model_type>.py` -> (sampler, dataset, model_type).
     """
+    if len(rel) == 4 and rel[2] == SAMPLERS_DIR:
+        return stem, rel[0], rel[1]
+    if len(rel) == 5 and rel[2] == SAMPLERS_DIR:
+        return rel[3], rel[0], rel[1]
+    if len(rel) == 4 and rel[1] == "searches":
+        return rel[2], rel[0], stem
+    return None
+
+
+def _leaves(inference: Path):
+    """Every non-helper `scripts/**/*.py` leaf outside `misc/`, with its parts."""
     scripts = inference / "scripts"
     if not scripts.is_dir():
-        return []
-    cells = set()
+        return
     for leaf in scripts.rglob("*.py"):
         rel = leaf.relative_to(scripts).parts
         if leaf.stem.startswith("_") or rel[0] == "misc":
             continue
-        declared = _declared_cell(leaf)
-        if declared is None:
-            if len(rel) == 4 and rel[1] == "searches":
-                declared = (rel[2], rel[0], leaf.stem)
-            else:
-                continue
-        cells.add("/".join(declared))
+        yield leaf, rel
+
+
+def tier_mature(inference: Path) -> list[str]:
+    """Mature tier: the (sampler x dataset x model-or-variant) cell matrix.
+
+    Walks every `scripts/**/*.py` leaf under an inference checkout, skipping
+    the `misc/` framework directory, `_`-prefixed helpers and the
+    `<dataset_type>/<variant>/validation/` leaves (wall-time validation, listed
+    by `tier_validation`), and keeps the leaves that declare a cell through a
+    RUNNERS call — wherever they live (the point-source leaves declare their
+    cell through `run_point_search`). A leaf with no parsable declaration falls
+    back to its path shape (`_path_cell`) rather than vanishing.
+
+    autolens_inference's sampler cells live at
+    `scripts/<dataset_type>/<variant>/samplers/` (the mirrored lifecycle
+    layout); autofit_inference keeps `scripts/<dataset>/searches/<sampler>/`.
+    An absent or empty `scripts/` returns `[]` — never raises — so an
+    un-cloned checkout is reported as a surface with no cells, not a crash.
+    """
+    cells = set()
+    for leaf, rel in _leaves(inference):
+        if len(rel) >= 4 and rel[2] == VALIDATION_DIR:
+            continue
+        declared = _declared_cell(leaf) or _path_cell(rel, leaf.stem)
+        if declared is not None:
+            cells.add("/".join(declared))
     return sorted(cells)
+
+
+def tier_validation(inference: Path) -> list[str]:
+    """Wall-time validation leaves: `<dataset_type>/<variant>/<leaf>` for every
+    `scripts/<dataset_type>/<variant>/validation/<leaf>.py`.
+
+    Full-fit wall-time validation is a PyAutoPulse evidence axis
+    (`walltime-validation@1`), not a sampler cell, so these leaves are listed
+    apart from the mature tier and never enter its matrix."""
+    return sorted(f"{rel[0]}/{rel[1]}/{leaf.stem}" for leaf, rel in _leaves(inference)
+                  if len(rel) == 4 and rel[2] == VALIDATION_DIR)
 
 
 tier_lens_mature = tier_mature  # the lens surface's name for the shared walk
@@ -488,6 +531,7 @@ def digest(autofit, developer, test, lens_developer=None, inference=None,
     if inference and inference.is_dir():
         d["surfaces_present"].append(SURFACE_INFERENCE)
         d["tiers"][TIER_LENS_MATURE] = tier_mature(inference)
+        d["tiers"][TIER_LENS_VALIDATION] = tier_validation(inference)
     if fit_inference and fit_inference.is_dir():
         d["surfaces_present"].append(SURFACE_FIT_INFERENCE)
         d["tiers"][TIER_FIT_MATURE] = tier_mature(fit_inference)

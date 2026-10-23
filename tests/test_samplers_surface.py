@@ -380,3 +380,49 @@ def test_fit_inference_without_catalogue_is_not_fatal(tmp_path):
     d = _digest("--fit-inference", str(root))
     assert d["tiers"][_samplers.TIER_FIT_CATALOGUE] == []
     assert "fit_inference_catalogue" not in d
+
+
+# --------------------------------------------------------------------------
+# The mirrored lifecycle layout: scripts/<dataset_type>/<variant>/{samplers,validation}/
+# --------------------------------------------------------------------------
+
+
+def _make_lifecycle(root: Path) -> Path:
+    """Two leaves under one likelihood: a sampler cell whose call names no
+    RUNNERS entry (so its path is its identity) and a wall-time validation run."""
+    samplers = root / "scripts" / "imaging" / "delaunay" / "samplers"
+    validation = root / "scripts" / "imaging" / "delaunay" / "validation"
+    samplers.mkdir(parents=True)
+    validation.mkdir(parents=True)
+    (samplers / "nautilus.py").write_text(
+        "from experiments.run import main\n"
+        "main(setup_family=(\"imaging\", \"delaunay\"), sampler=\"nautilus\")\n")
+    (validation / "baseline_slam.py").write_text(
+        "from slam._runner import run_slam\n"
+        "run_slam(dataset_class=\"imaging\", default_instrument=\"hst\")\n")
+    return root
+
+
+def test_lifecycle_sampler_leaf_is_a_mature_cell(tmp_path):
+    d = _digest("--inference", str(_make_lifecycle(tmp_path)))
+    assert d["tiers"][_samplers.TIER_LENS_MATURE] == ["nautilus/imaging/delaunay"]
+
+
+def test_lifecycle_validation_leaves_are_listed_apart(tmp_path):
+    d = _digest("--inference", str(_make_lifecycle(tmp_path)))
+    assert d["tiers"][_samplers.TIER_LENS_VALIDATION] == ["imaging/delaunay/baseline_slam"]
+    # a validation leaf that happens to call a runner is still not a sampler cell
+    leaf = tmp_path / "scripts" / "imaging" / "delaunay" / "validation" / "declared.py"
+    leaf.write_text('run_search(sampler="emcee", dataset_class="imaging", model_type="x")\n')
+    d = _digest("--inference", str(tmp_path))
+    assert d["tiers"][_samplers.TIER_LENS_MATURE] == ["nautilus/imaging/delaunay"]
+
+
+def test_lifecycle_sampler_directory_shape_and_old_shape_coexist(tmp_path):
+    root = _make_mature(_make_lifecycle(tmp_path))
+    nested = root / "scripts" / "interferometer" / "mge" / "samplers" / "emcee"
+    nested.mkdir(parents=True)
+    (nested / "seeded.py").write_text("# no runner call\n")
+    cells = _digest("--inference", str(root))["tiers"][_samplers.TIER_LENS_MATURE]
+    assert cells == ["emcee/interferometer/mge", "nautilus/group/mge",
+                     "nautilus/imaging/delaunay", "nautilus/imaging/mge"]
