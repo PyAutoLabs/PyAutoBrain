@@ -13,5 +13,7 @@ Treat the request as PyAutoMind work-type **`docs/`** — documentation, example
 notebooks, or tutorial prose. If no prompt path exists, create one under
 `PyAutoMind/draft/docs/<target>/<name>.md` (original request verbatim), then run
 **`/start_dev`** on it. `start_dev` routes through the Brain, and the tutorial
+User-facing prose (READMEs, setup pages, Read the Docs) follows
+[`../WRITING_STYLE.md`](../WRITING_STYLE.md).
 The judgment/execution tier split in `../WORKFLOW.md` applies. Taxonomy:
 `PyAutoMind/ROUTING.md`.

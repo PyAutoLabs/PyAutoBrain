@@ -139,6 +139,11 @@ operational mechanics live in [`../../../skills/OPERATIONS.md`](../../../skills/
   files must keep their line endings (see OPERATIONS.md "Diff hygiene").
 - **Env mutation.** `os.environ` writes inside scripts where
   `config/build/profile_smoke.yaml` is the override surface.
+- **Unreadable people-facing prose.** A diff touching a README, setup page or
+  Read the Docs page is checked against
+  [`../../../skills/WRITING_STYLE.md`](../../../skills/WRITING_STYLE.md) (its
+  closing checklist): internal jargon, stacked caveats, agent-only text at the
+  top, or a long start before the first prompt or command is a finding.
 
 ## What this faculty must never do
 
