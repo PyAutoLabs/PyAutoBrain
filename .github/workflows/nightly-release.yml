@@ -106,7 +106,7 @@ jobs:
           permission-actions: write
           permission-contents: read
           permission-issues: read
-          permission-variables: write
+          permission-actions-variables: write
 
       - name: Run the nightly driver
         id: driver
