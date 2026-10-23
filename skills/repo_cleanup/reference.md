@@ -147,7 +147,10 @@ workflow `GITHUB_TOKEN` that does have `contents: write`:
 sweep themselves with their own `GITHUB_TOKEN`.
 
 **Every other development repo** is swept centrally instead, by PyAutoBrain's
-`branch_sweep_all.yml` using `PAT_PYAUTOLABS`. Same dispatch/poll/report loop,
+`branch_sweep_all.yml`, which mints a one-hour `pyautolabs-bot` GitHub App
+token (contents write on every installed repo, so a new repo needs no token
+change). An audit run also `push --dry-run`s each repo, proving the delete
+credential without using it. Same dispatch/poll/report loop,
 with `repos` naming the targets. Two things about it are not negotiable from
 the chat side:
 
@@ -191,7 +194,11 @@ Disjoint or unpinned → route it to the Gut instead of the delete bucket:
 dispatch `branch_archive.yml` (PyAutoBrain) with `repo`, `branch`, `name`, and
 `delete_after`. It archives via `pyauto-gut archive`, **verifies the ref landed
 on the Gut with a fresh `ls-remote`**, and only then deletes the source branch —
-never on the strength of the push's own exit code.
+never on the strength of the push's own exit code. It authenticates with a
+`pyautolabs-bot` App token scoped to the source repo and PyAutoGut, carrying
+workflows write, so branches whose history touches `.github/workflows/` archive
+too. `dry_run: true` proves the credential (`push --dry-run` of the archive ref
+and the delete) and changes nothing.
 
 It does not file the `condemned.md` entry. That is Mind state and a judgement:
 material like original project history should be held **undated** (no
