@@ -30,11 +30,16 @@
 # Activity-window anchor: the PyAutoBrain repo Actions variable
 # NIGHTLY_LAST_WINDOW_END. It advances ONLY when the window's activity was
 # shipped (released) or the window was empty (skipped) — dry-runs and stops
-# leave it, so unshipped merges are never swallowed (design §4).
+# leave it, so unshipped merges are never swallowed (design §4). Reading or
+# writing it needs the token's Variables permission; either failing is a
+# driver error (exit 1, paged), never a silent 24h window.
 #
 # Environment (the workflow provides these; local runs may set them):
-#   GH_TOKEN                  PAT for dispatch/poll/label/commit reads (required
-#                             beyond --no-dispatch if gh is not already authed)
+#   GH_TOKEN                  token for dispatch/poll/commit/issue reads and the
+#                             anchor variable (in CI: the owner-wide pyautolabs-bot
+#                             App token nightly-release.yml mints — actions write,
+#                             contents + issues read, variables write; locally any
+#                             authed gh with the same reach)
 #   PYAUTO_RELEASE_WEBHOOK_URL  Slack webhook (missing → loud stderr warning)
 #   NIGHTLY_RELEASES          kill switch; scheduled runs exit unless "true"
 #   DRY_RUN                   "true" (default) → step 6 logs instead of shipping
@@ -122,24 +127,27 @@ notify() {
     || echo "nightly: Slack POST failed — outcome NOT delivered" >&2
 }
 
+page() { # page <text> — the 🚨 severity; never advances the anchor.
+  notify "🚨" "*nightly release stopped* — $1
+<$RUN_URL|nightly run>. No release was made."
+}
+
 # advance_anchor — persist WINDOW_END as the next night's window start. Only
-# called for shipped / empty-skip outcomes (see header). Failure is a warning:
-# the fallback window (24h) self-heals.
+# called for shipped / empty-skip outcomes (see header). A failed write is a
+# driver error: a stale anchor would re-judge an already-shipped window, so it
+# pages and exits 1 (red run) rather than warning.
 advance_anchor() {
   if [[ "$no_dispatch" -eq 1 ]]; then
     echo "nightly: --no-dispatch — anchor left at its persisted value"
     return 0
   fi
-  gh api -X PATCH "repos/$ANCHOR_REPO/actions/variables/$ANCHOR_VAR" \
-      -f name="$ANCHOR_VAR" -f value="$WINDOW_END" >/dev/null 2>&1 \
-    || gh api -X POST "repos/$ANCHOR_REPO/actions/variables" \
-        -f name="$ANCHOR_VAR" -f value="$WINDOW_END" >/dev/null 2>&1 \
-    || echo "nightly: could not persist $ANCHOR_VAR (window falls back to 24h)" >&2
-}
-
-page() { # page <text> — the 🚨 severity; never advances the anchor.
-  notify "🚨" "*nightly release stopped* — $1
-<$RUN_URL|nightly run>. No release was made."
+  local err
+  if ! err="$(gh api -X PATCH "repos/$ANCHOR_REPO/actions/variables/$ANCHOR_VAR" \
+      -f name="$ANCHOR_VAR" -f value="$WINDOW_END" 2>&1 >/dev/null)"; then
+    echo "nightly: could not write $ANCHOR_REPO variable $ANCHOR_VAR — does the token have the Variables (write) permission? ${err:0:200}" >&2
+    notify "🚨" "*nightly driver error* — could not persist the activity-window anchor $ANCHOR_VAR=$WINDOW_END (token lacks the Variables write permission?). Set it by hand before the next night. <$RUN_URL|nightly run>"
+    exit 1
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -185,16 +193,24 @@ fi
 # falling back to 24h; judgment in activity_gate.py.
 # ---------------------------------------------------------------------------
 anchor="${NIGHTLY_WINDOW_START:-}"
-[[ -z "$anchor" ]] && anchor="$(gh api "repos/$ANCHOR_REPO/actions/variables/$ANCHOR_VAR" --jq .value 2>/dev/null || true)"
-# Validate the anchor before it reaches a `since=` parameter: a failed read
-# can land an API error body on stdout (#67, hole 2 — the 404 JSON became the
-# window start and poisoned every fetch). Anything malformed → 24h fallback.
+if [[ -z "$anchor" ]]; then
+  # A failed read is a driver error, not a 24h window: the token must carry
+  # the Variables (read) permission on $ANCHOR_REPO.
+  if ! anchor="$(gh api "repos/$ANCHOR_REPO/actions/variables/$ANCHOR_VAR" --jq .value 2>"$WORK/anchor.err")"; then
+    echo "nightly: could not read $ANCHOR_REPO variable $ANCHOR_VAR — does the token have the Variables (read) permission? $(head -c 200 "$WORK/anchor.err")" >&2
+    page "driver error: could not read the activity-window anchor $ANCHOR_VAR (token lacks the Variables permission?) — the night was NOT judged"
+    exit 1
+  fi
+fi
+# Validate the anchor before it reaches a `since=` parameter (#67, hole 2 —
+# an API error body once became the window start and poisoned every fetch).
+# Malformed is a driver error too: no silent 24h fallback.
 if ! PYTHONPATH="$HERE" python3 -c '
 import sys
 from activity_gate import valid_anchor
 sys.exit(0 if valid_anchor(sys.argv[1]) else 1)' "$anchor" 2>/dev/null; then
-  [[ -n "$anchor" ]] && log "anchor read is not a timestamp ('${anchor:0:60}') — falling back to 24h"
-  anchor="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+  page "driver error: activity-window anchor $ANCHOR_VAR is not a timestamp ('${anchor:0:60}') — the night was NOT judged"
+  exit 1
 fi
 log "activity window: $anchor → $WINDOW_END"
 
