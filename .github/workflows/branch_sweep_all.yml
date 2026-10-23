@@ -5,9 +5,14 @@ name: Branch Sweep (org-wide)
 #
 # WHY CENTRAL. A repo's own GITHUB_TOKEN reaches only that repo, so a per-repo
 # sweeper means one workflow file per repo — 19 of them, drifting apart the
-# moment one is edited. PAT_PYAUTOLABS already exists for exactly this kind of
-# cross-repo work (spawn_drift.yml and arxiv_papers.yml use it), so the sweep
-# is written once here and pointed at each repo in turn.
+# moment one is edited. Instead the job mints a one-hour token from the org's
+# `pyautolabs-bot` GitHub App (installed on every repo, so a repo born
+# tomorrow is reachable with no token edit), and the sweep is written once
+# here and pointed at each repo in turn.
+#
+# Audit mode also runs `git push --dry-run origin HEAD` per repo — no pack is
+# sent and no ref changes — so an audit dispatch proves the token could
+# delete before anyone asks it to.
 #
 # THE GATE IS STRUCTURAL, NOT PROCEDURAL. Deleting branches across 19 repos on
 # one click is not something a report should be able to talk you into, so:
@@ -121,20 +126,39 @@ jobs:
           echo "Mode: $mode"
           echo "Targets:"; for t in $targets; do echo "  $t"; done
 
+      - name: Mint App token (every installed repo — delete branches)
+        # Owner-wide (no `repositories:`) because the targets are every
+        # sweepable repo; contents: write is the delete, pull-requests: read
+        # is branch_sweep.sh's open-PR and squash-merge lookups. Minted
+        # immediately before the loop: installation tokens live one hour.
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: PyAutoLabs
+          permission-contents: write
+          permission-pull-requests: read
+
       - name: Sweep each repo
         env:
           # Cross-repo work needs more reach than this repo's GITHUB_TOKEN has.
-          GH_TOKEN: ${{ secrets.PAT_PYAUTOLABS }}
-          PAT: ${{ secrets.PAT_PYAUTOLABS }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           set -uo pipefail
           mode='${{ steps.plan.outputs.mode }}'
           targets='${{ steps.plan.outputs.targets }}'
 
-          if [ -z "${PAT:-}" ]; then
-            echo "::error::PAT_PYAUTOLABS is not set — cannot reach sibling repos."
-            exit 1
-          fi
+          # gh as git's credential helper for github.com (reads GH_TOKEN):
+          # clones use plain URLs and no credential is ever written into a
+          # remote URL or a clone's config.
+          gh auth setup-git
+          # Fetches spawn a detached auto-gc/maintenance that can still be
+          # writing into a clone when the loop removes it ("rm: Directory not
+          # empty" failed the 2026-09-27 run and the first App-token audit).
+          # Run it in the foreground instead.
+          git config --global gc.autoDetach false
+          git config --global maintenance.autoDetach false
 
           echo "## Branch sweep (org-wide) — \`$mode\`" >> "$GITHUB_STEP_SUMMARY"
           echo >> "$GITHUB_STEP_SUMMARY"
@@ -145,10 +169,23 @@ jobs:
             echo "::group::$slug"
             # Full history: containment is an ancestry question and a shallow
             # clone answers it wrong in the safe-looking direction.
-            if ! git clone --quiet "https://x-access-token:${PAT}@github.com/${slug}.git" "work/$name"; then
+            if ! git clone --quiet "https://github.com/${slug}.git" "work/$name"; then
               echo "::warning::clone failed for $slug — skipping"
               printf '### %s\n\n_clone failed — skipped_\n\n' "$slug" >> "$GITHUB_STEP_SUMMARY"
               failed=1; echo "::endgroup::"; continue
+            fi
+
+            # Audit proves the delete credential without using it: an
+            # up-to-date `push --dry-run` still needs the receive-pack
+            # handshake, which GitHub grants only to a token that can write.
+            if [ "$mode" = "audit" ]; then
+              if git -C "work/$name" push --dry-run --quiet origin HEAD; then
+                echo "push credential: ok (push --dry-run)" | tee -a "work/$name.cred"
+              else
+                echo "::error::the App token cannot push to $slug — a delete would fail"
+                echo "push credential: REFUSED (push --dry-run)" >> "work/$name.cred"
+                failed=1
+              fi
             fi
 
             bin/branch_sweep.sh \
@@ -161,10 +198,10 @@ jobs:
 
             {
               printf '### %s\n\n```\n' "$slug"
+              [ ! -f "work/$name.cred" ] || cat "work/$name.cred"
               cat "work/$name.log"
               printf '```\n\n'
             } >> "$GITHUB_STEP_SUMMARY"
-            # The clone carries a credentialed remote; do not leave it lying about.
             rm -rf "work/$name"
             echo "::endgroup::"
           done

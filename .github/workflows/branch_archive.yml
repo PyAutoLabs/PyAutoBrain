@@ -24,6 +24,18 @@ name: Branch Archive (to the Gut)
 # (the Heart ↔ vitals template). Reimplementing the push would put the Gut's
 # namespace convention in two places.
 #
+# AUTH. One pyautolabs-bot App token per run, scoped to the source repo and
+# PyAutoGut with contents + workflows write. workflows: write is the point:
+# archived history routinely contains `.github/workflows/*` changes, and
+# GitHub refuses any push introducing those without it (the PAT this replaced
+# lacked that scope, so such branches could not be archived at all). git
+# authenticates through `gh auth setup-git`; no URL carries a credential.
+#
+# `dry_run: true` resolves, mints, fetches the branch and then runs
+# `git push --dry-run` of the real archive ref and of the source delete —
+# no pack is sent, no ref changes — and stops. It proves the credential
+# end to end without archiving or deleting anything.
+#
 # Filing the condemned.md entry is deliberately NOT done here — that index is
 # Mind state, written by the hygiene conductor's condemn pass with a human
 # deciding the transit clock. Some material (original project history) should
@@ -46,6 +58,10 @@ on:
         required: true
       delete_after:
         description: "Delete the source branch once the archive is verified"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Prove the credential only: push --dry-run the archive ref and the delete, change nothing"
         type: boolean
         default: false
 
@@ -78,14 +94,9 @@ jobs:
           repository: ${{ github.repository_owner }}/PyAutoGut
           path: .gut
           fetch-depth: 1
-          # Load-bearing. With the default (true), checkout writes an
-          # `http.https://github.com/.extraheader` auth header into this
-          # clone's config, and that header WINS over credentials embedded in
-          # a remote URL. The archive push then goes out as
-          # github-actions[bot] — which has no access to a sibling repo — and
-          # fails 403 no matter what `git remote set-url` was told. Leaving it
-          # on cost one run to discover; the dry run caught it before any
-          # delete, which is the only reason that was cheap.
+          # Keeps checkout's GITHUB_TOKEN auth header out of this clone's
+          # config, where it would win over the App credential below and send
+          # the archive push out as github-actions[bot] (no sibling access).
           persist-credentials: false
 
       - uses: actions/setup-python@v5
@@ -93,17 +104,15 @@ jobs:
           python-version: "3.12"
       - run: pip install --quiet pyyaml
 
-      - name: Archive, verify, then delete
+      - name: Validate the request
+        id: req
         env:
-          PAT: ${{ secrets.PAT_PYAUTOLABS }}
+          REPO: ${{ inputs.repo }}
+          NAME: ${{ inputs.name }}
         run: |
           set -euo pipefail
-          repo='${{ inputs.repo }}'
-          branch='${{ inputs.branch }}'
-          name='${{ inputs.name }}'
-          owner='${{ github.repository_owner }}'
-
-          [ -n "${PAT:-}" ] || { echo "::error::PAT_PYAUTOLABS is not set."; exit 1; }
+          repo="$REPO"
+          name="$NAME"
 
           # Same boundary as the sweep: a repo the body map does not class as a
           # development repo is not one this may touch.
@@ -119,8 +128,37 @@ jobs:
             *[!a-zA-Z0-9._-]*|""|.*) echo "::error::archive name must be a plain slug (a-z 0-9 . _ -)."; exit 1 ;;
           esac
 
-          src="https://x-access-token:${PAT}@github.com/${repo}.git"
-          gut="https://x-access-token:${PAT}@github.com/${owner}/PyAutoGut.git"
+          # The token's scope: the bare name of the (validated) source repo.
+          echo "source=${repo#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint App token (source repo + PyAutoGut, contents + workflows write)
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: PyAutoLabs
+          repositories: |
+            PyAutoGut
+            ${{ steps.req.outputs.source }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Archive, verify, then delete
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          repo='${{ inputs.repo }}'
+          branch='${{ inputs.branch }}'
+          name='${{ inputs.name }}'
+          owner='${{ github.repository_owner }}'
+
+          # gh as git's credential helper for github.com (reads GH_TOKEN).
+          gh auth setup-git
+
+          src="https://github.com/${repo}.git"
+          gut="https://github.com/${owner}/PyAutoGut.git"
           ref="refs/heads/archive/condemned/${name}"
 
           # Refuse to delete a repo's default branch, whatever it is called.
@@ -130,8 +168,8 @@ jobs:
             exit 1
           fi
 
-          git config --global user.email "actions@github.com"
-          git config --global user.name  "PyAuto Branch Archive"
+          git config --global user.email "346909844+pyautolabs-bot[bot]@users.noreply.github.com"
+          git config --global user.name  "pyautolabs-bot[bot]"
 
           echo "::group::Fetch $repo@$branch"
           cd .gut
@@ -142,14 +180,25 @@ jobs:
           echo "  $repo@$branch = $sha ($count commits)"
           echo "::endgroup::"
 
-          echo "::group::Archive into the Gut"
-          # Confirm no inherited credential is about to hijack the push. An
-          # extraheader here means the archive would go out as the workflow
-          # identity instead of the PAT — the 403 that cost run #1.
-          if git config --local --get-regexp 'http\..*\.extraheader' >/dev/null 2>&1; then
-            echo "::error::the Gut checkout carries a persisted credential; it would override the PAT."
-            exit 1
+          if [ '${{ inputs.dry_run }}' = 'true' ]; then
+            echo "::group::Dry run — prove the credential, change nothing"
+            # --dry-run negotiates with the remote (the write-access check)
+            # but sends no pack and moves no ref. Workflow-file scope is
+            # enforced only on a real pack, so this proves contents write.
+            git ls-remote origin "refs/heads/archive/condemned/*" >/dev/null
+            git push --dry-run origin "__to_archive__:${ref}"
+            git push --dry-run "$src" --delete "$branch"
+            echo "::endgroup::"
+            {
+              echo "## Branch archive — dry run"
+              echo
+              echo "Credential proven for \`$repo@$branch\` ($sha, $count commits) → \`$ref\` on the Gut and the source delete."
+              echo "Nothing was archived or deleted."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+
+          echo "::group::Archive into the Gut"
           # The Gut owns its own namespace and its own refusal-to-overwrite.
           PYAUTO_GUT_REMOTE=origin bin/pyauto-gut archive __to_archive__ "$name"
           echo "::endgroup::"
