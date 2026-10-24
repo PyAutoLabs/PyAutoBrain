@@ -144,6 +144,16 @@ operational mechanics live in [`../../../skills/OPERATIONS.md`](../../../skills/
   [`../../../skills/WRITING_STYLE.md`](../../../skills/WRITING_STYLE.md) (its
   closing checklist): internal jargon, stacked caveats, agent-only text at the
   top, or a long start before the first prompt or command is a finding.
+- **Unreadable or misleading tutorial prose.** A diff touching scientific
+  narrative docstrings, notebook source, worked examples or HowTo lessons is
+  checked against
+  [`../../../skills/TUTORIAL_WRITING_STYLE.md`](../../../skills/TUTORIAL_WRITING_STYLE.md)
+  and its closing checklist. Repeated full explanations in advanced scripts,
+  unexplained code or figures, confusion between loading, evaluating and
+  fitting, weakened provenance or uncertainty, and edits to generated
+  notebooks without their canonical source are findings. A new or
+  comprehensively rewritten notebook without a purposeful `**🤖 Ask AI:**`
+  prompt is also a finding.
 
 ## What this faculty must never do
 
