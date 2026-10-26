@@ -129,6 +129,7 @@ _SHARED_MIXED = [
     "llms.txt", "llms-full.txt",
     "config/*",
     "benchmarks/README.md",       # protocol generic, benchmark table domain
+    "colab/*",                    # Colab Gemini mapping: format generic, globs+skills domain (PyAutoHands#324)
 ]
 
 REFERENCE_PROFILES = {
