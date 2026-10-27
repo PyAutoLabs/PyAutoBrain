@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Update board</title><link rel="stylesheet" href="/static/update.css"></head>
+<body data-csrf="{{ csrf }}" data-board-origin="{{ board_origin }}" data-pending="{{ pending }}">
+<main><h1>Update board</h1><p id="status" role="status">Waiting for the board…</p>
+<a id="workflow" hidden rel="noopener noreferrer" target="_blank">View workflow</a>
+<button id="logout" type="button">Sign out</button></main>
+<script src="/static/update.js"></script></body></html>
