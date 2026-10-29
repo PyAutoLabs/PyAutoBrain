@@ -30,6 +30,7 @@ note`).
 | `pull [--project KEY] [--dry-run]` | **What does the cluster say?** | the laptop leg: each project's own `<sync_cli> pull`, streamed, then its `jobs` output verbatim, then one line per project (and the roots that are not on this machine, as skipped). Writes nothing. Exit **1** a pull failed · **2** no project's `local_path` is here |
 | `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY]` | **Where is my science?** | the door — the sequence below, ending in a summary keyed by project; reaches no cluster; exit **1** when the tree does not check |
 | `census [--json]` | What is the Cortex holding? | per project: status, summary, runs by state, log length, last update; totals (active projects, runs open, runs running); the check-in stamp; the problems `cortex.py check` would report |
+| `drift [--science-root PATH] [--json]` | **Does the register match the Science tree?** | the laptop Science tree (`<root>/<category>/<project>`, root derived from the rows' `local_path`s) against `projects.yaml`: errors — a folder in `active/` or `development/` with no row, a non-retired row whose folder is gone, a folder whose category disagrees with its status, a derived root that does not exist while other rows' folders do (the tree moved); warnings — an unregistered folder in `complete/` or `archive/`, a `ral_root` in a different category. Writes nothing. Exit **1** on an error · 0 otherwise, including off the laptop (a one-line skip). `census` and `checkin` print its one-line summary; `census()` itself stays drift-free so the CI board is machine-independent |
 | `dashboard --check` | Are the committed pages current? | exit 0 current · **1 stale** · 2 no checkout · 3 unreadable tree |
 | `dashboard --apply` | — | writes `dashboard.md` + `dashboard.html` + `state.json` — the organ-cockpit feed (`board/_state.py` v1): red on `cortex.py check` problems, yellow while a run is running or the check-in is stale (the feed's 180-min rule, judged at render), items carry `checkin_payload` / `resume_payload`; `--check` ignores its `updated` |
 | `issue [--project KEY] [--apply]` | What sits at the top of each project's issue? | the fenced ledger block (`cortex.py`'s `issue_block`) per project with an `Issue:`; `--apply` writes it into the issue body through `gh` (replacing the block between the markers, or prepending it); never creates an issue; exit **1** without `gh` |
@@ -40,6 +41,7 @@ pyauto-brain cortex pull --dry-run           # what it would pull; reaches nothi
 pyauto-brain cortex checkin --dry-run        # what it would write; writes nothing
 pyauto-brain cortex checkin --apply          # the check-in, on any surface
 pyauto-brain cortex                          # census
+pyauto-brain cortex drift                    # the laptop: register vs Science tree
 pyauto-brain cortex dashboard --apply
 pyauto-brain cortex issue --apply
 pyauto-brain cortex <verb> --cortex <dir>    # another checkout

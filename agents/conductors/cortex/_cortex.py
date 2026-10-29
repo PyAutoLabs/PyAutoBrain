@@ -33,11 +33,13 @@ while stamping and rendering the board work anywhere.
 
 Verbs: `pull [--project KEY] [--dry-run]` (the laptop leg) · `checkin
 [--dry-run|--apply] [--push|--no-push] [--project KEY]` (the door, reaches no
-cluster) · `census [--json]` · `dashboard --check|--apply` · `issue
-[--project KEY] [--apply]`.
+cluster) · `census [--json]` · `drift [--science-root PATH] [--json]`
+(the laptop Science tree against `projects.yaml`; reads, never writes) ·
+`dashboard --check|--apply` · `issue [--project KEY] [--apply]`.
 
 Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract),
-a failed pull, or a tree that does not check · 2 bad args / no Cortex
+a failed pull, a tree that does not check, or an error-severity Science drift
+finding · 2 bad args / no Cortex
 checkout / no project's `local_path` is on this machine · 3 the Cortex tree
 could not be read.
 """
@@ -1072,6 +1074,171 @@ def split_by_root(projects: dict, keys: list) -> tuple:
     return present, missing
 
 
+# ------------------------------------------------------------ the drift ---
+# The laptop Science tree is `<root>/<category>/<project>`, mirrored on RAL
+# (schema decision 61). A category says what a status may be; a folder the
+# rows do not name, or a row naming no folder, is the register and the tree
+# disagreeing — which went unnoticed for weeks once (Science moved under
+# Workspace\ and pull quietly reached 3 of 12 active projects).
+SCIENCE_CATEGORIES = ("active", "development", "complete", "archive")
+CATEGORY_STATUSES = {
+    "active": ("active", "dormant", "planned"),
+    "development": ("active", "dormant", "planned"),
+    "complete": ("retired", "dormant"),
+    "archive": ("retired", "dormant"),
+}
+# Folders in these categories are expected to have a row; in the others a
+# tree with no row is storage, said as a warning.
+REGISTERED_CATEGORIES = ("active", "development")
+
+
+def _norm(path: str) -> str:
+    return os.path.normpath(path.strip()) if path and path.strip() else ""
+
+
+def _real(path: str) -> str:
+    """`_norm`, then symlinks resolved — so a root reached through a link
+    (the launch folder's `~/Science/Science`) matches the rows' real paths."""
+    return os.path.realpath(_norm(path)) if _norm(path) else ""
+
+
+def _category_of(path: str) -> tuple[str, str] | None:
+    """`(science_root, category)` when `path` reads `<root>/<category>/<name>`."""
+    if not path:
+        return None
+    p = Path(_norm(path))
+    if p.parent.name in SCIENCE_CATEGORIES:
+        return str(p.parent.parent), p.parent.name
+    return None
+
+
+def science_root_from(projects: dict) -> str | None:
+    """The Science root the rows agree on: the most common `<root>` among
+    non-retired `local_path`s that sit in a category, else among all rows.
+    Derived, never named — `projects.yaml` stays the one place with a path."""
+    for live_only in (True, False):
+        roots = [cat[0] for row in projects.values()
+                 if not (live_only and row.get("status") == "retired")
+                 for cat in [_category_of(local_root(row))] if cat]
+        if roots:
+            return max(sorted(set(roots)), key=roots.count)
+    return None
+
+
+def _finding(kind: str, severity: str, key: str, path: str, message: str) -> dict:
+    return {"kind": kind, "severity": severity, "key": key, "path": path,
+            "message": message}
+
+
+def drift_findings(projects: dict, science_root: str) -> list[dict]:
+    """Where `projects.yaml` and the Science tree under `science_root`
+    disagree. Reads the filesystem, writes nothing. Severity `error` is
+    drift; `warning` is worth knowing but not a failure."""
+    root = Path(_real(science_root))
+    named = {_real(local_root(row)) for row in projects.values()}
+    out = []
+
+    for category in SCIENCE_CATEGORIES:
+        cat_dir = root / category
+        if not cat_dir.is_dir():
+            continue
+        for child in sorted(cat_dir.iterdir()):
+            if child.name.startswith((".", "_")) or not child.is_dir():
+                continue
+            if _real(str(child)) in named:
+                continue
+            registered = category in REGISTERED_CATEGORIES
+            out.append(_finding(
+                "unregistered", "error" if registered else "warning", "",
+                str(child),
+                f"{category}/{child.name} has no row in projects.yaml"
+                + ("" if registered else " (storage, or a project to register)")))
+
+    for key, row in projects.items():
+        path, status = _norm(local_root(row)), row.get("status", "")
+        exists = bool(path) and Path(path).is_dir()
+        if status != "retired" and not exists:
+            out.append(_finding("missing", "error", key, path,
+                                f"{key} is {status} but "
+                                + ("its local_path does not exist" if path
+                                   else "it has no local_path")))
+        cat = _category_of(path)
+        if not (cat and Path(_real(cat[0])) == root):
+            continue  # a repo-backed root (e.g. under ~/Code): no category
+        category = cat[1]
+        if exists and status not in CATEGORY_STATUSES[category]:
+            out.append(_finding(
+                "category_status", "error", key, path,
+                f"{key} sits in {category}/ but is {status} "
+                f"(expected {' or '.join(CATEGORY_STATUSES[category])})"))
+        if status != "retired":
+            ral = _norm(row.get("ral_root", ""))
+            ral_cat = Path(ral).parent.name if ral else ""
+            if ral and ral_cat != category:
+                where = f"{ral_cat}/" if ral_cat in SCIENCE_CATEGORIES else "the top level"
+                out.append(_finding(
+                    "ral_category", "warning", key, ral,
+                    f"{key} is under {category}/ here but under {where} on RAL"))
+    return out
+
+
+def drift_report(projects: dict, science_root: str | None = None) -> dict:
+    """The drift as one dict: the root, whether it is on this machine, and
+    the findings (none when it is not — the tree is a laptop tree)."""
+    root = science_root or science_root_from(projects)
+    root_here = bool(root) and Path(root).is_dir()
+    # Any row whose folder exists means this is the laptop — so a Science
+    # root that does not exist is itself drift (the tree moved and every
+    # row went stale), not a reason to skip. The evidence is a repo-backed
+    # row under the workspace: were every row a Science row and all stale,
+    # this would read as "not the laptop" — the limit is tested and stated.
+    laptop = root_here or any(
+        Path(_norm(local_root(r))).is_dir() for r in projects.values() if local_root(r))
+    present = bool(root) and laptop
+    findings = []
+    if present:
+        if not root_here:
+            findings.append(_finding(
+                "science_root", "error", "", root,
+                f"the Science root {'given' if science_root else 'the rows name'}, "
+                f"{root}, does not exist here"))
+        findings += drift_findings(projects, root)
+    return {"science_root": root, "present": present, "findings": findings,
+            "errors": sum(f["severity"] == "error" for f in findings),
+            "warnings": sum(f["severity"] == "warning" for f in findings)}
+
+
+def drift_line(report: dict) -> str:
+    """One line for `census` and `checkin`."""
+    if not report["science_root"]:
+        return "Drift: skipped — no row places a project in a Science category"
+    if not report["present"]:
+        return (f"Drift: skipped — {report['science_root']} is not on this "
+                "machine (the laptop checks it)")
+    if not report["findings"]:
+        return "Drift: none — projects.yaml and the Science tree agree"
+    return (f"Drift: {report['errors']} error(s), {report['warnings']} "
+            "warning(s) — run `pyauto-brain cortex drift`")
+
+
+def cmd_drift(root: Path, mod, a) -> int:
+    """Report where `projects.yaml` and the Science tree disagree. Writes
+    nothing; exit 1 only on an error-severity finding."""
+    projects, _ = mod.load_projects(root)
+    report = drift_report(projects, a.science_root or None)
+    if a.as_json:
+        print(json.dumps(report, indent=2))
+    elif not report["present"] or not report["findings"]:
+        print(drift_line(report))
+    else:
+        print(f"== Cortex drift — {report['science_root']} ==")
+        for f in sorted(report["findings"],
+                        key=lambda f: (f["severity"] != "error", f["kind"], f["path"])):
+            print(f"  {f['severity']:<8} {f['kind']:<16} {f['message']}")
+        print(drift_line(report))
+    return RC_DRIFT if report["errors"] else RC_OK
+
+
 def run_jobs(row: dict) -> str | None:
     """The project's own `<sync_cli> jobs`, verbatim — stdout and stderr as
     they came, no parsing. None when the row has no `jobs` verb."""
@@ -1383,6 +1550,7 @@ def cmd_checkin(root: Path, mod, a) -> int:
             print(f"\n{key} — {projects[key].get('status')}")
         for n in notes:
             print(f"\nnote: {n}")
+        print(f"\n{drift_line(drift_report(projects))}")
         print(f"\nwould stamp {CHECKIN_FILE}, re-render dashboard.md + "
               "dashboard.html + state.json, and read back "
               f"{len(keys)} project(s). Run with --apply to check in.")
@@ -1417,6 +1585,7 @@ def cmd_checkin(root: Path, mod, a) -> int:
     if c["problems"]:
         print(f"the tree does not check ({len(c['problems'])} problem(s)) — "
               "run `python3 scripts/cortex.py check`")
+    print(drift_line(drift_report(projects)))
     print()
     for key in keys:
         print("\n".join(project_digest(key, c)))
@@ -1548,6 +1717,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="accepted and ignored — `checkin` no longer pulls "
                         "(kept so an old paste still runs)")
 
+    r = common(sub.add_parser(
+        "drift", help="where projects.yaml and the laptop Science tree "
+                      "disagree (reads, never writes; laptop only)"))
+    r.add_argument("--science-root", dest="science_root", default="",
+                   help="the Science tree (default: derived from the rows' "
+                        "local_path)")
+    r.add_argument("--json", dest="as_json", action="store_true")
+
     i = common(sub.add_parser(
         "issue", help="the ledger block that sits at the top of each "
                       "project's issue; --apply writes it there with gh"))
@@ -1578,6 +1755,8 @@ def main(argv=None) -> int:
             return cmd_checkin(root, mod, a)
         if verb == "issue":
             return cmd_issue(root, mod, a)
+        if verb == "drift":
+            return cmd_drift(root, mod, a)
         c = census(root)
     except mod.CortexError as e:
         print(f"cortex: {root}: {e}", file=sys.stderr)
@@ -1587,10 +1766,14 @@ def main(argv=None) -> int:
         return RC_UNREADABLE
 
     if verb == "census":
+        # Drift is laptop state, so it stays out of census() — the board
+        # rendered in CI must not depend on which machine ran it.
+        drift = drift_report(c["projects"])
         if a.as_json:
-            print(json.dumps(c, indent=2))
+            print(json.dumps({**c, "drift": drift}, indent=2))
         else:
             emit_census(c)
+            print(drift_line(drift))
         return RC_OK
     if verb == "dashboard":
         return cmd_dashboard(root, c, a)

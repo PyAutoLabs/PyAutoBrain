@@ -987,3 +987,158 @@ def test_run_clauses_wrap_without_changing_scientific_text_or_escaping():
         assert ";<br> " in full and "<test>" not in full
         assert unescape(full.replace("<br>", "")) == text
     assert "<br>" not in _cortex._full_text_html(text, 200)
+
+
+# --- the drift (projects.yaml against the laptop Science tree) --------------
+
+
+def _science(tmp_path, folders):
+    root = tmp_path / "Science"
+    for rel in folders:
+        (root / rel).mkdir(parents=True)
+    return root
+
+
+def _row(local, status="active", ral="/mnt/ral/u/active/x"):
+    return {"local_path": str(local), "status": status, "ral_root": ral}
+
+
+def _kinds(report):
+    return sorted((f["kind"], f["severity"], f["key"] or Path(f["path"]).name)
+                  for f in report["findings"])
+
+
+def test_drift_is_clean_when_rows_and_folders_agree(tmp_path):
+    root = _science(tmp_path, ["active/a", "development/d", "complete/c"])
+    projects = {
+        "a": _row(root / "active/a", ral="/mnt/ral/u/active/a"),
+        "d": _row(root / "development/d", ral="/mnt/ral/u/development/d"),
+        "c": _row(root / "complete/c", status="retired", ral="/mnt/ral/u/active/c"),
+    }
+    report = _cortex.drift_report(projects)
+    assert report["science_root"] == str(root) and report["present"]
+    assert report["findings"] == []
+    assert _cortex.drift_line(report).startswith("Drift: none")
+
+
+def test_drift_names_each_disagreement_with_its_severity(tmp_path):
+    root = _science(tmp_path, ["active/a", "active/stray", "archive/old",
+                               "development/moved", "complete/live"])
+    (root / "active" / "notes.md").write_text("a file is not a project")
+    (root / "active" / ".hidden").mkdir()
+    projects = {
+        "a": _row(root / "active/a", ral="/mnt/ral/u/active/a"),
+        "gone": _row(root / "active/gone", ral="/mnt/ral/u/active/gone"),
+        "moved": _row(root / "development/moved", ral="/mnt/ral/u/active/moved"),
+        "live": _row(root / "complete/live", ral="/mnt/ral/u/complete/live"),
+        "old_retired": _row(root / "archive/vanished", status="retired"),
+    }
+    report = _cortex.drift_report(projects)
+    assert _kinds(report) == [
+        ("category_status", "error", "live"),
+        ("missing", "error", "gone"),
+        ("ral_category", "warning", "moved"),
+        ("unregistered", "error", "stray"),
+        ("unregistered", "warning", "old"),
+    ]
+    assert (report["errors"], report["warnings"]) == (3, 2)
+
+
+def test_a_repo_backed_row_is_exempt_from_the_category_rules(tmp_path):
+    root = _science(tmp_path, ["active/a"])
+    code = tmp_path / "Code" / "lens" / "inference"
+    code.mkdir(parents=True)
+    projects = {
+        "a": _row(root / "active/a", ral="/mnt/ral/u/active/a"),
+        "inference": _row(code, ral="/mnt/ral/u/inference/inference"),
+    }
+    assert _cortex.drift_report(projects)["findings"] == []
+
+
+def test_a_science_root_that_moved_is_drift_on_the_laptop_not_a_skip(tmp_path):
+    """The incident this check exists for: the tree moved, every row went
+    stale, and the derived root no longer exists — but a repo-backed row
+    proves this is the laptop."""
+    code = tmp_path / "Code" / "inference"
+    code.mkdir(parents=True)
+    stale = tmp_path / "OldScience"
+    projects = {
+        "a": _row(stale / "active/a"),
+        "b": _row(stale / "active/b"),
+        "inference": _row(code, ral="/mnt/ral/u/inference/inference"),
+    }
+    report = _cortex.drift_report(projects)
+    assert report["present"] and report["science_root"] == str(stale)
+    assert _kinds(report) == [("missing", "error", "a"), ("missing", "error", "b"),
+                              ("science_root", "error", "OldScience")]
+
+
+def test_off_the_laptop_drift_is_a_one_line_skip(tmp_path):
+    projects = {"a": _row(tmp_path / "nowhere" / "active" / "a")}
+    report = _cortex.drift_report(projects)
+    assert not report["present"] and report["findings"] == []
+    assert "not on this machine" in _cortex.drift_line(report)
+
+
+def test_the_science_root_follows_the_live_rows(tmp_path):
+    new, old = tmp_path / "Workspace" / "Science", tmp_path / "Science"
+    projects = {
+        "a": _row(new / "active/a"),
+        "r1": _row(old / "archive/r1", status="retired"),
+        "r2": _row(old / "archive/r2", status="retired"),
+    }
+    assert _cortex.science_root_from(projects) == str(new)
+
+
+def test_drift_cli_exit_codes_and_json(tmp_skeleton, tmp_path):
+    root = _science(tmp_path, ["active/stray"])
+    r = _run(["drift", "--cortex", str(tmp_skeleton), "--science-root", str(root),
+              "--json"])
+    assert r.returncode == 1, r.stderr
+    report = json.loads(r.stdout)
+    assert report["science_root"] == str(root) and report["errors"] >= 1
+    assert {"kind", "severity", "key", "path", "message"} <= set(report["findings"][0])
+
+    off = _run(["drift", "--cortex", str(tmp_skeleton)])
+    assert off.returncode == 0 and "Drift: skipped" in off.stdout
+
+
+def test_census_keeps_drift_out_of_the_rendered_dict(skeleton):
+    """The board renders in CI from census(); drift is laptop state."""
+    assert "drift" not in _cortex.census(skeleton)
+    r = _run(["census", "--cortex", str(skeleton)])
+    assert r.returncode == 0 and "Drift: " in r.stdout
+
+
+def test_a_symlinked_science_root_matches_the_rows_real_paths(tmp_path):
+    root = _science(tmp_path, ["active/a", "development/d"])
+    link = tmp_path / "launch" / "Science"
+    link.parent.mkdir()
+    link.symlink_to(root)
+    projects = {
+        "a": _row(root / "active/a", ral="/mnt/ral/u/active/a"),
+        "d": _row(root / "development/d", status="retired"),
+    }
+    report = _cortex.drift_report(projects, str(link))
+    assert _kinds(report) == [("category_status", "error", "d")]
+
+
+def test_a_row_with_no_local_path_says_so(tmp_path):
+    root = _science(tmp_path, ["active/a"])
+    projects = {"a": _row(root / "active/a", ral="/mnt/ral/u/active/a"),
+                "blank": {"local_path": "", "status": "active", "ral_root": ""}}
+    [f] = _cortex.drift_report(projects)["findings"]
+    assert f["kind"] == "missing" and "has no local_path" in f["message"]
+
+
+def test_with_no_repo_backed_row_a_fully_stale_tree_reads_as_off_laptop(tmp_path):
+    """The stated limit of the laptop test: the evidence is a row whose folder
+    exists. With none, a moved tree is indistinguishable from another machine."""
+    stale = tmp_path / "OldScience"
+    report = _cortex.drift_report({"a": _row(stale / "active/a")})
+    assert not report["present"]
+
+
+def test_checkin_dry_run_prints_the_drift_line(tmp_skeleton):
+    r = _run(["checkin", "--dry-run", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0 and "Drift: " in r.stdout
