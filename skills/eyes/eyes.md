@@ -67,7 +67,7 @@ PR or CI), don't make the human wait for the dashboard loop. After each fix:
    `$PYAUTO_EYES_SCRATCH/autolens/imaging/`).
 3. Tell the human that path so they can look straight away. If the variable is
    unset, the mirror is a silent no-op; ask them to run
-   `export PYAUTO_EYES_SCRATCH=/mnt/c/Users/Jammy/Science/scratch/eyes`.
+   `export PYAUTO_EYES_SCRATCH=/mnt/c/Users/Jammy/Workspace/Science/scratch/eyes`.
 
 The scratch folder is for looking only: nothing in it is committed, and
 judging still follows Review/Delegate above.
