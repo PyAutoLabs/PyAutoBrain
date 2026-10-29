@@ -108,6 +108,29 @@ nothing until they say.** Work on the project itself is delegated the way
 [`../WORKFLOW.md`](../WORKFLOW.md) "Cortex project work" says; the resume is
 the entry protocol, not the work.
 
+### 6. Start a new project
+
+A new Science project is born in two halves, in this order:
+
+1. **Scaffold** — through the domain assistant the project will work with
+   (`autolens_assistant` or `autofit_assistant`): run its
+   `skills/start-new-project.md` (Create phase) with the target folder
+   `<Science root>/<active|development>/<key>/` (`development/` for a project
+   whose purpose is developing or validating the software). Take data from the
+   Science tree: copy a sample from `dataset/<sample>/`, or run a standard lens
+   from `simulators/<type>/<lens>.py --dataset-path dataset` inside the new
+   folder. The assistant owns the scaffold — never hand-copy an older project.
+2. **Register** — `pyauto-brain cortex birth <key> --category <active|development>
+   --assistant <name> --summary "<one line>"`. The dry run prints the row it
+   derived from the folder (remote, `ral_root` in the same category, the
+   `hpc/sync` verbs, the ledger file); show it to the human, then `--apply`:
+   it cuts `claude/birth-<key>`, writes the row and ledger through
+   `scripts/cortex.py birth`, and pushes when the Cortex's classifier calls it
+   a birth (which lands by itself). It creates no GitHub remote and reaches no
+   cluster — it prints those lines for the human.
+
+`pyauto-brain cortex drift` should then be clean for the new project.
+
 ## The push rule
 
 `--push` is allowed when **the Cortex checkout is clean on `main` with a
@@ -166,4 +189,6 @@ checkout.
 | `dashboard --check` | Are the committed pages current? Exit **1** = stale (the refresh workflow's contract) |
 | `dashboard --apply` | Regenerate `dashboard.md` + `dashboard.html` — never hand-edit those two |
 | `issue [--project KEY] [--apply]` | The ledger block at the top of each project's issue (Now, Runs, the last five). `--apply` writes it there through `gh`; never creates an issue; exit **1** without `gh` |
+| `drift [--science-root PATH] [--json]` | Does the register match the laptop Science tree? Errors: unregistered `active/`/`development/` folders, vanished rows, category vs status. Reads, never writes; exit **1** on an error |
+| `birth <key> --category C --assistant A --summary S [--apply] [--no-push]` | Register a scaffolded project: its row and ledger on `claude/birth-<key>`, written by `cortex.py birth`. Dry run by default; exit **2** = refused (no folder, key or path taken, no sync verbs) |
 | `retire <project> --why "…"` (`scripts/cortex.py`) | Is this project over? Flips the row to `status: retired`, stamps the note, logs it. Exit **1** = an unknown key, an already-retired row, or a run still listed |
