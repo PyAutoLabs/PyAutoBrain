@@ -1192,22 +1192,22 @@ def test_remote_is_the_github_origin_or_none(tmp_path):
     assert _cortex.remote_of(repo) == "none"
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
-                    "git@github.com:PyAutoLabs/fresh.git"], check=True)
-    assert _cortex.remote_of(repo) == "PyAutoLabs/fresh"
+                    "git@github.com:SomeOwner/fresh.git"], check=True)
+    assert _cortex.remote_of(repo) == "SomeOwner/fresh"
 
 
 def test_a_birth_row_is_derived_from_the_folder_and_the_other_rows(tmp_path):
     root = _science(tmp_path, ["active/a", "development/d"])
     local = _scaffold(root, "development")
     row, problems = _cortex.birth_row(_map(root), "fresh", "development",
-                                      "autofit_assistant")
+                                      "some_assistant")
     assert problems == []
     assert row["local_path"] == str(local)
     assert row["ral_root"] == "/mnt/ral/u/development/fresh"
     assert row["sync_verbs"] == ["push", "pull", "push-data-init"]
     assert row["ledger"] == "wiki/project/state.md"
     assert (row["remote"], row["status"], row["assistant"]) == (
-        "none", "active", "autofit_assistant")
+        "none", "active", "some_assistant")
 
 
 def test_a_birth_refuses_what_it_cannot_register(tmp_path):
