@@ -35,6 +35,9 @@ Verbs: `pull [--project KEY] [--dry-run]` (the laptop leg) · `checkin
 [--dry-run|--apply] [--push|--no-push] [--project KEY]` (the door, reaches no
 cluster) · `census [--json]` · `drift [--science-root PATH] [--json]`
 (the laptop Science tree against `projects.yaml`; reads, never writes) ·
+`birth <key> --category active|development --assistant A --summary S
+[--apply] [--no-push]` (a scaffolded project's row and ledger, written by
+the Cortex's own `cortex.py birth` on `claude/birth-<key>`) ·
 `dashboard --check|--apply` · `issue [--project KEY] [--apply]`.
 
 Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract),
@@ -1239,6 +1242,221 @@ def cmd_drift(root: Path, mod, a) -> int:
     return RC_DRIFT if report["errors"] else RC_OK
 
 
+# ------------------------------------------------------------ the birth ---
+# Scaffolding belongs to the domain assistant (`start-new-project`); the
+# birth is the Cortex half — a row and a ledger for a project folder that
+# already exists. The conductor derives the row and hands it to the Cortex's
+# own `scripts/cortex.py birth`, the verb that writes; it writes nothing of
+# its own here but a git branch.
+BIRTH_BRANCH_PREFIX = "claude/birth-"
+BIRTH_CATEGORIES = ("active", "development")
+_DISPATCH_RE = re.compile(r'^case "\$\{?cmd\}?" in$(.*?)^esac$', re.M | re.S)
+_LABEL_RE = re.compile(r"^\s+([a-z][a-z0-9-]*)(?:\|[^)\n]*)?\)", re.M)
+_GITHUB_RE = re.compile(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$")
+LEDGER_CANDIDATES = ("wiki/project/state.md", "README.md", "AGENTS.md")
+
+
+def sync_verbs_of(cli: Path) -> list[str]:
+    """The verbs a project's sync CLI dispatches: the labels of its
+    `case "$cmd" in … esac` block, in order — `help` aside, which is the
+    CLI's usage, not a verb a conductor runs. Empty when there is none."""
+    if not cli.is_file():
+        return []
+    m = _DISPATCH_RE.search(cli.read_text(encoding="utf-8", errors="replace"))
+    verbs: list[str] = []
+    for verb in _LABEL_RE.findall(m.group(1)) if m else []:
+        if verb != "help" and verb not in verbs:
+            verbs.append(verb)
+    return verbs
+
+
+def remote_of(local: Path) -> str:
+    """`owner/repo` of the project's GitHub `origin`, else `none`."""
+    r = _git(local, "remote", "get-url", "origin")
+    m = _GITHUB_RE.search(r.stdout.strip()) if r.returncode == 0 else None
+    return m.group(1) if m else "none"
+
+
+def ral_base_from(projects: dict) -> str | None:
+    """The RAL base the rows agree on: the most common `<base>` of the
+    non-retired `ral_root`s shaped `<base>/<category>/<project>`."""
+    bases = [str(Path(ral).parent.parent) for row in projects.values()
+             if row.get("status") != "retired"
+             for ral in [_norm(row.get("ral_root", ""))]
+             if ral and Path(ral).parent.name in SCIENCE_CATEGORIES]
+    return max(sorted(set(bases)), key=bases.count) if bases else None
+
+
+def birth_row(projects: dict, key: str, category: str, assistant: str, *,
+              science_root: str | None = None, partition: str = "ral",
+              sync_verbs: list | None = None) -> tuple[dict, list[str]]:
+    """`(row, problems)` — the `projects.yaml` row a birth would write for
+    `<science root>/<category>/<key>`, derived from the folder itself and from
+    the other rows. Any problem refuses the birth."""
+    problems: list[str] = []
+    root = science_root or science_root_from(projects)
+    if category not in BIRTH_CATEGORIES:
+        problems.append(f"a project is born into {' or '.join(BIRTH_CATEGORIES)}/, "
+                        f"not {category}/")
+    if not root:
+        return {}, problems + ["no row places a project in a Science category, so "
+                               "the Science root is unknown — pass --science-root"]
+    local = Path(_norm(root)) / category / key
+    if key in projects:
+        problems.append(f"{key} is already a projects.yaml key")
+    if any(_real(local_root(r)) == _real(str(local)) for r in projects.values()):
+        problems.append(f"{local} is already some row's local_path")
+    if not local.is_dir():
+        problems.append(f"{local} does not exist — scaffold it first (the "
+                        "assistant's start-new-project)")
+    verbs = list(sync_verbs or sync_verbs_of(local / "hpc" / "sync"))
+    if local.is_dir() and not verbs:
+        problems.append(f"no verbs found in {local}/hpc/sync (its `case \"$cmd\" "
+                        "in` block) — scaffold hpc/ or pass --sync-verbs")
+    base = ral_base_from(projects)
+    if not base:
+        problems.append("no row's ral_root is shaped <base>/<category>/<project>, "
+                        "so the RAL base is unknown")
+    ledger = next((c for c in LEDGER_CANDIDATES if (local / c).is_file()),
+                  LEDGER_CANDIDATES[0])
+    row = {
+        "remote": remote_of(local) if local.is_dir() else "none",
+        "local_path": str(local),
+        "ral_root": f"{base}/{category}/{key}" if base else "",
+        "mirror": "none",
+        "sync_cli": "hpc/sync",
+        "sync_verbs": verbs,
+        "ledger": ledger,
+        "assistant": assistant,
+        "partition": partition,
+        "status": "active",
+    }
+    return row, problems
+
+
+def _birth_argv(root: Path, key: str, row: dict, a) -> list[str]:
+    argv = [sys.executable, str(root / "scripts" / "cortex.py"), "birth", key,
+            "--root", str(root), "--summary", a.summary, "--issue", a.issue,
+            "--sync-verbs", ",".join(row["sync_verbs"])]
+    for field in ("local_path", "ral_root", "remote", "mirror", "sync_cli",
+                  "ledger", "assistant", "partition", "status"):
+        argv += [f"--{field.replace('_', '-')}", row[field]]
+    if a.note:
+        argv += ["--note", a.note]
+    return argv
+
+
+def _abandon_birth(root: Path, branch: str) -> None:
+    """Leave the Cortex as the birth found it: nothing staged or written,
+    back on `main`, the birth branch gone."""
+    _git(root, "reset", "-q")
+    _git(root, "checkout", "--", ".")
+    _git(root, "clean", "-fdq", "--", "projects")
+    _git(root, "checkout", "main")
+    _git(root, "branch", "-D", branch)
+
+
+def cmd_birth(root: Path, mod, a) -> int:
+    """Register a scaffolded Science project: a row and a ledger, on
+    `claude/birth-<key>`. Dry run by default; never creates a remote and
+    never reaches RAL."""
+    projects, problems = mod.load_projects(root)
+    if problems:
+        print("cortex birth: projects.yaml does not check — fix it first", file=sys.stderr)
+        return RC_DRIFT
+    row, refused = birth_row(projects, a.key, a.category, a.assistant,
+                             science_root=a.science_root or None,
+                             partition=a.partition,
+                             sync_verbs=[v for v in a.sync_verbs.split(",") if v] or None)
+    print(f"== Cortex birth — {a.key} ({'apply' if a.apply else 'dry run'}) ==")
+    for field, value in row.items():
+        shown = f"[{', '.join(value)}]" if isinstance(value, list) else value
+        print(f"  {field + ':':<14} {shown}")
+    words = len(a.summary.split())
+    if words > mod.SUMMARY_MAX_WORDS:
+        refused.append(f"--summary is {words} words; the ledger title takes at most "
+                       f"{mod.SUMMARY_MAX_WORDS}")
+    if refused:
+        for p in refused:
+            print(f"  cannot: {p}")
+        return RC_USAGE
+    if not a.apply:
+        print(f"\nwould cut {BIRTH_BRANCH_PREFIX}{a.key} from origin/main, write this row "
+              f"and projects/{a.key}.md through scripts/cortex.py birth, and "
+              f"{'push it' if a.push else 'leave it committed locally'}. "
+              "Run with --apply to do it.")
+        return RC_OK
+
+    ok, why = push_preflight(root)
+    if not ok:
+        print(f"cortex birth: REFUSED — {why}; a birth is cut from a clean `main`",
+              file=sys.stderr)
+        return RC_DRIFT
+    branch = f"{BIRTH_BRANCH_PREFIX}{a.key}"
+    mine: list[dict] = []
+    for step in (("fetch", "origin"), ("checkout", "-b", branch, "origin/main")):
+        r = _git(root, *step)
+        if r.returncode != 0:
+            print(f"cortex birth: REFUSED — `git {' '.join(step)}`: "
+                  f"{r.stderr.strip()[:200]}", file=sys.stderr)
+            _git(root, "checkout", "main")
+            return RC_DRIFT
+    rc = RC_OK
+    try:
+        r = subprocess.run(_birth_argv(root, a.key, row, a), capture_output=True, text=True)
+        if r.returncode != 0:
+            print((r.stderr or r.stdout).strip(), file=sys.stderr)
+            _abandon_birth(root, branch)
+            return RC_DRIFT
+        print(r.stdout.strip())
+        for step in (("add", "--", "projects.yaml", f"projects/{a.key}.md"),
+                     ("commit", "-m", f"cortex: birth of {a.key}\n\n{a.summary}\n")):
+            g = _git(root, *step)
+            if g.returncode != 0:
+                print(f"cortex birth: `git {step[0]}` failed — nothing committed, "
+                      f"the branch is dropped: {(g.stderr or g.stdout).strip()[:200]}",
+                      file=sys.stderr)
+                _abandon_birth(root, branch)
+                return RC_DRIFT
+        # The path-only classifier calls projects.yaml code; against a base it
+        # recognises an add-only row-plus-ledger diff as a birth.
+        birth = subprocess.run(
+            [sys.executable, str(root / "scripts" / "ledger_merge.py"), "classify",
+             "--base", "origin/main"], cwd=str(root), capture_output=True, text=True
+        ).returncode == 0
+        mine = [f for f in drift_report(mod.load_projects(root)[0],
+                                         a.science_root or None)["findings"]
+                if f["key"] == a.key or f["path"] == row["local_path"]]
+        if not birth:
+            rc = RC_DRIFT
+            print(f"push: REFUSED — the classifier does not call this a birth; "
+                  f"`{branch}` is committed locally for a human")
+        elif a.push:
+            pushed = _git(root, "push", "-u", "origin", branch)
+            if pushed.returncode != 0:
+                rc = RC_DRIFT
+            print(f"push: `{branch}` pushed — `ledger_merge.yml` lands a birth by itself"
+                  if pushed.returncode == 0 else
+                  f"push: FAILED — {pushed.stderr.strip()[:200]}; the commit is on `{branch}`")
+        else:
+            print(f"push: off — `{branch}` is committed locally")
+    finally:
+        _git(root, "checkout", "main")
+
+    print(drift_line({"science_root": row["local_path"], "present": True,
+                      "findings": mine, "errors": sum(f["severity"] == "error" for f in mine),
+                      "warnings": sum(f["severity"] == "warning" for f in mine)}))
+    print("\nNext, by hand:")
+    if row["remote"] == "none":
+        owners = [r["remote"].split("/")[0] for r in projects.values()
+                  if "/" in (r.get("remote") or "")]
+        owner = max(sorted(set(owners)), key=owners.count) if owners else "<owner>"
+        print(f"  gh repo create {owner}/{a.key} --private --source {row['local_path']}")
+    print(f"  cd {row['local_path']} && hpc/sync push      # the RAL tree, {row['ral_root']}")
+    print(f"  git -C {root} pull                 # once the birth has landed on main")
+    return rc
+
+
 def run_jobs(row: dict) -> str | None:
     """The project's own `<sync_cli> jobs`, verbatim — stdout and stderr as
     they came, no parsing. None when the row has no `jobs` verb."""
@@ -1725,6 +1943,24 @@ def build_parser() -> argparse.ArgumentParser:
                         "local_path)")
     r.add_argument("--json", dest="as_json", action="store_true")
 
+    b = common(sub.add_parser(
+        "birth", help="register a scaffolded Science project: its projects.yaml "
+                      "row and ledger on claude/birth-<key> (dry run by default)"))
+    b.add_argument("key", help="the project key = its folder name")
+    b.add_argument("--category", required=True, choices=BIRTH_CATEGORIES)
+    b.add_argument("--assistant", required=True,
+                   help="the domain assistant it was scaffolded from, or none")
+    b.add_argument("--summary", required=True, help="the ledger title, one line")
+    b.add_argument("--issue", default="none", help="Repo#N or an issue URL")
+    b.add_argument("--note", default="", help="a free-text note for the row")
+    b.add_argument("--partition", default="ral", choices=("ral", "gpu", "both"))
+    b.add_argument("--sync-verbs", dest="sync_verbs", default="",
+                   help="comma-separated; default: read from the project's hpc/sync")
+    b.add_argument("--science-root", dest="science_root", default="")
+    b.add_argument("--apply", action="store_true", help="cut the branch and write")
+    b.add_argument("--no-push", dest="push", action="store_false",
+                   help="commit on the branch but do not push")
+
     i = common(sub.add_parser(
         "issue", help="the ledger block that sits at the top of each "
                       "project's issue; --apply writes it there with gh"))
@@ -1757,6 +1993,8 @@ def main(argv=None) -> int:
             return cmd_issue(root, mod, a)
         if verb == "drift":
             return cmd_drift(root, mod, a)
+        if verb == "birth":
+            return cmd_birth(root, mod, a)
         c = census(root)
     except mod.CortexError as e:
         print(f"cortex: {root}: {e}", file=sys.stderr)

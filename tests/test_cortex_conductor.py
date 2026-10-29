@@ -1142,3 +1142,175 @@ def test_with_no_repo_backed_row_a_fully_stale_tree_reads_as_off_laptop(tmp_path
 def test_checkin_dry_run_prints_the_drift_line(tmp_skeleton):
     r = _run(["checkin", "--dry-run", "--cortex", str(tmp_skeleton)])
     assert r.returncode == 0 and "Drift: " in r.stdout
+
+
+# --- the birth (a scaffolded project's row and ledger) ----------------------
+
+SYNC = """#!/bin/bash
+case "${1:-}" in
+    help|--help|-h) HELP=1 ;;
+esac
+cmd="$1"
+tail_logs() { case "$1" in gpu) x ;; cpu) y ;; esac; }
+case "$cmd" in
+    push)            push ;;
+    pull)            pull ;;
+    help|--help|-h)  print_help ;;
+    push-data-init)  push_data_init ;;
+    *)
+        exit 1
+        ;;
+esac
+"""
+
+
+def _scaffold(root, category="active", key="fresh", sync=SYNC, ledger="wiki/project/state.md"):
+    local = root / category / key
+    (local / "hpc").mkdir(parents=True)
+    (local / "hpc" / "sync").write_text(sync)
+    if ledger:
+        (local / ledger).parent.mkdir(parents=True, exist_ok=True)
+        (local / ledger).write_text("# state\n")
+    return local
+
+
+def _map(root):
+    return {"a": _row(root / "active/a", ral="/mnt/ral/u/active/a"),
+            "d": _row(root / "development/d", ral="/mnt/ral/u/development/d")}
+
+
+def test_sync_verbs_are_the_dispatch_case_labels_only(tmp_path):
+    cli = tmp_path / "sync"
+    cli.write_text(SYNC)
+    assert _cortex.sync_verbs_of(cli) == ["push", "pull", "push-data-init"]
+    assert _cortex.sync_verbs_of(tmp_path / "missing") == []
+
+
+def test_remote_is_the_github_origin_or_none(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    assert _cortex.remote_of(repo) == "none"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
+                    "git@github.com:SomeOwner/fresh.git"], check=True)
+    assert _cortex.remote_of(repo) == "SomeOwner/fresh"
+
+
+def test_a_birth_row_is_derived_from_the_folder_and_the_other_rows(tmp_path):
+    root = _science(tmp_path, ["active/a", "development/d"])
+    local = _scaffold(root, "development")
+    row, problems = _cortex.birth_row(_map(root), "fresh", "development",
+                                      "some_assistant")
+    assert problems == []
+    assert row["local_path"] == str(local)
+    assert row["ral_root"] == "/mnt/ral/u/development/fresh"
+    assert row["sync_verbs"] == ["push", "pull", "push-data-init"]
+    assert row["ledger"] == "wiki/project/state.md"
+    assert (row["remote"], row["status"], row["assistant"]) == (
+        "none", "active", "some_assistant")
+
+
+def test_a_birth_refuses_what_it_cannot_register(tmp_path):
+    root = _science(tmp_path, ["active/a", "development/d"])
+    projects = _map(root)
+
+    def why(key, category):
+        return " | ".join(_cortex.birth_row(projects, key, category, "none")[1])
+
+    assert "does not exist" in why("ghost", "active")
+    assert "already a projects.yaml key" in why("a", "active")
+    assert "born into active or development" in why("old", "archive")
+    _scaffold(root, "active", "bare", sync="#!/bin/bash\necho no dispatch\n")
+    assert "no verbs found" in why("bare", "active")
+
+
+def test_birth_dry_run_writes_nothing(tmp_skeleton, tmp_path):
+    root = _science(tmp_path, ["active/a"])
+    _scaffold(root)
+    text = (tmp_skeleton / "projects.yaml").read_text()
+    text = text.replace("local_path: /tmp/example\n", f"local_path: {root / 'active/a'}\n")
+    (tmp_skeleton / "projects.yaml").write_text(text)
+    text = re.sub(r"ral_root: \S+", "ral_root: /mnt/ral/u/active/a", text, count=1)
+    (tmp_skeleton / "projects.yaml").write_text(text)
+    before = _tree_bytes(tmp_skeleton)
+    r = _run(["birth", "fresh", "--category", "active", "--assistant", "none",
+              "--summary", "x", "--science-root", str(root), "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "would cut claude/birth-fresh" in r.stdout
+    assert _tree_bytes(tmp_skeleton) == before
+
+
+def _git_out(*args, cwd=None):
+    return subprocess.run(["git", *args], cwd=cwd, check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def _birth_clone(tmp_path):
+    """A Cortex copy on `main` with a local bare origin, and a Science tree
+    holding a scaffolded `active/fresh` — `--apply` reaches nothing real."""
+    src = cortex_root()
+    if "def birth_project" not in (src / "scripts" / "cortex.py").read_text():
+        pytest.skip("this Cortex checkout has no `cortex.py birth` yet")
+    work = tmp_path / "cortex"
+    shutil.copytree(src, work, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+    root = _science(tmp_path, ["active/a"])
+    _scaffold(root)
+    env = ["-c", "user.name=t", "-c", "user.email=t@t"]
+    _git_out("init", "-q", "-b", "main", cwd=work)
+    _git_out(*env, "add", "-A", cwd=work)
+    _git_out(*env, "commit", "-qm", "base", cwd=work)
+    _git_out("clone", "-q", "--bare", str(work), str(tmp_path / "origin.git"))
+    _git_out("remote", "add", "origin", str(tmp_path / "origin.git"), cwd=work)
+    _git_out("fetch", "-q", "origin", cwd=work)
+    run_env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    argv = ["birth", "fresh", "--category", "active", "--assistant", "none",
+            "--summary", "a probe", "--science-root", str(root),
+            "--cortex", str(work), "--apply"]
+    return work, root, argv, run_env
+
+
+def test_a_failed_commit_leaves_main_clean_and_exits_nonzero(tmp_path):
+    work, _root, argv, run_env = _birth_clone(tmp_path)
+    hook = work / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    r = _run(argv, env=run_env)
+    assert r.returncode == 1 and "nothing committed" in r.stderr
+    assert _git_out("branch", "--show-current", cwd=work) == "main"
+    assert _git_out("status", "--porcelain", cwd=work) == ""
+    assert "claude/birth-fresh" not in _git_out("branch", cwd=work)
+
+
+def test_a_failed_push_exits_nonzero_with_the_commit_kept(tmp_path):
+    work, _root, argv, run_env = _birth_clone(tmp_path)
+    _git_out("remote", "set-url", "--push", "origin", str(tmp_path / "nowhere.git"), cwd=work)
+    r = _run(argv, env=run_env)
+    assert r.returncode == 1 and "push: FAILED" in r.stdout
+    assert _git_out("branch", "--show-current", cwd=work) == "main"
+    assert "claude/birth-fresh" in _git_out("branch", cwd=work)
+
+
+def test_birth_apply_cuts_a_branch_pushes_it_and_returns_to_main(tmp_path):
+    work, root, argv, run_env = _birth_clone(tmp_path)
+    git = _git_out
+    r = _run(argv, env=run_env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "pushed" in r.stdout
+    assert git("branch", "--show-current", cwd=work) == "main"
+    assert git("status", "--porcelain", cwd=work) == ""
+    assert "claude/birth-fresh" in git("branch", cwd=tmp_path / "origin.git")
+    shown = git("show", "claude/birth-fresh:projects.yaml", cwd=work)
+    assert "fresh:" in shown and f"local_path: {root / 'active' / 'fresh'}" in shown
+    again = _run(argv, env=run_env)
+    assert again.returncode != 0 and "REFUSED" in again.stderr
+    assert git("branch", "--show-current", cwd=work) == "main"
+
+
+def test_an_over_long_summary_is_refused_in_the_dry_run(tmp_skeleton, tmp_path):
+    root = _science(tmp_path, ["active/a"])
+    _scaffold(root)
+    r = _run(["birth", "fresh", "--category", "active", "--assistant", "none",
+              "--summary", " ".join(["word"] * 30), "--science-root", str(root),
+              "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 2 and "--summary is 30 words" in r.stdout
