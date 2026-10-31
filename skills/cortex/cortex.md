@@ -40,6 +40,18 @@ minutes; do not wrap it in anything that buffers), then — where the row has a
 that exits non-zero is recorded against *that* project, the sweep carries on,
 and the verb exits 1.
 
+**A campaign project reads its digest, not squeue.** Where the row has
+`campaign_file:`, `pull` runs `<sync_cli> status <campaign_file>` in place of
+`jobs` (it collects the campaign and pulls `digest.json`), and where it has
+`digest:` it prints what `cortex.py sync-runs <key>` *would* change —
+`sync-runs: <key>: <n> changed (dry run)`. Point `digest:` where the project's
+`hpc/sync status` pulls it — `hpc/campaign/<name>/digest.json`, with its
+`tasks.jsonl` beside it. Still nothing is written (human ruling 2026-10-31:
+pull stays write-nothing); to record
+it, run `python3 scripts/cortex.py sync-runs <key>` in the Cortex checkout.
+That flips `open → running` and calls `done` with the task counts — cluster
+facts only, never a result or lesson.
+
 **Not on the laptop?** `pull` exits **2** and names each missing root: *"this
 is not the laptop — run `checkin` here and `pull` on the laptop."* That is the
 expected answer on web and mobile, not a failure to work around. Go to step 2;
@@ -152,13 +164,23 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
 
 - **Never submit unless asked.** The check-in door never submits. When the
   human asks for a run in the session, the agent submits it with the
-  project's own sync CLI (its `submit` / `push-submit` verb) and records the
+  project's own sync CLI (`act submit` for a campaign, `submit` /
+  `push-submit` for one hand-written script) and records the
   job id at once with `cortex.py run <key> <jobid> "<what>"`.
   CPU-only arrays go on `ral` only — never `gpu`, `ral,gpu` or `gpu,ral`,
   even when ral is busy; check `gres/gpu` in `scontrol show job` before
   calling a run GPU; never reorder, hold or cancel another campaign's jobs
   without the human's OK (human rule, 2026-09-30; rule and exemption in
   PyAutoCortex `REFERENCE.md` → `partition`).
+- **Change a queue only through the project's own CLI, only on the human's
+  ask.** A campaign's jobs start and change only through `hpc/sync act
+  <submit | resubmit | hold | release | throttle | update-pending | cancel>
+  <campaign> …` (a pilot is `act submit --indices`), which logs every action
+  to `<project_root>/campaign/<name>/actions.log`; `hpc/sync submit |
+  push-submit` sbatch one hand-written script outside any campaign. Reading is
+  free (`jobs`, `sacct`, `status`, `plan`, `pilot`, `scontrol show`). Never a
+  raw `sbatch`, `scancel`, `srun`, `salloc`, mutating `scontrol` or `autofit.campaign submit`,
+  over `ssh` or not — the allowlist is `AUTONOMY.md` ("Scheduler actions").
 - **Never write a result or lesson the human did not say.** The conductor
   scores nothing, rules nothing, drafts no verdict. A `result` or `lesson`
   entry is the human's words, verbatim, on their ask.
@@ -183,7 +205,7 @@ checkout.
 
 | Verb | Answers |
 |------|---------|
-| `pull [--project KEY] [--dry-run]` | What does the cluster say? Each project's own pull, then its `jobs` output verbatim. The laptop only. Exit **1** = a pull failed · **2** = no project's `local_path` is on this machine |
+| `pull [--project KEY] [--dry-run]` | What does the cluster say? Each project's own pull, then its `jobs` output verbatim — or, for a campaign project, its `status` output and a dry-run `sync-runs` of the digest. The laptop only. Exit **1** = a pull failed · **2** = no project's `local_path` is on this machine |
 | `checkin [--dry-run\|--apply] [--push\|--no-push] [--project KEY]` | Where is my science? Stamp, render, push, read each ledger back. Any surface. Exit **1** = the tree does not check |
 | `census [--json]` | What is the Cortex holding? Per project: status, runs by state, log length, last update; the totals; the last check-in stamp |
 | `dashboard --check` | Are the committed pages current? Exit **1** = stale (the refresh workflow's contract) |

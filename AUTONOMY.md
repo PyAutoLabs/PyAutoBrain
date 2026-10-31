@@ -678,6 +678,60 @@ went out on an acked YELLOW. That is ack-fatigue risk, addressed by making
 Heart's verdict distinguish stale evidence from bad evidence (the freshness
 tier), never by weakening leg 4.
 
+## Scheduler actions — 2026-10-31
+
+A cluster queue is shared, and one CPU array on the wrong partition has idled
+all eight RAL A100s (2026-09-30). So the queue changes in one place, the
+project's own `hpc/sync`, and every change leaves a record (hpc-campaign phase
+5, ruling F12). **`hpc/sync act` is the only way a campaign's jobs start or
+change.**
+
+| Verb | Effect | Who may run it |
+|------|--------|----------------|
+| `hpc/sync act submit <campaign.yaml> [--stage S] [--indices SPEC] [--dry-run]` | starts a campaign's jobs — a pilot is `--indices` with the pilot's slice — logged | an agent, only when the human asked for that run (a pilot, then the full campaign, each on its own go) |
+| `hpc/sync act <resubmit \| hold \| release \| throttle \| update-pending \| cancel> <campaign> <arg …>` | changes a campaign's queued or running jobs, logged | an agent, only on the human's ask; never another campaign's jobs without their OK |
+| `hpc/sync cancel <job>` | the older spelling of `act cancel`, logged the same way | as `act` |
+| `hpc/sync submit \| push-submit [gpu\|cpu] <script> [sbatch arg …]` | sbatches one hand-written script, outside any campaign | an agent, only when the human asked for that run in the session |
+| `hpc/sync status \| plan \| pilot \| resubmit \| report <campaign.yaml>`, `jobs`, `sacct`, `pull`; `squeue`, `sacct`, `sinfo`, `scontrol show` | read, or write a proposal that submits nothing | anyone, any time |
+
+`act resubmit` takes a proposal file the human has approved; `hpc/sync
+resubmit` only writes the proposal, and `hpc/sync pilot` only chooses a slice.
+`update-pending` changes only the fields the template allows (never a
+partition).
+
+**The audit log.** Every `act` first checks that
+`<project_root>/campaign/<name>/actions.log` on the cluster can be written, and
+stops without acting if it cannot; then it acts, appends one JSON line, and
+prints it:
+
+```json
+{"utc": "2026-10-31T09:00:00Z", "user": "<cluster user>", "campaign": "<name>", "action": "hold", "args": ["413011"], "exit": 0}
+```
+
+`exit` is the action's own exit code, so a refused action is recorded too.
+`hpc/sync status <campaign.yaml>` pulls the log back with the digest, into
+`hpc/campaign/<name>/`. It is append-only: nothing rewrites or trims it.
+
+**What enforces it.** A raw `sbatch`, `scancel`, `srun`, `salloc`, mutating `scontrol` (any
+subcommand but `show`, `ping`, `version`, `help`) or `python -m
+autofit.campaign submit` (but `--dry-run`) is refused by
+`bin/scheduler_action_guard.py`, a PreToolUse(Bash) hook for Claude and Codex —
+typed directly, over `ssh`, in `bash -c`/`eval`, behind env assignments or
+wrappers (`xargs`, `parallel`, `find -exec` …), chained, substituted, or in a
+heredoc fed to a shell. Help, usage, version and `sbatch --test-only` only read
+and are allowed, as is `scontrol show`,
+which stays allowed because recording a run as GPU needs `gres/gpu` from
+`scontrol show job`. `srun`/`salloc` are refused too (human ruling 2026-10-31):
+they start work outside any log; only the command an agent types is judged, so
+`srun` inside a batch script is untouched. A mention (a commit message, `grep sbatch`) is not a call. The hook
+is textual: a scheduler call inside a script or a Python `subprocess` is not
+seen, and this table is what governs it. Human-directed exception (kept by human ruling 2026-10-31):
+`PYAUTO_SKIP_SCHEDULER_GUARD=1` in the environment or as the leading assignment
+of the command it excuses — a mention elsewhere excuses nothing. Registration
+(human-approved 2026-10-31) follows this source's merge: the workspace-root
+`.claude/settings.json` Bash hooks and `PyAutoMind/scripts/repos_sync.py`'s
+Codex hook list.
+
 ## Hard invariants (every level, no exceptions)
 
 - **Merge and issue-close are human acts, except as "Merge authority follows
