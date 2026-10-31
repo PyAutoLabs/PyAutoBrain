@@ -1457,21 +1457,78 @@ def cmd_birth(root: Path, mod, a) -> int:
     return rc
 
 
-def run_jobs(row: dict) -> str | None:
-    """The project's own `<sync_cli> jobs`, verbatim — stdout and stderr as
-    they came, no parsing. None when the row has no `jobs` verb."""
-    cmd = _cli(row, "jobs")
+def _run_verbatim(cmd: tuple | None, verb: str) -> str | None:
+    """A project CLI call's stdout and stderr as they came, no parsing. None
+    when there is no such call."""
     if cmd is None:
         return None
     argv, cwd = cmd
     try:
         r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
     except (OSError, subprocess.SubprocessError) as e:
-        return f"(jobs could not run: {e})"
+        return f"({verb} could not run: {e})"
     out = r.stdout + (r.stderr if r.stderr else "")
     if r.returncode != 0:
-        out += f"\n(jobs exited {r.returncode})"
-    return out.rstrip("\n") or "(jobs printed nothing)"
+        out += f"\n({verb} exited {r.returncode})"
+    return out.rstrip("\n") or f"({verb} printed nothing)"
+
+
+def run_jobs(row: dict) -> str | None:
+    """The project's own `<sync_cli> jobs`, verbatim — stdout and stderr as
+    they came, no parsing. None when the row has no `jobs` verb."""
+    return _run_verbatim(_cli(row, "jobs"), "jobs")
+
+
+# A project whose runs are PyAutoFit campaigns (`campaign_file:` in its row)
+# is read through the campaign digest, not raw squeue: `<sync_cli> status
+# <campaign.yaml>` collects the campaign on the cluster and pulls its
+# `digest.json`, and the Cortex's own `sync-runs` reads that digest (schema
+# decision 64). `pull` runs `sync-runs` as a dry run only — what the digest
+# would change is printed, and recording it stays the Cortex script's verb.
+def campaign_status_cmd(row: dict) -> tuple | None:
+    """`(argv, cwd)` for `<sync_cli> status <campaign_file>`, or None when the
+    row names no campaign or its CLI has no `status` verb."""
+    campaign = (row.get("campaign_file") or "").strip()
+    cmd = _cli(row, "status")
+    if not campaign or cmd is None:
+        return None
+    argv, cwd = cmd
+    return argv + [campaign], cwd
+
+
+def campaign_status_shell(row: dict) -> str:
+    return (f"cd {row.get('local_path')} && {row.get('sync_cli')} status "
+            f"{row.get('campaign_file')}")
+
+
+def run_campaign_status(row: dict) -> str | None:
+    """The project's own `<sync_cli> status <campaign_file>`, verbatim."""
+    return _run_verbatim(campaign_status_cmd(row), "status")
+
+
+def digest_path(row: dict) -> Path | None:
+    """The row's `digest:` resolved against its `local_path`, as the Cortex's
+    `sync-runs` resolves it; None when the row names no digest."""
+    given = (row.get("digest") or "").strip()
+    if not given:
+        return None
+    p = Path(given)
+    return p if p.is_absolute() else Path(local_root(row)) / p
+
+
+def read_digest_dry(mod, root: Path, key: str, row: dict) -> list[str] | None:
+    """What `sync-runs <key>` would change, from the pulled digest — a dry run,
+    so nothing is written. None when the row names no digest."""
+    path = digest_path(row)
+    if path is None:
+        return None
+    sync = getattr(mod, "sync_runs", None)
+    if sync is None:
+        return ["(this Cortex checkout has no `sync-runs` — update PyAutoCortex)"]
+    try:
+        return sync(root, key, path, _dt.date.today(), dry_run=True)
+    except mod.CortexError as e:
+        return [f"(the digest could not be read: {e})"]
 
 
 # ------------------------------------------------------------- the push ---
@@ -1656,7 +1713,9 @@ def project_digest(key: str, c: dict) -> list[str]:
 # -------------------------------------------------------------- the pull ---
 def cmd_pull(root: Path, mod, a) -> int:
     """The laptop leg: each project's own `<sync_cli> pull`, then its `jobs`
-    output verbatim. Nothing else — no stamp, no render, no push.
+    output verbatim — or, for a campaign project, its `status <campaign_file>`
+    output and what `sync-runs` would change from the pulled digest. Nothing
+    else — no stamp, no render, no push, no ledger write.
 
     It is a separate verb because it has a separate precondition: every path
     it runs under is a `local_path` out of `projects.yaml`, which exists on
@@ -1673,8 +1732,15 @@ def cmd_pull(root: Path, mod, a) -> int:
         row = projects[key]
         return f"cd {row.get('local_path')} && {row.get('sync_cli')} jobs"
 
+    def asks_campaign(key: str) -> bool:
+        return campaign_status_cmd(projects[key]) is not None
+
+    def reads_digest(key: str) -> bool:
+        return asks_campaign(key) or digest_path(projects[key]) is not None
+
     def asks_jobs(key: str) -> bool:
-        return bool(runs_by_key.get(key)) and \
+        # A campaign project is read through its digest; squeue is not asked.
+        return bool(runs_by_key.get(key)) and not reads_digest(key) and \
             "jobs" in (projects[key].get("sync_verbs") or [])
 
     if a.dry_run:
@@ -1684,8 +1750,13 @@ def cmd_pull(root: Path, mod, a) -> int:
             here = "" if key in present else "   (not on this machine)"
             print(f"\n{key} — {row.get('status')}{here}")
             print(f"  $ {pull_shell(row)}")
-            if asks_jobs(key):
+            if asks_campaign(key):
+                print(f"  $ {campaign_status_shell(row)}")
+            elif asks_jobs(key):
                 print(f"  $ {jobs_line(key)}")
+            if digest_path(row) is not None:
+                print(f"  then sync-runs {key} --dry-run, reading "
+                      f"{digest_path(row)}")
         for n in notes:
             print(f"\nnote: {n}")
         print(f"\n{len(present)} of {len(keys)} project(s) would be pulled. "
@@ -1708,9 +1779,22 @@ def cmd_pull(root: Path, mod, a) -> int:
         return RC_USAGE
 
     pulls = run_pull_streamed(projects, present)
+    status_out: dict[str, str] = {}
+    digest_out: dict[str, list] = {}
+    for key in present:
+        if not asks_campaign(key):
+            continue
+        out = run_campaign_status(projects[key])
+        status_out[key] = out
+        print(f"\n$ {campaign_status_shell(projects[key])}", flush=True)
+        print(out, flush=True)
+    for key in present:
+        lines = read_digest_dry(mod, root, key, projects[key])
+        if lines is not None:
+            digest_out[key] = lines
     jobs_out: dict[str, str] = {}
     for key in present:
-        if not runs_by_key.get(key):
+        if not asks_jobs(key):
             continue
         out = run_jobs(projects[key])
         if out is None:
@@ -1725,6 +1809,14 @@ def cmd_pull(root: Path, mod, a) -> int:
         rc, note = pulls.get(key, (None, "not run"))
         print(f"{key}: " + ("pull ok" if rc == 0 else
                             (note or f"pull exited {rc}")))
+        if key in status_out:
+            print(status_out[key])
+        if key in digest_out:
+            print("\n".join(digest_out[key]))
+        elif asks_campaign(key):
+            print("  sync-runs: no `digest:` in projects.yaml — not read")
+        if reads_digest(key):
+            continue
         if key in jobs_out:
             print(jobs_out[key])
         elif asks_jobs(key):
@@ -1739,7 +1831,9 @@ def cmd_pull(root: Path, mod, a) -> int:
     if missing:
         print(f"  {NOT_THE_LAPTOP}")
     print("\nRecord what the jobs output says with `python3 scripts/cortex.py "
-          "running|done <key> <jobid>` in the Cortex checkout; a result or a "
+          "running|done <key> <jobid>` in the Cortex checkout — or, for a "
+          "campaign project, `python3 scripts/cortex.py sync-runs <key>`, "
+          "which records what its digest says; a result or a "
           "lesson is written only in the human's words. Then "
           "`pyauto-brain cortex checkin --apply` stamps and re-renders the "
           "board.")

@@ -27,7 +27,7 @@ note`).
 
 | Verb | Question | Emits |
 |------|----------|-------|
-| `pull [--project KEY] [--dry-run]` | **What does the cluster say?** | the laptop leg: each project's own `<sync_cli> pull`, streamed, then its `jobs` output verbatim, then one line per project (and the roots that are not on this machine, as skipped). Writes nothing. Exit **1** a pull failed · **2** no project's `local_path` is here |
+| `pull [--project KEY] [--dry-run]` | **What does the cluster say?** | the laptop leg: each project's own `<sync_cli> pull`, streamed, then its `jobs` output verbatim — or, for a campaign project, its `status <campaign_file>` output and a `sync-runs --dry-run` read of the pulled digest — then one line per project (and the roots that are not on this machine, as skipped). Writes nothing. Exit **1** a pull failed · **2** no project's `local_path` is here |
 | `checkin [--dry-run \| --apply] [--push \| --no-push] [--project KEY]` | **Where is my science?** | the door — the sequence below, ending in a summary keyed by project; reaches no cluster; exit **1** when the tree does not check |
 | `census [--json]` | What is the Cortex holding? | per project: status, summary, runs by state, log length, last update; totals (active projects, runs open, runs running); the check-in stamp; the problems `cortex.py check` would report |
 | `drift [--science-root PATH] [--json]` | **Does the register match the Science tree?** | the laptop Science tree (`<root>/<category>/<project>`, root derived from the rows' `local_path`s) against `projects.yaml`: errors — a folder in `active/` or `development/` with no row, a non-retired row whose folder is gone, a folder whose category disagrees with its status, a derived root that does not exist while other rows' folders do (the tree moved); warnings — an unregistered folder in `complete/` or `archive/`, a `ral_root` in a different category. Writes nothing. Exit **1** on an error · 0 otherwise, including off the laptop (a one-line skip). `census` and `checkin` print its one-line summary; `census()` itself stays drift-free so the CI board is machine-independent |
@@ -133,9 +133,27 @@ everywhere but one machine.
    project's own `<sync_cli> jobs` is run and its output printed **verbatim**
    — no parsing, no state flip. The human, or the agent in the session,
    records what it says with `cortex.py running | done`.
+4. **Campaigns read the digest, not squeue.** A row with `campaign_file:` (and
+   `status` among its `sync_verbs`) runs `<sync_cli> status <campaign_file>`
+   instead of `jobs` — it collects the campaign on the cluster and pulls its
+   `digest.json` — printed verbatim. A row with `digest:` then has the Cortex's
+   own `sync-runs <key> --dry-run` read that digest, and what it *would*
+   change is printed (`sync-runs: <key>: <n> changed (dry run)`); a malformed
+   digest is said and the sweep goes on. Recording it is
+   `cortex.py sync-runs <key>` in the Cortex checkout (schema decision 64:
+   run status is a cluster fact; `result`, `lesson` and `## Now` stay the
+   human's).
 
 It writes nothing: no stamp, no pages, no ledger. `--dry-run` prints the exact
-`cd <local_path> && <sync_cli> pull` per project and reaches nothing at all.
+`cd <local_path> && <sync_cli> pull` per project (and the `status` call and
+digest a campaign project would read) and reaches nothing at all.
+
+### Scheduler actions
+
+`pull` and `checkin` change nothing on a cluster. When the human asks for a
+queue change, it goes through the project's own CLI and nothing else — the
+allowlist and the `actions.log` contract are in `AUTONOMY.md` ("Scheduler
+actions"), enforced by `bin/scheduler_action_guard.py`.
 
 ### `checkin` — the door
 

@@ -82,6 +82,7 @@ FAKE_CLI = """#!/bin/sh
 case "$1" in
   pull) echo "pulled {key}"; exit {pull_rc} ;;
   jobs) echo "JOBID        PARTITION  STATE"; echo "{jobs}"; exit 0 ;;
+  status) echo "campaign status $2"; exit 0 ;;
   *) echo "unknown verb $1" >&2; exit 2 ;;
 esac
 """
@@ -640,6 +641,65 @@ def test_pull_project_narrows_the_sweep(tmp_skeleton, tmp_path):
     assert "pulled single" in r.stdout and "pulled example" not in r.stdout
     r = _run(["pull", "--project", "nope", "--cortex", str(tmp_skeleton)])
     assert "nope: no such project" in r.stdout
+
+
+def wire_campaign(root: Path, science: Path, tasks) -> Path:
+    """Make `example` a campaign project: `campaign_file` + `digest` in its
+    row, `status` among its verbs, and a pulled digest in the shape
+    `autofit.campaign.digest` writes (schema 1, `tasks.jsonl` beside it)."""
+    d = science / "example" / "output" / "campaign"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "digest.json").write_text(json.dumps(
+        {"schema": 1, "campaign": "example_campaign",
+         "updated": "2026-09-03T08:00:00Z", "totals": {}, "stages": {}}))
+    (d / "tasks.jsonl").write_text("".join(json.dumps(t) + "\n" for t in tasks))
+    yml = root / "projects.yaml"
+    yml.write_text(yml.read_text(encoding="utf-8").replace(
+        "  sync_verbs: [push, pull, submit, jobs, tail]\n",
+        "  sync_verbs: [push, pull, submit, jobs, tail, status]\n"
+        "  campaign_file: campaign.yaml\n"
+        "  digest: output/campaign/digest.json\n", 1), encoding="utf-8")
+    return d / "digest.json"
+
+
+def test_a_campaign_project_is_read_through_its_digest_not_squeue(tmp_skeleton, tmp_path):
+    science = wire_cli(tmp_skeleton, tmp_path)
+    wire_campaign(tmp_skeleton, science, [
+        {"stage": "s", "key": "3003_0", "job_id": "3003", "state": "running"}])
+    before = _tree_bytes(tmp_skeleton)
+    r = _run(["pull", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stderr + r.stdout
+    out = r.stdout
+    assert f"$ cd {science / 'example'} && hpc/sync status campaign.yaml" in out
+    assert "campaign status campaign.yaml" in out
+    # what the digest would change, read as a dry run ...
+    assert "sync-runs: example: 1 changed (dry run)" in out
+    # ... and squeue is not asked for the campaign project
+    assert "hpc/sync jobs" not in out and "JOBID" not in out
+    assert "sync-runs <key>" in out
+    # pull still writes nothing — the ledger is untouched
+    assert _tree_bytes(tmp_skeleton) == before
+
+
+def test_a_campaign_dry_run_names_status_and_the_digest(tmp_skeleton, tmp_path):
+    science = wire_cli(tmp_skeleton, tmp_path)
+    digest = wire_campaign(tmp_skeleton, science, [])
+    r = _run(["pull", "--dry-run", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stderr
+    assert f"$ cd {science / 'example'} && hpc/sync status campaign.yaml" in r.stdout
+    assert f"then sync-runs example --dry-run, reading {digest}" in r.stdout
+    assert "hpc/sync jobs" not in r.stdout
+    assert "campaign status" not in r.stdout  # the fake CLI never ran
+
+
+def test_a_malformed_digest_is_said_and_the_sweep_goes_on(tmp_skeleton, tmp_path):
+    science = wire_cli(tmp_skeleton, tmp_path)
+    digest = wire_campaign(tmp_skeleton, science, [])
+    digest.write_text("{not json")
+    r = _run(["pull", "--cortex", str(tmp_skeleton)])
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "(the digest could not be read:" in r.stdout
+    assert "single: pull ok" in r.stdout
 
 
 # --- checkin: the door, on any surface --------------------------------------
