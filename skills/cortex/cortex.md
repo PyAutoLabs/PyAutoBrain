@@ -44,7 +44,10 @@ and the verb exits 1.
 `campaign_file:`, `pull` runs `<sync_cli> status <campaign_file>` in place of
 `jobs` (it collects the campaign and pulls `digest.json`), and where it has
 `digest:` it prints what `cortex.py sync-runs <key>` *would* change —
-`sync-runs: <key>: <n> changed (dry run)`. Still nothing is written; to record
+`sync-runs: <key>: <n> changed (dry run)`. Point `digest:` where the project's
+`hpc/sync status` pulls it — `hpc/campaign/<name>/digest.json`, with its
+`tasks.jsonl` beside it. Still nothing is written (human ruling 2026-10-31:
+pull stays write-nothing); to record
 it, run `python3 scripts/cortex.py sync-runs <key>` in the Cortex checkout.
 That flips `open → running` and calls `done` with the task counts — cluster
 facts only, never a result or lesson.
@@ -176,7 +179,7 @@ and nothing for the human to merge. **Never `main` directly, never `--force`.**
   to `<project_root>/campaign/<name>/actions.log`; `hpc/sync submit |
   push-submit` sbatch one hand-written script outside any campaign. Reading is
   free (`jobs`, `sacct`, `status`, `plan`, `pilot`, `scontrol show`). Never a
-  raw `sbatch`, `scancel`, mutating `scontrol` or `autofit.campaign submit`,
+  raw `sbatch`, `scancel`, `srun`, `salloc`, mutating `scontrol` or `autofit.campaign submit`,
   over `ssh` or not — the allowlist is `AUTONOMY.md` ("Scheduler actions").
 - **Never write a result or lesson the human did not say.** The conductor
   scores nothing, rules nothing, drafts no verdict. A `result` or `lesson`

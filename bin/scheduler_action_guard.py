@@ -20,11 +20,12 @@ changed, and it writes the record:
 The allowlist and the audit-log contract are stated in ``AUTONOMY.md``
 ("Scheduler actions"); this guard is that rule converted into a refusal.
 
-Rule: a Bash command that runs ``sbatch``, ``scancel``, a mutating
+Rule: a Bash command that runs ``sbatch``, ``scancel``, ``srun``, ``salloc``, a mutating
 ``scontrol`` (anything but ``show``/``ping``/``version``/``help``) or a raw
 ``python -m autofit.campaign submit`` (not ``--dry-run``) is denied —
 directly, over ``ssh``, inside ``bash -c``/``eval``, behind env assignments or
-wrappers (``env``, ``sudo``, ``nohup``, ``timeout``, ``xargs`` …), chained with
+wrappers (``env``, ``sudo``, ``nohup``, ``timeout``, ``xargs``, ``parallel``,
+``find -exec`` …), chained with
 ``;``/``&&``/``||``/``|``, in a ``$(…)``/backtick substitution, or in a
 heredoc fed to ``ssh``/a shell. Read-only scheduler commands (``squeue``,
 ``sacct``, ``sinfo``, ``scontrol show job …``) are free — the Cortex reads
@@ -37,7 +38,9 @@ scheduler call made from inside a script or a Python ``subprocess`` — the
 allowlist doctrine covers those. Malformed payloads and unparseable shell are
 allowed (fail-open — a guard that misfires trains bypass-by-default,
 ``docs/agent_failure_modes.md`` §4). Human-directed exception:
-``PYAUTO_SKIP_SCHEDULER_GUARD=1`` in the environment or the command text.
+``PYAUTO_SKIP_SCHEDULER_GUARD=1`` in the environment, or as the leading
+assignment of the clause it excuses (a mention elsewhere in the command, an
+``echo`` or a commit message, excuses nothing).
 """
 
 from __future__ import annotations
@@ -48,7 +51,12 @@ import re
 import shlex
 import sys
 
-MUTATING = frozenset({"sbatch", "scancel"})
+#: `srun`/`salloc` start work too: a job step, or an allocation (human ruling 2026-10-31).
+#: Only the command an agent types is judged, so `srun` inside a batch script is untouched.
+MUTATING = frozenset({"sbatch", "scancel", "srun", "salloc"})
+#: Options with which a MUTATING word only reads: help, usage, version, and
+#: `sbatch --test-only` (which reports when a job would start, submitting nothing).
+READ_ONLY_FLAGS = frozenset({"-h", "--help", "--usage", "-V", "--version", "--test-only"})
 #: `scontrol` subcommands that only read. Everything else (hold, release,
 #: update, requeue, suspend, top, reconfigure …) changes the cluster.
 SCONTROL_READ_ONLY = frozenset({"show", "ping", "version", "help", "listpids", "-h", "--help", "-V", "--version"})
@@ -67,6 +75,7 @@ _OPTION_WRAPPERS = {
     "stdbuf": ("ioe", 0),
     "timeout": ("sk", 1),
     "xargs": ("aEdIiLlnPs", 0),
+    "parallel": ("jSN", 0),
     "watch": ("dn", 0),
 }
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
@@ -78,7 +87,11 @@ _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 _SEPARATORS = ";&|\n()`"
 #: Cheap pre-filter: nothing to judge unless a scheduler word appears at all.
-_TRIGGER = re.compile(r"\b(sbatch|scancel|scontrol|autofit\.campaign)\b")
+#: Searched with quotes and backslashes removed, so `s\batch` or `"sb""atch"`
+#: (which the shell reads as `sbatch`) still reach the clause parser.
+_TRIGGER = re.compile(r"\b(sbatch|scancel|scontrol|srun|salloc|autofit\.campaign)\b")
+_UNQUOTE = re.compile(r"[\\'\"]")
+_ESCAPE_HATCH = "PYAUTO_SKIP_SCHEDULER_GUARD=1"
 _PYTHON = re.compile(r"^python[0-9.]*$")
 
 DENY_REASON = (
@@ -178,7 +191,9 @@ def _ssh_remote(tokens: list[str], i: int) -> str:
     """The remote command of ``ssh [opts] host <command …>`` (``tokens[i]`` is
     the word after ``ssh``), joined as the remote shell will read it."""
     i = _skip_options(tokens, i, _SSH_VALUE_OPTS)
-    return " ".join(tokens[i + 1 :])  # past the host
+    # OpenSSH also takes options after the host (`ssh ral -t "sbatch j"`).
+    i = _skip_options(tokens, i + 1, _SSH_VALUE_OPTS)
+    return " ".join(tokens[i:])
 
 
 def _judge_clause(tokens: list[str], depth: int) -> str | None:
@@ -186,6 +201,8 @@ def _judge_clause(tokens: list[str], depth: int) -> str | None:
     while i < len(tokens):
         word = tokens[i]
         base = os.path.basename(word)
+        if word == _ESCAPE_HATCH:
+            return None  # a human-directed exception, as this clause's prefix
         if _ASSIGNMENT.match(word) or word in _PREFIXES or word == "$":
             i += 1
         elif base in _OPTION_WRAPPERS:
@@ -201,13 +218,19 @@ def _judge_clause(tokens: list[str], depth: int) -> str | None:
             return None  # `bash script.sh` — a script, not a scheduler word
         elif base == "eval":
             return _judge(" ".join(tokens[i + 1 :]), depth + 1)
+        elif base == "find":
+            # `find … -exec sbatch {} \;` runs the word after -exec.
+            for k in range(i + 1, len(tokens) - 1):
+                if tokens[k] in ("-exec", "-execdir", "-ok", "-okdir"):
+                    return _judge_clause(tokens[k + 1 :], depth + 1)
+            return None
         else:
             break
     if i >= len(tokens):
         return None
     base = os.path.basename(tokens[i])
     if base in MUTATING:
-        return base
+        return None if READ_ONLY_FLAGS & set(tokens[i + 1 :]) else base
     if _PYTHON.match(base):
         rest = tokens[i + 1 :]
         for j in range(len(rest) - 2):
@@ -233,7 +256,7 @@ def _judge_clause(tokens: list[str], depth: int) -> str | None:
 
 def _judge(command: str, depth: int = 0) -> str | None:
     """The first scheduler mutation ``command`` runs, or None."""
-    if depth > 8 or not _TRIGGER.search(command):
+    if depth > 8 or not _TRIGGER.search(_UNQUOTE.sub("", command)):
         return None
     command, bodies = _strip_heredocs(command)
     for clause in _clauses(command):
@@ -249,8 +272,6 @@ def _judge(command: str, depth: int = 0) -> str | None:
 
 def check_command(command: str) -> str | None:
     """Return a denial reason, or None to allow."""
-    if "PYAUTO_SKIP_SCHEDULER_GUARD=1" in command:
-        return None
     try:
         word = _judge(command)
     except ValueError:

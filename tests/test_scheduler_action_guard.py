@@ -70,6 +70,21 @@ DENIED = [
     "ssh ral 'cd /mnt/ral/x && python -m autofit.campaign submit campaign.yaml'",
     "python3 -m autofit.campaign submit campaign.yaml --stage source_lp",
     "/opt/venv/bin/python3.12 -m autofit.campaign submit c.yaml --proposal p.json",
+    # srun / salloc start work too (human ruling 2026-10-31)
+    "srun -n 4 python fit.py",
+    "ssh ral 'salloc -p ral -N 1'",
+    # quoting or escaping that the shell reads as the bare word (review 2026-10-31)
+    "s\\batch job.sh",
+    'eval "sb""atch job.sh"',
+    # ssh options after the host
+    'ssh ral -t "sbatch job.sh"',
+    "ssh ral -p 22 scancel 1",
+    # find -exec, parallel
+    "find . -name '*.sh' -exec sbatch {} \\;",
+    "parallel -j 4 scancel ::: 1 2 3",
+    # the escape hatch excuses only the clause it prefixes
+    "echo PYAUTO_SKIP_SCHEDULER_GUARD=1; sbatch job.sh",
+    'git commit -m "PYAUTO_SKIP_SCHEDULER_GUARD=1" && scancel 1',
 ]
 
 ALLOWED = [
@@ -97,6 +112,12 @@ ALLOWED = [
     "scontrol -M ral show partition",
     "scontrol ping",
     "sinfo -p ral",
+    # options with which a scheduler word only reads
+    "sbatch --help",
+    "ssh ral sbatch --test-only job.sh",
+    "srun --usage",
+    "salloc -V",
+    "find . -name '*.sh' -exec grep -l sbatch {} +",
     # mentions, not calls
     'git commit -m "docs: never sbatch or scancel by hand"',
     "grep -rn sbatch hpc/",
@@ -133,6 +154,7 @@ def test_the_reason_names_the_word_it_caught():
 
 def test_escape_hatch_allows():
     assert check_command("PYAUTO_SKIP_SCHEDULER_GUARD=1 scancel 1") is None
+    assert check_command("cd x && PYAUTO_SKIP_SCHEDULER_GUARD=1 ssh ral scancel 1") is None
 
 
 def test_unbalanced_quotes_fail_open():

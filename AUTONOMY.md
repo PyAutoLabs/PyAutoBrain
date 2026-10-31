@@ -712,19 +712,25 @@ prints it:
 `hpc/sync status <campaign.yaml>` pulls the log back with the digest, into
 `hpc/campaign/<name>/`. It is append-only: nothing rewrites or trims it.
 
-**What enforces it.** A raw `sbatch`, `scancel`, mutating `scontrol` (any
+**What enforces it.** A raw `sbatch`, `scancel`, `srun`, `salloc`, mutating `scontrol` (any
 subcommand but `show`, `ping`, `version`, `help`) or `python -m
 autofit.campaign submit` (but `--dry-run`) is refused by
 `bin/scheduler_action_guard.py`, a PreToolUse(Bash) hook for Claude and Codex —
 typed directly, over `ssh`, in `bash -c`/`eval`, behind env assignments or
-wrappers, chained, substituted, or in a heredoc fed to a shell. `scontrol show`
-stays allowed because recording a run as GPU needs `gres/gpu` from `scontrol
-show job`. A mention (a commit message, `grep sbatch`) is not a call. The hook
+wrappers (`xargs`, `parallel`, `find -exec` …), chained, substituted, or in a
+heredoc fed to a shell. Help, usage, version and `sbatch --test-only` only read
+and are allowed, as is `scontrol show`,
+which stays allowed because recording a run as GPU needs `gres/gpu` from
+`scontrol show job`. `srun`/`salloc` are refused too (human ruling 2026-10-31):
+they start work outside any log; only the command an agent types is judged, so
+`srun` inside a batch script is untouched. A mention (a commit message, `grep sbatch`) is not a call. The hook
 is textual: a scheduler call inside a script or a Python `subprocess` is not
-seen, and this table is what governs it. Human-directed exception:
-`PYAUTO_SKIP_SCHEDULER_GUARD=1`. The hook ships as source and tests; registering
-it in `.claude/settings.json` and `.codex/hooks.json` (through
-`PyAutoMind/scripts/repos_sync.py`) is a separate, human-approved step.
+seen, and this table is what governs it. Human-directed exception (kept by human ruling 2026-10-31):
+`PYAUTO_SKIP_SCHEDULER_GUARD=1` in the environment or as the leading assignment
+of the command it excuses — a mention elsewhere excuses nothing. Registration
+(human-approved 2026-10-31) follows this source's merge: the workspace-root
+`.claude/settings.json` Bash hooks and `PyAutoMind/scripts/repos_sync.py`'s
+Codex hook list.
 
 ## Hard invariants (every level, no exceptions)
 
