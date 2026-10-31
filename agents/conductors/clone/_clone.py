@@ -148,6 +148,10 @@ REFERENCE_PROFILES = {
             "skills/al_*.md",             # every al_* skill body
             ".claude/skills/al_*.md",     # ... and their harness mirrors
             "skills/init-slam.md", ".claude/skills/init-slam.md",  # SLAM = lensing
+            # Running a lens sample through SLaM stages on a cluster: the
+            # stages, Pulse keys and resources are lensing (like `hpc/*`).
+            "skills/hpc_campaign.md", ".claude/skills/hpc_campaign.md",
+            ".claude/commands/hpc_campaign.md",
             # The euclid mode: a survey-specific pipeline register (its skills
             # + its own sub-wiki). Lensing science throughout — a newborn grows
             # whatever survey modes its own domain has, if any.

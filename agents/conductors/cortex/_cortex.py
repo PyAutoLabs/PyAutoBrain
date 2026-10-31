@@ -1479,7 +1479,7 @@ def run_jobs(row: dict) -> str | None:
     return _run_verbatim(_cli(row, "jobs"), "jobs")
 
 
-# A project whose runs are PyAutoFit campaigns (`campaign_file:` in its row)
+# A project whose runs are campaigns (`campaign_file:` in its row)
 # is read through the campaign digest, not raw squeue: `<sync_cli> status
 # <campaign.yaml>` collects the campaign on the cluster and pulls its
 # `digest.json`, and the Cortex's own `sync-runs` reads that digest (schema
