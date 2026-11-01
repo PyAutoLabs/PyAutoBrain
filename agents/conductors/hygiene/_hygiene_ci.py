@@ -38,7 +38,8 @@ plain fact about the file rather than a diagnosis:
 * ``env_knob``      — the script reads an ``os.environ.get("NAME", "<int>")``
                       sizing knob: a ``set:`` override in the smoke profile can
                       shrink the run without touching the file;
-* ``simulates``     — it calls ``should_simulate`` and spawns the simulator
+* ``simulates``     — it calls ``should_simulate`` (or its one-line wrapper
+                      ``simulate_if_needed``) and spawns the simulator
                       when the dataset is absent: with the dataset cache cold
                       the simulation is paid inside the script's own timing;
 * ``jax_jit``       — it JITs (``jax.jit`` / ``ENV: jax``): compile cost, paid
@@ -230,7 +231,7 @@ def levers_from_text(text: str) -> list[dict]:
     for name, default in _ENV_KNOB.findall(text):
         out.append({"lever": "env_knob", "detail": f"{name} (default {default})",
                     "action": f"set {name} lower for smoke via a profile_smoke.yaml `set:` override"})
-    if "should_simulate(" in text:
+    if "should_simulate(" in text or "simulate_if_needed(" in text:
         out.append({"lever": "simulates", "detail": "runs the simulator when the dataset is absent",
                     "action": "cold dataset cache → simulation is inside this timing; check cache_datasets"})
     tokens = set()

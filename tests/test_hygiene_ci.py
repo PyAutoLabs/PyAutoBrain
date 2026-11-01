@@ -115,6 +115,13 @@ aplt.subplot(x)
     assert "real_search" not in levers
 
 
+def test_simulate_if_needed_counts_as_simulates():
+    """The one-line wrapper swept into the workspaces must keep the lever."""
+    text = 'al.util.dataset.simulate_if_needed(p, simulator="scripts/sim.py")\n'
+    levers = {l["lever"] for l in ci.levers_from_text(text)}
+    assert "simulates" in levers
+
+
 def test_real_output_token_releases_every_var():
     levers = {l["lever"] for l in ci.levers_from_text('"""\n__Env__\nENV: real_output\n"""\n')}
     assert {"jax_jit", "full_datasets", "real_search"} <= levers
