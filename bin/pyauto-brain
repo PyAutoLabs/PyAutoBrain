@@ -181,7 +181,12 @@ ensure_session_environment() {
   [[ -z "${PYAUTO_SKIP_BOOTSTRAP:-}" ]] || return 0
   local boot
   local mind_checkout
-  mind_checkout="$(resolve_mind)" || return 0
+  # resolve_mind lives in agents/_common.sh, which this dispatcher does not
+  # source (the agents do). Resolve in a subshell so the shared helpers stay
+  # out of the dispatcher's namespace; an unresolvable Mind just skips the
+  # bootstrap, as before.
+  mind_checkout="$(. "$BRAIN_HOME/agents/_common.sh" && resolve_mind 2>/dev/null)" \
+    || return 0
   boot="$mind_checkout/scripts/session_bootstrap.sh"
   [[ -x "$boot" ]] || return 0
   bash "$boot" >/dev/null 2>&1 || true
