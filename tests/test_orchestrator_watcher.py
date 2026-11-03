@@ -238,10 +238,12 @@ def test_a_refused_brief_dispatches_nothing(tmp_path):
 
 # --- fake mode only, and the entry --------------------------------------------------
 
-def test_real_dispatch_is_refused_until_3b(tmp_path, monkeypatch):
+def test_real_dispatch_needs_a_sandbox_brief_until_3c(tmp_path, monkeypatch):
+    # 3b replaced 3a's blanket refusal: real workers exist, but only a
+    # `sandbox: yes` brief may start one until the one-Mind-writer path (3c).
     monkeypatch.delenv(orch.FAKE_ENV, raising=False)
     mind, brief, home = _shift(tmp_path, names=("t1",))
-    with pytest.raises(orch.OrchestratorError, match="phase 3b"):
+    with pytest.raises(orch.OrchestratorError, match="sandbox: yes"):
         orch.tick(brief, mind, home=home, now=NOW)
     # The lease it could not fill is not left behind to block the task.
     assert orch.leases(orch.slot_dir(brief, home)) == {}
