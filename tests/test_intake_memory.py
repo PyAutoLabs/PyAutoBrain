@@ -164,7 +164,7 @@ def test_library_target_with_hits_still_gets_memory_line(tmp_path, monkeypatch):
     monkeypatch.delenv("PYAUTO_MEMORY", raising=False)
     mind = _mind(tmp_path)
     _memory(tmp_path)
-    raw = _declared("PyAutoLens")
+    raw = _declared(sorted(_intake.LIBRARY_REPOS)[0])  # any library, read from repos.yaml
     decision = _intake.analyse(raw, "test")
     assert decision["target_source"] == "declared"
     rel = _intake.write_prompt(mind, decision, raw, "test")
