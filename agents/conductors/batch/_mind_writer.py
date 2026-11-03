@@ -23,11 +23,12 @@ Every path must be *ledger* by PyAutoMind's own rule (`scripts/ledger_merge.py`
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
+import types
 from pathlib import Path
 
 OPS = ("append", "write", "move", "remove", "drop-section")
@@ -41,13 +42,22 @@ class MindWriteError(RuntimeError):
 
 
 def _ledger_merge(mind_repo: Path):
-    """PyAutoMind's own `ledger_merge` module, from the checkout we write to."""
+    """PyAutoMind's own `ledger_merge` module, from the checkout we write to.
+
+    Compiled from source rather than imported: an import writes
+    `scripts/__pycache__/` into the canonical checkout, and this module's
+    promise is that the canonical working tree is never written."""
     path = Path(mind_repo) / "scripts" / "ledger_merge.py"
-    spec = importlib.util.spec_from_file_location("_mind_ledger_merge", path)
-    if spec is None or not path.is_file():
+    if not path.is_file():
         raise MindWriteError(f"no scripts/ledger_merge.py under {mind_repo}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    name = "_mind_ledger_merge"
+    mod = types.ModuleType(name)
+    mod.__file__ = str(path)
+    sys.modules[name] = mod  # dataclasses and friends look the module up by name
+    try:
+        exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), mod.__dict__)
+    finally:
+        sys.modules.pop(name, None)
     return mod
 
 

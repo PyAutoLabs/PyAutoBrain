@@ -107,7 +107,10 @@ def _remote_tree(bare, path):
     return git(bare, "show", f"main:{path}", check=False)
 
 
-def test_two_workers_land_in_one_orchestrator_commit(tmp_path, mind):
+def test_two_workers_land_in_one_orchestrator_commit(tmp_path, mind, monkeypatch):
+    # Bytecode writing ON, whatever the shell says: CI writes it, and an import
+    # of Mind's scripts once left scripts/__pycache__/ in the canonical tree.
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
     bare, canon, _ = mind
     slot = tmp_path / "slot"
     before = (git(canon, "status", "--porcelain").stdout, git(canon, "rev-parse", "HEAD").stdout)
