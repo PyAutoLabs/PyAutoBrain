@@ -26,6 +26,7 @@ html_show_copyright = True
 language = "en"
 
 html_static_path = ["_static"]
+html_extra_path = ["_extra"]  # e.g. organs/build.html -> hands.html after the rename
 html_css_files = ["pyauto.css"]
 
 html_theme_options = {

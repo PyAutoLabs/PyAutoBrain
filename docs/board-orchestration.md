@@ -20,7 +20,7 @@ Supply the lowercase `organ` key for the approved action heading. The shared
 `prompt_heading(organ, heading_id=None)` helper also serves existing owner-specific
 controls without changing their prompts. It selects fixed text and emphasizes only
 the organ name with `strong`; it never accepts arbitrary heading HTML. Titles for
-legacy callers remain escaped plain text. All thirteen organ headings live in
+legacy callers remain escaped plain text. Every organ heading lives in
 `board/_theme.py`; reuse that mapping rather than copying sentences into renderers.
 Keep each heading on one line with responsive typography; do not hide overflow or
 truncate words. Omit explanatory subtitles and preserve work links/copy controls.

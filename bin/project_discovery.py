@@ -326,7 +326,7 @@ def main() -> int:
     parser.add_argument('mode', choices=('write', 'check', 'starter-write', 'starter-check'))
     parser.add_argument('repos', nargs='*')
     parser.add_argument('--root', type=Path, default=Path(os.environ.get('PYAUTO_ROOT', '.')))
-    args = parser.parse_args()
+    args = parser.parse_intermixed_args()  # install.sh puts --root before the repo names
     try:
         if args.mode.startswith('starter-'):
             if args.repos:

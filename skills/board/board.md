@@ -13,21 +13,21 @@ nothing; every chip on it routes back through the real doors.
 
    **Without `gh` (mobile, web), gather first — you are the only thing that
    can.** The `mcp__github__*` tools are an agent capability; `_board.py` is a
-   subprocess and cannot reach them. So fetch the overnight legs yourself,
+   subprocess and cannot reach them. So fetch the GitHub legs yourself,
    write them to a scratch file keyed by endpoint, and hand it over:
 
    ```
    bin/pyauto-brain board --github-data /tmp/board-github-data.json
    ```
 
-   For each `overnight_jobs` entry in `config/policy.yaml`
-   (`<repo>:<workflow>`), one `mcp__github__actions_list`
-   (`list_workflow_runs`, `resource_id` = the workflow file, `per_page` 1),
-   stored under `repos/<org>/<repo>/actions/workflows/<wf>/runs?per_page=1`.
-   Add `.../actions/runs/<id>/jobs` (`list_workflow_jobs`) where you want the
-   blocked-at-a-gate refinement. Store each response **verbatim**: the row
-   reads `conclusion`, `status`, `created_at` (**not** `updated_at` — that one
-   renders the age as `?`) and `html_url`. The file's shape, and the three rules a
+   Today that is one key — upkeep's open-issue count, stored under
+   `search/issues?q=org:<org>+is:issue+is:open&per_page=1` as GitHub's search
+   response verbatim (the leg reads `total_count`). If your tools cannot run
+   that search, store `null`: the leg then says it is unread rather than
+   reporting zero. Overnight, versions, community and resume are retired and
+   need nothing. Store each response **verbatim**: field names are part of the
+   contract (the retired overnight row, for instance, read `created_at`, never
+   `updated_at`). The file's shape, and the three rules a
    gatherer must not bend — a miss is *could not ask*, an explicit `null` says
    the fetch failed, a broken file is fatal rather than degrading — are the
    contract in [`../../board/AGENTS.md`](../../board/AGENTS.md) → "Reading the

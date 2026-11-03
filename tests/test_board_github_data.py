@@ -144,3 +144,64 @@ def test_an_uninjected_workflow_stays_unreadable_and_degrades(tmp_path):
 
     assert rows[0]["unreadable"] is True
     assert degraded, "a leg that could not be read must degrade the render"
+
+
+# --------------------------------------------------------------------------
+# Phase 2: versions, community, resume, upkeep
+#
+# Of the four legs phase 1 left dark, three (versions, community, resume) were
+# retired with the agents/workflows simplification: `collect()` no longer runs
+# `bin/version_drift.sh`, the community scan or the pending-release search, so
+# neither those scripts nor the board need a seam for them. Upkeep is the one
+# that still reads GitHub, and it already goes through `gh_json` — so the
+# phase-1 seam covers it with one more key and no second shape.
+# --------------------------------------------------------------------------
+
+PHASE2_LEGS = ("versions", "community", "resume", "upkeep")
+
+
+def _remote_collect(monkeypatch):
+    """`collect()` as a gh-less session runs it, with only the non-GitHub
+    sources (body map, Pages, local subprocess legs) stubbed out."""
+    monkeypatch.setattr(_board, "load_policy", dict)
+    monkeypatch.setattr(_board, "repo_homes", list)
+    monkeypatch.setattr(_board, "derive_org", lambda _homes: "Org")
+    monkeypatch.setattr(_board, "fetch_heart_board", lambda *a: {})
+    monkeypatch.setattr(_board, "collect_hygiene", lambda _degraded: None)
+    monkeypatch.setattr(_board, "collect_devbox", lambda: None)
+    monkeypatch.setattr(_board, "collect_doors", list)
+    return _board.collect()
+
+
+def _phase2_unread(data):
+    return [d for d in data["degraded"] if d.split(":", 1)[0] in PHASE2_LEGS]
+
+
+def test_a_remote_render_reads_all_four_phase2_legs(tmp_path, monkeypatch):
+    """The headline criterion: with `--github-data`, zero of the four unread."""
+    _board.load_github_data(_write(tmp_path, {
+        # GitHub's search payload, verbatim; the leg reads `total_count`.
+        _board.open_issues_endpoint("Org"): {
+            "total_count": 17, "incomplete_results": False, "items": []},
+    }))
+
+    data = _remote_collect(monkeypatch)
+
+    assert _phase2_unread(data) == [], data["degraded"]
+    assert data["open_issues"] == 17
+    # The retired legs are compatibility placeholders, never fetched.
+    assert data["community"] is None
+    assert data["versions"]["stamps"] == []
+    assert data["resume"]["pending_prs"] == []
+
+
+def test_without_the_upkeep_key_the_leg_names_itself_unread(tmp_path, monkeypatch):
+    """A gatherer that could not ask leaves upkeep dark — and says so, rather
+    than reporting zero open issues."""
+    _board.load_github_data(_write(tmp_path, {
+        _board.open_issues_endpoint("Org"): None}))
+
+    data = _remote_collect(monkeypatch)
+
+    assert _phase2_unread(data) == ["upkeep: open-issue count unavailable"]
+    assert data["open_issues"] is None
