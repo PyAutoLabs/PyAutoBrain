@@ -41,7 +41,7 @@ from _sizing import (  # noqa: E402
     WORK_TYPES, HUMAN_REVIEW, MANUAL_ONLY_WORK_TYPES,
     LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
     RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, norm_work_type,
-    declared_header, LANE_VALUES,
+    declared_header, LANE_VALUES, _body_map_specs,
     declared_inline, effective_difficulty, strip_declarations, _hits,
     effective_consequence, effective_unattended, effective_review_minutes,
     policy as _sizing_policy, BODY_MAP_PATH,
@@ -817,12 +817,29 @@ def memory_citations(mind: Path, title: str, body_text: str,
     return [page["page"] for page in d["pages"]][:limit]
 
 
+def _organs_dir_repos() -> frozenset:
+    """Normalised names of body-map repos checked out under `organs/`."""
+    try:
+        specs = _body_map_specs()
+    except (OSError, KeyError, ValueError):
+        return frozenset()
+    return frozenset(normalise_repo(name) for name, spec in specs.items()
+                     if str(spec.get("path", "")).startswith("organs/"))
+
+
+_ORGANS_DIR_REPOS = _organs_dir_repos()
+
+
 def _cites_memory(target: str | None) -> bool:
     """Whether a prompt with this `Target:` key carries a `Memory:` line.
 
-    False for an organ target: see the block comment above.
+    False for an organ target: see the block comment above. "Organ" here also
+    covers any repo whose body-map `path` sits under `organs/` (e.g. the
+    umbrella landing repo, `category: project` but organism machinery, not
+    science).
     """
-    return normalise_repo(target or "") not in ORGANISM_REPOS
+    key = normalise_repo(target or "")
+    return key not in ORGANISM_REPOS and key not in _ORGANS_DIR_REPOS
 
 
 def _with_memory(header: str, pages: list, target: str | None = None) -> str:

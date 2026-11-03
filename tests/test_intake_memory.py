@@ -147,6 +147,10 @@ def test_organ_target_gets_no_memory_line(tmp_path, monkeypatch):
               "PyAutoHands", "PyAutoNerves", "PyAutoEyes", "PyAutoPulse",
               "PyAutoInsight", "PyAutoMemory", "PyAutoBroca", "PyAutoGut",
               "PyAutoDNA", "PyAutoEars")
+    # plus every non-organ repo the body map checks out under organs/
+    extra = tuple(sorted(_intake._ORGANS_DIR_REPOS - _intake.ORGANISM_REPOS))
+    assert extra, "expected a non-organ repo under organs/ in repos.yaml"
+    organs = organs + extra
     for organ in organs:
         raw = _declared(organ)
         decision = _intake.analyse(raw, "test")
