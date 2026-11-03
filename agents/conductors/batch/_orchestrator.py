@@ -16,8 +16,10 @@ end at their deliverable") and `AUTONOMY.md` "Shift briefs and unattended
 Workers are fake stubs (`PYAUTO_ORCHESTRATOR_FAKE=1`, phase 3a) or real
 `claude --bg` sessions from one session template (phase 3b). A real worker's
 liveness is its `claude agents --json` state; one left `blocked` past a grace
-is parked for a human — never killed, never re-dispatched. Until phase 3c (one
-Mind writer) lands, real workers run only under a `sandbox: yes` brief.
+is parked for a human — never killed, never re-dispatched. Workers never
+commit to PyAutoMind (phase 3c): they queue ledger ops (`bin/shift_ledger.py`)
+and each tick commits them from a temporary worktree (`_mind_writer.py`); a
+git hook injected through the worker's environment refuses a direct commit.
 Nothing here commits, merges, posts or arms a timer: the systemd timer that
 calls `bin/orchestrator_watch.py` is installed by the human.
 """
@@ -33,6 +35,7 @@ import sys
 from pathlib import Path
 
 import _brief  # noqa: E402 — the batch conductor puts this directory on sys.path
+import _mind_writer  # noqa: E402
 
 STOP_FILE = "STOP"
 LOCK_FILE = "tick.lock"
@@ -50,6 +53,10 @@ REDISPATCH_LIMIT = 1
 STALL_GRACE_S = 900
 #: The worker prompt every real worker starts from (never a bare session).
 WORKER_TEMPLATE = Path(__file__).with_name("worker_template.md")
+#: Hooks every worker's git runs with (core.hooksPath, set through GIT_CONFIG_*):
+#: its pre-commit refuses a commit in PyAutoMind and chains to the repo's own.
+WORKER_HOOKS = Path(__file__).resolve().parents[3] / "bin" / "worker_git_hooks"
+SHIFT_LEDGER = Path(__file__).resolve().parents[3] / "bin" / "shift_ledger.py"
 
 FAKE_ENV = "PYAUTO_ORCHESTRATOR_FAKE"
 HOME_ENV = "PYAUTO_ORCHESTRATOR_HOME"
@@ -173,7 +180,23 @@ class FakeSpawner:
 def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path) -> str:
     """The session template filled in for one task."""
     return WORKER_TEMPLATE.read_text(encoding="utf-8").format(
-        task=task, task_path=prompt_path, brief_path=brief_path, lease_dir=lease_dir)
+        task=task, task_path=prompt_path, brief_path=brief_path, lease_dir=lease_dir,
+        ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
+        shift_ledger=SHIFT_LEDGER)
+
+
+def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
+    """The environment a worker runs in: marked as a shift worker, pointed at
+    the shift's ledger, and with git's hooks path overridden so a commit in
+    PyAutoMind is refused whatever tool makes it."""
+    env = dict(os.environ if base is None else base)
+    n = int(env.get("GIT_CONFIG_COUNT", "0") or 0)
+    env.update({"PYAUTO_SHIFT_WORKER": "1",
+                "PYAUTO_SHIFT_LEDGER_DIR": str(Path(lease_dir).parent / _mind_writer.LEDGER_DIR),
+                "GIT_CONFIG_COUNT": str(n + 1),
+                f"GIT_CONFIG_KEY_{n}": "core.hooksPath",
+                f"GIT_CONFIG_VALUE_{n}": str(WORKER_HOOKS)})
+    return env
 
 
 def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Path,
@@ -204,7 +227,8 @@ class RealSpawner:
 
     def spawn(self, task: str, prompt_path: str, lease_dir: Path) -> dict:
         argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode)
-        res = self.run(argv, cwd=self.cwd, capture_output=True, text=True, timeout=120)
+        res = self.run(argv, cwd=self.cwd, capture_output=True, text=True, timeout=120,
+                       env=worker_env(lease_dir))
         # An untrusted folder is refused here, fast ("Workspace not trusted") —
         # never a silent stall. Workers start from a folder the human trusted.
         if res.returncode != 0:
@@ -443,13 +467,16 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                  tokens) -> dict:
     counters = read_counters(slot)
-    # One Mind writer (AUTONOMY.md, 2026-11-03) is phase 3c. Until it lands a
-    # real worker would commit to PyAutoMind itself, so real dispatch is fenced
-    # to briefs that declare themselves a sandbox.
-    if getattr(spawner, "real", False) and not _brief.is_sandbox(brief):
-        raise OrchestratorError("real dispatch needs `sandbox: yes` in the brief "
-                                "until phase 3c (one Mind writer) lands")
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
+    # One Mind writer: whatever the workers queued is committed here, by the
+    # orchestrator alone, from a temporary worktree — never by a worker.
+    ledger = {"committed": None, "ops": 0}
+    if _mind_writer.pending_ops(slot):
+        try:
+            ledger = _mind_writer.commit_ledger(
+                slot, mind, f"shift {slot.name}: ledger from workers")
+        except _mind_writer.MindWriteError as e:
+            ledger = {"committed": None, "error": str(e)}
     live = leases(slot)
     max_workers = _brief.cap_of(brief, "max-workers")
     max_sessions = _brief.cap_of(brief, "max-sessions")
@@ -497,7 +524,7 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     counters["refusals"] += [dict(r, at=_iso(now)) for r in refused]
     _write_counters(slot, counters)
     return {"action": "ticked", "reaped": reaped, "spawned": spawned,
-            "refused": refused, "live": sorted(live)}
+            "refused": refused, "live": sorted(live), "ledger": ledger}
 
 
 def main(argv=None) -> int:

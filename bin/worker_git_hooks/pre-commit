@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Shift workers' pre-commit hook (AUTONOMY.md "One Mind writer per shift").
+# A worker's environment points core.hooksPath here (GIT_CONFIG_* set by the
+# orchestrator's spawner), so this runs for every commit the worker makes, in
+# every repo. In PyAutoMind it refuses; anywhere else it hands over to the
+# repo's own pre-commit hook, if it has one.
+set -u
+if [ "${PYAUTO_SHIFT_WORKER:-}" = "1" ]; then
+  origin="$(git config --get remote.origin.url 2>/dev/null || true)"
+  case "$origin" in
+    */PyAutoMind|*/PyAutoMind.git|*/PyAutoMind/)
+      echo "pre-commit: shift workers never commit to PyAutoMind — hand the change to the orchestrator with" >&2
+      echo "  bin/shift_ledger.py append|write|move|remove|drop-section ...   (ledger: \$PYAUTO_SHIFT_LEDGER_DIR)" >&2
+      exit 1 ;;
+  esac
+fi
+# The repo's OWN hook: `--git-path hooks/...` would resolve to this overridden
+# hooks dir and re-run this script, so read the real one from the git dir.
+own="$(git rev-parse --git-common-dir 2>/dev/null || true)/hooks/pre-commit"
+if [ -n "$own" ] && [ -x "$own" ]; then
+  exec "$own" "$@"
+fi
+exit 0
