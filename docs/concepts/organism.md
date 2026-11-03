@@ -5,7 +5,9 @@ working with libraries and projects. Their boundaries are load-bearing. The cano
 definition lives in the Brain repo as
 [ORGANISM.md](https://github.com/PyAutoLabs/PyAutoBrain/blob/main/ORGANISM.md)
 — one page every organ links to instead of restating. This page summarises
-it and adds the framework/instance distinction an adopter needs.
+it and adds the framework/instance distinction an adopter needs. The list of
+organs grows over time; when this table and ORGANISM.md disagree, ORGANISM.md
+and the Mind's `repos.yaml` (every repo with `category: organ`) win.
 
 | Organ | Repo | Job |
 |-------|------|-----|
@@ -19,7 +21,9 @@ it and adds the framework/instance distinction an adopter needs.
 | **Hands** | PyAutoHands | *Does* — packaging, tagging, notebook generation, PyPI releases. A pure executor: never re-derives a gate decision. |
 | **Pulse** | PyAutoPulse | *Feels* — the cross-project profiling registry, the versioned `profiling-summary` read contract, ingest receipts and dashboard. Project repos produce and hold timings; Pulse validates the exchange and links to them. The Brain's profiling conductor handles judgment. |
 | **Insight** | PyAutoInsight | Coordinates inference campaign intent and domain tasks; owns the inference summary contract, registry, receipts and evidence board. Projects execute and retain samples; Cortex records scientific conclusions; Mind holds implementation lifecycle and claims. |
+| **DNA** | PyAutoDNA | *Remembers what it is made of* — software-stack specifications, environment inventory receipts, support rationale and upgrade/adoption history. Brain coordinates upgrades, Heart validates, Hands releases, Nerves enforces runtime compatibility; collection never upgrades an environment. |
 | **Nerves** | PyAutoNerves | *Connects* — the configuration/serialization layer (`autonerves`): layered config, the workspace↔library version handshake, `test_mode`, FITS/JSON I/O. The base layer every library imports. |
+| **Broca** | PyAutoBroca | *Watches the assistants* — assistant evaluation history, upkeep evidence, collection receipts and the upkeep board. Brain interprets; Mind tracks fixes; the public assistants stay independent of it. |
 | **Gut** | PyAutoGut | *Sheds* — the lifecycle of condemned self-material (stale branches, stashes, dead code/tests): holds each as a durable, recoverable git ref through a transit window, then **voids** it on a sweep. The storage mirror of Memory (retention ↔ release); the hygiene conductor drives it, as vitals reads Heart. |
 
 Everything else — the libraries being developed, their example workspaces,
@@ -38,7 +42,7 @@ is the container, and a workspace is one familiar kind of project.
 These roles do not replace the {doc}`repository categories <../satellites>` or
 change their workflow and release gates. Profiling, inference and visualization
 repos illustrate the project role; Eyes, Pulse and Insight provide cross-project organ
-views over the visualization and profiling projects. The project-to-organ
+views over the visualization, profiling and inference projects. The project-to-organ
 boundary is described in {doc}`../organs/eyes` and {doc}`../organs/pulse`.
 
 ## The call chain
@@ -61,11 +65,15 @@ The organs split on one line that matters for adoption:
   pipelines. Domain facts appear only in declared config surfaces (tables
   and policy files, not logic), and a drift check — the
   {ref}`tenant firewall <tenant-firewall>` — keeps it that way.
-- **Instance organs — Mind, Cortex, Memory, Eyes, Ears, Pulse, Insight, Gut.** Committed
-  state, ledgers, knowledge, visualization and profiling registries and shed
-  material. These are *inherently yours*: an adopter never forks the upstream
-  Mind, Cortex, Memory, Eyes, Ears, Pulse, Insight or Gut content, they create their own repos with the same documented
-  shape.
+- **Instance organs — every other organ except Nerves.** Mind, Cortex,
+  Memory, Eyes, Ears, Pulse, Insight, DNA, Broca and Gut hold committed
+  state: ledgers, knowledge, visualization, profiling and inference
+  registries, stack records, assistant evidence and shed material. These are
+  *inherently yours*: an adopter never forks their upstream content, but
+  creates their own repos with the same documented shape.
+- **Nerves sits outside the split.** It is an organ that also ships a library
+  package (`autonerves`) the scientific libraries import. You adopt it only if
+  your own libraries want that config layer; see {doc}`../organs/nerves`.
 
 One more principle worth knowing before you read anything else:
 **one canonical page per fact.** Organ boundaries live in ORGANISM.md;

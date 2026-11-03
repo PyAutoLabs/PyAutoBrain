@@ -12,9 +12,13 @@ ship.
 The Hands are a **pure executor**: no readiness checks of their own, no
 re-deriving of gate decisions. Readiness is gated upstream — the Brain's
 release path consults the vitals faculty, which reads Heart, and only a
-GREEN verdict reaches the dispatch. Historically Build owned some checking;
-that all migrated to Heart, and thin shims remain so old entry points still
-work.
+GREEN verdict reaches the dispatch. Historically the Hands (then the
+PyAutoBuild repo) owned some checking; that all migrated to Heart, and thin
+shims remain so old entry points still work.
+
+*Build* is still the name of the call-chain step the Hands perform
+(`Brain → Heart → Build`), which is why you will see both words. The organ is
+the Hands.
 
 ## The pieces
 
