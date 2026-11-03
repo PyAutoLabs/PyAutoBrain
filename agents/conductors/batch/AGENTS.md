@@ -128,7 +128,10 @@ and from the signal the organism already uses: a remote session has no `gh`
 (measured; `skills/GITHUB_ACCESS.md`). No flag and no environment variable
 decides it — a session that could lie about where it is could plan `local-dev`
 work it cannot run. A session reports the other lane's ready count rather than
-hiding it: *"4 local-dev task(s) are ready — run `batch plan` from the laptop."*
+hiding it, by resource: *"4 laptop-lane task(s) are ready (3 ral, 1 local-dev) — run
+`batch plan` from the laptop."* A task's `Lane:` is `any`, `local-dev`, or one
+of the resource lanes `ral` / `gpu` / `wsl-data`, each of which implies
+`local-dev` (`lane_is_local` in the sizing faculty is the one test).
 
 ## It proposes; the human launches
 

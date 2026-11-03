@@ -437,7 +437,18 @@ UNATTENDED_LEVELS = ("ready", "needs-slicing", "never")
 # `analysis-only`) rather than a parallel cloud/laptop one — `local-dev` means
 # the work needs the local dataset and output trees, an SSH endpoint, or the
 # human at the machine. Default `any`.
-LANE_VALUES = ("any", "local-dev")
+#
+# `ral`, `gpu` and `wsl-data` (2026-11-03, autonomous-orchestrators phase 2)
+# name the resource the work needs: RAL test runs, the laptop GPU, data under
+# `/mnt/c`. Each REFINES `local-dev` rather than replacing it, so every consumer
+# that only asks "laptop or not?" goes through `lane_is_local` and keeps
+# working. `none` is spelled `any` (`PyAutoMind/REFERENCE.md`).
+LANE_VALUES = ("any", "local-dev", "ral", "gpu", "wsl-data")
+
+
+def lane_is_local(lane) -> bool:
+    """True for every lane but `any` (a missing lane is `any`)."""
+    return (lane or "any") != "any"
 
 # Surfaces that make a change a PI's decision whatever repo it lives in: a
 # public API, a default value, an error contract, a science-policy call, or an
@@ -499,7 +510,7 @@ def declared_header(text: str) -> dict:
            "declared_consequence": None, "witness": None,
            "witness_none_reason": None, "unknown_unattended": None,
            "declared_review_minutes": None, "declared_unattended": None,
-           "lane": None}
+           "lane": None, "lane_invalid": None}
     in_fence = False
     for line in text.splitlines():
         if line.lstrip().startswith("```"):
@@ -556,6 +567,11 @@ def declared_header(text: str) -> dict:
             v = value.lower()
             if v in LANE_VALUES and out["lane"] is None:
                 out["lane"] = v
+            elif v not in LANE_VALUES and out["lane_invalid"] is None:
+                # Not adopted, so the prompt reads as `any` — but recorded, so
+                # the census can flag it. The archived spelling
+                # `any | local-dev` lands here: it is not a lane.
+                out["lane_invalid"] = value
         elif key == "unattended":
             v = _norm_level(value)
             if v in UNATTENDED_LEVELS and out["declared_unattended"] is None:
