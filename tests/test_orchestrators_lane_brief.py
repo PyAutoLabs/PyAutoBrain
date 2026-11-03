@@ -37,7 +37,7 @@ EXAMPLE = """\
 - dispatched: 2026-11-04T08:30Z
 - review-at: 2026-11-04T11:30Z      # stated by the human
 - shift: morning
-- issue: https://github.com/PyAutoLabs/PyAutoMind/issues/1
+- issue: https://github.com/example-owner/mind/issues/1
 - packet: yes
 - heart-ack:
   - Release YELLOW; monitoring RED
@@ -235,21 +235,21 @@ def test_plan_under_a_brief_puts_named_tasks_first_and_never_dips_outside():
 # --- (d) intake ----------------------------------------------------------------
 
 def test_intake_proposes_ral_from_the_text():
-    d = _intake.analyse("Profile the likelihood on RAL with SLURM for @PyAutoArray.",
+    d = _intake.analyse("Profile the likelihood on RAL with SLURM for @PyAutoBrain.",
                         "test")
     assert "\nLane: ral" in d["header"]
 
 
 @pytest.mark.parametrize("text,lane", [
-    ("Benchmark the CUDA path on the laptop GPU for @PyAutoArray.", "gpu"),
-    ("Read the dataset under /mnt/c/Users/x for @PyAutoArray.", "wsl-data"),
+    ("Benchmark the CUDA path on the laptop GPU for @PyAutoBrain.", "gpu"),
+    ("Read the dataset under /mnt/c/Users/x for @PyAutoBrain.", "wsl-data"),
 ])
 def test_intake_proposes_gpu_and_wsl_data(text, lane):
     assert f"\nLane: {lane}" in _intake.analyse(text, "test")["header"]
 
 
 def test_intake_writes_no_lane_for_cloud_runnable_text():
-    assert "Lane:" not in _intake.analyse("Tidy a docstring in @PyAutoArray.",
+    assert "Lane:" not in _intake.analyse("Tidy a docstring in @PyAutoBrain.",
                                           "test")["header"]
 
 
@@ -261,8 +261,8 @@ Target: PyAutoBrain
 Epic: autonomous-orchestrators
 Phase: 3
 Filed: 2026-11-03
-Blocked-by: PyAutoFit#1
-Closes-when: PyAutoFit#2 merged
+Blocked-by: PyAutoBrain#1
+Closes-when: PyAutoBrain#2 merged
 Lane: local-dev
 
 It submits to RAL via sbatch, but the declared lane wins.
@@ -277,13 +277,13 @@ def test_declared_optional_headers_survive_apply_unchanged(tmp_path):
     written = (mind / rel).read_text()
     head = written.split("\n\n", 2)[1].splitlines()
     for line in ("Epic: autonomous-orchestrators", "Phase: 3", "Filed: 2026-11-03",
-                 "Blocked-by: PyAutoFit#1", "Closes-when: PyAutoFit#2 merged",
+                 "Blocked-by: PyAutoBrain#1", "Closes-when: PyAutoBrain#2 merged",
                  "Lane: local-dev"):
         assert line in head, line
     # Documented order: pass-through keys after Status:, Lane: after Unattended:.
     assert head.index("Status: formalised") < head.index("Filed: 2026-11-03") \
         < head.index("Epic: autonomous-orchestrators") < head.index("Phase: 3") \
-        < head.index("Blocked-by: PyAutoFit#1")
+        < head.index("Blocked-by: PyAutoBrain#1")
     assert head.index(next(l for l in head if l.startswith("Unattended:"))) \
         < head.index("Lane: local-dev")
     # The input's own header block is not echoed into the body.

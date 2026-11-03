@@ -26,7 +26,7 @@ SCOPED_KEYS = ("epics", "tags", "tiers")
 
 _ITEM_RE = re.compile(r"^(\s*)-\s+(.*?)\s*$")
 _KEY_RE = re.compile(r"^([a-z][a-z0-9-]*):\s*(.*)$")
-# A trailing comment needs whitespace before the `#`, so `PyAutoFit#1554` and
+# A trailing comment needs whitespace before the `#`, so `Repo#1554` and
 # `#anchor` paths survive.
 _COMMENT_RE = re.compile(r"\s+#\s.*$")
 
