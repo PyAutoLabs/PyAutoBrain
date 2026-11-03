@@ -526,6 +526,94 @@ It is not adopted here; it needs its own doctrine edit.
 auto-merge found to have bypassed one of the never-auto-merge rules retires this
 section and returns every merge to `/prm`.
 
+## Shift briefs and unattended `glance` — 2026-11-03
+
+Approved by the human 2026-11-03 as the rulings of the autonomous-orchestrators
+epic (`PyAutoMind/draft/feature/pyautobrain/autonomous_orchestrators_epic.md`,
+"Human decisions"). This section is that dated doctrine edit. It widens two
+earlier sections — "What a batch launch is" and "Merge authority follows
+Consequence" — and narrows nothing else. The record format is
+`PyAutoMind/batches/AGENTS.md` "Shift brief"; the one process allowed to keep
+time is `PyAutoMind/policy/shift_watcher.md`.
+
+### Shift brief = launch — 2026-11-03
+
+A human-written **shift brief** — a `brief:` block with `review-at:` in
+`PyAutoMind/batches/<slot>.md` — **is the launch act** "What a batch launch is"
+requires. The human performs the dispatch by writing it. The grant covers the
+brief's named tasks, then its backlog-dip policy (`none` | `fill-idle` |
+`scoped:` plus `exclude:`), and nothing else, until `review-at:`. Inside that
+grant only, it replaces "never dispatch on a schedule": the deterministic
+watcher may start sessions for work the brief covers. A watcher tick with **no
+open brief dispatches nothing**, and a brief whose `review-at:` has passed is
+not open.
+
+*Revert condition:* one dispatch found outside a brief's scope returns batching
+to per-task `--auto` until the cause is found.
+
+### Unattended `glance` merges — 2026-11-03
+
+This extends the 2026-10-02 table. For a declared `glance` task under an open
+brief, **the in-turn wait may be replaced by a watcher-started close-out after
+CI lands**, only when every one of these holds:
+
+1. an **independent session** ran the `Witness:` — not the author; a different
+   model where one is available, as leg 5 already requires of the adversary;
+2. Heart is **not RED**, and any YELLOW reason not in the brief's `heart-ack:`
+   matches one of its `expected-effects:` lines (leg 4 under a batch launch,
+   applied per shift);
+3. the brief's **`merge-cap:`** is not yet reached this shift;
+4. the `glance` **Shadow window row is appended** at close-out, as today;
+5. the task is `glance` — **never `judge`**, never a `decision-taken` PR, never
+   a release, and never anything the "Never auto-merged" list above excludes.
+
+Every `/prm` guard applies to that close-out verbatim.
+
+*Revert condition:* a `reverted` row demotes the tier exactly as the 2026-10-02
+section says; one merge past a brief's cap retires this sub-rule.
+
+### One Mind writer per shift — 2026-11-03
+
+During a shift, **only the orchestrator commits to PyAutoMind**, from its own
+temporary worktree (cherry-pick onto `origin/main`, never the canonical
+checkout). Workers never touch Mind: they write their ledger lines — the
+`active.md` claim, the close-out — as files in the lease directory, and the
+orchestrator commits them. The reason is three losses on the shared checkout:
+an unconditional `reset --hard` that wiped another session's edit
+(2026-09-30), `pull --rebase --autostash` committing conflict markers into
+`state.json` (2026-10-07), and `prompt_sync_push` sweeping another session's
+dirty files into its own commit.
+
+*Revert condition:* one lost Mind edit traced to a worker commit during a shift
+returns that orchestrator to human-dispatched batches until the path is closed.
+
+### Goal decomposition files drafts only — 2026-11-03
+
+When the orchestrator breaks a brief's goal into tasks, each task is **filed as
+a draft** with a proposed `Witness:`, `Consequence:` and `Lane:`, and approved
+in bulk at check-in. Only already-formalised prompts run; a draft it filed this
+shift never runs this shift.
+
+*Revert condition:* never loosened before the `glance` Shadow window is
+confirmed and the pilot's overrule rate says so — loosening is its own dated
+edit.
+
+### The push-notification test — 2026-11-03
+
+A push to the human's phone is sent only when **waiting until `review-at:`
+would cause harm or waste the shift**. Four classes qualify:
+
+- data loss, or a destructive action at risk;
+- a breach of the RAL rules, or runaway usage;
+- the whole shift blocked on one human decision;
+- a credential or security problem.
+
+Everything else goes in the digest. The budget is **about one push per shift**,
+and a second push in one shift is itself a digest finding.
+
+*Revert condition:* two pushes in one shift that the human judged unnecessary
+retire push for that orchestrator.
+
 ## Human override for Heart RED (development only)
 
 Heart RED still parks every autonomous run and blocks every release. After the
@@ -735,9 +823,10 @@ Codex hook list.
 ## Hard invariants (every level, no exceptions)
 
 - **Merge and issue-close are human acts, except as "Merge authority follows
-  Consequence" (2026-10-02) grants them** — a declared `notify` or witnessed
-  `glance` task, authorized at plan or launch approval, merged in-turn on green
-  CI. Nothing else extends autonomy to merge; GitHub native auto-merge is not
+  Consequence" (2026-10-02) and "Shift briefs and unattended `glance`"
+  (2026-11-03) grant them** — a declared `notify` or witnessed `glance` task,
+  authorized at plan or launch approval, merged in-turn on green CI, or a
+  `glance` task merged by a watcher-started close-out under an open shift brief. Nothing else extends autonomy to merge; GitHub native auto-merge is not
   adopted and must not be assumed.
 - **Releases are human acts, with one dated exception.** The scheduled-nightly
   standing grant (2026-07-09, above) is the only path that ships a release
@@ -800,5 +889,9 @@ Codex hook list.
   PR-open (or the tiered in-turn merge), validation checklist, calibration append; the RED-handling step
   points here for both the development-only human override and the narrower
   corrective-PR exception.
+- `batch`, `start_dev`, `prm` — "Shift briefs and unattended `glance`"
+  (2026-11-03): the brief as the launch act, the backlog-dip scope, the
+  unattended `glance` close-out guards and the merge cap, one Mind writer per
+  shift, drafts-only decomposition, the push test.
 
 Skills must link here rather than copying the tables.
