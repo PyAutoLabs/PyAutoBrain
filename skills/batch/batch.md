@@ -131,6 +131,11 @@ tasks first, then only the backlog its policy covers, against its
 they arrive with the watcher in phase 3 of the autonomous-orchestrators epic,
 and until then the steps above are the dispatch.
 
+## The watcher (phase 3a — fake workers only)
+
+One deterministic tick per timer firing; the timer is installed by the human, never a session.
+What a tick does, its state, caps and the install commands: `agents/conductors/batch/AGENTS.md` "The watcher".
+
 ## When they come back — collect, review, close (2026-08-31)
 
 **Collect first, before the human reads anything.** It is one command:

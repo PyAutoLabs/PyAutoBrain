@@ -22,6 +22,8 @@ from _sizing import (  # noqa: E402 — the caller puts the faculty on sys.path
 )
 
 BACKLOG_POLICIES = ("none", "fill-idle", "scoped")
+#: Optional usage caps (phase 3a) and their defaults when a brief omits them.
+CAP_DEFAULTS = {"max-workers": 2, "max-sessions": 6}
 SCOPED_KEYS = ("epics", "tags", "tiers")
 
 _ITEM_RE = re.compile(r"^(\s*)-\s+(.*?)\s*$")
@@ -121,6 +123,12 @@ def excluded_of(brief: dict) -> tuple[set[str], dict[str, list[str]]]:
     return paths, keyed
 
 
+def cap_of(brief: dict, key: str) -> int:
+    """A usage cap from the brief, or its default when the brief omits it."""
+    value = _nonneg_int(brief.get(key, {}).get("value", ""))
+    return CAP_DEFAULTS[key] if value is None else value
+
+
 def lanes_of(brief: dict) -> list[str]:
     node = brief.get("lanes")
     return _csv(node["value"]) if node else []
@@ -211,6 +219,10 @@ def check(path: Path, mind: Path) -> dict:
         elif _nonneg_int(brief[key]["value"]) is None:
             errors.append(f"brief.{key}: not a whole number "
                           f"({brief[key]['value']!r})")
+
+    for key in CAP_DEFAULTS:
+        if key in brief and _nonneg_int(brief[key]["value"]) is None:
+            errors.append(f"brief.{key}: not a whole number ({brief[key]['value']!r})")
 
     lanes = lanes_of(brief)
     if not lanes:

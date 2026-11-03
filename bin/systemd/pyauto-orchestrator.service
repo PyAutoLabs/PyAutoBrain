@@ -1,0 +1,10 @@
+# Template — copy to ~/.config/systemd/user/ (the human's act; see
+# skills/batch/batch.md "The watcher"). Paths come from the environment file,
+# never from this unit, so the template carries no workspace path.
+[Unit]
+Description=PyAuto shift watcher — one tick (deterministic, no LLM)
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/pyauto/orchestrator.env
+ExecStart=/usr/bin/env python3 ${PYAUTO_BRAIN}/bin/orchestrator_watch.py --brief ${PYAUTO_SHIFT_BRIEF} --mind ${PYAUTO_MIND}
