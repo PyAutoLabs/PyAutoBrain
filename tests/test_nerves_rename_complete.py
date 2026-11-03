@@ -27,6 +27,8 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 DELIBERATE = {
     # The organism's own record of the rename having happened.
     "ORGANISM.md",
+    # The Nerves docs page tells adopters the old repo/package names.
+    "docs/organs/nerves.md",
     # The back-compat alias table — old @-mentions in ~150 archived Mind prompts
     # must keep routing to the Nerves repo.
     "config/policy.yaml",

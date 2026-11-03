@@ -60,7 +60,7 @@ organs/memory
 organs/eyes
 organs/ears
 organs/heart
-organs/build
+organs/hands
 organs/pulse
 organs/insight
 organs/dna
