@@ -41,7 +41,7 @@ from _sizing import (  # noqa: E402
     WORK_TYPES, HUMAN_REVIEW, MANUAL_ONLY_WORK_TYPES,
     LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
     RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, norm_work_type,
-    declared_header,
+    declared_header, LANE_VALUES,
     declared_inline, effective_difficulty, strip_declarations, _hits,
     effective_consequence, effective_unattended, effective_review_minutes,
     policy as _sizing_policy, BODY_MAP_PATH,
@@ -581,11 +581,17 @@ def analyse(text: str, source: str, themes=None):
     # `Type:` matches the destination folder (PyAutoMind convention). For a
     # low-confidence triage filing that means `Type: triage`, not the provisional
     # guess — the guess still rides in the IntakeDecision's `work_type` field.
+    # A declared lane wins; otherwise the text's resource signals. `any` is
+    # the default and is not written — absence already means it.
+    lane = header.get("lane") or infer_lane(text)
     header = _render_header(title, folder, target_display, repos, level,
                             autonomy, priority, themes,
                             consequence=consequence, witness=p["witness"],
                             review_minutes=review_minutes,
-                            unattended=unattended)
+                            unattended=unattended,
+                            passthrough=_declared_passthrough(header_lines),
+                            lane=(lane if lane != "any"
+                                  or header.get("lane") else None))
     return {
         "source": source,
         "title": title,
@@ -632,9 +638,56 @@ def analyse(text: str, source: str, themes=None):
     }
 
 
+# Optional header keys a raw input may declare that classification never
+# derives, so they are carried through verbatim (PyAutoBrain#553). Dropping them
+# filed an epic member as a standalone pick and dated it by file mtime. Written
+# after `Status:` in `_HEADER_BLOCK_KEYS` order; `Lane:` rides with the
+# review-cost keys instead, below `Unattended:`.
+PASSTHROUGH_KEYS = ("filed", "epic", "phase", "blocked-by", "closes-when")
+_PASSTHROUGH_RE = re.compile(
+    r"^(Filed|Epic|Phase|Blocked-by|Closes-when):\s*(\S.*?)\s*$", re.I)
+
+
+def _declared_passthrough(header_lines) -> list[tuple[str, str]]:
+    """`(Key, value)` for each pass-through key in the input's header block.
+
+    First occurrence wins, except `Blocked-by:` / `Closes-when:`, which a
+    prompt may repeat (one gate per line) and so are all kept, in order.
+    """
+    found: dict[str, list[str]] = {}
+    for line in header_lines:
+        m = _PASSTHROUGH_RE.match(line.strip())
+        if not m:
+            continue
+        key = m.group(1).lower()
+        if key in ("blocked-by", "closes-when") or key not in found:
+            found.setdefault(key, []).append(m.group(2))
+    return [(k.capitalize(), v) for k in PASSTHROUGH_KEYS for v in found.get(k, [])]
+
+
+# Resource lanes inferred from the text (2026-11-03). Order is precedence: a
+# prompt that needs RAL and the GPU is a RAL task, because RAL is the scarcer
+# gateway. Deliberately narrow — a loose pattern routes cloud-runnable work off
+# the cloud, which is the failure the lane exists to prevent.
+LANE_SIGNALS = (
+    ("ral", re.compile(r"\bRAL\b|\bSLURM\b|\bsbatch\b|\bsqueue\b|euclid_jump")),
+    ("gpu", re.compile(r"\bCUDA\b|laptop GPU|\bGPU\b on the laptop", re.I)),
+    ("wsl-data", re.compile(r"/mnt/c\b|Workspace/Science\b")),
+)
+
+
+def infer_lane(text: str) -> str:
+    """`ral` | `gpu` | `wsl-data` when the text names that resource, else `any`."""
+    for lane, pattern in LANE_SIGNALS:
+        if pattern.search(text):
+            return lane
+    return "any"
+
+
 def _render_header(title, work_type, target_display, repos, level, autonomy,
                    priority, themes=None, consequence=None, witness=None,
-                   review_minutes=None, unattended=None):
+                   review_minutes=None, unattended=None, passthrough=(),
+                   lane=None):
     lines = [f"# {title}", "", f"Type: {work_type}", f"Target: {target_display}"]
     if repos:
         lines.append("Repos:")
@@ -648,6 +701,7 @@ def _render_header(title, work_type, target_display, repos, level, autonomy,
         lines += [f"- {t}" for t in themes]
     lines += [f"Difficulty: {level}", f"Autonomy: {autonomy}",
               f"Priority: {priority}", "Status: formalised"]
+    lines += [f"{k}: {v}" for k, v in passthrough]
     # The review-cost model rides below the difficulty block: what the work
     # costs the organism, then what it costs the human. `Witness:` is written
     # ONLY when the author supplied one — see the note in `analyse`.
@@ -659,6 +713,8 @@ def _render_header(title, work_type, target_display, repos, level, autonomy,
         lines.append(f"Review-minutes: {review_minutes}")
     if unattended:
         lines.append(f"Unattended: {unattended}")
+    if lane:
+        lines.append(f"Lane: {lane}")
     return "\n".join(lines)
 
 
@@ -1248,6 +1304,13 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
     return events[:limit]
 
 
+def _lane_of(header: dict) -> str:
+    """The prompt's lane as the planner reads it: a value the sizing faculty
+    does not accept counts as `any`, exactly as `parse_prompt` treats it."""
+    lane = (header.get("lane") or "any").lower()
+    return lane if lane in LANE_VALUES else "any"
+
+
 def census(mind: Path) -> dict:
     """Inventory the Mind's work — filed prompts plus the registry's live rows.
 
@@ -1304,7 +1367,7 @@ def census(mind: Path) -> dict:
                 "unattended": header.get("unattended", "-"),
                 # Where it can run. Absent means `any` — the common case, and a
                 # missing lane must never be read as "nowhere".
-                "lane": header.get("lane", "any"),
+                "lane": _lane_of(header),
                 "priority": header.get("priority", "-"),
                 "status": header.get("status", "-"),
                 "epic": header.get("epic", ""),
@@ -1322,6 +1385,9 @@ def census(mind: Path) -> dict:
                 hygiene.append(f"{rel} — no metadata header (pre-dates intake)")
             if not header.get("witness"):
                 witness_flags.append(str(rel))
+            if header.get("lane") and header["lane"].lower() not in LANE_VALUES:
+                hygiene.append(f"{rel} — unknown Lane: {header['lane']!r} (read "
+                               f"as any; one of {' | '.join(LANE_VALUES)})")
             if stray:
                 theme_flags.append(f"{rel} — unknown theme keyword(s): "
                                    + ", ".join(stray))
@@ -1408,6 +1474,9 @@ def census(mind: Path) -> dict:
         "by_target": _count("target"),
         "by_difficulty": _count("difficulty"),
         "by_priority": _count("priority"),
+        # Where the backlog can run (autonomous-orchestrators phase 2): the
+        # resource lanes are what a shift brief's `lanes:` admits.
+        "by_lane": _count("lane"),
         "records": records,
         # Shipped work a human asked to check — never part of `records`, so
         # never part of the backlog count above (see the collection loop).
@@ -2028,6 +2097,8 @@ def render_dashboard(c: dict) -> str:
         L += ["", "</details>", ""]
 
     L += ["## Backlog", ""]
+    if c.get("by_lane"):
+        L += ["Lanes: " + " · ".join(f"{k} {n}" for k, n in c["by_lane"].items()), ""]
     reviews = c.get("human_review") or []
     L += ['<a id="human-review"></a>', "<details>",
           f"<summary><b>Human review</b> — {len(reviews)}</summary>", ""]
@@ -2384,6 +2455,9 @@ def render_dashboard_html(c: dict) -> str:
         H.append("</details>")
 
     H += [h2("Backlog", "draft").replace("/blob/main/draft", "/tree/main/draft")]
+    if c.get("by_lane"):
+        H.append("<p>Lanes: " + " · ".join(
+            f"{k} {n}" for k, n in c["by_lane"].items()) + "</p>")
     reviews = c.get("human_review") or []
     H += ['<details id="human-review">',
           f'<summary>Human review — {len(reviews)}</summary>']
@@ -2639,6 +2713,7 @@ def emit_census(c: dict):
     print(f"By target:       {_fmt(c['by_target'], top=8)}")
     print(f"By difficulty:   {_fmt(c['by_difficulty'])}")
     print(f"By priority:     {_fmt(c['by_priority'])}")
+    print(f"By lane:         {_fmt(c['by_lane'])}")
     print(f"Hygiene:         {len(c['hygiene'])} prompt(s) without a metadata "
           "header (--json lists them)")
 

@@ -46,7 +46,7 @@ sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
     BODY_MAP_PATH, LIBRARY_REPOS, effective_autonomy, effective_consequence,
     effective_difficulty, effective_review_minutes, effective_unattended,
-    normalise_repo, parse_prompt, priority_rank,
+    lane_is_local, normalise_repo, parse_prompt, priority_rank,
 )
 # `_status` (same directory) is the one definition of this vocabulary — the
 # batch status box on the Mind's dashboard reads a record the same way this
@@ -54,6 +54,7 @@ from _sizing import (  # noqa: E402
 # existing importers of `_batch` keep working.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
+import _brief  # noqa: E402
 
 # One slot's worth of the human's attention, and only the DEFAULT: the human
 # sets it per slot with --budget, because they know whether the next one is a
@@ -81,8 +82,9 @@ def detect_lane() -> str:
 
 
 def _lane_ok(record_lane: str, session_lane: str) -> bool:
-    """A `local-dev` task runs only in a `local-dev` session; `any` runs anywhere."""
-    return record_lane != "local-dev" or session_lane == "local-dev"
+    """A laptop-lane task (`local-dev`, `ral`, `gpu`, `wsl-data`) runs only in
+    a `local-dev` session; `any` runs anywhere."""
+    return not lane_is_local(record_lane) or session_lane == "local-dev"
 
 
 def grade(path: Path, mind: Path) -> dict:
@@ -122,6 +124,19 @@ def _header_of(text: str, key: str) -> str:
     return ""
 
 
+def _themes_of(text: str) -> list[str]:
+    """The header's `Themes:` bullets — what a brief's `scoped: tags` match."""
+    out, inside = [], False
+    for line in text.splitlines():
+        if re.match(r"^Themes:\s*$", line):
+            inside = True
+        elif inside and line.startswith("- "):
+            out.append(line[2:].strip())
+        elif inside:
+            break
+    return out
+
+
 def _epic_of(text: str) -> str:
     return _header_of(text, "epic")
 
@@ -152,6 +167,7 @@ def survey(mind: Path) -> list[dict]:
         g["epic"] = _epic_of(text)
         g["phase"] = _phase_of(text)
         g["done"] = _is_done(text)
+        g["themes"] = _themes_of(text)
         out.append(g)
     return out
 
@@ -231,7 +247,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          session_lane: str = "web-github", awaiting_review: int = 0,
          cap: int = DEFAULT_BACKPRESSURE_CAP, queue: list[str] | None = None,
          awaiting_source: str = "given", carried: list[str] | None = None,
-         carried_from: str = "") -> dict:
+         carried_from: str = "", brief: dict | None = None) -> dict:
     """Compose the next batch — a BatchDecision.
 
     Every constraint states itself in `rejected`, because a planner that
@@ -246,6 +262,18 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     """
     rejected: list[tuple[str, str]] = []
     queue = queue or []
+    all_records = records
+    # Under a shift brief the brief IS the human's composition (AUTONOMY.md,
+    # "Shift briefs and unattended `glance`"): its named tasks outrank the
+    # queue, then only the backlog its dip policy covers. The brief's
+    # `review-minutes:` is the budget.
+    if brief is not None:
+        records, out_of_scope, named = _brief.scope(records, brief)
+        rejected += out_of_scope
+        queue = named + [q for q in queue if q not in named]
+        minutes = _brief._nonneg_int(brief.get("review-minutes", {}).get("value", ""))
+        if minutes is not None:
+            budget = minutes
 
     # Backpressure RAMPS; it never deadlocks. It measures review-queue DEPTH,
     # never timing: timing is the human's, declared as `review-at:` at dispatch.
@@ -332,6 +360,9 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
             seen_epics.add(r["epic"])
         libs.update(x for x in r["repos"] if x in LIBRARY_REPOS)
 
+    other_lane = _lane_counts(
+        r for r in records
+        if r["unattended"] == "ready" and not _lane_ok(r["lane"], session_lane))
     return {
         "dispatch": [_dispatch_payload(r) for r in members],
         "session_lane": session_lane,
@@ -345,10 +376,23 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         "review_minutes_planned": spent,
         "members": members,
         "rejected": rejected,
-        "other_lane_ready": sum(
-            1 for r in records
-            if r["unattended"] == "ready" and not _lane_ok(r["lane"], session_lane)),
+        "other_lane_ready": sum(other_lane.values()),
+        # Per resource, so the line names what the other machine has to offer
+        # (`3 ral, 1 gpu`) rather than a bare count.
+        "other_lane_by_lane": other_lane,
+        # Where the ready backlog can run, before the session's lane filters it.
+        "lane_counts": _lane_counts(r for r in all_records
+                                    if r["unattended"] == "ready" and not r.get("done")),
+        "brief": brief is not None,
     }
+
+
+def _lane_counts(records) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for r in records:
+        lane = r.get("lane") or "any"
+        counts[lane] = counts.get(lane, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def _dispatch_payload(r: dict) -> str:
@@ -366,6 +410,12 @@ def emit(d: dict) -> None:
     lane = d["session_lane"]
     print("== BatchDecision ==")
     print(f"Session lane:      {lane}")
+    if d.get("lane_counts"):
+        print("Ready by lane:     " + " · ".join(
+            f"{k} {n}" for k, n in d["lane_counts"].items()))
+    if d.get("brief"):
+        print("Brief:             named tasks first, then the brief's backlog "
+              "policy; budget is its review-minutes")
     print(f"Review budget:     {d['effective_budget']} of {d['review_budget']} min "
           f"({d['backpressure']['state']}; "
           f"{d['backpressure']['awaiting_review']} awaiting review "
@@ -417,8 +467,10 @@ def emit(d: dict) -> None:
     if d["other_lane_ready"]:
         # Reported, never silently dropped: a task the session cannot run is
         # still a task the human can, from the other machine.
-        print(f"{d['other_lane_ready']} local-dev task(s) are ready — run "
-              "`batch plan` from the laptop to see them.")
+        by = ", ".join(f"{n} {k}" for k, n in
+                       (d.get("other_lane_by_lane") or {}).items())
+        print(f"{d['other_lane_ready']} laptop-lane task(s) are ready ({by}) — "
+              "run `batch plan` from the laptop to see them.")
         print()
     print(f"Not selected: {len(d['rejected'])}")
     counts: dict[str, int] = {}
@@ -2725,7 +2777,7 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
-    ap.add_argument("verb", choices=["plan", "collect"], nargs="?",
+    ap.add_argument("verb", choices=["plan", "collect", "brief"], nargs="?",
                     default="plan")
     ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
@@ -2736,6 +2788,13 @@ def main(argv=None) -> int:
     ap.add_argument("--cap", type=int, default=DEFAULT_BACKPRESSURE_CAP)
     ap.add_argument("--lane", default="", help="override the detected session lane")
     ap.add_argument("--json", action="store_true", dest="as_json")
+    # brief / plan
+    ap.add_argument("--check", default="", metavar="FILE",
+                    help="brief: validate this shift brief against "
+                         "PyAutoMind/batches/AGENTS.md")
+    ap.add_argument("--brief", default="", metavar="FILE",
+                    help="plan: compose inside this shift brief (named tasks "
+                         "first, then its backlog policy)")
     # collect only
     ap.add_argument("--slot", default="",
                     help="the batch record to collect (default: the newest)")
@@ -2767,10 +2826,30 @@ def main(argv=None) -> int:
     try:
         if a.verb == "collect":
             return _main_collect(mind, a)
+        if a.verb == "brief":
+            return _main_brief(mind, a)
         return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)
         return RC_USAGE
+
+
+def _main_brief(mind: Path, a) -> int:
+    """`batch brief --check <file>` — read-only; exit 0 valid, 1 refused."""
+    if not a.check:
+        print("batch brief: --check <file> is the only brief verb yet "
+              "(dispatch and digest are phase 3)", file=sys.stderr)
+        return RC_USAGE
+    res = _brief.check(Path(a.check), mind)
+    if a.as_json:
+        print(json.dumps(res, indent=2))
+    else:
+        print(f"== Shift brief: {a.check} — {'OK' if res['ok'] else 'REFUSED'} ==")
+        for e in res["errors"]:
+            print(f"  ✗ {e}")
+        for w in res["warnings"]:
+            print(f"  ! {w}")
+    return RC_OK if res["ok"] else RC_FINDINGS
 
 
 def _main_plan(mind: Path, a, lane: str) -> int:
@@ -2790,9 +2869,18 @@ def _main_plan(mind: Path, a, lane: str) -> int:
     else:
         awaiting, source = a.awaiting_review, "--awaiting-review"
     carried_from, carried = previous_carried(mind)
+    brief = None
+    if a.brief:
+        res = _brief.check(Path(a.brief), mind)
+        if not res["ok"]:
+            print(f"batch plan: the brief {a.brief} is refused — run "
+                  "`batch brief --check` for the reasons", file=sys.stderr)
+            return RC_FINDINGS
+        brief = _brief.parse(Path(a.brief).read_text(encoding="utf-8"))["brief"]
     d = plan(survey(mind), budget=a.budget, session_lane=lane,
              awaiting_review=awaiting, cap=a.cap, queue=read_queue(mind),
-             awaiting_source=source, carried=carried, carried_from=carried_from)
+             awaiting_source=source, carried=carried, carried_from=carried_from,
+             brief=brief)
     if a.as_json:
         print(json.dumps(d, indent=2))
         return RC_OK

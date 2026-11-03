@@ -17,7 +17,8 @@ survive into your reply because they are the point of the whole surface:
 
 - the **review-minute total** — the budget is the human's hour, not a task count;
 - the **other lane's ready count**, when this session cannot plan it: *"4
-  local-dev tasks are ready — run this from the laptop."*
+  laptop-lane tasks are ready (3 ral, 1 local-dev) — run this from the
+  laptop."*
 
 An empty batch at the backpressure cap is a **finding, not a deadlock**: nothing
 in the backlog costs zero review-minutes. Say which it is.
@@ -121,11 +122,14 @@ In order:
    collect fills it in.
 5. Confirm what was dispatched, and stop. Do not follow the runs.
 
-**Planned verbs — not code yet.** `batch brief --check` (validate a brief
-against the `batches/AGENTS.md` schema) arrives in phase 2 of the
-autonomous-orchestrators epic; `batch dispatch` and `batch digest`, with the
-watcher, in phase 3. Until then a brief is written and checked by hand, and the
-steps above are the dispatch.
+**Brief verbs.** `bin/pyauto-brain batch brief --check <file>` validates a
+brief against the `batches/AGENTS.md` schema (every error names its key;
+exit 1 refuses it), and `batch plan --brief <file>` composes inside it: named
+tasks first, then only the backlog its policy covers, against its
+`review-minutes:`. Run the check before writing a brief's `review-at:` into
+`batches/`. `batch dispatch` and `batch digest` are **planned — not code yet**:
+they arrive with the watcher in phase 3 of the autonomous-orchestrators epic,
+and until then the steps above are the dispatch.
 
 ## When they come back — collect, review, close (2026-08-31)
 
