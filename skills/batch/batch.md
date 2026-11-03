@@ -26,8 +26,12 @@ in the backlog costs zero review-minutes. Say which it is.
 or a description ("something on the numba path", "the next euclid slice").
 
 Resolve what they gave you to prompt paths, then run the planner's constraints
-over exactly that set — do not silently substitute your own picks. Report, per
-task they named:
+over exactly that set. **Under a shift brief** (`AUTONOMY.md`, "Shift briefs
+and unattended `glance`" — 2026-11-03) the brief *is* the human's composition:
+its named tasks go first, then the backlog dip its policy allows (`none` |
+`fill-idle` | `scoped:` plus `exclude:`). Backlog the brief does not cover is
+never dipped, and every dipped pick carries a one-line reason in the digest.
+Report, per task they named:
 
 - **taken** — with its tier and review-minutes;
 - **rejected, and why** — in the planner's own words. The reasons that come up
@@ -49,7 +53,10 @@ open, and `Unattended: never`. Those are not preferences.
 (`AUTONOMY.md`, "What a batch launch is"): membership fixed at approval, the
 grant expiring with the shift — the interval from dispatch to the `review-at:`
 they declare here. Never dispatch on your own initiative, on a schedule, or
-because a batch looks ready.
+because a batch looks ready. **Writing a shift brief with `review-at:` is the
+dispatch** (2026-11-03): inside that brief's scope, and only until its
+`review-at:`, the watcher may start sessions without a second "go"
+(`PyAutoMind/policy/shift_watcher.md`).
 
 In order:
 
@@ -84,6 +91,11 @@ In order:
 
    **The member-session contract (2026-08-31, both measured that night):**
 
+   - *Spawned from the orchestrator's session template, never bare*
+     (2026-11-03). Under a brief, every worker starts from the same template
+     the orchestrator uses — sources, bootstrap, the brief's path — so the two
+     points below are met by construction rather than remembered.
+
    - *Spawned cloud sessions need sources and a bootstrap preamble.* A session
      created bare (environment inherited, no source repos) has no clones, no
      skills and no GitHub scope — the whole first wave died on
@@ -108,6 +120,12 @@ In order:
    `generated:`. The human wakes to a live page, not a blank; the morning
    collect fills it in.
 5. Confirm what was dispatched, and stop. Do not follow the runs.
+
+**Planned verbs — not code yet.** `batch brief --check` (validate a brief
+against the `batches/AGENTS.md` schema) arrives in phase 2 of the
+autonomous-orchestrators epic; `batch dispatch` and `batch digest`, with the
+watcher, in phase 3. Until then a brief is written and checked by hand, and the
+steps above are the dispatch.
 
 ## When they come back — collect, review, close (2026-08-31)
 
@@ -195,6 +213,14 @@ review file's path) and **`review-minutes-actual:`**. That last number is the
 only calibration the review estimate will ever get, so ask for it if the human
 does not volunteer it.
 
+**Under a brief, the digest is the review surface** (2026-11-03). Collect
+appends a `## Digest` to the record — brief work, then backlog picks with a
+one-line reason each, one proof packet per task, then the shift counters — and
+posts it once as a comment on the shift's `issue:`. The record plus that comment
+is what the human reads; the HTML packet is written only when the brief says
+`packet: yes`. Formats: `PyAutoMind/batches/AGENTS.md`, "Digest" and "Proof
+packet".
+
 **`delivered:` is not "green".** A cloud session's green status means it exited
 without an infrastructure error — not that the task succeeded. A member counts
 as delivered only with a PR that has a non-empty diff and checks that ran green.
@@ -203,7 +229,8 @@ the top.
 
 ## Never
 
-- Dispatch without an explicit go from the human in this conversation.
+- Dispatch without an explicit go from the human in this conversation, or an
+  open shift brief whose scope covers the task.
 - Acknowledge a Heart YELLOW or RED on their behalf, or reuse a previous
   shift's reason set.
 - Add a member the planner rejected without saying which rejection you are

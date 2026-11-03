@@ -52,6 +52,8 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 | **`Unattended: ready` only** | `needs-slicing` goes to the decomposition pass; `never` never enters a batch |
 | **Lane match** | a session detects its own lane and plans only that one |
 | **Backpressure** | see below |
+| **Brief scope** | under a shift brief, only its named tasks and the backlog its dip policy covers run; anything else is a dispatch outside the launch, which "What a batch launch is" forbids (`AUTONOMY.md`, 2026-11-03) |
+| **Merge cap** | unattended `glance` merges stop at the brief's `merge-cap:`; each merge moves `main` and stales the next member's evidence, and the cap bounds what one unread shift can change |
 | **One integration root per slot, and it is local** | `integration/<slot>` is cut fresh from `origin/main` on every run and never pushed, so a re-run is a re-preview rather than a rewrite; a dirty integration worktree is skipped, never reset. The one-member-per-library-repo rule above is what keeps within-repo conflicts rare — the common case is one member with organ PRs across five repos. |
 | **Publishing that root is a separate act, typed by the human** | `--push` is the only remote write the batch makes, and no record can ask for it — `- integration: yes` requests the *local* preview. What it writes is a throwaway `integration/*` review ref and nothing else: never a pull request, never a base for one, never forced. A refresh that is not a fast-forward publishes `-2` rather than moving what is already there, and the ref expires at the record's `sweep-after:`. |
 
@@ -137,7 +139,9 @@ terms written into `PyAutoMind/batches/<date>-<am|pm>.md`, and the human
 performing the dispatch. A scheduler may build the review packet and wake a
 session; the act that starts work on the approved list is the human's. That is
 the line that keeps "never ambient" true — the schedule carries the *timing*,
-never the *authority*.
+never the *authority*. A shift brief written with `review-at:` is that act in
+writing (2026-11-03): the human dispatches by writing it, and its scope is the
+whole grant (`AUTONOMY.md`, "Shift briefs and unattended `glance`").
 
 ## Running
 

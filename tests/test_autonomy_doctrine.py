@@ -85,3 +85,57 @@ def test_revert_condition_returns_the_ship_checkpoint_to_park_and_ask():
     assert "park-and-ask" in sec
     # the second, 2026-09-07 condition: one unwanted PR retires the extension
     assert "would have wanted stopped before it existed" in sec
+
+
+# --- Shift briefs and unattended glance (2026-11-03, PyAutoBrain#551) -------
+
+SHIFT_HEADER = "## Shift briefs and unattended `glance` — 2026-11-03"
+SHIFT_SUBRULES = (
+    "### Shift brief = launch — 2026-11-03",
+    "### Unattended `glance` merges — 2026-11-03",
+    "### One Mind writer per shift — 2026-11-03",
+    "### Goal decomposition files drafts only — 2026-11-03",
+    "### The push-notification test — 2026-11-03",
+)
+
+
+def _shift_section():
+    """The shift-brief H2 body, raw (header line to the next ``## ``)."""
+    assert AUTONOMY.count(SHIFT_HEADER) == 1, "shift-brief heading missing or duplicated"
+    rest = AUTONOMY[AUTONOMY.index(SHIFT_HEADER) + len(SHIFT_HEADER):]
+    return rest[:rest.find("\n## ")]
+
+
+def test_shift_section_sits_after_merge_authority():
+    # It extends the 2026-10-02 section, so it is read after it.
+    assert AUTONOMY.index("## Merge authority follows Consequence — 2026-10-02") \
+        < AUTONOMY.index(SHIFT_HEADER)
+
+
+def test_shift_section_has_five_dated_subrules_each_with_a_revert_condition():
+    sec = _shift_section()
+    for head in SHIFT_SUBRULES:
+        assert head in sec, head
+    assert _norm(sec).count("revert condition:") == len(SHIFT_SUBRULES)
+
+
+def test_unattended_glance_never_reaches_judge_or_decision_taken():
+    sec = _norm(_shift_section())
+    assert "never judge" in sec
+    assert "never a decision-taken pr" in sec
+    assert "never a release" in sec
+    assert "merge-cap:" in sec
+    assert "independent session" in sec
+
+
+def test_brief_is_the_launch_and_no_brief_dispatches_nothing():
+    sec = _norm(_shift_section())
+    assert "is the launch act" in sec
+    assert "no open brief dispatches nothing" in sec
+
+
+def test_consumers_and_invariant_name_the_shift_section():
+    consumers = AUTONOMY[AUTONOMY.index("## Consumers"):]
+    assert "Shift briefs and unattended `glance`" in consumers
+    invariants = _norm(AUTONOMY[AUTONOMY.index("## Hard invariants"):])
+    assert "\"shift briefs and unattended glance\" (2026-11-03) grant them" in invariants
