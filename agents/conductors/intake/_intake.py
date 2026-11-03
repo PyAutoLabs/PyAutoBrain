@@ -781,6 +781,12 @@ def _next_action(proposed, confidence, work_type=None):
 # prompt with no hits, or filed on a box with no PyAutoMemory, gets no line at
 # all: an empty `Memory:` would read as "nothing is known", which is a claim
 # this has no standing to make.
+#
+# Nor does a prompt that targets an organ (Brain, Mind, Heart, ...: the body
+# map's `category: organ` repos, i.e. ORGANISM_REPOS). Its subject is the
+# organism's own machinery, so there is no science question to answer, and the
+# digest only ever matched on shared vocabulary ("profile", "model") — every
+# organ prompt filed got galaxy-wiki citations that had to be hand-removed.
 MEMORY_CITATIONS = 3
 MEMORY_QUERY_WORDS = 200
 
@@ -811,9 +817,20 @@ def memory_citations(mind: Path, title: str, body_text: str,
     return [page["page"] for page in d["pages"]][:limit]
 
 
-def _with_memory(header: str, pages: list) -> str:
-    """`Memory: a.md; b.md` under the optional keys, or the header unchanged."""
-    if not pages:
+def _cites_memory(target: str | None) -> bool:
+    """Whether a prompt with this `Target:` key carries a `Memory:` line.
+
+    False for an organ target: see the block comment above.
+    """
+    return normalise_repo(target or "") not in ORGANISM_REPOS
+
+
+def _with_memory(header: str, pages: list, target: str | None = None) -> str:
+    """`Memory: a.md; b.md` under the optional keys, or the header unchanged.
+
+    Unchanged when there are no pages, or when `target` is an organ repo.
+    """
+    if not pages or not _cites_memory(target):
         return header
     line = "Memory: " + "; ".join(pages)
     lines = header.split("\n")
@@ -841,9 +858,11 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
     # touches no filesystem, and a citation is only worth computing for a
     # prompt that is actually going to exist. The decision carries the header
     # that was written, so `--json` reports the file's real contents.
-    cites = memory_citations(mind, decision.get("title", ""), body_text)
+    target = decision.get("target")
+    cites = (memory_citations(mind, decision.get("title", ""), body_text)
+             if _cites_memory(target) else [])
     decision["memory"] = cites
-    decision["header"] = _with_memory(decision["header"], cites)
+    decision["header"] = _with_memory(decision["header"], cites, target)
     # The input's own header block (and its heading) is already rendered in
     # the decision's header — do not echo it into the body (PyAutoBrain#472).
     _heading, header_lines, body = _split_header(body_text)

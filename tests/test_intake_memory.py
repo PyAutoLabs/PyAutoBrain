@@ -130,3 +130,43 @@ def test_seed_stubs_are_never_cited(tmp_path, monkeypatch):
         encoding="utf-8")
     line = _memory_line(_file_one(mind))
     assert line and "seed/" not in line
+
+
+def _declared(target: str) -> str:
+    return (f"# Subhalo sensitivity map\n\nType: feature\nTarget: {target}\n"
+            f"Repos:\n- {target}\n\n{RAW}\n")
+
+
+def test_organ_target_gets_no_memory_line(tmp_path, monkeypatch):
+    """An organ-targeted prompt is about the organism's own machinery: there is
+    no science question, and the digest only matches on shared vocabulary."""
+    monkeypatch.delenv("PYAUTO_MEMORY", raising=False)
+    mind = _mind(tmp_path)
+    _memory(tmp_path)
+    organs = ("PyAutoBrain", "PyAutoMind", "PyAutoCortex", "PyAutoHeart",
+              "PyAutoHands", "PyAutoNerves", "PyAutoEyes", "PyAutoPulse",
+              "PyAutoInsight", "PyAutoMemory", "PyAutoBroca", "PyAutoGut",
+              "PyAutoDNA", "PyAutoEars")
+    for organ in organs:
+        raw = _declared(organ)
+        decision = _intake.analyse(raw, "test")
+        assert decision["target_source"] == "declared", organ
+        rel = _intake.write_prompt(mind, decision, raw, "test")
+        text = (mind / rel).read_text(encoding="utf-8")
+        assert "Memory:" not in text, organ
+        assert decision["memory"] == [], organ
+        # the gate holds at `_with_memory` itself, not only in write_prompt
+        assert _intake._with_memory("Priority: normal", ["wiki/x.md"],
+                                    decision["target"]) == "Priority: normal"
+
+
+def test_library_target_with_hits_still_gets_memory_line(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYAUTO_MEMORY", raising=False)
+    mind = _mind(tmp_path)
+    _memory(tmp_path)
+    raw = _declared("PyAutoLens")
+    decision = _intake.analyse(raw, "test")
+    assert decision["target_source"] == "declared"
+    rel = _intake.write_prompt(mind, decision, raw, "test")
+    line = _memory_line((mind / rel).read_text(encoding="utf-8"))
+    assert "wiki/lensing/concepts/subhalo.md" in line
