@@ -158,6 +158,30 @@ Until phase 3b it spawns only stub workers (`PYAUTO_ORCHESTRATOR_FAKE=1`); a rea
 dispatch is refused. Doctrine: `AUTONOMY.md` "The watcher's network surface —
 2026-11-03"; the exemption it runs under, `PyAutoMind/policy/shift_watcher.md`.
 
+**Real workers (phase 3b).** Without `PYAUTO_ORCHESTRATOR_FAKE=1` each spawn is
+`claude --bg --name shift:<task> --permission-mode <worker-mode> <prompt>`, the
+prompt filled from `worker_template.md` (the `/start_dev <path> --auto` line,
+the end-at-deliverable contract, the brief path, "never commit to PyAutoMind
+yourself", and the `<lease>/<task>.done` marker). The lease records the short
+id `claude --bg` prints (`backgrounded · <id> · <name>`; `--session-id` is not
+honoured by `--bg`). Each tick reads `claude agents --json --all` once:
+`working` → heartbeat; `blocked` (waiting on a person) → `stalled_since`, and
+after `STALL_GRACE_S` (15 min) the task is **parked** — never killed, never
+re-dispatched, named in the digest; `done` with the marker → released, without
+it → crashed (re-dispatched once). A finished worker's tokens (input + output +
+cache creation) are summed from its local transcript, named by the full
+`sessionId`, and the brief's `token-budget:` refuses the next spawn once spent.
+`worker-mode:` defaults to `auto` (human, 2026-11-03); `dontAsk` and
+`acceptEdits` are allowed, `bypassPermissions` never. **Until phase 3c lands,
+real dispatch needs `sandbox: yes` in the brief** — one Mind writer is doctrine
+and a real worker would otherwise commit to Mind itself.
+
+**Workers start in a trusted folder.** `claude --bg` refuses an untrusted one
+at once ("Workspace not trusted", exit 1) — the spawn fails and leaves no lease.
+The watcher launches from the workspace root; task worktrees under the
+`-wt` root are not trusted by default, so trust that root once by hand if
+workers are ever launched there.
+
 **Installing the timer is the human's act** — no session runs these. Copy
 `bin/systemd/pyauto-orchestrator.{service,timer}` to `~/.config/systemd/user/`,
 write `~/.config/pyauto/orchestrator.env` with `PYAUTO_BRAIN`, `PYAUTO_MIND`,

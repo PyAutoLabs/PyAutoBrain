@@ -13,8 +13,11 @@ end at their deliverable") and `AUTONOMY.md` "Shift briefs and unattended
 5. ask the planner what the brief admits (`plan(..., brief=...)`);
 6. for each candidate: the caps, then an exclusive-create lease, then spawn.
 
-Phase 3a runs fake workers only (`PYAUTO_ORCHESTRATOR_FAKE=1`); real
-`claude --bg` workers are phase 3b, the Mind writer 3c, the digest 3d.
+Workers are fake stubs (`PYAUTO_ORCHESTRATOR_FAKE=1`, phase 3a) or real
+`claude --bg` sessions from one session template (phase 3b). A real worker's
+liveness is its `claude agents --json` state; one left `blocked` past a grace
+is parked for a human — never killed, never re-dispatched. Until phase 3c (one
+Mind writer) lands, real workers run only under a `sandbox: yes` brief.
 Nothing here commits, merges, posts or arms a timer: the systemd timer that
 calls `bin/orchestrator_watch.py` is installed by the human.
 """
@@ -24,6 +27,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -41,6 +45,11 @@ LOCK_TTL_S = 600
 LEASE_GRACE_S = 120
 #: A task's lease may be re-dispatched after a crash this many times a shift.
 REDISPATCH_LIMIT = 1
+#: A real worker `blocked` (waiting on a human) this long is parked: its lease
+#: is released, the task is not re-dispatched, and the digest names it.
+STALL_GRACE_S = 900
+#: The worker prompt every real worker starts from (never a bare session).
+WORKER_TEMPLATE = Path(__file__).with_name("worker_template.md")
 
 FAKE_ENV = "PYAUTO_ORCHESTRATOR_FAKE"
 HOME_ENV = "PYAUTO_ORCHESTRATOR_HOME"
@@ -93,6 +102,8 @@ def read_counters(slot: Path) -> dict:
     c.setdefault("abandoned", [])
     c.setdefault("refusals", [])
     c.setdefault("pending_redispatch", [])
+    c.setdefault("parked", [])
+    c.setdefault("tokens", 0)
     return c
 
 
@@ -159,16 +170,115 @@ class FakeSpawner:
         return {"pid": proc.pid, "session_id": f"fake-{proc.pid}", "worktree": None}
 
 
+def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path) -> str:
+    """The session template filled in for one task."""
+    return WORKER_TEMPLATE.read_text(encoding="utf-8").format(
+        task=task, task_path=prompt_path, brief_path=brief_path, lease_dir=lease_dir)
+
+
+def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Path,
+                    mode: str) -> list[str]:
+    """The exact argv that starts one worker — named, moded, templated.
+
+    No `--session-id`: `claude --bg` (2.1.316) assigns its own, so the worker is
+    tracked by the short id the launch prints."""
+    if mode not in _brief.WORKER_MODES:
+        raise OrchestratorError(f"worker mode {mode!r} is not one of "
+                                + ", ".join(_brief.WORKER_MODES))
+    return ["claude", "--bg", "--name", f"shift:{task}", "--permission-mode", mode,
+            worker_prompt(task, prompt_path, brief_path, lease_dir)]
+
+
+#: `claude --bg` prints `backgrounded · <8-hex id> · <name>` on its first line.
+_BG_ID_RE = re.compile(r"backgrounded\W+([0-9a-f]{8})\b")
+
+
 class RealSpawner:
-    """`claude --bg` workers from the session template — phase 3b."""
+    """`claude --bg` workers from the session template (phase 3b)."""
+
+    real = True
+
+    def __init__(self, brief_path: Path, mode: str, cwd: Path | None = None, run=None):
+        self.brief_path, self.mode, self.cwd = Path(brief_path), mode, cwd
+        self.run = run or subprocess.run
 
     def spawn(self, task: str, prompt_path: str, lease_dir: Path) -> dict:
-        raise OrchestratorError("real dispatch arrives in phase 3b; set "
-                                f"{FAKE_ENV}=1 for a dry shift")
+        argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode)
+        res = self.run(argv, cwd=self.cwd, capture_output=True, text=True, timeout=120)
+        # An untrusted folder is refused here, fast ("Workspace not trusted") —
+        # never a silent stall. Workers start from a folder the human trusted.
+        if res.returncode != 0:
+            raise OrchestratorError(f"claude --bg failed for {task}: "
+                                    + (res.stderr or res.stdout).strip()[:300])
+        m = _BG_ID_RE.search(res.stdout)
+        if not m:
+            raise OrchestratorError(f"claude --bg printed no session id for {task}: "
+                                    + res.stdout.strip()[:200])
+        return {"pid": 0, "agent_id": m.group(1), "session_id": None, "mode": self.mode}
 
 
-def default_spawner():
-    return FakeSpawner() if os.environ.get(FAKE_ENV) == "1" else RealSpawner()
+def default_spawner(brief_path: Path, brief: dict):
+    if os.environ.get(FAKE_ENV) == "1":
+        return FakeSpawner()
+    cwd = None
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from _pyauto_root import pyauto_root  # noqa: E402
+        cwd = pyauto_root()
+    except Exception:
+        cwd = None
+    return RealSpawner(brief_path, _brief.worker_mode_of(brief), cwd=cwd)
+
+
+# --- real-worker liveness and usage ------------------------------------------------
+
+class AgentsView:
+    """`claude agents --json --all`, read once per tick, keyed by the short id
+    `claude --bg` printed (its `id` field)."""
+
+    def __init__(self, sessions: list[dict] | None = None, run=None):
+        self._sessions, self._run = sessions, run or subprocess.run
+
+    def _load(self) -> list[dict]:
+        if self._sessions is None:
+            try:
+                res = self._run(["claude", "agents", "--json", "--all"],
+                                capture_output=True, text=True, timeout=60)
+                self._sessions = json.loads(res.stdout) if res.returncode == 0 else []
+            except (OSError, ValueError, subprocess.SubprocessError):
+                self._sessions = []
+        return self._sessions
+
+    def _find(self, agent_id: str) -> dict | None:
+        return next((s for s in self._load() if s.get("id") == agent_id), None)
+
+    def state(self, agent_id: str) -> str | None:
+        """The CLI's state word — `working` while it runs (2.1.316), `blocked`
+        waiting on a person, `done` — or None if unlisted. Anything but
+        `blocked` / `done` / None is read as alive."""
+        s = self._find(agent_id)
+        return None if s is None else (s.get("state") or "running")
+
+    def session_of(self, agent_id: str) -> str | None:
+        """The full session id — what the transcript file is named by."""
+        s = self._find(agent_id)
+        return s.get("sessionId") if s else None
+
+
+def transcript_tokens(session_id: str, root: Path | None = None) -> int:
+    """Tokens a finished session spent: input + output + cache creation, summed
+    from its local transcript (a file read — no network)."""
+    root = root or Path.home() / ".claude" / "projects"
+    total = 0
+    for f in root.glob(f"*/{session_id}.jsonl"):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                usage = (json.loads(line).get("message") or {}).get("usage") or {}
+            except (ValueError, AttributeError):
+                continue
+            total += sum(int(usage.get(k) or 0) for k in
+                         ("input_tokens", "output_tokens", "cache_creation_input_tokens"))
+    return total
 
 
 # --- locks and leases ------------------------------------------------------------
@@ -225,13 +335,22 @@ def leases(slot: Path) -> dict[str, dict]:
     return out
 
 
-def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float) -> list[dict]:
-    """Release finished leases and declare dead ones; returns what happened."""
+def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
+          agents: AgentsView | None = None, tokens=transcript_tokens) -> list[dict]:
+    """Release finished leases, park stalled ones and declare dead ones."""
     events = []
     lease_dir = slot / "leases"
+    agents = agents or AgentsView()
     for task, lease in leases(slot).items():
         done_marker = lease_dir / f"{task}.done"
         path = lease_dir / f"{task}.json"
+        real = bool(lease.get("agent_id")) and not lease.get("pid")
+        state = agents.state(lease["agent_id"]) if real else None
+        finished = done_marker.exists() or state == "done" or (
+            real and state is None and now >= _parse_iso(lease["expires"]))
+        if real and finished:
+            sid = agents.session_of(lease["agent_id"]) or lease.get("session_id")
+            counters["tokens"] += tokens(sid) if sid else 0
         if done_marker.exists():
             path.unlink(missing_ok=True)
             done_marker.unlink(missing_ok=True)
@@ -239,13 +358,27 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float) -> list
                 counters["done"].append(task)
             events.append({"task": task, "event": "done"})
             continue
-        if _alive(int(lease.get("pid", 0))):
+        if real and state == "blocked":
+            since = lease.setdefault("stalled_since", _iso(now))
+            if (now - _parse_iso(since)).total_seconds() >= STALL_GRACE_S:
+                # Waiting on a human is not a crash: never killed, never
+                # re-dispatched — the digest names it and the human answers.
+                path.unlink(missing_ok=True)
+                if task not in counters["parked"]:
+                    counters["parked"].append(task)
+                events.append({"task": task, "event": "parked",
+                               "why": f"blocked since {since}"})
+            else:
+                path.write_text(json.dumps(lease, sort_keys=True))
+            continue
+        alive = (state not in (None, "done")) if real else _alive(int(lease.get("pid", 0)))
+        if alive:
+            lease.pop("stalled_since", None)
             lease["heartbeat"] = _iso(now)
             lease["expires"] = _iso(now + _dt.timedelta(seconds=grace_s))
             path.write_text(json.dumps(lease, sort_keys=True))
             continue
-        expires = _dt.datetime.fromisoformat(lease["expires"].replace("Z", "+00:00"))
-        if now < expires:
+        if now < _parse_iso(lease["expires"]) and state != "done":
             continue  # gone, but inside the grace for a late `.done`
         path.unlink(missing_ok=True)
         counters["crashes"] += 1
@@ -257,6 +390,10 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float) -> list
         events.append({"task": task, "event": "dead",
                        "redispatch": "allowed" if again else "spent — abandoned"})
     return events
+
+
+def _parse_iso(value: str) -> _dt.datetime:
+    return _dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 # --- the tick --------------------------------------------------------------------
@@ -275,7 +412,8 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
 
 def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          now: _dt.datetime | None = None, spawner=None,
-         grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None) -> dict:
+         grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
+         agents: AgentsView | None = None, tokens=transcript_tokens) -> dict:
     """One watcher tick. Returns what it did; also appended to `tick.log`."""
     now = now or _now()
     brief_path = Path(brief_path)
@@ -293,17 +431,25 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
     if not _take_lock(slot, now):
         return {"action": "busy", "reason": "another tick holds the lock"}
     try:
-        result = _tick_locked(slot, brief, mind, now, spawner or default_spawner(),
-                              grace_s, records)
+        result = _tick_locked(slot, brief, mind, now,
+                              spawner or default_spawner(brief_path, brief),
+                              grace_s, records, agents, tokens)
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
     return result
 
 
-def _tick_locked(slot, brief, mind, now, spawner, grace_s, records) -> dict:
+def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
+                 tokens) -> dict:
     counters = read_counters(slot)
-    reaped = _reap(slot, counters, now, grace_s)
+    # One Mind writer (AUTONOMY.md, 2026-11-03) is phase 3c. Until it lands a
+    # real worker would commit to PyAutoMind itself, so real dispatch is fenced
+    # to briefs that declare themselves a sandbox.
+    if getattr(spawner, "real", False) and not _brief.is_sandbox(brief):
+        raise OrchestratorError("real dispatch needs `sandbox: yes` in the brief "
+                                "until phase 3c (one Mind writer) lands")
+    reaped = _reap(slot, counters, now, grace_s, agents, tokens)
     live = leases(slot)
     max_workers = _brief.cap_of(brief, "max-workers")
     max_sessions = _brief.cap_of(brief, "max-sessions")
@@ -315,13 +461,19 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records) -> dict:
     spawned, refused = [], []
     for member in d["members"]:
         task = task_id(member["path"])
-        if task in live or task in counters["done"] or task in counters["abandoned"]:
+        if task in live or task in counters["done"] or task in counters["abandoned"] \
+                or task in counters["parked"]:
             continue
         if len(live) >= max_workers:
             refused.append({"task": task, "why": f"max-workers {max_workers} reached"})
             continue
         if counters["sessions"] >= max_sessions:
             refused.append({"task": task, "why": f"max-sessions {max_sessions} reached"})
+            continue
+        budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
+        if budget is not None and counters["tokens"] >= budget:
+            refused.append({"task": task, "why": f"token-budget {budget} spent "
+                                                f"({counters['tokens']})"})
             continue
         lease = {"task": task, "prompt": member["path"], "started": _iso(now),
                  "heartbeat": _iso(now),

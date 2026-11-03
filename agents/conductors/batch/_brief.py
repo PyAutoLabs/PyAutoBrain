@@ -24,6 +24,11 @@ from _sizing import (  # noqa: E402 — the caller puts the faculty on sys.path
 BACKLOG_POLICIES = ("none", "fill-idle", "scoped")
 #: Optional usage caps (phase 3a) and their defaults when a brief omits them.
 CAP_DEFAULTS = {"max-workers": 2, "max-sessions": 6}
+#: Permission modes a real worker may run in (phase 3b). `auto` is the default
+#: the human chose 2026-11-03: a worker that still needs a person shows
+#: `blocked` and is parked. `bypassPermissions` is never a worker mode.
+WORKER_MODES = ("auto", "dontAsk", "acceptEdits")
+DEFAULT_WORKER_MODE = "auto"
 SCOPED_KEYS = ("epics", "tags", "tiers")
 
 _ITEM_RE = re.compile(r"^(\s*)-\s+(.*?)\s*$")
@@ -129,6 +134,14 @@ def cap_of(brief: dict, key: str) -> int:
     return CAP_DEFAULTS[key] if value is None else value
 
 
+def worker_mode_of(brief: dict) -> str:
+    return brief.get("worker-mode", {}).get("value") or DEFAULT_WORKER_MODE
+
+
+def is_sandbox(brief: dict) -> bool:
+    return brief.get("sandbox", {}).get("value", "").lower() == "yes"
+
+
 def lanes_of(brief: dict) -> list[str]:
     node = brief.get("lanes")
     return _csv(node["value"]) if node else []
@@ -223,6 +236,14 @@ def check(path: Path, mind: Path) -> dict:
     for key in CAP_DEFAULTS:
         if key in brief and _nonneg_int(brief[key]["value"]) is None:
             errors.append(f"brief.{key}: not a whole number ({brief[key]['value']!r})")
+
+    if "worker-mode" in brief and brief["worker-mode"]["value"] not in WORKER_MODES:
+        errors.append(f"brief.worker-mode: {brief['worker-mode']['value']} — one of "
+                      + ", ".join(WORKER_MODES)
+                      + (" (bypassPermissions is never a worker mode)"
+                         if brief["worker-mode"]["value"] == "bypassPermissions" else ""))
+    if "sandbox" in brief and brief["sandbox"]["value"].lower() not in ("yes", "no"):
+        errors.append(f"brief.sandbox: {brief['sandbox']['value']} — yes or no")
 
     lanes = lanes_of(brief)
     if not lanes:
