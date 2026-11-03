@@ -614,6 +614,30 @@ and a second push in one shift is itself a digest finding.
 *Revert condition:* two pushes in one shift that the human judged unnecessary
 retire push for that orchestrator.
 
+## The watcher's network surface — 2026-11-03
+
+Approved by the human 2026-11-03 with the phase-3a plan of the
+autonomous-orchestrators epic. The hard invariant below says any further
+network surface in the Brain is a new decision; this is that decision for the
+shift watcher (`bin/orchestrator_watch.py`, `agents/conductors/batch/_orchestrator.py`;
+the exemption it runs under is `PyAutoMind/policy/shift_watcher.md`).
+
+- **What it may reach, and nothing else:** read-only `gh pr checks` for PRs its
+  own leases name; read-only `claude agents --json` for the workers it started;
+  and **one comment per shift** on the brief's `issue:` (the digest, phase 3d).
+  It starts worker sessions (`claude --bg`, phase 3b) — that is dispatch, ruled
+  by "Shift briefs and unattended `glance`", not a network read.
+- **Opt-in and laptop-only.** It runs only from a systemd user timer the human
+  installs, only while a brief is open, and never while `STOP` exists. No
+  conductor, faculty or skill calls it; no session arms it.
+- **Never:** a merge, a push, a label, a PR, a review, a second comment in the
+  same shift, or any write to a repository. Merges stay with the `/prm`
+  close-out the section above grants.
+
+*Revert condition:* one network call outside the three named above — or a
+second issue comment in one shift — retires the watcher to fake mode until the
+cause is found and this section is re-approved.
+
 ## Human override for Heart RED (development only)
 
 Heart RED still parks every autonomous run and blocks every release. After the
@@ -871,6 +895,12 @@ Codex hook list.
   name instead — and every pushed ref carries a `sweep-after:` date on the
   batch record, after which `bin/branch_sweep.sh` may delete it.
 
+  A third exception, added 2026-11-03: the **shift watcher** — read-only
+  `gh pr checks` and `claude agents --json`, and one issue comment per shift —
+  opt-in through a human-installed timer and laptop-only; the full terms and
+  their revert condition are "The watcher's network surface — 2026-11-03"
+  above.
+
   Any *further* network surface in the Brain is a new decision, not covered by
   this line.
 - The `Autonomy:` header is a model's own estimate. The caps, the explicit
@@ -893,5 +923,7 @@ Codex hook list.
   (2026-11-03): the brief as the launch act, the backlog-dip scope, the
   unattended `glance` close-out guards and the merge cap, one Mind writer per
   shift, drafts-only decomposition, the push test.
+- `batch` (the watcher) — "The watcher's network surface" (2026-11-03): what
+  the watcher may reach, and that it is opt-in, laptop-only and never writes.
 
 Skills must link here rather than copying the tables.

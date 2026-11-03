@@ -139,3 +139,34 @@ def test_consumers_and_invariant_name_the_shift_section():
     assert "Shift briefs and unattended `glance`" in consumers
     invariants = _norm(AUTONOMY[AUTONOMY.index("## Hard invariants"):])
     assert "\"shift briefs and unattended glance\" (2026-11-03) grant them" in invariants
+
+
+# --- The watcher's network surface (2026-11-03, PyAutoBrain#555) -------------
+
+WATCHER_HEADER = "## The watcher's network surface — 2026-11-03"
+
+
+def _watcher_section():
+    assert AUTONOMY.count(WATCHER_HEADER) == 1
+    rest = AUTONOMY[AUTONOMY.index(WATCHER_HEADER) + len(WATCHER_HEADER):]
+    return _norm(rest[:rest.find("\n## ")])
+
+
+def test_watcher_section_names_exactly_its_surface_and_a_revert_condition():
+    sec = _watcher_section()
+    for surface in ("gh pr checks", "claude agents --json", "one comment per shift"):
+        assert surface in sec, surface
+    assert "revert condition:" in sec
+    assert "laptop-only" in sec and "never" in sec
+
+
+def test_the_network_invariant_points_at_the_watcher_section():
+    invariants = AUTONOMY[AUTONOMY.index("## Hard invariants"):]
+    assert "A third exception, added 2026-11-03" in invariants
+    assert "The watcher's network surface — 2026-11-03" in invariants
+    assert "Any *further* network surface in the Brain is a new decision" in invariants
+
+
+def test_watcher_section_is_a_consumer_entry():
+    consumers = AUTONOMY[AUTONOMY.index("## Consumers"):]
+    assert "The watcher's network surface" in consumers

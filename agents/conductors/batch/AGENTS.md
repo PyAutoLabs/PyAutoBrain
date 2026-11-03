@@ -146,6 +146,26 @@ never the *authority*. A shift brief written with `review-at:` is that act in
 writing (2026-11-03): the human dispatches by writing it, and its scope is the
 whole grant (`AUTONOMY.md`, "Shift briefs and unattended `glance`").
 
+## The watcher (phase 3a — fake workers only)
+
+`bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one
+tick**: `STOP` first, then the open-brief gate, the tick lock, the lease reap,
+the plan inside the brief, the caps (`max-workers:`, default 2;
+`max-sessions:`, default 6) and an exclusive-create lease per spawn. State lives
+under `$PYAUTO_ORCHESTRATOR_HOME` (default `.orchestrator` under the worktree
+root), one directory per brief: `STOP`, `leases/`, `counters.json`, `tick.log`.
+Until phase 3b it spawns only stub workers (`PYAUTO_ORCHESTRATOR_FAKE=1`); a real
+dispatch is refused. Doctrine: `AUTONOMY.md` "The watcher's network surface —
+2026-11-03"; the exemption it runs under, `PyAutoMind/policy/shift_watcher.md`.
+
+**Installing the timer is the human's act** — no session runs these. Copy
+`bin/systemd/pyauto-orchestrator.{service,timer}` to `~/.config/systemd/user/`,
+write `~/.config/pyauto/orchestrator.env` with `PYAUTO_BRAIN`, `PYAUTO_MIND`,
+`PYAUTO_SHIFT_BRIEF` (and `PYAUTO_ORCHESTRATOR_FAKE=1` until 3b), then
+`systemctl --user daemon-reload && systemctl --user enable --now
+pyauto-orchestrator.timer`. To stop a shift, `touch <slot>/STOP`; to remove the
+watcher, `systemctl --user disable --now pyauto-orchestrator.timer`.
+
 ## Running
 
 ```
