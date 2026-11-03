@@ -112,7 +112,7 @@ def derive_org(homes):
 # ---------------------------------------------------------------------------
 # The injection seam (--github-data)
 #
-# Eleven of this board's legs read GitHub through `gh api`, and a Claude Code
+# The legs of this board that read GitHub do so through `gh api`, and a Claude Code
 # remote session — the surface the board is actually read from on a phone — has
 # no `gh` at all. Its GitHub access is the `mcp__github__*` tool surface, which
 # is an AGENT capability: this file is a subprocess and cannot reach it, however
@@ -475,10 +475,22 @@ def extract_heart_performance(board, board_url=""):
     }
 
 
+def open_issues_endpoint(org):
+    """The upkeep leg's `gh api` endpoint — also its `--github-data` key.
+
+    Upkeep is the board's only remaining GitHub leg (versions, community and
+    resume were retired with the agents/workflows simplification and are not
+    collected at all), so this is the one key a gh-less gatherer must supply.
+    The response is GitHub's search payload verbatim; the leg reads
+    `total_count`.
+    """
+    return f"search/issues?q=org:{org}+is:issue+is:open&per_page=1"
+
+
 def collect_open_issues(org, degraded):
     """Total open issues across the org — the /issue_cleanup pointer count
     (the audit itself stays that skill's confirmation-gated job)."""
-    res = gh_json([f"search/issues?q=org:{org}+is:issue+is:open&per_page=1"])
+    res = gh_json([open_issues_endpoint(org)])
     if res is None:
         degraded.append("upkeep: open-issue count unavailable")
         return None

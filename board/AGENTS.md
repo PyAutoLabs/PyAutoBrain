@@ -70,6 +70,13 @@ verbatim. This adapter supports retained sources; it does not re-enable
 retired overnight collection. Legacy explicit diagnostic helpers remain for
 compatibility, separate from board publication.
 
+The board's one remaining GitHub leg is upkeep: key
+`search/issues?q=org:<org>+is:issue+is:open&per_page=1`
+(`open_issues_endpoint()`), value GitHub's search response verbatim (the leg
+reads `total_count`). Versions, community and resume are retired and not
+collected, so `bin/version_drift.sh` and the community scan need no seam of
+their own; a retired leg returns only through this same endpoint-keyed map.
+
 `BOARD_GH` and `BOARD_PAGES_BASE` support hermetic fixtures. A failed Pages
 read may use an owning repo's local published artifact; it must not manufacture
 freshness. Public artifacts must never leak private local paths or credentials.
