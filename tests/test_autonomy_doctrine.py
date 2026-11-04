@@ -170,3 +170,53 @@ def test_the_network_invariant_points_at_the_watcher_section():
 def test_watcher_section_is_a_consumer_entry():
     consumers = AUTONOMY[AUTONOMY.index("## Consumers"):]
     assert "The watcher's network surface" in consumers
+
+
+# --- The `glance` Shadow-window ruling (2026-11-04, PyAutoBrain#566) --------
+
+RULING_HEADER = "## The `glance` Shadow-window ruling — 2026-11-04"
+
+
+def _ruling_section():
+    assert AUTONOMY.count(RULING_HEADER) == 1, "ruling heading missing or duplicated"
+    rest = AUTONOMY[AUTONOMY.index(RULING_HEADER) + len(RULING_HEADER):]
+    return _norm(rest[:rest.find("\n## ")])
+
+
+def test_ruling_sits_between_merge_authority_and_shift_briefs():
+    assert AUTONOMY.index("## Merge authority follows Consequence — 2026-10-02") \
+        < AUTONOMY.index(RULING_HEADER) < AUTONOMY.index(SHIFT_HEADER)
+
+
+def test_a_witness_that_did_not_pass_never_auto_merges():
+    sec = _ruling_section()
+    assert "a witness: that did not pass means a human /prm" in sec
+    for form in ("none", "n/a", "partial", "waived"):
+        assert form in sec, form
+
+
+def test_ruling_records_the_audit_outcome():
+    sec = _ruling_section()
+    assert "confirmed, narrowed" in sec
+    assert "8 of 8 ok" in sec
+    assert "69 counted rows" in sec
+    # The tier-drift narrowing was conditional on a `minded` row; none was.
+    assert "not adopted" in sec
+    assert "the declared consequence: stays the authority" in sec
+
+
+def test_unattended_glance_counts_in_its_own_stage_two_sub_window():
+    sec = _ruling_section()
+    assert "stage-2 sub-window" in sec
+    assert "first 10 needs the independent different-model adversary leg actually run" in sec
+    assert "counted apart from the stage-1 rows" in sec
+    # The shift section's unattended sub-rule points back at the ruling.
+    assert "The `glance` Shadow-window ruling — 2026-11-04" in AUTONOMY[AUTONOMY.index(SHIFT_HEADER):]
+
+
+def test_ruling_keeps_the_revert_condition_and_is_a_consumer_entry():
+    sec = _ruling_section()
+    assert sec.count("revert condition:") == 1
+    assert "any reverted row demotes glance" in sec
+    consumers = AUTONOMY[AUTONOMY.index("## Consumers"):]
+    assert "Shadow-window ruling" in consumers
