@@ -119,6 +119,7 @@ jobs:
           # The key is used for that re-mint only.
           APP_CLIENT_ID: ${{ vars.APP_CLIENT_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          APP_OWNER: PyAutoLabs   # the same installation the mint step's `owner:` names
           PYAUTO_RELEASE_WEBHOOK_URL: ${{ secrets.PYAUTO_RELEASE_WEBHOOK_URL }}
           NIGHTLY_RELEASES: ${{ vars.NIGHTLY_RELEASES }}
           # Scheduled runs have no inputs: default 'false' — ARMED 2026-07-09

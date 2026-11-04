@@ -80,12 +80,12 @@ def test_mint_picks_the_owner_installation_and_asks_for_exact_permissions(rsa_ke
         if method == "GET":
             return [
                 {"id": 1, "account": {"login": "someone-else"}},
-                {"id": 42, "account": {"login": "PyAutoLabs"}},
+                {"id": 42, "account": {"login": "example-org"}},
             ]
         return {"token": "ghs_fresh"}
 
     token = gh_app_token.mint(
-        "Iv1.client", rsa_key.read_text(), "PyAutoLabs", request=fake_request
+        "Iv1.client", rsa_key.read_text(), "example-org", request=fake_request
     )
     assert token == "ghs_fresh"
     assert calls[0][:2] == ("GET", "https://api.github.com/app/installations")
@@ -104,7 +104,7 @@ def test_mint_fails_cleanly_without_an_owner_installation(rsa_key):
         gh_app_token.mint(
             "Iv1.client",
             rsa_key.read_text(),
-            "PyAutoLabs",
+            "example-org",
             request=lambda *a: [{"id": 1, "account": {"login": "x"}}],
         )
 

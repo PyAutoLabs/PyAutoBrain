@@ -15,7 +15,7 @@ else.
 Environment:
   APP_CLIENT_ID    the App's client id (the JWT issuer)
   APP_PRIVATE_KEY  the App's private key, PEM text
-  APP_OWNER        the installation owner (default PyAutoLabs)
+  APP_OWNER        the installation owner (the workflow sets it beside the mint step's `owner:`)
 
 Exit 0 with the token on stdout; exit 1 with a one-line reason on stderr. The
 key, the JWT and the token never appear in an error message.
@@ -109,7 +109,7 @@ def _request(method: str, url: str, headers: dict, body: dict | None = None):
 
 
 def mint(
-    client_id: str, private_key: str, owner: str = "PyAutoLabs", request=_request
+    client_id: str, private_key: str, owner: str, request=_request
 ) -> str:
     """Mint an installation token for `owner` with INSTALLATION_PERMISSIONS."""
     headers = {
@@ -140,10 +140,10 @@ def mint(
 def main() -> int:
     client_id = os.environ.get("APP_CLIENT_ID", "")
     private_key = os.environ.get("APP_PRIVATE_KEY", "")
-    owner = os.environ.get("APP_OWNER") or "PyAutoLabs"
-    if not client_id or not private_key:
+    owner = os.environ.get("APP_OWNER", "")
+    if not client_id or not private_key or not owner:
         print(
-            "gh_app_token: APP_CLIENT_ID and APP_PRIVATE_KEY must both be set",
+            "gh_app_token: APP_CLIENT_ID, APP_PRIVATE_KEY and APP_OWNER must all be set",
             file=sys.stderr,
         )
         return 1
