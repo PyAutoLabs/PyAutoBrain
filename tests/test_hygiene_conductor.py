@@ -1295,3 +1295,65 @@ def test_escapes_clean_repo_reports_no_findings(tmp_path):
     assert row["status"] == "clean"
     assert row["count"] == 0
     assert row["findings"] == []
+
+
+def _companion_pair():
+    """A made-up course and the workspace the naming convention pairs it with."""
+    return "HowToDemo", "autodemo_workspace"
+
+
+def _write_cross_repo_refs_fixture(root):
+    """A HowTo course, its companion workspace and an assistant (PyAutoBrain#583)."""
+    course_name, workspace_name = _companion_pair()
+    workspace = root / workspace_name
+    (workspace / "scripts/interferometer").mkdir(parents=True)
+    (workspace / "scripts/interferometer/modeling.py").write_text("x = 1\n")
+
+    assistant = root / "demo_assistant"
+    (assistant / "colab").mkdir(parents=True)
+    (assistant / "colab/contexts.yaml").write_text("a: 1\n")
+    (assistant / "scripts").mkdir()
+
+    course = root / course_name
+    (course / "scripts/chapter_1").mkdir(parents=True)
+    (course / "scripts/chapter_1/tutorial_1.py").write_text(
+        '"""\n'
+        "The workspace's `scripts/interferometer/modeling.py` shows the full fit.\n"
+        "The `scripts/interferometer/missing_example.py` example was removed.\n"
+        "Instructions come from demo_assistant's `colab/contexts.yaml`.\n"
+        "Fits write `files/search_internal` and cache to `cache_root/crds/`.\n"
+        '"""\n'
+    )
+    (course / "README.md").write_text(
+        "\n".join(
+            [
+                "- `scripts`: the tutorials.",
+                "- `config`: configuration.",
+                "- `notebooks`: generated at release time.",
+                "- `cache`: downloads, re-used across runs.",
+                "",
+            ]
+        )
+    )
+    (course / "config").mkdir()
+    return course
+
+
+def test_refs_checks_companion_workspace_and_named_sibling(tmp_path):
+    _write_cross_repo_refs_fixture(tmp_path)
+
+    found = {f["reference"] for f in _refs_row(tmp_path)["findings"]}
+
+    # Resolves in the course's companion workspace / the sibling named on the line.
+    assert "scripts/interferometer/modeling.py" not in found
+    assert "colab/contexts.yaml" not in found
+    # Dead in the course AND in the companion: still a finding.
+    assert "scripts/interferometer/missing_example.py" in found
+
+
+def test_refs_treats_run_output_and_generated_folders_as_unresolvable(tmp_path):
+    _write_cross_repo_refs_fixture(tmp_path)
+
+    found = {f["reference"] for f in _refs_row(tmp_path)["findings"]}
+
+    assert {"files/search_internal", "cache_root/crds/", "notebooks", "cache"}.isdisjoint(found)
