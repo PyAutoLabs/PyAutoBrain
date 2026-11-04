@@ -49,7 +49,14 @@ import argparse
 import json
 import re
 import sys
-import tomllib
+
+try:  # Python >= 3.11
+    import tomllib
+except ModuleNotFoundError:  # older interpreter: tomli is the same parser, if installed
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ModuleNotFoundError:
+        tomllib = None  # main() reports the scan as skipped rather than crashing
 from pathlib import Path
 
 import sys
@@ -285,6 +292,23 @@ def main() -> int:
     output.add_argument("--json-row", action="store_true")
     output.add_argument("--summary", action="store_true")
     args = parser.parse_args()
+
+    if tomllib is None:
+        reason = (
+            f"skipped: needs Python >= 3.11 (tomllib) or tomli to read pyproject.toml; "
+            f"ran on Python {sys.version_info.major}.{sys.version_info.minor}"
+        )
+        if args.json_row:
+            # Same envelope as the normal row; "error" + a null count is what
+            # hygiene.sh's own helper-failed row uses, so no reader sees "clean".
+            print(json.dumps({"count": None, "delegate": "/bug", "findings": [],
+                              "kind": "finding", "mode": "extras",
+                              "status": "error", "summary": reason}, sort_keys=True))
+        elif args.summary:
+            print(f"-1|{reason}")  # count -1 renders as "advisory", never "clean"
+        else:
+            print(reason)
+        return 0
 
     findings, skipped = missing(args.root)
 

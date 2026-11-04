@@ -63,6 +63,16 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# _hygiene_extras.py parses pyproject.toml with `tomllib` (Python >= 3.11), but a
+# bare `python3` can be older (3.10 on the WSL laptop), where the extras mode
+# crashed instead of scanning (PyAutoBrain#581). Run it on the newest interpreter
+# present; the helper itself still degrades to a "skipped" row if none has it.
+TOML_PY="python3"
+for _py in python3.13 python3.12 python3.11; do
+  if command -v "$_py" >/dev/null 2>&1; then TOML_PY="$_py"; break; fi
+done
+unset _py
 source "$HERE/../../_common.sh"
 
 # PYAUTO_ROOT is exported/defaulted by _common.sh. Scan the canonical checkouts
@@ -312,7 +322,7 @@ prescan_optdeps() {
 # hand-added and silently drift. The symptom is a script red in smoke and green
 # in release; the fix is always the install set, never the script.
 prescan_extras() {
-  python3 "$HERE/_hygiene_extras.py" --root "$ROOT" --summary
+  "$TOML_PY" "$HERE/_hygiene_extras.py" --root "$ROOT" --summary
 }
 
 # refs: file/folder references in user-facing *_workspace and HowTo* prose
@@ -670,7 +680,7 @@ emit_json_row() { # mode
   # this output, and one bad row would blank the whole hygiene section.
   helper_row() { # helper-module mode
     local out
-    if out="$(python3 "$HERE/$1" --root "$ROOT" --json-row 2>/dev/null)" \
+    if out="$("${3:-python3}" "$HERE/$1" --root "$ROOT" --json-row 2>/dev/null)" \
         && [[ -n "$out" ]] \
         && python3 -c 'import json,sys; json.loads(sys.argv[1])' "$out" 2>/dev/null; then
       printf '%s' "$out"
@@ -683,7 +693,7 @@ emit_json_row() { # mode
   if [[ "$m" == "escapes"    ]]; then helper_row _hygiene_escapes.py escapes; return; fi
   if [[ "$m" == "refs"       ]]; then helper_row _hygiene_refs.py refs; return; fi
   if [[ "$m" == "optdeps"    ]]; then helper_row _hygiene_optdeps.py optdeps; return; fi
-  if [[ "$m" == "extras"     ]]; then helper_row _hygiene_extras.py extras; return; fi
+  if [[ "$m" == "extras"     ]]; then helper_row _hygiene_extras.py extras "$TOML_PY"; return; fi
   local res count summary kind status
   res="$(prescan "$m")"; count="${res%%|*}"; summary="${res#*|}"; kind="${MODE_KIND[$m]}"
   if   [[ "$kind" == "advisory" || "$count" == "-1" ]]; then status="advisory"
@@ -793,7 +803,7 @@ elif [[ "$mode" == "optdeps" ]]; then
   python3 "$HERE/_hygiene_optdeps.py" --root "$ROOT"
 elif [[ "$mode" == "extras" ]]; then
   echo "Optional dependencies the workspace-validation smoke leg never installs (read-only scan):"
-  python3 "$HERE/_hygiene_extras.py" --root "$ROOT"
+  "$TOML_PY" "$HERE/_hygiene_extras.py" --root "$ROOT"
 elif [[ "$mode" == "config" ]]; then
   echo "Library config keys absent downstream + orphan config files (read-only scan):"
   python3 "$HERE/_hygiene_config.py" --root "$ROOT" --detail \
