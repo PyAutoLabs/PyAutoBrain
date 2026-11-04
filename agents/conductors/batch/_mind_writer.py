@@ -124,6 +124,19 @@ def _git(cwd: Path, *args, check=True) -> subprocess.CompletedProcess:
     return res
 
 
+def queue_op(ledger_dir: Path, op: dict) -> Path:
+    """Write one op file into a ledger directory, atomically, in arrival order."""
+    import os
+    import time
+    d = Path(ledger_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    name = f"{time.time_ns():020d}-{os.getpid()}-{op['op']}.json"
+    tmp = d / (name + ".tmp")
+    tmp.write_text(json.dumps(op, indent=2), encoding="utf-8")
+    tmp.replace(d / name)
+    return d / name
+
+
 def pending_ops(slot: Path) -> list[Path]:
     d = Path(slot) / LEDGER_DIR
     return sorted(f for f in d.glob("*.json")) if d.is_dir() else []

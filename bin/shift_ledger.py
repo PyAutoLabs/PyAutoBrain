@@ -15,10 +15,8 @@ ledger paths (`draft/`, `active/`, `complete/`, `batches/`, the registries).
 The ledger directory is `$PYAUTO_SHIFT_LEDGER_DIR` (set for every worker).
 """
 import argparse
-import json
 import os
 import sys
-import time
 from pathlib import Path
 
 BATCH = Path(__file__).resolve().parents[1] / "agents" / "conductors" / "batch"
@@ -54,13 +52,8 @@ def main(argv=None) -> int:
         if errs:
             print("shift_ledger: refused — " + "; ".join(errs), file=sys.stderr)
             return 1
-    d = Path(ledger)
-    d.mkdir(parents=True, exist_ok=True)
-    name = f"{time.time_ns():020d}-{os.getpid()}-{a.op}.json"
-    tmp = d / (name + ".tmp")
-    tmp.write_text(json.dumps(op, indent=2), encoding="utf-8")
-    tmp.replace(d / name)
-    print(f"shift_ledger: queued {a.op} {a.path} → {d / name}")
+    queued = mw.queue_op(Path(ledger), op)
+    print(f"shift_ledger: queued {a.op} {a.path} → {queued}")
     return 0
 
 
