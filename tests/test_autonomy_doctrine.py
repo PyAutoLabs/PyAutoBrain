@@ -220,3 +220,43 @@ def test_ruling_keeps_the_revert_condition_and_is_a_consumer_entry():
     assert "any reverted row demotes glance" in sec
     consumers = AUTONOMY[AUTONOMY.index("## Consumers"):]
     assert "Shadow-window ruling" in consumers
+
+
+# --- Stage-2 adversary amendment (2026-11-04, PyAutoBrain#572) ----------------
+
+AMEND_HEADER = "## Stage-2 adversary amendment — 2026-11-04"
+
+
+def _amend_section():
+    assert AUTONOMY.count(AMEND_HEADER) == 1
+    rest = AUTONOMY[AUTONOMY.index(AMEND_HEADER) + len(AMEND_HEADER):]
+    return _norm(rest[:rest.find("\n## ")])
+
+
+def test_amendment_follows_the_ruling_it_amends():
+    assert AUTONOMY.index(RULING_HEADER) < AUTONOMY.index(AMEND_HEADER) \
+        < AUTONOMY.index(SHIFT_HEADER)
+
+
+def test_amendment_allows_same_model_only_for_an_independent_session():
+    sec = _amend_section()
+    assert "may be the same model as the author" in sec
+    assert "fresh close-out session" in sec
+    assert "runs the witness: itself" in sec
+    assert "only \"different-model\" is replaced" in sec
+
+
+def test_amendment_names_its_revert_condition():
+    sec = _amend_section()
+    assert sec.count("revert condition:") == 1
+    assert "restores the different-model requirement" in sec
+    for trigger in ("reverted", "merged-after-substantive-change"):
+        assert trigger in sec
+
+
+def test_unattended_rule_and_consumers_point_at_the_amendment():
+    shift = AUTONOMY[AUTONOMY.index(SHIFT_HEADER):]
+    assert "Stage-2\nadversary amendment — 2026-11-04" in shift \
+        or "Stage-2 adversary amendment — 2026-11-04" in shift
+    consumers = AUTONOMY[AUTONOMY.index("## Consumers"):]
+    assert "Stage-2 adversary amendment" in consumers

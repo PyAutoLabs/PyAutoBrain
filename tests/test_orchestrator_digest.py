@@ -93,6 +93,18 @@ class FilesSpawner:
         (Path(lease_dir) / f"{task}.done").write_text(self.done.get(task, ""))
         return {"pid": 0, "session_id": None, "worktree": None}
 
+    def spawn_closeout(self, task, pr_url, prompt_path, lease_dir):
+        # Phase 4b: a green glance PR gets a close-out; this one never reports.
+        return {"pid": 0, "agent_id": "c0ffee00"}
+
+
+class _Working:
+    def state(self, agent_id):
+        return "working"
+
+    def session_of(self, agent_id):
+        return None
+
 
 def _mind(root: Path) -> Path:
     folder = root / "draft" / "feature" / "pyautobrain"
@@ -109,9 +121,11 @@ def _run_shift(tmp_path: Path, brief: Path, mind: Path, home: Path):
         done={"named": "merged https://github.com/o/r/pull/1\n",
               "picked": "https://github.com/o/r/pull/2\n"},
         proofs={"named": PROOF})
-    r = orch.tick(brief, mind, home=home, now=NOW, spawner=sp)
+    r = orch.tick(brief, mind, home=home, now=NOW, spawner=sp, health=_health,
+                  agents=_Working())
     assert sorted(s["task"] for s in r["spawned"]) == ["named", "picked"], r
-    orch.tick(brief, mind, home=home, now=NOW + _dt.timedelta(minutes=1), spawner=sp)
+    orch.tick(brief, mind, home=home, now=NOW + _dt.timedelta(minutes=1), spawner=sp,
+              health=_health, agents=_Working())
 
 
 def _shift(tmp_path: Path, packet=""):
@@ -152,7 +166,8 @@ def test_digest_separates_brief_work_from_backlog_picks_with_reasons(tmp_path):
     picks = d.split("### Backlog picks")[1].split("### Proof packets")[0]
     assert "- named — https://github.com/o/r/pull/1 — merged — glance" in work
     assert "- never — not started" in work
-    assert "- picked — https://github.com/o/r/pull/2 — HEALTHY — glance — why: scoped epic e1" in picks
+    # Green and glance: since phase 4b its close-out is running at review time.
+    assert "- picked — https://github.com/o/r/pull/2 — close-out running — glance — why: scoped epic e1" in picks
     assert "named" not in picks
 
 

@@ -574,6 +574,32 @@ the human did not recall typing that `/prm`.
 *Revert condition:* any `reverted` row demotes `glance` back to a human `/prm`
 immediately, by dated doctrine edit citing the row — stage 1 or stage 2 alike.
 
+## Stage-2 adversary amendment — 2026-11-04
+
+Amends "The `glance` Shadow-window ruling — 2026-11-04" above, the same day,
+by the human, at the phase-4b plan of the autonomous-orchestrators epic. This
+section is that dated doctrine edit.
+
+**The adversary leg of an unattended `glance` merge may be the same model as
+the author** — Opus 5.5 for both, on cost: the alternatives were a more
+expensive model (Fable) or a weaker one (Sonnet). What makes it the leg is
+**independence, not the model**: a **fresh close-out session** the watcher
+starts after CI lands, which did not write the PR, shares none of the worker's
+context, **runs the `Witness:` itself** and reviews the diff adversarially
+before it merges or refuses (`agents/conductors/batch/closeout_template.md`).
+It applies to the first 10 rows of the stage-2 sub-window exactly as the ruling
+says; only "different-model" is replaced.
+
+**Why the ruling asked for a different model, and what is given up.** Two
+runs of one model share blind spots, so a subtle error the author made is more
+likely to pass a same-model reader. Independence of context still catches what
+the leg is mostly for — a skipped or overclaimed witness, an unread label, an
+ignored Heart state. The stage-2 window is how this is checked.
+
+*Revert condition:* any stage-2 row `reverted`, or amended to
+`merged-after-substantive-change`, restores the different-model requirement for
+unattended merges at once, by dated doctrine edit citing the row.
+
 ## Shift briefs and unattended `glance` — 2026-11-03
 
 Approved by the human 2026-11-03 as the rulings of the autonomous-orchestrators
@@ -617,7 +643,9 @@ CI lands**, only when every one of these holds:
 
 Every `/prm` guard applies to that close-out verbatim. These merges count in
 their own **stage-2 sub-window**, and each of the first 10 needs the adversary
-leg actually run ("The `glance` Shadow-window ruling — 2026-11-04").
+leg actually run ("The `glance` Shadow-window ruling — 2026-11-04"). The
+leg may be same-model when it is a fresh independent close-out session ("Stage-2
+adversary amendment — 2026-11-04").
 
 *Revert condition:* a `reverted` row demotes the tier exactly as the 2026-10-02
 section says; one merge past a brief's cap retires this sub-rule.
@@ -977,6 +1005,8 @@ Codex hook list.
   Shadow-window ruling" (2026-11-04): a witness that did not PASS is a human
   `/prm`; unattended merges count in a stage-2 sub-window whose first 10 each
   need the adversary leg.
+- `batch` (the close-out session) — "Stage-2 adversary amendment" (2026-11-04):
+  the independent close-out session is the adversary leg, same model allowed.
 - `batch` (the watcher) — "The watcher's network surface" (2026-11-03): what
   the watcher may reach, and that it is opt-in, laptop-only and never writes.
 

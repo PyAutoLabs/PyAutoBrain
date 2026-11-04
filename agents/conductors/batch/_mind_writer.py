@@ -16,6 +16,7 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "move",         "path": "draft/a/b/x.md", "to": "active/x.md"}
     {"op": "remove",       "path": "active/x.md"}
     {"op": "drop-section", "path": "active.md", "section": "task-name"}
+    {"op": "table-append", "path": "autonomy_log.md", "heading": "## Unattended …", "row": "| … |"}
 
 Every path must be *ledger* by PyAutoMind's own rule (`scripts/ledger_merge.py`
 `is_ledger_path`, default deny), so a worker cannot route code through here.
@@ -31,7 +32,7 @@ import tempfile
 import types
 from pathlib import Path
 
-OPS = ("append", "write", "move", "remove", "drop-section")
+OPS = ("append", "write", "move", "remove", "drop-section", "table-append")
 PUSH_TRIES = 3
 LEDGER_DIR = "ledger"
 COMMITTED_DIR = "committed"
@@ -80,6 +81,12 @@ def validate_op(op: dict, lm) -> list[str]:
             errs.append("drop-section: section is missing")
         elif op.get("path") not in lm.ENTRY_MERGED_FILES:
             errs.append(f"drop-section: {op.get('path')} is not a `## slug` registry")
+    if kind == "table-append":
+        if not str(op.get("heading", "")).startswith("## "):
+            errs.append("table-append: heading must be a `## ` line")
+        row = op.get("row")
+        if not isinstance(row, str) or not row.startswith("|") or "\n" in row:
+            errs.append("table-append: row must be one `| … |` line")
     return errs
 
 
@@ -115,6 +122,26 @@ def apply_op(tree: Path, op: dict, lm) -> None:
         if len(kept) == len(entries):
             raise MindWriteError(f"drop-section: no `## {op['section']}` in {op['path']}")
         target.write_text(lm.join_entries(preamble, kept), encoding="utf-8")
+    elif kind == "table-append":
+        target.write_text(table_append(target.read_text(encoding="utf-8")
+                                       if target.exists() else "",
+                                       op["heading"], op["row"]), encoding="utf-8")
+
+
+def table_append(text: str, heading: str, row: str) -> str:
+    """`row` inserted after the last table line under the `## ` heading that
+    starts with `heading` — whatever follows that section stays where it is."""
+    lines = text.splitlines()
+    start = next((i for i, ln in enumerate(lines) if ln.startswith(heading)), None)
+    if start is None:
+        raise MindWriteError(f"table-append: no heading {heading!r}")
+    end = next((j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")),
+               len(lines))
+    rows = [i for i in range(start + 1, end) if lines[i].startswith("|")]
+    if not rows:
+        raise MindWriteError(f"table-append: no table under {heading!r}")
+    lines.insert(rows[-1] + 1, row)
+    return "\n".join(lines) + "\n"
 
 
 def _git(cwd: Path, *args, check=True) -> subprocess.CompletedProcess:

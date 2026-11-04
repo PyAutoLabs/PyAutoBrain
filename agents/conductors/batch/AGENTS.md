@@ -225,6 +225,24 @@ counters plus slot and mode; `review-minutes-actual` and `overrules` land as
 `?` for the human) in the same Mind commit as the digest. A shift whose
 `digest.posted` exists writes nothing more — no second append, row or comment.
 
+**Unattended `glance` close-out (phase 4b).** A `glance` worker under a brief
+ends at PR-open (`worker_template.md`). Each tick, `_closeouts` first reaps
+running close-outs — `<task>.closeout` (`merged` | `refused`, `why`, `gate`,
+`model`), or a session gone without one, which is recorded refused — then, for
+each PR a worker named, judges the guards it can see with its own reads: the
+recorded tier is `glance`, `gh pr checks` is green (pending waits a tick, red is
+refused), merges plus in-flight close-outs are under `merge-cap:`, and the
+shift is not shadow. Then it starts **one** close-out session
+(`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus`).
+That session is the independent leg: it runs the `Witness:` itself, reviews the
+diff adversarially, checks the `decision-taken` label and Heart, and only then
+runs the `/prm` close-out — or refuses. A merge bumps `glance_auto_merges`,
+marks the PR merged, and queues a `table-append` op that lands one row in
+`autonomy_log.md` "Unattended `glance` sub-window (stage 2)" through the one Mind
+writer. Every refusal is final for the shift and named in the digest
+(`awaiting /prm — close-out refused: <why>`). Same-model close-out: AUTONOMY
+"Stage-2 adversary amendment — 2026-11-04".
+
 **Workers start in a trusted folder.** `claude --bg` refuses an untrusted one
 at once ("Workspace not trusted", exit 1) — the spawn fails and leaves no lease.
 The watcher launches from the workspace root; task worktrees under the
