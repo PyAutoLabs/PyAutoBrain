@@ -526,6 +526,54 @@ It is not adopted here; it needs its own doctrine edit.
 auto-merge found to have bypassed one of the never-auto-merge rules retires this
 section and returns every merge to `/prm`.
 
+## The `glance` Shadow-window ruling — 2026-11-04
+
+**`glance` is confirmed, narrowed.** Ruled by the human 2026-11-04 under the
+pre-registered rule (`PyAutoMind/complete/2026/09/prm-shadow-row-notify-tier.md`,
+"The decision rule, pre-registered"): grant if no
+`merged-after-substantive-change` or `not-merged` row; grant narrowed if every
+case falls in one identifiable sub-class; refuse otherwise. This section is
+that dated doctrine edit.
+
+**The evidence.** The window stood at **69 counted rows (target 20), all
+`merged-unchanged`, all stage 1**, about 21 with no independent review, most
+under a non-GREEN Heart. A **spot audit** of 8 rows picked across every risk
+class — witness missing or partial, Heart RED override, large library changes
+with no independent review, a new public helper and API — returned **8 of 8
+`ok`** (audit page
+`Science/scratch/shadow_window_audit_2026-11-03/audit.md`). No row was amended.
+
+**What the grant covers.** `glance` auto-merge by the **shipping session,
+in-turn** — the 2026-10-02 table, unchanged — subject to one narrowing:
+
+- **A `Witness:` that did not PASS means a human `/prm`.** None, `n/a`,
+  partial and waived all count as not PASS. Four audited rows merged on such a
+  witness; the 2026-10-02 table already required a pass, and this makes the
+  forms explicit.
+
+**Not adopted:** a rule that anything touching a public API, a default or a
+library return value is `judge` whatever its declared tier. It was conditional
+on the audit finding tier drift; the human marked the three rows that would
+have shown it (a new public helper, a new public API surface, a library
+return-value change) `ok`. The declared `Consequence:` stays the authority.
+
+**Unattended `glance` opens a stage-2 sub-window.** Merges started by the
+watcher ("Shift briefs and unattended `glance`", "Unattended `glance` merges")
+are counted apart from the stage-1 rows, in their own table in
+`PyAutoMind/autonomy_log.md`. **Each of the first 10 needs the independent
+different-model adversary leg actually run** — not "where one is available".
+The sub-rule is confirmed or refused on those 10 by the same pre-registered
+decision rule; until then, an unattended merge without that leg is not
+licensed.
+
+**Ledger accuracy.** The window counts only merges the organism made itself. A
+row whose merge was a human-typed `/prm` is re-marked and left out of the
+count. Row `fixed-model-json` (PyAutoFit#1708) was checked and stays counted:
+the human did not recall typing that `/prm`.
+
+*Revert condition:* any `reverted` row demotes `glance` back to a human `/prm`
+immediately, by dated doctrine edit citing the row — stage 1 or stage 2 alike.
+
 ## Shift briefs and unattended `glance` — 2026-11-03
 
 Approved by the human 2026-11-03 as the rulings of the autonomous-orchestrators
@@ -567,7 +615,9 @@ CI lands**, only when every one of these holds:
 5. the task is `glance` — **never `judge`**, never a `decision-taken` PR, never
    a release, and never anything the "Never auto-merged" list above excludes.
 
-Every `/prm` guard applies to that close-out verbatim.
+Every `/prm` guard applies to that close-out verbatim. These merges count in
+their own **stage-2 sub-window**, and each of the first 10 needs the adversary
+leg actually run ("The `glance` Shadow-window ruling — 2026-11-04").
 
 *Revert condition:* a `reverted` row demotes the tier exactly as the 2026-10-02
 section says; one merge past a brief's cap retires this sub-rule.
@@ -923,6 +973,10 @@ Codex hook list.
   (2026-11-03): the brief as the launch act, the backlog-dip scope, the
   unattended `glance` close-out guards and the merge cap, one Mind writer per
   shift, drafts-only decomposition, the push test.
+- `prm`, `ship_library` / `ship_workspace`, `batch` — "The `glance`
+  Shadow-window ruling" (2026-11-04): a witness that did not PASS is a human
+  `/prm`; unattended merges count in a stage-2 sub-window whose first 10 each
+  need the adversary leg.
 - `batch` (the watcher) — "The watcher's network surface" (2026-11-03): what
   the watcher may reach, and that it is opt-in, laptop-only and never writes.
 
