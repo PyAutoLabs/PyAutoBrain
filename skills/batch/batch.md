@@ -135,7 +135,9 @@ and the one issue comment are the watcher's, at `review-at:`.
 
 One deterministic tick per timer firing; the timer is installed by the human, never a session.
 After `review-at:` its one remaining act is the digest: written into the record
-and posted once on the brief's `issue:`.
+and posted once on the brief's `issue:`. A `shadow: yes` brief plans and digests
+but spawns nothing — the pilot's baseline; every shift adds one row to
+`PyAutoMind/batches/pilot/pilot.md`, whose `?` cells are the human's at check-in.
 What a tick does, its state, caps and the install commands: `agents/conductors/batch/AGENTS.md` "The watcher".
 
 ## When they come back — collect, review, close (2026-08-31)

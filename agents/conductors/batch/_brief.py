@@ -138,6 +138,11 @@ def worker_mode_of(brief: dict) -> str:
     return brief.get("worker-mode", {}).get("value") or DEFAULT_WORKER_MODE
 
 
+def is_shadow(brief: dict) -> bool:
+    """A shadow shift (phase 4a) plans and records proposals but spawns nothing."""
+    return brief.get("shadow", {}).get("value", "").lower() == "yes"
+
+
 def is_sandbox(brief: dict) -> bool:
     return brief.get("sandbox", {}).get("value", "").lower() == "yes"
 
@@ -242,8 +247,9 @@ def check(path: Path, mind: Path) -> dict:
                       + ", ".join(WORKER_MODES)
                       + (" (bypassPermissions is never a worker mode)"
                          if brief["worker-mode"]["value"] == "bypassPermissions" else ""))
-    if "sandbox" in brief and brief["sandbox"]["value"].lower() not in ("yes", "no"):
-        errors.append(f"brief.sandbox: {brief['sandbox']['value']} — yes or no")
+    for key in ("sandbox", "shadow"):
+        if key in brief and brief[key]["value"].lower() not in ("yes", "no"):
+            errors.append(f"brief.{key}: {brief[key]['value']} — yes or no")
 
     lanes = lanes_of(brief)
     if not lanes:

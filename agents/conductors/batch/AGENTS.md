@@ -214,6 +214,17 @@ NO-CHECKS). `glance-auto-merges`, `reverts`, `pushes`, `drafts-filed` and
 writes nothing; `batch brief --check` refuses a digest missing a section, a
 counter, a pick's `why:` or a started task's packet.
 
+**Shadow shifts and the pilot ledger (phase 4a).** Under `shadow: yes` a tick
+runs the same plan inside the brief but, instead of spawning, records each
+proposal in `picks` with `proposed: true` (`_propose`, capped by
+`max-sessions:`): no lease, no worker, no session counted. The digest marks
+them `proposed (shadow)` and its packet section says nothing was dispatched;
+`brief --check` asks no packet of a proposal. `finish_shift` also appends one
+row to `PyAutoMind/batches/pilot/pilot.md` (`_digest.pilot_row`: the digest's
+counters plus slot and mode; `review-minutes-actual` and `overrules` land as
+`?` for the human) in the same Mind commit as the digest. A shift whose
+`digest.posted` exists writes nothing more — no second append, row or comment.
+
 **Workers start in a trusted folder.** `claude --bg` refuses an untrusted one
 at once ("Workspace not trusted", exit 1) — the spawn fails and leaves no lease.
 The watcher launches from the workspace root; task worktrees under the
