@@ -66,7 +66,8 @@ concurrency:
 jobs:
   nightly:
     runs-on: ubuntu-latest
-    # Rehearsal (~1h) + release-fidelity integration (~2h) + live release (~1.5h).
+    # Rehearsal (~1h) + release-fidelity integration (~2h) + live release (~1.5h)
+    # — far past the App token's 60-minute life, so the driver re-mints it.
     timeout-minutes: 350
     steps:
       - name: Checkout PyAutoBrain
@@ -113,6 +114,12 @@ jobs:
         id: driver
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          # The App token lives 60 min; the driver re-mints it before long waits
+          # (bin/gh_app_token.py, the same permission set as the mint step above).
+          # The key is used for that re-mint only.
+          APP_CLIENT_ID: ${{ vars.APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          APP_OWNER: PyAutoLabs   # the same installation the mint step's `owner:` names
           PYAUTO_RELEASE_WEBHOOK_URL: ${{ secrets.PYAUTO_RELEASE_WEBHOOK_URL }}
           NIGHTLY_RELEASES: ${{ vars.NIGHTLY_RELEASES }}
           # Scheduled runs have no inputs: default 'false' — ARMED 2026-07-09

@@ -45,6 +45,8 @@
 #   DRY_RUN                   "true" (default) → step 6 logs instead of shipping
 #   GITHUB_EVENT_NAME         "schedule" engages the kill switch; anything else
 #                             (manual dispatch, local) proceeds
+#   APP_CLIENT_ID, APP_PRIVATE_KEY  App credentials to re-mint GH_TOKEN (CI);
+#                             unset locally, where no refresh happens
 #
 # Usage:
 #   nightly.sh [--dry-run] [--no-dispatch]
@@ -55,8 +57,16 @@
 #   NIGHTLY_WINDOW_START (env) — override the activity-window start (ISO 8601)
 #   for local verification; the persisted/24h anchor is used when unset.
 #
+# Token lifetime: in CI GH_TOKEN is an App installation token, which lives 60
+# minutes, and this job runs for hours. _nightly_lib.sh re-mints it (from
+# APP_CLIENT_ID + APP_PRIVATE_KEY) once it is 45 minutes old, before every long
+# wait and every gh call after one, and run watches poll instead of blocking.
+# A watch that still loses its credentials did not judge the run, so it is a
+# driver error (exit 1), never a stage failure.
+#
 # Exit: 0 on a reported outcome (shipped / skipped / dry-run) — 2 blocked at a
-# gate (paged) — 3 not GREEN / preflight red (paged) — 1 driver error (paged).
+# gate (paged) — 3 not GREEN / preflight red (paged) — 1 driver error (paged),
+# including a run watch that lost its GitHub credentials.
 #
 # These codes are a CONTRACT, not just a status: .github/workflows/
 # nightly-release.yml maps 0/2/3 to a green run (a blocked night is the gate
@@ -73,6 +83,7 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 . "$HERE/../../../bin/_gh.sh"
 require_gh nightly || exit $?
 source "$HERE/../../_common.sh"
+source "$HERE/_nightly_lib.sh"
 
 BRAIN_REPO="PyAutoLabs/PyAutoHands"   # where release-blocker labels are curated first
 ANCHOR_REPO="PyAutoLabs/PyAutoBrain"
@@ -142,6 +153,7 @@ advance_anchor() {
     return 0
   fi
   local err
+  refresh_gh_token
   if ! err="$(gh api -X PATCH "repos/$ANCHOR_REPO/actions/variables/$ANCHOR_VAR" \
       -f name="$ANCHOR_VAR" -f value="$WINDOW_END" 2>&1 >/dev/null)"; then
     echo "nightly: could not write $ANCHOR_REPO variable $ANCHOR_VAR — does the token have the Variables (write) permission? ${err:0:200}" >&2
@@ -310,11 +322,15 @@ print($2)
 }
 
 # dispatch_and_await <repo> <workflow> <inputs-json> [<artifact> <dest-dir>]
-# Dispatches, resolves the run id, watches to completion (fails loudly), and
-# optionally downloads an artifact. Echoes the run URL on success.
+# Dispatches, resolves the run id, polls it to completion (await_run, which
+# keeps the token fresh), and optionally downloads an artifact. Returns 0 ok,
+# 1 dispatch failed, 2 run red, 3 artifact missing, 4 lost the watch (the run
+# was never judged — callers treat it as a driver error).
 dispatch_and_await() {
   local repo="$1" wf="$2" inputs="$3" artifact="${4:-}" dest="${5:-}"
   local before run_id rc
+  # The step 6 dispatch comes hours in: never dispatch on a stale token.
+  refresh_gh_token
   before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local fargs=()
   while IFS=$'\t' read -r k v; do
@@ -338,20 +354,23 @@ for k, v in (json.load(sys.stdin) or {}).items():
     return 1
   fi
   echo "https://github.com/$repo/actions/runs/$run_id" >&2
-  gh run watch "$run_id" -R "$repo" --interval 60 --exit-status >/dev/null
-  rc=$?
   LAST_RUN_URL="https://github.com/$repo/actions/runs/$run_id"
+  await_run "$repo" "$run_id"
+  rc=$?
+  [[ $rc -eq 4 ]] && return 4
   if [[ $rc -ne 0 ]]; then
     # The report artifacts upload `if: always()`, so a FAILED run still carries
     # the evidence of which scripts failed — fetch it so the page can name
     # them. Best-effort: paging must never be blocked by a missing artifact.
     if [[ -n "$artifact" ]]; then
+      refresh_gh_token
       gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" 2>/dev/null \
         || echo "nightly: failed run's artifact '$artifact' not downloadable" >&2
     fi
     return 2
   fi
   if [[ -n "$artifact" ]]; then
+    refresh_gh_token
     gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" || return 3
   fi
   return 0
@@ -376,13 +395,19 @@ s2_artifact="$(plan_field "$phase_a" "[s for s in plan['stage2_plan']['steps'] i
 head_repos="$(plan_field "$phase_a" "chr(10).join([s for s in plan['stage2_plan']['steps'] if s['step']=='capture-heads'][0]['repos'])")"
 
 log "step 4a — Stage 2 rehearsal: dispatch $s2_repo/$s2_wf"
-if ! dispatch_and_await "$s2_repo" "$s2_wf" "$s2_inputs" "$s2_artifact" "$ART_DIR"; then
+dispatch_and_await "$s2_repo" "$s2_wf" "$s2_inputs" "$s2_artifact" "$ART_DIR"
+rc=$?
+if [[ $rc -eq 4 ]]; then
+  page "driver lost its GitHub credentials while watching <${LAST_RUN_URL:-$RUN_URL}|the run> — the run itself was not judged (token refresh failed?)"
+  exit 1
+elif [[ $rc -ne 0 ]]; then
   page "Stage 2 (TestPyPI rehearsal) failed — <${LAST_RUN_URL:-$RUN_URL}|run>"
   exit 2
 fi
 
 # capture-heads: {bare repo name: main HEAD sha} — Stage 2's commit_shas.json
 # is the single source of truth downstream (validate.sh header).
+refresh_gh_token
 python3 - "$ART_DIR/commit_shas.json" <<PY
 import json, subprocess, sys
 repos = """$head_repos""".split()
@@ -407,7 +432,12 @@ s3_wf="$(plan_field "$phase_b" "plan['steps'][0]['workflow']")"
 s3_inputs="$(plan_field "$phase_b" "json.dumps(plan['steps'][0]['inputs'])")"
 s3_artifact="$(plan_field "$phase_b" "[s for s in plan['steps'] if s['step']=='download'][0]['artifact']")"
 
-if ! dispatch_and_await "$s3_repo" "$s3_wf" "$s3_inputs" "$s3_artifact" "$ART_DIR"; then
+dispatch_and_await "$s3_repo" "$s3_wf" "$s3_inputs" "$s3_artifact" "$ART_DIR"
+rc=$?
+if [[ $rc -eq 4 ]]; then
+  page "driver lost its GitHub credentials while watching <${LAST_RUN_URL:-$RUN_URL}|the run> — the run itself was not judged (token refresh failed?)"
+  exit 1
+elif [[ $rc -ne 0 ]]; then
   # Name the failing scripts straight from the downloaded stage report so the
   # page is actionable without opening the run (no report → plain page).
   # Lives in its own file, not a heredoc, so it carries a regression test:
@@ -429,6 +459,7 @@ HEART_DIR="$(cd "$(dirname "$(readlink -f "$(command -v "$heart" || echo "$heart
 export HEART_STATE_DIR="${HEART_STATE_DIR:-$WORK/heart-state}"
 mkdir -p "$HEART_STATE_DIR"
 
+refresh_gh_token
 bash "$HEART_DIR/heart/checks/ci_status.sh" || echo "nightly: ci_status check failed (verdict will show unknowns)" >&2
 bash "$HEART_DIR/heart/checks/open_prs.sh" || echo "nightly: open_prs check failed" >&2
 "$heart" validate --ingest "$ART_DIR" --commit-shas "$ART_DIR/commit_shas.json" || {
@@ -463,8 +494,15 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 log "step 6 — dispatching the LIVE release ($version)"
-if ! dispatch_and_await "$BUILD_REPO" "$RELEASE_WORKFLOW" \
-      '{"rehearsal": "false", "minor_version": "1"}'; then
+dispatch_and_await "$BUILD_REPO" "$RELEASE_WORKFLOW" \
+  '{"rehearsal": "false", "minor_version": "1"}'
+rc=$?
+if [[ $rc -eq 4 ]]; then
+  # Unjudged, not failed: the release may well have published, so not page()
+  # ("No release was made"). The anchor stays put for a human to settle.
+  notify "🚨" "*nightly driver error* — driver lost its GitHub credentials while watching <${LAST_RUN_URL:-$RUN_URL}|the run> — the run itself was not judged (token refresh failed?). Check whether $version published before the next night. <$RUN_URL|nightly run>"
+  exit 1
+elif [[ $rc -ne 0 ]]; then
   # A red release run is not always a release that did not happen: release.yml
   # publishes (tag + PyPI) from its `release` job, which does not wait on the
   # post-publish `run_smoke_tests` leg. On 2026-09-11 (run 34577342347) that leg
@@ -473,6 +511,7 @@ if ! dispatch_and_await "$BUILD_REPO" "$RELEASE_WORKFLOW" \
   # the anchor behind, so the shipped window would have been re-judged the
   # next night. The tag is the evidence: present means shipped, and the night
   # is reported as shipped with a red smoke leg for a human to look at.
+  refresh_gh_token
   if released_today; then
     notify "⚠️" "*nightly release shipped with a red smoke leg* — $version published, but the release run went red after publishing (the post-release smoke leg is the usual cause) — <${LAST_RUN_URL:-$RUN_URL}|release run>. $summary (window $anchor → $WINDOW_END). <$RUN_URL|nightly run>"
     advance_anchor
