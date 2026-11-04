@@ -512,6 +512,12 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     if records is None:
         records = _batch.survey(mind)
     d = _batch.plan(records, session_lane="local-dev", brief=brief)
+    if _brief.is_shadow(brief):
+        proposed = _propose(d["members"], brief, counters, max_sessions)
+        _write_counters(slot, counters)
+        return {"action": "shadow", "reaped": reaped, "spawned": [],
+                "proposed": proposed, "refused": [], "live": sorted(live),
+                "ledger": ledger}
     spawned, refused = [], []
     for member in d["members"]:
         task = task_id(member["path"])
@@ -587,6 +593,11 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     watcher's network surface" — a second comment retires the watcher). Nothing
     is read back from GitHub to check.
     """
+    if (slot / DIGEST_MARKER).exists():
+        # A finished shift writes nothing more: no second record append, no
+        # second pilot row, no second comment.
+        return {"action": "digest", "ledger": None, "packet": None,
+                "post": {"posted": False, "error": "already posted this shift"}}
     rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
     brief, top = rec["brief"] or {}, rec["top"]
     counters = read_counters(slot)
@@ -598,6 +609,11 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if rel is not None:
         _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
                               {"op": "append", "path": rel, "text": "\n" + digest})
+        # The pilot ledger (phase 4a): one row per shift, in the same commit.
+        header = "" if (Path(mind) / _digest.PILOT_PATH).is_file() else _digest.PILOT_HEADER
+        _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                              {"op": "append", "path": _digest.PILOT_PATH,
+                               "text": header + _digest.pilot_row(slot.name, brief, counters)})
         try:
             result["ledger"] = _mind_writer.commit_ledger(
                 slot, mind, f"shift {slot.name}: digest")
@@ -631,6 +647,24 @@ def _write_packet(slot: Path, digest: str) -> Path:
             f"<main><pre>{html.escape(digest)}</pre></main>\n")
     out = slot / "digest.html"
     out.write_text(page, encoding="utf-8")
+    return out
+
+
+def _propose(members: list[dict], brief: dict, counters: dict, max_sessions: int) -> list[str]:
+    """A shadow shift's tick (phase 4a): record what a live shift would have
+    dispatched — no lease, no worker — up to the brief's `max-sessions:`."""
+    out = []
+    for member in members:
+        task = task_id(member["path"])
+        if task in counters["picks"]:
+            continue
+        if len(counters["picks"]) >= max_sessions:
+            break
+        counters["picks"][task] = {"prompt": member["path"],
+                                   "why": _brief.pick_reason(member, brief),
+                                   "tier": member.get("consequence") or "?",
+                                   "proposed": True}
+        out.append(task)
     return out
 
 

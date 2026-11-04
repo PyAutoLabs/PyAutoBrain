@@ -33,6 +33,20 @@ LATER_COUNTERS = {"glance-auto-merges": "glance_auto_merges", "reverts": "revert
                   "packets-sent": "packets_sent"}
 PROOFS_DIR = "proofs"
 NO_PICKS = "- none"
+#: What a shadow shift's line and packet section say instead of work (phase 4a).
+PROPOSED = "proposed (shadow)"
+NO_PACKETS_SHADOW = "- none — shadow shift: nothing was dispatched"
+
+#: The pilot ledger (phase 4a). A subfolder, because every `batches/*.md` is
+#: read as a batch record (lifecycle.py, `_batch.records`, the calibration rule).
+PILOT_PATH = "batches/pilot/pilot.md"
+PILOT_COLUMNS = ("slot", "mode", "review-minutes-planned", "review-minutes-actual",
+                 "merges", "glance-auto-merges", "reverts", "overrules", "pushes",
+                 "drafts-filed", "tokens", "workers-crashed")
+#: Cells only the human can fill, at check-in.
+PILOT_HUMAN = ("review-minutes-actual", "overrules")
+PILOT_HEADER = ("| " + " | ".join(PILOT_COLUMNS) + " |\n"
+                + "|" + "|".join("---" for _ in PILOT_COLUMNS) + "|\n")
 
 _BULLET_RE = re.compile(r"^- (\S+)")
 
@@ -78,6 +92,8 @@ def pr_health(url: str, run=None) -> str:
 
 def _line(task: str, counters: dict, tier: str, health) -> str:
     out = counters.get("outcomes", {}).get(task)
+    if counters.get("picks", {}).get(task, {}).get("proposed"):
+        return f"- {task} — {PROPOSED} — {tier}"
     if task in counters.get("parked", []):
         return f"- {task} — parked: awaiting-input (blocked on a person)"
     if task in counters.get("abandoned", []):
@@ -124,8 +140,16 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
                if t in counters.get("outcomes", {}) or t in counters.get("parked", [])
                or t in counters.get("abandoned", [])]
     lines += ["", "### Proof packets"]
-    lines += ["\n\n".join(_packet(t, slot, counters) for t in started) or NO_PICKS]
+    lines += ["\n\n".join(_packet(t, slot, counters) for t in started)
+              or (NO_PACKETS_SHADOW if _brief.is_shadow(brief) else NO_PICKS)]
 
+    values = counter_values(brief, counters)
+    lines += ["", "### Counters"] + [f"- {k}: {values[k]}" for k in COUNTERS]
+    return "\n".join(lines) + "\n"
+
+
+def counter_values(brief: dict, counters: dict) -> dict:
+    """Every digest counter's value, from the brief and `counters.json`."""
     budget = brief.get("token-budget", {}).get("value", "?")
     merged = sum(len(o["merged"]) for o in counters.get("outcomes", {}).values())
     values = {"merges": merged, "workers-crashed": counters.get("crashes", 0),
@@ -133,8 +157,16 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
               "review-minutes-planned": brief.get("review-minutes", {}).get("value", "?")}
     for key, field in LATER_COUNTERS.items():
         values[key] = counters.get(field, 0)
-    lines += ["", "### Counters"] + [f"- {k}: {values[k]}" for k in COUNTERS]
-    return "\n".join(lines) + "\n"
+    return values
+
+
+def pilot_row(slot_name: str, brief: dict, counters: dict) -> str:
+    """One `batches/pilot/pilot.md` row; the human's cells land as `?`."""
+    v = counter_values(brief, counters)
+    cells = {**v, "slot": slot_name, "tokens": counters.get("tokens", 0),
+             "mode": "shadow" if _brief.is_shadow(brief) else "live"}
+    return "| " + " | ".join("?" if c in PILOT_HUMAN else str(cells[c])
+                             for c in PILOT_COLUMNS) + " |\n"
 
 
 # --- validate ------------------------------------------------------------------
@@ -183,6 +215,7 @@ def validate(text: str) -> list[str]:
         for line in secs.get(sec, []):
             m = _BULLET_RE.match(line)
             if m and line.strip() != NO_PICKS and "not started" not in line \
+                    and PROPOSED not in line \
                     and f"#### {m.group(1)}" not in packets:
                 errs.append(f"digest: {m.group(1)} has no proof packet")
     return errs
