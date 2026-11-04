@@ -2777,7 +2777,7 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
-    ap.add_argument("verb", choices=["plan", "collect", "brief", "digest"], nargs="?",
+    ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch"], nargs="?",
                     default="plan")
     ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
@@ -2797,11 +2797,16 @@ def main(argv=None) -> int:
                          "first, then its backlog policy)")
     # digest
     ap.add_argument("--record", default="", metavar="FILE",
-                    help="digest: print the digest of this shift brief record "
-                         "(read-only — the watcher alone writes and posts it)")
+                    help="digest / watch: the shift brief record (read-only — "
+                         "the watcher alone writes and posts the digest)")
     ap.add_argument("--home", type=Path, default=None,
-                    help="digest: the watcher's state directory (default: "
-                         "$PYAUTO_ORCHESTRATOR_HOME, else .orchestrator)")
+                    help="digest / watch: the watcher's state directory "
+                         "(default: $PYAUTO_ORCHESTRATOR_HOME, else .orchestrator)")
+    # watch
+    ap.add_argument("--once", action="store_true",
+                    help="watch: print one snapshot and exit")
+    ap.add_argument("--interval", type=float, default=30.0,
+                    help="watch: seconds between refreshes (at least 30)")
     # collect only
     ap.add_argument("--slot", default="",
                     help="the batch record to collect (default: the newest)")
@@ -2837,6 +2842,8 @@ def main(argv=None) -> int:
             return _main_brief(mind, a)
         if a.verb == "digest":
             return _main_digest(mind, a)
+        if a.verb == "watch":
+            return _main_watch(a)
         return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)
@@ -2862,6 +2869,22 @@ def _main_digest(mind: Path, a) -> int:
     slot = _orchestrator.slot_dir(record, a.home)
     print(_digest.build(brief, slot, _orchestrator.read_counters(slot)), end="")
     return RC_OK
+
+
+def _main_watch(a) -> int:
+    """`batch watch --record <file> [--once] [--interval N]` — a live view of a
+    running shift; writes nothing anywhere (`_watch`)."""
+    if not a.record:
+        print("batch watch: --record <file> is required", file=sys.stderr)
+        return RC_USAGE
+    import _orchestrator
+    import _watch
+    record = Path(a.record)
+    if not record.is_file():
+        print(f"batch watch: no such brief record {record}", file=sys.stderr)
+        return RC_USAGE
+    return _watch.watch(record, _orchestrator.slot_dir(record, a.home),
+                        interval=a.interval, once=a.once)
 
 
 def _main_brief(mind: Path, a) -> int:

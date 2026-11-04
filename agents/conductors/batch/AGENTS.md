@@ -243,6 +243,20 @@ writer. Every refusal is final for the shift and named in the digest
 (`awaiting /prm — close-out refused: <why>`). Same-model close-out: AUTONOMY
 "Stage-2 adversary amendment — 2026-11-04".
 
+**Watching a shift live (`batch watch`, PyAutoBrain#575).** `batch watch
+--record <brief> [--once] [--interval N]` (`_watch.py`) draws a running shift
+in the terminal: SHADOW or LIVE, time left until `review-at:`, STOP and
+`digest.posted`, each task's state with its pick reason, PR, CI health and
+re-dispatch count, the budgets (live workers against `max-workers:`, sessions
+against `max-sessions:`, tokens, merges against `merge-cap:`, crashes) and the last five ticks. It redraws every `--interval` seconds (at
+least 30); `--once` prints one snapshot. Task wording is `_digest.task_state`,
+the digest's own, plus the states only a held lease shows (`running`, `blocked
+on a person`, `crashed — awaiting re-dispatch`). It is **read-only**: no write
+to the slot, Mind or GitHub, no lock — safe beside the timer. Its reads are the
+watcher's own: one `claude agents --json` per refresh, only on a live shift
+holding real worker leases, and `gh pr checks` for unmerged PRs, cached for the
+interval.
+
 **Workers start in a trusted folder.** `claude --bg` refuses an untrusted one
 at once ("Workspace not trusted", exit 1) — the spawn fails and leaves no lease.
 The watcher launches from the workspace root; task worktrees under the
@@ -272,6 +286,9 @@ pyauto-brain batch collect --fetch               # laptop: `gh pr view` per PR
 pyauto-brain batch collect --integration         # laptop: merge every member's head into one worktree root
 pyauto-brain batch collect --evidence ev.json --apply  # the one form that writes
 pyauto-brain batch collect --out report.md --json
+
+pyauto-brain batch watch --record <brief>         # live view of a running shift; read-only
+pyauto-brain batch watch --record <brief> --once  # one snapshot
 ```
 
 **One board: the development one.** The science board this conductor once
