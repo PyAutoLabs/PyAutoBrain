@@ -162,7 +162,30 @@ STRUCTURE_LIST_QUORUM = 2
 
 # Directory names whose contents are produced by a run, so their absence from a
 # checkout proves nothing about the reference.
-RUNTIME_DIRECTORIES = frozenset({"output", "outputs", "dataset", "datasets"})
+RUNTIME_DIRECTORIES = frozenset({
+    "output", "outputs", "dataset", "datasets",
+    # A fit's own output subfolder (`files/search_internal`) and the run caches
+    # and scratch areas a reduction writes (`cache/`, `cache_root/crds/`,
+    # `work/injected/`) — PyAutoBrain#583.
+    "files", "cache", "cache_root", "work",
+})
+# Directories some workspaces commit and others only generate at release time
+# (`notebooks`): unresolvable, not dead, where the checkout lacks them.
+GENERATED_DIRECTORIES = frozenset({"notebooks"})
+# A HowTo course's prose points readers at its companion workspace ("the
+# workspace's `scripts/interferometer/modeling.py`"); a reference that misses the
+# course repository is checked there before it is called dead. The pairing is
+# the naming convention (HowTo<Name> -> auto<name>_workspace), derived rather
+# than listed so no repository name is hard-coded here.
+COURSE_PREFIX = "HowTo"
+
+
+def companion_workspace(repo: str) -> str | None:
+    if not repo.startswith(COURSE_PREFIX) or len(repo) == len(COURSE_PREFIX):
+        return None
+    return f"auto{repo[len(COURSE_PREFIX):].lower()}_workspace"
+
+REPOSITORY_WORD = re.compile(r"[A-Za-z0-9_]+")
 # Directories never worth walking when indexing a repository.
 PRUNED_DIRECTORIES = frozenset({".git", ".ipynb_checkpoints", "__pycache__"})
 # Library package (or its test suite) -> the repository whose checkout holds it.
@@ -393,6 +416,8 @@ class Resolver:
         head = path.split("/", 1)[0]
         if head in RUNTIME_DIRECTORIES:
             return None
+        if head in GENERATED_DIRECTORIES and not target.has_directory(head):
+            return None
         if "/" in path:
             if head in LIBRARY_REPOSITORIES:
                 target = self.index(LIBRARY_REPOSITORIES[head])
@@ -428,12 +453,37 @@ class Resolver:
             return None
         return _resolves_extensionless(target, path, directory)
 
+    def alternates(self, repo: str, line_text: str) -> list[str]:
+        """Other repositories a reference on this line may legitimately point into.
+
+        The course's companion workspace (``companion_workspace``), then any
+        sibling checkout named on the same line ("``<project>_assistant``'s
+        ``colab/contexts.yaml``"). Only consulted for a reference that is dead in
+        its own repository, so a genuinely dead path stays dead unless it
+        resolves in one of these.
+        """
+        named = [
+            word for word in REPOSITORY_WORD.findall(line_text)
+            if word in self.siblings and word != repo
+        ]
+        companion = companion_workspace(repo)
+        ordered = ([companion] if companion in self.siblings else []) + named
+        return list(dict.fromkeys(ordered))
+
+    def resolves_elsewhere(self, reference: str, repo: str, line_text: str) -> bool:
+        return any(
+            self.resolves(reference, other, "") is True
+            for other in self.alternates(repo, line_text)
+        )
+
     def resolves_name(self, name: str, repo: str, directory: str) -> bool | None:
         """Resolve a bare structure-list name as either a folder or a file."""
         target = self.index(repo)
         if target is None:
             return None
         if name in RUNTIME_DIRECTORIES:
+            return None
+        if name in GENERATED_DIRECTORIES and not target.has_directory(name):
             return None
         if "." in name:
             return bool(
@@ -517,6 +567,12 @@ def findings_in_file(
             continue
         seen.add((line, reference))
         resolved = resolver.resolves(reference, repository.name, directory)
+        if resolved is False:
+            line_start = offsets[line - 1] if line - 1 < len(offsets) else match.start()
+            line_end = text.find("\n", match.end())
+            line_text = text[line_start : line_end if line_end != -1 else len(text)]
+            if resolver.resolves_elsewhere(reference, repository.name, line_text):
+                resolved = True
         if resolved is None:
             resolver.suppressed += 1
         elif not resolved:
