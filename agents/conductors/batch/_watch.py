@@ -106,6 +106,7 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         state, _ = _digest.task_state(task, counters, health, live=True,
                                       lease=held.get(task), agents=agents)
         rows.append({"task": task, "state": state,
+                     "label": _digest.label(task, picks.get(task)),
                      "tier": picks.get(task, {}).get("tier", "?"),
                      "why": "named in the brief" if task in named
                             else picks.get(task, {}).get("why") or "NOT RECORDED",
@@ -158,7 +159,7 @@ def render(snap: dict) -> str:
     if not snap["started"]:
         return "\n".join(lines + [NO_TICK]) + "\n"
     lines.append("Tasks")
-    lines += [f"- {r['task']} — {r['state']} — {r['tier']} — why: {r['why']}"
+    lines += [f"- {r['label']} — {r['state']} — {r['tier']} — why: {r['why']}"
               + (f" — re-dispatched {r['redispatched']}×" if r["redispatched"] else "")
               for r in snap["tasks"]] or ["- none yet"]
     b = snap["budgets"]

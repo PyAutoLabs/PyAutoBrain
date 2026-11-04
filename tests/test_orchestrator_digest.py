@@ -157,18 +157,22 @@ def test_digest_separates_brief_work_from_backlog_picks_with_reasons(tmp_path):
     slot = orch.slot_dir(brief, home)
     counters = orch.read_counters(slot)
     assert counters["picks"]["named"]["why"] == "named task"
-    assert counters["picks"]["picked"]["why"] == "scoped epic e1"
+    assert counters["picks"]["picked"]["why"].startswith("scoped epic e1 · not in queue.md")
     assert "outside" not in counters["picks"]
 
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, counters,
-                      health=_health)
+                      health=_health, issue=ISSUE)
     work = d.split("### Brief work")[1].split("### Backlog picks")[0]
     picks = d.split("### Backlog picks")[1].split("### Proof packets")[0]
-    assert "- named — https://github.com/o/r/pull/1 — merged — glance" in work
+    # Picks read by title, linked to the prompt on the Mind the issue lives in.
+    blob = "https://github.com/example-org/example-mind/blob/main/"
+    assert (f"- [named]({blob}draft/feature/pyautobrain/named.md) (`named`; small · pyautobrain)"
+            " — https://github.com/o/r/pull/1 — merged — glance") in work
     assert "- never — not started" in work
     # Green and glance: since phase 4b its close-out is running at review time.
-    assert "- picked — https://github.com/o/r/pull/2 — close-out running — glance — why: scoped epic e1" in picks
-    assert "named" not in picks
+    assert ("(`picked`; small · pyautobrain) — https://github.com/o/r/pull/2 — close-out running"
+            " — glance — why: scoped epic e1 · not in queue.md") in picks
+    assert "`named`" not in picks
 
 
 def test_one_proof_packet_per_task_and_an_honest_stub_when_missing(tmp_path):
@@ -369,7 +373,11 @@ def test_pr_health_reads_the_gh_exit_code(rc, err, want):
 
 
 @pytest.mark.parametrize("backlog,record,want", [
-    ("fill-idle", {"path": "x/a.md"}, "backlog: fill-idle (the planner's ranking)"),
+    ("fill-idle", {"path": "x/a.md"}, "backlog: fill-idle"),
+    ("fill-idle", {"path": "x/a.md", "queue_rank": 2, "queued": True}, "backlog: fill-idle · queue.md #3"),
+    ("scoped", {"path": "x/a.md", "consequence": "notify", "queue_rank": 4, "queued": False,
+                "review_minutes": 3, "priority": "high", "epic": "e1", "phase": 2.0},
+     "scoped tier notify · not in queue.md · ~3 review-min · priority high · epic e1 phase 2"),
     ("scoped", {"path": "x/a.md", "themes": ["jax"]}, "scoped tag jax"),
     ("scoped", {"path": "x/a.md", "consequence": "notify"}, "scoped tier notify"),
     ("scoped", {"path": "x/named.md"}, "named task"),

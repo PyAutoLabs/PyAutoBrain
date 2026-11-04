@@ -353,7 +353,8 @@ def _scoped_match(record: dict, scoped: dict[str, list[str]]) -> str:
 
 
 def pick_reason(record: dict, brief: dict) -> str:
-    """Why the brief admits this record — the digest's one-line `why:`.
+    """Why the brief admits this record, then why it ranked where it did — the
+    digest's one-line `why:`.
 
     Recorded at dispatch, when the record is in hand: by `review-at:` the
     prompt may have moved to `complete/` and its headers with it.
@@ -362,7 +363,31 @@ def pick_reason(record: dict, brief: dict) -> str:
         return "named task"
     backlog = brief.get("backlog", {}).get("value", "none")
     if backlog == "fill-idle":
-        return "backlog: fill-idle (the planner's ranking)"
-    if backlog == "scoped":
-        return _scoped_match(record, scoped_of(brief)) or "NOT RECORDED"
-    return "NOT RECORDED"
+        rule = "backlog: fill-idle"
+    elif backlog == "scoped":
+        rule = _scoped_match(record, scoped_of(brief))
+        if not rule:
+            return "NOT RECORDED"
+    else:
+        return "NOT RECORDED"
+    rank = rank_note(record)
+    return f"{rule} · {rank}" if rank else rule
+
+
+def rank_note(record: dict) -> str:
+    """The planner's order, as it applied to this record (`_batch.plan`):
+    queue.md position first; below the queue, cheapest review first, then
+    priority, then the path — so a tie is alphabetical, and says so."""
+    parts = []
+    if record.get("queued"):
+        parts.append(f"queue.md #{record['queue_rank'] + 1}")
+    elif "queue_rank" in record:
+        parts.append("not in queue.md")
+        if record.get("review_minutes") is not None:
+            parts.append(f"~{record['review_minutes']} review-min")
+        parts.append(f"priority {record.get('priority') or 'normal'}")
+    if record.get("epic"):
+        phase = record.get("phase")
+        parts.append(f"epic {record['epic']}" + (f" phase {phase:g}" if isinstance(phase, (int, float))
+                                                 and phase != float("inf") else ""))
+    return " · ".join(parts)

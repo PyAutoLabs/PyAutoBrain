@@ -606,9 +606,7 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
             lease_path.unlink(missing_ok=True)
             raise
         lease_path.write_text(json.dumps(lease, sort_keys=True))
-        counters["picks"][task] = {"prompt": member["path"],
-                                   "why": _brief.pick_reason(member, brief),
-                                   "tier": member.get("consequence") or "?"}
+        counters["picks"][task] = pick_record(member, brief)
         if task in counters["pending_redispatch"]:
             counters["pending_redispatch"].remove(task)
             counters["redispatched"][task] = counters["redispatched"].get(task, 0) + 1
@@ -660,7 +658,8 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
     brief, top = rec["brief"] or {}, rec["top"]
     counters = read_counters(slot)
-    digest = _digest.build(brief, slot, counters, health=health)
+    issue = (top.get("issue") or {}).get("value", "")
+    digest = _digest.build(brief, slot, counters, health=health, issue=issue)
     (slot / DIGEST_FILE).write_text(digest, encoding="utf-8")
     result = {"action": "digest", "ledger": None, "post": None, "packet": None}
 
@@ -807,6 +806,18 @@ def stage2_row(now: _dt.datetime, task: str, pr: str, slot_name: str, gate: str,
     return "| " + " | ".join(" ".join(str(c).replace("|", "/").split()) for c in cells) + " |"
 
 
+def pick_record(member: dict, brief: dict, *, proposed: bool = False) -> dict:
+    """What `counters.json` keeps about one pick — enough for the digest and
+    `batch watch` to show it by title, size and repo, not by file name."""
+    rec = {"prompt": member["path"], "why": _brief.pick_reason(member, brief),
+           "tier": member.get("consequence") or "?",
+           "title": member.get("title") or "", "size": member.get("difficulty") or "",
+           "repos": list(member.get("repos") or [])}
+    if proposed:
+        rec["proposed"] = True
+    return rec
+
+
 def _propose(members: list[dict], brief: dict, counters: dict, max_sessions: int) -> list[str]:
     """A shadow shift's tick (phase 4a): record what a live shift would have
     dispatched — no lease, no worker — up to the brief's `max-sessions:`."""
@@ -817,10 +828,7 @@ def _propose(members: list[dict], brief: dict, counters: dict, max_sessions: int
             continue
         if len(counters["picks"]) >= max_sessions:
             break
-        counters["picks"][task] = {"prompt": member["path"],
-                                   "why": _brief.pick_reason(member, brief),
-                                   "tier": member.get("consequence") or "?",
-                                   "proposed": True}
+        counters["picks"][task] = pick_record(member, brief, proposed=True)
         out.append(task)
     return out
 

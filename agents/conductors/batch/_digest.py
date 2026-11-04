@@ -36,6 +36,11 @@ NO_PICKS = "- none"
 #: What a shadow shift's line and packet section say instead of work (phase 4a).
 PROPOSED = "proposed (shadow)"
 NO_PACKETS_SHADOW = "- none — shadow shift: nothing was dispatched"
+#: A shadow digest's counters, in one line: every one is 0 by construction.
+SHADOW_COUNTERS = "- all counters 0 — shadow shift, nothing dispatched"
+#: A pick line names its task in backticks after its title (`label`).
+_SLUG_RE = re.compile(r"\(`([^`]+)`")
+_ISSUE_RE = re.compile(r"^(https://github\.com/[^/]+/[^/]+)/issues/\d+")
 
 #: The pilot ledger (phase 4a). A subfolder, because every `batches/*.md` is
 #: read as a batch record (lifecycle.py, `_batch.records`, the calibration rule).
@@ -45,6 +50,10 @@ PILOT_COLUMNS = ("slot", "mode", "review-minutes-planned", "review-minutes-actua
                  "drafts-filed", "tokens", "workers-crashed")
 #: Cells only the human can fill, at check-in.
 PILOT_HUMAN = ("review-minutes-actual", "overrules")
+#: In a shadow shift the orchestrator merges nothing, so `merges` is the human's
+#: own in the window — the baseline the live shifts are measured against
+#: (epic: "the human works as today, minutes are logged"), counted at check-in.
+PILOT_HUMAN_SHADOW = ("merges",)
 PILOT_HEADER = ("| " + " | ".join(PILOT_COLUMNS) + " |\n"
                 + "|" + "|".join("---" for _ in PILOT_COLUMNS) + "|\n")
 
@@ -145,9 +154,31 @@ def _lease_state(lease: dict, agents) -> str:
     return f"running (agent {agent}, {state}, since {since})"
 
 
-def _line(task: str, counters: dict, tier: str, health) -> str:
+def mind_blob_base(issue_url: str) -> str:
+    """`https://github.com/<owner>/<mind>/blob/main/` from the brief's `issue:`
+    (a Mind issue), so a pick links its prompt; "" when it cannot tell."""
+    m = _ISSUE_RE.match(issue_url or "")
+    return f"{m.group(1)}/blob/main/" if m else ""
+
+
+def label(task: str, pick: dict | None, base: str = "") -> str:
+    """How a pick is named to a human: its title, linked to its prompt, the
+    task slug in backticks, then size and repos. A pick recorded before titles
+    were (or with none) falls back to the bare slug."""
+    pick = pick or {}
+    title = pick.get("title")
+    if not title:
+        return task
+    prompt = pick.get("prompt") or ""
+    head = f"[{title}]({base}{prompt})" if base and prompt else f"**{title}**"
+    details = " · ".join(x for x in (pick.get("size"), ", ".join(pick.get("repos") or [])) if x)
+    return f"{head} (`{task}`" + (f"; {details}" if details else "") + ")"
+
+
+def _line(task: str, counters: dict, tier: str, health, base: str = "") -> str:
     state, tiered = task_state(task, counters, health)
-    return f"- {task} — {state}" + (f" — {tier}" if tiered else "")
+    name = label(task, counters.get("picks", {}).get(task), base)
+    return f"- {name} — {state}" + (f" — {tier}" if tiered else "")
 
 
 def _packet(task: str, slot: Path, counters: dict) -> str:
@@ -162,7 +193,7 @@ def _packet(task: str, slot: Path, counters: dict) -> str:
 
 
 def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
-          health=None) -> str:
+          health=None, issue: str = "") -> str:
     """The `## Digest` block for one shift, as Markdown."""
     tiers = tiers or {}
     health = health or pr_health
@@ -171,10 +202,11 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     backlog = [t for t in picks if t not in named]
 
     lines = [DIGEST_HEADING, "", "### Brief work"]
-    lines += [_line(t, counters, tiers.get(t, picks.get(t, {}).get("tier", "?")), health)
+    base = mind_blob_base(issue)
+    lines += [_line(t, counters, tiers.get(t, picks.get(t, {}).get("tier", "?")), health, base)
               for t in named] or [NO_PICKS]
     lines += ["", "### Backlog picks"]
-    lines += [_line(t, counters, tiers.get(t, picks[t].get("tier", "?")), health)
+    lines += [_line(t, counters, tiers.get(t, picks[t].get("tier", "?")), health, base)
               + f" — why: {picks[t].get('why') or 'NOT RECORDED'}" for t in backlog] or [NO_PICKS]
 
     started = [t for t in named + backlog
@@ -185,7 +217,11 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
               or (NO_PACKETS_SHADOW if _brief.is_shadow(brief) else NO_PICKS)]
 
     values = counter_values(brief, counters)
-    lines += ["", "### Counters"] + [f"- {k}: {values[k]}" for k in COUNTERS]
+    lines += ["", "### Counters"]
+    if _brief.is_shadow(brief):
+        lines.append(f"{SHADOW_COUNTERS} · review-minutes-planned: {values['review-minutes-planned']}")
+    else:
+        lines += [f"- {k}: {values[k]}" for k in COUNTERS]
     return "\n".join(lines) + "\n"
 
 
@@ -206,7 +242,8 @@ def pilot_row(slot_name: str, brief: dict, counters: dict) -> str:
     v = counter_values(brief, counters)
     cells = {**v, "slot": slot_name, "tokens": counters.get("tokens", 0),
              "mode": "shadow" if _brief.is_shadow(brief) else "live"}
-    return "| " + " | ".join("?" if c in PILOT_HUMAN else str(cells[c])
+    human = PILOT_HUMAN + (PILOT_HUMAN_SHADOW if cells["mode"] == "shadow" else ())
+    return "| " + " | ".join("?" if c in human else str(cells[c])
                              for c in PILOT_COLUMNS) + " |\n"
 
 
@@ -227,6 +264,16 @@ def _sections(text: str) -> dict[str, list[str]]:
     return out
 
 
+def _slug(line: str) -> str:
+    """The task a digest bullet is about: the backticked slug a titled pick
+    carries, else the bullet's first word (a pick recorded without a title)."""
+    m = _BULLET_RE.match(line)
+    if not m:
+        return ""
+    s = _SLUG_RE.search(line.split(" — ", 1)[0])
+    return s.group(1) if s else m.group(1)
+
+
 def validate(text: str) -> list[str]:
     """Errors in a record's `## Digest`; empty when there is none, or it is whole."""
     if DIGEST_HEADING not in text:
@@ -237,26 +284,27 @@ def validate(text: str) -> list[str]:
         if s not in secs:
             errs.append(f"digest: {s[4:]} section missing")
     for line in secs.get("### Backlog picks", []):
-        m = _BULLET_RE.match(line)
-        if m and line.strip() != NO_PICKS:
+        slug = _slug(line)
+        if slug and line.strip() != NO_PICKS:
             why = line.split(" — why: ", 1)
             if len(why) < 2 or not why[1].strip() or why[1].strip() == "NOT RECORDED":
-                errs.append(f"digest: backlog pick {m.group(1)} has no `why:` — "
+                errs.append(f"digest: backlog pick {slug} has no `why:` — "
                             "every pick names the brief rule it was picked under")
     seen = {}
     for line in secs.get("### Counters", []):
         m = re.match(r"^- ([a-z-]+):\s*(\S.*)?$", line)
         if m:
             seen[m.group(1)] = (m.group(2) or "").strip()
-    for key in COUNTERS:
+    shadow = any(line.startswith(SHADOW_COUNTERS) for line in secs.get("### Counters", []))
+    for key in (() if shadow else COUNTERS):
         if not seen.get(key):
             errs.append(f"digest: counter {key} missing")
     packets = "\n".join(secs.get("### Proof packets", []))
     for sec in ("### Brief work", "### Backlog picks"):
         for line in secs.get(sec, []):
-            m = _BULLET_RE.match(line)
-            if m and line.strip() != NO_PICKS and "not started" not in line \
+            slug = _slug(line)
+            if slug and line.strip() != NO_PICKS and "not started" not in line \
                     and PROPOSED not in line \
-                    and f"#### {m.group(1)}" not in packets:
-                errs.append(f"digest: {m.group(1)} has no proof packet")
+                    and f"#### {slug}" not in packets:
+                errs.append(f"digest: {slug} has no proof packet")
     return errs
