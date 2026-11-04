@@ -172,9 +172,25 @@ it → crashed (re-dispatched once). A finished worker's tokens (input + output 
 cache creation) are summed from its local transcript, named by the full
 `sessionId`, and the brief's `token-budget:` refuses the next spawn once spent.
 `worker-mode:` defaults to `auto` (human, 2026-11-03); `dontAsk` and
-`acceptEdits` are allowed, `bypassPermissions` never. **Until phase 3c lands,
-real dispatch needs `sandbox: yes` in the brief** — one Mind writer is doctrine
-and a real worker would otherwise commit to Mind itself.
+`acceptEdits` are allowed, `bypassPermissions` never.
+
+**One Mind writer (phase 3c).** Workers never commit to PyAutoMind. Each Mind
+change — the `active.md` claim, the `draft/ → active/` move, the close-out — is
+queued as an op file in `<slot>/ledger/` by `bin/shift_ledger.py`
+(`append | write | move | remove | drop-section`; every path must be *ledger*
+by PyAutoMind's own `scripts/ledger_merge.py`, default deny). Each tick, after
+the reap, `_mind_writer.commit_ledger` applies all pending ops in a temporary
+detached worktree on `origin/main`, commits once and pushes; if `main` moved it
+replays the ops on the new `origin/main` (up to three tries). It never resets,
+never forces, and never touches the canonical checkout's working tree.
+Committed op files move to `ledger/committed/`; an op that cannot apply stays
+pending and the tick reports it. **Enforced, not asked:** a worker runs with
+`PYAUTO_SHIFT_WORKER=1`, `PYAUTO_SHIFT_LEDGER_DIR`, and `core.hooksPath` (via
+`GIT_CONFIG_*`) pointing at `bin/worker_git_hooks/`, whose `pre-commit`
+refuses any commit in a PyAutoMind repo — `prompt_sync_push`, `lifecycle close`
+or a raw `git commit` alike — and otherwise chains to the repo's own hook.
+With that in place real dispatch no longer needs `sandbox: yes` (human,
+2026-11-03); the key stays as a test-shift marker.
 
 **Workers start in a trusted folder.** `claude --bg` refuses an untrusted one
 at once ("Workspace not trusted", exit 1) — the spawn fails and leaves no lease.

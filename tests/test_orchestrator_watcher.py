@@ -238,15 +238,14 @@ def test_a_refused_brief_dispatches_nothing(tmp_path):
 
 # --- fake mode only, and the entry --------------------------------------------------
 
-def test_real_dispatch_needs_a_sandbox_brief_until_3c(tmp_path, monkeypatch):
-    # 3b replaced 3a's blanket refusal: real workers exist, but only a
-    # `sandbox: yes` brief may start one until the one-Mind-writer path (3c).
+def test_without_the_fake_flag_the_spawner_is_real(tmp_path, monkeypatch):
+    # No tick here: since 3c lifted the sandbox fence a tick would start a real
+    # `claude --bg`. The choice of spawner is what this pins.
     monkeypatch.delenv(orch.FAKE_ENV, raising=False)
-    mind, brief, home = _shift(tmp_path, names=("t1",))
-    with pytest.raises(orch.OrchestratorError, match="sandbox: yes"):
-        orch.tick(brief, mind, home=home, now=NOW)
-    # The lease it could not fill is not left behind to block the task.
-    assert orch.leases(orch.slot_dir(brief, home)) == {}
+    sp = orch.default_spawner(tmp_path / "shift.md", {"worker-mode": {"value": "dontAsk"}})
+    assert isinstance(sp, orch.RealSpawner) and sp.mode == "dontAsk"
+    monkeypatch.setenv(orch.FAKE_ENV, "1")
+    assert isinstance(orch.default_spawner(tmp_path / "shift.md", {}), orch.FakeSpawner)
 
 
 def test_home_comes_from_the_environment(tmp_path, monkeypatch):

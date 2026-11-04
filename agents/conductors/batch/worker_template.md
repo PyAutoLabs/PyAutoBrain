@@ -10,8 +10,10 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
 - End at your deliverable: a PR, a posted verdict, or a park with a question
   on the issue. Never arm anything that outlives your turn (no send_later,
   ScheduleWakeup, CronCreate, RemoteTrigger or /loop) — the watcher keeps time.
-- Never commit to PyAutoMind yourself: write any ledger line you would have
-  committed as a file in {lease_dir}/ and the orchestrator commits it.
+- Never commit to PyAutoMind yourself — a hook refuses it. Queue each Mind
+  change with `{shift_ledger} append|write|move|remove|drop-section ...`
+  (ops land in {ledger_dir}/) and the orchestrator commits them. This covers
+  your `active.md` claim, the `draft/ → active/` move and your close-out.
 - When you finish, write {lease_dir}/{task}.done containing the URLs of the PRs
   you opened (or the issue you parked on), one per line. Without that file the
   watcher counts your session as crashed.

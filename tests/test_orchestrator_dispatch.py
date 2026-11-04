@@ -161,11 +161,12 @@ def test_a_failed_spawn_leaves_no_lease(tmp_path):
     assert orch.leases(orch.slot_dir(brief, home)) == {}
 
 
-def test_real_dispatch_outside_a_sandbox_brief_is_refused(tmp_path):
+def test_real_dispatch_no_longer_needs_a_sandbox_brief(tmp_path):
+    # 3c (one Mind writer) lifted 3b's fence — human decision 2026-11-03.
     mind, brief, home = _shift(tmp_path)
     brief.write_text(brief.read_text().replace("  - sandbox: yes\n", ""))
-    with pytest.raises(orch.OrchestratorError, match="sandbox: yes"):
-        _tick(brief, mind, home, NOW, FakeClaude())
+    r = _tick(brief, mind, home, NOW, FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["t1"]
 
 
 # --- liveness: running, blocked → parked, done, gone ---------------------------------
