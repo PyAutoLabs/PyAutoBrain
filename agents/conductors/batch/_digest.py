@@ -90,18 +90,28 @@ def pr_health(url: str, run=None) -> str:
 
 # --- build ---------------------------------------------------------------------
 
-def _line(task: str, counters: dict, tier: str, health) -> str:
+def task_state(task: str, counters: dict, health, *, live: bool = False,
+               lease: dict | None = None, agents=None) -> tuple[str, bool]:
+    """(what a task is doing, whether its tier follows) — the one wording the
+    digest and `batch watch` share, so the live view and the digest never
+    disagree. Only the live view passes `live=True` (with the task's `lease`
+    and the `agents` view): at `review-at:` the watcher has already reaped
+    every lease, and the digest's wording stays exactly as it was."""
     out = counters.get("outcomes", {}).get(task)
     if counters.get("picks", {}).get(task, {}).get("proposed"):
-        return f"- {task} — {PROPOSED} — {tier}"
+        return PROPOSED, True
     if task in counters.get("parked", []):
-        return f"- {task} — parked: awaiting-input (blocked on a person)"
+        return "parked: awaiting-input (blocked on a person)", False
     if task in counters.get("abandoned", []):
-        return f"- {task} — abandoned: crashed twice, not re-dispatched"
+        return "abandoned: crashed twice, not re-dispatched", False
     if out is None:
-        return f"- {task} — not started"
+        if live and lease is not None:
+            return _lease_state(lease, agents), True
+        if live and task in counters.get("pending_redispatch", []):
+            return "crashed — awaiting re-dispatch", True
+        return "not started", False
     if not out["prs"]:
-        return f"- {task} — finished, no PR or issue named in its .done"
+        return "finished, no PR or issue named in its .done", False
     parts = []
     closeouts = counters.get("closeouts", {})
     for url in out["prs"]:
@@ -116,7 +126,28 @@ def _line(task: str, counters: dict, tier: str, health) -> str:
         else:
             state = health(url)
         parts.append(f"{url} — {state}")
-    return f"- {task} — " + "; ".join(parts) + f" — {tier}"
+    return "; ".join(parts), True
+
+
+def _lease_state(lease: dict, agents) -> str:
+    """A held lease, as the live view words it (the digest never sees one)."""
+    since = lease.get("started") or lease.get("heartbeat") or "?"
+    if lease.get("stalled_since"):
+        return f"blocked on a person since {lease['stalled_since']}"
+    agent = lease.get("agent_id")
+    if not agent:
+        return f"running (pid {lease.get('pid', '?')}, since {since})"
+    state = agents.state(agent) if agents is not None else None
+    if state == "blocked":
+        return f"blocked on a person (agent {agent})"
+    if state is None:
+        return f"running? (agent {agent} not listed — inside the grace for a late .done)"
+    return f"running (agent {agent}, {state}, since {since})"
+
+
+def _line(task: str, counters: dict, tier: str, health) -> str:
+    state, tiered = task_state(task, counters, health)
+    return f"- {task} — {state}" + (f" — {tier}" if tiered else "")
 
 
 def _packet(task: str, slot: Path, counters: dict) -> str:
