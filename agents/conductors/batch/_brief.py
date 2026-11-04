@@ -289,6 +289,10 @@ def check(path: Path, mind: Path) -> dict:
                 errors.append(f"review-minutes-actual: missing on the previous "
                               f"record {prev.name} — measure it before a new brief")
 
+    # The digest, once collect has appended one (phase 3d).
+    import _digest  # noqa: E402 — deferred: _digest imports this module
+    errors += _digest.validate(path.read_text(encoding="utf-8", errors="replace"))
+
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
@@ -320,10 +324,7 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
             if backlog == "none":
                 rejected.append((r["path"], "outside the brief (backlog: none)"))
                 continue
-            if backlog == "scoped" and not (
-                    r.get("epic") in scoped.get("epics", [])
-                    or themes & set(scoped.get("tags", []))
-                    or r.get("consequence") in scoped.get("tiers", [])):
+            if backlog == "scoped" and not _scoped_match(r, scoped):
                 rejected.append((r["path"], "outside the brief's scoped backlog"))
                 continue
         if (r.get("lane") or "any") not in lanes:
@@ -331,3 +332,31 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
             continue
         kept.append(r)
     return kept, rejected, named
+
+
+def _scoped_match(record: dict, scoped: dict[str, list[str]]) -> str:
+    """The `scoped:` rule a record matches, as the digest names it; "" if none."""
+    if record.get("epic") in scoped.get("epics", []):
+        return f"scoped epic {record['epic']}"
+    tags = sorted(set(record.get("themes") or []) & set(scoped.get("tags", [])))
+    if tags:
+        return f"scoped tag {tags[0]}"
+    if record.get("consequence") in scoped.get("tiers", []):
+        return f"scoped tier {record['consequence']}"
+    return ""
+
+
+def pick_reason(record: dict, brief: dict) -> str:
+    """Why the brief admits this record — the digest's one-line `why:`.
+
+    Recorded at dispatch, when the record is in hand: by `review-at:` the
+    prompt may have moved to `complete/` and its headers with it.
+    """
+    if Path(record["path"]).name in {Path(t).name for t in tasks_of(brief)}:
+        return "named task"
+    backlog = brief.get("backlog", {}).get("value", "none")
+    if backlog == "fill-idle":
+        return "backlog: fill-idle (the planner's ranking)"
+    if backlog == "scoped":
+        return _scoped_match(record, scoped_of(brief)) or "NOT RECORDED"
+    return "NOT RECORDED"

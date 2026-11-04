@@ -35,12 +35,16 @@ import sys
 from pathlib import Path
 
 import _brief  # noqa: E402 — the batch conductor puts this directory on sys.path
+import _digest  # noqa: E402
 import _mind_writer  # noqa: E402
 
 STOP_FILE = "STOP"
 LOCK_FILE = "tick.lock"
 COUNTERS_FILE = "counters.json"
 LOG_FILE = "tick.log"
+DIGEST_FILE = "digest.md"
+#: Created exclusively before the one post: its existence means "never again".
+DIGEST_MARKER = "digest.posted"
 #: A tick lock older than this belongs to a tick that died; it is broken.
 LOCK_TTL_S = 600
 #: A worker whose process is gone keeps its lease this long before it is
@@ -111,6 +115,8 @@ def read_counters(slot: Path) -> dict:
     c.setdefault("pending_redispatch", [])
     c.setdefault("parked", [])
     c.setdefault("tokens", 0)
+    c.setdefault("picks", {})      # task → {prompt, why, tier}, at dispatch (3d)
+    c.setdefault("outcomes", {})   # task → {prs, merged}, from its `.done` (3d)
     return c
 
 
@@ -376,6 +382,13 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             sid = agents.session_of(lease["agent_id"]) or lease.get("session_id")
             counters["tokens"] += tokens(sid) if sid else 0
         if done_marker.exists():
+            # The digest reads these at review-at, long after the marker is gone.
+            counters["outcomes"][task] = _digest.parse_done(
+                done_marker.read_text(encoding="utf-8", errors="replace"))
+            proof = lease_dir / f"{task}.proof.md"
+            if proof.exists():
+                (slot / _digest.PROOFS_DIR).mkdir(exist_ok=True)
+                proof.replace(slot / _digest.PROOFS_DIR / f"{task}.md")
             path.unlink(missing_ok=True)
             done_marker.unlink(missing_ok=True)
             if task not in counters["done"]:
@@ -437,8 +450,11 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
 def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          now: _dt.datetime | None = None, spawner=None,
          grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
-         agents: AgentsView | None = None, tokens=transcript_tokens) -> dict:
-    """One watcher tick. Returns what it did; also appended to `tick.log`."""
+         agents: AgentsView | None = None, tokens=transcript_tokens,
+         poster=None, health=None) -> dict:
+    """One watcher tick. Returns what it did; also appended to `tick.log`.
+
+    After `review-at:` the one remaining act is the digest (phase 3d), once."""
     now = now or _now()
     brief_path = Path(brief_path)
     slot = slot_dir(brief_path, home)
@@ -449,6 +465,17 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 
     is_open, why, brief = brief_open(brief_path, mind, now)
     if not is_open:
+        if why.startswith("review-at") and (slot / "leases").is_dir() \
+                and not (slot / DIGEST_MARKER).exists():
+            if not _take_lock(slot, now):
+                return {"action": "busy", "reason": "another tick holds the lock"}
+            try:
+                result = finish_shift(brief_path, mind, slot, now, poster=poster,
+                                      health=health)
+            finally:
+                _drop_lock(slot)
+            _log(slot, now, result)
+            return result
         return {"action": "idle", "reason": why}
 
     (slot / "leases").mkdir(parents=True, exist_ok=True)
@@ -515,6 +542,9 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
             lease_path.unlink(missing_ok=True)
             raise
         lease_path.write_text(json.dumps(lease, sort_keys=True))
+        counters["picks"][task] = {"prompt": member["path"],
+                                   "why": _brief.pick_reason(member, brief),
+                                   "tier": member.get("consequence") or "?"}
         if task in counters["pending_redispatch"]:
             counters["pending_redispatch"].remove(task)
             counters["redispatched"][task] = counters["redispatched"].get(task, 0) + 1
@@ -525,6 +555,83 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     _write_counters(slot, counters)
     return {"action": "ticked", "reaped": reaped, "spawned": spawned,
             "refused": refused, "live": sorted(live), "ledger": ledger}
+
+
+# --- the digest (phase 3d) ----------------------------------------------------------
+
+def gh_comment(issue_url: str, body_file: Path, run=None) -> dict:
+    """The watcher's one write: a comment on the brief's `issue:`."""
+    run = run or subprocess.run
+    res = run(["gh", "issue", "comment", issue_url, "--body-file", str(body_file)],
+              capture_output=True, text=True, timeout=120)
+    if res.returncode != 0:
+        return {"posted": False, "error": (res.stderr or res.stdout).strip()[:300]}
+    return {"posted": True, "url": res.stdout.strip().splitlines()[-1] if res.stdout.strip() else ""}
+
+
+def _record_rel(brief_path: Path, mind: Path) -> str | None:
+    """The record's path inside Mind, for the one-Mind-writer append; None when
+    the record does not live in that checkout (a test brief, a scratch file)."""
+    try:
+        return Path(brief_path).resolve().relative_to(Path(mind).resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
+                 poster=None, health=None) -> dict:
+    """Write the digest into the record and post it once on the brief's issue.
+
+    The marker is created **before** the post, exclusively: a crash between the
+    two leaves a shift with no comment, never one with two (AUTONOMY.md "The
+    watcher's network surface" — a second comment retires the watcher). Nothing
+    is read back from GitHub to check.
+    """
+    rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
+    brief, top = rec["brief"] or {}, rec["top"]
+    counters = read_counters(slot)
+    digest = _digest.build(brief, slot, counters, health=health)
+    (slot / DIGEST_FILE).write_text(digest, encoding="utf-8")
+    result = {"action": "digest", "ledger": None, "post": None, "packet": None}
+
+    rel = _record_rel(brief_path, mind)
+    if rel is not None:
+        _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                              {"op": "append", "path": rel, "text": "\n" + digest})
+        try:
+            result["ledger"] = _mind_writer.commit_ledger(
+                slot, mind, f"shift {slot.name}: digest")
+        except _mind_writer.MindWriteError as e:
+            result["ledger"] = {"committed": None, "error": str(e)}
+
+    if top.get("packet", {}).get("value", "").lower() == "yes":
+        result["packet"] = str(_write_packet(slot, digest))
+
+    issue = top.get("issue", {}).get("value", "")
+    claim = {"at": _iso(now), "issue": issue}
+    if not _create_exclusive(slot / DIGEST_MARKER, claim):
+        result["post"] = {"posted": False, "error": "already posted this shift"}
+        return result
+    if not issue.startswith("http"):
+        result["post"] = {"posted": False, "error": "the brief names no issue:"}
+    else:
+        result["post"] = (poster or gh_comment)(issue, slot / DIGEST_FILE)
+    (slot / DIGEST_MARKER).write_text(json.dumps({**claim, **result["post"]},
+                                                 sort_keys=True))
+    return result
+
+
+def _write_packet(slot: Path, digest: str) -> Path:
+    """The opt-in HTML packet (`packet: yes`): the digest on one page."""
+    import html
+    css = Path(__file__).with_name("packet.css")
+    style = css.read_text(encoding="utf-8") if css.is_file() else ""
+    page = ("<!doctype html><meta charset=\"utf-8\"><title>Shift digest "
+            f"{html.escape(slot.name)}</title><style>{style}</style>"
+            f"<main><pre>{html.escape(digest)}</pre></main>\n")
+    out = slot / "digest.html"
+    out.write_text(page, encoding="utf-8")
+    return out
 
 
 def main(argv=None) -> int:

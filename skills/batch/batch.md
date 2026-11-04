@@ -127,13 +127,15 @@ brief against the `batches/AGENTS.md` schema (every error names its key;
 exit 1 refuses it), and `batch plan --brief <file>` composes inside it: named
 tasks first, then only the backlog its policy covers, against its
 `review-minutes:`. Run the check before writing a brief's `review-at:` into
-`batches/`. `batch dispatch` and `batch digest` are **planned — not code yet**:
-they arrive with the watcher in phase 3 of the autonomous-orchestrators epic,
-and until then the steps above are the dispatch.
+`batches/`. Dispatch is the watcher's (below), not a verb. `batch digest
+--record <file>` prints a shift's digest and writes nothing; the record append
+and the one issue comment are the watcher's, at `review-at:`.
 
-## The watcher (phase 3a — fake workers only)
+## The watcher (phases 3a–3d)
 
 One deterministic tick per timer firing; the timer is installed by the human, never a session.
+After `review-at:` its one remaining act is the digest: written into the record
+and posted once on the brief's `issue:`.
 What a tick does, its state, caps and the install commands: `agents/conductors/batch/AGENTS.md` "The watcher".
 
 ## When they come back — collect, review, close (2026-08-31)

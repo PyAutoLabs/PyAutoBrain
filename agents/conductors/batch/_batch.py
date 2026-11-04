@@ -2777,7 +2777,7 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
-    ap.add_argument("verb", choices=["plan", "collect", "brief"], nargs="?",
+    ap.add_argument("verb", choices=["plan", "collect", "brief", "digest"], nargs="?",
                     default="plan")
     ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
@@ -2795,6 +2795,13 @@ def main(argv=None) -> int:
     ap.add_argument("--brief", default="", metavar="FILE",
                     help="plan: compose inside this shift brief (named tasks "
                          "first, then its backlog policy)")
+    # digest
+    ap.add_argument("--record", default="", metavar="FILE",
+                    help="digest: print the digest of this shift brief record "
+                         "(read-only — the watcher alone writes and posts it)")
+    ap.add_argument("--home", type=Path, default=None,
+                    help="digest: the watcher's state directory (default: "
+                         "$PYAUTO_ORCHESTRATOR_HOME, else .orchestrator)")
     # collect only
     ap.add_argument("--slot", default="",
                     help="the batch record to collect (default: the newest)")
@@ -2828,17 +2835,40 @@ def main(argv=None) -> int:
             return _main_collect(mind, a)
         if a.verb == "brief":
             return _main_brief(mind, a)
+        if a.verb == "digest":
+            return _main_digest(mind, a)
         return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)
         return RC_USAGE
 
 
+def _main_digest(mind: Path, a) -> int:
+    """`batch digest --record <file>` — print the shift's digest; writes nothing.
+
+    The record append and the one issue comment are the watcher's, at
+    `review-at:` (`_orchestrator.finish_shift`); this verb is how a person or a
+    session reads the digest before then."""
+    if not a.record:
+        print("batch digest: --record <file> is required", file=sys.stderr)
+        return RC_USAGE
+    import _digest
+    import _orchestrator
+    record = Path(a.record)
+    brief = _brief.parse(record.read_text(encoding="utf-8"))["brief"]
+    if brief is None:
+        print(f"batch digest: {record} has no brief: block", file=sys.stderr)
+        return RC_USAGE
+    slot = _orchestrator.slot_dir(record, a.home)
+    print(_digest.build(brief, slot, _orchestrator.read_counters(slot)), end="")
+    return RC_OK
+
+
 def _main_brief(mind: Path, a) -> int:
     """`batch brief --check <file>` — read-only; exit 0 valid, 1 refused."""
     if not a.check:
-        print("batch brief: --check <file> is the only brief verb yet "
-              "(dispatch and digest are phase 3)", file=sys.stderr)
+        print("batch brief: --check <file> is the only brief verb "
+              "(the digest is `batch digest --record <file>`)", file=sys.stderr)
         return RC_USAGE
     res = _brief.check(Path(a.check), mind)
     if a.as_json:

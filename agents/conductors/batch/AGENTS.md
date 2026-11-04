@@ -146,7 +146,7 @@ never the *authority*. A shift brief written with `review-at:` is that act in
 writing (2026-11-03): the human dispatches by writing it, and its scope is the
 whole grant (`AUTONOMY.md`, "Shift briefs and unattended `glance`").
 
-## The watcher (phase 3a — fake workers only)
+## The watcher (phases 3a–3d)
 
 `bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one
 tick**: `STOP` first, then the open-brief gate, the tick lock, the lease reap,
@@ -191,6 +191,28 @@ refuses any commit in a PyAutoMind repo — `prompt_sync_push`, `lifecycle close
 or a raw `git commit` alike — and otherwise chains to the repo's own hook.
 With that in place real dispatch no longer needs `sandbox: yes` (human,
 2026-11-03); the key stays as a test-shift marker.
+
+**The digest (phase 3d).** Every spawn records, in `counters.json` `picks`,
+the prompt, its tier and **why the brief admitted it** (`_brief.pick_reason`:
+`named task`, `scoped epic|tag|tier <x>`, or `backlog: fill-idle`) — at
+dispatch, because by `review-at:` the prompt may have moved to `complete/`.
+The reap keeps what the worker left before deleting its marker: the `.done`
+lines go to `outcomes` (`<url>`, or `merged <url>` for an in-turn tiered
+merge), and `<task>.proof.md` moves to `<slot>/proofs/`. The first tick after
+`review-at:` runs `finish_shift` once: `_digest.build` writes the `## Digest`
+(`PyAutoMind/batches/AGENTS.md` format — brief work, backlog picks each with
+its `why:`, one proof packet per started task or a stub that says none was
+written, every counter) to `<slot>/digest.md`, appends it to the record through
+the one Mind writer, writes `digest.html` only under `packet: yes`, then
+**exclusive-creates `digest.posted` before** the one `gh issue comment` on the
+brief's `issue:`. A crash between the two leaves no comment, never two; a failed
+post is not retried; nothing is read back from GitHub. Health per PR is one
+read-only `gh pr checks` (exit 0 → HEALTHY, 8 → RUNNING, else FAILED or
+NO-CHECKS). `glance-auto-merges`, `reverts`, `pushes`, `drafts-filed` and
+`packets-sent` read `counters.json` and stay 0 until phases 4–5 move them
+(human, 2026-11-04). `batch digest --record <file>` prints the digest and
+writes nothing; `batch brief --check` refuses a digest missing a section, a
+counter, a pick's `why:` or a started task's packet.
 
 **Workers start in a trusted folder.** `claude --bg` refuses an untrusted one
 at once ("Workspace not trusted", exit 1) — the spawn fails and leaves no lease.
