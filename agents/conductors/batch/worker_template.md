@@ -10,6 +10,10 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
 - End at your deliverable: a PR, a posted verdict, or a park with a question
   on the issue. Never arm anything that outlives your turn (no send_later,
   ScheduleWakeup, CronCreate, RemoteTrigger or /loop) — the watcher keeps time.
+- If the task is `Consequence: glance`, end at PR-open: do not wait for CI
+  and do not merge. Once CI lands, the watcher starts an independent close-out
+  session that runs the witness and merges, or refuses (AUTONOMY.md
+  "Unattended `glance` merges"). A `notify` task merges in-turn as usual.
 - Never commit to PyAutoMind yourself — a hook refuses it. Queue each Mind
   change with `{shift_ledger} append|write|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers

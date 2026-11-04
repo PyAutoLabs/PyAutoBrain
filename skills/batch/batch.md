@@ -137,7 +137,9 @@ One deterministic tick per timer firing; the timer is installed by the human, ne
 After `review-at:` its one remaining act is the digest: written into the record
 and posted once on the brief's `issue:`. A `shadow: yes` brief plans and digests
 but spawns nothing — the pilot's baseline; every shift adds one row to
-`PyAutoMind/batches/pilot/pilot.md`, whose `?` cells are the human's at check-in.
+`PyAutoMind/batches/pilot/pilot.md`, whose `?` cells are the human's at check-in. Once a worker's `glance` PR is green, the
+watcher starts one independent close-out session that merges it or refuses;
+each merge adds a row to the stage-2 table in `PyAutoMind/autonomy_log.md`.
 What a tick does, its state, caps and the install commands: `agents/conductors/batch/AGENTS.md` "The watcher".
 
 ## When they come back — collect, review, close (2026-08-31)

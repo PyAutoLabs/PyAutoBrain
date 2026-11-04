@@ -57,6 +57,13 @@ REDISPATCH_LIMIT = 1
 STALL_GRACE_S = 900
 #: The worker prompt every real worker starts from (never a bare session).
 WORKER_TEMPLATE = Path(__file__).with_name("worker_template.md")
+CLOSEOUT_TEMPLATE = Path(__file__).with_name("closeout_template.md")
+#: The close-out session's model (phase 4b). The same model as the workers —
+#: the human's call 2026-11-04 (AUTONOMY.md "Stage-2 adversary amendment"): a
+#: fresh, independent session that runs the witness itself is the leg.
+CLOSEOUT_MODEL = "opus"
+STAGE2_HEADING = "## Unattended `glance` sub-window (stage 2)"
+STAGE2_LOG = "autonomy_log.md"
 #: Hooks every worker's git runs with (core.hooksPath, set through GIT_CONFIG_*):
 #: its pre-commit refuses a commit in PyAutoMind and chains to the repo's own.
 WORKER_HOOKS = Path(__file__).resolve().parents[3] / "bin" / "worker_git_hooks"
@@ -117,6 +124,8 @@ def read_counters(slot: Path) -> dict:
     c.setdefault("tokens", 0)
     c.setdefault("picks", {})      # task → {prompt, why, tier}, at dispatch (3d)
     c.setdefault("outcomes", {})   # task → {prs, merged}, from its `.done` (3d)
+    c.setdefault("closeouts", {})  # PR url → {task, state, why, …} (4b)
+    c.setdefault("glance_auto_merges", 0)
     return c
 
 
@@ -182,6 +191,14 @@ class FakeSpawner:
             stderr=subprocess.DEVNULL, start_new_session=True)
         return {"pid": proc.pid, "session_id": f"fake-{proc.pid}", "worktree": None}
 
+    def spawn_closeout(self, task: str, pr_url: str, prompt_path: str, lease_dir: Path) -> dict:
+        """A dry close-out: it refuses, because a fake session merged nothing."""
+        verdict = {"result": "refused", "pr": pr_url,
+                   "why": "fake close-out (dry shift) — nothing merged", "gate": "",
+                   "model": "fake"}
+        (Path(lease_dir) / f"{task}.closeout").write_text(json.dumps(verdict))
+        return {"pid": 0, "agent_id": None}
+
 
 def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path) -> str:
     """The session template filled in for one task."""
@@ -189,6 +206,27 @@ def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path
         task=task, task_path=prompt_path, brief_path=brief_path, lease_dir=lease_dir,
         ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
         shift_ledger=SHIFT_LEDGER)
+
+
+def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
+                    lease_dir: Path) -> str:
+    """The close-out session template filled in for one PR (phase 4b)."""
+    return CLOSEOUT_TEMPLATE.read_text(encoding="utf-8").format(
+        task=task, pr_url=pr_url, task_path=prompt_path, brief_path=brief_path,
+        lease_dir=lease_dir, ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
+        shift_ledger=SHIFT_LEDGER)
+
+
+def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
+                     lease_dir: Path, mode: str) -> list[str]:
+    """The argv that starts one close-out session: its own name, the close-out
+    model, the brief's worker mode."""
+    if mode not in _brief.WORKER_MODES:
+        raise OrchestratorError(f"worker mode {mode!r} is not one of "
+                                + ", ".join(_brief.WORKER_MODES))
+    return ["claude", "--bg", "--name", f"shift-close:{task}", "--model", CLOSEOUT_MODEL,
+            "--permission-mode", mode,
+            closeout_prompt(task, pr_url, prompt_path, brief_path, lease_dir)]
 
 
 def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
@@ -245,6 +283,19 @@ class RealSpawner:
             raise OrchestratorError(f"claude --bg printed no session id for {task}: "
                                     + res.stdout.strip()[:200])
         return {"pid": 0, "agent_id": m.group(1), "session_id": None, "mode": self.mode}
+
+    def spawn_closeout(self, task: str, pr_url: str, prompt_path: str, lease_dir: Path) -> dict:
+        argv = closeout_command(task, pr_url, prompt_path, self.brief_path, lease_dir,
+                                self.mode)
+        res = self.run(argv, cwd=self.cwd, capture_output=True, text=True, timeout=120,
+                       env=worker_env(lease_dir))
+        if res.returncode != 0:
+            raise OrchestratorError(f"claude --bg close-out failed for {task}: "
+                                    + (res.stderr or res.stdout).strip()[:300])
+        m = _BG_ID_RE.search(res.stdout)
+        if not m:
+            raise OrchestratorError(f"claude --bg printed no session id for {task}'s close-out")
+        return {"pid": 0, "agent_id": m.group(1)}
 
 
 def default_spawner(brief_path: Path, brief: dict):
@@ -484,7 +535,7 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
     try:
         result = _tick_locked(slot, brief, mind, now,
                               spawner or default_spawner(brief_path, brief),
-                              grace_s, records, agents, tokens)
+                              grace_s, records, agents, tokens, health)
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
@@ -492,7 +543,7 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 
 
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
-                 tokens) -> dict:
+                 tokens, health=None) -> dict:
     counters = read_counters(slot)
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
     # One Mind writer: whatever the workers queued is committed here, by the
@@ -502,6 +553,13 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
         try:
             ledger = _mind_writer.commit_ledger(
                 slot, mind, f"shift {slot.name}: ledger from workers")
+        except _mind_writer.MindWriteError as e:
+            ledger = {"committed": None, "error": str(e)}
+    closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health)
+    if _mind_writer.pending_ops(slot):  # a stage-2 row queued by a merged close-out
+        try:
+            ledger = _mind_writer.commit_ledger(
+                slot, mind, f"shift {slot.name}: unattended close-out")
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
     live = leases(slot)
@@ -560,7 +618,8 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     counters["refusals"] += [dict(r, at=_iso(now)) for r in refused]
     _write_counters(slot, counters)
     return {"action": "ticked", "reaped": reaped, "spawned": spawned,
-            "refused": refused, "live": sorted(live), "ledger": ledger}
+            "refused": refused, "live": sorted(live), "ledger": ledger,
+            "closeouts": closeouts}
 
 
 # --- the digest (phase 3d) ----------------------------------------------------------
@@ -648,6 +707,104 @@ def _write_packet(slot: Path, digest: str) -> Path:
     out = slot / "digest.html"
     out.write_text(page, encoding="utf-8")
     return out
+
+
+# --- unattended `glance` close-out (phase 4b) ------------------------------------
+
+def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
+               agents: AgentsView | None, health) -> dict:
+    """Reap finished close-out sessions, then start one per newly green PR.
+
+    The watcher's guards are the ones it can judge from its own reads (AUTONOMY
+    "Unattended `glance` merges"): the recorded tier, green CI by `gh pr checks`,
+    the brief's `merge-cap:`, and never in a shadow shift. The label, Heart and
+    the witness are the close-out session's to check — it is the independent
+    session, and it refuses rather than merges when one fails.
+    """
+    events = {"started": [], "merged": [], "refused": []}
+    lease_dir = slot / "leases"
+    agents = agents or AgentsView()
+    health = health or _digest.pr_health
+
+    for pr, co in counters["closeouts"].items():
+        if co["state"] != "running":
+            continue
+        verdict_file = lease_dir / f"{co['task']}.closeout"
+        if verdict_file.exists():
+            try:
+                v = json.loads(verdict_file.read_text(encoding="utf-8"))
+            except ValueError:
+                v = {"result": "refused", "why": "unreadable .closeout file"}
+            verdict_file.unlink(missing_ok=True)
+            if v.get("result") == "merged":
+                co.update(state="merged", gate=v.get("gate", ""), model=v.get("model", ""))
+                counters["glance_auto_merges"] += 1
+                out = counters["outcomes"].setdefault(co["task"], {"prs": [pr], "merged": []})
+                if pr not in out["merged"]:
+                    out["merged"].append(pr)
+                _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
+                    "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
+                    "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"])})
+                events["merged"].append(pr)
+            else:
+                co.update(state="refused", why=v.get("why") or "refused, no reason given")
+                events["refused"].append(pr)
+            continue
+        real = bool(co.get("agent_id"))
+        state = agents.state(co["agent_id"]) if real else None
+        gone = (state in (None, "done")) if real else not _alive(int(co.get("pid") or 0))
+        if gone:
+            # Never retried: a close-out that ended without a verdict is the
+            # human's to look at, not a second unattended attempt.
+            co.update(state="refused", why="the close-out session ended without a verdict")
+            events["refused"].append(pr)
+
+    if _brief.is_shadow(brief):
+        return events
+    cap = _brief._nonneg_int(brief.get("merge-cap", {}).get("value", "")) or 0
+    for task, out in counters["outcomes"].items():
+        for pr in out["prs"]:
+            if "/pull/" not in pr or pr in out["merged"] or pr in counters["closeouts"]:
+                continue
+            tier = counters["picks"].get(task, {}).get("tier", "?")
+            if tier != "glance":
+                counters["closeouts"][pr] = {"task": task, "state": "refused",
+                                             "why": f"tier {tier} — only glance merges unattended"}
+                events["refused"].append(pr)
+                continue
+            verdict = health(pr)
+            if verdict == "RUNNING":
+                continue  # CI has not landed yet; look again next tick
+            if verdict != "HEALTHY":
+                counters["closeouts"][pr] = {"task": task, "state": "refused",
+                                             "why": f"CI {verdict} — never merged unattended"}
+                events["refused"].append(pr)
+                continue
+            in_flight = sum(1 for c in counters["closeouts"].values() if c["state"] == "running")
+            if counters["glance_auto_merges"] + in_flight >= cap:
+                # Final for this shift, like every refusal: the PR waits for a
+                # human `/prm`, and the digest says why.
+                counters["closeouts"][pr] = {"task": task, "state": "refused",
+                                             "why": f"merge-cap {cap} reached this shift"}
+                events["refused"].append(pr)
+                continue
+            prompt = counters["picks"].get(task, {}).get("prompt", "")
+            co = {"task": task, "state": "running", "started": _iso(now)}
+            co.update(spawner.spawn_closeout(task, pr, prompt, lease_dir))
+            counters["closeouts"][pr] = co
+            events["started"].append(pr)
+    return events
+
+
+def stage2_row(now: _dt.datetime, task: str, pr: str, slot_name: str, gate: str,
+               model: str) -> str:
+    """One row of autonomy_log.md's stage-2 table (its columns: date, task,
+    brief, gate with the adversary leg, human action — `merged-unchanged` at
+    merge, amended by the human later)."""
+    cells = (now.strftime("%Y-%m-%d"), f"{task} ({pr})", slot_name,
+             f"{gate} / adversary: independent close-out session ({model})",
+             "merged-unchanged")
+    return "| " + " | ".join(" ".join(str(c).replace("|", "/").split()) for c in cells) + " |"
 
 
 def _propose(members: list[dict], brief: dict, counters: dict, max_sessions: int) -> list[str]:

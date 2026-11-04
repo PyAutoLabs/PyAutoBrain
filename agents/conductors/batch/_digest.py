@@ -103,8 +103,18 @@ def _line(task: str, counters: dict, tier: str, health) -> str:
     if not out["prs"]:
         return f"- {task} — finished, no PR or issue named in its .done"
     parts = []
+    closeouts = counters.get("closeouts", {})
     for url in out["prs"]:
-        state = "merged" if url in out["merged"] else health(url)
+        co = closeouts.get(url, {})
+        if url in out["merged"]:
+            state = ("merged unattended (close-out, " + co.get("model", "?") + ")"
+                     if co.get("state") == "merged" else "merged")
+        elif co.get("state") == "refused":
+            state = f"awaiting /prm — close-out refused: {co.get('why', '?')}"
+        elif co.get("state") == "running":
+            state = "close-out running"
+        else:
+            state = health(url)
         parts.append(f"{url} — {state}")
     return f"- {task} — " + "; ".join(parts) + f" — {tier}"
 
