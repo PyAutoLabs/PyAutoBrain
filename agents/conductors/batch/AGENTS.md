@@ -214,6 +214,20 @@ NO-CHECKS). `glance-auto-merges`, `reverts`, `pushes`, `drafts-filed` and
 writes nothing; `batch brief --check` refuses a digest missing a section, a
 counter, a pick's `why:` or a started task's packet.
 
+**Picks are named for a human (PyAutoBrain#579).** Each pick
+(`_orchestrator.pick_record`, shared by dispatch and shadow) keeps the prompt's
+title, size and repos, and the digest names it as
+`[<title>](<Mind blob link>) (`<slug>`; <size> · <repos>)`. The link is built
+from the brief's `issue:` repository; a pick recorded without a title falls
+back to the bare slug, and `validate` reads the backticked slug either way. The
+`why:` is the brief's admission rule plus `_brief.rank_note`, which is the
+planner's actual order: `queue.md #k`, or `not in queue.md · ~N review-min ·
+priority P` (then the path, so a tie is alphabetical), plus `epic E phase X`.
+Shadow shift 1 (2026-11-04) showed why: six bare slugs, each `why: scoped tier
+notify`, could not be reviewed. A shadow digest prints its counters as one line
+(`- all counters 0 — shadow shift, nothing dispatched · review-minutes-planned: N`),
+which `validate` accepts in place of the nine.
+
 **Shadow shifts and the pilot ledger (phase 4a).** Under `shadow: yes` a tick
 runs the same plan inside the brief but, instead of spawning, records each
 proposal in `picks` with `proposed: true` (`_propose`, capped by
@@ -222,7 +236,11 @@ them `proposed (shadow)` and its packet section says nothing was dispatched;
 `brief --check` asks no packet of a proposal. `finish_shift` also appends one
 row to `PyAutoMind/batches/pilot/pilot.md` (`_digest.pilot_row`: the digest's
 counters plus slot and mode; `review-minutes-actual` and `overrules` land as
-`?` for the human) in the same Mind commit as the digest. A shift whose
+`?` for the human) in the same Mind commit as the digest. In a **shadow** row
+`merges` is a `?` too: the orchestrator merges nothing, so the baseline is the
+human's own work in the window (the epic: "the human works as today, minutes
+are logged"), with `review-minutes-actual` the human's own review time and
+`merges` their own merges, both counted at check-in. A shift whose
 `digest.posted` exists writes nothing more — no second append, row or comment.
 
 **Unattended `glance` close-out (phase 4b).** A `glance` worker under a brief

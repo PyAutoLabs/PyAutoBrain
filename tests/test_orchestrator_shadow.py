@@ -45,8 +45,9 @@ def test_a_shadow_tick_proposes_with_reasons_and_spawns_nothing(tmp_path):
     assert orch.leases(slot) == {}
     picks = orch.read_counters(slot)["picks"]
     assert picks["named"] == {"prompt": "draft/feature/pyautobrain/named.md",
-                              "why": "named task", "tier": "glance", "proposed": True}
-    assert picks["picked"]["why"] == "scoped epic e1"
+                              "why": "named task", "tier": "glance", "proposed": True,
+                              "title": "named", "size": "small", "repos": ["pyautobrain"]}
+    assert picks["picked"]["why"].startswith("scoped epic e1 · not in queue.md")
     assert orch.read_counters(slot)["sessions"] == 0
 
 
@@ -70,12 +71,13 @@ def test_the_shadow_digest_lists_proposals_and_validates(tmp_path):
     slot = orch.slot_dir(brief, home)
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot,
                       orch.read_counters(slot), health=t._health)
-    assert "- named — proposed (shadow) — glance" in d
-    assert "- picked — proposed (shadow) — glance — why: scoped epic e1" in d
+    assert "- **named** (`named`; small · pyautobrain) — proposed (shadow) — glance" in d
+    assert "- **picked** (`picked`; small · pyautobrain) — proposed (shadow) — glance — why: scoped epic e1 · not in queue.md" in d
     assert "- never — not started" in d
     assert _digest.NO_PACKETS_SHADOW in d
-    for key in _digest.COUNTERS:
-        assert f"- {key}: " in d
+    # Every counter is 0 in a shadow shift: one line, not nine.
+    assert _digest.SHADOW_COUNTERS + " · review-minutes-planned: 45" in d
+    assert "- merges: " not in d
     rec = tmp_path / "with_digest.md"
     rec.write_text(brief.read_text() + "\n" + d)
     res = _brief.check(rec, mind)
@@ -102,6 +104,8 @@ def test_pilot_row_has_one_cell_per_column_and_leaves_the_humans_blank(tmp_path)
     got = dict(zip(_digest.PILOT_COLUMNS, cells))
     assert got["mode"] == "shadow" and got["slot"] == "shift"
     assert got["review-minutes-actual"] == "?" and got["overrules"] == "?"
+    # Shadow merges are the human's own in the window — the baseline.
+    assert got["merges"] == "?"
     assert got["review-minutes-planned"] == "45" and got["tokens"] == "0"
 
 
@@ -141,3 +145,48 @@ def test_a_shadow_shift_lands_exactly_one_pilot_row_on_mind_main(tmp_path, monke
     assert again["ledger"] is None
     assert _digest.validate(t.git(bare, "show", "main:batches/2026-11-04-shadow.md").stdout) == []
     assert t.git(bare, "show", "main:batches/pilot/pilot.md").stdout == pilot
+
+
+# --- readable picks (PyAutoBrain#579) ------------------------------------------
+
+def test_titled_picks_validate_and_a_missing_why_names_the_slug(tmp_path):
+    mind, brief, home = _shadow(tmp_path)
+    orch.tick(brief, mind, home=home, now=t.NOW, spawner=NoSpawn())
+    slot = orch.slot_dir(brief, home)
+    d = _digest.build(_brief.parse(brief.read_text())["brief"], slot,
+                      orch.read_counters(slot), health=t._health, issue=t.ISSUE)
+    assert _digest.validate(d) == []
+    import re
+    bad = re.sub(r" — why: scoped epic e1[^\n]*", " — why: NOT RECORDED", d)
+    assert any("backlog pick picked has no `why:`" in e for e in _digest.validate(bad))
+    # The one-line shadow counters are accepted only as that line: a live
+    # digest without its counters is still refused.
+    live = d.replace(_digest.SHADOW_COUNTERS, "- something else")
+    assert any("counter merges missing" in e for e in _digest.validate(live))
+
+
+def test_an_old_untitled_digest_still_validates():
+    """Shift 1 (2026-11-04) was digested before picks had titles."""
+    old = ("## Digest\n\n### Brief work\n- none\n\n### Backlog picks\n"
+           "- batch_slice — proposed (shadow) — notify — why: scoped tier notify\n\n"
+           "### Proof packets\n- none — shadow shift: nothing was dispatched\n\n### Counters\n"
+           + "".join(f"- {k}: 0\n" for k in _digest.COUNTERS))
+    assert _digest.validate(old) == []
+    assert _digest.label("batch_slice", {"prompt": "draft/x.md"}) == "batch_slice"
+
+
+def test_a_live_pilot_row_counts_the_orchestrators_merges(tmp_path):
+    brief = {"review-minutes": {"value": "30"}, "token-budget": {"value": "100"}}
+    counters = orch.read_counters(tmp_path)
+    counters["outcomes"] = {"a": {"prs": ["u"], "merged": ["u"]}}
+    cells = dict(zip(_digest.PILOT_COLUMNS,
+                     [c.strip() for c in _digest.pilot_row("s", brief, counters).strip().strip("|").split("|")]))
+    assert cells["mode"] == "live" and cells["merges"] == "1"
+
+
+def test_batch_watch_shows_titles(tmp_path):
+    import _watch
+    mind, brief, home = _shadow(tmp_path)
+    orch.tick(brief, mind, home=home, now=t.NOW, spawner=NoSpawn())
+    text = _watch.render(_watch.snapshot(brief, orch.slot_dir(brief, home), t.NOW, health=t._health))
+    assert "- **named** (`named`; small · pyautobrain) — proposed (shadow)" in text

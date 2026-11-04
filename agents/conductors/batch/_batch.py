@@ -168,8 +168,17 @@ def survey(mind: Path) -> list[dict]:
         g["phase"] = _phase_of(text)
         g["done"] = _is_done(text)
         g["themes"] = _themes_of(text)
+        g["title"] = _title_of(text)
         out.append(g)
     return out
+
+
+def _title_of(text: str) -> str:
+    """The prompt's first `# ` heading — what a human reads the pick by."""
+    for line in text.splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return ""
 
 
 #: A `queue.md` section heading — `## <n>. <label>`. The digits matter: the
@@ -332,6 +341,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     # the question is what fits in it.
     for r in pool:
         r["queue_rank"] = queue_rank(r, queue)
+        r["queued"] = r["queue_rank"] < len(queue)
     pool.sort(key=lambda r: (r["queue_rank"], r["review_minutes"],
                              priority_rank(r), r["path"]))
 
@@ -2862,12 +2872,14 @@ def _main_digest(mind: Path, a) -> int:
     import _digest
     import _orchestrator
     record = Path(a.record)
-    brief = _brief.parse(record.read_text(encoding="utf-8"))["brief"]
+    rec = _brief.parse(record.read_text(encoding="utf-8"))
+    brief = rec["brief"]
     if brief is None:
         print(f"batch digest: {record} has no brief: block", file=sys.stderr)
         return RC_USAGE
     slot = _orchestrator.slot_dir(record, a.home)
-    print(_digest.build(brief, slot, _orchestrator.read_counters(slot)), end="")
+    issue = (rec["top"].get("issue") or {}).get("value", "")
+    print(_digest.build(brief, slot, _orchestrator.read_counters(slot), issue=issue), end="")
     return RC_OK
 
 
