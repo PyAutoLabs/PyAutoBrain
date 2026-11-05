@@ -49,7 +49,7 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 | **Review-minute budget** | the human's hour is the binding resource; see above |
 | **One member per *library* repo per shift** | concurrent members do not collide at dispatch (separate worktrees) — they collide at **merge**, because the first `/prm` moves `main` and invalidates the others' test and smoke evidence. Workspace, docs and organ repos are exempt: two docs changes in one shift cost nothing. Work concentrates in four repos (PyAutoFit 118/332 August records, PyAutoArray 98, PyAutoGalaxy 82, PyAutoLens 78), so effective parallelism is two or three, not six. |
 | **One slice per epic per batch** | epic phases are ordered, so two members could not run in parallel anyway — and this is what interleaves small pieces of long programmes with standalone work |
-| **`Unattended: ready` only** | `needs-slicing` goes to the decomposition pass; `never` never enters a batch |
+| **`Unattended: ready` only** | `needs-slicing` goes to the decomposition pass (`batch slice`); `never` never enters a batch |
 | **Lane match** | a session detects its own lane and plans only that one |
 | **Backpressure** | see below |
 | **Brief scope** | under a shift brief, only its named tasks and the backlog its dip policy covers run; anything else is a dispatch outside the launch, which "What a batch launch is" forbids (`AUTONOMY.md`, 2026-11-03) |
@@ -734,10 +734,51 @@ The extension point above (`KINDS`) is what made that possible and is kept: a
 member kind is a scorer plus a block builder plus a claim, and nothing about
 the record, the packet or the renderer has to learn its vocabulary.
 
-## Not built yet
+## Slicing a `needs-slicing` prompt (`slice`)
 
-`slice` — the decomposition pass doctrine has named since inception — is the
-conductor's one remaining verb; see the epic ledger,
-`PyAutoMind/draft/feature/pyautomind/two_slot_batching_epic.md`. `plan` and
-`collect` stand on their own in the meantime: plan a slot, dispatch by tapping
-the dashboard's existing chips, collect what comes back.
+```
+pyauto-brain batch slice <prompt>                      # propose; writes nothing
+pyauto-brain batch slice <prompt> --slices plan.md     # cut from a plan file
+pyauto-brain batch slice <prompt> --apply [--mind P]   # write children + epics.md
+```
+
+A prompt too large for one unattended run is a decomposition problem, not a
+scheduling one. `slice` proposes **two to four** children of a prompt grading
+`Unattended: needs-slicing`, offline and stdlib-only.
+
+**The cut is declared, never invented.** Where work divides is a semantic
+judgement no stdlib heuristic makes honestly, so the candidate slices come from
+the parent's own `## Slices` (or `## Phases`) section, or from an
+agent-authored plan file passed with `--slices` (the same numbered items; the
+heading optional). One numbered item per slice:
+
+```
+1. **Library core.** What it does. *Repos:* PyAutoFit
+   *Witness:* `pytest test_autofit/thing` passes. *Consequence:* glance.
+2. **Workspace example.** ... *Witness:* the example runs in smoke. *Depends:* 1
+```
+
+`*Witness:*` is required; `*Repos:*`, `*Consequence:*`, `*Difficulty:*`,
+`*Lane:*`, `*Review-minutes:*` and `*Depends:*` are optional (repos default to
+the parent's repos the item names). The verb renders each child — the parent's
+`Type`/`Autonomy`/`Priority`/`Themes`, `Epic:` + `Phase:`, and a `## Seam`
+section naming what it owns and what comes before and after — and the sizing
+faculty (`judge_slices`) judges it against the seam rules:
+
+1. **one unattended run** — the child must grade `Unattended: ready`;
+2. **its own witness** — none is refused as *a smaller judge task, not a
+   slice*;
+3. **independently revertible** — it names a repo, and depends on no later
+   slice;
+4. **repo-boundary seams, library before workspace** — warnings, not refusals.
+
+Fewer than two or more than four slices is refused. Revertibility beyond rule 3
+is the human's to read off the proposal.
+
+Without `--apply` it only prints (`--json` too). `--apply` writes only a clean
+proposal: the children beside the parent as `<parent>_s<N>_<title>.md`, never
+overwriting, plus an `epics.md` entry with the parent as its **ledger** unless
+the parent already is one. The parent is never renamed, retired or edited —
+that is the human's call. `/intake` offers the verb when a freshly filed prompt
+sizes `needs-slicing`. Exit: **0** proposed · **1** refused · **2** usage ·
+**4** no Mind.

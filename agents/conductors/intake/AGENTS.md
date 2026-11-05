@@ -84,6 +84,11 @@ becomes the series' tracker or is retired. Decomposition is planning judgment â€
 it stays with the strongest available model; the resulting phases are what the
 cheaper execution models run.
 
+When a filed prompt sizes `Unattended: needs-slicing`, intake prints an
+**offer** (never an act): author its `## Slices` and run
+`pyauto-brain batch slice <prompt>`, which validates the cut against the seam
+rules and, under `--apply`, writes the children (batch `AGENTS.md`).
+
 ## The header â€” extend the blessed convention, never YAML
 
 Writes the light header PyAutoMind blesses (`README.md` "Prompt file format"),

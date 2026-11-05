@@ -635,6 +635,7 @@ def analyse(text: str, source: str, themes=None):
                                 estimated, witness=p["witness"],
                                 consequence=consequence),
         "next_action": _next_action(proposed, confidence, folder),
+        "slice_offer": slice_offer(proposed, unattended),
     }
 
 
@@ -764,6 +765,21 @@ def _next_action(proposed, confidence, work_type=None):
                 "until you sign it off.")
     return (f"Review the header, then `--apply` to write {proposed}; "
             "afterwards `Use the start-dev skill. {}` routes it.".format(proposed))
+
+
+def slice_offer(path: str, unattended: str) -> str:
+    """The `batch slice` suggestion for a prompt that sizes `needs-slicing`.
+
+    An offer, never an act: intake files prompts and stops. Slicing renders the
+    decomposition the prompt itself declares (`## Slices`), so the human — or
+    the agent that wrote the prompt — authors the cut first."""
+    if unattended != "needs-slicing":
+        return ""
+    return ("This sizes as `Unattended: needs-slicing` — too large for one "
+            "unattended run. Add a `## Slices` section (2-4 numbered items, "
+            "each with its own `*Witness:*`), then "
+            f"`pyauto-brain batch slice {path}` proposes the children; it "
+            "writes nothing without `--apply`.")
 
 
 # --- apply (the only writing path) -------------------------------------------
@@ -3963,6 +3979,8 @@ def emit_human(d: dict):
     for r in d["risks"]:
         print(f"  - {r}")
     print(f"Next action:          {d['next_action']}")
+    if d.get("slice_offer"):
+        print(f"Offer:                {d['slice_offer']}")
 
 
 def main(argv=None):
@@ -4103,6 +4121,8 @@ def main(argv=None):
         if a.apply:
             written = write_prompt(mind, decision, text, source)
             decision["written"] = written
+            decision["slice_offer"] = slice_offer(written,
+                                                  decision["unattended"])
         if a.as_json:
             print(json.dumps(decision, indent=2))
         else:
@@ -4123,6 +4143,7 @@ def main(argv=None):
             d = analyse(ctx_text, f"ideas.md ({ctx or 'top'})")
             if a.apply:
                 d["written"] = write_prompt(mind, d, ctx_text, d["source"])
+                d["slice_offer"] = slice_offer(d["written"], d["unattended"])
                 formalised[text] = d["written"]
             results.append(d)
         if a.apply and formalised:
@@ -4136,6 +4157,8 @@ def main(argv=None):
                 print(f"  [{d['work_type']}/{d['target']}, {d['difficulty']}, "
                       f"conf {d['classification_confidence']}] {d['title']}"
                       f"  =>  {d['proposed_path']}{mark}")
+                if d.get("slice_offer"):
+                    print(f"      offer: {d['slice_offer']}")
             if not a.apply:
                 print("\n(dry-run — re-run `intake ideas --apply` to write these + "
                       "mark the bullets in ideas.md)")

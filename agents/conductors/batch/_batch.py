@@ -2787,8 +2787,10 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
-    ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch"], nargs="?",
-                    default="plan")
+    ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch",
+                                     "slice"], nargs="?", default="plan")
+    ap.add_argument("prompt", nargs="?", default="",
+                    help="slice: the needs-slicing prompt to decompose")
     ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
                     help="review-minutes available in the slot")
@@ -2805,6 +2807,11 @@ def main(argv=None) -> int:
     ap.add_argument("--brief", default="", metavar="FILE",
                     help="plan: compose inside this shift brief (named tasks "
                          "first, then its backlog policy)")
+    # slice
+    ap.add_argument("--slices", default="", metavar="FILE",
+                    help="slice: an agent-authored slice plan (numbered items "
+                         "with *Witness:* fields) instead of the parent's own "
+                         "`## Slices`/`## Phases` section")
     # digest
     ap.add_argument("--record", default="", metavar="FILE",
                     help="digest / watch: the shift brief record (read-only — "
@@ -2845,7 +2852,15 @@ def main(argv=None) -> int:
 
     lane = a.lane or detect_lane()
     mind = a.mind.resolve()
+    if a.prompt and a.verb != "slice":
+        print(f"batch {a.verb}: unexpected argument {a.prompt!r}", file=sys.stderr)
+        return RC_USAGE
+    if a.slices and a.verb != "slice":
+        print("batch: --slices belongs to `batch slice`", file=sys.stderr)
+        return RC_USAGE
     try:
+        if a.verb == "slice":
+            return _main_slice(mind, a)
         if a.verb == "collect":
             return _main_collect(mind, a)
         if a.verb == "brief":
@@ -2858,6 +2873,37 @@ def main(argv=None) -> int:
     except BatchUsageError as e:
         print(e, file=sys.stderr)
         return RC_USAGE
+
+
+def _main_slice(mind: Path, a) -> int:
+    """`batch slice <prompt> [--slices FILE] [--apply] [--json]` — propose the
+    children of a needs-slicing prompt; only `--apply` writes (`_slice`)."""
+    import _slice
+    if not a.prompt:
+        print("batch slice: name the needs-slicing prompt to slice",
+              file=sys.stderr)
+        return RC_USAGE
+    used = [f"--{f}" for f in COLLECT_ONLY if f != "apply" and getattr(a, f)]
+    if used:
+        print(f"batch slice: {', '.join(used)} belong(s) to `batch collect`",
+              file=sys.stderr)
+        return RC_USAGE
+    if not (mind / "draft").is_dir():
+        print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
+        return RC_NO_MIND
+    try:
+        d = _slice.propose(mind, a.prompt, slices_file=a.slices)
+        written = _slice.apply(mind, d) if a.apply and d["ok"] else []
+    except _slice.SliceError as e:
+        print(e, file=sys.stderr)
+        return RC_USAGE
+    if a.as_json:
+        print(json.dumps({**d, "written": written}, indent=2))
+    else:
+        print(_slice.report(d, applied=written))
+        if a.apply and not d["ok"]:
+            print("(--apply refused: the proposal has refusals)")
+    return RC_OK if d["ok"] else RC_FINDINGS
 
 
 def _main_digest(mind: Path, a) -> int:
