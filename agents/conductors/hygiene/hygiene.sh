@@ -552,7 +552,15 @@ fi
 # status vs the default branch) and stashes across the managed checkouts. Echoes
 # TSV rows: "<repo>\t<type>\t<locator>\t<merged>".
 enumerate_condemn_candidates() {
-  local repo dir def br cur
+  local repo dir def br cur held claimed
+  # Branches claimed by live tasks in PyAutoMind/active.md ("<repo>\t<branch>"),
+  # read once through the worktree guard's own reader. A task branch lives in
+  # its own worktree, so it is never the canonical checkout's HEAD; with no
+  # commits yet it reads merged=yes, and tidy used to recommend deleting the
+  # branches of live tasks (PyAutoBrain#586). No registry → no claims, and the
+  # worktree check below still protects every checked-out branch.
+  claimed="$( (. "$HERE/../../../bin/worktree.sh" && worktree_list_claimed) 2>/dev/null \
+    | awk -F'\t' '{print $2 "\t" $3}')"
   for repo in "${CODE_REPOS[@]}"; do
     dir="$(repo_dir "$repo")"
     repo_is_checked_out "$repo" || continue
@@ -563,10 +571,16 @@ enumerate_condemn_candidates() {
     # commit, so without this it always reads merged=yes and is recommended for
     # straight delete: every agent session would be told to bin its own branch.
     cur=$(git -C "$dir" symbolic-ref --quiet --short HEAD 2>/dev/null)
+    # Every branch checked out in ANY worktree of this repo (task worktrees
+    # included) is being worked on, not debris.
+    held="$(git -C "$dir" worktree list --porcelain 2>/dev/null \
+      | sed -n 's@^branch refs/heads/@@p')"
     while IFS= read -r br; do
       [[ -z "$br" ]] && continue
       case "$br" in main|master|HEAD|"$def") continue ;; esac
       [[ -n "$cur" && "$br" == "$cur" ]] && continue
+      grep -qxF -- "$br" <<<"$held" && continue
+      grep -qxF -- "$repo"$'\t'"$br" <<<"$claimed" && continue
       local merged=no
       if git -C "$dir" merge-base --is-ancestor "$br" "origin/$def" 2>/dev/null \
          || git -C "$dir" merge-base --is-ancestor "$br" "$def" 2>/dev/null; then
