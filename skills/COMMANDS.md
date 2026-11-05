@@ -37,6 +37,7 @@ readiness gate, or execution — those belong to the organs.
 | `/bug` | Bug Agent | `bin/pyauto-brain bug` → `start_dev` → `ship_*` (health mode → vitals + Heart issues) |
 | `/refactor` | Refactor Agent | `bin/pyauto-brain refactor` → `start_dev [--auto]` → `ship_*` (behaviour-preserving; default-safe) |
 | `/workspace` | Workspace Agent | `bin/pyauto-brain workspace` → WorkspaceDecision (plan/survey example authorship) → `start_dev` → `start_workspace` → `ship_workspace` |
+| `/docs` | Documentation Agent | `bin/pyauto-brain docs` → DocsDecision (surface, target repo, WRITING_STYLE.md template, siblings in step; tutorial prose deferred to `/workspace`) → `start_dev` (work type `docs/`); `docs audit <page>` scores a page read-only |
 | `/eyes` | Eyes Agent | `bin/pyauto-brain eyes` → survey/review a visualization workspace's figures; render via its `gallery_run.sh`; accepted critiques → `/intake` → `start_dev` |
 | `/profiling` | Profiling Agent | `bin/pyauto-brain profiling` → campaign/ingest/triage plans over the autolens_profiling workspace |
 | `/cortex` | Cortex Agent | `bin/pyauto-brain cortex pull` (laptop) → every active project pulled through its own sync CLI, its `jobs` output verbatim; `bin/pyauto-brain cortex checkin` (anywhere) → stamp, re-render the board, push the ledger and read it back by project — Now, runs, the last entries (`census`/`dashboard`/`issue` are the verbs beside them); it records cluster facts and the human's words with `scripts/cortex.py`, never a verdict of its own; a run is submitted only on the human's ask |
@@ -52,12 +53,11 @@ the Brain (via `start_dev` → Feature Agent), so nothing is bypassed:
 
 | Command | PyAutoMind work-type |
 |---------|----------------------|
-| `/docs` | `docs/` |
 | `/research` | `research/` |
 
-(`/docs` remains the generic docs work-type entry; workspace/HowTo *example
-authorship* specifically now has a real conductor — the Workspace Agent,
-tier 1 above.)
+(`/docs` graduated to a real conductor — the Documentation Agent,
+`agents/conductors/docs/` — and now sits in tier 1 above; it defers tutorial
+science prose to the Workspace Agent.)
 
 (`/refactor` graduated to a real conductor — the Refactor Agent,
 `agents/conductors/refactor/` — and now sits in tier 1 above.)

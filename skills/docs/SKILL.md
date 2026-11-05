@@ -1,9 +1,11 @@
 ---
 name: docs
-description: Start PyAutoLabs documentation, tutorial, notebook, example, or narrative-prose work through the Brain development workflow with the docs work type fixed.
+description: Plan PyAutoLabs documentation through the PyAutoBrain Documentation Agent — README, setup, Read the Docs, tutorial or agent-file surface, target repo, WRITING_STYLE.md template, siblings in step — or audit a page's style. Authoring runs through start_dev.
 ---
 
 # Docs
 
-Follow [`docs.md`](docs.md) exactly. Route the task through `start-dev`; this is
-a work-type entry, not a separate documentation conductor.
+Follow [`docs.md`](docs.md) exactly. The Documentation Agent
+(`bin/pyauto-brain docs`) decides and audits; it writes nothing. Route the
+agreed work through `start-dev` with the docs work type, and defer tutorial
+science prose to the Workspace Agent as the decision says.
