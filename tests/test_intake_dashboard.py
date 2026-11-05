@@ -1435,3 +1435,33 @@ def test_legacy_bundle_registry_and_headers_do_not_create_functionality(tmp_path
     for page in (_intake.render_dashboard(c), _intake.render_dashboard_html(c)):
         assert "Bundles" not in page and "start-bundle" not in page
         assert "draft/feature/widgets/a.md" in page and "draft/feature/widgets/b.md" in page
+
+
+def test_epic_reports_surveys_and_reviews_are_not_backlog_work(tmp_path):
+    # An epic's companions sit beside its ledger under draft/ (the epic format),
+    # but they are read-only reports: the dashboard once offered 29 of them as
+    # pickable prompts with "Use the start-dev skill".
+    mind = _mind(tmp_path, drafts={
+        "research/widgets/gizmo_epic.md": _prompt("Gizmo epic"),
+        "research/widgets/gizmo_epic_report.md": "# Gizmo report\n",
+        "research/widgets/gizmo_epic_surveys/01_code.md": "# Survey 01\n",
+        "research/widgets/gizmo_epic_reviews/01_model_scope.md": "# Review 01\n",
+        "feature/widgets/real_task.md": _prompt("A real task"),
+    })
+    paths = {r["path"] for r in _intake.census(mind)["records"]}
+    assert paths == {"draft/research/widgets/gizmo_epic.md",
+                     "draft/feature/widgets/real_task.md"}
+    page = _page(mind)
+    assert "Survey 01" not in page and "Review 01" not in page
+    assert "Gizmo report" not in page
+    assert "A real task" in page
+
+
+def test_is_epic_companion_matches_only_the_epic_format_names():
+    yes = ["draft/research/x/a_epic_report.md",
+           "draft/research/x/a_epic_surveys/01.md",
+           "draft/feature/x/a_epic_reviews/sub/02.md"]
+    no = ["draft/research/x/a_epic.md", "draft/bug/x/report.md",
+          "draft/research/x/surveys/01.md", "draft/research/x/epic_report_fix.md"]
+    assert all(_intake.is_epic_companion(Path(p)) for p in yes)
+    assert not any(_intake.is_epic_companion(Path(p)) for p in no)

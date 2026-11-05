@@ -174,3 +174,32 @@ def test_library_target_with_hits_still_gets_memory_line(tmp_path, monkeypatch):
     rel = _intake.write_prompt(mind, decision, raw, "test")
     line = _memory_line((mind / rel).read_text(encoding="utf-8"))
     assert "wiki/lensing/concepts/subhalo.md" in line
+
+
+def test_organ_target_spellings_get_no_memory_line(tmp_path, monkeypatch):
+    """`Target:` is matched case-insensitively and through an @-mention: a
+    hand-written `pyautobrain` or `@PyAutoBrain` is still an organ target.
+    The loop also covers every repo the body map checks out under organs/
+    without `category: organ` (read from repos.yaml, never named here — the
+    tenant firewall keeps instance facts out of test files)."""
+    monkeypatch.delenv("PYAUTO_MEMORY", raising=False)
+    mind = _mind(tmp_path)
+    _memory(tmp_path)
+    organs_dir_only = sorted(_intake._ORGANS_DIR_REPOS - _intake.ORGANISM_REPOS)
+    assert organs_dir_only, "repos.yaml should hold an organs/ repo outside category: organ"
+    for spelling in ("pyautobrain", "@PyAutoBrain", "PYAUTOMIND",
+                     "@pyautoheart", *organs_dir_only):
+        assert not _intake._cites_memory(spelling), spelling
+        assert _intake._with_memory("Priority: normal", ["wiki/x.md"],
+                                    spelling) == "Priority: normal", spelling
+        raw = _declared(spelling)
+        decision = _intake.analyse(raw, "test")
+        rel = _intake.write_prompt(mind, decision, raw, "test")
+        text = (mind / rel).read_text(encoding="utf-8")
+        assert "Memory:" not in text, spelling
+    # a library target spelled the same loose ways still cites
+    library = sorted(_intake.LIBRARY_REPOS)[0]
+    for spelling in (library.lower(), "@" + library):
+        assert _intake._cites_memory(spelling), spelling
+        assert _intake._with_memory("Priority: normal", ["wiki/x.md"],
+                                    spelling).endswith("Memory: wiki/x.md")

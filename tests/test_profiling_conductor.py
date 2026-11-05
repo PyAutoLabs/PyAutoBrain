@@ -357,6 +357,52 @@ def test_a_warm_row_reverting_toward_cold_is_drift(tmp_path):
     assert x["ratio"] > 50
 
 
+def test_compile_drift_is_reported_as_a_single_sample_comparison(tmp_path):
+    """Synthetic witness for decision (a) of
+    profiling_compile_drift_point_vs_point.md: the 2x band stays as a gross
+    flag, and a drift between two single-sample endpoints says so; a move
+    inside the band is no drift at all."""
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [
+        _warm(compile_s=10.0, transform="vag"),   # 2.5x a 4.0s pin -> drift
+        _warm(compile_s=6.0, transform="jit"),    # 1.5x a 4.0s pin -> in band
+    ]})
+    _pinned(ws, [_pin(compile_s=4.0, transform="vag"), _pin(compile_s=4.0, transform="jit")])
+    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
+
+    assert len(d["drifted"]) == 1, "only the >2x endpoint pair drifts"
+    x = d["drifted"][0]
+    assert "[vag]" in x["pin"] and x["ratio"] == 2.5
+    assert x["comparison"] == "single-sample"
+    assert x["pinned_repeats"] is None and x["observed_repeats"] is None, \
+        "no repeat counts in the data -> none reported, never invented"
+    assert x["caveat"].startswith("single-sample endpoint(s)")
+    assert "single-sample" in d["policy"] and "Compile cost only" in d["policy"]
+
+    text = _run(["ingest", "--axis", "compile"], ws).stdout
+    assert "single-sample endpoint(s)" in text
+
+    t = json.loads(_run(["triage", "--axis", "compile", "--json"], ws).stdout)
+    drift = [f for f in t["findings"] if "[vag]" in f["finding"]]
+    assert drift and drift[0]["comparison"] == "single-sample"
+
+
+def test_compile_drift_reports_repeat_counts_when_the_data_carries_them(tmp_path):
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [
+        _warm(compile_s=10.0, compile_repeats=5),
+    ]})
+    _pinned(ws, [_pin(compile_s=4.0, compile_repeats=3)])
+    x = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)["drifted"][0]
+    assert x["comparison"] == "repeat-summarised"
+    assert (x["pinned_repeats"], x["observed_repeats"]) == (3, 5)
+    assert "pinned n=3, observed n=5" in x["caveat"]
+
+    # one repeat-summarised endpoint is not enough: still single-sample
+    ws2 = _workspace(tmp_path / "b", {"local_cpu/mge.json": [_warm(compile_s=10.0, compile_repeats=5)]})
+    _pinned(ws2, [_pin(compile_s=4.0)])
+    y = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws2).stdout)["drifted"][0]
+    assert y["comparison"] == "single-sample" and y["observed_repeats"] == 5
+
+
 def test_rows_predating_the_pin_are_not_drift(tmp_path):
     """The pin was CHOSEN over this history; flagging it reports the
     improvement that set the pin as a regression."""
