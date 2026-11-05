@@ -79,6 +79,12 @@ def _time_left(now: _dt.datetime, review_at: _dt.datetime | None) -> str:
     return (f"{h}h {m:02d}m" if h else f"{m}m") + " left"
 
 
+def _opens_in(now: _dt.datetime, start: _dt.datetime) -> str:
+    """Before `dispatched:` the watcher does nothing (PyAutoBrain#589)."""
+    left = _time_left(now, start)
+    return "not yet open — opens in " + left.replace(" left", "")
+
+
 def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
              health=None, tick_lines: int = TICK_LINES) -> dict:
     """Everything one refresh draws, as a dict. Reads only."""
@@ -89,6 +95,10 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         review_at = _brief._iso(_value(top, "review-at", ""))
     except (ValueError, TypeError):
         review_at = None
+    try:
+        start = _brief._iso(_value(top, "dispatched", ""))
+    except (ValueError, TypeError):
+        start = None
 
     started = slot.is_dir()
     counters = _orchestrator.read_counters(slot) if started else {}
@@ -121,7 +131,8 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         "now": _orchestrator._iso(now),
         "dispatched": _value(top, "dispatched"),
         "review_at": _value(top, "review-at"),
-        "time_left": _time_left(now, review_at),
+        "time_left": (_opens_in(now, start) if start is not None and now < start
+                      else _time_left(now, review_at)),
         "stop": (slot / _orchestrator.STOP_FILE).exists(),
         "digest_posted": (slot / _orchestrator.DIGEST_MARKER).exists(),
         "started": started,
