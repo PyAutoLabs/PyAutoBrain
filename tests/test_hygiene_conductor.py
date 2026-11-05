@@ -1046,6 +1046,47 @@ def test_tidy_still_condemns_a_branch_that_is_not_checked_out(tmp_path):
     assert [c["locator"] for c in doc["candidates"]] == ["feature/spent"]
 
 
+
+def test_tidy_never_condemns_a_branch_held_by_another_worktree(tmp_path):
+    # Regression for #586: a task branch lives in its OWN worktree, so it is
+    # never the canonical HEAD; with no commits yet it reads merged=yes and
+    # tidy recommended a straight delete of live task branches.
+    repo = tmp_path / "PyAutoBrain"
+    _init_git_repo_with_branch(repo, "claude/some-agent-run-abc123")
+    git = ["git", "-C", str(repo)]
+    subprocess.run([*git, "branch", "feature/spent"], check=True, capture_output=True)
+    subprocess.run(
+        [*git, "worktree", "add", "-q", "-b", "feature/live-task", str(tmp_path / "wt")],
+        check=True,
+        capture_output=True,
+    )
+
+    doc = json.loads(_run(["tidy", "--json"], tmp_path).stdout)
+
+    assert [c["locator"] for c in doc["candidates"]] == ["feature/spent"]
+
+
+def test_tidy_never_condemns_a_branch_claimed_in_the_registry(tmp_path):
+    # Claimed in PyAutoMind/active.md but with no worktree on disk yet (or one
+    # on another machine): still live work, never debris (#586).
+    repo = tmp_path / "PyAutoBrain"
+    _init_git_repo_with_branch(repo, "claude/some-agent-run-abc123")
+    git = ["git", "-C", str(repo)]
+    for branch in ("feature/spent", "feature/claimed-task"):
+        subprocess.run([*git, "branch", branch], check=True, capture_output=True)
+    mind = tmp_path / "PyAutoMind"
+    mind.mkdir()
+    (mind / "active.md").write_text(
+        "## claimed-task\n"
+        "- status: library-dev\n"
+        "- repos:\n"
+        "  - PyAutoBrain: feature/claimed-task\n"
+    )
+
+    doc = json.loads(_run(["tidy", "--json"], tmp_path).stdout)
+
+    assert [c["locator"] for c in doc["candidates"]] == ["feature/spent"]
+
 # --- Body-map-derived coverage -------------------------------------------------
 #
 # The conductor scans repositories, so WHICH repositories must come from the body

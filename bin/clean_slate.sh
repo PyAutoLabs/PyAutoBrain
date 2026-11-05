@@ -152,8 +152,21 @@ dataset_candidates() {
     return 0
 }
 
-for dir in */; do
-    repo="${dir%/}"
+# Enumerate checkouts through the shared resolver, never `*/` at the root: the
+# workspace groups repos (`fit/PyAutoFit`, `organs/PyAutoNerves`, ...), and a
+# root glob saw none of them, so every scope silently found nothing
+# (PyAutoBrain#586). `$repo` stays the root-relative path the body acts on;
+# `$repo_name` is what the name-keyed lists are matched against.
+. "$SCRIPT_DIR/_repo_paths.sh"
+mapfile -t REPO_DIRS < <(
+    pyauto_repo_list "$ROOT" | while IFS=$'\t' read -r _ path; do
+        [ -n "$path" ] && printf '%s\n' "${path#"$ROOT"/}"
+    done | sort -u
+)
+# An empty list is the old silent no-op this replaced: say so and stop.
+[ "${#REPO_DIRS[@]}" -gt 0 ] || { echo "clean_slate: no checkouts resolved under $ROOT" >&2; exit 1; }
+for repo in "${REPO_DIRS[@]}"; do
+    repo_name="${repo##*/}"
     [ -d "$repo/.git" ] || continue
     header=""
 
@@ -171,7 +184,7 @@ for dir in */; do
 
         # 1b. Classify untracked datasets by write site, remove the regenerable
         # ones, report orphans, and flag oversized committed ones.
-        if is_dataset_repo "$repo"; then
+        if is_dataset_repo "$repo_name"; then
             mapfile -t candidates < <(dataset_candidates "$repo")
             if [ "${#candidates[@]}" -gt 0 ]; then
                 errfile=$(mktemp)
@@ -269,7 +282,7 @@ for dir in */; do
     # roots. Keep assistant/workspace build products outside this narrow scope.
     # Never match nested domain directories named build, and never clean a
     # candidate containing tracked files even though git clean would retain them.
-    if is_packaging_repo "$repo"; then
+    if is_packaging_repo "$repo_name"; then
         while IFS= read -r -d '' d; do
             rel="${d#"$repo"/}"
             git -C "$repo" check-ignore -q -- "$rel" 2>/dev/null || continue
