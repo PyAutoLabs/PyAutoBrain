@@ -93,6 +93,20 @@ PIN_FIELDS = COMPARABILITY_FIELDS + CELL_FIELDS
 COMPILE_DRIFT_RATIO = 2.0
 COMPILE_DRIFT_FLOOR_S = 1.0
 
+# The 2x band is a GROSS flag, not a measured change: today every pin and every
+# warm row is one compile timing, so drift compares one point against one point
+# (the limitation autolens_profiling's timing-noise audit, #362, found in its P7
+# release badge). Decision (a) of draft/bug/pyautobrain/
+# profiling_compile_drift_point_vs_point.md: keep the band, say so on every
+# drifted row. The repeat count is the compile analogue of P7's
+# `single_jit_repeats`; no producer writes it yet, so it is read when present
+# and never inferred — a row without it is a single sample.
+COMPILE_REPEATS_FIELD = "compile_repeats"
+SINGLE_SAMPLE_CAVEAT = (
+    "single-sample endpoint(s): a gross 2x-band flag from one pinned timing vs "
+    "one observed timing, not a measured change"
+)
+
 # A warm compile at >= this fraction of its own cold cost has effectively stopped
 # being warm. Not 1.0: a cache miss need not reproduce the cold time exactly.
 CACHE_REVERT_FRACTION = 0.5
@@ -605,6 +619,33 @@ def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
     }
 
 
+def _compile_repeats(d: dict[str, Any]) -> int | None:
+    """The repeat count a pin or record carries, or None when it carries none."""
+    n = d.get(COMPILE_REPEATS_FIELD)
+    return n if isinstance(n, int) and not isinstance(n, bool) and n >= 1 else None
+
+
+def _drift_sampling(pin: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
+    """How many timings stand behind each endpoint of a drift comparison.
+
+    `single_sample` unless BOTH endpoints carry a repeat count >= 2 (P7's rule);
+    the counts are reported only when the data carries them.
+    """
+    pinned, observed = _compile_repeats(pin), _compile_repeats(rec)
+    single = not (pinned and pinned >= 2 and observed and observed >= 2)
+    if single:
+        caveat = SINGLE_SAMPLE_CAVEAT
+    else:
+        caveat = (f"repeat-summarised endpoints (pinned n={pinned}, observed "
+                  f"n={observed}); still compared against the gross 2x band")
+    return {
+        "comparison": "single-sample" if single else "repeat-summarised",
+        "pinned_repeats": pinned,
+        "observed_repeats": observed,
+        "caveat": caveat,
+    }
+
+
 def ingest_compile(ws: Path) -> dict[str, Any]:
     """Which warm compile rows are unpinned, and which have drifted from a pin.
 
@@ -680,6 +721,9 @@ def ingest_compile(ws: Path) -> dict[str, Any]:
                     # classifier treats None as "cannot rule host load in or out"
                     # rather than as "the host was idle".
                     "host_load": (rec.get("host_state") or {}).get("load_avg_1m"),
+                    # Compile cost only: execution (runtime) cost is a separate
+                    # axis and never folded into this comparison.
+                    **_drift_sampling(pin, rec),
                 }
             )
 
@@ -694,11 +738,15 @@ def ingest_compile(ws: Path) -> dict[str, Any]:
             f"Drift = a warm row NEWER than its pin, >= {COMPILE_DRIFT_RATIO}x the "
             f"pinned value AND >= {COMPILE_DRIFT_FLOOR_S}s absolute, compared ONLY "
             f"within {'/'.join(COMPARABILITY_FIELDS)}. Cross-key pairs and rows "
-            "predating the pin are never a regression."
+            "predating the pin are never a regression. Point-vs-point: unless both "
+            f"endpoints carry `{COMPILE_REPEATS_FIELD}` >= 2, a drifted row is a "
+            "single-sample comparison — a gross flag, not a measured change. Compile "
+            "cost only; execution cost is the runtime axis."
         ),
         "steps": [
             "re-run the drifted cell warm to confirm it is not host load "
-            "(check the record's host_state against the pin's)",
+            "(check the record's host_state against the pin's) — a single-sample "
+            "drift is a prompt to measure again, not a verdict",
             "if confirmed, classify it — `pyauto-brain profiling triage --axis compile`",
             "pin the unpinned rows: `python3 scripts/misc/jax_compile/update_pins.py --write`",
         ],
@@ -922,6 +970,8 @@ def triage_compile(ws: Path) -> dict[str, Any]:
                 "finding": row["pin"],
                 "observed_s": row["observed_s"],
                 "pinned_s": row["pinned_s"],
+                "comparison": row["comparison"],
+                "caveat": row["caveat"],
                 **_classify_drift(row, cold),
             }
         )
@@ -1109,6 +1159,7 @@ def emit_human(d: dict[str, Any]) -> None:
                 f"  {x['pin']}: pinned {x['pinned_s']}s -> observed "
                 f"{x['observed_s']}s ({x['ratio']}x, tag={x['tag']!r})"
             )
+            print(f"    {x['caveat']}")
         print(f"Unpinned warm keys:   {len(d['unpinned'])}")
         for x in d["unpinned"][:10]:
             print(f"  {x['pin']}")
@@ -1138,6 +1189,8 @@ def emit_human(d: dict[str, Any]) -> None:
         for f in d["findings"]:
             print(f"  [{f['classification']}] {f['finding']}")
             print(f"    evidence: {f['evidence']}")
+            if f.get("caveat"):
+                print(f"    sampling: {f['caveat']}")
             print(f"    -> {f['action']}")
         if d.get("policy"):
             print(f"Policy:               {d['policy']}")
