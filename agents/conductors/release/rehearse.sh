@@ -46,15 +46,15 @@ source "$HERE/../../_common.sh"
 BUILD_REPO="PyAutoLabs/PyAutoHands"
 RELEASE_WORKFLOW="release.yml"
 REHEARSAL_ARTIFACT="testpypi-rehearsal-version"
-# The 5 libraries whose main HEADs the rehearsal is built from; readiness
+# The 6 libraries (PyAutoCTI joined 2026-11-04, cti-upkeep phase 1) whose main HEADs the rehearsal is built from; readiness
 # confirms the ingested report's commit_shas against these. Bare names here
 # are intentional: `commit_shas.json` keys (and heart/readiness.py's
 # _GATE_SHA_LIBS) are bare repo names, e.g. "PyAutoNerves", not "owner/repo".
 # LIBRARIES_OWNER qualifies them ONLY for the get_commit MCP calls below
-# (same convention as BUILD_REPO) — all five libraries live under this one
+# (same convention as BUILD_REPO) — all six libraries live under this one
 # GitHub org in this ecosystem, but qualifying explicitly removes any
 # ambiguity for the agent executing the emitted plan.
-LIBRARIES=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+LIBRARIES=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens PyAutoCTI)
 LIBRARIES_OWNER="PyAutoLabs"
 
 ref="main"
@@ -149,7 +149,7 @@ Bash cannot call GitHub; execute these steps with Brain's MCP GitHub tools
        inputs:   $inputs
 
 2. POLL the run to completion (mcp__github__actions_get / actions_list).
-   The '$REHEARSAL_ARTIFACT' artifact is produced IFF all five wheels built,
+   The '$REHEARSAL_ARTIFACT' artifact is produced IFF all six wheels built,
    uploaded, and installed from TestPyPI — its presence IS the success signal.
 
 3. DOWNLOAD the '$REHEARSAL_ARTIFACT' artifact into an artifacts directory

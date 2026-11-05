@@ -6,7 +6,7 @@
 # the whole pipeline the release_validation.md spec lays out:
 #
 #   Stage 0 (preflight)  local read of Heart's cached repo_state / version_skew
-#                        signals for the 5 libraries — all clean, on main, not
+#                        signals for the 6 libraries — all clean, on main, not
 #                        behind; workspace pins not AHEAD/MISMATCH/BAD. Pure
 #                        local read; NO dispatch. Abort RED if any signal is bad
 #                        ("no point building a dirty tree").
@@ -84,9 +84,9 @@ source "$HERE/../../_common.sh"
 HEART_REPO="PyAutoLabs/PyAutoHeart"
 INTEGRATE_WORKFLOW="release-integrate.yml"
 INTEGRATE_ARTIFACT="release-stage-report"
-# The 5 libraries whose Stage-0 cleanliness/CI signals gate the whole run. Bare
+# The 6 libraries (PyAutoCTI joined 2026-11-04) whose Stage-0 cleanliness/CI signals gate the whole run. Bare
 # names match heart state's repos.<name> keys and readiness' commit_shas keys.
-LIBRARIES=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+LIBRARIES=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens PyAutoCTI)
 
 ref="main"
 minor=""
@@ -450,7 +450,7 @@ print(json.dumps({
 fi
 
 echo "== release agent: Stage 0/1 PREFLIGHT — reading Heart's cached signals =="
-echo "preflight: PASS (all 5 libraries clean/on main/not behind; no version-skew blockers)"
+echo "preflight: PASS (all 6 libraries clean/on main/not behind; no version-skew blockers)"
 printf '%s' "$preflight_json" | python3 -c '
 import json, sys
 for u in json.load(sys.stdin).get("unknowns", []):

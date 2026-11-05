@@ -67,7 +67,7 @@ cd "$ROOT" || { echo "workspace root not found: $ROOT" >&2; exit 1; }
 DRY_RUN="${DRY_RUN:-0}"
 tag=""; [ "$DRY_RUN" = 1 ] && tag="[dry-run] "
 SCOPE="all"
-PACKAGING_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens)
+PACKAGING_REPOS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens PyAutoCTI)
 # Repos whose dataset/ dirs are auto-simulated by their own simulator scripts.
 # Deliberately excludes autolens_profiling, whose dataset/ dir holds real
 # instrument data (alma/sma/hst inputs), and autolens_inference, a project repo
