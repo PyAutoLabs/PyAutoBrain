@@ -229,6 +229,20 @@ def test_a_brief_past_review_at_dispatches_nothing(tmp_path):
     assert not (orch.slot_dir(brief, home) / "leases").exists()
 
 
+def test_a_brief_before_dispatched_is_not_yet_open(tmp_path):
+    """Landing a brief early grants nothing until its `dispatched:` (#589)."""
+    mind, brief, home = _shift(tmp_path)
+    early = NOW.replace(hour=8, minute=0)          # dispatched: 08:30Z
+    r = orch.tick(brief, mind, home=home, now=early, spawner=orch.FakeSpawner())
+    assert r["action"] == "idle" and r["reason"].startswith("not yet open")
+    assert "2026-11-04T08:30Z" in r["reason"]
+    assert not orch.slot_dir(brief, home).exists()  # nothing touched
+    on_time = NOW.replace(hour=8, minute=30)
+    r = orch.tick(brief, mind, home=home, now=on_time, spawner=orch.FakeSpawner())
+    assert r["action"] != "idle"
+    assert orch.slot_dir(brief, home).exists()
+
+
 def test_a_refused_brief_dispatches_nothing(tmp_path):
     mind, brief, home = _shift(tmp_path)
     brief.write_text(brief.read_text().replace("- review-at: 2026-11-04T11:30Z\n", ""))

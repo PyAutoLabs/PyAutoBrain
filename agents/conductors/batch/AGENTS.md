@@ -158,6 +158,15 @@ Until phase 3b it spawns only stub workers (`PYAUTO_ORCHESTRATOR_FAKE=1`); a rea
 dispatch is refused. Doctrine: `AUTONOMY.md` "The watcher's network surface —
 2026-11-03"; the exemption it runs under, `PyAutoMind/policy/shift_watcher.md`.
 
+**The open-brief gate is a window: `dispatched:` → `review-at:`.** A brief
+that passes `batch brief --check` is open only from its `dispatched:` until its
+`review-at:`. Before the start, a tick is idle (`not yet open: opens at
+dispatched …`) and touches nothing, not even the slot directory, so a brief may
+be landed early. Until 2026-11-05 the gate ignored `dispatched:` and a brief
+opened the moment it landed (pilot shadow shift 1 opened a day early;
+PyAutoBrain#589). `batch watch` says `not yet open — opens in …` before the
+start.
+
 **Real workers (phase 3b).** Without `PYAUTO_ORCHESTRATOR_FAKE=1` each spawn is
 `claude --bg --name shift:<task> --permission-mode <worker-mode> <prompt>`, the
 prompt filled from `worker_template.md` (the `/start_dev <path> --auto` line,

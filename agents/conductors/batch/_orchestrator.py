@@ -495,6 +495,12 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
     at = _brief._iso(rec["top"]["review-at"]["value"])
     if now >= at:
         return False, f"review-at {rec['top']['review-at']['value']} has passed", None
+    # The shift is `dispatched:` → `review-at:`. Landing the brief early is
+    # allowed; it grants nothing until its start (PyAutoBrain#589 — shadow
+    # shift 1 opened on landing, a day early).
+    start = _brief._iso(rec["top"]["dispatched"]["value"])
+    if now < start:
+        return False, f"not yet open: opens at dispatched {rec['top']['dispatched']['value']}", None
     return True, "open", rec["brief"]
 
 

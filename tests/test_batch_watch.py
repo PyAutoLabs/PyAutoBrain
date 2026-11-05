@@ -162,6 +162,13 @@ def test_no_tick_yet_and_closed_and_stop(tmp_path):
     assert "STOP present" in text and "digest posted" in text
 
 
+def test_before_dispatched_the_header_says_not_yet_open(tmp_path):
+    brief = _record(tmp_path)                       # dispatched: 09:00Z
+    early = NOW.replace(hour=8, minute=15)
+    text = _watch.render(_watch.snapshot(brief, tmp_path / "none", early, health=_health))
+    assert "not yet open — opens in 45m" in text
+
+
 def test_time_left_formats():
     at = NOW + _dt.timedelta(minutes=7)
     assert _watch._time_left(NOW, at) == "7m left"
