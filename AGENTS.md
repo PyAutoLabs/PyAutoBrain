@@ -79,6 +79,7 @@ invoking it; `bin/pyauto-brain help <verb>` exposes its full contract.
 | `bug` | Classify regressions and plan repairs | `bin/pyauto-brain bug` |
 | `refactor` | Plan behavior-preserving restructuring | `bin/pyauto-brain refactor` |
 | `workspace` | Plan or survey examples and tutorials | `bin/pyauto-brain workspace` |
+| `docs` | Plan README, setup and Read the Docs pages; audit a page's style | `bin/pyauto-brain docs` |
 | `eyes` | Survey figures and route accepted critiques | `bin/pyauto-brain eyes` |
 | `profiling` | Plan campaigns; ingest results; triage profiling drift | `bin/pyauto-brain profiling` |
 | `cortex` | Pull science runs and record human checkins | `bin/pyauto-brain cortex` |

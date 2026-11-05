@@ -16,6 +16,7 @@
 #   pyauto-brain feature [args]   (conductor) reason over PyAutoMind tasks, plan growth
 #   pyauto-brain refactor [args]  (conductor) plan behaviour-preserving restructuring (default-safe)
 #   pyauto-brain workspace [args] (conductor) the Voice: plan/survey workspace + HowTo example authorship — WorkspaceDecision (writes nothing)
+#   pyauto-brain docs    [args]   (conductor) the documentation owner: classify a docs request by surface — DocsDecision; `docs audit <page>` scores a page against skills/WRITING_STYLE.md (writes nothing)
 #   pyauto-brain eyes    [args]   (conductor) the Eyes: survey/review a visualization workspace's figure surface — EyesSurvey/EyesReviewSurface (writes nothing)
 #   pyauto-brain profiling [args] (conductor) campaign/ingest/triage plans over the profiling workspace
 #   pyauto-brain cortex  [args]   (conductor) the science check-in: pull/checkin/census/dashboard/issue
@@ -64,6 +65,7 @@ declare -A AGENT_SCRIPT=(
   [bug]="$CONDUCTORS_DIR/bug/bug.sh"
   [refactor]="$CONDUCTORS_DIR/refactor/refactor.sh"
   [workspace]="$CONDUCTORS_DIR/workspace/workspace.sh"
+  [docs]="$CONDUCTORS_DIR/docs/docs.sh"
   [eyes]="$CONDUCTORS_DIR/eyes/eyes.sh"
   [profiling]="$CONDUCTORS_DIR/profiling/profiling.sh"
   [cortex]="$CONDUCTORS_DIR/cortex/cortex.sh"
@@ -86,6 +88,7 @@ declare -A AGENT_DESC=(
   [bug]="Classify regressions and plan repairs"
   [refactor]="Plan behavior-preserving restructuring"
   [workspace]="Plan or survey examples and tutorials"
+  [docs]="Plan README, setup and Read the Docs pages; audit a page's style"
   [eyes]="Survey figures and route accepted critiques"
   [cortex]="Pull science runs and record human checkins"
   [profiling]="Plan campaigns; ingest results; triage profiling drift"
@@ -102,7 +105,7 @@ declare -A AGENT_DESC=(
 )
 # Conductors are the front doors a human drives; faculties are consulted (and
 # runnable read-only). Both are dispatchable, but the menu groups them by tier.
-CONDUCTOR_ORDER=(intake batch community feature bug refactor workspace eyes profiling cortex hygiene clone build release health)
+CONDUCTOR_ORDER=(intake batch community feature bug refactor workspace docs eyes profiling cortex hygiene clone build release health)
 FACULTY_ORDER=(vitals review memory samplers sizing)
 AGENT_ORDER=("${CONDUCTOR_ORDER[@]}" "${FACULTY_ORDER[@]}")
 

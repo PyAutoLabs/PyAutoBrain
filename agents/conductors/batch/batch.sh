@@ -25,6 +25,11 @@
 #   batch.sh collect --evidence ev.json --apply [--stamp ISO]   # the form that writes
 #   batch.sh collect --out report.md --json
 #
+#   batch.sh slice <prompt>              # propose 2-4 witnessed children of a
+#                                        # needs-slicing prompt; writes nothing
+#   batch.sh slice <prompt> --slices plan.md   # slices from a plan file instead
+#   batch.sh slice <prompt> --apply      # write children + epics.md entry
+#
 # collect reads and prints; only --apply writes (the packet page and the
 # record's stamps). Exit: 0 all delivered, 1 a member needs the human,
 # 2 usage, 4 no Mind.

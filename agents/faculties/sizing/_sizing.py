@@ -687,9 +687,13 @@ def declared_blocked(p: dict):
     return None
 
 
-def parse_prompt(path: Path, mind: Path):
-    """Read a prompt file and extract structure: work-type, target, repos, body."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+def parse_prompt(path: Path, mind: Path, text: str | None = None):
+    """Read a prompt file and extract structure: work-type, target, repos, body.
+
+    `text`, when given, is the prompt's content and `path` need not exist yet —
+    how `batch slice` sizes a proposed child before anything is written."""
+    if text is None:
+        text = path.read_text(encoding="utf-8", errors="replace")
     try:
         rel = path.relative_to(mind)
         parts = rel.parts
@@ -906,6 +910,81 @@ def estimate_unattended(p: dict, level: str, factors: dict | None = None):
         return "needs-slicing", [
             f"large across {factors['repos_affected']} repos — would compact"]
     return "ready", ["fits one unattended run"]
+
+
+# --- seam rules: is a proposed decomposition really a set of slices? ---------
+# `batch slice` (the conductor) parses and renders; the judgement of whether a
+# proposed child IS a slice is an opinion, so it lives here with the other
+# grades. The rules, in priority order (PyAutoMind
+# draft/feature/pyautobrain/batch_slice.md):
+#   1. a slice is one unattended run      -> the child grades `Unattended: ready`
+#   2. a slice carries its own witness    -> no `Witness:` = a smaller judge task
+#   3. a slice is independently revertible -> it names a repo (a PR to revert)
+#      and depends on no LATER slice
+#   4. prefer repo-boundary seams, library before workspace -> warnings only
+SLICE_MIN, SLICE_MAX = 2, 4
+
+
+def judge_slices(children: list) -> dict:
+    """Judge a proposed decomposition against the seam rules -> verdict.
+
+    `children` is ordered; each is `{"index": int, "p": parse_prompt(...) of
+    the rendered child, "depends": [int]}`. Returns `{"ok", "refusals",
+    "warnings", "per": {index: {refusals, warnings, difficulty, consequence,
+    review_minutes, unattended}}}`. Read-only: this judges, it never fixes —
+    a refused child is the author's to re-cut, not this faculty's.
+    """
+    refusals, warnings, per = [], [], {}
+    n = len(children)
+    if not SLICE_MIN <= n <= SLICE_MAX:
+        refusals.append(
+            f"{n} slice(s) proposed — a decomposition is {SLICE_MIN} to "
+            f"{SLICE_MAX} children; fewer is not a split, more is a programme "
+            "that wants its own epic ledger")
+    indices = [c["index"] for c in children]
+    for pos, c in enumerate(children):
+        p, i = c["p"], c["index"]
+        mine, notes = [], []
+        if not p.get("witness"):
+            why = p.get("witness_none_reason")
+            mine.append("no witness" + (f" ({why})" if why else "")
+                        + " — a smaller judge task, not a slice")
+        level, _, factors, derived = effective_difficulty(p)
+        tier, _, _ = effective_consequence(p, factors)
+        ready, ready_why, _ = effective_unattended(p, level, factors, derived)
+        minutes, _ = effective_review_minutes(p, tier, level)
+        if ready != "ready":
+            mine.append(f"grades Unattended: {ready} ({ready_why[0]}) — a slice "
+                        "is one unattended run")
+        if not p["repos"]:
+            mine.append("names no repo — nothing to review or revert on its own")
+        for dep in c.get("depends") or []:
+            if dep not in indices:
+                mine.append(f"depends on slice {dep}, which is not in this "
+                            "decomposition")
+            elif indices.index(dep) >= pos:
+                mine.append(f"depends on slice {dep}, which is not before it — "
+                            "it could not be reviewed or reverted in order")
+        lib = [r for r in p["repos"] if r in LIBRARY_REPOS]
+        wsp = [r for r in p["repos"] if r in WORKSPACE_REPOS]
+        if lib and wsp:
+            notes.append("spans library and workspace repos — prefer a seam at "
+                         "that boundary (library slice first)")
+        per[i] = {"refusals": mine, "warnings": notes, "difficulty": level,
+                  "consequence": tier, "review_minutes": minutes,
+                  "unattended": ready, "library": bool(lib),
+                  "workspace_only": bool(wsp) and not lib}
+    seen_ws = None
+    for c in children:
+        v = per[c["index"]]
+        if v["workspace_only"] and seen_ws is None:
+            seen_ws = c["index"]
+        elif v["library"] and seen_ws is not None:
+            v["warnings"].append(
+                f"a library slice ordered after workspace-only slice {seen_ws} — "
+                "library before workspace, as the merge gate works")
+    ok = not refusals and not any(v["refusals"] for v in per.values())
+    return {"ok": ok, "refusals": refusals, "warnings": warnings, "per": per}
 
 
 def estimate_review_minutes(tier: str, level: str) -> int:

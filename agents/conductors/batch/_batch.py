@@ -55,6 +55,14 @@ from _sizing import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
+# The close-out guard's reader (intake `looks-shipped`): the live flags minus
+# human dismissals. Loaded by path — a plain `import _shipped` would also work
+# once intake's directory is on sys.path, but this keeps the batch planner from
+# shadowing anything else of that name.
+_shipped_spec = importlib.util.spec_from_file_location(
+    "_shipped_for_batch", BRAIN / "agents" / "conductors" / "intake" / "_shipped.py")
+_shipped = importlib.util.module_from_spec(_shipped_spec)
+_shipped_spec.loader.exec_module(_shipped)
 
 # One slot's worth of the human's attention, and only the DEFAULT: the human
 # sets it per slot with --budget, because they know whether the next one is a
@@ -159,11 +167,16 @@ def survey(mind: Path) -> list[dict]:
     """Grade every backlog prompt. Epic membership rides along for the
     one-slice-per-epic rule."""
     out = []
+    # Backpressure from the close-out guard: a draft with strong evidence that
+    # its work already shipped waits for a human to close or dismiss it. The
+    # 2026-11-05-am batch proposed two shipped tasks; this is the stop.
+    flagged = _shipped.flagged_paths(mind)
     for f in sorted(mind.glob("draft/**/*.md")):
         if f.name == "README.md":
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
         g = grade(f, mind)
+        g["looks_shipped"] = f.relative_to(mind).as_posix() in flagged
         g["epic"] = _epic_of(text)
         g["phase"] = _phase_of(text)
         g["done"] = _is_done(text)
@@ -317,6 +330,9 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         # which is the failure the whole epic exists to remove.
         if r.get("done"):
             rejected.append((r["path"], "Status: says the work is already done"))
+        elif r.get("looks_shipped"):
+            rejected.append((r["path"], "looks shipped — confirm (close) or "
+                             f"dismiss it ({_shipped.DISMISS_FILE}) first"))
         elif r.get("epic") and r.get("phase", float("inf")) > next_phase.get(
                 r["epic"], float("inf")):
             rejected.append((r["path"],
@@ -2787,8 +2803,10 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
-    ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch"], nargs="?",
-                    default="plan")
+    ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch",
+                                     "slice"], nargs="?", default="plan")
+    ap.add_argument("prompt", nargs="?", default="",
+                    help="slice: the needs-slicing prompt to decompose")
     ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
                     help="review-minutes available in the slot")
@@ -2805,6 +2823,11 @@ def main(argv=None) -> int:
     ap.add_argument("--brief", default="", metavar="FILE",
                     help="plan: compose inside this shift brief (named tasks "
                          "first, then its backlog policy)")
+    # slice
+    ap.add_argument("--slices", default="", metavar="FILE",
+                    help="slice: an agent-authored slice plan (numbered items "
+                         "with *Witness:* fields) instead of the parent's own "
+                         "`## Slices`/`## Phases` section")
     # digest
     ap.add_argument("--record", default="", metavar="FILE",
                     help="digest / watch: the shift brief record (read-only — "
@@ -2845,7 +2868,15 @@ def main(argv=None) -> int:
 
     lane = a.lane or detect_lane()
     mind = a.mind.resolve()
+    if a.prompt and a.verb != "slice":
+        print(f"batch {a.verb}: unexpected argument {a.prompt!r}", file=sys.stderr)
+        return RC_USAGE
+    if a.slices and a.verb != "slice":
+        print("batch: --slices belongs to `batch slice`", file=sys.stderr)
+        return RC_USAGE
     try:
+        if a.verb == "slice":
+            return _main_slice(mind, a)
         if a.verb == "collect":
             return _main_collect(mind, a)
         if a.verb == "brief":
@@ -2858,6 +2889,37 @@ def main(argv=None) -> int:
     except BatchUsageError as e:
         print(e, file=sys.stderr)
         return RC_USAGE
+
+
+def _main_slice(mind: Path, a) -> int:
+    """`batch slice <prompt> [--slices FILE] [--apply] [--json]` — propose the
+    children of a needs-slicing prompt; only `--apply` writes (`_slice`)."""
+    import _slice
+    if not a.prompt:
+        print("batch slice: name the needs-slicing prompt to slice",
+              file=sys.stderr)
+        return RC_USAGE
+    used = [f"--{f}" for f in COLLECT_ONLY if f != "apply" and getattr(a, f)]
+    if used:
+        print(f"batch slice: {', '.join(used)} belong(s) to `batch collect`",
+              file=sys.stderr)
+        return RC_USAGE
+    if not (mind / "draft").is_dir():
+        print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
+        return RC_NO_MIND
+    try:
+        d = _slice.propose(mind, a.prompt, slices_file=a.slices)
+        written = _slice.apply(mind, d) if a.apply and d["ok"] else []
+    except _slice.SliceError as e:
+        print(e, file=sys.stderr)
+        return RC_USAGE
+    if a.as_json:
+        print(json.dumps({**d, "written": written}, indent=2))
+    else:
+        print(_slice.report(d, applied=written))
+        if a.apply and not d["ok"]:
+            print("(--apply refused: the proposal has refusals)")
+    return RC_OK if d["ok"] else RC_FINDINGS
 
 
 def _main_digest(mind: Path, a) -> int:

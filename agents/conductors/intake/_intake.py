@@ -84,6 +84,11 @@ from _status import (  # noqa: E402
     render_html as _status_box_html, render_md as _status_box_md,
 )
 
+# The close-out guard (strong-evidence `looks-shipped` flags): the detector and
+# the one reader the dashboard and the batch planner share.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _shipped  # noqa: E402
+
 THEME_ORGAN = "mind"  # whose logo this page wears
 
 # --- work-type classification -------------------------------------------------
@@ -635,6 +640,7 @@ def analyse(text: str, source: str, themes=None):
                                 estimated, witness=p["witness"],
                                 consequence=consequence),
         "next_action": _next_action(proposed, confidence, folder),
+        "slice_offer": slice_offer(proposed, unattended),
     }
 
 
@@ -766,6 +772,21 @@ def _next_action(proposed, confidence, work_type=None):
             "afterwards `Use the start-dev skill. {}` routes it.".format(proposed))
 
 
+def slice_offer(path: str, unattended: str) -> str:
+    """The `batch slice` suggestion for a prompt that sizes `needs-slicing`.
+
+    An offer, never an act: intake files prompts and stops. Slicing renders the
+    decomposition the prompt itself declares (`## Slices`), so the human — or
+    the agent that wrote the prompt — authors the cut first."""
+    if unattended != "needs-slicing":
+        return ""
+    return ("This sizes as `Unattended: needs-slicing` — too large for one "
+            "unattended run. Add a `## Slices` section (2-4 numbered items, "
+            "each with its own `*Witness:*`), then "
+            f"`pyauto-brain batch slice {path}` proposes the children; it "
+            "writes nothing without `--apply`.")
+
+
 # --- apply (the only writing path) -------------------------------------------
 # --- Memory citations ---------------------------------------------------------
 # The doctrine says every plan consults Memory. The record says it was consulted
@@ -787,8 +808,33 @@ def _next_action(proposed, confidence, work_type=None):
 # organism's own machinery, so there is no science question to answer, and the
 # digest only ever matched on shared vocabulary ("profile", "model") — every
 # organ prompt filed got galaxy-wiki citations that had to be hand-removed.
+#
+# Nor does a page the prompt only shares vocabulary with. The digest's ranking
+# is raw term counts, so a long page full of "model", "profile" and "fit" tops
+# it for any prompt at all (a jax-compile tooling prompt was handed
+# massive-ellipticals.md). A page is cited only when the query terms it shares
+# that are DISTINCTIVE in PyAutoMemory — on at most MEMORY_DISTINCT_SHARE of its
+# pages — carry enough weight: each scores log(N/df)/log(N) (1 for a term on a
+# single page, ~0.6 at the share cut-off), and the page needs MEMORY_FLOOR, or
+# MEMORY_FLOOR_PER_TERM per distinct query term when that is lower (a one-line
+# idea cannot accumulate what a 200-word prompt does, and a long prompt's rare
+# words hit dev-flavoured pages by chance). Calibrated on the 276 Mind drafts
+# of 2026-11-05 against the live digest (158 pages): long EP prompts score
+# 11.5-15 on expectation-propagation.md and jax-gradient bugs ~9.8 on
+# autodiff-implicit-diff.md, while the jax-compile and numba-preset tooling
+# prompts top out at 8.4 and 5.4 on any page; 67 of the 276 drafts clear the
+# floor, against nearly all of them before it. A one-line EP idea (10 terms)
+# scores 4.7 on the EP page against a 1.5 floor; a one-line jax-compile tooling
+# idea (11 terms) scores 1.5 against 1.65. Navigation pages (index, log,
+# AGENTS, README, reading-queue) are never cited: they list sources, they are
+# not one.
 MEMORY_CITATIONS = 3
 MEMORY_QUERY_WORDS = 200
+MEMORY_FLOOR = 9.0
+MEMORY_FLOOR_PER_TERM = 0.15
+MEMORY_DISTINCT_SHARE = 0.05
+MEMORY_NAV_PAGES = frozenset({"index.md", "log.md", "AGENTS.md", "README.md",
+                              "reading-queue.md"})
 
 
 def _memory_home(mind: Path) -> Path | None:
@@ -804,17 +850,47 @@ def memory_citations(mind: Path, title: str, body_text: str,
 
     The query is the title plus the head of the body: a prompt's opening states
     the problem, while its tail is usually acceptance criteria and file paths
-    that match on vocabulary rather than subject.
+    that match on vocabulary rather than subject. Only pages that clear the
+    distinctive-term floor (see the block comment above) are returned, in the
+    faculty's ranking order; navigation pages never are.
     """
     home = _memory_home(mind)
     if home is None:
         return []
     query = " ".join(f"{title} {body_text}".split()[:MEMORY_QUERY_WORDS])
     try:
-        d = _memory.digest(query, home, None, None, limit)
+        d = _memory.digest(query, home, None, None, 10 ** 6)
+        vocab = _memory_vocab(home)
     except (OSError, ValueError):
         return []
-    return [page["page"] for page in d["pages"]][:limit]
+    n = len(vocab)
+    terms = {t for t in d["terms"] if not t.isdigit()}
+    df = {t: sum(t in words for words in vocab.values()) for t in terms}
+    scale = math.log(n) if n > 1 else 1.0
+    rare = {t: (math.log(n / df[t]) / scale if n > 1 else 1.0) for t in terms
+            if 0 < df[t] <= max(1.0, n * MEMORY_DISTINCT_SHARE)}
+    floor = min(MEMORY_FLOOR, MEMORY_FLOOR_PER_TERM * len(terms))
+    cites = []
+    for page in d["pages"]:  # the faculty's own order; the floor only filters
+        if Path(page["page"]).name in MEMORY_NAV_PAGES:
+            continue
+        words = vocab.get(page["page"], set())
+        if rare and sum(w for t, w in rare.items() if t in words) >= floor:
+            cites.append(page["page"])
+            if len(cites) >= limit:
+                break
+    return cites
+
+
+def _memory_vocab(home: Path) -> dict:
+    """{repo-relative page: its whole-word vocabulary} over PyAutoMemory."""
+    vocab = {}
+    for _name, base, f in _memory.surfaces(home, None, None):
+        if f.stat().st_size > _memory.MAX_FILE_BYTES:
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace").lower()
+        vocab[str(f.relative_to(base))] = set(re.findall(r"[a-z0-9_]+", text))
+    return vocab
 
 
 def _organs_dir_repos() -> frozenset:
@@ -1546,11 +1622,74 @@ def census(mind: Path) -> dict:
         "hygiene": hygiene,
         "drift": drift,
         "batch": _batch_status(mind),
+        # Strong-evidence close-out flags (`intake looks-shipped`), minus what
+        # a human dismissed or already closed — the "Looks shipped" section.
+        "looks_shipped": _looks_shipped_rows(mind, records),
     }
     c["recent"] = recent_events(c)
     # Needs `in_flight` in place, so it is derived after the dict is built.
     c["pending_release"] = pending_release(c, mind)
     return c
+
+
+def _looks_shipped_rows(mind: Path, records: list) -> list:
+    """The live `looks-shipped` flags, each joined to its backlog record."""
+    by_path = {r["path"]: r for r in records}
+    rows = []
+    for f in _shipped.active_flags(mind):
+        r = by_path.get(f.get("path", ""))
+        if r is None:
+            continue
+        rows.append({"path": r["path"], "title": r["title"],
+                     "target": r["target"],
+                     "signals": [s for s in f.get("signals") or []
+                                 if isinstance(s, dict)],
+                     "close": f.get("close", ""),
+                     "dismiss": f.get("dismiss", "")})
+    return rows
+
+
+LOOKS_SHIPPED_PAYLOAD = """\
+`{path}` looks already shipped — confirm or dismiss it. Work in the PyAutoMind checkout.
+
+Evidence (from `intake looks-shipped`):
+{evidence}
+
+1. Check each cited line: open the commit / definition / record and confirm it
+   really is THIS draft's work, not a neighbour's.
+2. If it shipped, close it (write the record body first; the command is a dry
+   run without --apply):
+   {close}
+3. If it did not, dismiss the flag so the batch planner may pick it again:
+   {dismiss}
+4. Regenerate the dashboard: `pyauto-brain intake --apply dashboard`.
+
+Report which you did and why."""
+
+
+def _looks_shipped_payload(f: dict) -> str:
+    ev = "\n".join(f"- {s.get('kind', '?')}: {s.get('evidence', '')}"
+                   for s in f["signals"]) or "- (no evidence recorded)"
+    return LOOKS_SHIPPED_PAYLOAD.format(path=f["path"], evidence=ev,
+                                        close=f["close"], dismiss=f["dismiss"])
+
+
+def _looks_shipped_head(f: dict) -> str:
+    kinds = sorted({s.get("kind", "?") for s in f["signals"]})
+    first = f["signals"][0].get("evidence", "") if f["signals"] else ""
+    head = (f"<a href=\"{f['path']}\">{_summary_label(f['title'])}</a>"
+            f" — {_summary_label(', '.join(kinds))}")
+    if first:
+        head += f" — {_summary_label(_clip(first))}"
+    return head
+
+
+def _unflagged(c: dict, rows: list) -> list:
+    """Drop `looks-shipped` drafts from a pick list: offering work a human is
+    being asked to confirm as finished is how the 2026-11-05 batch proposed
+    two shipped tasks."""
+    flagged = {f["path"] for f in c.get("looks_shipped") or []}
+    return [r for r in rows if r["path"] not in flagged]
 
 
 # `complete/` records carry `pending-release:` too — /prm copies the key over
@@ -2061,6 +2200,16 @@ def render_dashboard(c: dict) -> str:
               "prompt never advanced, so it still renders as backlog:", ""]
         L += [f"> - `{d}`" for d in c["drift"]]
         L += [""]
+    flags = c.get("looks_shipped") or []
+    if flags:
+        L += ['<a id="looks-shipped"></a>', "## Looks shipped — confirm", "",
+              f"{len(flags)} draft(s) with strong evidence the work already "
+              "shipped (`intake looks-shipped`). Held out of the pick lists and "
+              "the batch planner until closed or dismissed in "
+              f"[`{_shipped.DISMISS_FILE}`]({_shipped.DISMISS_FILE}).", ""]
+        L += _items([_task_row(_looks_shipped_head(f), _looks_shipped_payload(f))
+                     for f in flags])
+        L += [""]
     if c["batch"] is not None:
         L += [_status_box_md(c["batch"]), ""]
     L += ["## Start here", ""]
@@ -2069,8 +2218,9 @@ def render_dashboard(c: dict) -> str:
     # they are worked in order through their epic below Start here.
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
-    high = [r for r in standalone if r["priority"] == "high"]
-    quick = _fits_a_slot(standalone)
+    pickable = _unflagged(c, standalone)
+    high = [r for r in pickable if r["priority"] == "high"]
+    quick = _fits_a_slot(pickable)
     for title, note, rows in (
         ("Highest priority", "filed as `high`", high),
         ("Fits a slot", "ready to run unattended, cheapest to review first",
@@ -2407,14 +2557,31 @@ def render_dashboard_html(c: dict) -> str:
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
         H += [f"<li><code>{_attr(d)}</code></li>" for d in c["drift"]]
         H += ["</ul>"]
+    flags = c.get("looks_shipped") or []
+    if flags:
+        H += ['<a id="looks-shipped"></a><h2>Looks shipped — confirm</h2>',
+              f'<p class="muted">{len(flags)} draft(s) with strong evidence the '
+              "work already shipped. Held out of the pick lists and the batch "
+              "planner until closed or dismissed in "
+              f"<code>{_shipped.DISMISS_FILE}</code>.</p>"]
+        for f in flags:
+            kinds = ", ".join(sorted({s.get("kind", "?") for s in f["signals"]}))
+            text = link(f["path"], _summary_label(f["title"]))
+            text += f' — <span class="facets">{_summary_label(kinds)}</span>'
+            if f["signals"]:
+                text += (f'<br><span class="facets">'
+                         f'{_summary_label(_clip(f["signals"][0].get("evidence", "")))}'
+                         "</span>")
+            H.append(_html_task(text, _looks_shipped_payload(f)))
     if c["batch"] is not None:
         H.append(_status_box_html(c["batch"]))
     H += ['<a id="start-here"></a><h2>Start here</h2>']
 
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
-    high = [r for r in standalone if r["priority"] == "high"]
-    quick = _fits_a_slot(standalone)
+    pickable = _unflagged(c, standalone)
+    high = [r for r in pickable if r["priority"] == "high"]
+    quick = _fits_a_slot(pickable)
     for title, note, rows in (
         ("Highest priority", "filed as high", high),
         ("Fits a slot", "ready to run unattended, cheapest to review first",
@@ -2627,7 +2794,7 @@ def _start_here_picks(c: dict) -> list:
     fits-a-slot — de-duplicated, epic members excluded, each list capped at
     PICK_LIST_MAX exactly as rendered."""
     records = sorted(c["records"], key=_pick_key)
-    standalone = [r for r in records if not r.get("epic")]
+    standalone = _unflagged(c, [r for r in records if not r.get("epic")])
     high = [r for r in standalone if r["priority"] == "high"][:PICK_LIST_MAX]
     quick = _fits_a_slot(standalone)[:PICK_LIST_MAX]
     out, seen = [], set()
@@ -2646,7 +2813,8 @@ def _state_status(c: dict, picks: list) -> str:
     if c.get("drift") or any(k in s for s in statuses for k in _HUMAN_RED):
         return "red"
     if (any(k in s for s in statuses for k in _HUMAN_YELLOW)
-            or c.get("human_review") or c.get("pending_release") or picks):
+            or c.get("human_review") or c.get("pending_release") or picks
+            or c.get("looks_shipped")):
         return "yellow"
     return "green"
 
@@ -2679,6 +2847,13 @@ def _state_items(c: dict, picks: list) -> list:
             "url": prs[0]["url"] if prs else (r.get("issue") or None),
             # the row's own 📋 payload on the page
             "prompt": f"Use the start-dev skill. {r['path']}"})
+    for f in c.get("looks_shipped") or []:
+        kinds = ", ".join(sorted({s.get("kind", "?") for s in f["signals"]}))
+        items.append({"severity": "yellow",
+                      "text": _one(f"looks shipped — confirm: {f['title']} "
+                                   f"({kinds})"),
+                      "url": link(f["path"]),
+                      "prompt": _looks_shipped_payload(f)})
     for r in c.get("human_review") or []:
         title = re.sub(r"^human review:\s*", "", r["title"], flags=re.I)
         items.append({"severity": "yellow",
@@ -3908,6 +4083,8 @@ def emit_human(d: dict):
     for r in d["risks"]:
         print(f"  - {r}")
     print(f"Next action:          {d['next_action']}")
+    if d.get("slice_offer"):
+        print(f"Offer:                {d['slice_offer']}")
 
 
 def main(argv=None):
@@ -3956,8 +4133,46 @@ def main(argv=None):
                          "no Mind-side trace). Opt-in: the default path makes no "
                          "network access. Ranks for review; never says shipped.")
 
+    rc.add_argument("--strong", action="store_true",
+                    help="ALSO run the close-out guard's strong-evidence legs "
+                         "(see `looks-shipped`) and list them first, graded "
+                         "`looks-shipped` above every vocabulary band")
+    rc.add_argument("--root", default="",
+                    help="with --strong: the directory holding the organism "
+                         "checkouts as siblings (default: the Mind's parent)")
+    rc.add_argument("--pr-cache", default="",
+                    help="with --strong: a JSON list of merged PRs "
+                         "({repo, number, merged_at, title, body}) to read")
+
+    ls = sub.add_parser("looks-shipped",
+                        help="the close-out guard: flag open drafts with "
+                             "STRONG evidence they already shipped (witness "
+                             "test now defined, a commit naming the draft, a "
+                             "complete/ record duplicating it); --apply writes "
+                             "looks_shipped.json — never anything under draft/")
+    ls.add_argument("prefix", nargs="?", default="",
+                    help="only scan drafts under this path prefix")
+    ls.add_argument("--root", default="",
+                    help="the directory holding the organism checkouts as "
+                         "siblings (default: the Mind's parent); absent "
+                         "checkouts are skipped")
+    ls.add_argument("--pr-cache", default="",
+                    help="a JSON list of merged PRs ({repo, number, merged_at, "
+                         "title, body}); optional, offline")
+
     a = ap.parse_args(argv)
     mind = Path(a.mind)
+
+    if a.cmd == "looks-shipped":
+        root = Path(a.root) if a.root else mind.resolve().parent
+        res = _shipped.detect(mind, root, prefix=a.prefix,
+                              pr_cache=Path(a.pr_cache) if a.pr_cache else None)
+        written = _shipped.write(mind, res) if a.apply else None
+        if a.as_json:
+            print(json.dumps({**res, "written": written}, indent=2))
+        else:
+            _shipped.emit(res, written)
+        return 0
 
     if a.cmd == "formalise":
         res = formalise(mind, prefix=a.prefix, apply=a.apply)
@@ -3978,7 +4193,23 @@ def main(argv=None):
                     "when": _dt.date.today().isoformat()}
         res = reconcile(mind, prefix=a.prefix, source_reader=reader,
                         upstream_meta=meta)
-        print(json.dumps(res, indent=2)) if a.as_json else emit_reconcile(res)
+        if a.strong:
+            root = Path(a.root) if a.root else mind.resolve().parent
+            strong = _shipped.detect(
+                mind, root, prefix=a.prefix,
+                pr_cache=Path(a.pr_cache) if a.pr_cache else None)
+            res["looks_shipped"] = strong
+            # A strong flag outranks every vocabulary band for the same prompt.
+            flagged = {f["path"] for f in strong["flags"]}
+            res["suspects"] = [s for s in res["suspects"]
+                               if s["path"] not in flagged]
+        if a.as_json:
+            print(json.dumps(res, indent=2))
+        else:
+            if a.strong:
+                _shipped.emit(res["looks_shipped"])
+                print()
+            emit_reconcile(res)
         return 0
 
     if a.cmd == "census":
@@ -4048,6 +4279,8 @@ def main(argv=None):
         if a.apply:
             written = write_prompt(mind, decision, text, source)
             decision["written"] = written
+            decision["slice_offer"] = slice_offer(written,
+                                                  decision["unattended"])
         if a.as_json:
             print(json.dumps(decision, indent=2))
         else:
@@ -4068,6 +4301,7 @@ def main(argv=None):
             d = analyse(ctx_text, f"ideas.md ({ctx or 'top'})")
             if a.apply:
                 d["written"] = write_prompt(mind, d, ctx_text, d["source"])
+                d["slice_offer"] = slice_offer(d["written"], d["unattended"])
                 formalised[text] = d["written"]
             results.append(d)
         if a.apply and formalised:
@@ -4081,6 +4315,8 @@ def main(argv=None):
                 print(f"  [{d['work_type']}/{d['target']}, {d['difficulty']}, "
                       f"conf {d['classification_confidence']}] {d['title']}"
                       f"  =>  {d['proposed_path']}{mark}")
+                if d.get("slice_offer"):
+                    print(f"      offer: {d['slice_offer']}")
             if not a.apply:
                 print("\n(dry-run — re-run `intake ideas --apply` to write these + "
                       "mark the bullets in ideas.md)")

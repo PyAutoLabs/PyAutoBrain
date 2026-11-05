@@ -84,6 +84,11 @@ becomes the series' tracker or is retired. Decomposition is planning judgment �
 it stays with the strongest available model; the resulting phases are what the
 cheaper execution models run.
 
+When a filed prompt sizes `Unattended: needs-slicing`, intake prints an
+**offer** (never an act): author its `## Slices` and run
+`pyauto-brain batch slice <prompt>`, which validates the cut against the seam
+rules and, under `--apply`, writes the children (batch `AGENTS.md`).
+
 ## The header — extend the blessed convention, never YAML
 
 Writes the light header PyAutoMind blesses (`README.md` "Prompt file format"),
@@ -98,7 +103,11 @@ tasks, so intake consults it mechanically and the citations sit in front of
 the session that picks the prompt up. PyAutoMemory only — Mind history and the
 assistant are operational recall, not what the science says — and no hits (or
 no PyAutoMemory checkout) writes no line at all, because an empty `Memory:`
-would claim nothing is known.
+would claim nothing is known. A hit must clear a score floor on the query
+terms it shares that are distinctive in PyAutoMemory (`MEMORY_FLOOR` in
+`_intake.py`), so a page matching only generic vocabulary ("model", "profile",
+"fit") is not cited; navigation pages (`index.md`, `log.md`, `reading-queue.md`,
+...) never are.
 
 `Themes:` is written at formalisation, directly under `Repos:` and in the same
 list shape (`intake classify --themes mge,jax-gradient`, primary keyword
@@ -118,6 +127,8 @@ with or without it. Unknown keywords are counted in the page's Hygiene section.
 | **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, pending release, planned, backlog (including human review), recent, epics; `--apply` writes `PyAutoMind/dashboard.md` + `dashboard.html` + `state.json` (the organ-cockpit feed, `board/_state.py` v1: red when a task awaits input/is blocked or prompts drift, yellow when work waits on a merge/release/review or picks exist; items carry the page's own copy payloads), `--check` exits 1 on drift (ignoring the page date and the feed's `updated`) |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |
 | **reconcile** | `intake reconcile [prefix]` | rank backlog prompts that look already-shipped (vs the `complete/` records / `active/`), and pair live prompts that look like the same work filed twice; always read-only — retiring stays human |
+| **looks-shipped** | `intake looks-shipped [prefix] [--root DIR] [--pr-cache F]` | the **close-out guard**: flag open drafts with *strong* evidence their work already shipped (see "Close-out guard" below); `--apply` writes `PyAutoMind/looks_shipped.json` only — never anything under `draft/` |
+| **reconcile --strong** | `intake reconcile --strong [prefix]` | run the close-out guard's legs too and list them first, graded `looks-shipped` above every vocabulary band |
 | **reconcile --repo** | `intake reconcile --repo <target> [prefix]` | **also** read the target repo's source: identifiers the prompts name that exist upstream, and lines they quote that are **gone** — the two signals that see a prompt with no Mind-side trace. Opt-in; the default path is offline |
 
 **Recent** is the one section laid out by *date* rather than by state: the 50
@@ -242,6 +253,36 @@ prompts): **36 pairs → 2**.
 A pair is something to **read together**, never a verdict: two prompts can share
 files and still be different work.
 
+## Close-out guard (`looks-shipped`)
+
+`reconcile` grades **vocabulary**; the 2026-11-05 sweep closed 27 shipped drafts
+that it never ranked strongly, every one of which had bypassed `/prm` (fixed on
+main with no issue, merged by a session that skipped the close-out, or re-filed
+as a duplicate). `looks-shipped` (`_shipped.py`) flags only on facts someone can
+re-check, each cited with its evidence line, a one-line close command and a
+one-line dismissal:
+
+| Leg | Fires when |
+|---|---|
+| `witness-exists` | the draft's `Witness:` names a test/function now defined (`def`/`class`, or a `test_*.py` module) in a target checkout (folder target + `Repos:`), **and** git says it was added or edited after `Filed:` (pickaxe, then `git log -L`). Without readable history only a named `test_*` counts |
+| `commit-names-draft` | a commit on a checkout's main since `Filed:` names the draft's path, filename or distinctive slug (3+ words, 15+ chars) on a line that claims shipping (`fix:`/`feat:`-style subject, a ship word, or the PR-merge branch line). Follow-up wording, ledger subjects (`prompt:`, `intake:` …), a message listing 3+ drafts, and Mind commits touching only the ledger never count |
+| `pr-names-draft` | the same match over a merged-PR JSON cache (`--pr-cache`: `[{repo, number, merged_at, title, body}]`) — optional, offline; this session class has no GitHub API |
+| `record-duplicates-draft` | a `complete/` record's `## Original prompt` matches an open draft by title (difflib ≥ 0.93, same numbers — a phase series is not a duplicate) or body (word-level ratio ≥ 0.80) |
+
+Checkouts are found under `--root` (default: the Mind's parent; flat or one
+family deep) and absent ones are skipped silently. Measured 2026-11-05: on the
+Mind as it stood **before** the sweep (295 drafts) it flagged 5, all genuinely
+shipped (4 in the sweep's 27, the fifth closed the same day as PyAutoBrain#588)
+with only Brain/Cortex/Memory/Mind checked out; on the post-sweep Mind it flags 0.
+
+Consumers read `active_flags` — the file minus `looks_shipped_dismissed.md`
+bullets (`- draft/<…>.md — <date> — <why>`) and minus drafts already gone from
+`draft/`: the dashboard's **Looks shipped — confirm** section and `state.json`
+items, the Start-here pick lists (flagged drafts are left out), and `batch plan`
+(rejects them). Confirm = close the draft; dismiss = add the bullet. Mind's
+`looks_shipped.yml` runs it daily. A merge-time hook (warn on a PR whose
+commits name a draft it does not retire) is a recorded follow-up.
+
 ## Machine sources (one staging surface)
 
 Conception input increasingly arrives from the organism itself — research
@@ -278,6 +319,8 @@ bin/pyauto-brain intake formalise                                  # propose ret
 bin/pyauto-brain intake --apply formalise bug/                     # write them, only under bug/
 bin/pyauto-brain intake reconcile                                  # rank shipped-but-stale suspects + duplicate pairs (read-only)
 bin/pyauto-brain intake reconcile --repo autolens_workspace_test   # + upstream presence and quote-absence legs
+bin/pyauto-brain intake looks-shipped --root ~/Code/PyAutoLabs      # close-out guard: strong-evidence flags (read-only)
+bin/pyauto-brain intake --apply looks-shipped                      # + write PyAutoMind/looks_shipped.json
 ```
 
 **Writes only under `--apply`; dry-run is the default.** Exit codes: `0` produced
