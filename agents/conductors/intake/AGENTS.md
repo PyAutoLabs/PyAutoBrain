@@ -98,7 +98,11 @@ tasks, so intake consults it mechanically and the citations sit in front of
 the session that picks the prompt up. PyAutoMemory only — Mind history and the
 assistant are operational recall, not what the science says — and no hits (or
 no PyAutoMemory checkout) writes no line at all, because an empty `Memory:`
-would claim nothing is known.
+would claim nothing is known. A hit must clear a score floor on the query
+terms it shares that are distinctive in PyAutoMemory (`MEMORY_FLOOR` in
+`_intake.py`), so a page matching only generic vocabulary ("model", "profile",
+"fit") is not cited; navigation pages (`index.md`, `log.md`, `reading-queue.md`,
+...) never are.
 
 `Themes:` is written at formalisation, directly under `Repos:` and in the same
 list shape (`intake classify --themes mge,jax-gradient`, primary keyword

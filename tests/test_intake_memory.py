@@ -43,11 +43,22 @@ def _memory(tmp_path: Path) -> Path:
     (mem / "wiki" / "methods" / "sources").mkdir(parents=True)
     (mem / "wiki" / "lensing" / "concepts" / "subhalo.md").write_text(
         "# Subhalo\n\nsubhalo subhalo substructure lensing detection "
-        "sensitivity\n", encoding="utf-8")
+        "sensitivity function\n", encoding="utf-8")
     (mem / "wiki" / "methods" / "sources" / "sensitivity.md").write_text(
         "# Sensitivity mapping\n\nsensitivity mapping for substructure\n",
         encoding="utf-8")
+    # The rest of a real digest: many pages sharing the generic vocabulary of
+    # any modelling prompt, so those words are not distinctive of any page.
+    galaxies = mem / "wiki" / "galaxies" / "sources"
+    galaxies.mkdir(parents=True)
+    for i in range(20):
+        (galaxies / f"galaxy_{i}.md").write_text(
+            f"# Galaxy {i}\n\n" + GENERIC * 5, encoding="utf-8")
     return mem
+
+
+GENERIC = ("model fit fitted profile light mass lens galaxy data cost report "
+           "from can add produced map write\n")
 
 
 def _file_one(mind: Path, raw: str = RAW) -> str:
@@ -203,3 +214,84 @@ def test_organ_target_spellings_get_no_memory_line(tmp_path, monkeypatch):
         assert _intake._cites_memory(spelling), spelling
         assert _intake._with_memory("Priority: normal", ["wiki/x.md"],
                                     spelling).endswith("Memory: wiki/x.md")
+
+
+# --- the score floor ------------------------------------------------------------
+# The digest ranks by raw term counts, so a long page dense in "model",
+# "profile" and "fit" topped it for any prompt and got cited on tooling prompts
+# with no science question. A page is now cited only when the query terms it
+# shares are distinctive in PyAutoMemory (on few of its pages) and weigh enough.
+
+TOOLING = ("Write compile_repeats from the jax_compile tooling so the model "
+           "fit profile can report its compile cost.")
+
+
+def _declared_raw(body: str) -> str:
+    library = sorted(_intake.LIBRARY_REPOS)[0]  # any library, read from repos.yaml
+    return (f"# Library task\n\nType: feature\nTarget: {library}\n"
+            f"Repos:\n- {library}\n\n{body}\n")
+
+
+def _floor_memory(tmp_path: Path) -> Path:
+    mem = _memory(tmp_path)
+    # the page that dominates raw counts for any modelling prompt
+    (mem / "wiki" / "galaxies" / "sources" / "massive-ellipticals.md").write_text(
+        "# Massive ellipticals\n\n" + GENERIC * 200, encoding="utf-8")
+    (mem / "wiki" / "methods" / "concepts").mkdir(parents=True)
+    (mem / "wiki" / "methods" / "concepts" / "expectation-propagation.md"
+     ).write_text("# Expectation propagation\n\nexpectation propagation "
+                  "cavity moment matching loggaussian factor graphical\n"
+                  + GENERIC, encoding="utf-8")
+    return mem
+
+
+def test_vocabulary_only_overlap_gets_no_memory_line(tmp_path, monkeypatch):
+    """Witness: a library-targeted tooling prompt whose only overlap with the
+    digest is generic words is filed with no `Memory:` line, even though the
+    raw-count ranking has hits (massive-ellipticals.md tops it)."""
+    monkeypatch.delenv("PYAUTO_MEMORY", raising=False)
+    mind = _mind(tmp_path)
+    mem = _floor_memory(tmp_path)
+    raw = _declared_raw(TOOLING)
+    ranked = _intake._memory.digest(TOOLING, mem, None, None, 3)["pages"]
+    assert ranked[0]["page"].endswith("massive-ellipticals.md")
+    decision = _intake.analyse(raw, "test")
+    assert _intake._cites_memory(decision["target"])
+    rel = _intake.write_prompt(mind, decision, raw, "test")
+    assert "Memory:" not in (mind / rel).read_text(encoding="utf-8")
+    assert decision["memory"] == []
+
+
+def test_distinctive_terms_still_get_memory_line(tmp_path, monkeypatch):
+    """...while a prompt naming a page's distinctive terms still cites it, and
+    only it: the generic-vocabulary pages stay below the floor."""
+    monkeypatch.delenv("PYAUTO_MEMORY", raising=False)
+    mind = _mind(tmp_path)
+    _floor_memory(tmp_path)
+    raw = _declared_raw("Fix the expectation propagation cavity moment matching "
+                        "for a loggaussian factor so the model fit converges.")
+    decision = _intake.analyse(raw, "test")
+    rel = _intake.write_prompt(mind, decision, raw, "test")
+    line = _memory_line((mind / rel).read_text(encoding="utf-8"))
+    assert line == "Memory: wiki/methods/concepts/expectation-propagation.md"
+
+
+def test_navigation_pages_are_never_cited(tmp_path, monkeypatch):
+    """reading-queue.md, index.md and a wiki's log.md list sources; they are
+    not one, however many distinctive terms they share with the prompt."""
+    monkeypatch.delenv("PYAUTO_MEMORY", raising=False)
+    mind = _mind(tmp_path)
+    mem = _memory(tmp_path)
+    query = "Einstein ring quasar microlensing caustic crossing"
+    navs = ("reading-queue.md", "index.md", "wiki/lensing/log.md")
+    for i, rel in enumerate(navs):
+        (mem / rel).write_text(f"# Nav {i}\n\n{query}\n" * 10, encoding="utf-8")
+    assert len(_intake._memory.digest(query, mem, None, None, 9)["pages"]) == 3
+    assert _intake.memory_citations(mind, "", query) == []
+    # the same text on a source page is cited
+    (mem / "wiki" / "lensing" / "concepts" / "caustics.md").write_text(
+        f"# Caustics\n\n{query}\n", encoding="utf-8")
+    for rel in navs:
+        (mem / rel).unlink()
+    assert _intake.memory_citations(mind, "", query) == [
+        "wiki/lensing/concepts/caustics.md"]

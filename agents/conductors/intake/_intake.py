@@ -787,8 +787,33 @@ def _next_action(proposed, confidence, work_type=None):
 # organism's own machinery, so there is no science question to answer, and the
 # digest only ever matched on shared vocabulary ("profile", "model") — every
 # organ prompt filed got galaxy-wiki citations that had to be hand-removed.
+#
+# Nor does a page the prompt only shares vocabulary with. The digest's ranking
+# is raw term counts, so a long page full of "model", "profile" and "fit" tops
+# it for any prompt at all (a jax-compile tooling prompt was handed
+# massive-ellipticals.md). A page is cited only when the query terms it shares
+# that are DISTINCTIVE in PyAutoMemory — on at most MEMORY_DISTINCT_SHARE of its
+# pages — carry enough weight: each scores log(N/df)/log(N) (1 for a term on a
+# single page, ~0.6 at the share cut-off), and the page needs MEMORY_FLOOR, or
+# MEMORY_FLOOR_PER_TERM per distinct query term when that is lower (a one-line
+# idea cannot accumulate what a 200-word prompt does, and a long prompt's rare
+# words hit dev-flavoured pages by chance). Calibrated on the 276 Mind drafts
+# of 2026-11-05 against the live digest (158 pages): long EP prompts score
+# 11.5-15 on expectation-propagation.md and jax-gradient bugs ~9.8 on
+# autodiff-implicit-diff.md, while the jax-compile and numba-preset tooling
+# prompts top out at 8.4 and 5.4 on any page; 67 of the 276 drafts clear the
+# floor, against nearly all of them before it. A one-line EP idea (10 terms)
+# scores 4.7 on the EP page against a 1.5 floor; a one-line jax-compile tooling
+# idea (11 terms) scores 1.5 against 1.65. Navigation pages (index, log,
+# AGENTS, README, reading-queue) are never cited: they list sources, they are
+# not one.
 MEMORY_CITATIONS = 3
 MEMORY_QUERY_WORDS = 200
+MEMORY_FLOOR = 9.0
+MEMORY_FLOOR_PER_TERM = 0.15
+MEMORY_DISTINCT_SHARE = 0.05
+MEMORY_NAV_PAGES = frozenset({"index.md", "log.md", "AGENTS.md", "README.md",
+                              "reading-queue.md"})
 
 
 def _memory_home(mind: Path) -> Path | None:
@@ -804,17 +829,47 @@ def memory_citations(mind: Path, title: str, body_text: str,
 
     The query is the title plus the head of the body: a prompt's opening states
     the problem, while its tail is usually acceptance criteria and file paths
-    that match on vocabulary rather than subject.
+    that match on vocabulary rather than subject. Only pages that clear the
+    distinctive-term floor (see the block comment above) are returned, in the
+    faculty's ranking order; navigation pages never are.
     """
     home = _memory_home(mind)
     if home is None:
         return []
     query = " ".join(f"{title} {body_text}".split()[:MEMORY_QUERY_WORDS])
     try:
-        d = _memory.digest(query, home, None, None, limit)
+        d = _memory.digest(query, home, None, None, 10 ** 6)
+        vocab = _memory_vocab(home)
     except (OSError, ValueError):
         return []
-    return [page["page"] for page in d["pages"]][:limit]
+    n = len(vocab)
+    terms = {t for t in d["terms"] if not t.isdigit()}
+    df = {t: sum(t in words for words in vocab.values()) for t in terms}
+    scale = math.log(n) if n > 1 else 1.0
+    rare = {t: (math.log(n / df[t]) / scale if n > 1 else 1.0) for t in terms
+            if 0 < df[t] <= max(1.0, n * MEMORY_DISTINCT_SHARE)}
+    floor = min(MEMORY_FLOOR, MEMORY_FLOOR_PER_TERM * len(terms))
+    cites = []
+    for page in d["pages"]:  # the faculty's own order; the floor only filters
+        if Path(page["page"]).name in MEMORY_NAV_PAGES:
+            continue
+        words = vocab.get(page["page"], set())
+        if rare and sum(w for t, w in rare.items() if t in words) >= floor:
+            cites.append(page["page"])
+            if len(cites) >= limit:
+                break
+    return cites
+
+
+def _memory_vocab(home: Path) -> dict:
+    """{repo-relative page: its whole-word vocabulary} over PyAutoMemory."""
+    vocab = {}
+    for _name, base, f in _memory.surfaces(home, None, None):
+        if f.stat().st_size > _memory.MAX_FILE_BYTES:
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace").lower()
+        vocab[str(f.relative_to(base))] = set(re.findall(r"[a-z0-9_]+", text))
+    return vocab
 
 
 def _organs_dir_repos() -> frozenset:
