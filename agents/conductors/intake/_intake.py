@@ -1347,6 +1347,23 @@ def _lane_of(header: dict) -> str:
     return lane if lane in LANE_VALUES else "any"
 
 
+# An epic keeps its companions beside its ledger: `<name>_epic_report.md`,
+# numbered surveys in `<name>_epic_surveys/` and reviews in `<name>_epic_reviews/`.
+# They live under draft/ because the epic does, but they are read-only reports,
+# not prompts — census() must not list them as pickable backlog work (until
+# 2026-11-05 the dashboard offered 29 of them with "Use the start-dev skill").
+EPIC_COMPANION_DIR_SUFFIXES = ("_epic_surveys", "_epic_reviews")
+EPIC_COMPANION_FILE_SUFFIX = "_epic_report.md"
+
+
+def is_epic_companion(rel: Path) -> bool:
+    """Whether a draft/ path is an epic's report, survey or review, not a prompt."""
+    rel = Path(rel)
+    if rel.name.endswith(EPIC_COMPANION_FILE_SUFFIX):
+        return True
+    return any(part.endswith(EPIC_COMPANION_DIR_SUFFIXES) for part in rel.parts[:-1])
+
+
 def census(mind: Path) -> dict:
     """Inventory the Mind's work — filed prompts plus the registry's live rows.
 
@@ -1371,8 +1388,10 @@ def census(mind: Path) -> dict:
         for f in sorted(folder.rglob("*.md")):
             if f.name == "README.md":
                 continue
-            text = f.read_text(encoding="utf-8", errors="replace")
             rel = f.relative_to(mind)
+            if is_epic_companion(rel):
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
             header = parse_header(text)
             missing = [h for h in HEADER_FIELDS if h not in header]
             themes = parse_theme_list(text)
