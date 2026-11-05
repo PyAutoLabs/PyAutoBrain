@@ -84,6 +84,11 @@ from _status import (  # noqa: E402
     render_html as _status_box_html, render_md as _status_box_md,
 )
 
+# The close-out guard (strong-evidence `looks-shipped` flags): the detector and
+# the one reader the dashboard and the batch planner share.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _shipped  # noqa: E402
+
 THEME_ORGAN = "mind"  # whose logo this page wears
 
 # --- work-type classification -------------------------------------------------
@@ -1617,11 +1622,74 @@ def census(mind: Path) -> dict:
         "hygiene": hygiene,
         "drift": drift,
         "batch": _batch_status(mind),
+        # Strong-evidence close-out flags (`intake looks-shipped`), minus what
+        # a human dismissed or already closed — the "Looks shipped" section.
+        "looks_shipped": _looks_shipped_rows(mind, records),
     }
     c["recent"] = recent_events(c)
     # Needs `in_flight` in place, so it is derived after the dict is built.
     c["pending_release"] = pending_release(c, mind)
     return c
+
+
+def _looks_shipped_rows(mind: Path, records: list) -> list:
+    """The live `looks-shipped` flags, each joined to its backlog record."""
+    by_path = {r["path"]: r for r in records}
+    rows = []
+    for f in _shipped.active_flags(mind):
+        r = by_path.get(f.get("path", ""))
+        if r is None:
+            continue
+        rows.append({"path": r["path"], "title": r["title"],
+                     "target": r["target"],
+                     "signals": [s for s in f.get("signals") or []
+                                 if isinstance(s, dict)],
+                     "close": f.get("close", ""),
+                     "dismiss": f.get("dismiss", "")})
+    return rows
+
+
+LOOKS_SHIPPED_PAYLOAD = """\
+`{path}` looks already shipped — confirm or dismiss it. Work in the PyAutoMind checkout.
+
+Evidence (from `intake looks-shipped`):
+{evidence}
+
+1. Check each cited line: open the commit / definition / record and confirm it
+   really is THIS draft's work, not a neighbour's.
+2. If it shipped, close it (write the record body first; the command is a dry
+   run without --apply):
+   {close}
+3. If it did not, dismiss the flag so the batch planner may pick it again:
+   {dismiss}
+4. Regenerate the dashboard: `pyauto-brain intake --apply dashboard`.
+
+Report which you did and why."""
+
+
+def _looks_shipped_payload(f: dict) -> str:
+    ev = "\n".join(f"- {s.get('kind', '?')}: {s.get('evidence', '')}"
+                   for s in f["signals"]) or "- (no evidence recorded)"
+    return LOOKS_SHIPPED_PAYLOAD.format(path=f["path"], evidence=ev,
+                                        close=f["close"], dismiss=f["dismiss"])
+
+
+def _looks_shipped_head(f: dict) -> str:
+    kinds = sorted({s.get("kind", "?") for s in f["signals"]})
+    first = f["signals"][0].get("evidence", "") if f["signals"] else ""
+    head = (f"<a href=\"{f['path']}\">{_summary_label(f['title'])}</a>"
+            f" — {_summary_label(', '.join(kinds))}")
+    if first:
+        head += f" — {_summary_label(_clip(first))}"
+    return head
+
+
+def _unflagged(c: dict, rows: list) -> list:
+    """Drop `looks-shipped` drafts from a pick list: offering work a human is
+    being asked to confirm as finished is how the 2026-11-05 batch proposed
+    two shipped tasks."""
+    flagged = {f["path"] for f in c.get("looks_shipped") or []}
+    return [r for r in rows if r["path"] not in flagged]
 
 
 # `complete/` records carry `pending-release:` too — /prm copies the key over
@@ -2132,6 +2200,16 @@ def render_dashboard(c: dict) -> str:
               "prompt never advanced, so it still renders as backlog:", ""]
         L += [f"> - `{d}`" for d in c["drift"]]
         L += [""]
+    flags = c.get("looks_shipped") or []
+    if flags:
+        L += ['<a id="looks-shipped"></a>', "## Looks shipped — confirm", "",
+              f"{len(flags)} draft(s) with strong evidence the work already "
+              "shipped (`intake looks-shipped`). Held out of the pick lists and "
+              "the batch planner until closed or dismissed in "
+              f"[`{_shipped.DISMISS_FILE}`]({_shipped.DISMISS_FILE}).", ""]
+        L += _items([_task_row(_looks_shipped_head(f), _looks_shipped_payload(f))
+                     for f in flags])
+        L += [""]
     if c["batch"] is not None:
         L += [_status_box_md(c["batch"]), ""]
     L += ["## Start here", ""]
@@ -2140,8 +2218,9 @@ def render_dashboard(c: dict) -> str:
     # they are worked in order through their epic below Start here.
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
-    high = [r for r in standalone if r["priority"] == "high"]
-    quick = _fits_a_slot(standalone)
+    pickable = _unflagged(c, standalone)
+    high = [r for r in pickable if r["priority"] == "high"]
+    quick = _fits_a_slot(pickable)
     for title, note, rows in (
         ("Highest priority", "filed as `high`", high),
         ("Fits a slot", "ready to run unattended, cheapest to review first",
@@ -2478,14 +2557,31 @@ def render_dashboard_html(c: dict) -> str:
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
         H += [f"<li><code>{_attr(d)}</code></li>" for d in c["drift"]]
         H += ["</ul>"]
+    flags = c.get("looks_shipped") or []
+    if flags:
+        H += ['<a id="looks-shipped"></a><h2>Looks shipped — confirm</h2>',
+              f'<p class="muted">{len(flags)} draft(s) with strong evidence the '
+              "work already shipped. Held out of the pick lists and the batch "
+              "planner until closed or dismissed in "
+              f"<code>{_shipped.DISMISS_FILE}</code>.</p>"]
+        for f in flags:
+            kinds = ", ".join(sorted({s.get("kind", "?") for s in f["signals"]}))
+            text = link(f["path"], _summary_label(f["title"]))
+            text += f' — <span class="facets">{_summary_label(kinds)}</span>'
+            if f["signals"]:
+                text += (f'<br><span class="facets">'
+                         f'{_summary_label(_clip(f["signals"][0].get("evidence", "")))}'
+                         "</span>")
+            H.append(_html_task(text, _looks_shipped_payload(f)))
     if c["batch"] is not None:
         H.append(_status_box_html(c["batch"]))
     H += ['<a id="start-here"></a><h2>Start here</h2>']
 
     members = _epic_members(c)
     standalone = [r for r in records if not r.get("epic")]
-    high = [r for r in standalone if r["priority"] == "high"]
-    quick = _fits_a_slot(standalone)
+    pickable = _unflagged(c, standalone)
+    high = [r for r in pickable if r["priority"] == "high"]
+    quick = _fits_a_slot(pickable)
     for title, note, rows in (
         ("Highest priority", "filed as high", high),
         ("Fits a slot", "ready to run unattended, cheapest to review first",
@@ -2698,7 +2794,7 @@ def _start_here_picks(c: dict) -> list:
     fits-a-slot — de-duplicated, epic members excluded, each list capped at
     PICK_LIST_MAX exactly as rendered."""
     records = sorted(c["records"], key=_pick_key)
-    standalone = [r for r in records if not r.get("epic")]
+    standalone = _unflagged(c, [r for r in records if not r.get("epic")])
     high = [r for r in standalone if r["priority"] == "high"][:PICK_LIST_MAX]
     quick = _fits_a_slot(standalone)[:PICK_LIST_MAX]
     out, seen = [], set()
@@ -2717,7 +2813,8 @@ def _state_status(c: dict, picks: list) -> str:
     if c.get("drift") or any(k in s for s in statuses for k in _HUMAN_RED):
         return "red"
     if (any(k in s for s in statuses for k in _HUMAN_YELLOW)
-            or c.get("human_review") or c.get("pending_release") or picks):
+            or c.get("human_review") or c.get("pending_release") or picks
+            or c.get("looks_shipped")):
         return "yellow"
     return "green"
 
@@ -2750,6 +2847,13 @@ def _state_items(c: dict, picks: list) -> list:
             "url": prs[0]["url"] if prs else (r.get("issue") or None),
             # the row's own 📋 payload on the page
             "prompt": f"Use the start-dev skill. {r['path']}"})
+    for f in c.get("looks_shipped") or []:
+        kinds = ", ".join(sorted({s.get("kind", "?") for s in f["signals"]}))
+        items.append({"severity": "yellow",
+                      "text": _one(f"looks shipped — confirm: {f['title']} "
+                                   f"({kinds})"),
+                      "url": link(f["path"]),
+                      "prompt": _looks_shipped_payload(f)})
     for r in c.get("human_review") or []:
         title = re.sub(r"^human review:\s*", "", r["title"], flags=re.I)
         items.append({"severity": "yellow",
@@ -4029,8 +4133,46 @@ def main(argv=None):
                          "no Mind-side trace). Opt-in: the default path makes no "
                          "network access. Ranks for review; never says shipped.")
 
+    rc.add_argument("--strong", action="store_true",
+                    help="ALSO run the close-out guard's strong-evidence legs "
+                         "(see `looks-shipped`) and list them first, graded "
+                         "`looks-shipped` above every vocabulary band")
+    rc.add_argument("--root", default="",
+                    help="with --strong: the directory holding the organism "
+                         "checkouts as siblings (default: the Mind's parent)")
+    rc.add_argument("--pr-cache", default="",
+                    help="with --strong: a JSON list of merged PRs "
+                         "({repo, number, merged_at, title, body}) to read")
+
+    ls = sub.add_parser("looks-shipped",
+                        help="the close-out guard: flag open drafts with "
+                             "STRONG evidence they already shipped (witness "
+                             "test now defined, a commit naming the draft, a "
+                             "complete/ record duplicating it); --apply writes "
+                             "looks_shipped.json — never anything under draft/")
+    ls.add_argument("prefix", nargs="?", default="",
+                    help="only scan drafts under this path prefix")
+    ls.add_argument("--root", default="",
+                    help="the directory holding the organism checkouts as "
+                         "siblings (default: the Mind's parent); absent "
+                         "checkouts are skipped")
+    ls.add_argument("--pr-cache", default="",
+                    help="a JSON list of merged PRs ({repo, number, merged_at, "
+                         "title, body}); optional, offline")
+
     a = ap.parse_args(argv)
     mind = Path(a.mind)
+
+    if a.cmd == "looks-shipped":
+        root = Path(a.root) if a.root else mind.resolve().parent
+        res = _shipped.detect(mind, root, prefix=a.prefix,
+                              pr_cache=Path(a.pr_cache) if a.pr_cache else None)
+        written = _shipped.write(mind, res) if a.apply else None
+        if a.as_json:
+            print(json.dumps({**res, "written": written}, indent=2))
+        else:
+            _shipped.emit(res, written)
+        return 0
 
     if a.cmd == "formalise":
         res = formalise(mind, prefix=a.prefix, apply=a.apply)
@@ -4051,7 +4193,23 @@ def main(argv=None):
                     "when": _dt.date.today().isoformat()}
         res = reconcile(mind, prefix=a.prefix, source_reader=reader,
                         upstream_meta=meta)
-        print(json.dumps(res, indent=2)) if a.as_json else emit_reconcile(res)
+        if a.strong:
+            root = Path(a.root) if a.root else mind.resolve().parent
+            strong = _shipped.detect(
+                mind, root, prefix=a.prefix,
+                pr_cache=Path(a.pr_cache) if a.pr_cache else None)
+            res["looks_shipped"] = strong
+            # A strong flag outranks every vocabulary band for the same prompt.
+            flagged = {f["path"] for f in strong["flags"]}
+            res["suspects"] = [s for s in res["suspects"]
+                               if s["path"] not in flagged]
+        if a.as_json:
+            print(json.dumps(res, indent=2))
+        else:
+            if a.strong:
+                _shipped.emit(res["looks_shipped"])
+                print()
+            emit_reconcile(res)
         return 0
 
     if a.cmd == "census":

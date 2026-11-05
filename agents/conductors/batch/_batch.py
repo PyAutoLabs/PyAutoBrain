@@ -55,6 +55,14 @@ from _sizing import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
+# The close-out guard's reader (intake `looks-shipped`): the live flags minus
+# human dismissals. Loaded by path — a plain `import _shipped` would also work
+# once intake's directory is on sys.path, but this keeps the batch planner from
+# shadowing anything else of that name.
+_shipped_spec = importlib.util.spec_from_file_location(
+    "_shipped_for_batch", BRAIN / "agents" / "conductors" / "intake" / "_shipped.py")
+_shipped = importlib.util.module_from_spec(_shipped_spec)
+_shipped_spec.loader.exec_module(_shipped)
 
 # One slot's worth of the human's attention, and only the DEFAULT: the human
 # sets it per slot with --budget, because they know whether the next one is a
@@ -159,11 +167,16 @@ def survey(mind: Path) -> list[dict]:
     """Grade every backlog prompt. Epic membership rides along for the
     one-slice-per-epic rule."""
     out = []
+    # Backpressure from the close-out guard: a draft with strong evidence that
+    # its work already shipped waits for a human to close or dismiss it. The
+    # 2026-11-05-am batch proposed two shipped tasks; this is the stop.
+    flagged = _shipped.flagged_paths(mind)
     for f in sorted(mind.glob("draft/**/*.md")):
         if f.name == "README.md":
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
         g = grade(f, mind)
+        g["looks_shipped"] = f.relative_to(mind).as_posix() in flagged
         g["epic"] = _epic_of(text)
         g["phase"] = _phase_of(text)
         g["done"] = _is_done(text)
@@ -317,6 +330,9 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         # which is the failure the whole epic exists to remove.
         if r.get("done"):
             rejected.append((r["path"], "Status: says the work is already done"))
+        elif r.get("looks_shipped"):
+            rejected.append((r["path"], "looks shipped — confirm (close) or "
+                             f"dismiss it ({_shipped.DISMISS_FILE}) first"))
         elif r.get("epic") and r.get("phase", float("inf")) > next_phase.get(
                 r["epic"], float("inf")):
             rejected.append((r["path"],

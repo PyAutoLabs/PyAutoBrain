@@ -34,6 +34,18 @@
 #                                `needs-review` band; never says shipped. A target
 #                                that is not one repo (workspaces, priors, …) is
 #                                refused, not guessed.
+#     --strong                   ALSO run the close-out guard's strong legs
+#                                (below) and list them first, graded above
+#                                every vocabulary band
+#   intake looks-shipped [prefix]
+#                                the close-out guard: flag open drafts with
+#                                STRONG evidence they shipped — a witness test
+#                                now defined, a commit on an organism main
+#                                naming the draft, a complete/ record that
+#                                duplicates it. --root DIR (sibling checkouts;
+#                                default the Mind's parent), --pr-cache FILE.
+#                                --apply writes looks_shipped.json (never
+#                                draft/); dismiss in looks_shipped_dismissed.md
 #
 # Flags (place before the subcommand; both default OFF):
 #   --apply    write the formal prompt file(s) / dashboard.md; else dry-run only
@@ -55,7 +67,7 @@ apply=0
 forward=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,58p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --json) as_json=1; shift ;;
     --apply) apply=1; shift ;;
     *) forward+=("$1"); shift ;;
@@ -71,7 +83,7 @@ fi
 # A bare first token that is not a known subcommand -> classify mode on the rest,
 # so `intake "raw idea"` and `intake --file p.md` both work as the front door.
 case "${forward[0]}" in
-  classify|ideas|census|dashboard|formalise|reconcile) ;;
+  classify|ideas|census|dashboard|formalise|reconcile|looks-shipped) ;;
   *) forward=(classify "${forward[@]}") ;;
 esac
 

@@ -51,6 +51,7 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 | **One slice per epic per batch** | epic phases are ordered, so two members could not run in parallel anyway — and this is what interleaves small pieces of long programmes with standalone work |
 | **`Unattended: ready` only** | `needs-slicing` goes to the decomposition pass (`batch slice`); `never` never enters a batch |
 | **Lane match** | a session detects its own lane and plans only that one |
+| **Not `looks-shipped`** | a draft the close-out guard (`intake looks-shipped`) flagged with strong evidence that its work already shipped waits until a human closes it or lists it in `PyAutoMind/looks_shipped_dismissed.md`; the flags are read from `PyAutoMind/looks_shipped.json` at plan time, so a dismissal takes effect at once. The 2026-11-05-am batch proposed two shipped drafts. |
 | **Backpressure** | see below |
 | **Brief scope** | under a shift brief, only its named tasks and the backlog its dip policy covers run; anything else is a dispatch outside the launch, which "What a batch launch is" forbids (`AUTONOMY.md`, 2026-11-03) |
 | **Merge cap** | unattended `glance` merges stop at the brief's `merge-cap:`; each merge moves `main` and stales the next member's evidence, and the cap bounds what one unread shift can change |
