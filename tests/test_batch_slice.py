@@ -29,10 +29,10 @@ PARENT = "draft/feature/autofit/big_thing.md"
 HEADER = """# A big thing
 
 Type: feature
-Target: PyAutoFit
+Target: PyAutoThing
 Repos:
-- PyAutoFit
-- autofit_workspace
+- PyAutoThing
+- autothing_workspace
 Themes:
 - mind-workflow
 Difficulty: too-large
@@ -47,13 +47,13 @@ Do a great deal of work.
 
 """
 
-LIB = ("1. **Library core.** Add the thing. *Repos:* PyAutoFit\n"
+LIB = ("1. **Library core.** Add the thing. *Repos:* PyAutoThing\n"
        "   *Witness:* `pytest test_autofit/thing` passes. *Consequence:* glance.\n")
-WS = ("2. **Workspace example.** Show it in autofit_workspace. *Witness:* the\n"
+WS = ("2. **Workspace example.** Show it in autothing_workspace. *Witness:* the\n"
       "   example runs in smoke. *Depends:* 1\n")
-DOCS = ("3. **Docs page.** Document it in autofit_workspace. *Witness:* the docs "
+DOCS = ("3. **Docs page.** Document it in autothing_workspace. *Witness:* the docs "
         "build passes. *Depends:* 1\n")
-NO_WITNESS = "3. **Tidy up.** Clean the rest of PyAutoFit. *Repos:* PyAutoFit\n"
+NO_WITNESS = "3. **Tidy up.** Clean the rest of PyAutoThing. *Repos:* PyAutoThing\n"
 
 
 def mind(tmp_path: Path, slices: str, *, epics: str = "# Epics\n") -> Path:
@@ -80,20 +80,20 @@ def test_two_children_with_explicit_seams(tmp_path, capsys):
     assert rc == 0 and d["ok"], d
     assert [c["index"] for c in d["children"]] == [1, 2]
     one, two = d["children"]
-    assert one["repos"] == ["PyAutoFit"]
-    assert two["repos"] == ["autofit_workspace"]   # named in the item's text
+    assert one["repos"] == ["PyAutoThing"]
+    assert two["repos"] == ["autothing_workspace"]   # named in the item's text
     assert "before slice 2" in one["seam"]
     assert "after slice 1" in two["seam"] and "slice(s) 1 merged" in two["seam"]
     assert "Witness: `pytest test_autofit/thing` passes." in one["text"]
     assert "Epic: big-thing" in two["text"] and "Phase: 2" in two["text"]
-    assert "Target: autofit_workspace" in two["text"]
+    assert "Target: autothing_workspace" in two["text"]
     assert "## Seam" in one["text"]
     assert d["written"] == []
     assert not (root / one["path"]).exists()        # proposal writes nothing
 
 
 def test_four_children_accepted(tmp_path, capsys):
-    four = LIB + WS + DOCS + ("4. **Second docs page.** In autofit_workspace. "
+    four = LIB + WS + DOCS + ("4. **Second docs page.** In autothing_workspace. "
                               "*Witness:* the page renders.\n")
     rc, d = run(mind(tmp_path, four), capsys=capsys)
     assert rc == 0 and len(d["children"]) == 4
@@ -111,8 +111,8 @@ def test_a_child_with_no_witness_is_refused(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("slices", [LIB, LIB + WS + DOCS + (
-    "4. **Four.** In PyAutoFit. *Witness:* a. \n"
-    "5. **Five.** In PyAutoFit. *Witness:* b.\n")])
+    "4. **Four.** In PyAutoThing. *Witness:* a. \n"
+    "5. **Five.** In PyAutoThing. *Witness:* b.\n")])
 def test_fewer_than_two_or_more_than_four_is_refused(tmp_path, capsys, slices):
     rc, d = run(mind(tmp_path, slices), capsys=capsys)
     assert rc == 1
@@ -205,6 +205,6 @@ def test_intake_offers_slice_only_for_needs_slicing():
     offer = intake.slice_offer("draft/feature/x/y.md", "needs-slicing")
     assert "pyauto-brain batch slice draft/feature/x/y.md" in offer
     assert intake.slice_offer("draft/feature/x/y.md", "ready") == ""
-    d = intake.analyse("Type: feature\nTarget: PyAutoFit\nUnattended: needs-slicing"
-                       "\n\nBuild a huge thing across PyAutoFit.\n", "test")
+    d = intake.analyse("Type: feature\nTarget: PyAutoThing\nUnattended: needs-slicing"
+                       "\n\nBuild a huge thing across PyAutoThing.\n", "test")
     assert "batch slice" in d["slice_offer"]

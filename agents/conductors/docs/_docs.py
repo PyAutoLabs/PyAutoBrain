@@ -50,8 +50,8 @@ SURFACE_LABELS = {
 }
 
 # Surface signals, checked in this precedence order: an explicit agent file or
-# README beats a generic "tutorial" word ("rewrite the HowToLens README" is a
-# README job; "a HowToLens chapter" is a tutorial).
+# README beats a generic "tutorial" word ("rewrite the <howto repo> README" is
+# a README job; "a <howto repo> chapter" is a tutorial).
 SURFACE_SIGNALS = (
     ("agent", ("agents.md", "claude.md", "skill.md", "skills/", "wiki/core",
                "agent-facing", "agent facing", "agent instructions",
@@ -71,41 +71,12 @@ SURFACE_SIGNALS = (
 HOWTO_HINT_WORDS = ("howto", "chapter", "beginner", "undergrad", "first-time",
                     "first time", "lesson", "course", "learner")
 
-# Built-in body map (name -> category), used when PyAutoMind/repos.yaml is not
-# on disk. When it is, its entries are merged in and win.
-BUILTIN_REPOS = {
-    **{r: "organ" for r in (
-        "PyAutoBrain", "PyAutoMind", "PyAutoCortex", "PyAutoMemory",
-        "PyAutoEyes", "PyAutoEars", "PyAutoHeart", "PyAutoHands",
-        "PyAutoPulse", "PyAutoInsight", "PyAutoNerves", "PyAutoGut")},
-    **{r: "library" for r in (
-        "PyAutoFit", "PyAutoArray", "PyAutoGalaxy", "PyAutoLens",
-        "PyAutoReduce", "PyAutoCTI")},
-    **{f"{p}_workspace": "workspace" for p in (
-        "autofit", "autogalaxy", "autolens", "autocti", "autoreduce")},
-    **{r: "howto" for r in ("HowToFit", "HowToGalaxy", "HowToLens")},
-    **{f"{p}_assistant": "assistant" for p in (
-        "autocti", "autofit", "autogalaxy", "autolens", "euclid")},
-    "PyAutoScientist": "umbrella",
-}
-
-# Repos whose people-facing pages are kept in step: a structural change to one
-# README (sections, order, template) is mirrored across the set.
-STEP_GROUPS = {
-    "assistant": ["autolens_assistant", "autofit_assistant",
-                  "autogalaxy_assistant", "autocti_assistant"],
-    "workspace": ["autofit_workspace", "autogalaxy_workspace",
-                  "autolens_workspace", "autocti_workspace",
-                  "autoreduce_workspace"],
-    "howto": ["HowToFit", "HowToGalaxy", "HowToLens"],
-    "library": ["PyAutoFit", "PyAutoArray", "PyAutoGalaxy", "PyAutoLens",
-                "PyAutoCTI", "PyAutoReduce"],
-}
-
-# Bare family words -> repo per surface (Read the Docs lives in the library).
-FAMILY_LIBRARY = {"autofit": "PyAutoFit", "autogalaxy": "PyAutoGalaxy",
-                  "autolens": "PyAutoLens", "autoarray": "PyAutoArray",
-                  "autocti": "PyAutoCTI", "autoreduce": "PyAutoReduce"}
+# Categories whose people-facing pages are kept in step: a structural change
+# to one README (sections, order, template) is mirrored across the category.
+# Membership is read from the body map (PyAutoMind/repos.yaml), never listed
+# here — naming instance repos in organ code is what the tenant firewall
+# catches.
+STEP_CATEGORIES = ("assistant", "workspace", "howto", "library")
 
 
 def fail(code, msg):
@@ -191,7 +162,8 @@ def read_intent(arg):
 
 
 def known_repos():
-    repos = dict(BUILTIN_REPOS)
+    """name -> category from the body map; empty when it is not on disk."""
+    repos = {}
     manifest = repo_path(PYAUTO_ROOT, "PyAutoMind") / "repos.yaml"
     try:
         text = manifest.read_text(encoding="utf-8")
@@ -201,6 +173,22 @@ def known_repos():
                          text, re.M):
         repos[m.group(1)] = m.group(2)
     return repos
+
+
+def step_groups(repos):
+    return {c: [r for r, cat in repos.items() if cat == c] for c in STEP_CATEGORIES}
+
+
+def family_libraries(repos):
+    """Bare family word -> library repo ('PyAutoThing' -> 'autothing'), derived
+    from the body map's library entries."""
+    out = {}
+    for r, cat in repos.items():
+        if cat == "library":
+            m = re.match(r"(?i)py(auto\w+)$", r)
+            if m:
+                out[m.group(1).lower()] = r
+    return out
 
 
 def _norm(s):
@@ -221,7 +209,7 @@ def detect_repo(text, repos):
              if re.search(rf"(?<![a-z0-9]){re.escape(r.lower())}(?![a-z0-9])", low)]
     if found:
         return max(found, key=len), "explicit"
-    for fam, lib in FAMILY_LIBRARY.items():
+    for fam, lib in family_libraries(repos).items():
         if re.search(rf"\b{fam}\b", low):
             return lib, f"family word '{fam}'"
     return None, None
@@ -248,7 +236,8 @@ def move_targets(surface, category):
                "(rule 1)"]
         if category == "assistant":
             out.append("prices, free tiers and supported agents -> link "
-                       "PyAutoScientist/AI_OPTIONS.md, never restate (rule 5)")
+                       "the one shared AI-options page WRITING_STYLE.md rule 5 "
+                       "names, never restate (rule 5)")
         out.append("agent-only instructions -> a short collapsed <details> "
                    "block at the bottom (rule 10)")
         return out
@@ -287,7 +276,7 @@ def build_decision(args):
                 "AGENTS.md) and the repo")
     if target is None:
         fail(4, f"surface '{surface}' resolved but no target repo — name the "
-                "repo (e.g. autolens_assistant, PyAutoLens, HowToLens)")
+                "repo by its name in PyAutoMind/repos.yaml")
     if how and how.startswith("family word") and surface in ("readme", "setup"):
         notes.append(f"resolved {how} to the library {target}; name the "
                      "*_assistant or *_workspace repo explicitly if you meant "
@@ -313,7 +302,7 @@ def build_decision(args):
         template = []
 
     siblings = []
-    group = STEP_GROUPS.get(category or "")
+    group = step_groups(repos).get(category or "")
     if group and target in group and surface in ("readme", "setup"):
         siblings = [r for r in group if r != target]
         if category == "assistant" and surface == "readme":
@@ -639,7 +628,7 @@ def audit_page(path, page_kind):
     results.append(check(
         "changeable_facts", "rule 5 / checklist 3", "heuristic", not phits,
         f"{len(phits)} line(s) state a price or tier" if phits else "no prices or tiers stated",
-        [f"line {ln}: link the one shared page (e.g. PyAutoScientist/AI_OPTIONS.md) "
+        [f"line {ln}: link the one shared page (WRITING_STYLE.md rule 5) "
          "instead of restating the price/tier" for ln in phits[:8]]))
 
     # 9. Dense paragraphs — heuristic word count.

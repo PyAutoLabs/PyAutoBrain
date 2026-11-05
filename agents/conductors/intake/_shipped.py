@@ -233,7 +233,7 @@ def flagged_paths(mind: Path) -> set:
 def _norm(name: str) -> str:
     """Repo identity folding, aligned with the sizing faculty when it loads.
 
-    `autoarray`, `PyAutoArray` and `pyautoarray` must meet: the draft folder is
+    `autothing`, `PyAutoThing` and `pyautothing` must meet: the draft folder is
     the package name, the checkout directory is the repo name.
     """
     try:

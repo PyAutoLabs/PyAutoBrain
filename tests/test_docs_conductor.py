@@ -1,7 +1,8 @@
 """Contract tests for the Documentation conductor's CLI footing.
 
-Hermetic: PYAUTO_ROOT points at an empty temp root (so the built-in body map is
-used and no real checkout is read), and audits run on fabricated pages. The
+Hermetic: PYAUTO_ROOT points at a temp root holding only a fixture body map
+(invented repo names — the tenant firewall keeps instance facts out of organ
+code, tests included), so no real checkout is read, and audits run on fabricated pages. The
 conductor is read-only — test_never_writes asserts it explicitly.
 """
 
@@ -60,7 +61,27 @@ If you are an AI agent, read AGENTS.md first.
 """
 
 
+FIXTURE_REPOS = {
+    "PyAutoHeart": "organ",
+    "PyAutoAlpha": "library", "PyAutoBeta": "library",
+    "autoalpha_workspace": "workspace", "autobeta_workspace": "workspace",
+    "HowToAlpha": "howto", "HowToBeta": "howto", "HowToGamma": "howto",
+    "autoalpha_assistant": "assistant", "autobeta_assistant": "assistant",
+    "autogamma_assistant": "assistant", "autodelta_assistant": "assistant",
+}
+
+
+def _body_map(root):
+    manifest = root / "PyAutoMind" / "repos.yaml"
+    if not manifest.exists():
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("repos:\n" + "".join(
+            f"  {name}:\n    github: Org/{name}\n    category: {cat}\n"
+            for name, cat in FIXTURE_REPOS.items()))
+
+
 def _run(args, root):
+    _body_map(root)
     env = {**os.environ, "PYAUTO_ROOT": str(root)}
     return subprocess.run(
         [str(BRAIN), "docs", *args], capture_output=True, text=True, env=env,
@@ -74,39 +95,39 @@ def _decide(text, root):
 
 
 def test_assistant_readme_decision_is_complete(tmp_path):
-    d = _decide("rewrite the autolens assistant README in the new style", tmp_path)
+    d = _decide("rewrite the autoalpha assistant README in the new style", tmp_path)
     assert set(d) == DECISION_KEYS
     assert d["surface"] == "readme"
-    assert d["target_repo"] == "autolens_assistant"
+    assert d["target_repo"] == "autoalpha_assistant"
     assert d["writing_style_applies"] is True
     assert d["style_guide"].endswith("skills/WRITING_STYLE.md")
     # The template is parsed from the guide, not restated.
     assert d["page_template"][:2] == ["a title", "an image"]
     assert "License" in d["page_template"]
     assert set(d["siblings_in_step"]) == {
-        "autofit_assistant", "autogalaxy_assistant", "autocti_assistant"}
-    assert any("AI_OPTIONS.md" in m for m in d["move_long_material_to"])
+        "autobeta_assistant", "autogamma_assistant", "autodelta_assistant"}
+    assert any("rule 5" in m for m in d["move_long_material_to"])
     assert d["checklist"]
     assert d["deferred_to"] is None
 
 
 def test_setup_page_uses_setup_template(tmp_path):
-    d = _decide("new setup page for Codex in autofit_assistant", tmp_path)
+    d = _decide("new setup page for Codex in autobeta_assistant", tmp_path)
     assert d["surface"] == "setup"
     assert "What it costs" in d["page_template"]
     assert any(s.startswith("Next steps") for s in d["page_template"])
 
 
 def test_rtd_page_uses_journey_order(tmp_path):
-    d = _decide("Read the Docs page on PyAutoFit samplers", tmp_path)
+    d = _decide("Read the Docs page on PyAutoBeta samplers", tmp_path)
     assert d["surface"] == "rtd"
-    assert d["target_repo"] == "PyAutoFit"
+    assert d["target_repo"] == "PyAutoBeta"
     assert d["page_template"][0] == "What it is"
     assert any("no Read the Docs template" in n for n in d["notes"])
 
 
 def test_tutorial_is_deferred_to_workspace_conductor(tmp_path):
-    d = _decide("a HowToLens chapter tutorial on mass profiles", tmp_path)
+    d = _decide("a HowToAlpha chapter tutorial on mass profiles", tmp_path)
     assert d["surface"] == "tutorial"
     assert d["writing_style_applies"] is False
     assert d["style_guide"].endswith("TUTORIAL_WRITING_STYLE.md")
@@ -117,14 +138,14 @@ def test_tutorial_is_deferred_to_workspace_conductor(tmp_path):
 
 
 def test_workspace_register_hint_for_reference_examples(tmp_path):
-    d = _decide("an example script notebook for autolens_workspace", tmp_path)
+    d = _decide("an example script notebook for autoalpha_workspace", tmp_path)
     assert d["deferred_to"]["register_hint"] == "workspace"
 
 
 def test_readme_beats_tutorial_and_flags_mixed(tmp_path):
-    d = _decide("rewrite the HowToLens README with a tutorial walkthrough", tmp_path)
+    d = _decide("rewrite the HowToAlpha README with a tutorial walkthrough", tmp_path)
     assert d["surface"] == "readme"
-    assert d["siblings_in_step"] == ["HowToFit", "HowToGalaxy"]
+    assert d["siblings_in_step"] == ["HowToBeta", "HowToGamma"]
     assert "TUTORIAL_WRITING_STYLE.md" in d["style_guide"]
     assert any("mixed document" in n for n in d["notes"])
 
@@ -141,10 +162,10 @@ def test_agent_facing_file_does_not_apply_style(tmp_path):
 def test_plan_reads_a_mind_prompt_path(tmp_path):
     prompt = tmp_path / "PyAutoMind" / "draft" / "docs" / "assistants" / "x.md"
     prompt.parent.mkdir(parents=True)
-    prompt.write_text("# Assistant README\n\nRewrite the autogalaxy_assistant README.\n")
+    prompt.write_text("# Assistant README\n\nRewrite the autogamma_assistant README.\n")
     d = _decide("draft/docs/assistants/x.md", tmp_path)
     assert d["prompt_path"] == str(prompt)
-    assert d["target_repo"] == "autogalaxy_assistant"
+    assert d["target_repo"] == "autogamma_assistant"
 
 
 def test_unresolvable_exits_4_and_no_intent_exits_5(tmp_path):
@@ -156,7 +177,7 @@ def test_unresolvable_exits_4_and_no_intent_exits_5(tmp_path):
 
 
 def test_text_output_names_the_decision(tmp_path):
-    r = _run(["rewrite the autolens assistant README"], tmp_path)
+    r = _run(["rewrite the autoalpha assistant README"], tmp_path)
     assert r.returncode == 0
     assert "DocsDecision" in r.stdout
     assert "Siblings in step:" in r.stdout
@@ -233,8 +254,9 @@ def test_audit_missing_page_exits_4(tmp_path):
 def test_never_writes(tmp_path):
     page = tmp_path / "README.md"
     page.write_text(BAD_README)
+    _body_map(tmp_path)
     before = sorted((str(p), p.stat().st_mtime_ns) for p in tmp_path.rglob("*"))
-    _run(["rewrite the autolens assistant README"], tmp_path)
+    _run(["rewrite the autoalpha assistant README"], tmp_path)
     _run(["audit", str(page)], tmp_path)
     after = sorted((str(p), p.stat().st_mtime_ns) for p in tmp_path.rglob("*"))
     assert before == after
