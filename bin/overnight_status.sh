@@ -20,9 +20,8 @@ have_gh || { echo "overnight_status: cannot fetch run status" >&2; require_gh ov
 
 # owner/repo:workflow-file  (owner defaults to PyAutoLabs when omitted). The
 # passive morning webhooks (morning_health / morning_status) are excluded.
-# The Brain board renders this same sweep on Pages (board/_board.py reads the
-# list from config/policy.yaml `board: overnight_jobs`) — keep the two lists
-# in step until this script reads that block too.
+# This list is the only copy: the Brain board retired its overnight sweep (and
+# `board: overnight_jobs` with it) when activity review moved to Scientist.
 JOBS=(
   "PyAutoBrain:nightly-release.yml"
   "PyAutoHeart:heart-health.yml"

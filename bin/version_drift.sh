@@ -43,10 +43,9 @@ else
 fi
 echo
 
-# repo:path — the coupled release-train stamps (libraries only). The Brain
-# board renders this same check on Pages (board/_board.py reads the list from
-# the release contract) — keep this utility independent of the Brain page
-# until this script reads that block too. The
+# repo:path — the coupled release-train stamps (libraries only). This list is
+# the only copy: the Brain board no longer collects versions (and
+# `board: version_stamps` was retired with it). The
 # charge-transfer (CTI) calibration stack is intentionally excluded: it is
 # not on the coupled train and carries its own version line. Workspaces
 # carry no stamp since the floors-are-authoritative redesign dropped
