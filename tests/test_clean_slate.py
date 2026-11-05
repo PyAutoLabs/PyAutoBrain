@@ -11,6 +11,7 @@ PROVENANCE = BRAIN_HOME / "bin" / "dataset_provenance.py"
 
 # clean_slate.sh only sweeps datasets in the repos it knows are workspaces.
 DATASET_REPO = "autolens_workspace"
+PACKAGING_REPO = "PyAutoGalaxy"
 
 
 def _init_repo(root, name, ignore="*.egg-info/\nbuild/\n"):
@@ -338,6 +339,8 @@ def test_provenance_helper_failure_aborts_the_sweep(tmp_path):
     broken.mkdir()
     (broken / "dataset_provenance.py").write_text("import sys\nsys.exit(3)\n")
     (broken / "clean_slate.sh").write_text(CLEAN_SLATE.read_text())
+    # The copy resolves checkouts through the real shared resolver.
+    (broken / "_repo_paths.sh").symlink_to(CLEAN_SLATE.parent / "_repo_paths.sh")
 
     env = {**os.environ, "PYAUTO_ROOT": str(tmp_path)}
     result = subprocess.run(
@@ -362,3 +365,26 @@ def test_unparseable_script_warns_without_crashing_the_sweep(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "WARN unparseable" in result.stderr
     assert not dataset.exists()
+
+
+def test_packaging_reaches_repos_grouped_under_a_family_directory(tmp_path):
+    """The workspace groups repos (`fit/PyAutoFit`); a root `*/` glob saw none
+    of them, so every scope silently found nothing (PyAutoBrain#586)."""
+    family = tmp_path / "grp"
+    family.mkdir()
+    repo = _init_repo(family, PACKAGING_REPO)
+    _write(repo / f"{PACKAGING_REPO.lower()}.egg-info")
+
+    result = _run(tmp_path, dry_run=True)
+
+    assert result.returncode == 0, result.stderr
+    assert f"=== grp/{PACKAGING_REPO} ===" in result.stdout
+    assert ".egg-info/" in result.stdout
+    assert (repo / f"{PACKAGING_REPO.lower()}.egg-info").exists()  # dry run
+
+
+def test_no_resolved_checkout_is_an_error_not_a_silent_no_op(tmp_path):
+    result = _run(tmp_path, dry_run=True)
+
+    assert result.returncode == 1
+    assert "no checkouts resolved" in result.stderr
