@@ -296,7 +296,15 @@ workers are ever launched there.
 write `~/.config/pyauto/orchestrator.env` with `PYAUTO_BRAIN`, `PYAUTO_MIND`,
 `PYAUTO_SHIFT_BRIEF` (and `PYAUTO_ORCHESTRATOR_FAKE=1` until 3b), then
 `systemctl --user daemon-reload && systemctl --user enable --now
-pyauto-orchestrator.timer`. To stop a shift, `touch <slot>/STOP`; to remove the
+pyauto-orchestrator.timer`. The service carries `KillMode=process`: under the
+default (`control-group`) systemd killed every process a tick started when the
+tick exited, including the `claude --bg` daemon the first worker launched, so
+live shift 1 (2026-11-06) lost all three workers about 30 seconds after spawn
+(PyAutoBrain#592). A copy installed before then must be copied again
+(`daemon-reload`). Separately, a worker or close-out whose `claude agents`
+state is in `_digest.ENDED_STATES` (`failed`, `killed`, `error`, …) is reaped
+at once, as a crash (worker, re-dispatched once) or a refusal (close-out),
+never read as alive. To stop a shift, `touch <slot>/STOP`; to remove the
 watcher, `systemctl --user disable --now pyauto-orchestrator.timer`.
 
 ## Running

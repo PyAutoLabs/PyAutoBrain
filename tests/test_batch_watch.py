@@ -169,6 +169,13 @@ def test_before_dispatched_the_header_says_not_yet_open(tmp_path):
     assert "not yet open — opens in 45m" in text
 
 
+def test_an_ended_worker_shows_as_ended_not_running(tmp_path):
+    brief, slot = _record(tmp_path), _live_slot(tmp_path)
+    text = _watch.render(_watch.snapshot(brief, slot, NOW, agents=Agents({"a1": "failed"}),
+                                         health=_health))
+    assert "- running — ended (failed, agent a1) — the next tick reaps it as a crash" in text
+
+
 def test_time_left_formats():
     at = NOW + _dt.timedelta(minutes=7)
     assert _watch._time_left(NOW, at) == "7m left"

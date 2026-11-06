@@ -24,6 +24,7 @@ BATCH = BRAIN / "agents" / "conductors" / "batch"
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 sys.path.insert(0, str(BATCH))
 import _brief  # noqa: E402
+import _digest  # noqa: E402
 import _orchestrator as orch  # noqa: E402
 
 NOW = _dt.datetime(2026, 11, 4, 9, 0, tzinfo=_dt.timezone.utc)
@@ -237,6 +238,46 @@ def test_done_without_its_marker_is_a_crash(tmp_path):
     assert r["reaped"][0]["event"] == "dead"
     assert [s["task"] for s in r["spawned"]] == ["t1"]       # the one re-dispatch
     assert orch.read_counters(slot)["crashes"] == 1
+
+
+@pytest.mark.parametrize("state", ["failed", "killed", "error"])
+def test_an_ended_worker_is_a_crash_at_once_and_redispatched(tmp_path, state):
+    """PyAutoBrain#592: systemd killed three workers; `claude agents` said
+    `failed` and the watcher read them as alive for 40 minutes."""
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, mind, home, NOW, claude, grace_s=3600)
+    # Well inside the lease grace: an ended session can never write a late .done.
+    r = _tick(brief, mind, home, NOW + _dt.timedelta(minutes=3), claude,
+              agents=_agents({"t1": state}, slot), tokens=lambda s: 7, grace_s=3600)
+    assert r["reaped"] == [{"task": "t1", "event": "dead", "redispatch": "allowed"}]
+    assert [s["task"] for s in r["spawned"]] == ["t1"]
+    c = orch.read_counters(slot)
+    assert c["crashes"] == 1 and c["redispatched"] == {"t1": 1} and c["tokens"] == 7
+
+
+def test_an_ended_worker_with_its_done_marker_still_counts_as_done(tmp_path):
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, mind, home, NOW, claude)
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/5\n")
+    r = _tick(brief, mind, home, NOW + _dt.timedelta(minutes=3), claude,
+              agents=_agents({"t1": "failed"}, slot))
+    assert r["reaped"][0]["event"] == "done"
+    assert orch.read_counters(slot)["crashes"] == 0
+
+
+def test_ended_states_are_the_digests():
+    assert orch.ENDED_STATES is _digest.ENDED_STATES and "failed" in orch.ENDED_STATES
+    assert "working" not in orch.ENDED_STATES and "blocked" not in orch.ENDED_STATES
+
+
+def test_the_unit_template_keeps_workers_alive_after_the_tick():
+    unit = (BRAIN / "bin" / "systemd" / "pyauto-orchestrator.service").read_text()
+    lines = [l.strip() for l in unit.splitlines() if not l.strip().startswith("#")]
+    assert "KillMode=process" in lines and "Type=oneshot" in lines
 
 
 def test_a_vanished_worker_waits_out_the_lease_grace(tmp_path):
