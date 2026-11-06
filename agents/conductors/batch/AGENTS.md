@@ -285,6 +285,18 @@ watcher's own: one `claude agents --json` per refresh, only on a live shift
 holding real worker leases, and `gh pr checks` for unmerged PRs, cached for the
 interval.
 
+**Late arrivals (PyAutoBrain#594).** A worker may finish after `review-at:`,
+once the digest is posted. A closed shift with a lease still held or a ledger op
+still queued runs `late_sweep` on each tick: it reaps as a live tick does,
+commits the queued ops through the one Mind writer, and appends one
+`- late: <task> — <url> (after review-at, <time>)` line per arrival to the record
+under `### Late arrivals`. It never spawns, re-dispatches, starts a close-out
+or posts a second comment, because the grant ended at `review-at:` and what
+arrives late waits for `/prm`. With nothing pending, the tick is idle. The worker
+prompt also forbids EnterWorktree (its permission prompt stalls an unattended
+worker) and requires the `decision-taken` label on any PR carrying a flagged
+decision (pilot live shift 1, 2026-11-06).
+
 **Workers start in a trusted folder.** `claude --bg` refuses an untrusted one
 at once ("Workspace not trusted", exit 1) — the spawn fails and leaves no lease.
 The watcher launches from the workspace root; task worktrees under the
