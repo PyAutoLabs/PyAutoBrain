@@ -455,3 +455,28 @@ dashboard: regenerated (dashboard.md + dashboard.html, same commit as the record
   standing: draft/bug/priors/14_replace_transform_stack_with_bijectors.md — resemblance only
             → /intake reconcile draft/bug/priors
 ```
+
+## Why the wait ends with the turn
+
+A mobile `/prm` that armed a subscription and an hourly check-in kept renewing it all night with no task active and drained a day's usage (2026-09-03, 02:39 → 12:11 UTC); five batch members did the same on 2026-08-31.
+
+## Notes (moved from prm.md)
+
+
+- `/prm` merges an **existing** PR. No PR yet → `/ship_library` or
+  `/ship_workspace` first; `/prm` will say so rather than opening one. The one
+  exception is Mind's own close-out commit, which needs no PR at all: pushing
+  the branch is what lands it (step 5.4).
+- It never bypasses the Heart readiness gate — that ran at ship time, and a red
+  Heart is not something a merge shortcut may re-judge. The **freeze** flag
+  (step 4) is a different thing and does not re-run anything: readiness answers
+  "is the organism healthy", the freeze answers "is a validation window open
+  right now". Merge stops being a human-typed act only where a declared
+  `notify` / witnessed `glance` tier and an approved plan or launch grant it
+  ("Tiered merge"); otherwise `/prm` is a human-typed door, never
+  invoked by the `--auto` queue.
+- A task with no issue, no Mind prompt, or no worktree (a direct wiring change,
+  say) skips those sub-steps and says so — not an error. That licence does **not**
+  extend to the dashboard regen, skippable only where the close-out wrote nothing
+  to Mind at all: re-rendering a current tree is a clean-`git status` no-op, so
+  when in doubt run it.

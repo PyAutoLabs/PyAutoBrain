@@ -218,3 +218,50 @@ Resume metadata must describe the active harness. Record `codex resume <id>` or
 `claude --resume <id>` only when that harness and its real session ID are known;
 otherwise retain the known harness and mark the ID unavailable. Preserve earlier
 session records verbatim when resuming work from another harness.
+
+## Prompt-path edge cases
+
+If the user gives a development task with **no** prompt path, first write a
+concise prompt file under the resolved Mind checkout’s `draft/<work-type>/<target>/` folder
+(include the original request verbatim), then continue with that path. Never
+write one under `human_review/` — that folder is shipped work awaiting a human's
+sign-off, not work to start, and it is filed only by an explicit `/intake`
+declaration.
+
+A `draft/human_review/…` path handed to `/start_dev` is almost certainly a
+mistake: the work it names already shipped. Say so and offer the review (read
+the prompt, find the merged PR and the `complete/` record, report back) instead
+of opening a worktree — unless the user confirms they want new development, in
+which case file that as its own ordinary prompt.
+
+## --auto mode (read only when launched with `--auto`)
+
+Only when the human launches with an explicit `--auto` (never ambient — the
+activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
+
+1. Compute the **effective level** = min(prompt `Autonomy:` header, work-type
+   cap from the contract); missing header → `human-required`.
+2. **`safe`** → skip the Plan-Mode hold: write both plan levels into the issue
+   (step 5 below) and proceed straight through steps 4–7 and into
+   `start_library`/`start_workspace` and implementation. The plan the human
+   would have approved is on the issue for post-hoc validation.
+3. **`supervised`** → the **ship checkpoint does not park**: it resolves to
+   decide-and-flag ([`../../AUTONOMY.md`](../../AUTONOMY.md),
+   "Decide-and-flag") — ship through the autonomous-ship gate, flag the
+   decision in the PR body, and **end at PR-open** (a `decision-taken` PR is
+   never auto-merged, whatever its tier). Every
+   *other* judgment gate — a scope/design fork the plan didn't settle, a second
+   flagged decision, a hard blocker — still becomes a batched issue question
+   with an `awaiting-input` park (the contract's "Checkpoint-and-continue"
+   section: question → park → next independent step or task → resume from
+   `active.md`); mechanical stretches proceed.
+4. **`human-required`** → `--auto` changes nothing; today's flow.
+5. If the human acknowledged a Heart YELLOW reason set at launch, record that
+   exact list in the task's `active.md` entry (`- heart-ack:` block) — the
+   ship gate's leg 4 reads it; it never extends to new reasons.
+
+Everything downstream (`ship_*` under `--auto`) is gated by the four-leg
+autonomous-ship gate and **ends at PR-open** — or, for a declared `notify` /
+witnessed `glance` task, at the in-turn tiered merge, which the `--auto` or
+batch launch approval authorizes (the plan's tier + merge-mode line, step 3).
+Default runs without the flag are unchanged: present-and-wait.
