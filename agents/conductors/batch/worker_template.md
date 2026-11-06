@@ -7,6 +7,14 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
 
 - Work only on {task_path}. The brief above is the launch; read it at the ship
   step for its `heart-ack:` and `expected-effects:`.
+- Never use the EnterWorktree tool. Your task worktree lives outside
+  `.claude/worktrees/`, so entering it raises a permission prompt that nobody
+  is here to answer and you stall (pilot live shift 1, PyAutoBrain#594). Work
+  in the worktree by absolute paths and `cd <worktree> && …` in Bash.
+- If you take any decision the plan did not settle (decide-and-flag), label
+  the PR before you finish: `gh pr edit <url> --add-label decision-taken`.
+  Naming the decision in the PR body or your summary is not enough. The label
+  is what stops an unattended close-out from merging it.
 - End at your deliverable: a PR, a posted verdict, or a park with a question
   on the issue. Never arm anything that outlives your turn (no send_later,
   ScheduleWakeup, CronCreate, RemoteTrigger or /loop) — the watcher keeps time.

@@ -537,6 +537,17 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
                 _drop_lock(slot)
             _log(slot, now, result)
             return result
+        if why.startswith("review-at") and (slot / DIGEST_MARKER).exists() and (
+                leases(slot) or _mind_writer.pending_ops(slot)):
+            if not _take_lock(slot, now):
+                return {"action": "busy", "reason": "another tick holds the lock"}
+            try:
+                result = late_sweep(brief_path, mind, slot, now, grace_s=grace_s,
+                                    agents=agents, tokens=tokens)
+            finally:
+                _drop_lock(slot)
+            _log(slot, now, result)
+            return result
         return {"action": "idle", "reason": why}
 
     (slot / "leases").mkdir(parents=True, exist_ok=True)
@@ -649,6 +660,55 @@ def _record_rel(brief_path: Path, mind: Path) -> str | None:
         return Path(brief_path).resolve().relative_to(Path(mind).resolve()).as_posix()
     except ValueError:
         return None
+
+
+LATE_HEADING = "### Late arrivals"
+
+
+def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
+               grace_s: float = LEASE_GRACE_S, agents=None,
+               tokens=transcript_tokens) -> dict:
+    """A closed shift whose digest is posted, with a worker still out or Mind
+    ops still queued (PyAutoBrain#594: a worker finished 12 minutes after
+    `review-at:` and its `.done` and ledger ops were stranded).
+
+    Reaps as a live tick does and commits the queued ops through the one Mind
+    writer, then names each late arrival in the record under `### Late
+    arrivals`. Never a spawn, a re-dispatch, a close-out or a second comment:
+    the grant ended at `review-at:`, so what arrives late waits for `/prm`."""
+    counters = read_counters(slot)
+    reaped = _reap(slot, counters, now, grace_s, agents, tokens)
+    counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
+    counters.setdefault("late", [])
+    first = not counters["late"]             # the heading goes in once, with the first
+    rel = _record_rel(brief_path, mind)
+    lines = []
+    for e in reaped:
+        task = e["task"]
+        if e["event"] == "done":
+            urls = counters["outcomes"].get(task, {}).get("prs") or []
+            what = ", ".join(urls) or "finished, no PR or issue named in its .done"
+        elif e["event"] == "parked":
+            what = "parked: awaiting-input (blocked on a person)"
+        else:
+            what = "ended without a .done (crashed); not re-dispatched"
+        lines.append(f"- late: {task} — {what} (after review-at, {_iso(now)})")
+        counters["late"].append(task)
+    if rel is not None and lines:
+        head = f"\n{LATE_HEADING}\n" if first else ""
+        _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                              {"op": "append", "path": rel,
+                               "text": head + "\n".join(lines) + "\n"})
+    _write_counters(slot, counters)
+    ledger = {"committed": None, "ops": 0}
+    if _mind_writer.pending_ops(slot):
+        try:
+            ledger = _mind_writer.commit_ledger(
+                slot, mind, f"shift {slot.name}: late arrivals after review-at")
+        except _mind_writer.MindWriteError as e:
+            ledger = {"committed": None, "error": str(e)}
+    return {"action": "late", "reaped": reaped, "late": lines,
+            "ledger": ledger}
 
 
 def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,

@@ -410,3 +410,102 @@ def test_live_sandbox_worker():
     finally:
         subprocess.run(["claude", "stop", agent], capture_output=True, timeout=60)
         subprocess.run(["claude", "rm", agent], capture_output=True, timeout=60)
+
+
+# --- live-shift worker gaps (PyAutoBrain#594) ----------------------------------------
+
+def test_the_worker_prompt_forbids_enterworktree_and_requires_the_decision_label(tmp_path):
+    prompt = orch.session_command("t1", "p.md", tmp_path / "shift.md",
+                                  tmp_path / "leases", "auto")[-1]
+    assert "Never use the EnterWorktree tool" in prompt
+    assert "--add-label decision-taken" in prompt
+
+
+AFTER = NOW + _dt.timedelta(hours=3)          # past review-at 11:30Z
+
+
+def _closed_shift_with_a_late_worker(tmp_path):
+    """A live shift whose digest is posted while one real worker is still out."""
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, mind, home, NOW, claude)
+    (slot / orch.DIGEST_MARKER).write_text("{}")
+    return mind, brief, home, slot, claude
+
+
+def test_a_late_finisher_is_reaped_after_review_at_and_nothing_starts(tmp_path):
+    mind, brief, home, slot, claude = _closed_shift_with_a_late_worker(tmp_path)
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/9\n")
+    spawned = len(claude.calls)
+    r = orch.tick(brief, mind, home=home, now=AFTER, grace_s=0,
+                  spawner=orch.RealSpawner(brief, "auto", run=claude),
+                  agents=_agents({"t1": "done"}, slot), tokens=lambda s: 5)
+    assert r["action"] == "late"
+    assert r["reaped"][0] == {"task": "t1", "event": "done"}
+    assert r["late"][0].startswith("- late: t1 — https://github.com/o/r/pull/9 (after review-at")
+    c = orch.read_counters(slot)
+    assert c["outcomes"]["t1"]["prs"] == ["https://github.com/o/r/pull/9"]
+    assert c["late"] == ["t1"] and c["tokens"] == 5
+    assert len(claude.calls) == spawned           # no spawn, no close-out
+    assert orch.leases(slot) == {}
+    # Nothing left: the closed shift is idle again.
+    r = orch.tick(brief, mind, home=home, now=AFTER, spawner=orch.FakeSpawner())
+    assert r["action"] == "idle" and "has passed" in r["reason"]
+
+
+def test_a_late_crash_is_named_and_never_redispatched(tmp_path):
+    mind, brief, home, slot, claude = _closed_shift_with_a_late_worker(tmp_path)
+    spawned = len(claude.calls)
+    r = orch.tick(brief, mind, home=home, now=AFTER, grace_s=0,
+                  spawner=orch.RealSpawner(brief, "auto", run=claude),
+                  agents=_agents({"t1": "failed"}, slot))
+    assert r["action"] == "late" and r["reaped"][0]["event"] == "dead"
+    assert "crashed); not re-dispatched" in r["late"][0]
+    assert orch.read_counters(slot)["pending_redispatch"] == []
+    assert len(claude.calls) == spawned
+
+
+def test_a_closed_shift_with_nothing_pending_stays_idle(tmp_path):
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    (slot / "leases").mkdir(parents=True)
+    (slot / orch.DIGEST_MARKER).write_text("{}")
+    r = orch.tick(brief, mind, home=home, now=AFTER, spawner=orch.FakeSpawner())
+    assert r["action"] == "idle"
+
+
+def test_a_late_arrival_lands_in_the_record_on_mind_main(tmp_path, monkeypatch):
+    import shutil
+    import test_orchestrator_digest as t
+    if not t.LEDGER_MERGE.is_file() or shutil.which("git") is None:
+        pytest.skip("needs git and PyAutoMind's scripts/ledger_merge.py")
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    bare = tmp_path / "remote.git"
+    t.git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
+    canon = tmp_path / "canon"
+    t.git(tmp_path, "clone", "-q", str(bare), str(canon))
+    t.git(canon, "config", "user.name", "Test")
+    t.git(canon, "config", "user.email", "test@example.invalid")
+    _, staged, _ = _shift(tmp_path / "seed")
+    shutil.copytree(tmp_path / "seed" / "mind" / "draft", canon / "draft")
+    (canon / "scripts").mkdir()
+    shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
+    (canon / "batches").mkdir()
+    brief = canon / "batches" / "2026-11-04-am.md"
+    brief.write_text(staged.read_text())
+    t.git(canon, "add", "-A")
+    t.git(canon, "commit", "-q", "-m", "seed")
+    t.git(canon, "push", "-q", "origin", "HEAD:main")
+    home = tmp_path / "home"
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, canon, home, NOW, claude)
+    (slot / orch.DIGEST_MARKER).write_text("{}")
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/9\n")
+    r = orch.tick(brief, canon, home=home, now=AFTER, grace_s=0,
+                  spawner=orch.RealSpawner(brief, "auto", run=claude),
+                  agents=_agents({"t1": "done"}, slot), tokens=lambda s: 0)
+    assert r["action"] == "late" and r["ledger"]["committed"], r
+    record = t.git(bare, "show", "main:batches/2026-11-04-am.md").stdout
+    assert "\n### Late arrivals\n- late: t1 — https://github.com/o/r/pull/9 (after review-at" in record
