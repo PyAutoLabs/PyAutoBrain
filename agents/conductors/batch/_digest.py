@@ -138,6 +138,15 @@ def task_state(task: str, counters: dict, health, *, live: bool = False,
     return "; ".join(parts), True
 
 
+#: `claude agents` states for a session that has ended without succeeding. A
+#: real worker in one of these with no `.done` is a crash at once — it can never
+#: write one late, so it gets no grace (PyAutoBrain#592: three `failed` workers
+#: held their leases for 40 minutes, read as alive). An unknown word is still
+#: read as alive; add it here once seen. `_orchestrator` reaps by this set.
+ENDED_STATES = frozenset({"failed", "error", "errored", "killed", "stopped",
+                          "crashed", "cancelled", "canceled", "exited"})
+
+
 def _lease_state(lease: dict, agents) -> str:
     """A held lease, as the live view words it (the digest never sees one)."""
     since = lease.get("started") or lease.get("heartbeat") or "?"
@@ -147,6 +156,8 @@ def _lease_state(lease: dict, agents) -> str:
     if not agent:
         return f"running (pid {lease.get('pid', '?')}, since {since})"
     state = agents.state(agent) if agents is not None else None
+    if state in ENDED_STATES:
+        return f"ended ({state}, agent {agent}) — the next tick reaps it as a crash"
     if state == "blocked":
         return f"blocked on a person (agent {agent})"
     if state is None:

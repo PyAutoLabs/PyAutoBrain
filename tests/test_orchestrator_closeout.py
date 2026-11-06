@@ -180,6 +180,15 @@ def test_a_refused_closeout_is_digested_and_never_retried(tmp_path):
     assert f"{PR1} — awaiting /prm — close-out refused: decision-taken label" in d
 
 
+def test_a_failed_closeout_is_refused_not_read_as_running(tmp_path):
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    _tick(brief, mind, home, sp, 2, agents=Agents({"co000001": "failed"}))
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["closeouts"][PR1]["state"] == "refused"
+    assert c["closeouts"][PR1]["why"] == "the close-out session ended without a verdict"
+
+
 def test_a_closeout_that_ends_without_a_verdict_is_refused_not_retried(tmp_path):
     mind, brief, home, sp = _shift(tmp_path)
     _tick(brief, mind, home, sp, 1)

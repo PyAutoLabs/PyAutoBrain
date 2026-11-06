@@ -6,5 +6,11 @@ Description=PyAuto shift watcher — one tick (deterministic, no LLM)
 
 [Service]
 Type=oneshot
+# Stop only the tick itself when it exits. The default (control-group) kills
+# every process the tick started, and the first `claude --bg` starts the
+# background-session daemon inside this unit, so the workers died with the tick
+# (pilot live shift 1, 2026-11-06, PyAutoBrain#592). After changing this, copy
+# the unit again and run `systemctl --user daemon-reload`.
+KillMode=process
 EnvironmentFile=%h/.config/pyauto/orchestrator.env
 ExecStart=/usr/bin/env python3 ${PYAUTO_BRAIN}/bin/orchestrator_watch.py --brief ${PYAUTO_SHIFT_BRIEF} --mind ${PYAUTO_MIND}

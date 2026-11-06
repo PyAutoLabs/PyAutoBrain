@@ -55,6 +55,8 @@ REDISPATCH_LIMIT = 1
 #: A real worker `blocked` (waiting on a human) this long is parked: its lease
 #: is released, the task is not re-dispatched, and the digest names it.
 STALL_GRACE_S = 900
+#: Sessions that ended without succeeding — reaped as crashes (`_digest`, #592).
+ENDED_STATES = _digest.ENDED_STATES
 #: The worker prompt every real worker starts from (never a bare session).
 WORKER_TEMPLATE = Path(__file__).with_name("worker_template.md")
 CLOSEOUT_TEMPLATE = Path(__file__).with_name("closeout_template.md")
@@ -427,7 +429,8 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
         path = lease_dir / f"{task}.json"
         real = bool(lease.get("agent_id")) and not lease.get("pid")
         state = agents.state(lease["agent_id"]) if real else None
-        finished = done_marker.exists() or state == "done" or (
+        ended = real and state in ENDED_STATES
+        finished = done_marker.exists() or state == "done" or ended or (
             real and state is None and now >= _parse_iso(lease["expires"]))
         if real and finished:
             sid = agents.session_of(lease["agent_id"]) or lease.get("session_id")
@@ -459,14 +462,15 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             else:
                 path.write_text(json.dumps(lease, sort_keys=True))
             continue
-        alive = (state not in (None, "done")) if real else _alive(int(lease.get("pid", 0)))
+        alive = (state not in (None, "done") and not ended) if real \
+            else _alive(int(lease.get("pid", 0)))
         if alive:
             lease.pop("stalled_since", None)
             lease["heartbeat"] = _iso(now)
             lease["expires"] = _iso(now + _dt.timedelta(seconds=grace_s))
             path.write_text(json.dumps(lease, sort_keys=True))
             continue
-        if now < _parse_iso(lease["expires"]) and state != "done":
+        if now < _parse_iso(lease["expires"]) and state != "done" and not ended:
             continue  # gone, but inside the grace for a late `.done`
         path.unlink(missing_ok=True)
         counters["crashes"] += 1
@@ -757,7 +761,8 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
             continue
         real = bool(co.get("agent_id"))
         state = agents.state(co["agent_id"]) if real else None
-        gone = (state in (None, "done")) if real else not _alive(int(co.get("pid") or 0))
+        gone = (state in (None, "done") or state in ENDED_STATES) if real \
+            else not _alive(int(co.get("pid") or 0))
         if gone:
             # Never retried: a close-out that ended without a verdict is the
             # human's to look at, not a second unattended attempt.
