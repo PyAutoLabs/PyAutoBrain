@@ -13,7 +13,7 @@ The count is the number of budgets broken: token_load violations (a file the
 scan root simply lacks is reported, not counted) plus skills over 200 lines.
 Read-only and stdlib only; it never edits a skill. Route a breach to
 /refactor (move detail verbatim into the skill's `reference.md`); the budget
-history is PyAutoMind `draft/maintenance/organs/reduce_session_token_load.md`.
+history is PyAutoMind `complete/2026/11/reduce-session-token-load.md`.
 
 Usage: _hygiene_tokens.py --root ROOT --mind MIND_CHECKOUT [--detail]
 """
