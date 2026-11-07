@@ -845,7 +845,7 @@ elif [[ "$mode" == "tokens" ]]; then
   echo
   echo "→ route a breach to /refactor: move detail verbatim into the skill's reference.md;"
   echo "  no rule, gate or refusal is removed. History and targets: PyAutoMind"
-  echo "  draft/maintenance/organs/reduce_session_token_load.md."
+  echo "  complete/2026/11/reduce-session-token-load.md."
 elif [[ "$mode" == "default" ]]; then
   # 'debris' and 'finding' pre-scans yield directly-actionable counts (perf's
   # timing is deferred here — too slow for the fast scan). Rank across them and
