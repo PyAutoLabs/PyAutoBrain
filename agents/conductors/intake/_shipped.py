@@ -16,10 +16,11 @@ This module is the detector for those shapes, graded ABOVE every vocabulary
 signal because each leg is a fact someone can re-check, not a resemblance:
 
   (i)   **witness-exists** — the draft's `Witness:` names a test or function
-        that is now DEFINED in one of its target repos, and (where git history
-        is readable) the definition arrived in a commit after the draft's
-        `Filed:` date. A test named in a witness and written afterwards is the
-        witness being met.
+        that is now DEFINED in one of its target repos and (where git history
+        is readable) had NO definition on main at the moment the draft was
+        filed. A test named in a witness and written afterwards is the witness
+        being met; an edit to a class or test file that already existed is not
+        (2026-11-07: 21 of 33 flags were such edits, none shipped).
   (ii)  **commit-names-draft** / **pr-names-draft** — a commit message on an
         organism repo's main since `Filed:` (or a merged PR body, from an
         optional JSON cache) names the draft's path, filename or distinctive
@@ -142,16 +143,42 @@ def _slug_key(s: str) -> str:
     return "-".join(re.findall(r"[a-z0-9]+", s.lower()))
 
 
+def filed_at(mind: Path, rel: str, filed: str) -> str:
+    """The moment the draft was filed, as precisely as history allows.
+
+    The commit that first added the file, when it falls on the `Filed:` day;
+    else the start of that day. Day precision is not enough: a draft is very
+    often filed by, or the same day as, the commit that motivated it, and that
+    commit must not then count as evidence the draft shipped (2026-11-07: 9 of
+    33 flags were exactly that).
+    """
+    # No `--follow`: drafts share a header template, so rename detection
+    # happily "follows" a new draft back into an older sibling's history.
+    out = _git(mind, "log", "--diff-filter=A", "--format=%aI", "--", rel)
+    stamps = (out or "").split()
+    if not filed:
+        return stamps[-1] if stamps else ""
+    on_day = [s for s in stamps if s[:10] == filed]
+    return on_day[-1] if on_day else f"{filed}T00:00:00"
+
+
 def distinctive_slug(stem: str) -> bool:
-    """A bare slug only counts when it is specific: three or more words and
-    fifteen-plus characters. `dashboard_fix` names half the backlog;
+    """A bare slug only counts when it is specific: four or more words and
+    twenty-plus characters. `dashboard_fix` names half the backlog, and a
+    three-word slug is too often an identifier or a phrase in its own right
+    (`jax_zero_contour` is a package, `group_los_halos` reads as prose);
     `close_out_guard_catch_shipped_work_whose` names one prompt."""
     parts = re.findall(r"[a-z0-9]+", stem.lower())
-    return len(parts) >= 3 and len(stem) >= 15
+    return len(parts) >= 4 and len(stem) >= 20
 
 
 def open_drafts(mind: Path, prefix: str = "") -> list:
-    """Every backlog prompt under draft/ (human_review and indexes excluded)."""
+    """Every backlog prompt under draft/ (human_review and indexes excluded).
+
+    An epic's campaign map (`Status: campaign map …`) is excluded too: it is
+    never issued itself, its phases ship one by one, and each shipped phase
+    looks like evidence against the map (2026-11-07: `lenstwin_epic`).
+    """
     out = []
     root = mind / "draft"
     if not root.is_dir():
@@ -166,13 +193,17 @@ def open_drafts(mind: Path, prefix: str = "") -> list:
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
         header = parse_header(text)
+        if header.get("status", "").lower().startswith("campaign map"):
+            continue          # an epic's map: its phases ship, it never does
+        filed = filed_date(mind, rel, header)
         out.append({
             "path": rel,
             "title": title_of(text),
             "text": text,
             "header": header,
             "target": parts[2] if len(parts) > 3 else "",
-            "filed": filed_date(mind, rel, header),
+            "filed": filed,
+            "filed_at": filed_at(mind, rel, filed),
         })
     return out
 
@@ -349,53 +380,64 @@ def definitions(repo: Path, names: set) -> dict:
     return found
 
 
-def _first(out: str | None) -> str:
-    for ln in (out or "").splitlines():
-        if ln.strip():
-            return ln.strip()
-    return ""
+def defined_at(repo: Path, name: str, commit: str) -> bool:
+    """Did `name` have a definition anywhere in the repo's .py files at
+    `commit`? A `def name(` / `class name`, or a test FILE `name.py`."""
+    pat = (r"^[[:space:]]*(async[[:space:]]+)?def[[:space:]]+" + name +
+           r"[[:space:]]*\(|^[[:space:]]*class[[:space:]]+" + name +
+           r"([^A-Za-z0-9_]|$)")
+    out = _git(repo, "grep", "-l", "-E", pat, commit, "--", "*.py", timeout=300)
+    if out and out.strip():
+        return True
+    if name.startswith("test_"):
+        files = _git(repo, "ls-tree", "-r", "--name-only", commit, timeout=300)
+        return any(f == f"{name}.py" or f.endswith(f"/{name}.py")
+                   for f in (files or "").splitlines())
+    return False
 
 
-def changed_since(repo: Path, name: str, where: list, since: str,
-                  ref: str) -> str | None:
-    """Did the thing the witness names arrive or change after `since`?
+def added_since(repo: Path, name: str, where: list, since: str,
+                ref: str) -> str | None:
+    """Did the thing the witness names come into existence after `since`?
 
-    Returns `"<added|changed> by <sha> <date> <subject>"`, "" when history is
-    readable and says no (it predates the draft, untouched since), or None
-    when there is no readable history at all. In order:
+    Returns `"added by <sha> <date> <subject>"`, "" when history is readable
+    and says no, or None when there is no readable history at all.
 
-      * the definition line was added (pickaxe on `def name(` / `class name`);
-      * the named test FILE was created or edited;
-      * the function's body was edited (`git log -L :name:file`) — the
-        bug-witness shape, where the draft names the function it fixes.
+    A name the witness merely mentions — the class a bug lives in, the test
+    file a new case will join, a helper that already existed — was there when
+    the draft was filed, and later edits to it are not the witness being met:
+    on 2026-11-07, 21 of 33 flags were exactly that (`FitInterferometer`,
+    `LensCalc`, `test_presentation`, …), and none had shipped. So the name
+    must have had NO definition on main at `since` — the draft's filing
+    moment — and have one now. A same-named definition added elsewhere does
+    not count either, for the same reason.
     """
     if _git(repo, "rev-parse", "--git-dir") is None:
         return None
-    since_arg = f"--since={since}T00:00:00"
+    base = _git(repo, "rev-list", "-1", f"--before={since}", ref)
+    if base is None:
+        return None
+    base = base.strip()
+    if base and defined_at(repo, name, base):
+        return ""
+    since_arg = f"--since={since}"
     fmt = "--format=%h %as %s"
     for needle in (f"def {name}(", f"class {name}"):
         out = _git(repo, "log", ref, since_arg, "-S", needle, fmt, "--",
                    "*.py", timeout=300)
         if out is None:
             return None
-        if out.strip():
-            return "added by " + out.splitlines()[0].strip()
-    files = []
+        lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+        if lines:
+            return "added by " + lines[-1]
     for w in where[:3]:
-        rel, _, line = w.rpartition(":")
-        files.append((rel, line))
-    for rel, line in files:
-        if line == "1" and rel.rsplit("/", 1)[-1] == f"{name}.py":
-            out = _git(repo, "log", ref, since_arg, fmt, "--", rel)
-            if out and out.strip():
-                return "changed by " + out.splitlines()[0].strip()
-            continue
-        for kw in ("def", "class"):
-            out = _git(repo, "log", ref, since_arg, fmt, "--no-patch",
-                       f"-L:{kw} {name}:{rel}", timeout=300)
-            first = _first(out)
-            if first:
-                return "changed by " + first
+        rel = w.rpartition(":")[0]
+        if rel.rsplit("/", 1)[-1] == f"{name}.py":
+            out = _git(repo, "log", ref, since_arg, "--diff-filter=A", fmt,
+                       "--", rel)
+            lines = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
+            if lines:
+                return "added by " + lines[-1]
     return ""
 
 
@@ -428,9 +470,10 @@ def leg_witness(drafts: list, repos: dict) -> dict:
                     continue
                 if repo_name not in refs:
                     refs[repo_name] = main_ref(path)
-                how = changed_since(path, name, where, d["filed"], refs[repo_name])
+                how = added_since(path, name, where, d["filed_at"] or d["filed"],
+                                  refs[repo_name])
                 if how == "":
-                    continue          # exists, untouched since the draft was filed
+                    continue          # it existed when the draft was filed
                 if how is None and not name.startswith("test_"):
                     continue          # no history: only a named TEST is enough
                 ev = (f"Witness names `{name}`, defined in {repo_name} "
@@ -450,14 +493,18 @@ _FOLLOWUP = ("follow-up", "follow up", "followup", "filed", "file ", "files ",
              "blocked", "parked", "queue", "re-scope", "rescope", "split", "not ",
              "phase", "partial", "pending", "unrun", "duplicate", "same shape",
              "not yet", "still")
-#: Words that make a mention a claim the work landed. A message line merely
-#: NAMING a draft is how audits, sweeps and status notes read — measured on the
-#: live Mind (2026-11-05) that alone flagged 14 drafts, none of them shipped.
-_SHIP_WORDS = ("fix", "implement", "ship", "close", "resolve", "land",
-               "complete", "done", "deliver", "retire", "finish", "add ")
-#: A subject that says the commit CHANGED code — `fix(x): …`, `feat: …`.
-_CODE_SUBJECT = re.compile(r"^(?:fix|feat|perf|refactor|test|tests|docs|build|ci)"
-                           r"(?:\([^)]*\))?!?:", re.I)
+#: Words that make a mention a claim the work landed, matched as whole words
+#: ON THE LINE THAT NAMES THE DRAFT. A message line merely NAMING a draft is
+#: how audits, sweeps and status notes read — measured on the live Mind
+#: (2026-11-05) that alone flagged 14 drafts, none of them shipped. A
+#: `fix:`/`feat:` subject no longer lends the claim to a body line: a code
+#: commit names the draft it FILED as often as one it fixed ("…; remove once
+#: the cost is found (draft/…md)"), which was 7 of 33 flags on 2026-11-07,
+#: none shipped. `add` is not a ship word — "add a follow-up" is filing.
+_SHIP_RE = re.compile(r"\b(?:fix(?:e[sd])?|implement(?:s|ed)?|ship(?:s|ped)?|"
+                      r"close[sd]?|resolve[sd]?|land(?:s|ed)?|complete[sd]?|"
+                      r"done|deliver(?:s|ed)?|retire[sd]?|finish(?:es|ed)?)\b",
+                      re.I)
 #: A subject that says the commit RECORDED intent. Mind filings and status
 #: notes name drafts constantly and ship none of them.
 _LEDGER_SUBJECT = re.compile(r"^(?:prompt|intake|ledger|queue|batch|shift|sweep|"
@@ -493,16 +540,15 @@ def _names(line: str, d: dict) -> bool:
 def _mention(message: str, d: dict) -> str | None:
     """The message line that claims draft `d` shipped, or None.
 
-    A line qualifies when it names the draft and either carries a ship word,
-    or is the PR-merge line whose branch is the draft's slug, or sits in a
-    `fix:`/`feat:`-style commit. Follow-up wording on the line disqualifies it,
-    and a ledger subject (`prompt:`, `intake:`, …) disqualifies the commit.
+    A line qualifies when it names the draft and either carries a ship word
+    itself, or is the PR-merge line whose branch is the draft's slug.
+    Follow-up wording on the line disqualifies it, and a ledger subject
+    (`prompt:`, `intake:`, …) disqualifies the commit.
     """
     lines = message.splitlines()
     subject = lines[0].strip() if lines else ""
     if _LEDGER_SUBJECT.match(subject):
         return None
-    code = bool(_CODE_SUBJECT.match(subject))
     for line in lines:
         if not _names(line, d):
             continue
@@ -512,7 +558,7 @@ def _mention(message: str, d: dict) -> str | None:
         merge = _MERGE_BRANCH.match(line.strip())
         if merge and _names(merge.group(1), d):
             return line.strip()
-        if code or any(w in low for w in _SHIP_WORDS):
+        if _SHIP_RE.search(line):
             return line.strip()
     return None
 

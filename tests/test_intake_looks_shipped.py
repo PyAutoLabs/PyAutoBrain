@@ -355,3 +355,157 @@ def test_batch_plan_drops_looks_shipped_drafts(organism):
     d = _batch.plan(_batch.survey(mind), budget=600, session_lane="local-dev")
     assert "draft/bug/pyautowidget/flange_rattle_under_load.md" in {
         m["path"] for m in d["members"]}
+
+
+# --------------------------------------------------------------------------- #
+# precision: the false-positive shapes of the 2026-11-07 audit (32 of 33 flags
+# were wrong), and the one true positive that must survive
+# --------------------------------------------------------------------------- #
+FP_DRAFTS = {
+    # Witness names a class that already existed; a later unrelated edit to it
+    # is not the witness being met (`FitInterferometer`, `LensCalc`, …).
+    "draft/bug/pyautowidget/gearbox_drops_torque_on_reverse.md": _draft(
+        "Gearbox drops torque on reverse", "bug",
+        "`GearboxAssembly` keeps torque on reverse",
+        "Reverse loses torque."),
+    # Witness names a test FILE that already existed; it is edited later.
+    "draft/bug/pyautowidget/cog_alignment_case_missing.md": _draft(
+        "Cog alignment case missing", "bug",
+        "a new case in `test_cogs` passes", "Add the misaligned cog case."),
+    # Witness names a function; a SAME-NAMED def is added elsewhere later.
+    "draft/bug/pyautowidget/axle_score_nan_at_rest.md": _draft(
+        "Axle score is NaN at rest", "bug",
+        "`axle_score_from()` is finite at rest", "The axle score NaNs."),
+    # Filed the same day as, and after, the commit that added its witness
+    # test (the regression guard it names) — that commit is its cause.
+    "draft/bug/pyautowidget/bearing_serial_build_slow.md": _draft(
+        "Bearing serial build is slow", "bug",
+        "`test_bearing_serial_equals_parallel` still passes", "Serial is slow."),
+    # A code commit names it as follow-up, with no ship word on the line.
+    "draft/bug/pyautowidget/chain_tension_release_cost.md": _draft(
+        "Chain tension release cost", "bug", "the cost is profiled",
+        "Profile the chain tension script."),
+    # Three-word slug that is also an identifier.
+    "draft/test/pyautowidget/zero_crossing_solver.md": _draft(
+        "Zero crossing solver parity", "test", "parity holds",
+        "Check the zero crossing solver under jit."),
+    # TRUE POSITIVE: filed and merged the same day, matched by its PR branch.
+    "draft/maintenance/pyautowidget/ratchet_gate_on_removals_only.md": _draft(
+        "Ratchet gate on removals only", "maintenance", "the gate passes",
+        "Gate the ratchet on removals only."),
+}
+
+
+def _with_filed(text: str, filed: str) -> str:
+    return text.replace("Filed: 2026-01-10", f"Filed: {filed}")
+
+
+@pytest.fixture()
+def fp_organism(tmp_path):
+    root = tmp_path / "root"
+    mind, widget = root / "PyAutoMind", root / "PyAutoWidget"
+    _init(widget)
+    _commit(widget, {
+        "widget/gearbox.py": "class GearboxAssembly:\n    pass\n",
+        "widget/axle.py": "def axle_score_from(x):\n    return x\n",
+        "tests/test_cogs.py": "def test_cog_one():\n    assert True\n"},
+        "init", "2025-12-01T09:00:00")
+    # The bearing guard test lands at 10:00 on the day its draft is filed (12:00).
+    _commit(widget, {"tests/test_bearing.py":
+                     "def test_bearing_serial_equals_parallel():\n    assert True\n"},
+            "perf: serial bearing kernel for forked workers (#9)",
+            "2026-01-20T10:00:00")
+    _init(mind)
+    _commit(mind, {"README.md": "# Mind\n"}, "init", "2026-01-01T09:00:00")
+    same_day = {"draft/bug/pyautowidget/bearing_serial_build_slow.md",
+                "draft/maintenance/pyautowidget/ratchet_gate_on_removals_only.md"}
+    _commit(mind, {p: t for p, t in FP_DRAFTS.items() if p not in same_day},
+            "prompt: file widget drafts", "2026-01-10T09:00:00")
+    _commit(mind, {p: _with_filed(FP_DRAFTS[p], "2026-01-20") for p in same_day},
+            "prompt: file two more", "2026-01-20T12:00:00")
+    # Later, unrelated edits and look-alikes in the widget repo.
+    _commit(widget, {"widget/gearbox.py":
+                     "class GearboxAssembly:\n    teeth = 12\n"},
+            "feat: gearbox teeth count", "2026-02-01T09:00:00")
+    _commit(widget, {"tests/test_cogs.py":
+                     "def test_cog_one():\n    assert 1\n"},
+            "test: tidy cog test", "2026-02-01T10:00:00")
+    _commit(widget, {"widget/mock.py": "def axle_score_from(x):\n    return 0\n"},
+            "feat: mock axle for the matrix-free route", "2026-02-01T11:00:00")
+    _commit(widget, {"config/no_run.yaml": "- chain\n"},
+            "fix(build): park the chain script\n\nNot yet profiled; "
+            "draft/bug/pyautowidget/chain_tension_release_cost.md; remove",
+            "2026-02-02T09:00:00")
+    _commit(widget, {"setup.cfg": "extras = zero_crossing_solver\n"},
+            "fix: add zero_crossing_solver to the bootstrap extras",
+            "2026-02-03T09:00:00")
+    _commit(widget, {"widget/ratchet.py": "def gate():\n    pass\n"},
+            "Merge pull request #26 from PyAutoLabs/feature/"
+            "ratchet-gate-on-removals-only", "2026-01-20T15:00:00")
+    return {"root": root, "mind": mind}
+
+
+def test_the_2026_11_07_false_positive_shapes_are_not_flagged(fp_organism):
+    res = _shipped.detect(fp_organism["mind"], fp_organism["root"],
+                          today="2026-03-01")
+    flags = _flags(res)
+    assert set(flags) == {
+        "draft/maintenance/pyautowidget/ratchet_gate_on_removals_only.md"}, flags
+    sig = flags["draft/maintenance/pyautowidget/ratchet_gate_on_removals_only.md"]
+    assert sig["signals"][0]["kind"] == "commit-names-draft"
+    assert "Merge pull request #26" in sig["signals"][0]["evidence"]
+
+
+def test_a_witness_written_after_the_filing_moment_still_flags(fp_organism):
+    """Day precision would hide this: same day, but after the filing commit."""
+    widget = fp_organism["root"] / "PyAutoWidget"
+    _commit(widget, {"tests/test_cog_misaligned.py":
+                     "def test_cog_misaligned():\n    assert True\n"},
+            "test: misaligned cog", "2026-02-05T09:00:00")
+    path = "draft/bug/pyautowidget/cog_alignment_case_missing.md"
+    mind = fp_organism["mind"]
+    text = (mind / path).read_text().replace(
+        "a new case in `test_cogs` passes", "`test_cog_misaligned` passes")
+    _commit(mind, {path: text}, "prompt: name the witness test",
+            "2026-02-01T09:00:00")
+    flags = _flags(_shipped.detect(mind, fp_organism["root"]))
+    assert path in flags
+    assert "added by" in flags[path]["signals"][0]["evidence"]
+
+
+def test_filed_at_uses_the_filing_commit_on_the_filed_day(fp_organism):
+    mind = fp_organism["mind"]
+    at = _shipped.filed_at(
+        mind, "draft/bug/pyautowidget/bearing_serial_build_slow.md", "2026-01-20")
+    assert at.startswith("2026-01-20T12:00:00")
+    # A Filed: day git does not agree with falls back to the start of that day.
+    assert _shipped.filed_at(
+        mind, "draft/bug/pyautowidget/bearing_serial_build_slow.md",
+        "2026-01-19") == "2026-01-19T00:00:00"
+
+
+def test_ship_words_must_be_on_the_naming_line_and_whole_words():
+    d = {"path": "draft/bug/w/flange_rattle_under_load.md"}
+    assert _shipped._mention(
+        "fix: x\n\nCloses draft/bug/w/flange_rattle_under_load.md.", d)
+    assert _shipped._mention(
+        "fix(build): park\n\nsee draft/bug/w/flange_rattle_under_load.md", d) is None
+    # `prefix` is not `fix`; `landscape` is not `land`.
+    assert _shipped._mention(
+        "docs: prefix landscape draft/bug/w/flange_rattle_under_load.md", d) is None
+
+
+def test_an_epic_campaign_map_is_not_scanned(fp_organism):
+    mind = fp_organism["mind"]
+    path = "draft/feature/pyautowidget/widget_twins_epic.md"
+    text = _draft("Widget twins epic", "feature",
+                  "`TwinRegistry` exists", "Phases ship one by one.").replace(
+        "Status: formalised",
+        "Status: campaign map — phases route through /start_dev one at a time")
+    _commit(mind, {path: text}, "prompt: file the twins epic", "2026-01-10T10:00:00")
+    widget = fp_organism["root"] / "PyAutoWidget"
+    _commit(widget, {"widget/twins.py": "class TwinRegistry:\n    pass\n"},
+            "feat: twin registry (twins phase 0)", "2026-02-10T09:00:00")
+    res = _shipped.detect(mind, fp_organism["root"])
+    assert path not in _flags(res)
+    assert path not in {d["path"] for d in _shipped.open_drafts(mind)}
