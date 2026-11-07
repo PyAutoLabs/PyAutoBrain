@@ -64,7 +64,7 @@ than its category — because category alone gets it wrong. The config layer is 
 | ships api docs | has a `docs/api/` tree | `docs` |
 
 The helper-backed modes (`docstrings`, `escapes`, `refs`, `optdeps`, `extras`,
-`config`)
+`config`, `tokens`)
 are **not** on this list: they discover their own targets by walking the scan
 root for workspace-shaped directories, so they can find material the map never
 names — and they keep reporting even when the repo-array modes are `unscanned`.
@@ -85,9 +85,10 @@ names — and they keep reporting even when the repo-array modes are `unscanned`
 | `optdeps` | smoke-listed workspace scripts that construct an optional-dependency-gated API (`TransformerNUFFT` → `nufftax`) without the house `find_spec` skip guard, so they hard-fail the CI matrices that omit the extras (**finding**). AST-confirmed — prose mentions don't count; scripts outside `smoke_tests.txt` are never flagged | `/refactor` (add the skip guard) |
 | `extras` | the complement of `optdeps`: an optional dependency a library **declares** (in the `[optional]` extra `mode=release` installs) that the `workspace-validation.yml` **`mode=smoke`** leg never installs (**finding**). The extras chain only reaches each library's own `[jax]`, never a sibling's `[optional]`, so those need hand-adding and silently drift — the symptom is a script red in smoke and **green in release** | `/bug` (add the install; fix the install set, **never** the script) |
 | `config` | library `config/*.yaml` keys missing from the matching workspace config — recursive diff (**surface**) | `/refactor` (mirror keys) |
+| `tokens` | the organism's token-load budgets: PyAutoMind `scripts/token_load.py` violations (four-organ AGENTS.md tokens, start_dev / prm procedure lines) plus skills whose SKILL.md + body exceed 200 lines (`bin/check_skill_line_counts.sh`); a file the scan root lacks is listed, not counted (**finding**; advisory when no Mind checkout is present) | `/refactor` (move detail verbatim into the skill's `reference.md`; no rule removed) |
 | `artifacts` | tracked files that look like leaked run outputs / stray data (under `output/`, or data-ext outside fixtures) (**debris**) | `/repo_cleanup` (gitignore + `git rm --cached`) |
 | `packaging` | ignored, fully-untracked top-level `*.egg-info/` and `build/` directories in the managed code repos (**debris**) | preview then run `PyAutoBrain/bin/clean_slate.sh --packaging`; repo-set, exact-name, root-depth and tracked-file guards apply |
-| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count direct mode (`tidy`/`crlf`/`docstrings`/`escapes`/`refs`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
+| *(default)* | all of the above (**perf timing deferred** — it spawns real imports) | a ranked `HygieneDecision` worklist — recommends the highest-count direct mode (`tidy`/`crlf`/`docstrings`/`escapes`/`refs`/`tokens`/`artifacts`/`packaging`), then `hygiene perf`, then the periodic surface audits |
 
 ```
 pyauto-brain hygiene              # pre-scan across modes → ranked worklist
@@ -106,6 +107,7 @@ pyauto-brain hygiene refs         # folder-list drift in workspace prose → /re
 pyauto-brain hygiene optdeps      # smoke-listed scripts missing an optional-dep skip guard → /refactor
 pyauto-brain hygiene extras       # optional deps the smoke CI leg never installs → /bug
 pyauto-brain hygiene config       # library→workspace config drift → /refactor
+pyauto-brain hygiene tokens       # token-load budgets (AGENTS.md, procedures, skill lines) → /refactor
 pyauto-brain hygiene artifacts    # tracked leaked outputs/data → /repo_cleanup
 pyauto-brain hygiene packaging    # ignored root packaging dirs → clean_slate.sh
 pyauto-brain hygiene <mode> --json
