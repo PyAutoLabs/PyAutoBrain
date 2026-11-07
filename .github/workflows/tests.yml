@@ -107,13 +107,22 @@ jobs:
         run: bash PyAutoBrain/bin/install.sh --check-project-discovery
       # A skill's SKILL.md + body is MANDATORY context every time the skill
       # loads, so line count is a per-invocation token cost, not a style
-      # preference. Report-only: `batch` and `prm` are over the 200-line budget
-      # today and trimming them is its own task — this step makes the debt
-      # visible on every PR without reddening a gate nobody can currently pass.
+      # preference. Report-only while `start_dev` and `prm` are over the
+      # 200-line budget: batch, cortex and Mind's create_issue were trimmed
+      # under it on 2026-11-07 and PyAutoBrain#597 brings the last two under.
+      # Once both are on main, drop `continue-on-error` to make this blocking
+      # (PyAutoMind draft/maintenance/organs/reduce_session_token_load.md).
       - name: Skill line-count budget (report-only — known offenders)
         continue-on-error: true
         working-directory: PyAutoBrain
         run: bash bin/check_skill_line_counts.sh
+      # The token-load numbers the same Mind prompt targets (AGENTS.md tokens,
+      # start_dev / prm procedure lines, completion-record median), printed on
+      # every PR so the budget is measured rather than remembered. `report`
+      # always exits 0: this layout has no workspace AGENTS.md or PyAutoMemory
+      # checkout, so `check` would fail on what is absent, not on a regression.
+      - name: Token load report (report-only)
+        run: python3 PyAutoMind/scripts/token_load.py report --root "$GITHUB_WORKSPACE"
       - name: Tenant firewall (instance facts stay in declared config surfaces)
         run: >
           python3 PyAutoMind/scripts/repos_sync.py --check
