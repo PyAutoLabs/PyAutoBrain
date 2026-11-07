@@ -440,7 +440,7 @@ def fp_organism(tmp_path):
             "fix: add zero_crossing_solver to the bootstrap extras",
             "2026-02-03T09:00:00")
     _commit(widget, {"widget/ratchet.py": "def gate():\n    pass\n"},
-            "Merge pull request #26 from PyAutoLabs/feature/"
+            "Merge pull request #26 from widgetco/feature/"
             "ratchet-gate-on-removals-only", "2026-01-20T15:00:00")
     return {"root": root, "mind": mind}
 
