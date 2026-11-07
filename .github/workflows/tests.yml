@@ -107,15 +107,15 @@ jobs:
         run: bash PyAutoBrain/bin/install.sh --check-project-discovery
       # A skill's SKILL.md + body is MANDATORY context every time the skill
       # loads, so line count is a per-invocation token cost, not a style
-      # preference. Report-only while `start_dev` and `prm` are over the
-      # 200-line budget: batch, cortex and Mind's create_issue were trimmed
-      # under it on 2026-11-07 and PyAutoBrain#597 brings the last two under.
-      # Once both are on main, drop `continue-on-error` to make this blocking
-      # (PyAutoMind draft/maintenance/organs/reduce_session_token_load.md).
-      - name: Skill line-count budget (report-only — known offenders)
-        continue-on-error: true
+      # preference. Blocking since 2026-11-07, when the last offenders (batch,
+      # cortex, Mind's create_issue, start_dev, prm) came under the 200-line
+      # budget (#597, #600). A skill that outgrows it moves detail verbatim
+      # into its reference.md; `pyauto-brain hygiene tokens` reports the same.
+      # Scoped to Brain's own skills: Mind's are checked out here too, and a
+      # Mind skill must not redden a Brain PR (the same rule as `--only` below).
+      - name: Skill line-count budget (200 lines of SKILL.md + body)
         working-directory: PyAutoBrain
-        run: bash bin/check_skill_line_counts.sh
+        run: bash bin/check_skill_line_counts.sh 200 PyAutoBrain
       # The token-load numbers the same Mind prompt targets (AGENTS.md tokens,
       # start_dev / prm procedure lines, completion-record median), printed on
       # every PR so the budget is measured rather than remembered. `report`

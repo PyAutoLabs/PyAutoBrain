@@ -10,14 +10,15 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 ## Do
 
 1. Run `bin/pyauto-brain hygiene [perf | ci | tidy | noise | deps | docs | crlf |
-   docstrings | escapes | refs | optdeps | extras | config | artifacts | packaging]` (no arg = pre-scan across modes → a ranked worklist;
+   docstrings | escapes | refs | optdeps | extras | config | tokens | artifacts | packaging]` (no arg = pre-scan across modes → a ranked worklist;
    perf's import timing and `ci` are deferred there — `ci` reads the Heart
    board's published CI timings and ranks the slowest smoke scripts, unit
    tests and gates, one 📋 each for `/ci_speedup`). This is a **dry run** — each mode
    does a cheap read-only pre-scan and emits a `HygieneDecision` naming the
    skill to run for the full audit. Nothing is executed or mutated. (`crlf` =
    executable scripts w/ CRLF that break on HPC — library `.py` CRLF reported as
-   cosmetic; `config` = library→workspace config-key drift; `artifacts` =
+   cosmetic; `config` = library→workspace config-key drift; `tokens` =
+   broken token-load budgets (AGENTS.md, start_dev/prm lines, skills > 200 lines); `artifacts` =
    tracked leaked outputs/data; `packaging` = ignored, fully-untracked top-level
    `*.egg-info/` and `build/` directories in managed library repositories;
    `docstrings` = exact adjacent module-level triple-quoted documentation

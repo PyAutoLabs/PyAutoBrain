@@ -10,11 +10,16 @@
 # exit 1 = at least one primary file is over the limit.
 #
 # Usage:
-#   bash PyAutoBrain/bin/check_skill_line_counts.sh [limit]
+#   bash PyAutoBrain/bin/check_skill_line_counts.sh [limit] [repo ...]
+#
+# Naming repos limits the scan to their skills (Brain's CI passes PyAutoBrain,
+# so a Mind skill can never redden a Brain PR it did not cause).
 
 set -euo pipefail
 
 LIMIT="${1:-200}"
+shift || true
+ONLY=("$@")
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/_pyauto_root.sh"
 . "$SCRIPT_DIR/_repo_paths.sh"
@@ -36,6 +41,13 @@ checked=0
 
 for root in "${ROOTS[@]}"; do
   [ -d "$root" ] || continue
+  if [ "${#ONLY[@]}" -gt 0 ]; then
+    keep=0
+    for repo in "${ONLY[@]}"; do
+      [ "$root" = "$(pyauto_repo_path "$repo" "$PYAUTO_ROOT")/skills" ] && keep=1
+    done
+    [ "$keep" -eq 1 ] || continue
+  fi
   for dir in "$root"/*/; do
     [ -d "$dir" ] || continue
     name="$(basename "$dir")"

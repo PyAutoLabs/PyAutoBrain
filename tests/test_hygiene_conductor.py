@@ -15,7 +15,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
     "perf", "tidy", "noise", "deps", "docs", "crlf", "config", "artifacts",
-    "packaging", "docstrings", "escapes", "refs", "optdeps", "extras",
+    "packaging", "docstrings", "escapes", "refs", "optdeps", "extras", "tokens",
 }
 
 _PROFILE_TARGET = """
@@ -80,6 +80,7 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert kinds["refs"] == "finding"
     assert kinds["optdeps"] == "finding"
     assert kinds["extras"] == "finding"
+    assert kinds["tokens"] == "finding"
     assert kinds["deps"] == "surface" and kinds["docs"] == "surface"
     assert kinds["config"] == "surface"
     assert kinds["noise"] == "advisory"
@@ -1398,3 +1399,39 @@ def test_refs_treats_run_output_and_generated_folders_as_unresolvable(tmp_path):
     found = {f["reference"] for f in _refs_row(tmp_path)["findings"]}
 
     assert {"files/search_internal", "cache_root/crds/", "notebooks", "cache"}.isdisjoint(found)
+
+
+def test_tokens_is_advisory_without_a_mind_checkout(tmp_path):
+    """No token_load.py under the scan root: nothing was measured, so the row
+    must not read `clean`."""
+    r = _run(["tokens", "--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    row = json.loads(r.stdout)["row"]
+    assert row["mode"] == "tokens" and row["kind"] == "finding"
+    assert row["status"] == "advisory" and row["count"] is None
+    assert row["delegate"] == "/refactor"
+
+
+def test_tokens_counts_budget_breaches_not_absent_files(tmp_path):
+    """A stub token_load.py reports one real breach and one absent file:
+    the count is the breach alone, and --detail lists both."""
+    scripts = tmp_path / "PyAutoMind" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "token_load.py").write_text(
+        "import json\n"
+        "print(json.dumps({'totals': {'start_dev_lines': 360, 'prm_lines': 460},"
+        " 'violations': ['missing: workspace AGENTS: /x/AGENTS.md',"
+        " 'prm_lines: 460 > 450 lines']}))\n"
+    )
+    helper = BRAIN_HOME / "agents/conductors/hygiene/_hygiene_tokens.py"
+    out = subprocess.run(
+        [sys.executable, str(helper), "--root", str(tmp_path),
+         "--mind", str(tmp_path / "PyAutoMind"), "--detail"],
+        capture_output=True, text=True,
+    )
+    assert out.returncode == 0, out.stderr
+    first, *detail = out.stdout.splitlines()
+    assert first.startswith("1|1 token-load budgets broken")
+    assert "prm 460" in first
+    assert any("budget  prm_lines: 460 > 450" in line for line in detail)
+    assert any(line.strip().startswith("absent") for line in detail)

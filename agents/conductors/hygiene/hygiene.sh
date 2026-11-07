@@ -43,6 +43,7 @@
 #   hygiene.sh optdeps         # smoke-listed scripts w/ a gated API but no skip guard -> /refactor
 #   hygiene.sh extras          # optional deps declared by a library but missing from the smoke CI install -> /bug
 #   hygiene.sh config          # library config keys missing downstream + orphan config files -> /refactor
+#   hygiene.sh tokens          # token-load budgets (AGENTS.md, procedure lines, skills > 200 lines) -> /refactor
 #   hygiene.sh artifacts       # tracked leaked outputs/data -> /repo_cleanup
 #   hygiene.sh packaging       # ignored top-level *.egg-info/build dirs -> clean_slate.sh
 #   hygiene.sh <mode> --json   # machine-readable HygieneDecision
@@ -164,7 +165,7 @@ PERF_PY="${HYGIENE_PYTHON:-python3}"
 PERF_THRESHOLD="${HYGIENE_PERF_THRESHOLD:-3.0}"
 read -r -a PERF_LIBS <<< "${HYGIENE_PERF_LIBS:-autonerves autofit autoarray autogalaxy autolens}"
 
-MODE_ORDER=(perf tidy crlf docstrings escapes refs optdeps extras artifacts packaging noise deps docs config)
+MODE_ORDER=(perf tidy crlf docstrings escapes refs optdeps extras artifacts packaging noise deps docs config tokens)
 declare -A MODE_DELEGATE=(
   [perf]="/refactor"
   [tidy]="condemn → condemned.md (async; 'hygiene sweep' voids)"
@@ -180,6 +181,7 @@ declare -A MODE_DELEGATE=(
   [deps]="/dep_audit"
   [docs]="/audit_docs"
   [config]="/refactor"
+  [tokens]="/refactor"
 )
 # A mode's pre-scan is one of a few kinds, which is what makes its count
 # comparable (or not): 'debris' finds directly-removable items, 'finding'
@@ -190,7 +192,7 @@ declare -A MODE_DELEGATE=(
 # 'finding', and 'timing' counts drive the ranking.
 declare -A MODE_KIND=(
   [perf]="timing" [tidy]="debris" [crlf]="debris" [artifacts]="debris" [packaging]="debris"
-  [docstrings]="finding" [escapes]="finding" [refs]="finding" [optdeps]="finding" [extras]="finding"
+  [docstrings]="finding" [escapes]="finding" [refs]="finding" [optdeps]="finding" [extras]="finding" [tokens]="finding"
   [deps]="surface" [docs]="surface" [config]="surface" [noise]="advisory"
 )
 
@@ -392,6 +394,15 @@ prescan_config() {
   [[ -n "$out" ]] && echo "$out" || echo "0|config diff unavailable (PyYAML missing?)"
 }
 
+# tokens: the token-load budgets — PyAutoMind scripts/token_load.py's
+# violations plus skills over the 200-line mandatory-load budget. -1 (advisory)
+# when no Mind checkout is under the scan root, so nothing was measured.
+prescan_tokens() {
+  local out
+  out=$(python3 "$HERE/_hygiene_tokens.py" --root "$ROOT" --mind "$(repo_dir PyAutoMind)" 2>/dev/null | head -1)
+  [[ -n "$out" ]] && echo "$out" || echo "-1|token-load helper failed — run: pyauto-brain hygiene tokens"
+}
+
 # noise: no cheap local signal (needs running pytest + workspace scripts).
 prescan_noise() {
   echo "-1|no cheap local signal — runs pytest + workspace scripts (PYAUTO_TEST_MODE=2)"
@@ -458,6 +469,7 @@ prescan() {
     optdeps) prescan_optdeps ;; extras) prescan_extras ;;
     artifacts) prescan_artifacts ;;
     packaging) prescan_packaging ;; config) prescan_config ;;
+    tokens) prescan_tokens ;;
   esac
 }
 
@@ -470,7 +482,7 @@ for arg in "$@"; do
   # the helper verbatim, so they must not fall into the unknown-argument branch.
   if [[ "$mode" == "ci" && "$arg" != "--json" ]]; then ci_args+=("$arg"); continue; fi
   case "$arg" in
-    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|escapes|refs|optdeps|extras|config|artifacts|packaging|ci) mode="$arg" ;;
+    perf|tidy|sweep|noise|deps|docs|crlf|docstrings|escapes|refs|optdeps|extras|config|tokens|artifacts|packaging|ci) mode="$arg" ;;
     default) mode="default" ;;
     --json) json=1 ;;
     --profile) mode="perf"; expect_script=1 ;;
@@ -827,12 +839,19 @@ elif [[ "$mode" == "config" ]]; then
   echo "  SURFACE signal — judge each item before acting: a workspace may omit a library"
   echo "  key deliberately, and an orphan file may be read by something the library set"
   echo "  does not encode (add its owner to ORPHAN_OWNERS rather than deleting it)."
+elif [[ "$mode" == "tokens" ]]; then
+  echo "Token-load budgets (read-only measurement):"
+  python3 "$HERE/_hygiene_tokens.py" --root "$ROOT" --mind "$(repo_dir PyAutoMind)" --detail
+  echo
+  echo "→ route a breach to /refactor: move detail verbatim into the skill's reference.md;"
+  echo "  no rule, gate or refusal is removed. History and targets: PyAutoMind"
+  echo "  draft/maintenance/organs/reduce_session_token_load.md."
 elif [[ "$mode" == "default" ]]; then
   # 'debris' and 'finding' pre-scans yield directly-actionable counts (perf's
   # timing is deferred here — too slow for the fast scan). Rank across them and
   # recommend the mode with the largest confirmed workload.
   best=""; best_n=0
-  for m in tidy crlf docstrings escapes refs optdeps extras artifacts packaging; do
+  for m in tidy crlf docstrings escapes refs optdeps extras tokens artifacts packaging; do
     local_n="$(prescan "$m")"; local_n="${local_n%%|*}"
     if [[ "$local_n" -gt "$best_n" ]]; then best_n="$local_n"; best="$m"; fi
   done
