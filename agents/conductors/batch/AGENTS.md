@@ -223,7 +223,12 @@ tick for every live, parked and close-out session from its local transcript
 message id, with cache reads reported apart; each read **replaces** that
 session's entry in `counters.json` `usage`, never adds. No transcript is
 `None`, never 0: it keeps the last read and refuses the next spawn (`token usage
-unavailable`). A real worker holds a reservation from its spawn (default
+unavailable`) — until `UNREADABLE_READS` (3) reads in a row fail, when the
+session is `unmeasured`: it stops blocking, its reservation counts as its
+usage, and the pilot row's `tokens` is `null` (`unmeasured` in `pilot.md`),
+never 0. Subagent transcripts (`<sid>/subagents/agent-*.jsonl`) are included
+and reported as `subagents`. The digest's `### Refusals` lists every spawn
+refusal with its reason. A real worker holds a reservation from its spawn (default
 `token-budget / max-sessions`) until its usage passes it, so the budget binds on
 the first tick; `token-budget:` refuses a spawn once spent, or once committed
 usage plus a new reservation would pass it. Every worker has one exit record
@@ -364,7 +369,20 @@ its session, worktree or PR, @-mentioning the login from `PYAUTO_SHIFT_MENTION`
 or `config/policy.yaml` `shift_watcher: mention_login:`. One comment per worker
 per state, marker (`<slot>/mentions/`) before post, a failed post retried next
 tick; a crash, refusal or finished worker never mentions (AUTONOMY.md push test).
-Each sent mention counts in `pushes`; more than one is a digest finding. With nothing pending, the tick is idle. The worker
+Each sent mention counts in `pushes`; more than one is a digest finding. The
+trigger is durable state (a parked task or an issue-only `.done` with no
+marker yet), so a tick that dies between parking and posting mentions on the
+next; a failed mention is also retried by the late sweep.
+
+**The watcher's GitHub identity (human ruling 2026-11-12, #611).**
+`PYAUTO_SHIFT_GH_TOKEN` holds a separate bot or machine account's token,
+**fine-grained, PyAutoMind issues:write only**, set by the human in the
+timer's environment. It is passed as `GH_TOKEN` to the watcher's own
+`gh issue comment` and `gh api user` calls and to nothing else (not to workers).
+Unset, comments post as the human's account; once a shift, before the first
+mention, `gh api user` names the posting account, and if it is the mentioned
+login the digest's `### Workers` warns "mention will not notify: posted as the
+mentioned account". With nothing pending, the tick is idle. The worker
 prompt also forbids EnterWorktree (its permission prompt stalls an unattended
 worker) and requires the `decision-taken` label on any PR carrying a flagged
 decision (pilot live shift 1, 2026-11-06).

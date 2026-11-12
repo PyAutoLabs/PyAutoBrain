@@ -419,41 +419,57 @@ def gh_pr_state(url: str, run=None) -> dict | None:
 _USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
                  ("cache_creation", "cache_creation_input_tokens"),
                  ("cache_read", "cache_read_input_tokens"))
+_USAGE_KEYS = ("total", "input", "output", "cache_creation", "cache_read", "subagents")
+#: Consecutive unreadable reads after which one session stops refusing every
+#: spawn: its reservation stands in for its usage and it is `unmeasured` (#610).
+UNREADABLE_READS = 3
+
+
+def _read_usages(f: Path, by_id: dict, anonymous: list, source: str) -> None:
+    for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            msg = json.loads(line).get("message") or {}
+        except (ValueError, AttributeError):
+            continue
+        usage = msg.get("usage") if isinstance(msg, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        if msg.get("id"):
+            by_id[msg["id"]] = (source, usage)    # the last line of a message wins
+        else:
+            anonymous.append((source, usage))
 
 
 def transcript_usage(session_id: str, root: Path | None = None) -> dict | None:
-    """What a session has spent so far, from its local transcript (a file
-    read — no network): input, output, cache creation and cache read, with
+    """What a session has spent so far, from its local transcripts (file
+    reads — no network): input, output, cache creation and cache read, with
     `total` = input + output + cache creation (cache reads are reported, not
     counted). A transcript repeats one assistant message on several lines with
     the same usage, so usage is taken once per message id (PyAutoBrain#610:
-    summing every line read about 1.6× high). None when there is no transcript
-    or it cannot be read — never 0."""
+    summing every line read about 1.6× high). The session's subagents write
+    their own transcripts under `<sid>/subagents/agent-*.jsonl`; they are
+    included, deduped the same way, and `subagents` reports their share of
+    `total`. None when there is no transcript or one cannot be read — never 0."""
     root = root or Path.home() / ".claude" / "projects"
-    files = list(root.glob(f"*/{session_id}.jsonl"))
-    if not files:
+    main = list(root.glob(f"*/{session_id}.jsonl"))
+    subs = list(root.glob(f"*/{session_id}/subagents/agent-*.jsonl"))
+    if not main and not subs:
         return None
     by_id, anonymous = {}, []
-    for f in files:
-        try:
-            text = f.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return None
-        for line in text.splitlines():
-            try:
-                msg = json.loads(line).get("message") or {}
-            except (ValueError, AttributeError):
-                continue
-            usage = msg.get("usage") if isinstance(msg, dict) else None
-            if not isinstance(usage, dict):
-                continue
-            if msg.get("id"):
-                by_id[msg["id"]] = usage          # the last line of a message wins
-            else:
-                anonymous.append(usage)
-    out = {name: sum(int(u.get(field) or 0) for u in [*by_id.values(), *anonymous])
+    try:
+        for f in main:
+            _read_usages(f, by_id, anonymous, "main")
+        for f in subs:
+            _read_usages(f, by_id, anonymous, "subagent")
+    except OSError:
+        return None
+    seen = [*by_id.values(), *anonymous]
+    out = {name: sum(int(u.get(field) or 0) for _, u in seen)
            for name, field in _USAGE_FIELDS}
     out["total"] = out["input"] + out["output"] + out["cache_creation"]
+    out["subagents"] = sum(int(u.get(field) or 0) for src, u in seen if src == "subagent"
+                           for field in ("input_tokens", "output_tokens",
+                                         "cache_creation_input_tokens"))
     return out
 
 
@@ -470,8 +486,7 @@ def _as_usage(raw) -> dict | None:
     if isinstance(raw, dict):
         if raw.get("total") is None:
             return None
-        return {k: raw[k] for k in ("total", "input", "output", "cache_creation",
-                                    "cache_read") if k in raw}
+        return {k: raw[k] for k in _USAGE_KEYS if k in raw}
     return {"total": int(raw)}
 
 
@@ -480,14 +495,21 @@ def _measure(counters: dict, key: str, sid: str | None, tokens, *, kind: str,
     """Read one session's usage and store it **replacing** the last read
     (PyAutoBrain#610) — so a re-read never adds twice. An unreadable usage
     keeps the last value and marks the session unavailable for this tick,
-    which refuses the next spawn; it is never stored as 0."""
+    which refuses the next spawn; it is never stored as 0. After
+    `UNREADABLE_READS` unreadable reads in a row the session is `unmeasured`:
+    it stops refusing spawns, and its reservation counts as its usage."""
     entry = counters["usage"].setdefault(key, {"kind": kind, "task": task, "total": None})
     usage = _as_usage(tokens(sid)) if sid else None
     if usage is None:
-        if key not in counters["usage_unavailable"]:
+        entry["unreadable"] = int(entry.get("unreadable") or 0) + 1
+        if entry["unreadable"] >= UNREADABLE_READS:
+            entry["unmeasured"] = True
+        elif key not in counters["usage_unavailable"]:
             counters["usage_unavailable"].append(key)
     else:
         entry.update(usage)
+        entry.pop("unreadable", None)
+        entry.pop("unmeasured", None)
     if final:
         entry["final"] = True
     _sum_tokens(counters)
@@ -499,13 +521,13 @@ def _sum_tokens(counters: dict) -> None:
 
 
 def _committed_tokens(counters: dict) -> int:
-    """What the shift has spent or holds: a live session counts the larger of
-    its usage and its spawn reservation; a finished one its usage, or its
-    reservation if it was never measured."""
+    """What the shift has spent or holds: a live or unmeasured session counts
+    the larger of its usage and its spawn reservation; a finished one its
+    usage, or its reservation if it was never measured."""
     total = 0
     for u in counters["usage"].values():
         used, reserve = u.get("total"), int(u.get("reserve") or 0)
-        if u.get("final"):
+        if u.get("final") and not u.get("unmeasured"):
             total += int(used) if used is not None else reserve
         else:
             total += max(int(used or 0), reserve)
@@ -775,7 +797,7 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
          agents: AgentsView | None = None, tokens=transcript_usage,
          poster=None, health=None, pr_state=None,
-         token_reserve: int | None = None) -> dict:
+         token_reserve: int | None = None, whoami=None) -> dict:
     """One watcher tick. Returns what it did; also appended to `tick.log`.
 
     After `review-at:` the one remaining act is the digest (phase 3d), once —
@@ -807,7 +829,8 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
             return result
         if why.startswith("review-at") and (slot / DIGEST_MARKER).exists() and (
                 leases(slot) or _mind_writer.pending_ops(slot)
-                or post_due(slot / DIGEST_MARKER) or post_due(slot / CORRECTION_MARKER)):
+                or post_due(slot / DIGEST_MARKER) or post_due(slot / CORRECTION_MARKER)
+                or mentions_due(slot)):
             if not _take_lock(slot, now):
                 return {"action": "busy", "reason": "another tick holds the lock"}
             try:
@@ -829,7 +852,8 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
         result = _tick_locked(slot, brief, mind, now,
                               spawner or default_spawner(brief_path, brief),
                               grace_s, records, agents, tokens, health, pr_state,
-                              poster=poster, shift=shift, token_reserve=token_reserve)
+                              poster=poster, shift=shift, token_reserve=token_reserve,
+                              whoami=whoami)
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
@@ -843,7 +867,7 @@ def active_leases(slot: Path) -> dict[str, dict]:
 
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                  tokens, health=None, pr_state=None, *, poster=None, shift=None,
-                 token_reserve=None) -> dict:
+                 token_reserve=None, whoami=None) -> dict:
     counters = read_counters(slot)
     counters["usage_unavailable"] = []   # this tick's reads decide
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
@@ -864,7 +888,7 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                 slot, mind, f"shift {slot.name}: unattended close-out")
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
-    mentions = _mentions(slot, counters, reaped, shift or {}, poster, now)
+    mentions = _mentions(slot, counters, shift or {}, poster, now, whoami)
     _write_counters(slot, counters)
     live = active_leases(slot)
     max_workers = _brief.cap_of(brief, "max-workers")
@@ -970,13 +994,38 @@ CORRECTION_MARKER = "correction.posted"
 CORRECTION_FILE = "correction.md"
 
 
+#: An optional separate GitHub token for the watcher's writes (a bot account),
+#: given to its own `gh` calls as `GH_TOKEN` and to nothing else: then the
+#: human's account is the one notified by an @mention (#611 review).
+GH_TOKEN_ENV = "PYAUTO_SHIFT_GH_TOKEN"
+
+
+def _gh_env() -> dict | None:
+    token = os.environ.get(GH_TOKEN_ENV, "").strip()
+    return {**os.environ, "GH_TOKEN": token} if token else None
+
+
+def gh_login(run=None) -> str | None:
+    """The login the watcher's comments post as (`gh api user`, under the
+    posting token); None when it cannot say."""
+    run = run or subprocess.run
+    try:
+        res = run(["gh", "api", "user", "--jq", ".login"], capture_output=True, text=True,
+                  timeout=60, env=_gh_env())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    login = (res.stdout or "").strip()
+    return login if res.returncode == 0 and login else None
+
+
 def gh_comment(issue_url: str, body_file: Path, run=None) -> dict:
-    """The watcher's one kind of write: a comment on the brief's `issue:`.
-    `retry: False` marks a failure after which the comment may have landed."""
+    """The watcher's one kind of write: a comment on the brief's `issue:`,
+    posted as `PYAUTO_SHIFT_GH_TOKEN`'s account when it is set. `retry: False`
+    marks a failure after which the comment may have landed."""
     run = run or subprocess.run
     try:
         res = run(["gh", "issue", "comment", issue_url, "--body-file", str(body_file)],
-                  capture_output=True, text=True, timeout=120)
+                  capture_output=True, text=True, timeout=120, env=_gh_env())
     except subprocess.TimeoutExpired:
         return {"posted": False, "retry": False,
                 "error": "gh timed out — the comment may have landed; not retried"}
@@ -1054,21 +1103,23 @@ def mention_login() -> str:
     return login if _LOGIN_RE.fullmatch(login) else ""
 
 
-def _mention_triggers(reaped: list[dict], counters: dict) -> list[tuple[str, str, str]]:
-    """(task, state, reason) for each worker that now needs the human — the
-    push test (AUTONOMY.md): a worker blocked on a person past the grace, or
-    one that parked on its issue with a question. A crash, a refusal, a
-    finished worker or an obsolete premise waits for the digest."""
+def _mention_triggers(counters: dict, held: dict) -> list[tuple[str, str, str]]:
+    """(task, state, reason) for each worker that needs the human — the push
+    test (AUTONOMY.md): a worker blocked on a person past the grace (parked),
+    or one that parked on its issue with a question. Read from durable state
+    (`counters.json`, the leases), not from this tick's events, so a tick that
+    died between parking a worker and posting still mentions it on the next;
+    the marker makes it once. A crash, a refusal, a finished worker or an
+    obsolete premise waits for the digest."""
     out = []
-    for e in reaped:
-        task = e.get("task")
-        if e.get("event") == "parked":
-            out.append((task, "parked", f"blocked on a person ({e.get('why', '?')})"))
-        elif e.get("event") == "done":
-            o = counters["outcomes"].get(task, {})
-            if not o.get("prs") and o.get("issues") and "obsolete" not in o:
-                out.append((task, "awaiting-input",
-                            "parked on its issue with a question: " + ", ".join(o["issues"])))
+    for task in counters["parked"]:
+        since = (held.get(task) or {}).get("stalled_since")
+        out.append((task, "parked", "blocked on a person"
+                    + (f" (blocked since {since})" if since else "")))
+    for task, o in counters["outcomes"].items():
+        if not o.get("prs") and o.get("issues") and "obsolete" not in o:
+            out.append((task, "awaiting-input",
+                        "parked on its issue with a question: " + ", ".join(o["issues"])))
     return out
 
 
@@ -1106,11 +1157,14 @@ def _note_mention(counters: dict, worker: dict | None, name: str, rec: dict) -> 
                                "posted": rec.get("state") == "posted"})
 
 
-def _mentions(slot: Path, counters: dict, reaped: list[dict], shift: dict, poster,
-              now: _dt.datetime) -> list[dict]:
-    """One comment on the shift's digest issue per worker per state that
-    needs the human (#611), claimed by marker before the post; a post `gh`
-    said failed is retried on the next tick, up to `POST_TRIES`."""
+def mentions_due(slot: Path) -> bool:
+    d = slot / MENTIONS_DIR
+    return d.is_dir() and any(post_due(m) for m in d.glob("*.json"))
+
+
+def _retry_mentions(slot: Path, counters: dict, poster, now: _dt.datetime) -> list[dict]:
+    """Re-post every mention `gh` said failed, up to `POST_TRIES` — on a live
+    tick and in the late sweep alike."""
     d = slot / MENTIONS_DIR
     out = []
     if d.is_dir():
@@ -1122,17 +1176,34 @@ def _mentions(slot: Path, counters: dict, reaped: list[dict], shift: dict, poste
                               marker.stem, rec)
                 out.append({"task": rec.get("task"), "state": rec.get("mention_state"),
                             "post": rec["state"], "retry": rec["tries"]})
-    triggers = _mention_triggers(reaped, counters)
-    if not triggers:
-        return out
-    login, held = mention_login(), leases(slot)
-    for task, state, reason in triggers:
+    return out
+
+
+def _mentions(slot: Path, counters: dict, shift: dict, poster, now: _dt.datetime,
+              whoami=None) -> list[dict]:
+    """One comment on the shift's digest issue per worker per state that
+    needs the human (#611), claimed by marker before the post; a post `gh`
+    said failed is retried on the next tick, up to `POST_TRIES`."""
+    d = slot / MENTIONS_DIR
+    out = _retry_mentions(slot, counters, poster, now)
+    held = leases(slot)
+    todo = []
+    for task, state, reason in _mention_triggers(counters, held):
         w = last_worker(counters, task)
         key = (w or {}).get("key") or task
         name = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{task}.{state}.{key}")
+        if not (d / f"{name}.json").exists():
+            todo.append((task, state, reason, w, key, name))
+    if not todo:
+        return out
+    login = mention_login()
+    if login and "poster_login" not in counters:
+        # Once per shift: who the comments post as. The human's own login
+        # gets no notification for its own comment (#611 review).
+        counters["poster_login"] = (whoami or gh_login)() or ""
+        counters["mention_login"] = login
+    for task, state, reason, w, key, name in todo:
         marker = d / f"{name}.json"
-        if marker.exists():
-            continue
         d.mkdir(parents=True, exist_ok=True)
         body = d / f"{name}.md"
         body.write_text(mention_body(login, slot.name, task, state, reason, counters, w,
@@ -1235,6 +1306,10 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     retried = retry_post(slot / CORRECTION_MARKER, slot / CORRECTION_FILE, poster, now)
     if retried is not None:
         posts["correction"] = retried["state"]
+    mentions = _retry_mentions(slot, counters, poster, now)
+    if mentions:
+        posts["mentions"] = mentions
+        _write_counters(slot, counters)
     if lines and not (slot / CORRECTION_MARKER).exists():
         issue = (top.get("issue") or {}).get("value", "")
         (slot / CORRECTION_FILE).write_text(

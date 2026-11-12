@@ -202,3 +202,15 @@ def test_one_pilot_jsonl_line_per_shift_and_a_late_arrival_amends_it(tmp_path, m
     assert [body.split("\n")[0][:13] for _, body in poster.calls] == ["## Digest", "Late arrivals"]
     orch.tick(brief, canon, home=home, now=AFTER + _dt.timedelta(minutes=20), poster=poster)
     assert len(poster.calls) == 2
+
+
+def test_the_digest_prints_each_spawn_refusal_with_its_reason(tmp_path):
+    """#610 review item 2: a refusal is a digest fact, not only a tick-log line."""
+    mind, brief, home = d._shift(tmp_path, names=("t1", "t2"), extra="  - max-workers: 1\n")
+    claude = d.FakeClaude()
+    d._tick(brief, mind, home, NOW, claude)
+    d._tick(brief, mind, home, _later(1), claude,
+            agents=d._agents({"t1": "working"}, orch.slot_dir(brief, home)))
+    text = _digest_of(brief, home)
+    refusals = text.split(_digest.REFUSALS_HEADING)[1]
+    assert "- t2 — max-workers 1 reached — 2× from 2026-11-04T09:00:00Z" in refusals

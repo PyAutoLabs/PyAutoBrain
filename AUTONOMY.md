@@ -795,7 +795,12 @@ state,mergedAt,mergedBy` for the PRs its own workers named — the close-out's
 merge truth (#603) and, once at `review-at:`, the digest's `merges` (#610).
 The revert condition now reads: one network call outside these, or a comment
 beyond these (a second digest, a second mention for the same worker and
-state, a second correction), retires the watcher to fake mode.
+state, a second correction), retires the watcher to fake mode. **Posting identity, ruled
+by the human 2026-11-12 (PyAutoLabs/PyAutoBrain#611):** the watcher's GitHub
+writes use a separate bot or machine account's token, set by the human as
+`PYAUTO_SHIFT_GH_TOKEN` (fine-grained, PyAutoMind issues:write only); until it
+is set they post as the human's account and the digest warns that the
+mention will not notify.
 
 ## Human override for Heart RED (development only)
 

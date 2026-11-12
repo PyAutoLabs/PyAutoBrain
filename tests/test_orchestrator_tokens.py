@@ -95,7 +95,7 @@ def test_a_transcript_repeating_one_message_id_counts_it_once(tmp_path):
     (folder / f"{sid}.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\nnot json\n")
     u = orch.transcript_usage(sid, root=tmp_path / "projects")
     assert u == {"input": 11, "output": 7, "cache_creation": 100, "cache_read": 900,
-                 "total": 118}
+                 "total": 118, "subagents": 0}
     assert orch.transcript_usage("no-such-session", root=tmp_path / "projects") is None
     assert orch.transcript_tokens("no-such-session", root=tmp_path / "projects") is None
 
@@ -144,3 +144,46 @@ def test_the_default_reservation_shares_the_budget_among_the_sessions(tmp_path):
                 agents=d._agents({"t1": "working", "t2": "working", "t3": "working"}, slot),
                 tokens=lambda s: 40)
     assert orch._committed_tokens(orch.read_counters(slot)) == 120
+
+
+# --- #610 review ------------------------------------------------------------------
+
+def test_subagent_transcripts_are_counted_once_and_reported(tmp_path):
+    """Review item 3: subagents write `<sid>/subagents/agent-*.jsonl`."""
+    sid = str(uuid.uuid4())
+    proj = tmp_path / "projects" / "-a-project"
+    (proj / sid / "subagents").mkdir(parents=True)
+    usage = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 50}
+    (proj / f"{sid}.jsonl").write_text(json.dumps({"message": {"id": "m1", "usage": usage}}))
+    sub = {"input_tokens": 100, "output_tokens": 20}
+    (proj / sid / "subagents" / "agent-a1.jsonl").write_text("\n".join(
+        json.dumps({"message": {"id": "s1", "usage": sub}}) for _ in range(3)))
+    u = orch.transcript_usage(sid, root=tmp_path / "projects")
+    assert u["total"] == 135 and u["subagents"] == 120 and u["cache_read"] == 50
+
+
+def test_one_unreadable_session_stops_blocking_after_its_reads_run_out(tmp_path):
+    """Review item 2: after UNREADABLE_READS unreadable reads in a row a session
+    is `unmeasured` — it no longer refuses every spawn; its reservation counts
+    as its usage and the cap rule decides. The row says unmeasured, never 0."""
+    mind, brief, home = d._shift(tmp_path, names=("t1", "t2", "t3"), budget=800)
+    slot = orch.slot_dir(brief, home)
+    claude = d.FakeClaude()
+
+    def tick(minutes, agents=None):
+        return orch.tick(brief, mind, home=home, now=_later(minutes), grace_s=0,
+                         token_reserve=300, spawner=orch.RealSpawner(brief, "auto", run=claude),
+                         agents=agents or orch.AgentsView([]), tokens=lambda s: None)
+    assert len(tick(0)["spawned"]) == 2                        # t3 waits on max-workers 2
+    (slot / "leases" / "t2.done").write_text("https://github.com/o/r/pull/2\n")
+    whys = [tick(m, d._agents({"t1": "working", "t2": "done"}, slot))["refused"][0]["why"]
+            for m in (1, 2, 3)]
+    assert whys[0].startswith("token usage unavailable") and whys[1].startswith("token usage")
+    assert whys[2] == "token-budget 800: 600 committed + 300 reserved per worker"
+    assert orch.UNREADABLE_READS == 3
+    c = orch.read_counters(slot)
+    assert c["usage"]["00000001"]["unmeasured"] is True
+    rec = orch._digest.pilot_record("s", orch._brief.parse(brief.read_text())["brief"], c)
+    assert rec["tokens"]["total"] is None
+    assert rec["tokens"]["unmeasured"] == ["00000001", "00000002"]
+    assert "| unmeasured |" in orch._digest.pilot_md_row(rec)

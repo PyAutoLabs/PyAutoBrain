@@ -142,3 +142,81 @@ def test_the_login_comes_from_the_environment_or_config_never_the_code(tmp_path,
     _park(brief, mind, home, slot, claude, gh)
     body = gh.calls[0][1]
     assert "@" not in body.split("\n")[0] and orch.MENTION_ENV in body
+
+
+# --- #611 review -------------------------------------------------------------------
+
+def test_a_tick_that_died_after_parking_still_mentions_on_the_next(tmp_path, monkeypatch):
+    """Review item 1: the trigger is durable state, not the parking tick's events."""
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGh()
+    real = orch._mentions
+    blocked = lambda: d._agents({"t1": "blocked"}, slot)  # noqa: E731
+    _tick(brief, mind, home, NOW, claude, gh)
+    _tick(brief, mind, home, NOW + _dt.timedelta(minutes=1), claude, gh, blocked())
+    monkeypatch.setattr(orch, "_mentions", lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("tick died")))
+    try:
+        _tick(brief, mind, home, PAST_GRACE, claude, gh, blocked())   # parks, then dies
+    except RuntimeError:
+        pass
+    assert orch.read_counters(slot)["parked"] == ["t1"] and gh.calls == []
+    orch._drop_lock(slot)
+    monkeypatch.setattr(orch, "_mentions", real)
+    _tick(brief, mind, home, PAST_GRACE + _dt.timedelta(minutes=3), claude, gh,
+          d._agents({"t1": "blocked"}, slot))
+    assert len(gh.calls) == 1 and "needs you — parked." in gh.calls[0][1]
+
+
+def test_a_failed_mention_is_retried_in_the_late_sweep(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGh(fail=1)
+    _park(brief, mind, home, slot, claude, gh)
+    assert len(gh.calls) == 1                                  # failed
+    after = NOW + _dt.timedelta(hours=3)
+    poster = lambda issue, body: orch.gh_comment(issue, body, run=gh)  # noqa: E731
+    orch.tick(brief, mind, home=home, now=after, grace_s=0, poster=poster,
+              agents=d._agents({"t1": "blocked"}, slot), tokens=lambda s: 0,
+              pr_state=lambda u: None, health=lambda u: "HEALTHY")   # digest + finish
+    r = orch.tick(brief, mind, home=home, now=after + _dt.timedelta(minutes=5), grace_s=0,
+                  poster=poster, agents=d._agents({"t1": "blocked"}, slot),
+                  tokens=lambda s: 0)
+    assert r["action"] == "late"
+    assert r["posts"]["mentions"] == [{"task": "t1", "state": "parked", "post": "posted",
+                                       "retry": 2}]
+    mention_calls = [b for _, b in gh.calls if "needs you" in b]
+    assert len(mention_calls) == 2 and orch.read_counters(slot)["pushes"] == 1
+
+
+def test_a_separate_token_posts_and_a_self_mention_is_warned(tmp_path, monkeypatch):
+    """Review item 4: PYAUTO_SHIFT_GH_TOKEN is given to the watcher's `gh` as
+    GH_TOKEN; mentioning the posting account itself is a digest warning."""
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    monkeypatch.setenv(orch.GH_TOKEN_ENV, "test-token-not-real")
+    claude, gh = d.FakeClaude(), FakeGh()
+    envs = []
+
+    def run(argv, **kw):
+        envs.append((kw.get("env") or {}).get("GH_TOKEN"))
+        return gh(argv, **kw)
+    blocked = lambda: d._agents({"t1": "blocked"}, slot)  # noqa: E731
+    asked = []
+    for now, agents in ((NOW, None), (NOW + _dt.timedelta(minutes=1), blocked),
+                        (PAST_GRACE, blocked), (PAST_GRACE + _dt.timedelta(minutes=3), blocked)):
+        orch.tick(brief, mind, home=home, now=now, grace_s=0,
+                  spawner=orch.RealSpawner(brief, "auto", run=claude),
+                  agents=agents() if agents else orch.AgentsView([]), tokens=lambda s: 0,
+                  poster=lambda i, b: orch.gh_comment(i, b, run=run),
+                  whoami=lambda: asked.append(1) or LOGIN)
+    assert envs == ["test-token-not-real"] and asked == [1]     # checked once per shift
+    c = orch.read_counters(slot)
+    text = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c,
+                         health=lambda u: "HEALTHY")
+    assert "mention will not notify: posted as the mentioned account" in text
+    c.update(poster_login="example-bot")
+    assert "will not notify" not in _digest.build(
+        _brief.parse(brief.read_text())["brief"], slot, c, health=lambda u: "HEALTHY")
+    login_calls = []
+    assert orch.gh_login(run=lambda argv, **kw: login_calls.append((argv, kw["env"]["GH_TOKEN"]))
+                         or SimpleNamespace(returncode=0, stdout="example-bot\n")) == "example-bot"
+    assert login_calls == [(["gh", "api", "user", "--jq", ".login"], "test-token-not-real")]

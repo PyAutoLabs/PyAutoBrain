@@ -35,7 +35,11 @@ def _no_real_github(monkeypatch):
         monkeypatch.setattr(orch, "gh_comment", lambda issue, body, run=None:
                             real_comment(issue, body, run=run) if run else
                             {"posted": False, "retry": False, "error": "offline (tests)"})
+        real_login = orch.gh_login
+        monkeypatch.setattr(orch, "gh_login", lambda run=None:
+                            real_login(run=run) if run else None)
         monkeypatch.delenv(orch.MENTION_ENV, raising=False)
+        monkeypatch.delenv(orch.GH_TOKEN_ENV, raising=False)
     if digest is not None:
         real_health = digest.pr_health
         monkeypatch.setattr(digest, "pr_health", lambda url, run=None:

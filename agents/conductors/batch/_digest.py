@@ -258,6 +258,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     else:
         lines += [f"- {k}: {values[k]}" for k in COUNTERS]
         lines += ["", WORKERS_HEADING] + (worker_lines(counters, base) or [NO_PICKS])
+        lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
     return "\n".join(lines) + "\n"
 
 
@@ -284,11 +285,28 @@ def worker_lines(counters: dict, base: str = "") -> list[str]:
         for m in w.get("mentions", []):
             line += f" — mentioned ({m.get('state', '?')})"
         out.append(line)
+    poster, mentioned = counters.get("poster_login") or "", counters.get("mention_login") or ""
+    if poster and poster.lower() == mentioned.lower():
+        out.append(f"- warning: mention will not notify: posted as the mentioned account "
+                   f"({poster}) — set PYAUTO_SHIFT_GH_TOKEN to a separate account")
     pushes = counters.get("pushes", 0)
     if pushes > 1:
         out.append(f"- finding: {pushes} pushes this shift — the push test budgets "
                    "about one (AUTONOMY.md)")
     return out
+
+
+REFUSALS_HEADING = "### Refusals"
+
+
+def refusal_lines(counters: dict) -> list[str]:
+    """Every spawn the watcher refused, with its reason: one line per task and
+    reason, with how many ticks refused it and when first (#610 review)."""
+    seen: dict[tuple[str, str], list] = {}
+    for r in counters.get("refusals", []):
+        k = (r.get("task", "?"), r.get("why", "?"))
+        seen.setdefault(k, [0, r.get("at", "?")])[0] += 1
+    return [f"- {task} — {why} — {n}× from {at}" for (task, why), (n, at) in seen.items()]
 
 
 def workers_crashed(counters: dict) -> int:
@@ -323,20 +341,25 @@ def merged_prs(counters: dict) -> list[dict]:
 
 
 def token_parts(counters: dict) -> dict:
-    """The shift's measured tokens by component and by session kind; a session
-    never measured is named in `unmeasured`, never counted as 0."""
-    parts = {"total": 0, "input": 0, "output": 0, "cache_creation": 0, "cache_read": 0,
-             "workers": 0, "closeouts": 0, "unmeasured": []}
+    """The shift's tokens by component and by session kind. `measured` is what
+    was read; `total` is that sum only when every session was measured, else
+    None (written `null` / `unmeasured`, never 0), with the sessions named in
+    `unmeasured` — never read, or `UNREADABLE_READS` failed reads in a row."""
+    parts = {"total": 0, "measured": 0, "input": 0, "output": 0, "cache_creation": 0,
+             "cache_read": 0, "subagents": 0, "workers": 0, "closeouts": 0,
+             "unmeasured": []}
     for key, u in sorted((counters.get("usage") or {}).items()):
-        if u.get("total") is None:
+        if u.get("total") is None or u.get("unmeasured"):
             parts["unmeasured"].append(key)
+        if u.get("total") is None:
             continue
-        parts["total"] += int(u["total"])
-        for k in ("input", "output", "cache_creation", "cache_read"):
+        parts["measured"] += int(u["total"])
+        for k in ("input", "output", "cache_creation", "cache_read", "subagents"):
             parts[k] += int(u.get(k) or 0)
         parts["closeouts" if u.get("kind") == "closeout" else "workers"] += int(u["total"])
     if not counters.get("usage"):
-        parts["total"] = parts["workers"] = int(counters.get("tokens", 0) or 0)
+        parts["measured"] = parts["workers"] = int(counters.get("tokens", 0) or 0)
+    parts["total"] = None if parts["unmeasured"] else parts["measured"]
     return parts
 
 
@@ -344,7 +367,7 @@ def counter_values(brief: dict, counters: dict) -> dict:
     """Every digest counter's value, from the brief and `counters.json`."""
     budget = brief.get("token-budget", {}).get("value", "?")
     parts = token_parts(counters)
-    tokens = f"{parts['total']} of {budget}"
+    tokens = f"{parts['measured']} of {budget}"
     extra = ([f"cache-read {parts['cache_read']}"] if parts["cache_read"] else []) \
         + ([f"{len(parts['unmeasured'])} session(s) unmeasured"] if parts["unmeasured"] else [])
     values = {"merges": len(merged_prs(counters)), "workers-crashed": workers_crashed(counters),
@@ -389,6 +412,8 @@ def pilot_md_row(record: dict) -> str:
     cells = {**record["counters"], "slot": record["slot"], "mode": record["mode"],
              "review-minutes-planned": record["review-minutes-planned"],
              "tokens": record["tokens"]["total"]}
+    if cells["tokens"] is None:
+        cells["tokens"] = "unmeasured"
     human = PILOT_HUMAN + (PILOT_HUMAN_SHADOW if record["mode"] == "shadow" else ())
     return "| " + " | ".join("?" if c in human or cells.get(c) is None else str(cells[c])
                              for c in PILOT_COLUMNS) + " |\n"
