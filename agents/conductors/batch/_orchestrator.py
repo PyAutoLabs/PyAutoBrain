@@ -20,8 +20,11 @@ is parked for a human — never killed, never re-dispatched. Workers never
 commit to PyAutoMind (phase 3c): they queue ledger ops (`bin/shift_ledger.py`)
 and each tick commits them from a temporary worktree (`_mind_writer.py`); a
 git hook injected through the worker's environment refuses a direct commit.
-Nothing here commits, merges, posts or arms a timer: the systemd timer that
-calls `bin/orchestrator_watch.py` is installed by the human.
+Nothing here commits, merges or arms a timer: the systemd timer that calls
+`bin/orchestrator_watch.py` is installed by the human. Its only GitHub writes
+are the comments AUTONOMY.md "The watcher's network surface" lists — the
+digest, one @mention per worker per state that needs the human (#611) and
+one correction for a late arrival (#610) — each claimed by marker first.
 """
 
 from __future__ import annotations
@@ -136,6 +139,14 @@ def read_counters(slot: Path) -> dict:
     c.setdefault("outcomes", {})   # task → {prs, merged}, from its `.done` (3d)
     c.setdefault("closeouts", {})  # PR url → {task, state, why, …} (4b)
     c.setdefault("glance_auto_merges", 0)
+    # PyAutoBrain#610: tokens per session (replaced each read, never added),
+    # the sessions whose usage could not be read this tick, one exit record
+    # per worker, and GitHub's merge state per PR at `review-at:`.
+    c.setdefault("usage", {})
+    c.setdefault("usage_unavailable", [])
+    c.setdefault("workers", [])
+    c.setdefault("github", {})
+    c.setdefault("pushes", 0)        # @mentions sent (PyAutoBrain#611)
     return c
 
 
@@ -405,20 +416,106 @@ def gh_pr_state(url: str, run=None) -> dict | None:
             "mergedBy": by.get("login", "") if isinstance(by, dict) else str(by)}
 
 
-def transcript_tokens(session_id: str, root: Path | None = None) -> int:
-    """Tokens a finished session spent: input + output + cache creation, summed
-    from its local transcript (a file read — no network)."""
+_USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
+                 ("cache_creation", "cache_creation_input_tokens"),
+                 ("cache_read", "cache_read_input_tokens"))
+
+
+def transcript_usage(session_id: str, root: Path | None = None) -> dict | None:
+    """What a session has spent so far, from its local transcript (a file
+    read — no network): input, output, cache creation and cache read, with
+    `total` = input + output + cache creation (cache reads are reported, not
+    counted). A transcript repeats one assistant message on several lines with
+    the same usage, so usage is taken once per message id (PyAutoBrain#610:
+    summing every line read about 1.6× high). None when there is no transcript
+    or it cannot be read — never 0."""
     root = root or Path.home() / ".claude" / "projects"
-    total = 0
-    for f in root.glob(f"*/{session_id}.jsonl"):
-        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+    files = list(root.glob(f"*/{session_id}.jsonl"))
+    if not files:
+        return None
+    by_id, anonymous = {}, []
+    for f in files:
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        for line in text.splitlines():
             try:
-                usage = (json.loads(line).get("message") or {}).get("usage") or {}
+                msg = json.loads(line).get("message") or {}
             except (ValueError, AttributeError):
                 continue
-            total += sum(int(usage.get(k) or 0) for k in
-                         ("input_tokens", "output_tokens", "cache_creation_input_tokens"))
+            usage = msg.get("usage") if isinstance(msg, dict) else None
+            if not isinstance(usage, dict):
+                continue
+            if msg.get("id"):
+                by_id[msg["id"]] = usage          # the last line of a message wins
+            else:
+                anonymous.append(usage)
+    out = {name: sum(int(u.get(field) or 0) for u in [*by_id.values(), *anonymous])
+           for name, field in _USAGE_FIELDS}
+    out["total"] = out["input"] + out["output"] + out["cache_creation"]
+    return out
+
+
+def transcript_tokens(session_id: str, root: Path | None = None) -> int | None:
+    """`transcript_usage`'s total, or None when unavailable."""
+    usage = transcript_usage(session_id, root)
+    return None if usage is None else usage["total"]
+
+
+def _as_usage(raw) -> dict | None:
+    """A usage read in either form a seam returns: a dict, a bare total, None."""
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        if raw.get("total") is None:
+            return None
+        return {k: raw[k] for k in ("total", "input", "output", "cache_creation",
+                                    "cache_read") if k in raw}
+    return {"total": int(raw)}
+
+
+def _measure(counters: dict, key: str, sid: str | None, tokens, *, kind: str,
+             task: str, final: bool = False) -> None:
+    """Read one session's usage and store it **replacing** the last read
+    (PyAutoBrain#610) — so a re-read never adds twice. An unreadable usage
+    keeps the last value and marks the session unavailable for this tick,
+    which refuses the next spawn; it is never stored as 0."""
+    entry = counters["usage"].setdefault(key, {"kind": kind, "task": task, "total": None})
+    usage = _as_usage(tokens(sid)) if sid else None
+    if usage is None:
+        if key not in counters["usage_unavailable"]:
+            counters["usage_unavailable"].append(key)
+    else:
+        entry.update(usage)
+    if final:
+        entry["final"] = True
+    _sum_tokens(counters)
+
+
+def _sum_tokens(counters: dict) -> None:
+    counters["tokens"] = sum(int(u["total"]) for u in counters["usage"].values()
+                             if u.get("total") is not None)
+
+
+def _committed_tokens(counters: dict) -> int:
+    """What the shift has spent or holds: a live session counts the larger of
+    its usage and its spawn reservation; a finished one its usage, or its
+    reservation if it was never measured."""
+    total = 0
+    for u in counters["usage"].values():
+        used, reserve = u.get("total"), int(u.get("reserve") or 0)
+        if u.get("final"):
+            total += int(used) if used is not None else reserve
+        else:
+            total += max(int(used or 0), reserve)
     return total
+
+
+def default_token_reserve(budget: int | None, max_sessions: int) -> int:
+    """The per-worker estimate held at spawn until real usage passes it: an
+    even share of the budget among the sessions the shift may start."""
+    return budget // max(max_sessions, 1) if budget else 0
 
 
 # --- locks and leases ------------------------------------------------------------
@@ -475,14 +572,46 @@ def leases(slot: Path) -> dict[str, dict]:
     return out
 
 
+def _worker_key(lease: dict, task: str) -> str:
+    """The worker a lease holds: its `claude --bg` id, else its pid."""
+    return lease.get("worker") or lease.get("agent_id") or f"pid-{lease.get('pid') or task}"
+
+
+def worker_record(counters: dict, key: str, task: str, started: str | None = None) -> dict:
+    """The one exit record of one worker, created on first sight."""
+    for w in counters["workers"]:
+        if w.get("key") == key:
+            return w
+    w = {"key": key, "task": task, "spawned": started, "exits": ["spawned"]}
+    counters["workers"].append(w)
+    return w
+
+
+def _exit(rec: dict, word: str) -> None:
+    """Append one exit word; a repeat of the last (a re-reaped lease) is not."""
+    if not rec["exits"] or rec["exits"][-1] != word:
+        rec["exits"].append(word)
+
+
+def last_worker(counters: dict, task: str) -> dict | None:
+    """The newest worker record for a task (a re-dispatch makes a second)."""
+    return next((w for w in reversed(counters["workers"]) if w["task"] == task), None)
+
+
 def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
-          agents: AgentsView | None = None, tokens=transcript_tokens) -> list[dict]:
+          agents: AgentsView | None = None, tokens=transcript_usage, *,
+          late: bool = False) -> list[dict]:
     """Release finished leases, park stalled ones and declare dead ones.
 
     Every transition is written to `counters.json` as it happens, and a lease
     or `.done` marker is deleted only after that write — a tick that fails
     later never forgets a reap (PyAutoBrain#603). A parked worker keeps its
     lease (`state: parked`), so its late `.done` is still read here.
+
+    Every real session's usage is read on every tick, live, parked or
+    finishing, and stored per session (PyAutoBrain#610). Each transition is
+    also written to the worker's exit record (`spawned/…`); `late` (the late
+    sweep) marks what arrives after `review-at:`.
     """
     events = []
     lease_dir = slot / "leases"
@@ -493,6 +622,12 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
         path = lease_dir / f"{task}.json"
         real = bool(lease.get("agent_id")) and not lease.get("pid")
         parked = lease.get("state") == "parked"
+        rec = worker_record(counters, _worker_key(lease, task), task, lease.get("started"))
+
+        def mark(word, rec=rec):
+            if late and "late" not in rec["exits"]:
+                _exit(rec, "late")
+            _exit(rec, word)
         state = None
         if real:
             if known is None:
@@ -502,20 +637,35 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                                    "why": "the `claude agents` read failed — "
                                           "no liveness decision this tick"})
             if not known:
+                # No liveness decision, but the usage still counts: a known
+                # transcript is read; without one the session is unavailable.
+                _measure(counters, lease["agent_id"], lease.get("session_id"), tokens,
+                         kind="worker", task=task)
                 continue
             state = agents.state(lease["agent_id"])
             if state is None:
                 lease["unlisted"] = int(lease.get("unlisted", 0)) + 1
             else:
                 lease.pop("unlisted", None)
+            if state == "blocked":
+                seen = rec.get("blocked_seen")
+                if seen:
+                    rec["stalled_s"] = float(rec.get("stalled_s") or 0) \
+                        + max((now - _parse_iso(seen)).total_seconds(), 0.0)
+                rec["blocked_seen"] = _iso(now)
+            else:
+                rec.pop("blocked_seen", None)
         ended = real and state in ENDED_STATES
         gone = (real and state is None
                 and lease.get("unlisted", 0) >= UNLISTED_READS_FOR_CRASH
                 and now >= _parse_iso(lease["expires"]))
         finished = done_marker.exists() or state == "done" or ended or gone
-        if real and finished:
+        if real:
             sid = agents.session_of(lease["agent_id"]) or lease.get("session_id")
-            counters["tokens"] += tokens(sid) if sid else 0
+            if sid:
+                lease["session_id"] = sid
+            _measure(counters, lease["agent_id"], sid, tokens, kind="worker", task=task,
+                     final=finished)
         if done_marker.exists():
             # The digest reads these at review-at, long after the marker is gone.
             counters["outcomes"][task] = _digest.parse_done(
@@ -524,6 +674,7 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 counters["done"].append(task)
             if task in counters["parked"]:
                 counters["parked"].remove(task)
+            mark("finished")
             _write_counters(slot, counters)
             proof = lease_dir / f"{task}.proof.md"
             if proof.exists():
@@ -540,6 +691,7 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             if finished:
                 # Ended without a `.done`: released, never a crash and never
                 # re-dispatched — it stays parked for the human.
+                mark("ended")
                 _write_counters(slot, counters)
                 path.unlink(missing_ok=True)
                 events.append({"task": task, "event": "parked-ended"})
@@ -554,6 +706,7 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 # The lease stays (state `parked`) so a late `.done` is read.
                 if task not in counters["parked"]:
                     counters["parked"].append(task)
+                mark("parked")
                 _write_counters(slot, counters)
                 lease.update(state="parked", parked_at=_iso(now))
                 events.append({"task": task, "event": "parked",
@@ -575,6 +728,7 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 path.write_text(json.dumps(lease, sort_keys=True))  # the unlisted count
             continue  # gone, but inside the grace for a late `.done`
         counters["crashes"] += 1
+        mark("crashed")
         again = counters["redispatched"].get(task, 0) < REDISPATCH_LIMIT
         if again and task not in counters["pending_redispatch"]:
             counters["pending_redispatch"].append(task)
@@ -611,14 +765,22 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
     return True, "open", rec["brief"]
 
 
+def _default_pr_state():
+    """GitHub's word on a PR at `review-at:` — none asked in a dry shift."""
+    return FakeSpawner().pr_state if os.environ.get(FAKE_ENV) == "1" else gh_pr_state
+
+
 def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          now: _dt.datetime | None = None, spawner=None,
          grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
-         agents: AgentsView | None = None, tokens=transcript_tokens,
-         poster=None, health=None, pr_state=None) -> dict:
+         agents: AgentsView | None = None, tokens=transcript_usage,
+         poster=None, health=None, pr_state=None,
+         token_reserve: int | None = None) -> dict:
     """One watcher tick. Returns what it did; also appended to `tick.log`.
 
-    After `review-at:` the one remaining act is the digest (phase 3d), once."""
+    After `review-at:` the one remaining act is the digest (phase 3d), once —
+    then the late sweep, while a worker is still out, an op is queued or a
+    failed post is due its retry."""
     now = now or _now()
     brief_path = Path(brief_path)
     slot = slot_dir(brief_path, home)
@@ -634,32 +796,40 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
             if not _take_lock(slot, now):
                 return {"action": "busy", "reason": "another tick holds the lock"}
             try:
-                result = finish_shift(brief_path, mind, slot, now, poster=poster,
-                                      health=health)
+                result = finish_shift(
+                    brief_path, mind, slot, now, poster=poster, health=health,
+                    agents=agents, tokens=tokens, grace_s=grace_s,
+                    pr_state=(pr_state or getattr(spawner, "pr_state", None)
+                              or _default_pr_state()))
             finally:
                 _drop_lock(slot)
             _log(slot, now, result)
             return result
         if why.startswith("review-at") and (slot / DIGEST_MARKER).exists() and (
-                leases(slot) or _mind_writer.pending_ops(slot)):
+                leases(slot) or _mind_writer.pending_ops(slot)
+                or post_due(slot / DIGEST_MARKER) or post_due(slot / CORRECTION_MARKER)):
             if not _take_lock(slot, now):
                 return {"action": "busy", "reason": "another tick holds the lock"}
             try:
                 result = late_sweep(brief_path, mind, slot, now, grace_s=grace_s,
-                                    agents=agents, tokens=tokens)
+                                    agents=agents, tokens=tokens, poster=poster)
             finally:
                 _drop_lock(slot)
             _log(slot, now, result)
             return result
         return {"action": "idle", "reason": why}
 
+    top = _brief.parse(brief_path.read_text(encoding="utf-8"))["top"]
+    shift = {"issue": (top.get("issue") or {}).get("value", ""),
+             "review_at": (top.get("review-at") or {}).get("value", "")}
     (slot / "leases").mkdir(parents=True, exist_ok=True)
     if not _take_lock(slot, now):
         return {"action": "busy", "reason": "another tick holds the lock"}
     try:
         result = _tick_locked(slot, brief, mind, now,
                               spawner or default_spawner(brief_path, brief),
-                              grace_s, records, agents, tokens, health, pr_state)
+                              grace_s, records, agents, tokens, health, pr_state,
+                              poster=poster, shift=shift, token_reserve=token_reserve)
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
@@ -672,8 +842,10 @@ def active_leases(slot: Path) -> dict[str, dict]:
 
 
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
-                 tokens, health=None, pr_state=None) -> dict:
+                 tokens, health=None, pr_state=None, *, poster=None, shift=None,
+                 token_reserve=None) -> dict:
     counters = read_counters(slot)
+    counters["usage_unavailable"] = []   # this tick's reads decide
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
     # One Mind writer: whatever the workers queued is committed here, by the
     # orchestrator alone, from a temporary worktree — never by a worker.
@@ -684,13 +856,16 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                 slot, mind, f"shift {slot.name}: ledger from workers")
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
-    closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state)
+    closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state,
+                           tokens=tokens)
     if _mind_writer.pending_ops(slot):  # a stage-2 row queued by a merged close-out
         try:
             ledger = _mind_writer.commit_ledger(
                 slot, mind, f"shift {slot.name}: unattended close-out")
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
+    mentions = _mentions(slot, counters, reaped, shift or {}, poster, now)
+    _write_counters(slot, counters)
     live = active_leases(slot)
     max_workers = _brief.cap_of(brief, "max-workers")
     max_sessions = _brief.cap_of(brief, "max-sessions")
@@ -705,6 +880,14 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
         return {"action": "shadow", "reaped": reaped, "spawned": [],
                 "proposed": proposed, "refused": [], "live": sorted(live),
                 "ledger": ledger}
+    budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
+    # A real worker holds a reservation from its spawn until its measured
+    # usage passes it, so the budget binds on the first tick (#610). A fake
+    # (dry-shift) worker spends nothing.
+    reserve = 0
+    if getattr(spawner, "real", False):
+        reserve = token_reserve if token_reserve is not None \
+            else default_token_reserve(budget, max_sessions)
     spawned, refused = [], []
     for member in d["members"]:
         task = task_id(member["path"])
@@ -717,10 +900,20 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
         if counters["sessions"] >= max_sessions:
             refused.append({"task": task, "why": f"max-sessions {max_sessions} reached"})
             continue
-        budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
+        if counters["usage_unavailable"]:
+            # Never counted as 0: a spend the watcher cannot read could be
+            # anything, so nothing more starts until it can be read.
+            refused.append({"task": task, "why": "token usage unavailable ("
+                            + ", ".join(counters["usage_unavailable"]) + ")"})
+            continue
         if budget is not None and counters["tokens"] >= budget:
             refused.append({"task": task, "why": f"token-budget {budget} spent "
                                                 f"({counters['tokens']})"})
+            continue
+        committed = _committed_tokens(counters)
+        if budget is not None and committed + reserve > budget:
+            refused.append({"task": task, "why": f"token-budget {budget}: {committed} "
+                                                f"committed + {reserve} reserved per worker"})
             continue
         lease = {"task": task, "prompt": member["path"], "started": _iso(now),
                  "heartbeat": _iso(now),
@@ -736,8 +929,19 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
             # what this tick already reaped stays written, the rest carry on.
             lease_path.unlink(missing_ok=True)
             refused.append({"task": task, "why": f"spawn failed: {str(e)[:300]}"})
+            # One record per task however often the launch is retried: a
+            # failed launch is a crashed worker in the digest (#610).
+            rec = worker_record(counters, f"launch-{task}", task, _iso(now))
+            rec["exits"] = ["launch-failed"]
+            rec["attempts"] = int(rec.get("attempts") or 0) + 1
+            _write_counters(slot, counters)
             continue
+        lease["worker"] = _worker_key(lease, task)
         lease_path.write_text(json.dumps(lease, sort_keys=True))
+        worker_record(counters, lease["worker"], task, lease["started"])
+        if lease.get("agent_id"):
+            counters["usage"][lease["worker"]] = {"kind": "worker", "task": task,
+                                                  "total": None, "reserve": reserve}
         counters["picks"][task] = pick_record(member, brief)
         if task in counters["pending_redispatch"]:
             counters["pending_redispatch"].remove(task)
@@ -748,22 +952,202 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
         spawned.append({"task": task, "pid": lease["pid"]})
     counters["refusals"] += [dict(r, at=_iso(now)) for r in refused]
     _write_counters(slot, counters)
-    return {"action": "ticked", "reaped": reaped, "spawned": spawned,
-            "refused": refused, "live": sorted(live), "ledger": ledger,
-            "closeouts": closeouts}
+    out = {"action": "ticked", "reaped": reaped, "spawned": spawned,
+           "refused": refused, "live": sorted(live), "ledger": ledger,
+           "closeouts": closeouts}
+    if mentions:
+        out["mentions"] = mentions
+    return out
 
 
-# --- the digest (phase 3d) ----------------------------------------------------------
+# --- posting: marker before post, a failed post retried (#610, #611) -----------------
+
+#: Attempts per comment, the first included. Only a post `gh` says failed is
+#: retried; a timeout may have landed, so it never is.
+POST_TRIES = 3
+#: The one correction comment a late arrival may add after the digest (#610).
+CORRECTION_MARKER = "correction.posted"
+CORRECTION_FILE = "correction.md"
+
 
 def gh_comment(issue_url: str, body_file: Path, run=None) -> dict:
-    """The watcher's one write: a comment on the brief's `issue:`."""
+    """The watcher's one kind of write: a comment on the brief's `issue:`.
+    `retry: False` marks a failure after which the comment may have landed."""
     run = run or subprocess.run
-    res = run(["gh", "issue", "comment", issue_url, "--body-file", str(body_file)],
-              capture_output=True, text=True, timeout=120)
+    try:
+        res = run(["gh", "issue", "comment", issue_url, "--body-file", str(body_file)],
+                  capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return {"posted": False, "retry": False,
+                "error": "gh timed out — the comment may have landed; not retried"}
+    except OSError as e:
+        return {"posted": False, "error": f"gh could not run: {e}"[:300]}
     if res.returncode != 0:
         return {"posted": False, "error": (res.stderr or res.stdout).strip()[:300]}
     return {"posted": True, "url": res.stdout.strip().splitlines()[-1] if res.stdout.strip() else ""}
 
+
+def _post_and_record(marker: Path, rec: dict, body_file: Path, poster) -> dict:
+    issue = rec.get("issue", "")
+    if not issue.startswith("http"):
+        res = {"posted": False, "retry": False, "error": "the brief names no issue:"}
+    else:
+        res = (poster or gh_comment)(issue, body_file)
+    rec = {k: v for k, v in rec.items() if k not in ("error", "retry")}
+    rec.update(res)
+    rec["state"] = ("posted" if res.get("posted")
+                    else "failed" if res.get("retry", True) else "unknown")
+    marker.write_text(json.dumps(rec, sort_keys=True))
+    return rec
+
+
+def post_once(marker: Path, issue: str, body_file: Path, poster, now: _dt.datetime,
+              **meta) -> dict | None:
+    """Claim `marker` exclusively, then post: a crash between the two leaves
+    no comment, never two. None when the marker was already claimed."""
+    claim = {"at": _iso(now), "issue": issue, "tries": 1, "state": "claimed", **meta}
+    if not _create_exclusive(marker, claim):
+        return None
+    return _post_and_record(marker, claim, body_file, poster)
+
+
+def post_due(marker: Path) -> bool:
+    """Whether a marker's post failed outright and has tries left. A marker
+    written before retries existed (no `state`) is never retried."""
+    try:
+        rec = json.loads(Path(marker).read_text())
+    except (OSError, ValueError):
+        return False
+    return rec.get("state") == "failed" and int(rec.get("tries", 1)) < POST_TRIES
+
+
+def retry_post(marker: Path, body_file: Path, poster, now: _dt.datetime) -> dict | None:
+    """Re-post a failed comment, re-claiming the marker first."""
+    if not post_due(marker):
+        return None
+    rec = json.loads(marker.read_text())
+    rec.update(tries=int(rec.get("tries", 1)) + 1, state="claimed", retried_at=_iso(now))
+    marker.write_text(json.dumps(rec, sort_keys=True))
+    return _post_and_record(marker, rec, body_file, poster)
+
+
+# --- the human, reached by @mention (#611) -----------------------------------------
+
+MENTIONS_DIR = "mentions"
+#: The GitHub login a blocked worker @-mentions: this variable, else
+#: `config/policy.yaml` `shift_watcher: mention_login:` — never written here.
+MENTION_ENV = "PYAUTO_SHIFT_MENTION"
+_LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
+
+
+def mention_login() -> str:
+    login = os.environ.get(MENTION_ENV, "").strip().lstrip("@")
+    if not login:
+        try:
+            import yaml
+            cfg = yaml.safe_load((Path(__file__).resolve().parents[3] / "config"
+                                  / "policy.yaml").read_text(encoding="utf-8")) or {}
+            login = str((cfg.get("shift_watcher") or {}).get("mention_login") or "")
+            login = login.strip().lstrip("@")
+        except Exception:
+            login = ""
+    return login if _LOGIN_RE.fullmatch(login) else ""
+
+
+def _mention_triggers(reaped: list[dict], counters: dict) -> list[tuple[str, str, str]]:
+    """(task, state, reason) for each worker that now needs the human — the
+    push test (AUTONOMY.md): a worker blocked on a person past the grace, or
+    one that parked on its issue with a question. A crash, a refusal, a
+    finished worker or an obsolete premise waits for the digest."""
+    out = []
+    for e in reaped:
+        task = e.get("task")
+        if e.get("event") == "parked":
+            out.append((task, "parked", f"blocked on a person ({e.get('why', '?')})"))
+        elif e.get("event") == "done":
+            o = counters["outcomes"].get(task, {})
+            if not o.get("prs") and o.get("issues") and "obsolete" not in o:
+                out.append((task, "awaiting-input",
+                            "parked on its issue with a question: " + ", ".join(o["issues"])))
+    return out
+
+
+def mention_body(login: str, slot_name: str, task: str, state: str, reason: str,
+                 counters: dict, worker: dict | None, lease: dict | None,
+                 review_at: str) -> str:
+    who = f"@{login} " if login else ""
+    prompt = counters["picks"].get(task, {}).get("prompt") or (lease or {}).get("prompt") or task
+    urls = _digest.urls_of(counters["outcomes"].get(task))
+    where = [f"session `{(worker or {}).get('key') or '?'}` (`claude agents` on the laptop)"]
+    if (lease or {}).get("worktree"):
+        where.append(f"worktree `{lease['worktree']}`")
+    lines = [f"{who}shift `{slot_name}`: the worker on `{task}` needs you — {state}.", "",
+             f"- reason: {reason}", f"- task: `{prompt}`",
+             f"- worker: {'; '.join(where)}",
+             f"- PR / issue: {', '.join(urls) or 'none yet'}", "",
+             f"The shift carries on without it; the digest at review-at {review_at} "
+             "lists it too. One comment per worker per state."]
+    if not login:
+        lines.append(f"(No login to mention: set `{MENTION_ENV}` or `config/policy.yaml` "
+                     "`shift_watcher: mention_login:`.)")
+    return "\n".join(lines) + "\n"
+
+
+def _note_mention(counters: dict, worker: dict | None, name: str, rec: dict) -> None:
+    if rec.get("state") == "posted":
+        counters["pushes"] += 1
+    if worker is None:
+        return
+    for m in worker.setdefault("mentions", []):
+        if m.get("marker") == name:
+            m["posted"] = rec.get("state") == "posted"
+            return
+    worker["mentions"].append({"marker": name, "state": rec.get("mention_state"),
+                               "posted": rec.get("state") == "posted"})
+
+
+def _mentions(slot: Path, counters: dict, reaped: list[dict], shift: dict, poster,
+              now: _dt.datetime) -> list[dict]:
+    """One comment on the shift's digest issue per worker per state that
+    needs the human (#611), claimed by marker before the post; a post `gh`
+    said failed is retried on the next tick, up to `POST_TRIES`."""
+    d = slot / MENTIONS_DIR
+    out = []
+    if d.is_dir():
+        for marker in sorted(d.glob("*.json")):
+            rec = retry_post(marker, marker.with_suffix(".md"), poster, now)
+            if rec is not None:
+                w = last_worker(counters, rec.get("task", ""))
+                _note_mention(counters, w if w and w.get("key") == rec.get("worker") else None,
+                              marker.stem, rec)
+                out.append({"task": rec.get("task"), "state": rec.get("mention_state"),
+                            "post": rec["state"], "retry": rec["tries"]})
+    triggers = _mention_triggers(reaped, counters)
+    if not triggers:
+        return out
+    login, held = mention_login(), leases(slot)
+    for task, state, reason in triggers:
+        w = last_worker(counters, task)
+        key = (w or {}).get("key") or task
+        name = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{task}.{state}.{key}")
+        marker = d / f"{name}.json"
+        if marker.exists():
+            continue
+        d.mkdir(parents=True, exist_ok=True)
+        body = d / f"{name}.md"
+        body.write_text(mention_body(login, slot.name, task, state, reason, counters, w,
+                                     held.get(task), shift.get("review_at", "?")),
+                        encoding="utf-8")
+        rec = post_once(marker, shift.get("issue", ""), body, poster, now,
+                        task=task, mention_state=state, worker=key)
+        if rec is None:
+            continue
+        _note_mention(counters, w, name, rec)
+        out.append({"task": task, "state": state, "post": rec["state"], "retry": 1})
+    return out
+
+
+# --- the digest (phase 3d) ----------------------------------------------------------
 
 def _record_rel(brief_path: Path, mind: Path) -> str | None:
     """The record's path inside Mind, for the one-Mind-writer append; None when
@@ -777,19 +1161,35 @@ def _record_rel(brief_path: Path, mind: Path) -> str | None:
 LATE_HEADING = "### Late arrivals"
 
 
+def _queue_pilot(slot: Path, brief: dict, counters: dict, *, amended: bool) -> None:
+    """The shift's one pilot row, as an upsert keyed by slot: `pilot.jsonl`
+    (machine-readable) and `pilot.md` (its render, the human's `?` cells kept)."""
+    record = _digest.pilot_record(slot.name, brief, counters, amended=amended)
+    ledger = slot / _mind_writer.LEDGER_DIR
+    _mind_writer.queue_op(ledger, {"op": "jsonl-upsert", "path": _digest.PILOT_JSONL,
+                                   "key": "slot", "row": record})
+    _mind_writer.queue_op(ledger, {"op": "table-upsert", "path": _digest.PILOT_PATH,
+                                   "key": slot.name, "header": _digest.PILOT_HEADER,
+                                   "row": _digest.pilot_md_row(record).rstrip("\n")})
+
+
 def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                grace_s: float = LEASE_GRACE_S, agents=None,
-               tokens=transcript_tokens) -> dict:
-    """A closed shift whose digest is posted, with a worker still out or Mind
+               tokens=transcript_usage, poster=None) -> dict:
+    """A closed shift whose digest is posted, with a worker still out, Mind
     ops still queued (PyAutoBrain#594: a worker finished 12 minutes after
-    `review-at:` and its `.done` and ledger ops were stranded).
+    `review-at:` and its `.done` and ledger ops were stranded) or a failed
+    post due its retry.
 
     Reaps as a live tick does and commits the queued ops through the one Mind
     writer, then names each late arrival in the record under `### Late
-    arrivals`. Never a spawn, a re-dispatch, a close-out or a second comment:
-    the grant ended at `review-at:`, so what arrives late waits for `/prm`."""
+    arrivals`, amends the shift's pilot row in place (`amended: true`) and
+    posts one correction comment for the shift (#610). Never a spawn, a
+    re-dispatch or a close-out: the grant ended at `review-at:`, so what
+    arrives late waits for `/prm`."""
     counters = read_counters(slot)
-    reaped = _reap(slot, counters, now, grace_s, agents, tokens)
+    counters["usage_unavailable"] = []
+    reaped = _reap(slot, counters, now, grace_s, agents, tokens, late=True)
     counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
     counters.setdefault("late", [])
     first = not counters["late"]             # the heading goes in once, with the first
@@ -800,7 +1200,7 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         if task is None:
             continue  # liveness unknown this tick: nothing was decided
         if e["event"] == "done":
-            urls = counters["outcomes"].get(task, {}).get("prs") or []
+            urls = _digest.urls_of(counters["outcomes"].get(task))
             what = ", ".join(urls) or "finished, no PR or issue named in its .done"
             if e.get("was") == "parked":
                 what += " (was parked)"
@@ -812,11 +1212,14 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
             what = "ended without a .done (crashed); not re-dispatched"
         lines.append(f"- late: {task} — {what} (after review-at, {_iso(now)})")
         counters["late"].append(task)
+    rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
+    brief, top = rec["brief"] or {}, rec["top"]
     if rel is not None and lines:
         head = f"\n{LATE_HEADING}\n" if first else ""
         _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
                               {"op": "append", "path": rel,
                                "text": head + "\n".join(lines) + "\n"})
+        _queue_pilot(slot, brief, counters, amended=True)
     _write_counters(slot, counters)
     ledger = {"committed": None, "ops": 0}
     if _mind_writer.pending_ops(slot):
@@ -825,18 +1228,60 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                 slot, mind, f"shift {slot.name}: late arrivals after review-at")
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
-    return {"action": "late", "reaped": reaped, "late": lines,
-            "ledger": ledger}
+    posts = {}
+    retried = retry_post(slot / DIGEST_MARKER, slot / DIGEST_FILE, poster, now)
+    if retried is not None:
+        posts["digest"] = retried["state"]
+    retried = retry_post(slot / CORRECTION_MARKER, slot / CORRECTION_FILE, poster, now)
+    if retried is not None:
+        posts["correction"] = retried["state"]
+    if lines and not (slot / CORRECTION_MARKER).exists():
+        issue = (top.get("issue") or {}).get("value", "")
+        (slot / CORRECTION_FILE).write_text(
+            f"Late arrivals after review-at, shift `{slot.name}` — the record's "
+            f"`{LATE_HEADING[4:]}` and the pilot row are amended:\n\n"
+            + "\n".join(lines) + "\n", encoding="utf-8")
+        posted = post_once(slot / CORRECTION_MARKER, issue, slot / CORRECTION_FILE,
+                           poster, now)
+        if posted is not None:
+            posts["correction"] = posted["state"]
+    out = {"action": "late", "reaped": reaped, "late": lines, "ledger": ledger}
+    if posts:
+        out["posts"] = posts
+    return out
+
+
+def _github_merges(counters: dict, review_at, pr_state) -> None:
+    """GitHub's merge state for every PR the shift's workers named, read once
+    at `review-at:` — `in_window` when merged at or before it (#610). A PR
+    GitHub cannot say about is left to what the watcher recorded."""
+    for o in counters["outcomes"].values():
+        for url in o.get("prs") or []:
+            if "/pull/" not in url:
+                continue
+            gh = pr_state(url) if pr_state else None
+            if not gh:
+                continue
+            merged = gh.get("state") == "MERGED"
+            try:
+                inside = not gh.get("mergedAt") or review_at is None \
+                    or _parse_iso(gh["mergedAt"]) <= review_at
+            except ValueError:
+                inside = True
+            counters["github"][url] = {**gh, "in_window": merged and inside}
 
 
 def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
-                 poster=None, health=None) -> dict:
-    """Write the digest into the record and post it once on the brief's issue.
+                 poster=None, health=None, agents=None, tokens=transcript_usage,
+                 grace_s: float = LEASE_GRACE_S, pr_state=None) -> dict:
+    """Reap, then write the digest into the record and post it on the brief's issue.
 
-    The marker is created **before** the post, exclusively: a crash between the
-    two leaves a shift with no comment, never one with two (AUTONOMY.md "The
-    watcher's network surface" — a second comment retires the watcher). Nothing
-    is read back from GitHub to check.
+    Reaping first (#610) puts a `.done` written after the last live tick into
+    the digest. The marker is created **before** the post, exclusively: a
+    crash between the two leaves a shift with no comment, never one with two
+    (AUTONOMY.md "The watcher's network surface"); a post `gh` said failed is
+    retried by the late sweep, up to `POST_TRIES`. Nothing is read back from
+    GitHub to check.
     """
     if (slot / DIGEST_MARKER).exists():
         # A finished shift writes nothing more: no second record append, no
@@ -846,6 +1291,13 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
     brief, top = rec["brief"] or {}, rec["top"]
     counters = read_counters(slot)
+    counters["usage_unavailable"] = []
+    _reap(slot, counters, now, grace_s, agents, tokens)
+    counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
+    if not _brief.is_shadow(brief):
+        _github_merges(counters, _brief._iso((top.get("review-at") or {}).get("value", "")),
+                       pr_state)
+    _write_counters(slot, counters)
     issue = (top.get("issue") or {}).get("value", "")
     digest = _digest.build(brief, slot, counters, health=health, issue=issue)
     (slot / DIGEST_FILE).write_text(digest, encoding="utf-8")
@@ -855,11 +1307,9 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if rel is not None:
         _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
                               {"op": "append", "path": rel, "text": "\n" + digest})
-        # The pilot ledger (phase 4a): one row per shift, in the same commit.
-        header = "" if (Path(mind) / _digest.PILOT_PATH).is_file() else _digest.PILOT_HEADER
-        _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
-                              {"op": "append", "path": _digest.PILOT_PATH,
-                               "text": header + _digest.pilot_row(slot.name, brief, counters)})
+        # The pilot ledger (phase 4a; jsonl #610): one row per shift, in the
+        # same commit, upserted by slot so a rerun never writes a second.
+        _queue_pilot(slot, brief, counters, amended=False)
         try:
             result["ledger"] = _mind_writer.commit_ledger(
                 slot, mind, f"shift {slot.name}: digest")
@@ -869,17 +1319,11 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if top.get("packet", {}).get("value", "").lower() == "yes":
         result["packet"] = str(_write_packet(slot, digest))
 
-    issue = top.get("issue", {}).get("value", "")
-    claim = {"at": _iso(now), "issue": issue}
-    if not _create_exclusive(slot / DIGEST_MARKER, claim):
+    posted = post_once(slot / DIGEST_MARKER, issue, slot / DIGEST_FILE, poster, now)
+    if posted is None:
         result["post"] = {"posted": False, "error": "already posted this shift"}
         return result
-    if not issue.startswith("http"):
-        result["post"] = {"posted": False, "error": "the brief names no issue:"}
-    else:
-        result["post"] = (poster or gh_comment)(issue, slot / DIGEST_FILE)
-    (slot / DIGEST_MARKER).write_text(json.dumps({**claim, **result["post"]},
-                                                 sort_keys=True))
+    result["post"] = {k: posted[k] for k in ("posted", "url", "error") if k in posted}
     return result
 
 
@@ -899,7 +1343,8 @@ def _write_packet(slot: Path, digest: str) -> Path:
 # --- unattended `glance` close-out (phase 4b) ------------------------------------
 
 def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
-               agents: AgentsView | None, health, pr_state=None) -> dict:
+               agents: AgentsView | None, health, pr_state=None,
+               tokens=transcript_usage) -> dict:
     """Reap finished close-out sessions, then start one per newly green PR.
 
     The watcher's guards are the ones it can judge from its own reads (AUTONOMY
@@ -929,6 +1374,14 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     for pr, co in counters["closeouts"].items():
         if co["state"] != "running":
             continue
+        if co.get("agent_id"):
+            # A close-out session spends tokens too: read every tick (#610).
+            if known is None:
+                known = _liveness_known(agents)
+            sid = (agents.session_of(co["agent_id"]) if known else None) or co.get("session_id")
+            if sid:
+                co["session_id"] = sid
+            _measure(counters, co["agent_id"], sid, tokens, kind="closeout", task=co["task"])
         verdict_file = lease_dir / f"{co['task']}.closeout"
         verdict = None
         if verdict_file.exists():
@@ -1000,6 +1453,8 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
                 why = "the close-out session ended without a verdict"
             co.update(state="refused", why=why)
             events["refused"].append(pr)
+        if co.get("agent_id") in counters["usage"]:
+            counters["usage"][co["agent_id"]]["final"] = True   # its last read stands
         _write_counters(slot, counters)
         verdict_file.unlink(missing_ok=True)
 

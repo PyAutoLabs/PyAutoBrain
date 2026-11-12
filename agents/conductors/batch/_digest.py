@@ -41,6 +41,8 @@ SHADOW_COUNTERS = "- all counters 0 — shadow shift, nothing dispatched"
 #: A pick line names its task in backticks after its title (`label`).
 _SLUG_RE = re.compile(r"\(`([^`]+)`")
 _ISSUE_RE = re.compile(r"^(https://github\.com/[^/]+/[^/]+)/issues/\d+")
+#: An issue URL on a `.done` line, wherever it is hosted.
+_ISSUE_URL_RE = re.compile(r"/issues/\d+")
 
 #: The pilot ledger (phase 4a). A subfolder, because every `batches/*.md` is
 #: read as a batch record (lifecycle.py, `_batch.records`, the calibration rule).
@@ -65,8 +67,10 @@ _BULLET_RE = re.compile(r"^- (\S+)")
 def parse_done(text: str) -> dict:
     """A worker's `.done` file: one PR or issue URL per line, `merged <url>` for
     a PR it merged in-turn under its tier, `obsolete <why>` when its premise
-    check stopped it."""
-    prs, merged, obsolete = [], [], None
+    check stopped it. An issue URL (a worker that parked on its issue with a
+    question) goes in `issues`, never in `prs`: `prs` is what CI, a close-out
+    and the merge count read (PyAutoBrain#610)."""
+    prs, merged, issues, obsolete = [], [], [], None
     for line in text.splitlines():
         words = line.split()
         if not words:
@@ -79,11 +83,17 @@ def parse_done(text: str) -> dict:
             merged.append(words[1])
             prs.append(words[1])
         elif words[0].startswith("http"):
-            prs.append(words[0])
-    out = {"prs": prs, "merged": merged}
+            (issues if _ISSUE_URL_RE.search(words[0]) else prs).append(words[0])
+    out = {"prs": prs, "merged": merged, "issues": issues}
     if obsolete is not None:
         out["obsolete"] = obsolete
     return out
+
+
+def urls_of(outcome: dict | None) -> list[str]:
+    """Every URL a `.done` named: its PRs, then the issues it parked on."""
+    outcome = outcome or {}
+    return list(outcome.get("prs") or []) + list(outcome.get("issues") or [])
 
 
 def pr_health(url: str, run=None) -> str:
@@ -127,16 +137,19 @@ def task_state(task: str, counters: dict, health, *, live: bool = False,
         if live and task in counters.get("pending_redispatch", []):
             return "crashed — awaiting re-dispatch", True
         return "not started", False
-    if not out["prs"] and "obsolete" in out:
+    urls = urls_of(out)
+    if not urls and "obsolete" in out:
         return ("obsolete (premise check): "
                 + (out["obsolete"] or "see its proof packet")), False
-    if not out["prs"]:
+    if not urls:
         return "finished, no PR or issue named in its .done", False
     parts = []
     closeouts = counters.get("closeouts", {})
-    for url in out["prs"]:
+    for url in urls:
         co = closeouts.get(url, {})
-        if url in out["merged"]:
+        if url in out.get("issues", []):
+            state = "PARKED-ON-ISSUE"
+        elif url in out["merged"]:
             state = ("merged unattended (close-out, " + co.get("model", "?") + ")"
                      if co.get("state") == "merged" else "merged")
         elif co.get("state") == "refused":
@@ -207,7 +220,7 @@ def _packet(task: str, slot: Path, counters: dict) -> str:
     proof = slot / PROOFS_DIR / f"{task}.md"
     if proof.is_file():
         return proof.read_text(encoding="utf-8").strip()
-    prs = counters.get("outcomes", {}).get(task, {}).get("prs") or ["no PR"]
+    prs = urls_of(counters.get("outcomes", {}).get(task)) or ["no PR"]
     return (f"#### {task} — {prs[0]}\n"
             "- claim: not supplied — the worker wrote no proof packet\n"
             "- not checked: everything; read the PR itself\n"
@@ -244,29 +257,146 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines.append(f"{SHADOW_COUNTERS} · review-minutes-planned: {values['review-minutes-planned']}")
     else:
         lines += [f"- {k}: {values[k]}" for k in COUNTERS]
+        lines += ["", WORKERS_HEADING] + (worker_lines(counters, base) or [NO_PICKS])
     return "\n".join(lines) + "\n"
+
+
+# --- per-worker exits, GitHub merges, tokens (PyAutoBrain#610) -----------------
+
+WORKERS_HEADING = "### Workers"
+#: A worker's exit path is these words joined by `/` — `spawned/crashed`,
+#: `spawned/parked/late/finished`. `launch-failed` stands alone: no session
+#: started. `ended` is a parked worker that ended without a `.done`.
+EXIT_WORDS = ("spawned", "finished", "crashed", "parked", "late", "ended",
+              "launch-failed")
+CRASH_WORDS = ("crashed", "launch-failed")
+
+
+def worker_lines(counters: dict, base: str = "") -> list[str]:
+    """One line per worker the shift started (or failed to start)."""
+    picks = counters.get("picks", {})
+    out = []
+    for w in counters.get("workers", []):
+        line = f"- {label(w['task'], picks.get(w['task']), base)} ({w.get('key') or '?'}): " \
+               + "/".join(w.get("exits") or ["spawned"])
+        if w.get("stalled_s"):
+            line += f" — blocked {round(w['stalled_s'] / 60)} min"
+        for m in w.get("mentions", []):
+            line += f" — mentioned ({m.get('state', '?')})"
+        out.append(line)
+    pushes = counters.get("pushes", 0)
+    if pushes > 1:
+        out.append(f"- finding: {pushes} pushes this shift — the push test budgets "
+                   "about one (AUTONOMY.md)")
+    return out
+
+
+def workers_crashed(counters: dict) -> int:
+    """Workers whose exit path holds a crash (or whose launch failed); a slot
+    recorded before per-worker exits falls back to its crash tally."""
+    workers = counters.get("workers") or []
+    if not workers:
+        return counters.get("crashes", 0)
+    return sum(1 for w in workers if any(x in CRASH_WORDS for x in w.get("exits") or []))
+
+
+def merged_prs(counters: dict) -> list[dict]:
+    """The shift's PRs that are merged, with GitHub's `mergedBy` and the merge
+    actor. GitHub decides where it was read at `review-at:` (`github`, with
+    `in_window`: merged at or before `review-at:`); a PR it could not say
+    about falls back to what the watcher recorded (`.done` / close-out)."""
+    gh_all = counters.get("github", {})
+    closeouts = counters.get("closeouts", {})
+    out = []
+    for task, o in counters.get("outcomes", {}).items():
+        for url in o.get("prs") or []:
+            gh = gh_all.get(url)
+            recorded = url in (o.get("merged") or [])
+            if not (gh.get("in_window") if gh is not None else recorded):
+                continue
+            co = closeouts.get(url, {})
+            actor = ("unattended-watcher" if co.get("state") == "merged"
+                     else "in-turn-autonomous" if recorded else "unknown")
+            by = (gh or {}).get("mergedBy") or (co.get("github") or {}).get("mergedBy") or ""
+            out.append({"url": url, "task": task, "mergedBy": by, "actor": actor})
+    return out
+
+
+def token_parts(counters: dict) -> dict:
+    """The shift's measured tokens by component and by session kind; a session
+    never measured is named in `unmeasured`, never counted as 0."""
+    parts = {"total": 0, "input": 0, "output": 0, "cache_creation": 0, "cache_read": 0,
+             "workers": 0, "closeouts": 0, "unmeasured": []}
+    for key, u in sorted((counters.get("usage") or {}).items()):
+        if u.get("total") is None:
+            parts["unmeasured"].append(key)
+            continue
+        parts["total"] += int(u["total"])
+        for k in ("input", "output", "cache_creation", "cache_read"):
+            parts[k] += int(u.get(k) or 0)
+        parts["closeouts" if u.get("kind") == "closeout" else "workers"] += int(u["total"])
+    if not counters.get("usage"):
+        parts["total"] = parts["workers"] = int(counters.get("tokens", 0) or 0)
+    return parts
 
 
 def counter_values(brief: dict, counters: dict) -> dict:
     """Every digest counter's value, from the brief and `counters.json`."""
     budget = brief.get("token-budget", {}).get("value", "?")
-    merged = sum(len(o["merged"]) for o in counters.get("outcomes", {}).values())
-    values = {"merges": merged, "workers-crashed": counters.get("crashes", 0),
-              "tokens": f"{counters.get('tokens', 0)} of {budget}",
+    parts = token_parts(counters)
+    tokens = f"{parts['total']} of {budget}"
+    extra = ([f"cache-read {parts['cache_read']}"] if parts["cache_read"] else []) \
+        + ([f"{len(parts['unmeasured'])} session(s) unmeasured"] if parts["unmeasured"] else [])
+    values = {"merges": len(merged_prs(counters)), "workers-crashed": workers_crashed(counters),
+              "tokens": tokens + (f" ({'; '.join(extra)})" if extra else ""),
               "review-minutes-planned": brief.get("review-minutes", {}).get("value", "?")}
     for key, field in LATER_COUNTERS.items():
         values[key] = counters.get(field, 0)
     return values
 
 
+#: The machine-readable pilot ledger: one JSON line per shift, keyed by `slot`
+#: and amended in place (`amended: true`) by a late arrival — never a second
+#: line. `pilot.md` is its render (`pilot_md_row`).
+PILOT_JSONL = "batches/pilot/pilot.jsonl"
+
+
+def pilot_record(slot_name: str, brief: dict, counters: dict, *, amended: bool = False) -> dict:
+    """The shift's one `pilot.jsonl` row. Shadow merges are the human's (None)."""
+    shadow = _brief.is_shadow(brief)
+    v = counter_values(brief, counters)
+    stall = sum(float(w.get("stalled_s") or 0) for w in counters.get("workers", []))
+    cells = {k: v[k] for k in COUNTERS if k not in ("tokens", "review-minutes-planned")}
+    if shadow:
+        cells["merges"] = None
+    return {
+        "slot": slot_name, "mode": "shadow" if shadow else "live",
+        "review-minutes-planned": v["review-minutes-planned"],
+        "counters": cells,
+        "tokens": token_parts(counters),
+        "merged": [] if shadow else merged_prs(counters),
+        "workers": [{"task": w["task"], "key": w.get("key"),
+                     "exits": "/".join(w.get("exits") or ["spawned"]),
+                     "stall_minutes": round(float(w.get("stalled_s") or 0) / 60)}
+                    for w in counters.get("workers", [])],
+        "stall_minutes": round(stall / 60),
+        "amended": amended,
+    }
+
+
+def pilot_md_row(record: dict) -> str:
+    """`pilot.md`'s row for one `pilot.jsonl` record; the human's cells are `?`."""
+    cells = {**record["counters"], "slot": record["slot"], "mode": record["mode"],
+             "review-minutes-planned": record["review-minutes-planned"],
+             "tokens": record["tokens"]["total"]}
+    human = PILOT_HUMAN + (PILOT_HUMAN_SHADOW if record["mode"] == "shadow" else ())
+    return "| " + " | ".join("?" if c in human or cells.get(c) is None else str(cells[c])
+                             for c in PILOT_COLUMNS) + " |\n"
+
+
 def pilot_row(slot_name: str, brief: dict, counters: dict) -> str:
     """One `batches/pilot/pilot.md` row; the human's cells land as `?`."""
-    v = counter_values(brief, counters)
-    cells = {**v, "slot": slot_name, "tokens": counters.get("tokens", 0),
-             "mode": "shadow" if _brief.is_shadow(brief) else "live"}
-    human = PILOT_HUMAN + (PILOT_HUMAN_SHADOW if cells["mode"] == "shadow" else ())
-    return "| " + " | ".join("?" if c in human else str(cells[c])
-                             for c in PILOT_COLUMNS) + " |\n"
+    return pilot_md_row(pilot_record(slot_name, brief, counters))
 
 
 # --- validate ------------------------------------------------------------------

@@ -143,7 +143,7 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
             "tokens": values["tokens"],
             "merges": f"{merges} of {_value(brief, 'merge-cap')}"
                       f" ({values['glance-auto-merges']} unattended)",
-            "crashes": counters.get("crashes", 0),
+            "crashes": values["workers-crashed"],
         },
         "ticks": _ticks(slot, tick_lines) if started else [],
     }

@@ -17,3 +17,26 @@ import pytest
 @pytest.fixture(autouse=True)
 def _no_session_bootstrap(monkeypatch):
     monkeypatch.setenv("PYAUTO_SKIP_BOOTSTRAP", "1")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_github(monkeypatch):
+    """The shift watcher's GitHub seams never reach GitHub from a test
+    (PyAutoBrain#610 Witness 5: the suite passes offline). A test that passes
+    its own `run=` still exercises the real function against that fake."""
+    import sys
+
+    orch = sys.modules.get("_orchestrator")
+    digest = sys.modules.get("_digest")
+    if orch is not None:
+        real_state, real_comment = orch.gh_pr_state, orch.gh_comment
+        monkeypatch.setattr(orch, "gh_pr_state", lambda url, run=None:
+                            real_state(url, run=run) if run else None)
+        monkeypatch.setattr(orch, "gh_comment", lambda issue, body, run=None:
+                            real_comment(issue, body, run=run) if run else
+                            {"posted": False, "retry": False, "error": "offline (tests)"})
+        monkeypatch.delenv(orch.MENTION_ENV, raising=False)
+    if digest is not None:
+        real_health = digest.pr_health
+        monkeypatch.setattr(digest, "pr_health", lambda url, run=None:
+                            real_health(url, run=run) if run else "UNKNOWN")

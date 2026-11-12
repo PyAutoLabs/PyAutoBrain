@@ -441,7 +441,7 @@ def test_the_premise_check_is_the_workers_first_step(tmp_path):
 def test_the_digest_names_an_obsolete_worker():
     import _digest
     out = _digest.parse_done("obsolete a file the Witness: names is gone on main\n")
-    assert out == {"prs": [], "merged": [],
+    assert out == {"prs": [], "merged": [], "issues": [],
                    "obsolete": "a file the Witness: names is gone on main"}
     state, tiered = _digest.task_state("t1", {"outcomes": {"t1": out}}, None)
     assert state == ("obsolete (premise check): a file the Witness: names is gone "
