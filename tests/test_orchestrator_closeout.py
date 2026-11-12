@@ -106,7 +106,7 @@ def test_a_merged_verdict_counts_and_queues_one_stage2_row(tmp_path):
     assert len(rows) == 1 and rows[0]["heading"] == orch.STAGE2_HEADING
     assert rows[0]["row"].startswith("| 2026-11-04 | named (" + PR1 + ") | shift |")
     assert "adversary: independent close-out session (claude-opus-5-5)" in rows[0]["row"]
-    assert rows[0]["row"].endswith("| merged-unchanged |")
+    assert rows[0]["row"].endswith("| merged-unchanged | unattended-watcher |  |")
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
     assert "merged unattended (close-out, claude-opus-5-5)" in d
     assert "- glance-auto-merges: 1" in d and "- merges: 1" in d
@@ -234,6 +234,8 @@ def test_a_github_merged_pr_with_no_closeout_file_counts_as_one_merge(tmp_path):
     rows = [o["row"] for o in ops if o["op"] == "table-append"]
     assert len(rows) == 1 and rows[0].startswith("| 2026-11-04 | named (" + PR1 + ") |")
     assert "merge confirmed on GitHub" in rows[0] and "(no .closeout)" in rows[0]
+    # the watcher writes the merge actor, with GitHub's mergedBy as evidence
+    assert rows[0].endswith("| unattended-watcher (mergedBy a-maintainer) |  |")
     _gh_tick(brief, mind, home, sp, 3, _gh({PR1: "MERGED"}))
     assert orch.read_counters(slot)["glance_auto_merges"] == 1        # counted once
 
@@ -384,8 +386,9 @@ def test_a_merged_closeout_lands_one_stage2_row_on_mind_main(tmp_path, monkeypat
     shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
     (canon / "autonomy_log.md").write_text(
         "# Log\n\n## Shadow window\n\n| a |\n|---|\n\n" + orch.STAGE2_HEADING
-        + " — opened 2026-11-04\n\n| date | task | brief | gate | human action |\n"
-        "|---|---|---|---|---|\n\n## Later section\nkept\n")
+        + " — opened 2026-11-04\n\n| date | task | brief | gate | human action "
+        "| merge actor | read by human |\n"
+        "|---|---|---|---|---|---|---|\n\n## Later section\nkept\n")
     t.git(canon, "add", "-A")
     t.git(canon, "commit", "-q", "-m", "seed")
     t.git(canon, "push", "-q", "origin", "HEAD:main")
@@ -404,4 +407,5 @@ def test_a_merged_closeout_lands_one_stage2_row_on_mind_main(tmp_path, monkeypat
     section = log[log.index(orch.STAGE2_HEADING):log.index("## Later section")]
     rows = [ln for ln in section.splitlines() if ln.startswith("| 2026-11-04 ")]
     assert len(rows) == 1 and "named (" + PR1 + ")" in rows[0]
+    assert rows[0].endswith("| merged-unchanged | unattended-watcher |  |")
     assert log.rstrip().endswith("kept")

@@ -151,7 +151,7 @@ clean, and the window re-scoped to `glance` auto-merges, counted to **20**
 clean rows (`AUTONOMY.md` "Merge authority follows Consequence — 2026-10-02").
 
 ```
-| date | task | tier | gate (tests/smoke/review/heart/witness[/adversary]) | human action | stage |
+| date | task | tier | gate (tests/smoke/review/heart/witness[/adversary]) | human action | stage | merge actor | read by human |
 ```
 
 | cell | where it comes from |
@@ -162,16 +162,20 @@ clean rows (`AUTONOMY.md` "Merge authority follows Consequence — 2026-10-02").
 | `gate` | copied verbatim from the task's ship calibration row (written at PR-open by `ship_library` / `ship_workspace`); absent → the legs from the `/prm` step-2 judgement, same form |
 | `human action` | `merged-unchanged` / `merged-after-substantive-change` / `not-merged` / `reverted` — nothing else; an auto-merge records `merged-unchanged` at merge and the human amends it |
 | `stage` | `2` if an independent-model adversary leg ran, else `1`; never pooled |
+| `merge actor` | `--actor`, **required** (a missing one refuses, nothing written): `human-/prm` (a human-typed `/prm`), `in-turn-human-commanded` (an in-turn merge on the human's explicit merge command), `in-turn-autonomous` (an in-turn tiered merge with no human command), `unattended-watcher` (the watcher writes it), `unknown` only when passed explicitly; the tool adds `(mergedBy <login>)` from `gh pr view`. The count leaves out the first two (`AUTONOMY.md` "Merge actor and random audit — 2026-11-12") |
+| `read by human` | the date the human read the post-merge summary (`--read-by-human`), empty until then; recorded, does not gate the count |
 
 `not-merged` is for a close-out that stopped on a guard before the question was
 asked, never a guess at the answer. **Append only after every branch reads
 `MERGED`** (close-out sub-step 1): the row's subject is what the human did with
 the PR, so before the merge there is nothing to record.
 
-`python3 scripts/lifecycle.py shadow-row … --apply` writes the row and rewrites
-the section's `Count toward 20:` line from the table; without `--apply` it
-prints both and writes nothing. The row rides the close-out's existing Mind
-commit and push — never its own.
+`python3 scripts/lifecycle.py shadow-row … --actor <class> --apply` writes the
+row and rewrites the section's `Count toward 20:` line from the table; without
+`--apply` it prints both and writes nothing. The row rides the close-out's
+existing Mind commit and push — never its own. Audits draw
+`lifecycle.py audit-sample --seed <n>` (1 in 5, audited within a week), never
+hand-picked rows; `lifecycle.py shadow-recount` prints the window by actor.
 
 **Substantive** is canonical in `autonomy_log.md`, which fixed it in advance —
 a change the human would have minded finding already merged: a changed default,

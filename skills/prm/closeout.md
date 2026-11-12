@@ -30,7 +30,7 @@ in step 6. Order is forced by the tooling, so do not reorder:
    ```bash
    python3 scripts/lifecycle.py close <slug> --date <merge date> \
      --from-file <body.md> --pr <Repo#N …> [--tier glance --gate "<cell>" \
-     --action <action> --stage <1|2>]            # dry run: prints every step
+     --action <action> --stage <1|2> --actor <class>]  # glance: all required
    python3 scripts/lifecycle.py close … --apply  # then does them
    ```
 
@@ -98,8 +98,13 @@ in step 6. Order is forced by the tooling, so do not reorder:
       `not-merged` is what gets recorded when `/prm` stopped on a guard (step 6)
       and never reached the merge — never a guess at what would have happened.
    5. **Append** — the `--tier glance --gate "<cell>" --action <action>
-      --stage <1|2>` flags on the `close` verb above do it (`shadow-row` is
-      the verb underneath). The dry run prints the row and the new count line
+      --stage <1|2> --actor <class>` flags on the `close` verb above do it
+      (`shadow-row` is the verb underneath). `--actor` is required — a
+      missing one refuses: human-typed `/prm` → `human-/prm`; in-turn merge
+      on the human's explicit merge command → `in-turn-human-commanded`;
+      in-turn tiered merge with no human command → `in-turn-autonomous`.
+      The first two are left out of the count (reference.md); the tool adds
+      `mergedBy`. The dry run prints the row and the new count line
       before anything is written; the row rides the same commit and push as
       the record and the dashboard, never a commit of its own.
    6. **Name it in the ledger** (sub-step 7): "shadow row appended, count
