@@ -131,12 +131,14 @@ in step 6. Order is forced by the tooling, so do not reorder:
       changed" exit, only a `--check` that says the render is current:
 
       ```bash
-      pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
+      pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html + state.json
       pyauto-brain intake dashboard --check     # must print "…are current"
       ```
 
    Never hand-edit either page. Commit the render **with** the record, then
-   `lifecycle.py check` and push Mind. `git show --stat HEAD` must name both
+   `lifecycle.py check` and push Mind with the `prompt_sync_push` line `close`
+   printed, plus any sweep paths ([reference.md](reference.md) → "4. Mind: leave
+   the page true"). `git show --stat HEAD` must name both
    dashboard files beside the record, or leg 3 did not happen.
 
    **Push the branch you are on — never force `main`.** On a laptop that branch

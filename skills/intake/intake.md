@@ -37,10 +37,10 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
    ```bash
    cd "${PYAUTO_MIND:-$(test -d "$PYAUTO_MAIN/organs/PyAutoMind" && echo "$PYAUTO_MAIN/organs/PyAutoMind" || echo "$PYAUTO_MAIN/PyAutoMind")}"
-   pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
+   pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html + state.json
    pyauto-brain intake dashboard --check     # must print "…are current"
    source scripts/prompt_sync.sh && prompt_sync_push "intake: file <name>" \
-     <prompt-path> dashboard.md dashboard.html
+     <prompt-path> dashboard.md dashboard.html state.json
    ```
 
    `<prompt-path>` is the file `--apply` wrote (e.g. `draft/<type>/<target>/<slug>.md`);
@@ -77,7 +77,7 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   twin GitHub Pages serves (real clipboard buttons; PyAutoMind's
   `pages_dashboard.yml` deploys it), with links derived from `repos.yaml`.
   Dry-run prints it, `--apply` writes it (commit via
-  `prompt_sync_push "<msg>" dashboard.md dashboard.html`),
+  `prompt_sync_push "<msg>" dashboard.md dashboard.html state.json`),
   `--check` exits 1 if the committed page has drifted. PyAutoMind's
   `dashboard_refresh.yml` self-heals a stale **render** on pushes to main — that
   is a backstop for a page nobody rebuilt, not a reason to skip step 4 above:

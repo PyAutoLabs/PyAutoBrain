@@ -106,6 +106,7 @@ informational and may be omitted. Then:
 ```bash
 source "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/prompt_sync.sh"
 prompt_sync_push "prompt: register <task-name> library repos in active.md" active.md
+# add planned.md when step 2 promoted the entry from it
 ```
 
 ### 6. Explore key files + present "ready to develop"

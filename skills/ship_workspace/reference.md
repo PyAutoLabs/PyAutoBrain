@@ -126,7 +126,7 @@ python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind ||
 ```
 
 Push Mind with the paths `record` changed:
-`prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete" active.md active/<active-filename> complete/index.md complete/<YYYY>/<MM>/<task-name>.md`.
+`prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete" active.md active/<active-filename> complete/index.md complete/<YYYY>/<MM>/<slug>.md` (the same `<slug>` passed to `record`).
 
 If the task is not fully finished (e.g. only the library half shipped), leave it
 in `active.md` with an updated `status:` instead of moving it — any later session,
