@@ -10,6 +10,7 @@ or a pick reason; and it is posted exactly once — a second run posts nothing.
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import os
 import shutil
 import subprocess
@@ -262,7 +263,9 @@ def test_the_digest_is_posted_once_and_a_second_run_posts_nothing(tmp_path):
     assert len(poster.calls) == 1
 
 
-def test_a_failed_post_is_never_retried(tmp_path):
+def test_a_failed_post_is_retried_next_tick_up_to_its_tries(tmp_path):
+    """#610 item 6: a post `gh` said failed is retried — marker first, so a
+    landed post is never repeated — and stops after POST_TRIES."""
     mind, brief, home = _shift(tmp_path)
     calls = []
 
@@ -270,10 +273,36 @@ def test_a_failed_post_is_never_retried(tmp_path):
         calls.append(issue)
         return {"posted": False, "error": "HTTP 502"}
 
-    orch.tick(brief, mind, home=home, now=AFTER, poster=failing, health=_health)
-    orch.tick(brief, mind, home=home, now=AFTER + _dt.timedelta(minutes=5),
-              poster=failing, health=_health)
-    assert calls == [ISSUE]  # a second comment would retire the watcher
+    for minutes in range(0, 30, 5):
+        orch.tick(brief, mind, home=home, now=AFTER + _dt.timedelta(minutes=minutes),
+                  poster=failing, health=_health)
+    assert calls == [ISSUE] * orch.POST_TRIES
+
+    mind, brief, home = _shift(tmp_path / "ok")
+    flaky = iter([{"posted": False, "error": "HTTP 502"},
+                  {"posted": True, "url": ISSUE + "#issuecomment-2"}])
+    seen = []
+    poster = lambda i, b: seen.append(i) or next(flaky)  # noqa: E731
+    for minutes in (0, 5, 10, 15):
+        orch.tick(brief, mind, home=home, now=AFTER + _dt.timedelta(minutes=minutes),
+                  poster=poster, health=_health)
+    assert seen == [ISSUE, ISSUE]                       # retried once, then never again
+    marker = json.loads((orch.slot_dir(brief, home) / orch.DIGEST_MARKER).read_text())
+    assert marker["state"] == "posted" and marker["tries"] == 2
+
+
+def test_a_post_that_may_have_landed_is_never_retried(tmp_path):
+    mind, brief, home = _shift(tmp_path)
+    calls = []
+
+    def timeout(argv, **kw):
+        calls.append(argv)
+        raise subprocess.TimeoutExpired(argv, 120)
+    poster = lambda i, b: orch.gh_comment(i, b, run=timeout)  # noqa: E731
+    for minutes in (0, 5, 10):
+        orch.tick(brief, mind, home=home, now=AFTER + _dt.timedelta(minutes=minutes),
+                  poster=poster, health=_health)
+    assert len(calls) == 1   # a timeout may have posted: a second would be two comments
 
 
 def test_a_shift_that_never_ran_has_no_digest(tmp_path):
@@ -358,7 +387,17 @@ def test_the_digest_lands_in_the_record_on_mind_main(tmp_path, monkeypatch):
 def test_parse_done_reads_urls_and_merged_lines():
     out = _digest.parse_done("merged https://x/pull/1\nhttps://x/pull/2\n\nnoise\n")
     assert out == {"prs": ["https://x/pull/1", "https://x/pull/2"],
-                   "merged": ["https://x/pull/1"]}
+                   "merged": ["https://x/pull/1"], "issues": []}
+
+
+def test_parse_done_keeps_issue_urls_out_of_prs():
+    """#610 item 6: an issue a worker parked on is never a PR."""
+    out = _digest.parse_done("https://github.com/o/r/issues/7\nhttps://github.com/o/r/pull/3\n")
+    assert out["prs"] == ["https://github.com/o/r/pull/3"]
+    assert out["issues"] == ["https://github.com/o/r/issues/7"]
+    state, _ = _digest.task_state("t", {"outcomes": {"t": _digest.parse_done(
+        "https://github.com/o/r/issues/7\n")}}, lambda u: 1 / 0)   # health never asked
+    assert state == "https://github.com/o/r/issues/7 — PARKED-ON-ISSUE"
 
 
 @pytest.mark.parametrize("rc,err,want", [(0, "", "HEALTHY"), (8, "", "RUNNING"),

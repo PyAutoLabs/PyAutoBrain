@@ -18,6 +18,15 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "drop-section", "path": "active.md", "section": "task-name"}
     {"op": "table-append", "path": "autonomy_log.md", "heading": "## Unattended …", "row": "| … |"}
     {"op": "set-header",   "path": "draft/a/b/x.md", "key": "Verified", "value": "2026-11-12 abc123 (Repo)"}
+    {"op": "jsonl-upsert", "path": "batches/pilot/pilot.jsonl", "key": "slot", "row": {...}}
+    {"op": "table-upsert", "path": "batches/pilot/pilot.md", "key": "<slot>", "row": "| … |", "header": "…"}
+
+`jsonl-upsert` keeps one JSON line per `row[key]`: the line with that key is
+replaced (its other fields kept), else the row is appended. `table-upsert`
+does the same for a Markdown table row keyed by its first cell, keeping any
+old cell where the new one is `?` (the human's cells), and writes `header`
+first into a missing file. Both are how the shift watcher writes its one pilot
+row per shift and amends it on a late arrival (PyAutoBrain#610).
 
 `set-header` sets one `Key: value` line in a prompt's header block (replacing
 the key's line if present) — how a shift worker records the premise check's
@@ -39,7 +48,7 @@ import types
 from pathlib import Path
 
 OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
-       "set-header")
+       "set-header", "jsonl-upsert", "table-upsert")
 PUSH_TRIES = 3
 LEDGER_DIR = "ledger"
 COMMITTED_DIR = "committed"
@@ -94,6 +103,21 @@ def validate_op(op: dict, lm) -> list[str]:
         row = op.get("row")
         if not isinstance(row, str) or not row.startswith("|") or "\n" in row:
             errs.append("table-append: row must be one `| … |` line")
+    if kind == "jsonl-upsert":
+        row, key = op.get("row"), op.get("key")
+        if not str(op.get("path", "")).endswith(".jsonl"):
+            errs.append("jsonl-upsert: path must be a .jsonl file")
+        if not isinstance(key, str) or not isinstance(row, dict) \
+                or not isinstance(row.get(key), str) or not row.get(key):
+            errs.append("jsonl-upsert: row must be an object carrying its key")
+    if kind == "table-upsert":
+        row = op.get("row")
+        if not str(op.get("path", "")).endswith(".md"):
+            errs.append("table-upsert: path must be a .md file")
+        if not isinstance(row, str) or not row.startswith("|") or "\n" in row:
+            errs.append("table-upsert: row must be one `| … |` line")
+        elif _cells(row)[0] != op.get("key"):
+            errs.append("table-upsert: the row's first cell must be its key")
     if kind == "set-header":
         key, value = op.get("key"), op.get("value")
         if not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Za-z-]*", key):
@@ -151,6 +175,17 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
         target.write_text(table_append(target.read_text(encoding="utf-8")
                                        if target.exists() else "",
                                        op["heading"], op["row"]), encoding="utf-8")
+    elif kind == "jsonl-upsert":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(jsonl_upsert(target.read_text(encoding="utf-8")
+                                       if target.exists() else "",
+                                       op["key"], op["row"]), encoding="utf-8")
+    elif kind == "table-upsert":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(table_upsert(target.read_text(encoding="utf-8")
+                                       if target.exists() else "",
+                                       op["key"], op["row"], op.get("header", "")),
+                          encoding="utf-8")
 
 
 def table_append(text: str, heading: str, row: str) -> str:
@@ -167,6 +202,45 @@ def table_append(text: str, heading: str, row: str) -> str:
         raise MindWriteError(f"table-append: no table under {heading!r}")
     lines.insert(rows[-1] + 1, row)
     return "\n".join(lines) + "\n"
+
+
+def jsonl_upsert(text: str, key: str, row: dict) -> str:
+    """`text` (JSON lines) with exactly one line whose `key` is `row[key]`."""
+    out, hit = [], False
+    for line in text.splitlines():
+        try:
+            old = json.loads(line)
+        except ValueError:
+            old = None
+        if isinstance(old, dict) and old.get(key) == row[key]:
+            if not hit:
+                out.append(json.dumps({**old, **row}, sort_keys=True))
+                hit = True
+            continue  # a duplicate from before: dropped, one line per key
+        out.append(line)
+    if not hit:
+        out.append(json.dumps(row, sort_keys=True))
+    return "\n".join(out) + "\n"
+
+
+def _cells(row: str) -> list[str]:
+    return [c.strip() for c in row.strip().strip("|").split("|")]
+
+
+def table_upsert(text: str, key: str, row: str, header: str = "") -> str:
+    """`text` with the table row whose first cell is `key` replaced by `row`
+    (an old cell kept wherever the new one is `?`), else `row` appended."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("|") and _cells(line)[0] == key:
+            old, new = _cells(line), _cells(row)
+            if len(old) == len(new):
+                new = [o if n == "?" else n for o, n in zip(old, new)]
+            lines[i] = "| " + " | ".join(new) + " |"
+            return "\n".join(lines) + "\n"
+    if not text.strip():
+        return header + row + "\n"
+    return text + ("" if text.endswith("\n") else "\n") + row + "\n"
 
 
 _HEADER_LINE_RE = re.compile(r"^[A-Z][A-Za-z-]*:(\s|$)")

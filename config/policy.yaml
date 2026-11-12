@@ -166,3 +166,11 @@ board:
     nerves: PyAutoNerves
     broca: PyAutoBroca
     gut: PyAutoGut
+
+# The shift watcher (agents/conductors/batch/_orchestrator.py). A worker that
+# blocks on a person mid-shift is posted once to the shift's digest issue with
+# an @mention of this GitHub login (PyAutoBrain#611; AUTONOMY.md "The
+# watcher's network surface"). Blank here: the operator sets it, or exports
+# PYAUTO_SHIFT_MENTION (which wins). Blank everywhere posts without a mention.
+shift_watcher:
+  mention_login: ""

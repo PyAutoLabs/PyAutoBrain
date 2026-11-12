@@ -771,6 +771,39 @@ the exemption it runs under is `PyAutoMind/policy/shift_watcher.md`).
 second issue comment in one shift — retires the watcher to fake mode until the
 cause is found and this section is re-approved.
 
+**Amendment — 2026-11-12 (PyAutoBrain#610, #611).** The human ruled the
+channel for a blocked worker on 2026-11-12: a GitHub @mention in a comment on
+the shift's digest issue (GitHub mobile pushes it; no new credentials). The
+watcher's comments on the brief's `issue:` are now, and only:
+
+- **the digest**, once per shift;
+- **one mention per worker per state that needs the human** — a worker
+  `blocked` on a person past the stall grace (parked), or one that parked on
+  its issue with a question — @-mentioning the login set by
+  `PYAUTO_SHIFT_MENTION` or `config/policy.yaml` `shift_watcher:
+  mention_login:` (never written in code). Each counts as a push under "The
+  push-notification test" and in the digest's `pushes` counter; a crash, a
+  refusal, an obsolete premise or a finished worker waits for the digest;
+- **one correction comment per shift**, when a worker arrives after
+  `review-at:` and the record and pilot row are amended.
+
+Each comment's marker is created exclusively **before** its post, so a crash
+leaves no comment rather than two. A post `gh` says failed is retried on a
+later tick, at most three tries in all; one that timed out may have landed and
+is never retried. The watcher also reads `gh pr view --json
+state,mergedAt,mergedBy` for the PRs its own workers named — the close-out's
+merge truth (#603) and, once at `review-at:`, the digest's `merges` (#610).
+It also makes one read-only `gh api user` per shift, under the posting token,
+to warn when it equals the mention login (#611).
+The revert condition now reads: one network call outside these, or a comment
+beyond these (a second digest, a second mention for the same worker and
+state, a second correction), retires the watcher to fake mode. **Posting identity, ruled
+by the human 2026-11-12 (PyAutoLabs/PyAutoBrain#611):** the watcher's GitHub
+writes use a separate bot or machine account's token, set by the human as
+`PYAUTO_SHIFT_GH_TOKEN` (fine-grained, PyAutoMind issues:write only); until it
+is set they post as the human's account and the digest warns that the
+mention will not notify.
+
 ## Human override for Heart RED (development only)
 
 Heart RED still parks every autonomous run and blocks every release. After the

@@ -217,9 +217,23 @@ honoured by `--bg`). Each tick reads `claude agents --json --all` once:
 `working` → heartbeat; `blocked` (waiting on a person) → `stalled_since`, and
 after `STALL_GRACE_S` (15 min) the task is **parked** — never killed, never
 re-dispatched, named in the digest; `done` with the marker → released, without
-it → crashed (re-dispatched once). A finished worker's tokens (input + output +
-cache creation) are summed from its local transcript, named by the full
-`sessionId`, and the brief's `token-budget:` refuses the next spawn once spent.
+it → crashed (re-dispatched once). **Tokens (PyAutoBrain#610)** are read every
+tick for every live, parked and close-out session from its local transcript
+(named by the full `sessionId`): input, output and cache creation, once per
+message id, with cache reads reported apart; each read **replaces** that
+session's entry in `counters.json` `usage`, never adds. No transcript is
+`None`, never 0: it keeps the last read and refuses the next spawn (`token usage
+unavailable`) — until `UNREADABLE_READS` (3) reads in a row fail, when the
+session is `unmeasured`: it stops blocking, its reservation counts as its
+usage, and the pilot row's `tokens` is `null` (`unmeasured` in `pilot.md`),
+never 0. Subagent transcripts (`<sid>/subagents/agent-*.jsonl`) are included
+and reported as `subagents`. The digest's `### Refusals` lists every spawn
+refusal with its reason. A real worker holds a reservation from its spawn (default
+`token-budget / max-sessions`) until its usage passes it, so the budget binds on
+the first tick; `token-budget:` refuses a spawn once spent, or once committed
+usage plus a new reservation would pass it. Every worker has one exit record
+(`workers`: `spawned/finished`, `spawned/crashed`, `spawned/parked/late/finished`;
+a failed launch is one `launch-failed` record per task) with its blocked minutes.
 `worker-mode:` defaults to `auto` (human, 2026-11-03); `dontAsk` and
 `acceptEdits` are allowed, `bypassPermissions` never.
 
@@ -254,8 +268,14 @@ its `why:`, one proof packet per started task or a stub that says none was
 written, every counter) to `<slot>/digest.md`, appends it to the record through
 the one Mind writer, writes `digest.html` only under `packet: yes`, then
 **exclusive-creates `digest.posted` before** the one `gh issue comment` on the
-brief's `issue:`. A crash between the two leaves no comment, never two; a failed
-post is not retried; nothing is read back from GitHub. Health per PR is one
+brief's `issue:`. A crash between the two leaves no comment, never two; a post
+`gh` said failed is retried by a later tick, three tries in all (#610), and a
+timed-out one never. It reaps first, so a `.done` written after the last live
+tick is in the digest, and reads each worker PR's `gh pr view` once: `merges`
+counts the PRs GitHub shows merged by `review-at:`, whoever merged them, and
+`workers-crashed` counts exit records, not a tally. A `### Workers` section
+prints one line per worker (`<label> (<id>): spawned/crashed`). An issue URL in
+a `.done` is kept in `issues`, never `prs`. Health per PR is one
 read-only `gh pr checks` (exit 0 → HEALTHY, 8 → RUNNING, else FAILED or
 NO-CHECKS). `glance-auto-merges`, `reverts`, `pushes`, `drafts-filed` and
 `packets-sent` read `counters.json` and stay 0 until phases 4–5 move them
@@ -285,7 +305,13 @@ them `proposed (shadow)` and its packet section says nothing was dispatched;
 `brief --check` asks no packet of a proposal. `finish_shift` also appends one
 row to `PyAutoMind/batches/pilot/pilot.md` (`_digest.pilot_row`: the digest's
 counters plus slot and mode; `review-minutes-actual` and `overrules` land as
-`?` for the human) in the same Mind commit as the digest. In a **shadow** row
+`?` for the human) in the same Mind commit as the digest. Since #610 the row
+is `pilot.md`'s render of one line of `batches/pilot/pilot.jsonl` (slot, mode,
+counters, tokens by component and session kind, merged PR URLs with `mergedBy`
+and merge actor, per-worker exits, stall minutes, `amended`); both are
+**upserted by slot** through the one Mind writer (`jsonl-upsert`,
+`table-upsert`, which keeps the human's filled cells), so a rerun or a late
+arrival never adds a second line. In a **shadow** row
 `merges` is a `?` too: the orchestrator merges nothing, so the baseline is the
 human's own work in the window (the epic: "the human works as today, minutes
 are logged"), with `review-minutes-actual` the human's own review time and
@@ -329,9 +355,34 @@ once the digest is posted. A closed shift with a lease still held or a ledger op
 still queued runs `late_sweep` on each tick: it reaps as a live tick does,
 commits the queued ops through the one Mind writer, and appends one
 `- late: <task> — <url> (after review-at, <time>)` line per arrival to the record
-under `### Late arrivals`. It never spawns, re-dispatches, starts a close-out
-or posts a second comment, because the grant ended at `review-at:` and what
-arrives late waits for `/prm`. With nothing pending, the tick is idle. The worker
+under `### Late arrivals`, amends the pilot line in place (`amended: true`) and
+posts **one** correction comment for the shift (#610). It never spawns,
+re-dispatches or starts a close-out, because the grant ended at `review-at:` and
+what arrives late waits for `/prm`. It also runs while a failed digest or
+correction post is due its retry.
+
+**A blocked worker reaches the human (PyAutoBrain#611).** The human's channel
+(2026-11-12) is a GitHub @mention on the shift's digest issue. When a worker is
+parked (`blocked` past the grace) or parks on its issue with a question, the
+tick posts one comment on the brief's `issue:` naming the task, the reason and
+its session, worktree or PR, @-mentioning the login from `PYAUTO_SHIFT_MENTION`
+or `config/policy.yaml` `shift_watcher: mention_login:`. One comment per worker
+per state, marker (`<slot>/mentions/`) before post, a failed post retried next
+tick; a crash, refusal or finished worker never mentions (AUTONOMY.md push test).
+Each sent mention counts in `pushes`; more than one is a digest finding. The
+trigger is durable state (a parked task or an issue-only `.done` with no
+marker yet), so a tick that dies between parking and posting mentions on the
+next; a failed mention is also retried by the late sweep.
+
+**The watcher's GitHub identity (human ruling 2026-11-12, #611).**
+`PYAUTO_SHIFT_GH_TOKEN` holds a separate bot or machine account's token,
+**fine-grained, PyAutoMind issues:write only**, set by the human in the
+timer's environment. It is passed as `GH_TOKEN` to the watcher's own
+`gh issue comment` and `gh api user` calls and to nothing else (not to workers).
+Unset, comments post as the human's account; once a shift, before the first
+mention, `gh api user` names the posting account, and if it is the mentioned
+login the digest's `### Workers` warns "mention will not notify: posted as the
+mentioned account". With nothing pending, the tick is idle. The worker
 prompt also forbids EnterWorktree (its permission prompt stalls an unattended
 worker) and requires the `decision-taken` label on any PR carrying a flagged
 decision (pilot live shift 1, 2026-11-06).
