@@ -200,3 +200,26 @@ def test_the_door_takes_hearts_validated_rehearsal_run_id(tmp_path):
     assert r.returncode == 0, r.stderr
     assert hands == "pre_build 1 9001"
     assert "stages.rehearse.run_id" in r.stdout
+
+
+def _heart_validated(tmp_path, run_id):
+    state = tmp_path / "heart-state"
+    state.mkdir(exist_ok=True)
+    (state / "validation_report.json").write_text(json.dumps(
+        {"stages": {"rehearse": {"run_id": run_id, "status": "pass"}}}))
+
+
+def test_a_stale_env_run_id_that_heart_never_validated_refuses(tmp_path):
+    _heart_validated(tmp_path, "9001")
+    r, hands = _door(tmp_path, [str(RELEASE)], REHEARSAL_RUN_ID="111")
+    assert r.returncode == 5 and hands == ""
+    assert "111" in r.stderr and "9001" in r.stderr
+
+
+def test_a_given_run_id_matching_hearts_proceeds(tmp_path):
+    _heart_validated(tmp_path, "9001")
+    r, hands = _door(tmp_path, [str(RELEASE), "--rehearsal-run-id", "9001"])
+    assert r.returncode == 0, r.stderr
+    assert hands == "pre_build 1 9001"
+    r, hands = _door(tmp_path, [str(RELEASE), "--rehearsal-run-id", "9002"])
+    assert r.returncode == 5 and "9002" in r.stderr and "9001" in r.stderr

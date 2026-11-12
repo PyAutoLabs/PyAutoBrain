@@ -42,7 +42,8 @@
 #                      rehearsal whose recorded commits the release publishes
 #                      (PyAutoHands#337). Else $REHEARSAL_RUN_ID, else Heart's
 #                      validated stages.rehearse.run_id
-#                      ($HEART_STATE_DIR/validation_report.json). Forwarded as
+#                      ($HEART_STATE_DIR/validation_report.json); a given id
+#                      that differs from Heart's refuses. Forwarded as
 #                      `autohands pre_build <minor> <id>`; with none the agent
 #                      refuses (exit 5) before consulting anything.
 #   --dry-run          reason + plan only; emit the BuildDecision, do not execute.
@@ -128,8 +129,7 @@ if [[ "$mode" == "release" && "$action" == "pre_build" ]]; then
   if [[ ${#forward[@]} -ge 2 ]]; then
     rehearsal_run_id="${forward[1]}"
   fi
-  if [[ -z "$rehearsal_run_id" ]]; then
-    rehearsal_run_id="$(python3 - "${HEART_STATE_DIR:-$HOME/.pyauto-heart}/validation_report.json" <<'PY' 2>/dev/null
+  heart_run_id="$(python3 - "${HEART_STATE_DIR:-$HOME/.pyauto-heart}/validation_report.json" <<'PY' 2>/dev/null
 import json, sys
 try:
     print(((json.load(open(sys.argv[1])).get("stages") or {}).get("rehearse") or {}).get("run_id") or "")
@@ -137,7 +137,17 @@ except Exception:
     print("")
 PY
 )"
+  if [[ -z "$rehearsal_run_id" ]]; then
+    rehearsal_run_id="$heart_run_id"
     [[ -n "$rehearsal_run_id" ]] && heart_run_note="rehearsal run id $rehearsal_run_id from Heart's validated stages.rehearse.run_id"
+  elif [[ -n "$heart_run_id" && "$heart_run_id" != "$rehearsal_run_id" ]]; then
+    # A given id (flag, positional or a lingering $REHEARSAL_RUN_ID) that is
+    # not the rehearsal Heart validated would publish unvalidated commits.
+    echo "build agent: refused — rehearsal run id $rehearsal_run_id (given) is not the" >&2
+    echo "  rehearsal Heart validated: stages.rehearse.run_id $heart_run_id" >&2
+    echo "  (${HEART_STATE_DIR:-$HOME/.pyauto-heart}/validation_report.json). Pass the validated" >&2
+    echo "  id, or validate the intended rehearsal first (release validate)." >&2
+    exit 5
   fi
   if ! [[ "$rehearsal_run_id" =~ ^[0-9]+$ ]]; then
     echo "build agent: refused — a release publishes the commits of a successful release.yml" >&2

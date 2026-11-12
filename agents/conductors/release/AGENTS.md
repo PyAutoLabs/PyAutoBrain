@@ -25,7 +25,8 @@ Brain  →  Heart (gate)  →  Build (execute)
    rehearsed commits** (PyAutoHands#337): the door forwards the rehearsal run
    id — `--rehearsal-run-id <id>`, else `$REHEARSAL_RUN_ID`, else Heart's
    validated `stages.rehearse.run_id` (`$HEART_STATE_DIR/validation_report.json`)
-   — and refuses (exit 5) with none.
+   — and refuses (exit 5) with none, or when a given id differs from the one
+   Heart validated.
 
 ## Run
 

@@ -342,9 +342,12 @@ never an assumption:
    on `main` of the touched repos and their dependants blocks; every other
    reason comes back in `shown_reasons` and is listed in the PR body without
    blocking. Only **GREEN** passes. **STALE** — in-scope evidence missing,
-   unfinished, or older than 6 h — **never passes**: re-check, or park. A
-   scoped read that cannot be made (no Heart CLI, a Heart without the gate,
-   an unknown repo name) is "unknown" and parks. Until this change the leg
+   unfinished, or older than 6 h — **never passes**: re-check, or park. With
+   **no Heart CLI** (a web session) the one fallback is the *published*
+   organism-wide feed: GREEN and under 6 h old passes, because it is at least
+   as strict as any scope; anything else parks. Any other scoped read that
+   cannot be made (an empty `repos:`, a Heart without the gate, an unknown
+   repo name) is "unknown" and parks. Until this change the leg
    read the whole-organism verdict and let STALE pass; the scoped verdict has
    no YELLOW tier, so the YELLOW acknowledgement below (bound to the *exact
    reason list* at launch, for that launch only) applies only if a YELLOW

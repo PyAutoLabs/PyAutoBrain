@@ -204,3 +204,40 @@ def test_closeout_asks_the_scoped_gate_for_the_prs_repo(heart, tmp_path, reply, 
 def test_closeout_without_a_pr_repo_cannot_be_scoped(tmp_path):
     step, cmd = _closeout_heart_cmd("not-a-pr-url", tmp_path)
     assert cmd == "" and "cannot be scoped — refuse" in step
+
+
+# --- review items: an empty scope, and the no-Heart-CLI fallback -------------------------
+
+def test_an_empty_scope_is_unknown_never_an_unscoped_read(heart):
+    env, log = heart({"verdict": "green", "red_reasons": ["x"]})
+    assert _sh(env, 'consult_vitals_verdict --repos ""') == "unknown"
+    assert _sh(env, "consult_vitals_verdict --repos=") == "unknown"
+    assert _sh(env, 'consult_vitals_red_reasons --repos ""') == ""
+    assert not log.exists()          # Heart was never asked the unscoped question
+
+
+def _no_heart_env(tmp_path, feed):
+    """No pyauto-heart anywhere; the published feed is a file:// fixture."""
+    path = [d for d in os.environ["PATH"].split(os.pathsep)
+            if d and not (Path(d) / "pyauto-heart").exists()]
+    empty = tmp_path / "no_heart_checkout"
+    empty.mkdir(exist_ok=True)
+    pages = tmp_path / "pages" / heart_feed.heart_board_repo()
+    pages.mkdir(parents=True)
+    if feed is not None:
+        (pages / "state.json").write_text(json.dumps(
+            {"schema_version": 1, "organ": "heart", "items": [], "headline": "h", **feed}))
+    return dict(os.environ, PATH=os.pathsep.join(path), PYAUTO_HEART=str(empty),
+                PYAUTO_ROOT=str(empty), BOARD_PAGES_BASE=(tmp_path / "pages").as_uri())
+
+
+@pytest.mark.parametrize("feed,printed", [
+    ({"status": "green", "updated": _iso(1)}, "green"),     # fresh organism GREEN
+    ({"status": "green", "updated": _iso(7)}, "unknown"),   # over 6 h
+    ({"status": "stale", "updated": _iso(1)}, "unknown"),
+    ({"status": "red", "updated": _iso(1)}, "unknown"),
+    (None, "unknown"),                                      # nothing published
+])
+def test_without_a_heart_cli_only_a_fresh_published_green_passes(tmp_path, feed, printed):
+    env = _no_heart_env(tmp_path, feed)
+    assert _sh(env, "consult_vitals_verdict --repos WidgetLib") == printed
