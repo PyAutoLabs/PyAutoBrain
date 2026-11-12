@@ -86,3 +86,14 @@ first use, deeper sections in journey order, and License. Any agent note goes la
 - Does any example get re-explained in the prose around it?
 - Is agent-only text at the bottom and collapsed?
 - Do all links and anchors still resolve, including links from other pages to sections you renamed or moved?
+
+## Preserve content during rewrites
+
+Before replacing a README or other public entry page, inventory its sections,
+unique links, acknowledgements and deliberate personal touches (including song
+and lyric footers). Compare the final diff against that inventory. Preserve
+content or provide a discoverable destination; report intentional removals in
+the change summary. Shortening prose is not permission to remove unrelated
+content. Preserve each repository's chosen song and lyric unless the user asks
+to change it. If an expected footer is missing, inspect git history before
+assuming the repository never had one.
