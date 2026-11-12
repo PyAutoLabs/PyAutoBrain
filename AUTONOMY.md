@@ -511,7 +511,8 @@ is the single `merge_pull_request` call, with the same rule.
 
 **The `glance` Shadow window.** Each auto-merged `glance` PR appends one row to
 `PyAutoMind/autonomy_log.md` "Shadow window" at close-out, recorded
-`merged-unchanged` at merge (`lifecycle.py close … --tier glance`). The human
+`merged-unchanged` at merge (`lifecycle.py close … --tier glance --actor
+<class>`, "Merge actor and random audit — 2026-11-12"). The human
 reads the post-merge summary and **amends the row** if they find something
 substantive (`merged-after-substantive-change`), or marks it `reverted`.
 `glance` is **confirmed at 20 clean rows**. **Any revert demotes that tier back
@@ -628,7 +629,12 @@ stage-2 sub-window) end in `merge actor` and `read by human`. The class comes
 from the writer's explicit flag — `lifecycle.py close … --actor <class>` or
 `shadow-row --actor <class>` at `/prm` close-out, and `unattended-watcher` from
 the shift watcher — because how a merge started is known only to the session
-that started it. `gh pr view --json mergedBy,mergedAt` adds the evidence,
+that started it. The flag is **required** whenever a row is written — a
+missing one refuses, so a forgotten flag can never land as a counted
+`unknown`: a human-typed `/prm` → `human-/prm`; an in-turn merge on the
+human's explicit merge command → `in-turn-human-commanded`; an in-turn tiered
+merge with no human command → `in-turn-autonomous`; `unknown` only when passed
+explicitly. `gh pr view --json mergedBy,mergedAt` adds the evidence,
 `<class> (mergedBy <login>)`, never the class. Rows written before this edit
 stop at `stage` and read as `unknown`, which still counts; they are not
 rewritten. `lifecycle.py shadow-recount` prints the window by actor and the

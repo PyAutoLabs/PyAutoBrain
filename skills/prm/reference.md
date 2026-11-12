@@ -162,7 +162,7 @@ clean rows (`AUTONOMY.md` "Merge authority follows Consequence — 2026-10-02").
 | `gate` | copied verbatim from the task's ship calibration row (written at PR-open by `ship_library` / `ship_workspace`); absent → the legs from the `/prm` step-2 judgement, same form |
 | `human action` | `merged-unchanged` / `merged-after-substantive-change` / `not-merged` / `reverted` — nothing else; an auto-merge records `merged-unchanged` at merge and the human amends it |
 | `stage` | `2` if an independent-model adversary leg ran, else `1`; never pooled |
-| `merge actor` | `--actor`: `human-/prm` (the human typed `/prm`), `in-turn-human-commanded` (merged in-turn on the human's explicit command), `in-turn-autonomous` (a tiered merge the session made itself), `unattended-watcher` (the watcher writes it), else `unknown`; the tool adds `(mergedBy <login>)` from `gh pr view`. The count leaves out the first two (`AUTONOMY.md` "Merge actor and random audit — 2026-11-12") |
+| `merge actor` | `--actor`, **required** (a missing one refuses, nothing written): `human-/prm` (a human-typed `/prm`), `in-turn-human-commanded` (an in-turn merge on the human's explicit merge command), `in-turn-autonomous` (an in-turn tiered merge with no human command), `unattended-watcher` (the watcher writes it), `unknown` only when passed explicitly; the tool adds `(mergedBy <login>)` from `gh pr view`. The count leaves out the first two (`AUTONOMY.md` "Merge actor and random audit — 2026-11-12") |
 | `read by human` | the date the human read the post-merge summary (`--read-by-human`), empty until then; recorded, does not gate the count |
 
 `not-merged` is for a close-out that stopped on a guard before the question was
