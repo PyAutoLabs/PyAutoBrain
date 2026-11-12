@@ -85,3 +85,5 @@ repo hosts. Agent contracts and the generated command table are in
 [AGENTS.md](AGENTS.md). The full organism documentation — including how to
 fork it and lead your own — is at <https://pyautoscientist.readthedocs.io>,
 whose source lives here in [`docs/`](docs).
+
+<sub><i><a href="https://music.apple.com/us/song/1640464474">courage, my soul, and let us journey on</a></i></sub>
