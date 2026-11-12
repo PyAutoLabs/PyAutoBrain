@@ -94,7 +94,9 @@ Brain  →  Heart (gate)  →  Build (execute)
 
 The Brain asks `pyauto-heart readiness --json`, reasons over the verdict, and
 only on **GREEN** triggers Build. Heart never triggers Build; Build never
-re-derives a decision the Brain already made.
+re-derives a decision the Brain already made. A development ship asks the
+scoped gate instead, `pyauto-heart readiness --dev --repos A,B --json` (the
+branch's repos and their dependants; STALE never passes — PyAutoHeart#340).
 
 ## Agents: conductors and faculties
 

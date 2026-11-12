@@ -120,7 +120,7 @@ def test_stale_recommendation_is_refresh_not_unknown(tmp_path):
 
 def test_stale_detail_states_the_tier_semantics(tmp_path):
     """The remedy is re-running the check, never fixing code — and a release
-    still needs GREEN even though the dev-ship gate treats STALE as passing."""
+    still needs GREEN, and the scoped dev-ship gate never passes STALE."""
     t, _ = _triage(tmp_path, STALE_ONLY)
     detail = t["recommendation"]["detail"].lower()
     assert "missing or expired" in detail
@@ -198,8 +198,8 @@ def test_usage_error_stays_five(tmp_path):
 
 def test_stale_exit_code_is_not_the_shell_generic_failure():
     """1 is bash's own generic failure (a missing `_common.sh`, a failed
-    `readlink`). STALE passes the dev-ship gate, so a crash must never be
-    readable as a passing verdict — hence 6, not the free slot 1."""
+    `readlink`). A crash must never be readable as a verdict — hence 6, not
+    the free slot 1."""
     assert EXIT_STALE != 1
     assert "stale) return 6 ;;" in HEALTH_SH
     assert "return 1" not in HEALTH_SH.split("_exit_code_for() {")[1].split("}")[0]

@@ -57,8 +57,8 @@
 #
 # STALE takes 6 rather than the free slot 1 for the same fail-safe reason: the
 # shell's own generic failure is 1 (a missing `_common.sh`, a failed `readlink`),
-# and STALE is the tier AUTONOMY.md leg 4 treats as PASSING the dev-ship gate —
-# so a crash must never be readable as a passing verdict. 6 sits outside the 0-5
+# and a crash must never be readable as a passing verdict (STALE passed the dev-ship
+# gate until 2026-11-12; the scoped gate, PyAutoHeart#340, never passes it). 6 sits outside the 0-5
 # block and is never produced by bash or python here, which is what lets a
 # machine caller tell "Heart says STALE" from "Heart unreachable" (4).
 
@@ -365,9 +365,9 @@ elif verdict == "stale" or evidence:
                        "rehearsal + wheel integration -> Heart ingests -> "
                        "re-judge), DELEGATED to the release conductor, which owns "
                        "the MCP GitHub boundary. ")
-        detail += ("A release still requires GREEN; the dev-ship gate "
-                   "(AUTONOMY.md leg 4) treats STALE as passing, because an "
-                   "evidence gap is organism-scope, not branch-scope.")
+        detail += ("A release still requires GREEN, and the scoped dev-ship "
+                   "gate (AUTONOMY.md leg 4) never passes STALE either: "
+                   "refresh, or park.")
         rec = {"action": "refresh-evidence", "command": cmd,
                "headline": "STALE — refresh the expired evidence: " + t["reason"],
                "detail": detail, "checkpoint": CHECKPOINT}
@@ -414,8 +414,8 @@ _exit_code_for() {
     green) return 0 ;;
     yellow) return 2 ;;
     red) return 3 ;;
-    # 6, not the free slot 1: bash itself exits 1 on a generic failure, and STALE
-    # PASSES the dev-ship gate — a crash must never be readable as a pass. See
+    # 6, not the free slot 1: bash itself exits 1 on a generic failure — a
+    # crash must never be readable as a verdict. See
     # the exit-code table in this file's header.
     stale) return 6 ;;
     *) return 4 ;;

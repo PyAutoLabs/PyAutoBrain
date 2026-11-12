@@ -334,18 +334,22 @@ never an assumption:
    `claims to falsify`, CLEAN carries one disposition line per claim
    (basis-cited / idle / finding — faculty AGENTS.md step 2a); a bare CLEAN
    over a non-empty claims surface is malformed evidence, not CLEAN.
-4. **Heart** — verdict **GREEN** or **STALE**, or **YELLOW whose reason set is
-   contained in the set the human acknowledged at launch**. Heart observes
-   organism state, not the branch (the audit confirmed its legs never see
-   feature branches). **STALE** is Heart's freshness tier (evidence missing or
-   expired, nothing known-bad — `PyAutoHeart/heart/readiness.py`): it passes
-   this leg because an evidence gap is organism-scope, not branch-scope, and
-   legs 1–3 gate the branch itself; the PR body lists the stale reasons.
-   Releases are unaffected — they always require GREEN. A verdict from a Heart
-   without the tier behaves as before. For YELLOW, the acknowledgement binds
-   to the *exact reason list* at launch, for that launch only — any new
-   reason, or RED, parks the run. Never ambient, never carried across
-   sessions.
+4. **Heart** — the **scoped development-ship verdict** (changed 2026-11-12,
+   PyAutoHeart#340; ruling M2.1 in "M2 rulings — 2026-11-12" below):
+   `pyauto-heart readiness --dev --repos A,B --json`, with the repos taken
+   from the task's `repos:` in `PyAutoMind/active.md`
+   (`consult_vitals_verdict --repos "$(active_task_repos <task>)"`). Only CI
+   on `main` of the touched repos and their dependants blocks; every other
+   reason comes back in `shown_reasons` and is listed in the PR body without
+   blocking. Only **GREEN** passes. **STALE** — in-scope evidence missing,
+   unfinished, or older than 6 h — **never passes**: re-check, or park. A
+   scoped read that cannot be made (no Heart CLI, a Heart without the gate,
+   an unknown repo name) is "unknown" and parks. Until this change the leg
+   read the whole-organism verdict and let STALE pass; the scoped verdict has
+   no YELLOW tier, so the YELLOW acknowledgement below (bound to the *exact
+   reason list* at launch, for that launch only) applies only if a YELLOW
+   verdict is ever returned. Releases are unaffected — they ask the unscoped
+   verdict and always require GREEN.
 
 5. **Independent adversary** — **added 2026-08-30, required for a BATCH
    launch** (below) and for any run counting toward the multi-repo autonomy

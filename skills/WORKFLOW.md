@@ -67,9 +67,13 @@ user-facing output. Issue and lifecycle mechanics stay with Mind's
 continue. A light early read, never a tick; the ship-time gate stays
 authoritative.
 
-Before `ship_*`, the vitals faculty gives the verdict: GREEN continues; YELLOW
-shows exact reasons and needs the autonomy-contract acknowledgement; STALE may
-pass for development only (still a release blocker); RED stops. After the exact
+Before `ship_*`, the vitals faculty gives the **scoped** dev-ship verdict,
+`pyauto-heart readiness --dev --repos A,B` with the task's `repos:` from
+`active.md` (PyAutoHeart#340): only CI on `main` of those repos and their
+dependants blocks, other reasons are shown; GREEN continues; STALE (evidence
+over 6 h, missing or unfinished) never passes — re-check or park; RED stops.
+`heart_feed.py --repos A,B` gives the door the same scope. Releases keep the
+unscoped verdict. After the exact
 reason strings are quoted verbatim from the current Heart verdict and
 validation is shown, a live human may use
 `AUTONOMY.md` "Human override for Heart RED (development only)" or the narrower

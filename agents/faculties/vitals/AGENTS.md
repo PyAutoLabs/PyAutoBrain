@@ -157,9 +157,9 @@ faculty every cycle.)
 
    Red dominates yellow, which dominates stale — the structural precedence in
    `PyAutoHeart/heart/readiness.py`. A release still requires **GREEN** (STALE
-   blocks it exactly as YELLOW does), while the dev-ship gate (`AUTONOMY.md`
-   leg 4) treats STALE as **passing**, because an evidence gap is organism-scope,
-   not branch-scope. A verdict from an older Heart carries no `stale_reasons`
+   blocks it exactly as YELLOW does). The development-ship gate (`AUTONOMY.md`
+   leg 4) asks the scoped `readiness --dev --repos A,B` verdict instead
+   (PyAutoHeart#340), and STALE never passes it. A verdict from an older Heart carries no `stale_reasons`
    key at all and behaves exactly as before.
 
 5. **Explain and recommend.** Produce the structured report below. Recommendations

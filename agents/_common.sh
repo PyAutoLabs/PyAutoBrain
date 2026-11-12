@@ -116,17 +116,26 @@ _agents_dir() {
 #                 gate); release-grade work uses this, ordinary build work does not.
 #   --profile P   evaluate under a readiness evidence profile (e.g. `release-ci`
 #                 for the scheduled-nightly gate — heart/readiness.py "Profiles").
+#   --repos A,B   the DEVELOPMENT-SHIP gate (PyAutoHeart#340, AUTONOMY.md leg 4):
+#                 `pyauto-heart readiness --dev --repos A,B --json`, scoped to the
+#                 repos the branch touches and their dependants, with a 6 h
+#                 evidence age. Its verdict is green | red | stale, and only
+#                 green passes. Take the repos from the task's `repos:` in
+#                 PyAutoMind/active.md (`active_task_repos`). Release callers
+#                 (release conductor, nightly, pre_build) never pass this.
 #
-# Echoes one of: green | yellow | red | unknown. Never fails the caller — an
-# unresolvable/again-unknown verdict is reported as "unknown" (treated as YELLOW
-# by callers), never silently as green.
+# Echoes one of: green | yellow | red | stale | unknown. Never fails the caller —
+# an unresolvable/again-unknown verdict is reported as "unknown" (treated as
+# YELLOW by callers, and as a park by the dev-ship gate), never silently as green.
 consult_vitals_verdict() {
-  local refresh=0 profile=""
+  local refresh=0 profile="" repos=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --refresh) refresh=1; shift ;;
       --profile) profile="$2"; shift 2 ;;
       --profile=*) profile="${1#*=}"; shift ;;
+      --repos) repos="$2"; shift 2 ;;
+      --repos=*) repos="${1#*=}"; shift ;;
       *) shift ;;
     esac
   done
@@ -143,14 +152,20 @@ consult_vitals_verdict() {
   # `set -o pipefail`, under which a non-zero exit from the (possibly
   # Heart-less) vitals faculty would otherwise double-fire a fallback. The python
   # below always prints exactly one token, even on empty/garbage input.
-  local args=(readiness --json)
-  [[ -n "$profile" ]] && args+=(--profile "$profile")
+  local args
+  args=($(_vitals_readiness_args "$profile" "$repos"))
   local out
-  out="$(bash "$vitals" "${args[@]}" 2>/dev/null | python3 -c '
-import json, sys
+  # A scoped read must come back as Heart's dev-ship verdict: a faculty with no
+  # Heart CLI answers from the published, organism-wide board, which cannot
+  # judge the scope — that is "unknown" (park), never a pass.
+  out="$(bash "$vitals" "${args[@]}" 2>/dev/null | SCOPED="$repos" python3 -c '
+import json, os, sys
 try:
-    v = json.load(sys.stdin).get("verdict", "unknown")
-    print(v or "unknown")
+    d = json.load(sys.stdin)
+    if os.environ.get("SCOPED") and d.get("gate") != "dev-ship":
+        print("unknown")
+    else:
+        print(d.get("verdict", "unknown") or "unknown")
 except Exception:
     print("unknown")
 ' 2>/dev/null)"
@@ -165,27 +180,88 @@ consult_health_agent_verdict() { consult_vitals_verdict "$@"; }
 # authorize proceeding despite specific, named RED reasons. Reads the SAME
 # read-only faculty as consult_vitals_verdict — Heart's verdict is never
 # mutated; the override is a Brain-level, recorded decision.
+#
+# `--repos A,B` reads the scoped dev-ship verdict instead (see
+# consult_vitals_verdict); `--field stale_reasons|shown_reasons` prints that
+# list of it instead of `red_reasons` (the PR body lists the shown reasons).
 consult_vitals_red_reasons() {
-  local profile=""
+  local profile="" repos="" field="red_reasons"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --profile) profile="$2"; shift 2 ;;
       --profile=*) profile="${1#*=}"; shift ;;
+      --repos) repos="$2"; shift 2 ;;
+      --repos=*) repos="${1#*=}"; shift ;;
+      --field) field="$2"; shift 2 ;;
+      --field=*) field="${1#*=}"; shift ;;
       *) shift ;;
     esac
   done
   local vitals
   vitals="$(_agents_dir)/faculties/vitals/vitals.sh"
   [[ -f "$vitals" ]] || return 0
-  local args=(readiness --json)
-  [[ -n "$profile" ]] && args+=(--profile "$profile")
-  bash "$vitals" "${args[@]}" 2>/dev/null | python3 -c '
-import json, sys
+  local args
+  args=($(_vitals_readiness_args "$profile" "$repos"))
+  bash "$vitals" "${args[@]}" 2>/dev/null | FIELD="$field" python3 -c '
+import json, os, sys
 try:
-    for r in (json.load(sys.stdin).get("red_reasons") or []):
+    for r in (json.load(sys.stdin).get(os.environ["FIELD"]) or []):
         if str(r).strip():
             print(str(r).strip())
 except Exception:
     pass
 ' 2>/dev/null
+}
+
+# _vitals_readiness_args <profile> <repos> — the `pyauto-heart` argument words
+# for one readiness read: the release verdict (optionally under a profile), or,
+# with repos, the scoped development-ship gate. Repo names carry no spaces.
+_vitals_readiness_args() {
+  local profile="$1" repos="$2"
+  if [[ -n "$repos" ]]; then
+    echo "readiness --dev --repos $repos --json"
+  elif [[ -n "$profile" ]]; then
+    echo "readiness --json --profile $profile"
+  else
+    echo "readiness --json"
+  fi
+}
+
+# active_task_repos <task-slug> [active.md] — the repos a task's branch
+# touches, comma-joined, from its `- repos:` block in PyAutoMind/active.md
+# (`  - <Repo>: <branch>` lines). This is the dev-ship gate's `--repos`.
+# Prints nothing (exit 1) when the task or its repos are not found — the caller
+# must then stop, never ship against an unscoped or empty scope.
+active_task_repos() {
+  local slug="$1" ledger="${2:-}"
+  if [[ -z "$ledger" ]]; then
+    local mind; mind="$(resolve_mind 2>/dev/null)" || return 1
+    ledger="$mind/active.md"
+  fi
+  [[ -f "$ledger" ]] || return 1
+  SLUG="$slug" python3 - "$ledger" <<'PY'
+import os, re, sys
+slug, repos, inside, in_repos = os.environ["SLUG"].strip(), [], False, False
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    line = line.rstrip("\n")
+    if line.startswith("## "):
+        inside = line[3:].strip() == slug
+        in_repos = False
+        continue
+    if not inside:
+        continue
+    if re.match(r"^-\s+repos:\s*$", line):
+        in_repos = True
+        continue
+    if in_repos:
+        m = re.match(r"^\s+-\s+([^:\s]+)\s*(?::.*)?$", line)
+        if m:
+            if m.group(1) not in repos:
+                repos.append(m.group(1))
+            continue
+        in_repos = False
+if not repos:
+    sys.exit(1)
+print(",".join(repos))
+PY
 }

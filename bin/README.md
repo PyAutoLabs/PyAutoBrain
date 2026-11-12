@@ -8,8 +8,10 @@ Executable tooling for the PyAuto organism.
   skill `.md` files must stay < 200 lines).
 - **`heart_feed.py`** — "Heart at the door": reads the Heart's published
   `state.json` (fallback: local `pyauto-heart readiness --json`), read-only,
-  never ticks; exit 0 green · 1 yellow/stale · 2 red · 3 grey. Run first by
-  `start_dev` step 0a and `route`.
+  never ticks; exit 0 green · 1 yellow/stale · 2 red · 3 grey. A feed older
+  than 6 h is never GREEN (STALE, `pass: false`); `--repos A,B` asks the local
+  Heart's scoped dev-ship gate (PyAutoHeart#340). Run first by `start_dev`
+  step 0a and `route`.
 - **`lane_backfill.py`** — proposes a `Lane:` for every lane-less draft in
   the planner pool, from intake's own lane signals, as a table for a human to
   skim; `--apply [--from <table>]` writes the headers (commits nothing).
