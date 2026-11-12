@@ -16,6 +16,10 @@
 #                                    explicit, per-invocation human decision
 #                                    that does NOT alter Heart's verdict);
 #                                    <args> forward to pre_build.
+#   release [--rehearsal-run-id <id>] — the rehearsal whose recorded commits
+#                                    the release publishes (PyAutoHands#337);
+#                                    forwarded to build.sh, which refuses
+#                                    without one (see build.sh).
 #
 # This conductor holds no second copy of the gate logic — one gate
 # implementation lives in the Build Agent; this door routes through it.
@@ -54,6 +58,7 @@ fi
 force=0
 forward=()
 accept_red=()
+rehearsal_run_id=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) force=1; shift ;;
@@ -61,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "release conductor: --accept-red needs a verbatim RED reason" >&2; exit 5; }
       accept_red+=("$2"); shift 2 ;;
     --accept-red=*) accept_red+=("${1#*=}"); shift ;;
+    --rehearsal-run-id)
+      [[ $# -ge 2 ]] || { echo "release conductor: --rehearsal-run-id needs a run id" >&2; exit 5; }
+      rehearsal_run_id="$2"; shift 2 ;;
+    --rehearsal-run-id=*) rehearsal_run_id="${1#*=}"; shift ;;
     --) shift; forward=("$@"); break ;;
     *) forward+=("$1"); shift ;;
   esac
@@ -74,4 +83,5 @@ echo "== release conductor: delegating gate + execution to the Build Agent (rele
 args=(--mode release)
 [[ "$force" -eq 1 ]] && args+=(--force)
 for _a in ${accept_red[@]+"${accept_red[@]}"}; do args+=("--accept-red=$_a"); done
+[[ -n "$rehearsal_run_id" ]] && args+=("--rehearsal-run-id=$rehearsal_run_id")
 exec bash "$HERE/../build/build.sh" "${args[@]}" -- "${forward[@]}"
