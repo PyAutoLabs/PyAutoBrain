@@ -141,7 +141,8 @@ of the resource lanes `ral` / `gpu` / `wsl-data`, each of which implies
 `local-dev` (`lane_is_local` in the sizing faculty is the one test). A draft
 with **no** valid `Lane:` fails closed in an unattended plan
 (`lane_absent_why`) and reads as `any` only under `batch plan --attended`;
-intake always writes one, `Lane: any` when the text names no resource.
+intake refuses to file a draft whose lane is neither declared (`Lane:` header
+or `--lane`) nor inferred.
 
 ## The premise check (`premise`) — before a run is spent
 

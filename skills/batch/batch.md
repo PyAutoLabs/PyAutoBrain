@@ -20,15 +20,15 @@ survive into your reply because they are the point of the whole surface:
   laptop-lane tasks are ready (3 ral, 1 local-dev) — run this from the
   laptop."*
 
-An empty batch at the backpressure cap is a **finding, not a deadlock**: nothing
-in the backlog costs zero review-minutes. Say which it is.
+An empty batch is a **finding**: at the backpressure cap nothing costs zero
+review-min; with an empty `queue.md` an unattended plan dips no backlog. Say which.
 
 **2. "Here are the ones I want."** — a paste of paths from the Mind dashboard,
 or a description ("something on the numba path", "the next euclid slice").
 
-Resolve what they gave you to prompt paths, then run the planner's constraints
-over exactly that set. **Under a shift brief** (`AUTONOMY.md`, "Shift briefs
-and unattended `glance`" — 2026-11-03) the brief *is* the human's composition:
+Resolve it to prompt paths; plan exactly that set as a brief's named tasks, or
+`batch plan --attended` (else an empty `queue.md` stops it). **Under a shift brief**
+(`AUTONOMY.md`, "Shift briefs and unattended `glance`") the brief *is* the human's composition:
 its named tasks go first, then the backlog dip its policy allows (`none` |
 `fill-idle` | `scoped:` plus `exclude:`). Backlog the brief does not cover is
 never dipped, and every dipped pick carries a one-line reason in the digest.

@@ -119,9 +119,41 @@ def test_the_plan_output_says_so(capsys):
     assert "Backlog dip:       STOPPED" in out
 
 
-def test_intake_writes_lane_any_when_inference_finds_nothing():
-    assert "\nLane: any" in _intake.analyse("Tidy a docstring in @PyAutoBrain.",
-                                            "test")["header"]
+CLOUD_TEXT = "Tidy a docstring in @PyAutoBrain."
+
+
+def test_intake_refuses_a_draft_whose_lane_nobody_decided(tmp_path, capsys):
+    """The ruling: a new draft filed without a Lane is rejected. No signal, no
+    `Lane:` header and no `--lane` writes nothing and says how to declare one."""
+    mind = tmp_path / "mind"
+    (mind / "draft").mkdir(parents=True)
+    d = _intake.analyse(CLOUD_TEXT, "test")
+    assert d["lane"] is None and "Lane:" not in d["header"]
+    import pytest
+    with pytest.raises(_intake.LaneRequired, match="--lane any"):
+        _intake.write_prompt(mind, d, CLOUD_TEXT, "test")
+    rc = _intake.main(["--mind", str(mind), "--apply", "classify", CLOUD_TEXT])
+    assert rc == _intake.RC_LANE_REQUIRED
+    err = capsys.readouterr().err
+    assert "Lane: <any | local-dev" in err and "--lane any" in err
+    assert not list((mind / "draft").rglob("*.md"))
+
+
+def test_intake_files_an_explicit_declared_or_inferred_lane(tmp_path):
+    mind = tmp_path / "mind"
+    (mind / "draft").mkdir(parents=True)
+    # Explicit, from the filer.
+    assert _intake.main(["--mind", str(mind), "--apply", "classify",
+                         "--lane", "any", CLOUD_TEXT]) == 0
+    # Declared in the text's own header.
+    declared = "# Tidy\n\nType: feature\nTarget: PyAutoBrain\nLane: any\n\nTidy a docstring.\n"
+    d = _intake.analyse(declared, "test")
+    assert (d["lane"], d["lane_source"]) == ("any", "declared")
+    # Inferred from a resource signal.
+    d = _intake.analyse("Profile the likelihood on RAL with SLURM for @PyAutoBrain.", "t")
+    assert (d["lane"], d["lane_source"]) == ("ral", "inferred")
+    written = list((mind / "draft").rglob("*.md"))
+    assert len(written) == 1 and "\nLane: any\n" in written[0].read_text()
 
 
 # --- (b) queue.md is the ranked list --------------------------------------------

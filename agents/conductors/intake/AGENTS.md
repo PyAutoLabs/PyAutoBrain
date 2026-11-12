@@ -121,8 +121,8 @@ with or without it. Unknown keywords are counted in the page's Hygiene section.
 
 | Mode | Command | What it does |
 |------|---------|--------------|
-| **classify** | `intake "<text>"` / `intake classify --file P` | classify one raw input; `--apply` writes the prompt |
-| **ideas** | `intake ideas` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them |
+| **classify** | `intake "<text>"` / `intake classify --file P [--lane L]` | classify one raw input; `--apply` writes the prompt — and **refuses** (exit 6) when no lane is decided: no `--lane`, no `Lane:` header in the text, no resource signal (M2.3, `AUTONOMY.md` "M2 rulings — 2026-11-12") |
+| **ideas** | `intake ideas [--lane L]` | scan `ideas.md`, propose one prompt per bullet; `--apply` writes them, refusing (and not marking) any bullet with no decided lane |
 | **census** | `intake census` | inventory every filed prompt (work-type/target/difficulty/status + hygiene flags); always read-only |
 | **dashboard** | `intake dashboard` | render the census as the Mind **task** page — picks, in flight, pending release, planned, backlog (including human review), recent, epics; `--apply` writes `PyAutoMind/dashboard.md` + `dashboard.html` + `state.json` (the organ-cockpit feed, `board/_state.py` v1: red when a task awaits input/is blocked or prompts drift, yellow when work waits on a merge/release/review or picks exist; items carry the page's own copy payloads), `--check` exits 1 on drift (ignoring the page date and the feed's `updated`) |
 | **formalise** | `intake formalise [prefix]` | retroactively header the prompts census flags — derive the missing fields, insert in place, prose untouched; `--apply` writes |

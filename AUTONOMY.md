@@ -691,9 +691,11 @@ As built: every plan `pyauto-brain batch plan` composes, and every watcher
 tick, is unattended, and excludes a backlog draft with no valid `Lane:`, saying
 so in the plan and the digest; `batch plan --attended` (a human picking for
 their own session) reads an absent Lane as `any`. A brief's named tasks are the
-human's own pick and are not gated. Intake always writes a `Lane:`, `any` when
-the text names no resource, rather than refusing to file. `lifecycle.py check`
-fails on a `queue.md` prompt ref that resolves to no draft or active prompt; an
+human's own pick and are not gated. Intake refuses to file a new draft whose
+lane is neither declared (a `Lane:` header, or the filer's `--lane`) nor
+inferred from a resource signal, and says how to declare one. `lifecycle.py check`
+fails on a `queue.md` prompt ref that resolves to no draft or active prompt
+(`lifecycle.py close` retires a completed task's entry to the footer); an
 empty or absent `queue.md` stops an unattended shift's backlog dip (named tasks
 still run); below the queue the planner sorts priority, then review-minutes.
 Build: PyAutoBrain#614. *Revert condition:* if fail-closed excludes more than a
@@ -710,7 +712,8 @@ rehearsed commit, or a Colab notebook that installs the wrong version because
 the bump is off `main` — return to `ref: main` plus the freeze flag until fixed.
 
 **M2.5 Always-apply rules.** *"Split the safety rules into a short file
-imported by the home `CLAUDE.md`; set a size budget for the memory index."*
+imported by the home `CLAUDE.md`; set a size budget for the memory index
+(21.8 KB today)."*
 Awaits a human act: these are the human's home-folder files — a session may
 draft the edits, the human applies them. *Revert condition:* if a new session's
 loaded-file list does not show the rules file, or sessions lose the routing
