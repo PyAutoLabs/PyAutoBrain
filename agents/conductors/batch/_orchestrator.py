@@ -48,12 +48,18 @@ DIGEST_MARKER = "digest.posted"
 #: A tick lock older than this belongs to a tick that died; it is broken.
 LOCK_TTL_S = 600
 #: A worker whose process is gone keeps its lease this long before it is
-#: declared dead — room for a worker that writes its `.done` marker late.
-LEASE_GRACE_S = 120
+#: declared dead — room for a worker that writes its `.done` marker late. At
+#: least two measured tick intervals (median 184 s over 566 ticks to
+#: 2026-11-09; PyAutoBrain#603), so one slow tick never outlives a lease.
+LEASE_GRACE_S = 420
+#: A real worker missing from `claude agents` is a crash only after this many
+#: consecutive unlisted reads (and the grace) — or a positive ended state.
+UNLISTED_READS_FOR_CRASH = 2
 #: A task's lease may be re-dispatched after a crash this many times a shift.
 REDISPATCH_LIMIT = 1
 #: A real worker `blocked` (waiting on a human) this long is parked: its lease
-#: is released, the task is not re-dispatched, and the digest names it.
+#: stays (state `parked`, holding no worker slot) so a late `.done` is still
+#: read, the task is not re-dispatched, and the digest names it.
 STALL_GRACE_S = 900
 #: Sessions that ended without succeeding — reaped as crashes (`_digest`, #592).
 ENDED_STATES = _digest.ENDED_STATES
@@ -201,6 +207,10 @@ class FakeSpawner:
         (Path(lease_dir) / f"{task}.closeout").write_text(json.dumps(verdict))
         return {"pid": 0, "agent_id": None}
 
+    def pr_state(self, url: str) -> dict:
+        """A dry shift merges nothing, so GitHub is never asked."""
+        return {"state": "OPEN", "mergedAt": "", "mergedBy": ""}
+
 
 def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path) -> str:
     """The session template filled in for one task."""
@@ -267,9 +277,15 @@ class RealSpawner:
 
     real = True
 
-    def __init__(self, brief_path: Path, mode: str, cwd: Path | None = None, run=None):
+    def __init__(self, brief_path: Path, mode: str, cwd: Path | None = None, run=None,
+                 gh=None):
         self.brief_path, self.mode, self.cwd = Path(brief_path), mode, cwd
         self.run = run or subprocess.run
+        self.gh = gh or gh_pr_state
+
+    def pr_state(self, url: str) -> dict | None:
+        """GitHub's word on a PR — the merge truth for a close-out (#603)."""
+        return self.gh(url)
 
     def spawn(self, task: str, prompt_path: str, lease_dir: Path) -> dict:
         argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode)
@@ -317,23 +333,37 @@ def default_spawner(brief_path: Path, brief: dict):
 
 class AgentsView:
     """`claude agents --json --all`, read once per tick, keyed by the short id
-    `claude --bg` printed (its `id` field)."""
+    `claude --bg` printed (its `id` field).
+
+    A read that fails, times out or prints something other than a JSON list is
+    *unknown* (`known()` is False) — never an empty list, which would declare
+    every worker gone (PyAutoBrain#603)."""
 
     def __init__(self, sessions: list[dict] | None = None, run=None):
         self._sessions, self._run = sessions, run or subprocess.run
+        self._failed = False
 
-    def _load(self) -> list[dict]:
-        if self._sessions is None:
+    def _load(self) -> list[dict] | None:
+        if self._sessions is None and not self._failed:
             try:
                 res = self._run(["claude", "agents", "--json", "--all"],
                                 capture_output=True, text=True, timeout=60)
-                self._sessions = json.loads(res.stdout) if res.returncode == 0 else []
-            except (OSError, ValueError, subprocess.SubprocessError):
-                self._sessions = []
+                if res.returncode != 0:
+                    raise ValueError(f"exit {res.returncode}")
+                sessions = json.loads(res.stdout)
+                if not isinstance(sessions, list):
+                    raise TypeError("not a JSON list")
+                self._sessions = sessions
+            except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+                self._failed = True
         return self._sessions
 
+    def known(self) -> bool:
+        """Whether this tick's read says anything at all about the workers."""
+        return self._load() is not None
+
     def _find(self, agent_id: str) -> dict | None:
-        return next((s for s in self._load() if s.get("id") == agent_id), None)
+        return next((s for s in self._load() or [] if s.get("id") == agent_id), None)
 
     def state(self, agent_id: str) -> str | None:
         """The CLI's state word — `working` while it runs (2.1.316), `blocked`
@@ -346,6 +376,31 @@ class AgentsView:
         """The full session id — what the transcript file is named by."""
         s = self._find(agent_id)
         return s.get("sessionId") if s else None
+
+
+def _liveness_known(agents) -> bool:
+    """`agents.known()`, for any view; a view without one is always known."""
+    known = getattr(agents, "known", None)
+    return True if known is None else bool(known())
+
+
+def gh_pr_state(url: str, run=None) -> dict | None:
+    """One read-only `gh pr view`: {state, mergedAt, mergedBy} as GitHub has
+    it, or None when GitHub could not say (#603: the merge truth)."""
+    run = run or subprocess.run
+    try:
+        res = run(["gh", "pr", "view", url, "--json", "state,mergedAt,mergedBy"],
+                  capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            return None
+        data = json.loads(res.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if not isinstance(data, dict) or not data.get("state"):
+        return None
+    by = data.get("mergedBy") or {}
+    return {"state": str(data["state"]).upper(), "mergedAt": data.get("mergedAt") or "",
+            "mergedBy": by.get("login", "") if isinstance(by, dict) else str(by)}
 
 
 def transcript_tokens(session_id: str, root: Path | None = None) -> int:
@@ -420,18 +475,42 @@ def leases(slot: Path) -> dict[str, dict]:
 
 def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
           agents: AgentsView | None = None, tokens=transcript_tokens) -> list[dict]:
-    """Release finished leases, park stalled ones and declare dead ones."""
+    """Release finished leases, park stalled ones and declare dead ones.
+
+    Every transition is written to `counters.json` as it happens, and a lease
+    or `.done` marker is deleted only after that write — a tick that fails
+    later never forgets a reap (PyAutoBrain#603). A parked worker keeps its
+    lease (`state: parked`), so its late `.done` is still read here.
+    """
     events = []
     lease_dir = slot / "leases"
     agents = agents or AgentsView()
+    known = None  # read lazily: a slot of fake workers never calls `claude agents`
     for task, lease in leases(slot).items():
         done_marker = lease_dir / f"{task}.done"
         path = lease_dir / f"{task}.json"
         real = bool(lease.get("agent_id")) and not lease.get("pid")
-        state = agents.state(lease["agent_id"]) if real else None
+        parked = lease.get("state") == "parked"
+        state = None
+        if real:
+            if known is None:
+                known = _liveness_known(agents)
+                if not known:
+                    events.append({"event": "liveness-unknown",
+                                   "why": "the `claude agents` read failed — "
+                                          "no liveness decision this tick"})
+            if not known:
+                continue
+            state = agents.state(lease["agent_id"])
+            if state is None:
+                lease["unlisted"] = int(lease.get("unlisted", 0)) + 1
+            else:
+                lease.pop("unlisted", None)
         ended = real and state in ENDED_STATES
-        finished = done_marker.exists() or state == "done" or ended or (
-            real and state is None and now >= _parse_iso(lease["expires"]))
+        gone = (real and state is None
+                and lease.get("unlisted", 0) >= UNLISTED_READS_FOR_CRASH
+                and now >= _parse_iso(lease["expires"]))
+        finished = done_marker.exists() or state == "done" or ended or gone
         if real and finished:
             sid = agents.session_of(lease["agent_id"]) or lease.get("session_id")
             counters["tokens"] += tokens(sid) if sid else 0
@@ -439,28 +518,45 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             # The digest reads these at review-at, long after the marker is gone.
             counters["outcomes"][task] = _digest.parse_done(
                 done_marker.read_text(encoding="utf-8", errors="replace"))
+            if task not in counters["done"]:
+                counters["done"].append(task)
+            if task in counters["parked"]:
+                counters["parked"].remove(task)
+            _write_counters(slot, counters)
             proof = lease_dir / f"{task}.proof.md"
             if proof.exists():
                 (slot / _digest.PROOFS_DIR).mkdir(exist_ok=True)
                 proof.replace(slot / _digest.PROOFS_DIR / f"{task}.md")
             path.unlink(missing_ok=True)
             done_marker.unlink(missing_ok=True)
-            if task not in counters["done"]:
-                counters["done"].append(task)
-            events.append({"task": task, "event": "done"})
+            event = {"task": task, "event": "done"}
+            if parked:
+                event["was"] = "parked"
+            events.append(event)
+            continue
+        if parked:
+            if finished:
+                # Ended without a `.done`: released, never a crash and never
+                # re-dispatched — it stays parked for the human.
+                _write_counters(slot, counters)
+                path.unlink(missing_ok=True)
+                events.append({"task": task, "event": "parked-ended"})
+            else:
+                path.write_text(json.dumps(lease, sort_keys=True))
             continue
         if real and state == "blocked":
             since = lease.setdefault("stalled_since", _iso(now))
             if (now - _parse_iso(since)).total_seconds() >= STALL_GRACE_S:
                 # Waiting on a human is not a crash: never killed, never
                 # re-dispatched — the digest names it and the human answers.
-                path.unlink(missing_ok=True)
+                # The lease stays (state `parked`) so a late `.done` is read.
                 if task not in counters["parked"]:
                     counters["parked"].append(task)
+                _write_counters(slot, counters)
+                lease.update(state="parked", parked_at=_iso(now))
                 events.append({"task": task, "event": "parked",
                                "why": f"blocked since {since}"})
-            else:
-                path.write_text(json.dumps(lease, sort_keys=True))
+            path.write_text(json.dumps(lease, sort_keys=True))
             continue
         alive = (state not in (None, "done") and not ended) if real \
             else _alive(int(lease.get("pid", 0)))
@@ -470,15 +566,20 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             lease["expires"] = _iso(now + _dt.timedelta(seconds=grace_s))
             path.write_text(json.dumps(lease, sort_keys=True))
             continue
-        if now < _parse_iso(lease["expires"]) and state != "done" and not ended:
+        dead = (state == "done" or ended or gone) if real \
+            else now >= _parse_iso(lease["expires"])
+        if not dead:
+            if real:
+                path.write_text(json.dumps(lease, sort_keys=True))  # the unlisted count
             continue  # gone, but inside the grace for a late `.done`
-        path.unlink(missing_ok=True)
         counters["crashes"] += 1
         again = counters["redispatched"].get(task, 0) < REDISPATCH_LIMIT
         if again and task not in counters["pending_redispatch"]:
             counters["pending_redispatch"].append(task)
         if not again and task not in counters["abandoned"]:
             counters["abandoned"].append(task)
+        _write_counters(slot, counters)
+        path.unlink(missing_ok=True)
         events.append({"task": task, "event": "dead",
                        "redispatch": "allowed" if again else "spent — abandoned"})
     return events
@@ -512,7 +613,7 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          now: _dt.datetime | None = None, spawner=None,
          grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
          agents: AgentsView | None = None, tokens=transcript_tokens,
-         poster=None, health=None) -> dict:
+         poster=None, health=None, pr_state=None) -> dict:
     """One watcher tick. Returns what it did; also appended to `tick.log`.
 
     After `review-at:` the one remaining act is the digest (phase 3d), once."""
@@ -556,15 +657,20 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
     try:
         result = _tick_locked(slot, brief, mind, now,
                               spawner or default_spawner(brief_path, brief),
-                              grace_s, records, agents, tokens, health)
+                              grace_s, records, agents, tokens, health, pr_state)
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
     return result
 
 
+def active_leases(slot: Path) -> dict[str, dict]:
+    """The leases that hold a worker slot: a parked worker's does not."""
+    return {t: l for t, l in leases(slot).items() if l.get("state") != "parked"}
+
+
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
-                 tokens, health=None) -> dict:
+                 tokens, health=None, pr_state=None) -> dict:
     counters = read_counters(slot)
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
     # One Mind writer: whatever the workers queued is committed here, by the
@@ -576,14 +682,14 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                 slot, mind, f"shift {slot.name}: ledger from workers")
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
-    closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health)
+    closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state)
     if _mind_writer.pending_ops(slot):  # a stage-2 row queued by a merged close-out
         try:
             ledger = _mind_writer.commit_ledger(
                 slot, mind, f"shift {slot.name}: unattended close-out")
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
-    live = leases(slot)
+    live = active_leases(slot)
     max_workers = _brief.cap_of(brief, "max-workers")
     max_sessions = _brief.cap_of(brief, "max-sessions")
 
@@ -623,15 +729,19 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
             continue  # a lease appeared since we read them: never a second worker
         try:
             lease.update(spawner.spawn(task, member["path"], slot / "leases"))
-        except Exception:
+        except Exception as e:
+            # One task's failed launch is that task's refusal, not the tick's:
+            # what this tick already reaped stays written, the rest carry on.
             lease_path.unlink(missing_ok=True)
-            raise
+            refused.append({"task": task, "why": f"spawn failed: {str(e)[:300]}"})
+            continue
         lease_path.write_text(json.dumps(lease, sort_keys=True))
         counters["picks"][task] = pick_record(member, brief)
         if task in counters["pending_redispatch"]:
             counters["pending_redispatch"].remove(task)
             counters["redispatched"][task] = counters["redispatched"].get(task, 0) + 1
         counters["sessions"] += 1
+        _write_counters(slot, counters)
         live[task] = lease
         spawned.append({"task": task, "pid": lease["pid"]})
     counters["refusals"] += [dict(r, at=_iso(now)) for r in refused]
@@ -684,12 +794,18 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     rel = _record_rel(brief_path, mind)
     lines = []
     for e in reaped:
-        task = e["task"]
+        task = e.get("task")
+        if task is None:
+            continue  # liveness unknown this tick: nothing was decided
         if e["event"] == "done":
             urls = counters["outcomes"].get(task, {}).get("prs") or []
             what = ", ".join(urls) or "finished, no PR or issue named in its .done"
+            if e.get("was") == "parked":
+                what += " (was parked)"
         elif e["event"] == "parked":
             what = "parked: awaiting-input (blocked on a person)"
+        elif e["event"] == "parked-ended":
+            what = "parked worker ended without a .done; not re-dispatched"
         else:
             what = "ended without a .done (crashed); not re-dispatched"
         lines.append(f"- late: {task} — {what} (after review-at, {_iso(now)})")
@@ -781,7 +897,7 @@ def _write_packet(slot: Path, digest: str) -> Path:
 # --- unattended `glance` close-out (phase 4b) ------------------------------------
 
 def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
-               agents: AgentsView | None, health) -> dict:
+               agents: AgentsView | None, health, pr_state=None) -> dict:
     """Reap finished close-out sessions, then start one per newly green PR.
 
     The watcher's guards are the ones it can judge from its own reads (AUTONOMY
@@ -789,45 +905,78 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     the brief's `merge-cap:`, and never in a shadow shift. The label, Heart and
     the witness are the close-out session's to check — it is the independent
     session, and it refuses rather than merges when one fails.
+
+    GitHub is the merge truth (#603): before a finished close-out is counted
+    merged or refused — which frees its `merge-cap:` slot — the PR's state is
+    read (`pr_state`, else the spawner's, `gh pr view`). A merge GitHub
+    confirms counts with or without a `.closeout` file; a session that ended
+    with no file while GitHub cannot be read keeps its slot until it can.
+    Every transition is written as it happens; a `.closeout` file is deleted
+    only after that write.
     """
     events = {"started": [], "merged": [], "refused": []}
     lease_dir = slot / "leases"
     agents = agents or AgentsView()
     health = health or _digest.pr_health
+    pr_state = pr_state or getattr(spawner, "pr_state", None)
+    known = None
 
     for pr, co in counters["closeouts"].items():
         if co["state"] != "running":
             continue
         verdict_file = lease_dir / f"{co['task']}.closeout"
+        verdict = None
         if verdict_file.exists():
             try:
-                v = json.loads(verdict_file.read_text(encoding="utf-8"))
+                verdict = json.loads(verdict_file.read_text(encoding="utf-8"))
             except ValueError:
-                v = {"result": "refused", "why": "unreadable .closeout file"}
-            verdict_file.unlink(missing_ok=True)
-            if v.get("result") == "merged":
-                co.update(state="merged", gate=v.get("gate", ""), model=v.get("model", ""))
-                counters["glance_auto_merges"] += 1
-                out = counters["outcomes"].setdefault(co["task"], {"prs": [pr], "merged": []})
-                if pr not in out["merged"]:
-                    out["merged"].append(pr)
-                _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
-                    "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
-                    "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"])})
-                events["merged"].append(pr)
-            else:
-                co.update(state="refused", why=v.get("why") or "refused, no reason given")
-                events["refused"].append(pr)
+                verdict = None
+            if not isinstance(verdict, dict):
+                verdict = {"result": "refused", "why": "unreadable .closeout file"}
+        elif co.get("agent_id"):
+            if known is None:
+                known = _liveness_known(agents)
+            if not known:
+                continue  # liveness unknown this tick: no decision
+            state = agents.state(co["agent_id"])
+            if not (state in (None, "done") or state in ENDED_STATES):
+                continue
+        elif _alive(int(co.get("pid") or 0)):
             continue
-        real = bool(co.get("agent_id"))
-        state = agents.state(co["agent_id"]) if real else None
-        gone = (state in (None, "done") or state in ENDED_STATES) if real \
-            else not _alive(int(co.get("pid") or 0))
-        if gone:
+        gh = pr_state(pr) if pr_state else None
+        if verdict is None and pr_state is not None and gh is None:
+            continue  # GitHub could not say: the slot stays held, asked again next tick
+        if gh:
+            co["github"] = gh
+        said_merged = bool(verdict) and verdict.get("result") == "merged"
+        if said_merged or (gh or {}).get("state") == "MERGED":
+            if said_merged:
+                gate, model = verdict.get("gate", ""), verdict.get("model", "")
+            else:
+                gate = ("merge confirmed on GitHub"
+                        + (f" at {gh['mergedAt']}" if gh.get("mergedAt") else "")
+                        + (f" by {gh['mergedBy']}" if gh.get("mergedBy") else "")
+                        + (" (no .closeout)" if verdict is None else
+                           f" (its .closeout said {verdict.get('result')})"))
+                model = (verdict or {}).get("model") or CLOSEOUT_MODEL
+            co.update(state="merged", gate=gate, model=model)
+            counters["glance_auto_merges"] += 1
+            out = counters["outcomes"].setdefault(co["task"], {"prs": [pr], "merged": []})
+            if pr not in out["merged"]:
+                out["merged"].append(pr)
+            _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
+                "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
+                "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"])})
+            events["merged"].append(pr)
+        else:
             # Never retried: a close-out that ended without a verdict is the
             # human's to look at, not a second unattended attempt.
-            co.update(state="refused", why="the close-out session ended without a verdict")
+            why = ((verdict.get("why") or "refused, no reason given") if verdict
+                   else "the close-out session ended without a verdict")
+            co.update(state="refused", why=why)
             events["refused"].append(pr)
+        _write_counters(slot, counters)
+        verdict_file.unlink(missing_ok=True)
 
     if _brief.is_shadow(brief):
         return events
@@ -860,8 +1009,16 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
                 continue
             prompt = counters["picks"].get(task, {}).get("prompt", "")
             co = {"task": task, "state": "running", "started": _iso(now)}
-            co.update(spawner.spawn_closeout(task, pr, prompt, lease_dir))
+            try:
+                co.update(spawner.spawn_closeout(task, pr, prompt, lease_dir))
+            except Exception as e:
+                counters["closeouts"][pr] = {"task": task, "state": "refused",
+                                             "why": f"the close-out could not start: {str(e)[:300]}"}
+                events["refused"].append(pr)
+                _write_counters(slot, counters)
+                continue
             counters["closeouts"][pr] = co
+            _write_counters(slot, counters)  # a started close-out is never started twice
             events["started"].append(pr)
     return events
 
@@ -925,7 +1082,7 @@ def main(argv=None) -> int:
         return 2
     print(json.dumps(res, indent=2) if a.as_json else
           f"{res['action']}: " + (res.get("reason") or
-                                 f"spawned {len(res['spawned'])}, "
-                                 f"refused {len(res['refused'])}, "
-                                 f"live {len(res['live'])}"))
+                                 f"spawned {len(res.get('spawned', []))}, "
+                                 f"refused {len(res.get('refused', []))}, "
+                                 f"live {len(res.get('live', []))}"))
     return 0

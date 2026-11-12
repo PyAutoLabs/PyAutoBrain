@@ -155,11 +155,14 @@ def test_real_spawn_records_the_session_in_the_lease(tmp_path):
     assert lease["pid"] == 0 and lease["session_id"] is None
 
 
-def test_a_failed_spawn_leaves_no_lease(tmp_path):
+def test_a_failed_spawn_leaves_no_lease_and_is_a_refusal(tmp_path):
+    # PyAutoBrain#603: one task's failed launch is its refusal, not the tick's.
     mind, brief, home = _shift(tmp_path)
-    with pytest.raises(orch.OrchestratorError, match="claude --bg failed"):
-        _tick(brief, mind, home, NOW, FakeClaude(rc=1))
-    assert orch.leases(orch.slot_dir(brief, home)) == {}
+    r = _tick(brief, mind, home, NOW, FakeClaude(rc=1))
+    assert r["spawned"] == [] and r["refused"][0]["task"] == "t1"
+    assert r["refused"][0]["why"].startswith("spawn failed: claude --bg failed")
+    slot = orch.slot_dir(brief, home)
+    assert orch.leases(slot) == {} and orch.read_counters(slot)["sessions"] == 0
 
 
 def test_real_dispatch_no_longer_needs_a_sandbox_brief(tmp_path):
@@ -365,8 +368,8 @@ def test_an_untrusted_folder_fails_the_spawn_fast(tmp_path):
     # spawner turns it into an error and leaves no lease — never a silent stall.
     mind, brief, home = _shift(tmp_path)
     untrusted = FakeClaude(rc=1)
-    with pytest.raises(orch.OrchestratorError, match="claude --bg failed"):
-        _tick(brief, mind, home, NOW, untrusted)
+    r = _tick(brief, mind, home, NOW, untrusted)
+    assert "Workspace not trusted" in r["refused"][0]["why"]
     assert orch.leases(orch.slot_dir(brief, home)) == {}
 
 
@@ -509,3 +512,164 @@ def test_a_late_arrival_lands_in_the_record_on_mind_main(tmp_path, monkeypatch):
     assert r["action"] == "late" and r["ledger"]["committed"], r
     record = t.git(bare, "show", "main:batches/2026-11-04-am.md").stdout
     assert "\n### Late arrivals\n- late: t1 — https://github.com/o/r/pull/9 (after review-at" in record
+
+
+# --- shift-watcher state-machine gaps (PyAutoBrain#603) ------------------------------
+
+def test_a_tick_that_raises_after_a_reap_keeps_the_outcome_and_never_redispatches(
+        tmp_path, monkeypatch):
+    """CODE-1: the reap is written as it happens, not at the end of the tick."""
+    import _batch
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, mind, home, NOW, claude)
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/7\n")
+
+    def boom(mind):
+        raise OSError("injected failure after the reap")
+    monkeypatch.setattr(_batch, "survey", boom)
+    with pytest.raises(OSError, match="after the reap"):
+        _tick(brief, mind, home, NOW + _dt.timedelta(minutes=3), claude,
+              agents=_agents({"t1": "done"}, slot), tokens=lambda s: 40)
+    c = orch.read_counters(slot)
+    assert c["done"] == ["t1"] and c["tokens"] == 40
+    assert c["outcomes"]["t1"]["prs"] == ["https://github.com/o/r/pull/7"]
+    monkeypatch.undo()
+    r = _tick(brief, mind, home, NOW + _dt.timedelta(minutes=6), claude)
+    assert r["spawned"] == [] and len(claude.calls) == 1     # never dispatched again
+    c = orch.read_counters(slot)
+    assert c["done"] == ["t1"] and c["sessions"] == 1 and c["tokens"] == 40
+
+
+def test_a_failed_spawn_after_a_reap_keeps_the_reap(tmp_path):
+    """CODE-1 (the review's V1): t1 finishes, t2's launch fails in the same tick."""
+    mind, brief, home = _shift(tmp_path, names=("t1", "t2"), extra="  - max-workers: 1\n")
+    slot = orch.slot_dir(brief, home)
+    _tick(brief, mind, home, NOW, FakeClaude())
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/1\n")
+    r = _tick(brief, mind, home, NOW + _dt.timedelta(minutes=3), FakeClaude(rc=1),
+              agents=_agents({"t1": "done"}, slot))
+    assert r["reaped"] == [{"task": "t1", "event": "done"}]
+    assert [x["task"] for x in r["refused"]] == ["t2"]
+    c = orch.read_counters(slot)
+    assert c["done"] == ["t1"] and c["outcomes"]["t1"]["prs"] == ["https://github.com/o/r/pull/1"]
+    later = FakeClaude()
+    r = _tick(brief, mind, home, NOW + _dt.timedelta(minutes=6), later)
+    assert [x["task"] for x in r["spawned"]] == ["t2"]        # t1 is never sent twice
+
+
+def _failing_agents(kind):
+    def run(argv, **kw):
+        if kind == "timeout":
+            raise subprocess.TimeoutExpired(argv, 60)
+        if kind == "badjson":
+            return SimpleNamespace(returncode=0, stdout="<html>502</html>")
+        return SimpleNamespace(returncode=1, stdout="")
+    return orch.AgentsView(run=run)
+
+
+@pytest.mark.parametrize("kind", ["rc1", "timeout", "badjson"])
+def test_a_failing_claude_agents_read_leaves_live_workers_live(tmp_path, kind):
+    """CODE-2: an unreadable `claude agents` is unknown, never an empty list."""
+    mind, brief, home = _shift(tmp_path, names=("t1", "t2"))
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    r = _tick(brief, mind, home, NOW, claude, grace_s=orch.LEASE_GRACE_S)
+    assert sorted(x["task"] for x in r["spawned"]) == ["t1", "t2"]
+    later = NOW + _dt.timedelta(hours=1)              # far past every lease's grace
+    view = _failing_agents(kind)
+    assert view.known() is False
+    r = _tick(brief, mind, home, later, claude, agents=view, grace_s=orch.LEASE_GRACE_S)
+    assert [e["event"] for e in r["reaped"]] == ["liveness-unknown"]
+    assert r["live"] == ["t1", "t2"] and r["spawned"] == [] and len(claude.calls) == 2
+    c = orch.read_counters(slot)
+    assert c["crashes"] == 0 and c["pending_redispatch"] == [] and c["abandoned"] == []
+    assert sorted(orch.leases(slot)) == ["t1", "t2"]
+
+
+def test_one_unlisted_read_past_the_grace_is_not_a_crash(tmp_path):
+    """CODE-2: a crash needs two consecutive unlisted reads (or an ended state)."""
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, mind, home, NOW, claude, grace_s=60)
+    gone = lambda: _agents({"t1": "absent"}, slot)  # noqa: E731
+    r = _tick(brief, mind, home, NOW + _dt.timedelta(minutes=10), claude, agents=gone(),
+              grace_s=60)
+    assert r["reaped"] == [] and orch.leases(slot)["t1"]["unlisted"] == 1
+    # Listed again: the count resets.
+    _tick(brief, mind, home, NOW + _dt.timedelta(minutes=11), claude,
+          agents=_agents({"t1": "working"}, slot), grace_s=60)
+    assert "unlisted" not in orch.leases(slot)["t1"]
+    _tick(brief, mind, home, NOW + _dt.timedelta(minutes=20), claude, agents=gone(), grace_s=60)
+    r = _tick(brief, mind, home, NOW + _dt.timedelta(minutes=23), claude, agents=gone(),
+              grace_s=60)
+    assert r["reaped"][0]["event"] == "dead"
+    assert orch.read_counters(slot)["crashes"] == 1
+
+
+def test_lease_grace_is_at_least_two_measured_tick_intervals():
+    assert orch.LEASE_GRACE_S >= 2 * 184 and orch.UNLISTED_READS_FOR_CRASH >= 2
+
+
+def _park(tmp_path):
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, mind, home, NOW, claude)
+    _tick(brief, mind, home, NOW + _dt.timedelta(minutes=1), claude,
+          agents=_agents({"t1": "blocked"}, slot))
+    past = NOW + _dt.timedelta(minutes=1, seconds=orch.STALL_GRACE_S)
+    r = _tick(brief, mind, home, past, claude, agents=_agents({"t1": "blocked"}, slot))
+    assert r["reaped"][0]["event"] == "parked" and r["live"] == []
+    lease = orch.leases(slot)["t1"]
+    assert lease["state"] == "parked"                 # the lease stays (ORCH-1)
+    return mind, brief, home, slot, claude, past
+
+
+def test_a_parked_worker_that_finishes_after_review_at_is_a_late_arrival(tmp_path):
+    """ORCH-1: the stranded PR of shift 2026-11-06-pm — parked, digest posted,
+    then its `.done` landed and nothing ever read it."""
+    mind, brief, home, slot, claude, _ = _park(tmp_path)
+    (slot / orch.DIGEST_MARKER).write_text("{}")
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/134\n")
+    r = orch.tick(brief, mind, home=home, now=AFTER, grace_s=0,
+                  spawner=orch.RealSpawner(brief, "auto", run=claude),
+                  agents=_agents({"t1": "done"}, slot), tokens=lambda s: 321)
+    assert r["action"] == "late"
+    assert r["reaped"] == [{"task": "t1", "event": "done", "was": "parked"}]
+    assert r["late"][0].startswith(
+        "- late: t1 — https://github.com/o/r/pull/134 (was parked) (after review-at")
+    c = orch.read_counters(slot)
+    assert c["outcomes"]["t1"]["prs"] == ["https://github.com/o/r/pull/134"]
+    assert c["tokens"] == 321 and c["late"] == ["t1"] and c["done"] == ["t1"]
+    assert c["parked"] == [] and orch.leases(slot) == {}
+    assert len(claude.calls) == 1                     # never re-dispatched
+
+
+def test_a_parked_worker_that_finishes_inside_the_shift_is_done(tmp_path):
+    mind, brief, home, slot, claude, past = _park(tmp_path)
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/8\n")
+    r = _tick(brief, mind, home, past + _dt.timedelta(minutes=3), claude,
+              agents=_agents({"t1": "done"}, slot), tokens=lambda s: 9)
+    assert r["reaped"] == [{"task": "t1", "event": "done", "was": "parked"}]
+    c = orch.read_counters(slot)
+    assert c["done"] == ["t1"] and c["parked"] == [] and c["tokens"] == 9
+    assert r["spawned"] == [] and len(claude.calls) == 1
+
+
+def test_a_parked_worker_that_ends_without_a_done_is_released_not_a_crash(tmp_path):
+    mind, brief, home, slot, claude, past = _park(tmp_path)
+    r = _tick(brief, mind, home, past + _dt.timedelta(minutes=3), claude,
+              agents=_agents({"t1": "failed"}, slot), tokens=lambda s: 5)
+    assert r["reaped"] == [{"task": "t1", "event": "parked-ended"}]
+    c = orch.read_counters(slot)
+    assert c["crashes"] == 0 and c["parked"] == ["t1"] and c["tokens"] == 5
+    assert orch.leases(slot) == {} and r["spawned"] == []
+
+
+def test_main_prints_a_digest_tick_without_a_keyerror(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(orch, "tick", lambda *a, **k: {"action": "digest", "post": None})
+    assert orch.main(["--brief", str(tmp_path / "b.md"), "--mind", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.startswith("digest: spawned 0")

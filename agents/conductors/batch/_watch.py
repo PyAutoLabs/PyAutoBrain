@@ -138,7 +138,7 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         "started": started,
         "tasks": rows,
         "budgets": {
-            "workers": f"{len(held)} live of {_brief.cap_of(brief, 'max-workers')}",
+            "workers": f"{sum(l.get('state') != 'parked' for l in held.values())} live of {_brief.cap_of(brief, 'max-workers')}",
             "sessions": f"{counters.get('sessions', 0)} of {_brief.cap_of(brief, 'max-sessions')}",
             "tokens": values["tokens"],
             "merges": f"{merges} of {_value(brief, 'merge-cap')}"
