@@ -155,8 +155,14 @@ Push the routing registration from step 6 (`/create_issue` pushed the rest):
 
 ```bash
 source "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/prompt_sync.sh"
-prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill>"
+prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill>" active.md
+# planned.md instead of active.md when step 6 hit a conflict
 ```
+
+The helper commits only the paths it is given (relative to the Mind root). It
+refuses, committing nothing, when no paths are given, when anything else in the
+tree has changed, when a changed file holds conflict markers, or when a changed
+`state.json` does not parse. Another session's edits are left to that session.
 
 ## Notes
 

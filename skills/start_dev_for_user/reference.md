@@ -66,7 +66,7 @@ choice. If clear, proceed to the plan. If unclear:
    ```
 5. Tell the developer to re-run once the reporter replies. **Stop** (no plan,
    branch survey, or routing). The push carries the partial registration:
-   `prompt_sync_push "prompt: register <task-name> (#<issue>) awaiting reporter info [user-facing]"`.
+   `prompt_sync_push "prompt: register <task-name> (#<issue>) awaiting reporter info [user-facing]" active.md`.
 
 ## Plan comment (milestone #2)
 

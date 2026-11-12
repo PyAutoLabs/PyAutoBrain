@@ -74,7 +74,8 @@ what the human validates instead of the pre-approval they didn't give:
 After PR-open, append the calibration row (`PyAutoMind/autonomy_log.md`,
 schema in that file's header; outcome starts `parked`/blank and is set at the
 human's merge decision) and push Mind with
-`prompt_sync_push "mind: autonomy_log — <task> at PR-open"`.
+`prompt_sync_push "mind: autonomy_log — <task> at PR-open" autonomy_log.md active.md`
+(`active.md` carries the row's awaiting-merge status and PR keys).
 
 **Which table.** The calibration row goes in the **first** table of that
 file — the five-cell `| date | task | effective level | gates | outcome |`
@@ -151,7 +152,8 @@ Options (i) new scripts and (ii) migration both route to `/start_workspace`;
 **Progress (option i/ii) — workspace work to follow:** post a "Library PR
 Created" comment (PR URLs, "Next: /start_workspace", API-change summary), set the
 `active.md` status to `library-shipped, workspace-pending`, add `library-pr:`,
-push Mind. Do **not** record completion yet.
+push Mind (`prompt_sync_push "prompt: <task-name> library shipped (#<issue>)" active.md`).
+Do **not** record completion yet.
 
 **The PR keys are schematised** — `PyAutoMind/REFERENCE.md` → "The PR keys".
 Write one `- library-pr: <url>` line **per PR** (the key is repeatable; the
@@ -192,5 +194,5 @@ ledger (issues #71/#81):
   (all the state `lifecycle.py check` drift-checks):
   `python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/lifecycle.py" record <slug> --date <completed> --from-file <tmp> --prompt <active-filename> --apply`
 
-Then push Mind with
-`prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.
+Then push Mind with the paths `record` changed:
+`prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete" active.md active/<active-filename> complete/index.md complete/<YYYY>/<MM>/<slug>.md`.

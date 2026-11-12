@@ -326,7 +326,7 @@ sweep and the reconcile above may both come back empty, this does not:
 `lifecycle.py record` alone changes what the page shows.
 
 ```bash
-python3 "$BRAIN" --mind . --apply dashboard      # writes dashboard.md + dashboard.html
+python3 "$BRAIN" --mind . --apply dashboard      # writes dashboard.md + dashboard.html + state.json
 python3 "$BRAIN" --mind . dashboard --check      # "…are current"; exit 1 = drift
 python3 scripts/lifecycle.py check
 ```
@@ -343,14 +343,31 @@ to guess whether it is needed. `--apply` prints
 (Brain/Mind version skew) — a non-1 code is not a stale page, so read the
 message rather than re-rendering.
 
-Then commit + push. `prompt_sync_push` runs `git add -A`, so check for unrelated
-work first and use explicit pathspecs if any exists:
+Then commit + push. `prompt_sync_push` commits only the paths it is given, and
+refuses, committing nothing, when anything else in the tree has changed (another
+session's work, or a path you forgot), when a changed file holds conflict
+markers, or when a changed `state.json` does not parse.
+
+`lifecycle.py close` prints the exact call as its last line, built from what it
+wrote: the record, the prompt it removed (`active/` **or** `draft/`, as the dry
+run's `remove:` line says), `complete/index.md`, every registry it pruned
+(`active.md`, plus `planned.md` / `parked.md` whenever the dry run's `registry:`
+lines name them), `autonomy_log.md` whenever it wrote the glance shadow row, and
+the render's `dashboard.md dashboard.html state.json`. Run that line, adding
+every file the sweep and reconcile above changed (retired prompts, their
+records, repointed `epics.md` / `draft/` references):
 
 ```bash
-git status --short                                            # unrelated work?
-source scripts/prompt_sync.sh && prompt_sync_push "complete: <task>"
+git status --short                                            # every line: close's list or your sweep
+source scripts/prompt_sync.sh && prompt_sync_push "complete: <slug>" \
+  complete/<YYYY>/<MM>/<slug>.md <removed-prompt-path> complete/index.md \
+  active.md [planned.md] [parked.md] [autonomy_log.md] \
+  dashboard.md dashboard.html state.json [sweep paths…]       # [..] = when close named it
 git show --stat HEAD                                          # names dashboard.md + dashboard.html?
 ```
+
+On a refusal for changes outside the paths, add the ones that are this
+close-out's; leave another session's work alone and tell the human.
 
 That last line is the leg's own check: a close-out commit that does not carry
 `dashboard.md` and `dashboard.html` beside the record did not regenerate, and
