@@ -39,8 +39,15 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
    cd "${PYAUTO_MIND:-$(test -d "$PYAUTO_MAIN/organs/PyAutoMind" && echo "$PYAUTO_MAIN/organs/PyAutoMind" || echo "$PYAUTO_MAIN/PyAutoMind")}"
    pyauto-brain intake --apply dashboard     # writes dashboard.md + dashboard.html
    pyauto-brain intake dashboard --check     # must print "…are current"
-   source scripts/prompt_sync.sh && prompt_sync_push "intake: file <name>"
+   source scripts/prompt_sync.sh && prompt_sync_push "intake: file <name>" \
+     <prompt-path> dashboard.md dashboard.html
    ```
+
+   `<prompt-path>` is the file `--apply` wrote (e.g. `draft/<type>/<target>/<slug>.md`);
+   for `formalise` or the `ideas` sweep, list every prompt file it changed. The
+   helper commits only the paths it is given and refuses, committing nothing,
+   if anything else in the tree has changed, if a changed file holds conflict
+   markers, or if a changed `state.json` does not parse.
 
    One commit carrying the prompt **and** the regenerated pages. This is not
    optional tidying: the dashboard is how a task is picked up — tap 📋, get
@@ -69,7 +76,8 @@ dev workflow (issue, branch, plan). Do not bypass the Brain.
   into a session. `--apply` also writes `dashboard.html`, the one-tap-copy
   twin GitHub Pages serves (real clipboard buttons; PyAutoMind's
   `pages_dashboard.yml` deploys it), with links derived from `repos.yaml`.
-  Dry-run prints it, `--apply` writes it (commit via `prompt_sync_push`),
+  Dry-run prints it, `--apply` writes it (commit via
+  `prompt_sync_push "<msg>" dashboard.md dashboard.html`),
   `--check` exits 1 if the committed page has drifted. PyAutoMind's
   `dashboard_refresh.yml` self-heals a stale **render** on pushes to main — that
   is a backstop for a page nobody rebuilt, not a reason to skip step 4 above:

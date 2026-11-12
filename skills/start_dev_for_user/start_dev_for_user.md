@@ -97,7 +97,8 @@ repo, branch, classification, plus the user-facing reminder
 
 ```bash
 source "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/prompt_sync.sh"
-prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill> [user-facing]"
+prompt_sync_push "prompt: route <task-name> (#<issue>) → <next-skill> [user-facing]" active.md
+# planned.md instead of active.md when step 6 hit a conflict
 ```
 
 ## Notes

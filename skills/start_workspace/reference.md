@@ -71,7 +71,7 @@ The `  - <repo>` bullets are the claim `worktree_check_conflict` reads. Both
 informational and may be omitted.
 
 Standalone mode — same shape without `library-pr:` and with only workspace repos.
-Push with `prompt_sync_push "prompt: register <task-name> workspace repos in active.md"`.
+Push with `prompt_sync_push "prompt: register <task-name> workspace repos in active.md" active.md`.
 
 ## "Ready to develop" summary
 

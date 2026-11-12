@@ -125,7 +125,8 @@ SHIP_EOF
 python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/lifecycle.py" record <slug> --date <YYYY-MM-DD> --from-file <tmp> --prompt <active-filename> --apply
 ```
 
-Push Mind: `prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.
+Push Mind with the paths `record` changed:
+`prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete" active.md active/<active-filename> complete/index.md complete/<YYYY>/<MM>/<task-name>.md`.
 
 If the task is not fully finished (e.g. only the library half shipped), leave it
 in `active.md` with an updated `status:` instead of moving it — any later session,

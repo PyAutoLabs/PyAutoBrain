@@ -74,7 +74,7 @@ what the human validates instead of the pre-approval they didn't give:
 After PR-open, append the calibration row (`PyAutoMind/autonomy_log.md`,
 schema in that file's header; outcome starts `parked`/blank and is set at the
 human's merge decision) and push Mind with
-`prompt_sync_push "mind: autonomy_log — <task> at PR-open"`.
+`prompt_sync_push "mind: autonomy_log — <task> at PR-open" autonomy_log.md`.
 
 **Which table.** The calibration row goes in the **first** table of that
 file — the five-cell `| date | task | effective level | gates | outcome |`
@@ -192,5 +192,5 @@ ledger (issues #71/#81):
   (all the state `lifecycle.py check` drift-checks):
   `python3 "${PYAUTO_MIND:-$(test -d organs/PyAutoMind && echo organs/PyAutoMind || echo PyAutoMind)}/scripts/lifecycle.py" record <slug> --date <completed> --from-file <tmp> --prompt <active-filename> --apply`
 
-Then push Mind with
-`prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete"`.
+Then push Mind with the paths `record` changed:
+`prompt_sync_push "prompt: ship <task-name> (#<issue>) → complete" active.md active/<active-filename> complete/index.md complete/<YYYY>/<MM>/<slug>.md`.

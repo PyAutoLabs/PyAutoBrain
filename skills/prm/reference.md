@@ -343,14 +343,22 @@ to guess whether it is needed. `--apply` prints
 (Brain/Mind version skew) — a non-1 code is not a stale page, so read the
 message rather than re-rendering.
 
-Then commit + push. `prompt_sync_push` runs `git add -A`, so check for unrelated
-work first and use explicit pathspecs if any exists:
+Then commit + push. `prompt_sync_push` commits only the paths it is given, and
+refuses, committing nothing, when anything else in the tree has changed (another
+session's work, or a path you forgot), when a changed file holds conflict
+markers, or when a changed `state.json` does not parse. Name every path this
+close-out changed, both sides of any `git mv`, and every prompt the sweep retired:
 
 ```bash
-git status --short                                            # unrelated work?
-source scripts/prompt_sync.sh && prompt_sync_push "complete: <task>"
+git status --short                                            # every line should be yours
+source scripts/prompt_sync.sh && prompt_sync_push "complete: <task>" \
+  active.md active/<prompt>.md complete/index.md complete/<YYYY>/<MM>/<task>.md \
+  dashboard.md dashboard.html                                 # + retired draft/ prompts
 git show --stat HEAD                                          # names dashboard.md + dashboard.html?
 ```
+
+On a refusal for changes outside the paths, add the ones that are this
+close-out's; leave another session's work alone and tell the human.
 
 That last line is the leg's own check: a close-out commit that does not carry
 `dashboard.md` and `dashboard.html` beside the record did not regenerate, and
