@@ -675,19 +675,108 @@ def _declared_passthrough(header_lines) -> list[tuple[str, str]]:
 # prompt that needs RAL and the GPU is a RAL task, because RAL is the scarcer
 # gateway. Deliberately narrow — a loose pattern routes cloud-runnable work off
 # the cloud, which is the failure the lane exists to prevent.
+#
+# 2026-11-12 (PyAutoBrain#608, M1.3 slice 2): the words the ecosystem review
+# found missing, and a stricter reading of the loose ones. An unambiguous
+# mechanism (`sbatch`, `SLURM`, `--gres`, a `/mnt/ral` or `/mnt/<drive>` path,
+# CUDA, the laptop GPU, "private data") is a requirement wherever it appears.
+# A bare resource NAME — RAL, A100, HPC, GPU — is not: drafts mention them as
+# context ("not a CPU-vs-GPU limitation", "GPU runs are unaffected", "A100
+# likelihoods ... was removed"). Those count only in a requirement context:
+# the title or the `Witness:` line, or a phrase that puts the work there
+# ("re-run ... on the A100", "submit ... to RAL", "needs a GPU"). A negated
+# mention ("not", "no longer", "unaffected", "without") never counts. A100 and
+# HPC are RAL resources (the A100s live there); a GPU is the laptop's. The
+# Lane backfill (`bin/lane_backfill.py`) reads this same table, so filing and
+# backfill cannot drift apart.
+LANE_ORDER = ("ral", "gpu", "wsl-data", "local-dev")
 LANE_SIGNALS = (
-    ("ral", re.compile(r"\bRAL\b|\bSLURM\b|\bsbatch\b|\bsqueue\b|euclid_jump")),
+    ("ral", re.compile(r"\bSLURM\b|\bsbatch\b|\bsqueue\b|--gres\b|euclid_jump"
+                       r"|/mnt/ral\b")),
     ("gpu", re.compile(r"\bCUDA\b|laptop GPU|\bGPU\b on the laptop", re.I)),
-    ("wsl-data", re.compile(r"/mnt/c\b|Workspace/Science\b")),
+    ("wsl-data", re.compile(r"/mnt/[a-z]\b|Workspace/Science\b")),
+    ("local-dev", re.compile(r"\bprivate (?:data|datasets?|catalogues?)\b", re.I)),
 )
+#: Resource names that need a requirement context, by lane.
+LANE_RESOURCES = (
+    ("ral", r"RAL|A100s?|HPC"),
+    ("gpu", r"GPUs?"),
+)
+_RUN_VERBS = (r"(?i:run|runs|ran|running|re-?run|reruns?|time|timed|profile[sd]?|"
+              r"measure[sd]?|benchmark(?:ed|s)?|reproduce[sd]?|fit|fits|test(?:ed)?|"
+              r"execute[sd]?)")
+
+
+def _requirement_patterns(names: str) -> tuple:
+    # "rerun on the HPC" is how drafts weigh an OPTION; HPC needs the title,
+    # the Witness:, a submit or a need — never a bare "on the HPC".
+    placed = "|".join(n for n in names.split("|") if n != "HPC")
+    return (
+        re.compile(rf"\b{_RUN_VERBS}\b[^.\n]{{0,40}}?\b(?:on|with)\s+"
+                   rf"(?:the\s+|an?\s+|\d+\s+|two\s+|four\s+|eight\s+)?(?:RAL\s+)?"
+                   rf"(?:{placed})\b"),
+        re.compile(rf"\b(?i:submit)\w*\b[^.\n]{{0,30}}?\b(?:to|on)\s+(?:the\s+)?(?:{names})\b"),
+        re.compile(rf"\b(?i:needs?|requires?|requiring)\b[^.\n]{{0,30}}?\b(?:{names})\b"),
+    )
+
+
+_NEGATION = re.compile(r"\bnot\b|n't\b|\bno longer\b|\bunaffected\b|\bwithout\b"
+                       r"|\bnever\b|\bnor\b", re.I)
+
+
+def _negated(text: str, start: int, end: int) -> bool:
+    """A negation word in the same clause as the match."""
+    lo = max(text.rfind(c, 0, start) for c in ".\n;") + 1
+    his = [i for i in (text.find(c, end) for c in ".\n;") if i != -1]
+    return bool(_NEGATION.search(text[lo:min(his) if his else len(text)]))
+
+
+def _snippet(text: str, start: int, end: int) -> str:
+    lo, hi = max(0, start - 50), min(len(text), end + 50)
+    return " ".join(text[lo:hi].split())
+
+
+def _first(pattern, text: str, offset: int = 0):
+    for m in pattern.finditer(text):
+        if not _negated(text, m.start(), m.end()):
+            return m.start() + offset, m.end() + offset, m.group(0)
+    return None
+
+
+def infer_lane_reason(text: str) -> tuple[str, str, str]:
+    """`(lane, snippet, why)`: the first requirement signal, in lane
+    precedence, with the words around it and the rule that fired — what a
+    human skims to accept or reject a proposed lane. `("any", "", "no
+    resource required")` when the text names none."""
+    title = next((ln for ln in text.splitlines() if ln.startswith("# ")), "")
+    witness = next((ln for ln in text.splitlines()[:40] if ln.startswith("Witness:")), "")
+    for lane in LANE_ORDER:
+        for sig_lane, pattern in LANE_SIGNALS:
+            if sig_lane == lane and (hit := _first(pattern, text)):
+                return lane, _snippet(text, hit[0], hit[1]), f"names {hit[2]!r}"
+        names = dict(LANE_RESOURCES).get(lane)
+        if not names:
+            continue
+        word = re.compile(rf"\b(?:{names})\b")
+        for where, line in (("title", title), ("Witness:", witness)):
+            if line and (hit := _first(word, line)):
+                return lane, " ".join(line.split())[:160], f"the {where} names {hit[2]!r}"
+        for pattern in _requirement_patterns(names):
+            if hit := _first(pattern, text):
+                return lane, _snippet(text, hit[0], hit[1]), \
+                    f"requirement: {' '.join(hit[2].split())!r}"
+    return "any", "", "no resource required"
+
+
+def infer_lane_evidence(text: str) -> tuple[str, str]:
+    """`(lane, snippet)` — `infer_lane_reason` without the rule."""
+    return infer_lane_reason(text)[:2]
 
 
 def infer_lane(text: str) -> str:
-    """`ral` | `gpu` | `wsl-data` when the text names that resource, else `any`."""
-    for lane, pattern in LANE_SIGNALS:
-        if pattern.search(text):
-            return lane
-    return "any"
+    """`ral` | `gpu` | `wsl-data` | `local-dev` when the text names that
+    resource, else `any`."""
+    return infer_lane_evidence(text)[0]
 
 
 def _render_header(title, work_type, target_display, repos, level, autonomy,

@@ -11,6 +11,7 @@ ledger paths (`draft/`, `active/`, `complete/`, `batches/`, the registries).
     shift_ledger.py move    draft/feature/x/y.md active/y.md
     shift_ledger.py remove  active/y.md
     shift_ledger.py drop-section active.md my-task
+    shift_ledger.py set-header draft/x/y.md Verified --text "2026-11-12 abc1234 (Repo)"
 
 The ledger directory is `$PYAUTO_SHIFT_LEDGER_DIR` (set for every worker).
 """
@@ -29,7 +30,8 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("op", choices=mw.OPS)
     ap.add_argument("path")
-    ap.add_argument("arg", nargs="?", help="move: destination; drop-section: section")
+    ap.add_argument("arg", nargs="?", help="move: destination; drop-section: section; "
+                         "set-header: the header key")
     ap.add_argument("--text-file", type=Path)
     ap.add_argument("--text")
     ap.add_argument("--mind", type=Path, default=os.environ.get("PYAUTO_MIND"),
@@ -45,6 +47,8 @@ def main(argv=None) -> int:
         op["to"] = a.arg
     if a.op == "drop-section":
         op["section"] = a.arg
+    if a.op == "set-header":
+        op["key"], op["value"] = a.arg, (a.text or "")
     if a.op in ("append", "write"):
         op["text"] = a.text_file.read_text(encoding="utf-8") if a.text_file else (a.text or "")
     if a.mind:

@@ -45,7 +45,7 @@ BRAIN = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
     BODY_MAP_PATH, LIBRARY_REPOS, effective_autonomy, effective_consequence,
-    effective_difficulty, effective_review_minutes, effective_unattended,
+    effective_difficulty, pyauto_root, effective_review_minutes, effective_unattended,
     lane_is_local, normalise_repo, parse_prompt, priority_rank,
 )
 # `_status` (same directory) is the one definition of this vocabulary — the
@@ -265,6 +265,51 @@ def queue_rank(r: dict, queue: list[str]) -> int:
     return len(queue)
 
 
+def next_phases(records: list[dict]) -> dict[str, float]:
+    """Each epic's lowest un-shipped phase — the only one that is startable."""
+    next_phase: dict[str, float] = {}
+    for r in records:
+        if r.get("epic") and not r.get("done"):
+            e = r["epic"]
+            next_phase[e] = min(next_phase.get(e, float("inf")),
+                                r.get("phase", float("inf")))
+    return next_phase
+
+
+def pool_gate(r: dict, next_phase: dict[str, float]) -> str:
+    """Why a surveyed record is NOT in the planner pool, or "" if it is.
+
+    Every gate but the lane, which depends on the session. Readiness says the
+    work FITS one run; autonomy says the run may FINISH it. Under `--auto` a
+    `supervised` run's ship checkpoint resolves to decide-and-flag
+    (AUTONOMY.md, "Decide-and-flag", extended 2026-09-07): it ships to an open
+    PR rather than parking, so it FINISHES and belongs in the pool. Only
+    `human-required` would still stop at the ship checkpoint and come back as
+    a question — which is the failure the whole epic exists to remove."""
+    if r.get("done"):
+        return "Status: says the work is already done"
+    if r.get("looks_shipped"):
+        return ("looks shipped — confirm (close) or "
+                f"dismiss it ({_shipped.DISMISS_FILE}) first")
+    if r.get("epic") and r.get("phase", float("inf")) > next_phase.get(
+            r["epic"], float("inf")):
+        return f"epic {r['epic']} phase {r.get('phase')} is not next"
+    if r["autonomy"] == "human-required":
+        return f"autonomy {r['autonomy']} — would park at ship"
+    if r["unattended"] != "ready":
+        return f"unattended: {r['unattended']}"
+    if r["blocked"]:
+        return "declares Blocked-by:"
+    return ""
+
+
+def planner_pool(records: list[dict]) -> list[dict]:
+    """The records every session's planner would consider, before its lane
+    filters them — what a Lane backfill must cover."""
+    next_phase = next_phases(records)
+    return [r for r in records if not pool_gate(r, next_phase)]
+
+
 def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          session_lane: str = "web-github", awaiting_review: int = 0,
          cap: int = DEFAULT_BACKPRESSURE_CAP, queue: list[str] | None = None,
@@ -312,38 +357,13 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     # phase is startable. Without this the planner can propose phase 6 while
     # phase 3 is still open — the one-slice-per-epic rule below caps how many
     # run, not which.
-    next_phase: dict[str, float] = {}
-    for r in records:
-        if r.get("epic") and not r.get("done"):
-            e = r["epic"]
-            next_phase[e] = min(next_phase.get(e, float("inf")),
-                                r.get("phase", float("inf")))
+    next_phase = next_phases(records)
 
     pool = []
     for r in records:
-        # Readiness says the work FITS one run; autonomy says the run may
-        # FINISH it. Under `--auto` a `supervised` run's ship checkpoint
-        # resolves to decide-and-flag (AUTONOMY.md, "Decide-and-flag",
-        # extended 2026-09-07): it ships to an open PR rather than parking, so
-        # it FINISHES and belongs in the pool. Only `human-required` would
-        # still stop at the ship checkpoint and come back as a question —
-        # which is the failure the whole epic exists to remove.
-        if r.get("done"):
-            rejected.append((r["path"], "Status: says the work is already done"))
-        elif r.get("looks_shipped"):
-            rejected.append((r["path"], "looks shipped — confirm (close) or "
-                             f"dismiss it ({_shipped.DISMISS_FILE}) first"))
-        elif r.get("epic") and r.get("phase", float("inf")) > next_phase.get(
-                r["epic"], float("inf")):
-            rejected.append((r["path"],
-                             f"epic {r['epic']} phase {r.get('phase')} is not next"))
-        elif r["autonomy"] == "human-required":
-            rejected.append((r["path"],
-                             f"autonomy {r['autonomy']} — would park at ship"))
-        elif r["unattended"] != "ready":
-            rejected.append((r["path"], f"unattended: {r['unattended']}"))
-        elif r["blocked"]:
-            rejected.append((r["path"], "declares Blocked-by:"))
+        why = pool_gate(r, next_phase)
+        if why:
+            rejected.append((r["path"], why))
         elif not _lane_ok(r["lane"], session_lane):
             rejected.append((r["path"], f"lane {r['lane']}, session {session_lane}"))
         else:
@@ -2804,9 +2824,10 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
     ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch",
-                                     "slice"], nargs="?", default="plan")
+                                     "slice", "premise"], nargs="?", default="plan")
     ap.add_argument("prompt", nargs="?", default="",
-                    help="slice: the needs-slicing prompt to decompose")
+                    help="slice: the needs-slicing prompt to decompose; "
+                         "premise: the draft whose premise to check")
     ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
                     help="review-minutes available in the slot")
@@ -2840,6 +2861,21 @@ def main(argv=None) -> int:
                     help="watch: print one snapshot and exit")
     ap.add_argument("--interval", type=float, default=30.0,
                     help="watch: seconds between refreshes (at least 30)")
+    # premise (and the premise leg of `brief --check`)
+    ap.add_argument("--root", type=Path, default=None,
+                    help="premise: the workspace root holding the repo checkouts "
+                         "(default: $PYAUTO_ROOT, else derived)")
+    ap.add_argument("--no-fetch", action="store_true",
+                    help="premise: read the cached origin/main, do not fetch")
+    ap.add_argument("--at", default="",
+                    help="premise: judge main as it stood at this ISO time (a replay)")
+    ap.add_argument("--offline", action="store_true",
+                    help="premise: do not read issue/PR state with gh")
+    ap.add_argument("--write-verified", action="store_true",
+                    help="premise: on `ok`, stamp `Verified: <date> <sha>` into the "
+                         "draft — as a ledger op inside a shift, else in place")
+    ap.add_argument("--no-premise", action="store_true",
+                    help="brief: skip the premise check of the named tasks")
     # collect only
     ap.add_argument("--slot", default="",
                     help="the batch record to collect (default: the newest)")
@@ -2868,7 +2904,7 @@ def main(argv=None) -> int:
 
     lane = a.lane or detect_lane()
     mind = a.mind.resolve()
-    if a.prompt and a.verb != "slice":
+    if a.prompt and a.verb not in ("slice", "premise"):
         print(f"batch {a.verb}: unexpected argument {a.prompt!r}", file=sys.stderr)
         return RC_USAGE
     if a.slices and a.verb != "slice":
@@ -2877,6 +2913,8 @@ def main(argv=None) -> int:
     try:
         if a.verb == "slice":
             return _main_slice(mind, a)
+        if a.verb == "premise":
+            return _main_premise(mind, a)
         if a.verb == "collect":
             return _main_collect(mind, a)
         if a.verb == "brief":
@@ -2920,6 +2958,98 @@ def _main_slice(mind: Path, a) -> int:
         if a.apply and not d["ok"]:
             print("(--apply refused: the proposal has refusals)")
     return RC_OK if d["ok"] else RC_FINDINGS
+
+
+def _premise_root(a) -> Path:
+    if a.root is not None:
+        return a.root.resolve()
+    return Path(os.environ.get("PYAUTO_ROOT") or pyauto_root()).resolve()
+
+
+def _main_premise(mind: Path, a) -> int:
+    """`batch premise <draft> [--write-verified] [--at ISO] [--no-fetch] [--json]` —
+    does the draft's premise still hold on a fresh main? (`_premise`)
+
+    Exit 0 on `ok` or `unknown`, 1 on `obsolete`: a dispatched worker stops on
+    1 and reports the evidence instead of implementing."""
+    import _premise
+    if not a.prompt:
+        print("batch premise: name the draft to check", file=sys.stderr)
+        return RC_USAGE
+    draft = Path(a.prompt)
+    if not draft.is_file():
+        draft = find_prompt(mind, a.prompt) or draft
+    if not draft.is_file():
+        print(f"batch premise: no such draft {a.prompt}", file=sys.stderr)
+        return RC_USAGE
+    try:
+        root = _premise_root(a)
+    except Exception as e:  # noqa: BLE001 — degrade to unknown, never exit 1
+        root = Path(".")
+        print(f"batch premise: no workspace root ({e})", file=sys.stderr)
+    res = _premise.safe_check(draft.resolve(), root, fetch=not a.no_fetch,
+                              at=a.at or None, offline=a.offline)
+    if a.write_verified:
+        res["recorded"] = record_verified(mind, draft.resolve(), res)
+    if a.as_json:
+        print(json.dumps(res, indent=2))
+    else:
+        print(_premise.report(res))
+        if a.write_verified:
+            print(f"  Verified: {res['recorded']}")
+    return RC_FINDINGS if res["status"] == "obsolete" else RC_OK
+
+
+def record_verified(mind: Path, draft: Path, res: dict) -> str:
+    """Stamp `Verified: <date> <sha>` on an `ok` draft.
+
+    Inside a shift (`$PYAUTO_SHIFT_LEDGER_DIR` set) this is a `set-header`
+    ledger op the orchestrator commits — a worker never writes PyAutoMind
+    (AUTONOMY.md, "One Mind writer per shift"). Outside one it edits the file
+    in place and commits nothing. Only `ok` is stamped: a header saying
+    "verified" on an obsolete or unchecked premise would be a lie."""
+    import _mind_writer
+    if res["status"] != "ok":
+        return f"not stamped ({res['status']})"
+    import _premise
+    value = _premise.verified_value(res)
+    try:
+        rel = draft.relative_to(mind.resolve()).as_posix()
+    except ValueError:
+        return "not stamped (the draft is not inside the Mind)"
+    ledger = os.environ.get("PYAUTO_SHIFT_LEDGER_DIR")
+    if ledger:
+        op = {"op": "set-header", "path": rel, "key": _premise.VERIFIED_KEY,
+              "value": value}
+        queued = _mind_writer.queue_op(Path(ledger), op)
+        return f"queued set-header {rel} → {queued.name}"
+    draft.write_text(_mind_writer.set_header(draft.read_text(encoding="utf-8"),
+                                             _premise.VERIFIED_KEY, value),
+                     encoding="utf-8")
+    return f"wrote {_premise.VERIFIED_KEY}: {value} into {rel} (not committed)"
+
+
+def brief_premises(brief_path: Path, mind: Path, root: Path, *, fetch: bool = True,
+                   offline: bool = False) -> list[dict]:
+    """The premise verdict of every named task in a brief that resolves.
+
+    Run by `batch brief --check` so a stale pick is flagged before the shift
+    starts rather than discovered by the worker it would have cost."""
+    import _premise
+    try:
+        rec = _brief.parse(brief_path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, _brief.BriefError):
+        return []
+    if rec["brief"] is None:
+        return []
+    views: dict = {}
+    out = []
+    for task in _brief.tasks_of(rec["brief"]):
+        f = _brief._resolve(mind, task)
+        if f is not None:
+            out.append({**_premise.safe_check(f, root, fetch=fetch, offline=offline,
+                                              views=views), "task": task})
+    return out
 
 
 def _main_digest(mind: Path, a) -> int:
@@ -2968,6 +3098,16 @@ def _main_brief(mind: Path, a) -> int:
               "(the digest is `batch digest --record <file>`)", file=sys.stderr)
         return RC_USAGE
     res = _brief.check(Path(a.check), mind)
+    # The premise leg: a named task whose premise is gone on main is flagged
+    # here, before the shift pays a worker to discover it. A warning, not a
+    # refusal — the check is mechanical, and the human reads the evidence.
+    res["premise"] = [] if a.no_premise else brief_premises(
+        Path(a.check), mind, _premise_root(a), fetch=not a.no_fetch,
+        offline=a.offline)
+    for p in res["premise"]:
+        if p["status"] == "obsolete":
+            res["warnings"].append(f"brief.tasks: {p['task']} premise OBSOLETE on main — "
+                                   + "; ".join(p["reasons"] + p["evidence"][:2]))
     if a.as_json:
         print(json.dumps(res, indent=2))
     else:
@@ -2976,6 +3116,8 @@ def _main_brief(mind: Path, a) -> int:
             print(f"  ✗ {e}")
         for w in res["warnings"]:
             print(f"  ! {w}")
+        for p in res["premise"]:
+            print(f"  premise {p['status']}: {p['task']}")
     return RC_OK if res["ok"] else RC_FINDINGS
 
 

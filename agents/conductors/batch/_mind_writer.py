@@ -17,6 +17,11 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "remove",       "path": "active/x.md"}
     {"op": "drop-section", "path": "active.md", "section": "task-name"}
     {"op": "table-append", "path": "autonomy_log.md", "heading": "## Unattended …", "row": "| … |"}
+    {"op": "set-header",   "path": "draft/a/b/x.md", "key": "Verified", "value": "2026-11-12 abc123 (Repo)"}
+
+`set-header` sets one `Key: value` line in a prompt's header block (replacing
+the key's line if present) — how a shift worker records the premise check's
+`Verified:` stamp (`batch premise --record`) without touching the file itself.
 
 Every path must be *ledger* by PyAutoMind's own rule (`scripts/ledger_merge.py`
 `is_ledger_path`, default deny), so a worker cannot route code through here.
@@ -25,6 +30,7 @@ Every path must be *ledger* by PyAutoMind's own rule (`scripts/ledger_merge.py`
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -32,7 +38,8 @@ import tempfile
 import types
 from pathlib import Path
 
-OPS = ("append", "write", "move", "remove", "drop-section", "table-append")
+OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
+       "set-header")
 PUSH_TRIES = 3
 LEDGER_DIR = "ledger"
 COMMITTED_DIR = "committed"
@@ -87,11 +94,23 @@ def validate_op(op: dict, lm) -> list[str]:
         row = op.get("row")
         if not isinstance(row, str) or not row.startswith("|") or "\n" in row:
             errs.append("table-append: row must be one `| … |` line")
+    if kind == "set-header":
+        key, value = op.get("key"), op.get("value")
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Za-z-]*", key):
+            errs.append("set-header: key must be one capitalised header word")
+        if not isinstance(value, str) or not value.strip() or "\n" in value:
+            errs.append("set-header: value must be one non-empty line")
+        if not str(op.get("path", "")).endswith(".md"):
+            errs.append("set-header: path must be a prompt (.md)")
     return errs
 
 
-def apply_op(tree: Path, op: dict, lm) -> None:
-    """Apply one validated op inside `tree`; raises MindWriteError if it cannot."""
+def apply_op(tree: Path, op: dict, lm) -> str | None:
+    """Apply one validated op inside `tree`; raises MindWriteError if it cannot.
+
+    Returns a note when the op was deliberately skipped. Only `set-header`
+    skips: it is a stamp, and a draft moved or retired on main since the
+    check ran must not hold every other op of the shift pending for ever."""
     target = tree / op["path"]
     kind = op["op"]
     if kind == "append":
@@ -122,6 +141,12 @@ def apply_op(tree: Path, op: dict, lm) -> None:
         if len(kept) == len(entries):
             raise MindWriteError(f"drop-section: no `## {op['section']}` in {op['path']}")
         target.write_text(lm.join_entries(preamble, kept), encoding="utf-8")
+    elif kind == "set-header":
+        if not target.exists():
+            return (f"set-header: {op['path']} is not on main (moved or retired "
+                    f"since the check) — {op['key']}: skipped")
+        target.write_text(set_header(target.read_text(encoding="utf-8"),
+                                     op["key"], op["value"]), encoding="utf-8")
     elif kind == "table-append":
         target.write_text(table_append(target.read_text(encoding="utf-8")
                                        if target.exists() else "",
@@ -142,6 +167,59 @@ def table_append(text: str, heading: str, row: str) -> str:
         raise MindWriteError(f"table-append: no table under {heading!r}")
     lines.insert(rows[-1] + 1, row)
     return "\n".join(lines) + "\n"
+
+
+_HEADER_LINE_RE = re.compile(r"^[A-Z][A-Za-z-]*:(\s|$)")
+
+
+def header_span(lines: list[str]) -> tuple[int, int] | None:
+    """`(start, end)` of a prompt's header block: the contiguous `Key: value`
+    lines (with their `- item` continuations) below the `# ` title, ending at
+    the first blank line. None when the prompt has no header block."""
+    i = 0
+    while i < len(lines) and not _HEADER_LINE_RE.match(lines[i]):
+        if i > 6 and lines[i].strip() and not lines[i].startswith("#"):
+            return None  # prose before any header: there is no block
+        i += 1
+    if i >= len(lines):
+        return None
+    end = i
+    while end < len(lines) and lines[end].strip() and (
+            _HEADER_LINE_RE.match(lines[end]) or lines[end].startswith(("- ", "  "))):
+        end += 1
+    return i, end
+
+
+def set_header(text: str, key: str, value: str,
+               after: tuple[str, ...] = ("Unattended", "Review-minutes")) -> str:
+    """`text` with `key: value` in its header block — the key's own line
+    replaced if present, else inserted after the first of `after` present,
+    else at the end of the block. A prompt with no block gets one under its
+    title. Every other line is left byte-for-byte as it was."""
+    lines = text.split("\n")
+    new = f"{key}: {value}"
+    span = header_span(lines)
+    if span is None:
+        at = next((i + 1 for i, ln in enumerate(lines) if ln.startswith("# ")), 0)
+        return "\n".join(lines[:at] + ([""] if at else []) + [new]
+                         + ([""] if at < len(lines) and lines[at].strip() else [])
+                         + lines[at:])
+    start, end = span
+    for i in range(start, end):
+        if lines[i].lower().startswith(key.lower() + ":"):
+            lines[i] = new
+            return "\n".join(lines)
+    at = end
+    for anchor in after:
+        hit = next((i for i in range(start, end)
+                    if lines[i].lower().startswith(anchor.lower() + ":")), None)
+        if hit is not None:
+            at = hit + 1
+            while at < end and lines[at].startswith(("- ", "  ")):
+                at += 1
+            break
+    lines.insert(at, new)
+    return "\n".join(lines)
 
 
 def _git(cwd: Path, *args, check=True) -> subprocess.CompletedProcess:
@@ -200,8 +278,9 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
         try:
             _git(mind_repo, "worktree", "add", "-q", "--detach", str(tree),
                  f"{remote}/{branch}")
-            for op in ops:
-                apply_op(tree, op, lm)
+            notes = [n for op in ops if (n := apply_op(tree, op, lm))]
+            for n in notes:
+                print(f"mind-writer: {n}", file=sys.stderr)
             _git(tree, "add", "-A")
             if not _git(tree, "status", "--porcelain").stdout.strip():
                 sha = None  # every op was already true on main
@@ -215,7 +294,8 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
             done.mkdir(parents=True, exist_ok=True)
             for f in files:
                 f.replace(done / f.name)
-            return {"committed": sha, "ops": len(ops), "tries": attempt}
+            return {"committed": sha, "ops": len(ops), "tries": attempt,
+                    "skipped": notes}
         finally:
             # Our own throwaway tree. A failed apply can leave it dirty, so
             # delete the directory and prune the registration, no force flag.

@@ -82,7 +82,9 @@ brief against the `batches/AGENTS.md` schema (every error names its key;
 exit 1 refuses it), and `batch plan --brief <file>` composes inside it: named
 tasks first, then only the backlog its policy covers, against its
 `review-minutes:`. Run the check before writing a brief's `review-at:` into
-`batches/`. Dispatch is the watcher's (`batch.md`, "The watcher"), not a verb. `batch digest
+`batches/`. The check also runs `batch premise` on each named task and warns
+when one is **obsolete on main** (`--no-premise` skips it) — drop that task
+before the shift pays a worker to find out. Dispatch is the watcher's (`batch.md`, "The watcher"), not a verb. `batch digest
 --record <file>` prints a shift's digest and writes nothing; the record append
 and the one issue comment are the watcher's, at `review-at:`.
 

@@ -76,6 +76,8 @@ STAGE2_LOG = "autonomy_log.md"
 #: its pre-commit refuses a commit in PyAutoMind and chains to the repo's own.
 WORKER_HOOKS = Path(__file__).resolve().parents[3] / "bin" / "worker_git_hooks"
 SHIFT_LEDGER = Path(__file__).resolve().parents[3] / "bin" / "shift_ledger.py"
+#: The Brain CLI a worker runs its first step with (`batch premise`).
+BRAIN_CLI = Path(__file__).resolve().parents[3] / "bin" / "pyauto-brain"
 
 FAKE_ENV = "PYAUTO_ORCHESTRATOR_FAKE"
 HOME_ENV = "PYAUTO_ORCHESTRATOR_HOME"
@@ -217,7 +219,7 @@ def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path
     return WORKER_TEMPLATE.read_text(encoding="utf-8").format(
         task=task, task_path=prompt_path, brief_path=brief_path, lease_dir=lease_dir,
         ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
-        shift_ledger=SHIFT_LEDGER)
+        shift_ledger=SHIFT_LEDGER, brain_cli=BRAIN_CLI)
 
 
 def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,

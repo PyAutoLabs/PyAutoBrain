@@ -30,6 +30,10 @@
 #   batch.sh slice <prompt> --slices plan.md   # slices from a plan file instead
 #   batch.sh slice <prompt> --apply      # write children + epics.md entry
 #
+#   batch.sh premise <draft>             # does its premise still hold on a fresh
+#                                        # main? ok | obsolete | unknown (exit 1 =
+#                                        # obsolete); --write-verified stamps it
+#
 # collect reads and prints; only --apply writes (the packet page and the
 # record's stamps). Exit: 0 all delivered, 1 a member needs the human,
 # 2 usage, 4 no Mind.

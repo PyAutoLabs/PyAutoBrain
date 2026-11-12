@@ -64,18 +64,26 @@ _BULLET_RE = re.compile(r"^- (\S+)")
 
 def parse_done(text: str) -> dict:
     """A worker's `.done` file: one PR or issue URL per line, `merged <url>` for
-    a PR it merged in-turn under its tier."""
-    prs, merged = [], []
+    a PR it merged in-turn under its tier, `obsolete <why>` when its premise
+    check stopped it."""
+    prs, merged, obsolete = [], [], None
     for line in text.splitlines():
         words = line.split()
         if not words:
             continue
-        if words[0] == "merged" and len(words) > 1:
+        if words[0] == "obsolete":
+            # The worker's premise check found the task obsolete on main and
+            # it stopped (worker_template.md); the rest is its evidence.
+            obsolete = line.strip()[len("obsolete"):].strip(" :—-")
+        elif words[0] == "merged" and len(words) > 1:
             merged.append(words[1])
             prs.append(words[1])
         elif words[0].startswith("http"):
             prs.append(words[0])
-    return {"prs": prs, "merged": merged}
+    out = {"prs": prs, "merged": merged}
+    if obsolete is not None:
+        out["obsolete"] = obsolete
+    return out
 
 
 def pr_health(url: str, run=None) -> str:
@@ -119,6 +127,9 @@ def task_state(task: str, counters: dict, health, *, live: bool = False,
         if live and task in counters.get("pending_redispatch", []):
             return "crashed — awaiting re-dispatch", True
         return "not started", False
+    if not out["prs"] and "obsolete" in out:
+        return ("obsolete (premise check): "
+                + (out["obsolete"] or "see its proof packet")), False
     if not out["prs"]:
         return "finished, no PR or issue named in its .done", False
     parts = []
