@@ -600,6 +600,55 @@ ignored Heart state. The stage-2 window is how this is checked.
 `merged-after-substantive-change`, restores the different-model requirement for
 unattended merges at once, by dated doctrine edit citing the row.
 
+## Merge actor and random audit — 2026-11-12
+
+Amends "The `glance` Shadow-window ruling — 2026-11-04" above: it puts that
+ruling's "Ledger accuracy" rule into code and replaces hand-picked audits.
+Decided by the human 2026-11-12 in the programme session (task M1.4,
+PyAutoBrain#606, finding FLOW-2 of the 2026-11-10 ecosystem review): "All three
+as recommended". This section is that dated doctrine edit. The ruling itself,
+its narrowing and the stage-2 adversary rules are unchanged.
+
+The three decisions, verbatim:
+
+1. **Merge-actor column**, tool-written, classes `human-/prm` |
+   `in-turn-human-commanded` | `in-turn-autonomous` | `unattended-watcher` |
+   `unknown`; the count **leaves out** `human-/prm` and
+   `in-turn-human-commanded`.
+2. **Audits** of the glance window are a **seeded 1-in-5 random sample**,
+   audited within a week, instead of hand-picked rows.
+3. A **`read-by-human` date column** is recorded but does **not** gate the
+   count yet (gating is a judge question after the recount).
+
+The stage-1 recount is printed only; if it changes what the 11-04 glance
+ruling rests on, that is a separate judge question for the human.
+
+**How it runs.** Both tables in `PyAutoMind/autonomy_log.md` (stage 1 and the
+stage-2 sub-window) end in `merge actor` and `read by human`. The class comes
+from the writer's explicit flag — `lifecycle.py close … --actor <class>` or
+`shadow-row --actor <class>` at `/prm` close-out, and `unattended-watcher` from
+the shift watcher — because how a merge started is known only to the session
+that started it. `gh pr view --json mergedBy,mergedAt` adds the evidence,
+`<class> (mergedBy <login>)`, never the class. Rows written before this edit
+stop at `stage` and read as `unknown`, which still counts; they are not
+rewritten. `lifecycle.py shadow-recount` prints the window by actor and the
+historical rows classified from their completion records by a printed keyword
+rule; `lifecycle.py audit-sample --seed <n>` draws the audit sample.
+
+**The recount, as printed on 2026-11-12** (completion records, not re-marked):
+of the 69 rows the 2026-11-04 ruling rested on, 31 human `/prm`, 10 automatic
+or in-turn, 28 not stated. The three rows of 2026-11-12 —
+`shift-watcher-state-gaps`, `prompt-sync-explicit-paths`,
+`prompt-sync-detached-push`, merged in-turn on the human's explicit merge
+command under a Heart RED override — are recorded `in-turn-human-commanded`
+and left out of the count.
+
+*Revert condition:* an audit that finds a tool-written merge actor wrong on any
+row suspends the actor rule — the count goes back to every in-window row, with
+"Ledger accuracy" applied by hand — until the writer is fixed, by dated
+doctrine edit citing the row. A `reverted` row still demotes `glance` as the
+ruling says.
+
 ## Shift briefs and unattended `glance` — 2026-11-03
 
 Approved by the human 2026-11-03 as the rulings of the autonomous-orchestrators

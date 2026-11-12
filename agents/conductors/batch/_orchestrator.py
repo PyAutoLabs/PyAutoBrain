@@ -984,7 +984,8 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
                 out["merged"].append(pr)
             _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
                 "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
-                "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"])})
+                "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"],
+                                  merged_by=(gh or {}).get("mergedBy") or "")})
             events["merged"].append(pr)
         else:
             # Never retried: a close-out that ended without a verdict is the
@@ -1045,14 +1046,23 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     return events
 
 
+#: The merge-actor class the watcher writes on every stage-2 row (AUTONOMY.md
+#: "Merge actor and random audit — 2026-11-12"); the Mind's lifecycle.py holds
+#: the full set.
+STAGE2_ACTOR = "unattended-watcher"
+
+
 def stage2_row(now: _dt.datetime, task: str, pr: str, slot_name: str, gate: str,
-               model: str) -> str:
+               model: str, merged_by: str = "") -> str:
     """One row of autonomy_log.md's stage-2 table (its columns: date, task,
     brief, gate with the adversary leg, human action — `merged-unchanged` at
-    merge, amended by the human later)."""
+    merge, amended by the human later — merge actor, read by human). The actor
+    is always `unattended-watcher`, with GitHub's `mergedBy` as its evidence
+    when the watcher has it; `read by human` starts empty."""
+    actor = STAGE2_ACTOR + (f" (mergedBy {merged_by})" if merged_by else "")
     cells = (now.strftime("%Y-%m-%d"), f"{task} ({pr})", slot_name,
              f"{gate} / adversary: independent close-out session ({model})",
-             "merged-unchanged")
+             "merged-unchanged", actor, "")
     return "| " + " | ".join(" ".join(str(c).replace("|", "/").split()) for c in cells) + " |"
 
 
