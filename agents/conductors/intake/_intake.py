@@ -675,19 +675,41 @@ def _declared_passthrough(header_lines) -> list[tuple[str, str]]:
 # prompt that needs RAL and the GPU is a RAL task, because RAL is the scarcer
 # gateway. Deliberately narrow — a loose pattern routes cloud-runnable work off
 # the cloud, which is the failure the lane exists to prevent.
+#
+# 2026-11-12 (PyAutoBrain#608, M1.3 slice 2): the words the ecosystem review
+# found missing. `A100` and `HPC` are RAL resources (the A100s live there), as
+# is a `/mnt/ral` path; a bare upper-case `GPU` is the laptop GPU (no cloud
+# session has one); any other `/mnt/<drive>` is WSL data; and "private data"
+# needs the laptop's local trees, so it is `local-dev`. The Lane backfill
+# (`bin/lane_backfill.py`) reads this same table, so filing and backfill
+# cannot drift apart.
 LANE_SIGNALS = (
-    ("ral", re.compile(r"\bRAL\b|\bSLURM\b|\bsbatch\b|\bsqueue\b|euclid_jump")),
+    ("ral", re.compile(r"\bRAL\b|\bSLURM\b|\bsbatch\b|\bsqueue\b|euclid_jump"
+                       r"|\bA100s?\b|\bHPC\b|/mnt/ral\b")),
     ("gpu", re.compile(r"\bCUDA\b|laptop GPU|\bGPU\b on the laptop", re.I)),
-    ("wsl-data", re.compile(r"/mnt/c\b|Workspace/Science\b")),
+    ("gpu", re.compile(r"\bGPUs?\b")),
+    ("wsl-data", re.compile(r"/mnt/[a-z]\b|Workspace/Science\b")),
+    ("local-dev", re.compile(r"\bprivate (?:data|datasets?|catalogues?)\b", re.I)),
 )
 
 
-def infer_lane(text: str) -> str:
-    """`ral` | `gpu` | `wsl-data` when the text names that resource, else `any`."""
+def infer_lane_evidence(text: str) -> tuple[str, str]:
+    """`(lane, snippet)`: the first signal that matches, with the words around
+    it — what a human skims to accept or reject a proposed lane. `("any", "")`
+    when the text names no resource."""
     for lane, pattern in LANE_SIGNALS:
-        if pattern.search(text):
-            return lane
-    return "any"
+        m = pattern.search(text)
+        if m:
+            lo, hi = max(0, m.start() - 50), min(len(text), m.end() + 50)
+            snippet = " ".join(text[lo:hi].split())
+            return lane, snippet
+    return "any", ""
+
+
+def infer_lane(text: str) -> str:
+    """`ral` | `gpu` | `wsl-data` | `local-dev` when the text names that
+    resource, else `any`."""
+    return infer_lane_evidence(text)[0]
 
 
 def _render_header(title, work_type, target_display, repos, level, autonomy,

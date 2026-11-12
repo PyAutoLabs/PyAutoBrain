@@ -10,6 +10,9 @@ Executable tooling for the PyAuto organism.
   `state.json` (fallback: local `pyauto-heart readiness --json`), read-only,
   never ticks; exit 0 green · 1 yellow/stale · 2 red · 3 grey. Run first by
   `start_dev` step 0a and `route`.
+- **`lane_backfill.py`** — proposes a `Lane:` for every lane-less draft in
+  the planner pool, from intake's own lane signals, as a table for a human to
+  skim; `--apply [--from <table>]` writes the headers (commits nothing).
 - **`gh_app_token.py`** — mints a fresh pyautolabs-bot App installation token
   (stdlib + `openssl`) so the nightly release driver can outlive the 60-minute
   token the workflow starts with. Prints only the token.

@@ -134,6 +134,39 @@ hiding it, by resource: *"4 laptop-lane task(s) are ready (3 ral, 1 local-dev) �
 of the resource lanes `ral` / `gpu` / `wsl-data`, each of which implies
 `local-dev` (`lane_is_local` in the sizing faculty is the one test).
 
+## The premise check (`premise`) — before a run is spent
+
+In the first live shift that worked (2026-11-06-pm), 2 of 3 dispatched tasks
+were obsolete on `main`: one named a harness deleted five weeks earlier, the
+other a smoke-cap overrun the timing record had not shown for days. The
+close-out guard (`looks-shipped`) looks for work that *arrived*; it cannot see
+a premise that has *gone away*. `batch premise <draft>` can (PyAutoBrain#608,
+programme M1.3, `_premise.py`):
+
+- On a fresh `main` of every repo the draft names (`git fetch`; `--no-fetch`
+  reads the cached ref; `--at <ISO>` replays main as it stood), it checks the
+  backticked paths and `name()` functions the draft names, reads the state of
+  its `Repo#N` issues and PRs (`--offline` skips `gh`), and compares a title
+  that claims a smoke duration with the Heart's timing record
+  (`timings/scripts/<repo>.jsonl`, decisive only when fresh).
+- It returns **`ok | obsolete | unknown`** with evidence: `obsolete` when the
+  timing record contradicts the title, a file or function the title or
+  `Witness:` names is gone (the deleting commit is the evidence), or every
+  named path is gone; renames and newly-gitignored paths are *moved*, not
+  gone, and a path with no history is work to create, never evidence. For a
+  bug it also prints what a worker must reproduce. Exit 1 on `obsolete`.
+- `--write-verified` stamps `Verified: <date> <sha> (<repo>)` on an `ok`
+  draft — inside a shift as a `set-header` ledger op the orchestrator
+  commits (one Mind writer), outside one in place, uncommitted.
+- It is the **first step of every dispatched worker** (`worker_template.md`):
+  on `obsolete` the worker writes its proof packet and stops. And it runs at
+  **brief time**: `batch brief --check` adds a warning for each named task
+  whose premise is obsolete (`--no-premise` skips the leg).
+
+Mechanical by design — git reads and at most a few `gh api` calls, no LLM.
+Replayed on the two obsolete tasks above it returns `obsolete` for both
+(`tests/test_premise_check.py`).
+
 ## It proposes; the human launches
 
 `AUTONOMY.md` ("What a batch launch is") defines a batch dispatch as **one
