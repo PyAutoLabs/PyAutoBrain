@@ -257,8 +257,15 @@ def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
 def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
     """The environment a worker runs in: marked as a shift worker, pointed at
     the shift's ledger, and with git's hooks path overridden so a commit in
-    PyAutoMind is refused whatever tool makes it."""
+    PyAutoMind is refused whatever tool makes it. The watcher's own posting
+    token (`PYAUTO_SHIFT_GH_TOKEN`) never reaches a worker or close-out, nor
+    a `GH_TOKEN` / `GITHUB_TOKEN` that carries it; the human's own gh auth
+    stays (#611 re-review)."""
     env = dict(os.environ if base is None else base)
+    bot = env.pop(GH_TOKEN_ENV, "").strip()
+    for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+        if bot and env.get(key, "").strip() == bot:
+            env.pop(key)
     n = int(env.get("GIT_CONFIG_COUNT", "0") or 0)
     env.update({"PYAUTO_SHIFT_WORKER": "1",
                 "PYAUTO_SHIFT_LEDGER_DIR": str(Path(lease_dir).parent / _mind_writer.LEDGER_DIR),

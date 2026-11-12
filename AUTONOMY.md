@@ -793,6 +793,8 @@ later tick, at most three tries in all; one that timed out may have landed and
 is never retried. The watcher also reads `gh pr view --json
 state,mergedAt,mergedBy` for the PRs its own workers named — the close-out's
 merge truth (#603) and, once at `review-at:`, the digest's `merges` (#610).
+It also makes one read-only `gh api user` per shift, under the posting token,
+to warn when it equals the mention login (#611).
 The revert condition now reads: one network call outside these, or a comment
 beyond these (a second digest, a second mention for the same worker and
 state, a second correction), retires the watcher to fake mode. **Posting identity, ruled

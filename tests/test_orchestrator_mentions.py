@@ -220,3 +220,21 @@ def test_a_separate_token_posts_and_a_self_mention_is_warned(tmp_path, monkeypat
     assert orch.gh_login(run=lambda argv, **kw: login_calls.append((argv, kw["env"]["GH_TOKEN"]))
                          or SimpleNamespace(returncode=0, stdout="example-bot\n")) == "example-bot"
     assert login_calls == [(["gh", "api", "user", "--jq", ".login"], "test-token-not-real")]
+
+
+def test_the_watchers_posting_token_never_reaches_a_worker_or_closeout(tmp_path, monkeypatch):
+    """#611 re-review: the bot token is the watcher's alone."""
+    monkeypatch.setenv(orch.GH_TOKEN_ENV, "bot-token-not-real")
+    monkeypatch.setenv("GITHUB_TOKEN", "bot-token-not-real")     # derived from it
+    monkeypatch.setenv("GH_TOKEN", "human-token-not-real")       # the human's own: kept
+    mind, brief, home = d._shift(tmp_path)
+    claude = d.FakeClaude()
+    sp = orch.RealSpawner(brief, "auto", run=claude)
+    sp.spawn("t1", "draft/feature/pyautobrain/t1.md", tmp_path / "leases")
+    sp.spawn_closeout("t1", "https://github.com/o/r/pull/1", "x.md", tmp_path / "leases")
+    for _argv, kw in claude.calls:
+        env = kw["env"]
+        assert orch.GH_TOKEN_ENV not in env and "GITHUB_TOKEN" not in env
+        assert "bot-token-not-real" not in env.values()
+        assert env["GH_TOKEN"] == "human-token-not-real"
+    assert len(claude.calls) == 2
