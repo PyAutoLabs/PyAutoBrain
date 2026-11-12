@@ -16,8 +16,14 @@ outcome — the human merges by `/prm` at check-in.
    error message, a removed or weakened test, a renamed public thing, or a
    wrong docs claim. Any one of them → refuse.
 3. Refuse if the PR carries the `decision-taken` label, if its tier is not
-   `glance`, or if Heart is RED (`python3 $PYAUTO_BRAIN/bin/heart_feed.py`,
-   exit 2).
+   `glance`, or unless Heart's **scoped development-ship verdict** for the
+   PR's repo ({pr_repos}) is `green` (AUTONOMY.md leg 4, PyAutoHeart#340):
+
+       {heart_cmd}
+
+   It prints `green`, `red`, `stale` or `unknown`. Only `green` passes: `stale`
+   never does, and `unknown` (a reply that is not Heart's dev-ship gate, or no
+   Heart here) parks — refuse with the word it printed.
 4. If everything passed, use the prm skill on {pr_url}: the full close-out,
    judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with

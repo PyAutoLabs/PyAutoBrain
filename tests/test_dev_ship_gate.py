@@ -171,3 +171,36 @@ def test_repos_without_a_local_gate_reads_the_feed_unscoped_and_says_so(
     assert heart_feed.main(["--url", url.as_uri(), "--repos", "WidgetLib"]) == 0
     out = capsys.readouterr().out
     assert "scope WidgetLib NOT applied" in out
+
+
+# --- the watcher's close-out: the same scoped gate for the PR's repo ------------------
+
+def _closeout_heart_cmd(pr_url, tmp_path):
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "faculties" / "sizing"))
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "conductors" / "batch"))
+    import _orchestrator  # noqa: PLC0415
+    text = _orchestrator.closeout_prompt("t", pr_url, "draft/x/t.md",
+                                         tmp_path / "brief.md", tmp_path / "leases")
+    step = text.split("\n3. ", 1)[1].split("\n4. ", 1)[0]
+    cmd = next((l.strip() for l in step.splitlines() if l.strip().startswith("bash -c")), "")
+    return step, cmd
+
+
+@pytest.mark.parametrize("reply,printed", [
+    (_dev("green", stale_reasons=[]), "green"),
+    (_dev("stale"), "stale"),
+    ({"verdict": "green", "red_reasons": []}, "unknown"),   # not the dev-ship gate
+])
+def test_closeout_asks_the_scoped_gate_for_the_prs_repo(heart, tmp_path, reply, printed):
+    step, cmd = _closeout_heart_cmd("https://github.com/ExampleOrg/WidgetLib/pull/7", tmp_path)
+    assert "heart_feed.py" not in step
+    assert "Only `green` passes" in step and "(WidgetLib)" in step
+    env, log = heart(reply)
+    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, env=env, timeout=60)
+    assert r.stdout.strip() == printed
+    assert "readiness --dev --repos WidgetLib --json" in log.read_text()
+
+
+def test_closeout_without_a_pr_repo_cannot_be_scoped(tmp_path):
+    step, cmd = _closeout_heart_cmd("not-a-pr-url", tmp_path)
+    assert cmd == "" and "cannot be scoped — refuse" in step
