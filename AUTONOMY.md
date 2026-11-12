@@ -655,6 +655,77 @@ row suspends the actor rule — the count goes back to every in-window row, with
 doctrine edit citing the row. A `reverted` row still demotes `glance` as the
 ruling says.
 
+## M2 rulings — 2026-11-12
+
+Ruled by the human 2026-11-12 at the M1→M2 gate of the autonomous-orchestrators
+programme, one ruling per M2 decision sheet; this section is the dated doctrine
+record of all six. Each quotes, verbatim, the recommendation the human adopted
+from the sheets' index, then names the build issue or the human act it awaits,
+and the condition that reverts it. It records the rulings; the doctrine text
+each one changes elsewhere in this file is edited by its own build, not here.
+
+**M2.1 Heart branch scope.** *"Yes: enforce library CI for touched repos and
+their dependants; show the rest. Feed: 6 h maximum age plus event triggers,
+built first. Rule that an over-age feed re-checks or parks, never passes."* A
+STALE feed never passes a development ship: over the maximum age the door
+re-reads the touched repos' `main` CI at ship time, and an unattended run that
+cannot parks. The override row stays, with its reason machine-readable.
+Build: PyAutoHeart#340. *Revert condition:* any ship passed by the branch scope
+that breaks `main` of a touched repo or a dependant, where the organism-wide RED
+would have stopped it — return to the full verdict by dated doctrine edit.
+
+**M2.2 Server-side merge gate.** *"Yes, staged: libraries and tested organs
+first, workspaces after a week, Mind after M4.3. Require status checks, not
+reviews. `--auto` for notify and glance only. A separate worker identity at
+M4."* `judge` stays a human merge; the ban under the corrective-RED path stays.
+Awaits a human act: the rulesets are applied by the human with their admin
+credential. *Revert condition:* a ruleset that blocks a release, or leaves PRs
+pending with no failing check more than twice in a week — set that repo's
+ruleset to `disabled` and fix the check list; an auto-merge found to have
+passed a never-auto-merge rule withdraws `--auto` by doctrine edit.
+
+**M2.3 Lane fails closed; queue.md is the ranked list.** *"Fail closed in
+unattended and cloud sessions only. Keep `queue.md` as a short ranked list,
+validated; an empty list stops a shift; sort priority before review-minutes."*
+As built: every plan `pyauto-brain batch plan` composes, and every watcher
+tick, is unattended, and excludes a backlog draft with no valid `Lane:`, saying
+so in the plan and the digest; `batch plan --attended` (a human picking for
+their own session) reads an absent Lane as `any`. A brief's named tasks are the
+human's own pick and are not gated. Intake always writes a `Lane:`, `any` when
+the text names no resource, rather than refusing to file. `lifecycle.py check`
+fails on a `queue.md` prompt ref that resolves to no draft or active prompt; an
+empty or absent `queue.md` stops an unattended shift's backlog dip (named tasks
+still run); below the queue the planner sorts priority, then review-minutes.
+Build: PyAutoBrain#614. *Revert condition:* if fail-closed excludes more than a
+handful of valid drafts in a week for a missing header, re-run
+`bin/lane_backfill.py`; if that does not fix it, return to `any` for attended
+filing. If `queue.md` goes two weeks without an edit, replace it with a
+per-draft rank header set in a weekly review.
+
+**M2.4 Release builds the rehearsed SHAs.** *"Yes: release the rehearsed
+commits even if `main` moved; move the Colab bump off `main`."* The release log
+prints the rehearsed commit, the released commit and `identical`. Build:
+PyAutoHands#337. *Revert condition:* a release whose tag does not match the
+rehearsed commit, or a Colab notebook that installs the wrong version because
+the bump is off `main` — return to `ref: main` plus the freeze flag until fixed.
+
+**M2.5 Always-apply rules.** *"Split the safety rules into a short file
+imported by the home `CLAUDE.md`; set a size budget for the memory index."*
+Awaits a human act: these are the human's home-folder files — a session may
+draft the edits, the human applies them. *Revert condition:* if a new session's
+loaded-file list does not show the rules file, or sessions lose the routing
+they need, restore the previous files and fall back to importing the whole
+workspace guidance file from the home `CLAUDE.md`.
+
+**Quarantine (side ruling).** *"Yes: one retry; quarantine needs a bug task,
+expires in 7 days, at most 3, shows YELLOW."* The nightly may retry a failing
+script once. A script may be quarantined only with a filed bug task, for at
+most 7 days, at most 3 entries at once, never a unit test or an install check;
+while any entry is live the release shows Heart YELLOW and the digest lists
+them. Build: to build. *Revert condition:* a release that ships with a
+quarantined script hiding a real user-facing break — quarantine returns to
+human-only.
+
 ## Shift briefs and unattended `glance` — 2026-11-03
 
 Approved by the human 2026-11-03 as the rulings of the autonomous-orchestrators

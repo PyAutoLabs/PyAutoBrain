@@ -116,10 +116,18 @@ def test_at_the_cap_the_batch_is_fill_only_and_still_composes():
     assert paths(d) == ["b.md"]
 
 
-def test_cheapest_first_because_the_question_is_what_fits():
+def test_priority_sorts_before_review_minutes():
+    """M2.3 (2026-11-12): below the queue a declared `Priority:` outranks cost.
+    Cheapest-first let the cheapest review win and broke ties by filename."""
     d = _batch.plan([rec("slow.md", minutes=20, priority="high"),
                      rec("fast.md", minutes=2, priority="low")], budget=45)
-    assert paths(d)[0] == "fast.md"
+    assert paths(d) == ["slow.md", "fast.md"]
+
+
+def test_cheapest_first_still_decides_within_a_priority():
+    d = _batch.plan([rec("a_slow.md", minutes=20), rec("b_fast.md", minutes=2)],
+                    budget=45)
+    assert paths(d) == ["b_fast.md", "a_slow.md"]
 
 
 def test_every_rejection_states_a_reason():

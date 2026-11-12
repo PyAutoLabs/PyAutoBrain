@@ -904,7 +904,13 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     import _batch  # noqa: E402 — deferred: _batch imports this module's sibling
     if records is None:
         records = _batch.survey(mind)
-    d = _batch.plan(records, session_lane="local-dev", brief=brief)
+    # Unattended by construction: an absent Lane is excluded and an empty
+    # queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2 rulings —
+    # 2026-11-12"). Recorded each tick so the digest can say so.
+    d = _batch.plan(records, session_lane="local-dev", brief=brief,
+                    queue=_batch.read_queue(mind))
+    counters["backlog_gates"] = {"lane_absent": sorted(d["lane_absent"]),
+                                 "queue_stop": d["queue_stop"]}
     if _brief.is_shadow(brief):
         proposed = _propose(d["members"], brief, counters, max_sessions)
         _write_counters(slot, counters)

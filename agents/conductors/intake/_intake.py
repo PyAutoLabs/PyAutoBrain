@@ -586,8 +586,14 @@ def analyse(text: str, source: str, themes=None):
     # `Type:` matches the destination folder (PyAutoMind convention). For a
     # low-confidence triage filing that means `Type: triage`, not the provisional
     # guess — the guess still rides in the IntakeDecision's `work_type` field.
-    # A declared lane wins; otherwise the text's resource signals. `any` is
-    # the default and is not written — absence already means it.
+    # A declared lane wins; otherwise the text's resource signals. Always
+    # WRITTEN, `any` included (M2.3, AUTONOMY.md "M2 rulings — 2026-11-12"):
+    # an unattended planner excludes a draft with no `Lane:`, so absence must
+    # mean "nobody decided", never "runs anywhere". When inference finds no
+    # resource signal intake writes `Lane: any` rather than refusing — the
+    # text names nothing that needs the laptop, the author usually has nothing
+    # more to add, and a refusal would push filing outside intake, where the
+    # draft would carry no Lane at all.
     lane = header.get("lane") or infer_lane(text)
     header = _render_header(title, folder, target_display, repos, level,
                             autonomy, priority, themes,
@@ -595,8 +601,7 @@ def analyse(text: str, source: str, themes=None):
                             review_minutes=review_minutes,
                             unattended=unattended,
                             passthrough=_declared_passthrough(header_lines),
-                            lane=(lane if lane != "any"
-                                  or header.get("lane") else None))
+                            lane=lane)
     return {
         "source": source,
         "title": title,
@@ -1506,8 +1511,9 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
 
 
 def _lane_of(header: dict) -> str:
-    """The prompt's lane as the planner reads it: a value the sizing faculty
-    does not accept counts as `any`, exactly as `parse_prompt` treats it."""
+    """The prompt's lane for the census: a value the sizing faculty does not
+    accept counts as `any`. That is the ATTENDED reading only; an unattended
+    planner excludes a draft with no valid lane (`_batch.lane_absent_why`)."""
     lane = (header.get("lane") or "any").lower()
     return lane if lane in LANE_VALUES else "any"
 
@@ -1585,8 +1591,8 @@ def census(mind: Path) -> dict:
                 "witness": header.get("witness", ""),
                 "review_minutes": header.get("review-minutes", "-"),
                 "unattended": header.get("unattended", "-"),
-                # Where it can run. Absent means `any` — the common case, and a
-                # missing lane must never be read as "nowhere".
+                # Where it can run. Absent reads as `any` here (the attended
+                # reading); an unattended pick excludes it (M2.3, 2026-11-12).
                 "lane": _lane_of(header),
                 "priority": header.get("priority", "-"),
                 "status": header.get("status", "-"),

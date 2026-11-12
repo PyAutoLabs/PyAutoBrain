@@ -243,6 +243,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     lines += ["", "### Backlog picks"]
     lines += [_line(t, counters, tiers.get(t, picks[t].get("tier", "?")), health, base)
               + f" — why: {picks[t].get('why') or 'NOT RECORDED'}" for t in backlog] or [NO_PICKS]
+    lines += backlog_gate_lines(counters)
 
     started = [t for t in named + backlog
                if t in counters.get("outcomes", {}) or t in counters.get("parked", [])
@@ -260,6 +261,23 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines += ["", WORKERS_HEADING] + (worker_lines(counters, base) or [NO_PICKS])
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
     return "\n".join(lines) + "\n"
+
+
+def backlog_gate_lines(counters: dict) -> list[str]:
+    """What the M2.3 gates kept out of the backlog dip (AUTONOMY.md "M2
+    rulings — 2026-11-12"), as of the watcher's last tick. Not bullets: a
+    `- ` line in this section is read as a pick and must carry a `why:`."""
+    gates = counters.get("backlog_gates") or {}
+    out = []
+    if gates.get("queue_stop"):
+        out.append("Backlog dip stopped: queue.md is empty, so the shift took the "
+                   "brief's named tasks only.")
+    absent = gates.get("lane_absent") or []
+    if absent:
+        out.append(f"Lane absent: {len(absent)} draft(s) excluded — no valid `Lane:`, "
+                   "and an unattended pick fails closed: "
+                   + ", ".join(f"`{Path(a).stem}`" for a in absent))
+    return [""] + out if out else []
 
 
 # --- per-worker exits, GitHub merges, tokens (PyAutoBrain#610) -----------------

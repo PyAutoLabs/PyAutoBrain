@@ -248,9 +248,12 @@ def test_intake_proposes_gpu_and_wsl_data(text, lane):
     assert f"\nLane: {lane}" in _intake.analyse(text, "test")["header"]
 
 
-def test_intake_writes_no_lane_for_cloud_runnable_text():
-    assert "Lane:" not in _intake.analyse("Tidy a docstring in @PyAutoBrain.",
-                                          "test")["header"]
+def test_intake_writes_lane_any_for_cloud_runnable_text():
+    """M2.3 (2026-11-12): intake always writes a Lane — `any` when nothing in
+    the text needs the laptop — because an unattended pick excludes a draft
+    with none (reversed from "`any` is not written")."""
+    assert "\nLane: any" in _intake.analyse("Tidy a docstring in @PyAutoBrain.",
+                                            "test")["header"]
 
 
 DECLARED = """\
