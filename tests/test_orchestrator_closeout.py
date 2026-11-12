@@ -199,6 +199,147 @@ def test_a_closeout_that_ends_without_a_verdict_is_refused_not_retried(tmp_path)
     assert len(sp.closeouts) == 1
 
 
+# --- GitHub is the merge truth (PyAutoBrain#603, ORCH-3) --------------------------
+
+def _gh(states):
+    """An offline `gh pr view`: the named state per PR; None = GitHub could not say."""
+    def read(url):
+        st = states.get(url, "OPEN")
+        return None if st is None else {
+            "state": st, "mergedAt": "2026-11-04T09:01:30Z" if st == "MERGED" else "",
+            "mergedBy": "a-maintainer" if st == "MERGED" else ""}
+    return read
+
+
+def _gh_tick(brief, mind, home, sp, minutes, pr_state, agents=None):
+    return orch.tick(brief, mind, home=home, now=t.NOW + _dt.timedelta(minutes=minutes),
+                     spawner=sp, agents=agents or Agents(), health=_health({}),
+                     pr_state=pr_state)
+
+
+def test_a_github_merged_pr_with_no_closeout_file_counts_as_one_merge(tmp_path):
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    assert sp.closeouts == [("named", PR1)]
+    # The close-out merged, then ended before writing `.closeout`.
+    r = _gh_tick(brief, mind, home, sp, 2, _gh({PR1: "MERGED"}),
+                 agents=Agents({"co000001": "done"}))
+    assert r["closeouts"]["merged"] == [PR1] and r["closeouts"]["refused"] == []
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    assert c["glance_auto_merges"] == 1 and c["closeouts"][PR1]["state"] == "merged"
+    assert c["outcomes"]["named"]["merged"] == [PR1]
+    assert c["closeouts"][PR1]["github"]["mergedBy"] == "a-maintainer"
+    ops = [json.loads(f.read_text()) for f in mw.pending_ops(slot)]
+    rows = [o["row"] for o in ops if o["op"] == "table-append"]
+    assert len(rows) == 1 and rows[0].startswith("| 2026-11-04 | named (" + PR1 + ") |")
+    assert "merge confirmed on GitHub" in rows[0] and "(no .closeout)" in rows[0]
+    _gh_tick(brief, mind, home, sp, 3, _gh({PR1: "MERGED"}))
+    assert orch.read_counters(slot)["glance_auto_merges"] == 1        # counted once
+
+
+def test_an_unreadable_github_keeps_the_cap_slot_until_it_can_say(tmp_path):
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    ended = Agents({"co000001": "done"})
+    _gh_tick(brief, mind, home, sp, 2, _gh({PR1: None}), agents=ended)
+    slot = orch.slot_dir(brief, home)
+    assert orch.read_counters(slot)["closeouts"][PR1]["state"] == "running"
+    _gh_tick(brief, mind, home, sp, 3, _gh({PR1: "OPEN"}), agents=ended)
+    co = orch.read_counters(slot)["closeouts"][PR1]
+    assert co["state"] == "refused"
+    assert co["why"] == "the close-out session ended without a verdict"
+
+
+def _stage2_rows(slot):
+    return [json.loads(f.read_text())["row"] for f in mw.pending_ops(slot)
+            if json.loads(f.read_text())["op"] == "table-append"]
+
+
+def test_a_merged_verdict_on_an_open_pr_holds_the_slot_until_github_merges(tmp_path):
+    """`--auto` still pending: the file says merged, GitHub says OPEN."""
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    _verdict(home, brief, "named", result="merged", pr=PR1, gate="tests PASS", model="m")
+    for minutes, gh in ((2, None), (3, "OPEN")):       # unreadable, then still open
+        r = _gh_tick(brief, mind, home, sp, minutes, _gh({PR1: gh}))
+        c = orch.read_counters(slot)
+        assert r["closeouts"]["merged"] == [] and c["glance_auto_merges"] == 0
+        assert c["closeouts"][PR1]["state"] == "running"     # the cap slot stays held
+        assert _stage2_rows(slot) == [] and c["outcomes"]["named"]["merged"] == []
+    r = _gh_tick(brief, mind, home, sp, 4, _gh({PR1: "MERGED"}))
+    assert r["closeouts"]["merged"] == [PR1]
+    _gh_tick(brief, mind, home, sp, 5, _gh({PR1: "MERGED"}))
+    c = orch.read_counters(slot)
+    assert c["glance_auto_merges"] == 1 and c["closeouts"][PR1]["state"] == "merged"
+    assert len(_stage2_rows(slot)) == 1                       # counted once
+
+
+def test_a_merged_verdict_on_a_closed_pr_is_no_merge_and_frees_the_slot(tmp_path):
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    _verdict(home, brief, "named", result="merged", pr=PR1, gate="g", model="m")
+    r = _gh_tick(brief, mind, home, sp, 2, _gh({PR1: "CLOSED"}))
+    c = orch.read_counters(slot)
+    assert r["closeouts"]["refused"] == [PR1] and c["glance_auto_merges"] == 0
+    assert c["closeouts"][PR1]["state"] == "refused"          # no longer holds the slot
+    assert c["closeouts"][PR1]["why"] == "close-out said merged, GitHub closed"
+    assert _stage2_rows(slot) == [] and c["outcomes"]["named"]["merged"] == []
+
+
+def test_a_refused_verdict_on_a_pr_github_shows_merged_is_a_merge_outside(tmp_path):
+    """A human merged it: never logged as an unattended merge."""
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    _verdict(home, brief, "named", result="refused", pr=PR1, why="decision-taken label",
+             gate="", model="m")
+    r = _gh_tick(brief, mind, home, sp, 2, _gh({PR1: "MERGED"}))
+    assert r["closeouts"]["merged"] == [] and r["closeouts"]["merged_outside"] == [PR1]
+    c = orch.read_counters(slot)
+    assert c["glance_auto_merges"] == 0 and _stage2_rows(slot) == []
+    assert c["closeouts"][PR1]["state"] == "refused"          # the slot is freed
+    assert c["closeouts"][PR1]["why"] == "merged outside the close-out (mergedBy=a-maintainer)"
+
+
+def test_gh_pr_state_reads_state_merged_at_and_by():
+    from types import SimpleNamespace
+    seen = []
+
+    def run(argv, **kw):
+        seen.append(argv)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(
+            {"state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z",
+             "mergedBy": {"login": "someone"}}))
+    assert orch.gh_pr_state(PR1, run=run) == {
+        "state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z", "mergedBy": "someone"}
+    assert seen == [["gh", "pr", "view", PR1, "--json", "state,mergedAt,mergedBy"]]
+    assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
+        returncode=1, stdout="")) is None
+    assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
+        returncode=0, stdout="nope")) is None
+
+
+def test_a_started_closeout_is_written_before_the_tick_goes_on(tmp_path, monkeypatch):
+    """CODE-1: a tick that fails after starting a close-out never starts a second."""
+    import _batch
+    mind, brief, home, sp = _shift(tmp_path)
+
+    def boom(mind):
+        raise OSError("injected")
+    monkeypatch.setattr(_batch, "survey", boom)
+    with pytest.raises(OSError):
+        _tick(brief, mind, home, sp, 1)
+    monkeypatch.undo()
+    _tick(brief, mind, home, sp, 2)
+    _tick(brief, mind, home, sp, 3)
+    assert sp.closeouts == [("named", PR1)]
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["closeouts"][PR1]["state"] == "running" and c["sessions"] == 2
+
+
 # --- the session and the Mind writer -------------------------------------------
 
 def test_closeout_command_is_named_moded_and_on_the_closeout_model(tmp_path):
