@@ -908,9 +908,12 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
 
     GitHub is the merge truth (#603): before a finished close-out is counted
     merged or refused — which frees its `merge-cap:` slot — the PR's state is
-    read (`pr_state`, else the spawner's, `gh pr view`). A merge GitHub
-    confirms counts with or without a `.closeout` file; a session that ended
-    with no file while GitHub cannot be read keeps its slot until it can.
+    read (`pr_state`, else the spawner's, `gh pr view`). Only a GitHub MERGED
+    counts: with a `merged` verdict or no file at all. A `merged` verdict on a
+    PR still OPEN holds its slot and is asked again each tick; one GitHub shows
+    CLOSED is refused. A non-merged verdict on a PR GitHub shows MERGED was
+    merged by someone else — never counted, never a stage-2 row. While GitHub
+    cannot be read the slot stays held.
     Every transition is written as it happens; a `.closeout` file is deleted
     only after that write.
     """
@@ -944,22 +947,37 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
         elif _alive(int(co.get("pid") or 0)):
             continue
         gh = pr_state(pr) if pr_state else None
-        if verdict is None and pr_state is not None and gh is None:
+        if pr_state is not None and gh is None:
             continue  # GitHub could not say: the slot stays held, asked again next tick
         if gh:
             co["github"] = gh
         said_merged = bool(verdict) and verdict.get("result") == "merged"
-        if said_merged or (gh or {}).get("state") == "MERGED":
+        gh_state = (gh or {}).get("state")
+        # GitHub decides every merge count. Without a GitHub seam (a test
+        # spawner) the verdict file is all there is.
+        merged = gh_state == "MERGED" if gh else said_merged
+        if said_merged and gh and gh_state == "OPEN":
+            co["why"] = "close-out said merged; GitHub still OPEN — re-checked each tick"
+            _write_counters(slot, counters)
+            continue  # e.g. `--auto` pending: not counted, the cap slot stays held
+        if merged and verdict is not None and not said_merged:
+            # The close-out refused, yet the PR is merged: someone else merged
+            # it. Never an unattended merge — no count, no stage-2 row.
+            co.update(state="refused",
+                      why=f"merged outside the close-out (mergedBy={gh.get('mergedBy') or '?'})")
+            events.setdefault("merged_outside", []).append(pr)
+            events["refused"].append(pr)
+        elif merged:
             if said_merged:
                 gate, model = verdict.get("gate", ""), verdict.get("model", "")
             else:
                 gate = ("merge confirmed on GitHub"
                         + (f" at {gh['mergedAt']}" if gh.get("mergedAt") else "")
                         + (f" by {gh['mergedBy']}" if gh.get("mergedBy") else "")
-                        + (" (no .closeout)" if verdict is None else
-                           f" (its .closeout said {verdict.get('result')})"))
-                model = (verdict or {}).get("model") or CLOSEOUT_MODEL
+                        + " (no .closeout)")
+                model = CLOSEOUT_MODEL
             co.update(state="merged", gate=gate, model=model)
+            co.pop("why", None)
             counters["glance_auto_merges"] += 1
             out = counters["outcomes"].setdefault(co["task"], {"prs": [pr], "merged": []})
             if pr not in out["merged"]:
@@ -971,8 +989,12 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
         else:
             # Never retried: a close-out that ended without a verdict is the
             # human's to look at, not a second unattended attempt.
-            why = ((verdict.get("why") or "refused, no reason given") if verdict
-                   else "the close-out session ended without a verdict")
+            if said_merged:
+                why = f"close-out said merged, GitHub {str(gh_state).lower()}"
+            elif verdict:
+                why = verdict.get("why") or "refused, no reason given"
+            else:
+                why = "the close-out session ended without a verdict"
             co.update(state="refused", why=why)
             events["refused"].append(pr)
         _write_counters(slot, counters)

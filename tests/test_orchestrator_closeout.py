@@ -251,6 +251,59 @@ def test_an_unreadable_github_keeps_the_cap_slot_until_it_can_say(tmp_path):
     assert co["why"] == "the close-out session ended without a verdict"
 
 
+def _stage2_rows(slot):
+    return [json.loads(f.read_text())["row"] for f in mw.pending_ops(slot)
+            if json.loads(f.read_text())["op"] == "table-append"]
+
+
+def test_a_merged_verdict_on_an_open_pr_holds_the_slot_until_github_merges(tmp_path):
+    """`--auto` still pending: the file says merged, GitHub says OPEN."""
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    _verdict(home, brief, "named", result="merged", pr=PR1, gate="tests PASS", model="m")
+    for minutes, gh in ((2, None), (3, "OPEN")):       # unreadable, then still open
+        r = _gh_tick(brief, mind, home, sp, minutes, _gh({PR1: gh}))
+        c = orch.read_counters(slot)
+        assert r["closeouts"]["merged"] == [] and c["glance_auto_merges"] == 0
+        assert c["closeouts"][PR1]["state"] == "running"     # the cap slot stays held
+        assert _stage2_rows(slot) == [] and c["outcomes"]["named"]["merged"] == []
+    r = _gh_tick(brief, mind, home, sp, 4, _gh({PR1: "MERGED"}))
+    assert r["closeouts"]["merged"] == [PR1]
+    _gh_tick(brief, mind, home, sp, 5, _gh({PR1: "MERGED"}))
+    c = orch.read_counters(slot)
+    assert c["glance_auto_merges"] == 1 and c["closeouts"][PR1]["state"] == "merged"
+    assert len(_stage2_rows(slot)) == 1                       # counted once
+
+
+def test_a_merged_verdict_on_a_closed_pr_is_no_merge_and_frees_the_slot(tmp_path):
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    _verdict(home, brief, "named", result="merged", pr=PR1, gate="g", model="m")
+    r = _gh_tick(brief, mind, home, sp, 2, _gh({PR1: "CLOSED"}))
+    c = orch.read_counters(slot)
+    assert r["closeouts"]["refused"] == [PR1] and c["glance_auto_merges"] == 0
+    assert c["closeouts"][PR1]["state"] == "refused"          # no longer holds the slot
+    assert c["closeouts"][PR1]["why"] == "close-out said merged, GitHub closed"
+    assert _stage2_rows(slot) == [] and c["outcomes"]["named"]["merged"] == []
+
+
+def test_a_refused_verdict_on_a_pr_github_shows_merged_is_a_merge_outside(tmp_path):
+    """A human merged it: never logged as an unattended merge."""
+    mind, brief, home, sp = _shift(tmp_path)
+    _tick(brief, mind, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    _verdict(home, brief, "named", result="refused", pr=PR1, why="decision-taken label",
+             gate="", model="m")
+    r = _gh_tick(brief, mind, home, sp, 2, _gh({PR1: "MERGED"}))
+    assert r["closeouts"]["merged"] == [] and r["closeouts"]["merged_outside"] == [PR1]
+    c = orch.read_counters(slot)
+    assert c["glance_auto_merges"] == 0 and _stage2_rows(slot) == []
+    assert c["closeouts"][PR1]["state"] == "refused"          # the slot is freed
+    assert c["closeouts"][PR1]["why"] == "merged outside the close-out (mergedBy=a-maintainer)"
+
+
 def test_gh_pr_state_reads_state_merged_at_and_by():
     from types import SimpleNamespace
     seen = []
