@@ -226,7 +226,11 @@ class RepoView:
                 if len(parts) < 2:
                     continue
                 p = parts[1]
-                if p == token or p.endswith("/" + token) or token.endswith("/" + p) \
+                # `token.endswith("/" + p)` only for a p WITH a directory: a
+                # deleted root-level `__init__.py` says nothing about the
+                # `pkg/new_module/__init__.py` a draft means to create.
+                if p == token or p.endswith("/" + token) \
+                        or ("/" in p and token.endswith("/" + p)) \
                         or ("/" not in token and p.rsplit("/", 1)[-1] == token):
                     commit = lines[0]
                     renamed = parts[2] if parts[0].startswith("R") and len(parts) > 2 else None
@@ -264,10 +268,15 @@ class RepoView:
         first = (out or "").splitlines()[:1]
         return first[0].split(":", 1)[1] if first else None
 
-    def removed(self, func: str) -> str | None:
-        out = _git(self.path, "log", self.sha, "-1", "--date=short",
-                   "--format=%h %ad %s", f"-Sdef {func}(", "--", "*.py",
-                   run=self.run, timeout=120)
+    def removed(self, func: str, since: str | None = None) -> str | None:
+        """The newest commit since `since` whose diff adds or drops `def func(`.
+        A removal older than the draft is history the author wrote against,
+        not evidence that its premise went away."""
+        args = ["log", self.sha, "-1", "--date=short", "--format=%h %ad %s",
+                f"-Sdef {func}("]
+        if since:
+            args.append(f"--since={since}")
+        out = _git(self.path, *args, "--", "*.py", run=self.run, timeout=120)
         return (out or "").strip() or None
 
     def show(self, rel: str) -> str | None:
@@ -290,6 +299,54 @@ def checkouts(root: Path) -> dict[str, Path]:
         return {p.name.lower(): p for p in iter_checkouts(root)}
     except (OSError, ValueError):
         return {}
+
+
+def code_repos(found_co: dict[str, Path]) -> list[Path]:
+    """The local library and organ checkouts — where a function a draft names
+    may live even when its `Repos:` header points elsewhere. Read from the
+    body map's `category:`; every checkout when there is no body map."""
+    mind = found_co.get("pyautomind")
+    manifest = mind / "repos.yaml" if mind else None
+    if manifest is None or not manifest.is_file():
+        return list(found_co.values())
+    keep, current = set(), None
+    for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
+        if m:
+            current = m.group(1).lower()
+            continue
+        m = re.match(r"^    category:\s*(\w+)", line)
+        if m and current and m.group(1) in ("library", "organ"):
+            keep.add(current)
+    return [p for name, p in found_co.items() if name in keep]
+
+
+def live_definition(path: Path, func: str, at: str | None, run) -> str | None:
+    """`def func` / `class func` on this checkout's main (as of `at`), cheaply:
+    one ref lookup and one `git grep`, no fetch and no tree listing."""
+    base = next((b for b in ("origin/main", "main")
+                 if _git(path, "rev-parse", "--verify", "-q", b, run=run)), None)
+    if base is None:
+        return None
+    ref = ((_git(path, "rev-list", "-1", f"--before={at}", base, run=run) or "").strip()
+           if at else base)
+    if not ref:
+        return None
+    out = _git(path, "grep", "-l", "-E", rf"(def|class) {func}\b", ref, "--", "*.py",
+               run=run)
+    first = (out or "").splitlines()[:1]
+    return first[0].split(":", 1)[1] if first else None
+
+
+def _since(text: str, at: str | None) -> str:
+    """The evidence bound for a removal: the draft's `Filed:` (else
+    `Issued:`) date, else 180 days before the check."""
+    for key in ("filed", "issued"):
+        day = _parse_day(_header(text, key))
+        if day is not None:
+            return day.isoformat()
+    ref = _parse_day(at or "") or _dt.date.today()
+    return (ref - _dt.timedelta(days=180)).isoformat()
 
 
 # --- the probes -----------------------------------------------------------------
@@ -448,12 +505,25 @@ def check(draft: Path, root: Path, *, fetch: bool = True, at: str | None = None,
             absent.append(token)
 
     funcs_found, funcs_gone = [], []
+    since = _since(text, at)
+    elsewhere = None
     for func in named["functions"]:
         hit = next(((v, d) for v in repos if (d := v.defines(func))), None)
         if hit:
             funcs_found.append(f"{func} ({hit[0].name})")
             continue
-        rm = next(((v, c) for v in repos if (c := v.removed(func))), None)
+        # Not in the declared repos: a live definition in ANY library or organ
+        # checkout means the draft just named the wrong repo, not that the
+        # function is gone.
+        if elsewhere is None:
+            declared_paths = {v.path for v in repos}
+            elsewhere = [p for p in code_repos(found_co) if p not in declared_paths]
+        live = next(((p, f) for p in elsewhere
+                     if (f := live_definition(p, func, at, run))), None)
+        if live:
+            funcs_found.append(f"{func} ({live[0].name}:{live[1]})")
+            continue
+        rm = next(((v, c) for v in repos if (c := v.removed(func, since))), None)
         if rm:
             funcs_gone.append({"token": f"{func}()", "repo": rm[0].name,
                                "commit": rm[1]})
@@ -526,6 +596,19 @@ def check(draft: Path, root: Path, *, fetch: bool = True, at: str | None = None,
     }
 
 
+def safe_check(draft: Path, root: Path, **kw) -> dict:
+    """`check`, but a crash is `unknown (check failed: …)`, never an exit 1:
+    only a real `obsolete` may stop a worker."""
+    try:
+        return check(draft, root, **kw)
+    except Exception as e:  # noqa: BLE001 — any failure degrades to unknown
+        at = kw.get("at") or ""
+        return {"path": str(draft), "status": "unknown",
+                "reasons": [f"check failed: {type(e).__name__}: {e}"],
+                "evidence": [], "reproduce": "", "repos": {}, "at": at,
+                "date": (at or _dt.date.today().isoformat())[:10]}
+
+
 def verified_value(result: dict) -> str:
     """`<date> <sha>` per repo — the `Verified:` header's value."""
     shas = ", ".join(f"{sha} ({repo})" for repo, sha in sorted(result["repos"].items()))
@@ -533,7 +616,9 @@ def verified_value(result: dict) -> str:
 
 
 def report(result: dict) -> str:
-    lines = [f"premise: {result['status']} — {result['path']}"]
+    failed = next((r for r in result["reasons"] if r.startswith("check failed")), "")
+    lines = [f"premise: {result['status']}" + (f" ({failed})" if failed else "")
+             + f" — {result['path']}"]
     if result["repos"]:
         lines.append("  main: " + ", ".join(f"{r}@{s}" for r, s in result["repos"].items())
                      + (f" (as of {result['at']})" if result["at"] else ""))

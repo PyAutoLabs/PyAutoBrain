@@ -153,13 +153,19 @@ programme M1.3, `_premise.py`):
   timing record contradicts the title, a file or function the title or
   `Witness:` names is gone (the deleting commit is the evidence), or every
   named path is gone; renames and newly-gitignored paths are *moved*, not
-  gone, and a path with no history is work to create, never evidence. For a
-  bug it also prints what a worker must reproduce. Exit 1 on `obsolete`.
+  gone, and a path with no history is work to create, never evidence. A
+  function counts as gone only if no library or organ checkout still defines
+  it and it was removed after the draft's `Filed:` date. For a bug it also
+  prints what a worker must reproduce. Exit 1 on `obsolete` only: a check
+  that crashes prints `unknown (check failed: …)` and exits 0.
 - `--write-verified` stamps `Verified: <date> <sha> (<repo>)` on an `ok`
   draft — inside a shift as a `set-header` ledger op the orchestrator
-  commits (one Mind writer), outside one in place, uncommitted.
+  commits (one Mind writer), outside one in place, uncommitted. A stamp for
+  a draft that has left `main` since is skipped with a note, never raised.
 - It is the **first step of every dispatched worker** (`worker_template.md`):
-  on `obsolete` the worker writes its proof packet and stops. And it runs at
+  on `obsolete` the worker writes its proof packet and an `obsolete <why>`
+  `.done`, and stops; the digest shows it as `obsolete (premise check): <why>`.
+  On `unknown` it goes on and says so in its proof packet. And it runs at
   **brief time**: `batch brief --check` adds a warning for each named task
   whose premise is obsolete (`--no-premise` skips the leg).
 

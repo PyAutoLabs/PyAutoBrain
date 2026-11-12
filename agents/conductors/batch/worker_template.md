@@ -9,12 +9,14 @@ First, before anything else, check the task's premise on a fresh main
 - `obsolete` (exit 1): stop. Open no issue, branch or worktree and implement
   nothing. Write {lease_dir}/{task}.proof.md headed
   `#### {task} — obsolete (premise check)` with the check's evidence lines,
-  then {lease_dir}/{task}.done containing the word `obsolete`. That is your
-  deliverable; the human retires the draft.
-- `ok` or `unknown`: go on (`ok` queued its `Verified:` stamp through the
-  ledger). For a bug, reproduce what its `reproduce before fixing:` line names
-  before changing code; if it does not reproduce, park on the issue with
-  that evidence instead of fixing.
+  then {lease_dir}/{task}.done containing one line: `obsolete <its first
+  why: line>`. That is your deliverable; the human retires the draft.
+- `ok`: go on (it queued its `Verified:` stamp through the ledger).
+- `unknown` (exit 0, including `check failed: …`): go on, and say in your
+  proof packet that the premise check was unknown and why.
+- For a bug, reproduce what its `reproduce before fixing:` line names before
+  changing code; if it does not reproduce, park on the issue with that
+  evidence instead of fixing.
 
 Use the start-dev skill. {task_path} --auto
 

@@ -2982,8 +2982,13 @@ def _main_premise(mind: Path, a) -> int:
     if not draft.is_file():
         print(f"batch premise: no such draft {a.prompt}", file=sys.stderr)
         return RC_USAGE
-    res = _premise.check(draft.resolve(), _premise_root(a), fetch=not a.no_fetch,
-                         at=a.at or None, offline=a.offline)
+    try:
+        root = _premise_root(a)
+    except Exception as e:  # noqa: BLE001 — degrade to unknown, never exit 1
+        root = Path(".")
+        print(f"batch premise: no workspace root ({e})", file=sys.stderr)
+    res = _premise.safe_check(draft.resolve(), root, fetch=not a.no_fetch,
+                              at=a.at or None, offline=a.offline)
     if a.write_verified:
         res["recorded"] = record_verified(mind, draft.resolve(), res)
     if a.as_json:
@@ -3042,8 +3047,8 @@ def brief_premises(brief_path: Path, mind: Path, root: Path, *, fetch: bool = Tr
     for task in _brief.tasks_of(rec["brief"]):
         f = _brief._resolve(mind, task)
         if f is not None:
-            out.append({**_premise.check(f, root, fetch=fetch, offline=offline,
-                                         views=views), "task": task})
+            out.append({**_premise.safe_check(f, root, fetch=fetch, offline=offline,
+                                              views=views), "task": task})
     return out
 
 

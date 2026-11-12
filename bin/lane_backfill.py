@@ -67,9 +67,9 @@ def lane_less(mind: Path, *, every: bool = False) -> list[dict]:
 def propose(mind: Path, *, every: bool = False) -> list[dict]:
     rows = []
     for d in lane_less(mind, every=every):
-        lane, snippet = _intake.infer_lane_evidence(d["text"])
-        rows.append({"path": d["path"], "lane": lane, "evidence": snippet,
-                     "invalid": d["invalid"]})
+        lane, snippet, why = _intake.infer_lane_reason(d["text"])
+        rows.append({"path": d["path"], "lane": lane, "why": why,
+                     "evidence": snippet, "invalid": d["invalid"]})
     return sorted(rows, key=lambda r: (r["lane"] == "any", r["lane"], r["path"]))
 
 
@@ -90,19 +90,20 @@ def table(rows: list[dict], *, scope: str, stamp: str = "") -> str:
         "",
         "Counts: " + ", ".join(f"`{k}` {v}" for k, v in c.items()) + ".",
         "",
-        "Skim the non-`any` rows: a keyword hit is an upper bound, and a draft",
-        "that only *mentions* RAL or a GPU as context should be `any`. Edit the",
+        "Skim the non-`any` rows. A resource name counts only in the title, the",
+        "`Witness:` line or a requirement phrase; `why` says which rule fired. Edit the",
         "lane column to overrule a row, delete the row to skip it, then run",
         "`lane_backfill.py --apply --from <this file>`.",
         "",
-        "| draft | lane | evidence |",
-        "|---|---|---|",
+        "| draft | lane | why | evidence |",
+        "|---|---|---|---|",
     ]
     for r in rows:
         ev = r["evidence"].replace("|", "\\|").replace("`", "'")
+        why = r.get("why", "").replace("|", "\\|").replace("`", "'")
         if r["invalid"]:
-            ev = (f"replaces invalid `Lane: {r['invalid']}`; " + ev).strip("; ")
-        lines.append(f"| `{r['path']}` | `{r['lane']}` | {ev or '—'} |")
+            why = f"replaces invalid Lane: {r['invalid']}; " + why
+        lines.append(f"| `{r['path']}` | `{r['lane']}` | {why or '—'} | {ev or '—'} |")
     return "\n".join(lines) + "\n"
 
 
@@ -174,6 +175,15 @@ def main(argv=None) -> int:
         return 2
     if a.apply:
         rows = read_table(a.table) if a.table else propose(mind, every=a.every)
+        # A rerun: every row already declares its lane — nothing to do, not a
+        # refusal.
+        rows = [r for r in rows if not ((mind / r["path"]).is_file()
+                and declared_header((mind / r["path"]).read_text(
+                    encoding="utf-8", errors="replace")).get("lane"))]
+        if not rows:
+            print("lane_backfill: nothing to apply — every proposed draft "
+                  "already declares a lane")
+            return 0
         written, refused = apply(mind, rows)
         print(f"lane_backfill: wrote Lane: into {len(written)} draft(s) "
               f"(not committed); refused {len(refused)}")

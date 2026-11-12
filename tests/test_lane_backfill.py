@@ -33,7 +33,11 @@ _spec.loader.exec_module(lb)
     ("Submit the sweep to the HPC queue.", "ral"),
     ("Submit it with SLURM.", "ral"),
     ("Outputs live under /mnt/ral/jnightin/out.", "ral"),
-    ("Compare the GPU and CPU timings.", "gpu"),
+    ("Run the benchmark on the GPU.", "gpu"),
+    ("This needs a GPU.", "gpu"),
+    ("# Wrong likelihoods on an A100\n\nBody.", "ral"),
+    ("Body.\nWitness: the cell completes on the RAL A100\n", "ral"),
+    ("Request one with --gres=gpu:1.", "ral"),
     ("Read the cutouts from /mnt/d/archive.", "wsl-data"),
     ("Fit the Euclid private data release.", "local-dev"),
     ("Needs the private datasets on the laptop.", "local-dev"),
@@ -48,15 +52,22 @@ def test_intake_infers_the_new_lane_words(text, lane):
     "The PyAutoGPU venv path is documented.",     # no word boundary: not the GPU
     "A general refactor of the parser.",          # `RAL` must be its own word
     "Point the gpu flag at the right default.",  # lower-case code identifier
+    # Mentions, not requirements (the review's false positives, 2026-11-12):
+    "It is not a CPU-vs-GPU limitation — the wheels were dropped.",
+    "Today's production GPU runs, which fit the plain dataset, are unaffected.",
+    "Compare the GPU and CPU timings.",
+    "The chunked vmap for inversion-heavy A100 likelihoods was removed with NSS.",
+    "Either scrape output, or doing large reruns on the HPC, if elegant.",
+    "We do not run this on RAL.",
 ])
 def test_intake_stays_narrow(text):
     assert _intake.infer_lane(text) == "any"
 
 
 def test_ral_outranks_gpu_and_evidence_is_the_matching_words():
-    lane, snippet = _intake.infer_lane_evidence(
+    lane, snippet, why = _intake.infer_lane_reason(
         "Benchmark on the GPU. The full sweep runs on the RAL A100 nodes.")
-    assert lane == "ral" and "RAL" in snippet
+    assert lane == "ral" and "RAL" in snippet and why.startswith("requirement:")
 
 
 # --- the backfill ------------------------------------------------------------------
@@ -73,7 +84,8 @@ def _mind(tmp_path) -> Path:
     d.mkdir(parents=True)
     files = {
         "ral.md": _prompt("", "Time it on the A100 via sbatch."),
-        "gpu.md": _prompt("", "Compare GPU throughput."),
+        "gpu.md": _prompt("", "Run the throughput leg on the GPU."),
+        "mention.md": _prompt("", "GPU runs are unaffected."),
         "wsl.md": _prompt("", "Data under /mnt/c/Users/x/data."),
         "private.md": _prompt("", "Needs the private data on disk."),
         "plain.md": _prompt("", "Tidy a docstring."),
@@ -98,8 +110,10 @@ def test_witness_b_proposal_covers_the_pool_and_apply_leaves_none(tmp_path):
     by = {Path(r["path"]).stem: r for r in rows}
     assert {k: by[k]["lane"] for k in by} == {
         "ral": "ral", "gpu": "gpu", "wsl": "wsl-data", "private": "local-dev",
-        "plain": "any", "invalid": "any"}
+        "plain": "any", "invalid": "any", "mention": "any"}
     assert "A100" in by["ral"]["evidence"] and by["plain"]["evidence"] == ""
+    assert by["ral"]["why"] == "names 'sbatch'"
+    assert by["plain"]["why"] == "no resource required"
     assert "not_ready" not in by and "declared" not in by   # outside the pool / declared
 
     # Applied to a COPY, through the human-skimmable table, edits honoured.
@@ -145,6 +159,18 @@ def test_proposal_mode_writes_only_the_table(tmp_path, capsys):
     assert lb.main(["--mind", str(mind), "--out", str(out)]) == 0
     assert {f: f.read_text() for f in mind.rglob("*.md")} == before
     text = out.read_text()
-    assert "Counts: `any` 2" in text and text.count("| `draft/") == 6
+    assert "Counts: `any` 3" in text and text.count("| `draft/") == 7
+    assert "| draft | lane | why | evidence |" in text
     assert "--from belongs" not in capsys.readouterr().err
     assert lb.main(["--mind", str(mind), "--from", str(out)]) == 2
+
+
+def test_apply_rerun_with_nothing_left_is_a_clean_no_op(tmp_path, capsys):
+    mind = _mind(tmp_path)
+    table = tmp_path / "proposals.md"
+    table.write_text(lb.table(lb.propose(mind), scope="test"))
+    assert lb.main(["--mind", str(mind), "--apply", "--from", str(table)]) == 0
+    capsys.readouterr()
+    assert lb.main(["--mind", str(mind), "--apply", "--from", str(table)]) == 0
+    assert "nothing to apply" in capsys.readouterr().out
+    assert lb.main(["--mind", str(mind), "--apply"]) == 0

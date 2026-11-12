@@ -234,6 +234,74 @@ def test_at_replays_main_as_it_stood(tmp_path):
     assert res["status"] == "ok", res
 
 
+def test_a_root_level_namesake_deletion_is_not_evidence(tmp_path):
+    """Review finding 1: a deleted root-level `__init__.py` must not make the
+    `pkg/solver_v2/__init__.py` a Witness means to CREATE read as gone."""
+    root = tmp_path / "root"
+    repo = _repo(root, "demo_repo", {"__init__.py": "\n", "pkg/a.py": "\n"})
+    (repo / "__init__.py").unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "drop the root __init__", date="2022-01-01T00:00:00Z")
+    d = _draft(tmp_path, "demo_repo", "Add a solver beside `pkg/a.py`.",
+               witness="`pkg/point/solver_v2/__init__.py` exports Solver")
+    res = _premise.check(d, root, fetch=False, offline=True)
+    assert res["status"] == "ok", res
+    assert not any(e.startswith("GONE") for e in res["evidence"])
+    assert any("pkg/point/solver_v2/__init__.py" in e for e in res["evidence"]
+               if e.startswith("absent"))
+
+
+def _two_repos(tmp_path) -> Path:
+    """A function removed from the declared repo long ago, alive in another
+    library checkout — review finding 2 (`LensCalc.from_tracer()`)."""
+    root = tmp_path / "root"
+    lens = _repo(root, "lens_lib", {"lens/calc.py": "def from_tracer():\n    pass\n"},
+                 date="2020-01-01T00:00:00Z")
+    (lens / "lens" / "calc.py").write_text("x = 1\n")
+    _git(lens, "add", "-A")
+    _git(lens, "commit", "-q", "-m", "removed from_tracer", date="2020-03-28T00:00:00Z")
+    _repo(root, "galaxy_lib", {"galaxy/calc.py": "class LensCalc:\n"
+                               "    def from_tracer(cls):\n        pass\n"})
+    return root
+
+
+def test_a_function_alive_in_another_checkout_is_found_not_gone(tmp_path):
+    root = _two_repos(tmp_path)
+    d = _draft(tmp_path, "lens_lib", "Edit `lens/calc.py`.",
+               witness="`LensCalc.from_tracer()` returns the plane")
+    res = _premise.check(d, root, fetch=False, offline=True)
+    assert res["status"] == "ok", res
+    assert any("from_tracer (galaxy_lib" in e for e in res["evidence"])
+
+
+def test_a_removal_older_than_the_draft_is_not_evidence(tmp_path):
+    root = _two_repos(tmp_path)
+    shutil_rm = __import__("shutil").rmtree
+    shutil_rm(root / "galaxy_lib")                     # alive nowhere now
+    text = _draft(tmp_path, "lens_lib", "Edit `lens/calc.py`.",
+                  witness="`from_tracer()` returns the plane").read_text()
+    d = tmp_path / "filed.md"
+    d.write_text(text.replace("Type: feature\n", "Type: feature\nFiled: 2026-09-01\n"))
+    res = _premise.check(d, root, fetch=False, offline=True)
+    assert res["status"] == "ok", res
+    assert not any(e.startswith("GONE") for e in res["evidence"])
+    # The same removal AFTER the draft was filed is evidence.
+    d.write_text(text.replace("Type: feature\n", "Type: feature\nFiled: 2020-02-01\n"))
+    assert _premise.check(d, root, fetch=False, offline=True)["status"] == "obsolete"
+
+
+def test_a_crashing_check_is_unknown_and_exit_0(tmp_path, monkeypatch, capsys):
+    root = _demo(tmp_path)
+    mind, f = _mind_with(tmp_path, DEMO_DRAFT)
+    monkeypatch.setattr(_premise, "extract", lambda text: 1 / 0)
+    rc = _batch.main(["premise", str(f), "--mind", str(mind), "--root", str(root),
+                      "--no-fetch", "--offline", "--write-verified"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.startswith("premise: unknown (check failed: ZeroDivisionError")
+    assert f.read_text() == DEMO_DRAFT
+
+
 def test_no_resolvable_repo_is_unknown(tmp_path):
     d = _draft(tmp_path, "no_such_repo", "Edit `pkg/a.py`.")
     res = _premise.check(d, tmp_path, fetch=False, offline=True)
@@ -305,6 +373,13 @@ def test_set_header_replaces_or_inserts_and_touches_nothing_else():
     assert bare == "# T\n\nLane: any\n\nJust prose.\n"
 
 
+def test_set_header_on_a_draft_gone_from_main_skips_not_raises(tmp_path):
+    lm = types.SimpleNamespace(is_ledger_path=lambda p: p.startswith("draft/"))
+    op = {"op": "set-header", "path": "draft/x/moved.md", "key": "Verified", "value": "v"}
+    note = _mind_writer.apply_op(tmp_path, op, lm)
+    assert note and "skipped" in note and not (tmp_path / "draft").exists()
+
+
 def test_set_header_op_validates_and_applies(tmp_path):
     lm = types.SimpleNamespace(is_ledger_path=lambda p: p.startswith("draft/"))
     good = {"op": "set-header", "path": "draft/x/d.md", "key": "Verified", "value": "v"}
@@ -314,7 +389,7 @@ def test_set_header_op_validates_and_applies(tmp_path):
     assert _mind_writer.validate_op({**good, "path": "scripts/x.py"}, lm)
     (tmp_path / "draft" / "x").mkdir(parents=True)
     (tmp_path / "draft" / "x" / "d.md").write_text(DEMO_DRAFT)
-    _mind_writer.apply_op(tmp_path, good, lm)
+    assert _mind_writer.apply_op(tmp_path, good, lm) is None
     assert "Verified: v\n" in (tmp_path / "draft" / "x" / "d.md").read_text()
 
 
@@ -360,3 +435,16 @@ def test_the_premise_check_is_the_workers_first_step(tmp_path):
     assert step in prompt
     assert prompt.index(step) < prompt.index("Use the start-dev skill.")
     assert "`obsolete` (exit 1): stop." in prompt
+    assert "`unknown` (exit 0, including `check failed: …`): go on" in prompt
+
+
+def test_the_digest_names_an_obsolete_worker():
+    import _digest
+    out = _digest.parse_done("obsolete a file the Witness: names is gone on main\n")
+    assert out == {"prs": [], "merged": [],
+                   "obsolete": "a file the Witness: names is gone on main"}
+    state, tiered = _digest.task_state("t1", {"outcomes": {"t1": out}}, None)
+    assert state == ("obsolete (premise check): a file the Witness: names is gone "
+                     "on main") and not tiered
+    bare = _digest.task_state("t1", {"outcomes": {"t1": _digest.parse_done("obsolete")}}, None)
+    assert bare[0] == "obsolete (premise check): see its proof packet"

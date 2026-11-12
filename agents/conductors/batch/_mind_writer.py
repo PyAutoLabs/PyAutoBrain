@@ -105,8 +105,12 @@ def validate_op(op: dict, lm) -> list[str]:
     return errs
 
 
-def apply_op(tree: Path, op: dict, lm) -> None:
-    """Apply one validated op inside `tree`; raises MindWriteError if it cannot."""
+def apply_op(tree: Path, op: dict, lm) -> str | None:
+    """Apply one validated op inside `tree`; raises MindWriteError if it cannot.
+
+    Returns a note when the op was deliberately skipped. Only `set-header`
+    skips: it is a stamp, and a draft moved or retired on main since the
+    check ran must not hold every other op of the shift pending for ever."""
     target = tree / op["path"]
     kind = op["op"]
     if kind == "append":
@@ -139,7 +143,8 @@ def apply_op(tree: Path, op: dict, lm) -> None:
         target.write_text(lm.join_entries(preamble, kept), encoding="utf-8")
     elif kind == "set-header":
         if not target.exists():
-            raise MindWriteError(f"set-header: {op['path']} does not exist")
+            return (f"set-header: {op['path']} is not on main (moved or retired "
+                    f"since the check) — {op['key']}: skipped")
         target.write_text(set_header(target.read_text(encoding="utf-8"),
                                      op["key"], op["value"]), encoding="utf-8")
     elif kind == "table-append":
@@ -273,8 +278,9 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
         try:
             _git(mind_repo, "worktree", "add", "-q", "--detach", str(tree),
                  f"{remote}/{branch}")
-            for op in ops:
-                apply_op(tree, op, lm)
+            notes = [n for op in ops if (n := apply_op(tree, op, lm))]
+            for n in notes:
+                print(f"mind-writer: {n}", file=sys.stderr)
             _git(tree, "add", "-A")
             if not _git(tree, "status", "--porcelain").stdout.strip():
                 sha = None  # every op was already true on main
@@ -288,7 +294,8 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
             done.mkdir(parents=True, exist_ok=True)
             for f in files:
                 f.replace(done / f.name)
-            return {"committed": sha, "ops": len(ops), "tries": attempt}
+            return {"committed": sha, "ops": len(ops), "tries": attempt,
+                    "skipped": notes}
         finally:
             # Our own throwaway tree. A failed apply can leave it dirty, so
             # delete the directory and prune the registration, no force flag.
