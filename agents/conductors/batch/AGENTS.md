@@ -208,6 +208,46 @@ last edited <date>" — and never reaches a worker unless the human adopts it;
 `brief --check` warns when `goals.md`'s goal 1 is missing from a brief, unless
 goal 1 came from the dashboard (PyAutoMind#565; readers in `_steer.py`).
 
+## The keep-Heart-green lane (`_green.py`, PyAutoBrain#625)
+
+The human, 2026-11-13: "having the autonomous agent constantly trying to
+ensure its green (without having it be overly eager doing releases)". So
+`brief --new` reads Heart's release verdict first: the local
+`pyauto-heart readiness --json` (it carries per-repo keys), else the published
+feed, under `heart_feed.py`'s 6 h rule (a fresher feed wins over an over-age
+snapshot). It runs at brief time, never in the watcher's tick, whose network
+surface does not grow.
+
+Every RED, YELLOW and STALE reason is sorted by the `RULES` table in
+`_green.py` (first match wins; Heart's `repository_reasons` key wins over the
+text; no match is `human-only`, fail closed):
+
+| Class | Examples | The lane |
+|---|---|---|
+| `fixable-dev` | red CI on `main`, a failing workspace script, a red unit test, a dependency floor, manifest/URL lint, Lifecycle Drift | files a bug draft, picks it |
+| `local-checkout` | behind, dirty, on a branch, worktree drift | reports only: another session's work may be in progress |
+| `release-scope` | release integrate failed, install check F, rehearsal stale | reports, and names the human's release action |
+| `human-only` | open PR, quarantine doctrine, parked scripts, timing, credentials | reports |
+
+For `fixable-dev` it dedupes on a key (`ci:<repo>`, `script:<path>` …):
+a prompt in `draft/`/`active/` carrying `<!-- heart-key: <key> -->`, quoting
+the reason or naming the script, a `queue.md` line, or the lane's state file
+(`<orchestrator home>/heart_green.json`: a key it filed is never re-filed,
+even after its draft leaves the backlog). It files at most `--green-cap`
+(3) new drafts per brief — `Consequence: judge`, a `Lane:`, a re-check-first
+note, the quoted reason and a Witness — red first; the rest wait for the next
+brief. In `pick` mode (the default; `--green off|report|file|pick`,
+`$PYAUTO_HEART_GREEN`) a filed or existing `draft/` prompt whose `Lane:` is in
+the brief's lanes becomes a named task under a last `heart-green` goal. An
+active quarantine's bug task is picked if it is in the backlog, never filed.
+The record gets a `## Heart` section: reasons by class, filed, picked, and what
+needs the human. `batch green` is the same lane alone, `report` by default.
+
+It never releases, rehearses, dispatches a workflow, forces, touches a
+freeze, writes `queue.md`, edits another prompt, or quarantines (it may
+propose one). `_green.py` imports no process or network module; the tests
+pin that and record every process a full brief run starts.
+
 ## The watcher (phases 3a–3d)
 
 `bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one
