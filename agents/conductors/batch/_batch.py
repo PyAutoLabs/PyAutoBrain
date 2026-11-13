@@ -55,6 +55,7 @@ from _sizing import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
+import _green  # noqa: E402 — the keep-Heart-green lane (PyAutoBrain#625)
 # The human's goals (goals.md, PyAutoMind#565): `brief --new` copies them.
 from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
 # The close-out guard's reader (intake `looks-shipped`): the live flags minus
@@ -2900,11 +2901,13 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
     ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch",
-                                     "slice", "premise"], nargs="?", default="plan")
+                                     "slice", "premise", "green"], nargs="?",
+                    default="plan")
     ap.add_argument("prompt", nargs="?", default="",
                     help="slice: the needs-slicing prompt to decompose; "
                          "premise: the draft whose premise to check")
-    ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
+    ap.add_argument("--mind", type=Path, default=None,
+                    help="the PyAutoMind checkout (default: the canonical one)")
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
                     help="review-minutes available in the slot")
     ap.add_argument("--awaiting-review", type=int, default=None,
@@ -2926,6 +2929,19 @@ def main(argv=None) -> int:
                     help="brief: print a skeleton shift brief for SLOT (e.g. "
                          "2026-11-14-am) whose goals: come from goals.md; "
                          "needs --review-at; --out FILE writes it instead")
+    # the keep-Heart-green lane (PyAutoBrain#625): `brief --new` and `green`
+    ap.add_argument("--green", default="", choices=("",) + _green.MODES,
+                    help="brief --new / green: the keep-Heart-green lane — off | "
+                         "report | file (bug drafts) | pick (file, then name them "
+                         f"as tasks; opt-in). Default: ${_green.MODE_ENV}, else "
+                         f"{_green.DEFAULT_MODE} for brief --new, report for green. "
+                         "It writes only with --out and an explicit, non-canonical "
+                         "--mind")
+    ap.add_argument("--green-cap", type=int, default=_green.DEFAULT_CAP,
+                    help="brief --new / green: at most this many new drafts")
+    ap.add_argument("--heart-json", default="", metavar="FILE",
+                    help="brief --new / green: read this saved `readiness --json` "
+                         "or state.json instead of Heart (a replay; --at sets now)")
     ap.add_argument("--brief", default="", metavar="FILE",
                     help="plan: compose inside this shift brief (named tasks "
                          "first, then its backlog policy)")
@@ -2988,7 +3004,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     lane = a.lane or detect_lane()
-    mind = a.mind.resolve()
+    a.mind_explicit = a.mind is not None
+    mind = (a.mind or BODY_MAP_PATH.parent).resolve()
     if a.prompt and a.verb not in ("slice", "premise"):
         print(f"batch {a.verb}: unexpected argument {a.prompt!r}", file=sys.stderr)
         return RC_USAGE
@@ -3008,6 +3025,8 @@ def main(argv=None) -> int:
             return _main_digest(mind, a)
         if a.verb == "watch":
             return _main_watch(a)
+        if a.verb == "green":
+            return _main_green(mind, a)
         return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)
@@ -3258,8 +3277,9 @@ def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:
         except (OSError, _brief.BriefError):
             continue
         if brief and brief.get("goals"):
-            return f.name, [re.sub(r"^\d+\.\s*", "", c["text"])
-                            for c in brief["goals"]["children"]]
+            goals = [re.sub(r"^\d+\.\s*", "", c["text"])
+                     for c in brief["goals"]["children"]]
+            return f.name, [g for g in goals if not g.startswith(_green.GOAL_PREFIX)]
     return None
 
 
@@ -3297,7 +3317,7 @@ _UNSET = object()
 
 
 def new_brief(mind: Path, slot: str, review_at: str, now=None,
-              prov=_UNSET) -> str:
+              prov=_UNSET, heart: dict | None = None) -> str:
     """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
 
     A goal last written from the dashboard is emitted commented out, marked
@@ -3307,7 +3327,11 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
     `epics:`/`tags:`; with none named, `fill-idle`. Every other required key
     gets a default the human edits. Writing the record (with its `review-at:`)
     is the dispatch, so this only composes the text (batches/AGENTS.md
-    "Shift brief")."""
+    "Shift brief").
+
+    `heart` is the keep-Heart-green lane's result (`_green.run`): its picks
+    become a last `heart-green` goal plus named `tasks:`, and its report the
+    record's `## Heart` section (PyAutoBrain#625)."""
     goals = read_goals(mind)
     prov = resolve_provenance(mind, goal_provenance(mind) if prov is _UNSET else prov)
     now = now or _dt.datetime.now(_dt.timezone.utc)
@@ -3337,6 +3361,12 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
                      "not adopted; delete the '# ' to adopt")
         else:
             L.append(f"    - {text}")
+    picks = (heart or {}).get("picks") or []
+    if picks:
+        L.append(f"    - {len(goals) + 1}. {_green.GOAL_PREFIX}: clear the "
+                 "fixable Heart reasons the lane picked (see ## Heart)")
+        L.append("  - tasks:                          # the heart-green lane's picks")
+        L += [f"    - {t}" for t in picks]
     if epics or tags:
         L += ["  - backlog: scoped                 # the goals' epics and tags",
               "  - scoped:"]
@@ -3351,7 +3381,8 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
           f"  - merge-cap: {NEW_BRIEF_DEFAULTS['merge-cap']}"
           "                     # unattended glance merges: raise deliberately",
           f"  - token-budget: {NEW_BRIEF_DEFAULTS['token-budget']}"]
-    return "\n".join(L) + "\n"
+    text = "\n".join(L) + "\n"
+    return text + "\n" + _green.section(heart) if heart else text
 
 
 def goal_one_warning(path: Path, mind: Path) -> str:
@@ -3392,7 +3423,13 @@ def _main_brief(mind: Path, a) -> int:
                   "grant expires there, and it is yours to declare", file=sys.stderr)
             return RC_USAGE
         prov = goal_provenance(mind)
-        text = new_brief(mind, a.new, a.review_at, prov=prov)
+        heart = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or _green.DEFAULT_MODE,
+                           preview=not a.out)
+        text = new_brief(mind, a.new, a.review_at, prov=prov, heart=heart)
+        if heart["filed"]:
+            print(f"batch brief --new: heart-green filed {len(heart['filed'])} "
+                  f"draft(s) in {mind} (uncommitted — commit them with the "
+                  "record): " + ", ".join(heart["filed"]), file=sys.stderr)
         for line in goals_report(mind, prov):
             print(line, file=sys.stderr)
         if a.out:
@@ -3434,6 +3471,81 @@ def _main_brief(mind: Path, a) -> int:
         for p in res["premise"]:
             print(f"  premise {p['status']}: {p['task']}")
     return RC_OK if res["ok"] else RC_FINDINGS
+
+
+#: Where the lane may not write: the shared, canonical Mind checkout other
+#: sessions work in (memory: shared-Mind writes go through a temp worktree).
+SHARED_MIND_HOLD = ("--mind is not a linked worktree ({}) — a main checkout is the "
+                    "shared canonical Mind; the lane writes drafts only into a "
+                    "Mind the caller names that is a temp "
+                    "worktree on origin/main (`git -C <mind> worktree add <dir> "
+                    "origin/main`), passed as --mind, committed and pushed from there")
+
+
+def is_linked_worktree(path: Path) -> bool:
+    """True only for a LINKED git worktree (`--git-dir` differs from
+    `--git-common-dir`). The main checkout of any clone, wherever it lives,
+    is False — so is anything git cannot read."""
+    dirs = []
+    for flag in ("--git-dir", "--git-common-dir"):
+        try:
+            out = subprocess.run(["git", "-C", str(path), "rev-parse", flag],
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if out.returncode != 0 or not out.stdout.strip():
+            return False
+        dirs.append((path / out.stdout.strip()).resolve())
+    return dirs[0] != dirs[1]
+
+
+def write_hold(mind: Path, a, preview: bool) -> str:
+    """Why the lane may not write here, or "" (review of #625): never in a
+    preview, never into an implicit Mind, and only into a linked worktree —
+    the main checkout of any Mind clone is the shared one."""
+    if preview:
+        return "a preview (no --out) writes nothing"
+    if not getattr(a, "mind_explicit", False) or not is_linked_worktree(mind):
+        return SHARED_MIND_HOLD.format(mind)
+    return ""
+
+
+def green_lane(mind: Path, a, default_mode: str, preview: bool = False) -> dict:
+    """Run the keep-Heart-green lane for `brief --new` / `green` (`_green`).
+    It reads Heart and may write NEW drafts and its state file — only when
+    `write_hold` allows; nothing else."""
+    mode = a.green or default_mode
+    if mode not in _green.MODES:
+        raise BatchUsageError(f"batch: --green {mode!r} — one of "
+                              + " | ".join(_green.MODES))
+    now = _brief._iso(a.at) if a.at else None
+    if now is not None and now.tzinfo is None:
+        now = now.replace(tzinfo=_dt.timezone.utc)
+    if mode == "off":
+        heart = {"status": "grey", "source": "not read", "reasons": []}
+    else:
+        heart = _green.read_heart(a.heart_json, now=now)
+    import _orchestrator  # noqa: E402 — deferred: only the state path
+    home = a.home or _orchestrator.orchestrator_home()
+    lanes = NEW_BRIEF_DEFAULTS["lanes"].split()
+    return _green.run(mind, heart, mode=mode, cap=max(a.green_cap, 0), lanes=lanes,
+                      state_path=Path(home) / _green.STATE_NAME, now=now,
+                      hold=write_hold(mind, a, preview))
+
+
+def _main_green(mind: Path, a) -> int:
+    """`batch green [--green report|file|pick] [--heart-json F] [--json]` —
+    the lane on its own: classify Heart's reasons and (from `file`) file the
+    fixable ones. Defaults to `report`, which writes nothing."""
+    if not (mind / "draft").is_dir():
+        print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
+        return RC_NO_MIND
+    res = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or "report")
+    if a.as_json:
+        print(json.dumps(res, indent=2, default=str))
+    else:
+        sys.stdout.write(_green.section(res))
+    return RC_OK
 
 
 def _main_plan(mind: Path, a, lane: str) -> int:

@@ -182,9 +182,10 @@ def from_readiness(r):
             "updated": r.get("feed_ts") or r.get("ts"), "items": items}
 
 
-def read_local(timeout=FALLBACK_TIMEOUT, repos=None):
-    """(state, why) from the local Heart CLI's readiness verdict (no tick);
-    with `repos`, its scoped development-ship verdict."""
+def local_readiness(timeout=FALLBACK_TIMEOUT, repos=None):
+    """(verdict, why) — the local Heart CLI's raw `readiness --json` (no tick),
+    with its `repository_reasons`; with `repos`, the scoped dev-ship verdict.
+    The keep-Heart-green lane reads this raw form (PyAutoBrain#625)."""
     cli = resolve_heart_cli()
     if cli is None:
         return None, "no pyauto-heart on PATH or in the sibling checkout"
@@ -194,13 +195,22 @@ def read_local(timeout=FALLBACK_TIMEOUT, repos=None):
     try:
         proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         out = json.loads(proc.stdout)
+        if not isinstance(out, dict):
+            raise ValueError("not a JSON object")
         if repos and out.get("gate") != "dev-ship":
             return None, "local pyauto-heart has no dev-ship gate (`readiness --dev`)"
-        return from_readiness(out), None
+        return out, None
     except subprocess.TimeoutExpired:
         return None, f"pyauto-heart readiness timed out after {timeout}s"
     except (OSError, ValueError, AttributeError) as exc:
         return None, f"pyauto-heart readiness unreadable ({str(exc)[:80]})"
+
+
+def read_local(timeout=FALLBACK_TIMEOUT, repos=None):
+    """(state, why) from the local Heart CLI's readiness verdict (no tick);
+    with `repos`, its scoped development-ship verdict."""
+    out, why = local_readiness(timeout=timeout, repos=repos)
+    return (from_readiness(out), None) if out is not None else (None, why)
 
 
 # ----------------------------------------------------------------- render ---

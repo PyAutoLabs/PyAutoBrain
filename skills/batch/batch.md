@@ -97,7 +97,7 @@ In order:
 5. Confirm what was dispatched, and stop. Do not follow the runs.
 
 **Brief verbs** (`batch brief --check`, `batch plan --brief`, `batch digest`):
-[`reference.md`](reference.md). Run the check before writing a brief's `review-at:`.
+[`reference.md`](reference.md). Run the check before writing a brief's `review-at:`. `brief --new` also runs the keep-Heart-green lane: a `## Heart` section and up to 3 bug drafts for fixable Heart reasons (only with `--out` and a non-shared `--mind`; named as tasks only with `--green pick`); it never releases (`batch green` = dry run; `agents/conductors/batch/AGENTS.md`).
 
 ## The watcher (phases 3a–3d)
 

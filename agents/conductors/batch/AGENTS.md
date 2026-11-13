@@ -208,6 +208,56 @@ last edited <date>" — and never reaches a worker unless the human adopts it;
 `brief --check` warns when `goals.md`'s goal 1 is missing from a brief, unless
 goal 1 came from the dashboard (PyAutoMind#565; readers in `_steer.py`).
 
+## The keep-Heart-green lane (`_green.py`, PyAutoBrain#625)
+
+The human, 2026-11-13: "having the autonomous agent constantly trying to
+ensure its green (without having it be overly eager doing releases)". So
+`brief --new` reads Heart's release verdict first: the local
+`pyauto-heart readiness --json` (it carries per-repo keys), else the published
+feed, under `heart_feed.py`'s 6 h rule (a fresher feed wins over an over-age
+snapshot). It runs at brief time, never in the watcher's tick, whose network
+surface does not grow.
+
+Every RED, YELLOW and STALE reason is sorted by the `RULES` table in
+`_green.py` (first match wins; Heart's `repository_reasons` key wins over the
+text; no match is `human-only`, fail closed):
+
+| Class | Examples | The lane |
+|---|---|---|
+| `fixable-dev` | red CI on `main`, a failing workspace script, a red unit test, a yanked or unparseable floor, URL lint, Lifecycle Drift | files a bug draft; picks it only on opt-in |
+| `local-checkout` | behind, dirty, on a branch, worktree drift, every manifest-drift leg (they read the checkouts on disk, other sessions' worktrees included; `MANIFEST_FIXABLE` allowlists a leg that judges `main`) | reports only: another session's work may be in progress |
+| `release-scope` | release integrate failed, install check F, rehearsal stale, a floor above the newest release | reports, and names the human's release action |
+| `human-only` | open PR, quarantine doctrine, parked scripts, timing, credentials | reports |
+
+For `fixable-dev` it dedupes on a key (`ci:<repo>`, `script:<path>` …):
+a prompt in `draft/`/`active/` carrying `<!-- heart-key: <key> -->`, quoting
+the reason or naming the script, a `queue.md` line, or the lane's state file
+(`<orchestrator home>/heart_green.json`: a key it filed is not re-filed while
+Heart keeps listing it; a fresh, valid read without the reason clears the
+row, so a later recurrence files again). It files at most `--green-cap` (3)
+new drafts per brief — `Consequence: judge`, a `Lane:`, a re-check-first
+note, the quoted reason, a Witness, `Difficulty:` from the sizing faculty and
+no `Unattended:` (the lane never grades its own drafts ready) — red first;
+the rest wait for the next brief.
+
+**Where it writes.** Modes are `--green off|report|file|pick` (or
+`$PYAUTO_HEART_GREEN`); the default is `file`. It writes drafts and its state
+only when `brief --new` has `--out` (a stdout preview writes nothing) and
+`--mind` names a Mind that is not the canonical shared checkout — a temp
+worktree on `origin/main`, committed and pushed from there. Otherwise it
+reports what it would file and says why. `pick` is the human's opt-in: a filed
+or existing `draft/` prompt whose `Lane:` the brief allows and that sizing
+grades `Unattended: ready` becomes a named task under a last `heart-green`
+goal. An active quarantine's bug task is picked only when a prompt carries the
+lane's key mark or has the entry's bug ref as its `Issue:`; it is never filed.
+The record gets a `## Heart` section: reasons by class, filed, picked, and what
+needs the human. `batch green` is the same lane alone, `report` by default.
+
+It never releases, rehearses, dispatches a workflow, forces, touches a
+freeze, writes `queue.md`, edits another prompt, or quarantines (it may
+propose one). `_green.py` imports no process or network module; the tests
+pin that and record every process a full brief run starts.
+
 ## The watcher (phases 3a–3d)
 
 `bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one

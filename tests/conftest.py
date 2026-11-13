@@ -20,6 +20,14 @@ def _no_session_bootstrap(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_heart_lane(monkeypatch):
+    """`batch brief --new` runs the keep-Heart-green lane (PyAutoBrain#625),
+    which reads the live Heart and writes a state file. Off in tests unless a
+    test asks for it (`--green`, with a saved `--heart-json` and `--home`)."""
+    monkeypatch.setenv("PYAUTO_HEART_GREEN", "off")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_github(monkeypatch):
     """The shift watcher's GitHub seams never reach GitHub from a test
     (PyAutoBrain#610 Witness 5: the suite passes offline). A test that passes
