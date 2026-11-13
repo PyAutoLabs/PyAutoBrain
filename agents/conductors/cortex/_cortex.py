@@ -38,7 +38,9 @@ cluster) · `census [--json]` · `drift [--science-root PATH] [--json]`
 `birth <key> --category active|development --assistant A --summary S
 [--apply] [--no-push]` (a scaffolded project's row and ledger, written by
 the Cortex's own `cortex.py birth` on `claude/birth-<key>`) ·
-`dashboard --check|--apply` · `issue [--project KEY] [--apply]`.
+`dashboard --check|--apply` (`--apply`, like the check-in, also mirrors
+`dashboard.md` to `<science_root>/STATE.md` when that root is on this
+machine) · `issue [--project KEY] [--apply]`.
 
 Exit codes: 0 ok · 1 dashboard drift (the `dashboard_refresh.yml` contract),
 a failed pull, a tree that does not check, or an error-severity Science drift
@@ -296,6 +298,8 @@ def census(root: Path) -> dict:
         "running": sum(1 for d in rows for r in d["runs"] if r["state"] == "running"),
         "open": sum(1 for d in rows for r in d["runs"] if r["state"] == "open"),
         "active": sum(1 for row in projects.values() if row.get("status") == "active"),
+        "dormant": sum(1 for row in projects.values() if row.get("status") == "dormant"),
+        "retired": sum(1 for row in projects.values() if row.get("status") == "retired"),
     }
     return {
         "root": str(root),
@@ -533,8 +537,56 @@ def _registration(d: dict) -> tuple[str, str]:
     return min(opened) if opened else "not recorded", now
 
 
+def _run_key(r: dict) -> tuple:
+    """Newest-first sort key: the full date, then the job id — numerically
+    where it leads with digits (`3002_[0-3]` sorts as 3002)."""
+    m = re.match(r"\d+", r["ident"])
+    job = (1, int(m.group()), r["ident"]) if m else (0, 0, r["ident"])
+    return (r["date"] or "", job)
+
+
+def runs_newest_first(d: dict) -> list[dict]:
+    """A card's runs, newest first (the ledger keeps them in recorded order)."""
+    return sorted(d["runs"], key=_run_key, reverse=True)
+
+
+def _run_date(date: str) -> str:
+    """The runs table's Date cell: `MM-DD` — the year is the board's, and the
+    sort above still reads the full date."""
+    return date[5:] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date or "") else date
+
+
+#: The board's status sections, in page order. `planned` gets its own
+#: section only when some project is planned.
+STATUS_SECTIONS = ("active", "planned", "dormant", "retired")
+
+
+def _section_of(status: str) -> str:
+    """The section a project's status lands in; an unknown status is not
+    hidden — it sits with the dormant ones, its status on the card."""
+    return status if status in STATUS_SECTIONS else "dormant"
+
+
+def _status_sections(c: dict) -> list[str]:
+    """The sections this board shows: always Active, Dormant, Retired; Planned
+    only when a row or ledger is planned."""
+    planned = any(row.get("status") == "planned" for row in c["projects"].values()) \
+        or any(d["status"] == "planned" for d in c["ledgers"])
+    return [s for s in STATUS_SECTIONS if s != "planned" or planned]
+
+
+def _summary_rows(c: dict, section: str) -> list[tuple[str, dict, dict | None]]:
+    """`(key, row, ledger-or-None)` for every projects.yaml row in a section."""
+    return [(k, row, ledger_of(c, k)) for k, row in c["projects"].items()
+            if _section_of(row.get("status", "")) == section]
+
+
+def _section_ledgers(c: dict, section: str) -> list[dict]:
+    return [d for d in c["ledgers"] if _section_of(d["status"]) == section]
+
+
 def _card_md(d: dict, row: dict, blob: str) -> list[str]:
-    issue = (f"[{d['issue']}]({d['issue_url']})" if d["issue_url"]
+    issue =(f"[{d['issue']}]({d['issue_url']})" if d["issue_url"]
              else "no issue yet")
     registered, now = _registration(d)
     L = [f'<details id="project-{_attr(d["key"])}"><summary><b>{_esc(d["key"])}</b> — '
@@ -551,10 +603,11 @@ def _card_md(d: dict, row: dict, blob: str) -> list[str]:
     if d["runs"]:
         L += ["| Job | State | Partition | Date | Description |",
               "|---|---|---|---|---|"]
+        runs = runs_newest_first(d)
         L += [f"| `{r['ident']}` | {r['state']} | {_cell(r['partition'])} | "
-              f"{r['date']} | {_cell(_md_text(_clip(r['what'], RUN_CLIP)))} |"
-              for r in d["runs"]]
-        clipped = [r for r in d["runs"] if _clipped(r["what"], RUN_CLIP)]
+              f"{_run_date(r['date'])} | {_cell(_md_text(_clip(r['what'], RUN_CLIP)))} |"
+              for r in runs]
+        clipped = [r for r in runs if _clipped(r["what"], RUN_CLIP)]
         if clipped:
             L += ["", f"<details><summary>Full descriptions ({len(clipped)} "
                   "shortened above)</summary>", ""]
@@ -594,12 +647,12 @@ def _runs_table_html(d: dict) -> list[str]:
          '<thead><tr><th scope="col">Job</th><th scope="col">State</th>'
          '<th scope="col">Partition</th><th scope="col">Date</th>'
          '<th scope="col">Description</th></tr></thead>', "<tbody>"]
-    for r in d["runs"]:
+    for r in runs_newest_first(d):
         tone = "y" if r["state"] == "running" else "n"
         H.append(f'<tr><td class="job"><code>{_esc(r["ident"])}</code></td>'
                  f'<td class="state" data-label="State"><span class="pill {tone}">{_esc(r["state"])}</span></td>'
                  f'<td class="part" data-label="Partition">{_esc(r["partition"])}</td>'
-                 f'<td class="date">{_esc(r["date"])}</td>'
+                 f'<td class="date" title="{_attr(r["date"])}">{_esc(_run_date(r["date"]))}</td>'
                  f'<td class="what">{_full_text_html(r["what"], RUN_CLIP, clauses=True)}</td></tr>')
     H += ["</tbody>", "</table>"]
     return H
@@ -662,7 +715,9 @@ def render_dashboard(c: dict) -> str:
           "| Where | Count |", "|-------|------:|",
           f"| [Running](#projects) | {n['running']} |",
           f"| [Open](#projects) | {n['open']} |",
-          f"| [Projects](#projects) | {n['active']} |", ""]
+          f"| [Active](#active) | {n['active']} |",
+          f"| [Dormant](#dormant) | {n['dormant']} |",
+          f"| [Retired](#retired) | {n['retired']} |", ""]
     if c["problems"]:
         L += ["> ⚠️ **The tree does not check** — `python3 scripts/cortex.py "
               "check` reports:", ""]
@@ -671,30 +726,41 @@ def render_dashboard(c: dict) -> str:
     L += [_task_row(CHECKIN_LABEL, checkin_payload(c)), "",
           f"### Last check-in: {c.get('checkin') or CHECKIN_NEVER}", ""]
 
-    L += ["## Summary", "", "| Project | Running | Open | Last update |",
-          "|---|---:|---:|---|"]
-    active = [k for k, row in c["projects"].items() if row.get("status") == "active"]
-    for key in active:
-        d = ledger_of(c, key)
-        running = sum(1 for r in (d["runs"] if d else []) if r["state"] == "running")
-        open_ = sum(1 for r in (d["runs"] if d else []) if r["state"] == "open")
-        L.append(f"| {key} | {running} | {open_} | "
-                 f"{(d['updated'] if d else '') or '-'} |")
-    if not active:
-        L.append("| _(no active project)_ | | | |")
-    L.append("")
+    sections = _status_sections(c)
+    L += ["## Summary", ""]
+    for section in sections:
+        rows = _summary_rows(c, section)
+        L += [f"### {section.title()}", ""]
+        if section == "retired":
+            L += ["| Project | Note | Last update |", "|---|---|---|"]
+            L += [f"| {key} | {_cell(row.get('note') or '-')} | "
+                  f"{(d['updated'] if d else '') or '-'} |" for key, row, d in rows]
+            if not rows:
+                L.append("| _(no retired project)_ | | |")
+        else:
+            L += ["| Project | Running | Open | Last update |", "|---|---:|---:|---|"]
+            for key, row, d in rows:
+                running, open_, updated = _overview(d) if d else (0, 0, "-")
+                L.append(f"| {key} | {running} | {open_} | {updated} |")
+            if not rows:
+                L.append(f"| _(no {section} project)_ | | | |")
+        L.append("")
 
     L += ["## Projects", ""]
-    live = [d for d in c["ledgers"] if d["status"] != "retired"]
-    retired = [d for d in c["ledgers"] if d["status"] == "retired"]
-    for d in live:
-        L += _card_md(d, c["projects"].get(d["key"], {}), blob)
-    if retired:
-        L += [f"<details><summary>{len(retired)} retired</summary>", ""]
-        L += [f"- [{d['key']}]({_ledger_link(d, blob)}) — {_cell(d['summary'])} — "
-              f"{_cell(c['projects'].get(d['key'], {}).get('note') or '-')}"
-              for d in retired]
-        L += ["", "</details>", ""]
+    for section in sections:
+        L += [f"### {section.title()}", ""]
+        ledgers = _section_ledgers(c, section)
+        if section == "retired":
+            L += [f"- [{d['key']}]({_ledger_link(d, blob)}) — {_cell(d['summary'])} — "
+                  f"{_cell(c['projects'].get(d['key'], {}).get('note') or '-')} — "
+                  f"updated {d['updated'] or '-'}" for d in ledgers]
+        else:
+            for d in ledgers:
+                L += _card_md(d, c["projects"].get(d["key"], {}), blob)
+        if section == "retired" or not ledgers:
+            if not ledgers:
+                L.append(f"_(no {section} project with a ledger)_")
+            L.append("")
     bare = no_ledger_rows(c)
     if bare:
         L += ["#### No ledger", "", "| Project | Status | Note |", "|---|---|---|"]
@@ -757,7 +823,9 @@ _FRESH_CSS = (
     "table.runs td.what{flex:1 0 100%;margin-top:.15rem}}"
     ".pathchip{display:inline-block;background:var(--accent);color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;padding:.12em .5em;border-radius:.3rem;overflow-wrap:anywhere}"
     "@media(prefers-color-scheme:dark){.pathchip{background:color-mix(in srgb,var(--accent) 55%,#000)}}"
-    ".stale{color:var(--bad);font-weight:600}")
+    ".stale{color:var(--bad);font-weight:600}"
+    "h3.status-section{margin:1.4rem 0 .4rem}"
+    "ul.retired{margin:.3rem 0;padding-left:1.2rem}ul.retired li{margin:.3rem 0}")
 
 
 def render_dashboard_html(c: dict) -> str:
@@ -786,7 +854,9 @@ def render_dashboard_html(c: dict) -> str:
         hero(THEME_ORGAN, "Dashboard", _esc(INTRO), navigation=[
             {"label": "Running", "href": "#summary", "count": n["running"]},
             {"label": "Open", "href": "#summary", "count": n["open"]},
-            {"label": "Projects", "href": "#projects", "count": n["active"]},
+            {"label": "Active", "href": "#active", "count": n["active"]},
+            {"label": "Dormant", "href": "#dormant", "count": n["dormant"]},
+            {"label": "Retired", "href": "#retired", "count": n["retired"]},
             {"label": "Check in", "href": "#orchestration-cortex"},
         ]),
         orchestration_panel(
@@ -804,33 +874,49 @@ def render_dashboard_html(c: dict) -> str:
               "<code>scripts/cortex.py check</code> reports:</p>", "<ul>"]
         H += [f"<li><code>{_esc(p)}</code></li>" for p in c["problems"][:10]]
         H += ["</ul>"]
-    H += ['<a id="summary"></a><h2>Summary</h2>', '<table class="map">',
-          "<tr><th>Project</th><th>Running</th><th>Open</th>"
-          "<th>Last update</th></tr>"]
-    active = [k for k, row in c["projects"].items() if row.get("status") == "active"]
-    for key in active:
-        d = ledger_of(c, key)
-        runs = d["runs"] if d else []
-        H.append(f"<tr><td><b>{_esc(key)}</b></td>"
-                 f"<td>{sum(1 for r in runs if r['state'] == 'running')}</td>"
-                 f"<td>{sum(1 for r in runs if r['state'] == 'open')}</td>"
-                 f"<td>{_esc((d['updated'] if d else '') or '-')}</td></tr>")
-    if not active:
-        H.append('<tr><td colspan="4" class="muted">(no active project)</td></tr>')
-    H.append("</table>")
+    sections = _status_sections(c)
+    H.append('<a id="summary"></a><h2>Summary</h2>')
+    for section in sections:
+        rows = _summary_rows(c, section)
+        H += [f"<h3>{section.title()}</h3>",
+              f'<table class="map" aria-label="{section.title()} projects">']
+        if section == "retired":
+            H.append("<tr><th>Project</th><th>Note</th><th>Last update</th></tr>")
+            H += [f"<tr><td><b>{_esc(key)}</b></td>"
+                  f"<td>{_esc(row.get('note') or '-')}</td>"
+                  f"<td>{_esc((d['updated'] if d else '') or '-')}</td></tr>"
+                  for key, row, d in rows]
+            if not rows:
+                H.append('<tr><td colspan="3" class="muted">(no retired project)</td></tr>')
+        else:
+            H.append("<tr><th>Project</th><th>Running</th><th>Open</th>"
+                     "<th>Last update</th></tr>")
+            for key, row, d in rows:
+                running, open_, updated = _overview(d) if d else (0, 0, "-")
+                H.append(f"<tr><td><b>{_esc(key)}</b></td><td>{running}</td>"
+                         f"<td>{open_}</td><td>{_esc(updated)}</td></tr>")
+            if not rows:
+                H.append(f'<tr><td colspan="4" class="muted">(no {section} project)</td></tr>')
+        H.append("</table>")
 
     H.append('<a id="projects"></a><h2>Projects</h2>')
-    live = [d for d in c["ledgers"] if d["status"] != "retired"]
-    retired = [d for d in c["ledgers"] if d["status"] == "retired"]
-    for d in live:
-        H += _card_html(d, c["projects"].get(d["key"], {}), blob)
-    if retired:
-        H += [f"<details><summary>{len(retired)} retired</summary><ul>"]
-        H += [f'<li><a href="{_attr(_ledger_link(d, blob))}">{_esc(d["key"])}</a>'
-              f" — {_esc(d['summary'])} — "
-              f"{_esc(c['projects'].get(d['key'], {}).get('note') or '-')}</li>"
-              for d in retired]
-        H += ["</ul></details>"]
+    for section in sections:
+        ledgers = _section_ledgers(c, section)
+        H.append(f'<h3 class="status-section" id="{section}">{section.title()}</h3>')
+        if section == "retired":
+            if ledgers:
+                H.append('<ul class="retired">')
+                H += [f'<li><a href="{_attr(_ledger_link(d, blob))}">'
+                      f'<b>{_esc(d["key"])}</b></a> — {_esc(d["summary"])} — '
+                      f"{_esc(c['projects'].get(d['key'], {}).get('note') or '-')} "
+                      f'<span class="muted">· updated {_esc(d["updated"] or "-")}</span></li>'
+                      for d in ledgers]
+                H.append("</ul>")
+        else:
+            for d in ledgers:
+                H += _card_html(d, c["projects"].get(d["key"], {}), blob)
+        if not ledgers:
+            H.append(f'<p class="muted">(no {section} project with a ledger)</p>')
     bare = no_ledger_rows(c)
     if bare:
         H += ["<h4>No ledger</h4>", '<table class="map">',
@@ -981,6 +1067,37 @@ def render_pages(c: dict) -> dict:
             "state.json": render_state(c)}
 
 
+#: The Science-side copy of the markdown board (PyAutoBrain#616): the same
+#: page, read on the laptop in the Science folder's context.
+SCIENCE_MIRROR = "STATE.md"
+
+
+def mirror_header(c: dict) -> str:
+    pages = _pages_url(c.get("home", ""))
+    board = f"[PyAutoCortex board]({pages})" if pages else "PyAutoCortex board"
+    return (f"> **Generated** by `pyauto-brain cortex dashboard --apply` — a mirror "
+            f"of the {board} (`dashboard.md`). Do not edit this file: every "
+            "render overwrites it.\n\n")
+
+
+def write_science_mirror(c: dict, page: str) -> Path | None:
+    """Write the markdown board to `<science_root>/STATE.md`, where the root
+    is the one `projects.yaml` agrees on. Off the laptop (no root, or the
+    directory is not here) it is skipped silently; a failed write is one
+    line on stderr and never fails the render. Returns the path written."""
+    science = science_root_from(c.get("projects") or {})
+    if not science or not Path(science).is_dir():
+        return None
+    target = Path(science) / SCIENCE_MIRROR
+    try:
+        target.write_text(mirror_header(c) + page, encoding="utf-8")
+    except OSError as exc:
+        print(f"note: could not write the Science mirror {target}: {exc}",
+              file=sys.stderr)
+        return None
+    return target
+
+
 def cmd_dashboard(root: Path, c: dict, a) -> int:
     pages = render_pages(c)
     if a.check:
@@ -999,7 +1116,9 @@ def cmd_dashboard(root: Path, c: dict, a) -> int:
     if a.apply:
         for name, want in pages.items():
             (root / name).write_text(want, encoding="utf-8")
-        print(f"Wrote: {' + '.join(pages)} ({len(c['ledgers'])} ledger(s), "
+        mirror = write_science_mirror(c, pages["dashboard.md"])
+        wrote = list(pages) + ([str(mirror)] if mirror else [])
+        print(f"Wrote: {' + '.join(wrote)} ({len(c['ledgers'])} ledger(s), "
               f"{c['counts']['running']} running, {c['counts']['open']} open)")
         return RC_OK
     print(pages["dashboard.md"], end="")
@@ -1882,8 +2001,10 @@ def cmd_checkin(root: Path, mod, a) -> int:
     stamp = _utc_now()
     write_checkin(root, stamp)
     c = census(root)
-    for name, page in render_pages(c).items():
+    pages = render_pages(c)
+    for name, page in pages.items():
         (root / name).write_text(page, encoding="utf-8")
+    mirror = write_science_mirror(c, pages["dashboard.md"])
 
     push_lines = [push_note] if push_note else []
     if push:
@@ -1892,6 +2013,8 @@ def cmd_checkin(root: Path, mod, a) -> int:
     print(f"\n# The Cortex by project — check-in {stamp}\n")
     print(f"{len(keys)} project(s) · {c['counts']['running']} running · "
           f"{c['counts']['open']} open · pages re-rendered")
+    if mirror:
+        print(f"Wrote: {mirror}")
     for line in notes + push_lines:
         print(line)
     if c["problems"]:
