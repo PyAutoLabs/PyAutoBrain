@@ -173,4 +173,4 @@ board:
 # watcher's network surface"). Blank here: the operator sets it, or exports
 # PYAUTO_SHIFT_MENTION (which wins). Blank everywhere posts without a mention.
 shift_watcher:
-  mention_login: ""
+  mention_login: "Jammy2211"

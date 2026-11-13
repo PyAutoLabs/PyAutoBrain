@@ -130,8 +130,11 @@ def test_a_worker_parked_on_its_issue_is_awaiting_input(tmp_path, monkeypatch):
 
 
 def test_the_login_comes_from_the_environment_or_config_never_the_code(tmp_path, monkeypatch):
+    blank = tmp_path / "policy.yaml"
+    blank.write_text("shift_watcher:\n  mention_login: \"\"\n", encoding="utf-8")
+    monkeypatch.setattr(orch, "POLICY_PATH", blank)   # hermetic: never the shipped config
     monkeypatch.delenv(orch.MENTION_ENV, raising=False)
-    assert orch.mention_login() == ""           # config/policy.yaml leaves it blank
+    assert orch.mention_login() == ""           # a blank config leaves it blank
     monkeypatch.setenv(orch.MENTION_ENV, "@" + LOGIN)
     assert orch.mention_login() == LOGIN
     monkeypatch.setenv(orch.MENTION_ENV, "not a login; rm -rf")
