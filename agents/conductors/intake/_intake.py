@@ -2723,7 +2723,8 @@ def _steer_html(c: dict, link) -> list:
           '<details id="steer-connect"><summary>🔑 Connect this device</summary>',
           '<p class="muted" id="steer-state">Not connected: ★ and goals are '
           "read-only.</p>",
-          "<p>Paste a fine-grained token with <b>Issues: read and write</b> on the "
+          "<p>Paste the dashboard machine account's fine-grained token (never your own) "
+          "with <b>Issues: read and write</b> on the "
           f'Mind repo only (<a href="{_attr(_token_url(repo))}" rel="noreferrer">'
           "create one</a>). It stays in this browser and is sent only to "
           "api.github.com. Each ★ or goals edit opens one small issue that the Mind "

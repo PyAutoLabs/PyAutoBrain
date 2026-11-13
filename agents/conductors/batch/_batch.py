@@ -3196,7 +3196,9 @@ def goal_provenance(mind: Path) -> list[dict] | None:
     A goal from the dashboard is free text from a web page, written through a
     browser token (PyAutoMind#565): `brief --new` never hands it to workers as
     the human's word. A line not yet committed is the human's local edit.
-    None when goals.md is not in a git checkout (provenance unknown)."""
+    None when provenance cannot be read (no git checkout, an uncommitted
+    file, or a blame that does not line up with the goals): callers then
+    treat EVERY goal as untrusted (`resolve_provenance`)."""
     try:
         out = subprocess.run(["git", "-C", str(mind), "blame", "--line-porcelain",
                               "--", "goals.md"], capture_output=True, text=True,
@@ -3239,6 +3241,14 @@ def goal_provenance(mind: Path) -> list[dict] | None:
     return out_list
 
 
+def resolve_provenance(mind: Path, prov: list[dict] | None) -> list[dict]:
+    """Per-goal provenance that fails closed: unknown means untrusted."""
+    goals = read_goals(mind)
+    if prov is None or len(prov) != len(goals):
+        return [{"dashboard": True, "date": "", "unknown": True} for _ in goals]
+    return prov
+
+
 def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:
     """(record name, goal texts) of the newest batch record with a brief."""
     records = sorted(f for f in (mind / "batches").glob("*.md") if f.name != "AGENTS.md")
@@ -3259,8 +3269,8 @@ def goals_report(mind: Path, prov: list[dict] | None) -> list[str]:
     goals = [g["text"] for g in read_goals(mind)]
     L = []
     if prov is None and goals:
-        L.append("goals: provenance unknown (goals.md is not in a git checkout) — "
-                 "every goal is treated as hand-written")
+        L.append("goals: provenance unknown (no git history lines up with goals.md) — "
+                 "every goal is left commented out; adopt them by hand")
     for g, p in zip(goals, prov or []):
         if p["dashboard"]:
             L.append(f"goals: \"{g}\" is from the dashboard (last edited "
@@ -3283,19 +3293,23 @@ def goals_report(mind: Path, prov: list[dict] | None) -> list[str]:
     return L
 
 
+_UNSET = object()
+
+
 def new_brief(mind: Path, slot: str, review_at: str, now=None,
-              prov: list[dict] | None = None) -> str:
+              prov=_UNSET) -> str:
     """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
 
     A goal last written from the dashboard is emitted commented out, marked
     with its date: workers never see it until the human adopts it by hand.
+    So is every goal when provenance cannot be read ("provenance unknown").
     `backlog: scoped` covers the union of the hand-written goals'
     `epics:`/`tags:`; with none named, `fill-idle`. Every other required key
     gets a default the human edits. Writing the record (with its `review-at:`)
     is the dispatch, so this only composes the text (batches/AGENTS.md
     "Shift brief")."""
     goals = read_goals(mind)
-    prov = prov if prov is not None else [{"dashboard": False, "date": ""}] * len(goals)
+    prov = resolve_provenance(mind, goal_provenance(mind) if prov is _UNSET else prov)
     now = now or _dt.datetime.now(_dt.timezone.utc)
     epics: list[str] = []
     tags: list[str] = []
@@ -3315,7 +3329,10 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
         # A goal is one line of plain text (goals.md's own check); ` # ` would
         # read as a trailing comment here, so it is spelled out.
         text = f"{g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"])
-        if p["dashboard"]:
+        if p.get("unknown"):
+            L.append(f"    # - {text}   <- provenance unknown: not adopted; "
+                     "delete the '# ' to adopt")
+        elif p["dashboard"]:
             L.append(f"    # - {text}   <- from dashboard, last edited {p['date']}: "
                      "not adopted; delete the '# ' to adopt")
         else:
@@ -3343,8 +3360,8 @@ def goal_one_warning(path: Path, mind: Path) -> str:
     goals = read_goals(mind)
     if not goals:
         return ""
-    prov = goal_provenance(mind)
-    if prov and prov[0]["dashboard"]:
+    prov = resolve_provenance(mind, goal_provenance(mind))
+    if prov[0]["dashboard"]:
         return ""
     try:
         brief = _brief.parse(path.read_text(encoding="utf-8", errors="replace"))["brief"]

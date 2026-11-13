@@ -105,7 +105,8 @@ def test_refs_are_matched_whole():
 
 def test_the_issue_carries_the_label_and_the_fixed_form():
     req = _run('M.issueRequest({op:"star",ref:"draft/feature/widgets/axle.md"},"d-1")')
-    assert req["labels"] == ["dashboard-input"]
+    # Labels are added after creation (dropped at creation without push access).
+    assert "labels" not in req and _run("M.LABEL") == "dashboard-input"
     assert req["title"] == "dashboard: ★ axle"
     assert req["body"] == ("<!-- mind-dashboard-input v1 -->\nop: star\n"
                            "ref: draft/feature/widgets/axle.md\nnonce: d-1\n")
@@ -126,10 +127,12 @@ def test_the_issue_body_is_what_the_mind_workflow_parses(tmp_path):
     for op in ('{op:"star",ref:"draft/feature/widgets/axle.md"}',
                '{op:"goals",goals:["Land it","Clear PRs"]}'):
         body = _run(f"M.issueBody({op},\"d-0123456789abcdef\")")
-        event = {"issue": {"number": 3, "body": body,
-                           "user": {"login": "me", "type": "User"},
+        event = {"action": "labeled", "label": {"name": "dashboard-input"},
+                 "sender": {"login": "machine"},
+                 "issue": {"number": 3, "body": body, "state": "open", "locked": False,
+                           "user": {"login": "machine", "type": "User"},
                            "labels": [{"name": "dashboard-input"}]}}
-        req = di.parse_issue(event, "me")
+        req = di.parse_issue(event, "machine", "the-human")
         assert req["nonce"] == "d-0123456789abcdef"
         assert req["ref"] == "draft/feature/widgets/axle.md" or req["goals"] == "Land it\nClear PRs"
 

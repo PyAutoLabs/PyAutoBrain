@@ -1,11 +1,12 @@
 // The write side of the Mind dashboard (PyAutoMind#565, design C).
 //
 // A ★ on a task row, or an edit in the Goals box, opens ONE small issue in the
-// Mind repo, labelled `dashboard-input`, whose body is a fixed key: value form.
-// The Mind's `dashboard_input.yml` (always the default branch's copy, run by the
-// `issues: opened` event) validates it, commits queue.md / goals.md, and closes
-// the issue with a one-line result comment. The page holds only a fine-grained
-// token with Issues permission on the Mind repo, pasted once per device.
+// Mind repo, whose body is a fixed key: value form, then adds the
+// `dashboard-input` label to it. The Mind's `dashboard_input.yml` (always the
+// default branch's copy, run by the `issues: labeled` event) validates it,
+// commits queue.md / goals.md, and closes and locks the issue with a one-line
+// result comment. The page holds only a fine-grained token of a dedicated
+// machine account (never the human's) with Issues permission on the Mind repo.
 //
 // The UI is optimistic: a tap flips at once, shows "pending", and turns into
 // "confirmed" when the issue closes as applied (about 20-40 s), or reverts
@@ -119,8 +120,9 @@
   MindEdit.issueRequest = function (op, nonce) {
     var what = op.op === "goals" ? "goals (" + op.goals.length + ")" :
       (op.op === "star" ? "★ " : "unstar ") + MindEdit.basename(op.ref).replace(/\.md$/, "");
-    return { title: "dashboard: " + what, body: MindEdit.issueBody(op, nonce),
-             labels: [MindEdit.LABEL] };
+    // No labels here: GitHub drops labels set at creation by an account
+    // without push access. The label is added next, and that event runs.
+    return { title: "dashboard: " + what, body: MindEdit.issueBody(op, nonce) };
   };
 
   // The workflow's one-line answer among an issue's comments:
@@ -462,16 +464,21 @@
       }
       return r.json().then(function (issue) {
         var link = /^https:\/\/github\.com\//.test(issue.html_url || "") ? issue.html_url : "";
-        var labelled = (issue.labels || []).some(function (l) { return l && l.name === MindEdit.LABEL; });
-        if (!labelled || typeof issue.number !== "number") {
-          // GitHub drops labels the creator may not set; without it no run
-          // starts. Close the stray issue rather than leave it open.
-          if (typeof issue.number === "number")
-            api("/repos/" + repo + "/issues/" + issue.number, { method: "PATCH", body: { state: "closed", state_reason: "not_planned" } });
-          revert(op, "GitHub dropped the dashboard-input label, so nothing ran.", link);
-          return;
-        }
-        return follow(issue.number, op, link);
+        if (typeof issue.number !== "number") { revert(op, "GitHub returned no issue number."); return; }
+        var base = "/repos/" + repo + "/issues/" + issue.number;
+        return api(base + "/labels", { method: "POST", body: { labels: [MindEdit.LABEL] } })
+          .then(function (lr) { return lr.ok ? lr.json() : []; })
+          .catch(function () { return []; })
+          .then(function (labels) {
+            var labelled = (labels || []).some(function (l) { return l && l.name === MindEdit.LABEL; });
+            if (!labelled) {
+              // No label, no run: close the stray issue rather than leave it open.
+              api(base, { method: "PATCH", body: { state: "closed", state_reason: "not_planned" } });
+              revert(op, "Could not add the dashboard-input label (the account needs Triage on the Mind repo), so nothing ran.", link);
+              return;
+            }
+            return follow(issue.number, op, link);
+          });
       });
     }).catch(function () {
       revert(op, "Network error: nothing was sent, or its result is unknown. Check the queue in a minute.");

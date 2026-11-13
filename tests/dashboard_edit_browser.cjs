@@ -18,7 +18,7 @@ const TOKEN='github_pat_'+'A'.repeat(82);
     await context.addInitScript(()=>{window.__csp=[];document.addEventListener('securitypolicyviolation',e=>window.__csp.push(e.violatedDirective+' '+e.blockedURI))});
     const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
     // ---- the fake API: issues -----------------------------------------------
-    const fake={issues:[],createStatus:201,dropLabel:false,refuse:new Set(),state:{},patches:[]};
+    const fake={labelled:[],issues:[],createStatus:201,dropLabel:false,refuse:new Set(),state:{},patches:[]};
     const body2op=b=>{const m=/^op: (\w+)$/m.exec(b);const r=/^ref: (.+)$/m.exec(b);return {op:m&&m[1],ref:r&&r[1]}};
     await page.route('https://api.github.com/**',async route=>{
       const req=route.request(),url=req.url(),method=req.method();
@@ -28,8 +28,11 @@ const TOKEN='github_pat_'+'A'.repeat(82);
         if(fake.createStatus!==201)return json(fake.createStatus,{message:'no'});
         const n=fake.issues.length;const op=body2op(body.body);
         fake.state[n]={polls:0,word:fake.refuse.has(op.ref||op.op)?'refused':'applied'};
-        return json(201,{number:n,html_url:`https://github.com/${repo}/issues/${n}`,labels:fake.dropLabel?[]:body.labels.map(name=>({name}))});
+        return json(201,{number:n,html_url:`https://github.com/${repo}/issues/${n}`,labels:[]});
       }
+      let lm=/\/issues\/(\d+)\/labels$/.exec(url);
+      if(lm&&method==='POST'){const names=JSON.parse(req.postData()).labels;fake.labelled.push(+lm[1]);
+        return fake.dropLabel?json(403,{message:'no'}):json(200,names.map(name=>({name})))}
       let m=/\/issues\/(\d+)$/.exec(url);
       if(m&&method==='PATCH'){fake.patches.push(+m[1]);return json(200,{})}
       if(m){const st=fake.state[m[1]];st.polls++;return json(200,{number:+m[1],state:st.polls>1?'closed':'open'})}
@@ -73,8 +76,8 @@ const TOKEN='github_pat_'+'A'.repeat(82);
     await tick(1000);
     assert.equal(fake.issues.length,1,'exactly one issue');
     const d=fake.issues[0];
-    assert.deepEqual(Object.keys(d.body).sort(),['body','labels','title']);
-    assert.deepEqual(d.body.labels,['dashboard-input']);
+    assert.deepEqual(Object.keys(d.body).sort(),['body','title']);
+    assert.deepEqual(fake.labelled,[1],'then the label is added to that issue');
     assert.equal(d.body.body,`<!-- mind-dashboard-input v1 -->\nop: star\nref: ${ref}\nnonce: ${/nonce: (d-[0-9a-f]{16})/.exec(d.body.body)[1]}\n`);
     assert.equal(d.auth,'Bearer '+TOKEN);
     await tick(12000);
@@ -82,7 +85,7 @@ const TOKEN='github_pat_'+'A'.repeat(82);
     assert.match(await page.locator('#steer-toast').innerText(),/queued ✓/);
     assert.equal(await same.first().locator('.qpos').innerText(),String(before+1));
     await page.screenshot({path:path.join(out,'steer-390-starred.png')});
-    results.push({step:'★: optimistic flip, exactly one labelled issue in the fixed form, confirmed when it closes with the bot applied comment',passed:true});
+    results.push({step:'★: optimistic flip, one issue in the fixed form then its label, confirmed when it closes with the bot applied comment',passed:true});
     // ---- un-★ refused by the workflow: reverts and shows its reason ----------
     fake.refuse.add(ref);
     await same.first().click();
@@ -133,9 +136,9 @@ const TOKEN='github_pat_'+'A'.repeat(82);
     await first(refD).click();await tick(1000);
     assert.equal(await first(refD).getAttribute('aria-pressed'),'false');
     assert.deepEqual(fake.patches,[fake.issues.length]);
-    assert.match(await page.locator('#steer-toast').innerText(),/dropped the dashboard-input label/);
+    assert.match(await page.locator('#steer-toast').innerText(),/Could not add the dashboard-input label/);
     fake.dropLabel=false;
-    results.push({step:'label dropped by GitHub: reverts and closes the stray issue',passed:true});
+    results.push({step:'label refused: reverts and closes the stray issue',passed:true});
     // ---- 401: revert, forget, reopen connect --------------------------------------
     fake.createStatus=401;
     const second=page.locator('.board-section-body button.star[aria-pressed="false"]').nth(1);
