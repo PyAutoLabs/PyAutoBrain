@@ -83,6 +83,9 @@ from _status import (  # noqa: E402
     dev_status, pick_slot, read_record,
     render_html as _status_box_html, render_md as _status_box_md,
 )
+# The human's steering files (queue.md, goals.md): readers shared with the
+# batch planner and `batch brief --new` (PyAutoMind#565).
+from _steer import queued_names, read_goals, read_queue_entries  # noqa: E402
 
 # The close-out guard (strong-evidence `looks-shipped` flags): the detector and
 # the one reader the dashboard and the batch planner share.
@@ -1751,6 +1754,10 @@ def census(mind: Path) -> dict:
         # Strong-evidence close-out flags (`intake looks-shipped`), minus what
         # a human dismissed or already closed — the "Looks shipped" section.
         "looks_shipped": _looks_shipped_rows(mind, records),
+        # The human's steering (PyAutoMind#565): the ★ state of every row and
+        # the Goals box at the top of the page.
+        "queue": read_queue_entries(mind),
+        "goals": read_goals(mind),
     }
     c["recent"] = recent_events(c)
     # Needs `in_flight` in place, so it is derived after the dict is built.
@@ -2338,6 +2345,7 @@ def render_dashboard(c: dict) -> str:
         L += [""]
     if c["batch"] is not None:
         L += [_status_box_md(c["batch"]), ""]
+    L += _steer_md(c)
     L += ["## Start here", ""]
 
     # Epic members never appear in the pick lists or the work-type sections —
@@ -2590,11 +2598,193 @@ def _attr(value: str) -> str:
             .replace("<", "&lt;").replace(">", "&gt;"))
 
 
-def _html_task(text_html: str, payload: str) -> str:
-    """One task row on the HTML page: a real copy button, then the text."""
-    return (f'<div class="task"><button class="copy" '
+def _html_task(text_html: str, payload: str, star: str = "") -> str:
+    """One task row on the HTML page: the ★ (a prompt row only), a real copy
+    button, then the text."""
+    return (f'<div class="task">{star}<button class="copy" '
             f'data-cmd="{_attr(payload)}" aria-label="Copy the AI '
             f'command">📋</button><p>{text_html}</p></div>')
+
+
+def _star_button(path: str, title: str, queued: dict) -> str:
+    """The ★ toggle for a prompt row (PyAutoMind#565).
+
+    Rendered pressed, with its queue position, when `queue.md` queues the
+    prompt (matched by basename, as the lifecycle matches). Disabled until the
+    page's script finds a token: with JS off, or without a token, the star is
+    a read-only view of the queue."""
+    pos = queued.get(Path(path).name)
+    on = pos is not None
+    return (f'<button type="button" class="star" data-ref="{_attr(path)}" '
+            f'data-title="{_attr(_clip(title, 120))}" '
+            f'aria-pressed="{"true" if on else "false"}" '
+            f'aria-label="{"Unqueue" if on else "Queue"} this task" disabled>★'
+            f'<span class="qpos">{pos if on else ""}</span></button>')
+
+
+def _repo_slug(home: str) -> str:
+    m = re.match(r"https://github\.com/([A-Za-z0-9-]+/[A-Za-z0-9._-]+)$", home)
+    return m.group(1) if m else ""
+
+
+def _steer_md(c: dict) -> list:
+    """The markdown page's read-only Goals and Queue (the HTML twin edits)."""
+    goals, queue = c.get("goals") or [], [
+        e for e in c.get("queue") or [] if e["kind"] == "prompt" and e["ref"]]
+    L = ["## Goals", ""]
+    L += [f"{g['n']}. {_md_inline_escape(g['text'])}" for g in goals] or [
+        "_(no goals — write them in [`goals.md`](goals.md))_"]
+    L += ["", "## Queue", ""]
+    L += [f"{e['pos']}. [{_md_inline_escape(e['label'])}]({e['ref']})" for e in queue] or [
+        "_(nothing queued — [`queue.md`](queue.md) is empty)_"]
+    return L + [""]
+
+
+def _md_inline_escape(text: str) -> str:
+    return str(text).replace("<", "&lt;").replace(">", "&gt;").replace("[", "\\[").replace("]", "\\]")
+
+
+_STEER_CSS = """\
+.steer{margin:0 0 1.2rem;padding:.75rem .9rem;border:1px solid var(--edge);
+ border-radius:11px;background:var(--tint)}
+.steer h2{margin:.1rem 0 .4rem;font-size:1.05rem}
+.steer h3{margin:.7rem 0 .2rem}
+.steer ol{margin:.2rem 0;padding-left:1.4rem}
+.steer ol.steer-queue{list-style:none;padding-left:0}
+.steer-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.steer textarea{box-sizing:border-box;width:100%;min-height:9rem;font:inherit;
+ font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);
+ border-radius:8px;padding:.5rem}
+.steer details{margin-top:.6rem}
+.steer input[type=password]{box-sizing:border-box;width:100%;min-height:44px;
+ font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);
+ border-radius:8px;padding:.4rem .6rem}
+.steer button.act{min-height:44px;min-width:44px;font:inherit;font-weight:650;
+ border:1px solid var(--edge);border-radius:9px;background:var(--btn);color:var(--accent);
+ padding:0 .9rem;cursor:pointer}
+.steer .pending{opacity:.6}
+button.star{flex:0 0 auto;min-width:2.75rem;height:2.75rem;font-size:1.15rem;
+ border:1px solid var(--edge);border-radius:9px;background:transparent;cursor:pointer;
+ color:var(--muted);opacity:.55;position:relative;padding:0}
+button.star[aria-pressed="true"]{color:#d4a017;opacity:1;background:var(--tint)}
+button.star:disabled{cursor:default}
+button.star.pending{animation:starpulse 1s ease-in-out infinite}
+@keyframes starpulse{50%{opacity:.35}}
+button.star .qpos{position:absolute;right:2px;bottom:1px;font-size:.62rem;
+ font-weight:700;color:var(--fg)}
+.steer-toast{position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);
+ max-width:calc(100vw - 2rem);box-sizing:border-box;padding:.6rem .9rem;
+ border-radius:10px;background:var(--fg);color:var(--bg);z-index:10;
+ box-shadow:0 4px 16px #0004}
+.steer-toast a{color:inherit;text-decoration:underline}
+"""
+
+
+def _token_url(repo: str) -> str:
+    """GitHub's new fine-grained token page, prefilled where it accepts it."""
+    owner = repo.split("/")[0]
+    return ("https://github.com/settings/personal-access-tokens/new?"
+            "name=Mind%20dashboard&description=Mind%20dashboard%20%E2%98%85%20and%20goals"
+            f"&target_name={owner}&expires_in=90&issues=write")
+
+
+def _steer_html(c: dict, link) -> list:
+    """The steering box at the top of the page: Goals, Queue, and the token.
+
+    Server-rendered from the census so the page reads right with JS off;
+    the script (`dashboard_edit.js`) takes over when a token is present."""
+    repo = _repo_slug(c.get("home", ""))
+    queued = queued_names(c.get("queue") or [])
+    goals = c.get("goals") or []
+    queue = [e for e in c.get("queue") or [] if e["kind"] == "prompt" and e["ref"]]
+    H = [f'<aside class="steer" id="steer" data-repo="{_attr(repo)}">',
+         "<h2>Goals and queue</h2>",
+         '<div class="steer-row"><h3>Goals</h3>'
+         '<button type="button" class="act" id="steer-edit" disabled '
+         'aria-label="Edit the goals">✎</button></div>',
+         '<ol id="steer-goals">'
+         + "".join(f"<li>{_summary_label(g['text'])}</li>" for g in goals) + "</ol>",
+         f'<p class="muted" id="steer-goals-empty"{" hidden" if goals else ""}>'
+         "(no goals yet)</p>",
+         '<textarea id="steer-goals-text" hidden aria-label="Goals, one per line, '
+         'top first" spellcheck="true"></textarea>',
+         '<button type="button" class="act" id="steer-done" hidden>Done</button>',
+         '<p class="muted">One goal per line, top first; at most 10. '
+         "<b>goals.md is public</b>, like the rest of the Mind.</p>",
+         "<h3>Queue</h3>",
+         '<ol class="steer-queue" id="steer-queue">']
+    for e in queue:
+        H.append(f'<li class="task" data-ref="{_attr(e["ref"])}">'
+                 + _star_button(e["ref"], e["label"], queued)
+                 + f'<p>{link(e["ref"], _summary_label(e["label"]))}</p></li>')
+    H += ["</ol>",
+          f'<p class="muted" id="steer-queue-empty"{" hidden" if queue else ""}>'
+          "(nothing queued)</p>",
+          '<details id="steer-connect"><summary>🔑 Connect this device</summary>',
+          '<p class="muted" id="steer-state">Not connected: ★ and goals are '
+          "read-only.</p>",
+          "<p>Paste the dashboard machine account's fine-grained token (never your own) "
+          "with <b>Issues: read and write</b> on the "
+          f'Mind repo only (<a href="{_attr(_token_url(repo))}" rel="noreferrer">'
+          "create one</a>). It stays in this browser and is sent only to "
+          "api.github.com. Each ★ or goals edit opens one small issue that the Mind "
+          "applies and closes.</p>",
+          '<input type="password" id="steer-token" autocomplete="off" '
+          'aria-label="GitHub token">',
+          '<div class="steer-row"><button type="button" class="act" '
+          'id="steer-save">Save</button>'
+          '<button type="button" class="act" id="steer-forget" hidden>Forget '
+          "token</button></div>",
+          "</details>",
+          "</aside>",
+          '<div class="steer-toast" id="steer-toast" role="status" '
+          'aria-live="polite" hidden></div>']
+    return H
+
+
+#: The page's write client (PyAutoMind#565), inlined after the theme script.
+_EDIT_JS_PATH = Path(__file__).resolve().parent / "dashboard_edit.js"
+
+
+def _edit_js() -> str:
+    return _EDIT_JS_PATH.read_text(encoding="utf-8")
+
+
+def _steer_first(page: str) -> str:
+    """Lift the Goals and queue box above the section cards.
+
+    The shared layout moves the orchestration panel above the navigation
+    cards; the steering box belongs straight after it, at the top of the
+    first screen, not below seven count cards."""
+    start = page.find('<aside class="steer"')
+    nav = page.find('<nav class="board-nav"')
+    if start < 0 or nav < 0 or nav > start:
+        return page
+    end = page.index("</aside>", start) + len("</aside>")
+    box = page[start:end]
+    page = page[:start] + page[end:]
+    return page[:nav] + box + "\n" + page[nav:]
+
+
+def _with_csp(page: str) -> str:
+    """Pin the page's one inline script by hash and allow connections to the
+    GitHub API only. A meta CSP because Pages cannot set headers; the hash is
+    computed here, so `--check` stays deterministic."""
+    import base64
+    import hashlib
+    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+    if len(scripts) != 1:
+        raise ValueError(f"dashboard.html must carry exactly one inline script, "
+                         f"found {len(scripts)}")
+    digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode()
+    csp = ("default-src 'none'; "
+           f"script-src 'sha256-{digest}'; "
+           "style-src 'unsafe-inline'; "
+           "connect-src https://api.github.com; "
+           "img-src data:; base-uri 'none'; form-action 'none'")
+    meta = (f'<meta http-equiv="Content-Security-Policy" content="{csp}">\n'
+            '<meta name="referrer" content="no-referrer">')
+    return page.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + meta, 1)
 
 
 def render_dashboard_html(c: dict) -> str:
@@ -2617,12 +2807,18 @@ def render_dashboard_html(c: dict) -> str:
     def link(path, text_html):
         return f'<a href="{_attr(blob + path)}">{text_html}</a>'
 
+    queued = queued_names(c.get("queue") or [])
+
+    def star(path, title):
+        return _star_button(path, title, queued)
+
     def record_row(r):
         text = link(r["path"], _summary_label(r["title"])) + pills(
             *(_summary_label(x) for x in (r["target"], r["difficulty"],
                                           r["autonomy"], r["priority"])),
             work_type=r["work_type"])
-        return _html_task(text, f"Use the start-dev skill. {r['path']}")
+        return _html_task(text, f"Use the start-dev skill. {r['path']}",
+                          star(r["path"], r["title"]))
 
     H = [
         "<!doctype html>",
@@ -2633,7 +2829,7 @@ def render_dashboard_html(c: dict) -> str:
         "<title>PyAutoMind Dashboard</title>",
         f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
         f"{c['generated']} — regenerate, do not hand-edit -->",
-        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}</style>",
+        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}{_STEER_CSS}</style>",
         "</head>",
         "<body>",
         hero(THEME_ORGAN, "Dashboard", navigation=_dashboard_navigation(c),
@@ -2678,6 +2874,7 @@ def render_dashboard_html(c: dict) -> str:
         work_links=[{"label": "Open Mind repository", "href": home}] if home else [], organ="mind",
         refreshed_at=c.get("refreshed_at"),
         refresh_url=home + "/actions/workflows/dashboard_refresh.yml" if home else None))
+    H += _steer_html(c, link)
     if c.get("drift"):
         H += ['<p>⚠️ <b>Needs lifecycle reconciliation</b> — draft prompts '
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
@@ -2779,7 +2976,8 @@ def render_dashboard_html(c: dict) -> str:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
         text += _pr_column(r)
-        H.append(_html_task(text, f"Use the start-dev skill. {r['path']}"))
+        H.append(_html_task(text, f"Use the start-dev skill. {r['path']}",
+                            star(r["path"], r["title"])))
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')
 
@@ -2816,7 +3014,7 @@ def render_dashboard_html(c: dict) -> str:
                       work_type=HUMAN_REVIEW)
         if r.get("date"):
             text += f'<span class="facets">{_dated(r)}</span>'
-        H.append(_html_task(text, _review_payload(r)))
+        H.append(_html_task(text, _review_payload(r), star(r["path"], r["title"])))
     if not reviews:
         H.append('<p class="muted">(nothing awaiting review)</p>')
 
@@ -2874,8 +3072,8 @@ def render_dashboard_html(c: dict) -> str:
     footer = boards_footer(dict(_board_links(home)), THEME_ORGAN)
     if footer:
         H.append(footer)
-    H += [f"<script>{_THEME_JS}{_MORE_JS}</script>", "</body>", "</html>"]
-    return section_layout("\n".join(H) + "\n")
+    H += [f"<script>{_THEME_JS}{_MORE_JS}{_edit_js()}</script>", "</body>", "</html>"]
+    return _with_csp(_steer_first(section_layout("\n".join(H) + "\n")))
 
 
 def _dashboard_body(page: str) -> str:

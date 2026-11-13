@@ -55,6 +55,8 @@ from _sizing import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
+# The human's goals (goals.md, PyAutoMind#565): `brief --new` copies them.
+from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
 # The close-out guard's reader (intake `looks-shipped`): the live flags minus
 # human dismissals. Loaded by path — a plain `import _shipped` would also work
 # once intake's directory is on sys.path, but this keeps the batch planner from
@@ -2920,6 +2922,10 @@ def main(argv=None) -> int:
     ap.add_argument("--check", default="", metavar="FILE",
                     help="brief: validate this shift brief against "
                          "PyAutoMind/batches/AGENTS.md")
+    ap.add_argument("--new", default="", metavar="SLOT",
+                    help="brief: print a skeleton shift brief for SLOT (e.g. "
+                         "2026-11-14-am) whose goals: come from goals.md; "
+                         "needs --review-at; --out FILE writes it instead")
     ap.add_argument("--brief", default="", metavar="FILE",
                     help="plan: compose inside this shift brief (named tasks "
                          "first, then its backlog policy)")
@@ -3170,13 +3176,243 @@ def _main_watch(a) -> int:
                         interval=a.interval, once=a.once)
 
 
+#: A brief's slot names its record, `batches/<slot>.md`.
+SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(am|pm)$")
+#: Defaults `brief --new` writes for the keys the human usually leaves alone.
+#: `merge-cap: 0` is the safe one: nothing merges unattended until raised.
+NEW_BRIEF_DEFAULTS = {"review-minutes": str(DEFAULT_REVIEW_BUDGET),
+                      "lanes": "any", "merge-cap": "0",
+                      "token-budget": "2000000"}
+
+
+#: The trailer every dashboard write carries (PyAutoMind `dashboard_input.py`).
+DASHBOARD_TRAILER_RE = re.compile(r"^Via: mind-dashboard\s*$", re.M)
+
+
+def goal_provenance(mind: Path) -> list[dict] | None:
+    """Per goal, in order: `{"dashboard": bool, "date": "YYYY-MM-DD"}` — whether
+    the goal's line was last written by a `Via: mind-dashboard` commit, and when.
+
+    A goal from the dashboard is free text from a web page, written through a
+    browser token (PyAutoMind#565): `brief --new` never hands it to workers as
+    the human's word. A line not yet committed is the human's local edit.
+    None when provenance cannot be read (no git checkout, an uncommitted
+    file, or a blame that does not line up with the goals): callers then
+    treat EVERY goal as untrusted (`resolve_provenance`)."""
+    try:
+        out = subprocess.run(["git", "-C", str(mind), "blame", "--line-porcelain",
+                              "--", "goals.md"], capture_output=True, text=True,
+                             timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    lines, cur = [], {}
+    for line in out.stdout.split("\n"):
+        if line.startswith("\t"):
+            lines.append((cur.get("sha", ""), cur.get("time", 0), line[1:]))
+            continue
+        m = re.match(r"^([0-9a-f]{40}) \d+ \d+", line)
+        if m:
+            cur = {"sha": m.group(1)}
+        elif line.startswith("author-time "):
+            cur["time"] = int(line.split()[1])
+    heads, fenced = [], False
+    for sha, when, text in lines:
+        if text.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"^##\s+\d+\.\s+\S", text):
+            heads.append((sha, when))
+    if len(heads) != len(read_goals(mind)):
+        return None
+    verdict: dict[str, bool] = {}
+    out_list = []
+    for sha, when in heads:
+        if sha not in verdict:
+            body = ""
+            if sha and set(sha) != {"0"}:
+                body = subprocess.run(["git", "-C", str(mind), "show", "-s",
+                                       "--format=%B", sha], capture_output=True,
+                                      text=True).stdout
+            verdict[sha] = bool(DASHBOARD_TRAILER_RE.search(body))
+        date = (_dt.datetime.fromtimestamp(when, _dt.timezone.utc).date().isoformat()
+                if when else "")
+        out_list.append({"dashboard": verdict[sha], "date": date})
+    return out_list
+
+
+def resolve_provenance(mind: Path, prov: list[dict] | None) -> list[dict]:
+    """Per-goal provenance that fails closed: unknown means untrusted."""
+    goals = read_goals(mind)
+    if prov is None or len(prov) != len(goals):
+        return [{"dashboard": True, "date": "", "unknown": True} for _ in goals]
+    return prov
+
+
+def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:
+    """(record name, goal texts) of the newest batch record with a brief."""
+    records = sorted(f for f in (mind / "batches").glob("*.md") if f.name != "AGENTS.md")
+    for f in reversed(records):
+        try:
+            brief = _brief.parse(f.read_text(encoding="utf-8", errors="replace"))["brief"]
+        except (OSError, _brief.BriefError):
+            continue
+        if brief and brief.get("goals"):
+            return f.name, [re.sub(r"^\d+\.\s*", "", c["text"])
+                            for c in brief["goals"]["children"]]
+    return None
+
+
+def goals_report(mind: Path, prov: list[dict] | None) -> list[str]:
+    """What `brief --new` tells the human on stderr: provenance, then how the
+    goals changed since the newest brief."""
+    goals = [g["text"] for g in read_goals(mind)]
+    L = []
+    if prov is None and goals:
+        L.append("goals: provenance unknown (no git history lines up with goals.md) — "
+                 "every goal is left commented out; adopt them by hand")
+    for g, p in zip(goals, prov or []):
+        if p["dashboard"]:
+            L.append(f"goals: \"{g}\" is from the dashboard (last edited "
+                     f"{p['date']}) — left commented out; adopt it by hand")
+    last = _last_brief_goals(mind)
+    if last is None:
+        L.append("goals: no earlier brief to compare with")
+        return L
+    name, before = last
+    added = [g for g in goals if g not in before]
+    dropped = [g for g in before if g not in goals]
+    moved = [(g, before.index(g) + 1, goals.index(g) + 1) for g in goals
+             if g in before and before.index(g) != goals.index(g)]
+    if not (added or dropped or moved):
+        L.append(f"goals: unchanged since {name}")
+        return L
+    L.append(f"goals since {name}:")
+    L += [f"  + {g}" for g in added] + [f"  - {g}" for g in dropped]
+    L += [f"  ~ {g} ({a} → {b})" for g, a, b in moved]
+    return L
+
+
+_UNSET = object()
+
+
+def new_brief(mind: Path, slot: str, review_at: str, now=None,
+              prov=_UNSET) -> str:
+    """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
+
+    A goal last written from the dashboard is emitted commented out, marked
+    with its date: workers never see it until the human adopts it by hand.
+    So is every goal when provenance cannot be read ("provenance unknown").
+    `backlog: scoped` covers the union of the hand-written goals'
+    `epics:`/`tags:`; with none named, `fill-idle`. Every other required key
+    gets a default the human edits. Writing the record (with its `review-at:`)
+    is the dispatch, so this only composes the text (batches/AGENTS.md
+    "Shift brief")."""
+    goals = read_goals(mind)
+    prov = resolve_provenance(mind, goal_provenance(mind) if prov is _UNSET else prov)
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    epics: list[str] = []
+    tags: list[str] = []
+    for g, p in zip(goals, prov):
+        if p["dashboard"]:
+            continue
+        epics += [e for e in g["epics"] if e not in epics]
+        tags += [t for t in g["tags"] if t not in tags]
+    shift = {"am": "morning", "pm": "afternoon"}.get(slot.rsplit("-", 1)[-1], slot)
+    L = [f"# Batch {slot.rsplit('-', 1)[0]} {slot.rsplit('-', 1)[-1]}",
+         f"- dispatched: {now.strftime('%Y-%m-%dT%H:%MZ')}",
+         f"- review-at: {review_at}",
+         f"- shift: {shift}",
+         "- brief:",
+         "  - goals:                          # from goals.md, in order"]
+    for g, p in zip(goals, prov):
+        # A goal is one line of plain text (goals.md's own check); ` # ` would
+        # read as a trailing comment here, so it is spelled out.
+        text = f"{g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"])
+        if p.get("unknown"):
+            L.append(f"    # - {text}   <- provenance unknown: not adopted; "
+                     "delete the '# ' to adopt")
+        elif p["dashboard"]:
+            L.append(f"    # - {text}   <- from dashboard, last edited {p['date']}: "
+                     "not adopted; delete the '# ' to adopt")
+        else:
+            L.append(f"    - {text}")
+    if epics or tags:
+        L += ["  - backlog: scoped                 # the goals' epics and tags",
+              "  - scoped:"]
+        if epics:
+            L.append(f"    - epics: {', '.join(epics)}")
+        if tags:
+            L.append(f"    - tags: {', '.join(tags)}")
+    else:
+        L.append("  - backlog: fill-idle              # no goal names an epic or tag")
+    L += [f"  - review-minutes: {NEW_BRIEF_DEFAULTS['review-minutes']}",
+          f"  - lanes: {NEW_BRIEF_DEFAULTS['lanes']}",
+          f"  - merge-cap: {NEW_BRIEF_DEFAULTS['merge-cap']}"
+          "                     # unattended glance merges: raise deliberately",
+          f"  - token-budget: {NEW_BRIEF_DEFAULTS['token-budget']}"]
+    return "\n".join(L) + "\n"
+
+
+def goal_one_warning(path: Path, mind: Path) -> str:
+    """A warning when `goals.md`'s goal 1 is missing from the brief at `path`
+    — never for a dashboard-sourced goal 1, which the human adopts or not."""
+    goals = read_goals(mind)
+    if not goals:
+        return ""
+    prov = resolve_provenance(mind, goal_provenance(mind))
+    if prov[0]["dashboard"]:
+        return ""
+    try:
+        brief = _brief.parse(path.read_text(encoding="utf-8", errors="replace"))["brief"]
+    except (OSError, _brief.BriefError):
+        return ""
+    node = (brief or {}).get("goals")
+    have = " ".join(c["text"] for c in node["children"]) if node else ""
+    if goals[0]["text"].lower() in have.lower():
+        return ""
+    return (f"brief.goals: goal 1 of goals.md (\"{goals[0]['text']}\") is not "
+            "in this brief — `batch brief --new` copies the current list")
+
+
 def _main_brief(mind: Path, a) -> int:
-    """`batch brief --check <file>` — read-only; exit 0 valid, 1 refused."""
+    """`batch brief --check <file>` — read-only; exit 0 valid, 1 refused.
+    `batch brief --new <slot> --review-at <ISO>` — print (or `--out`) a
+    skeleton brief whose goals come from goals.md."""
+    if a.new:
+        if a.check:
+            print("batch brief: --new and --check are separate runs", file=sys.stderr)
+            return RC_USAGE
+        if not SLOT_RE.match(a.new):
+            print(f"batch brief --new: slot {a.new!r} is not YYYY-MM-DD-am|pm",
+                  file=sys.stderr)
+            return RC_USAGE
+        if not a.review_at or _brief._iso(a.review_at) is None:
+            print("batch brief --new: --review-at <ISO time> is required — the "
+                  "grant expires there, and it is yours to declare", file=sys.stderr)
+            return RC_USAGE
+        prov = goal_provenance(mind)
+        text = new_brief(mind, a.new, a.review_at, prov=prov)
+        for line in goals_report(mind, prov):
+            print(line, file=sys.stderr)
+        if a.out:
+            Path(a.out).write_text(text, encoding="utf-8")
+            print(f"batch brief --new: wrote {a.out} "
+                  f"({len(read_goals(mind))} goal(s) from goals.md)")
+        else:
+            sys.stdout.write(text)
+        if not read_goals(mind):
+            print("batch brief --new: goals.md has no goals — `brief --check` "
+                  "refuses a brief without one", file=sys.stderr)
+        return RC_OK
     if not a.check:
-        print("batch brief: --check <file> is the only brief verb "
+        print("batch brief: --check <file> or --new <slot> "
               "(the digest is `batch digest --record <file>`)", file=sys.stderr)
         return RC_USAGE
     res = _brief.check(Path(a.check), mind)
+    warn = goal_one_warning(Path(a.check), mind)
+    if warn:
+        res["warnings"].append(warn)
     # The premise leg: a named task whose premise is gone on main is flagged
     # here, before the shift pays a worker to discover it. A warning, not a
     # refusal — the check is mechanical, and the human reads the evidence.
