@@ -55,6 +55,8 @@ from _sizing import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
+# The human's goals (goals.md, PyAutoMind#565): `brief --new` copies them.
+from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
 # The close-out guard's reader (intake `looks-shipped`): the live flags minus
 # human dismissals. Loaded by path — a plain `import _shipped` would also work
 # once intake's directory is on sys.path, but this keeps the batch planner from
@@ -2920,6 +2922,10 @@ def main(argv=None) -> int:
     ap.add_argument("--check", default="", metavar="FILE",
                     help="brief: validate this shift brief against "
                          "PyAutoMind/batches/AGENTS.md")
+    ap.add_argument("--new", default="", metavar="SLOT",
+                    help="brief: print a skeleton shift brief for SLOT (e.g. "
+                         "2026-11-14-am) whose goals: come from goals.md; "
+                         "needs --review-at; --out FILE writes it instead")
     ap.add_argument("--brief", default="", metavar="FILE",
                     help="plan: compose inside this shift brief (named tasks "
                          "first, then its backlog policy)")
@@ -3170,13 +3176,108 @@ def _main_watch(a) -> int:
                         interval=a.interval, once=a.once)
 
 
+#: A brief's slot names its record, `batches/<slot>.md`.
+SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(am|pm)$")
+#: Defaults `brief --new` writes for the keys the human usually leaves alone.
+#: `merge-cap: 0` is the safe one: nothing merges unattended until raised.
+NEW_BRIEF_DEFAULTS = {"review-minutes": str(DEFAULT_REVIEW_BUDGET),
+                      "lanes": "any", "merge-cap": "0",
+                      "token-budget": "2000000"}
+
+
+def new_brief(mind: Path, slot: str, review_at: str, now=None) -> str:
+    """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
+
+    `backlog: scoped` covers the union of the goals' `epics:`/`tags:`; with
+    none named, `fill-idle`. Every other required key gets a default the human
+    edits. Writing the record (with its `review-at:`) is the dispatch, so this
+    only composes the text (batches/AGENTS.md "Shift brief")."""
+    goals = read_goals(mind)
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    epics: list[str] = []
+    tags: list[str] = []
+    for g in goals:
+        epics += [e for e in g["epics"] if e not in epics]
+        tags += [t for t in g["tags"] if t not in tags]
+    shift = {"am": "morning", "pm": "afternoon"}.get(slot.rsplit("-", 1)[-1], slot)
+    L = [f"# Batch {slot.rsplit('-', 1)[0]} {slot.rsplit('-', 1)[-1]}",
+         f"- dispatched: {now.strftime('%Y-%m-%dT%H:%MZ')}",
+         f"- review-at: {review_at}",
+         f"- shift: {shift}",
+         "- brief:",
+         "  - goals:                          # from goals.md, in order"]
+    # A goal is one line of plain text (goals.md's own check); ` # ` would
+    # read as a trailing comment here, so it is spelled out.
+    L += [f"    - {g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"]) for g in goals]
+    if epics or tags:
+        L += ["  - backlog: scoped                 # the goals' epics and tags",
+              "  - scoped:"]
+        if epics:
+            L.append(f"    - epics: {', '.join(epics)}")
+        if tags:
+            L.append(f"    - tags: {', '.join(tags)}")
+    else:
+        L.append("  - backlog: fill-idle              # no goal names an epic or tag")
+    L += [f"  - review-minutes: {NEW_BRIEF_DEFAULTS['review-minutes']}",
+          f"  - lanes: {NEW_BRIEF_DEFAULTS['lanes']}",
+          f"  - merge-cap: {NEW_BRIEF_DEFAULTS['merge-cap']}"
+          "                     # unattended glance merges: raise deliberately",
+          f"  - token-budget: {NEW_BRIEF_DEFAULTS['token-budget']}"]
+    return "\n".join(L) + "\n"
+
+
+def goal_one_warning(path: Path, mind: Path) -> str:
+    """A warning when `goals.md`'s goal 1 is missing from the brief at `path`."""
+    goals = read_goals(mind)
+    if not goals:
+        return ""
+    try:
+        brief = _brief.parse(path.read_text(encoding="utf-8", errors="replace"))["brief"]
+    except (OSError, _brief.BriefError):
+        return ""
+    node = (brief or {}).get("goals")
+    have = " ".join(c["text"] for c in node["children"]) if node else ""
+    if goals[0]["text"].lower() in have.lower():
+        return ""
+    return (f"brief.goals: goal 1 of goals.md (\"{goals[0]['text']}\") is not "
+            "in this brief — `batch brief --new` copies the current list")
+
+
 def _main_brief(mind: Path, a) -> int:
-    """`batch brief --check <file>` — read-only; exit 0 valid, 1 refused."""
+    """`batch brief --check <file>` — read-only; exit 0 valid, 1 refused.
+    `batch brief --new <slot> --review-at <ISO>` — print (or `--out`) a
+    skeleton brief whose goals come from goals.md."""
+    if a.new:
+        if a.check:
+            print("batch brief: --new and --check are separate runs", file=sys.stderr)
+            return RC_USAGE
+        if not SLOT_RE.match(a.new):
+            print(f"batch brief --new: slot {a.new!r} is not YYYY-MM-DD-am|pm",
+                  file=sys.stderr)
+            return RC_USAGE
+        if not a.review_at or _brief._iso(a.review_at) is None:
+            print("batch brief --new: --review-at <ISO time> is required — the "
+                  "grant expires there, and it is yours to declare", file=sys.stderr)
+            return RC_USAGE
+        text = new_brief(mind, a.new, a.review_at)
+        if a.out:
+            Path(a.out).write_text(text, encoding="utf-8")
+            print(f"batch brief --new: wrote {a.out} "
+                  f"({len(read_goals(mind))} goal(s) from goals.md)")
+        else:
+            sys.stdout.write(text)
+        if not read_goals(mind):
+            print("batch brief --new: goals.md has no goals — `brief --check` "
+                  "refuses a brief without one", file=sys.stderr)
+        return RC_OK
     if not a.check:
-        print("batch brief: --check <file> is the only brief verb "
+        print("batch brief: --check <file> or --new <slot> "
               "(the digest is `batch digest --record <file>`)", file=sys.stderr)
         return RC_USAGE
     res = _brief.check(Path(a.check), mind)
+    warn = goal_one_warning(Path(a.check), mind)
+    if warn:
+        res["warnings"].append(warn)
     # The premise leg: a named task whose premise is gone on main is flagged
     # here, before the shift pays a worker to discover it. A warning, not a
     # refusal — the check is mechanical, and the human reads the evidence.

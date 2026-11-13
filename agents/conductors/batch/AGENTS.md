@@ -196,6 +196,14 @@ never the *authority*. A shift brief written with `review-at:` is that act in
 writing (2026-11-03): the human dispatches by writing it, and its scope is the
 whole grant (`AUTONOMY.md`, "Shift briefs and unattended `glance`").
 
+`batch brief --new <YYYY-MM-DD-am|pm> --review-at <ISO>` composes that writing:
+a skeleton brief whose `goals:` are `PyAutoMind/goals.md`'s, in order, with
+`backlog: scoped` to their `epics:`/`tags:` (else `fill-idle`) and
+`merge-cap: 0`. It prints to stdout (`--out FILE` writes it) and never writes a
+record into `batches/` — saving it there is the human's dispatch.
+`brief --check` warns when `goals.md`'s goal 1 is missing from a brief
+(PyAutoMind#565; readers in `_steer.py`).
+
 ## The watcher (phases 3a–3d)
 
 `bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one
