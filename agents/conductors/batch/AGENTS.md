@@ -386,6 +386,26 @@ trigger is durable state (a parked task or an issue-only `.done` with no
 marker yet), so a tick that dies between parking and posting mentions on the
 next; a failed mention is also retried by the late sweep.
 
+**Watching and steering a shift from its issue (PyAutoBrain#622).** Each open
+tick ends with the shift's **status comment** on the brief's `issue:`: the
+`batch watch` snapshot as Markdown (`_watch.render_status`, no tick log),
+created once (`<slot>/status.json` claimed before the create) and then only
+edited, at most once a tick, when the state changes or every 10 minutes
+(`STATUS_REFRESH_S`). A create that may have landed is never made again; the
+comments read adopts it by its hidden tag. A failed edit is retried next tick.
+After the reap, one `gh api …/comments` read takes the human's commands, each
+the first line of a comment by `mention_login`, made after `dispatched:`:
+`/pause` (no new spawns, proposals or close-outs; workers out run on and are
+reaped), `/resume`, `/drop <task>` (`counters.json` `dropped`; never picked,
+never re-dispatched, its PR refused for close-out; a live worker is shown
+`dropped, still running` and stopping it is the human's, `claude stop <id>`)
+and `/stop` (writes `STOP`). Each comment acts once, by id, and is acknowledged
+once in the status comment's `Commands` list. Without a login, nothing is read
+and the comment says steering is off. The dashboard's copy is the record's `-
+live:` line (`record-key` op, one Mind writer, on a change of state), shown in
+the batch box. Doctrine: AUTONOMY.md watcher network surface, amendment
+2026-11-13.
+
 **The watcher's GitHub identity (human ruling 2026-11-12, #611).**
 `PYAUTO_SHIFT_GH_TOKEN` holds a separate bot or machine account's token,
 **fine-grained, PyAutoMind issues:write only**, set by the human in the
@@ -418,7 +438,8 @@ live shift 1 (2026-11-06) lost all three workers about 30 seconds after spawn
 (`daemon-reload`). Separately, a worker or close-out whose `claude agents`
 state is in `_digest.ENDED_STATES` (`failed`, `killed`, `error`, …) is reaped
 at once, as a crash (worker, re-dispatched once) or a refusal (close-out),
-never read as alive. To stop a shift, `touch <slot>/STOP`; to remove the
+never read as alive. To stop a shift, `touch <slot>/STOP` (or comment `/stop` on
+its issue); to remove the
 watcher, `systemctl --user disable --now pyauto-orchestrator.timer`.
 
 ## Running

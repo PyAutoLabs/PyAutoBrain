@@ -23,8 +23,11 @@ git hook injected through the worker's environment refuses a direct commit.
 Nothing here commits, merges or arms a timer: the systemd timer that calls
 `bin/orchestrator_watch.py` is installed by the human. Its only GitHub writes
 are the comments AUTONOMY.md "The watcher's network surface" lists — the
-digest, one @mention per worker per state that needs the human (#611) and
-one correction for a late arrival (#610) — each claimed by marker first.
+digest, one @mention per worker per state that needs the human (#611), one
+correction for a late arrival (#610) and one live status comment, then only
+edited (#622) — each claimed by marker first. Each open tick also reads the
+shift issue's comments once, for the human's `/pause` `/resume` `/drop`
+`/stop` (#622).
 """
 
 from __future__ import annotations
@@ -147,6 +150,10 @@ def read_counters(slot: Path) -> dict:
     c.setdefault("workers", [])
     c.setdefault("github", {})
     c.setdefault("pushes", 0)        # @mentions sent (PyAutoBrain#611)
+    # PyAutoBrain#622: tasks the human dropped, and every steering command
+    # enacted with its acknowledgement (`paused` is present only while paused).
+    c.setdefault("dropped", {})
+    c.setdefault("commands", [])
     return c
 
 
@@ -822,8 +829,11 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
          agents: AgentsView | None = None, tokens=transcript_usage,
          poster=None, health=None, pr_state=None,
-         token_reserve: int | None = None, whoami=None) -> dict:
+         token_reserve: int | None = None, whoami=None, github=None) -> dict:
     """One watcher tick. Returns what it did; also appended to `tick.log`.
+
+    `github` is the `run` seam for the live status comment and the steering
+    read (PyAutoBrain#622) — a test's fake `gh`; unset, the real one.
 
     After `review-at:` the one remaining act is the digest (phase 3d), once —
     then the late sweep, while a worker is still out, an op is queued or a
@@ -845,7 +855,7 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
             try:
                 result = finish_shift(
                     brief_path, mind, slot, now, poster=poster, health=health,
-                    agents=agents, tokens=tokens, grace_s=grace_s,
+                    agents=agents, tokens=tokens, grace_s=grace_s, github=github,
                     pr_state=(pr_state or getattr(spawner, "pr_state", None)
                               or _default_pr_state()))
             finally:
@@ -869,7 +879,9 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 
     top = _brief.parse(brief_path.read_text(encoding="utf-8"))["top"]
     shift = {"issue": (top.get("issue") or {}).get("value", ""),
-             "review_at": (top.get("review-at") or {}).get("value", "")}
+             "review_at": (top.get("review-at") or {}).get("value", ""),
+             "dispatched": (top.get("dispatched") or {}).get("value", ""),
+             "brief_path": brief_path}
     (slot / "leases").mkdir(parents=True, exist_ok=True)
     if not _take_lock(slot, now):
         return {"action": "busy", "reason": "another tick holds the lock"}
@@ -878,7 +890,7 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
                               spawner or default_spawner(brief_path, brief),
                               grace_s, records, agents, tokens, health, pr_state,
                               poster=poster, shift=shift, token_reserve=token_reserve,
-                              whoami=whoami)
+                              whoami=whoami, github=github)
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
@@ -892,10 +904,35 @@ def active_leases(slot: Path) -> dict[str, dict]:
 
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                  tokens, health=None, pr_state=None, *, poster=None, shift=None,
-                 token_reserve=None, whoami=None) -> dict:
+                 token_reserve=None, whoami=None, github=None) -> dict:
+    """The tick under its lock, then the live status (PyAutoBrain#622): one
+    `claude agents` view and one set of `gh pr checks` reads serve both."""
+    shift = shift or {}
+    agents = agents or AgentsView()
+    health = _TickHealth(health)
+    out = _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents, tokens,
+                     health, pr_state, poster=poster, shift=shift,
+                     token_reserve=token_reserve, whoami=whoami, github=github)
+    status = _live_status(slot, mind, shift, now, agents, health.cached, github)
+    if status:
+        out["status"] = status
+    return out
+
+
+def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
+               tokens, health=None, pr_state=None, *, poster=None, shift=None,
+               token_reserve=None, whoami=None, github=None) -> dict:
     counters = read_counters(slot)
     counters["usage_unavailable"] = []   # this tick's reads decide
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
+    # The human steers from the shift issue (#622): read once, before anything
+    # this tick starts, so a /pause or /drop binds on the tick that reads it.
+    commands = _steer(slot, counters, shift or {}, now, github)
+    _write_counters(slot, counters)
+    if (slot / STOP_FILE).exists():
+        # A /stop this tick: from here on it is the STOP file's tick.
+        return {"action": "stopped", "reason": f"{STOP_FILE} written by /stop",
+                "reaped": reaped, "commands": commands}
     # One Mind writer: whatever the workers queued is committed here, by the
     # orchestrator alone, from a temporary worktree — never by a worker.
     ledger = {"committed": None, "ops": 0}
@@ -929,12 +966,16 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                     queue=_batch.read_queue(mind))
     counters["backlog_gates"] = {"lane_absent": sorted(d["lane_absent"]),
                                  "queue_stop": d["queue_stop"]}
+    paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):
-        proposed = _propose(d["members"], brief, counters, max_sessions)
+        proposed = [] if paused else _propose(
+            [m for m in d["members"] if task_id(m["path"]) not in counters["dropped"]],
+            brief, counters, max_sessions)
         _write_counters(slot, counters)
-        return {"action": "shadow", "reaped": reaped, "spawned": [],
-                "proposed": proposed, "refused": [], "live": sorted(live),
-                "ledger": ledger}
+        out = {"action": "shadow", "reaped": reaped, "spawned": [],
+               "proposed": proposed, "refused": [], "live": sorted(live),
+               "ledger": ledger}
+        return _steered(out, commands, paused)
     budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
     # A real worker holds a reservation from its spawn until its measured
     # usage passes it, so the budget binds on the first tick (#610). A fake
@@ -944,10 +985,10 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
         reserve = token_reserve if token_reserve is not None \
             else default_token_reserve(budget, max_sessions)
     spawned, refused = [], []
-    for member in d["members"]:
+    for member in [] if paused else d["members"]:
         task = task_id(member["path"])
         if task in live or task in counters["done"] or task in counters["abandoned"] \
-                or task in counters["parked"]:
+                or task in counters["parked"] or task in counters["dropped"]:
             continue
         if len(live) >= max_workers:
             refused.append({"task": task, "why": f"max-workers {max_workers} reached"})
@@ -1012,6 +1053,15 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
            "closeouts": closeouts}
     if mentions:
         out["mentions"] = mentions
+    return _steered(out, commands, paused)
+
+
+def _steered(out: dict, commands: list, paused: bool) -> dict:
+    """A tick's result with what the human's commands did to it."""
+    if commands:
+        out["commands"] = commands
+    if paused:
+        out["paused"] = True
     return out
 
 
@@ -1249,6 +1299,301 @@ def _mentions(slot: Path, counters: dict, shift: dict, poster, now: _dt.datetime
     return out
 
 
+# --- the live shift view you can steer (PyAutoBrain#622) ----------------------------
+
+#: The one live status comment of a shift: claimed by this marker before its
+#: create, then only edited — never a second (AUTONOMY.md watcher network
+#: surface, amendment 2026-11-13).
+STATUS_MARKER = "status.json"
+STATUS_FILE = "status.md"
+#: An unchanged status is re-edited this often (time left, tokens); any change
+#: of state edits it on the tick that sees it. Never more than one edit a tick.
+STATUS_REFRESH_S = 600
+#: The hidden first line of the status comment; the comments read adopts a
+#: create that may have landed (a timeout, a crash after the claim) by it.
+STATUS_TAG = "<!-- pyauto-shift-status {slot} {nonce} -->"
+STATUS_TAG_PREFIX = "<!-- pyauto-shift-status "
+#: The dashboard's copy of the status: one `- live:` line in the brief record,
+#: rewritten through the one Mind writer when the shift's state changes.
+LIVE_KEY_FILE = "live.key"
+#: The steering commands, read from the human's comments on the shift issue.
+COMMANDS = ("pause", "resume", "drop", "stop")
+_COMMAND_RE = re.compile(r"^/(pause|resume|drop|stop)\b[ \t]*(\S+)?[ \t]*$")
+_TASK_ARG_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
+_ISSUE_API_RE = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/issues/(\d+)$")
+_COMMENT_API_RE = re.compile(
+    r"^https://github\.com/([^/\s]+)/([^/\s]+)/(?:issues|pull)/\d+#issuecomment-(\d+)$")
+
+
+def gh_comment_edit(comment_url: str, body_file: Path, run=None) -> dict:
+    """Edit the watcher's own status comment in place (`gh api PATCH`), as
+    `PYAUTO_SHIFT_GH_TOKEN`'s account when it is set — the only edit the
+    watcher makes. An edit is idempotent, so any failure is retried next tick."""
+    m = _COMMENT_API_RE.match(comment_url or "")
+    if not m:
+        return {"edited": False, "error": f"not a comment URL: {comment_url!r}"[:300]}
+    payload = Path(body_file).with_suffix(".json")
+    payload.write_text(json.dumps({"body": Path(body_file).read_text(encoding="utf-8")}),
+                       encoding="utf-8")
+    run = run or subprocess.run
+    try:
+        res = run(["gh", "api", "-X", "PATCH",
+                   f"repos/{m.group(1)}/{m.group(2)}/issues/comments/{m.group(3)}",
+                   "--input", str(payload), "--jq", ".html_url"],
+                  capture_output=True, text=True, timeout=120, env=_gh_env())
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"edited": False, "error": f"gh could not edit: {e}"[:300]}
+    if res.returncode != 0:
+        return {"edited": False, "error": (res.stderr or res.stdout).strip()[:300]}
+    return {"edited": True}
+
+
+def gh_issue_comments(issue_url: str, since: str, run=None) -> list[dict] | None:
+    """The shift issue's comments updated since `since`, oldest first: one
+    read-only `gh api` call, one page of 100 (the next tick reads on). None
+    when GitHub could not say — the tick carries on without steering."""
+    m = _ISSUE_API_RE.match(issue_url or "")
+    if not m:
+        return None
+    run = run or subprocess.run
+    query = f"?per_page=100&since={since}" if since else "?per_page=100"
+    try:
+        res = run(["gh", "api", f"repos/{m.group(1)}/{m.group(2)}/issues/{m.group(3)}"
+                   f"/comments{query}"],
+                  capture_output=True, text=True, timeout=60, env=_gh_env())
+        if res.returncode != 0:
+            return None
+        data = json.loads(res.stdout or "")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if not isinstance(data, list):
+        return None
+    out = []
+    for c in data:
+        if not isinstance(c, dict) or c.get("id") is None:
+            continue
+        user = c.get("user") if isinstance(c.get("user"), dict) else {}
+        out.append({"id": str(c["id"]), "login": str(user.get("login") or ""),
+                    "body": str(c.get("body") or ""), "created_at": str(c.get("created_at") or ""),
+                    "url": str(c.get("html_url") or "")})
+    return out
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        rec = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) else None
+
+
+def status_url(slot: Path) -> str:
+    """The live status comment's URL, once it is known to exist."""
+    rec = _read_json(slot / STATUS_MARKER) or {}
+    return rec.get("url", "") if rec.get("state") == "posted" else ""
+
+
+def _parse_command(body: str) -> tuple[str, str] | None:
+    """(command, argument) when a comment's first non-empty line is a
+    steering command and nothing else; None otherwise."""
+    first = next((ln.strip() for ln in (body or "").splitlines() if ln.strip()), "")
+    m = _COMMAND_RE.match(first)
+    return (m.group(1), (m.group(2) or "").strip("`")) if m else None
+
+
+def _apply_command(slot: Path, counters: dict, cmd: str, arg: str, who: str,
+                   at: str) -> str:
+    """Enact one command; returns its acknowledgement."""
+    if cmd == "pause":
+        if counters.get("paused"):
+            return "already paused"
+        counters["paused"] = {"by": who, "at": at}
+        return "paused: no new workers or close-outs until /resume; workers out keep running"
+    if cmd == "resume":
+        if not counters.get("paused"):
+            return "not paused: nothing to resume"
+        counters.pop("paused")
+        return "resumed"
+    if cmd == "stop":
+        (slot / STOP_FILE).write_text(f"/stop by {who} at {at}\n", encoding="utf-8")
+        return (f"stopped: {STOP_FILE} written; the watcher does nothing from now on and "
+                f"workers out are not killed (remove {STOP_FILE} by hand to restart)")
+    # drop
+    if not arg or not _TASK_ARG_RE.match(arg):
+        return "ignored: /drop needs a task name"
+    task = Path(arg).stem
+    counters["dropped"][task] = {"by": who, "at": at}
+    lease = leases(slot).get(task)
+    if lease is not None:
+        key = _worker_key(lease, task)
+        return (f"dropped `{task}`: its worker {key} is still running; it is never "
+                "re-dispatched and its PR never merged unattended. Stopping it is "
+                f"yours, by hand on the laptop (`claude stop {key}`)")
+    if task in counters["outcomes"] or task in counters["done"]:
+        return f"dropped `{task}`: it had already finished; its PR is never merged unattended"
+    return f"dropped `{task}`: it will not be picked this shift"
+
+
+def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=None) -> list[dict]:
+    """Read the shift issue's comments once and enact each new steering
+    command from the human's login (`mention_login`), in order, once.
+
+    Not spoofable by another account (only the configured login counts), nor
+    by the watcher's own comments (the status comment carries its tag and is
+    skipped by id; no other comment it writes opens with a command), nor by
+    a comment older than the shift's `dispatched:` (an issue reused across
+    shifts). Each comment is acted on once, by id; its acknowledgement is a
+    line in the status comment, so a command costs no extra GitHub write."""
+    issue = shift.get("issue", "")
+    login = mention_login()
+    if not issue.startswith("http") or not login:
+        return []
+    start = _brief._iso(shift.get("dispatched") or "")
+    since = counters.get("commands_since") or (_iso(start) if start else "")
+    comments = gh_issue_comments(issue, since, run=github)
+    if comments is None:
+        counters["commands_unread"] = _iso(now)
+        return []
+    counters.pop("commands_unread", None)
+    marker = slot / STATUS_MARKER
+    rec = _read_json(marker)
+    seen = set(counters.get("commands_seen") or [])
+    out = []
+    for c in sorted(comments, key=lambda c: (c["created_at"], c["id"])):
+        if c["created_at"] > (counters.get("commands_since") or ""):
+            counters["commands_since"] = c["created_at"]
+        if c["body"].lstrip().startswith(STATUS_TAG_PREFIX):
+            if rec and rec.get("state") in ("claimed", "unknown") \
+                    and f" {rec.get('nonce')} -->" in c["body"].split("\n", 1)[0] and c["url"]:
+                # A create that timed out (or a tick that died after its
+                # claim) did land: adopt it, and edit it from now on.
+                rec.update(state="posted", url=c["url"], due=True, adopted_at=_iso(now))
+                marker.write_text(json.dumps(rec, sort_keys=True))
+            continue
+        if c["id"] in seen or (rec and c["url"] and c["url"] == rec.get("url")):
+            continue
+        if c["login"].lower() != login.lower():
+            continue
+        try:
+            created = _parse_iso(c["created_at"])
+        except ValueError:
+            continue
+        if start is not None and created < start:
+            continue
+        parsed = _parse_command(c["body"])
+        if parsed is None:
+            continue
+        cmd, arg = parsed
+        seen.add(c["id"])
+        ack = _apply_command(slot, counters, cmd, arg, c["login"], c["created_at"])
+        counters["commands"].append({"id": c["id"], "command": "/" + cmd + (f" {arg}" if arg else ""),
+                                     "by": c["login"], "at": c["created_at"], "url": c["url"],
+                                     "ack": ack})
+        out.append({"command": cmd, "arg": arg, "ack": ack})
+    counters["commands_seen"] = sorted(seen)
+    return out
+
+
+class _TickHealth:
+    """One tick's `gh pr checks` reads, remembered: the status comment shows
+    what the close-outs read and never makes a read of its own."""
+
+    def __init__(self, health=None):
+        self._health, self.seen = health, {}
+
+    def __call__(self, url: str) -> str:
+        if url not in self.seen:
+            self.seen[url] = (self._health or _digest.pr_health)(url)
+        return self.seen[url]
+
+    def cached(self, url: str) -> str:
+        return self.seen.get(url, "open (CI not read this tick)")
+
+
+def _post_status(slot: Path, issue: str, text: str, key: str, now: _dt.datetime,
+                 github=None) -> dict:
+    """At most one GitHub write: create the status comment (marker claimed
+    first, exclusively), or edit it. A create `gh` said failed landed nothing
+    and is made again next tick; one that timed out, or a claim whose tick
+    died, may have landed: it is never made again, only adopted by the
+    comments read. An edit that fails is retried next tick."""
+    marker, body = slot / STATUS_MARKER, slot / STATUS_FILE
+    rec = _read_json(marker)
+    if rec is None or rec.get("state") == "failed":
+        if rec is None:
+            rec = {"at": _iso(now), "issue": issue, "state": "claimed", "tries": 1,
+                   "nonce": os.urandom(6).hex()}
+            if not _create_exclusive(marker, rec):
+                return {"status": "busy"}
+        else:
+            rec.update(state="claimed", tries=int(rec.get("tries", 1)) + 1, error=None)
+            marker.write_text(json.dumps(rec, sort_keys=True))
+        body.write_text(STATUS_TAG.format(slot=slot.name, nonce=rec["nonce"]) + "\n" + text,
+                        encoding="utf-8")
+        res = gh_comment(issue, body, run=github)
+        if res.get("posted") and "#issuecomment-" in res.get("url", ""):
+            rec.update(state="posted", url=res["url"], key=key, edited_at=_iso(now), due=False)
+        elif res.get("posted"):
+            # Landed, but gh printed no comment URL: adopted by the next read.
+            rec.update(state="unknown", error="posted without a comment URL")
+        else:
+            rec.update(state="failed" if res.get("retry", True) else "unknown",
+                       error=res.get("error", ""))
+        marker.write_text(json.dumps(rec, sort_keys=True))
+        return {"status": "created" if rec["state"] == "posted" else "create " + rec["state"]}
+    if rec.get("state") != "posted":
+        return {"status": "unknown — never re-created; adopted when the comments read sees it"}
+    try:
+        stale = (now - _parse_iso(rec.get("edited_at") or "")).total_seconds() >= STATUS_REFRESH_S
+    except ValueError:
+        stale = True
+    if not (rec.get("due") or rec.get("key") != key or stale):
+        return {"status": "unchanged"}
+    body.write_text(STATUS_TAG.format(slot=slot.name, nonce=rec["nonce"]) + "\n" + text,
+                    encoding="utf-8")
+    res = gh_comment_edit(rec.get("url", ""), body, run=github)
+    if res.get("edited"):
+        rec.update(key=key, edited_at=_iso(now), due=False, edits=int(rec.get("edits", 0)) + 1)
+        rec.pop("error", None)
+    else:
+        rec.update(due=True, error=res.get("error", ""))
+    marker.write_text(json.dumps(rec, sort_keys=True))
+    return {"status": "edited" if res.get("edited") else "edit failed — retried next tick"}
+
+
+def _live_status(slot: Path, mind: Path, shift: dict, now: _dt.datetime, agents,
+                 health, github=None) -> dict | None:
+    """The end of every open tick: the status comment (create once, then edit)
+    and the dashboard's `- live:` line. Built from the same snapshot as
+    `batch watch`, from what this tick already read — no read of its own."""
+    brief_path = shift.get("brief_path")
+    if brief_path is None:
+        return None
+    import _watch  # noqa: E402 — deferred: _watch imports this module
+    snap = _watch.snapshot(brief_path, slot, now, agents=agents, health=health)
+    out = {}
+    issue = shift.get("issue", "")
+    if issue.startswith("http"):
+        snap["commands_on"] = bool(mention_login())
+        out = _post_status(slot, issue, _watch.render_status(snap),
+                           _watch.status_key(snap), now, github)
+    snap["status_url"] = status_url(slot)
+    line, key = _watch.live_line(snap)
+    rel = _record_rel(Path(brief_path), mind)
+    keyfile = slot / LIVE_KEY_FILE
+    old = keyfile.read_text(encoding="utf-8") if keyfile.exists() else ""
+    if rel is not None and key != old:
+        _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                              {"op": "record-key", "path": rel, "key": "live", "value": line})
+        keyfile.write_text(key, encoding="utf-8")
+        try:
+            out["ledger"] = _mind_writer.commit_ledger(slot, mind,
+                                                       f"shift {slot.name}: live status")
+        except _mind_writer.MindWriteError as e:
+            out["ledger"] = {"committed": None, "error": str(e)}
+    return out or None
+
+
 # --- the digest (phase 3d) ----------------------------------------------------------
 
 def _record_rel(brief_path: Path, mind: Path) -> str | None:
@@ -1379,7 +1724,7 @@ def _github_merges(counters: dict, review_at, pr_state) -> None:
 
 def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                  poster=None, health=None, agents=None, tokens=transcript_usage,
-                 grace_s: float = LEASE_GRACE_S, pr_state=None) -> dict:
+                 grace_s: float = LEASE_GRACE_S, pr_state=None, github=None) -> dict:
     """Reap, then write the digest into the record and post it on the brief's issue.
 
     Reaping first (#610) puts a `.done` written after the last live tick into
@@ -1398,6 +1743,7 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     brief, top = rec["brief"] or {}, rec["top"]
     counters = read_counters(slot)
     counters["usage_unavailable"] = []
+    agents = agents or AgentsView()   # one `claude agents` read serves the closing status
     _reap(slot, counters, now, grace_s, agents, tokens)
     counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
     if not _brief.is_shadow(brief):
@@ -1416,6 +1762,12 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         # The pilot ledger (phase 4a; jsonl #610): one row per shift, in the
         # same commit, upserted by slot so a rerun never writes a second.
         _queue_pilot(slot, brief, counters, amended=False)
+        if (slot / LIVE_KEY_FILE).exists():
+            # The dashboard's live line ends with the shift (#622).
+            _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
+                "op": "record-key", "path": rel, "key": "live",
+                "value": "closed at review-at — the digest is below"
+                         + (f" — status: {status_url(slot)}" if status_url(slot) else "")})
         try:
             result["ledger"] = _mind_writer.commit_ledger(
                 slot, mind, f"shift {slot.name}: digest")
@@ -1430,7 +1782,27 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         result["post"] = {"posted": False, "error": "already posted this shift"}
         return result
     result["post"] = {k: posted[k] for k in ("posted", "url", "error") if k in posted}
+    closing = _close_status(brief_path, slot, issue, now, agents, github)
+    if closing:
+        result["status"] = closing
     return result
+
+
+def _close_status(brief_path: Path, slot: Path, issue: str, now: _dt.datetime,
+                  agents, github=None) -> dict | None:
+    """One last edit of the status comment at `review-at:`, saying the shift
+    is closed (#622); never retried — the digest is the record from here."""
+    rec = _read_json(slot / STATUS_MARKER)
+    if not rec or rec.get("state") != "posted":
+        return None
+    import _watch  # noqa: E402
+    snap = _watch.snapshot(brief_path, slot, now, agents=agents,
+                           health=lambda u: "see the digest")
+    snap["commands_on"] = False
+    rec["due"] = True
+    (slot / STATUS_MARKER).write_text(json.dumps(rec, sort_keys=True))
+    return _post_status(slot, issue, _watch.render_status(snap), _watch.status_key(snap),
+                        now, github)
 
 
 def _write_packet(slot: Path, digest: str) -> Path:
@@ -1565,14 +1937,19 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
         _write_counters(slot, counters)
         verdict_file.unlink(missing_ok=True)
 
-    if _brief.is_shadow(brief):
-        return events
+    if _brief.is_shadow(brief) or counters.get("paused"):
+        return events   # paused (#622): a green PR waits; it is not refused
     cap = _brief._nonneg_int(brief.get("merge-cap", {}).get("value", "")) or 0
     for task, out in counters["outcomes"].items():
         for pr in out["prs"]:
             if "/pull/" not in pr or pr in out["merged"] or pr in counters["closeouts"]:
                 continue
             tier = counters["picks"].get(task, {}).get("tier", "?")
+            if task in counters["dropped"]:
+                counters["closeouts"][pr] = {"task": task, "state": "refused",
+                                             "why": "dropped by /drop — the human's /prm"}
+                events["refused"].append(pr)
+                continue
             if tier != "glance":
                 counters["closeouts"][pr] = {"task": task, "state": "refused",
                                              "why": f"tier {tier} — only glance merges unattended"}

@@ -147,7 +147,21 @@ def task_state(task: str, counters: dict, health, *, live: bool = False,
     digest and `batch watch` share, so the live view and the digest never
     disagree. Only the live view passes `live=True` (with the task's `lease`
     and the `agents` view): at `review-at:` the watcher has already reaped
-    every lease, and the digest's wording stays exactly as it was."""
+    every lease, and the digest's wording stays exactly as it was. A task the
+    human dropped by `/drop` (PyAutoBrain#622) says so first."""
+    state, tiered = _task_state(task, counters, health, live=live, lease=lease,
+                                agents=agents)
+    if task not in (counters.get("dropped") or {}):
+        return state, tiered
+    if live and lease is not None:
+        return f"dropped, still running — {state}", tiered
+    if state == "not started":
+        return "dropped by /drop — not started", False
+    return f"dropped by /drop — {state}", tiered
+
+
+def _task_state(task: str, counters: dict, health, *, live: bool = False,
+                lease: dict | None = None, agents=None) -> tuple[str, bool]:
     out = counters.get("outcomes", {}).get(task)
     if counters.get("picks", {}).get(task, {}).get("proposed"):
         return PROPOSED, True

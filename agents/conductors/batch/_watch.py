@@ -15,6 +15,10 @@ leases, and `gh pr checks` for PRs not yet merged, cached for the interval.
 
 Task wording comes from `_digest.task_state`, the digest's own, so the live
 view and the digest never disagree.
+
+The same snapshot is the shift's live status comment on its issue
+(`render_status`, written by the watcher, PyAutoBrain#622) and the dashboard's
+`- live:` record line (`live_line`); this verb itself still writes nothing.
 """
 
 from __future__ import annotations
@@ -137,6 +141,14 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         "digest_posted": (slot / _orchestrator.DIGEST_MARKER).exists(),
         "started": started,
         "tasks": rows,
+        # Steering (PyAutoBrain#622): a pause, the dropped tasks, every command
+        # enacted with its acknowledgement, and where the status comment is.
+        "paused": counters.get("paused") or None,
+        "dropped": sorted(counters.get("dropped") or {}),
+        "commands": list(counters.get("commands") or []),
+        "commands_unread": counters.get("commands_unread") or "",
+        "refusals": _digest.refusal_lines(counters) if started else [],
+        "status_url": _orchestrator.status_url(slot) if started else "",
         "budgets": {
             "workers": f"{sum(l.get('state') != 'parked' for l in held.values())} live of {_brief.cap_of(brief, 'max-workers')}",
             "sessions": f"{counters.get('sessions', 0)} of {_brief.cap_of(brief, 'max-sessions')}",
@@ -158,12 +170,30 @@ def _tick_line(t: dict) -> str:
     return f"  {at} {t.get('action', '?')}" + (f" — {counts}" if counts else "")
 
 
-def render(snap: dict) -> str:
+def _flags(snap: dict) -> list[str]:
     flags = [snap["mode"], snap["time_left"]]
     if snap["stop"]:
         flags.append("STOP present — the watcher does nothing")
+    if snap.get("paused"):
+        flags.append(f"PAUSED by {snap['paused'].get('by', '?')} — /resume to continue")
     if snap["digest_posted"]:
         flags.append("digest posted")
+    return flags
+
+
+def _steering_lines(snap: dict) -> list[str]:
+    """Refusals and commands, as bullets; only the sections that have any."""
+    lines = []
+    if snap.get("refusals"):
+        lines += ["", "Refusals"] + snap["refusals"]
+    if snap.get("commands"):
+        lines += ["", "Commands"] + [f"- `{c['command']}` by {c['by']} at {c['at']} — {c['ack']}"
+                                     for c in snap["commands"]]
+    return lines
+
+
+def render(snap: dict) -> str:
+    flags = _flags(snap)
     lines = [f"Shift {snap['slot']} — " + " · ".join(flags),
              f"  {snap['dispatched']} → {snap['review_at']}   (as of {snap['now']})",
              f"  brief: {snap['brief']}", ""]
@@ -177,10 +207,80 @@ def render(snap: dict) -> str:
     lines += ["", "Budgets",
               f"- workers: {b['workers']}", f"- sessions: {b['sessions']}",
               f"- tokens: {b['tokens']}",
-              f"- merges: {b['merges']}", f"- workers crashed: {b['crashes']}",
-              "", "Last ticks"]
+              f"- merges: {b['merges']}", f"- workers crashed: {b['crashes']}"]
+    lines += _steering_lines(snap)
+    if snap.get("status_url"):
+        lines += ["", f"Status comment: {snap['status_url']}"]
+    lines += ["", "Last ticks"]
     lines += [_tick_line(t) for t in snap["ticks"]] or ["  none"]
     return "\n".join(lines) + "\n"
+
+
+# --- the live status comment and the dashboard line (PyAutoBrain#622) -----------
+
+COMMAND_HELP = ("Steer it with a comment from the human's login, its first line one of: "
+                "`/pause`, `/resume`, `/drop <task>`, `/stop`.")
+
+
+def render_status(snap: dict) -> str:
+    """The shift's live status comment: the `render` snapshot as Markdown,
+    without the tick log. It never names a login with `@` — an edit must not
+    notify (AUTONOMY.md push test)."""
+    lines = [f"**Shift `{snap['slot']}` — " + " · ".join(_flags(snap)) + "**",
+             f"{snap['dispatched']} → {snap['review_at']} (as of {snap['now']}; "
+             "this comment is edited in place, never re-posted)", "", "**Tasks**"]
+    lines += [f"- {r['label']} — {r['state']} — {r['tier']} — why: {r['why']}"
+              + (f" — re-dispatched {r['redispatched']}×" if r["redispatched"] else "")
+              for r in snap["tasks"]] or ["- none yet"]
+    b = snap["budgets"]
+    lines += ["", "**Budgets**", f"- workers: {b['workers']}", f"- sessions: {b['sessions']}",
+              f"- tokens: {b['tokens']}", f"- merges: {b['merges']}",
+              f"- workers crashed: {b['crashes']}"]
+    for line in _steering_lines(snap):
+        lines.append(f"**{line}**" if line in ("Refusals", "Commands") else line)
+    if snap.get("commands_unread"):
+        lines += ["", f"_Commands could not be read at {snap['commands_unread']}; "
+                      "the next tick reads again._"]
+    if snap.get("commands_on", True) and not snap["digest_posted"]:
+        lines += ["", COMMAND_HELP]
+    elif not snap.get("commands_on", True) and not snap["digest_posted"]:
+        lines += ["", "_Steering is off: no human login is set (`PYAUTO_SHIFT_MENTION` "
+                      "or `shift_watcher: mention_login:`)._"]
+    return "\n".join(lines).replace("@", "@\u200b") + "\n"
+
+
+def status_key(snap: dict) -> str:
+    """What makes a status edit due at once: the snapshot without its clock,
+    its token figure and its tick log — those refresh every
+    `_orchestrator.STATUS_REFRESH_S` instead."""
+    keep = {k: v for k, v in snap.items()
+            if k not in ("now", "time_left", "ticks", "budgets", "status_url")}
+    keep["budgets"] = {k: v for k, v in snap["budgets"].items() if k != "tokens"}
+    keep["refusals"] = [r.rsplit(" — ", 1)[0] for r in snap.get("refusals") or []]
+    keep["commands_unread"] = bool(snap.get("commands_unread"))
+    return json.dumps(keep, sort_keys=True, default=str)
+
+
+def live_line(snap: dict) -> tuple[str, str]:
+    """The dashboard's one-line copy of the status (the brief record's
+    `- live:` key), and the part of it whose change rewrites it."""
+    states = [r["state"] for r in snap["tasks"]]
+    counts = {
+        "running": sum(s.startswith(("running", "dropped, still running")) for s in states),
+        "blocked or parked": sum(s.startswith(("blocked", "parked")) for s in states),
+        "finished": sum("github.com" in s or s.startswith(("finished", "obsolete"))
+                        for s in states),
+        "dropped": len(snap.get("dropped") or []),
+        "refusal reasons": len(snap.get("refusals") or []),
+    }
+    head = [snap["mode"]] + (["STOPPED"] if snap["stop"] else []) \
+        + (["PAUSED"] if snap.get("paused") else []) \
+        + [", ".join(f"{n} {k}" for k, n in counts.items() if n) or "nothing started"]
+    key = " · ".join(head) + (f" — status: {snap['status_url']}" if snap.get("status_url") else "")
+    line = (" · ".join(head) + f" · tokens {snap['budgets']['tokens']}"
+            + f" · review-at {snap['review_at']} (as of {snap['now']})"
+            + (f" — status: {snap['status_url']}" if snap.get("status_url") else ""))
+    return " ".join(line.split()), key
 
 
 def watch(brief_path: Path, slot: Path, *, interval: float = MIN_INTERVAL_S,

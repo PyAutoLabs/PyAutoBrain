@@ -20,6 +20,7 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "set-header",   "path": "draft/a/b/x.md", "key": "Verified", "value": "2026-11-12 abc123 (Repo)"}
     {"op": "jsonl-upsert", "path": "batches/pilot/pilot.jsonl", "key": "slot", "row": {...}}
     {"op": "table-upsert", "path": "batches/pilot/pilot.md", "key": "<slot>", "row": "| … |", "header": "…"}
+    {"op": "record-key",   "path": "batches/<slot>.md", "key": "live", "value": "…"}
 
 `jsonl-upsert` keeps one JSON line per `row[key]`: the line with that key is
 replaced (its other fields kept), else the row is appended. `table-upsert`
@@ -27,6 +28,11 @@ does the same for a Markdown table row keyed by its first cell, keeping any
 old cell where the new one is `?` (the human's cells), and writes `header`
 first into a missing file. Both are how the shift watcher writes its one pilot
 row per shift and amends it on a late arrival (PyAutoBrain#610).
+
+`record-key` sets one top-level `- key: value` line of a batch record — the
+key's own line replaced, else inserted after `- issue:` (else `- review-at:`).
+The watcher writes the dashboard's `- live:` status line this way
+(PyAutoBrain#622); a record no longer on main is skipped, like `set-header`.
 
 `set-header` sets one `Key: value` line in a prompt's header block (replacing
 the key's line if present) — how a shift worker records the premise check's
@@ -48,7 +54,7 @@ import types
 from pathlib import Path
 
 OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
-       "set-header", "jsonl-upsert", "table-upsert")
+       "set-header", "jsonl-upsert", "table-upsert", "record-key")
 PUSH_TRIES = 3
 LEDGER_DIR = "ledger"
 COMMITTED_DIR = "committed"
@@ -118,6 +124,14 @@ def validate_op(op: dict, lm) -> list[str]:
             errs.append("table-upsert: row must be one `| … |` line")
         elif _cells(row)[0] != op.get("key"):
             errs.append("table-upsert: the row's first cell must be its key")
+    if kind == "record-key":
+        key, value, path = op.get("key"), op.get("value"), str(op.get("path", ""))
+        if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", key):
+            errs.append("record-key: key must be one lower-case record key")
+        if not isinstance(value, str) or not value.strip() or "\n" in value:
+            errs.append("record-key: value must be one non-empty line")
+        if not (path.startswith("batches/") and path.endswith(".md")):
+            errs.append("record-key: path must be a batch record (batches/*.md)")
     if kind == "set-header":
         key, value = op.get("key"), op.get("value")
         if not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Za-z-]*", key):
@@ -171,6 +185,11 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
                     f"since the check) — {op['key']}: skipped")
         target.write_text(set_header(target.read_text(encoding="utf-8"),
                                      op["key"], op["value"]), encoding="utf-8")
+    elif kind == "record-key":
+        if not target.exists():
+            return f"record-key: {op['path']} is not on main — {op['key']}: skipped"
+        target.write_text(record_key(target.read_text(encoding="utf-8"),
+                                     op["key"], op["value"]), encoding="utf-8")
     elif kind == "table-append":
         target.write_text(table_append(target.read_text(encoding="utf-8")
                                        if target.exists() else "",
@@ -186,6 +205,28 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
                                        if target.exists() else "",
                                        op["key"], op["row"], op.get("header", "")),
                           encoding="utf-8")
+
+
+def record_key(text: str, key: str, value: str,
+               after: tuple[str, ...] = ("issue", "review-at")) -> str:
+    """`text` with one top-level `- key: value` line above the first `## `
+    heading: the key's line replaced if present, else inserted after the
+    first of `after` present, else after the title. Every other line is kept."""
+    lines = text.split("\n")
+    end = next((i for i, ln in enumerate(lines) if ln.startswith("## ")), len(lines))
+    new = f"- {key}: {value}"
+    for i in range(end):
+        if lines[i].startswith(f"- {key}:"):
+            lines[i] = new
+            return "\n".join(lines)
+    at = next((i + 1 for i, ln in enumerate(lines) if ln.startswith("# ")), 0)
+    for anchor in after:
+        hit = next((i for i in range(end) if lines[i].startswith(f"- {anchor}:")), None)
+        if hit is not None:
+            at = hit + 1
+            break
+    lines.insert(at, new)
+    return "\n".join(lines)
 
 
 def table_append(text: str, heading: str, row: str) -> str:

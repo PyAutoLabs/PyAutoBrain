@@ -38,6 +38,13 @@ def _no_real_github(monkeypatch):
         real_login = orch.gh_login
         monkeypatch.setattr(orch, "gh_login", lambda run=None:
                             real_login(run=run) if run else None)
+        # PyAutoBrain#622: the status comment's edit and the steering read.
+        real_edit, real_read = orch.gh_comment_edit, orch.gh_issue_comments
+        monkeypatch.setattr(orch, "gh_comment_edit", lambda url, body, run=None:
+                            real_edit(url, body, run=run) if run else
+                            {"edited": False, "error": "offline (tests)"})
+        monkeypatch.setattr(orch, "gh_issue_comments", lambda issue, since, run=None:
+                            real_read(issue, since, run=run) if run else None)
         monkeypatch.delenv(orch.MENTION_ENV, raising=False)
         monkeypatch.delenv(orch.GH_TOKEN_ENV, raising=False)
     if digest is not None:

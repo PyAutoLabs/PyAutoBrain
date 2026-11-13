@@ -106,9 +106,9 @@ After `review-at:` its one remaining act is the digest: written into the record
 and posted once on the brief's `issue:`. A `shadow: yes` brief plans and digests
 but spawns nothing — the pilot's baseline; every shift keeps one line in `PyAutoMind/batches/pilot/pilot.jsonl`, rendered
 to `pilot.md` (`?` cells the human's at check-in). A parked worker @-mentions the human on that issue, once. Once a worker's `glance` PR is green, the
-watcher starts one independent close-out session that merges it or refuses;
-each merge adds a row to the stage-2 table in `PyAutoMind/autonomy_log.md`.
+watcher starts one independent close-out session that merges it or refuses; each merge adds a row to the stage-2 table in `PyAutoMind/autonomy_log.md`.
 What a tick does, its state, caps and the install commands: `agents/conductors/batch/AGENTS.md` "The watcher".
+**`/batch watch`** ("how is the shift going?"): run `bin/pyauto-brain batch watch --record <brief> --once` and relay it as written; with no slot on this machine, read the status comment on its `issue:` ([`reference.md`](reference.md)). The human steers with their own comment there (`/pause`, `/resume`, `/drop <task>`, `/stop`); never post one for them.
 
 ## When they come back — collect, review, close (2026-08-31)
 
