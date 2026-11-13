@@ -913,7 +913,8 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     out = _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents, tokens,
                      health, pr_state, poster=poster, shift=shift,
                      token_reserve=token_reserve, whoami=whoami, github=github)
-    status = _live_status(slot, mind, shift, now, agents, health.cached, github)
+    status = _live_status(slot, mind, shift, now, agents, health.cached, github,
+                          stopped=out.get("action") == "stopped")
     if status:
         out["status"] = status
     return out
@@ -925,9 +926,27 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     counters = read_counters(slot)
     counters["usage_unavailable"] = []   # this tick's reads decide
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
+    import _batch  # noqa: E402 — deferred: _batch imports this module's sibling
+    planned = {}
+
+    def plan() -> dict:
+        """The plan inside the brief, made once a tick when first needed."""
+        if "d" not in planned:
+            recs = records if records is not None else _batch.survey(mind)
+            # Unattended by construction: an absent Lane is excluded and an
+            # empty queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2
+            # rulings — 2026-11-12"). Recorded each tick so the digest can say so.
+            planned["d"] = _batch.plan(recs, session_lane="local-dev", brief=brief,
+                                       queue=_batch.read_queue(mind))
+        return planned["d"]
+
+    def known(task: str) -> bool:
+        named = {task_id(p) for p in _brief.tasks_of(brief)}
+        return task in named or task in {task_id(m["path"]) for m in plan()["members"]}
+
     # The human steers from the shift issue (#622): read once, before anything
     # this tick starts, so a /pause or /drop binds on the tick that reads it.
-    commands = _steer(slot, counters, shift or {}, now, github)
+    commands = _steer(slot, counters, shift or {}, now, github, whoami, known)
     _write_counters(slot, counters)
     if (slot / STOP_FILE).exists():
         # A /stop this tick: from here on it is the STOP file's tick.
@@ -956,14 +975,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     max_workers = _brief.cap_of(brief, "max-workers")
     max_sessions = _brief.cap_of(brief, "max-sessions")
 
-    import _batch  # noqa: E402 — deferred: _batch imports this module's sibling
-    if records is None:
-        records = _batch.survey(mind)
-    # Unattended by construction: an absent Lane is excluded and an empty
-    # queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2 rulings —
-    # 2026-11-12"). Recorded each tick so the digest can say so.
-    d = _batch.plan(records, session_lane="local-dev", brief=brief,
-                    queue=_batch.read_queue(mind))
+    d = plan()
     counters["backlog_gates"] = {"lane_absent": sorted(d["lane_absent"]),
                                  "queue_stop": d["queue_stop"]}
     paused = bool(counters.get("paused"))
@@ -1282,6 +1294,7 @@ def _mentions(slot: Path, counters: dict, shift: dict, poster, now: _dt.datetime
         # Once per shift: who the comments post as. The human's own login
         # gets no notification for its own comment (#611 review).
         counters["poster_login"] = (whoami or gh_login)() or ""
+    if login:
         counters["mention_login"] = login
     for task, state, reason, w, key, name in todo:
         marker = d / f"{name}.json"
@@ -1320,6 +1333,12 @@ LIVE_KEY_FILE = "live.key"
 COMMANDS = ("pause", "resume", "drop", "stop")
 _COMMAND_RE = re.compile(r"^/(pause|resume|drop|stop)\b[ \t]*(\S+)?[ \t]*$")
 _TASK_ARG_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
+#: `<lease dir>/<task>.dropped`: a dropped task's close-out session checks it
+#: just before it merges, and refuses (closeout_template.md).
+DROPPED_SUFFIX = ".dropped"
+#: The `/pause` acknowledgement — the one wording AUTONOMY.md and the docs use.
+PAUSE_ACK = ("paused: spawns, re-dispatches and new close-outs are held until /resume; "
+             "reaps and mentions continue")
 _ISSUE_API_RE = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/issues/(\d+)$")
 _COMMENT_API_RE = re.compile(
     r"^https://github\.com/([^/\s]+)/([^/\s]+)/(?:issues|pull)/\d+#issuecomment-(\d+)$")
@@ -1402,13 +1421,15 @@ def _parse_command(body: str) -> tuple[str, str] | None:
 
 
 def _apply_command(slot: Path, counters: dict, cmd: str, arg: str, who: str,
-                   at: str) -> str:
-    """Enact one command; returns its acknowledgement."""
+                   at: str, known=None) -> str:
+    """Enact one command; returns its acknowledgement. `known(task)` says
+    whether a task belongs to this shift (a pick, a lease, a brief or plan
+    member)."""
     if cmd == "pause":
         if counters.get("paused"):
             return "already paused"
         counters["paused"] = {"by": who, "at": at}
-        return "paused: no new workers or close-outs until /resume; workers out keep running"
+        return PAUSE_ACK
     if cmd == "resume":
         if not counters.get("paused"):
             return "not paused: nothing to resume"
@@ -1422,19 +1443,34 @@ def _apply_command(slot: Path, counters: dict, cmd: str, arg: str, who: str,
     if not arg or not _TASK_ARG_RE.match(arg):
         return "ignored: /drop needs a task name"
     task = Path(arg).stem
+    held = leases(slot)
+    if not (task in held or task in counters["picks"] or task in counters["outcomes"]
+            or (known is not None and known(task))):
+        return f"ignored: no such task in this shift (`{task}`)"
     counters["dropped"][task] = {"by": who, "at": at}
-    lease = leases(slot).get(task)
+    (slot / "leases").mkdir(parents=True, exist_ok=True)
+    (slot / "leases" / f"{task}{DROPPED_SUFFIX}").write_text(f"/drop by {who} at {at}\n",
+                                                            encoding="utf-8")
+    running = [pr for pr, co in counters["closeouts"].items()
+               if co.get("task") == task and co.get("state") == "running"]
+    tail = "".join(f"; a close-out already running may still merge PR {pr} (it is told "
+                   "to refuse by a `.dropped` marker it checks before merging; a merge "
+                   "that lands anyway is recorded as merged outside the close-out)"
+                   for pr in running)
+    lease = held.get(task)
     if lease is not None:
         key = _worker_key(lease, task)
         return (f"dropped `{task}`: its worker {key} is still running; it is never "
                 "re-dispatched and its PR never merged unattended. Stopping it is "
-                f"yours, by hand on the laptop (`claude stop {key}`)")
+                f"yours, by hand on the laptop (`claude stop {key}`)" + tail)
     if task in counters["outcomes"] or task in counters["done"]:
-        return f"dropped `{task}`: it had already finished; its PR is never merged unattended"
-    return f"dropped `{task}`: it will not be picked this shift"
+        return (f"dropped `{task}`: it had already finished; its PR is never merged "
+                "unattended" + tail)
+    return f"dropped `{task}`: it will not be picked this shift" + tail
 
 
-def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=None) -> list[dict]:
+def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=None,
+           whoami=None, known=None) -> list[dict]:
     """Read the shift issue's comments once and enact each new steering
     command from the human's login (`mention_login`), in order, once.
 
@@ -1443,10 +1479,17 @@ def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=No
     skipped by id; no other comment it writes opens with a command), nor by
     a comment older than the shift's `dispatched:` (an issue reused across
     shifts). Each comment is acted on once, by id; its acknowledgement is a
-    line in the status comment, so a command costs no extra GitHub write."""
+    line in the status comment, so a command costs no extra GitHub write.
+
+    The same read adopts a status comment whose create may have landed — even
+    with no login set, when it is the only reason to read — and only one
+    written by the posting identity (`gh api user`, once per shift)."""
     issue = shift.get("issue", "")
     login = mention_login()
-    if not issue.startswith("http") or not login:
+    marker = slot / STATUS_MARKER
+    rec = _read_json(marker)
+    adopting = bool(rec) and rec.get("state") in ("claimed", "unknown")
+    if not issue.startswith("http") or not (login or adopting):
         return []
     start = _brief._iso(shift.get("dispatched") or "")
     since = counters.get("commands_since") or (_iso(start) if start else "")
@@ -1455,22 +1498,24 @@ def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=No
         counters["commands_unread"] = _iso(now)
         return []
     counters.pop("commands_unread", None)
-    marker = slot / STATUS_MARKER
-    rec = _read_json(marker)
+    if adopting and "poster_login" not in counters:
+        counters["poster_login"] = (whoami or gh_login)() or ""
+    poster = counters.get("poster_login") or ""
     seen = set(counters.get("commands_seen") or [])
     out = []
     for c in sorted(comments, key=lambda c: (c["created_at"], c["id"])):
         if c["created_at"] > (counters.get("commands_since") or ""):
             counters["commands_since"] = c["created_at"]
         if c["body"].lstrip().startswith(STATUS_TAG_PREFIX):
-            if rec and rec.get("state") in ("claimed", "unknown") \
+            if rec and rec.get("state") in ("claimed", "unknown") and poster \
+                    and c["login"].lower() == poster.lower() \
                     and f" {rec.get('nonce')} -->" in c["body"].split("\n", 1)[0] and c["url"]:
                 # A create that timed out (or a tick that died after its
                 # claim) did land: adopt it, and edit it from now on.
                 rec.update(state="posted", url=c["url"], due=True, adopted_at=_iso(now))
                 marker.write_text(json.dumps(rec, sort_keys=True))
             continue
-        if c["id"] in seen or (rec and c["url"] and c["url"] == rec.get("url")):
+        if not login or c["id"] in seen or (rec and c["url"] and c["url"] == rec.get("url")):
             continue
         if c["login"].lower() != login.lower():
             continue
@@ -1485,7 +1530,7 @@ def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=No
             continue
         cmd, arg = parsed
         seen.add(c["id"])
-        ack = _apply_command(slot, counters, cmd, arg, c["login"], c["created_at"])
+        ack = _apply_command(slot, counters, cmd, arg, c["login"], c["created_at"], known)
         counters["commands"].append({"id": c["id"], "command": "/" + cmd + (f" {arg}" if arg else ""),
                                      "by": c["login"], "at": c["created_at"], "url": c["url"],
                                      "ack": ack})
@@ -1562,10 +1607,12 @@ def _post_status(slot: Path, issue: str, text: str, key: str, now: _dt.datetime,
 
 
 def _live_status(slot: Path, mind: Path, shift: dict, now: _dt.datetime, agents,
-                 health, github=None) -> dict | None:
+                 health, github=None, *, stopped: bool = False) -> dict | None:
     """The end of every open tick: the status comment (create once, then edit)
     and the dashboard's `- live:` line. Built from the same snapshot as
-    `batch watch`, from what this tick already read — no read of its own."""
+    `batch watch`, from what this tick already read — no read of its own.
+    On the `/stop` tick only the status write runs, as the acknowledgement:
+    nothing is queued or committed to Mind, exactly as under `STOP`."""
     brief_path = shift.get("brief_path")
     if brief_path is None:
         return None
@@ -1577,6 +1624,8 @@ def _live_status(slot: Path, mind: Path, shift: dict, now: _dt.datetime, agents,
         snap["commands_on"] = bool(mention_login())
         out = _post_status(slot, issue, _watch.render_status(snap),
                            _watch.status_key(snap), now, github)
+    if stopped:
+        return out or None
     snap["status_url"] = status_url(slot)
     line, key = _watch.live_line(snap)
     rel = _record_rel(Path(brief_path), mind)
@@ -1894,7 +1943,15 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
             co["why"] = "close-out said merged; GitHub still OPEN — re-checked each tick"
             _write_counters(slot, counters)
             continue  # e.g. `--auto` pending: not counted, the cap slot stays held
-        if merged and verdict is not None and not said_merged:
+        if merged and co["task"] in counters["dropped"]:
+            # Dropped by the human (#622): a merge that landed anyway is never
+            # an unattended merge — no count, no stage-2 row.
+            co.update(state="refused",
+                      why="merged outside the close-out after /drop "
+                          f"(mergedBy={(gh or {}).get('mergedBy') or '?'})")
+            events.setdefault("merged_outside", []).append(pr)
+            events["refused"].append(pr)
+        elif merged and verdict is not None and not said_merged:
             # The close-out refused, yet the PR is merged: someone else merged
             # it. Never an unattended merge — no count, no stage-2 row.
             co.update(state="refused",

@@ -395,11 +395,15 @@ edited, at most once a tick, when the state changes or every 10 minutes
 comments read adopts it by its hidden tag. A failed edit is retried next tick.
 After the reap, one `gh api …/comments` read takes the human's commands, each
 the first line of a comment by `mention_login`, made after `dispatched:`:
-`/pause` (no new spawns, proposals or close-outs; workers out run on and are
-reaped), `/resume`, `/drop <task>` (`counters.json` `dropped`; never picked,
-never re-dispatched, its PR refused for close-out; a live worker is shown
-`dropped, still running` and stopping it is the human's, `claude stop <id>`)
-and `/stop` (writes `STOP`). Each comment acts once, by id, and is acknowledged
+`/pause` (spawns, re-dispatches, shadow proposals and new close-outs are held
+until `/resume`; reaps and mentions continue), `/resume`, `/drop <task>` (a
+task of this shift only, else "no such task in this shift"; `counters.json`
+`dropped` plus a `leases/<task>.dropped` marker; never picked, never
+re-dispatched, its PR refused for close-out; a close-out already running checks
+the marker just before merging and refuses, and a merge that lands anyway is
+recorded as merged outside the close-out, with no stage-2 row; a live worker is
+shown `dropped, still running` and stopping it is the human's, `claude stop
+<id>`) and `/stop` (writes `STOP`; that tick commits nothing to Mind). Each comment acts once, by id, and is acknowledged
 once in the status comment's `Commands` list. Without a login, nothing is read
 and the comment says steering is off. The dashboard's copy is the record's `-
 live:` line (`record-key` op, one Mind writer, on a change of state), shown in

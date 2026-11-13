@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import subprocess
 import sys
+from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,16 +36,20 @@ def _at(minutes: float) -> _dt.datetime:
 
 class FakeGitHub:
     """The issue's comments, behind `gh issue comment`, `gh api PATCH` and
-    `gh api …/comments`. Records each call's kind; fails the next `fail[kind]`."""
+    `gh api …/comments` — whose `since` it honours, by `updated_at`, as GitHub
+    does. Records each call's kind; fails the next `fail[kind]`; a create
+    with `timeout` set times out (after landing, if `timeout == "landed"`)."""
 
     def __init__(self):
         self.comments, self.calls = [], []
         self.fail = {"create": 0, "edit": 0, "read": 0}
+        self.timeout = None
+        self.now = NOW
         self._id = 100
 
-    def add(self, login: str, body: str, minutes: float) -> str:
+    def add(self, login: str, body: str, minutes: float | None = None) -> str:
         self._id += 1
-        stamp = orch._iso(_at(minutes))
+        stamp = orch._iso(_at(minutes) if minutes is not None else self.now)
         self.comments.append({"id": self._id, "user": {"login": login}, "body": body,
                               "created_at": stamp, "updated_at": stamp,
                               "html_url": f"{ISSUE}#issuecomment-{self._id}"})
@@ -64,13 +70,23 @@ class FakeGitHub:
             return SimpleNamespace(returncode=1, stdout="", stderr="HTTP 502")
         if kind == "create":
             body = Path(argv[argv.index("--body-file") + 1]).read_text()
-            return SimpleNamespace(returncode=0, stdout=self.add(BOT, body, 0) + "\n", stderr="")
+            if self.timeout:
+                if self.timeout == "landed":
+                    self.add(BOT, body)
+                raise subprocess.TimeoutExpired(argv, 120)
+            return SimpleNamespace(returncode=0, stdout=self.add(BOT, body) + "\n", stderr="")
         if kind == "edit":
             cid = int(argv[4].rsplit("/", 1)[1])
             body = json.loads(Path(argv[argv.index("--input") + 1]).read_text())["body"]
-            next(c for c in self.comments if c["id"] == cid)["body"] = body
+            self.edit(cid, body)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
-        return SimpleNamespace(returncode=0, stdout=json.dumps(self.comments), stderr="")
+        since = (parse_qs(urlparse(argv[2]).query).get("since") or [""])[0]
+        return SimpleNamespace(returncode=0, stdout=json.dumps(
+            [c for c in self.comments if c["updated_at"] >= since]), stderr="")
+
+    def edit(self, cid: int, body: str) -> None:
+        c = next(c for c in self.comments if c["id"] == cid)
+        c.update(body=body, updated_at=orch._iso(self.now))
 
     def status(self) -> list[dict]:
         return [c for c in self.comments if c["body"].startswith(orch.STATUS_TAG_PREFIX)]
@@ -84,13 +100,17 @@ def _shift(tmp_path, monkeypatch, names=("t1",), extra=""):
     return mind, brief, home, orch.slot_dir(brief, home)
 
 
-def _tick(brief, mind, home, minutes, claude, gh, states=None):
+def _tick(brief, mind, home, minutes, claude, gh, states=None, *, agents=None,
+          health="RUNNING", pr_state=None):
     slot = orch.slot_dir(brief, home)
-    agents = d._agents(states, slot) if states else orch.AgentsView([])
+    if agents is None:
+        agents = d._agents(states, slot) if states else orch.AgentsView([])
     before = len(gh.calls)
+    gh.now = _at(minutes)
     r = orch.tick(brief, mind, home=home, now=_at(minutes), grace_s=0,
                   spawner=orch.RealSpawner(brief, "auto", run=claude), agents=agents,
-                  tokens=lambda s: 0, health=lambda u: "RUNNING", github=gh,
+                  tokens=lambda s: 0, health=lambda u: health, github=gh,
+                  pr_state=pr_state, whoami=lambda: BOT,
                   poster=lambda i, b: {"posted": False, "retry": False, "error": "digest"})
     this = gh.calls[before:]
     # The bound (#622): one comments read and one status write a tick, at most.
@@ -284,7 +304,7 @@ def test_a_command_is_enacted_and_acknowledged_once(tmp_path, monkeypatch):
     assert len(c["commands"]) == 1 and c["paused"]["by"] == LOGIN
     body = gh.status()[0]["body"]
     assert body.count("`/pause` by example-human") == 1
-    assert "paused: no new workers or close-outs until /resume" in body
+    assert orch.PAUSE_ACK in body and "reaps and mentions continue" in body
     gh.add(LOGIN, "/pause", 26)                          # a second comment is a second command
     r = _tick(brief, mind, home, 28, claude, gh, {"t1": "working"})
     assert r["commands"][0]["ack"] == "already paused"
@@ -360,3 +380,116 @@ def test_the_live_line_is_rewritten_only_when_the_shift_changes(tmp_path, monkey
     _tick(brief, mind, home, 23, claude, gh, {"t1": "done"})
     lines = [op["value"] for op in queued if op["op"] == "record-key"]
     assert len(lines) == 2 and lines[-1].startswith("LIVE · 1 finished")
+
+
+# --- the #622 review --------------------------------------------------------------
+
+def test_editing_an_enacted_command_never_re_triggers_it(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    gh.add(LOGIN, "/pause", 1)
+    _tick(brief, mind, home, 3, claude, gh, {"t1": "working"})
+    pause = next(c for c in gh.comments if c["body"] == "/pause")
+    gh.now = _at(4)
+    gh.edit(pause["id"], "/stop")                  # bumps updated_at: read again
+    r = _tick(brief, mind, home, 6, claude, gh, {"t1": "working"})
+    assert "commands" not in r and not (slot / orch.STOP_FILE).exists()
+    assert [c["command"] for c in orch.read_counters(slot)["commands"]] == ["/pause"]
+
+
+def test_drop_of_a_task_not_in_the_shift_is_refused(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    gh.add(LOGIN, "/drop t11", 1)
+    r = _tick(brief, mind, home, 3, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == "ignored: no such task in this shift (`t11`)"
+    assert orch.read_counters(slot)["dropped"] == {}
+    assert not (slot / "leases" / "t11.dropped").exists()
+
+
+def test_drop_tells_a_running_closeout_to_refuse_and_a_merge_anyway_is_outside(
+        tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    brief.write_text(brief.read_text().replace("merge-cap: 0", "merge-cap: 2"))
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    pr = "https://github.com/o/r/pull/9"
+    _tick(brief, mind, home, 0, claude, gh)
+    (slot / "leases" / "t1.done").write_text(pr + "\n")
+    _tick(brief, mind, home, 3, claude, gh, {"t1": "done"}, health="HEALTHY")
+    co = orch.read_counters(slot)["closeouts"][pr]
+    assert co["state"] == "running"
+    working = orch.AgentsView([{"id": co["agent_id"], "state": "working"}])
+    gh.add(LOGIN, "/drop t1", 4)
+    r = _tick(brief, mind, home, 6, claude, gh, agents=working, health="HEALTHY")
+    ack = r["commands"][0]["ack"]
+    assert f"a close-out already running may still merge PR {pr}" in ack
+    assert (slot / "leases" / "t1.dropped").exists()       # what the close-out checks
+    template = orch.closeout_prompt("t1", pr, "x.md", brief, slot / "leases")
+    assert f"{slot / 'leases'}/t1.dropped" in template and "dropped by /drop" in template
+    # It merged anyway (it was past its check): never an unattended merge.
+    (slot / "leases" / "t1.closeout").write_text(json.dumps(
+        {"result": "merged", "pr": pr, "gate": "g", "model": "m"}))
+    r = _tick(brief, mind, home, 9, claude, gh, agents=working, health="HEALTHY",
+              pr_state=lambda u: {"state": "MERGED", "mergedAt": "", "mergedBy": BOT})
+    c = orch.read_counters(slot)
+    assert c["closeouts"][pr]["state"] == "refused"
+    assert c["closeouts"][pr]["why"].startswith("merged outside the close-out after /drop")
+    assert c["glance_auto_merges"] == 0
+    assert not any(json.loads(f.read_text())["op"] == "table-append"
+                   for f in _mind_writer.pending_ops(slot))      # no stage-2 row
+
+
+def test_stop_commits_nothing_to_mind_on_its_tick(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    commits = []
+    monkeypatch.setattr(orch, "_record_rel", lambda b, m: "batches/shift.md")
+    monkeypatch.setattr(_mind_writer, "commit_ledger",
+                        lambda slot, mind, msg: commits.append(msg) or {"committed": None})
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                          {"op": "append", "path": "active.md", "text": "x"})  # a worker's
+    gh.add(LOGIN, "/stop", 1)
+    before = list(commits)
+    r = _tick(brief, mind, home, 3, claude, gh, {"t1": "working"})
+    assert r["action"] == "stopped" and commits == before
+    assert gh.calls[-1] == "edit" and "STOP present" in gh.status()[0]["body"]
+    assert _mind_writer.pending_ops(slot)                  # left exactly as STOP leaves it
+
+
+def test_a_timed_out_create_is_adopted_without_a_login_and_only_from_the_poster(
+        tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    monkeypatch.delenv(orch.MENTION_ENV)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.timeout = True                                      # timed out, did not land
+    _tick(brief, mind, home, 0, claude, gh)
+    nonce = json.loads((slot / orch.STATUS_MARKER).read_text())["nonce"]
+    gh.timeout = None
+    forged = orch.STATUS_TAG.format(slot=slot.name, nonce=nonce) + "\nnot ours"
+    gh.add("someone-else", forged, 1)
+    _tick(brief, mind, home, 3, claude, gh, {"t1": "working"})
+    rec = json.loads((slot / orch.STATUS_MARKER).read_text())
+    assert rec["state"] == "unknown" and gh.calls.count("create") == 1
+    assert gh.calls[-1] == "read"                          # read for adoption, no login set
+    url = gh.add(BOT, orch.STATUS_TAG.format(slot=slot.name, nonce=nonce) + "\nours", 4)
+    r = _tick(brief, mind, home, 6, claude, gh, {"t1": "working"})
+    rec = json.loads((slot / orch.STATUS_MARKER).read_text())
+    assert rec["state"] == "posted" and rec["url"] == url and r["status"]["status"] == "edited"
+    assert gh.calls.count("create") == 1
+    assert next(c for c in gh.comments if c["html_url"] == url)["body"] != "ours"
+
+
+def test_a_create_that_timed_out_after_landing_is_adopted_not_reposted(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.timeout = "landed"
+    _tick(brief, mind, home, 0, claude, gh)
+    gh.timeout = None
+    assert json.loads((slot / orch.STATUS_MARKER).read_text())["state"] == "unknown"
+    _tick(brief, mind, home, 3, claude, gh, {"t1": "working"})
+    _tick(brief, mind, home, 6, claude, gh, {"t1": "working"})
+    assert gh.calls.count("create") == 1 and len(gh.status()) == 1
+    assert json.loads((slot / orch.STATUS_MARKER).read_text())["state"] == "posted"

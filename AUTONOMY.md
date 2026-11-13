@@ -904,17 +904,24 @@ gains, and only:
   exclusively before the create, as above. A create `gh` said failed is made
   again next tick. A create that timed out, or a claim whose tick died, is
   never made again: the comments read adopts it by its hidden tag if it
-  landed. A failed edit is retried next tick, and the tick carries on;
+  landed, and only one written by the posting identity (`gh api user`, once
+  per shift) — that read runs for adoption even when no login is set. A
+  failed edit is retried next tick, and the tick carries on;
 - **one read a tick of that issue's comments** (`gh api
   repos/<owner>/<repo>/issues/<n>/comments`, one page, under the posting
   token), for the steering commands;
-- **the command set**, enacted from that read: `/pause` (no new workers or
-  close-outs until `/resume`; workers already out keep running and are
-  reaped), `/resume`, `/drop <task>` (a pick not yet spawned is never
-  picked; a running worker is not killed by the watcher: it is shown
-  "dropped, still running", never re-dispatched and its PR never merged
-  unattended, and stopping it stays the human's act, by hand) and `/stop`
-  (writes the `STOP` kill-switch file, with exactly its effect). A command
+- **the command set**, enacted from that read: `/pause` (spawns,
+  re-dispatches and new close-outs are held until `/resume`; reaps and
+  mentions continue), `/resume`, `/drop <task>` (a task of this shift only,
+  else "no such task in this shift"; a pick not yet spawned is never picked;
+  a running worker is not killed by the watcher: it is shown "dropped, still
+  running", never re-dispatched and its PR never merged unattended, and
+  stopping it stays the human's act, by hand; a close-out already running is
+  told to refuse by a `<task>.dropped` marker it checks just before merging,
+  and a merge that lands anyway is recorded as merged outside the close-out,
+  never counted and with no stage-2 row) and `/stop` (writes the `STOP`
+  kill-switch file, with exactly its effect: that tick commits nothing to
+  Mind, and its one status edit is the acknowledgement). A command
   counts only when it is the first line of a comment by the login in
   `PYAUTO_SHIFT_MENTION` or `config/policy.yaml` `shift_watcher:
   mention_login:`, made after the brief's `dispatched:`. The status comment

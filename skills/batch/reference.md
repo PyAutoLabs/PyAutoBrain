@@ -129,5 +129,7 @@ does not volunteer it.
   `/pause`, `/resume`, `/drop <task>`, `/stop`, from their own login (the
   watcher ignores every other account and its own comments). Each command is
   acknowledged once, in the status comment's `Commands` list, on the next tick.
+  `/pause` holds spawns, re-dispatches and new close-outs; reaps and mentions
+  continue.
   A dropped worker that is already running is not killed: stopping it is the
   human's, `claude stop <id>` on the laptop. Never post a command for them.
