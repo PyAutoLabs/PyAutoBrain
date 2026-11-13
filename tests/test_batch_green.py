@@ -76,6 +76,17 @@ def mind(tmp_path):
     return m
 
 
+@pytest.fixture
+def wt_mind(mind, tmp_path):
+    """A linked worktree of the `mind` repo — the only place the lane writes."""
+    wt = tmp_path / "mind-wt"
+    _git(mind, "worktree", "add", "-q", "--detach", str(wt))
+    for d in ("draft/bug/x", "active", "batches"):
+        (wt / d).mkdir(parents=True)
+    (wt / "queue.md").write_text("# Queue\n", encoding="utf-8")
+    return wt
+
+
 def _run(mind, rows, mode="file", cap=3, **kw):
     return _green.run(mind, _heart(rows, **kw), mode=mode, cap=cap, lanes=("any",),
                       state_path=mind.parent / "home" / "heart_green.json", now=NOW)
@@ -278,7 +289,8 @@ def test_unreadable_heart_does_nothing(mind):
 
 # --- the brief ----------------------------------------------------------------
 
-def test_brief_new_writes_a_heart_section_and_names_the_picks(mind, tmp_path, capsys):
+def test_brief_new_writes_a_heart_section_and_names_the_picks(wt_mind, tmp_path, capsys):
+    mind = wt_mind
     rows = _rows("ci-red", "dirty", "release-validation", "open-pr", "workspace-script")
     hj = tmp_path / "heart.json"
     hj.write_text(json.dumps(_readiness(rows)))
@@ -335,11 +347,26 @@ def test_the_shared_canonical_mind_is_refused(mind, tmp_path, capsys, monkeypatc
         assert _brief_new(mind, tmp_path, *extra, "--green", "pick",
                           "--out", str(tmp_path / "b.md")) == 0
         text = (tmp_path / "b.md").read_text()
-        assert "shared canonical Mind checkout" in text and "worktree add" in text
+        assert "not a linked worktree" in text and "worktree add" in text
     assert _snapshot(mind, tmp_path / "home") == before
 
 
-def test_default_mode_files_but_never_picks(mind, tmp_path, monkeypatch):
+def test_only_a_linked_worktree_may_be_written(mind, wt_mind, tmp_path):
+    """The main checkout of a Mind clone is refused wherever it lives (not only
+    the one this Brain resolves); its linked worktree is allowed."""
+    assert not _batch.is_linked_worktree(mind) and _batch.is_linked_worktree(wt_mind)
+    assert not _batch.is_linked_worktree(tmp_path / "not-a-repo")
+    for target, writes in ((mind, False), (wt_mind, True)):
+        out = tmp_path / f"b-{target.name}.md"
+        assert _brief_new(target, tmp_path, "--mind", str(target), "--green", "file",
+                          "--out", str(out)) == 0
+        filed = list(target.glob("draft/bug/*/heart_green_*.md"))
+        assert bool(filed) is writes, target
+        assert ("not a linked worktree" in out.read_text()) is not writes
+
+
+def test_default_mode_files_but_never_picks(wt_mind, tmp_path, monkeypatch):
+    mind = wt_mind
     monkeypatch.delenv("PYAUTO_HEART_GREEN")
     assert _green.DEFAULT_MODE == "file"
     out = tmp_path / "b.md"
@@ -386,7 +413,9 @@ def test_lane_module_imports_no_process_or_network_module():
     assert not [c for c in consts for f in FORBIDDEN if f in c]
 
 
-def test_a_full_brief_run_spawns_only_heart_readiness_and_git(mind, tmp_path, monkeypatch):
+def test_a_full_brief_run_spawns_only_heart_readiness_and_git(wt_mind, tmp_path,
+                                                             monkeypatch):
+    mind = wt_mind
     """Drive `brief --new --green pick` through the LIVE read path (a fake
     `pyauto-heart` first on PATH) and record every process and URL."""
     rows = _rows(*FIXABLE) + _rows("release-validation", "install-verification",
@@ -429,7 +458,8 @@ def test_a_full_brief_run_spawns_only_heart_readiness_and_git(mind, tmp_path, mo
     heart = [c for c in calls if Path(c[0]).name == "pyauto-heart"]
     assert heart == [[str(fake), "readiness", "--json"]]
     others = [c for c in calls if c not in heart]
-    assert others and all(c[0] == "git" and c[3] in ("blame", "show") for c in others), others
+    assert others and all(c[0] == "git" and c[3] in ("blame", "show", "rev-parse")
+                          for c in others), others
     flat = " ".join(" ".join(c) for c in calls)
     for bad in ("gh ", "workflow", "release", "dispatch", "--force", "quarantine"):
         assert bad not in flat, bad

@@ -3475,20 +3475,38 @@ def _main_brief(mind: Path, a) -> int:
 
 #: Where the lane may not write: the shared, canonical Mind checkout other
 #: sessions work in (memory: shared-Mind writes go through a temp worktree).
-SHARED_MIND_HOLD = ("--mind is the shared canonical Mind checkout ({}); the lane "
-                    "writes drafts only into a Mind the caller names — a temp "
+SHARED_MIND_HOLD = ("--mind is not a linked worktree ({}) — a main checkout is the "
+                    "shared canonical Mind; the lane writes drafts only into a "
+                    "Mind the caller names that is a temp "
                     "worktree on origin/main (`git -C <mind> worktree add <dir> "
                     "origin/main`), passed as --mind, committed and pushed from there")
 
 
+def is_linked_worktree(path: Path) -> bool:
+    """True only for a LINKED git worktree (`--git-dir` differs from
+    `--git-common-dir`). The main checkout of any clone, wherever it lives,
+    is False — so is anything git cannot read."""
+    dirs = []
+    for flag in ("--git-dir", "--git-common-dir"):
+        try:
+            out = subprocess.run(["git", "-C", str(path), "rev-parse", flag],
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if out.returncode != 0 or not out.stdout.strip():
+            return False
+        dirs.append((path / out.stdout.strip()).resolve())
+    return dirs[0] != dirs[1]
+
+
 def write_hold(mind: Path, a, preview: bool) -> str:
     """Why the lane may not write here, or "" (review of #625): never in a
-    preview, never into the canonical shared Mind or an implicit one."""
+    preview, never into an implicit Mind, and only into a linked worktree —
+    the main checkout of any Mind clone is the shared one."""
     if preview:
         return "a preview (no --out) writes nothing"
-    if not getattr(a, "mind_explicit", False) \
-            or mind == BODY_MAP_PATH.parent.resolve():
-        return SHARED_MIND_HOLD.format(BODY_MAP_PATH.parent)
+    if not getattr(a, "mind_explicit", False) or not is_linked_worktree(mind):
+        return SHARED_MIND_HOLD.format(mind)
     return ""
 
 
