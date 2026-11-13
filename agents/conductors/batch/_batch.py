@@ -2906,7 +2906,8 @@ def main(argv=None) -> int:
     ap.add_argument("prompt", nargs="?", default="",
                     help="slice: the needs-slicing prompt to decompose; "
                          "premise: the draft whose premise to check")
-    ap.add_argument("--mind", type=Path, default=BODY_MAP_PATH.parent)
+    ap.add_argument("--mind", type=Path, default=None,
+                    help="the PyAutoMind checkout (default: the canonical one)")
     ap.add_argument("--budget", type=int, default=DEFAULT_REVIEW_BUDGET,
                     help="review-minutes available in the slot")
     ap.add_argument("--awaiting-review", type=int, default=None,
@@ -2932,8 +2933,10 @@ def main(argv=None) -> int:
     ap.add_argument("--green", default="", choices=("",) + _green.MODES,
                     help="brief --new / green: the keep-Heart-green lane — off | "
                          "report | file (bug drafts) | pick (file, then name them "
-                         f"as tasks). Default: ${_green.MODE_ENV}, else "
-                         f"{_green.DEFAULT_MODE} for brief --new, report for green")
+                         f"as tasks; opt-in). Default: ${_green.MODE_ENV}, else "
+                         f"{_green.DEFAULT_MODE} for brief --new, report for green. "
+                         "It writes only with --out and an explicit, non-canonical "
+                         "--mind")
     ap.add_argument("--green-cap", type=int, default=_green.DEFAULT_CAP,
                     help="brief --new / green: at most this many new drafts")
     ap.add_argument("--heart-json", default="", metavar="FILE",
@@ -3001,7 +3004,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     lane = a.lane or detect_lane()
-    mind = a.mind.resolve()
+    a.mind_explicit = a.mind is not None
+    mind = (a.mind or BODY_MAP_PATH.parent).resolve()
     if a.prompt and a.verb not in ("slice", "premise"):
         print(f"batch {a.verb}: unexpected argument {a.prompt!r}", file=sys.stderr)
         return RC_USAGE
@@ -3419,7 +3423,8 @@ def _main_brief(mind: Path, a) -> int:
                   "grant expires there, and it is yours to declare", file=sys.stderr)
             return RC_USAGE
         prov = goal_provenance(mind)
-        heart = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or _green.DEFAULT_MODE)
+        heart = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or _green.DEFAULT_MODE,
+                           preview=not a.out)
         text = new_brief(mind, a.new, a.review_at, prov=prov, heart=heart)
         if heart["filed"]:
             print(f"batch brief --new: heart-green filed {len(heart['filed'])} "
@@ -3468,9 +3473,29 @@ def _main_brief(mind: Path, a) -> int:
     return RC_OK if res["ok"] else RC_FINDINGS
 
 
-def green_lane(mind: Path, a, default_mode: str) -> dict:
+#: Where the lane may not write: the shared, canonical Mind checkout other
+#: sessions work in (memory: shared-Mind writes go through a temp worktree).
+SHARED_MIND_HOLD = ("--mind is the shared canonical Mind checkout ({}); the lane "
+                    "writes drafts only into a Mind the caller names — a temp "
+                    "worktree on origin/main (`git -C <mind> worktree add <dir> "
+                    "origin/main`), passed as --mind, committed and pushed from there")
+
+
+def write_hold(mind: Path, a, preview: bool) -> str:
+    """Why the lane may not write here, or "" (review of #625): never in a
+    preview, never into the canonical shared Mind or an implicit one."""
+    if preview:
+        return "a preview (no --out) writes nothing"
+    if not getattr(a, "mind_explicit", False) \
+            or mind == BODY_MAP_PATH.parent.resolve():
+        return SHARED_MIND_HOLD.format(BODY_MAP_PATH.parent)
+    return ""
+
+
+def green_lane(mind: Path, a, default_mode: str, preview: bool = False) -> dict:
     """Run the keep-Heart-green lane for `brief --new` / `green` (`_green`).
-    It reads Heart and may write NEW drafts and its state file; nothing else."""
+    It reads Heart and may write NEW drafts and its state file — only when
+    `write_hold` allows; nothing else."""
     mode = a.green or default_mode
     if mode not in _green.MODES:
         raise BatchUsageError(f"batch: --green {mode!r} — one of "
@@ -3486,7 +3511,8 @@ def green_lane(mind: Path, a, default_mode: str) -> dict:
     home = a.home or _orchestrator.orchestrator_home()
     lanes = NEW_BRIEF_DEFAULTS["lanes"].split()
     return _green.run(mind, heart, mode=mode, cap=max(a.green_cap, 0), lanes=lanes,
-                      state_path=Path(home) / _green.STATE_NAME, now=now)
+                      state_path=Path(home) / _green.STATE_NAME, now=now,
+                      hold=write_hold(mind, a, preview))
 
 
 def _main_green(mind: Path, a) -> int:

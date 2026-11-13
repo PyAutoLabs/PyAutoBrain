@@ -224,22 +224,32 @@ text; no match is `human-only`, fail closed):
 
 | Class | Examples | The lane |
 |---|---|---|
-| `fixable-dev` | red CI on `main`, a failing workspace script, a red unit test, a dependency floor, manifest/URL lint, Lifecycle Drift | files a bug draft, picks it |
-| `local-checkout` | behind, dirty, on a branch, worktree drift | reports only: another session's work may be in progress |
-| `release-scope` | release integrate failed, install check F, rehearsal stale | reports, and names the human's release action |
+| `fixable-dev` | red CI on `main`, a failing workspace script, a red unit test, a yanked or unparseable floor, URL lint, Lifecycle Drift | files a bug draft; picks it only on opt-in |
+| `local-checkout` | behind, dirty, on a branch, worktree drift, every manifest-drift leg (they read the checkouts on disk, other sessions' worktrees included; `MANIFEST_FIXABLE` allowlists a leg that judges `main`) | reports only: another session's work may be in progress |
+| `release-scope` | release integrate failed, install check F, rehearsal stale, a floor above the newest release | reports, and names the human's release action |
 | `human-only` | open PR, quarantine doctrine, parked scripts, timing, credentials | reports |
 
 For `fixable-dev` it dedupes on a key (`ci:<repo>`, `script:<path>` …):
 a prompt in `draft/`/`active/` carrying `<!-- heart-key: <key> -->`, quoting
 the reason or naming the script, a `queue.md` line, or the lane's state file
-(`<orchestrator home>/heart_green.json`: a key it filed is never re-filed,
-even after its draft leaves the backlog). It files at most `--green-cap`
-(3) new drafts per brief — `Consequence: judge`, a `Lane:`, a re-check-first
-note, the quoted reason and a Witness — red first; the rest wait for the next
-brief. In `pick` mode (the default; `--green off|report|file|pick`,
-`$PYAUTO_HEART_GREEN`) a filed or existing `draft/` prompt whose `Lane:` is in
-the brief's lanes becomes a named task under a last `heart-green` goal. An
-active quarantine's bug task is picked if it is in the backlog, never filed.
+(`<orchestrator home>/heart_green.json`: a key it filed is not re-filed while
+Heart keeps listing it; a fresh, valid read without the reason clears the
+row, so a later recurrence files again). It files at most `--green-cap` (3)
+new drafts per brief — `Consequence: judge`, a `Lane:`, a re-check-first
+note, the quoted reason, a Witness, `Difficulty:` from the sizing faculty and
+no `Unattended:` (the lane never grades its own drafts ready) — red first;
+the rest wait for the next brief.
+
+**Where it writes.** Modes are `--green off|report|file|pick` (or
+`$PYAUTO_HEART_GREEN`); the default is `file`. It writes drafts and its state
+only when `brief --new` has `--out` (a stdout preview writes nothing) and
+`--mind` names a Mind that is not the canonical shared checkout — a temp
+worktree on `origin/main`, committed and pushed from there. Otherwise it
+reports what it would file and says why. `pick` is the human's opt-in: a filed
+or existing `draft/` prompt whose `Lane:` the brief allows and that sizing
+grades `Unattended: ready` becomes a named task under a last `heart-green`
+goal. An active quarantine's bug task is picked only when a prompt carries the
+lane's key mark or has the entry's bug ref as its `Issue:`; it is never filed.
 The record gets a `## Heart` section: reasons by class, filed, picked, and what
 needs the human. `batch green` is the same lane alone, `report` by default.
 

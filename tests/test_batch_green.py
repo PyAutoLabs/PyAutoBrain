@@ -129,8 +129,7 @@ def test_readiness_document_carries_the_per_repo_key():
 
 # --- filing, dedupe and the cap -----------------------------------------------
 
-FIXABLE = ("ci-red", "ci-red-workflow", "ci-red-legacy", "manifest-drift",
-           "floor-unsatisfiable", "url-hygiene")
+FIXABLE = ("ci-red", "ci-red-workflow", "ci-red-legacy", "floor-other", "url-hygiene")
 
 
 def test_files_at_most_cap_and_defers_the_rest(mind):
@@ -142,8 +141,12 @@ def test_files_at_most_cap_and_defers_the_rest(mind):
     assert len(deferred) == len(rows) - 3
     text = (mind / res["filed"][0]).read_text()
     for need in ("Lane: any", "Witness:", "Re-check first", "Consequence: judge",
-                 "<!-- heart-key: ci:", "> " + rows[0]["text"]):
+                 "\nDifficulty: ", "<!-- heart-key: ci:", "> " + rows[0]["text"]):
         assert need in text, need
+    assert "Unattended:" not in text, "the lane never grades its own drafts ready"
+    p = _batch.parse_prompt(mind / res["filed"][0], mind)
+    assert text.split("\nDifficulty: ")[1].split("\n")[0] == \
+        _batch.effective_difficulty(p)[0], "Difficulty is the sizing faculty's"
     assert all(p.startswith("draft/bug/") for p in res["filed"])
     # report-only classes are never filed
     assert not [f for f in res["findings"]
@@ -177,6 +180,25 @@ def test_state_stops_a_refile_after_the_draft_left_the_backlog(mind):
     assert "since left the backlog" in again["findings"][0]["outcome"]
     state = json.loads((mind.parent / "home" / "heart_green.json").read_text())
     assert state["reasons"]["ci:" + rows[0]["text"].split(":")[0]]["filed"] == filed[0]
+
+
+def test_a_fresh_read_without_the_reason_clears_it_so_a_recurrence_files_again(mind):
+    rows, other = _rows("ci-red")[:1], _rows("url-hygiene")
+    filed = _run(mind, rows)["filed"]
+    (mind / filed[0]).unlink()
+    _run(mind, other)  # fresh and valid, and the reason is gone
+    state = json.loads((mind.parent / "home" / "heart_green.json").read_text())
+    assert not [k for k in state["reasons"] if k.startswith("ci:")]
+    assert _run(mind, rows)["filed"] == filed, "the recurrence is filed again"
+    assert _run(mind, rows)["filed"] == [], "and deduped against its open draft"
+
+
+def test_an_over_age_read_clears_nothing(mind):
+    rows = _rows("ci-red")[:1]
+    filed = _run(mind, rows)["filed"]
+    (mind / filed[0]).unlink()
+    _run(mind, [], hours_ago=9.0)
+    assert _run(mind, rows)["filed"] == []
 
 
 def test_existing_human_draft_queue_entry_or_active_task_blocks_a_new_draft(mind):
@@ -219,8 +241,15 @@ def test_a_quarantined_script_is_never_filed_only_its_bug_task_picked(mind):
     res = _run(mind, [q], mode="pick")
     assert res["filed"] == [] and "pick-only" in res["findings"][0]["outcome"]
     bug = res["findings"][0]["bug"]
+    repo, num = bug.split("#")
+    (mind / "draft/bug/x/mention.md").write_text(
+        f"# Mentions {bug} and {res['findings'][0]['text']}\n\nType: bug\nLane: any\n"
+        "Unattended: ready\n")
+    res = _run(mind, [q], mode="pick")
+    assert res["picks"] == [], "a mention is not the quarantine's bug task"
     (mind / "draft/bug/x/qbug.md").write_text(
-        f"# The bug behind {bug}\n\nType: bug\nLane: any\nUnattended: ready\n")
+        f"# The bug\n\nType: bug\nIssue: https://github.com/someowner/{repo}/issues/{num}\n"
+        "Lane: any\nUnattended: ready\n")
     res = _run(mind, [q], mode="pick")
     assert res["picks"] == ["draft/bug/x/qbug.md"] and res["filed"] == []
 
@@ -274,6 +303,56 @@ def test_brief_new_writes_a_heart_section_and_names_the_picks(mind, tmp_path, ca
     # the next brief's goal diff ignores the lane's own goal
     (mind / "batches" / "2026-11-14-am.md").write_text(text)
     assert _batch._last_brief_goals(mind)[1] == ["Ship the flywheel"]
+
+
+def _snapshot(*roots):
+    return {str(f): f.stat().st_mtime_ns for r in roots if r.exists()
+            for f in sorted(r.rglob("*")) if f.is_file() and ".git" not in f.parts}
+
+
+def _brief_new(mind, tmp_path, *extra, rows=None):
+    hj = tmp_path / "heart.json"
+    hj.write_text(json.dumps(_readiness(rows or _rows(*FIXABLE))))
+    return _batch.main(["brief", "--new", "2026-11-14-am", "--review-at",
+                        "2099-01-01T12:00Z", "--heart-json", str(hj), "--at",
+                        NOW.isoformat(), "--home", str(tmp_path / "home"), *extra])
+
+
+@pytest.mark.parametrize("mode", ["file", "pick"])
+def test_a_preview_writes_no_draft_and_no_state(mind, tmp_path, capsys, mode):
+    before = _snapshot(mind, tmp_path / "home")
+    assert _brief_new(mind, tmp_path, "--mind", str(mind), "--green", mode) == 0
+    assert _snapshot(mind, tmp_path / "home") == before
+    out = capsys.readouterr().out
+    assert "Nothing written: a preview" in out and "would file (report mode)" in out
+    assert "  - tasks:" not in out
+
+
+def test_the_shared_canonical_mind_is_refused(mind, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(_batch, "BODY_MAP_PATH", mind / "repos.yaml")
+    before = _snapshot(mind, tmp_path / "home")
+    for extra in (["--mind", str(mind)], []):  # named, or the implicit default
+        assert _brief_new(mind, tmp_path, *extra, "--green", "pick",
+                          "--out", str(tmp_path / "b.md")) == 0
+        text = (tmp_path / "b.md").read_text()
+        assert "shared canonical Mind checkout" in text and "worktree add" in text
+    assert _snapshot(mind, tmp_path / "home") == before
+
+
+def test_default_mode_files_but_never_picks(mind, tmp_path, monkeypatch):
+    monkeypatch.delenv("PYAUTO_HEART_GREEN")
+    assert _green.DEFAULT_MODE == "file"
+    out = tmp_path / "b.md"
+    assert _brief_new(mind, tmp_path, "--mind", str(mind), "--out", str(out)) == 0
+    text = out.read_text()
+    assert list(mind.glob("draft/bug/*/heart_green_*.md"))
+    assert "  - tasks:" not in text and "heart-green:" not in text
+
+
+def test_stale_release_scope_reasons_reach_needs_the_human(mind):
+    res = _run(mind, _rows("ci-red", "release-validation"), mode="report")
+    human = _green.section(res).split("### Needs the human", 1)[1]
+    assert "no rehearsal for current source" in human
 
 
 def test_green_verb_defaults_to_report(mind, tmp_path, capsys, monkeypatch):
@@ -344,8 +423,9 @@ def test_a_full_brief_run_spawns_only_heart_readiness_and_git(mind, tmp_path, mo
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     rc = _batch.main(["brief", "--new", "2026-11-14-am", "--review-at",
                       "2099-01-01T12:00Z", "--mind", str(mind), "--green", "pick",
-                      "--home", str(tmp_path / "home")])
+                      "--home", str(tmp_path / "home"), "--out", str(tmp_path / "b.md")])
     assert rc == 0 and urls == []
+    assert list(mind.glob("draft/bug/*/heart_green_*.md")), "it did file"
     heart = [c for c in calls if Path(c[0]).name == "pyauto-heart"]
     assert heart == [[str(fake), "readiness", "--json"]]
     others = [c for c in calls if c not in heart]

@@ -5,14 +5,16 @@ ensure its green (without having it be overly eager doing releases)". So at
 `batch brief --new` (and `batch green`, its dry run) this reads Heart's
 verdict, sorts every RED, YELLOW and STALE reason into one of four classes by
 the transparent RULES table below, and for the `fixable-dev` ones files at
-most `cap` bug drafts and offers them as the brief's named tasks.
+most `cap` bug drafts and, on the human's opt-in (`pick`), offers them as
+the brief's named tasks.
 
 It runs at brief time, never in the watcher's tick: the tick's network
 surface (AUTONOMY.md) does not read the Heart feed, and this lane must not
 widen it.
 
-What it may do: read Heart; write NEW draft prompts into the Mind it was
-given; write its own state file; return text for the brief. What it never
+What it may do: read Heart; write NEW draft prompts and its state file —
+only when the caller allows it (never in a preview, never into the shared
+canonical Mind: `_batch.write_hold`); return text for the brief. What it never
 does: release, rehearse, dispatch any workflow, force, touch a freeze, add a
 quarantine entry (that needs a human-filed bug task, ruling 2026-11-12 — it
 may only PROPOSE one), write `queue.md`, or edit another prompt. It imports
@@ -38,12 +40,20 @@ BRAIN = Path(__file__).resolve().parents[3]
 CLASSES = ("fixable-dev", "local-checkout", "release-scope", "human-only")
 MODES = ("off", "report", "file", "pick")
 MODE_ENV = "PYAUTO_HEART_GREEN"
-DEFAULT_MODE = "pick"
+#: `file` by default; `pick` (naming drafts as the brief's tasks) is the
+#: human's opt-in, `--green pick` or `$PYAUTO_HEART_GREEN=pick` (review of #625).
+DEFAULT_MODE = "file"
 DEFAULT_CAP = 3
 MAX_AGE_HOURS = 6.0
 STATE_NAME = "heart_green.json"
 GOAL_PREFIX = "heart-green"
 KEY_MARK = "<!-- heart-key: {} -->"
+
+#: Manifest legs that judge TRACKED repo content on main, and so are a dev fix.
+#: Empty on purpose: every leg Heart reports today runs `repos_sync.py` over
+#: the checkouts on disk, other sessions' worktrees included (the 2026-11-13
+#: "tenant firewall — 40 mismatch(es)" were all in one session's worktree).
+MANIFEST_FIXABLE: tuple[str, ...] = ()
 
 _CI = r"(?P<concl>failure|cancelled|timed_out|startup_failure|action_required|error)"
 _R = r"(?P<repo>[\w.-]+)"
@@ -65,9 +75,6 @@ RULES = [
     ("workspace-script", "fixable-dev",
      r"^workspace validation (?:not passing|failing) \((?P<body>.*)\)$",
      "script:{script}", "local-dev", "reproduce and fix the failing workspace script"),
-    ("floor-unsatisfiable", "fixable-dev",
-     r"^(?P<ws>[\w.-]+): floor \S+ exceeds newest (?P<lib>\S+) release",
-     "floor:{ws}:{lib}", "any", "fix the dependency floor"),
     ("floor-pypi", "fixable-dev",
      r"^(?P<ws>[\w.-]+): no installable (?P<lib>\S+) release on PyPI satisfies floor",
      "floor:{ws}:{lib}", "any", "fix the dependency floor"),
@@ -77,10 +84,9 @@ RULES = [
     ("workflow-missing", "fixable-dev",
      rf"^{_R}: required workflow '(?P<wf>[^']+)' has no workflow file",
      "workflow-missing:{repo}:{wf}", "any", "add or rename the required workflow"),
-    ("manifest-local", "local-checkout",
-     r"^manifest drift: (?P<label>workspace checkouts|local checkout origins)",
-     "", "", "your checkouts on disk; report only"),
-    ("manifest-drift", "fixable-dev", r"^manifest drift: (?P<label>.+?) — \d+ mismatch",
+    ("manifest-main", "fixable-dev",
+     r"^manifest drift: (?P<label>"
+     + ("|".join(map(re.escape, MANIFEST_FIXABLE)) or "(?!)") + r") — ",
      "manifest:{label}", "any", "fix the drift (repos_sync.py --check names each)"),
     ("url-hygiene", "fixable-dev", r"^URL hygiene: \d+ forbidden pattern",
      "url-hygiene", "any", "remove the forbidden URL patterns"),
@@ -89,6 +95,9 @@ RULES = [
      r"|rehearsal skipped (?P<label2>\S+) \(quarantined, (?P<bug2>[^)]+)\))",
      "quarantine:{label}", "", "pick-only: fix its bug task before the 7-day expiry"),
     # --- release-scope: only a rehearsal or a release clears these ----------
+    ("floor-unsatisfiable", "release-scope",
+     r"^(?P<ws>[\w.-]+): floor \S+ exceeds newest (?P<lib>\S+) release", "", "",
+     "human: the floor waits on a release (or lower it by hand)"),
     ("rehearsal-rerun", "release-scope",
      r"^Stage 3 rehearsal skipped .+, but its quarantine is no longer active",
      "", "", "human: re-run the rehearsal"),
@@ -108,6 +117,9 @@ RULES = [
      rf"^{_R}(?:: \d+ commit\(s\) behind origin$|:behind: )", "", "",
      "report only — pull when no session is using it"),
     ("worktree-drift", "local-checkout", r"^Worktree drift:", "", "", "report only"),
+    ("manifest", "local-checkout", r"^manifest drift: ", "", "",
+     "report only — the leg reads checkouts on disk, other sessions' worktrees "
+     "included"),
     # --- human-only: AUTONOMY.md reserves the call ---------------------------
     ("quarantine-doctrine", "human-only", r"^Stage 3 quarantine", "", "",
      "human: renew, remove or fix (quarantine doctrine)"),
@@ -261,13 +273,28 @@ def load_state(path: Path | None) -> dict:
     return data if isinstance(data.get("reasons"), dict) else {"version": 1, "reasons": {}}
 
 
+_ISSUE_RE = re.compile(r"^Issue:\s*(\S+)", re.M)
+_REF_RE = re.compile(r"(?:github\.com/)?(?:[\w.-]+/)?([\w.-]+)(?:#|/issues/)(\d+)$")
+
+
+def _issue_id(ref: str):
+    """`Repo#N`, `Owner/Repo#N` or an issue URL → ("repo", "N"); else None."""
+    m = _REF_RE.search(ref.strip().rstrip("/"))
+    return (m.group(1).lower(), m.group(2)) if m else None
+
+
 def _match(f: dict, corpus: dict, queue: str) -> tuple[str, str]:
-    """(how, path) — `exact` (the lane's own key mark or the quarantine's bug
-    ref), `mentions` (the quoted reason or the script/test path), `queued`."""
-    mark = KEY_MARK.format(f["key"])
+    """(how, path) — `exact`: the lane's own key mark, or (a quarantine) a
+    prompt whose `Issue:` IS the entry's bug ref; `mentions`: the quoted
+    reason or the script/test path; `queued`. A pick-only finding (its bug
+    task exists) matches exactly or not at all — a mention is not its task."""
+    mark, bug = KEY_MARK.format(f["key"]), _issue_id(f["bug"]) if f["bug"] else None
     for path, text in corpus.items():
-        if mark in text or (f["bug"] and f["bug"] in text):
+        if mark in text or (bug and any(_issue_id(i) == bug
+                                        for i in _ISSUE_RE.findall(text[:3000]))):
             return "exact", path
+    if not f["file"]:
+        return "", ""
     for path, text in corpus.items():
         if any(n and n in text for n in f["needles"]):
             return "mentions", path
@@ -287,7 +314,7 @@ def _pickable(mind: Path, rel: str, lanes: list[str]) -> str:
         return f"lane {p['lane']} not in the brief's lanes ({' '.join(lanes)})"
     level, _s, factors, derived = effective_difficulty(p)
     if effective_unattended(p, level, factors, derived)[0] != "ready":
-        return "not Unattended: ready"
+        return "sizing does not grade it Unattended: ready"
     return ""
 
 
@@ -298,12 +325,14 @@ def draft_text(f: dict, heart: dict, today: str) -> str:
     title = f"Heart green: {f['text'][:90]}"
     head = [f"# {title}", "", "Type: bug", f"Target: {repo or 'workspaces'}"]
     head += ["Repos:", f"- {repo}"] if repo else []
-    head += ["Difficulty: small", "Autonomy: supervised",
+    # No `Difficulty:` (sizing derives it, `_file`) and no `Unattended:`: the
+    # lane never grades its own drafts ready (review of #625).
+    head += ["Autonomy: supervised",
              f"Priority: {'high' if f['severity'] == 'red' else 'normal'}",
              "Status: draft", f"Filed: {today}", "Consequence: judge",
              "Witness: after the fix merges, a fresh Heart read (under 6 h old) no "
              "longer lists the reason quoted below, and the fix's own CI is green",
-             "Review-minutes: 10", "Unattended: ready", f"Lane: {f['lane']}"]
+             "Review-minutes: 10", f"Lane: {f['lane']}"]
     body = [
         "**Re-check first.** Filed from Heart's verdict of "
         f"{heart.get('updated')} ({heart.get('source')}). Before any work, re-read "
@@ -325,14 +354,38 @@ def _draft_path(mind: Path, f: dict) -> Path:
     return mind / "draft" / "bug" / folder / name
 
 
+def _file(mind: Path, f: dict, heart: dict, today: str) -> str:
+    """Write one draft; its `Difficulty:` is the sizing faculty's, not ours."""
+    dest = _draft_path(mind, f)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    text = draft_text(f, heart, today)
+    dest.write_text(text, encoding="utf-8")
+    level = effective_difficulty(parse_prompt(dest, mind))[0]
+    dest.write_text(text.replace("\nAutonomy:", f"\nDifficulty: {level}\nAutonomy:", 1),
+                    encoding="utf-8")
+    return dest.relative_to(mind).as_posix()
+
+
+def _save(state: dict, state_path: Path | None, mode: str) -> None:
+    if state_path and mode in ("file", "pick"):
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
+
+
 def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT_CAP,
-        lanes=("any",), state_path: Path | None = None, now=None) -> dict:
+        lanes=("any",), state_path: Path | None = None, now=None,
+        hold: str = "") -> dict:
     """Classify, dedupe, file at most `cap` drafts (mode file|pick) and choose
-    picks (mode pick). Returns everything the brief's `## Heart` shows."""
+    picks (mode pick). Returns everything the brief's `## Heart` shows.
+
+    `hold` (why writing is not allowed here — a preview, the shared Mind)
+    turns file|pick into report: nothing is written, the state included."""
     now = now or _dt.datetime.now(_dt.timezone.utc)
     stamp = now.strftime("%Y-%m-%dT%H:%MZ")
+    if hold and mode in ("file", "pick"):
+        mode = "report"
     res = {"mode": mode, "cap": cap, "heart": heart, "findings": [], "filed": [],
-           "picks": [], "note": ""}
+           "picks": [], "note": "", "hold": hold}
     if mode == "off":
         res["note"] = f"lane off (--green off or ${MODE_ENV}=off)"
         return res
@@ -347,10 +400,16 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
                        f"{age:.1f} h old") + f", over the {MAX_AGE_HOURS:g} h rule — "
                        "STALE: re-check; nothing filed or picked")
         return res
+    # A fresh, valid read: a key it no longer lists is cleared, so a later
+    # recurrence files again (still deduped against open drafts and tasks).
+    state = load_state(state_path)
+    listed = {f["key"] for f in findings if f["key"]}
+    for key in [k for k in state["reasons"] if k not in listed]:
+        del state["reasons"][key]
     if status in ("green", "stale"):
         res["note"] = f"Heart {status.upper()} — nothing for a shift to fix"
+        _save(state, state_path, mode)
         return res
-    state = load_state(state_path)
     corpus, queue = _corpus(mind), ""
     try:
         queue = (mind / "queue.md").read_text(encoding="utf-8")
@@ -382,16 +441,14 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
             f["outcome"] = "its bug task is not in draft/ or active/ — not filed (pick-only)"
         elif row.get("filed"):
             f["outcome"] = (f"filed {row.get('filed_at')} as {row['filed']}, since left "
-                            "the backlog — not re-filed (drop its state row to re-file)")
+                            "the backlog while Heart still lists it — not re-filed until "
+                            "a fresh read clears it")
         elif mode == "report":
             f["outcome"] = "would file (report mode)"
         elif len(res["filed"]) >= cap:
             f["outcome"] = f"deferred — cap {cap} reached; next brief"
         else:
-            dest = _draft_path(mind, f)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(draft_text(f, heart, today), encoding="utf-8")
-            rel = dest.relative_to(mind).as_posix()
+            rel = _file(mind, f, heart, today)
             row.update(filed=rel, filed_at=today)
             res["filed"].append(rel)
             why = _pickable(mind, rel, list(lanes))
@@ -399,9 +456,7 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
             if not why and mode == "pick" and len(res["picks"]) < cap:
                 res["picks"].append(rel)
                 f["outcome"] += " (picked)"
-    if state_path and mode in ("file", "pick"):
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
+    _save(state, state_path, mode)
     return res
 
 
@@ -418,6 +473,8 @@ def section(res: dict) -> str:
          + f" from {h.get('source', 'none')}: **{str(h.get('status', 'grey')).upper()}**."
          f" Lane `{res['mode']}`, cap {res['cap']} new draft(s) per brief;"
          " it never releases, rehearses, dispatches, forces or quarantines."]
+    if res.get("hold"):
+        L += ["", f"Nothing written: {res['hold']}."]
     if res["note"]:
         L += ["", res["note"]]
     for cls in CLASSES:
@@ -432,7 +489,8 @@ def section(res: dict) -> str:
             line += f" → {f['outcome']}" if f.get("outcome") else f" → {f['action']}"
             L.append(line)
     human = [f for f in res["findings"] if f["cls"] in ("release-scope", "human-only")
-             and f["severity"] != "stale" and not f["action"].startswith("no action")]
+             and (f["severity"] != "stale" or f["cls"] == "release-scope")
+             and not f["action"].startswith("no action")]
     L += ["", "### Needs the human"]
     by_action: dict[str, list[str]] = {}
     for f in human:
