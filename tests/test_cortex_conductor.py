@@ -666,7 +666,7 @@ def test_state_md_links_the_pages_board_and_says_never_checked_in():
 
 @pytest.mark.parametrize("text, want", [
     ("Fit gives 1.999 / 0.089 here. Then more.", "Fit gives 1.999 / 0.089 here."),
-    ("Fixed by PyAutoFit#1632/#1634 in v2.1. Next", "Fixed by PyAutoFit#1632/#1634 in v2.1."),
+    ("Fixed by SomeLib#1632/#1634 in v2.1. Next", "Fixed by SomeLib#1632/#1634 in v2.1."),
     ("See #123, then #124.", "See #123, then #124."),
     ("It works, e.g. on N=5. Next", "It works, e.g. on N=5."),
     ("Done!  And  more", "Done!"),
@@ -700,8 +700,8 @@ def test_state_md_where_paths(tmp_path, monkeypatch):
     assert _cortex.state_where("/w/Science/development/q/", science) == "development/q"
     code = tmp_path / "ws"
     monkeypatch.setenv("PYAUTO_ROOT", str(code))
-    assert _cortex.state_where(f"{code}/fit/autofit_inference",
-                               science) == "Code/fit/autofit_inference"
+    assert _cortex.state_where(f"{code}/lib/toy_bench",
+                               science) == "Code/lib/toy_bench"
     # from a task worktree, the canonical root beside `<root>-wt` counts too
     monkeypatch.setenv("PYAUTO_ROOT", str(tmp_path / "ws-wt" / "task"))
     assert _cortex.state_where(f"{code}/lens/x", science) == "Code/lens/x"
