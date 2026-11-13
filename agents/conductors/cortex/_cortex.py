@@ -94,6 +94,7 @@ RC_OK, RC_DRIFT, RC_USAGE, RC_UNREADABLE = 0, 1, 2, 3
 
 #: How much of a run's `what` and a log entry's text a card shows.
 RUN_CLIP, LOG_CLIP = 160, 240
+NOTE_CLIP = 120  # a retired note in the phone-width Summary table; the card keeps it whole
 
 
 class CortexUnavailable(Exception):
@@ -733,7 +734,7 @@ def render_dashboard(c: dict) -> str:
         L += [f"### {section.title()}", ""]
         if section == "retired":
             L += ["| Project | Note | Last update |", "|---|---|---|"]
-            L += [f"| {key} | {_cell(row.get('note') or '-')} | "
+            L += [f"| {key} | {_cell(_clip(row.get('note') or '-', NOTE_CLIP))} | "
                   f"{(d['updated'] if d else '') or '-'} |" for key, row, d in rows]
             if not rows:
                 L.append("| _(no retired project)_ | | |")
@@ -883,7 +884,7 @@ def render_dashboard_html(c: dict) -> str:
         if section == "retired":
             H.append("<tr><th>Project</th><th>Note</th><th>Last update</th></tr>")
             H += [f"<tr><td><b>{_esc(key)}</b></td>"
-                  f"<td>{_esc(row.get('note') or '-')}</td>"
+                  f"<td>{_esc(_clip(row.get('note') or '-', NOTE_CLIP))}</td>"
                   f"<td>{_esc((d['updated'] if d else '') or '-')}</td></tr>"
                   for key, row, d in rows]
             if not rows:
