@@ -2685,7 +2685,7 @@ def _token_url(repo: str) -> str:
     owner = repo.split("/")[0]
     return ("https://github.com/settings/personal-access-tokens/new?"
             "name=Mind%20dashboard&description=Mind%20dashboard%20%E2%98%85%20and%20goals"
-            f"&target_name={owner}&expires_in=90&actions=write")
+            f"&target_name={owner}&expires_in=90&issues=write")
 
 
 def _steer_html(c: dict, link) -> list:
@@ -2723,10 +2723,11 @@ def _steer_html(c: dict, link) -> list:
           '<details id="steer-connect"><summary>🔑 Connect this device</summary>',
           '<p class="muted" id="steer-state">Not connected: ★ and goals are '
           "read-only.</p>",
-          "<p>Paste a fine-grained token with <b>Actions: read and write</b> on the "
+          "<p>Paste a fine-grained token with <b>Issues: read and write</b> on the "
           f'Mind repo only (<a href="{_attr(_token_url(repo))}" rel="noreferrer">'
           "create one</a>). It stays in this browser and is sent only to "
-          "api.github.com.</p>",
+          "api.github.com. Each ★ or goals edit opens one small issue that the Mind "
+          "applies and closes.</p>",
           '<input type="password" id="steer-token" autocomplete="off" '
           'aria-label="GitHub token">',
           '<div class="steer-row"><button type="button" class="act" '

@@ -113,8 +113,9 @@ def test_the_goals_and_queue_box_sits_above_the_section_cards(tmp_path):
     assert box.count('<li class="task" data-ref=') == 2
     assert "&lt;img src=x onerror=alert(1)&gt; axle" in box
     assert "<img" not in page
+    assert "<b>Issues: read and write</b>" in box
     assert 'id="steer-token"' in box and 'type="password"' in box
-    assert "actions=write" in box and "target_name=example-owner" in box
+    assert "issues=write" in box and "actions=write" not in box and "target_name=example-owner" in box
     assert 'id="steer-toast" role="status"' in page
 
 

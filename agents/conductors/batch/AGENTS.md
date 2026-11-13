@@ -201,8 +201,12 @@ a skeleton brief whose `goals:` are `PyAutoMind/goals.md`'s, in order, with
 `backlog: scoped` to their `epics:`/`tags:` (else `fill-idle`) and
 `merge-cap: 0`. It prints to stdout (`--out FILE` writes it) and never writes a
 record into `batches/` — saving it there is the human's dispatch.
-`brief --check` warns when `goals.md`'s goal 1 is missing from a brief
-(PyAutoMind#565; readers in `_steer.py`).
+A goal whose line was last written by a `Via: mind-dashboard` commit (git
+blame) is web-page text, so it is emitted commented out — "from dashboard,
+last edited <date>" — and never reaches a worker unless the human adopts it;
+`--new` also prints on stderr how the goals changed since the newest brief.
+`brief --check` warns when `goals.md`'s goal 1 is missing from a brief, unless
+goal 1 came from the dashboard (PyAutoMind#565; readers in `_steer.py`).
 
 ## The watcher (phases 3a–3d)
 

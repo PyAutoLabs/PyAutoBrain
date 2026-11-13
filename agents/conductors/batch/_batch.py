@@ -3185,18 +3185,123 @@ NEW_BRIEF_DEFAULTS = {"review-minutes": str(DEFAULT_REVIEW_BUDGET),
                       "token-budget": "2000000"}
 
 
-def new_brief(mind: Path, slot: str, review_at: str, now=None) -> str:
+#: The trailer every dashboard write carries (PyAutoMind `dashboard_input.py`).
+DASHBOARD_TRAILER_RE = re.compile(r"^Via: mind-dashboard\s*$", re.M)
+
+
+def goal_provenance(mind: Path) -> list[dict] | None:
+    """Per goal, in order: `{"dashboard": bool, "date": "YYYY-MM-DD"}` — whether
+    the goal's line was last written by a `Via: mind-dashboard` commit, and when.
+
+    A goal from the dashboard is free text from a web page, written through a
+    browser token (PyAutoMind#565): `brief --new` never hands it to workers as
+    the human's word. A line not yet committed is the human's local edit.
+    None when goals.md is not in a git checkout (provenance unknown)."""
+    try:
+        out = subprocess.run(["git", "-C", str(mind), "blame", "--line-porcelain",
+                              "--", "goals.md"], capture_output=True, text=True,
+                             timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    lines, cur = [], {}
+    for line in out.stdout.split("\n"):
+        if line.startswith("\t"):
+            lines.append((cur.get("sha", ""), cur.get("time", 0), line[1:]))
+            continue
+        m = re.match(r"^([0-9a-f]{40}) \d+ \d+", line)
+        if m:
+            cur = {"sha": m.group(1)}
+        elif line.startswith("author-time "):
+            cur["time"] = int(line.split()[1])
+    heads, fenced = [], False
+    for sha, when, text in lines:
+        if text.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"^##\s+\d+\.\s+\S", text):
+            heads.append((sha, when))
+    if len(heads) != len(read_goals(mind)):
+        return None
+    verdict: dict[str, bool] = {}
+    out_list = []
+    for sha, when in heads:
+        if sha not in verdict:
+            body = ""
+            if sha and set(sha) != {"0"}:
+                body = subprocess.run(["git", "-C", str(mind), "show", "-s",
+                                       "--format=%B", sha], capture_output=True,
+                                      text=True).stdout
+            verdict[sha] = bool(DASHBOARD_TRAILER_RE.search(body))
+        date = (_dt.datetime.fromtimestamp(when, _dt.timezone.utc).date().isoformat()
+                if when else "")
+        out_list.append({"dashboard": verdict[sha], "date": date})
+    return out_list
+
+
+def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:
+    """(record name, goal texts) of the newest batch record with a brief."""
+    records = sorted(f for f in (mind / "batches").glob("*.md") if f.name != "AGENTS.md")
+    for f in reversed(records):
+        try:
+            brief = _brief.parse(f.read_text(encoding="utf-8", errors="replace"))["brief"]
+        except (OSError, _brief.BriefError):
+            continue
+        if brief and brief.get("goals"):
+            return f.name, [re.sub(r"^\d+\.\s*", "", c["text"])
+                            for c in brief["goals"]["children"]]
+    return None
+
+
+def goals_report(mind: Path, prov: list[dict] | None) -> list[str]:
+    """What `brief --new` tells the human on stderr: provenance, then how the
+    goals changed since the newest brief."""
+    goals = [g["text"] for g in read_goals(mind)]
+    L = []
+    if prov is None and goals:
+        L.append("goals: provenance unknown (goals.md is not in a git checkout) — "
+                 "every goal is treated as hand-written")
+    for g, p in zip(goals, prov or []):
+        if p["dashboard"]:
+            L.append(f"goals: \"{g}\" is from the dashboard (last edited "
+                     f"{p['date']}) — left commented out; adopt it by hand")
+    last = _last_brief_goals(mind)
+    if last is None:
+        L.append("goals: no earlier brief to compare with")
+        return L
+    name, before = last
+    added = [g for g in goals if g not in before]
+    dropped = [g for g in before if g not in goals]
+    moved = [(g, before.index(g) + 1, goals.index(g) + 1) for g in goals
+             if g in before and before.index(g) != goals.index(g)]
+    if not (added or dropped or moved):
+        L.append(f"goals: unchanged since {name}")
+        return L
+    L.append(f"goals since {name}:")
+    L += [f"  + {g}" for g in added] + [f"  - {g}" for g in dropped]
+    L += [f"  ~ {g} ({a} → {b})" for g, a, b in moved]
+    return L
+
+
+def new_brief(mind: Path, slot: str, review_at: str, now=None,
+              prov: list[dict] | None = None) -> str:
     """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
 
-    `backlog: scoped` covers the union of the goals' `epics:`/`tags:`; with
-    none named, `fill-idle`. Every other required key gets a default the human
-    edits. Writing the record (with its `review-at:`) is the dispatch, so this
-    only composes the text (batches/AGENTS.md "Shift brief")."""
+    A goal last written from the dashboard is emitted commented out, marked
+    with its date: workers never see it until the human adopts it by hand.
+    `backlog: scoped` covers the union of the hand-written goals'
+    `epics:`/`tags:`; with none named, `fill-idle`. Every other required key
+    gets a default the human edits. Writing the record (with its `review-at:`)
+    is the dispatch, so this only composes the text (batches/AGENTS.md
+    "Shift brief")."""
     goals = read_goals(mind)
+    prov = prov if prov is not None else [{"dashboard": False, "date": ""}] * len(goals)
     now = now or _dt.datetime.now(_dt.timezone.utc)
     epics: list[str] = []
     tags: list[str] = []
-    for g in goals:
+    for g, p in zip(goals, prov):
+        if p["dashboard"]:
+            continue
         epics += [e for e in g["epics"] if e not in epics]
         tags += [t for t in g["tags"] if t not in tags]
     shift = {"am": "morning", "pm": "afternoon"}.get(slot.rsplit("-", 1)[-1], slot)
@@ -3206,9 +3311,15 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None) -> str:
          f"- shift: {shift}",
          "- brief:",
          "  - goals:                          # from goals.md, in order"]
-    # A goal is one line of plain text (goals.md's own check); ` # ` would
-    # read as a trailing comment here, so it is spelled out.
-    L += [f"    - {g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"]) for g in goals]
+    for g, p in zip(goals, prov):
+        # A goal is one line of plain text (goals.md's own check); ` # ` would
+        # read as a trailing comment here, so it is spelled out.
+        text = f"{g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"])
+        if p["dashboard"]:
+            L.append(f"    # - {text}   <- from dashboard, last edited {p['date']}: "
+                     "not adopted; delete the '# ' to adopt")
+        else:
+            L.append(f"    - {text}")
     if epics or tags:
         L += ["  - backlog: scoped                 # the goals' epics and tags",
               "  - scoped:"]
@@ -3227,9 +3338,13 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None) -> str:
 
 
 def goal_one_warning(path: Path, mind: Path) -> str:
-    """A warning when `goals.md`'s goal 1 is missing from the brief at `path`."""
+    """A warning when `goals.md`'s goal 1 is missing from the brief at `path`
+    — never for a dashboard-sourced goal 1, which the human adopts or not."""
     goals = read_goals(mind)
     if not goals:
+        return ""
+    prov = goal_provenance(mind)
+    if prov and prov[0]["dashboard"]:
         return ""
     try:
         brief = _brief.parse(path.read_text(encoding="utf-8", errors="replace"))["brief"]
@@ -3259,7 +3374,10 @@ def _main_brief(mind: Path, a) -> int:
             print("batch brief --new: --review-at <ISO time> is required — the "
                   "grant expires there, and it is yours to declare", file=sys.stderr)
             return RC_USAGE
-        text = new_brief(mind, a.new, a.review_at)
+        prov = goal_provenance(mind)
+        text = new_brief(mind, a.new, a.review_at, prov=prov)
+        for line in goals_report(mind, prov):
+            print(line, file=sys.stderr)
         if a.out:
             Path(a.out).write_text(text, encoding="utf-8")
             print(f"batch brief --new: wrote {a.out} "

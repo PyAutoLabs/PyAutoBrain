@@ -1,14 +1,17 @@
-// The write side of the Mind dashboard (PyAutoMind#565, design B).
+// The write side of the Mind dashboard (PyAutoMind#565, design C).
 //
-// A ★ on a task row, or an edit in the Goals box, dispatches the Mind's
-// `dashboard_input.yml` workflow through the GitHub REST API. The workflow, not
-// this page, validates the input and commits queue.md / goals.md. The page only
-// holds a fine-grained token with Actions permission on the Mind repo, pasted
-// once per device and kept in this browser.
+// A ★ on a task row, or an edit in the Goals box, opens ONE small issue in the
+// Mind repo, labelled `dashboard-input`, whose body is a fixed key: value form.
+// The Mind's `dashboard_input.yml` (always the default branch's copy, run by the
+// `issues: opened` event) validates it, commits queue.md / goals.md, and closes
+// the issue with a one-line result comment. The page holds only a fine-grained
+// token with Issues permission on the Mind repo, pasted once per device.
 //
 // The UI is optimistic: a tap flips at once, shows "pending", and turns into
-// "confirmed" when the run succeeds (about 20-40 s), or reverts with the
-// workflow's own refusal reason.
+// "confirmed" when the issue closes as applied (about 20-40 s), or reverts
+// with the workflow's own reason. One issue is in flight at a time; taps made
+// meanwhile are coalesced behind it (the latest state per task wins, a tap
+// and its undo cancel out), so one device never makes the workflow drop a run.
 //
 // Inlined by `render_dashboard_html` into the page's one <script>, whose
 // sha256 the page's CSP pins. No external script, no eval, no inline
@@ -18,7 +21,9 @@
 
   var MindEdit = {};
   MindEdit.TOKEN_KEY = "pyautomind.dashboard.token.v1";
-  MindEdit.WORKFLOW = "dashboard_input.yml";
+  MindEdit.LABEL = "dashboard-input";
+  MindEdit.ISSUE_MARKER = "<!-- mind-dashboard-input v1 -->";
+  MindEdit.BOT = "github-actions[bot]";
   MindEdit.API = "https://api.github.com";
   MindEdit.GOALS_MAX = 10;
   MindEdit.GOAL_TEXT_MAX = 200;
@@ -99,19 +104,52 @@
     return { ok: true, goals: goals };
   };
 
-  // The dispatch request body for one op.
-  MindEdit.dispatchBody = function (op, nonce) {
-    var inputs = { op: op.op, nonce: nonce };
-    if (op.op === "goals") inputs.goals = op.goals.join("\n");
-    else inputs.ref = op.ref;
-    return { ref: "main", inputs: inputs, return_run_details: true };
+  // The issue for one op: the form scripts/dashboard_input.py parses.
+  MindEdit.issueBody = function (op, nonce) {
+    var lines = [MindEdit.ISSUE_MARKER, "op: " + op.op];
+    if (op.op === "goals") {
+      lines.push("goals:");
+      op.goals.forEach(function (g) { lines.push("- " + g); });
+    } else {
+      lines.push("ref: " + op.ref);
+    }
+    lines.push("nonce: " + nonce);
+    return lines.join("\n") + "\n";
+  };
+  MindEdit.issueRequest = function (op, nonce) {
+    var what = op.op === "goals" ? "goals (" + op.goals.length + ")" :
+      (op.op === "star" ? "★ " : "unstar ") + MindEdit.basename(op.ref).replace(/\.md$/, "");
+    return { title: "dashboard: " + what, body: MindEdit.issueBody(op, nonce),
+             labels: [MindEdit.LABEL] };
   };
 
-  // Ops on one task (or on the goals) run one after another, so a fast
-  // star-unstar can never land in the wrong order. Different tasks run in
-  // parallel: the workflow rebuilds on the tip of main and retries its push.
+  // The workflow's one-line answer among an issue's comments:
+  // {word: "applied" | "no change" | "refused" | "superseded", text}, or null.
+  // Only the workflow's own bot counts; anyone else's comment is ignored.
+  MindEdit.parseResult = function (comments) {
+    for (var i = 0; i < (comments || []).length; i++) {
+      var c = comments[i] || {};
+      if (!c.user || c.user.login !== MindEdit.BOT) continue;
+      var m = /^dashboard-input: (applied|no change|refused|superseded) \u2014 (.*)/.exec(String(c.body || ""));
+      if (m) return { word: m[1], text: m[2].split("\n")[0].slice(0, 300) };
+    }
+    return null;
+  };
+
+  // Which queued taps one new tap replaces. Same task (or the goals): the new
+  // one wins, and a star and its unstar cancel out entirely.
   MindEdit.opKey = function (op) {
     return op.op === "goals" ? "goals" : "ref:" + MindEdit.basename(op.ref);
+  };
+  MindEdit.coalesce = function (waiting, op) {
+    var key = MindEdit.opKey(op), out = [], dropped = null;
+    waiting.forEach(function (w) {
+      if (!dropped && MindEdit.opKey(w) === key) dropped = w; else out.push(w);
+    });
+    if (dropped && op.op !== "goals" && dropped.op !== op.op) return { waiting: out, dropped: dropped, cancelled: true };
+    if (dropped && op.op === "goals") op.previous = dropped.previous;
+    out.push(op);
+    return { waiting: out, dropped: dropped, cancelled: false };
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = MindEdit;
@@ -302,16 +340,41 @@
   }
   if (doneBtn) doneBtn.addEventListener("click", function () { area.blur(); });
 
-  // ---- send: dispatch, then follow the run ---------------------------------
-  var chains = {}, pendingKeys = {};
+  // ---- send: open the issue, then follow it ------------------------------
+  var waiting = [], busy = false, pendingKeys = {};
+  function holdKey(key, d) {
+    pendingKeys[key] = (pendingKeys[key] || 0) + d;
+    if (pendingKeys[key] <= 0) delete pendingKeys[key];
+  }
   function enqueue(op) {
-    var key = MindEdit.opKey(op);
-    pendingKeys[key] = (pendingKeys[key] || 0) + 1;
-    chains[key] = (chains[key] || Promise.resolve()).then(function () {
-      return send(op);
-    }).catch(function () { /* reported in send */ }).then(function () {
-      pendingKeys[key] -= 1;
-      if (!pendingKeys[key]) delete pendingKeys[key];
+    var r = MindEdit.coalesce(waiting, op);
+    waiting = r.waiting;
+    if (r.dropped) holdKey(MindEdit.opKey(r.dropped), -1);
+    if (r.cancelled) {
+      // A tap and its undo before either was sent: nothing to send. An
+      // un-star undone puts the entry back where it was.
+      var name = MindEdit.basename(op.ref), entries = currentQueue();
+      if (op.op === "star" && r.dropped.entry) {
+        entries = entries.filter(function (e) { return MindEdit.basename(e.ref) !== name; });
+        entries.splice(Math.max(0, r.dropped.entry.pos - 1), 0, r.dropped.entry);
+        entries = entries.map(function (e, i) { e.pos = i + 1; return e; });
+        renderQueue(entries);
+      }
+      entries.forEach(function (e) { markStar(MindEdit.basename(e.ref), true, e.pos, false); });
+      if (op.op === "unstar") markStar(name, false, 0, false);
+      return;
+    }
+    holdKey(MindEdit.opKey(op), 1);
+    pump();
+  }
+  function pump() {
+    if (busy || !waiting.length) return;
+    busy = true;
+    var op = waiting.shift();
+    send(op).catch(function () { /* reported in send */ }).then(function () {
+      holdKey(MindEdit.opKey(op), -1);
+      busy = false;
+      pump();
     });
   }
 
@@ -332,14 +395,15 @@
     toast(why, link);
   }
 
-  function confirmOp(op) {
+  function confirmOp(op, word) {
+    var same = word === "no change" ? " (already so)" : "";
     if (op.op === "goals") {
       if (goalsList) goalsList.classList.remove("pending");
-      toast("Goals saved ✓");
+      toast("Goals saved ✓" + same);
     } else {
       var name = MindEdit.basename(op.ref);
       starsFor(name).forEach(function (b) { b.classList.remove("pending"); });
-      toast(op.op === "star" ? "★ queued ✓" : "Unqueued ✓");
+      toast((op.op === "star" ? "★ queued ✓" : "Unqueued ✓") + same);
     }
   }
 
@@ -353,60 +417,28 @@
     }).join("");
   }
 
-  function findRun(tag, since) {
-    var path = "/repos/" + repo + "/actions/workflows/" + MindEdit.WORKFLOW +
-      "/runs?event=workflow_dispatch&per_page=10&created=%3E%3D" +
-      encodeURIComponent(since);
-    var tries = 0;
-    function look() {
-      tries += 1;
-      return api(path).then(function (r) { return r.ok ? r.json() : { workflow_runs: [] }; })
-        .then(function (j) {
-          var hit = (j.workflow_runs || []).filter(function (run) {
-            return String(run.display_title || "").indexOf(tag) >= 0;
-          })[0];
-          if (hit) return hit.id;
-          if (tries >= 10) throw new Error("run not found");
-          return sleep(3000).then(look);
-        });
-    }
-    return look();
-  }
-
-  function refusalReason(runId) {
-    return api("/repos/" + repo + "/actions/runs/" + runId + "/jobs")
-      .then(function (r) { return r.ok ? r.json() : { jobs: [] }; })
-      .then(function (j) {
-        var url = ((j.jobs || [])[0] || {}).check_run_url || "";
-        if (!/^https:\/\/api\.github\.com\//.test(url)) return "";
-        return api(url + "/annotations").then(function (r) { return r.ok ? r.json() : []; })
-          .then(function (notes) {
-            var hit = (notes || []).filter(function (n) {
-              return n.title === "Dashboard input refused";
-            })[0];
-            return hit ? String(hit.message).slice(0, 300) : "";
-          });
-      }).catch(function () { return ""; });
-  }
-
-  function follow(runId, op) {
+  function follow(number, op, link) {
     var started = Date.now();
+    var base = "/repos/" + repo + "/issues/" + number;
     function poll() {
-      return api("/repos/" + repo + "/actions/runs/" + runId).then(function (r) {
-        if (!r.ok) throw new Error("run status " + r.status);
+      return api(base).then(function (r) {
+        if (!r.ok) throw new Error("issue status " + r.status);
         return r.json();
-      }).then(function (run) {
-        if (run.status !== "completed") {
+      }).then(function (issue) {
+        if (issue.state !== "closed") {
           if (Date.now() - started > 180000) {
-            toast("Still running; it will land on its own.", run.html_url);
+            toast("Still waiting for the Mind; it will land on its own.", link);
             return;
           }
           return sleep(4000).then(poll);
         }
-        if (run.conclusion === "success") { confirmOp(op); return; }
-        return refusalReason(runId).then(function (why) {
-          revert(op, why ? "Refused: " + why : "The workflow did not apply it (" + run.conclusion + ").",
-            run.html_url);
+        return api(base + "/comments?per_page=20").then(function (r) {
+          return r.ok ? r.json() : [];
+        }).then(function (comments) {
+          var res = MindEdit.parseResult(comments);
+          if (res && (res.word === "applied" || res.word === "no change")) confirmOp(op, res.word);
+          else revert(op, res ? (res.word === "refused" ? "Refused: " : "Not applied: ") + res.text
+            : "The issue was closed without a result.", link);
         });
       });
     }
@@ -415,16 +447,8 @@
 
   function send(op) {
     if (!connected()) { revert(op, "Not connected."); return Promise.resolve(); }
-    var tag = nonce();
-    var since = new Date(Date.now() - 60000).toISOString().replace(/\.\d+Z$/, "Z");
-    var path = "/repos/" + repo + "/actions/workflows/" + MindEdit.WORKFLOW + "/dispatches";
-    var body = MindEdit.dispatchBody(op, tag);
-    return api(path, { method: "POST", body: body }).then(function (r) {
-      // An API that predates `return_run_details` refuses the unknown key:
-      // send the plain dispatch and find the run by its nonce instead.
-      if (r.status !== 422) return r;
-      delete body.return_run_details;
-      return api(path, { method: "POST", body: body });
+    return api("/repos/" + repo + "/issues", {
+      method: "POST", body: MindEdit.issueRequest(op, nonce())
     }).then(function (r) {
       if (r.status === 401) {
         forgetToken(); refreshControls();
@@ -432,18 +456,23 @@
         revert(op, "GitHub rejected the token (expired or revoked). Paste a new one.");
         return;
       }
-      if (r.status === 403 || r.status === 404) {
-        revert(op, "The token cannot run Mind workflows (it needs Actions: read and write on the Mind repo).");
+      if (r.status !== 201) {
+        revert(op, "The token cannot open Mind issues (it needs Issues: read and write on the Mind repo; HTTP " + r.status + ").");
         return;
       }
-      if (r.status !== 200 && r.status !== 204) {
-        revert(op, "GitHub refused the dispatch (HTTP " + r.status + ").");
-        return;
-      }
-      var idp = r.status === 200 ? r.json().then(function (j) {
-        return j.workflow_run_id || findRun(tag, since);
-      }) : findRun(tag, since);
-      return idp.then(function (id) { return follow(id, op); });
+      return r.json().then(function (issue) {
+        var link = /^https:\/\/github\.com\//.test(issue.html_url || "") ? issue.html_url : "";
+        var labelled = (issue.labels || []).some(function (l) { return l && l.name === MindEdit.LABEL; });
+        if (!labelled || typeof issue.number !== "number") {
+          // GitHub drops labels the creator may not set; without it no run
+          // starts. Close the stray issue rather than leave it open.
+          if (typeof issue.number === "number")
+            api("/repos/" + repo + "/issues/" + issue.number, { method: "PATCH", body: { state: "closed", state_reason: "not_planned" } });
+          revert(op, "GitHub dropped the dashboard-input label, so nothing ran.", link);
+          return;
+        }
+        return follow(issue.number, op, link);
+      });
     }).catch(function () {
       revert(op, "Network error: nothing was sent, or its result is unknown. Check the queue in a minute.");
     });
