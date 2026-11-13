@@ -41,6 +41,9 @@
 #                                 a PyAutoMind prompt (the heuristic intake + feature both consult)
 #   pyauto-brain board   [args]   (surface)   render the operational board — the morning
 #                                 page brain_board.yml publishes (md/html/json/badge)
+#   pyauto-brain ci-verdict <owner/repo>#<n> [--json]
+#                                 (tool)      read-only: one PR's CI verdict — GREEN/PENDING/RED
+#                                 with reasons (bin/ci_verdict.py; /prm, the close-out, pr_health)
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Renamed from `pyauto-agent`; the former back-compat shim has been removed now
@@ -162,6 +165,10 @@ EOF
     printf '  %s — %s\n' "$surface" "${AGENT_DESC[$surface]}"
   done
   echo
+  # A tool, not an agent: listed as prose for the same reason as the surfaces.
+  echo "Tools (read-only helpers the merge paths share):"
+  echo "  ci-verdict <owner/repo>#<n> [--json] — one PR's CI: GREEN, PENDING or RED, with reasons"
+  echo
   echo "Run 'pyauto-brain help <agent>' for that agent's full docs."
 }
 
@@ -206,6 +213,9 @@ main() {
   esac
   shift
   ensure_session_environment
+  if [[ "$sub" == "ci-verdict" ]]; then
+    exec python3 "$BRAIN_HOME/bin/ci_verdict.py" "$@"
+  fi
   local script="${AGENT_SCRIPT[$sub]:-}"
   if [[ -z "$script" || ! -f "$script" ]]; then
     echo "pyauto-brain: unknown agent '$sub'" >&2

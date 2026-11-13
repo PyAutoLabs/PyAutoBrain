@@ -24,21 +24,30 @@ outcome — the human merges by `/prm` at check-in.
    It prints `green`, `red`, `stale` or `unknown`. Only `green` passes: `stale`
    never does, and `unknown` (a reply that is not Heart's dev-ship gate, or no
    Heart here) parks — refuse with the word it printed. A repo Heart does not
-   gate reads `green` with a "gate-deferred" note: its PR checks decide, so
-   refuse unless the head has **at least one completed check and every check
-   green** (`gh pr checks {pr_url} --json name,bucket`: none, or only
-   `skipping`, refuses — PyAutoHeart#343).
-4. Immediately before you merge — after every check above, and again right
+   gate reads `green` with a "gate-deferred" note: its PR checks (step 4)
+   decide (PyAutoHeart#343).
+4. Judge the PR's CI with the one CI-verdict script (PyAutoBrain#628), for
+   every repo — never by reading `gh pr checks` yourself:
+
+       {ci_verdict_cmd}
+
+   It reads every check-run, workflow run and job on the REST head sha, and
+   mergeability, and prints `GREEN`, `PENDING` or `RED` with reasons (exit 0,
+   2, 1). Only `GREEN` passes. `PENDING` or `RED` refuses with its first
+   reason line (`CI PENDING: …` / `CI RED: …`): no waiting, no re-run. A
+   `GREEN` that names a skipped **test** leg refuses too (a tiered merge
+   stops on a skipped test leg, `skills/prm/reference.md` "Tiered merge").
+5. Immediately before you merge — after every check above, and again right
    before the merge command itself — look for {lease_dir}/{task}.dropped. If
    it exists, the human dropped this task with `/drop` mid-shift: do not merge;
    refuse with why `dropped by /drop`.
-5. If everything passed, use the prm skill on {pr_url}: the full close-out,
+6. If everything passed, use the prm skill on {pr_url}: the full close-out,
    judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with
    `{shift_ledger} append|write|move|remove|drop-section ...` (ops land in
    {ledger_dir}/) and the orchestrator commits them. Do **not** append the
    Shadow-window row: the watcher writes the stage-2 row from your verdict.
-6. End at your deliverable. Never arm anything that outlives your turn.
+7. End at your deliverable. Never arm anything that outlives your turn.
 
 Last, write {lease_dir}/{task}.closeout as one JSON object:
 

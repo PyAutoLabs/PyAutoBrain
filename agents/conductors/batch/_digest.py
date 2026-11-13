@@ -18,9 +18,14 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import _brief  # noqa: E402
+
+# The one CI judgement (PyAutoBrain#628) lives in bin/, beside its CLI.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
+import ci_verdict  # noqa: E402
 
 DIGEST_HEADING = "## Digest"
 SECTIONS = ("### Brief work", "### Backlog picks", "### Proof packets", "### Counters")
@@ -97,20 +102,21 @@ def urls_of(outcome: dict | None) -> list[str]:
     return list(outcome.get("prs") or []) + list(outcome.get("issues") or [])
 
 
-#: `gh pr checks --json` buckets that are a COMPLETED verdict. `skipping`
-#: (path-filtered or `if:`-skipped) never ran, so it is not evidence either way.
-_DONE_BUCKETS = frozenset({"pass", "fail", "cancel"})
-
-
 def pr_health(url: str, run=None) -> str:
-    """One read-only `gh pr checks --json`, judged explicitly (PyAutoHeart#343).
+    """One read-only `gh pr checks --json`, judged by `bin/ci_verdict.py`
+    (PyAutoBrain#628) — the one CI judgement `/prm` and the close-out run too.
 
-    HEALTHY needs at least one completed check on the PR head and every
-    completed check green: a PR with no checks at all (a repo with no CI) or
-    only skipped ones is NO-CHECKS, which the close-out refuses — that PR is
-    the human's merge. Any pending check is RUNNING; any failed or cancelled
-    one is FAILED (`gh pr checks`' exit code counts a cancelled check as
-    skipped, so the exit code alone is not the verdict)."""
+    The watcher's network surface is `gh pr checks` only (AUTONOMY.md "The
+    watcher's network surface"), so this keeps that read and hands its rows to
+    `ci_verdict.judge` with mergeability not read; the close-out session runs
+    the full `pyauto-brain ci-verdict`, which reads it. The words map from the
+    verdict: GREEN is HEALTHY (at least one completed check, every completed
+    check green — PyAutoHeart#343); a failed, cancelled or timed-out check is
+    FAILED (`gh pr checks`' exit code counts a cancelled check as skipped, so
+    the exit code alone is not the verdict); a bucket the judge does not know
+    is UNKNOWN (fail closed); a pending check is RUNNING; no checks, or only
+    skipped ones, is NO-CHECKS, which the close-out refuses — that PR is the
+    human's merge."""
     if "/pull/" not in url:
         return "PARKED-ON-ISSUE"
     run = run or subprocess.run
@@ -120,23 +126,29 @@ def pr_health(url: str, run=None) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return "UNKNOWN"
     if "no checks" in ((res.stderr or "") + (res.stdout or "")).lower():
-        return "NO-CHECKS"
+        return health_word(ci_verdict.judge([], read_mergeable=False))
     try:
         checks = json.loads(res.stdout or "")
     except ValueError:
         checks = None
     if not isinstance(checks, list):
         return "UNKNOWN"   # gh could not say (auth, network): never a pass
-    buckets = [str(c.get("bucket") or "").lower() for c in checks if isinstance(c, dict)]
-    if any(b in ("fail", "cancel") for b in buckets):
+    return health_word(ci_verdict.judge(ci_verdict.from_pr_checks(checks),
+                                        read_mergeable=False))
+
+
+def health_word(verdict: dict) -> str:
+    """A `ci_verdict.judge` result in the watcher's words."""
+    codes = {r["code"] for r in verdict["reasons"]}
+    if codes & {"check-failed", "check-cancelled", "check-timed-out"}:
         return "FAILED"
-    if any(b not in _DONE_BUCKETS | {"skipping", "pending"} for b in buckets):
-        return "UNKNOWN"   # a bucket this reader does not know: fail closed
-    if "pending" in buckets:
+    if "check-unrecognised" in codes:
+        return "UNKNOWN"
+    if verdict["verdict"] == ci_verdict.PENDING:
         return "RUNNING"
-    if "pass" not in buckets:
+    if codes & {"no-checks", "skipped-only"}:
         return "NO-CHECKS"
-    return "HEALTHY"
+    return "HEALTHY" if verdict["verdict"] == ci_verdict.GREEN else "UNKNOWN"
 
 
 # --- build ---------------------------------------------------------------------

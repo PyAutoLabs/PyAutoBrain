@@ -56,19 +56,29 @@ the claimed repos. More than one candidate → **list them numbered and ask
 once**; never guess. Report each as `owner/repo#N — title — branch`. A task with
 a library and a workspace PR is **one** run over both, in gate order (step 4).
 
-## 2. Judge CI honestly — every run, every leg
+## 2. Judge CI honestly — run `ci-verdict` and obey it
 
-A head sha triggers **two** runs per workflow (`push` and `pull_request`), each
-with matrix legs: enumerate every run for the sha and every job; anything not
-`completed` is *not ready*, and an empty run list is not green. Read
-`mergeable` / `mergeStateStatus`: `UNSTABLE` is pending-or-red, and
-`CONFLICTING` / `BEHIND` / `BLOCKED` stops the run whatever the checks say. A
-test leg `skipped` is **not green** — name it; a tiered merge stops on it.
+```bash
+pyauto-brain ci-verdict <owner/repo>#<n>      # --json for the full rows
+```
+
+It is the one CI judgement (PyAutoBrain#628; the close-out and the watcher
+use it too): REST head sha (an empty sha is refused), every check-run, commit
+status, workflow run and job on it, and mergeability. **GREEN** (exit 0) — at
+least one completed check, every one `success` or a named skip, and
+`mergeable_state` `clean`. **PENDING** (exit 2) — a check or run not
+completed, or mergeability not computed yet. **RED** (exit 1) — a check
+failed, was cancelled or timed out; no check at all, or only skipped ones;
+`conflicting` / `behind` / `blocked` / draft. Each case prints its reason.
+Obey the verdict: never re-judge GREEN as red or RED as green by hand. A
+GREEN that names a skipped **test** leg: say so — a tiered merge stops on it.
+Where `pyauto-brain` cannot run (mcp), apply the same rules by hand
+([mcp.md](mcp.md); the recipe is [`reference.md`](reference.md) → "CI").
 
 ## 3. Wait, or stop
 
-- **Pending** — wait only by a mechanism that ends with this turn. Under
-  `--no-wait`, judge once, report and stop.
+- **Pending** (`ci-verdict` PENDING) — wait only by a mechanism that ends
+  with this turn. Under `--no-wait`, judge once, report and stop.
   - **Stop (mobile, web — required there).** Report each PR's state (per-leg
     counts, `2/4 legs done`, red or pending named), **end the turn** and tell
     the human to re-run `/prm` once CI is green. Never `subscribe_pr_activity`,
@@ -76,19 +86,23 @@ test leg `skipped` is **not green** — name it; a tiered merge stops on it.
     their deliverable** (`PyAutoMind/policy/end_at_deliverable.md`; the
     incidents are in [`reference.md`](reference.md) → "Why the wait ends with
     the turn"). Waiting for CI is the human's next `/prm`.
-  - **Poll (local CLI).** Every ~90s, one compact line per poll, capped at ~30
-    min so it finishes **inside this turn**; at the cap, stop and hand back.
+  - **Poll (local CLI).** Re-run `ci-verdict` every ~90s, one compact line
+    per poll, capped at ~30 min so it finishes **inside this turn**; at the
+    cap, stop and hand back.
     (A tiered merge's ~60-min watch is the one other in-turn wait.)
-- **Red** — **fetch the failing job's log immediately** (GitHub purges it),
-  quote the failing step, and stop: no merge, no re-run, no waiting for the
-  flake. Offer `/bug`, or a named re-run if the user judges it a flake.
-- **No completed check on the head** (no CI, or every check skipped) — say
-  so; a human-typed `/prm` asks before merging, a tiered or unattended merge
-  refuses: at least one completed check, all green (PyAutoHeart#343).
+- **Red on a check** — **fetch the failing job's log immediately** (GitHub
+  purges it), quote the failing step, and stop: no merge, no re-run, no
+  waiting for the flake. Offer `/bug`, or a named re-run if the user judges
+  it a flake.
+- **Red on mergeability** (`conflicting`, `behind`, `blocked`, draft) — quote
+  the reason and stop; resolving it is the PR author's, not `/prm`'s.
+- **No completed check on the head** (RED `no-checks` / `skipped-only`) — say
+  so; a human-typed `/prm` asks before merging (the one RED a human may
+  waive), a tiered or unattended merge refuses: at least one completed check, all green (PyAutoHeart#343).
 
 ## 4. Merge
 
-Green on every leg → merge, in this order.
+`ci-verdict` GREEN → merge, in this order.
 
 **PRs shipped under the Heart RED development override:** the shipping grant
 is not merge authority. Require a separate explicit human merge command and
