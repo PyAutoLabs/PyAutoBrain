@@ -133,8 +133,12 @@ differences:
   else report and end; the human runs `/prm`.
 - **Extra refusals (step 4).** Never merge a `decision-taken` PR, a Heart
   RED-override or corrective-PR-exception ship, red / pending / conflicting
-  CI, or a SKIPPED test leg — report and stop; the human runs `/prm`. The
-  library-first, sibling-branch and data-worktree guards apply verbatim.
+  CI, a SKIPPED test leg, or a head with **no completed check** — at least one
+  completed check, all green, is required (PyAutoHeart#343: for a repo Heart
+  does not gate, the PR's checks are the only CI evidence, so a repo with no
+  CI, such as the website, stays a human merge) — report and stop; the human
+  runs `/prm`. The library-first, sibling-branch and data-worktree guards
+  apply verbatim.
 - **The merge call.** `gh pr merge <n> --merge` as a **bare, unchained** Bash
   call (no `&&`, `;` or pipe); if the permission layer denies it, stop and
   report — never retry it another way. For `glance`, the close-out appends the

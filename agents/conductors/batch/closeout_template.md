@@ -23,7 +23,11 @@ outcome — the human merges by `/prm` at check-in.
 
    It prints `green`, `red`, `stale` or `unknown`. Only `green` passes: `stale`
    never does, and `unknown` (a reply that is not Heart's dev-ship gate, or no
-   Heart here) parks — refuse with the word it printed.
+   Heart here) parks — refuse with the word it printed. A repo Heart does not
+   gate reads `green` with a "gate-deferred" note: its PR checks decide, so
+   refuse unless the head has **at least one completed check and every check
+   green** (`gh pr checks {pr_url} --json name,bucket`: none, or only
+   `skipping`, refuses — PyAutoHeart#343).
 4. If everything passed, use the prm skill on {pr_url}: the full close-out,
    judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with

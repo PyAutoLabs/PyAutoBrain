@@ -286,8 +286,10 @@ counts the PRs GitHub shows merged by `review-at:`, whoever merged them, and
 `workers-crashed` counts exit records, not a tally. A `### Workers` section
 prints one line per worker (`<label> (<id>): spawned/crashed`). An issue URL in
 a `.done` is kept in `issues`, never `prs`. Health per PR is one
-read-only `gh pr checks` (exit 0 → HEALTHY, 8 → RUNNING, else FAILED or
-NO-CHECKS). `glance-auto-merges`, `reverts`, `pushes`, `drafts-filed` and
+read-only `gh pr checks --json`, judged per check (PyAutoHeart#343): any
+failed or cancelled → FAILED, any pending → RUNNING, no completed check at all
+(no CI, or only skipped) → NO-CHECKS, else HEALTHY — at least one completed
+check, all green; unreadable → UNKNOWN. `glance-auto-merges`, `reverts`, `pushes`, `drafts-filed` and
 `packets-sent` read `counters.json` and stay 0 until phases 4–5 move them
 (human, 2026-11-04). `batch digest --record <file>` prints the digest and
 writes nothing; `batch brief --check` refuses a digest missing a section, a
@@ -333,8 +335,8 @@ ends at PR-open (`worker_template.md`). Each tick, `_closeouts` first reaps
 running close-outs — `<task>.closeout` (`merged` | `refused`, `why`, `gate`,
 `model`), or a session gone without one, which is recorded refused — then, for
 each PR a worker named, judges the guards it can see with its own reads: the
-recorded tier is `glance`, `gh pr checks` is green (pending waits a tick, red is
-refused), merges plus in-flight close-outs are under `merge-cap:`, and the
+recorded tier is `glance`, `gh pr checks` is green — at least one completed
+check, all green (pending waits a tick; red, none or unknown is refused), merges plus in-flight close-outs are under `merge-cap:`, and the
 shift is not shadow. Then it starts **one** close-out session
 (`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus`).
 That session is the independent leg: it runs the `Witness:` itself, reviews the

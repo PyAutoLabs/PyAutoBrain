@@ -407,13 +407,29 @@ def test_parse_done_keeps_issue_urls_out_of_prs():
     assert state == "https://github.com/o/r/issues/7 — PARKED-ON-ISSUE"
 
 
-@pytest.mark.parametrize("rc,err,want", [(0, "", "HEALTHY"), (8, "", "RUNNING"),
-                                         (1, "", "FAILED"),
-                                         (1, "no checks reported", "NO-CHECKS")])
-def test_pr_health_reads_the_gh_exit_code(rc, err, want):
+def _checks(*buckets):
+    return json.dumps([{"name": f"c{i}", "bucket": b, "state": b.upper()}
+                       for i, b in enumerate(buckets)])
+
+
+@pytest.mark.parametrize("rc,out,err,want", [
+    (0, _checks("pass", "pass"), "", "HEALTHY"),
+    (0, _checks("pass", "skipping"), "", "HEALTHY"),
+    (8, _checks("pass", "pending"), "", "RUNNING"),
+    (1, _checks("pass", "fail"), "", "FAILED"),
+    # gh's exit code counts a cancelled check as skipped: judged per check.
+    (0, _checks("pass", "cancel"), "", "FAILED"),
+    (1, "", "no checks reported on the 'x' branch", "NO-CHECKS"),
+    # Only skipped checks: nothing completed, so nothing to call green.
+    (0, _checks("skipping"), "", "NO-CHECKS"),
+    (0, "[]", "", "NO-CHECKS"),
+    (1, "", "HTTP 401: Bad credentials", "UNKNOWN"),
+    (0, _checks("pass", "mystery"), "", "UNKNOWN"),
+])
+def test_pr_health_judges_every_check(rc, out, err, want):
     def run(argv, **kw):
-        assert argv[:3] == ["gh", "pr", "checks"]
-        return subprocess.CompletedProcess(argv, rc, "", err)
+        assert argv[:3] == ["gh", "pr", "checks"] and "--json" in argv
+        return subprocess.CompletedProcess(argv, rc, out, err)
     assert _digest.pr_health("https://github.com/o/r/pull/1", run=run) == want
     assert _digest.pr_health("https://github.com/o/r/issues/3", run=run) == "PARKED-ON-ISSUE"
 

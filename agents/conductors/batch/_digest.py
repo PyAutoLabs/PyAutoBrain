@@ -15,6 +15,7 @@ gets a stub that says so.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -96,23 +97,46 @@ def urls_of(outcome: dict | None) -> list[str]:
     return list(outcome.get("prs") or []) + list(outcome.get("issues") or [])
 
 
+#: `gh pr checks --json` buckets that are a COMPLETED verdict. `skipping`
+#: (path-filtered or `if:`-skipped) never ran, so it is not evidence either way.
+_DONE_BUCKETS = frozenset({"pass", "fail", "cancel"})
+
+
 def pr_health(url: str, run=None) -> str:
-    """One read-only `gh pr checks`. Its exit code is the verdict: 0 passed,
-    8 pending; anything else failed — or names why it could not say."""
+    """One read-only `gh pr checks --json`, judged explicitly (PyAutoHeart#343).
+
+    HEALTHY needs at least one completed check on the PR head and every
+    completed check green: a PR with no checks at all (a repo with no CI) or
+    only skipped ones is NO-CHECKS, which the close-out refuses — that PR is
+    the human's merge. Any pending check is RUNNING; any failed or cancelled
+    one is FAILED (`gh pr checks`' exit code counts a cancelled check as
+    skipped, so the exit code alone is not the verdict)."""
     if "/pull/" not in url:
         return "PARKED-ON-ISSUE"
     run = run or subprocess.run
     try:
-        res = run(["gh", "pr", "checks", url], capture_output=True, text=True, timeout=60)
+        res = run(["gh", "pr", "checks", url, "--json", "name,bucket,state"],
+                  capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
         return "UNKNOWN"
-    if res.returncode == 0:
-        return "HEALTHY"
-    if res.returncode == 8:
-        return "RUNNING"
-    if "no checks" in (res.stderr or res.stdout or "").lower():
+    if "no checks" in ((res.stderr or "") + (res.stdout or "")).lower():
         return "NO-CHECKS"
-    return "FAILED"
+    try:
+        checks = json.loads(res.stdout or "")
+    except ValueError:
+        checks = None
+    if not isinstance(checks, list):
+        return "UNKNOWN"   # gh could not say (auth, network): never a pass
+    buckets = [str(c.get("bucket") or "").lower() for c in checks if isinstance(c, dict)]
+    if any(b in ("fail", "cancel") for b in buckets):
+        return "FAILED"
+    if any(b not in _DONE_BUCKETS | {"skipping", "pending"} for b in buckets):
+        return "UNKNOWN"   # a bucket this reader does not know: fail closed
+    if "pending" in buckets:
+        return "RUNNING"
+    if "pass" not in buckets:
+        return "NO-CHECKS"
+    return "HEALTHY"
 
 
 # --- build ---------------------------------------------------------------------

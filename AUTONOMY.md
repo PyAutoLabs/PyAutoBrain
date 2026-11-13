@@ -341,7 +341,11 @@ never an assumption:
    (`consult_vitals_verdict --repos "$(active_task_repos <task>)"`). Only CI
    on `main` of the touched repos and their dependants blocks; every other
    reason comes back in `shown_reasons` and is listed in the PR body without
-   blocking. Only **GREEN** passes. **STALE** — in-scope evidence missing,
+   blocking. A touched repo on Heart's `not_heart_gated:` list (profiling,
+   inference, assistants, visualization, Scientist, Broca, Cortex; ruling
+   2026-11-13, PyAutoHeart#343) is *gate-deferred*: shown, never STALE, and
+   its PR checks decide at merge — at least one completed check, all green,
+   or the merge is the human's. Only **GREEN** passes. **STALE** — in-scope evidence missing,
    unfinished, or older than 6 h — **never passes**: re-check, or park. With
    **no Heart CLI** (a web session) the one fallback is the *published*
    organism-wide feed: GREEN and under 6 h old passes, because it is at least

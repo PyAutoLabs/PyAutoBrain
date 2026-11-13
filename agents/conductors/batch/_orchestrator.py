@@ -1454,8 +1454,9 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     """Reap finished close-out sessions, then start one per newly green PR.
 
     The watcher's guards are the ones it can judge from its own reads (AUTONOMY
-    "Unattended `glance` merges"): the recorded tier, green CI by `gh pr checks`,
-    the brief's `merge-cap:`, and never in a shadow shift. The label, Heart and
+    "Unattended `glance` merges"): the recorded tier, green CI by `gh pr checks`
+    (at least one completed check, all green — a PR with none is refused,
+    PyAutoHeart#343), the brief's `merge-cap:`, and never in a shadow shift. The label, Heart and
     the witness are the close-out session's to check — it is the independent
     session, and it refuses rather than merges when one fails.
 
