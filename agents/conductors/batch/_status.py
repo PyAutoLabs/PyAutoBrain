@@ -186,6 +186,9 @@ def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
         "url": review_url(pages, slot) if reviewable else "",
         "packet": f"batches/packets/{slot}.html",
         "freeze": freeze,
+        # A running shift's status, as its watcher last wrote it into the
+        # record (`- live:`, PyAutoBrain#622) — a record line, not a clock.
+        "live": _one(keys, "live"),
     }
 
 
@@ -215,6 +218,20 @@ def _headline(st: dict) -> str:
     return f"Batch {st['slot']} — " + " · ".join(counts)
 
 
+_URL_RE = re.compile(r"https://[^\s<>\"']+")
+
+
+def _linked(text: str) -> str:
+    """`text` escaped, with each https URL in it a link."""
+    out, last = [], 0
+    for m in _URL_RE.finditer(text):
+        out.append(_html.escape(text[last:m.start()]))
+        url = _html.escape(m.group(0))
+        out.append(f'<a href="{url}">{url}</a>')
+        last = m.end()
+    return "".join(out) + _html.escape(text[last:])
+
+
 def render_html(st: dict | None) -> str:
     """The box as one `verdict` banner — the theme's existing class."""
     if st is None:
@@ -224,6 +241,8 @@ def render_html(st: dict | None) -> str:
     H = [f'<div class="verdict {tone}"><b>{esc(_headline(st))}</b>']
     if st.get("freeze"):
         H.append(f'<p class="facets">{esc(st["freeze"])}</p>')
+    if st.get("live"):
+        H.append(f'<p class="facets">Live: {_linked(st["live"])}</p>')
     for r in st["members"]:
         line = (f'<code>{esc(r["slug"])}</code>'
                 f'{pills((r["state"], _TONE.get(r["state"], "n")))}')
@@ -251,6 +270,8 @@ def render_md(st: dict | None) -> str:
     L = [f"> **{_headline(st)}**", ">"]
     if st.get("freeze"):
         L += [f"> {st['freeze']}", ">"]
+    if st.get("live"):
+        L += [f"> Live: {st['live']}", ">"]
     for r in st["members"]:
         line = f"> - `{r['slug']}` — {r['state']}"
         if r["detail"]:

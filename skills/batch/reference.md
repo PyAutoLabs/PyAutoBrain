@@ -113,3 +113,23 @@ their own `review-at:` estimate), `delivered:` (`batch.md`: "`delivered:` is not
 review file's path) and **`review-minutes-actual:`**. That last number is the
 only calibration the review estimate will ever get, so ask for it if the human
 does not volunteer it.
+
+## `/batch watch` and steering a running shift (PyAutoBrain#622)
+
+- **On the laptop** (the slot is local): `bin/pyauto-brain batch watch --record
+  PyAutoMind/batches/<slot>.md --once`. It is read-only; relay the snapshot as
+  written, then explain what stands out (a parked worker, a refusal that
+  repeats, a budget near its cap).
+- **Anywhere else**: the watcher keeps the same snapshot as one comment on the
+  brief's `issue:`, edited in place. Read it with `gh issue view <issue>
+  --comments` (or the GitHub connector) — it is the comment whose first line is
+  `<!-- pyauto-shift-status <slot> … -->`. The dashboard's batch box carries a
+  one-line copy (`Live: …`) with its link.
+- **Steering is the human's comment on that issue**, its first line one of
+  `/pause`, `/resume`, `/drop <task>`, `/stop`, from their own login (the
+  watcher ignores every other account and its own comments). Each command is
+  acknowledged once, in the status comment's `Commands` list, on the next tick.
+  `/pause` holds spawns, re-dispatches and new close-outs; reaps and mentions
+  continue.
+  A dropped worker that is already running is not killed: stopping it is the
+  human's, `claude stop <id>` on the laptop. Never post a command for them.

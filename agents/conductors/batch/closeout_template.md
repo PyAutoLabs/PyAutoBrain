@@ -28,13 +28,17 @@ outcome — the human merges by `/prm` at check-in.
    refuse unless the head has **at least one completed check and every check
    green** (`gh pr checks {pr_url} --json name,bucket`: none, or only
    `skipping`, refuses — PyAutoHeart#343).
-4. If everything passed, use the prm skill on {pr_url}: the full close-out,
+4. Immediately before you merge — after every check above, and again right
+   before the merge command itself — look for {lease_dir}/{task}.dropped. If
+   it exists, the human dropped this task with `/drop` mid-shift: do not merge;
+   refuse with why `dropped by /drop`.
+5. If everything passed, use the prm skill on {pr_url}: the full close-out,
    judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with
    `{shift_ledger} append|write|move|remove|drop-section ...` (ops land in
    {ledger_dir}/) and the orchestrator commits them. Do **not** append the
    Shadow-window row: the watcher writes the stage-2 row from your verdict.
-5. End at your deliverable. Never arm anything that outlives your turn.
+6. End at your deliverable. Never arm anything that outlives your turn.
 
 Last, write {lease_dir}/{task}.closeout as one JSON object:
 

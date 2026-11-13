@@ -889,6 +889,54 @@ writes use a separate bot or machine account's token, set by the human as
 is set they post as the human's account and the digest warns that the
 mention will not notify.
 
+**Amendment — 2026-11-13 (PyAutoBrain#622), authorized by the human.** The
+human approved the live shift view as drafted on 2026-11-13: a running shift
+they can watch and steer from its digest issue. The watcher's network surface
+gains, and only:
+
+- **one status comment per shift** on the brief's `issue:`, created once and
+  from then on only **edited** in place: at most one edit a tick, when the
+  shift's state changes or every 10 minutes, and one last edit at
+  `review-at:` marking it closed. It shows the picks and workers with their
+  state, tokens against the budget, blocks and parks, refusals, time to
+  `review-at:` and every command with its acknowledgement. It never
+  @-mentions anyone, so an edit notifies nobody. Its marker is claimed
+  exclusively before the create, as above. A create `gh` said failed is made
+  again next tick. A create that timed out, or a claim whose tick died, is
+  never made again: the comments read adopts it by its hidden tag if it
+  landed, and only one written by the posting identity (`gh api user`, once
+  per shift) — that read runs for adoption even when no login is set. A
+  failed edit is retried next tick, and the tick carries on;
+- **one read a tick of that issue's comments** (`gh api
+  repos/<owner>/<repo>/issues/<n>/comments`, one page, under the posting
+  token), for the steering commands;
+- **the command set**, enacted from that read: `/pause` (spawns,
+  re-dispatches and new close-outs are held until `/resume`; reaps and
+  mentions continue), `/resume`, `/drop <task>` (a task of this shift only,
+  else "no such task in this shift"; a pick not yet spawned is never picked;
+  a running worker is not killed by the watcher: it is shown "dropped, still
+  running", never re-dispatched and its PR never merged unattended, and
+  stopping it stays the human's act, by hand; a close-out already running is
+  told to refuse by a `<task>.dropped` marker it checks just before merging,
+  and a merge that lands anyway is recorded as merged outside the close-out,
+  never counted and with no stage-2 row) and `/stop` (writes the `STOP`
+  kill-switch file, with exactly its effect: that tick commits nothing to
+  Mind, and its one status edit is the acknowledgement). A command
+  counts only when it is the first line of a comment by the login in
+  `PYAUTO_SHIFT_MENTION` or `config/policy.yaml` `shift_watcher:
+  mention_login:`, made after the brief's `dispatched:`. The status comment
+  is skipped by its tag and its id, so the watcher never reads its own text
+  as a command. Each comment is enacted once, by id, and acknowledged once, as
+  a line of the status comment, with no extra comment or reaction.
+
+The dashboard shows the same status as a `- live:` line in the brief record,
+written through the one Mind writer when the shift's state changes. That adds
+no network act beyond the Mind push the writer already makes. The revert
+condition now also covers a second status comment in one shift, more than
+one comments read or one status write in a tick, and a command enacted from
+any other login or enacted twice: any of these retires the watcher to fake
+mode.
+
 ## Human override for Heart RED (development only)
 
 Heart RED still parks every autonomous run and blocks every release. After the
@@ -1181,6 +1229,8 @@ Codex hook list.
 - `batch` (the close-out session) — "Stage-2 adversary amendment" (2026-11-04):
   the independent close-out session is the adversary leg, same model allowed.
 - `batch` (the watcher) — "The watcher's network surface" (2026-11-03): what
-  the watcher may reach, and that it is opt-in, laptop-only and never writes.
+  the watcher may reach, and that it is opt-in, laptop-only and never writes;
+  amended 2026-11-12 (mentions, #611) and 2026-11-13 (the live status comment
+  and the steering commands, #622).
 
 Skills must link here rather than copying the tables.
