@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -124,6 +125,26 @@ def test_a_non_glance_task_is_never_closed_out(tmp_path):
     assert ("named", PR1) not in sp.closeouts
     co = orch.read_counters(slot)["closeouts"][PR1]
     assert co["state"] == "refused" and "only glance merges unattended" in co["why"]
+
+
+def test_witness_343_a_pr_with_zero_completed_checks_is_refused_at_merge(tmp_path):
+    """PyAutoHeart#343 Witness: a PR whose head has no completed check (a repo
+    with no CI, such as the website, or only skipped checks) is refused at the
+    watcher's merge guard and left to the human — through the real
+    `gh pr checks --json` reader, not a stubbed verdict."""
+    def gh(out, err="", rc=0):
+        return lambda argv, **kw: subprocess.CompletedProcess(argv, rc, out, err)
+    no_ci = gh("", "no checks reported on the 'feature/x' branch", rc=1)
+    skipped_only = gh(json.dumps([{"name": "smoke", "bucket": "skipping", "state": "SKIPPED"}]))
+    health = {PR1: lambda u: _digest.pr_health(u, run=no_ci),
+              PR2: lambda u: _digest.pr_health(u, run=skipped_only)}
+    mind, brief, home, sp = _shift(tmp_path, cap=2)
+    _tick(brief, mind, home, sp, 1, health=lambda u: health[u](u))
+    assert sp.closeouts == []
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["closeouts"][PR1]["state"] == "refused"
+    assert c["closeouts"][PR1]["why"] == "CI NO-CHECKS — never merged unattended"
+    assert c["closeouts"][PR2]["why"] == "CI NO-CHECKS — never merged unattended"
 
 
 def test_red_ci_is_refused_and_pending_ci_waits(tmp_path):

@@ -82,7 +82,9 @@ test leg `skipped` is **not green** — name it; a tiered merge stops on it.
 - **Red** — **fetch the failing job's log immediately** (GitHub purges it),
   quote the failing step, and stop: no merge, no re-run, no waiting for the
   flake. Offer `/bug`, or a named re-run if the user judges it a flake.
-- **No checks configured** — say so explicitly and ask before merging.
+- **No completed check on the head** (no CI, or every check skipped) — say
+  so; a human-typed `/prm` asks before merging, a tiered or unattended merge
+  refuses: at least one completed check, all green (PyAutoHeart#343).
 
 ## 4. Merge
 
