@@ -313,6 +313,9 @@ def test_a_command_is_enacted_and_acknowledged_once(tmp_path, monkeypatch):
 def test_steering_is_off_without_a_login_and_reads_nothing(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     monkeypatch.delenv(orch.MENTION_ENV)
+    blank = tmp_path / "policy.yaml"
+    blank.write_text("shift_watcher:\n  mention_login: \"\"\n", encoding="utf-8")
+    monkeypatch.setattr(orch, "POLICY_PATH", blank)   # hermetic: never the shipped config
     claude, gh = d.FakeClaude(), FakeGitHub()
     _tick(brief, mind, home, 0, claude, gh)
     assert gh.calls == ["create"] and "Steering is off" in gh.status()[0]["body"]

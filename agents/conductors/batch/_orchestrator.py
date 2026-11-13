@@ -1182,13 +1182,15 @@ MENTION_ENV = "PYAUTO_SHIFT_MENTION"
 _LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 
 
+POLICY_PATH = Path(__file__).resolve().parents[3] / "config" / "policy.yaml"
+
+
 def mention_login() -> str:
     login = os.environ.get(MENTION_ENV, "").strip().lstrip("@")
     if not login:
         try:
             import yaml
-            cfg = yaml.safe_load((Path(__file__).resolve().parents[3] / "config"
-                                  / "policy.yaml").read_text(encoding="utf-8")) or {}
+            cfg = yaml.safe_load(POLICY_PATH.read_text(encoding="utf-8")) or {}
             login = str((cfg.get("shift_watcher") or {}).get("mention_login") or "")
             login = login.strip().lstrip("@")
         except Exception:
