@@ -248,9 +248,11 @@ def test_intake_proposes_gpu_and_wsl_data(text, lane):
     assert f"\nLane: {lane}" in _intake.analyse(text, "test")["header"]
 
 
-def test_intake_writes_no_lane_for_cloud_runnable_text():
-    assert "Lane:" not in _intake.analyse("Tidy a docstring in @PyAutoBrain.",
-                                          "test")["header"]
+def test_intake_writes_no_lane_when_nothing_decides_one():
+    """M2.3 (2026-11-12): with no signal, no header and no `--lane`, intake
+    leaves the lane undecided and refuses to file (`test_lane_fail_closed_queue`)."""
+    d = _intake.analyse("Tidy a docstring in @PyAutoBrain.", "test")
+    assert "Lane:" not in d["header"] and d["lane"] is None and d["lane_refusal"]
 
 
 DECLARED = """\

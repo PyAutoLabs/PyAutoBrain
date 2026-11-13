@@ -73,3 +73,103 @@ print(r["status"], r.get("conclusion") or "")' 2>>"$err")"; then
     sleep "$interval"
   done
 }
+
+# dispatch_and_await <repo> <workflow> <inputs-json> [<artifact> <dest-dir>]
+# Dispatches, resolves the run id, polls it to completion (await_run, which
+# keeps the token fresh), and optionally downloads an artifact. Returns 0 ok,
+# 1 dispatch failed, 2 run red, 3 artifact missing, 4 lost the watch (the run
+# was never judged — callers treat it as a driver error).
+dispatch_and_await() {
+  local repo="$1" wf="$2" inputs="$3" artifact="${4:-}" dest="${5:-}"
+  local before run_id rc
+  # The step 6 dispatch comes hours in: never dispatch on a stale token.
+  refresh_gh_token
+  before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local fargs=()
+  while IFS=$'\t' read -r k v; do
+    [[ -z "$k" ]] && continue
+    fargs+=(-f "$k=$v")
+  done < <(printf '%s' "$inputs" | python3 -c '
+import json, sys
+for k, v in (json.load(sys.stdin) or {}).items():
+    print(f"{k}\t{str(v).lower() if isinstance(v, bool) else v}")
+')
+  gh workflow run "$wf" -R "$repo" --ref main "${fargs[@]}" || return 1
+  run_id=""
+  for _ in $(seq 1 18); do
+    sleep 10
+    run_id="$(gh run list -R "$repo" --workflow "$wf" --created ">=$before" \
+                -L 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null)"
+    [[ -n "$run_id" ]] && break
+  done
+  if [[ -z "$run_id" ]]; then
+    echo "nightly: dispatched $repo/$wf but could not find the run" >&2
+    return 1
+  fi
+  echo "https://github.com/$repo/actions/runs/$run_id" >&2
+  LAST_RUN_URL="https://github.com/$repo/actions/runs/$run_id"
+  LAST_RUN_ID="$run_id"
+  await_run "$repo" "$run_id"
+  rc=$?
+  [[ $rc -eq 4 ]] && return 4
+  if [[ $rc -ne 0 ]]; then
+    # The report artifacts upload `if: always()`, so a FAILED run still carries
+    # the evidence of which scripts failed — fetch it so the page can name
+    # them. Best-effort: paging must never be blocked by a missing artifact.
+    if [[ -n "$artifact" ]]; then
+      refresh_gh_token
+      gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" 2>/dev/null \
+        || echo "nightly: failed run's artifact '$artifact' not downloadable" >&2
+    fi
+    return 2
+  fi
+  if [[ -n "$artifact" ]]; then
+    refresh_gh_token
+    gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" || return 3
+  fi
+  return 0
+}
+
+# rehearsal_record <artifacts-dir> <commit-shas-out> — the rehearsal's own
+# record (PyAutoHands#337 "Caller contract"): writes rehearsal.json's
+# `commit_shas` to <commit-shas-out> as {bare repo: sha} and prints its run id.
+# Returns 1, with the reason on stderr, when there is no usable record — no
+# rehearsal.json, a pre-#337 one without `commit_shas`, or no digit run id.
+rehearsal_record() {
+  python3 - "$1" "$2" <<'PY'
+import json, re, sys
+from pathlib import Path
+d, out = Path(sys.argv[1]), Path(sys.argv[2])
+cands = ([d / "rehearsal.json"] if (d / "rehearsal.json").is_file() else []) \
+    + sorted(p for p in d.rglob("rehearsal.json") if p != d / "rehearsal.json")
+for p in cands:
+    try:
+        rec = json.loads(p.read_text())
+    except (OSError, ValueError):
+        continue
+    shas, run = rec.get("commit_shas"), str(rec.get("run_id") or "")
+    if isinstance(shas, dict) and shas and re.fullmatch(r"\d+", run):
+        out.write_text(json.dumps(shas, indent=2, sort_keys=True) + "\n")
+        print(run)
+        sys.exit(0)
+print(f"nightly: no rehearsal record (rehearsal.json with run_id and commit_shas) under {d}",
+      file=sys.stderr)
+sys.exit(1)
+PY
+}
+
+# live_release_inputs <minor> <rehearsal-run-id> <commit-shas-file> — the
+# live release.yml inputs: `rehearsal_run_id` (required by #337) and the
+# compact `commit_shas` JSON string the run cross-checks against the record.
+live_release_inputs() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, re, sys
+minor, run, path = sys.argv[1:4]
+if not re.fullmatch(r"\d+", run):
+    sys.exit(f"nightly: rehearsal run id {run!r} is not a run id")
+shas = json.loads(open(path).read())
+print(json.dumps({"rehearsal": "false", "minor_version": minor,
+                  "rehearsal_run_id": run,
+                  "commit_shas": json.dumps(shas, separators=(",", ":"), sort_keys=True)}))
+PY
+}

@@ -475,13 +475,18 @@ def infer_autonomy(level: str, factors: dict) -> str:
     return "safe"
 
 
-def analyse(text: str, source: str, themes=None):
+def analyse(text: str, source: str, themes=None, lane=None):
     """Classify raw text into a full IntakeDecision (never writes).
 
     `themes` is the optional `Themes:` keyword list the caller assigns at
     formalisation (primary first). Absent, any `Themes:` block the raw input
     already carries is kept; absent that too, the prompt is simply un-themed —
     formalisation never waits on a theme.
+
+    `lane` is an EXPLICIT lane from the filer (`classify --lane any`). With
+    none, a `Lane:` header in the text, else a lane inferred from a resource
+    signal. With none of the three the decision carries `lane: None` and a
+    `lane_refusal`, and `write_prompt` refuses to file it (M2.3).
     """
     # A pasted prompt's own header block (PyAutoBrain#472): read its raw
     # Type/Target/Repos so a value the faculty does not recognise is reported,
@@ -586,17 +591,28 @@ def analyse(text: str, source: str, themes=None):
     # `Type:` matches the destination folder (PyAutoMind convention). For a
     # low-confidence triage filing that means `Type: triage`, not the provisional
     # guess — the guess still rides in the IntakeDecision's `work_type` field.
-    # A declared lane wins; otherwise the text's resource signals. `any` is
-    # the default and is not written — absence already means it.
-    lane = header.get("lane") or infer_lane(text)
+    # The filer's explicit lane wins, then a `Lane:` header in the text, then
+    # a resource signal the text names. "No signal" is NOT `any` (M2.3,
+    # AUTONOMY.md "M2 rulings — 2026-11-12": a new draft filed without a Lane
+    # is rejected): an unattended planner excludes a draft with no `Lane:`, so
+    # where the work can run must be decided at filing, by a person or by a
+    # signal — never defaulted. `write_prompt` refuses a decision with none.
+    if lane:
+        lane, lane_source = lane.lower(), "explicit"
+    elif header.get("lane"):
+        lane, lane_source = header["lane"], "declared"
+    else:
+        lane = infer_lane(text)
+        lane, lane_source = (lane, "inferred") if lane != "any" else (None, None)
     header = _render_header(title, folder, target_display, repos, level,
                             autonomy, priority, themes,
                             consequence=consequence, witness=p["witness"],
                             review_minutes=review_minutes,
                             unattended=unattended,
                             passthrough=_declared_passthrough(header_lines),
-                            lane=(lane if lane != "any"
-                                  or header.get("lane") else None))
+                            lane=lane)
+    decision_lane = {"lane": lane, "lane_source": lane_source,
+                     "lane_refusal": "" if lane else LANE_REFUSAL}
     return {
         "source": source,
         "title": title,
@@ -641,7 +657,22 @@ def analyse(text: str, source: str, themes=None):
                                 consequence=consequence),
         "next_action": _next_action(proposed, confidence, folder),
         "slice_offer": slice_offer(proposed, unattended),
+        **decision_lane,
     }
+
+
+#: Why intake will not file a draft whose lane nobody decided, and how to
+#: decide it (M2.3, AUTONOMY.md "M2 rulings — 2026-11-12").
+LANE_REFUSAL = (
+    "refused — no Lane: the text names no resource (RAL, GPU, /mnt data, "
+    "private data), so where this can run is undecided, and an unattended "
+    "shift excludes a draft with no Lane. Declare one: add a header line "
+    f"`Lane: <{' | '.join(LANE_VALUES)}>` to the text, or pass "
+    "`--lane any` (or another lane) to `intake classify` / `intake ideas`.")
+
+
+class LaneRequired(ValueError):
+    """`write_prompt` was handed a decision with no lane (M2.3)."""
 
 
 # Optional header keys a raw input may declare that classification never
@@ -1025,7 +1056,12 @@ def _with_memory(header: str, pages: list, target: str | None = None) -> str:
 
 
 def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
-    """Write the formal prompt file. Returns the path written (relative to mind)."""
+    """Write the formal prompt file. Returns the path written (relative to mind).
+
+    Refuses (`LaneRequired`) a decision with no lane — declared, explicit or
+    inferred — before anything touches the disk (M2.3)."""
+    if not decision.get("lane"):
+        raise LaneRequired(LANE_REFUSAL)
     rel = Path(decision["proposed_path"])
     dest = mind / rel
     if dest.exists():
@@ -1506,8 +1542,9 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
 
 
 def _lane_of(header: dict) -> str:
-    """The prompt's lane as the planner reads it: a value the sizing faculty
-    does not accept counts as `any`, exactly as `parse_prompt` treats it."""
+    """The prompt's lane for the census: a value the sizing faculty does not
+    accept counts as `any`. That is the ATTENDED reading only; an unattended
+    planner excludes a draft with no valid lane (`_batch.lane_absent_why`)."""
     lane = (header.get("lane") or "any").lower()
     return lane if lane in LANE_VALUES else "any"
 
@@ -1585,8 +1622,8 @@ def census(mind: Path) -> dict:
                 "witness": header.get("witness", ""),
                 "review_minutes": header.get("review-minutes", "-"),
                 "unattended": header.get("unattended", "-"),
-                # Where it can run. Absent means `any` — the common case, and a
-                # missing lane must never be read as "nowhere".
+                # Where it can run. Absent reads as `any` here (the attended
+                # reading); an unattended pick excludes it (M2.3, 2026-11-12).
                 "lane": _lane_of(header),
                 "priority": header.get("priority", "-"),
                 "status": header.get("status", "-"),
@@ -4172,8 +4209,14 @@ def emit_human(d: dict):
     for r in d["risks"]:
         print(f"  - {r}")
     print(f"Next action:          {d['next_action']}")
+    if d.get("lane_refusal"):
+        print(f"Lane:                 {d['lane_refusal']}")
     if d.get("slice_offer"):
         print(f"Offer:                {d['slice_offer']}")
+
+
+#: `classify --apply` / `ideas --apply` refused a draft with no lane (M2.3).
+RC_LANE_REQUIRED = 6
 
 
 def main(argv=None):
@@ -4190,8 +4233,13 @@ def main(argv=None):
     cl.add_argument("--themes", default="",
                     help="comma-separated Themes: keywords, primary first "
                          "(vocabulary: PyAutoMind/themes.md)")
+    lane_help = ("declare where the work can run; required when the text has "
+                 "no `Lane:` header and names no resource (M2.3)")
+    cl.add_argument("--lane", default="", choices=("",) + LANE_VALUES, help=lane_help)
 
-    sub.add_parser("ideas", help="scan ideas.md and propose one prompt per bullet")
+    idp = sub.add_parser("ideas", help="scan ideas.md and propose one prompt per bullet")
+    idp.add_argument("--lane", default="", choices=("",) + LANE_VALUES,
+                     help=lane_help + "; applies to every bullet without one")
 
     sub.add_parser("census", help="inventory all filed prompts (always read-only)")
 
@@ -4364,7 +4412,11 @@ def main(argv=None):
             print("intake: no input text to classify.", file=sys.stderr)
             return 4
         decision = analyse(text, source, [t for t in (
-            getattr(a, "themes", "") or "").split(",") if t.strip()])
+            getattr(a, "themes", "") or "").split(",") if t.strip()],
+            lane=a.lane or None)
+        if a.apply and not decision["lane"]:
+            print(f"intake: {decision['lane_refusal']}", file=sys.stderr)
+            return RC_LANE_REQUIRED
         if a.apply:
             written = write_prompt(mind, decision, text, source)
             decision["written"] = written
@@ -4385,10 +4437,13 @@ def main(argv=None):
             return 4
         results = []
         formalised = {}
+        refused: list[str] = []
         for text, ctx in bullets:
             ctx_text = f"{ctx}: {text}" if ctx else text
-            d = analyse(ctx_text, f"ideas.md ({ctx or 'top'})")
-            if a.apply:
+            d = analyse(ctx_text, f"ideas.md ({ctx or 'top'})", lane=a.lane or None)
+            if a.apply and not d["lane"]:
+                refused.append(d["title"])
+            elif a.apply:
                 d["written"] = write_prompt(mind, d, ctx_text, d["source"])
                 d["slice_offer"] = slice_offer(d["written"], d["unattended"])
                 formalised[text] = d["written"]
@@ -4400,7 +4455,8 @@ def main(argv=None):
         else:
             print(f"== Intake: {len(results)} idea(s) from ideas.md ==")
             for d in results:
-                mark = f" -> WROTE {d['written']}" if a.apply else ""
+                mark = (f" -> WROTE {d['written']}" if d.get("written")
+                        else " -> REFUSED (no Lane)" if a.apply else "")
                 print(f"  [{d['work_type']}/{d['target']}, {d['difficulty']}, "
                       f"conf {d['classification_confidence']}] {d['title']}"
                       f"  =>  {d['proposed_path']}{mark}")
@@ -4409,6 +4465,12 @@ def main(argv=None):
             if not a.apply:
                 print("\n(dry-run — re-run `intake ideas --apply` to write these + "
                       "mark the bullets in ideas.md)")
+        if refused:
+            print(f"intake: {len(refused)} idea(s) not filed — {LANE_REFUSAL}",
+                  file=sys.stderr)
+            for t in refused:
+                print(f"  - {t}", file=sys.stderr)
+            return RC_LANE_REQUIRED
         return 0
 
     return 5

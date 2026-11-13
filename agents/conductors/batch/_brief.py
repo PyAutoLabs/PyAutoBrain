@@ -376,16 +376,16 @@ def pick_reason(record: dict, brief: dict) -> str:
 
 def rank_note(record: dict) -> str:
     """The planner's order, as it applied to this record (`_batch.plan`):
-    queue.md position first; below the queue, cheapest review first, then
-    priority, then the path — so a tie is alphabetical, and says so."""
+    queue.md position first; below the queue, priority, then cheapest review
+    (M2.3, 2026-11-12), then the path — so a tie is alphabetical, and says so."""
     parts = []
     if record.get("queued"):
         parts.append(f"queue.md #{record['queue_rank'] + 1}")
     elif "queue_rank" in record:
         parts.append("not in queue.md")
+        parts.append(f"priority {record.get('priority') or 'normal'}")
         if record.get("review_minutes") is not None:
             parts.append(f"~{record['review_minutes']} review-min")
-        parts.append(f"priority {record.get('priority') or 'normal'}")
     if record.get("epic"):
         phase = record.get("phase")
         parts.append(f"epic {record['epic']}" + (f" phase {phase:g}" if isinstance(phase, (int, float))

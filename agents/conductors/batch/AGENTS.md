@@ -51,6 +51,8 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 | **One slice per epic per batch** | epic phases are ordered, so two members could not run in parallel anyway — and this is what interleaves small pieces of long programmes with standalone work |
 | **`Unattended: ready` only** | `needs-slicing` goes to the decomposition pass (`batch slice`); `never` never enters a batch |
 | **Lane match** | a session detects its own lane and plans only that one |
+| **No Lane, no unattended pick** | a backlog draft with no valid `Lane:` is excluded from every unattended plan (the default, and the watcher) and the plan says so; `--attended` reads it as `any`. A lane-less draft that needs the laptop, RAL or private data would otherwise reach a cloud worker (M2.3, `AUTONOMY.md` "M2 rulings — 2026-11-12") |
+| **Empty queue, no dip** | an empty or absent `queue.md` stops an unattended shift's backlog dip; a brief's named tasks still run (M2.3) |
 | **Not `looks-shipped`** | a draft the close-out guard (`intake looks-shipped`) flagged with strong evidence that its work already shipped waits until a human closes it or lists it in `PyAutoMind/looks_shipped_dismissed.md`; the flags are read from `PyAutoMind/looks_shipped.json` at plan time, so a dismissal takes effect at once. The 2026-11-05-am batch proposed two shipped drafts. |
 | **Backpressure** | see below |
 | **Brief scope** | under a shift brief, only its named tasks and the backlog its dip policy covers run; anything else is a dispatch outside the launch, which "What a batch launch is" forbids (`AUTONOMY.md`, 2026-11-03) |
@@ -94,8 +96,12 @@ an entry up *is* the act of prioritising it.
 3. the review-queue depth, derived from `active.md` as above.
 
 A queued prompt outranks an unqueued one; among queued ones the file's order
-wins; below the queue the old rule stands — cheapest first, because that list
-is read when there is a slot to fill and the question is what fits in it. A
+wins; below the queue a declared `Priority:` comes first and cheapest review
+second (M2.3, 2026-11-12 — cheapest-first let the cheapest review win and broke
+ties by filename). An unattended plan with an **empty or absent** `queue.md`
+dips into no backlog at all: only a brief's named tasks run, and the plan and
+the digest say so. `lifecycle.py check` (Mind) fails on a `kind: prompt` ref
+that resolves to no draft or active prompt, so the list stays honest. A
 queue entry written against `draft/…` still matches its prompt after it moves
 to `active/` (matched on the basename), so an entry never silently loses its
 priority. `retired`, `epic-slice` and `theme-sweep` entries are skipped rather
@@ -132,7 +138,11 @@ work it cannot run. A session reports the other lane's ready count rather than
 hiding it, by resource: *"4 laptop-lane task(s) are ready (3 ral, 1 local-dev) — run
 `batch plan` from the laptop."* A task's `Lane:` is `any`, `local-dev`, or one
 of the resource lanes `ral` / `gpu` / `wsl-data`, each of which implies
-`local-dev` (`lane_is_local` in the sizing faculty is the one test).
+`local-dev` (`lane_is_local` in the sizing faculty is the one test). A draft
+with **no** valid `Lane:` fails closed in an unattended plan
+(`lane_absent_why`) and reads as `any` only under `batch plan --attended`;
+intake refuses to file a draft whose lane is neither declared (`Lane:` header
+or `--lane`) nor inferred.
 
 ## The premise check (`premise`) — before a run is spent
 
@@ -290,8 +300,8 @@ title, size and repos, and the digest names it as
 from the brief's `issue:` repository; a pick recorded without a title falls
 back to the bare slug, and `validate` reads the backticked slug either way. The
 `why:` is the brief's admission rule plus `_brief.rank_note`, which is the
-planner's actual order: `queue.md #k`, or `not in queue.md · ~N review-min ·
-priority P` (then the path, so a tie is alphabetical), plus `epic E phase X`.
+planner's actual order: `queue.md #k`, or `not in queue.md · priority P ·
+~N review-min` (then the path, so a tie is alphabetical), plus `epic E phase X`.
 Shadow shift 1 (2026-11-04) showed why: six bare slugs, each `why: scoped tier
 notify`, could not be reviewed. A shadow digest prints its counters as one line
 (`- all counters 0 — shadow shift, nothing dispatched · review-minutes-planned: N`),

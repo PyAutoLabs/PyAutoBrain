@@ -148,7 +148,7 @@ def test_header_block_is_not_echoed_into_the_body(tmp_path, monkeypatch):
     monkeypatch.setattr(_intake, "memory_citations", lambda *a, **k: [])
     text = ("# Ellipse crash\n\nType: bug\nTarget: autogalaxy\nDifficulty: small\n\n"
             "Ellipse fitting crashes when the mask is empty.")
-    d = analyse(text, "test")
+    d = analyse(text, "test", lane="any")  # M2.3: filing needs a lane
     rel = write_prompt(tmp_path, d, text, "test")
     written = (tmp_path / rel).read_text(encoding="utf-8")
     assert written.count("Type:") == 1

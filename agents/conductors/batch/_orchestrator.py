@@ -233,13 +233,31 @@ def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path
         shift_ledger=SHIFT_LEDGER, brain_cli=BRAIN_CLI)
 
 
+#: The Brain helpers a close-out sources for the scoped Heart gate.
+COMMON_SH = Path(__file__).resolve().parents[2] / "_common.sh"
+
+
+def pr_repos(pr_url: str) -> str:
+    """The repo a PR belongs to, as the dev-ship gate's `--repos` (bare name).
+    Empty for a URL that is not a GitHub pull request — the gate then cannot
+    be scoped, and the close-out refuses."""
+    m = re.match(r"^https://github\.com/[^/]+/([^/]+)/pull/\d+", pr_url or "")
+    return m.group(1) if m else ""
+
+
 def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                     lease_dir: Path) -> str:
-    """The close-out session template filled in for one PR (phase 4b)."""
+    """The close-out session template filled in for one PR (phase 4b). Its
+    Heart check is the scoped development-ship gate for the PR's repo (leg 4,
+    PyAutoHeart#340): only `green` merges."""
+    repos = pr_repos(pr_url)
+    heart_cmd = (f"bash -c 'source \"{COMMON_SH}\"; consult_vitals_verdict --repos {repos}'"
+                 if repos else "")
     return CLOSEOUT_TEMPLATE.read_text(encoding="utf-8").format(
         task=task, pr_url=pr_url, task_path=prompt_path, brief_path=brief_path,
         lease_dir=lease_dir, ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
-        shift_ledger=SHIFT_LEDGER)
+        shift_ledger=SHIFT_LEDGER, pr_repos=repos or "(none — not a GitHub PR URL)",
+        heart_cmd=heart_cmd or "(cannot be scoped — refuse)")
 
 
 def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
@@ -904,7 +922,13 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     import _batch  # noqa: E402 — deferred: _batch imports this module's sibling
     if records is None:
         records = _batch.survey(mind)
-    d = _batch.plan(records, session_lane="local-dev", brief=brief)
+    # Unattended by construction: an absent Lane is excluded and an empty
+    # queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2 rulings —
+    # 2026-11-12"). Recorded each tick so the digest can say so.
+    d = _batch.plan(records, session_lane="local-dev", brief=brief,
+                    queue=_batch.read_queue(mind))
+    counters["backlog_gates"] = {"lane_absent": sorted(d["lane_absent"]),
+                                 "queue_stop": d["queue_stop"]}
     if _brief.is_shadow(brief):
         proposed = _propose(d["members"], brief, counters, max_sessions)
         _write_counters(slot, counters)

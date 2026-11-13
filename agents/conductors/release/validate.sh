@@ -15,8 +15,9 @@
 #                        preflight blocker. (A fresh dispatch-if-stale run is the
 #                        spec's optional path — deferred for M4's first cut.)
 #   Stage 2 (rehearse)   dispatch Build's release.yml rehearsal, poll, download
-#                        the testpypi-rehearsal-version artifact, capture each
-#                        library's main HEAD -> commit_shas.json. Reused AS-IS
+#                        the testpypi-rehearsal-version artifact, write its
+#                        rehearsal.json commit_shas -> commit_shas.json (the
+#                        commits it BUILT, PyAutoHands#337). Reused AS-IS
 #                        from rehearse.sh (called into, not re-implemented).
 #   Stage 3 (integrate)  dispatch PyAutoHeart's release-integrate.yml channel
 #                        with the Stage-2 testpypi_version + commit_shas, poll,
@@ -58,8 +59,9 @@
 # 1 could-not-ingest — i.e. the same convention rehearse.sh's phase 2 uses, held
 # consistent across the now-longer pipeline. Plan-emission phases exit 0.
 #
-# commit_shas authority. Stage 2's commit_shas.json (the library main HEADs the
-# Release Agent read straight from GitHub) is the SINGLE source of truth. Stage 3
+# commit_shas authority. Stage 2's commit_shas.json (the commits the rehearsal
+# built, from its own rehearsal.json — PyAutoHands#337, never main HEADs re-read
+# afterwards) is the SINGLE source of truth. Stage 3
 # merely echoes it back: the same JSON is passed as release-integrate.yml's
 # `commit_shas` input, which emit_release_report writes out and embeds into
 # stage_report.json. So the phase-C `--commit-shas` flag and the stage report's
@@ -182,6 +184,14 @@ def find_shas():
             continue
         if isinstance(data, dict):
             return data.get("commit_shas") if "commit_shas" in data else data
+    # No commit_shas.json yet: the rehearsal record itself (PyAutoHands#337).
+    for p in sorted(d.rglob("rehearsal.json")):
+        try:
+            data = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and isinstance(data.get("commit_shas"), dict):
+            return data["commit_shas"]
     return {}
 
 version = find_version()
@@ -210,7 +220,7 @@ print(shas_json)
   # then emit a phase-C `--commit-shas <dir>/commit_shas.json` step pointing at a
   # file that may not exist. Better to stop here than dispatch a blind run.
   if [[ -z "$commit_shas_json" || "$commit_shas_json" == "{}" ]]; then
-    echo "release validate: no Stage-2 commit_shas found in '$stage3_dir' (expected a non-empty commit_shas.json — the authoritative library main HEADs). Cannot dispatch Stage 3 without them." >&2
+    echo "release validate: no Stage-2 commit_shas found in '$stage3_dir' (expected a non-empty commit_shas.json, or rehearsal.json with commit_shas — the rehearsed commits). Cannot dispatch Stage 3 without them." >&2
     exit 1
   fi
 

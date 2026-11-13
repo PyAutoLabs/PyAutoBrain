@@ -123,11 +123,12 @@ print(json.dumps({
      "until": "status == completed", "note": "artifact exists IFF all 5 wheels built+installed"},
     {"step": "download", "artifact": os.environ["ART"],
      "note": "download into an artifacts dir (rehearsal.json + testpypi_version.txt)"},
-    {"step": "capture-heads", "mcp_tool": "mcp__github__get_commit",
-     "repos": [f"{owner}/{lib}" for lib in libs],
-     "note": "write {repo: sha} of each library main HEAD to commit_shas.json in the dir, "
-             "keyed by the BARE repo name (e.g. PyAutoNerves, not owner/repo) - "
-             "matches heart/readiness.py commit_shas convention"},
+    {"step": "commit-shas-from-record", "source": "rehearsal.json",
+     "note": "write rehearsal.json commit_shas (the commits the rehearsal BUILT, "
+             "keyed by BARE repo name) to commit_shas.json in the dir, and keep "
+             "its run_id: a live release.yml needs rehearsal_run_id "
+             "(PyAutoHands#337). Never re-read main HEADs - main may have moved. "
+             "The ingest phase does this itself when rehearsal.json is present."},
     {"step": "next", "cmd": os.environ["NEXT_CMD"]},
   ],
 }, indent=2))
@@ -155,12 +156,12 @@ Bash cannot call GitHub; execute these steps with Brain's MCP GitHub tools
 3. DOWNLOAD the '$REHEARSAL_ARTIFACT' artifact into an artifacts directory
    (it contains rehearsal.json + testpypi_version.txt).
 
-4. CAPTURE the current main HEAD sha of each library and write them as
-   {bare_repo_name: sha} to <dir>/commit_shas.json (keys are bare names, e.g.
-   "PyAutoNerves" — matches heart/readiness.py's commit_shas convention, NOT
-   "owner/repo") — so Heart can confirm the report is for THIS source
-   (readiness matches them against the live main HEADs):
-     mcp__github__get_commit  for: ${LIBRARIES[*]/#/$LIBRARIES_OWNER/}
+4. RECORD the rehearsed commits: copy rehearsal.json's "commit_shas" object
+   ({bare_repo_name: sha}, e.g. "PyAutoNerves") to <dir>/commit_shas.json, and
+   keep its "run_id" — the live release.yml needs it as rehearsal_run_id
+   (PyAutoHands#337: a release builds the rehearsed commits). Never re-read the
+   library main HEADs: main may have moved since the rehearsal. (The ingest
+   phase writes commit_shas.json itself when rehearsal.json is in <dir>.)
 
 5. NEXT (continue the pipeline):
      $next_cmd
@@ -180,6 +181,24 @@ if [[ ! -d "$ingest_dir" && ! -f "$ingest_dir" ]]; then
 fi
 
 heart="$(resolve_heart)" || exit $?
+
+# The rehearsal's own record is the commit_shas authority (PyAutoHands#337):
+# when rehearsal.json is in the artifacts, commit_shas.json is written from it,
+# and a --commit-shas file that disagrees with it refuses.
+if [[ -d "$ingest_dir" ]]; then
+  source "$HERE/_nightly_lib.sh"
+  if record_run="$(rehearsal_record "$ingest_dir" "$ingest_dir/.commit_shas.record.json" 2>/dev/null)"; then
+    if [[ -n "$commit_shas_file" && "$commit_shas_file" != "$ingest_dir/commit_shas.json" ]] \
+       && ! python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])))' \
+            "$commit_shas_file" "$ingest_dir/.commit_shas.record.json"; then
+      echo "release rehearse: --commit-shas $commit_shas_file disagrees with rehearsal.json (run $record_run) — the record is the authority" >&2
+      exit 1
+    fi
+    mv "$ingest_dir/.commit_shas.record.json" "$ingest_dir/commit_shas.json"
+    commit_shas_file="$ingest_dir/commit_shas.json"
+    [[ "$json_only" -eq 1 ]] || echo "== release agent: commit_shas from rehearsal.json (run $record_run) =="
+  fi
+fi
 
 ingest_args=(validate --ingest "$ingest_dir")
 [[ -n "$commit_shas_file" ]] && ingest_args+=(--commit-shas "$commit_shas_file")

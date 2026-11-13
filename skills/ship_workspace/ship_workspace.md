@@ -48,14 +48,17 @@ release):
 
 ```bash
 bin/pyauto-brain vitals              # reason over the readiness surface (vitals faculty → Heart)
-pyauto-heart readiness --json        # GREEN / YELLOW / RED
+# the DEV-SHIP gate, scoped to the task's `repos:` in PyAutoMind/active.md
+pyauto-heart readiness --dev --repos <A,B> --json   # GREEN / STALE / RED
 ```
 
-Workspace **smoke tests** are part of Heart's verdict. **GREEN** → execute.
-**YELLOW** → proceed only on explicit acknowledgement. **RED** → stop; an
-autonomous run parks. After surfacing the exact current RED reasons and passed
-applicable tests/smoke/review, including the reason strings verbatim from
-`pyauto-heart readiness`, a live human may authorize the canonical
+Only CI on `main` of the touched repos and their dependants blocks; other
+reasons arrive as `shown_reasons` for the PR body (PyAutoHeart#340). **GREEN** →
+execute. **STALE** (over 6 h, missing or unfinished evidence) never passes:
+refresh and ask again, or park. **RED** → stop; an autonomous run parks. After
+surfacing the exact current RED reasons and passed applicable
+tests/smoke/review, including the reason strings verbatim from the scoped
+verdict, a live human may authorize the canonical
 `AUTONOMY.md` "Human override for Heart RED (development only)" or the narrower
 "Corrective-PR exception for Heart RED" for a causal fix. Follow the selected
 canonical section's scope and four record sinks exactly. Neither path permits

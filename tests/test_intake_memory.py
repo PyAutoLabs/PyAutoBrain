@@ -62,7 +62,7 @@ GENERIC = ("model fit fitted profile light mass lens galaxy data cost report "
 
 
 def _file_one(mind: Path, raw: str = RAW) -> str:
-    decision = _intake.analyse(raw, "test")
+    decision = _intake.analyse(raw, "test", lane="any")  # M2.3: filing needs a lane
     rel = _intake.write_prompt(mind, decision, raw, "test")
     return (mind / rel).read_text(encoding="utf-8")
 
@@ -164,7 +164,7 @@ def test_organ_target_gets_no_memory_line(tmp_path, monkeypatch):
     organs = organs + extra
     for organ in organs:
         raw = _declared(organ)
-        decision = _intake.analyse(raw, "test")
+        decision = _intake.analyse(raw, "test", lane="any")  # M2.3: filing needs a lane
         assert decision["target_source"] == "declared", organ
         rel = _intake.write_prompt(mind, decision, raw, "test")
         text = (mind / rel).read_text(encoding="utf-8")
@@ -180,7 +180,7 @@ def test_library_target_with_hits_still_gets_memory_line(tmp_path, monkeypatch):
     mind = _mind(tmp_path)
     _memory(tmp_path)
     raw = _declared(sorted(_intake.LIBRARY_REPOS)[0])  # any library, read from repos.yaml
-    decision = _intake.analyse(raw, "test")
+    decision = _intake.analyse(raw, "test", lane="any")  # M2.3: filing needs a lane
     assert decision["target_source"] == "declared"
     rel = _intake.write_prompt(mind, decision, raw, "test")
     line = _memory_line((mind / rel).read_text(encoding="utf-8"))
@@ -204,7 +204,7 @@ def test_organ_target_spellings_get_no_memory_line(tmp_path, monkeypatch):
         assert _intake._with_memory("Priority: normal", ["wiki/x.md"],
                                     spelling) == "Priority: normal", spelling
         raw = _declared(spelling)
-        decision = _intake.analyse(raw, "test")
+        decision = _intake.analyse(raw, "test", lane="any")  # M2.3: filing needs a lane
         rel = _intake.write_prompt(mind, decision, raw, "test")
         text = (mind / rel).read_text(encoding="utf-8")
         assert "Memory:" not in text, spelling
@@ -255,7 +255,7 @@ def test_vocabulary_only_overlap_gets_no_memory_line(tmp_path, monkeypatch):
     raw = _declared_raw(TOOLING)
     ranked = _intake._memory.digest(TOOLING, mem, None, None, 3)["pages"]
     assert ranked[0]["page"].endswith("massive-ellipticals.md")
-    decision = _intake.analyse(raw, "test")
+    decision = _intake.analyse(raw, "test", lane="any")  # M2.3: filing needs a lane
     assert _intake._cites_memory(decision["target"])
     rel = _intake.write_prompt(mind, decision, raw, "test")
     assert "Memory:" not in (mind / rel).read_text(encoding="utf-8")
@@ -270,7 +270,7 @@ def test_distinctive_terms_still_get_memory_line(tmp_path, monkeypatch):
     _floor_memory(tmp_path)
     raw = _declared_raw("Fix the expectation propagation cavity moment matching "
                         "for a loggaussian factor so the model fit converges.")
-    decision = _intake.analyse(raw, "test")
+    decision = _intake.analyse(raw, "test", lane="any")  # M2.3: filing needs a lane
     rel = _intake.write_prompt(mind, decision, raw, "test")
     line = _memory_line((mind / rel).read_text(encoding="utf-8"))
     assert line == "Memory: wiki/methods/concepts/expectation-propagation.md"

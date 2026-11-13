@@ -51,14 +51,17 @@ a release):
 
 ```bash
 bin/pyauto-brain vitals              # reason over the readiness surface (vitals faculty → Heart)
-pyauto-heart readiness --json        # authoritative GREEN / YELLOW / RED
+# the DEV-SHIP gate, scoped to the task's `repos:` in PyAutoMind/active.md
+# (agents/_common.sh: consult_vitals_verdict --repos "$(active_task_repos <task>)")
+pyauto-heart readiness --dev --repos <A,B> --json   # GREEN / STALE / RED
 ```
 
-The library test suites are part of Heart's verdict — they run as the gate, not
-as an ad-hoc step the skill re-judges. **GREEN** → proceed to step 4.
-**YELLOW** → surface warnings, proceed only on explicit user acknowledgement.
-**RED** → stop and report; an autonomous run parks. After surfacing the exact
-current RED reasons verbatim from `pyauto-heart readiness` and passed applicable
+Only CI on `main` of the touched repos and their dependants blocks; every other
+reason comes back in `shown_reasons` — list them in the PR body, never block on
+them (PyAutoHeart#340). **GREEN** → proceed to step 4. **STALE** (evidence over
+6 h old, missing or unfinished) never passes: refresh (`pyauto-heart tick`) and
+ask again, or park. **RED** → stop and report; an autonomous run parks. After
+surfacing the exact current RED reasons verbatim from the scoped verdict and passed applicable
 tests/smoke/review, a live human may authorize the canonical `AUTONOMY.md`
 "Human override for Heart RED (development only)" or the narrower
 "Corrective-PR exception for Heart RED" for a causal fix. Follow the selected

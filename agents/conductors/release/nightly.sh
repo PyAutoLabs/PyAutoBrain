@@ -21,7 +21,10 @@
 #                            --profile release-ci` — GREEN only; STALE/YELLOW/
 #                            RED stop and page; there is NO force input
 #   step 6  live release     dispatch Build's release.yml (rehearsal=false,
-#                            minor_version=1) — or a log line under dry-run.
+#                            minor_version=1, rehearsal_run_id + commit_shas
+#                            from the Stage 2 rehearsal.json — PyAutoHands#337:
+#                            the release builds the REHEARSED commits) — or a
+#                            log line under dry-run.
 #                            A red run whose release tag nevertheless landed
 #                            (the post-publish smoke leg failed) is SHIPPED,
 #                            reported with a warning, never a stop
@@ -321,60 +324,7 @@ print($2)
 "
 }
 
-# dispatch_and_await <repo> <workflow> <inputs-json> [<artifact> <dest-dir>]
-# Dispatches, resolves the run id, polls it to completion (await_run, which
-# keeps the token fresh), and optionally downloads an artifact. Returns 0 ok,
-# 1 dispatch failed, 2 run red, 3 artifact missing, 4 lost the watch (the run
-# was never judged — callers treat it as a driver error).
-dispatch_and_await() {
-  local repo="$1" wf="$2" inputs="$3" artifact="${4:-}" dest="${5:-}"
-  local before run_id rc
-  # The step 6 dispatch comes hours in: never dispatch on a stale token.
-  refresh_gh_token
-  before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  local fargs=()
-  while IFS=$'\t' read -r k v; do
-    [[ -z "$k" ]] && continue
-    fargs+=(-f "$k=$v")
-  done < <(printf '%s' "$inputs" | python3 -c '
-import json, sys
-for k, v in (json.load(sys.stdin) or {}).items():
-    print(f"{k}\t{str(v).lower() if isinstance(v, bool) else v}")
-')
-  gh workflow run "$wf" -R "$repo" --ref main "${fargs[@]}" || return 1
-  run_id=""
-  for _ in $(seq 1 18); do
-    sleep 10
-    run_id="$(gh run list -R "$repo" --workflow "$wf" --created ">=$before" \
-                -L 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null)"
-    [[ -n "$run_id" ]] && break
-  done
-  if [[ -z "$run_id" ]]; then
-    echo "nightly: dispatched $repo/$wf but could not find the run" >&2
-    return 1
-  fi
-  echo "https://github.com/$repo/actions/runs/$run_id" >&2
-  LAST_RUN_URL="https://github.com/$repo/actions/runs/$run_id"
-  await_run "$repo" "$run_id"
-  rc=$?
-  [[ $rc -eq 4 ]] && return 4
-  if [[ $rc -ne 0 ]]; then
-    # The report artifacts upload `if: always()`, so a FAILED run still carries
-    # the evidence of which scripts failed — fetch it so the page can name
-    # them. Best-effort: paging must never be blocked by a missing artifact.
-    if [[ -n "$artifact" ]]; then
-      refresh_gh_token
-      gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" 2>/dev/null \
-        || echo "nightly: failed run's artifact '$artifact' not downloadable" >&2
-    fi
-    return 2
-  fi
-  if [[ -n "$artifact" ]]; then
-    refresh_gh_token
-    gh run download "$run_id" -R "$repo" -n "$artifact" -D "$dest" || return 3
-  fi
-  return 0
-}
+# dispatch_and_await lives in _nightly_lib.sh (tested there with a fake gh).
 
 log "step 4 — validate (Stages 0-3 via validate.sh)"
 phase_a="$(bash "$HERE/validate.sh" --json)"
@@ -392,7 +342,6 @@ s2_repo="$(plan_field "$phase_a" "plan['stage2_plan']['steps'][0]['repo']")"
 s2_wf="$(plan_field "$phase_a" "plan['stage2_plan']['steps'][0]['workflow']")"
 s2_inputs="$(plan_field "$phase_a" "json.dumps(plan['stage2_plan']['steps'][0]['inputs'])")"
 s2_artifact="$(plan_field "$phase_a" "[s for s in plan['stage2_plan']['steps'] if s['step']=='download'][0]['artifact']")"
-head_repos="$(plan_field "$phase_a" "chr(10).join([s for s in plan['stage2_plan']['steps'] if s['step']=='capture-heads'][0]['repos'])")"
 
 log "step 4a — Stage 2 rehearsal: dispatch $s2_repo/$s2_wf"
 dispatch_and_await "$s2_repo" "$s2_wf" "$s2_inputs" "$s2_artifact" "$ART_DIR"
@@ -405,22 +354,21 @@ elif [[ $rc -ne 0 ]]; then
   exit 2
 fi
 
-# capture-heads: {bare repo name: main HEAD sha} — Stage 2's commit_shas.json
-# is the single source of truth downstream (validate.sh header).
-refresh_gh_token
-python3 - "$ART_DIR/commit_shas.json" <<PY
-import json, subprocess, sys
-repos = """$head_repos""".split()
-shas = {}
-for full in repos:
-    sha = subprocess.run(["gh", "api", f"repos/{full}/commits/main", "--jq", ".sha"],
-                         capture_output=True, text=True, check=True).stdout.strip()
-    shas[full.split("/")[-1]] = sha
-with open(sys.argv[1], "w") as f:
-    json.dump(shas, f, indent=2, sort_keys=True)
-print("commit_shas:", json.dumps(shas))
-PY
-[[ -s "$ART_DIR/commit_shas.json" ]] || { page "could not capture library main HEADs"; exit 1; }
+# The rehearsal record (M2.4, PyAutoHands#337 "Caller contract"): the commits
+# the rehearsal BUILT, read from its own rehearsal.json — never `main` re-read
+# afterwards, which may have moved. The same commit_shas.json feeds Stage 3,
+# `pyauto-heart validate --commit-shas` and the live dispatch below, and the
+# record's run id is what the live release.yml publishes.
+s2_run_id="${LAST_RUN_ID:-}"
+rehearsal_run_id="$(rehearsal_record "$ART_DIR" "$ART_DIR/commit_shas.json")" || {
+  page "Stage 2 left no rehearsal record (rehearsal.json with run_id + commit_shas) — <${LAST_RUN_URL:-$RUN_URL}|run>; cannot release rehearsed commits"
+  exit 1
+}
+if [[ -n "$s2_run_id" && "$rehearsal_run_id" != "$s2_run_id" ]]; then
+  page "rehearsal record is for run $rehearsal_run_id, but this night rehearsed run $s2_run_id — refusing to release"
+  exit 1
+fi
+log "rehearsal record: run $rehearsal_run_id, commit_shas $(cat "$ART_DIR/commit_shas.json" | tr -d ' \n')"
 
 log "step 4b — Stage 3 integrate: emitting + executing the dispatch plan"
 phase_b="$(bash "$HERE/validate.sh" --stage3-plan "$ART_DIR" --json)" || {
@@ -493,9 +441,14 @@ if [[ "$DRY_RUN" == "true" ]]; then
   exit 0
 fi
 
-log "step 6 — dispatching the LIVE release ($version)"
-dispatch_and_await "$BUILD_REPO" "$RELEASE_WORKFLOW" \
-  '{"rehearsal": "false", "minor_version": "1"}'
+log "step 6 — dispatching the LIVE release ($version) of rehearsal run $rehearsal_run_id"
+# release.yml refuses a live dispatch without `rehearsal_run_id` (M2.4); the
+# commit_shas cross-check must equal the record exactly.
+live_inputs="$(live_release_inputs 1 "$rehearsal_run_id" "$ART_DIR/commit_shas.json")" || {
+  page "could not compose the live release inputs (rehearsal run $rehearsal_run_id)"
+  exit 1
+}
+dispatch_and_await "$BUILD_REPO" "$RELEASE_WORKFLOW" "$live_inputs"
 rc=$?
 if [[ $rc -eq 4 ]]; then
   # Unjudged, not failed: the release may well have published, so not page()

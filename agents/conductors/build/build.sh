@@ -38,6 +38,14 @@
 #                      is NOT changed — it still reports RED; this records that a
 #                      human accepted those exact reasons. Never ambient: it must
 #                      be passed explicitly per invocation.
+#   --rehearsal-run-id <id>  release mode, pre_build: the successful release.yml
+#                      rehearsal whose recorded commits the release publishes
+#                      (PyAutoHands#337). Else $REHEARSAL_RUN_ID, else Heart's
+#                      validated stages.rehearse.run_id
+#                      ($HEART_STATE_DIR/validation_report.json); a given id
+#                      that differs from Heart's refuses. Forwarded as
+#                      `autohands pre_build <minor> <id>`; with none the agent
+#                      refuses (exit 5) before consulting anything.
 #   --dry-run          reason + plan only; emit the BuildDecision, do not execute.
 #   --json             emit the BuildDecision as JSON only (machine-readable).
 #
@@ -66,6 +74,8 @@ json_only=0
 action=""
 forward=()
 accept_red=()
+rehearsal_run_id="${REHEARSAL_RUN_ID:-}"
+heart_run_note=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -78,6 +88,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "build agent: --accept-red needs a verbatim RED reason" >&2; exit 5; }
       accept_red+=("$2"); shift 2 ;;
     --accept-red=*) accept_red+=("${1#*=}"); shift ;;
+    --rehearsal-run-id)
+      [[ $# -ge 2 ]] || { echo "build agent: --rehearsal-run-id needs a run id" >&2; exit 5; }
+      rehearsal_run_id="$2"; shift 2 ;;
+    --rehearsal-run-id=*) rehearsal_run_id="${1#*=}"; shift ;;
     --dry-run) dry_run=1; shift ;;
     --json) json_only=1; shift ;;
     -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -107,6 +121,45 @@ if [[ " $allowed " != *" $action "* ]]; then
   exit 5
 fi
 
+# ----- a release publishes the REHEARSED commits (PyAutoHands#337) -----
+# `pre_build <minor> <rehearsal_run_id>`: release.yml refuses a live dispatch
+# without the run id, so the door refuses first, before any gate or workspace
+# is touched. A second positional forwarded after `--` is the run id already.
+if [[ "$mode" == "release" && "$action" == "pre_build" ]]; then
+  if [[ ${#forward[@]} -ge 2 ]]; then
+    rehearsal_run_id="${forward[1]}"
+  fi
+  heart_run_id="$(python3 - "${HEART_STATE_DIR:-$HOME/.pyauto-heart}/validation_report.json" <<'PY' 2>/dev/null
+import json, sys
+try:
+    print(((json.load(open(sys.argv[1])).get("stages") or {}).get("rehearse") or {}).get("run_id") or "")
+except Exception:
+    print("")
+PY
+)"
+  if [[ -z "$rehearsal_run_id" ]]; then
+    rehearsal_run_id="$heart_run_id"
+    [[ -n "$rehearsal_run_id" ]] && heart_run_note="rehearsal run id $rehearsal_run_id from Heart's validated stages.rehearse.run_id"
+  elif [[ -n "$heart_run_id" && "$heart_run_id" != "$rehearsal_run_id" ]]; then
+    # A given id (flag, positional or a lingering $REHEARSAL_RUN_ID) that is
+    # not the rehearsal Heart validated would publish unvalidated commits.
+    echo "build agent: refused — rehearsal run id $rehearsal_run_id (given) is not the" >&2
+    echo "  rehearsal Heart validated: stages.rehearse.run_id $heart_run_id" >&2
+    echo "  (${HEART_STATE_DIR:-$HOME/.pyauto-heart}/validation_report.json). Pass the validated" >&2
+    echo "  id, or validate the intended rehearsal first (release validate)." >&2
+    exit 5
+  fi
+  if ! [[ "$rehearsal_run_id" =~ ^[0-9]+$ ]]; then
+    echo "build agent: refused — a release publishes the commits of a successful release.yml" >&2
+    echo "  rehearsal (PyAutoHands#337), and no rehearsal run id was given." >&2
+    echo "  Pass --rehearsal-run-id <id> (pyauto-brain release --rehearsal-run-id <id>)," >&2
+    echo "  set REHEARSAL_RUN_ID, or ingest the rehearsal into Heart (release validate)" >&2
+    echo "  so its validation_report.json carries stages.rehearse.run_id." >&2
+    exit 5
+  fi
+  forward=("${forward[0]:-1}" "$rehearsal_run_id")
+fi
+
 # ----- consult the sibling vitals faculty (not Heart directly) -----
 [[ "$json_only" -eq 1 ]] || echo "== build agent ($mode): consulting vitals faculty for readiness =="
 if [[ "$mode" == "release" ]]; then
@@ -122,6 +175,7 @@ eff="$verdict"
 
 decision="" ; decision_code=0
 warnings=() ; blockers=() ; follow_up=()
+[[ -n "${heart_run_note:-}" ]] && warnings+=("Using the ${heart_run_note}.")
 
 [[ "$verdict" == "unknown" ]] && warnings+=("Readiness verdict unknown; treated as YELLOW. Run 'pyauto-brain vitals' to refresh.")
 

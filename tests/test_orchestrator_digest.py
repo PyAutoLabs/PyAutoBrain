@@ -67,9 +67,15 @@ Status: formalised
 Witness: a unit test
 Review-minutes: 3
 Unattended: ready
+Lane: any
 
 Body.
 """
+
+# A non-empty queue.md: an empty or absent one stops an unattended shift's
+# backlog dip (M2.3), and these shifts dip for `picked`. Its one entry ranks
+# nothing the brief admits, so every pick still reads "not in queue.md".
+QUEUE = "# Queue\n\n## 1. Elsewhere\n- kind: prompt\n- ref: draft/feature/pyautobrain/outside.md\n"
 
 PROOF = """\
 #### named — https://github.com/o/r/pull/1
@@ -113,6 +119,7 @@ def _mind(root: Path) -> Path:
     (folder / "named.md").write_text(PROMPT.format(name="named", epic=""))
     (folder / "picked.md").write_text(PROMPT.format(name="picked", epic="Epic: e1\n"))
     (folder / "outside.md").write_text(PROMPT.format(name="outside", epic=""))
+    (root / "queue.md").write_text(QUEUE)
     return root
 
 
@@ -416,7 +423,7 @@ def test_pr_health_reads_the_gh_exit_code(rc, err, want):
     ("fill-idle", {"path": "x/a.md", "queue_rank": 2, "queued": True}, "backlog: fill-idle · queue.md #3"),
     ("scoped", {"path": "x/a.md", "consequence": "notify", "queue_rank": 4, "queued": False,
                 "review_minutes": 3, "priority": "high", "epic": "e1", "phase": 2.0},
-     "scoped tier notify · not in queue.md · ~3 review-min · priority high · epic e1 phase 2"),
+     "scoped tier notify · not in queue.md · priority high · ~3 review-min · epic e1 phase 2"),
     ("scoped", {"path": "x/a.md", "themes": ["jax"]}, "scoped tag jax"),
     ("scoped", {"path": "x/a.md", "consequence": "notify"}, "scoped tier notify"),
     ("scoped", {"path": "x/named.md"}, "named task"),

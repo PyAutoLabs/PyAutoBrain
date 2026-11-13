@@ -91,8 +91,25 @@ def detect_lane() -> str:
 
 def _lane_ok(record_lane: str, session_lane: str) -> bool:
     """A laptop-lane task (`local-dev`, `ral`, `gpu`, `wsl-data`) runs only in
-    a `local-dev` session; `any` runs anywhere."""
+    a `local-dev` session; `any` runs anywhere. An ABSENT lane passes here: it
+    is the unattended gate in `plan` (`lane_absent_why`) that excludes it."""
     return not lane_is_local(record_lane) or session_lane == "local-dev"
+
+
+def lane_absent_why(r: dict) -> str:
+    """Why an unattended pick refuses this record for want of a lane, or "".
+
+    Fail closed (M2.3, human ruling 2026-11-12): a draft with no valid `Lane:`
+    is excluded from every unattended or cloud pick, because a lane-less draft
+    that needs the laptop, RAL or private data would otherwise reach a cloud
+    worker and burn its run. An attended session still reads it as `any`.
+    Worded without a colon: `emit` groups rejections on the text before one."""
+    if r.get("lane"):
+        return ""
+    if r.get("lane_invalid"):
+        return (f"lane invalid ({r['lane_invalid']!r}) — unattended picks fail "
+                "closed; declare a valid Lane")
+    return "lane absent — unattended picks fail closed; declare a Lane"
 
 
 def grade(path: Path, mind: Path) -> dict:
@@ -110,7 +127,12 @@ def grade(path: Path, mind: Path) -> dict:
         "difficulty": level, "score": score, "consequence": tier,
         "witness": p.get("witness"), "review_minutes": minutes,
         "unattended": ready, "why": (why or [""])[0],
-        "ready_why": ready_why, "epic": None, "lane": p.get("lane") or "any",
+        "ready_why": ready_why, "epic": None,
+        # The DECLARED lane, or None when the header has no valid `Lane:`.
+        # Absence is no longer read as `any` here (M2.3, AUTONOMY.md "M2
+        # rulings — 2026-11-12"): `plan` excludes a lane-less draft from an
+        # unattended pick and reads it as `any` only when `attended=True`.
+        "lane": p.get("lane"), "lane_invalid": p.get("lane_invalid"),
         "priority": p.get("priority") or "normal",
         "blocked": bool(p.get("blocked_by")),
     }
@@ -221,7 +243,7 @@ def read_queue(mind: Path) -> list[str]:
     except OSError:
         return []
     out: list[str] = []
-    kind, ref, fenced = "", "", False
+    kind, ref, fenced, entry = "", "", False, False
     def flush() -> None:
         if kind == "prompt" and ref and ref not in out:
             out.append(ref)
@@ -231,12 +253,17 @@ def read_queue(mind: Path) -> list[str]:
             continue
         if fenced:
             continue
-        if QUEUE_HEAD_RE.match(line):
+        if line.startswith("#"):
+            # Any heading ends the entry above it. Only a numbered `## <n>.`
+            # one starts a new entry: the `## Retired` footer's `### …`
+            # entries carry `- ref:` lines too, and until 2026-11-12 the last
+            # of them overwrote the final live entry's ref.
             flush()
             kind, ref = "", ""
+            entry = bool(QUEUE_HEAD_RE.match(line))
             continue
         m = QUEUE_FIELD_RE.match(line)
-        if not m:
+        if not m or not entry:
             continue
         value = m.group(2).split("#")[0].strip()
         if m.group(1) == "kind":
@@ -314,7 +341,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          session_lane: str = "web-github", awaiting_review: int = 0,
          cap: int = DEFAULT_BACKPRESSURE_CAP, queue: list[str] | None = None,
          awaiting_source: str = "given", carried: list[str] | None = None,
-         carried_from: str = "", brief: dict | None = None) -> dict:
+         carried_from: str = "", brief: dict | None = None,
+         attended: bool = False) -> dict:
     """Compose the next batch — a BatchDecision.
 
     Every constraint states itself in `rejected`, because a planner that
@@ -326,10 +354,30 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     from `active.md` by the caller (`derive_awaiting_review`) unless the human
     passed the flag; `awaiting_source` says which, because a number nobody can
     trace is a number nobody trusts.
+
+    `attended` is False for every shift this planner composes (the batch it
+    proposes runs unattended, and the watcher picks unattended). Two M2.3 rules
+    (AUTONOMY.md "M2 rulings — 2026-11-12") apply only then:
+
+    - a backlog draft with no valid `Lane:` is excluded (`lane_absent_why`);
+    - an EMPTY queue stops the backlog dip: the brief's named tasks still run,
+      nothing else is picked. `queue=[]` is "queue.md was read and is empty or
+      absent" (`read_queue` returns that); `queue=None` means the caller read
+      no queue at all and is left ungated — every Mind-reading caller passes a
+      list.
+
+    With `attended=True` (`batch plan --attended`, a human at the keyboard
+    picking for this session) an absent Lane reads as `any` and an empty queue
+    falls back to the backlog order, as before.
     """
     rejected: list[tuple[str, str]] = []
+    queue_given = queue is not None
     queue = queue or []
+    # Read BEFORE a brief folds its named tasks into the order: an empty
+    # queue.md is the human saying nothing is wanted beyond the brief.
+    queue_stop = not attended and queue_given and not queue
     all_records = records
+    named_names: set[str] = set()
     # Under a shift brief the brief IS the human's composition (AUTONOMY.md,
     # "Shift briefs and unattended `glance`"): its named tasks outrank the
     # queue, then only the backlog its dip policy covers. The brief's
@@ -337,6 +385,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     if brief is not None:
         records, out_of_scope, named = _brief.scope(records, brief)
         rejected += out_of_scope
+        named_names = {Path(t).name for t in named}
         queue = named + [q for q in queue if q not in named]
         minutes = _brief._nonneg_int(brief.get("review-minutes", {}).get("value", ""))
         if minutes is not None:
@@ -359,27 +408,37 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     # run, not which.
     next_phase = next_phases(records)
 
-    pool = []
+    pool, lane_absent = [], []
     for r in records:
+        # A brief's named task is the human's own pick, not a backlog dip:
+        # neither M2.3 gate below applies to it (the brief's `lanes:` still does).
+        backlog = Path(r["path"]).name not in named_names
         why = pool_gate(r, next_phase)
         if why:
             rejected.append((r["path"], why))
         elif not _lane_ok(r["lane"], session_lane):
             rejected.append((r["path"], f"lane {r['lane']}, session {session_lane}"))
+        elif not attended and backlog and lane_absent_why(r):
+            rejected.append((r["path"], lane_absent_why(r)))
+            lane_absent.append(r["path"])
+        elif queue_stop and backlog:
+            rejected.append((r["path"], "queue.md empty — no backlog dip "
+                                        "(named tasks only)"))
         else:
             pool.append(r)
 
-    # The queue first, cheapest first within it. `queue.md` is the human's
-    # order and outranks everything: a queued prompt beats an unqueued one, and
-    # among queued ones the file's order wins, because moving an entry up IS
-    # the act of prioritising it. Below the queue the old rule stands —
-    # cheapest first, since this list is read when there is a slot to fill and
-    # the question is what fits in it.
+    # The queue first; below it priority, THEN review-minutes. `queue.md` is
+    # the human's order and outranks everything: a queued prompt beats an
+    # unqueued one, and among queued ones the file's order wins, because moving
+    # an entry up IS the act of prioritising it. Below the queue a declared
+    # `Priority:` outranks cost (M2.3, 2026-11-12): sorting cheapest first let
+    # the cheapest review win and broke ties by filename, which picked work the
+    # human did not want. Cheapest first still decides within a priority.
     for r in pool:
         r["queue_rank"] = queue_rank(r, queue)
         r["queued"] = r["queue_rank"] < len(queue)
-    pool.sort(key=lambda r: (r["queue_rank"], r["review_minutes"],
-                             priority_rank(r), r["path"]))
+    pool.sort(key=lambda r: (r["queue_rank"], priority_rank(r),
+                             r["review_minutes"], r["path"]))
 
     members, spent, seen_epics, libs = [], 0, set(), set()
     for r in pool:
@@ -430,13 +489,17 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         "lane_counts": _lane_counts(r for r in all_records
                                     if r["unattended"] == "ready" and not r.get("done")),
         "brief": brief is not None,
+        "attended": attended,
+        # The two M2.3 gates, stated rather than buried in `rejected`.
+        "lane_absent": lane_absent,
+        "queue_stop": queue_stop,
     }
 
 
 def _lane_counts(records) -> dict[str, int]:
     counts: dict[str, int] = {}
     for r in records:
-        lane = r.get("lane") or "any"
+        lane = r.get("lane") or "absent"
         counts[lane] = counts.get(lane, 0) + 1
     return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
@@ -472,6 +535,17 @@ def emit(d: dict) -> None:
           f"(queued members marked q<n>)")
     print(f"Planned:           {d['review_minutes_planned']} review-minutes over "
           f"{len(d['members'])} member(s)")
+    if d.get("attended"):
+        print("Mode:              attended (--attended) — an absent Lane reads as "
+              "any, an empty queue.md falls back to the backlog order")
+    if d.get("queue_stop"):
+        # M2.3: an empty queue is the human saying nothing beyond the brief.
+        print("Backlog dip:       STOPPED — queue.md is empty, so this unattended "
+              "shift takes the brief's named tasks only")
+    if d.get("lane_absent"):
+        n = len(d["lane_absent"])
+        print(f"Lane absent:       {n} draft(s) excluded — no valid `Lane:`, and an "
+              "unattended pick fails closed (declare one; bin/lane_backfill.py)")
     if d.get("carried"):
         # Read first, because a carried member is work the human is already
         # holding: it costs review-minutes in THIS slot that no new member
@@ -2836,6 +2910,11 @@ def main(argv=None) -> int:
                          "default: derived from active.md")
     ap.add_argument("--cap", type=int, default=DEFAULT_BACKPRESSURE_CAP)
     ap.add_argument("--lane", default="", help="override the detected session lane")
+    ap.add_argument("--attended", action="store_true",
+                    help="plan: a human at the keyboard picks for THIS session — "
+                         "an absent Lane reads as any and an empty queue.md "
+                         "does not stop the backlog dip (default: unattended, "
+                         "both fail closed; AUTONOMY.md M2 rulings)")
     ap.add_argument("--json", action="store_true", dest="as_json")
     # brief / plan
     ap.add_argument("--check", default="", metavar="FILE",
@@ -3149,7 +3228,7 @@ def _main_plan(mind: Path, a, lane: str) -> int:
     d = plan(survey(mind), budget=a.budget, session_lane=lane,
              awaiting_review=awaiting, cap=a.cap, queue=read_queue(mind),
              awaiting_source=source, carried=carried, carried_from=carried_from,
-             brief=brief)
+             brief=brief, attended=a.attended)
     if a.as_json:
         print(json.dumps(d, indent=2))
         return RC_OK

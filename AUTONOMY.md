@@ -334,18 +334,25 @@ never an assumption:
    `claims to falsify`, CLEAN carries one disposition line per claim
    (basis-cited / idle / finding — faculty AGENTS.md step 2a); a bare CLEAN
    over a non-empty claims surface is malformed evidence, not CLEAN.
-4. **Heart** — verdict **GREEN** or **STALE**, or **YELLOW whose reason set is
-   contained in the set the human acknowledged at launch**. Heart observes
-   organism state, not the branch (the audit confirmed its legs never see
-   feature branches). **STALE** is Heart's freshness tier (evidence missing or
-   expired, nothing known-bad — `PyAutoHeart/heart/readiness.py`): it passes
-   this leg because an evidence gap is organism-scope, not branch-scope, and
-   legs 1–3 gate the branch itself; the PR body lists the stale reasons.
-   Releases are unaffected — they always require GREEN. A verdict from a Heart
-   without the tier behaves as before. For YELLOW, the acknowledgement binds
-   to the *exact reason list* at launch, for that launch only — any new
-   reason, or RED, parks the run. Never ambient, never carried across
-   sessions.
+4. **Heart** — the **scoped development-ship verdict** (changed 2026-11-12,
+   PyAutoHeart#340; ruling M2.1 in "M2 rulings — 2026-11-12" below):
+   `pyauto-heart readiness --dev --repos A,B --json`, with the repos taken
+   from the task's `repos:` in `PyAutoMind/active.md`
+   (`consult_vitals_verdict --repos "$(active_task_repos <task>)"`). Only CI
+   on `main` of the touched repos and their dependants blocks; every other
+   reason comes back in `shown_reasons` and is listed in the PR body without
+   blocking. Only **GREEN** passes. **STALE** — in-scope evidence missing,
+   unfinished, or older than 6 h — **never passes**: re-check, or park. With
+   **no Heart CLI** (a web session) the one fallback is the *published*
+   organism-wide feed: GREEN and under 6 h old passes, because it is at least
+   as strict as any scope; anything else parks. Any other scoped read that
+   cannot be made (an empty `repos:`, a Heart without the gate, an unknown
+   repo name) is "unknown" and parks. Until this change the leg
+   read the whole-organism verdict and let STALE pass; the scoped verdict has
+   no YELLOW tier, so the YELLOW acknowledgement below (bound to the *exact
+   reason list* at launch, for that launch only) applies only if a YELLOW
+   verdict is ever returned. Releases are unaffected — they ask the unscoped
+   verdict and always require GREEN.
 
 5. **Independent adversary** — **added 2026-08-30, required for a BATCH
    launch** (below) and for any run counting toward the multi-repo autonomy
@@ -654,6 +661,80 @@ row suspends the actor rule — the count goes back to every in-window row, with
 "Ledger accuracy" applied by hand — until the writer is fixed, by dated
 doctrine edit citing the row. A `reverted` row still demotes `glance` as the
 ruling says.
+
+## M2 rulings — 2026-11-12
+
+Ruled by the human 2026-11-12 at the M1→M2 gate of the autonomous-orchestrators
+programme, one ruling per M2 decision sheet; this section is the dated doctrine
+record of all six. Each quotes, verbatim, the recommendation the human adopted
+from the sheets' index, then names the build issue or the human act it awaits,
+and the condition that reverts it. It records the rulings; the doctrine text
+each one changes elsewhere in this file is edited by its own build, not here.
+
+**M2.1 Heart branch scope.** *"Yes: enforce library CI for touched repos and
+their dependants; show the rest. Feed: 6 h maximum age plus event triggers,
+built first. Rule that an over-age feed re-checks or parks, never passes."* A
+STALE feed never passes a development ship: over the maximum age the door
+re-reads the touched repos' `main` CI at ship time, and an unattended run that
+cannot parks. The override row stays, with its reason machine-readable.
+Build: PyAutoHeart#340. *Revert condition:* any ship passed by the branch scope
+that breaks `main` of a touched repo or a dependant, where the organism-wide RED
+would have stopped it — return to the full verdict by dated doctrine edit.
+
+**M2.2 Server-side merge gate.** *"Yes, staged: libraries and tested organs
+first, workspaces after a week, Mind after M4.3. Require status checks, not
+reviews. `--auto` for notify and glance only. A separate worker identity at
+M4."* `judge` stays a human merge; the ban under the corrective-RED path stays.
+Awaits a human act: the rulesets are applied by the human with their admin
+credential. *Revert condition:* a ruleset that blocks a release, or leaves PRs
+pending with no failing check more than twice in a week — set that repo's
+ruleset to `disabled` and fix the check list; an auto-merge found to have
+passed a never-auto-merge rule withdraws `--auto` by doctrine edit.
+
+**M2.3 Lane fails closed; queue.md is the ranked list.** *"Fail closed in
+unattended and cloud sessions only. Keep `queue.md` as a short ranked list,
+validated; an empty list stops a shift; sort priority before review-minutes."*
+As built: every plan `pyauto-brain batch plan` composes, and every watcher
+tick, is unattended, and excludes a backlog draft with no valid `Lane:`, saying
+so in the plan and the digest; `batch plan --attended` (a human picking for
+their own session) reads an absent Lane as `any`. A brief's named tasks are the
+human's own pick and are not gated. Intake refuses to file a new draft whose
+lane is neither declared (a `Lane:` header, or the filer's `--lane`) nor
+inferred from a resource signal, and says how to declare one. `lifecycle.py check`
+fails on a `queue.md` prompt ref that resolves to no draft or active prompt
+(`lifecycle.py close` retires a completed task's entry to the footer); an
+empty or absent `queue.md` stops an unattended shift's backlog dip (named tasks
+still run); below the queue the planner sorts priority, then review-minutes.
+Build: PyAutoBrain#614. *Revert condition:* if fail-closed excludes more than a
+handful of valid drafts in a week for a missing header, re-run
+`bin/lane_backfill.py`; if that does not fix it, return to `any` for attended
+filing. If `queue.md` goes two weeks without an edit, replace it with a
+per-draft rank header set in a weekly review.
+
+**M2.4 Release builds the rehearsed SHAs.** *"Yes: release the rehearsed
+commits even if `main` moved; move the Colab bump off `main`."* The release log
+prints the rehearsed commit, the released commit and `identical`. Build:
+PyAutoHands#337. *Revert condition:* a release whose tag does not match the
+rehearsed commit, or a Colab notebook that installs the wrong version because
+the bump is off `main` — return to `ref: main` plus the freeze flag until fixed.
+
+**M2.5 Always-apply rules.** *"Split the safety rules into a short file
+imported by the home `CLAUDE.md`; set a size budget for the memory index
+(21.8 KB today)."*
+Awaits a human act: these are the human's home-folder files — a session may
+draft the edits, the human applies them. *Revert condition:* if a new session's
+loaded-file list does not show the rules file, or sessions lose the routing
+they need, restore the previous files and fall back to importing the whole
+workspace guidance file from the home `CLAUDE.md`.
+
+**Quarantine (side ruling).** *"Yes: one retry; quarantine needs a bug task,
+expires in 7 days, at most 3, shows YELLOW."* The nightly may retry a failing
+script once. A script may be quarantined only with a filed bug task, for at
+most 7 days, at most 3 entries at once, never a unit test or an install check;
+while any entry is live the release shows Heart YELLOW and the digest lists
+them. Build: to build. *Revert condition:* a release that ships with a
+quarantined script hiding a real user-facing break — quarantine returns to
+human-only.
 
 ## Shift briefs and unattended `glance` — 2026-11-03
 

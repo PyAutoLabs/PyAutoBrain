@@ -436,7 +436,10 @@ UNATTENDED_LEVELS = ("ready", "needs-slicing", "never")
 # `skills/WORKFLOW.md` already defines (`local-dev` / `web-github` / `ci-only` /
 # `analysis-only`) rather than a parallel cloud/laptop one — `local-dev` means
 # the work needs the local dataset and output trees, an SSH endpoint, or the
-# human at the machine. Default `any`.
+# human at the machine. An absent `Lane:` is `any` only in an ATTENDED
+# session; every unattended or cloud pick excludes it (M2.3, AUTONOMY.md "M2
+# rulings — 2026-11-12"; `_batch.lane_absent_why`), and intake refuses to file a
+# draft whose lane is neither declared nor inferred.
 #
 # `ral`, `gpu` and `wsl-data` (2026-11-03, autonomous-orchestrators phase 2)
 # name the resource the work needs: RAL test runs, the laptop GPU, data under
@@ -447,7 +450,9 @@ LANE_VALUES = ("any", "local-dev", "ral", "gpu", "wsl-data")
 
 
 def lane_is_local(lane) -> bool:
-    """True for every lane but `any` (a missing lane is `any`)."""
+    """True for every lane but `any`. A missing lane is not local here — the
+    question this answers is "laptop or not?"; whether a missing lane may run
+    at all is the planner's call (unattended: no, M2.3)."""
     return (lane or "any") != "any"
 
 # Surfaces that make a change a PI's decision whatever repo it lives in: a

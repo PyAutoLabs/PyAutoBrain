@@ -85,7 +85,7 @@ Deterministically, given the adopted verdict and triage:
 | **GREEN** | none — a release conductor may proceed |
 | **RED** (real blockers) | resolve the top blocker; cite `pyauto-heart fix …` where one exists, else flag it as human/Release-Agent work. **Do not** dispatch a release while RED — the release preflight (Stage 0/1) aborts on it anyway |
 | **YELLOW**, a real warning present | clear the warning (cite its `fix`), then re-assess |
-| **STALE** (the freshness tier) | refresh the top evidence gap — `pyauto-brain release validate` when the release-validation report is one of them (the hard gate), else the capability's own refresh entry point. Nothing is known-bad, so this is never a code fix. A release still requires GREEN; the dev-ship gate (`AUTONOMY.md` leg 4) treats STALE as passing |
+| **STALE** (the freshness tier) | refresh the top evidence gap — `pyauto-brain release validate` when the release-validation report is one of them (the hard gate), else the capability's own refresh entry point. Nothing is known-bad, so this is never a code fix. A release still requires GREEN, and since 2026-11-12 the scoped dev-ship gate (`AUTONOMY.md` leg 4, PyAutoHeart#340) never passes STALE either |
 | **YELLOW**, only baseline gaps | `pyauto-brain release validate` — the leg that flips "no release validation" and makes GREEN reachable |
 | **UNKNOWN** | `pyauto-brain vitals` to refresh, then re-run |
 
@@ -121,9 +121,8 @@ Exit codes mirror the adopted verdict so a caller (and the loop) can branch:
 `0` green · `2` yellow · `3` red · `4` unknown · `6` stale. A CLI usage error
 (unknown subcommand) exits `5`, kept distinct so misuse is never read as a real
 YELLOW. STALE takes `6` rather than the free slot `1` for the same fail-safe
-reason: `1` is the shell's own generic failure, and STALE is the tier
-`AUTONOMY.md` leg 4 treats as **passing** the dev-ship gate — so a crash must
-never be readable as a passing verdict. That separation is the whole point: a
+reason: `1` is the shell's own generic failure, and STALE (which the dev-ship
+gate passed until 2026-11-12) must never be confused with a crash. That separation is the whole point: a
 machine caller can tell "Heart says STALE" from "Heart unreachable" (`4`).
 
 ## Prerequisites / caveats

@@ -23,6 +23,17 @@ WHAT IT IS NOT. It never runs a Heart tick and never refreshes anything: a
 reader at the door must be fast and must not mutate state. The vitals faculty
 remains the live, authoritative read at ship time.
 
+MAXIMUM AGE (PyAutoHeart#340, AUTONOMY.md "M2 rulings — 2026-11-12"). A feed
+older than 6 h, or of unknown age, is never GREEN: it reads STALE (a YELLOW or
+RED feed keeps its worse colour) with an age row, and `pass` is true only for
+GREEN. STALE never passes.
+
+SCOPE (`--repos A,B`). Asks the local Heart's development-ship gate,
+`pyauto-heart readiness --dev --repos A,B --json` — only CI on `main` of those
+repos and their dependants blocks; other reasons are shown as info. The
+published feed is organism-wide and cannot be scoped, so without a local Heart
+the door reads it unscoped and says so (`scope_applied: false`).
+
 Output: `Heart: RED — <headline> (updated 2h ago)` then one line per red/yellow
 item (info items too when the status is not green and nothing is red/yellow).
 `--json` prints the same summary as one JSON object for the skill seams.
@@ -50,6 +61,7 @@ TIMEOUT = 5  # seconds — the door must never stall a session
 FALLBACK_TIMEOUT = 30
 
 STATUSES = ("green", "yellow", "red", "stale", "grey")
+MAX_FEED_AGE_HOURS = 6.0
 EXIT = {"green": 0, "yellow": 1, "stale": 1, "red": 2, "grey": 3}
 SEVERITY_ORDER = {"red": 0, "yellow": 1, "info": 2}
 
@@ -154,27 +166,37 @@ def resolve_heart_cli():
 
 
 def from_readiness(r):
-    """Map `pyauto-heart readiness --json` into the state.json shape."""
+    """Map `pyauto-heart readiness --json` (or its `--dev` dev-ship verdict)
+    into the state.json shape. A dev-ship verdict's `shown_reasons` are info
+    rows (shown, never blocking) and its age is the snapshot's (`feed_ts`)."""
     verdict = str(r.get("verdict", "")).lower()
     status = verdict if verdict in STATUSES else "grey"
     items = ([{"severity": "red", "text": t} for t in r.get("red_reasons") or []]
              + [{"severity": "yellow", "text": t} for t in r.get("yellow_reasons") or []]
-             + [{"severity": "info", "text": t} for t in r.get("stale_reasons") or []])
+             + [{"severity": "info", "text": t} for t in r.get("stale_reasons") or []]
+             + [{"severity": "info", "text": f"shown (not in scope): {t}"}
+                for t in r.get("shown_reasons") or []])
     headline = items[0]["text"] if items else (
         "all checks green" if status == "green" else f"verdict {verdict or 'unknown'}")
-    return {"status": status, "headline": headline, "updated": r.get("ts"),
-            "items": items}
+    return {"status": status, "headline": headline,
+            "updated": r.get("feed_ts") or r.get("ts"), "items": items}
 
 
-def read_local(timeout=FALLBACK_TIMEOUT):
-    """(state, why) from the local Heart CLI's readiness verdict (no tick)."""
+def read_local(timeout=FALLBACK_TIMEOUT, repos=None):
+    """(state, why) from the local Heart CLI's readiness verdict (no tick);
+    with `repos`, its scoped development-ship verdict."""
     cli = resolve_heart_cli()
     if cli is None:
         return None, "no pyauto-heart on PATH or in the sibling checkout"
+    args = [cli, "readiness", "--json"]
+    if repos:
+        args = [cli, "readiness", "--dev", "--repos", ",".join(repos), "--json"]
     try:
-        proc = subprocess.run([cli, "readiness", "--json"], capture_output=True,
-                              text=True, timeout=timeout)
-        return from_readiness(json.loads(proc.stdout)), None
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        out = json.loads(proc.stdout)
+        if repos and out.get("gate") != "dev-ship":
+            return None, "local pyauto-heart has no dev-ship gate (`readiness --dev`)"
+        return from_readiness(out), None
     except subprocess.TimeoutExpired:
         return None, f"pyauto-heart readiness timed out after {timeout}s"
     except (OSError, ValueError, AttributeError) as exc:
@@ -203,6 +225,39 @@ def age_of(updated, now=None):
     return "just now"
 
 
+def age_hours(updated, now=None):
+    """Hours since an ISO timestamp; None when unknown or in the future."""
+    if not isinstance(updated, str) or not updated:
+        return None
+    try:
+        then = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    hours = ((now or datetime.now(timezone.utc)) - then).total_seconds() / 3600
+    return None if hours < -5 / 60 else max(hours, 0.0)
+
+
+def apply_max_age(state, now=None, max_hours=MAX_FEED_AGE_HOURS):
+    """The 6 h rule: an over-age (or undated) GREEN feed reads STALE, and every
+    over-age feed carries the row that says why. Never makes a feed greener."""
+    if not state:
+        return state
+    age = age_hours(state.get("updated"), now)
+    if age is not None and age <= max_hours:
+        return state
+    why = ("feed age unknown" if age is None
+           else f"feed {age:.1f} h old, over the {max_hours:g} h maximum")
+    state = dict(state)
+    state["items"] = [{"severity": "info", "text": f"{why} — re-check (STALE never passes)"}] \
+        + list(state.get("items") or [])
+    if state.get("status") == "green":
+        state["status"] = "stale"
+        state["headline"] = why
+    return state
+
+
 def door_items(state):
     """The rows printed under the headline: red/yellow always; info only when
     the status is not green and nothing louder exists (a STALE door)."""
@@ -213,11 +268,16 @@ def door_items(state):
     return sorted(loud, key=lambda i: SEVERITY_ORDER.get(i.get("severity"), 3))
 
 
-def summarise(state, source, url=None, fallback_reason=None):
+def summarise(state, source, url=None, fallback_reason=None, repos=None,
+              scope_applied=False):
+    state = apply_max_age(state)
     status = state.get("status") if state else "grey"
     return {
         "status": status,
+        "pass": status == "green",
         "exit": EXIT.get(status, 3),
+        "repos": list(repos or []),
+        "scope_applied": bool(repos) and scope_applied,
         "headline": (state or {}).get("headline") or "",
         "updated": (state or {}).get("updated"),
         "age": age_of((state or {}).get("updated")),
@@ -243,11 +303,27 @@ def render(s):
     if s["source"] == "local-readiness":
         lines.append(f"  (from local `pyauto-heart readiness`; published feed: "
                      f"{s['fallback_reason']})")
+    if s.get("repos"):
+        scope = ",".join(s["repos"])
+        lines.append(f"  (scoped to {scope} and dependants — local dev-ship gate)"
+                     if s.get("scope_applied") else
+                     f"  (scope {scope} NOT applied — organism-wide feed; "
+                     f"{s.get('scope_reason') or 'no local dev-ship gate'})")
     return "\n".join(lines)
 
 
-def read(url=None, offline=False):
-    """The door's summary — published feed first, local readiness second."""
+def read(url=None, offline=False, repos=None):
+    """The door's summary — published feed first, local readiness second.
+
+    With `repos`, the local dev-ship gate first (the only scoped source), then
+    the published feed unscoped."""
+    if repos:
+        local, local_why = read_local(repos=repos)
+        if local is not None:
+            return summarise(local, "local-dev-ship", url, None, repos, True)
+        s = read(url=url, offline=offline)
+        s.update(repos=list(repos), scope_applied=False, scope_reason=local_why)
+        return s
     why = "--offline"
     if not offline:
         if url is None:
@@ -270,8 +346,12 @@ def main(argv=None):
     p.add_argument("--url", help="read this state.json URL instead (tests, mirrors)")
     p.add_argument("--offline", action="store_true",
                    help="skip the published feed; ask local pyauto-heart readiness")
+    p.add_argument("--repos", default="",
+                   help="A,B: scope to these repos and their dependants via the "
+                        "local Heart's dev-ship gate (PyAutoHeart#340)")
     args = p.parse_args(argv)
-    s = read(url=args.url, offline=args.offline)
+    repos = [r.strip() for r in args.repos.split(",") if r.strip()]
+    s = read(url=args.url, offline=args.offline, repos=repos or None)
     print(json.dumps(s, indent=2) if args.json else render(s))
     return s["exit"]
 

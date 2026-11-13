@@ -20,8 +20,13 @@ Brain  →  Heart (gate)  →  Build (execute)
    *and* execution to the Build Agent's release mode
    (`build.sh --mode release`), the **single** gate implementation — GREEN
    proceeds, YELLOW needs `--force`, RED blocks; on a pass `autohands
-   pre_build` dispatches `release.yml`. This conductor holds no second copy of
-   that gate.
+   pre_build <minor> <rehearsal_run_id>` dispatches `release.yml`. This
+   conductor holds no second copy of that gate. **A release publishes the
+   rehearsed commits** (PyAutoHands#337): the door forwards the rehearsal run
+   id — `--rehearsal-run-id <id>`, else `$REHEARSAL_RUN_ID`, else Heart's
+   validated `stages.rehearse.run_id` (`$HEART_STATE_DIR/validation_report.json`)
+   — and refuses (exit 5) with none, or when a given id differs from the one
+   Heart validated.
 
 ## Run
 
@@ -29,6 +34,7 @@ Brain  →  Heart (gate)  →  Build (execute)
 bin/pyauto-brain release           # release door → Build Agent release mode
 bin/pyauto-brain release --force   # also proceed on yellow (cautions ack'd)
 bin/pyauto-brain release -- 2      # forward `2` (minor_version) to pre_build
+bin/pyauto-brain release --rehearsal-run-id 12345678901   # publish that rehearsal's commits
 ```
 
 Gate outcomes and exit codes are the Build Agent's (release mode).
@@ -57,7 +63,7 @@ ingest+verdict (phase 2):
 # 1. print the MCP dispatch/poll/download plan (the agent executes it via MCP):
 bin/pyauto-brain release rehearse [--ref main] [--minor N] [--json]
 
-# 2. after downloading the artifact + capturing the library main HEADs,
+# 2. after downloading the artifact (rehearsal.json carries the rehearsed commit_shas + run_id),
 #    ingest into Heart and get the verdict:
 bin/pyauto-brain release rehearse --ingest <dir> --commit-shas <dir>/commit_shas.json
 bin/pyauto-brain release rehearse --ingest <dir> --force   # accept a YELLOW
@@ -66,8 +72,11 @@ bin/pyauto-brain release rehearse --ingest <dir> --force   # accept a YELLOW
 Phase 1 emits the steps: `mcp__github__actions_run_trigger` on
 `PyAutoLabs/PyAutoHands` `release.yml` with `{rehearsal: true}` (M1 mode) →
 poll `mcp__github__actions_get` to completion → download the
-`testpypi-rehearsal-version` artifact → `mcp__github__get_commit` each library's
-`main` HEAD into `commit_shas.json`. Phase 2 hands the artifacts to
+`testpypi-rehearsal-version` artifact → copy `rehearsal.json`'s `commit_shas`
+(the commits the rehearsal **built**, PyAutoHands#337) into `commit_shas.json`
+and keep its `run_id` — never `main` HEADs re-read later. Phase 2 does that
+copy itself when `rehearsal.json` is present, and refuses a `--commit-shas`
+file that disagrees with it. Phase 2 hands the artifacts to
 `pyauto-heart validate --ingest` (Heart writes `validation_report.json`), then
 calls `consult_vitals_verdict --refresh` so the **read-only vitals faculty**
 reports GREEN/YELLOW/RED from the freshly-ingested report.
@@ -111,7 +120,7 @@ bin/pyauto-brain release validate --ingest <dir> --force   # accept a YELLOW
   abort). Stage 1 reuses the cached CI conclusion; dispatching a fresh unit run
   if stale is the spec's optional path, deferred for M4's first cut.
 - **Stage 2 (rehearse)** is `rehearse.sh`'s phase-1 plan, reused verbatim via its
-  `--next-plan-cmd` hook so its dispatch/poll/download/capture-heads plan stays
+  `--next-plan-cmd` hook so its dispatch/poll/download/commit-shas-from-record plan stays
   defined in ONE place; only the "continue" step is redirected into phase B.
 - **Stage 3 (integrate)** dispatches PyAutoHeart's `release-integrate.yml` channel
   with `testpypi_version` + `commit_shas` (a JSON *string*) read
