@@ -293,8 +293,16 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
         if not target.exists():
             return None   # no queue on this Mind: nothing can dangle
         text = target.read_text(encoding="utf-8")
-        new, moved = _mind_module(tree, "lifecycle").queue_retire_text(
-            text, op["prompt"], op["shipped_as"])
+        try:
+            new, moved = _mind_module(tree, "lifecycle").queue_retire_text(
+                text, op["prompt"], op["shipped_as"])
+        except MindWriteError:
+            raise
+        except Exception as exc:  # Mind main's lifecycle.py is not ours: any
+            # failure in it (syntax, rename, its own bug) must stay this one
+            # op's failure, never a tick crash that strands every other op.
+            raise MindWriteError(f"queue-retire: lifecycle.queue_retire_text "
+                                 f"failed: {type(exc).__name__}: {exc}") from exc
         if moved:
             target.write_text(_retired_by(new, len(moved)), encoding="utf-8")
     elif kind == "jsonl-upsert":
@@ -332,7 +340,8 @@ def _retired_by(text: str, n: int) -> str:
     """`queue_retire_text` notes its entries as retired by `lifecycle.py
     close`; the `n` it just put at the head of the footer were retired here."""
     old = "retired by `lifecycle.py close`"
-    head = text.find("## Retired")
+    m = re.search(r"^## Retired[ \t]*$", text, re.M)   # the heading line, not prose
+    head = m.start() if m else -1
     if head < 0:
         return text
     body = text[head:].replace(old, QUEUE_RETIRED_BY, n)

@@ -319,3 +319,26 @@ def test_a_worker_still_running_at_review_at_is_not_digested_as_not_started(tmp_
             "still running at review time — the late sweep will report it</sub>") in work
     assert "- **Not started** — Two" in work            # no lease: truly not started
     assert not any("t1 has no proof packet" in e for e in _digest.validate(d))
+
+
+def test_queue_retire_contains_a_broken_lifecycle_as_one_op_failure(tmp_path):
+    """Mind main's lifecycle.py is not the watcher's code: a syntax error or a
+    renamed `queue_retire_text` must surface as this op's MindWriteError (set
+    aside like any failing op), never as an exception that crashes the tick."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "queue.md").write_text("# Queue\n\n## Retired\n", encoding="utf-8")
+    op = {"op": "queue-retire", "path": "queue.md", "prompt": "t1.md",
+          "shipped_as": "https://example.invalid/pr/1"}
+    for body in ("def broken(:\n", "def other():\n    pass\n"):
+        (tmp_path / "scripts" / "lifecycle.py").write_text(body, encoding="utf-8")
+        with pytest.raises(mw.MindWriteError, match="queue-retire"):
+            mw.apply_op(tmp_path, op, None)
+
+
+def test_retired_by_anchors_on_the_heading_not_header_prose():
+    text = ("# Queue\nsee the `## Retired` footer\n\n## 1. A\n- note: retired by "
+            "`lifecycle.py close` once\n\n## Retired\n\n### B\n- note: retired by "
+            "`lifecycle.py close`\n")
+    out = mw._retired_by(text, 1)
+    assert "- note: retired by `lifecycle.py close` once" in out
+    assert out.endswith("- note: " + mw.QUEUE_RETIRED_BY + "\n")
