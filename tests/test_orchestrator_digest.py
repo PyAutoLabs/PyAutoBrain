@@ -256,15 +256,18 @@ def test_the_digest_is_posted_once_and_a_second_run_posts_nothing(tmp_path):
     mind, brief, home = _shift(tmp_path)
     slot = orch.slot_dir(brief, home)
     poster = Poster()
-    r = orch.tick(brief, mind, home=home, now=AFTER, poster=poster, health=_health)
+    r = orch.tick(brief, mind, home=home, now=AFTER, poster=poster, health=_health,
+                  agents=_Working())
     assert r["action"] == "digest" and r["post"]["posted"], r
     assert len(poster.calls) == 1 and poster.calls[0][0] == ISSUE
     assert poster.calls[0][1].startswith("## Digest")
     assert (slot / orch.DIGEST_MARKER).exists()
 
+    # The glance PR's close-out is still out: the late sweep keeps reaping it
+    # (#632, F1) — and posts nothing more.
     again = orch.tick(brief, mind, home=home, now=AFTER + _dt.timedelta(minutes=5),
-                      poster=poster, health=_health)
-    assert again["action"] == "idle" and len(poster.calls) == 1
+                      poster=poster, health=_health, agents=_Working())
+    assert again["action"] == "late" and again["late"] == [] and len(poster.calls) == 1
     direct = orch.finish_shift(brief, mind, slot, AFTER, poster=poster, health=_health)
     assert direct["post"] == {"posted": False, "error": "already posted this shift"}
     assert len(poster.calls) == 1

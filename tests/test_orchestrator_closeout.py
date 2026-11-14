@@ -430,3 +430,95 @@ def test_a_merged_closeout_lands_one_stage2_row_on_mind_main(tmp_path, monkeypat
     assert len(rows) == 1 and "named (" + PR1 + ")" in rows[0]
     assert rows[0].endswith("| merged-unchanged | unattended-watcher |  |")
     assert log.rstrip().endswith("kept")
+
+
+# --- PyAutoBrain#632: close-outs at review-at (F1) and the budget (F5) ------------
+
+def _merged(at):
+    return lambda url: {"state": "MERGED", "mergedAt": at, "mergedBy": "a-human"}
+
+
+def test_no_closeout_starts_within_20_minutes_of_review_at(tmp_path):
+    """F1: a close-out that ran past review-at merged outside the digest."""
+    mind, brief, home, sp = _shift(tmp_path, cap=2)
+    r = _tick(brief, mind, home, sp, 135)          # 11:15, review-at 11:30
+    assert r["closeouts"]["started"] == [] and sp.closeouts == []
+    co = orch.read_counters(orch.slot_dir(brief, home))["closeouts"][PR1]
+    assert co["state"] == "refused" and "within 20 min of review-at" in co["why"]
+
+
+def test_a_closeout_out_at_review_at_is_reaped_counted_and_rowed_late(tmp_path):
+    """F1: finish_shift reaps a close-out that ended before review-at; one
+    still out keeps the late sweep running, and its merge is counted, its
+    stage-2 row queued and a late line written — never lost from the ledger."""
+    mind, brief, home, sp = _shift(tmp_path, cap=2)
+    slot = orch.slot_dir(brief, home)
+    _tick(brief, mind, home, sp, 1)                 # both close-outs start
+    _verdict(home, brief, "named", result="merged", pr=PR1, gate="g", model="m")
+    poster = t.Poster()
+    r = orch.tick(brief, mind, home=home, now=t.AFTER, spawner=sp, agents=Agents(),
+                  health=_health({}), poster=poster, pr_state=lambda u: (
+                      _merged("2026-11-04T11:00:00Z")(u) if u == PR1 else
+                      {"state": "OPEN", "mergedAt": "", "mergedBy": ""}))
+    assert r["action"] == "digest"
+    assert "- glance-auto-merges: 1" in poster.calls[0][1]          # reaped at review-at
+    assert orch.closeouts_running(slot)                            # PR2's still out
+
+    _verdict(home, brief, "picked", result="merged", pr=PR2, gate="g2", model="m")
+    r = orch.tick(brief, mind, home=home, now=t.AFTER + _dt.timedelta(minutes=4),
+                  spawner=sp, agents=Agents(), health=_health({}), poster=poster,
+                  pr_state=_merged("2026-11-04T12:02:00Z"))
+    assert r["action"] == "late", r
+    assert any(f"close-out merged {PR2} unattended" in ln for ln in r["late"])
+    c = orch.read_counters(slot)
+    assert c["glance_auto_merges"] == 2 and c["closeouts"][PR2]["late"]
+    assert c["github"][PR2]["in_window"] is False                  # merged after review-at
+    rows = [json.loads(f.read_text()) for f in mw.pending_ops(slot)]
+    assert sum(o["op"] == "table-append" and PR2 in o["row"] for o in rows) == 1
+    assert not orch.closeouts_running(slot)
+    assert not (slot / "leases" / "picked.closeout").exists()
+
+
+def test_a_closeout_may_pass_the_budget_but_none_starts_at_one_and_a_half_times(tmp_path):
+    """F5, the human's ruling 2026-11-14: over budget a close-out still starts
+    (it counts against the budget); at 1.5x the budget none does."""
+    for spent, started in ((1200, True), (1500, False)):
+        mind, brief, home, sp = _shift(tmp_path / str(spent))     # token-budget: 1000
+        slot = orch.slot_dir(brief, home)
+        c = orch.read_counters(slot)
+        c["usage"]["w1"] = {"kind": "worker", "task": "named", "total": spent, "final": True}
+        orch._write_counters(slot, c)
+        r = _tick(brief, mind, home, sp, 1)
+        assert bool(r["closeouts"]["started"]) is started, (spent, r["closeouts"])
+        if not started:
+            co = orch.read_counters(slot)["closeouts"][PR1]
+            assert "reached 1.5× token-budget 1000" in co["why"]
+
+
+def test_the_closeout_ceiling_counts_reservations_and_holds_on_unread_usage(tmp_path):
+    """#632 review (4): the 1.5x ceiling counts spend as the spawn gate does
+    (`_committed_tokens`: a live session's reservation included), and an
+    unreadable usage holds the start for a tick — it is never read as 0."""
+    mind, brief, home, sp = _shift(tmp_path / "reserve")
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    c["usage"]["w1"] = {"kind": "worker", "task": "named", "total": 100, "reserve": 1600}
+    orch._write_counters(slot, c)
+    r = _tick(brief, mind, home, sp, 1)
+    assert r["closeouts"]["started"] == []
+    assert "1600 (committed) reached 1.5×" in orch.read_counters(slot)["closeouts"][PR1]["why"]
+
+    mind, brief, home, sp = _shift(tmp_path / "unread", cap=2)
+    r = _tick(brief, mind, home, sp, 1, health=_health({PR2: "RUNNING"}))
+    assert r["closeouts"]["started"] == [PR1]
+    # PR1's close-out usage cannot be read (no session id): PR2 waits a tick.
+    r = _tick(brief, mind, home, sp, 2)
+    assert r["closeouts"]["started"] == [] and r["closeouts"]["held"][0]["pr"] == PR2
+    assert PR2 not in orch.read_counters(orch.slot_dir(brief, home))["closeouts"]
+
+
+def test_the_digest_names_closeout_tokens_and_an_overrun():
+    c = {"usage": {"w": {"kind": "worker", "total": 1000},
+                   "co": {"kind": "closeout", "total": 400}}}
+    v = _digest.counter_values({"token-budget": {"value": "1200"}}, c)
+    assert v["tokens"] == "1400 of 1200 (close-outs 400; over budget by 200)"

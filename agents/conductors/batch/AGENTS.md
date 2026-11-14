@@ -263,7 +263,11 @@ pin that and record every process a full brief run starts.
 `bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one
 tick**: `STOP` first, then the open-brief gate, the tick lock, the lease reap,
 the plan inside the brief, the caps (`max-workers:`, default 2;
-`max-sessions:`, default 6) and an exclusive-create lease per spawn. State lives
+`max-sessions:`, default 6) and an exclusive-create lease per spawn. The plan
+is checked against Mind `origin/main` (#632): a draft not under its `draft/` or
+claimed in its `active.md` is excluded unless this shift picked it, read from the
+local `origin/main` ref after one `git fetch` per shift through the one Mind
+writer's own fetch (never a pull); an unreadable ref fails closed. State lives
 under `$PYAUTO_ORCHESTRATOR_HOME` (default `.orchestrator` under the worktree
 root), one directory per brief: `STOP`, `leases/`, `counters.json`, `tick.log`.
 Until phase 3b it spawns only stub workers (`PYAUTO_ORCHESTRATOR_FAKE=1`); a real
@@ -300,7 +304,10 @@ session is `unmeasured`: it stops blocking, its reservation counts as its
 usage, and the pilot row's `tokens` is `null` (`unmeasured` in `pilot.md`),
 never 0. Subagent transcripts (`<sid>/subagents/agent-*.jsonl`) are included
 and reported as `subagents`. The digest's `### Refusals` lists every spawn
-refusal with its reason. A real worker holds a reservation from its spawn (default
+refusal with its reason: `counters.json` keeps one entry per task and reason
+class (a token reason without its running figure) with its count and first and
+last time, and each shift-wide reason (`max-workers`, `max-sessions`, a token
+reason) is one line for all the tasks it held back (#632). A real worker holds a reservation from its spawn (default
 `token-budget / max-sessions`) until its usage passes it, so the budget binds on
 the first tick; `token-budget:` refuses a spawn once spent, or once committed
 usage plus a new reservation would pass it. Every worker has one exit record
@@ -318,8 +325,16 @@ the reap, `_mind_writer.commit_ledger` applies all pending ops in a temporary
 detached worktree on `origin/main`, commits once and pushes; if `main` moved it
 replays the ops on the new `origin/main` (up to three tries). It never resets,
 never forces, and never touches the canonical checkout's working tree.
-Committed op files move to `ledger/committed/`; an op that cannot apply stays
-pending and the tick reports it. **Enforced, not asked:** a worker runs with
+Committed op files move to `ledger/committed/`. One bad op never strands the
+rest (#632): a re-dispatched task's repeat of a claim this shift already
+committed, with main's content matching it, is a skipped note; the same shape
+from anyone else is a conflict, set aside; any other worker op that is invalid
+or cannot apply is set aside in `ledger/set_aside/` — and the rest commit. The
+watcher's own ops (record appends, pilot row, live line, stage-2 rows) are never
+set aside: they are held pending and retried. Every note, set-aside, conflict
+and hold goes to `ledger/report.jsonl`, into the digest, and after `review-at:`
+into a late line and the correction. A re-dispatched worker is told its claim
+may already exist. **Enforced, not asked:** a worker runs with
 `PYAUTO_SHIFT_WORKER=1`, `PYAUTO_SHIFT_LEDGER_DIR`, and `core.hooksPath` (via
 `GIT_CONFIG_*`) pointing at `bin/worker_git_hooks/`, whose `pre-commit`
 refuses any commit in a PyAutoMind repo — `prompt_sync_push`, `lifecycle close`
@@ -399,8 +414,9 @@ running close-outs — `<task>.closeout` (`merged` | `refused`, `why`, `gate`,
 `model`), or a session gone without one, which is recorded refused — then, for
 each PR a worker named, judges the guards it can see with its own reads: the
 recorded tier is `glance`, `gh pr checks` is green — at least one completed
-check, all green (pending waits a tick; red, none or unknown is refused), merges plus in-flight close-outs are under `merge-cap:`, and the
-shift is not shadow. Then it starts **one** close-out session
+check, all green (pending waits a tick; red, none or unknown is refused), merges plus in-flight close-outs are under `merge-cap:`, the
+shift is not shadow, `review-at:` is more than 20 minutes away, and spend is
+under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"). Then it starts **one** close-out session
 (`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus`).
 That session is the independent leg: it runs the `Witness:` itself, reviews the
 diff adversarially, checks the `decision-taken` label and Heart, and only then
@@ -426,8 +442,10 @@ holding real worker leases, and `gh pr checks` for unmerged PRs, cached for the
 interval.
 
 **Late arrivals (PyAutoBrain#594).** A worker may finish after `review-at:`,
-once the digest is posted. A closed shift with a lease still held or a ledger op
-still queued runs `late_sweep` on each tick: it reaps as a live tick does,
+once the digest is posted. A closed shift with a lease still held, a close-out
+still running or a ledger op still queued runs `late_sweep` on each tick: it
+reaps workers and close-outs as a live tick does (a late close-out merge is
+counted, its stage-2 row written and named as a late line, #632),
 commits the queued ops through the one Mind writer, and appends one
 `- late: <task> — <url> (after review-at, <time>)` line per arrival to the record
 under `### Late arrivals`, amends the pilot line in place (`amended: true`) and
@@ -438,14 +456,16 @@ correction post is due its retry.
 
 **A blocked worker reaches the human (PyAutoBrain#611).** The human's channel
 (2026-11-12) is a GitHub @mention on the shift's digest issue. When a worker is
-parked (`blocked` past the grace) or parks on its issue with a question, the
+parked (`blocked` past the grace) or its `.done` names an issue not marked
+`verdict:` (`question:`, bare or any other marker — only a posted verdict is not
+a push, #632), the
 tick posts one comment on the brief's `issue:` naming the task, the reason and
 its session, worktree or PR, @-mentioning the login from `PYAUTO_SHIFT_MENTION`
 or `config/policy.yaml` `shift_watcher: mention_login:`. One comment per worker
 per state, marker (`<slot>/mentions/`) before post, a failed post retried next
 tick; a crash, refusal or finished worker never mentions (AUTONOMY.md push test).
 Each sent mention counts in `pushes`; more than one is a digest finding. The
-trigger is durable state (a parked task or an issue-only `.done` with no
+trigger is durable state (a parked task or an un-verdicted issue in a `.done` with no
 marker yet), so a tick that dies between parking and posting mentions on the
 next; a failed mention is also retried by the late sweep.
 
