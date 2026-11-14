@@ -198,7 +198,9 @@ def test_a_refused_closeout_is_digested_and_never_retried(tmp_path):
     c = orch.read_counters(slot)
     assert c["glance_auto_merges"] == 0 and c["outcomes"]["named"]["merged"] == []
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
-    assert f"{PR1} — awaiting /prm — close-out refused: decision-taken label" in d
+    assert (f"- **Needs you — not merged unattended** — [named]({PR1})\n"
+            "  <sub>`named` · glance · small · pyautobrain · awaiting /prm — close-out refused:"
+            " decision-taken label</sub>") in d
 
 
 def test_a_failed_closeout_is_refused_not_read_as_running(tmp_path):

@@ -558,7 +558,16 @@ default (`control-group`) systemd killed every process a tick started when the
 tick exited, including the `claude --bg` daemon the first worker launched, so
 live shift 1 (2026-11-06) lost all three workers about 30 seconds after spawn
 (PyAutoBrain#592). A copy installed before then must be copied again
-(`daemon-reload`). Separately, a worker or close-out whose `claude agents`
+(`daemon-reload`). Since PyAutoBrain#634 every worker and close-out is
+launched through `systemd-run --user --scope` when the tick runs inside a
+unit (`INVOCATION_ID` set) and `systemd-run` is on PATH
+(`_orchestrator.scope_command`): the transient `claude daemon run` and its
+`bg-pty-host` spares then live in their own `app.slice/run-*.scope`, not in
+the unit's cgroup, so systemd no longer logs "Found left-over process" on
+every tick (211 lines in the 2026-11-14-pm shift). The daemon still quits
+on its own 5 s after its last client; nothing in the watcher stops it.
+Outside a unit, without `systemd-run`, or when systemd-run cannot reach the
+user bus, the session is launched plain, as before. Separately, a worker or close-out whose `claude agents`
 state is in `_digest.ENDED_STATES` (`failed`, `killed`, `error`, …) is reaped
 at once, as a crash (worker, re-dispatched once) or a refusal (close-out),
 never read as alive. To stop a shift, `touch <slot>/STOP` (or comment `/stop` on

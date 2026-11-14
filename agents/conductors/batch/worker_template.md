@@ -35,6 +35,16 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
 - End at your deliverable: a PR, a posted verdict, or a park with a question
   on the issue. Never arm anything that outlives your turn (no send_later,
   ScheduleWakeup, CronCreate, RemoteTrigger or /loop) — the watcher keeps time.
+- Before every push to an organ repo (PyAutoBrain, PyAutoHeart or PyAutoHands,
+  the organs the tenant firewall reads), run the firewall from your task root
+  (the folder that holds `.pyauto-root` and your organ worktree), and fix
+  each finding in your diff before you push:
+
+      cd <task root> && python3 PyAutoMind/scripts/repos_sync.py --check --only "tenant firewall (organ code)" --root "$PWD"
+
+  It is the check the organ's PR CI runs. PyAutoHeart#347 failed CI on a
+  hard-coded repo name it would have caught. A finding outside your diff is
+  not yours: name it in your proof packet. Other repos skip this step.
 - If the task is `Consequence: glance`, end at PR-open: do not wait for CI
   and do not merge. Once CI lands, the watcher starts an independent close-out
   session that runs the witness and merges, or refuses (AUTONOMY.md

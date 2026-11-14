@@ -172,14 +172,16 @@ def test_digest_separates_brief_work_from_backlog_picks_with_reasons(tmp_path):
                       health=_health, issue=ISSUE)
     work = d.split("### Brief work")[1].split("### Backlog picks")[0]
     picks = d.split("### Backlog picks")[1].split("### Proof packets")[0]
-    # Picks read by title, linked to the prompt on the Mind the issue lives in.
-    blob = "https://github.com/example-org/example-mind/blob/main/"
-    assert (f"- [named]({blob}draft/feature/pyautobrain/named.md) (`named`; small · pyautobrain)"
-            " — https://github.com/o/r/pull/1 — merged — glance") in work
-    assert "- never — not started" in work
+    # Each task: the outcome in plain words and the title, linked to its PR
+    # (never to a Mind path, which moves and 404s, #634); the detail below.
+    assert ("- **Merged** — [named](https://github.com/o/r/pull/1)\n"
+            "  <sub>`named` · glance · small · pyautobrain · merged</sub>") in work
+    assert "- **Not started** — never\n  <sub>`never` · not started</sub>" in work
+    assert "blob/main" not in d
     # Green and glance: since phase 4b its close-out is running at review time.
-    assert ("(`picked`; small · pyautobrain) — https://github.com/o/r/pull/2 — close-out running"
-            " — glance — why: scoped epic e1 · not in queue.md") in picks
+    assert ("- **Still running — close-out checking it** — [picked](https://github.com/o/r/pull/2)\n"
+            "  <sub>`picked` · glance · small · pyautobrain · close-out running"
+            " · why: scoped epic e1 · not in queue.md") in picks
     assert "`named`" not in picks
 
 
@@ -237,7 +239,7 @@ def test_brief_check_refuses_a_missing_counter(tmp_path):
 def test_brief_check_refuses_a_pick_without_a_reason(tmp_path):
     mind, brief, home = _shift(tmp_path)
     rec = _with_digest(tmp_path, brief, home,
-                       lambda d: d.replace(" — why: scoped epic e1", ""))
+                       lambda d: d.replace(" · why: scoped epic e1", ""))
     res = _brief.check(rec, mind)
     assert not res["ok"]
     assert any("backlog pick picked has no `why:`" in e for e in res["errors"])

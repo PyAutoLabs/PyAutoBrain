@@ -45,8 +45,14 @@ outcome — the human merges by `/prm` at check-in.
    judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with
    `{shift_ledger} append|write|move|remove|drop-section ...` (ops land in
-   {ledger_dir}/) and the orchestrator commits them. Do **not** append the
-   Shadow-window row: the watcher writes the stage-2 row from your verdict.
+   {ledger_dir}/) and the orchestrator commits them. With the complete
+   record, also retire the task's `queue.md` entry, as `lifecycle.py close`
+   does (it is silent when there is none):
+
+       {shift_ledger} queue-retire queue.md <prompt file name> --text "{pr_url} → <complete record path> (<date>)"
+
+   Do **not** append the Shadow-window row: the watcher writes the stage-2
+   row from your verdict.
 7. End at your deliverable. Never arm anything that outlives your turn.
 
 Last, write {lease_dir}/{task}.closeout as one JSON object:

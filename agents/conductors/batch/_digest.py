@@ -41,6 +41,9 @@ PROOFS_DIR = "proofs"
 NO_PICKS = "- none"
 #: What a shadow shift's line and packet section say instead of work (phase 4a).
 PROPOSED = "proposed (shadow)"
+#: A worker whose lease is still held when the digest is built (#634, N1): it
+#: was dispatched and is not done; the late sweep reports how it ends.
+STILL_OUT = "still running at review time — the late sweep will report it"
 NO_PACKETS_SHADOW = "- none — shadow shift: nothing was dispatched"
 #: A shadow digest's counters, in one line: every one is 0 by construction.
 SHADOW_COUNTERS = "- all counters 0 — shadow shift, nothing dispatched"
@@ -187,8 +190,9 @@ def task_state(task: str, counters: dict, health, *, live: bool = False,
     """(what a task is doing, whether its tier follows) — the one wording the
     digest and `batch watch` share, so the live view and the digest never
     disagree. Only the live view passes `live=True` (with the task's `lease`
-    and the `agents` view): at `review-at:` the watcher has already reaped
-    every lease, and the digest's wording stays exactly as it was. A task the
+    and the `agents` view). The digest passes a lease only for a worker still
+    out at `review-at:`, which reads `STILL_OUT`, never "not started"
+    (PyAutoBrain#634, N1); the late sweep reports how it ends. A task the
     human dropped by `/drop` (PyAutoBrain#622) says so first."""
     state, tiered = _task_state(task, counters, health, live=live, lease=lease,
                                 agents=agents)
@@ -213,6 +217,8 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
     if out is None:
         if live and lease is not None:
             return _lease_state(lease, agents), True
+        if lease is not None:
+            return STILL_OUT, True
         if live and task in counters.get("pending_redispatch", []):
             return "crashed — awaiting re-dispatch", True
         return "not started", False
@@ -270,31 +276,214 @@ def _lease_state(lease: dict, agents) -> str:
     return f"running (agent {agent}, {state}, since {since})"
 
 
-def mind_blob_base(issue_url: str) -> str:
-    """`https://github.com/<owner>/<mind>/blob/main/` from the brief's `issue:`
-    (a Mind issue), so a pick links its prompt; "" when it cannot tell."""
-    m = _ISSUE_RE.match(issue_url or "")
-    return f"{m.group(1)}/blob/main/" if m else ""
+# --- links and the two-line task entry (PyAutoBrain#634) ---------------------------
+
+#: A prompt moves at most draft/ → active/ → complete/YYYY/MM/ in a shift;
+#: a few more hops are tolerated, never an unbounded walk.
+MAX_MOVES = 6
+_GH_URL_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/\d+$")
 
 
-def label(task: str, pick: dict | None, base: str = "") -> str:
-    """How a pick is named to a human: its title, linked to its prompt, the
-    task slug in backticks, then size and repos. A pick recorded before titles
-    were (or with none) falls back to the bare slug."""
+class MindLinks:
+    """Where a task's Mind prompt and its work issue are, read at render time
+    from the watcher's own Mind checkout: local git on its `origin/main` ref,
+    which the watcher's one fetch and the Mind writer's pushes keep current.
+    It makes no network call of its own (PyAutoBrain#634).
+
+    A prompt moves draft/ → active/ → complete/YYYY/MM/ during a shift, often
+    renamed, so the `blob/main/draft/...` link the first live shift wrote was
+    dead by the time the digest was read. The prompt link here follows the
+    moves and is pinned to a commit sha, so it does not go dead later. When it
+    cannot read something it returns "", and the caller drops the link."""
+
+    def __init__(self, mind=None, issue: str = "", ref: str = "origin/main", run=None):
+        m = _ISSUE_RE.match(issue or "")
+        self.repo = m.group(1) if m else ""
+        self.mind, self.ref = (Path(mind) if mind else None), ref
+        self.run = run or subprocess.run
+        self._cache: dict = {}
+
+    def _git(self, *args) -> str | None:
+        """git's stdout, or None when it fails or there is no Mind checkout."""
+        if self.mind is None:
+            return None
+        if args not in self._cache:
+            try:
+                res = self.run(["git", "-C", str(self.mind), *args], capture_output=True,
+                               text=True, timeout=30)
+                self._cache[args] = res.stdout if res.returncode == 0 else None
+            except (OSError, subprocess.SubprocessError):
+                self._cache[args] = None
+        return self._cache[args]
+
+    def head(self) -> str:
+        """The `origin/main` sha, "" when `mind` is not a checkout of its own."""
+        top = self._git("rev-parse", "--show-toplevel")
+        if top is None or Path(top.strip()).resolve() != self.mind.resolve():
+            return ""
+        return (self._git("rev-parse", "--verify", "-q", self.ref + "^{commit}") or "").strip()
+
+    def _renamed(self, commit: str, path: str) -> str | None:
+        diff = self._git("diff", "-M", "--name-status", f"{commit}^", commit) or ""
+        for line in diff.splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[0].startswith("R") and parts[1] == path:
+                return parts[2]
+        return None
+
+    def prompt_url(self, prompt: str) -> str:
+        """The prompt where it is now on `origin/main`, pinned to that sha.
+        A prompt deleted without a detectable rename links to its last
+        version (the deleting commit's parent). "" when it was never there."""
+        head = self.head() if self.repo and prompt else ""
+        if not head:
+            return ""
+        path = prompt
+        for _ in range(MAX_MOVES):
+            if self._git("cat-file", "-e", f"{head}:{path}") is not None:
+                return f"{self.repo}/blob/{head}/{path}"
+            gone = (self._git("rev-list", "-1", head, "--", path) or "").strip()
+            if not gone:
+                return ""
+            moved = self._renamed(gone, path)
+            if moved is None:
+                parent = (self._git("rev-parse", "--verify", "-q", gone + "^") or "").strip()
+                return f"{self.repo}/blob/{parent}/{path}" if parent else ""
+            path = moved
+        return ""
+
+    def work_issue(self, task: str, prompt: str) -> str:
+        """The work repo's issue for a task that has claimed itself: the
+        `- issue:` of its `active.md` section on `origin/main`, matched by the
+        task name or by its `- prompt:` file name (the section's slug is the
+        worker's choice and often differs). "" when there is none."""
+        head = self.head()
+        if not head:
+            return ""
+        stem = Path(prompt or "").name
+        for section in re.split(r"(?m)^## ", self._git("show", f"{head}:active.md") or "")[1:]:
+            name, _, body = section.partition("\n")
+            keys = dict(re.findall(r"(?m)^- (issue|prompt):[ \t]*(\S+)", body))
+            if name.strip() == task or (stem and Path(keys.get("prompt", "")).name == stem):
+                url = keys.get("issue", "")
+                return url if _GH_URL_RE.match(url) else ""
+        return ""
+
+
+def work_link(task: str, counters: dict, links: MindLinks | None = None) -> str:
+    """What a task's title links to: its PR, else the work repo's issue
+    (the one its `.done` named, else the one its claim in `active.md` names),
+    else "" — the title is then plain text. Never a Mind path (#634)."""
+    out = counters.get("outcomes", {}).get(task) or {}
+    urls = urls_of(out)
+    if urls:
+        return urls[0]
+    pick = counters.get("picks", {}).get(task) or {}
+    return links.work_issue(task, pick.get("prompt") or "") if links is not None else ""
+
+
+def label(task: str, pick: dict | None, url: str = "") -> str:
+    """How a pick is named in a technical list: its title (linked to `url`,
+    the work itself, when there is one), the task slug in backticks, then
+    size and repos. A pick recorded before titles were (or with none) falls
+    back to the bare slug."""
     pick = pick or {}
     title = pick.get("title")
     if not title:
         return task
-    prompt = pick.get("prompt") or ""
-    head = f"[{title}]({base}{prompt})" if base and prompt else f"**{title}**"
+    head = f"[{title}]({url})" if url else f"**{title}**"
     details = " · ".join(x for x in (pick.get("size"), ", ".join(pick.get("repos") or [])) if x)
     return f"{head} (`{task}`" + (f"; {details}" if details else "") + ")"
 
 
-def _line(task: str, counters: dict, tier: str, health, base: str = "") -> str:
-    state, tiered = task_state(task, counters, health)
-    name = label(task, counters.get("picks", {}).get(task), base)
-    return f"- {name} — {state}" + (f" — {tier}" if tiered else "")
+#: A task's outcome in plain words (PyAutoBrain#634), read from one part of
+#: its `task_state`; the first match wins. The exact state stays on the
+#: entry's second line, so nothing is lost by the short form.
+_PLAIN = (
+    ("merged", "Merged"),
+    ("awaiting /prm — close-out refused: CI FAILED", "CI failed — needs you"),
+    ("awaiting /prm — close-out refused: CI RED", "CI failed — needs you"),
+    ("awaiting /prm", "Needs you — not merged unattended"),
+    ("close-out running", "Still running — close-out checking it"),
+    (STILL_OUT, "Still running at review time"),
+    ("verdict posted", "Verdict posted"),
+    ("PARKED-ON-ISSUE", "Needs you — question on the issue"),
+    ("FAILED", "CI failed — needs you"),
+    ("RUNNING", "CI running"),
+    ("HEALTHY", "CI green — awaiting merge"),
+    ("NO-CHECKS", "No CI checks — needs your merge"),
+    ("UNKNOWN", "CI unknown — needs you"),
+    ("parked", "Needs you — blocked on a person"),
+    ("blocked on a person", "Needs you — blocked on a person"),
+    ("abandoned", "Abandoned — crashed twice"),
+    ("crashed", "Crashed — waiting to be re-dispatched"),
+    ("ended", "Crashed"),
+    ("obsolete", "Obsolete — nothing to do"),
+    ("finished", "Finished — no PR or issue named"),
+    ("running", "Still running"),
+    ("not started", "Not started"),
+    (PROPOSED, "Proposed (shadow)"),
+)
+
+
+def plain_outcome(state: str) -> str:
+    """The first line's words for a `task_state`: merged, needs you, CI
+    failed, still running. One word set per URL part, de-duplicated."""
+    for prefix, word in (("dropped, still running — ", "Dropped, still running"),
+                         ("dropped by /drop — ", "Dropped")):
+        if state.startswith(prefix):
+            rest = plain_outcome(state[len(prefix):])
+            return word if rest in ("Not started", "Still running") or \
+                word.endswith("running") else f"{word} — {rest}"
+    words = []
+    for part in state.split("; "):
+        what = part.split(" — ", 1)[1] if part.startswith("http") and " — " in part else part
+        word = next((w for p, w in _PLAIN if what.startswith(p)), "")
+        word = word or (what[:1].upper() + what[1:])
+        if word not in words:
+            words.append(word)
+    return " · ".join(words)
+
+
+def entry_lines(task: str, pick: dict | None, state: str, tiered: bool, tier: str,
+                link: str = "", *, why: str = "", extra=(), mind_url: str = "") -> list[str]:
+    """One task as the human reads it (PyAutoBrain#634): the outcome in plain
+    words and the title, linked to the work itself; then a second, smaller
+    line with the slug, tier, size, repos, the exact state, any `extra`, the
+    Mind prompt and, last, the `why:` (`validate` reads it from the end)."""
+    pick = pick or {}
+    title = pick.get("title") or task
+    head = f"- **{plain_outcome(state)}** — " + (f"[{title}]({link})" if link else title)
+    detail = state.replace(f"{link} — ", "", 1) if link else state
+    bits = [f"`{task}`"] + ([tier] if tiered else []) \
+        + [x for x in (pick.get("size"), ", ".join(pick.get("repos") or [])) if x] \
+        + [detail] + list(extra) + ([f"[Mind prompt]({mind_url})"] if mind_url else []) \
+        + ([f"why: {why}"] if why else [])
+    return [head, "  <sub>" + " · ".join(bits) + "</sub>"]
+
+
+def held_leases(slot: Path) -> dict[str, dict]:
+    """The leases still held in a slot — `_orchestrator.leases`, read here
+    because this module must not import the orchestrator."""
+    out = {}
+    for f in sorted((Path(slot) / "leases").glob("*.json")):
+        try:
+            out[f.stem] = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _line(task: str, counters: dict, tier: str, health, links: MindLinks | None = None,
+          why: str = "", lease: dict | None = None) -> str:
+    state, tiered = task_state(task, counters, health, lease=lease)
+    pick = counters.get("picks", {}).get(task)
+    mind_url = links.prompt_url((pick or {}).get("prompt") or "") if links else ""
+    again = counters.get("redispatched", {}).get(task, 0)
+    return "\n".join(entry_lines(task, pick, state, tiered, tier,
+                                 work_link(task, counters, links), why=why,
+                                 extra=[f"re-dispatched {again}×"] if again else [],
+                                 mind_url=mind_url))
 
 
 def _packet(task: str, slot: Path, counters: dict) -> str:
@@ -309,8 +498,9 @@ def _packet(task: str, slot: Path, counters: dict) -> str:
 
 
 def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
-          health=None, issue: str = "") -> str:
-    """The `## Digest` block for one shift, as Markdown."""
+          health=None, issue: str = "", mind=None) -> str:
+    """The `## Digest` block for one shift, as Markdown. `mind` is the
+    watcher's Mind checkout, read locally for the prompt links (#634)."""
     tiers = tiers or {}
     health = health or pr_health
     picks = counters.get("picks", {})
@@ -318,12 +508,15 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     backlog = [t for t in picks if t not in named]
 
     lines = [DIGEST_HEADING, "", "### Brief work"]
-    base = mind_blob_base(issue)
-    lines += [_line(t, counters, tiers.get(t, picks.get(t, {}).get("tier", "?")), health, base)
-              for t in named] or [NO_PICKS]
+    links = MindLinks(mind, issue)
+    # A worker still out at review-at keeps its lease (#634, N1).
+    held = {t: l for t, l in held_leases(slot).items() if l.get("state") != "parked"}
+    lines += [_line(t, counters, tiers.get(t, picks.get(t, {}).get("tier", "?")), health, links,
+                    lease=held.get(t)) for t in named] or [NO_PICKS]
     lines += ["", "### Backlog picks"]
-    lines += [_line(t, counters, tiers.get(t, picks[t].get("tier", "?")), health, base)
-              + f" — why: {picks[t].get('why') or 'NOT RECORDED'}" for t in backlog] or [NO_PICKS]
+    lines += [_line(t, counters, tiers.get(t, picks[t].get("tier", "?")), health, links,
+                    why=picks[t].get("why") or "NOT RECORDED", lease=held.get(t))
+              for t in backlog] or [NO_PICKS]
     lines += backlog_gate_lines(counters)
 
     started = [t for t in named + backlog
@@ -339,7 +532,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines.append(f"{SHADOW_COUNTERS} · review-minutes-planned: {values['review-minutes-planned']}")
     else:
         lines += [f"- {k}: {values[k]}" for k in COUNTERS]
-        lines += ["", WORKERS_HEADING] + (worker_lines(counters, base) or [NO_PICKS])
+        lines += ["", WORKERS_HEADING] + (worker_lines(counters, links) or [NO_PICKS])
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
     lines += report_lines(slot)
     lines += identity_lines(counters)
@@ -430,12 +623,13 @@ EXIT_WORDS = ("spawned", "finished", "crashed", "parked", "late", "ended",
 CRASH_WORDS = ("crashed", "launch-failed")
 
 
-def worker_lines(counters: dict, base: str = "") -> list[str]:
+def worker_lines(counters: dict, links: MindLinks | None = None) -> list[str]:
     """One line per worker the shift started (or failed to start)."""
     picks = counters.get("picks", {})
     out = []
     for w in counters.get("workers", []):
-        line = f"- {label(w['task'], picks.get(w['task']), base)} ({w.get('key') or '?'}): " \
+        url = work_link(w["task"], counters, links)
+        line = f"- {label(w['task'], picks.get(w['task']), url)} ({w.get('key') or '?'}): " \
                + "/".join(w.get("exits") or ["spawned"])
         if w.get("stalled_s"):
             line += f" — blocked {round(w['stalled_s'] / 60)} min"
@@ -678,18 +872,40 @@ def _sections(text: str) -> dict[str, list[str]]:
     return out
 
 
-def _slug(line: str) -> str:
-    """The task a digest bullet is about: the backticked slug a titled pick
-    carries, else the bullet's first word (a pick recorded without a title)."""
-    m = _BULLET_RE.match(line)
+def _items(lines: list[str]) -> list[str]:
+    """A section's bullets, each joined with its indented continuation lines
+    (the second line of a #634 entry)."""
+    items: list[str] = []
+    for line in lines:
+        if line.startswith("- "):
+            items.append(line)
+        elif items and line.startswith("  ") and line.strip():
+            items[-1] += "\n" + line
+    return items
+
+
+#: A #634 entry names its task first on its second line.
+_SUB_SLUG_RE = re.compile(r"(?m)^\s+<sub>`([^`]+)`")
+_WHY_RE = re.compile(r"(?m)(?: — | · )why: (.*?)\s*(?:</sub>)?\s*$")
+
+
+def _slug(item: str) -> str:
+    """The task a digest bullet is about: the slug on a #634 entry's second
+    line, else the backticked slug a titled pick carries on its one line,
+    else the bullet's first word (a pick recorded without a title)."""
+    m = _BULLET_RE.match(item)
     if not m:
         return ""
-    s = _SLUG_RE.search(line.split(" — ", 1)[0])
+    sub = _SUB_SLUG_RE.search(item)
+    if sub:
+        return sub.group(1)
+    s = _SLUG_RE.search(item.split("\n", 1)[0].split(" — ", 1)[0])
     return s.group(1) if s else m.group(1)
 
 
 def validate(text: str) -> list[str]:
-    """Errors in a record's `## Digest`; empty when there is none, or it is whole."""
+    """Errors in a record's `## Digest`; empty when there is none, or it is whole.
+    Reads both the one-line entries of shifts before #634 and the two-line ones."""
     if DIGEST_HEADING not in text:
         return []
     errs = []
@@ -697,11 +913,11 @@ def validate(text: str) -> list[str]:
     for s in SECTIONS:
         if s not in secs:
             errs.append(f"digest: {s[4:]} section missing")
-    for line in secs.get("### Backlog picks", []):
-        slug = _slug(line)
-        if slug and line.strip() != NO_PICKS:
-            why = line.split(" — why: ", 1)
-            if len(why) < 2 or not why[1].strip() or why[1].strip() == "NOT RECORDED":
+    for item in _items(secs.get("### Backlog picks", [])):
+        slug = _slug(item)
+        if slug and item.strip() != NO_PICKS:
+            why = _WHY_RE.search(item)
+            if not why or not why.group(1).strip() or why.group(1).strip() == "NOT RECORDED":
                 errs.append(f"digest: backlog pick {slug} has no `why:` — "
                             "every pick names the brief rule it was picked under")
     seen = {}
@@ -715,10 +931,10 @@ def validate(text: str) -> list[str]:
             errs.append(f"digest: counter {key} missing")
     packets = "\n".join(secs.get("### Proof packets", []))
     for sec in ("### Brief work", "### Backlog picks"):
-        for line in secs.get(sec, []):
-            slug = _slug(line)
-            if slug and line.strip() != NO_PICKS and "not started" not in line \
-                    and PROPOSED not in line \
+        for item in _items(secs.get(sec, [])):
+            slug = _slug(item)
+            if slug and item.strip() != NO_PICKS and "not started" not in item \
+                    and PROPOSED not in item and STILL_OUT not in item \
                     and f"#### {slug}" not in packets:
                 errs.append(f"digest: {slug} has no proof packet")
     return errs
