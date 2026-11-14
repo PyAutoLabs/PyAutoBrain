@@ -53,5 +53,5 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   issue is marked by why you ended there: `question: <url>` when you parked
   with a question the human must answer (the watcher @-mentions them), or
   `verdict: <url>` when you posted a verdict, your deliverable (no mention —
-  the digest lists it). Without that file the watcher counts your session as
+  the digest lists it). Any other issue line @-mentions the human. Without that file the watcher counts your session as
   crashed.

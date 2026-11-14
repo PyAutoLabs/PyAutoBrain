@@ -365,7 +365,7 @@ def test_the_live_line_is_rewritten_only_when_the_shift_changes(tmp_path, monkey
     queued = []
     monkeypatch.setattr(orch, "_record_rel", lambda b, m: "batches/shift.md")
 
-    def commit(slot, mind, msg):
+    def commit(slot, mind, msg, **kw):
         for f in _mind_writer.pending_ops(slot):
             queued.append(json.loads(f.read_text()))
             f.unlink()
@@ -449,7 +449,7 @@ def test_stop_commits_nothing_to_mind_on_its_tick(tmp_path, monkeypatch):
     commits = []
     monkeypatch.setattr(orch, "_record_rel", lambda b, m: "batches/shift.md")
     monkeypatch.setattr(_mind_writer, "commit_ledger",
-                        lambda slot, mind, msg: commits.append(msg) or {"committed": None})
+                        lambda slot, mind, msg, **kw: commits.append(msg) or {"committed": None})
     claude, gh = d.FakeClaude(), FakeGitHub()
     _tick(brief, mind, home, 0, claude, gh)
     _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,

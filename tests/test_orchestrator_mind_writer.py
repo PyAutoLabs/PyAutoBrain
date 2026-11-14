@@ -205,12 +205,75 @@ def test_a_reapplied_claim_is_a_skipped_note(tmp_path, mind):
     for argv in (["move", "draft/feature/x/t1.md", "active/t1.md"],
                  ["append", "active.md", "--text-file", str(entry)]):
         assert _queue(slot, *argv, mind_repo=canon).returncode == 0
-    res = mw.commit_ledger(slot, canon, "again")
+    res = mw.commit_ledger(slot, canon, "again", own_tasks={"t1"})
     assert res["committed"] and res["set_aside"] == []
-    assert res["skipped"] == ["move: draft/feature/x/t1.md → active/t1.md is already on "
-                              "main — skipped", "append: ## t1 already in active.md — skipped"]
+    assert res["skipped"] == [
+        "move: draft/feature/x/t1.md → active/t1.md is already on main from this shift's "
+        "own claim (re-dispatch of t1) — skipped",
+        "append: ## t1 already in active.md from this shift's own claim — skipped"]
     active = _remote_tree(bare, "active.md").stdout
     assert active.count("## t1") == 1 and "## t8" in active
+    assert [e["kind"] for e in mw.report(slot)] == ["skipped", "skipped"]   # for the digest
+
+
+@pytest.mark.parametrize("case", ["not-redispatched", "other-content"])
+def test_a_claim_already_on_main_from_someone_else_is_a_conflict(tmp_path, mind, case):
+    """#632 review (2): a repeat is skipped only for this shift's own
+    re-dispatch whose earlier claim it committed and main still matches;
+    anything else is a conflict, set aside and reported loudly."""
+    bare, canon, other = mind
+    slot = tmp_path / "slot"
+    _claim_and_close(tmp_path, slot, canon)
+    assert mw.commit_ledger(slot, canon, "first")["committed"]
+    if case == "other-content":   # another session rewrote the t1 entry since
+        git(other, "pull", "-q", "origin", "main")
+        (other / "active.md").write_text((other / "active.md").read_text()
+                                         .replace("issues/1", "issues/99"))
+        git(other, "commit", "-qam", "someone else's t1")
+        git(other, "push", "-q", "origin", "HEAD:main")
+    entry = tmp_path / "again.md"
+    entry.write_text("\n## t1\n- issue: again\n")
+    assert _queue(slot, "append", "active.md", "--text-file", str(entry),
+                  mind_repo=canon).returncode == 0
+    if case == "not-redispatched":
+        assert _queue(slot, "move", "draft/feature/x/t1.md", "active/t1.md",
+                      mind_repo=canon).returncode == 0
+    res = mw.commit_ledger(slot, canon, "again",
+                           own_tasks=set() if case == "not-redispatched" else {"t1"})
+    assert res["set_aside"] and {a["kind"] for a in res["set_aside"]} == {"conflict"}
+    assert all("conflict" in a["why"] for a in res["set_aside"])
+    assert _remote_tree(bare, "active.md").stdout.count("## t1") == 1
+    import _digest
+    assert any("CONFLICT" in ln for ln in _digest.report_lines(slot))
+
+
+def test_a_watcher_op_is_held_and_retried_never_set_aside(tmp_path, mind):
+    """#632 review (1): a critical op (here a stage-2 row whose heading is not
+    on main) stays pending and is reported once; the worker op beside it
+    commits; once main has the heading the held op lands."""
+    bare, canon, other = mind
+    slot = tmp_path / "slot"
+    row = {"op": "table-append", "path": "autonomy_log.md", "heading": "## Stage 2",
+           "row": "| 2026-11-14 | t1 (pr) | slot |", "unique": "| t1 (pr) | slot |"}
+    mw.queue_op(slot / "ledger", row)
+    mw.queue_op(slot / "ledger", {"op": "append", "path": "active.md",
+                                  "text": "\n## t5\n- x\n"})
+    for _ in range(2):
+        res = mw.commit_ledger(slot, canon, "try")
+        assert [h["op"] for h in res["held"]] == ["table-append"] and not res["set_aside"]
+        assert len(mw.pending_ops(slot)) == 1
+    assert "## t5" in _remote_tree(bare, "active.md").stdout
+    assert [e["kind"] for e in mw.report(slot)] == ["held"]           # reported once
+    git(other, "pull", "-q", "origin", "main")
+    (other / "autonomy_log.md").write_text("# Log\n\n## Stage 2\n\n| a | b | c |\n")
+    git(other, "add", "-A")
+    git(other, "commit", "-qm", "heading")
+    git(other, "push", "-q", "origin", "HEAD:main")
+    assert mw.commit_ledger(slot, canon, "now")["committed"] and not mw.pending_ops(slot)
+    mw.queue_op(slot / "ledger", row)                                  # re-queued after a crash
+    res = mw.commit_ledger(slot, canon, "again")
+    assert res["committed"] is None and "already there" in res["skipped"][0]
+    assert _remote_tree(bare, "autonomy_log.md").stdout.count("t1 (pr)") == 1
 
 
 def test_the_worker_hook_refuses_a_direct_mind_commit(tmp_path, mind):

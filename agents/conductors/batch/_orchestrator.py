@@ -914,6 +914,7 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
             return result
         if why.startswith("review-at") and (slot / DIGEST_MARKER).exists() and (
                 leases(slot) or _mind_writer.pending_ops(slot) or closeouts_running(slot)
+                or ledger_unreported(slot)
                 or post_due(slot / DIGEST_MARKER) or post_due(slot / CORRECTION_MARKER)
                 or mentions_due(slot)):
             if not _take_lock(slot, now):
@@ -949,15 +950,28 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
     return result
 
 
-def origin_claims(mind: Path, ref: str = "origin/main") -> dict | None:
+def _fetch_once(mind: Path, counters: dict, now: _dt.datetime) -> None:
+    """One `git fetch` of Mind per shift, before its first plan, through the
+    one Mind writer's own fetch (#632 review; AUTONOMY.md "The watcher's
+    network surface"). A failed fetch is recorded and the local ref read."""
+    if counters.get("origin_fetch"):
+        return
+    try:
+        _mind_writer.fetch(mind)
+        counters["origin_fetch"] = {"at": _iso(now), "ok": True}
+    except _mind_writer.MindWriteError as e:
+        counters["origin_fetch"] = {"at": _iso(now), "ok": False, "error": str(e)[:200]}
+
+
+def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | None:
     """What Mind `origin/main` holds, read locally and read-only (#632, F4):
     its `draft/` paths and the `## slug` sections of its `active.md`.
 
-    No fetch and no pull: the one Mind writer fetches and pushes through this
-    checkout on every commit, so the local `origin/main` ref already holds
-    every claim this watcher committed — the claims a stale canonical
-    `draft/` hides. An extra fetch per tick would be a network call "The
-    watcher's network surface" does not name. None when `mind` is not a git
+    Never a pull. `fetch` (the writer's own `git fetch`, once per shift) runs
+    first; after it, the one Mind writer fetches and pushes through this
+    checkout on every commit, so the local `origin/main` ref holds every
+    claim this watcher committed — the claims a stale canonical `draft/`
+    hides. None when `mind` is not a git
     checkout (a scratch Mind: nothing to read); `{"error": …}` when it is one
     and the ref cannot be read — the caller then fails closed."""
     def git(*args):
@@ -967,6 +981,8 @@ def origin_claims(mind: Path, ref: str = "origin/main") -> dict | None:
         top = git("rev-parse", "--show-toplevel")
         if top.returncode != 0 or Path(top.stdout.strip()).resolve() != Path(mind).resolve():
             return None   # not a Mind checkout of its own
+        if fetch is not None:
+            fetch()
         tree = git("ls-tree", "-r", "-z", "--name-only", ref, "--", "draft/")
         if tree.returncode != 0:
             return {"error": f"{ref} unreadable: " + (tree.stderr or "").strip()[:200]}
@@ -978,13 +994,14 @@ def origin_claims(mind: Path, ref: str = "origin/main") -> dict | None:
     return {"drafts": set(filter(None, tree.stdout.split("\0"))), "active": slugs}
 
 
-def on_origin(records: list[dict], mind: Path, own: set[str]) -> tuple[list[dict], dict]:
+def on_origin(records: list[dict], mind: Path, own: set[str],
+              fetch=None) -> tuple[list[dict], dict]:
     """`records` without the drafts Mind origin/main no longer holds as
     unclaimed: a path not under its `draft/` (moved to `active/`, retired, or
     never pushed — the writer's claim move would fail) or a task with a
     `## <task>` section in its `active.md`. A task this shift already picked
     stays (its own re-dispatch). Returns (kept, {path: why})."""
-    claims = origin_claims(mind)
+    claims = origin_claims(mind, fetch=fetch)
     if claims is None:
         return records, {}
     kept, out = [], {}
@@ -1043,7 +1060,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # Against Mind origin/main, not the canonical checkout nobody
             # pulls mid-shift (#632, F4): a draft another shift already
             # claimed is never picked again.
-            recs, claimed = on_origin(recs, mind, set(counters["picks"]))
+            recs, claimed = on_origin(recs, mind, set(counters["picks"]),
+                                      fetch=lambda: _fetch_once(mind, counters, now))
             planned["claimed"] = claimed
             # Unattended by construction: an absent Lane is excluded and an
             # empty queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2
@@ -1070,7 +1088,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     if _mind_writer.pending_ops(slot):
         try:
             ledger = _mind_writer.commit_ledger(
-                slot, mind, f"shift {slot.name}: ledger from workers")
+                slot, mind, f"shift {slot.name}: ledger from workers",
+                own_tasks=counters["redispatched"])
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
     closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state,
@@ -1079,7 +1098,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     if _mind_writer.pending_ops(slot):  # a stage-2 row queued by a merged close-out
         try:
             ledger = _mind_writer.commit_ledger(
-                slot, mind, f"shift {slot.name}: unattended close-out")
+                slot, mind, f"shift {slot.name}: unattended close-out",
+                own_tasks=counters["redispatched"])
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
     mentions = _mentions(slot, counters, shift or {}, poster, now, whoami)
@@ -1373,11 +1393,13 @@ def mention_login() -> str:
 def _mention_triggers(counters: dict, held: dict) -> list[tuple[str, str, str]]:
     """(task, state, reason) for each worker that needs the human — the push
     test (AUTONOMY.md): a worker blocked on a person past the grace (parked),
-    or one whose `.done` names a `question:` (#632, F2). Read from durable state
-    (`counters.json`, the leases), not from this tick's events, so a tick that
-    died between parking a worker and posting still mentions it on the next;
-    the marker makes it once. A posted `verdict:`, a bare issue URL, a crash,
-    a refusal, a finished worker or an obsolete premise waits for the digest."""
+    or one whose `.done` names an issue not marked `verdict:` (`question:`, a
+    bare URL or any other marker — #632: the test fails toward the human).
+    Read from durable state (`counters.json`, the leases), not from this
+    tick's events, so a tick that died between parking a worker and posting
+    still mentions it on the next; the marker makes it once. A posted
+    `verdict:`, a crash, a refusal, a finished worker or an obsolete premise
+    waits for the digest."""
     out = []
     for task in counters["parked"]:
         since = (held.get(task) or {}).get("stalled_since")
@@ -1819,8 +1841,9 @@ def _live_status(slot: Path, mind: Path, shift: dict, now: _dt.datetime, agents,
                               {"op": "record-key", "path": rel, "key": "live", "value": line})
         keyfile.write_text(key, encoding="utf-8")
         try:
-            out["ledger"] = _mind_writer.commit_ledger(slot, mind,
-                                                       f"shift {slot.name}: live status")
+            out["ledger"] = _mind_writer.commit_ledger(
+                slot, mind, f"shift {slot.name}: live status",
+                own_tasks=read_counters(slot)["redispatched"])
         except _mind_writer.MindWriteError as e:
             out["ledger"] = {"committed": None, "error": str(e)}
     return out or None
@@ -1915,6 +1938,13 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                 if co["state"] == "merged" else f"close-out on {pr} ended: {co.get('why', '?')}")
         lines.append(f"- late: {co['task']} — {what} (after review-at, {_iso(now)})")
         counters["late"].append(co["task"])
+    # A Mind op set aside, in conflict or held after the digest was built
+    # reaches the human here: a late line, the record and the correction.
+    for e in ledger_unreported(slot):
+        lines.append(f"- late: Mind ledger — {_digest.report_line(e)[2:]} "
+                     f"(after review-at, {_iso(now)})")
+        counters["late"].append(f"ledger:{e.get('file')}")
+    counters["ledger_reported"] = len(_mind_writer.report(slot))
     if rel is not None and lines:
         head = f"\n{LATE_HEADING}\n" if first else ""
         _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
@@ -1926,7 +1956,8 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if _mind_writer.pending_ops(slot):
         try:
             ledger = _mind_writer.commit_ledger(
-                slot, mind, f"shift {slot.name}: late arrivals after review-at")
+                slot, mind, f"shift {slot.name}: late arrivals after review-at",
+                own_tasks=counters["redispatched"])
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
     posts = {}
@@ -2013,6 +2044,9 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         # is named in the digest itself, which still reaches the record.
         _auth().failed()
         _note_auth(counters, now)
+    # Everything the Mind writer reported so far is in this digest; what it
+    # reports from here on reaches the human through the late sweep (#632).
+    counters["ledger_reported"] = len(_mind_writer.report(slot))
     _write_counters(slot, counters)
     digest = _digest.build(brief, slot, counters, health=health, issue=issue)
     (slot / DIGEST_FILE).write_text(digest, encoding="utf-8")
@@ -2033,7 +2067,8 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                          + (f" — status: {status_url(slot)}" if status_url(slot) else "")})
         try:
             result["ledger"] = _mind_writer.commit_ledger(
-                slot, mind, f"shift {slot.name}: digest")
+                slot, mind, f"shift {slot.name}: digest",
+                own_tasks=counters["redispatched"])
         except _mind_writer.MindWriteError as e:
             result["ledger"] = {"committed": None, "error": str(e)}
 
@@ -2090,6 +2125,15 @@ CLOSEOUT_CUTOFF_S = 1200
 #: `token-budget:` (AUTONOMY.md, ruling 2026-11-14, #632 F5). Below it a
 #: close-out may pass the budget: it counts against it and the digest shows it.
 CLOSEOUT_BUDGET_FACTOR = 1.5
+
+
+def ledger_unreported(slot: Path) -> list[dict]:
+    """What the Mind writer reported (set aside, conflict, held) after the
+    digest was built — the late sweep's to tell the human (#632 review)."""
+    if not (slot / COUNTERS_FILE).exists():
+        return []
+    done = int(read_counters(slot).get("ledger_reported") or 0)
+    return [e for e in _mind_writer.report(slot)[done:] if e.get("kind") != "skipped"]
 
 
 def closeouts_running(slot: Path) -> bool:
@@ -2222,6 +2266,9 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
                 out["merged"].append(pr)
             _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
                 "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
+                # One row per PR and shift, even if a crash between this queue
+                # and the counters write below reaps the close-out twice (#632).
+                "unique": f"| {co['task']} ({pr}) | {slot.name} |",
                 "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"],
                                   merged_by=(gh or {}).get("mergedBy") or "")})
             events["merged"].append(pr)
@@ -2293,13 +2340,21 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                            "no close-out starts this late"}
                 events["refused"].append(pr)
                 continue
-            spent = _digest.token_parts(counters)["measured"]
+            if budget and counters["usage_unavailable"]:
+                # As the spawn gate: a spend that cannot be read could be
+                # anything, so nothing starts this tick; asked again next tick.
+                events.setdefault("held", []).append(
+                    {"pr": pr, "why": "token usage unavailable ("
+                     + ", ".join(counters["usage_unavailable"]) + ")"})
+                continue
+            spent = _committed_tokens(counters)
             if budget and spent >= CLOSEOUT_BUDGET_FACTOR * budget:
                 # The human's ruling 2026-11-14 (#632, F5): a close-out may pass
-                # the budget, but none starts once spend reaches 1.5x it.
+                # the budget, but none starts once spend reaches 1.5x it —
+                # spend as the spawn gate counts it, reservations included.
                 counters["closeouts"][pr] = {
                     "task": task, "state": "refused",
-                    "why": f"token spend {spent} reached "
+                    "why": f"token spend {spent} (committed) reached "
                            f"{CLOSEOUT_BUDGET_FACTOR}× token-budget {budget}"}
                 events["refused"].append(pr)
                 continue

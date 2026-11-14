@@ -495,6 +495,28 @@ def test_a_closeout_may_pass_the_budget_but_none_starts_at_one_and_a_half_times(
             assert "reached 1.5× token-budget 1000" in co["why"]
 
 
+def test_the_closeout_ceiling_counts_reservations_and_holds_on_unread_usage(tmp_path):
+    """#632 review (4): the 1.5x ceiling counts spend as the spawn gate does
+    (`_committed_tokens`: a live session's reservation included), and an
+    unreadable usage holds the start for a tick — it is never read as 0."""
+    mind, brief, home, sp = _shift(tmp_path / "reserve")
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    c["usage"]["w1"] = {"kind": "worker", "task": "named", "total": 100, "reserve": 1600}
+    orch._write_counters(slot, c)
+    r = _tick(brief, mind, home, sp, 1)
+    assert r["closeouts"]["started"] == []
+    assert "1600 (committed) reached 1.5×" in orch.read_counters(slot)["closeouts"][PR1]["why"]
+
+    mind, brief, home, sp = _shift(tmp_path / "unread", cap=2)
+    r = _tick(brief, mind, home, sp, 1, health=_health({PR2: "RUNNING"}))
+    assert r["closeouts"]["started"] == [PR1]
+    # PR1's close-out usage cannot be read (no session id): PR2 waits a tick.
+    r = _tick(brief, mind, home, sp, 2)
+    assert r["closeouts"]["started"] == [] and r["closeouts"]["held"][0]["pr"] == PR2
+    assert PR2 not in orch.read_counters(orch.slot_dir(brief, home))["closeouts"]
+
+
 def test_the_digest_names_closeout_tokens_and_an_overrun():
     c = {"usage": {"w": {"kind": "worker", "total": 1000},
                    "co": {"kind": "closeout", "total": 400}}}

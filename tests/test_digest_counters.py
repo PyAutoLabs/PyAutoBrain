@@ -234,10 +234,19 @@ def test_refusals_are_one_entry_per_task_and_reason_class(tmp_path):
                                                 "2026-11-16T13:02:00Z")
     lines = _digest.refusal_lines(c)
     assert lines == [
-        "- a — token-budget 400000 spent — 3× from 2026-11-16T13:00:00Z to "
-        "2026-11-16T13:02:00Z (last: token-budget 400000 spent (432999))",
+        "- token-budget 400000 spent — 1 task(s) waited: a — 3× from 2026-11-16T13:00:00Z "
+        "to 2026-11-16T13:02:00Z (last: token-budget 400000 spent (432999))",
         "- max-workers 2 reached — 2 task(s) waited: b, x — 6× from "
         "2026-11-16T13:00:00Z to 2026-11-16T13:02:00Z"]
+    # Identical token refusals across tasks are one line too (#632 review); a
+    # task's own reason stays its own line.
+    _digest.note_refusals(c, [{"task": "z", "why": "token-budget 400000 spent (440000)"},
+                              {"task": "z", "why": "spawn failed: boom"}],
+                          "2026-11-16T13:03:00Z")
+    lines = _digest.refusal_lines(c)
+    assert len(lines) == 3 and lines[0] == "- z — spawn failed — 1× from 2026-11-16T13:03:00Z " \
+        "(last: spawn failed: boom)"
+    assert lines[1].startswith("- token-budget 400000 spent — 2 task(s) waited: a, z — 4× ")
     # A slot recorded one entry per tick (before #632) folds into the same lines.
     old = {"refusals": [{"task": "a", "why": f"token-budget 400000 spent ({n})",
                          "at": f"2026-11-16T13:0{i}:00Z"} for i, n in enumerate((1, 2))]}

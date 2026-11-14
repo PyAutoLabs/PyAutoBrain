@@ -70,39 +70,51 @@ _BULLET_RE = re.compile(r"^- (\S+)")
 
 # --- outcomes ------------------------------------------------------------------
 
-#: The `.done` words that say why a worker ended on an issue (#632, F2): a
-#: question parks it for the human (a push), a verdict is its deliverable.
+#: The `.done` words that say why a worker ended on an issue (#632, F2). Only
+#: an explicit `verdict:` (its deliverable) keeps the human un-mentioned; a
+#: `question:`, a bare issue URL or any other marker is a push — the push
+#: test fails toward the human, never toward silence (#632 review).
 DONE_QUESTION, DONE_VERDICT = "question", "verdict"
+_URL_RE = re.compile(r"https?://\S+")
+_MARKER_RE = re.compile(r"^\s*([A-Za-z-]*)\s*:?\s*$")
 
 
 def parse_done(text: str) -> dict:
     """A worker's `.done` file: one PR or issue URL per line, `merged <url>` for
     a PR it merged in-turn under its tier, `question: <url>` for an issue it
-    parked on with a question for the human, `verdict: <url>` for a verdict it
-    posted, `obsolete <why>` when its premise check stopped it. An issue URL
+    parked on with a question, `verdict: <url>` for a verdict it posted,
+    `obsolete <why>` when its premise check stopped it. Markers are read in
+    any case, with or without the colon or the space after it. An issue URL
     goes in `issues`, never in `prs`: `prs` is what CI, a close-out and the
-    merge count read (PyAutoBrain#610). Only a `question:` line is a push
-    (#632); a bare issue URL is neither, and waits for the digest."""
+    merge count read (PyAutoBrain#610). `verdicts` holds only the URLs an
+    explicit `verdict:` marked — every other issue URL is a push (#632)."""
     prs, merged, issues, obsolete = [], [], [], None
     questions, verdicts = [], []
     for line in text.splitlines():
         words = line.split()
         if not words:
             continue
-        word = words[0].rstrip(":").lower()
-        if words[0] == "obsolete":
+        if words[0].lower().rstrip(":") == "obsolete":
             # The worker's premise check found the task obsolete on main and
             # it stopped (worker_template.md); the rest is its evidence.
             obsolete = line.strip()[len("obsolete"):].strip(" :—-")
-        elif words[0] == "merged" and len(words) > 1:
-            merged.append(words[1])
-            prs.append(words[1])
-        elif word in (DONE_QUESTION, DONE_VERDICT) and len(words) > 1 \
-                and words[1].startswith("http"):
-            (questions if word == DONE_QUESTION else verdicts).append(words[1])
-            (issues if _ISSUE_URL_RE.search(words[1]) else prs).append(words[1])
-        elif words[0].startswith("http"):
-            (issues if _ISSUE_URL_RE.search(words[0]) else prs).append(words[0])
+            continue
+        m = _URL_RE.search(line)
+        if not m:
+            continue
+        url = m.group(0)
+        marker = _MARKER_RE.match(line[:m.start()])
+        word = marker.group(1).lower() if marker else ""
+        if word == "merged":
+            merged.append(url)
+            prs.append(url)
+            continue
+        is_issue = bool(_ISSUE_URL_RE.search(url))
+        (issues if is_issue else prs).append(url)
+        if word == DONE_VERDICT:
+            verdicts.append(url)
+        elif is_issue:
+            questions.append(url)   # `question:`, bare or unrecognised: a push
     out = {"prs": prs, "merged": merged, "issues": issues}
     if questions:
         out["questions"] = questions
@@ -329,31 +341,38 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines += [f"- {k}: {values[k]}" for k in COUNTERS]
         lines += ["", WORKERS_HEADING] + (worker_lines(counters, base) or [NO_PICKS])
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
-    lines += set_aside_lines(slot)
+    lines += report_lines(slot)
     lines += identity_lines(counters)
     return "\n".join(lines) + "\n"
 
 
-#: Where the one Mind writer keeps an op it could not apply (`_mind_writer`).
-SET_ASIDE = ("ledger", "set_aside")
+_REPORT_WORDS = {
+    "skipped": "note: Mind ledger op skipped",
+    "set-aside": "warning: Mind ledger op set aside, not committed",
+    "conflict": "warning: CONFLICT — Mind ledger op set aside, not committed",
+    "held": "warning: Mind ledger op held pending, retried every tick",
+}
 
 
-def set_aside_lines(slot: Path) -> list[str]:
-    """PyAutoBrain#632 (B1): every Mind ledger op the writer set aside so the
-    rest could commit — the op, its path and why — for the human to apply or
-    drop. Nothing when none was."""
-    d = Path(slot).joinpath(*SET_ASIDE)
+def report_line(e: dict) -> str:
+    """One `ledger/report.jsonl` entry as a digest or late line."""
+    head = _REPORT_WORDS.get(e.get("kind"), f"warning: Mind ledger {e.get('kind')}")
+    where = f" (`ledger/set_aside/{e.get('file')}`)" if e.get("kind") in (
+        "set-aside", "conflict") else ""
+    return f"- {head} — {e.get('op') or '?'} {e.get('path') or '?'}: {e.get('why')}{where}"
+
+
+def report_lines(slot: Path) -> list[str]:
+    """PyAutoBrain#632: every note, set-aside, conflict and held op the one
+    Mind writer reported this shift (`ledger/report.jsonl`) — never only in
+    tick.log. Nothing when there is none."""
+    f = Path(slot) / "ledger" / "report.jsonl"
     out = []
-    for why in sorted(d.glob("*.json.why")) if d.is_dir() else ():
+    for line in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else ()):
         try:
-            op = json.loads(why.with_suffix("").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            op = {}
-        op = op if isinstance(op, dict) else {}
-        out.append(f"- warning: Mind ledger op set aside, not committed — "
-                   f"{op.get('op', '?')} {op.get('path', '?')}: "
-                   f"{why.read_text(encoding='utf-8').strip()} "
-                   f"(`{'/'.join(SET_ASIDE)}/{why.with_suffix('').name}`)")
+            out.append(report_line(json.loads(line)))
+        except ValueError:
+            continue
     return [""] + out if out else []
 
 
@@ -378,12 +397,20 @@ def backlog_gate_lines(counters: dict) -> list[str]:
         out.append("Backlog dip stopped: queue.md is empty, so the shift took the "
                    "brief's named tasks only.")
     origin = gates.get("origin") or {}
-    if origin:
-        out.append(f"Claimed on Mind origin/main: {len(origin)} draft(s) excluded — the "
-                   "canonical checkout still shows them in draft/: "
-                   + ", ".join(f"`{Path(a).stem}`" for a in sorted(origin)[:SUMMARY_NAMES])
-                   + (f" +{len(origin) - SUMMARY_NAMES} more" if len(origin) > SUMMARY_NAMES
-                      else ""))
+    closed = {p: w for p, w in origin.items() if w.endswith("fail closed")}
+    claimed = sorted(p for p in origin if p not in closed)
+
+    def names(paths):
+        return (", ".join(f"`{Path(a).stem}`" for a in paths[:SUMMARY_NAMES])
+                + (f" +{len(paths) - SUMMARY_NAMES} more" if len(paths) > SUMMARY_NAMES
+                   else ""))
+    if claimed:
+        out.append(f"Claimed on Mind origin/main: {len(claimed)} draft(s) excluded — the "
+                   "canonical checkout still shows them in draft/: " + names(claimed))
+    if closed:
+        out.append(f"Mind origin/main could not be read: {len(closed)} draft(s) not picked "
+                   f"(fail closed) — {next(iter(closed.values()))[5:]}: "
+                   + names(sorted(closed)))
     absent = gates.get("lane_absent") or []
     if absent:
         out.append(f"Lane absent: {len(absent)} draft(s) excluded — no valid `Lane:`, "
@@ -437,8 +464,10 @@ _REFUSAL_CLASSES = (
     (re.compile(r"^token usage unavailable\b"), "token usage unavailable"),
     (re.compile(r"^spawn failed\b"), "spawn failed"),
 )
-#: Refusals summarised in one line for the whole shift, not one per task.
-MAX_WORKERS_RE = re.compile(r"^max-workers \d+ reached")
+#: Refusals whose reason is the shift's, not the task's — summarised in one
+#: line for every task they held back (#632, F3 and review).
+SHIFT_WIDE_RE = re.compile(r"^(max-workers \d+ reached|max-sessions \d+ reached"
+                           r"|token-budget \d+|token usage unavailable)")
 #: Tasks a summary line names before `+N more`.
 SUMMARY_NAMES = 8
 
@@ -473,7 +502,9 @@ def refusal_lines(counters: dict) -> list[str]:
     """Every spawn the watcher refused: one line per task and reason class,
     with how many ticks refused it, from when to when, and the latest figure
     where the reason carries one; every `max-workers` refusal in one line
-    (#610 review, #632 F3). A refusal recorded one entry per tick (before
+    (#610 review, #632 F3); every shift-wide reason (`max-workers`,
+    `max-sessions`, a token reason) is one line for all the tasks it held
+    back. A refusal recorded one entry per tick (before
     #632) folds into the same lines."""
     seen: dict[tuple[str, str], dict] = {}
     for r in counters.get("refusals", []):
@@ -485,11 +516,14 @@ def refusal_lines(counters: dict) -> list[str]:
         e["why"] = r.get("why", "") or e["why"]
     out, capped = [], {}
     for (task, cls), e in seen.items():
-        if MAX_WORKERS_RE.match(cls):
-            c = capped.setdefault(cls, {"tasks": [], "n": 0, "first": e["first"], "last": ""})
+        if SHIFT_WIDE_RE.match(cls):
+            c = capped.setdefault(cls, {"tasks": [], "n": 0, "first": e["first"], "last": "",
+                                        "why": ""})
             c["tasks"].append(task)
             c["n"] += e["n"]
             c["first"] = min(c["first"], e["first"])
+            if e["last"] >= c["last"]:
+                c["why"] = e["why"]
             c["last"] = max(c["last"], e["last"])
             continue
         tail = f"{e['n']}× from {e['first']}" + (
@@ -502,7 +536,8 @@ def refusal_lines(counters: dict) -> list[str]:
             f" +{len(c['tasks']) - SUMMARY_NAMES} more" if len(c["tasks"]) > SUMMARY_NAMES else "")
         out.append(f"- {cls} — {len(c['tasks'])} task(s) waited: {names} — "
                    f"{c['n']}× from {c['first']}"
-                   + (f" to {c['last']}" if c["last"] and c["last"] != c["first"] else ""))
+                   + (f" to {c['last']}" if c["last"] and c["last"] != c["first"] else "")
+                   + (f" (last: {c['why']})" if c["why"] and c["why"] != cls else ""))
     return out
 
 

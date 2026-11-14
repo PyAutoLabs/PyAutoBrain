@@ -589,7 +589,8 @@ def test_a_redispatched_worker_never_strands_the_mind_writer(tmp_path, monkeypat
     active = t.git(bare, "show", "main:active.md").stdout
     assert active.count("## t1") == 1
     assert t.git(bare, "show", "main:complete/2026/11/t1-notes.md").stdout == "notes\n"
-    assert "Mind ledger op set aside" in "\n".join(_digest.set_aside_lines(slot))
+    report = "\n".join(_digest.report_lines(slot))
+    assert "Mind ledger op set aside" in report and "from this shift's own claim" in report
 
     # Every later tick keeps committing.
     mw.queue_op(ledger, {"op": "append", "path": "active.md",
@@ -598,6 +599,37 @@ def test_a_redispatched_worker_never_strands_the_mind_writer(tmp_path, monkeypat
               agents=_agents({"t1": "working"}, slot))
     assert r["ledger"]["committed"] and not r["ledger"]["set_aside"]
     assert "## t1-followup" in t.git(bare, "show", "main:active.md").stdout
+
+
+def test_an_op_set_aside_after_the_digest_reaches_the_human(tmp_path, monkeypatch):
+    """#632 review (1): a worker op set aside in the digest's own commit is
+    told to the human by the late sweep — a late line on the record and the
+    correction comment — never only tick.log; the watcher's own ops commit."""
+    import _mind_writer as mw
+    import test_orchestrator_digest as td
+    t, bare, canon, brief, home = _git_shift(tmp_path, monkeypatch)
+    brief.write_text(brief.read_text().replace(
+        "- review-at:", "- issue: https://github.com/o/m/issues/1\n- review-at:"))
+    slot = orch.slot_dir(brief, home)
+    claude = FakeClaude()
+    _tick(brief, canon, home, NOW, claude)
+    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/9\n")
+    mw.queue_op(slot / mw.LEDGER_DIR, {"op": "remove", "path": "active/missing.md"})
+    poster = td.Poster()
+    kw = dict(home=home, grace_s=0, spawner=orch.RealSpawner(brief, "auto", run=claude),
+              agents=_agents({"t1": "done"}, slot), tokens=lambda s: 0, poster=poster)
+    r = orch.tick(brief, canon, now=AFTER, **kw)
+    assert r["action"] == "digest" and r["ledger"]["committed"]
+    assert [a["op"] for a in r["ledger"]["set_aside"]] == ["remove"]
+    assert "set aside" not in poster.calls[0][1]          # the digest was built first
+    assert orch.ledger_unreported(slot)
+    r = orch.tick(brief, canon, now=AFTER + _dt.timedelta(minutes=3), **kw)
+    assert r["action"] == "late" and r["posts"]["correction"] == "posted", r
+    assert "Mind ledger op set aside" in poster.calls[1][1]
+    record = t.git(bare, "show", "main:batches/2026-11-04-am.md").stdout
+    assert "- late: Mind ledger — warning: Mind ledger op set aside" in record
+    assert not orch.ledger_unreported(slot)
+    assert orch.tick(brief, canon, now=AFTER + _dt.timedelta(minutes=6), **kw)["action"] == "idle"
 
 
 def test_a_new_shift_never_repicks_a_task_claimed_on_mind_origin(tmp_path, monkeypatch):
@@ -622,9 +654,38 @@ def test_a_new_shift_never_repicks_a_task_claimed_on_mind_origin(tmp_path, monke
         "draft/feature/pyautobrain/t1.md":
             "not in draft/ on Mind origin/main (claimed or retired)",
         "draft/feature/pyautobrain/t2.md": "claimed in active.md on Mind origin/main"}
+    assert orch.read_counters(orch.slot_dir(brief, home))["origin_fetch"]["ok"] is True
     recs = [{"path": "draft/feature/pyautobrain/t1.md"}]
     assert orch.on_origin(recs, canon, {"t1"})[0] == recs     # its own pick stays
     assert orch.on_origin(recs, tmp_path, set()) == (recs, {})  # not a git checkout
+
+
+def test_mind_is_fetched_once_per_shift_and_an_unreadable_ref_fails_closed(
+        tmp_path, monkeypatch):
+    """#632 review (5): one `git fetch` per shift, through the writer's own
+    fetch; a Mind whose origin/main cannot be read picks nothing it did not
+    already pick, and the digest says so in its own words."""
+    import _mind_writer as mw
+    t, bare, canon, brief, home = _git_shift(tmp_path, monkeypatch)
+    fetches = []
+    real = mw.fetch
+    monkeypatch.setattr(mw, "fetch", lambda *a, **k: fetches.append(a) or real(*a, **k))
+    claude = FakeClaude()
+    for m in (0, 3, 6):
+        _tick(brief, canon, home, NOW + _dt.timedelta(minutes=m), claude)
+    # The per-shift fetch is the one with no remote named; the rest are the
+    # writer's own fetches at its commits.
+    assert sum(len(a) == 1 for a in fetches) == 1
+    t.git(canon, "update-ref", "-d", "refs/remotes/origin/main")
+    recs = [{"path": "draft/feature/pyautobrain/t1.md"},
+            {"path": "draft/feature/pyautobrain/t9.md"}]
+    kept, out = orch.on_origin(recs, canon, {"t1"})
+    assert kept == recs[:1]
+    assert out["draft/feature/pyautobrain/t9.md"].startswith("Mind origin/main unreadable")
+    lines = _digest.backlog_gate_lines({"backlog_gates": {"origin": out}})
+    assert any(ln.startswith("Mind origin/main could not be read: 1 draft(s) not picked "
+                             "(fail closed)") for ln in lines)
+    assert not any(ln.startswith("Claimed") for ln in lines)
 
 
 # --- shift-watcher state-machine gaps (PyAutoBrain#603) ------------------------------

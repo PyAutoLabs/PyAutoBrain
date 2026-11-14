@@ -43,13 +43,24 @@ Every path must be *ledger* by PyAutoMind's own rule (`scripts/ledger_merge.py`
 
 One bad op never strands the rest (PyAutoBrain#632, B1 — a re-dispatched
 worker re-queued its claim's `draft→active` move and every later op of the
-shift stayed pending). A re-apply of what main already holds is a skipped
-note: a `move` whose source is gone and destination present, an `append` to a
-`## slug` registry (`active.md`) whose sections are all there. Any other op
-that fails validation or cannot apply on `origin/main` is *set aside* — moved
-to `ledger/set_aside/` with its reason and returned for the digest — and the
-remaining ops still commit. Only a push rejected `PUSH_TRIES` times leaves ops
-pending.
+shift stayed pending):
+
+- a *repeat* is a skipped note — only a re-dispatched task's own claim (the
+  caller names those tasks, `own_tasks`) whose earlier op this shift already
+  committed (`ledger/committed/`) and whose content on main matches it: a
+  `move` whose source is gone and destination present, a `## slug` section an
+  `active.md` append already finds there;
+- the same shape from anyone else is a *conflict*, set aside loudly;
+- any other worker op that fails validation or cannot apply is *set aside* —
+  moved to `ledger/set_aside/` with its reason — and the rest still commit;
+- a *critical* op (`CRITICAL_OPS`: the digest and late lines on a batch
+  record, the pilot row, the live line, a stage-2 row) is never set aside: it
+  is *held* pending and retried on every tick.
+
+Every note, set-aside, conflict and first hold is appended to
+`ledger/report.jsonl`, which the digest and the late sweep read: none of them
+lives only in `tick.log`. Only a push rejected `PUSH_TRIES` times leaves every
+op pending.
 """
 
 from __future__ import annotations
@@ -71,10 +82,33 @@ COMMITTED_DIR = "committed"
 #: Ops that could not apply (or were invalid), kept for the human with their
 #: reason (`<op file>.why`) — never retried, never blocking the others.
 SET_ASIDE_DIR = "set_aside"
+#: What the writer did besides commit, one JSON line each (#632 review).
+REPORT_FILE = "report.jsonl"
+#: Op kinds only the watcher writes, and an `append` to a batch record: the
+#: shift's own record (digest, late lines), pilot row, live line and stage-2
+#: rows. Never set aside — held pending and retried (#632 review).
+CRITICAL_KINDS = ("record-key", "jsonl-upsert", "table-upsert", "table-append")
+
+
+def is_critical(op) -> bool:
+    return isinstance(op, dict) and (
+        op.get("op") in CRITICAL_KINDS
+        or (op.get("op") == "append" and str(op.get("path", "")).startswith("batches/")))
+
+
+class ConflictError(RuntimeError):
+    """A claim that looks already done, but not by this shift's own task."""
 
 
 class MindWriteError(RuntimeError):
     pass
+
+
+def fetch(mind_repo: Path, remote: str = "origin", branch: str = "main") -> None:
+    """The writer's one network read: `git fetch` of Mind `main` (refs and
+    objects only — the working tree is never touched). The watcher also calls
+    it once per shift before its first plan (#632, F4)."""
+    _git(Path(mind_repo), "fetch", "-q", remote, branch)
 
 
 def _ledger_merge(mind_repo: Path):
@@ -122,6 +156,9 @@ def validate_op(op: dict, lm) -> list[str]:
         row = op.get("row")
         if not isinstance(row, str) or not row.startswith("|") or "\n" in row:
             errs.append("table-append: row must be one `| … |` line")
+        if "unique" in op and (not isinstance(op["unique"], str) or not op["unique"]
+                               or "\n" in op["unique"]):
+            errs.append("table-append: unique must be one non-empty line")
     if kind == "jsonl-upsert":
         row, key = op.get("row"), op.get("key")
         if not str(op.get("path", "")).endswith(".jsonl"):
@@ -156,21 +193,24 @@ def validate_op(op: dict, lm) -> list[str]:
     return errs
 
 
-def apply_op(tree: Path, op: dict, lm) -> str | None:
-    """Apply one validated op inside `tree`; raises MindWriteError if it cannot.
+def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
+    """Apply one validated op inside `tree`; raises MindWriteError if it cannot,
+    ConflictError for a claim that is already on main but not this shift's own.
 
     Returns a note when the op was deliberately skipped: a `set-header` or
     `record-key` on a file no longer on main (a stamp must not hold the shift),
-    and a re-apply of what main already holds — a `move` already done, an
-    `append` of `## slug` sections a registry already has (#632)."""
+    a `table-append` whose `unique` key a row already carries, and a
+    re-dispatched task's own repeat of a claim this shift already committed
+    (`ctx`: {"own": task names, "prior": this shift's committed ops}, #632)."""
     target = tree / op["path"]
     kind = op["op"]
+    ctx = ctx or {"own": set(), "prior": []}
     if kind == "append":
         target.parent.mkdir(parents=True, exist_ok=True)
         old = target.read_text(encoding="utf-8") if target.exists() else ""
         text, note = op["text"], None
         if op["path"] in getattr(lm, "ENTRY_MERGED_FILES", ()) and old:
-            text, note = _new_sections(old, text, op["path"], lm)
+            text, note = _new_sections(old, text, op["path"], lm, ctx)
             if not text:
                 return note
         sep = "" if not old or old.endswith("\n") else "\n"
@@ -184,8 +224,16 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
     elif kind == "move":
         dest = tree / op["to"]
         if not target.exists() and dest.exists():
-            # A re-dispatched worker re-queues its predecessor's claim (#632).
-            return f"move: {op['path']} → {op['to']} is already on main — skipped"
+            # A re-dispatched worker re-queues its predecessor's claim (#632):
+            # a repeat only when this shift itself committed that very move.
+            task = Path(op["path"]).stem
+            if task in ctx["own"] and any(
+                    p.get("op") == "move" and p.get("path") == op["path"]
+                    and p.get("to") == op["to"] for p in ctx["prior"]):
+                return (f"move: {op['path']} → {op['to']} is already on main from this "
+                        f"shift's own claim (re-dispatch of {task}) — skipped")
+            raise ConflictError(f"move: {op['path']} is gone and {op['to']} exists on "
+                                f"main, not from this shift's own claim of {task} — conflict")
         if not target.exists():
             raise MindWriteError(f"move: {op['path']} does not exist")
         if dest.exists():
@@ -214,9 +262,11 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
         target.write_text(record_key(target.read_text(encoding="utf-8"),
                                      op["key"], op["value"]), encoding="utf-8")
     elif kind == "table-append":
-        target.write_text(table_append(target.read_text(encoding="utf-8")
-                                       if target.exists() else "",
-                                       op["heading"], op["row"]), encoding="utf-8")
+        text = target.read_text(encoding="utf-8") if target.exists() else ""
+        if op.get("unique") and _section_has(text, op["heading"], op["unique"]):
+            # A row re-queued after a crash between queue and counters (#632).
+            return f"table-append: a row with {op['unique']!r} is already there — skipped"
+        target.write_text(table_append(text, op["heading"], op["row"]), encoding="utf-8")
     elif kind == "jsonl-upsert":
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(jsonl_upsert(target.read_text(encoding="utf-8")
@@ -230,18 +280,32 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
                           encoding="utf-8")
 
 
-def _new_sections(old: str, text: str, path: str, lm) -> tuple[str, str | None]:
+def _new_sections(old: str, text: str, path: str, lm,
+                  ctx: dict) -> tuple[str, str | None]:
     """`text` without the `## slug` sections `old` already has, and a note
     naming them; ("", note) when every section is already there. Text with
-    no `## ` section is appended as it is."""
+    no `## ` section is appended as it is. A section already there is a
+    repeat only when its task is a re-dispatch of this shift (`ctx["own"]`)
+    and main's section is exactly the one this shift committed before
+    (`ctx["prior"]`); any other is a ConflictError (#632 review)."""
     pre, entries = lm.split_entries(text)
     if not entries:
         return text, None
-    have = {slug for slug, _ in lm.split_entries(old)[1]}
+    have = dict(lm.split_entries(old)[1])
     dup = [slug for slug, _ in entries if slug in have]
     if not dup:
         return text, None
-    note = f"append: {', '.join(dup)} already in {path} — skipped"
+    ours = {}
+    for p in ctx["prior"]:
+        if p.get("op") == "append" and p.get("path") == path:
+            ours.update(lm.split_entries(p.get("text") or "")[1])
+    bad = [slug for slug in dup if slug[3:].strip() not in ctx["own"]
+           or ours.get(slug) != have[slug]]
+    if bad:
+        raise ConflictError(f"append: {', '.join(bad)} already in {path}, not this "
+                            "shift's own claim — conflict")
+    note = (f"append: {', '.join(dup)} already in {path} from this shift's own claim "
+            "— skipped")
     rest = [body for slug, body in entries if slug not in have]
     return (pre + "".join(rest) if rest else ""), note
 
@@ -266,6 +330,20 @@ def record_key(text: str, key: str, value: str,
             break
     lines.insert(at, new)
     return "\n".join(lines)
+
+
+def _section_has(text: str, heading: str, needle: str) -> bool:
+    """Whether a table row under the `## ` heading starting `heading` holds `needle`."""
+    lines = text.splitlines()
+    start = next((i for i, ln in enumerate(lines) if ln.startswith(heading)), None)
+    if start is None:
+        return False
+    for ln in lines[start + 1:]:
+        if ln.startswith("## "):
+            break
+        if ln.startswith("|") and needle in ln:
+            return True
+    return False
 
 
 def table_append(text: str, heading: str, row: str) -> str:
@@ -405,63 +483,105 @@ def _set_aside(slot: Path, f: Path, why: str) -> dict:
     """Move one op file out of the way with its reason; returns its record."""
     d = Path(slot) / LEDGER_DIR / SET_ASIDE_DIR
     d.mkdir(parents=True, exist_ok=True)
+    op = _op_of(f)
+    (d / (f.name + ".why")).write_text(why + "\n", encoding="utf-8")
+    f.replace(d / f.name)
+    return {"file": f.name, "op": op.get("op"), "path": op.get("path"), "why": why}
+
+
+def _op_of(f: Path) -> dict:
     try:
         op = json.loads(f.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        op = {}
-    (d / (f.name + ".why")).write_text(why + "\n", encoding="utf-8")
-    f.replace(d / f.name)
-    return {"file": f.name, "op": op.get("op") if isinstance(op, dict) else None,
-            "path": op.get("path") if isinstance(op, dict) else None, "why": why}
+        return {}
+    return op if isinstance(op, dict) else {}
+
+
+def report(slot: Path) -> list[dict]:
+    """Every entry of `ledger/report.jsonl`, oldest first: {kind: skipped |
+    set-aside | conflict | held, file, op, path, why}."""
+    f = Path(slot) / LEDGER_DIR / REPORT_FILE
+    out = []
+    for line in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else ()):
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
+def _report(slot: Path, entries: list[dict]) -> None:
+    if not entries:
+        return
+    f = Path(slot) / LEDGER_DIR / REPORT_FILE
+    with open(f, "a", encoding="utf-8") as fh:
+        for e in entries:
+            fh.write(json.dumps(e, sort_keys=True) + "\n")
+
+
+def committed_ops(slot: Path) -> list[dict]:
+    """The ops this shift has already committed (`ledger/committed/`)."""
+    d = Path(slot) / LEDGER_DIR / COMMITTED_DIR
+    return [op for f in sorted(d.glob("*.json"))
+            if (op := _op_of(f))] if d.is_dir() else []
 
 
 def commit_ledger(slot: Path, mind_repo: Path, message: str,
-                  remote: str = "origin", branch: str = "main") -> dict:
+                  remote: str = "origin", branch: str = "main",
+                  own_tasks=()) -> dict:
     """Commit every pending op in `<slot>/ledger/` to PyAutoMind as one commit.
 
     Returns {"committed": sha | None, "ops": n, "tries": k, "skipped": notes,
-    "set_aside": [{file, op, path, why}]}. An op that fails validation (not
-    JSON, not a ledger path) or cannot apply on the current `origin/main` is
-    set aside with its reason and the rest commit (#632); a re-apply of what
-    main already holds is a skipped note. Only a push rejected `PUSH_TRIES`
-    times raises, with every op left pending.
+    "set_aside": [{file, op, path, why, kind}], "held": [...]}. `own_tasks`
+    are the tasks this shift re-dispatched: only their repeated claims may be
+    skipped as already done (#632 review). A worker op that is invalid or
+    cannot apply is set aside (a claim already on main from someone else as a
+    `conflict`); a critical op is held pending instead. Only a push rejected
+    `PUSH_TRIES` times raises, with every op left pending.
     """
     mind_repo = Path(mind_repo)
     files = pending_ops(slot)
     if not files:
         return {"committed": None, "ops": 0, "tries": 0}
     lm = _ledger_merge(mind_repo)
-    ops, invalid = [], {}
+    ctx = {"own": set(own_tasks), "prior": committed_ops(slot)}
+    ops, invalid, unready = [], {}, {}
     for f in files:
         try:
             op = json.loads(f.read_text(encoding="utf-8"))
         except ValueError as e:
-            invalid[f] = f"not JSON ({e})"
+            invalid[f] = ("set-aside", f"not JSON ({e})")
             continue
         errs = validate_op(op, lm) if isinstance(op, dict) else ["not a JSON object"]
         if errs:
-            invalid[f] = "; ".join(errs)
+            (unready if is_critical(op) else invalid)[f] = (
+                "held" if is_critical(op) else "set-aside", "; ".join(errs))
             continue
         ops.append((f, op))
+    seen_held = {(e.get("file"), e.get("kind")) for e in report(slot)}
 
     for attempt in range(1, PUSH_TRIES + 1):
-        _git(mind_repo, "fetch", "-q", remote, branch)
+        fetch(mind_repo, remote, branch)
         tmp = Path(tempfile.mkdtemp(prefix="mind-writer-"))
         tree = tmp / "tree"
         try:
             _git(mind_repo, "worktree", "add", "-q", "--detach", str(tree),
                  f"{remote}/{branch}")
-            notes, failed = [], dict(invalid)
+            notes, failed, held = [], dict(invalid), dict(unready)
             for f, op in ops:
                 try:
-                    note = apply_op(tree, op, lm)
+                    note = apply_op(tree, op, lm, ctx)
+                except ConflictError as e:
+                    (held if is_critical(op) else failed)[f] = (
+                        "held" if is_critical(op) else "conflict", str(e))
+                    continue
                 except (MindWriteError, OSError, KeyError, TypeError, ValueError) as e:
-                    failed[f] = str(e) or type(e).__name__
+                    (held if is_critical(op) else failed)[f] = (
+                        "held" if is_critical(op) else "set-aside",
+                        str(e) or type(e).__name__)
                     continue
                 if note:
-                    notes.append(note)
-            for n in notes:
-                print(f"mind-writer: {n}", file=sys.stderr)
+                    notes.append((f, op, note))
             _git(tree, "add", "-A")
             if not _git(tree, "status", "--porcelain").stdout.strip():
                 sha = None  # every op was already true on main (or set aside)
@@ -471,16 +591,25 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
                 pushed = _git(tree, "push", "-q", remote, f"HEAD:{branch}", check=False)
                 if pushed.returncode != 0:
                     continue  # main moved: replay the ops on the new origin/main
-            aside = [_set_aside(slot, f, why) for f, why in sorted(failed.items())]
-            for a in aside:
-                print(f"mind-writer: set aside {a['file']}: {a['why']}", file=sys.stderr)
+            aside = []
+            for f, (kind, why) in sorted(failed.items()):
+                aside.append({**_set_aside(slot, f, why), "kind": kind})
+            held_out = [{"file": f.name, "op": _op_of(f).get("op"),
+                         "path": _op_of(f).get("path"), "why": why, "kind": "held"}
+                        for f, (_k, why) in sorted(held.items())]
+            _report(slot, [{"kind": "skipped", "file": f.name, "op": op.get("op"),
+                            "path": op.get("path"), "why": n} for f, op, n in notes]
+                    + aside + [h for h in held_out if (h["file"], "held") not in seen_held])
+            for a in aside + held_out:
+                print(f"mind-writer: {a['kind']} {a['file']}: {a['why']}", file=sys.stderr)
             done = Path(slot) / LEDGER_DIR / COMMITTED_DIR
             done.mkdir(parents=True, exist_ok=True)
             for f in files:
-                if f not in failed:
+                if f not in failed and f not in held:
                     f.replace(done / f.name)
-            return {"committed": sha, "ops": len(files) - len(failed), "tries": attempt,
-                    "skipped": notes, "set_aside": aside}
+            return {"committed": sha, "ops": len(files) - len(failed) - len(held),
+                    "tries": attempt, "skipped": [n for _f, _o, n in notes],
+                    "set_aside": aside, "held": held_out}
         finally:
             # Our own throwaway tree. A failed apply can leave it dirty, so
             # delete the directory and prune the registration, no force flag.
