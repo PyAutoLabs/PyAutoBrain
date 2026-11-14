@@ -91,7 +91,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install (pytest + PyYAML — the whole dependency set)
-        run: pip install pytest PyYAML
+        run: pip install pytest PyYAML PyJWT cryptography
       - name: Run tests
         working-directory: PyAutoBrain
         run: pytest tests/ -q

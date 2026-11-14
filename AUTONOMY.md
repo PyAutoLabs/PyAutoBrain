@@ -879,15 +879,19 @@ is never retried. The watcher also reads `gh pr view --json
 state,mergedAt,mergedBy` for the PRs its own workers named — the close-out's
 merge truth (#603) and, once at `review-at:`, the digest's `merges` (#610).
 It also makes one read-only `gh api user` per shift, under the posting token,
-to warn when it equals the mention login (#611).
+to warn when it equals the mention login (#611) — as the App, one `GET /app`
+with its JWT instead, naming it `<slug>[bot]` (#630).
 The revert condition now reads: one network call outside these, or a comment
 beyond these (a second digest, a second mention for the same worker and
 state, a second correction), retires the watcher to fake mode. **Posting identity, ruled
 by the human 2026-11-12 (PyAutoLabs/PyAutoBrain#611):** the watcher's GitHub
-writes use a separate bot or machine account's token, set by the human as
-`PYAUTO_SHIFT_GH_TOKEN` (fine-grained, PyAutoMind issues:write only); until it
-is set they post as the human's account and the digest warns that the
-mention will not notify.
+writes use the watcher's App installation token (PyAutoBrain#630), minted by
+one `POST /app/installations/<id>/access_tokens` call on each tick that makes
+a watcher GitHub call and held in memory for that tick only. Without the App,
+a separate account's static token, `PYAUTO_SHIFT_GH_TOKEN` (fine-grained,
+PyAutoMind issues:write only), is the fallback. With neither set, the writes
+post as the human's account and the digest warns that the mention will not
+notify.
 
 **Amendment — 2026-11-13 (PyAutoBrain#622), authorized by the human.** The
 human approved the live shift view as drafted on 2026-11-13: a running shift
