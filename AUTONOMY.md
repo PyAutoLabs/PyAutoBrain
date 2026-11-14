@@ -790,6 +790,11 @@ adversary amendment — 2026-11-04").
 *Revert condition:* a `reverted` row demotes the tier exactly as the 2026-10-02
 section says; one merge past a brief's cap retires this sub-rule.
 
+**Close-out budget — 2026-11-14 (PyAutoBrain#632), the human's ruling.** A
+close-out may take the shift past its `token-budget:`, but its tokens count
+against that budget and the digest shows them, and no new close-out starts
+once the shift's spend reaches 1.5× the budget.
+
 ### One Mind writer per shift — 2026-11-03
 
 During a shift, **only the orchestrator commits to PyAutoMind**, from its own

@@ -70,17 +70,26 @@ _BULLET_RE = re.compile(r"^- (\S+)")
 
 # --- outcomes ------------------------------------------------------------------
 
+#: The `.done` words that say why a worker ended on an issue (#632, F2): a
+#: question parks it for the human (a push), a verdict is its deliverable.
+DONE_QUESTION, DONE_VERDICT = "question", "verdict"
+
+
 def parse_done(text: str) -> dict:
     """A worker's `.done` file: one PR or issue URL per line, `merged <url>` for
-    a PR it merged in-turn under its tier, `obsolete <why>` when its premise
-    check stopped it. An issue URL (a worker that parked on its issue with a
-    question) goes in `issues`, never in `prs`: `prs` is what CI, a close-out
-    and the merge count read (PyAutoBrain#610)."""
+    a PR it merged in-turn under its tier, `question: <url>` for an issue it
+    parked on with a question for the human, `verdict: <url>` for a verdict it
+    posted, `obsolete <why>` when its premise check stopped it. An issue URL
+    goes in `issues`, never in `prs`: `prs` is what CI, a close-out and the
+    merge count read (PyAutoBrain#610). Only a `question:` line is a push
+    (#632); a bare issue URL is neither, and waits for the digest."""
     prs, merged, issues, obsolete = [], [], [], None
+    questions, verdicts = [], []
     for line in text.splitlines():
         words = line.split()
         if not words:
             continue
+        word = words[0].rstrip(":").lower()
         if words[0] == "obsolete":
             # The worker's premise check found the task obsolete on main and
             # it stopped (worker_template.md); the rest is its evidence.
@@ -88,9 +97,17 @@ def parse_done(text: str) -> dict:
         elif words[0] == "merged" and len(words) > 1:
             merged.append(words[1])
             prs.append(words[1])
+        elif word in (DONE_QUESTION, DONE_VERDICT) and len(words) > 1 \
+                and words[1].startswith("http"):
+            (questions if word == DONE_QUESTION else verdicts).append(words[1])
+            (issues if _ISSUE_URL_RE.search(words[1]) else prs).append(words[1])
         elif words[0].startswith("http"):
             (issues if _ISSUE_URL_RE.search(words[0]) else prs).append(words[0])
     out = {"prs": prs, "merged": merged, "issues": issues}
+    if questions:
+        out["questions"] = questions
+    if verdicts:
+        out["verdicts"] = verdicts
     if obsolete is not None:
         out["obsolete"] = obsolete
     return out
@@ -197,7 +214,9 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
     closeouts = counters.get("closeouts", {})
     for url in urls:
         co = closeouts.get(url, {})
-        if url in out.get("issues", []):
+        if url in out.get("verdicts", []):
+            state = "verdict posted"
+        elif url in out.get("issues", []):
             state = "PARKED-ON-ISSUE"
         elif url in out["merged"]:
             state = ("merged unattended (close-out, " + co.get("model", "?") + ")"
@@ -310,8 +329,32 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines += [f"- {k}: {values[k]}" for k in COUNTERS]
         lines += ["", WORKERS_HEADING] + (worker_lines(counters, base) or [NO_PICKS])
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
+    lines += set_aside_lines(slot)
     lines += identity_lines(counters)
     return "\n".join(lines) + "\n"
+
+
+#: Where the one Mind writer keeps an op it could not apply (`_mind_writer`).
+SET_ASIDE = ("ledger", "set_aside")
+
+
+def set_aside_lines(slot: Path) -> list[str]:
+    """PyAutoBrain#632 (B1): every Mind ledger op the writer set aside so the
+    rest could commit — the op, its path and why — for the human to apply or
+    drop. Nothing when none was."""
+    d = Path(slot).joinpath(*SET_ASIDE)
+    out = []
+    for why in sorted(d.glob("*.json.why")) if d.is_dir() else ():
+        try:
+            op = json.loads(why.with_suffix("").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            op = {}
+        op = op if isinstance(op, dict) else {}
+        out.append(f"- warning: Mind ledger op set aside, not committed — "
+                   f"{op.get('op', '?')} {op.get('path', '?')}: "
+                   f"{why.read_text(encoding='utf-8').strip()} "
+                   f"(`{'/'.join(SET_ASIDE)}/{why.with_suffix('').name}`)")
+    return [""] + out if out else []
 
 
 def identity_lines(counters: dict) -> list[str]:
@@ -334,6 +377,13 @@ def backlog_gate_lines(counters: dict) -> list[str]:
     if gates.get("queue_stop"):
         out.append("Backlog dip stopped: queue.md is empty, so the shift took the "
                    "brief's named tasks only.")
+    origin = gates.get("origin") or {}
+    if origin:
+        out.append(f"Claimed on Mind origin/main: {len(origin)} draft(s) excluded — the "
+                   "canonical checkout still shows them in draft/: "
+                   + ", ".join(f"`{Path(a).stem}`" for a in sorted(origin)[:SUMMARY_NAMES])
+                   + (f" +{len(origin) - SUMMARY_NAMES} more" if len(origin) > SUMMARY_NAMES
+                      else ""))
     absent = gates.get("lane_absent") or []
     if absent:
         out.append(f"Lane absent: {len(absent)} draft(s) excluded — no valid `Lane:`, "
@@ -378,16 +428,82 @@ def worker_lines(counters: dict, base: str = "") -> list[str]:
 
 
 REFUSALS_HEADING = "### Refusals"
+#: Refusal reasons that carry a running figure, keyed by their class so one
+#: refusal is one entry however the figure moves (PyAutoBrain#632, F3).
+_REFUSAL_CLASSES = (
+    (re.compile(r"^(token-budget \d+) spent\b"), r"\1 spent"),
+    (re.compile(r"^(token-budget \d+): \d+ committed \+ (\d+) reserved per worker"),
+     r"\1: committed + \2 reserved per worker would pass it"),
+    (re.compile(r"^token usage unavailable\b"), "token usage unavailable"),
+    (re.compile(r"^spawn failed\b"), "spawn failed"),
+)
+#: Refusals summarised in one line for the whole shift, not one per task.
+MAX_WORKERS_RE = re.compile(r"^max-workers \d+ reached")
+#: Tasks a summary line names before `+N more`.
+SUMMARY_NAMES = 8
+
+
+def refusal_class(why: str) -> str:
+    """The stable part of a refusal reason: the reason with its running
+    figure (tokens spent, committed) dropped; any other reason as it is."""
+    for rx, label in _REFUSAL_CLASSES:
+        m = rx.match(why or "")
+        if m:
+            return m.expand(label)
+    return why or "?"
+
+
+def note_refusals(counters: dict, refused: list[dict], at: str) -> None:
+    """Record one tick's refusals: one entry per (task, reason class), with
+    its count, first and last time and the latest full reason (#632, F3)."""
+    index = {(r.get("task"), r.get("class") or refusal_class(r.get("why", ""))): r
+             for r in counters.setdefault("refusals", [])}
+    for r in refused:
+        cls = refusal_class(r.get("why", ""))
+        old = index.get((r.get("task"), cls))
+        if old is None:
+            old = {"task": r.get("task"), "class": cls, "count": 0, "at": at}
+            counters["refusals"].append(old)
+            index[(r.get("task"), cls)] = old
+        # An entry from before #632 (no `count`) stood for one refusal.
+        old.update(why=r.get("why", ""), last=at, count=int(old.get("count", 1)) + 1)
 
 
 def refusal_lines(counters: dict) -> list[str]:
-    """Every spawn the watcher refused, with its reason: one line per task and
-    reason, with how many ticks refused it and when first (#610 review)."""
-    seen: dict[tuple[str, str], list] = {}
+    """Every spawn the watcher refused: one line per task and reason class,
+    with how many ticks refused it, from when to when, and the latest figure
+    where the reason carries one; every `max-workers` refusal in one line
+    (#610 review, #632 F3). A refusal recorded one entry per tick (before
+    #632) folds into the same lines."""
+    seen: dict[tuple[str, str], dict] = {}
     for r in counters.get("refusals", []):
-        k = (r.get("task", "?"), r.get("why", "?"))
-        seen.setdefault(k, [0, r.get("at", "?")])[0] += 1
-    return [f"- {task} — {why} — {n}× from {at}" for (task, why), (n, at) in seen.items()]
+        cls = r.get("class") or refusal_class(r.get("why", "?"))
+        k = (r.get("task", "?"), cls)
+        e = seen.setdefault(k, {"n": 0, "first": r.get("at", "?"), "last": "", "why": ""})
+        e["n"] += int(r.get("count") or 1)
+        e["last"] = max(e["last"], r.get("last") or r.get("at") or "")
+        e["why"] = r.get("why", "") or e["why"]
+    out, capped = [], {}
+    for (task, cls), e in seen.items():
+        if MAX_WORKERS_RE.match(cls):
+            c = capped.setdefault(cls, {"tasks": [], "n": 0, "first": e["first"], "last": ""})
+            c["tasks"].append(task)
+            c["n"] += e["n"]
+            c["first"] = min(c["first"], e["first"])
+            c["last"] = max(c["last"], e["last"])
+            continue
+        tail = f"{e['n']}× from {e['first']}" + (
+            f" to {e['last']}" if e["last"] and e["last"] != e["first"] else "")
+        if e["why"] and e["why"] != cls:
+            tail += f" (last: {e['why']})"
+        out.append(f"- {task} — {cls} — {tail}")
+    for cls, c in capped.items():
+        names = ", ".join(c["tasks"][:SUMMARY_NAMES]) + (
+            f" +{len(c['tasks']) - SUMMARY_NAMES} more" if len(c["tasks"]) > SUMMARY_NAMES else "")
+        out.append(f"- {cls} — {len(c['tasks'])} task(s) waited: {names} — "
+                   f"{c['n']}× from {c['first']}"
+                   + (f" to {c['last']}" if c["last"] and c["last"] != c["first"] else ""))
+    return out
 
 
 def workers_crashed(counters: dict) -> int:
@@ -449,7 +565,12 @@ def counter_values(brief: dict, counters: dict) -> dict:
     budget = brief.get("token-budget", {}).get("value", "?")
     parts = token_parts(counters)
     tokens = f"{parts['measured']} of {budget}"
-    extra = ([f"cache-read {parts['cache_read']}"] if parts["cache_read"] else []) \
+    # Close-outs may pass the budget but count against it (AUTONOMY.md, ruling
+    # 2026-11-14, #632 F5): their share is named, and so is an overrun.
+    over = str(budget).isdigit() and parts["measured"] > int(budget)
+    extra = ([f"close-outs {parts['closeouts']}"] if parts["closeouts"] else []) \
+        + ([f"over budget by {parts['measured'] - int(budget)}"] if over else []) \
+        + ([f"cache-read {parts['cache_read']}"] if parts["cache_read"] else []) \
         + ([f"{len(parts['unmeasured'])} session(s) unmeasured"] if parts["unmeasured"] else [])
     values = {"merges": len(merged_prs(counters)), "workers-crashed": workers_crashed(counters),
               "tokens": tokens + (f" ({'; '.join(extra)})" if extra else ""),

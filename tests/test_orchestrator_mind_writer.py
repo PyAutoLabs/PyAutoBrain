@@ -167,21 +167,50 @@ def test_a_non_ledger_path_is_refused_before_anything_moves(tmp_path, mind):
     (slot / "ledger" / "0-x.json").write_text(json.dumps(
         {"op": "write", "path": ".github/workflows/x.yml", "text": "x"}))
     head = git(bare, "rev-parse", "main").stdout
-    with pytest.raises(mw.MindWriteError, match="not a ledger path"):
-        mw.commit_ledger(slot, canon, "nope")
+    res = mw.commit_ledger(slot, canon, "nope")
+    assert res["committed"] is None and "not a ledger path" in res["set_aside"][0]["why"]
     assert git(bare, "rev-parse", "main").stdout == head
+    assert not mw.pending_ops(slot)
 
 
-def test_an_op_that_cannot_apply_stays_pending(tmp_path, mind):
+def test_an_op_that_cannot_apply_is_set_aside_and_the_rest_commit(tmp_path, mind):
+    """PyAutoBrain#632 (B1): one bad op never strands the others."""
     bare, canon, _ = mind
     slot = tmp_path / "slot"
     assert _queue(slot, "remove", "active/missing.md", mind_repo=canon).returncode == 0
-    head = git(bare, "rev-parse", "main").stdout
-    with pytest.raises(mw.MindWriteError, match="does not exist"):
-        mw.commit_ledger(slot, canon, "nope")
-    assert git(bare, "rev-parse", "main").stdout == head
-    assert len(mw.pending_ops(slot)) == 1
+    entry = tmp_path / "e.md"
+    entry.write_text("\n## t7\n- issue: x\n")
+    assert _queue(slot, "append", "active.md", "--text-file", str(entry),
+                  mind_repo=canon).returncode == 0
+    (slot / "ledger" / "99999999999999999999-0-junk.json").write_text("{not json")
+    res = mw.commit_ledger(slot, canon, "ledger")
+    assert res["committed"] and res["ops"] == 1
+    assert sorted(a["why"][:6] for a in res["set_aside"]) == ["not JS", "remove"]
+    assert "## t7" in _remote_tree(bare, "active.md").stdout
+    assert not mw.pending_ops(slot)
+    aside = slot / "ledger" / mw.SET_ASIDE_DIR
+    assert len(list(aside.glob("*.json"))) == 2 and len(list(aside.glob("*.why"))) == 2
     assert len(git(canon, "worktree", "list").stdout.splitlines()) == 1
+
+
+def test_a_reapplied_claim_is_a_skipped_note(tmp_path, mind):
+    """PyAutoBrain#632 (B1): a move already done and an `active.md` section
+    already there are notes, not failures; a section that is new still lands."""
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    _claim_and_close(tmp_path, slot, canon)
+    assert mw.commit_ledger(slot, canon, "first")["committed"]
+    entry = tmp_path / "again.md"
+    entry.write_text("\n## t1\n- issue: again\n\n## t8\n- issue: new\n")
+    for argv in (["move", "draft/feature/x/t1.md", "active/t1.md"],
+                 ["append", "active.md", "--text-file", str(entry)]):
+        assert _queue(slot, *argv, mind_repo=canon).returncode == 0
+    res = mw.commit_ledger(slot, canon, "again")
+    assert res["committed"] and res["set_aside"] == []
+    assert res["skipped"] == ["move: draft/feature/x/t1.md → active/t1.md is already on "
+                              "main — skipped", "append: ## t1 already in active.md — skipped"]
+    active = _remote_tree(bare, "active.md").stdout
+    assert active.count("## t1") == 1 and "## t8" in active
 
 
 def test_the_worker_hook_refuses_a_direct_mind_commit(tmp_path, mind):

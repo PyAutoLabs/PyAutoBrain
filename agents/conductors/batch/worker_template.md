@@ -48,7 +48,10 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   `#### {task} — <PR url>`, with the Witness: output trimmed to the lines that
   decide it. It goes into the shift digest verbatim; leave it out and the
   digest says you wrote none.
-- Then write {lease_dir}/{task}.done containing the URLs of the PRs you opened
-  (or the issue you parked on), one per line — `merged <url>` for a PR you
-  merged in-turn under its tier. Without that file the watcher counts your
-  session as crashed.
+- Then write {lease_dir}/{task}.done containing the URLs of the PRs you opened,
+  one per line — `merged <url>` for a PR you merged in-turn under its tier. An
+  issue is marked by why you ended there: `question: <url>` when you parked
+  with a question the human must answer (the watcher @-mentions them), or
+  `verdict: <url>` when you posted a verdict, your deliverable (no mention —
+  the digest lists it). Without that file the watcher counts your session as
+  crashed.

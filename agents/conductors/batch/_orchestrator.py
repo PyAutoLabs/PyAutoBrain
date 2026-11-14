@@ -215,7 +215,8 @@ class FakeSpawner:
         self.seconds = seconds
         self.crash = set(crash or ())
 
-    def spawn(self, task: str, prompt_path: str, lease_dir: Path) -> dict:
+    def spawn(self, task: str, prompt_path: str, lease_dir: Path,
+              redispatch: bool = False) -> dict:
         mode = "crash" if task in self.crash else "ok"
         proc = subprocess.Popen(
             [sys.executable, "-c", _FAKE_WORKER, str(lease_dir), task, mode,
@@ -237,9 +238,26 @@ class FakeSpawner:
         return {"state": "OPEN", "mergedAt": "", "mergedBy": ""}
 
 
-def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path) -> str:
-    """The session template filled in for one task."""
-    return WORKER_TEMPLATE.read_text(encoding="utf-8").format(
+#: Prepended to a re-dispatched worker's prompt (PyAutoBrain#632, B1): the
+#: crashed worker may already have claimed the task through the ledger.
+REDISPATCH_NOTE = """\
+This is a RE-DISPATCH: an earlier worker on this task crashed. Its claim may
+already be on PyAutoMind main — the `{task_path}` → `active/` move and the
+`## {task}` section in `active.md` — and its issue, branch, worktree or PR may
+exist. Look before you create: `git -C <PyAutoMind> fetch -q origin main` and
+`git -C <PyAutoMind> show origin/main:active.md` (the canonical checkout is not
+pulled during a shift). Reuse what exists and do not queue the claim again; a
+repeated claim op is skipped by the orchestrator's Mind writer anyway.
+
+"""
+
+
+def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path,
+                  redispatch: bool = False) -> str:
+    """The session template filled in for one task; a re-dispatch is told
+    that its predecessor's claim may already exist (#632)."""
+    head = REDISPATCH_NOTE.format(task=task, task_path=prompt_path) if redispatch else ""
+    return head + WORKER_TEMPLATE.read_text(encoding="utf-8").format(
         task=task, task_path=prompt_path, brief_path=brief_path, lease_dir=lease_dir,
         ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
         shift_ledger=SHIFT_LEDGER, brain_cli=BRAIN_CLI)
@@ -313,7 +331,7 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
 
 
 def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Path,
-                    mode: str) -> list[str]:
+                    mode: str, redispatch: bool = False) -> list[str]:
     """The exact argv that starts one worker — named, moded, templated.
 
     No `--session-id`: `claude --bg` (2.1.316) assigns its own, so the worker is
@@ -322,7 +340,7 @@ def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Pa
         raise OrchestratorError(f"worker mode {mode!r} is not one of "
                                 + ", ".join(_brief.WORKER_MODES))
     return ["claude", "--bg", "--name", f"shift:{task}", "--permission-mode", mode,
-            worker_prompt(task, prompt_path, brief_path, lease_dir)]
+            worker_prompt(task, prompt_path, brief_path, lease_dir, redispatch)]
 
 
 #: `claude --bg` prints `backgrounded · <8-hex id> · <name>` on its first line.
@@ -344,8 +362,10 @@ class RealSpawner:
         """GitHub's word on a PR — the merge truth for a close-out (#603)."""
         return self.gh(url)
 
-    def spawn(self, task: str, prompt_path: str, lease_dir: Path) -> dict:
-        argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode)
+    def spawn(self, task: str, prompt_path: str, lease_dir: Path,
+              redispatch: bool = False) -> dict:
+        argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode,
+                               redispatch)
         res = self.run(argv, cwd=self.cwd, capture_output=True, text=True, timeout=120,
                        env=worker_env(lease_dir))
         # An untrusted folder is refused here, fast ("Workspace not trusted") —
@@ -893,14 +913,16 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
             _log(slot, now, result)
             return result
         if why.startswith("review-at") and (slot / DIGEST_MARKER).exists() and (
-                leases(slot) or _mind_writer.pending_ops(slot)
+                leases(slot) or _mind_writer.pending_ops(slot) or closeouts_running(slot)
                 or post_due(slot / DIGEST_MARKER) or post_due(slot / CORRECTION_MARKER)
                 or mentions_due(slot)):
             if not _take_lock(slot, now):
                 return {"action": "busy", "reason": "another tick holds the lock"}
             try:
                 result = late_sweep(brief_path, mind, slot, now, grace_s=grace_s,
-                                    agents=agents, tokens=tokens, poster=poster)
+                                    agents=agents, tokens=tokens, poster=poster,
+                                    pr_state=(pr_state or getattr(spawner, "pr_state", None)
+                                              or _default_pr_state()))
             finally:
                 _drop_lock(slot)
             _log(slot, now, result)
@@ -925,6 +947,60 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
         _drop_lock(slot)
     _log(slot, now, result)
     return result
+
+
+def origin_claims(mind: Path, ref: str = "origin/main") -> dict | None:
+    """What Mind `origin/main` holds, read locally and read-only (#632, F4):
+    its `draft/` paths and the `## slug` sections of its `active.md`.
+
+    No fetch and no pull: the one Mind writer fetches and pushes through this
+    checkout on every commit, so the local `origin/main` ref already holds
+    every claim this watcher committed — the claims a stale canonical
+    `draft/` hides. An extra fetch per tick would be a network call "The
+    watcher's network surface" does not name. None when `mind` is not a git
+    checkout (a scratch Mind: nothing to read); `{"error": …}` when it is one
+    and the ref cannot be read — the caller then fails closed."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(mind), *args], capture_output=True,
+                              text=True, timeout=60)
+    try:
+        top = git("rev-parse", "--show-toplevel")
+        if top.returncode != 0 or Path(top.stdout.strip()).resolve() != Path(mind).resolve():
+            return None   # not a Mind checkout of its own
+        tree = git("ls-tree", "-r", "-z", "--name-only", ref, "--", "draft/")
+        if tree.returncode != 0:
+            return {"error": f"{ref} unreadable: " + (tree.stderr or "").strip()[:200]}
+        active = git("show", f"{ref}:active.md")
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"error": f"git could not run: {e}"[:200]}
+    slugs = {ln[3:].strip() for ln in (active.stdout if active.returncode == 0 else "")
+             .splitlines() if ln.startswith("## ")}
+    return {"drafts": set(filter(None, tree.stdout.split("\0"))), "active": slugs}
+
+
+def on_origin(records: list[dict], mind: Path, own: set[str]) -> tuple[list[dict], dict]:
+    """`records` without the drafts Mind origin/main no longer holds as
+    unclaimed: a path not under its `draft/` (moved to `active/`, retired, or
+    never pushed — the writer's claim move would fail) or a task with a
+    `## <task>` section in its `active.md`. A task this shift already picked
+    stays (its own re-dispatch). Returns (kept, {path: why})."""
+    claims = origin_claims(mind)
+    if claims is None:
+        return records, {}
+    kept, out = [], {}
+    for r in records:
+        task = task_id(r.get("path") or "")
+        if task in own:
+            kept.append(r)
+        elif "error" in claims:
+            out[r["path"]] = f"Mind {claims['error']} — fail closed"
+        elif r["path"] not in claims["drafts"]:
+            out[r["path"]] = "not in draft/ on Mind origin/main (claimed or retired)"
+        elif task in claims["active"]:
+            out[r["path"]] = "claimed in active.md on Mind origin/main"
+        else:
+            kept.append(r)
+    return kept, out
 
 
 def active_leases(slot: Path) -> dict[str, dict]:
@@ -964,6 +1040,11 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         """The plan inside the brief, made once a tick when first needed."""
         if "d" not in planned:
             recs = records if records is not None else _batch.survey(mind)
+            # Against Mind origin/main, not the canonical checkout nobody
+            # pulls mid-shift (#632, F4): a draft another shift already
+            # claimed is never picked again.
+            recs, claimed = on_origin(recs, mind, set(counters["picks"]))
+            planned["claimed"] = claimed
             # Unattended by construction: an absent Lane is excluded and an
             # empty queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2
             # rulings — 2026-11-12"). Recorded each tick so the digest can say so.
@@ -993,7 +1074,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
     closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state,
-                           tokens=tokens)
+                           tokens=tokens,
+                           review_at=_brief._iso((shift or {}).get("review_at") or ""))
     if _mind_writer.pending_ops(slot):  # a stage-2 row queued by a merged close-out
         try:
             ledger = _mind_writer.commit_ledger(
@@ -1008,7 +1090,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
 
     d = plan()
     counters["backlog_gates"] = {"lane_absent": sorted(d["lane_absent"]),
-                                 "queue_stop": d["queue_stop"]}
+                                 "queue_stop": d["queue_stop"],
+                                 "origin": planned.get("claimed") or {}}
     paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):
         proposed = [] if paused else _propose(
@@ -1062,7 +1145,10 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         if not _create_exclusive(lease_path, lease):
             continue  # a lease appeared since we read them: never a second worker
         try:
-            lease.update(spawner.spawn(task, member["path"], slot / "leases"))
+            # Only a re-dispatch passes the flag, so a spawner without it
+            # (a test's) is called exactly as before.
+            again = {"redispatch": True} if task in counters["pending_redispatch"] else {}
+            lease.update(spawner.spawn(task, member["path"], slot / "leases", **again))
         except Exception as e:
             # One task's failed launch is that task's refusal, not the tick's:
             # what this tick already reaped stays written, the rest carry on.
@@ -1089,7 +1175,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         _write_counters(slot, counters)
         live[task] = lease
         spawned.append({"task": task, "pid": lease["pid"]})
-    counters["refusals"] += [dict(r, at=_iso(now)) for r in refused]
+    _digest.note_refusals(counters, refused, _iso(now))
     _write_counters(slot, counters)
     out = {"action": "ticked", "reaped": reaped, "spawned": spawned,
            "refused": refused, "live": sorted(live), "ledger": ledger,
@@ -1287,20 +1373,20 @@ def mention_login() -> str:
 def _mention_triggers(counters: dict, held: dict) -> list[tuple[str, str, str]]:
     """(task, state, reason) for each worker that needs the human — the push
     test (AUTONOMY.md): a worker blocked on a person past the grace (parked),
-    or one that parked on its issue with a question. Read from durable state
+    or one whose `.done` names a `question:` (#632, F2). Read from durable state
     (`counters.json`, the leases), not from this tick's events, so a tick that
     died between parking a worker and posting still mentions it on the next;
-    the marker makes it once. A crash, a refusal, a finished worker or an
-    obsolete premise waits for the digest."""
+    the marker makes it once. A posted `verdict:`, a bare issue URL, a crash,
+    a refusal, a finished worker or an obsolete premise waits for the digest."""
     out = []
     for task in counters["parked"]:
         since = (held.get(task) or {}).get("stalled_since")
         out.append((task, "parked", "blocked on a person"
                     + (f" (blocked since {since})" if since else "")))
     for task, o in counters["outcomes"].items():
-        if not o.get("prs") and o.get("issues") and "obsolete" not in o:
+        if o.get("questions") and "obsolete" not in o:
             out.append((task, "awaiting-input",
-                        "parked on its issue with a question: " + ", ".join(o["issues"])))
+                        "parked on its issue with a question: " + ", ".join(o["questions"])))
     return out
 
 
@@ -1768,7 +1854,7 @@ def _queue_pilot(slot: Path, brief: dict, counters: dict, *, amended: bool) -> N
 
 def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                grace_s: float = LEASE_GRACE_S, agents=None,
-               tokens=transcript_usage, poster=None) -> dict:
+               tokens=transcript_usage, poster=None, pr_state=None) -> dict:
     """A closed shift whose digest is posted, with a worker still out, Mind
     ops still queued (PyAutoBrain#594: a worker finished 12 minutes after
     `review-at:` and its `.done` and ledger ops were stranded) or a failed
@@ -1779,10 +1865,16 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     arrivals`, amends the shift's pilot row in place (`amended: true`) and
     posts one correction comment for the shift (#610). Never a spawn, a
     re-dispatch or a close-out: the grant ended at `review-at:`, so what
-    arrives late waits for `/prm`."""
+    arrives late waits for `/prm`.
+
+    A close-out still out at `review-at:` is reaped here too (#632, F1): its
+    merge is counted, its stage-2 row queued and the pilot row amended, and
+    the sweep runs while one is out."""
     counters = read_counters(slot)
     counters["usage_unavailable"] = []
+    agents = agents or AgentsView()
     reaped = _reap(slot, counters, now, grace_s, agents, tokens, late=True)
+    closed = reap_closeouts(slot, counters, now, agents, pr_state, tokens, late=True)
     counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
     counters.setdefault("late", [])
     first = not counters["late"]             # the heading goes in once, with the first
@@ -1807,6 +1899,22 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         counters["late"].append(task)
     rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
     brief, top = rec["brief"] or {}, rec["top"]
+    review_at = _brief._iso((top.get("review-at") or {}).get("value", ""))
+    for pr in closed["merged"] + closed["refused"]:
+        co = counters["closeouts"][pr]
+        gh = co.get("github")
+        if gh:   # GitHub's word replaces the one read at review-at
+            try:
+                inside = review_at is None or not gh.get("mergedAt") \
+                    or _parse_iso(gh["mergedAt"]) <= review_at
+            except ValueError:
+                inside = True
+            counters["github"][pr] = {**gh, "in_window": gh.get("state") == "MERGED"
+                                      and inside}
+        what = (f"close-out merged {pr} unattended (stage-2 row written)"
+                if co["state"] == "merged" else f"close-out on {pr} ended: {co.get('why', '?')}")
+        lines.append(f"- late: {co['task']} — {what} (after review-at, {_iso(now)})")
+        counters["late"].append(co["task"])
     if rel is not None and lines:
         head = f"\n{LATE_HEADING}\n" if first else ""
         _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
@@ -1892,6 +2000,9 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     counters["usage_unavailable"] = []
     agents = agents or AgentsView()   # one `claude agents` read serves the closing status
     _reap(slot, counters, now, grace_s, agents, tokens)
+    # A close-out that ended since the last tick lands in this digest (#632,
+    # F1); one still out is reaped by the late sweep.
+    reap_closeouts(slot, counters, now, agents, pr_state, tokens)
     counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
     if not _brief.is_shadow(brief):
         _github_merges(counters, _brief._iso((top.get("review-at") or {}).get("value", "")),
@@ -1972,9 +2083,25 @@ def _write_packet(slot: Path, digest: str) -> Path:
 
 # --- unattended `glance` close-out (phase 4b) ------------------------------------
 
+#: No close-out starts this close to `review-at:` (PyAutoBrain#632, F1): one
+#: that ran past it merged outside the digest. The PR waits for `/prm`.
+CLOSEOUT_CUTOFF_S = 1200
+#: No close-out starts once the shift's spend reaches this multiple of its
+#: `token-budget:` (AUTONOMY.md, ruling 2026-11-14, #632 F5). Below it a
+#: close-out may pass the budget: it counts against it and the digest shows it.
+CLOSEOUT_BUDGET_FACTOR = 1.5
+
+
+def closeouts_running(slot: Path) -> bool:
+    """Whether a close-out session is still out — the late sweep's business."""
+    return any(co.get("state") == "running"
+               for co in read_counters(slot)["closeouts"].values()) \
+        if (slot / COUNTERS_FILE).exists() else False
+
+
 def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
                agents: AgentsView | None, health, pr_state=None,
-               tokens=transcript_usage) -> dict:
+               tokens=transcript_usage, review_at: _dt.datetime | None = None) -> dict:
     """Reap finished close-out sessions, then start one per newly green PR.
 
     The watcher's guards are the ones it can judge from its own reads (AUTONOMY
@@ -1994,12 +2121,29 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     cannot be read the slot stays held.
     Every transition is written as it happens; a `.closeout` file is deleted
     only after that write.
+
+    Two more refusals (#632): no close-out starts within `CLOSEOUT_CUTOFF_S`
+    of `review-at:`, nor once the spend reaches `CLOSEOUT_BUDGET_FACTOR` × the
+    `token-budget:`.
     """
-    events = {"started": [], "merged": [], "refused": []}
+    pr_state = pr_state or getattr(spawner, "pr_state", None)
+    events = reap_closeouts(slot, counters, now, agents, pr_state, tokens)
+    events.setdefault("started", [])
+    if _brief.is_shadow(brief) or counters.get("paused"):
+        return events   # paused (#622): a green PR waits; it is not refused
+    return _start_closeouts(slot, brief, counters, spawner, now, health, events,
+                            review_at)
+
+
+def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_state,
+                   tokens=transcript_usage, *, late: bool = False) -> dict:
+    """Reap every finished close-out session (the first half of `_closeouts`):
+    a live tick, `finish_shift` at `review-at:` and the late sweep all call it,
+    so a close-out that ends after `review-at:` still lands its merge count and
+    stage-2 row (#632, F1). `late` marks the events as after `review-at:`."""
+    events = {"merged": [], "refused": []}
     lease_dir = slot / "leases"
     agents = agents or AgentsView()
-    health = health or _digest.pr_health
-    pr_state = pr_state or getattr(spawner, "pr_state", None)
     known = None
 
     for pr, co in counters["closeouts"].items():
@@ -2092,14 +2236,22 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
                 why = "the close-out session ended without a verdict"
             co.update(state="refused", why=why)
             events["refused"].append(pr)
+        if late:
+            co["late"] = _iso(now)
         if co.get("agent_id") in counters["usage"]:
             counters["usage"][co["agent_id"]]["final"] = True   # its last read stands
         _write_counters(slot, counters)
         verdict_file.unlink(missing_ok=True)
+    return events
 
-    if _brief.is_shadow(brief) or counters.get("paused"):
-        return events   # paused (#622): a green PR waits; it is not refused
+
+def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
+                     health, events: dict, review_at: _dt.datetime | None) -> dict:
+    """Start one close-out per newly green PR, under the watcher's guards."""
+    lease_dir = slot / "leases"
+    health = health or _digest.pr_health
     cap = _brief._nonneg_int(brief.get("merge-cap", {}).get("value", "")) or 0
+    budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
     for task, out in counters["outcomes"].items():
         for pr in out["prs"]:
             if "/pull/" not in pr or pr in out["merged"] or pr in counters["closeouts"]:
@@ -2129,6 +2281,26 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
                 # human `/prm`, and the digest says why.
                 counters["closeouts"][pr] = {"task": task, "state": "refused",
                                              "why": f"merge-cap {cap} reached this shift"}
+                events["refused"].append(pr)
+                continue
+            if review_at is not None \
+                    and (review_at - now).total_seconds() < CLOSEOUT_CUTOFF_S:
+                # A close-out runs ~10-20 min; one still out at review-at
+                # merged outside the digest (#632, F1). Final, like the others.
+                counters["closeouts"][pr] = {
+                    "task": task, "state": "refused",
+                    "why": f"green within {CLOSEOUT_CUTOFF_S // 60} min of review-at — "
+                           "no close-out starts this late"}
+                events["refused"].append(pr)
+                continue
+            spent = _digest.token_parts(counters)["measured"]
+            if budget and spent >= CLOSEOUT_BUDGET_FACTOR * budget:
+                # The human's ruling 2026-11-14 (#632, F5): a close-out may pass
+                # the budget, but none starts once spend reaches 1.5x it.
+                counters["closeouts"][pr] = {
+                    "task": task, "state": "refused",
+                    "why": f"token spend {spent} reached "
+                           f"{CLOSEOUT_BUDGET_FACTOR}× token-budget {budget}"}
                 events["refused"].append(pr)
                 continue
             prompt = counters["picks"].get(task, {}).get("prompt", "")

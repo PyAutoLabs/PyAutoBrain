@@ -213,4 +213,35 @@ def test_the_digest_prints_each_spawn_refusal_with_its_reason(tmp_path):
             agents=d._agents({"t1": "working"}, orch.slot_dir(brief, home)))
     text = _digest_of(brief, home)
     refusals = text.split(_digest.REFUSALS_HEADING)[1]
-    assert "- t2 — max-workers 1 reached — 2× from 2026-11-04T09:00:00Z" in refusals
+    assert ("- max-workers 1 reached — 1 task(s) waited: t2 — 2× from "
+            "2026-11-04T09:00:00Z to 2026-11-04T09:01:00Z") in refusals
+
+
+def test_refusals_are_one_entry_per_task_and_reason_class(tmp_path):
+    """PyAutoBrain#632 (F3): a refusal repeated every tick is one entry with a
+    count and first/last time; a token reason is keyed by its class, not the
+    running figure; every max-workers refusal is one digest line."""
+    c = {"refusals": []}
+    for i, spent in enumerate((410000, 420000, 432999)):
+        at = f"2026-11-16T13:0{i}:00Z"
+        _digest.note_refusals(c, [
+            {"task": "a", "why": f"token-budget 400000 spent ({spent})"},
+            {"task": "b", "why": "max-workers 2 reached"},
+            {"task": "x", "why": "max-workers 2 reached"}], at)
+    assert len(c["refusals"]) == 3
+    a = next(r for r in c["refusals"] if r["task"] == "a")
+    assert (a["count"], a["at"], a["last"]) == (3, "2026-11-16T13:00:00Z",
+                                                "2026-11-16T13:02:00Z")
+    lines = _digest.refusal_lines(c)
+    assert lines == [
+        "- a — token-budget 400000 spent — 3× from 2026-11-16T13:00:00Z to "
+        "2026-11-16T13:02:00Z (last: token-budget 400000 spent (432999))",
+        "- max-workers 2 reached — 2 task(s) waited: b, x — 6× from "
+        "2026-11-16T13:00:00Z to 2026-11-16T13:02:00Z"]
+    # A slot recorded one entry per tick (before #632) folds into the same lines.
+    old = {"refusals": [{"task": "a", "why": f"token-budget 400000 spent ({n})",
+                         "at": f"2026-11-16T13:0{i}:00Z"} for i, n in enumerate((1, 2))]}
+    assert len(_digest.refusal_lines(old)) == 1
+    _digest.note_refusals(old, [{"task": "a", "why": "token-budget 400000 spent (3)"}],
+                          "2026-11-16T13:05:00Z")
+    assert len(old["refusals"]) == 2 and "3× from" in _digest.refusal_lines(old)[0]

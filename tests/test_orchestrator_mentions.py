@@ -7,6 +7,8 @@ GitHub; the login comes from the environment or config, never the code.
 from __future__ import annotations
 
 import datetime as _dt
+
+import pytest
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -120,13 +122,31 @@ def test_a_worker_parked_on_its_issue_is_awaiting_input(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGh()
     _tick(brief, mind, home, NOW, claude, gh)
-    (slot / "leases" / "t1.done").write_text("https://github.com/o/r/issues/77\n")
+    (slot / "leases" / "t1.done").write_text("question: https://github.com/o/r/issues/77\n")
     _tick(brief, mind, home, NOW + _dt.timedelta(minutes=5), claude, gh,
           d._agents({"t1": "done"}, slot))
     assert len(gh.calls) == 1
     body = gh.calls[0][1]
     assert "needs you — awaiting-input." in body
     assert "parked on its issue with a question: https://github.com/o/r/issues/77" in body
+
+
+@pytest.mark.parametrize("done", ["verdict: https://github.com/o/r/issues/77\n",
+                                  "https://github.com/o/r/issues/77\n"])
+def test_a_posted_verdict_or_bare_issue_is_not_a_push(tmp_path, monkeypatch, done):
+    """PyAutoBrain#632 (F2): only a `question:` (or a park) pushes; a research
+    worker's posted verdict is its deliverable and waits for the digest."""
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGh()
+    _tick(brief, mind, home, NOW, claude, gh)
+    (slot / "leases" / "t1.done").write_text(done)
+    for m in (5, 8):
+        _tick(brief, mind, home, NOW + _dt.timedelta(minutes=m), claude, gh,
+              d._agents({"t1": "done"}, slot))
+    c = orch.read_counters(slot)
+    assert gh.calls == [] and c["pushes"] == 0
+    assert c["outcomes"]["t1"]["issues"] == ["https://github.com/o/r/issues/77"]
+    assert c["outcomes"]["t1"]["prs"] == []
 
 
 def test_the_login_comes_from_the_environment_or_config_never_the_code(tmp_path, monkeypatch):

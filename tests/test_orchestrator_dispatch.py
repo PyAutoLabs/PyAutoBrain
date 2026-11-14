@@ -514,6 +514,119 @@ def test_a_late_arrival_lands_in_the_record_on_mind_main(tmp_path, monkeypatch):
     assert "\n### Late arrivals\n- late: t1 — https://github.com/o/r/pull/9 (after review-at" in record
 
 
+def _git_shift(tmp_path, monkeypatch, names=("t1",)):
+    """A shift whose Mind is a real clone of a bare remote: (t, bare, canon,
+    brief, home), the named drafts pushed to main."""
+    import shutil
+    import test_orchestrator_digest as t
+    if not t.LEDGER_MERGE.is_file() or shutil.which("git") is None:
+        pytest.skip("needs git and PyAutoMind's scripts/ledger_merge.py")
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    bare = tmp_path / "remote.git"
+    t.git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
+    canon = tmp_path / "canon"
+    t.git(tmp_path, "clone", "-q", str(bare), str(canon))
+    t.git(canon, "config", "user.name", "Test")
+    t.git(canon, "config", "user.email", "test@example.invalid")
+    _, staged, _ = _shift(tmp_path / "seed", names=names)
+    shutil.copytree(tmp_path / "seed" / "mind" / "draft", canon / "draft")
+    (canon / "scripts").mkdir()
+    shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
+    (canon / "active.md").write_text("# Active\n\n## someone-else\n- prompt: x\n")
+    (canon / "batches").mkdir()
+    brief = canon / "batches" / "2026-11-04-am.md"
+    brief.write_text(staged.read_text())
+    t.git(canon, "add", "-A")
+    t.git(canon, "commit", "-q", "-m", "seed")
+    t.git(canon, "push", "-q", "origin", "HEAD:main")
+    return t, bare, canon, brief, tmp_path / "home"
+
+
+def test_a_redispatched_worker_never_strands_the_mind_writer(tmp_path, monkeypatch):
+    """PyAutoBrain#632 (B1): kill a worker after its claim committed, let the
+    re-dispatched worker queue the same claim (the canonical checkout still
+    shows the draft) plus new work and one bad op: the repeats are skipped
+    notes, the bad op is set aside for the digest, and the writer keeps
+    committing on every later tick."""
+    import _mind_writer as mw
+    t, bare, canon, brief, home = _git_shift(tmp_path, monkeypatch)
+    slot = orch.slot_dir(brief, home)
+    ledger = slot / mw.LEDGER_DIR
+    draft = "draft/feature/pyautobrain/t1.md"
+    claude = FakeClaude()
+
+    def claim():
+        mw.queue_op(ledger, {"op": "move", "path": draft, "to": "active/t1.md"})
+        mw.queue_op(ledger, {"op": "append", "path": "active.md",
+                             "text": "\n## t1\n- status: in progress\n"})
+
+    _tick(brief, canon, home, NOW, claude)                  # worker 1 spawned
+    claim()
+    r = _tick(brief, canon, home, NOW + _dt.timedelta(minutes=3), claude,
+              agents=_agents({"t1": "working"}, slot))
+    assert r["ledger"]["committed"] and not mw.pending_ops(slot)
+    assert (canon / draft).exists()                          # canonical never pulled
+
+    # The human's `claude stop`: reaped as a crash, re-dispatched the same tick,
+    # and told that its claim may already exist.
+    r = _tick(brief, canon, home, NOW + _dt.timedelta(minutes=6), claude,
+              agents=_agents({"t1": "stopped"}, slot))
+    assert [s["task"] for s in r["spawned"]] == ["t1"] and len(claude.calls) == 2
+    assert "RE-DISPATCH" in claude.calls[1][0][-1]
+    assert "RE-DISPATCH" not in claude.calls[0][0][-1]
+
+    claim()                                                 # the same claim again
+    mw.queue_op(ledger, {"op": "write", "path": "complete/2026/11/t1-notes.md",
+                         "text": "notes\n"})
+    mw.queue_op(ledger, {"op": "remove", "path": "active/missing.md"})   # bad
+    r = _tick(brief, canon, home, NOW + _dt.timedelta(minutes=9), claude,
+              agents=_agents({"t1": "working"}, slot))
+    led = r["ledger"]
+    assert led["committed"], led
+    assert len(led["skipped"]) == 2 and "already on main" in led["skipped"][0]
+    assert [a["op"] for a in led["set_aside"]] == ["remove"]
+    assert not mw.pending_ops(slot)
+    active = t.git(bare, "show", "main:active.md").stdout
+    assert active.count("## t1") == 1
+    assert t.git(bare, "show", "main:complete/2026/11/t1-notes.md").stdout == "notes\n"
+    assert "Mind ledger op set aside" in "\n".join(_digest.set_aside_lines(slot))
+
+    # Every later tick keeps committing.
+    mw.queue_op(ledger, {"op": "append", "path": "active.md",
+                         "text": "\n## t1-followup\n- note\n"})
+    r = _tick(brief, canon, home, NOW + _dt.timedelta(minutes=12), claude,
+              agents=_agents({"t1": "working"}, slot))
+    assert r["ledger"]["committed"] and not r["ledger"]["set_aside"]
+    assert "## t1-followup" in t.git(bare, "show", "main:active.md").stdout
+
+
+def test_a_new_shift_never_repicks_a_task_claimed_on_mind_origin(tmp_path, monkeypatch):
+    """PyAutoBrain#632 (F4): shift B plans against Mind origin/main, so a draft
+    shift A claimed (moved to active/ by the writer) is not picked from the
+    stale canonical draft/; a task this shift picked itself is kept."""
+    import _mind_writer as mw
+    t, bare, canon, brief, home = _git_shift(tmp_path, monkeypatch, names=("t1", "t2"))
+    other = tmp_path / "home-a"
+    slot_a = orch.slot_dir(brief, other)
+    mw.queue_op(slot_a / mw.LEDGER_DIR, {"op": "move", "path": "draft/feature/pyautobrain/t1.md",
+                                        "to": "active/t1.md"})
+    mw.queue_op(slot_a / mw.LEDGER_DIR, {"op": "append", "path": "active.md",
+                                        "text": "\n## t2\n- claimed by hand\n"})
+    assert mw.commit_ledger(slot_a, canon, "shift A claims")["committed"]
+    assert (canon / "draft/feature/pyautobrain/t1.md").exists()   # canonical stale
+    claude = FakeClaude()
+    r = _tick(brief, canon, home, NOW, claude)
+    assert r["spawned"] == [] and claude.calls == []
+    gates = orch.read_counters(orch.slot_dir(brief, home))["backlog_gates"]["origin"]
+    assert gates == {
+        "draft/feature/pyautobrain/t1.md":
+            "not in draft/ on Mind origin/main (claimed or retired)",
+        "draft/feature/pyautobrain/t2.md": "claimed in active.md on Mind origin/main"}
+    recs = [{"path": "draft/feature/pyautobrain/t1.md"}]
+    assert orch.on_origin(recs, canon, {"t1"})[0] == recs     # its own pick stays
+    assert orch.on_origin(recs, tmp_path, set()) == (recs, {})  # not a git checkout
+
+
 # --- shift-watcher state-machine gaps (PyAutoBrain#603) ------------------------------
 
 def test_a_tick_that_raises_after_a_reap_keeps_the_outcome_and_never_redispatches(

@@ -40,6 +40,16 @@ the key's line if present) — how a shift worker records the premise check's
 
 Every path must be *ledger* by PyAutoMind's own rule (`scripts/ledger_merge.py`
 `is_ledger_path`, default deny), so a worker cannot route code through here.
+
+One bad op never strands the rest (PyAutoBrain#632, B1 — a re-dispatched
+worker re-queued its claim's `draft→active` move and every later op of the
+shift stayed pending). A re-apply of what main already holds is a skipped
+note: a `move` whose source is gone and destination present, an `append` to a
+`## slug` registry (`active.md`) whose sections are all there. Any other op
+that fails validation or cannot apply on `origin/main` is *set aside* — moved
+to `ledger/set_aside/` with its reason and returned for the digest — and the
+remaining ops still commit. Only a push rejected `PUSH_TRIES` times leaves ops
+pending.
 """
 
 from __future__ import annotations
@@ -58,6 +68,9 @@ OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
 PUSH_TRIES = 3
 LEDGER_DIR = "ledger"
 COMMITTED_DIR = "committed"
+#: Ops that could not apply (or were invalid), kept for the human with their
+#: reason (`<op file>.why`) — never retried, never blocking the others.
+SET_ASIDE_DIR = "set_aside"
 
 
 class MindWriteError(RuntimeError):
@@ -146,16 +159,23 @@ def validate_op(op: dict, lm) -> list[str]:
 def apply_op(tree: Path, op: dict, lm) -> str | None:
     """Apply one validated op inside `tree`; raises MindWriteError if it cannot.
 
-    Returns a note when the op was deliberately skipped. Only `set-header`
-    skips: it is a stamp, and a draft moved or retired on main since the
-    check ran must not hold every other op of the shift pending for ever."""
+    Returns a note when the op was deliberately skipped: a `set-header` or
+    `record-key` on a file no longer on main (a stamp must not hold the shift),
+    and a re-apply of what main already holds — a `move` already done, an
+    `append` of `## slug` sections a registry already has (#632)."""
     target = tree / op["path"]
     kind = op["op"]
     if kind == "append":
         target.parent.mkdir(parents=True, exist_ok=True)
         old = target.read_text(encoding="utf-8") if target.exists() else ""
+        text, note = op["text"], None
+        if op["path"] in getattr(lm, "ENTRY_MERGED_FILES", ()) and old:
+            text, note = _new_sections(old, text, op["path"], lm)
+            if not text:
+                return note
         sep = "" if not old or old.endswith("\n") else "\n"
-        target.write_text(old + sep + op["text"], encoding="utf-8")
+        target.write_text(old + sep + text, encoding="utf-8")
+        return note
     elif kind == "write":
         if target.exists():
             raise MindWriteError(f"write: {op['path']} already exists")
@@ -163,6 +183,9 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
         target.write_text(op["text"], encoding="utf-8")
     elif kind == "move":
         dest = tree / op["to"]
+        if not target.exists() and dest.exists():
+            # A re-dispatched worker re-queues its predecessor's claim (#632).
+            return f"move: {op['path']} → {op['to']} is already on main — skipped"
         if not target.exists():
             raise MindWriteError(f"move: {op['path']} does not exist")
         if dest.exists():
@@ -205,6 +228,22 @@ def apply_op(tree: Path, op: dict, lm) -> str | None:
                                        if target.exists() else "",
                                        op["key"], op["row"], op.get("header", "")),
                           encoding="utf-8")
+
+
+def _new_sections(old: str, text: str, path: str, lm) -> tuple[str, str | None]:
+    """`text` without the `## slug` sections `old` already has, and a note
+    naming them; ("", note) when every section is already there. Text with
+    no `## ` section is appended as it is."""
+    pre, entries = lm.split_entries(text)
+    if not entries:
+        return text, None
+    have = {slug for slug, _ in lm.split_entries(old)[1]}
+    dup = [slug for slug, _ in entries if slug in have]
+    if not dup:
+        return text, None
+    note = f"append: {', '.join(dup)} already in {path} — skipped"
+    rest = [body for slug, body in entries if slug not in have]
+    return (pre + "".join(rest) if rest else ""), note
 
 
 def record_key(text: str, key: str, value: str,
@@ -362,29 +401,48 @@ def pending_ops(slot: Path) -> list[Path]:
     return sorted(f for f in d.glob("*.json")) if d.is_dir() else []
 
 
+def _set_aside(slot: Path, f: Path, why: str) -> dict:
+    """Move one op file out of the way with its reason; returns its record."""
+    d = Path(slot) / LEDGER_DIR / SET_ASIDE_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    try:
+        op = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        op = {}
+    (d / (f.name + ".why")).write_text(why + "\n", encoding="utf-8")
+    f.replace(d / f.name)
+    return {"file": f.name, "op": op.get("op") if isinstance(op, dict) else None,
+            "path": op.get("path") if isinstance(op, dict) else None, "why": why}
+
+
 def commit_ledger(slot: Path, mind_repo: Path, message: str,
                   remote: str = "origin", branch: str = "main") -> dict:
     """Commit every pending op in `<slot>/ledger/` to PyAutoMind as one commit.
 
-    Returns {"committed": sha | None, "ops": n, "tries": k}. Ops that fail
-    validation are refused before anything is touched; an op that cannot apply
-    on the current `origin/main` stops the run and stays pending.
+    Returns {"committed": sha | None, "ops": n, "tries": k, "skipped": notes,
+    "set_aside": [{file, op, path, why}]}. An op that fails validation (not
+    JSON, not a ledger path) or cannot apply on the current `origin/main` is
+    set aside with its reason and the rest commit (#632); a re-apply of what
+    main already holds is a skipped note. Only a push rejected `PUSH_TRIES`
+    times raises, with every op left pending.
     """
     mind_repo = Path(mind_repo)
     files = pending_ops(slot)
     if not files:
         return {"committed": None, "ops": 0, "tries": 0}
     lm = _ledger_merge(mind_repo)
-    ops = []
+    ops, invalid = [], {}
     for f in files:
         try:
             op = json.loads(f.read_text(encoding="utf-8"))
         except ValueError as e:
-            raise MindWriteError(f"{f.name}: not JSON ({e})") from e
-        errs = validate_op(op, lm)
+            invalid[f] = f"not JSON ({e})"
+            continue
+        errs = validate_op(op, lm) if isinstance(op, dict) else ["not a JSON object"]
         if errs:
-            raise MindWriteError(f"{f.name}: " + "; ".join(errs))
-        ops.append(op)
+            invalid[f] = "; ".join(errs)
+            continue
+        ops.append((f, op))
 
     for attempt in range(1, PUSH_TRIES + 1):
         _git(mind_repo, "fetch", "-q", remote, branch)
@@ -393,24 +451,36 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
         try:
             _git(mind_repo, "worktree", "add", "-q", "--detach", str(tree),
                  f"{remote}/{branch}")
-            notes = [n for op in ops if (n := apply_op(tree, op, lm))]
+            notes, failed = [], dict(invalid)
+            for f, op in ops:
+                try:
+                    note = apply_op(tree, op, lm)
+                except (MindWriteError, OSError, KeyError, TypeError, ValueError) as e:
+                    failed[f] = str(e) or type(e).__name__
+                    continue
+                if note:
+                    notes.append(note)
             for n in notes:
                 print(f"mind-writer: {n}", file=sys.stderr)
             _git(tree, "add", "-A")
             if not _git(tree, "status", "--porcelain").stdout.strip():
-                sha = None  # every op was already true on main
+                sha = None  # every op was already true on main (or set aside)
             else:
                 _git(tree, "commit", "-q", "-m", message)
                 sha = _git(tree, "rev-parse", "HEAD").stdout.strip()
                 pushed = _git(tree, "push", "-q", remote, f"HEAD:{branch}", check=False)
                 if pushed.returncode != 0:
                     continue  # main moved: replay the ops on the new origin/main
+            aside = [_set_aside(slot, f, why) for f, why in sorted(failed.items())]
+            for a in aside:
+                print(f"mind-writer: set aside {a['file']}: {a['why']}", file=sys.stderr)
             done = Path(slot) / LEDGER_DIR / COMMITTED_DIR
             done.mkdir(parents=True, exist_ok=True)
             for f in files:
-                f.replace(done / f.name)
-            return {"committed": sha, "ops": len(ops), "tries": attempt,
-                    "skipped": notes}
+                if f not in failed:
+                    f.replace(done / f.name)
+            return {"committed": sha, "ops": len(files) - len(failed), "tries": attempt,
+                    "skipped": notes, "set_aside": aside}
         finally:
             # Our own throwaway tree. A failed apply can leave it dirty, so
             # delete the directory and prune the registration, no force flag.
