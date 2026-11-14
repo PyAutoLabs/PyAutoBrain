@@ -310,7 +310,19 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines += [f"- {k}: {values[k]}" for k in COUNTERS]
         lines += ["", WORKERS_HEADING] + (worker_lines(counters, base) or [NO_PICKS])
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
+    lines += identity_lines(counters)
     return "\n".join(lines) + "\n"
+
+
+def identity_lines(counters: dict) -> list[str]:
+    """PyAutoBrain#630: the watcher's App identity failed, so its GitHub writes
+    were held — never made under the human's own gh auth instead."""
+    auth = counters.get("github_auth") or {}
+    if not auth.get("error"):
+        return []
+    return ["", f"- warning: GitHub writes held — the watcher's App token could not be "
+                f"had on {auth.get('ticks', 1)} tick(s), {auth.get('first', '?')} to "
+                f"{auth.get('last', '?')}: {auth['error']}"]
 
 
 def backlog_gate_lines(counters: dict) -> list[str]:
@@ -356,7 +368,8 @@ def worker_lines(counters: dict, base: str = "") -> list[str]:
     poster, mentioned = counters.get("poster_login") or "", counters.get("mention_login") or ""
     if poster and poster.lower() == mentioned.lower():
         out.append(f"- warning: mention will not notify: posted as the mentioned account "
-                   f"({poster}) — set PYAUTO_SHIFT_GH_TOKEN to a separate account")
+                   f"({poster}) — set the watcher's App (PYAUTO_SHIFT_APP_*) or "
+                   "PYAUTO_SHIFT_GH_TOKEN")
     pushes = counters.get("pushes", 0)
     if pushes > 1:
         out.append(f"- finding: {pushes} pushes this shift — the push test budgets "

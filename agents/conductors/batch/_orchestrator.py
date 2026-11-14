@@ -40,7 +40,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-import _brief  # noqa: E402 — the batch conductor puts this directory on sys.path
+import _app_token  # noqa: E402 — the batch conductor puts this directory on sys.path
+import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _mind_writer  # noqa: E402
 
@@ -164,6 +165,10 @@ def _write_counters(slot: Path, c: dict) -> None:
 
 
 def _log(slot: Path, now: _dt.datetime, result: dict) -> None:
+    """Append the tick's result; a GitHub identity that failed this tick is
+    named in it (and in what the tick returns) — its writes were held."""
+    if _AUTH is not None and _AUTH.used and _AUTH.error and "github_auth" not in result:
+        result["github_auth"] = {"error": _AUTH.error, "writes": "held"}
     with open(slot / LOG_FILE, "a", encoding="utf-8") as fh:
         fh.write(json.dumps({"at": _iso(now), **result}, sort_keys=True) + "\n")
 
@@ -285,15 +290,19 @@ def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
 def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
     """The environment a worker runs in: marked as a shift worker, pointed at
     the shift's ledger, and with git's hooks path overridden so a commit in
-    PyAutoMind is refused whatever tool makes it. The watcher's own posting
-    token (`PYAUTO_SHIFT_GH_TOKEN`) never reaches a worker or close-out, nor
-    a `GH_TOKEN` / `GITHUB_TOKEN` that carries it; the human's own gh auth
-    stays (#611 re-review)."""
+    PyAutoMind is refused whatever tool makes it. The watcher's own GitHub
+    identity never reaches a worker or close-out: not its static token
+    (`PYAUTO_SHIFT_GH_TOKEN`), not its App settings (`PYAUTO_SHIFT_APP_*`,
+    the key's path among them, PyAutoBrain#630), and no variable carrying
+    either token or an App installation token it minted; the human's own gh
+    auth stays (#611 re-review)."""
     env = dict(os.environ if base is None else base)
-    bot = env.pop(GH_TOKEN_ENV, "").strip()
-    for key in ("GH_TOKEN", "GITHUB_TOKEN"):
-        if bot and env.get(key, "").strip() == bot:
-            env.pop(key)
+    secrets = {env.pop(GH_TOKEN_ENV, "").strip()} | _auth().secrets()
+    for key in _app_token.APP_ENVS:
+        env.pop(key, None)
+    secrets.discard("")
+    for key in [k for k, v in env.items() if isinstance(v, str) and v.strip() in secrets]:
+        env.pop(key)
     n = int(env.get("GIT_CONFIG_COUNT", "0") or 0)
     env.update({"PYAUTO_SHIFT_WORKER": "1",
                 "PYAUTO_SHIFT_LEDGER_DIR": str(Path(lease_dir).parent / _mind_writer.LEDGER_DIR),
@@ -828,7 +837,24 @@ def _default_pr_state():
 
 
 def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
-         now: _dt.datetime | None = None, spawner=None,
+         now: _dt.datetime | None = None, auth=None, **kw) -> dict:
+    """One watcher tick, with its GitHub identity bound for the tick's own
+    `gh` calls (PyAutoBrain#630): a `_app_token.WatcherAuth` over the state
+    directory — the App's cached installation token, minted at most when a
+    call first needs it — unless a test passes its own `auth`."""
+    global _AUTH
+    now = now or _now()
+    prev = _AUTH
+    _AUTH = auth or _app_token.WatcherAuth(slot_dir(Path(brief_path), home).parent,
+                                           now=now.timestamp())
+    try:
+        return _tick(brief_path, mind, home=home, now=now, **kw)
+    finally:
+        _AUTH = prev
+
+
+def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
+          now: _dt.datetime | None = None, spawner=None,
          grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
          agents: AgentsView | None = None, tokens=transcript_usage,
          poster=None, health=None, pr_state=None,
@@ -920,6 +946,7 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                           stopped=out.get("action") == "stopped")
     if status:
         out["status"] = status
+    _note_auth_file(slot, now)
     return out
 
 
@@ -1090,25 +1117,72 @@ CORRECTION_MARKER = "correction.posted"
 CORRECTION_FILE = "correction.md"
 
 
-#: An optional separate GitHub token for the watcher's writes (a bot account),
-#: given to its own `gh` calls as `GH_TOKEN` and to nothing else: then the
-#: human's account is the one notified by an @mention (#611 review).
-GH_TOKEN_ENV = "PYAUTO_SHIFT_GH_TOKEN"
+#: The watcher's own GitHub identity, for its own `gh` calls and nothing else
+#: (then the human's account is the one an @mention notifies, #611 review):
+#: its minimal GitHub App (`PYAUTO_SHIFT_APP_*`, PyAutoBrain#630), else this
+#: static token as the fallback, else `gh`'s own auth. See `_app_token`.
+GH_TOKEN_ENV = _app_token.GH_TOKEN_ENV
+#: The identity bound for the current tick (`tick`); outside one, a fresh one.
+_AUTH = None
+
+
+def _auth():
+    return _AUTH if _AUTH is not None else _app_token.WatcherAuth(orchestrator_home())
 
 
 def _gh_env() -> dict | None:
-    token = os.environ.get(GH_TOKEN_ENV, "").strip()
-    return {**os.environ, "GH_TOKEN": token} if token else None
+    """The environment for one of the watcher's own `gh` calls. Raises
+    `_app_token.AppTokenError` when an App is configured and no installation
+    token can be had: the caller then makes no call — never one under the
+    human's `gh` auth in its place."""
+    return _auth().env()
+
+
+def _note_auth(counters: dict, now: _dt.datetime) -> bool:
+    """Record in `counters` (and so in the digest) that the watcher's App
+    identity failed this tick and its GitHub writes were held; once a tick."""
+    a = _AUTH
+    if a is None or not a.used or not a.error:
+        return False
+    g = counters.get("github_auth") or {}
+    if g.get("last") == _iso(now):
+        return False
+    counters["github_auth"] = {"error": a.error, "first": g.get("first") or _iso(now),
+                               "last": _iso(now), "ticks": int(g.get("ticks") or 0) + 1}
+    return True
+
+
+def _note_auth_file(slot: Path, now: _dt.datetime) -> None:
+    if _AUTH is not None and _AUTH.used and _AUTH.error and (slot / COUNTERS_FILE).exists():
+        c = read_counters(slot)
+        if _note_auth(c, now):
+            _write_counters(slot, c)
+
+
+def _poster_login(counters: dict, whoami=None) -> None:
+    """Once per shift: who the watcher's comments post as. An App identity
+    that cannot be read now is read again later, never recorded as ''."""
+    if "poster_login" in counters:
+        return
+    who = (whoami or gh_login)()
+    if who is None and _auth().mode == "app":
+        return
+    counters["poster_login"] = who or ""
 
 
 def gh_login(run=None) -> str | None:
-    """The login the watcher's comments post as (`gh api user`, under the
-    posting token); None when it cannot say."""
+    """The login the watcher's comments post as; None when it cannot say. As
+    the App, `<slug>[bot]` (`GET /app` with its JWT — `gh api user` does not
+    answer for an installation token); else `gh api user` under the posting
+    token."""
+    a = _auth()
+    if a.mode == "app":
+        return None if a.error else a.login()
     run = run or subprocess.run
     try:
         res = run(["gh", "api", "user", "--jq", ".login"], capture_output=True, text=True,
                   timeout=60, env=_gh_env())
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, _app_token.AppTokenError):
         return None
     login = (res.stdout or "").strip()
     return login if res.returncode == 0 and login else None
@@ -1116,12 +1190,17 @@ def gh_login(run=None) -> str | None:
 
 def gh_comment(issue_url: str, body_file: Path, run=None) -> dict:
     """The watcher's one kind of write: a comment on the brief's `issue:`,
-    posted as `PYAUTO_SHIFT_GH_TOKEN`'s account when it is set. `retry: False`
-    marks a failure after which the comment may have landed."""
+    posted as the watcher's own identity (`_gh_env`). `retry: False` marks a
+    failure after which the comment may have landed; `unsent: True` one where
+    no call was made (no App token), which costs the post no try."""
+    try:
+        env = _gh_env()
+    except _app_token.AppTokenError as e:
+        return {"posted": False, "unsent": True, "error": f"no GitHub identity: {e}"[:300]}
     run = run or subprocess.run
     try:
         res = run(["gh", "issue", "comment", issue_url, "--body-file", str(body_file)],
-                  capture_output=True, text=True, timeout=120, env=_gh_env())
+                  capture_output=True, text=True, timeout=120, env=env)
     except subprocess.TimeoutExpired:
         return {"posted": False, "retry": False,
                 "error": "gh timed out — the comment may have landed; not retried"}
@@ -1138,8 +1217,11 @@ def _post_and_record(marker: Path, rec: dict, body_file: Path, poster) -> dict:
         res = {"posted": False, "retry": False, "error": "the brief names no issue:"}
     else:
         res = (poster or gh_comment)(issue, body_file)
-    rec = {k: v for k, v in rec.items() if k not in ("error", "retry")}
+    rec = {k: v for k, v in rec.items() if k not in ("error", "retry", "unsent")}
     rec.update(res)
+    if res.get("unsent"):
+        # Nothing reached GitHub (no App token): this try does not count.
+        rec["tries"] = max(0, int(rec.get("tries", 1)) - 1)
     rec["state"] = ("posted" if res.get("posted")
                     else "failed" if res.get("retry", True) else "unknown")
     marker.write_text(json.dumps(rec, sort_keys=True))
@@ -1295,10 +1377,10 @@ def _mentions(slot: Path, counters: dict, shift: dict, poster, now: _dt.datetime
     if not todo:
         return out
     login = mention_login()
-    if login and "poster_login" not in counters:
+    if login:
         # Once per shift: who the comments post as. The human's own login
         # gets no notification for its own comment (#611 review).
-        counters["poster_login"] = (whoami or gh_login)() or ""
+        _poster_login(counters, whoami)
     if login:
         counters["mention_login"] = login
     for task, state, reason, w, key, name in todo:
@@ -1351,11 +1433,15 @@ _COMMENT_API_RE = re.compile(
 
 def gh_comment_edit(comment_url: str, body_file: Path, run=None) -> dict:
     """Edit the watcher's own status comment in place (`gh api PATCH`), as
-    `PYAUTO_SHIFT_GH_TOKEN`'s account when it is set — the only edit the
-    watcher makes. An edit is idempotent, so any failure is retried next tick."""
+    watcher's own identity (`_gh_env`) — the only edit the watcher makes. An
+    edit is idempotent, so any failure is retried next tick."""
     m = _COMMENT_API_RE.match(comment_url or "")
     if not m:
         return {"edited": False, "error": f"not a comment URL: {comment_url!r}"[:300]}
+    try:
+        env = _gh_env()
+    except _app_token.AppTokenError as e:
+        return {"edited": False, "error": f"no GitHub identity: {e}"[:300]}
     payload = Path(body_file).with_suffix(".json")
     payload.write_text(json.dumps({"body": Path(body_file).read_text(encoding="utf-8")}),
                        encoding="utf-8")
@@ -1364,7 +1450,7 @@ def gh_comment_edit(comment_url: str, body_file: Path, run=None) -> dict:
         res = run(["gh", "api", "-X", "PATCH",
                    f"repos/{m.group(1)}/{m.group(2)}/issues/comments/{m.group(3)}",
                    "--input", str(payload), "--jq", ".html_url"],
-                  capture_output=True, text=True, timeout=120, env=_gh_env())
+                  capture_output=True, text=True, timeout=120, env=env)
     except (OSError, subprocess.SubprocessError) as e:
         return {"edited": False, "error": f"gh could not edit: {e}"[:300]}
     if res.returncode != 0:
@@ -1379,12 +1465,16 @@ def gh_issue_comments(issue_url: str, since: str, run=None) -> list[dict] | None
     m = _ISSUE_API_RE.match(issue_url or "")
     if not m:
         return None
+    try:
+        env = _gh_env()
+    except _app_token.AppTokenError:
+        return None
     run = run or subprocess.run
     query = f"?per_page=100&since={since}" if since else "?per_page=100"
     try:
         res = run(["gh", "api", f"repos/{m.group(1)}/{m.group(2)}/issues/{m.group(3)}"
                    f"/comments{query}"],
-                  capture_output=True, text=True, timeout=60, env=_gh_env())
+                  capture_output=True, text=True, timeout=60, env=env)
         if res.returncode != 0:
             return None
         data = json.loads(res.stdout or "")
@@ -1488,7 +1578,8 @@ def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=No
 
     The same read adopts a status comment whose create may have landed — even
     with no login set, when it is the only reason to read — and only one
-    written by the posting identity (`gh api user`, once per shift)."""
+    written by the posting identity (`gh api user`, or the App's
+    `<slug>[bot]`; once per shift)."""
     issue = shift.get("issue", "")
     login = mention_login()
     marker = slot / STATUS_MARKER
@@ -1503,8 +1594,8 @@ def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=No
         counters["commands_unread"] = _iso(now)
         return []
     counters.pop("commands_unread", None)
-    if adopting and "poster_login" not in counters:
-        counters["poster_login"] = (whoami or gh_login)() or ""
+    if adopting:
+        _poster_login(counters, whoami)
     poster = counters.get("poster_login") or ""
     seen = set(counters.get("commands_seen") or [])
     out = []
@@ -1753,6 +1844,7 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     out = {"action": "late", "reaped": reaped, "late": lines, "ledger": ledger}
     if posts:
         out["posts"] = posts
+    _note_auth_file(slot, now)
     return out
 
 
@@ -1803,8 +1895,13 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if not _brief.is_shadow(brief):
         _github_merges(counters, _brief._iso((top.get("review-at") or {}).get("value", "")),
                        pr_state)
-    _write_counters(slot, counters)
     issue = (top.get("issue") or {}).get("value", "")
+    if issue.startswith("http"):
+        # The digest is about to be posted: an App identity that cannot be had
+        # is named in the digest itself, which still reaches the record.
+        _auth().failed()
+        _note_auth(counters, now)
+    _write_counters(slot, counters)
     digest = _digest.build(brief, slot, counters, health=health, issue=issue)
     (slot / DIGEST_FILE).write_text(digest, encoding="utf-8")
     result = {"action": "digest", "ledger": None, "post": None, "packet": None}

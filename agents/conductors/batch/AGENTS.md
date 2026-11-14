@@ -473,15 +473,43 @@ live:` line (`record-key` op, one Mind writer, on a change of state), shown in
 the batch box. Doctrine: AUTONOMY.md watcher network surface, amendment
 2026-11-13.
 
-**The watcher's GitHub identity (human ruling 2026-11-12, #611).**
-`PYAUTO_SHIFT_GH_TOKEN` holds a separate bot or machine account's token,
-**fine-grained, PyAutoMind issues:write only**, set by the human in the
-timer's environment. It is passed as `GH_TOKEN` to the watcher's own
-`gh issue comment` and `gh api user` calls and to nothing else (not to workers).
-Unset, comments post as the human's account; once a shift, before the first
-mention, `gh api user` names the posting account, and if it is the mentioned
-login the digest's `### Workers` warns "mention will not notify: posted as the
-mentioned account". With nothing pending, the tick is idle. The worker
+**The watcher's GitHub identity (human rulings 2026-11-12, #611, and
+2026-11-14, #630).** The watcher posts as its own minimal GitHub App,
+`pyautolabs-watcher`, set by the human in the timer's environment
+(`~/.config/pyauto/orchestrator.env`) with three variables, all or none:
+
+- `PYAUTO_SHIFT_APP_ID` — the App id;
+- `PYAUTO_SHIFT_APP_INSTALLATION_ID` — its installation on PyAutoMind's owner;
+- `PYAUTO_SHIFT_APP_KEY` — the path of the App's private key (`.pem`, mode 600).
+
+The App is minimal on purpose: **Issues read/write on PyAutoMind only** —
+all the watcher does is comment on, edit its comment on and read the shift
+issue. It is **not `pyautolabs-bot`**: that App is a ruleset bypass actor with
+org-wide push, and a laptop timer must hold no bypass power. Posting as an App
+also means the @mention of the human comes from another account, so it
+notifies them. `_app_token.py` signs an RS256 JWT (`iat` now − 60 s, `exp` now
++ 9 min, `iss` the App id; PyJWT, else `openssl dgst -sha256 -sign` with no
+shell), mints an installation token with one `POST
+/app/installations/<id>/access_tokens`, and caches it with its `expires_at` in
+the state directory (`app_token.json`, mode 600), minting again when it is
+under 10 minutes from expiry — about one mint an hour, and only on a tick that
+makes a GitHub call. The token is passed as `GH_TOKEN` to the watcher's own
+`gh` calls (comments, the status edit, the steering read) and to nothing else.
+If minting fails, the tick carries on but makes **no** GitHub call: never one
+under the human's `gh` auth in its place. The reason goes into `tick.log`
+(`github_auth`) and the digest ("GitHub writes held"); a held post costs no
+try and is retried, and a failed mint is not retried for 10 minutes. An App
+configured in part (one or two variables) is the same failure. Without the
+App, `PYAUTO_SHIFT_GH_TOKEN` (a static fine-grained token, PyAutoMind
+issues:write only) is the fallback; with neither, comments post as the human's
+account. Neither the App variables, the key path, the static token nor a
+minted token reaches a worker or close-out (`worker_env`). Once a shift,
+before the first mention, the posting account is named — as the App,
+`<slug>[bot]` from one `GET /app` with the JWT (`gh api user` does not answer
+for an installation token), else `gh api user` — and if it is the mentioned
+login (never, as the App) the digest's `### Workers` warns "mention will not
+notify: posted as the mentioned account". With nothing pending, the tick is
+idle. The worker
 prompt also forbids EnterWorktree (its permission prompt stalls an unattended
 worker) and requires the `decision-taken` label on any PR carrying a flagged
 decision (pilot live shift 1, 2026-11-06).

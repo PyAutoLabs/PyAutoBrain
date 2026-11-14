@@ -55,6 +55,9 @@ def _no_real_github(monkeypatch):
                             real_read(issue, since, run=run) if run else None)
         monkeypatch.delenv(orch.MENTION_ENV, raising=False)
         monkeypatch.delenv(orch.GH_TOKEN_ENV, raising=False)
+        for key in ("PYAUTO_SHIFT_APP_ID", "PYAUTO_SHIFT_APP_INSTALLATION_ID",
+                    "PYAUTO_SHIFT_APP_KEY"):     # PyAutoBrain#630
+            monkeypatch.delenv(key, raising=False)
     if digest is not None:
         real_health = digest.pr_health
         monkeypatch.setattr(digest, "pr_health", lambda url, run=None:
