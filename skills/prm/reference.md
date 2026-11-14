@@ -34,6 +34,11 @@ the mergeability of the PR).
 
 ## CI: every run, every leg
 
+`pyauto-brain ci-verdict <owner/repo>#<n>` (`bin/ci_verdict.py`,
+PyAutoBrain#628) runs this recipe and judges it; step 2 obeys its verdict. The
+recipe stays here for a surface where it cannot run and for reading one leg
+by hand.
+
 A single head sha gets **two** runs of each workflow (`push` + `pull_request`,
 created seconds apart), each with its own matrix legs (e.g. py3.12 + py3.13). So
 one `success` row is 1 of 4 signals. Enumerate all of them:

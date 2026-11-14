@@ -450,8 +450,11 @@ def test_a_full_brief_run_spawns_only_heart_readiness_and_git(wt_mind, tmp_path,
     monkeypatch.setattr(subprocess, "Popen", popen)
     monkeypatch.setattr(os, "system", refuse)
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    # `--at NOW` pins the clock the 6 h age rule reads: the fixture is 0.5 h old
+    # at NOW, and on the wall clock it passed 6 h at 2026-11-14 01:30Z.
     rc = _batch.main(["brief", "--new", "2026-11-14-am", "--review-at",
                       "2099-01-01T12:00Z", "--mind", str(mind), "--green", "pick",
+                      "--at", NOW.isoformat(),
                       "--home", str(tmp_path / "home"), "--out", str(tmp_path / "b.md")])
     assert rc == 0 and urls == []
     assert list(mind.glob("draft/bug/*/heart_green_*.md")), "it did file"

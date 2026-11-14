@@ -256,7 +256,8 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                     lease_dir: Path) -> str:
     """The close-out session template filled in for one PR (phase 4b). Its
     Heart check is the scoped development-ship gate for the PR's repo (leg 4,
-    PyAutoHeart#340): only `green` merges."""
+    PyAutoHeart#340): only `green` merges. Its CI check is `pyauto-brain
+    ci-verdict` on the PR (PyAutoBrain#628): only `GREEN` merges."""
     repos = pr_repos(pr_url)
     heart_cmd = (f"bash -c 'source \"{COMMON_SH}\"; consult_vitals_verdict --repos {repos}'"
                  if repos else "")
@@ -264,7 +265,9 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
         task=task, pr_url=pr_url, task_path=prompt_path, brief_path=brief_path,
         lease_dir=lease_dir, ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
         shift_ledger=SHIFT_LEDGER, pr_repos=repos or "(none — not a GitHub PR URL)",
-        heart_cmd=heart_cmd or "(cannot be scoped — refuse)")
+        heart_cmd=heart_cmd or "(cannot be scoped — refuse)",
+        ci_verdict_cmd=f"{BRAIN_CLI} ci-verdict {pr_url}" if repos
+        else "(not a GitHub PR URL — refuse)")
 
 
 def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,

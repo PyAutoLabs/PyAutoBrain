@@ -348,7 +348,8 @@ counts the PRs GitHub shows merged by `review-at:`, whoever merged them, and
 `workers-crashed` counts exit records, not a tally. A `### Workers` section
 prints one line per worker (`<label> (<id>): spawned/crashed`). An issue URL in
 a `.done` is kept in `issues`, never `prs`. Health per PR is one
-read-only `gh pr checks --json`, judged per check (PyAutoHeart#343): any
+read-only `gh pr checks --json`, judged per check by `bin/ci_verdict.py`'s
+`judge` (PyAutoBrain#628; PyAutoHeart#343): any
 failed or cancelled → FAILED, any pending → RUNNING, no completed check at all
 (no CI, or only skipped) → NO-CHECKS, else HEALTHY — at least one completed
 check, all green; unreadable → UNKNOWN. `glance-auto-merges`, `reverts`, `pushes`, `drafts-filed` and

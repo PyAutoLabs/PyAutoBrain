@@ -12,6 +12,12 @@ Executable tooling for the PyAuto organism.
   than 6 h is never GREEN (STALE, `pass: false`); `--repos A,B` asks the local
   Heart's scoped dev-ship gate (PyAutoHeart#340). Run first by `start_dev`
   step 0a and `route`.
+- **`ci_verdict.py`** — `pyauto-brain ci-verdict <owner/repo>#<n> [--json]`:
+  the one CI judgement for a PR (PyAutoBrain#628). REST head sha (empty is
+  refused), every check-run, commit status, workflow run and job, and
+  mergeability → GREEN / PENDING / RED with reasons; exit 0 · 2 · 1. `/prm`
+  step 2 and the shift close-out run it; the watcher's `pr_health` feeds its
+  `gh pr checks` rows to the same `judge`.
 - **`lane_backfill.py`** — proposes a `Lane:` for every lane-less draft in
   the planner pool, from intake's own lane signals, as a table for a human to
   skim; `--apply [--from <table>]` writes the headers (commits nothing).
