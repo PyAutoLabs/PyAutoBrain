@@ -213,7 +213,7 @@ def test_cli_once_through_pyauto_brain(tmp_path):
 
 def test_digest_and_watch_word_every_task_the_same(tmp_path):
     """With no lease held (as at review-at), each watch line carries the digest
-    line's state verbatim."""
+    line's state verbatim, and the status comment's entry is the digest's."""
     brief, slot = _record(tmp_path), _live_slot(tmp_path)
     for f in (slot / "leases").glob("*.json"):
         f.unlink()
@@ -224,7 +224,7 @@ def test_digest_and_watch_word_every_task_the_same(tmp_path):
     digest = _digest.build(block, slot, orch.read_counters(slot), health=_health)
     snap = _watch.snapshot(brief, slot, NOW, health=_health)
     for row in snap["tasks"]:
-        assert f"- {row['task']} — {row['state']}" in digest, row
+        assert "\n".join(row["entry"]) in digest, row
 
 
 def test_refresh_interval_floor_and_cached_health():

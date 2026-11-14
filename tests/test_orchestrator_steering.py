@@ -133,7 +133,8 @@ def test_the_status_comment_is_created_once_and_then_only_edited(tmp_path, monke
     body = gh.status()[0]["body"]
     assert body == (slot / orch.STATUS_FILE).read_text()
     assert "**Shift `shift` — LIVE · 2h 30m left**" in body and "- tokens: 0 of 100000" in body
-    assert "(`t1`; small · pyautobrain) — running? (agent 00000001" in body and "@" not in body
+    assert "- **Still running** — t1\n  <sub>`t1` · glance · small · pyautobrain · running? (agent 00000001" \
+        in body and "@" not in body
 
     r = _tick(brief, mind, home, 1, claude, gh, {"t1": "working"})       # now listed: a change
     assert r["status"]["status"] == "edited" and "running (agent 00000001, working" in \
@@ -143,7 +144,7 @@ def test_the_status_comment_is_created_once_and_then_only_edited(tmp_path, monke
     (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/9\n")
     r = _tick(brief, mind, home, 4, claude, gh, {"t1": "done"})          # a state change
     assert r["status"]["status"] == "edited"
-    assert "https://github.com/o/r/pull/9 — RUNNING" in gh.status()[0]["body"]
+    assert "- **CI running** — [t1](https://github.com/o/r/pull/9)" in gh.status()[0]["body"]
     r = _tick(brief, mind, home, 20, claude, gh)                          # the 10-minute refresh
     assert r["status"]["status"] == "edited" and "2h 10m left" in gh.status()[0]["body"]
 

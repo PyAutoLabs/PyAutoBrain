@@ -118,7 +118,8 @@ def test_a_done_written_after_the_last_tick_appears_in_the_digest(tmp_path):
     r = _finish(brief, mind, home, AFTER, agents=d._agents({"t1": "done"}, slot))
     assert r["action"] == "digest"
     text = (slot / orch.DIGEST_FILE).read_text()
-    assert f"{PR} — HEALTHY" in text and "the worker wrote no proof packet" in text
+    assert f"- **CI green — awaiting merge** — [t1]({PR})" in text \
+        and "the worker wrote no proof packet" in text
     assert "(00000001): spawned/finished" in text
     assert orch.leases(slot) == {}
 

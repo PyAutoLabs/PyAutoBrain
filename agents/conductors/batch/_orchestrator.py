@@ -36,6 +36,7 @@ import datetime as _dt
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -346,6 +347,49 @@ def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Pa
 #: `claude --bg` prints `backgrounded · <8-hex id> · <name>` on its first line.
 _BG_ID_RE = re.compile(r"backgrounded\W+([0-9a-f]{8})\b")
 
+#: systemd-run's own failures: the scope was never made, so `claude` never
+#: ran and a plain launch cannot double-spawn.
+_SCOPE_FAILED_RE = re.compile(r"Failed to (start transient scope unit|connect to bus"
+                              r"|create bus connection)", re.I)
+
+
+def scope_command(argv: list[str], task: str, env: dict | None = None,
+                  which=shutil.which) -> list[str]:
+    """`argv` wrapped in its own transient systemd user scope, when the watcher
+    runs inside a systemd unit and `systemd-run` is on PATH (PyAutoBrain#634).
+
+    The first `claude --bg` starts the per-user background-session daemon
+    (`claude daemon run`, `origin=transient`) and its `bg-pty-host` spares.
+    They inherit the cgroup of whoever launched them. Launched from the
+    watcher's oneshot `pyauto-orchestrator.service`, they lived in that
+    unit's cgroup, outlived each tick, and systemd logged "Found left-over
+    process" on every tick of the first live shift (211 lines). In a scope
+    of their own (`app.slice/run-*.scope`) they never share the unit's
+    cgroup, and the scope goes away when its last process exits: the daemon
+    already quits on its own 5 s after its last client. A daemon some other
+    session already runs is only connected to; the scope then holds the
+    short-lived client and closes at once. Nothing here stops anything.
+
+    `--scope` runs the command as systemd-run's own child, so the worker's
+    environment and working folder pass through unchanged. Outside a unit
+    (no `INVOCATION_ID`: a hand-run tick, CI, macOS) or without
+    `systemd-run`, the argv comes back unchanged — spawned as before."""
+    env = os.environ if env is None else env
+    if not env.get("INVOCATION_ID") or not which("systemd-run"):
+        return list(argv)
+    return ["systemd-run", "--user", "--scope", "--quiet", "--collect",
+            f"--description=PyAuto shift session {task}", "--", *argv]
+
+
+def run_scoped(run, argv: list[str], task: str, **kw):
+    """Run `argv` through `scope_command`; if systemd-run itself could not
+    make the scope (no user bus), run it plain, exactly as before #634."""
+    wrapped = scope_command(argv, task, kw.get("env"))
+    res = run(wrapped, **kw)
+    if wrapped != argv and res.returncode != 0 and _SCOPE_FAILED_RE.search(res.stderr or ""):
+        return run(list(argv), **kw)
+    return res
+
 
 class RealSpawner:
     """`claude --bg` workers from the session template (phase 3b)."""
@@ -366,8 +410,8 @@ class RealSpawner:
               redispatch: bool = False) -> dict:
         argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode,
                                redispatch)
-        res = self.run(argv, cwd=self.cwd, capture_output=True, text=True, timeout=120,
-                       env=worker_env(lease_dir))
+        res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
+                         timeout=120, env=worker_env(lease_dir))
         # An untrusted folder is refused here, fast ("Workspace not trusted") —
         # never a silent stall. Workers start from a folder the human trusted.
         if res.returncode != 0:
@@ -382,8 +426,10 @@ class RealSpawner:
     def spawn_closeout(self, task: str, pr_url: str, prompt_path: str, lease_dir: Path) -> dict:
         argv = closeout_command(task, pr_url, prompt_path, self.brief_path, lease_dir,
                                 self.mode)
-        res = self.run(argv, cwd=self.cwd, capture_output=True, text=True, timeout=120,
-                       env=worker_env(lease_dir))
+        # The same scoped route as a worker (#634): a close-out may be the
+        # session that starts the daemon.
+        res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
+                         timeout=120, env=worker_env(lease_dir))
         if res.returncode != 0:
             raise OrchestratorError(f"claude --bg close-out failed for {task}: "
                                     + (res.stderr or res.stdout).strip()[:300])
@@ -1815,16 +1861,18 @@ def _live_status(slot: Path, mind: Path, shift: dict, now: _dt.datetime, agents,
                  health, github=None, *, stopped: bool = False) -> dict | None:
     """The end of every open tick: the status comment (create once, then edit)
     and the dashboard's `- live:` line. Built from the same snapshot as
-    `batch watch`, from what this tick already read — no read of its own.
+    `batch watch`, from what this tick already read — no network read of its
+    own (the work-issue links are a local git read of Mind, #634).
     On the `/stop` tick only the status write runs, as the acknowledgement:
     nothing is queued or committed to Mind, exactly as under `STOP`."""
     brief_path = shift.get("brief_path")
     if brief_path is None:
         return None
     import _watch  # noqa: E402 — deferred: _watch imports this module
-    snap = _watch.snapshot(brief_path, slot, now, agents=agents, health=health)
-    out = {}
     issue = shift.get("issue", "")
+    snap = _watch.snapshot(brief_path, slot, now, agents=agents, health=health,
+                           mind=mind, issue=issue)
+    out = {}
     if issue.startswith("http"):
         snap["commands_on"] = bool(mention_login())
         out = _post_status(slot, issue, _watch.render_status(snap),
@@ -2048,7 +2096,7 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     # reports from here on reaches the human through the late sweep (#632).
     counters["ledger_reported"] = len(_mind_writer.report(slot))
     _write_counters(slot, counters)
-    digest = _digest.build(brief, slot, counters, health=health, issue=issue)
+    digest = _digest.build(brief, slot, counters, health=health, issue=issue, mind=mind)
     (slot / DIGEST_FILE).write_text(digest, encoding="utf-8")
     result = {"action": "digest", "ledger": None, "post": None, "packet": None}
 
@@ -2080,14 +2128,14 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         result["post"] = {"posted": False, "error": "already posted this shift"}
         return result
     result["post"] = {k: posted[k] for k in ("posted", "url", "error") if k in posted}
-    closing = _close_status(brief_path, slot, issue, now, agents, github)
+    closing = _close_status(brief_path, slot, issue, now, agents, github, mind=mind)
     if closing:
         result["status"] = closing
     return result
 
 
 def _close_status(brief_path: Path, slot: Path, issue: str, now: _dt.datetime,
-                  agents, github=None) -> dict | None:
+                  agents, github=None, *, mind=None) -> dict | None:
     """One last edit of the status comment at `review-at:`, saying the shift
     is closed (#622); never retried — the digest is the record from here."""
     rec = _read_json(slot / STATUS_MARKER)
@@ -2095,7 +2143,7 @@ def _close_status(brief_path: Path, slot: Path, issue: str, now: _dt.datetime,
         return None
     import _watch  # noqa: E402
     snap = _watch.snapshot(brief_path, slot, now, agents=agents,
-                           health=lambda u: "see the digest")
+                           health=lambda u: "see the digest", mind=mind, issue=issue)
     snap["commands_on"] = False
     rec["due"] = True
     (slot / STATUS_MARKER).write_text(json.dumps(rec, sort_keys=True))
@@ -2177,6 +2225,18 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
         return events   # paused (#622): a green PR waits; it is not refused
     return _start_closeouts(slot, brief, counters, spawner, now, health, events,
                             review_at)
+
+
+def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime) -> dict | None:
+    """The ledger op that retires a merged task's live `queue.md` entry —
+    what `lifecycle.py close` does and an unattended close-out skipped once
+    (PyAutoBrain#634). None when the pick recorded no prompt."""
+    prompt = (counters.get("picks", {}).get(task) or {}).get("prompt") or ""
+    if not prompt:
+        return None
+    return {"op": "queue-retire", "path": "queue.md", "prompt": Path(prompt).name,
+            "shipped_as": f"{pr} (merged by the unattended close-out, "
+                          f"{now.strftime('%Y-%m-%d')})"}
 
 
 def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_state,
@@ -2271,6 +2331,12 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
                 "unique": f"| {co['task']} ({pr}) | {slot.name} |",
                 "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"],
                                   merged_by=(gh or {}).get("mergedBy") or "")})
+            retire = queue_retire_op(counters, co["task"], pr, now)
+            if retire:
+                # The close-out queues this with its complete record; this is
+                # the safety net when it did not (#634). A second retire of
+                # the same entry finds none live and is silent.
+                _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
             events["merged"].append(pr)
         else:
             # Never retried: a close-out that ended without a verdict is the

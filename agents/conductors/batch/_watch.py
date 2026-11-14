@@ -90,8 +90,11 @@ def _opens_in(now: _dt.datetime, start: _dt.datetime) -> str:
 
 
 def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
-             health=None, tick_lines: int = TICK_LINES) -> dict:
-    """Everything one refresh draws, as a dict. Reads only."""
+             health=None, tick_lines: int = TICK_LINES, mind=None, issue: str = "") -> dict:
+    """Everything one refresh draws, as a dict. Reads only. With the
+    watcher's Mind checkout (`mind`) and the shift issue, a task with no PR
+    yet links to the work issue its claim names — a local git read
+    (`_digest.MindLinks`), no network (PyAutoBrain#634)."""
     rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
     top, brief = rec["top"], rec["brief"] or {}
     shadow = _brief.is_shadow(brief)
@@ -115,16 +118,27 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         agents = _orchestrator.AgentsView()  # one `claude agents --json` per refresh
     health = health or _digest.pr_health
 
+    links = _digest.MindLinks(mind, issue) if mind else None
     rows = []
     for task in tasks:
-        state, _ = _digest.task_state(task, counters, health, live=True,
-                                      lease=held.get(task), agents=agents)
+        state, tiered = _digest.task_state(task, counters, health, live=True,
+                                           lease=held.get(task), agents=agents)
+        tier = picks.get(task, {}).get("tier", "?")
+        why = ("named in the brief" if task in named
+               else picks.get(task, {}).get("why") or "NOT RECORDED")
+        again = counters.get("redispatched", {}).get(task, 0)
+        # The status comment's two-line entry (#634): no Mind prompt link —
+        # a sha-pinned link would change on every Mind commit and force an
+        # edit each time; the digest carries it.
+        entry = _digest.entry_lines(
+            task, picks.get(task), state, tiered, tier,
+            _digest.work_link(task, counters, links),
+            why="" if task in named else why,
+            extra=[f"re-dispatched {again}×"] if again else [])
         rows.append({"task": task, "state": state,
                      "label": _digest.label(task, picks.get(task)),
-                     "tier": picks.get(task, {}).get("tier", "?"),
-                     "why": "named in the brief" if task in named
-                            else picks.get(task, {}).get("why") or "NOT RECORDED",
-                     "redispatched": counters.get("redispatched", {}).get(task, 0)})
+                     "tier": tier, "why": why, "redispatched": again,
+                     "entry": entry})
 
     values = _digest.counter_values(brief, counters)
     merges = values["merges"]
@@ -229,9 +243,7 @@ def render_status(snap: dict) -> str:
     lines = [f"**Shift `{snap['slot']}` — " + " · ".join(_flags(snap)) + "**",
              f"{snap['dispatched']} → {snap['review_at']} (as of {snap['now']}; "
              "this comment is edited in place, never re-posted)", "", "**Tasks**"]
-    lines += [f"- {r['label']} — {r['state']} — {r['tier']} — why: {r['why']}"
-              + (f" — re-dispatched {r['redispatched']}×" if r["redispatched"] else "")
-              for r in snap["tasks"]] or ["- none yet"]
+    lines += [line for r in snap["tasks"] for line in r["entry"]] or ["- none yet"]
     b = snap["budgets"]
     lines += ["", "**Budgets**", f"- workers: {b['workers']}", f"- sessions: {b['sessions']}",
               f"- tokens: {b['tokens']}", f"- merges: {b['merges']}",

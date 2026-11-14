@@ -11,6 +11,11 @@ Type=oneshot
 # background-session daemon inside this unit, so the workers died with the tick
 # (pilot live shift 1, 2026-11-06, PyAutoBrain#592). After changing this, copy
 # the unit again and run `systemctl --user daemon-reload`.
+# Since PyAutoBrain#634 each session is launched in its own transient scope
+# (`systemd-run --user --scope`), so the daemon no longer lives in this unit's
+# cgroup and systemd stops logging "Found left-over process" each tick. Keep
+# KillMode=process anyway: a daemon started before that change, or by a tick
+# on a machine without systemd-run, is still spared.
 KillMode=process
 EnvironmentFile=%h/.config/pyauto/orchestrator.env
 ExecStart=/usr/bin/env python3 ${PYAUTO_BRAIN}/bin/orchestrator_watch.py --brief ${PYAUTO_SHIFT_BRIEF} --mind ${PYAUTO_MIND}

@@ -71,9 +71,11 @@ def test_the_shadow_digest_lists_proposals_and_validates(tmp_path):
     slot = orch.slot_dir(brief, home)
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot,
                       orch.read_counters(slot), health=t._health)
-    assert "- **named** (`named`; small · pyautobrain) — proposed (shadow) — glance" in d
-    assert "- **picked** (`picked`; small · pyautobrain) — proposed (shadow) — glance — why: scoped epic e1 · not in queue.md" in d
-    assert "- never — not started" in d
+    assert ("- **Proposed (shadow)** — named\n"
+            "  <sub>`named` · glance · small · pyautobrain · proposed (shadow)</sub>") in d
+    assert ("- **Proposed (shadow)** — picked\n  <sub>`picked` · glance · small · pyautobrain"
+            " · proposed (shadow) · why: scoped epic e1 · not in queue.md") in d
+    assert "- **Not started** — never" in d
     assert _digest.NO_PACKETS_SHADOW in d
     # Every counter is 0 in a shadow shift: one line, not nine.
     assert _digest.SHADOW_COUNTERS + " · review-minutes-planned: 45" in d
@@ -157,7 +159,7 @@ def test_titled_picks_validate_and_a_missing_why_names_the_slug(tmp_path):
                       orch.read_counters(slot), health=t._health, issue=t.ISSUE)
     assert _digest.validate(d) == []
     import re
-    bad = re.sub(r" — why: scoped epic e1[^\n]*", " — why: NOT RECORDED", d)
+    bad = re.sub(r" · why: scoped epic e1[^\n]*", " · why: NOT RECORDED</sub>", d)
     assert any("backlog pick picked has no `why:`" in e for e in _digest.validate(bad))
     # The one-line shadow counters are accepted only as that line: a live
     # digest without its counters is still refused.

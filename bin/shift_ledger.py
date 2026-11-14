@@ -12,6 +12,7 @@ ledger paths (`draft/`, `active/`, `complete/`, `batches/`, the registries).
     shift_ledger.py remove  active/y.md
     shift_ledger.py drop-section active.md my-task
     shift_ledger.py set-header draft/x/y.md Verified --text "2026-11-12 abc1234 (Repo)"
+    shift_ledger.py queue-retire queue.md y.md --text "<PR url> → complete/2026/11/y.md (2026-11-14)"
 
 The ledger directory is `$PYAUTO_SHIFT_LEDGER_DIR` (set for every worker).
 """
@@ -31,7 +32,7 @@ def main(argv=None) -> int:
     ap.add_argument("op", choices=mw.OPS)
     ap.add_argument("path")
     ap.add_argument("arg", nargs="?", help="move: destination; drop-section: section; "
-                         "set-header: the header key")
+                         "set-header: the header key; queue-retire: the prompt file name")
     ap.add_argument("--text-file", type=Path)
     ap.add_argument("--text")
     ap.add_argument("--mind", type=Path, default=os.environ.get("PYAUTO_MIND"),
@@ -49,6 +50,8 @@ def main(argv=None) -> int:
         op["section"] = a.arg
     if a.op == "set-header":
         op["key"], op["value"] = a.arg, (a.text or "")
+    if a.op == "queue-retire":
+        op["prompt"], op["shipped_as"] = a.arg, (a.text or "")
     if a.op in ("append", "write"):
         op["text"] = a.text_file.read_text(encoding="utf-8") if a.text_file else (a.text or "")
     if a.mind:

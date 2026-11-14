@@ -21,6 +21,17 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "jsonl-upsert", "path": "batches/pilot/pilot.jsonl", "key": "slot", "row": {...}}
     {"op": "table-upsert", "path": "batches/pilot/pilot.md", "key": "<slot>", "row": "| … |", "header": "…"}
     {"op": "record-key",   "path": "batches/<slot>.md", "key": "live", "value": "…"}
+    {"op": "queue-retire", "path": "queue.md", "prompt": "x.md", "shipped_as": "<PR> → complete/…"}
+
+`queue-retire` moves every live `queue.md` entry whose `ref:` names the
+prompt file `prompt` to the `## Retired` footer with `shipped-as:`, using
+PyAutoMind's own `lifecycle.py` `queue_retire_text`, the function
+`lifecycle.py close` runs. It is loaded from the tree being written, so
+the rule is Mind's, never a copy. An unattended close-out queues it with
+its complete record, and the watcher queues it again when it reaps the
+merge (PyAutoBrain#634: after the first unattended merge its entry
+stayed live, and `lifecycle.py check` then failed on the dangling ref). No
+live entry naming the prompt is the usual case, and it is silent.
 
 `jsonl-upsert` keeps one JSON line per `row[key]`: the line with that key is
 replaced (its other fields kept), else the row is appended. `table-upsert`
@@ -75,7 +86,10 @@ import types
 from pathlib import Path
 
 OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
-       "set-header", "jsonl-upsert", "table-upsert", "record-key")
+       "set-header", "jsonl-upsert", "table-upsert", "record-key", "queue-retire")
+#: What a watcher-run queue retirement says in the footer, in place of the
+#: `lifecycle.py close` it did not run.
+QUEUE_RETIRED_BY = "retired by the shift close-out (queue-retire)"
 PUSH_TRIES = 3
 LEDGER_DIR = "ledger"
 COMMITTED_DIR = "committed"
@@ -182,6 +196,14 @@ def validate_op(op: dict, lm) -> list[str]:
             errs.append("record-key: value must be one non-empty line")
         if not (path.startswith("batches/") and path.endswith(".md")):
             errs.append("record-key: path must be a batch record (batches/*.md)")
+    if kind == "queue-retire":
+        prompt, shipped = op.get("prompt"), op.get("shipped_as")
+        if op.get("path") != "queue.md":
+            errs.append("queue-retire: path must be queue.md")
+        if not isinstance(prompt, str) or not re.fullmatch(r"[^/\s]+\.md", prompt):
+            errs.append("queue-retire: prompt must be a bare prompt file name (x.md)")
+        if not isinstance(shipped, str) or not shipped.strip() or "\n" in shipped:
+            errs.append("queue-retire: shipped_as must be one non-empty line")
     if kind == "set-header":
         key, value = op.get("key"), op.get("value")
         if not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Za-z-]*", key):
@@ -267,6 +289,22 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
             # A row re-queued after a crash between queue and counters (#632).
             return f"table-append: a row with {op['unique']!r} is already there — skipped"
         target.write_text(table_append(text, op["heading"], op["row"]), encoding="utf-8")
+    elif kind == "queue-retire":
+        if not target.exists():
+            return None   # no queue on this Mind: nothing can dangle
+        text = target.read_text(encoding="utf-8")
+        try:
+            new, moved = _mind_module(tree, "lifecycle").queue_retire_text(
+                text, op["prompt"], op["shipped_as"])
+        except MindWriteError:
+            raise
+        except Exception as exc:  # Mind main's lifecycle.py is not ours: any
+            # failure in it (syntax, rename, its own bug) must stay this one
+            # op's failure, never a tick crash that strands every other op.
+            raise MindWriteError(f"queue-retire: lifecycle.queue_retire_text "
+                                 f"failed: {type(exc).__name__}: {exc}") from exc
+        if moved:
+            target.write_text(_retired_by(new, len(moved)), encoding="utf-8")
     elif kind == "jsonl-upsert":
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(jsonl_upsert(target.read_text(encoding="utf-8")
@@ -278,6 +316,36 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
                                        if target.exists() else "",
                                        op["key"], op["row"], op.get("header", "")),
                           encoding="utf-8")
+
+
+def _mind_module(tree: Path, name: str):
+    """A PyAutoMind `scripts/<name>.py`, compiled from `tree` (the temporary
+    worktree on origin/main) as `_ledger_merge` compiles its own: no import,
+    so no `__pycache__` is written anywhere."""
+    path = Path(tree) / "scripts" / f"{name}.py"
+    if not path.is_file():
+        raise MindWriteError(f"no scripts/{name}.py on Mind main")
+    mod_name = f"_mind_{name}"
+    mod = types.ModuleType(mod_name)
+    mod.__file__ = str(path)
+    sys.modules[mod_name] = mod
+    try:
+        exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), mod.__dict__)
+    finally:
+        sys.modules.pop(mod_name, None)
+    return mod
+
+
+def _retired_by(text: str, n: int) -> str:
+    """`queue_retire_text` notes its entries as retired by `lifecycle.py
+    close`; the `n` it just put at the head of the footer were retired here."""
+    old = "retired by `lifecycle.py close`"
+    m = re.search(r"^## Retired[ \t]*$", text, re.M)   # the heading line, not prose
+    head = m.start() if m else -1
+    if head < 0:
+        return text
+    body = text[head:].replace(old, QUEUE_RETIRED_BY, n)
+    return text[:head] + body
 
 
 def _new_sections(old: str, text: str, path: str, lm,
