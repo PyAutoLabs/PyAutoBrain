@@ -14,13 +14,16 @@ Three settings, all or none:
 - `PYAUTO_SHIFT_APP_KEY` — the path of the App's private key (`.pem`).
 
 With all three set, the watcher signs an RS256 JWT (PyJWT, else `openssl dgst`,
-no shell), mints an installation token (`POST /app/installations/<id>/access_tokens`),
-caches it with its `expires_at` in the watcher's state directory (mode 600) and
-mints again when it is under `REFRESH_MARGIN_S` from expiry — about one mint an
-hour. With none set, `PYAUTO_SHIFT_GH_TOKEN` (a static token) is the fallback,
-and with neither, `gh`'s own auth, as before. When the App is configured but no
-token can be had, the watcher's GitHub calls are not made at all: never the
-human's `gh` auth in its place. No error message carries the key, a JWT or a token.
+no shell) and mints an installation token (`POST /app/installations/<id>/access_tokens`)
+on the first watcher GitHub call of a tick, reuses it for the rest of that tick,
+and keeps it **in memory only**: no token is ever written to disk, where a worker
+running as the same user could read it (#630 review). A failed mint is
+remembered on disk as a timestamp and a reason only (`MINT_FAILURE_FILE`), so
+the next mint waits `MINT_BACKOFF_S`. With none set, `PYAUTO_SHIFT_GH_TOKEN` (a
+static token) is the fallback, and with neither, `gh`'s own auth, as before.
+When the App is configured but no token can be had, the watcher's own GitHub
+calls are not made at all: never the human's `gh` auth in their place. No error
+message carries the key, a JWT or a token.
 
 Runs under the systemd unit's `/usr/bin/python3` (3.10): standard library plus
 an optional PyJWT.
@@ -33,6 +36,7 @@ import datetime as _dt
 import json
 import os
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -46,12 +50,9 @@ APP_ENVS = (APP_ID_ENV, APP_INSTALLATION_ENV, APP_KEY_ENV)
 GH_TOKEN_ENV = "PYAUTO_SHIFT_GH_TOKEN"
 
 API = "https://api.github.com"
-#: The cached installation token, in the watcher's state directory, mode 600.
-CACHE_FILE = "app_token.json"
-#: A cached token this close to its expiry is minted again.
-REFRESH_MARGIN_S = 600
-#: A token this close to expiry is not used even when a refresh fails.
-MIN_USABLE_S = 60
+#: The last failed mint, in the watcher's state directory: `{"at", "error"}` —
+#: a timestamp and a reason, never a secret. Removed by a successful mint.
+MINT_FAILURE_FILE = "app_mint_failure.json"
 #: After a failed mint, no new attempt for this long (a tick is ~3 min).
 MINT_BACKOFF_S = 600
 #: The JWT: back-dated for clock drift, and inside GitHub's 10-minute cap.
@@ -185,71 +186,55 @@ def app_login(settings: dict, now: float, request=request, **jwt_kw) -> str:
     return f"{slug}[bot]"
 
 
-def _read_cache(path: Path) -> dict:
+def read_failure(state_dir: Path) -> dict:
+    """The last failed mint, `{"at", "error"}`; {} when none is recorded."""
     try:
-        rec = json.loads(path.read_text(encoding="utf-8"))
+        rec = json.loads((Path(state_dir) / MINT_FAILURE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return rec if isinstance(rec, dict) else {}
 
 
-def _write_cache(path: Path, rec: dict) -> None:
-    """Written mode 600 from creation, then renamed into place."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.unlink(missing_ok=True)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(rec, fh, sort_keys=True)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+def _record_failure(state_dir: Path, now: float, error: str) -> None:
+    """A timestamp and a reason (no secret), written through a unique temp file."""
+    state_dir = Path(state_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=MINT_FAILURE_FILE + ".", dir=state_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"at": now, "error": error}, fh, sort_keys=True)
+        os.replace(tmp, state_dir / MINT_FAILURE_FILE)
+    except OSError:
+        Path(tmp).unlink(missing_ok=True)
 
 
-def installation_token(settings: dict, cache_path: Path, now: float, request=request,
+def installation_token(settings: dict, state_dir: Path, now: float, request=request,
                        **jwt_kw) -> str:
-    """The cached token while it has more than `REFRESH_MARGIN_S` left; else a
-    fresh mint, cached. A failed refresh still uses a cached token with more
-    than `MIN_USABLE_S` left; a failed mint backs off `MINT_BACKOFF_S`."""
-    cache_path = Path(cache_path)
-    rec = _read_cache(cache_path)
-    same = (str(rec.get("app_id")) == settings["app_id"]
-            and str(rec.get("installation_id")) == settings["installation_id"])
-    left = None
-    if same and rec.get("token"):
-        try:
-            left = _parse_ts(rec.get("expires_at", "")) - now
-        except ValueError:
-            left = None
-    if left is not None and left > REFRESH_MARGIN_S:
-        return rec["token"]
-    failure = rec.get("failure") if same else None
-    if isinstance(failure, dict) and now - float(failure.get("at", 0)) < MINT_BACKOFF_S:
-        if left is not None and left > MIN_USABLE_S:
-            return rec["token"]
-        raise AppTokenError(f"{failure.get('error', 'mint failed')} (no new mint for "
+    """A freshly minted installation token, held by the caller in memory only.
+    Within `MINT_BACKOFF_S` of a failed mint no call is made: an error."""
+    failure = read_failure(state_dir)
+    try:
+        since = now - float(failure.get("at"))
+    except (TypeError, ValueError):
+        since = None
+    if since is not None and 0 <= since < MINT_BACKOFF_S:
+        raise AppTokenError(f"{failure.get('error') or 'mint failed'} (no new mint for "
                             f"{MINT_BACKOFF_S // 60} min after a failure)")
     try:
         minted = mint(settings, now, request=request, **jwt_kw)
     except AppTokenError as e:
-        keep = {k: rec[k] for k in ("token", "expires_at") if same and k in rec}
-        _write_cache(cache_path, {"app_id": settings["app_id"],
-                                  "installation_id": settings["installation_id"],
-                                  **keep, "failure": {"at": now, "error": str(e)}})
-        if left is not None and left > MIN_USABLE_S:
-            return rec["token"]
+        _record_failure(state_dir, now, str(e))
         raise
-    _write_cache(cache_path, {"app_id": settings["app_id"],
-                              "installation_id": settings["installation_id"],
-                              "minted_at": now, **minted})
+    (Path(state_dir) / MINT_FAILURE_FILE).unlink(missing_ok=True)
     return minted["token"]
 
 
 class WatcherAuth:
-    """Who the watcher's own `gh` calls run as, resolved lazily and at most once
-    per tick: the App (`mode` "app"), the static token ("token"), or — with
-    neither configured — `gh`'s own auth ("gh"). `error` is why an App
-    configured could not be used this tick; then `env()` raises and no
-    GitHub call is made."""
+    """Who the watcher's own `gh` calls run as, for one tick: the App (`mode`
+    "app"), the static token ("token"), or — with neither configured — `gh`'s
+    own auth ("gh"). The App's token is minted on the first call that needs it
+    and held in this object only, for this tick. `error` is why an App
+    configured could not be used; then `env()` raises and no call is made."""
 
     def __init__(self, state_dir: Path, now: float | None = None, environ=None,
                  request=request, **jwt_kw):
@@ -272,17 +257,13 @@ class WatcherAuth:
             self.mode = "token" if static else "gh"
             self.token, self._resolved = static or None, True
 
-    @property
-    def cache_path(self) -> Path:
-        return self.state_dir / CACHE_FILE
-
     def _resolve(self) -> None:
         self.used = True
         if self._resolved:
             return
         self._resolved = True
         try:
-            self.token = installation_token(self.settings, self.cache_path, self.now,
+            self.token = installation_token(self.settings, self.state_dir, self.now,
                                             request=self.request, **self.jwt_kw)
         except AppTokenError as e:
             self.error = str(e)
@@ -291,15 +272,17 @@ class WatcherAuth:
 
     def env(self) -> dict | None:
         """The environment for one watcher `gh` call; None means `gh`'s own auth
-        (only when no identity is configured at all). Raises `AppTokenError`
-        when the App is configured and no token can be had."""
+        (only when no identity is configured at all). In App mode a token is
+        required: without one this raises `AppTokenError`, never returns None."""
         self._resolve()
-        if self.error:
-            raise AppTokenError(self.error)
-        if self.token is None:
+        if self.mode == "app":
+            if self.error or not self.token:
+                raise AppTokenError(self.error or "no App installation token")
+            env = {k: v for k, v in self.environ.items() if k != "GITHUB_TOKEN"}
+        elif self.token is None:
             return None
-        env = {k: v for k, v in self.environ.items() if k != "GITHUB_TOKEN"} \
-            if self.mode == "app" else dict(self.environ)
+        else:
+            env = dict(self.environ)
         env["GH_TOKEN"] = self.token
         return env
 
@@ -316,12 +299,8 @@ class WatcherAuth:
     def failed(self) -> bool:
         """Whether an App was configured and is unusable — resolved first."""
         self._resolve()
-        return bool(self.error)
+        return bool(self.error) or (self.mode == "app" and not self.token)
 
     def secrets(self) -> set[str]:
-        """Every token this identity holds or cached — stripped from workers."""
-        out = {self.token} if self.token else set()
-        tok = _read_cache(self.cache_path).get("token") if self.mode == "app" else None
-        if tok:
-            out.add(tok)
-        return out
+        """The token this identity holds — stripped from workers' environments."""
+        return {self.token} if self.token else set()

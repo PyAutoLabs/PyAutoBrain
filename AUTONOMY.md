@@ -886,9 +886,12 @@ beyond these (a second digest, a second mention for the same worker and
 state, a second correction), retires the watcher to fake mode. **Posting identity, ruled
 by the human 2026-11-12 (PyAutoLabs/PyAutoBrain#611):** the watcher's GitHub
 writes use the watcher's App installation token (PyAutoBrain#630), minted by
-one `POST /app/installations/<id>/access_tokens` call about once an hour; until
-it is set they post as the human's account and the digest warns that the
-mention will not notify.
+one `POST /app/installations/<id>/access_tokens` call on each tick that makes
+a watcher GitHub call and held in memory for that tick only. Without the App,
+a separate account's static token, `PYAUTO_SHIFT_GH_TOKEN` (fine-grained,
+PyAutoMind issues:write only), is the fallback. With neither set, the writes
+post as the human's account and the digest warns that the mention will not
+notify.
 
 **Amendment — 2026-11-13 (PyAutoBrain#622), authorized by the human.** The
 human approved the live shift view as drafted on 2026-11-13: a running shift

@@ -840,8 +840,9 @@ def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          now: _dt.datetime | None = None, auth=None, **kw) -> dict:
     """One watcher tick, with its GitHub identity bound for the tick's own
     `gh` calls (PyAutoBrain#630): a `_app_token.WatcherAuth` over the state
-    directory — the App's cached installation token, minted at most when a
-    call first needs it — unless a test passes its own `auth`."""
+    directory — the App's installation token, minted when the tick's first
+    watcher GitHub call needs it and held in memory for this tick only —
+    unless a test passes its own `auth`."""
     global _AUTH
     now = now or _now()
     prev = _AUTH

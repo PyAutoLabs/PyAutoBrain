@@ -1,9 +1,10 @@
 """PyAutoBrain#630: the shift watcher posts as its own minimal GitHub App.
 
 The App (`PYAUTO_SHIFT_APP_ID` / `_INSTALLATION_ID` / `_KEY`) signs an RS256
-JWT, mints an installation token, caches it (mode 600) until under 10 min from
-expiry, and gives it to the watcher's own `gh` calls only. A mint that fails
-holds every GitHub write — never the human's `gh` auth in its place. A
+JWT, mints an installation token on a tick's first watcher GitHub call, holds
+it in memory for that tick only (never on disk), and gives it to the watcher's
+own `gh` calls only. A mint that fails holds every watcher call — never the
+human's `gh` auth in its place — and backs off 10 min. A
 generated RSA key and a fake API stand in for GitHub: nothing here reaches
 the network.
 """
@@ -125,54 +126,66 @@ def test_a_key_that_cannot_be_read_is_an_error_naming_no_secret(tmp_path):
         _app_token.make_jwt(APP_ID, str(tmp_path / "absent.pem"), now=1)
 
 
-# --- mint, cache, refresh ---------------------------------------------------------------
+# --- mint in memory, once a tick; a failure backs off ---------------------------------
 
-def test_mint_then_cache_then_refresh_near_expiry(rsa_key, tmp_path):
+def _files_holding(root: Path, secret: str) -> list[Path]:
+    return [f for f in Path(root).rglob("*") if f.is_file()
+            and secret.encode() in f.read_bytes()]
+
+
+def test_the_token_is_minted_once_a_tick_in_memory_and_never_written(rsa_key, tmp_path):
     path, public = rsa_key
-    api, cache = FakeAPI(), tmp_path / "state" / _app_token.CACHE_FILE
-    s = _settings(path)
-    assert _app_token.installation_token(s, cache, T0, request=api) == "ghs_fake1"
+    api, state = FakeAPI(), tmp_path / "state"
+    auth = _app_token.WatcherAuth(state, now=T0, environ=_app_env(path), request=api)
+    assert api.calls == []                                  # nothing until a call needs it
+    assert auth.env()["GH_TOKEN"] == "ghs_fake1"
     method, url, headers = api.calls[0]
     assert (method, url) == ("POST", f"{_app_token.API}/app/installations/{INSTALLATION}"
                                      "/access_tokens")
     jwt_token = headers["Authorization"][7:]
     _verify(jwt_token, public)
     assert _claims(jwt_token)["iss"] == APP_ID
-    rec = json.loads(cache.read_text())
-    assert rec["token"] == "ghs_fake1" and rec["expires_at"].endswith("Z")
-    assert cache.stat().st_mode & 0o777 == 0o600
-
-    # Cached while more than 10 min are left: no second call.
-    for later in (60, 1800, 3600 - 601):
-        assert _app_token.installation_token(s, cache, T0 + later, request=api) == "ghs_fake1"
+    # Reused for the rest of the tick: no second mint.
+    assert auth.env()["GH_TOKEN"] == auth.env()["GH_TOKEN"] == "ghs_fake1"
     assert api.minted == 1
-    # Under 10 min from expiry: minted again, and the new token cached.
-    assert _app_token.installation_token(s, cache, T0 + 3600 - 599, request=api) == "ghs_fake2"
-    assert api.minted == 2 and json.loads(cache.read_text())["token"] == "ghs_fake2"
-    assert cache.stat().st_mode & 0o777 == 0o600
-    # Another installation never reuses this one's token.
-    other = dict(s, installation_id="111")
-    assert _app_token.installation_token(other, cache, T0 + 3700, request=api) == "ghs_fake3"
+    # Nothing on disk holds it (a worker runs as the same user).
+    assert _files_holding(tmp_path, "ghs_fake") == []
+    # The next tick mints its own.
+    nxt = _app_token.WatcherAuth(state, now=T0 + 180, environ=_app_env(path), request=api)
+    assert nxt.env()["GH_TOKEN"] == "ghs_fake2" and api.minted == 2
 
 
-def test_a_failed_refresh_uses_a_still_valid_token_and_a_failed_mint_backs_off(rsa_key,
-                                                                               tmp_path):
+def test_a_failed_mint_records_only_a_time_and_reason_and_backs_off(rsa_key, tmp_path):
     path, _ = rsa_key
-    api, cache, s = FakeAPI(), tmp_path / _app_token.CACHE_FILE, _settings(path)
-    _app_token.installation_token(s, cache, T0, request=api)
-    api.fail = True
-    # 9 min left: the refresh fails, the still-valid token is used.
-    assert _app_token.installation_token(s, cache, T0 + 3060, request=api) == "ghs_fake1"
-    assert json.loads(cache.read_text())["failure"]["error"].endswith("HTTP 401")
-    # Expired, inside the back-off: no new call, an error.
+    api, state = FakeAPI(fail=True), tmp_path / "state"
+
+    def auth(at):
+        return _app_token.WatcherAuth(state, now=at, environ=_app_env(path), request=api)
+    a = auth(T0)
+    with pytest.raises(_app_token.AppTokenError, match="HTTP 401"):
+        a.env()
+    assert a.failed() and a.secrets() == set()
+    rec = json.loads((state / _app_token.MINT_FAILURE_FILE).read_text())
+    assert set(rec) == {"at", "error"} and rec["at"] == T0 and rec["error"].endswith("HTTP 401")
+    assert sorted(f.name for f in state.iterdir()) == [_app_token.MINT_FAILURE_FILE]
+    # Inside the back-off: no call at all, an error.
     n = len(api.calls)
     with pytest.raises(_app_token.AppTokenError, match="no new mint"):
-        _app_token.installation_token(s, cache, T0 + 3600, request=api)
+        auth(T0 + 599).env()
     assert len(api.calls) == n
-    # After the back-off it tries again, and a success clears the failure.
+    # After it: tried again; a success removes the record and writes nothing.
     api.fail = False
-    assert _app_token.installation_token(s, cache, T0 + 3060 + 601, request=api) == "ghs_fake2"
-    assert "failure" not in json.loads(cache.read_text())
+    assert auth(T0 + 601).env()["GH_TOKEN"] == "ghs_fake1"
+    assert list(state.iterdir()) == [] and _files_holding(tmp_path, "ghs_fake") == []
+
+
+def test_in_app_mode_a_missing_token_raises_never_falls_back(rsa_key, tmp_path):
+    path, _ = rsa_key
+    a = _app_token.WatcherAuth(tmp_path, now=T0, environ=_app_env(path), request=FakeAPI())
+    a._resolved = True                                      # resolved, yet no token
+    with pytest.raises(_app_token.AppTokenError, match="no App installation token"):
+        a.env()
+    assert a.failed()
 
 
 def test_the_app_login_is_its_slug_as_a_bot_never_gh_api_user(rsa_key, tmp_path,
@@ -243,7 +256,8 @@ def test_a_mint_failure_holds_every_write_and_never_uses_the_human_auth(
     assert r["action"] == "late" and r["posts"]["digest"] == "posted"
     assert set(gh.calls) == {"create"} and len(envs) == len(gh.calls)   # + the correction
     assert all(e["GH_TOKEN"] == "ghs_fake1" and "GITHUB_TOKEN" not in e for e in envs)
-    assert api.minted == 1                                  # one mint, cached for both posts
+    assert api.minted == 1                                  # one mint, reused within the tick
+    assert _files_holding(tmp_path, "ghs_fake") == []       # no file holds the token
     assert json.loads((slot / orch.DIGEST_MARKER).read_text())["tries"] == 1
 
 
@@ -280,14 +294,14 @@ def test_app_settings_and_minted_token_never_reach_a_worker_or_closeout(
     home = tmp_path / "home"
     api = FakeAPI()
     env = _app_env(path)
-    _app_token.WatcherAuth(home, now=T0, environ=env, request=api).env()   # mint + cache
     for key in _app_token.APP_ENVS:
         monkeypatch.setenv(key, env[key])
     monkeypatch.setenv(orch.GH_TOKEN_ENV, "static-not-real")
     monkeypatch.setenv("GITHUB_TOKEN", "ghs_fake1")      # a minted token leaked into env
     monkeypatch.setenv("GH_TOKEN", "human-token-not-real")
-    # A fresh identity, never resolved this tick: the cached token is still stripped.
-    monkeypatch.setattr(orch, "_AUTH", _app_token.WatcherAuth(home, now=T0, request=api))
+    auth = _app_token.WatcherAuth(home, now=T0, request=api)
+    auth.env()                                            # this tick's token, in memory
+    monkeypatch.setattr(orch, "_AUTH", auth)
     mind, brief, _ = d._shift(tmp_path)
     claude = d.FakeClaude()
     sp = orch.RealSpawner(brief, "auto", run=claude)
@@ -300,4 +314,4 @@ def test_app_settings_and_minted_token_never_reach_a_worker_or_closeout(
         assert orch.GH_TOKEN_ENV not in wenv and "GITHUB_TOKEN" not in wenv
         assert not {"ghs_fake1", "static-not-real", str(path)} & set(wenv.values())
         assert wenv["GH_TOKEN"] == "human-token-not-real"
-    assert api.minted == 1                                # stripping never mints
+    assert api.minted == 1                                # stripping never mints again
