@@ -161,7 +161,11 @@ The default scope remains `release`; `--scope release` makes it explicit.
 Dashboard scope adopts `board.monitoring.status`, `score` and `complete` from
 Heart, forwarding its checks, findings, applicability, evidence, penalties,
 blocked reasons and action payloads unchanged. It uses the Heart CLI when
-available and the existing published-board reader otherwise. Heart owns all
+available and the existing published-board reader otherwise. A Heart CLI that
+answers with no JSON board at all (a checkout that has never ticked, as in a
+cloud session) also falls back to the published board; a local board that
+parses but lacks or mangles its inventory is never replaced. The JSON names the
+board it read in `source` (`local` or `published`). Heart owns all
 coverage judgments and remedies; the conductor presents them for review.
 
 Re-read after the chosen action completes. Stop only when Heart reports a
