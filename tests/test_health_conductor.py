@@ -367,3 +367,54 @@ def test_dashboard_statuses_and_inconsistent_findings_never_report_completion(tm
                   "--scope", "dashboard", "--json")
     assert result.returncode == EXIT_UNKNOWN
     assert json.loads(result.stdout)["findings"] == [finding]
+
+
+def _run_no_local_cache(tmp_path, published, *args):
+    """A Heart CLI that has never ticked (prints prose, no JSON board), with the
+    published board served from a local Pages mirror."""
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir(exist_ok=True)
+    heart = stub_dir / "pyauto-heart"
+    heart.write_text("#!/usr/bin/env bash\n"
+                     "echo 'No cache yet — run `pyauto-heart tick` first'\nexit 0\n")
+    heart.chmod(0o755)
+    pages = tmp_path / "pages" / "PyAutoHeart"
+    pages.mkdir(parents=True, exist_ok=True)
+    if published is not None:
+        (pages / "board.json").write_text(json.dumps(published))
+    empty_heart_repo = tmp_path / "no_heart_checkout"
+    empty_heart_repo.mkdir(exist_ok=True)
+    env = dict(os.environ)
+    env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
+    env["PYAUTO_HEART"] = str(empty_heart_repo)
+    env["BOARD_PAGES_BASE"] = (tmp_path / "pages").as_uri()
+    return subprocess.run([str(BRAIN), "health", *args],
+                          capture_output=True, text=True, env=env)
+
+
+def test_dashboard_without_a_local_cache_reads_the_published_board(tmp_path):
+    finding = {"id": "ci:a", "status": "red", "summary": "CI failed"}
+    board = _monitoring(status="red", score=27, complete=False,
+                        findings=[finding], checks=[finding])
+    result = _run_no_local_cache(tmp_path, board, "--scope", "dashboard", "--json")
+    data = json.loads(result.stdout)
+    assert result.returncode == EXIT_RED
+    assert data["source"] == "published"
+    assert data["score"] == 27
+    assert data["findings"] == [finding]
+
+
+def test_dashboard_without_local_cache_or_published_board_stays_unknown(tmp_path):
+    result = _run_no_local_cache(tmp_path, None, "--scope", "dashboard", "--json")
+    data = json.loads(result.stdout)
+    assert result.returncode == EXIT_UNKNOWN
+    assert data["complete"] is False
+    assert "inventory" in data["blocked_reason"]
+
+
+def test_dashboard_local_board_is_never_replaced_by_the_published_one(tmp_path):
+    result = _run(tmp_path, {"verdict": "green", "monitoring": None},
+                  "--scope", "dashboard", "--json")
+    data = json.loads(result.stdout)
+    assert result.returncode == EXIT_UNKNOWN
+    assert data["source"] == "local"

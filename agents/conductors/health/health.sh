@@ -109,7 +109,7 @@ if [[ "$scope" == "dashboard" ]]; then
   [[ "$json_only" -eq 1 ]] && dashboard_args+=(--json)
   if heart="$(resolve_heart 2>/dev/null)"; then
     bash "$(_agents_dir)/faculties/vitals/vitals.sh" dashboard --json 2>/dev/null |
-      python3 "$HERE/dashboard.py" "${dashboard_args[@]}"
+      python3 "$HERE/dashboard.py" --published-fallback "${dashboard_args[@]}"
     exit $?
   fi
   python3 "$HERE/dashboard.py" --published "${dashboard_args[@]}"
