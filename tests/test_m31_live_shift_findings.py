@@ -195,6 +195,22 @@ def test_3_a_task_parked_on_a_question_by_an_earlier_shift_is_not_picked(tmp_pat
     assert orch.parked_elsewhere(slot) == {}
 
 
+def test_3_a_malformed_earlier_counters_file_is_no_hold_and_never_a_crash(tmp_path, capsys):
+    home = tmp_path / "home"
+    _earlier_slot(home, {"outcomes": {"t": None}}, name="2026-11-04-aa")
+    _earlier_slot(home, {"outcomes": {"p1": {"questions": [QUESTION]}}}, name="2026-11-04-ab")
+    for name, body in (("2026-11-04-ac", []), ("2026-11-04-ad", {"parked": "p2"})):
+        (home / name).mkdir()
+        (home / name / orch.COUNTERS_FILE).write_text(json.dumps(body))
+    slot = home / "shift"
+    held = orch.parked_elsewhere(slot)
+    assert list(held) == ["p1"]                       # the good file still holds
+    err = capsys.readouterr().err
+    assert "2026-11-04-aa/counters.json has the wrong shape" in err
+    assert "2026-11-04-ac" in err and "2026-11-04-ad" in err
+    assert orch.worker_token_estimate(slot, orch.read_counters(slot), 1000) is None
+
+
 # --- 4. repo claims across shifts ---------------------------------------------------
 
 def test_4_a_task_on_a_repo_claimed_on_origin_is_skipped_unless_coordinated(tmp_path):
@@ -230,6 +246,14 @@ def test_4_a_task_on_a_repo_claimed_on_origin_is_skipped_unless_coordinated(tmp_
     (mind / mentioned).write_text((mind / mentioned).read_text() + "\nSee @PyAutoEyes.\n")
     rec = _rec(mind, mentioned)
     assert "pyautoeyes" in rec["repos"] and "pyautoeyes" not in rec["declared_repos"]
+    # An active.md on origin that cannot be read fails closed: no claim
+    # check, no pick (its blob is lost from the local object store).
+    blob = git(mind, "rev-parse", "origin/main:active.md")
+    (mind / ".git" / "objects" / blob[:2] / blob[2:]).unlink()
+    kept, closed = orch.on_origin(records, mind, own={"a2"})
+    assert [r["path"] for r in kept] == [paths[1]]   # only this shift's own pick
+    assert closed[paths[0]].startswith("Mind origin/main:active.md unreadable")
+    assert closed[paths[0]].endswith("fail closed")
     line = _digest.backlog_gate_lines({"backlog_gates": {"origin": {
         paths[0]: "repo PyAutoEyes claimed by `earlier-pick` in active.md on Mind origin/main"}}})
     assert any(ln.startswith("Repo claimed on Mind origin/main: 1") for ln in line)
@@ -324,6 +348,7 @@ def test_8_the_reservation_holds_a_finished_workers_measured_spend(tmp_path):
                                  extra="  - max-workers: 4\n  - max-sessions: 4\n")
     # The shift before: two workers finished at ~125k each (shift B's measure).
     _earlier_slot(home, {
+        "token_budget": 400000,
         "usage": {"w1": {"kind": "worker", "total": 125000, "final": True},
                   "w2": {"kind": "worker", "total": 126000, "final": True},
                   "w3": {"kind": "worker", "total": 4000, "final": True}},   # killed early
@@ -339,6 +364,37 @@ def test_8_the_reservation_holds_a_finished_workers_measured_spend(tmp_path):
     # No measure yet: the even share, as before.
     assert orch.default_token_reserve(400000, 4) == 100000
     assert orch.default_token_reserve(400000, 4, 90000) == 100000
+
+
+def test_8_one_outlier_worker_never_refuses_the_first_spawn(tmp_path):
+    """Review of 1ae5d5f: one past worker at 450k in a 400k shift must not
+    make the reservation 450k. Clamped to half the budget, the median of
+    comparable shifts only (a 2M shift's workers are not counted)."""
+    names = ("t1", "t2", "t3")
+    mind, brief, home = d._shift(tmp_path, names=names, budget=400000,
+                                 extra="  - max-workers: 4\n  - max-sessions: 4\n")
+    _earlier_slot(home, {"token_budget": 400000,
+                         "usage": {"w1": {"kind": "worker", "total": 450000, "final": True}},
+                         "workers": [{"key": "w1", "exits": ["spawned", "finished"]}]})
+    _earlier_slot(home, {"token_budget": 2000000,       # not comparable: never read
+                         "usage": {"w9": {"kind": "worker", "total": 10, "final": True}},
+                         "workers": [{"key": "w9", "exits": ["spawned", "finished"]}]},
+                  name="2026-11-04-ab")
+    slot = orch.slot_dir(brief, home)
+    assert orch.worker_token_estimate(slot, orch.read_counters(slot), 400000) == 450000
+    assert orch.default_token_reserve(400000, 4, 450000) == 200000
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["t1", "t2"]
+    assert r["refused"] == [{"task": "t3", "why": "token-budget 400000: 400000 committed + "
+                                                  "200000 reserved per worker"}]
+    assert orch.read_counters(slot)["token_budget"] == 400000
+    # The median, not the mean: one outlier among three does not move it.
+    _earlier_slot(home, {"token_budget": 400000,
+                         "usage": {k: {"kind": "worker", "total": 100000, "final": True}
+                                   for k in ("a", "b")},
+                         "workers": [{"key": k, "exits": ["finished"]} for k in ("a", "b")]},
+                  name="2026-11-04-ac")
+    assert orch.worker_token_estimate(slot, orch.read_counters(slot), 400000) == 100000
 
 
 # --- 9. PR keys -------------------------------------------------------------------------

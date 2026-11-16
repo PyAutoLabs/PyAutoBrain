@@ -663,33 +663,82 @@ def default_token_reserve(budget: int | None, max_sessions: int,
     session cap bound and the shift ended at 498k. With the measured figure
     held instead, a budget sized below the sessions' real cost refuses the
     spawn that would pass it."""
-    share = budget // max(max_sessions, 1) if budget else 0
-    return max(share, int(estimate or 0)) if budget else 0
+    if not budget:
+        return 0
+    share = budget // max(max_sessions, 1)
+    # Never above half the budget: one outlier worker (450k in a 400k shift)
+    # must not refuse the first spawn (#637 review). Never below the share.
+    return max(share, min(int(estimate or 0), budget // 2))
 
 
 #: Earlier shifts whose finished workers the reservation estimate reads.
 ESTIMATE_SHIFTS = 3
 
 
-def worker_token_estimate(slot: Path, counters: dict) -> int | None:
-    """The mean measured spend of a worker that finished — in this shift and
-    the last `ESTIMATE_SHIFTS` earlier ones in this watcher's home (their
-    `counters.json`: local files, no network). A crashed or unmeasured
-    session is left out: it says nothing about a whole task's cost. None
-    when there is no such worker yet."""
+def worker_token_estimate(slot: Path, counters: dict, budget: int | None = None,
+                          mind: Path | None = None) -> int | None:
+    """The median measured spend of a worker that finished — in this shift and
+    the last `ESTIMATE_SHIFTS` earlier ones in this watcher's home whose
+    `token-budget:` is within 2x of `budget` (their `counters.json` and brief
+    record: local files, no network). A crashed or unmeasured session is left
+    out: it says nothing about a whole task's cost; so is a slot whose files
+    have the wrong shape. None when there is no such worker yet."""
+    import statistics
     home, here = Path(slot).parent, Path(slot).name
     try:
         earlier = sorted(d for d in home.iterdir() if d.is_dir() and d.name < here
-                         and (d / COUNTERS_FILE).is_file())[-ESTIMATE_SHIFTS:]
+                         and (d / COUNTERS_FILE).is_file())
     except OSError:
         earlier = []
+    if budget:
+        earlier = [d for d in earlier
+                   if (b := slot_budget(d, mind)) and budget / 2 <= b <= budget * 2]
     totals = []
-    for c in [read_counters(d) for d in earlier] + [counters]:
-        finished = {w.get("key") for w in c["workers"] if "finished" in (w.get("exits") or [])}
-        totals += [int(u["total"]) for k, u in c["usage"].items()
-                   if k in finished and u.get("kind") == "worker" and u.get("final")
-                   and not u.get("unmeasured") and u.get("total")]
-    return sum(totals) // len(totals) if totals else None
+    for c in [_safe_counters(d) for d in earlier[-ESTIMATE_SHIFTS:]] + [counters]:
+        try:
+            finished = {w.get("key") for w in c["workers"]
+                        if "finished" in (w.get("exits") or [])}
+            totals += [int(u["total"]) for k, u in c["usage"].items()
+                       if k in finished and u.get("kind") == "worker" and u.get("final")
+                       and not u.get("unmeasured") and u.get("total")]
+        except (AttributeError, TypeError, ValueError, KeyError):
+            continue
+    return int(statistics.median(totals)) if totals else None
+
+
+def slot_budget(slot: Path, mind: Path | None = None) -> int | None:
+    """An earlier shift's `token-budget:` — recorded in its `counters.json`
+    (from #637), else read from its brief record in Mind's working tree."""
+    c = _safe_counters(slot)
+    b = c.get("token_budget") if isinstance(c, dict) else None
+    if isinstance(b, int) and b > 0:
+        return b
+    if mind is None:
+        return None
+    try:
+        brief = _brief.parse((Path(mind) / "batches" / f"{Path(slot).name}.md")
+                             .read_text(encoding="utf-8"))["brief"] or {}
+    except (OSError, _brief.BriefError):
+        return None
+    return _brief._nonneg_int(brief.get("token-budget", {}).get("value", "")) or None
+
+
+def _safe_counters(slot: Path) -> dict:
+    """Another slot's counters, or {} when its file has the wrong shape — a
+    note on stderr, never a planner crash (#637 review)."""
+    try:
+        c = read_counters(slot)
+        for key in ("outcomes", "usage"):
+            if not isinstance(c[key], dict):
+                raise TypeError(f"{key} is not an object")
+        for key in ("parked", "workers"):
+            if not isinstance(c[key], list):
+                raise TypeError(f"{key} is not a list")
+        return c
+    except (AttributeError, TypeError, ValueError, KeyError) as e:
+        print(f"orchestrator: {Path(slot).name}/{COUNTERS_FILE} has the wrong shape "
+              f"({e}) — read as no hold and no measure", file=sys.stderr)
+        return {}
 
 
 # --- locks and leases ------------------------------------------------------------
@@ -1086,6 +1135,14 @@ def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | No
         active = git("show", f"{ref}:active.md")
     except (OSError, subprocess.SubprocessError) as e:
         return {"error": f"git could not run: {e}"[:200]}
+    if active.returncode != 0:
+        # No claims read is not "no claims" (#637 review): fail closed, as an
+        # unreadable `draft/` tree does — unless the ref truly has no
+        # active.md (a Mind with no registry claims nothing).
+        listed = git("ls-tree", "--name-only", ref, "--", "active.md")
+        if listed.returncode != 0 or listed.stdout.strip():
+            return {"error": f"{ref}:active.md unreadable: "
+                             + (active.stderr or "").strip()[:160]}
     sections = claim_sections(active.stdout if active.returncode == 0 else "")
     return {"drafts": set(filter(None, tree.stdout.split("\0"))), "active": set(sections),
             "repos": claimed_repos(sections)}
@@ -1200,17 +1257,30 @@ def parked_elsewhere(slot: Path) -> dict[str, str]:
     except OSError:
         return out
     for d in others:
-        c = read_counters(d)
-        for task, o in c["outcomes"].items():
-            if o.get("questions") and "obsolete" not in o and not o.get("merged"):
-                out[task] = (f"parked on a question in shift {d.name} ("
-                             + ", ".join(o["questions"]) + ") — not startable until answered")
-            elif o.get("prs") or o.get("verdicts") or "obsolete" in o:
-                out.pop(task, None)   # finished since: answered
-        for task in c["parked"]:
-            if task not in c["outcomes"]:
-                out[task] = (f"parked in shift {d.name} (blocked on a person) — not "
-                             "startable until answered")
+        c = _safe_counters(d)
+        if not c:
+            continue
+        held = dict(out)
+        try:
+            for task, o in c["outcomes"].items():
+                if not isinstance(o, dict):
+                    raise TypeError(f"outcome of {task!r} is not an object")
+                if o.get("questions") and "obsolete" not in o and not o.get("merged"):
+                    held[task] = (f"parked on a question in shift {d.name} ("
+                                  + ", ".join(map(str, o["questions"]))
+                                  + ") — not startable until answered")
+                elif o.get("prs") or o.get("verdicts") or "obsolete" in o:
+                    held.pop(task, None)   # finished since: answered
+            for task in c["parked"]:
+                if task not in c["outcomes"]:
+                    held[str(task)] = (f"parked in shift {d.name} (blocked on a person) — "
+                                       "not startable until answered")
+        except (AttributeError, TypeError, ValueError) as e:
+            # One malformed file holds nothing and releases nothing (#637 review).
+            print(f"orchestrator: {d.name}/{COUNTERS_FILE} has the wrong shape ({e}) — "
+                  "read as no hold", file=sys.stderr)
+            continue
+        out = held
     return out
 
 
@@ -1330,6 +1400,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                "ledger": ledger}
         return _steered(out, commands, paused)
     budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
+    if budget:
+        counters["token_budget"] = budget   # what a later shift's estimate compares
     # A real worker holds a reservation from its spawn until its measured
     # usage passes it, so the budget binds on the first tick (#610). A fake
     # (dry-shift) worker spends nothing.
@@ -1337,7 +1409,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     if getattr(spawner, "real", False):
         reserve = token_reserve if token_reserve is not None \
             else default_token_reserve(budget, max_sessions,
-                                       worker_token_estimate(slot, counters))
+                                       worker_token_estimate(slot, counters, budget, mind))
     spawned, refused = [], []
     # A re-dispatch goes first (#637, item 1): a backlog dip never takes the
     # worker slot a killed task is waiting for.
