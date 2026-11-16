@@ -113,6 +113,17 @@ call, so the Brain is not bypassed):
   on `origin/main`, committed with `prompt_sync_push`, then `lifecycle.py
   check`. The dashboard only reads the queue (★ and rank on each queued task).
 
+- **`/cockpit`** — watch a running shift from chat and steer it
+  (PyAutoBrain#646). One Monitor on the canonical `batch watch --stream`
+  command, inside the shift's window, re-armed only at `segment-end`; the one
+  watch a session may hold (Mind `policy/shift_cockpit_watch.md`, enforced by
+  the end-at-deliverable hook). Steering is one comment on the shift issue from
+  the human's login: `/pause`, `/resume`, `/drop`, `/stop`, `/kill`, `/cap`,
+  `/add` (`/stop` and `/kill` confirmed first). In a chat that ran `/cockpit`, a
+  pasted prompt, prompt path, title or dashboard 📋 line means **`/add` it to
+  the shift — never start dev**, and `/route` must not send it to `start_dev`.
+  Questions go to `/questions`.
+
 - **`update_issue`** — post a progress update (commits, summary, what is left)
   to the active task's GitHub issue, read from the PyAutoMind registry. The
   dev-lifecycle's progress leg; `start_dev_for_user` calls it at milestones.

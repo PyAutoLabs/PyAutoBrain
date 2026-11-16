@@ -23,6 +23,13 @@ title or dashboard 📋 line (`Use the start-dev skill. <path>`) means "add it
 to `queue.md`": follow [`queue`](../queue/queue.md), never `/start_dev`. Only
 route a pasted task into development when the human says so in words.
 
+## A cockpit chat is not a dev request
+
+If `/cockpit` ran earlier in this chat, a pasted prompt, prompt path, task
+title or dashboard 📋 line means "`/add` it to the shift": follow
+[`cockpit`](../cockpit/cockpit.md), never `/start_dev`. Only route a pasted
+task into development when the human says so in words.
+
 ## Classify → dispatch
 
 Infer the work-type from the request using the taxonomy in

@@ -1,0 +1,1 @@
+../../skills/cockpit/cockpit.md
