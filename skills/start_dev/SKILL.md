@@ -8,7 +8,9 @@ description: Plan and register PyAutoLabs development work, then route it to a l
 **Not in a queue chat.** If `/queue` ran earlier in this chat, a pasted
 `Use the start-dev skill. <path>` line (the dashboard's 📋 text), prompt, path
 or title means "add it to `queue.md`": follow [`../queue/queue.md`](../queue/queue.md)
-and stop here.
+and stop here. Likewise in a `/questions` chat: an answer or a pasted
+`Use the questions skill. Q<n>` line is recorded through [`../questions/questions.md`](../questions/questions.md),
+never started.
 
 Follow [`start_dev.md`](start_dev.md) in this directory exactly — the
 authoritative workflow body. `reference.md` holds the long-form templates and

@@ -476,6 +476,30 @@ trigger is durable state (a parked task or an un-verdicted issue in a `.done` wi
 marker yet), so a tick that dies between parking and posting mentions on the
 next; a failed mention is also retried by the late sweep.
 
+**The questions inbox replaces those two mentions (M3.5, PyAutoBrain#645).**
+A parked worker or a `.done` issue not marked `verdict:` no longer
+@-mentions anyone (`_mention_triggers` returns neither; the machinery above
+stays for other triggers). The reap queues one `question-add` op per issue
+(`land_question`): the task's prompt, the issue, `kind: question` (or
+`blocked`, filed on the shift issue), the ask and options from the worker's
+`{task}.question.json` sidecar (sanitised; `see the question on the issue`
+without one), the shift, the time and the worker. The one Mind writer lands
+it in PyAutoMind `questions.md` through Mind's own `questions_edit.add_text`.
+The digest gets one line under its heading (`Inbox: N questions added to your
+inbox this shift (Q17, Q18), M open in all — <dashboard #inbox>`), and the
+status comment a `- inbox:` count. Before planning, `_questions.read_origin`
+reads `questions.md` from Mind origin/main (after the one fetch) and
+`parked_elsewhere(slot, inbox, resumes)` rules on each earlier park: all its
+entries answered → released and resumed at its old standing; one dropped →
+shelved; one open or deferred → `waiting on Q<n> in your inbox`; none, or an
+unreadable inbox → held as before. A released task a shift worker already
+claimed (`- session: shift worker …`) is graded from `active/<task>.md` on
+origin (`resume_records`), kept by `on_origin(…, resumes=)` (its own claim
+does not hold its repos) and spawned with `RESUME_NOTE`; its pick's `why:`
+starts `resumed after Q<n> was answered`. The human answers in a `/questions`
+chat (`skills/questions`). `batch questions --backfill` prints the
+`questions_edit.py add` lines that seed the inbox from today's holds.
+
 **Watching and steering a shift from its issue (PyAutoBrain#622).** Each open
 tick ends with the shift's **status comment** on the brief's `issue:`: the
 `batch watch` snapshot as Markdown (`_watch.render_status`, no tick log),

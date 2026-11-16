@@ -22,6 +22,9 @@ If `/queue` ran earlier in this chat, a pasted prompt, prompt path, task
 title or dashboard 📋 line (`Use the start-dev skill. <path>`) means "add it
 to `queue.md`": follow [`queue`](../queue/queue.md), never `/start_dev`. Only
 route a pasted task into development when the human says so in words.
+The same holds in a chat that ran `/questions`: a pasted `Use the questions
+skill. Q17` line or an answer that names work means "record it in `questions.md`":
+follow [`questions`](../questions/questions.md), never `/start_dev`.
 
 ## Classify → dispatch
 

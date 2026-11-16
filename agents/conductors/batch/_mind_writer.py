@@ -22,6 +22,9 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "table-upsert", "path": "batches/pilot/pilot.md", "key": "<slot>", "row": "| … |", "header": "…"}
     {"op": "record-key",   "path": "batches/<slot>.md", "key": "live", "value": "…"}
     {"op": "queue-retire", "path": "queue.md", "prompt": "x.md", "shipped_as": "<PR> → complete/…"}
+    {"op": "question-add", "path": "questions.md", "entry": {"task": …, "issue": …, "kind": …,
+                                                             "ask": …, "options": [...], "shift": …,
+                                                             "asked": …, "worker": …}}
 
 `queue-retire` moves every live `queue.md` entry whose `ref:` names the
 prompt file `prompt` to the `## Retired` footer with `shipped-as:`, using
@@ -32,6 +35,14 @@ its complete record, and the watcher queues it again when it reaps the
 merge (PyAutoBrain#634: after the first unattended merge its entry
 stayed live, and `lifecycle.py check` then failed on the dangling ref). No
 live entry naming the prompt is the usual case, and it is silent.
+
+`question-add` lands one parked worker's question in the human's inbox
+(M3.5, PyAutoBrain#645) through PyAutoMind's own `scripts/questions_edit.py`
+`add_text`, loaded from the tree being written as `queue-retire` loads
+`lifecycle.py` — so the id (the file's highest plus 1, worked out in that
+tree) is right on a replay over a moved main, and an entry whose `(shift,
+task, issue)` is already there is a skipped note. A question whose prompt is
+in neither `draft/` nor `active/` any more is set aside, with its reason.
 
 `jsonl-upsert` keeps one JSON line per `row[key]`: the line with that key is
 replaced (its other fields kept), else the row is appended. `table-upsert`
@@ -86,7 +97,10 @@ import types
 from pathlib import Path
 
 OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
-       "set-header", "jsonl-upsert", "table-upsert", "record-key", "queue-retire")
+       "set-header", "jsonl-upsert", "table-upsert", "record-key", "queue-retire",
+       "question-add")
+#: The keys a `question-add` entry carries; all strings but `options`.
+QUESTION_KEYS = ("task", "issue", "kind", "ask", "options", "shift", "asked", "worker")
 #: What a watcher-run queue retirement says in the footer, in place of the
 #: `lifecycle.py close` it did not run.
 QUEUE_RETIRED_BY = "retired by the shift close-out (queue-retire)"
@@ -206,6 +220,23 @@ def validate_op(op: dict, lm) -> list[str]:
             errs.append("queue-retire: prompt must be a bare prompt file name (x.md)")
         if not isinstance(shipped, str) or not shipped.strip() or "\n" in shipped:
             errs.append("queue-retire: shipped_as must be one non-empty line")
+    if kind == "question-add":
+        entry = op.get("entry")
+        if op.get("path") != "questions.md":
+            errs.append("question-add: path must be questions.md")
+        if not isinstance(entry, dict):
+            errs.append("question-add: entry must be an object")
+        else:
+            extra = sorted(set(entry) - set(QUESTION_KEYS))
+            if extra:
+                errs.append(f"question-add: unknown entry keys {', '.join(extra)}")
+            for k in QUESTION_KEYS:
+                v = entry.get(k)
+                if k == "options":
+                    if not isinstance(v, list) or not all(isinstance(o, str) for o in v):
+                        errs.append("question-add: options must be a list of strings")
+                elif not isinstance(v, str) or not v.strip() or "\n" in v:
+                    errs.append(f"question-add: {k} must be one non-empty line")
     if kind == "set-header":
         key, value = op.get("key"), op.get("value")
         if not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Za-z-]*", key):
@@ -325,6 +356,19 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
                                  f"failed: {type(exc).__name__}: {exc}") from exc
         if moved:
             target.write_text(_retired_by(new, len(moved)), encoding="utf-8")
+    elif kind == "question-add":
+        text = target.read_text(encoding="utf-8") if target.exists() else ""
+        try:
+            qe = _mind_module(tree, "questions_edit", deps=("lifecycle",))
+            new, qid, added = qe.add_text(text, op["entry"], tree)
+        except MindWriteError:
+            raise
+        except Exception as exc:  # Mind main's script is not ours (see queue-retire)
+            raise MindWriteError(f"question-add: questions_edit.add_text refused: "
+                                 f"{type(exc).__name__}: {exc}") from exc
+        if not added:
+            return f"question-add: already in questions.md as {qid} — skipped"
+        target.write_text(new, encoding="utf-8")
     elif kind == "jsonl-upsert":
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(jsonl_upsert(target.read_text(encoding="utf-8")
@@ -338,13 +382,22 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
                           encoding="utf-8")
 
 
-def _mind_module(tree: Path, name: str):
+def _mind_module(tree: Path, name: str, deps: tuple = ()):
     """A PyAutoMind `scripts/<name>.py`, compiled from `tree` (the temporary
     worktree on origin/main) as `_ledger_merge` compiles its own: no import,
-    so no `__pycache__` is written anywhere."""
+    so no `__pycache__` is written anywhere.
+
+    `deps` are the sibling scripts it imports (`questions_edit` imports
+    `lifecycle`): each is compiled from the same tree and served under its own
+    name while the module runs, then removed — as is any `sys.path` entry the
+    module adds — so nothing from one tree outlives the op."""
     path = Path(tree) / "scripts" / f"{name}.py"
     if not path.is_file():
         raise MindWriteError(f"no scripts/{name}.py on Mind main")
+    saved_path = list(sys.path)
+    saved = {d: sys.modules.get(d) for d in deps}
+    for d in deps:
+        sys.modules[d] = _mind_module(tree, d)
     mod_name = f"_mind_{name}"
     mod = types.ModuleType(mod_name)
     mod.__file__ = str(path)
@@ -353,6 +406,12 @@ def _mind_module(tree: Path, name: str):
         exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), mod.__dict__)
     finally:
         sys.modules.pop(mod_name, None)
+        sys.path[:] = saved_path
+        for d, m in saved.items():
+            if m is None:
+                sys.modules.pop(d, None)
+            else:
+                sys.modules[d] = m
     return mod
 
 

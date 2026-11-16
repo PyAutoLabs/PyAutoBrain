@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 import _brief  # noqa: E402
+import _questions  # noqa: E402 — the inbox line (M3.5, #645)
 
 # The one CI judgement (PyAutoBrain#628) lives in bin/, beside its CLI.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
@@ -539,7 +540,12 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     named = [Path(p).stem for p in _brief.tasks_of(brief)]
     backlog = [t for t in picks if t not in named]
 
-    lines = [DIGEST_HEADING, "", "### Brief work"]
+    lines = [DIGEST_HEADING, ""]
+    # The one notice of the shift's parked questions (M3.5, #645, Decision
+    # H7 a): no @mention mid-shift, one line here; the asks live in the inbox.
+    inbox = _questions.inbox_line(counters, Path(slot).name, mind)
+    lines += [inbox, ""] if inbox else []
+    lines += ["### Brief work"]
     links = MindLinks(mind, issue)
     # A worker still out at review-at keeps its lease (#634, N1).
     held = {t: l for t, l in held_leases(slot).items() if l.get("state") != "parked"}
@@ -614,6 +620,10 @@ def identity_lines(counters: dict) -> list[str]:
                 f"{auth.get('last', '?')}: {auth['error']}"]
 
 
+#: A question id in a hold's reason (`waiting on Q17 in your inbox`).
+_QID_RE = re.compile(r"\bQ\d+\b")
+
+
 def backlog_gate_lines(counters: dict) -> list[str]:
     """What the M2.3 gates kept out of the backlog dip (AUTONOMY.md "M2
     rulings — 2026-11-12"), as of the watcher's last tick. Not bullets: a
@@ -645,9 +655,21 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                                for p, w in sorted(repo_held.items())[:SUMMARY_NAMES]))
     parked = gates.get("parked") or {}
     if parked:
+        # The inbox's word on each, by Q-id (M3.5, #645), so "why wasn't X
+        # picked" answers itself; a park from before the inbox names none.
+        inboxed = {p: w for p, w in parked.items() if _QID_RE.search(w)}
         out.append(f"Parked on a question by an earlier shift: {len(parked)} draft(s) not "
                    "startable until answered (name one in a brief to start it again): "
-                   + names(sorted(parked)))
+                   + ", ".join(f"`{Path(p).stem}`" + (f" ({inboxed[p]})" if p in inboxed else "")
+                               for p in sorted(parked)[:SUMMARY_NAMES])
+                   + (f" +{len(parked) - SUMMARY_NAMES} more" if len(parked) > SUMMARY_NAMES
+                      else ""))
+    resumed = gates.get("resumed") or {}
+    if resumed:
+        out.append(f"Released by an answer in your inbox: {len(resumed)} task(s) back at "
+                   "their old standing — " + "; ".join(
+                       f"`{t}` ({', '.join(v.get('ids') or [])} answered)"
+                       for t, v in sorted(resumed.items())[:SUMMARY_NAMES]))
     reach = gates.get("scoped_reach") or []
     if reach:
         out.append(f"Backlog reach (ruling 2026-11-16): {len(reach)} unqueued draft(s) not "

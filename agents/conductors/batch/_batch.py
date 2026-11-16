@@ -2927,7 +2927,7 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
     ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch",
-                                     "slice", "premise", "green"], nargs="?",
+                                     "slice", "premise", "green", "questions"], nargs="?",
                     default="plan")
     ap.add_argument("prompt", nargs="?", default="",
                     help="slice: the needs-slicing prompt to decompose; "
@@ -2984,6 +2984,11 @@ def main(argv=None) -> int:
     ap.add_argument("--home", type=Path, default=None,
                     help="digest / watch: the watcher's state directory "
                          "(default: $PYAUTO_ORCHESTRATOR_HOME, else .orchestrator)")
+    # questions (M3.5, PyAutoBrain#645)
+    ap.add_argument("--backfill", action="store_true",
+                    help="questions: print `questions_edit.py add` lines for every "
+                         "task an earlier shift left parked and still held (reads "
+                         "the watcher's slots and Mind origin/main; writes nothing)")
     # watch
     ap.add_argument("--once", action="store_true",
                     help="watch: print one snapshot and exit")
@@ -3062,10 +3067,25 @@ def main(argv=None) -> int:
             return _main_watch(a)
         if a.verb == "green":
             return _main_green(mind, a)
+        if a.verb == "questions":
+            return _main_questions(mind, a)
         return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)
         return RC_USAGE
+
+
+def _main_questions(mind: Path, a) -> int:
+    """`batch questions --backfill` (M3.5, PyAutoBrain#645, Build B step 1):
+    the one-off seed of the inbox from the holds the watcher keeps today."""
+    if not a.backfill:
+        raise BatchUsageError("batch questions: only --backfill is a verb here; the inbox "
+                              "is answered in a /questions chat")
+    import _orchestrator  # noqa: E402
+    import _questions  # noqa: E402
+    home = a.home or _orchestrator.orchestrator_home()
+    print("\n".join(_questions.backfill(home, mind)))
+    return 0
 
 
 def _main_slice(mind: Path, a) -> int:

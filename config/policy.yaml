@@ -180,3 +180,7 @@ board:
 # PYAUTO_SHIFT_MENTION (which wins). Blank everywhere posts without a mention.
 shift_watcher:
   mention_login: "Jammy2211"
+  # How a parked worker's question reaches the human (M3.5, PyAutoBrain#645,
+  # Decision H7): `end` — one line in the digest at review-at, "N questions
+  # added to your inbox" with the dashboard link; no @mention mid-shift.
+  question_notice: end
