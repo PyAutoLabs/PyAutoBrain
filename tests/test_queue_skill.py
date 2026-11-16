@@ -52,6 +52,9 @@ def test_the_procedure_writes_through_the_script_and_a_detached_worktree():
     assert "PROMPT_SYNC_PUSH_TO=main" in proc and "prompt_sync_push" in proc
     assert re.search(r'prompt_sync_push "queue: [^"]*" queue\.md', proc)
     assert "python3 scripts/lifecycle.py check" in proc
+    # A moved main is retried from a fresh worktree, never a hand rebase/push.
+    assert "rebase origin/main" not in proc and "push origin" not in proc
+    assert "re-create it on a fresh" in proc
     assert "never by hand" in (SKILL / "SKILL.md").read_text()
     assert "Never hand-edit `queue.md`" in proc
 

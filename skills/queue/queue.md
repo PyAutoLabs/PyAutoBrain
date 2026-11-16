@@ -53,8 +53,10 @@ and skip the commit, so it reads `origin/main`, not a stale checkout.
    source scripts/prompt_sync.sh && PROMPT_REPO="$T" PROMPT_SYNC_PUSH_TO=main \
      prompt_sync_push "queue: <what changed, a few words>" queue.md
    ```
-   If the push is rejected because main moved, run
-   `git -C "$T" fetch origin && git -C "$T" rebase origin/main && git -C "$T" push origin HEAD:main`.
+   If the push is rejected because main moved, do not rebase or `git push`
+   by hand: remove the worktree (step 5), re-create it on a fresh
+   `origin/main` (step 1), re-run the same `queue_edit.py` verbs (step 2),
+   and push again through `prompt_sync_push`.
 4. **Check:** `python3 scripts/lifecycle.py check`. Report any `queue.md`
    finding. Other drift is not this chat's to fix; mention it in one line.
 5. **Clean up:** `git -C "$MIND" worktree remove "$T"`.
