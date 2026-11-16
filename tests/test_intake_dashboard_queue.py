@@ -148,7 +148,7 @@ def test_every_task_row_copies_its_prompt_text(tmp_path):
 #: The shared collapsible block every section is folded into by
 #: `board/_theme.section_layout` — closed by default (no `open`).
 BLOCK = '<details class="board-section"><summary><h2>{title}'
-STEER = "Goals, queue and questions"
+STEER = "Autopilot"
 
 
 def _block(page: str, title: str) -> str:
@@ -158,16 +158,18 @@ def _block(page: str, title: str) -> str:
 
 
 def _queue(page: str) -> str:
-    """The Queue sub-part of the steering block."""
+    """The Queue sub-part of the Autopilot block."""
     block = _block(page, STEER)
     return block[block.index('<h3 id="queue">'):block.index('<h3 id="inbox">')]
 
 
-def test_one_steering_block_straight_above_start_here(tmp_path):
-    """PyAutoBrain#650: Goals, Queue and Questions share ONE block — the same
-    `details.board-section` as Start here and its siblings — directly above
-    Start here, with one badge and three sub-parts in Start here's own form."""
-    page = _html(_mind(tmp_path))
+def test_one_autopilot_block_straight_above_start_here(tmp_path):
+    """PyAutoBrain#650: Goals, Queue, Questions and Shift share ONE block — the
+    same `details.board-section` as Start here and its siblings — directly
+    above Start here, with one badge and four sub-parts in Start here's form,
+    and a nav card of its own made by the same helper as the others."""
+    mind = _mind(tmp_path)
+    page = _html(mind)
     steer, start = (page.index(BLOCK.format(title=t)) for t in (STEER, "Start here"))
     assert page.index('<nav class="board-nav"') < steer < start
     block = _block(page, STEER)
@@ -175,25 +177,37 @@ def test_one_steering_block_straight_above_start_here(tmp_path):
     # Identical shell to every other section, closed, with one badge.
     assert block.startswith(f'<details class="board-section"><summary><h2>{STEER}</h2>'
                             '<span class="section-badge">2 queued · 0 questions</span>'
-                            '</summary><div class="board-section-body"><a id="steer"></a>')
+                            '</summary><div class="board-section-body"><a id="autopilot"></a>')
     assert block.count('class="section-badge"') == 1
     assert "<details open" not in page and 'class="board-section" open' not in page
-    # Three sub-parts, Start here's `<h3>` + quiet `facets` note form.
+    # Four sub-parts, Start here's `<h3>` + quiet `facets` note form.
     heads = re.findall(r'<h3 id="([a-z]+)">', block)
-    assert heads == ["goals", "queue", "inbox"]
+    assert heads == ["goals", "queue", "inbox", "shift"]
+    assert '<p class="muted">(no shift yet)</p>' in block
+    # The nav card: first, the shared helper's markup, the badge's number,
+    # linking the block's anchor (the theme's section script opens it).
+    nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
+    cards = re.findall(r'<a class="board-nav-card" href="#([a-z-]+)">', nav)
+    assert cards[:2] == ["autopilot", "start-here"]
+    assert ('<a class="board-nav-card" href="#autopilot"><span class="board-nav-count">2'
+            '</span><span class="board-nav-label">Autopilot</span>') in nav
+    assert page.count('id="autopilot"') == 1
+    md = _intake.render_dashboard(_intake.census(mind))
+    assert "| [Autopilot](#autopilot) | 2 |" in md
     assert re.search(r'<h3 id="queue">Queue <span class="facets">\(read-only', block)
     # Queue rows are the page's ordinary `.task` rows: ★ rank, 📋, link.
     assert len(STAR_RE.findall(_queue(page))) == 2
     # Moved, not duplicated: no standalone boxes, no classes of their own.
     for gone in ('<aside', 'class="steer', 'class="inbox', "steer-queue",
-                 "steer-goals", 'class="qid"', "Goals and queue"):
+                 "steer-goals", 'class="qid"', "Goals and queue", "<h2>Batch",
+                 'class="verdict'):
         assert gone not in page, gone
     for gone in (".steer", ".inbox", "ol.steer-queue"):
         assert gone not in page[page.index("<style>"):page.index("</style>")], gone
     assert not re.search(r"<h2>(Goals|Queue|Questions)[ <]", page)
 
 
-def test_the_steering_block_is_read_only(tmp_path):
+def test_the_autopilot_block_is_read_only(tmp_path):
     page = _html(_mind(tmp_path))
     block = _block(page, STEER)
     assert ("<ol><li>Land the flywheel rework</li>"
@@ -266,7 +280,7 @@ def test_absent_queue_and_goals_render_empty_not_a_crash(tmp_path):
     assert '<h3 id="goals">Goals</h3>\n<p class="muted">(no goals yet — edit in chat)</p>' in block
     assert ('<p class="muted">(queue is empty — add with <code>/queue</code>)</p>\n'
             '<h3 id="inbox">') in block
-    assert '<p class="muted">(no open questions)</p>\n</div></details>' in block
+    assert '<p class="muted">(no open questions)</p>\n<h3 id="shift">' in block
     assert '<span class="section-badge">0 queued · 0 questions</span>' in block
     assert "<ol" not in block and 'class="task"' not in block
     assert 'class="star"' not in page
@@ -278,9 +292,9 @@ def test_absent_queue_and_goals_render_empty_not_a_crash(tmp_path):
 
 def test_the_markdown_page_shows_goals_and_queue_read_only(tmp_path):
     md = _intake.render_dashboard(_intake.census(_mind(tmp_path)))
-    # Same shape as the HTML twin: one section, three sub-parts, then Start here.
-    assert md.index("## Goals, queue and questions") < md.index("**Goals**") \
-        < md.index("**Queue**") < md.index("**Questions**") < md.index("## Start here")
+    # Same shape as the HTML twin: one section, four sub-parts, then Start here.
+    assert md.index("## Autopilot") < md.index("**Goals**") < md.index("**Queue**") \
+        < md.index("**Questions**") < md.index("**Shift**") < md.index("## Start here")
     assert "\n## Goals\n" not in md and "\n## Queue\n" not in md and "\n## Questions" not in md
     goals = md[md.index("**Goals**"):md.index("**Queue**")]
     assert "1. Land the flywheel rework" in goals

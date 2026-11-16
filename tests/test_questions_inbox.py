@@ -608,9 +608,9 @@ def _csp(page):
 
 
 def _questions_part(page):
-    """The Questions sub-part of the steering block (PyAutoBrain#650)."""
+    """The Questions sub-part of the Autopilot block (PyAutoBrain#650)."""
     start = page.index('<h3 id="inbox">')
-    return page[start:page.index("</div></details>", start)]
+    return page[start:page.index('<h3 id="shift">', start)]
 
 
 def test_the_inbox_section_renders_read_only_with_copy_buttons(tmp_path):
@@ -642,15 +642,15 @@ def test_the_inbox_section_renders_read_only_with_copy_buttons(tmp_path):
     assert "read-only; answer by pasting a 📋 into a chat" in box
     for gone in ("<form", "<input", "<textarea", "fetch(", "<aside", 'class="qid"'):
         assert gone not in box
-    # Inside the one steering block, straight above Start here — never a box
+    # Inside the one Autopilot block, straight above Start here — never a box
     # of its own above the section cards.
     assert '<aside class="inbox"' not in with_q
     assert with_q.index('<nav class="board-nav"') \
-        < with_q.index("<h2>Goals, queue and questions</h2>") \
+        < with_q.index("<h2>Autopilot</h2>") \
         < with_q.index('<h3 id="inbox">') < with_q.index("<h2>Start here</h2>")
     assert '<span class="section-badge">2 queued · 1 question</span>' in with_q
     md = _intake.render_dashboard(_intake.census(_dash_mind(tmp_path / "c")))
-    sec = md[md.index("**Questions**"):md.index("## Start here")]
+    sec = md[md.index("**Questions**"):md.index("**Shift**")]
     assert sec.startswith("**Questions** (1 open, 1 deferred")
     assert "- Q17 — Brass &lt;b&gt;or&lt;/b&gt; steel? " \
            "(https://github.com/example-owner/widgets/issues/70" in sec

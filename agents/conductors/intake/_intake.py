@@ -81,8 +81,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "agents"
                        / "conductors" / "batch"))
 from _status import (  # noqa: E402
     dev_status, pick_slot, read_record,
-    render_html as _status_box_html, render_md as _status_box_md,
-    badge as _status_badge, ANCHOR as _status_anchor,
+    render_html as _shift_html, render_md as _shift_md,
+    badge as _shift_badge, is_live as _shift_live, to_review as _shift_to_review,
+    last_shift,
 )
 # The human's steering files (queue.md, goals.md): readers shared with the
 # batch planner and `batch brief --new` (PyAutoMind#565). `read_queue` IS the
@@ -1756,6 +1757,9 @@ def census(mind: Path) -> dict:
         "hygiene": hygiene,
         "drift": drift,
         "batch": _batch_status(mind),
+        # The latest shift, for the Autopilot block's quiet line once every
+        # shift has been reviewed (PyAutoBrain#650).
+        "last_batch": _last_batch(mind),
         # Strong-evidence close-out flags (`intake looks-shipped`), minus what
         # a human dismissed or already closed — the "Looks shipped" section.
         "looks_shipped": _looks_shipped_rows(mind, records),
@@ -1766,7 +1770,7 @@ def census(mind: Path) -> dict:
         "queue_order": read_queue(mind),
         "goals": read_goals(mind),
         # The questions inbox (M3.5, #645), read-only: the Questions part of
-        # the steering block (PyAutoBrain#650), with a 📋 per question.
+        # the Autopilot block (PyAutoBrain#650), with a 📋 per question.
         "questions": _questions.read(mind),
     }
     c["recent"] = recent_events(c)
@@ -1980,6 +1984,15 @@ def _batch_status(mind: Path) -> dict | None:
         readings.append(dev_status(path.stem, rec["keys"], members,
                                    review_exists, pages))
     return pick_slot(readings)
+
+
+def _last_batch(mind: Path) -> dict | None:
+    """`{"slot", "issue"}` of the latest-dispatched batch record, or None."""
+    batches = mind / "batches"
+    if not batches.is_dir():
+        return None
+    return last_shift([(path.stem, read_record(path.read_text(
+        encoding="utf-8", errors="replace"))["keys"]) for path in sorted(batches.glob("*.md"))])
 
 
 def _board_links(home: str) -> list:
@@ -2292,12 +2305,17 @@ def _fits_a_slot(records: list) -> list:
 
 
 def _dashboard_navigation(c: dict) -> list:
-    """Seven stable destinations, counted from the content actually rendered."""
+    """Eight stable destinations, counted from the content actually rendered.
+
+    Autopilot leads (PyAutoBrain#650): its number is `_autopilot_reading`'s,
+    the same reading as the block's badge."""
     standalone = sorted((r for r in c["records"] if not r.get("epic")), key=_pick_key)
     high = [r for r in standalone if r["priority"] == "high"][:PICK_LIST_MAX]
     quick = _fits_a_slot(standalone)[:PICK_LIST_MAX]
     epics = {e["slug"] for e in c.get("epics") or []} | set(_epic_members(c))
     return [
+        {"label": "Autopilot", "href": f"#{AUTOPILOT_ANCHOR}",
+         "count": _autopilot_reading(c)[0]},
         {"label": "Start here", "href": "#start-here",
          "count": len({r["path"] for r in high + quick})},
         {"label": "Epics", "href": "#epics", "count": len(epics)},
@@ -2360,9 +2378,7 @@ def render_dashboard(c: dict) -> str:
         L += _items([_task_row(_looks_shipped_head(f), _looks_shipped_payload(f))
                      for f in flags])
         L += [""]
-    if c["batch"] is not None:
-        L += [_status_box_md(c["batch"]), ""]
-    L += _steer_md(c)
+    L += _autopilot_md(c)
     L += ["## Start here", ""]
 
     # Epic members never appear in the pick lists or the work-type sections —
@@ -2649,12 +2665,12 @@ def _queued_rows(c: dict) -> list:
             for n, ref in enumerate(c.get("queue_order") or [], 1)]
 
 
-#: The steering block (PyAutoBrain#650): Goals, Queue and Questions in ONE
-#: ordinary section straight above Start here, folded by the shared
+#: The Autopilot block (PyAutoBrain#650): Goals, Queue, Questions and Shift in
+#: ONE ordinary section straight above Start here, folded by the shared
 #: `section_layout` like every other section. Empty states take the page's own
 #: form — a muted, parenthesised line, as "(none right now)" is.
-STEER_TITLE = "Goals, queue and questions"
-STEER_ANCHOR = "steer"
+AUTOPILOT_TITLE = "Autopilot"
+AUTOPILOT_ANCHOR = "autopilot"
 GOALS_EMPTY = "(no goals yet — edit in chat)"
 QUEUE_EMPTY = "(queue is empty — add with `/queue`)"
 QUESTIONS_EMPTY = "(no open questions)"
@@ -2697,20 +2713,31 @@ def _questions_payload(qid: str = "") -> str:
     return "Use the questions skill." + (f" {qid}" if qid else "")
 
 
-def _steer_badge(c: dict) -> str:
-    """The block's one badge: queued prompts and open questions."""
+def _autopilot_reading(c: dict) -> tuple:
+    """(count, badge) — the one at-a-glance reading the Autopilot nav card and
+    the block's badge share: `LIVE · N in progress` during a shift (count N),
+    `N to review` after one (count N), else `N queued · M questions` (count
+    the queued prompts)."""
+    st = c.get("batch")
+    shift = _shift_badge(st)
+    if _shift_live(st):
+        return st["in_progress"], shift
+    if shift:
+        return _shift_to_review(st), shift
     opened, _deferred = _open_questions(c)
-    return (f"{len(c.get('queue_order') or [])} queued · "
-            f"{len(opened)} question{'' if len(opened) == 1 else 's'}")
+    queued = len(c.get("queue_order") or [])
+    return queued, (f"{queued} queued · "
+                    f"{len(opened)} question{'' if len(opened) == 1 else 's'}")
 
 
-def _steer_md(c: dict) -> list:
-    """The markdown page's read-only steering block, straight above Start
-    here: the same three sub-parts as the HTML twin, in Start here's own
+def _autopilot_md(c: dict) -> list:
+    """The markdown page's read-only Autopilot block, straight above Start
+    here: the same four sub-parts as the HTML twin, in Start here's own
     sub-heading form (`**Title** (note)`)."""
     goals = c.get("goals") or []
     opened, deferred = _open_questions(c)
-    L = [f"## {STEER_TITLE}", "", f"_{_steer_badge(c)}_", "", "**Goals** ([`goals.md`](goals.md))", ""]
+    L = [f"## {AUTOPILOT_TITLE}", "", f"_{_autopilot_reading(c)[1]}_", "",
+         "**Goals** ([`goals.md`](goals.md))", ""]
     L += [f"{g['n']}. {_md_inline_escape(g['text'])}" for g in goals] or [f"_{GOALS_EMPTY}_"]
     L += ["", "**Queue** ([`queue.md`](queue.md)) — read-only; change it in a `/queue` chat", ""]
     L += [f"{n}. [{_md_inline_escape(label)}]({ref})" for n, label, ref in _queued_rows(c)] or [
@@ -2724,7 +2751,8 @@ def _steer_md(c: dict) -> list:
                  f"({f.get('issue', '')}" + (f", {age}" if age else "") + ")")
     if not opened:
         L.append(f"_{QUESTIONS_EMPTY}_")
-    return L + [""]
+    L += ["", _shift_md(c.get("batch"), c.get("last_batch")), ""]
+    return L
 
 
 def _issue_link(url: str) -> str:
@@ -2754,26 +2782,29 @@ def _question_row(c: dict, e: dict, link) -> str:
     return _html_task(text, _questions_payload(e["id"]))
 
 
-def _steer_html(c: dict, link, h2) -> list:
-    """The read-only steering block, straight above Start here.
+def _autopilot_html(c: dict, link, h2) -> list:
+    """The read-only Autopilot block, straight above Start here.
 
     One plain `<h2>` section, so the shared `section_layout` folds it into the
     same closed `details.board-section` as every other section, with one badge
-    (`_steer_badge`, passed as its summary). Inside, three sub-parts in Start
-    here's conventions — an `<h3>` with a `facets` note, ordinary `.task` rows
+    (`_autopilot_reading`, passed as its summary; the nav card shows the same
+    reading's count, and opens it as every card opens its section). Inside,
+    four sub-parts in Start here's conventions — an `<h3>` with a `facets` note, ordinary `.task` rows
     with their 📋, a muted parenthesised line when empty:
 
     - Goals, from `goals.md`, as a plain list (goals carry no action);
     - Queue, from `queue.md` via the planner's `read_queue`, each row with its
       ★ rank and the prompt's 📋 (PyAutoBrain#640);
     - Questions (M3.5, PyAutoBrain#645), each row's 📋 copying `Use the
-      questions skill. Q<n>`; deferred ones fold behind a `<details>`.
+      questions skill. Q<n>`; deferred ones fold behind a `<details>`;
+    - Shift (`batch/_status.py`): the running or to-be-reviewed shift's
+      detail, else one quiet line naming the last shift and its issue.
 
     Server-rendered, no script, no form or input: edits happen in chat."""
     goals = c.get("goals") or []
     queue = _queued_rows(c)
     opened, deferred = _open_questions(c)
-    H = [h2(STEER_TITLE, ""), '<h3 id="goals">Goals</h3>']
+    H = [h2(AUTOPILOT_TITLE, ""), '<h3 id="goals">Goals</h3>']
     if goals:
         H.append("<ol>" + "".join(f"<li>{_summary_label(g['text'])}</li>"
                                   for g in goals) + "</ol>")
@@ -2797,6 +2828,7 @@ def _steer_html(c: dict, link, h2) -> list:
         H += ["<details>", f"<summary>{len(deferred)} deferred</summary>"]
         H += [_question_row(c, e, link) for e in deferred]
         H += ["</details>"]
+    H.append(_shift_html(c.get("batch"), c.get("last_batch")))
     return H
 
 
@@ -2867,7 +2899,7 @@ def render_dashboard_html(c: dict) -> str:
         "</head>",
         "<body>",
         hero(THEME_ORGAN, "Dashboard", navigation=_dashboard_navigation(c),
-             navigation_columns=7),
+             navigation_columns=8),
     ]
     H.append(orchestration_panel(
         "mind", "Plan and coordinate development",
@@ -2929,8 +2961,6 @@ def render_dashboard_html(c: dict) -> str:
                          f'{_summary_label(_clip(f["signals"][0].get("evidence", "")))}'
                          "</span>")
             H.append(_html_task(text, _looks_shipped_payload(f)))
-    if c["batch"] is not None:
-        H.append(_status_box_html(c["batch"]))
 
     def h2(title, src):
         # Every section links the markdown file it is rendered from — the
@@ -2939,11 +2969,11 @@ def render_dashboard_html(c: dict) -> str:
              "version</a>") if blob and src else ""
         anchor = {"In flight": "in-flight",
                   "Planned": "planned", "Backlog": "backlog",
-                  "Epics": "epics", STEER_TITLE: STEER_ANCHOR}.get(title)
+                  "Epics": "epics", AUTOPILOT_TITLE: AUTOPILOT_ANCHOR}.get(title)
         prefix = f'<a id="{anchor}"></a>' if anchor else ""
         return prefix + f"<h2>{title}{a}</h2>"
 
-    H += _steer_html(c, link, h2)
+    H += _autopilot_html(c, link, h2)
     H += ['<a id="start-here"></a><h2>Start here</h2>']
 
     members = _epic_members(c)
@@ -3108,12 +3138,10 @@ def render_dashboard_html(c: dict) -> str:
     if footer:
         H.append(footer)
     H += [f"<script>{_THEME_JS}{_MORE_JS}</script>", "</body>", "</html>"]
-    # The steering and batch blocks have no navigation card to lend them a
-    # count badge, so they supply their own through the shared layout's
-    # `summaries` — the one mechanism every owner uses for that.
-    badges = {STEER_ANCHOR: {"count": _steer_badge(c)}}
-    if c["batch"] is not None:
-        badges[_status_anchor] = _status_badge(c["batch"])
+    # The Autopilot badge is a reading, not the nav card's bare number, so it
+    # goes in through the shared layout's `summaries` — the one mechanism
+    # every owner uses for that.
+    badges = {AUTOPILOT_ANCHOR: {"count": _autopilot_reading(c)[1]}}
     return _with_csp(section_layout("\n".join(H) + "\n", badges))
 
 
