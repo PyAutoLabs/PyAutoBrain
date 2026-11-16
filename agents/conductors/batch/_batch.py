@@ -240,62 +240,9 @@ def _title_of(text: str) -> str:
     return ""
 
 
-#: A `queue.md` section heading — `## <n>. <label>`. The digits matter: the
-#: file documents its own schema in a fenced block whose heading is the literal
-#: `## <n>. <label>`, and a reader that took it would rank a placeholder.
-QUEUE_HEAD_RE = re.compile(r"^##\s+\d+\.\s+(.+?)\s*$")
-QUEUE_FIELD_RE = re.compile(r"^-\s+(kind|ref):\s*(.+?)\s*$")
-
-
-def read_queue(mind: Path) -> list[str]:
-    """`queue.md` as prompt paths, top of the file first.
-
-    The one file the human maintains by hand, and the only statement of
-    IMPORTANCE the planner has — everything else it reads is a property of the
-    work, not a preference about it. Order is priority: moving an entry up is
-    the act of prioritising it, so the list is returned in file order and
-    nothing here re-sorts it.
-
-    Only `kind: prompt` entries carry a path anyone can plan against. A
-    `retired` entry is history the human left in place, and the other kinds
-    name an epic or a theme rather than a file — they are skipped rather than
-    resolved, because resolving them is a decision (which phase? which chip?)
-    and this function is a reader.
-    """
-    try:
-        text = (mind / "queue.md").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    out: list[str] = []
-    kind, ref, fenced, entry = "", "", False, False
-    def flush() -> None:
-        if kind == "prompt" and ref and ref not in out:
-            out.append(ref)
-    for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
-            continue
-        if fenced:
-            continue
-        if line.startswith("#"):
-            # Any heading ends the entry above it. Only a numbered `## <n>.`
-            # one starts a new entry: the `## Retired` footer's `### …`
-            # entries carry `- ref:` lines too, and until 2026-11-12 the last
-            # of them overwrote the final live entry's ref.
-            flush()
-            kind, ref = "", ""
-            entry = bool(QUEUE_HEAD_RE.match(line))
-            continue
-        m = QUEUE_FIELD_RE.match(line)
-        if not m or not entry:
-            continue
-        value = m.group(2).split("#")[0].strip()
-        if m.group(1) == "kind":
-            kind = value
-        else:
-            ref = value
-    flush()
-    return out
+# `read_queue` (and its grammar) lives in `_steer.py`, so the Mind dashboard
+# ranks its read-only stars with this same reader (PyAutoBrain#640).
+from _steer import read_queue  # noqa: E402
 
 
 def queue_rank(r: dict, queue: list[str]) -> int:
@@ -3266,70 +3213,6 @@ NEW_BRIEF_DEFAULTS = {"review-minutes": str(DEFAULT_REVIEW_BUDGET),
                       "token-budget": "2000000"}
 
 
-#: The trailer every dashboard write carries (PyAutoMind `dashboard_input.py`).
-DASHBOARD_TRAILER_RE = re.compile(r"^Via: mind-dashboard\s*$", re.M)
-
-
-def goal_provenance(mind: Path) -> list[dict] | None:
-    """Per goal, in order: `{"dashboard": bool, "date": "YYYY-MM-DD"}` — whether
-    the goal's line was last written by a `Via: mind-dashboard` commit, and when.
-
-    A goal from the dashboard is free text from a web page, written through a
-    browser token (PyAutoMind#565): `brief --new` never hands it to workers as
-    the human's word. A line not yet committed is the human's local edit.
-    None when provenance cannot be read (no git checkout, an uncommitted
-    file, or a blame that does not line up with the goals): callers then
-    treat EVERY goal as untrusted (`resolve_provenance`)."""
-    try:
-        out = subprocess.run(["git", "-C", str(mind), "blame", "--line-porcelain",
-                              "--", "goals.md"], capture_output=True, text=True,
-                             timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if out.returncode != 0:
-        return None
-    lines, cur = [], {}
-    for line in out.stdout.split("\n"):
-        if line.startswith("\t"):
-            lines.append((cur.get("sha", ""), cur.get("time", 0), line[1:]))
-            continue
-        m = re.match(r"^([0-9a-f]{40}) \d+ \d+", line)
-        if m:
-            cur = {"sha": m.group(1)}
-        elif line.startswith("author-time "):
-            cur["time"] = int(line.split()[1])
-    heads, fenced = [], False
-    for sha, when, text in lines:
-        if text.lstrip().startswith("```"):
-            fenced = not fenced
-        elif not fenced and re.match(r"^##\s+\d+\.\s+\S", text):
-            heads.append((sha, when))
-    if len(heads) != len(read_goals(mind)):
-        return None
-    verdict: dict[str, bool] = {}
-    out_list = []
-    for sha, when in heads:
-        if sha not in verdict:
-            body = ""
-            if sha and set(sha) != {"0"}:
-                body = subprocess.run(["git", "-C", str(mind), "show", "-s",
-                                       "--format=%B", sha], capture_output=True,
-                                      text=True).stdout
-            verdict[sha] = bool(DASHBOARD_TRAILER_RE.search(body))
-        date = (_dt.datetime.fromtimestamp(when, _dt.timezone.utc).date().isoformat()
-                if when else "")
-        out_list.append({"dashboard": verdict[sha], "date": date})
-    return out_list
-
-
-def resolve_provenance(mind: Path, prov: list[dict] | None) -> list[dict]:
-    """Per-goal provenance that fails closed: unknown means untrusted."""
-    goals = read_goals(mind)
-    if prov is None or len(prov) != len(goals):
-        return [{"dashboard": True, "date": "", "unknown": True} for _ in goals]
-    return prov
-
-
 def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:
     """(record name, goal texts) of the newest batch record with a brief."""
     records = sorted(f for f in (mind / "batches").glob("*.md") if f.name != "AGENTS.md")
@@ -3345,18 +3228,11 @@ def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:
     return None
 
 
-def goals_report(mind: Path, prov: list[dict] | None) -> list[str]:
-    """What `brief --new` tells the human on stderr: provenance, then how the
-    goals changed since the newest brief."""
+def goals_report(mind: Path) -> list[str]:
+    """What `brief --new` tells the human on stderr: how the goals changed
+    since the newest brief."""
     goals = [g["text"] for g in read_goals(mind)]
     L = []
-    if prov is None and goals:
-        L.append("goals: provenance unknown (no git history lines up with goals.md) — "
-                 "every goal is left commented out; adopt them by hand")
-    for g, p in zip(goals, prov or []):
-        if p["dashboard"]:
-            L.append(f"goals: \"{g}\" is from the dashboard (last edited "
-                     f"{p['date']}) — left commented out; adopt it by hand")
     last = _last_brief_goals(mind)
     if last is None:
         L.append("goals: no earlier brief to compare with")
@@ -3375,18 +3251,13 @@ def goals_report(mind: Path, prov: list[dict] | None) -> list[str]:
     return L
 
 
-_UNSET = object()
-
-
 def new_brief(mind: Path, slot: str, review_at: str, now=None,
-              prov=_UNSET, heart: dict | None = None) -> str:
+              heart: dict | None = None) -> str:
     """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
 
-    A goal last written from the dashboard is emitted commented out, marked
-    with its date: workers never see it until the human adopts it by hand.
-    So is every goal when provenance cannot be read ("provenance unknown").
-    `backlog: scoped` covers the union of the hand-written goals'
-    `epics:`/`tags:`; with none named, `fill-idle`. Every other required key
+    `goals.md` has one kind of writer, the human (by hand or in chat), so
+    every goal is copied as their word. `backlog: scoped` covers the union of
+    the goals' `epics:`/`tags:`; with none named, `fill-idle`. Every other required key
     gets a default the human edits. Writing the record (with its `review-at:`)
     is the dispatch, so this only composes the text (batches/AGENTS.md
     "Shift brief").
@@ -3395,13 +3266,10 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
     become a last `heart-green` goal plus named `tasks:`, and its report the
     record's `## Heart` section (PyAutoBrain#625)."""
     goals = read_goals(mind)
-    prov = resolve_provenance(mind, goal_provenance(mind) if prov is _UNSET else prov)
     now = now or _dt.datetime.now(_dt.timezone.utc)
     epics: list[str] = []
     tags: list[str] = []
-    for g, p in zip(goals, prov):
-        if p["dashboard"]:
-            continue
+    for g in goals:
         epics += [e for e in g["epics"] if e not in epics]
         tags += [t for t in g["tags"] if t not in tags]
     shift = {"am": "morning", "pm": "afternoon"}.get(slot.rsplit("-", 1)[-1], slot)
@@ -3411,18 +3279,9 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
          f"- shift: {shift}",
          "- brief:",
          "  - goals:                          # from goals.md, in order"]
-    for g, p in zip(goals, prov):
-        # A goal is one line of plain text (goals.md's own check); ` # ` would
-        # read as a trailing comment here, so it is spelled out.
-        text = f"{g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"])
-        if p.get("unknown"):
-            L.append(f"    # - {text}   <- provenance unknown: not adopted; "
-                     "delete the '# ' to adopt")
-        elif p["dashboard"]:
-            L.append(f"    # - {text}   <- from dashboard, last edited {p['date']}: "
-                     "not adopted; delete the '# ' to adopt")
-        else:
-            L.append(f"    - {text}")
+    # A goal is one line of plain text (goals.md's own check); ` # ` would
+    # read as a trailing comment here, so it is spelled out.
+    L += [f"    - {g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"]) for g in goals]
     picks = (heart or {}).get("picks") or []
     if picks:
         L.append(f"    - {len(goals) + 1}. {_green.GOAL_PREFIX}: clear the "
@@ -3448,13 +3307,9 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
 
 
 def goal_one_warning(path: Path, mind: Path) -> str:
-    """A warning when `goals.md`'s goal 1 is missing from the brief at `path`
-    — never for a dashboard-sourced goal 1, which the human adopts or not."""
+    """A warning when `goals.md`'s goal 1 is missing from the brief at `path`."""
     goals = read_goals(mind)
     if not goals:
-        return ""
-    prov = resolve_provenance(mind, goal_provenance(mind))
-    if prov[0]["dashboard"]:
         return ""
     try:
         brief = _brief.parse(path.read_text(encoding="utf-8", errors="replace"))["brief"]
@@ -3484,15 +3339,14 @@ def _main_brief(mind: Path, a) -> int:
             print("batch brief --new: --review-at <ISO time> is required — the "
                   "grant expires there, and it is yours to declare", file=sys.stderr)
             return RC_USAGE
-        prov = goal_provenance(mind)
         heart = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or _green.DEFAULT_MODE,
                            preview=not a.out)
-        text = new_brief(mind, a.new, a.review_at, prov=prov, heart=heart)
+        text = new_brief(mind, a.new, a.review_at, heart=heart)
         if heart["filed"]:
             print(f"batch brief --new: heart-green filed {len(heart['filed'])} "
                   f"draft(s) in {mind} (uncommitted — commit them with the "
                   "record): " + ", ".join(heart["filed"]), file=sys.stderr)
-        for line in goals_report(mind, prov):
+        for line in goals_report(mind):
             print(line, file=sys.stderr)
         if a.out:
             Path(a.out).write_text(text, encoding="utf-8")
