@@ -166,7 +166,8 @@ def test_one_unreadable_session_stops_blocking_after_its_reads_run_out(tmp_path)
     """Review item 2: after UNREADABLE_READS unreadable reads in a row a session
     is `unmeasured` — it no longer refuses every spawn; its reservation counts
     as its usage and the cap rule decides. The row says unmeasured, never 0."""
-    mind, brief, home = d._shift(tmp_path, names=("t1", "t2", "t3"), budget=800)
+    mind, brief, home = d._shift(tmp_path, names=("t1", "t2", "t3"), budget=800,
+                                 extra="  - max-workers: 2\n")
     slot = orch.slot_dir(brief, home)
     claude = d.FakeClaude()
 

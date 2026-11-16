@@ -260,8 +260,8 @@ pin that and record every process a full brief run starts.
 
 `bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one
 tick**: `STOP` first, then the open-brief gate, the tick lock, the lease reap,
-the plan inside the brief, the caps (`max-workers:`, default 2;
-`max-sessions:`, default 6) and an exclusive-create lease per spawn. The plan
+the plan inside the brief, the caps (`max-workers:`, default 4;
+`max-sessions:`, default 8) and an exclusive-create lease per spawn. The plan
 is checked against Mind `origin/main` (#632): a draft not under its `draft/` or
 claimed in its `active.md` is excluded unless this shift picked it, read from the
 local `origin/main` ref after one `git fetch` per shift through the one Mind

@@ -523,8 +523,13 @@ def _merge_cap(n: int):
     return lambda text: text.replace("  - merge-cap: 0\n", f"  - merge-cap: {n}\n")
 
 
+#: The /cap tests read their acks against the brief's own caps, so the brief
+#: names them rather than leaning on the code defaults (PyAutoBrain#656).
+CAP_LINES = "  - max-workers: 2\n  - max-sessions: 6\n"
+
+
 def _cap_shift(tmp_path, monkeypatch, names=("t1",), merge_cap=2):
-    mind, brief, home, slot = _shift(tmp_path, monkeypatch, names=names)
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch, names=names, extra=CAP_LINES)
     brief.write_text(_merge_cap(merge_cap)(brief.read_text()))
     return mind, brief, home, slot
 
@@ -638,6 +643,11 @@ Body.
 """
 
 
+def _two_workers(text):
+    """Name `max-workers: 2` in the brief, so an /add ack reads the brief's cap."""
+    return text.replace("  - backlog: none\n", "  - backlog: none\n  - max-workers: 2\n")
+
+
 def _add_shift(tmp_path, monkeypatch, drafts=(), active="", brief_edit=None):
     """A git-backed shift (`t1` named) whose Mind origin/main gains `drafts`
     — (path, target, lane) — from another clone after the first tick, so only
@@ -674,7 +684,7 @@ X = f"draft/feature/{LIB}/x.md"
 
 def test_add_makes_a_draft_filed_mid_shift_a_named_task_and_starts_it(tmp_path, monkeypatch):
     mind, brief, home, slot, publish = _add_shift(
-        tmp_path, monkeypatch, drafts=[(X, LIB, "local-dev")])
+        tmp_path, monkeypatch, drafts=[(X, LIB, "local-dev")], brief_edit=_two_workers)
     claude, gh = d.FakeClaude(), FakeGitHub()
     _tick(brief, mind, home, 0, claude, gh)
     publish()
@@ -737,8 +747,8 @@ def test_add_is_refused_on_a_claim_on_mind_origin(tmp_path, monkeypatch):
 def test_add_overrides_the_briefs_exclude_list(tmp_path, monkeypatch):
     mind, brief, home, slot, publish = _add_shift(
         tmp_path, monkeypatch, drafts=[(X, LIB, "local-dev")],
-        brief_edit=lambda s: s.replace("  - backlog: none\n",
-                                       f"  - backlog: none\n  - exclude:\n    - {X}\n"))
+        brief_edit=lambda s: _two_workers(s).replace(
+            "  - backlog: none\n", f"  - backlog: none\n  - exclude:\n    - {X}\n"))
     claude, gh = d.FakeClaude(), FakeGitHub()
     _tick(brief, mind, home, 0, claude, gh)
     publish()

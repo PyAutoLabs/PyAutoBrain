@@ -44,6 +44,7 @@ RECORD = """\
   - backlog: none
   - review-minutes: 45
   - lanes: any
+  - max-workers: 2
   - merge-cap: 2
   - token-budget: 400000
 """
