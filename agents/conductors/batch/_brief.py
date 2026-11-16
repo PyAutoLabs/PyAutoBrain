@@ -142,6 +142,39 @@ def cap_of(brief: dict, key: str) -> int:
     return CAP_DEFAULTS[key] if value is None else value
 
 
+#: The caps a `/cap` steering command may lower for one shift (#644).
+CAP_KEYS = ("merge-cap", "max-workers", "max-sessions", "token-budget")
+
+
+def effective(brief: dict, counters: dict | None) -> dict:
+    """The brief as this shift now runs it (PyAutoBrain#644): a copy with each
+    `/cap` override's value (`counters["caps"]`) swapped in, and each task the
+    human `/add`ed (`counters["added"]`) appended to `tasks:` and taken out of
+    `exclude:` — the human's newer word, as a brief that names a task again.
+    The brief file is never changed; with nothing steered it is `brief` itself."""
+    caps = (counters or {}).get("caps") or {}
+    added = (counters or {}).get("added") or {}
+    if not brief or not (caps or added):
+        return brief
+    out = dict(brief)
+    for key, ov in caps.items():
+        if key in CAP_KEYS and isinstance(ov, dict) and "value" in ov:
+            out[key] = {**(brief.get(key) or {"children": []}), "value": str(ov["value"])}
+    prompts = [a["prompt"] for a in added.values() if isinstance(a, dict) and a.get("prompt")]
+    if prompts:
+        tasks = brief.get("tasks") or {"value": "", "children": []}
+        have = {Path(c["text"]).name for c in tasks["children"]}
+        out["tasks"] = {**tasks, "children": list(tasks["children"]) + [
+            {"text": p, "children": []} for p in prompts if Path(p).name not in have]}
+        names = {Path(p).name for p in prompts}
+        if brief.get("exclude"):
+            ex = brief["exclude"]
+            out["exclude"] = {**ex, "children": [c for c in ex["children"]
+                                                 if Path(c["text"]).name not in names]}
+        out["added"] = {"value": " ".join(sorted(names)), "children": []}
+    return out
+
+
 def worker_mode_of(brief: dict) -> str:
     return brief.get("worker-mode", {}).get("value") or DEFAULT_WORKER_MODE
 
@@ -363,13 +396,15 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
     ex_paths, ex_keyed = excluded_of(brief)
     ex_names = {Path(p).name for p in ex_paths}
     lanes = set(lanes_of(brief)) or {"any"}
+    # `/add`ed this shift (`effective`, #644): no `exclude:` rule holds it back.
+    added = set(_csv(brief.get("added", {}).get("value", "")))
 
     kept, rejected = [], []
     for r in records:
         name = Path(r["path"]).name
         themes = set(r.get("themes") or [])
-        if name in ex_names or r.get("epic") in ex_keyed.get("epics", []) \
-                or themes & set(ex_keyed.get("tags", [])):
+        if name not in added and (name in ex_names or r.get("epic") in ex_keyed.get("epics", [])
+                                  or themes & set(ex_keyed.get("tags", []))):
             rejected.append((r["path"], "excluded by the brief"))
             continue
         if name not in named_names:

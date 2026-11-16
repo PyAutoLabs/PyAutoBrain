@@ -625,7 +625,8 @@ def test_an_op_set_aside_after_the_digest_reaches_the_human(tmp_path, monkeypatc
     assert orch.ledger_unreported(slot)
     r = orch.tick(brief, canon, now=AFTER + _dt.timedelta(minutes=3), **kw)
     assert r["action"] == "late" and r["posts"]["correction"] == "posted", r
-    assert "Mind ledger op set aside" in poster.calls[1][1]
+    # The correction carries it (#644 adds a needs-you comment for the set-aside op too).
+    assert any("Mind ledger op set aside" in b for _, b in poster.calls[1:])
     record = t.git(bare, "show", "main:batches/2026-11-04-am.md").stdout
     assert "- late: Mind ledger — warning: Mind ledger op set aside" in record
     assert not orch.ledger_unreported(slot)

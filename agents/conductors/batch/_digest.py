@@ -224,7 +224,8 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
             return STILL_OUT, True
         if task in counters.get("pending_redispatch", []):
             if live:
-                return "crashed — awaiting re-dispatch", True
+                word = "killed by /kill" if task in (counters.get("killed") or {}) else "crashed"
+                return f"{word} — awaiting re-dispatch", True
             return f"{NOT_REDISPATCHED}: {redispatch_why(task, counters)}", False
         skipped = gate_why(task, counters)
         return ("not started — skipped: " + skipped if skipped else "not started"), False
@@ -446,6 +447,7 @@ _PLAIN = (
     ("blocked on a person", "Needs you — blocked on a person"),
     ("abandoned", "Abandoned — crashed twice"),
     (NOT_REDISPATCHED, "Crashed — not re-dispatched"),
+    ("killed by /kill", "Killed by /kill — waiting to be re-dispatched"),
     ("crashed", "Crashed — waiting to be re-dispatched"),
     ("ended", "Crashed"),
     ("obsolete", "Obsolete — nothing to do"),
@@ -563,6 +565,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines.append(f"{SHADOW_COUNTERS} · review-minutes-planned: {values['review-minutes-planned']}")
     else:
         lines += [f"- {k}: {values[k]}" for k in COUNTERS]
+        lines += cap_lines(counters)
         lines += ["", WORKERS_HEADING] + (worker_lines(counters, links) or [NO_PICKS])
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
     lines += report_lines(slot)
@@ -664,7 +667,9 @@ WORKERS_HEADING = "### Workers"
 #: `spawned/parked/late/finished`. `launch-failed` stands alone: no session
 #: started. `ended` is a parked worker that ended without a `.done`.
 EXIT_WORDS = ("spawned", "finished", "crashed", "parked", "late", "ended",
-              "launch-failed")
+              "launch-failed", "killed")
+#: `killed` is a worker the human stopped by `/kill` (#644): it is re-dispatched
+#: as a crash is, but it is not a crash, so it is not in `CRASH_WORDS`.
 CRASH_WORDS = ("crashed", "launch-failed")
 
 
@@ -690,6 +695,11 @@ def worker_lines(counters: dict, links: MindLinks | None = None) -> list[str]:
     if pushes > 1:
         out.append(f"- finding: {pushes} pushes this shift — the push test budgets "
                    "about one (AUTONOMY.md)")
+    events = int(counters.get("event_comments") or 0)
+    if events:
+        # Needs-you event comments (#644) have their own cap, 5 + 1 a shift,
+        # and are not pushes for the finding above.
+        out.append(f"- needs-you event comments: {events} (at most 5 + 1 a shift)")
     return out
 
 
@@ -702,6 +712,14 @@ _REFUSAL_CLASSES = (
      r"\1: committed + \2 reserved per worker would pass it"),
     (re.compile(r"^token usage unavailable\b"), "token usage unavailable"),
     (re.compile(r"^spawn failed\b"), "spawn failed"),
+    # Close-out refusals, so the event stream's `cls` is stable (#644). The
+    # public-name check's wording is #641's (`bin/public_names.py` `reason`).
+    (re.compile(r"^public name added/renamed\b"), "public name added or renamed: a human /prm"),
+    (re.compile(r"^public-name check could not tell\b"),
+     "public-name check could not tell: a human /prm"),
+    (re.compile(r"^PR carries the decision-taken label\b"), "decision-taken label"),
+    (re.compile(r"^token spend \d+ \(committed\) reached (\S+× token-budget \d+)"),
+     r"token spend reached \1"),
 )
 #: Refusals whose reason is the shift's, not the task's — summarised in one
 #: line for every task they held back (#632, F3 and review).
@@ -777,6 +795,20 @@ def refusal_lines(counters: dict) -> list[str]:
                    f"{c['n']}× from {c['first']}"
                    + (f" to {c['last']}" if c["last"] and c["last"] != c["first"] else "")
                    + (f" (last: {c['why']})" if c["why"] and c["why"] != cls else ""))
+    return out
+
+
+def cap_lines(counters: dict) -> list[str]:
+    """A cap the human lowered (or raised back) by `/cap` this shift (#644),
+    one line each: `merge-cap 2 → 1 (/cap by <login> at 18:02Z)`. Not a
+    counter column, so the pilot rows keep their shape."""
+    out = []
+    for key, ov in sorted((counters.get("caps") or {}).items()):
+        if not isinstance(ov, dict):
+            continue
+        at = str(ov.get("at") or "")
+        out.append(f"- cap override: {key} {ov.get('brief', '?')} → {ov.get('value', '?')} "
+                   f"(/cap by {ov.get('by', '?')} at {at[11:16] + 'Z' if len(at) >= 16 else at})")
     return out
 
 

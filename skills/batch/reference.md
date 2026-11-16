@@ -131,5 +131,21 @@ does not volunteer it.
   acknowledged once, in the status comment's `Commands` list, on the next tick.
   `/pause` holds spawns, re-dispatches and new close-outs; reaps and mentions
   continue.
-  A dropped worker that is already running is not killed: stopping it is the
-  human's, `claude stop <id>` on the laptop. Never post a command for them.
+  A dropped worker that is already running is not killed by `/drop`; the
+  human may stop it by hand (`claude stop <id>`) or command `/kill <task>`.
+  Never post a command for them.
+- **More verbs (PyAutoBrain#644):** `/cap merges|workers|sessions|tokens <n>`
+  lowers a cap for this shift, or raises it back, never above the brief's own
+  value (`tokens` takes `400k`, `1.2M`); `/add <prompt>` makes a draft on Mind
+  origin/main a named task (refused within 30 min of `review-at:`; overrides the
+  brief's `exclude:`, never the organ rule); `/kill <task>` runs `claude stop` on
+  that task's running worker, which is re-dispatched once unless dropped first.
+  An ack starting `ignored:` or `refused:` is a needs-you event: at most 5 such
+  comments a shift, no `@`.
+- **The event stream:** `bin/pyauto-brain batch watch --stream --record
+  <brief> [--from N] [--for MIN] [--json]` prints the slot's `events.jsonl`, one
+  plain line per event (`NEEDS YOU:` first when it needs the human), and exits 0
+  at `shift-end`, a `STOP` or `review-at:` + 45 min; with `--for` it ends the
+  segment with `segment-end next=--from N` (exit 3). `--check` only says whether
+  it may attach now (exit 2 outside `dispatched:` − 30 min … `review-at:` + 45
+  min). `--record`/`--home` default from `~/.config/pyauto/orchestrator.env`.

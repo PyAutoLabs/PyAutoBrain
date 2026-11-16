@@ -27,7 +27,10 @@ digest, one @mention per worker per state that needs the human (#611), one
 correction for a late arrival (#610) and one live status comment, then only
 edited (#622) — each claimed by marker first. Each open tick also reads the
 shift issue's comments once, for the human's `/pause` `/resume` `/drop`
-`/stop` (#622).
+`/stop` (#622) and `/add` `/cap` `/kill` (#644). Every tick that does work
+appends what it did to the slot's `events.jsonl` (`_events`, #644), which
+`batch watch --stream` prints; a needs-you event is also one short comment on
+the shift issue, at most `EVENT_COMMENTS_MAX` a shift.
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from pathlib import Path
 import _app_token  # noqa: E402 — the batch conductor puts this directory on sys.path
 import _brief  # noqa: E402
 import _digest  # noqa: E402
+import _events  # noqa: E402
 import _mind_writer  # noqa: E402
 
 STOP_FILE = "STOP"
@@ -172,11 +176,16 @@ def _write_counters(slot: Path, c: dict) -> None:
     os.replace(tmp, slot / COUNTERS_FILE)
 
 
-def _log(slot: Path, now: _dt.datetime, result: dict) -> None:
-    """Append the tick's result; a GitHub identity that failed this tick is
-    named in it (and in what the tick returns) — its writes were held."""
+def _auth_note(result: dict) -> None:
+    """A GitHub identity that failed this tick is named in its result (and in
+    what the tick returns, logs and streams) — its writes were held."""
     if _AUTH is not None and _AUTH.used and _AUTH.error and "github_auth" not in result:
         result["github_auth"] = {"error": _AUTH.error, "writes": "held"}
+
+
+def _log(slot: Path, now: _dt.datetime, result: dict) -> None:
+    """Append the tick's result to `tick.log`."""
+    _auth_note(result)
     with open(slot / LOG_FILE, "a", encoding="utf-8") as fh:
         fh.write(json.dumps({"at": _iso(now), **result}, sort_keys=True) + "\n")
 
@@ -994,8 +1003,13 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             if real:
                 path.write_text(json.dumps(lease, sort_keys=True))  # the unlisted count
             continue  # gone, but inside the grace for a late `.done`
-        counters["crashes"] += 1
-        mark("crashed")
+        # A worker the human stopped by `/kill` (#644) ends as `killed`, not
+        # `crashed`: it counts for the re-dispatch rule, not as a crash.
+        killed = (counters.get("killed") or {}).get(task) or {}
+        by_kill = bool(killed) and killed.get("key") == rec.get("key")
+        if not by_kill:
+            counters["crashes"] += 1
+        mark("killed" if by_kill else "crashed")
         again = counters["redispatched"].get(task, 0) < REDISPATCH_LIMIT
         if again and task not in counters["pending_redispatch"]:
             counters["pending_redispatch"].append(task)
@@ -1004,7 +1018,8 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
         _write_counters(slot, counters)
         path.unlink(missing_ok=True)
         events.append({"task": task, "event": "dead",
-                       "redispatch": "allowed" if again else "spent — abandoned"})
+                       "redispatch": "allowed" if again else "spent — abandoned",
+                       **({"killed": True} if by_kill else {})})
     return events
 
 
@@ -1089,6 +1104,7 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
                     agents=agents, tokens=tokens, grace_s=grace_s, github=github,
                     pr_state=(pr_state or getattr(spawner, "pr_state", None)
                               or _default_pr_state()))
+                _record_events(slot, now, result, brief_path, poster)
             finally:
                 _drop_lock(slot)
             _log(slot, now, result)
@@ -1105,6 +1121,7 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
                                     agents=agents, tokens=tokens, poster=poster,
                                     pr_state=(pr_state or getattr(spawner, "pr_state", None)
                                               or _default_pr_state()))
+                _record_events(slot, now, result, brief_path, poster)
             finally:
                 _drop_lock(slot)
             _log(slot, now, result)
@@ -1125,6 +1142,7 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
                               grace_s, records, agents, tokens, health, pr_state,
                               poster=poster, shift=shift, token_reserve=token_reserve,
                               whoami=whoami, github=github)
+        _record_events(slot, now, result, brief_path, poster)
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
@@ -1339,6 +1357,10 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                           stopped=out.get("action") == "stopped")
     if status:
         out["status"] = status
+    if health.seen:
+        # Every CI verdict this tick read, for the event stream's `ci` line
+        # (#644): no read of its own — the close-outs made these.
+        out["health"] = dict(health.seen)
     _note_auth_file(slot, now)
     return out
 
@@ -1356,6 +1378,13 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         """The plan inside the brief, made once a tick when first needed."""
         if "d" not in planned:
             recs = records if records is not None else _batch.survey(mind)
+            # A task the human added by `/add` (#644) is graded from Mind
+            # origin/main when it is added: a prompt filed mid-shift is in no
+            # survey of the canonical checkout, which nobody pulls mid-shift.
+            have = {r["path"] for r in recs}
+            recs = recs + [a["record"] for a in (counters.get("added") or {}).values()
+                           if isinstance(a.get("record"), dict)
+                           and a["record"].get("path") not in have]
             # Parked on a question by an earlier shift (#637, item 3): not
             # startable until answered. A brief that names it again is the
             # human's word that it is; a task this shift picked stays. Read
@@ -1386,8 +1415,16 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
 
     # The human steers from the shift issue (#622): read once, before anything
     # this tick starts, so a /pause or /drop binds on the tick that reads it.
-    commands = _steer(slot, counters, shift or {}, now, github, whoami, known)
+    ctx = {"brief": brief, "now": now, "mind": mind,
+           "review_at": _brief._iso((shift or {}).get("review_at") or "")}
+    commands = _steer(slot, counters, shift or {}, now, github, whoami, known, ctx=ctx)
     _write_counters(slot, counters)
+    if any(c["command"] in ("add", "cap") for c in commands):
+        planned.clear()   # an /add or /cap changes what this tick's plan admits
+    # `/cap` overrides and `/add`ed tasks (#644), from here on in this tick:
+    # every later reader (the spawn gates, the close-out gates) sees them.
+    written = brief
+    brief = _brief.effective(brief, counters)
     if (slot / STOP_FILE).exists():
         # A /stop this tick: from here on it is the STOP file's tick.
         return {"action": "stopped", "reason": f"{STOP_FILE} written by /stop",
@@ -1435,8 +1472,11 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                "ledger": ledger}
         return _steered(out, commands, paused)
     budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
-    if budget:
-        counters["token_budget"] = budget   # what a later shift's estimate compares
+    written_budget = _brief._nonneg_int(written.get("token-budget", {}).get("value", ""))
+    if written_budget:
+        # What a later shift's estimate compares: the brief's own figure, not
+        # a `/cap tokens` lowered for this shift.
+        counters["token_budget"] = written_budget
     # A real worker holds a reservation from its spawn until its measured
     # usage passes it, so the budget binds on the first tick (#610). A fake
     # (dry-shift) worker spends nothing.
@@ -1785,6 +1825,13 @@ def _retry_mentions(slot: Path, counters: dict, poster, now: _dt.datetime) -> li
         for marker in sorted(d.glob("*.json")):
             rec = retry_post(marker, marker.with_suffix(".md"), poster, now)
             if rec is not None:
+                if marker.stem.startswith("event."):
+                    # A needs-you event comment (#644): counted apart from pushes.
+                    if rec.get("state") == "posted":
+                        counters["event_comments"] = int(counters.get("event_comments") or 0) + 1
+                    out.append({"event": rec.get("event"), "post": rec["state"],
+                                "retry": rec["tries"]})
+                    continue
                 w = last_worker(counters, rec.get("task", ""))
                 _note_mention(counters, w if w and w.get("key") == rec.get("worker") else None,
                               marker.stem, rec)
@@ -1850,10 +1897,23 @@ STATUS_TAG_PREFIX = "<!-- pyauto-shift-status "
 #: The dashboard's copy of the status: one `- live:` line in the brief record,
 #: rewritten through the one Mind writer when the shift's state changes.
 LIVE_KEY_FILE = "live.key"
-#: The steering commands, read from the human's comments on the shift issue.
-COMMANDS = ("pause", "resume", "drop", "stop")
-_COMMAND_RE = re.compile(r"^/(pause|resume|drop|stop)\b[ \t]*(\S+)?[ \t]*$")
+#: The steering commands, read from the human's comments on the shift issue
+#: (#622; `/add`, `/cap` and `/kill` from #644).
+COMMANDS = ("pause", "resume", "drop", "stop", "add", "cap", "kill")
+_COMMAND_RE = re.compile(
+    r"^/(pause|resume|drop|stop|add|cap|kill)\b[ \t]*(\S+)?(?:[ \t]+(\S+))?[ \t]*$")
+#: The one verb that takes two arguments (`/cap <what> <n>`).
+_TWO_ARGS = ("cap",)
 _TASK_ARG_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
+#: `/add` is refused this close to `review-at:` — a worker needs longer
+#: (human ruling H8, 2026-11-16).
+ADD_CUTOFF_S = 1800
+#: `/cap <what>` → the brief key it lowers (human ruling H6: never above the
+#: brief's own value).
+CAP_KEYS = {"merges": "merge-cap", "workers": "max-workers", "sessions": "max-sessions",
+            "tokens": "token-budget"}
+#: `/kill`'s one local act, `claude stop <id>` — not a network call.
+STOP_TIMEOUT_S = 30
 #: `<lease dir>/<task>.dropped`: a dropped task's close-out session checks it
 #: just before it merges, and refuses (closeout_template.md).
 DROPPED_SUFFIX = ".dropped"
@@ -1943,17 +2003,32 @@ def status_url(slot: Path) -> str:
 
 def _parse_command(body: str) -> tuple[str, str] | None:
     """(command, argument) when a comment's first non-empty line is a
-    steering command and nothing else; None otherwise."""
+    steering command and nothing else; None otherwise. `/cap`'s two
+    arguments come back as one, space-separated; every other verb takes one
+    at most, as before #644."""
     first = next((ln.strip() for ln in (body or "").splitlines() if ln.strip()), "")
     m = _COMMAND_RE.match(first)
-    return (m.group(1), (m.group(2) or "").strip("`")) if m else None
+    if not m:
+        return None
+    one, two = (m.group(2) or "").strip("`"), (m.group(3) or "").strip("`")
+    if two and m.group(1) not in _TWO_ARGS:
+        return None
+    return m.group(1), (f"{one} {two}" if two else one)
 
 
 def _apply_command(slot: Path, counters: dict, cmd: str, arg: str, who: str,
-                   at: str, known=None) -> str:
+                   at: str, known=None, ctx: dict | None = None) -> str:
     """Enact one command; returns its acknowledgement. `known(task)` says
     whether a task belongs to this shift (a pick, a lease, a brief or plan
-    member)."""
+    member). `ctx` is what `/add`, `/cap` and `/kill` judge against: the
+    brief as written, `now`, `review_at` and the Mind checkout."""
+    if cmd in ("add", "cap", "kill"):
+        ctx = ctx or {}
+        try:
+            return {"add": _cmd_add, "cap": _cmd_cap, "kill": _cmd_kill}[cmd](
+                slot, counters, arg, who, at, ctx)
+        except Exception as e:   # one command's failure is its ack, never the tick's
+            return f"refused: /{cmd} could not be judged ({str(e)[:200]})"
     if cmd == "pause":
         if counters.get("paused"):
             return "already paused"
@@ -1999,7 +2074,7 @@ def _apply_command(slot: Path, counters: dict, cmd: str, arg: str, who: str,
 
 
 def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=None,
-           whoami=None, known=None) -> list[dict]:
+           whoami=None, known=None, ctx: dict | None = None) -> list[dict]:
     """Read the shift issue's comments once and enact each new steering
     command from the human's login (`mention_login`), in order, once.
 
@@ -2060,12 +2135,342 @@ def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=No
             continue
         cmd, arg = parsed
         seen.add(c["id"])
-        ack = _apply_command(slot, counters, cmd, arg, c["login"], c["created_at"], known)
+        ack = _apply_command(slot, counters, cmd, arg, c["login"], c["created_at"], known,
+                             ctx=ctx)
         counters["commands"].append({"id": c["id"], "command": "/" + cmd + (f" {arg}" if arg else ""),
                                      "by": c["login"], "at": c["created_at"], "url": c["url"],
                                      "ack": ack})
-        out.append({"command": cmd, "arg": arg, "ack": ack})
+        out.append({"command": cmd, "arg": arg, "ack": ack, "id": c["id"], "by": c["login"],
+                    "at": c["created_at"], "url": c["url"]})
     counters["commands_seen"] = sorted(seen)
+    return out
+
+
+# --- `/cap`, `/add`, `/kill` (#644; human rulings H5, H6, H8 of 2026-11-16) -------------
+
+def _cap_ceiling(brief: dict, key: str) -> int | None:
+    """A cap as `brief` states it: the spawn caps with their defaults, the
+    merge cap 0 when absent (as the close-out reads it), and no token
+    ceiling when the brief sets no `token-budget:`."""
+    if key in ("max-workers", "max-sessions"):
+        return _brief.cap_of(brief, key)
+    value = _brief._nonneg_int((brief.get(key) or {}).get("value", ""))
+    return (value or 0) if key == "merge-cap" else value
+
+
+def _cap_number(word: str, tokens: bool) -> int | None:
+    if re.fullmatch(r"\d+", word or ""):
+        return int(word)
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)([kKmM])", word or "") if tokens else None
+    if m:
+        return int(round(float(m.group(1)) * (1000 if m.group(2) in "kK" else 1_000_000)))
+    return None
+
+
+def _cmd_cap(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict) -> str:
+    """`/cap merges|workers|sessions|tokens <n>`: lower one of this shift's
+    caps, or raise it back, never above the brief's own value. It never
+    kills, never stops a close-out already running and never edits the
+    brief; `_brief.effective` applies it from this tick on."""
+    words = (arg or "").split()
+    if not words or words[0] not in CAP_KEYS:
+        return "ignored: /cap takes merges, workers, sessions or tokens"
+    key = CAP_KEYS[words[0]]
+    n = _cap_number(words[1], key == "token-budget") if len(words) == 2 else None
+    if n is None:
+        return "ignored: /cap needs a whole number"
+    brief = ctx.get("brief") or {}
+    ceiling = _cap_ceiling(brief, key)
+    if ceiling is not None and n > ceiling:
+        return (f"refused: /cap {words[0]} {words[1]} is above this brief's {key} {ceiling}. "
+                "A higher cap needs a new brief.")
+    was = _cap_ceiling(_brief.effective(brief, counters), key)
+    counters.setdefault("caps", {})[key] = {"value": n, "by": who, "at": at, "was": was,
+                                            "brief": ceiling}
+    of = f"{ceiling}" if ceiling is not None else "none"
+    if key == "merge-cap":
+        merged = int(counters.get("glance_auto_merges") or 0)
+        running = sum(1 for co in counters["closeouts"].values() if co.get("state") == "running")
+        tail = (": no new close-out starts." if merged + running >= n
+                else f": up to {n - merged - running} more may start.")
+        return f"merge-cap now {n} of this brief's {of} ({merged} merged so far){tail}"
+    if key == "max-workers":
+        live = len(active_leases(slot))
+        return f"max-workers now {n} of {of}." + (
+            f" {live} still running are not stopped; no new spawn until fewer than {n}."
+            if live >= n else "")
+    if key == "max-sessions":
+        started = int(counters.get("sessions") or 0)
+        return f"max-sessions now {n} of {of} ({started} started)" + (
+            ": no new spawn." if started >= n else ".")
+    committed = _committed_tokens(counters)
+    tail = "."
+    if committed >= CLOSEOUT_BUDGET_FACTOR * n:
+        tail = ": no new spawn or close-out."
+    elif committed >= n:
+        tail = f": no new spawn; close-outs stop at {int(CLOSEOUT_BUDGET_FACTOR * n)}."
+    return f"token-budget now {n} of {of} ({committed} committed){tail}"
+
+
+def _origin_prompt(mind: Path, arg: str) -> tuple[str | None, str]:
+    """(Mind-relative path, '') of the draft `arg` names on Mind origin/main,
+    or (None, the ignored ack). A path is read as given; a basename must name
+    exactly one draft. Local git reads after the `/add` fetch."""
+    if "/" in arg:
+        rel = arg if arg.endswith(".md") else arg + ".md"
+        if _brief.origin_text(mind, rel) is None:
+            return None, f"ignored: no prompt {rel} on Mind origin/main (filed? pushed?)"
+        return rel, ""
+    name = arg if arg.endswith(".md") else arg + ".md"
+    try:
+        res = subprocess.run(["git", "-C", str(mind), "ls-tree", "-r", "-z", "--name-only",
+                              "origin/main", "--", "draft/"],
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, f"ignored: Mind origin/main unreadable ({str(e)[:120]})"
+    if res.returncode != 0:
+        return None, "ignored: Mind origin/main unreadable: " + (res.stderr or "").strip()[:120]
+    hits = sorted(p for p in res.stdout.split("\0") if p and Path(p).name == name)
+    if not hits:
+        return None, f"ignored: no prompt {name} on Mind origin/main (filed? pushed?)"
+    if len(hits) > 1:
+        return None, f"ignored: {name} names {len(hits)} drafts: give the path"
+    return hits[0], ""
+
+
+def _in_shift(task: str, slot: Path, counters: dict, brief: dict) -> str:
+    """Why `task` is already this shift's ('' when it is not)."""
+    if task in leases(slot):
+        return "running"
+    if task in counters.get("added", {}):
+        return "added by /add"
+    if task in counters["dropped"]:
+        return "dropped"
+    if task in counters["done"] or task in counters["outcomes"]:
+        return "finished"
+    if task in counters["picks"]:
+        return "picked"
+    if task in {task_id(p) for p in _brief.tasks_of(brief)}:
+        return "named in the brief"
+    return ""
+
+
+def _cmd_add(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict) -> str:
+    """`/add <prompt>`: make a draft a brief-named task for the rest of this
+    shift. The planner's own gates judge it as they judge a named task; it
+    overrides the brief's `exclude:` and an earlier shift's parked hold (the
+    human's newer word), never the organ rule (human ruling H8)."""
+    if not arg or not _TASK_ARG_RE.match(arg):
+        return "ignored: /add needs a prompt (draft/…/x.md, x.md or x)"
+    now, review_at = ctx.get("now") or _now(), ctx.get("review_at")
+    if review_at is not None and (review_at - now).total_seconds() < ADD_CUTOFF_S:
+        return (f"refused: /add within {ADD_CUTOFF_S // 60} min of review-at. "
+                "A worker needs longer.")
+    brief = ctx.get("brief") or {}
+    if _brief.is_shadow(brief):
+        return "refused: shadow shift: nothing is dispatched."
+    mind = Path(ctx["mind"])
+    try:
+        # One fetch per `/add` (AUTONOMY.md amendment 2026-11-16, #644): a
+        # prompt filed mid-shift is newer than the once-per-shift fetch.
+        _mind_writer.fetch(mind)
+    except _mind_writer.MindWriteError as e:
+        counters.setdefault("add_fetch_errors", []).append(str(e)[:200])
+    rel, why = _origin_prompt(mind, arg)
+    if rel is None:
+        return why
+    task = task_id(rel)
+    state = _in_shift(task, slot, counters, brief)
+    if state:
+        return f"ignored: {task} is already in this shift ({state})"
+    text = _brief.origin_text(mind, rel) or ""
+    added_dir = slot / "added"
+    added_dir.mkdir(parents=True, exist_ok=True)
+    (added_dir / Path(rel).name).write_text(text, encoding="utf-8")
+    import _batch  # noqa: E402 — deferred, as in `_tick_body`
+    rec = _batch.grade_text(text, rel, mind)
+    if (organ := _batch.self_organ_why(rec)):
+        return f"refused: {task} {organ} (the organ rule: /add never overrides it)"
+    if (lane := _batch.lane_absent_why(rec)):
+        return f"refused: {task}: no Lane: line ({lane})"
+    ex_paths, ex_keyed = _brief.excluded_of(brief)
+    excluded = Path(rel).name in {Path(p).name for p in ex_paths} \
+        or rec.get("epic") in ex_keyed.get("epics", []) \
+        or bool(set(rec.get("themes") or []) & set(ex_keyed.get("tags", [])))
+    trial = dict(counters, added={**counters.get("added", {}), task: {"prompt": rel}})
+    eff = _brief.effective(brief, trial)
+    d = _batch.plan([rec], session_lane="local-dev", brief=eff, queue=None)
+    if not any(m.get("path") == rel for m in d["members"]):
+        reason = next((w for p, w in d["rejected"] if p == rel), "not admitted by the planner")
+        return f"refused: {task}: {reason}"
+    kept, claimed = on_origin([rec], mind, set())
+    if not kept:
+        return f"refused: {task}: {claimed.get(rel) or 'claimed on Mind origin/main'}"
+    was_parked = task in parked_elsewhere(slot)
+    counters.setdefault("added", {})[task] = {"prompt": rel, "by": who, "at": at, "record": rec}
+    notes = "".join([" (was excluded in the brief)" if excluded else "",
+                     " (was parked)" if was_parked else ""])
+    max_workers = _brief.cap_of(_brief.effective(brief, counters), "max-workers")
+    live = len(active_leases(slot))
+    when = ("starts this tick" if live < max_workers
+            else "starts when a worker slot frees (next in line)")
+    return (f"added {task} ({rec.get('consequence') or '?'}){notes}: {when}; "
+            f"max-workers {max_workers}, {live} running.")
+
+
+def claude_stop(agent_id: str, run=None) -> tuple[bool, str]:
+    """`claude stop <id>`, the local CLI (30 s timeout): (stopped?, why not)."""
+    run = run or subprocess.run
+    try:
+        res = run(["claude", "stop", agent_id], capture_output=True, text=True,
+                  timeout=STOP_TIMEOUT_S)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    if res.returncode != 0:
+        first = next((ln for ln in ((res.stderr or "") + (res.stdout or "")).splitlines()
+                      if ln.strip()), f"exit {res.returncode}")
+        return False, first.strip()
+    return True, ""
+
+
+def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict) -> str:
+    """`/kill <task>` (human ruling H5): stop that task's running worker with
+    `claude stop`. The next reap sees it ended: it is `killed` (not a crash)
+    and re-dispatched once by the usual rule, unless the task was dropped.
+    A close-out is not killable here."""
+    if not arg or not _TASK_ARG_RE.match(arg):
+        return "ignored: /kill needs a task name"
+    task = Path(arg).stem
+    lease = leases(slot).get(task)
+    if lease is None:
+        return f"ignored: no running worker for {task}"
+    key = _worker_key(lease, task)
+    agent = lease.get("agent_id")
+    if not agent:
+        return (f"refused: {task}'s worker {key} is no claude session (a dry-run stub). "
+                "Stop it by hand.")
+    old = (counters.get("killed") or {}).get(task) or {}
+    if old.get("key") == key:
+        return f"ignored: {task}'s worker {key} is already stopping (/kill at {old.get('at')})"
+    # A crash between this stop and the counters write leaves the comment
+    # unseen: the next tick stops the same agent id again, at most — never another session.
+    ok, why = (ctx.get("stop") or claude_stop)(agent)
+    if not ok:
+        return (f"refused: claude stop failed: {why[:160]}. Stop it by hand: "
+                f"claude stop {agent}")
+    counters.setdefault("killed", {})[task] = {"by": who, "at": at, "key": key}
+    if task in counters["dropped"]:
+        tail = f"It is not restarted: {task} was dropped."
+    elif lease.get("state") == "parked":
+        tail = "It stays parked for you; it is not restarted."
+    elif counters["redispatched"].get(task, 0) >= REDISPATCH_LIMIT:
+        tail = "It is not restarted: its one retry is spent."
+    else:
+        tail = f"It is restarted once, unless you /drop {task}."
+    return f"stopping {task}'s worker {key} (claude stop). {tail}"
+
+
+# --- the event stream's watcher side (#644) --------------------------------------------
+
+#: Needs-you event comments a shift may post (human ruling H4b), then one
+#: last one saying the rest are in the status comment.
+EVENT_COMMENTS_MAX = 5
+EVENT_OVERFLOW = "event.overflow"
+
+
+def _event_info(brief_path: Path, slot: Path) -> dict:
+    """What the record says about the shift, with this shift's `/cap`s and
+    `/add`s applied — the `shift-open` and `merged` lines. Local reads."""
+    try:
+        rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
+    except (OSError, _brief.BriefError):
+        return {}
+    top = rec["top"]
+    eff = _brief.effective(rec["brief"] or {}, _safe_counters(slot) or {})
+    return {"review_at": (top.get("review-at") or {}).get("value", ""),
+            "issue": (top.get("issue") or {}).get("value", ""),
+            "named": len(_brief.tasks_of(eff)),
+            "merge_cap": _cap_ceiling(eff, "merge-cap"),
+            "token_budget": (eff.get("token-budget") or {}).get("value", "")}
+
+
+def shift_quiet(slot: Path) -> bool:
+    """Nothing left for the late sweep: no lease, no queued Mind op, no
+    close-out out, nothing unreported, no post due — the late sweep's own
+    condition, negated. Local reads."""
+    return not (leases(slot) or _mind_writer.pending_ops(slot) or closeouts_running(slot)
+                or ledger_unreported(slot) or post_due(slot / DIGEST_MARKER)
+                or post_due(slot / CORRECTION_MARKER) or mentions_due(slot))
+
+
+def _record_events(slot: Path, now: _dt.datetime, result: dict, brief_path: Path,
+                   poster=None) -> None:
+    """Append the tick's events (inside the tick lock), then post a comment
+    for each needs-you one. Never fails the tick: a fault is named on stderr
+    and the tick carries on."""
+    _auth_note(result)
+    try:
+        info = _event_info(brief_path, slot)
+        quiet = shift_quiet(slot) if result.get("action") in ("digest", "late") else None
+        new = _events.record_tick(slot, now, result, info=info, quiet=quiet)
+    except Exception as e:
+        print(f"orchestrator: events not recorded this tick ({e})", file=sys.stderr)
+        return
+    try:
+        posted = _event_comments(slot, new, info.get("issue", ""), poster, now)
+    except Exception as e:
+        print(f"orchestrator: needs-you comment failed ({e})", file=sys.stderr)
+        return
+    if posted:
+        result["event_comments"] = posted
+
+
+def event_comment_body(slot_name: str, event: dict) -> str:
+    """A needs-you event as a short comment: no `@`, so it notifies only those
+    who already take part in the issue (the human, through their commands)."""
+    return (f"Shift `{slot_name}` needs you: {event['line']}\n\n"
+            f"(event {event['seq']}, `{event['kind']}`; the status comment has the rest. "
+            f"At most {EVENT_COMMENTS_MAX} such comments a shift.)\n").replace("@", "@\u200b")
+
+
+def _event_comments(slot: Path, events: list[dict], issue: str, poster,
+                    now: _dt.datetime) -> list[dict]:
+    """One comment per needs-you event on the shift issue (human ruling H4b),
+    at most `EVENT_COMMENTS_MAX` a shift and then one overflow comment, each
+    claimed by its marker before the post (`mentions/event.<seq>`); a post
+    `gh` said failed is retried with the mentions. Each counts in
+    `event_comments`, apart from the per-worker `pushes`."""
+    todo = [e for e in events if e.get("needs_you")]
+    if not todo or not issue.startswith("http") or (slot / STOP_FILE).exists():
+        return []
+    d = slot / MENTIONS_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    sent = len([m for m in d.glob("event.*.json") if m.stem != EVENT_OVERFLOW])
+    counters = read_counters(slot)
+    out = []
+    for e in todo:
+        if sent >= EVENT_COMMENTS_MAX:
+            name = EVENT_OVERFLOW
+            text = (f"Shift `{slot.name}`: further needs-you events are in the status "
+                    "comment (and the event stream); no more such comments this shift.\n")
+        else:
+            name, text = f"event.{e['seq']}", event_comment_body(slot.name, e)
+        if (d / f"{name}.json").exists():
+            break
+        (d / f"{name}.md").write_text(text, encoding="utf-8")
+        rec = post_once(d / f"{name}.json", issue, d / f"{name}.md", poster, now,
+                        event=e["seq"], kind=e["kind"])
+        if rec is None:
+            continue
+        sent += 1
+        if rec.get("state") == "posted":
+            # Counted apart from the per-worker pushes, whose digest finding
+            # budgets about one a shift (AUTONOMY.md push test).
+            counters["event_comments"] = int(counters.get("event_comments") or 0) + 1
+        out.append({"event": e["seq"], "post": rec.get("state")})
+        if name == EVENT_OVERFLOW:
+            break
+    _write_counters(slot, counters)
     return out
 
 
@@ -2375,7 +2780,8 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     # reports from here on reaches the human through the late sweep (#632).
     counters["ledger_reported"] = len(_mind_writer.report(slot))
     _write_counters(slot, counters)
-    digest = _digest.build(brief, slot, counters, health=health, issue=issue, mind=mind)
+    digest = _digest.build(_brief.effective(brief, counters), slot, counters, health=health,
+                           issue=issue, mind=mind)
     (slot / DIGEST_FILE).write_text(digest, encoding="utf-8")
     result = {"action": "digest", "ledger": None, "post": None, "packet": None}
 
@@ -2690,7 +3096,7 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                            "no close-out starts this late"}
                 events["refused"].append(pr)
                 continue
-            if budget and counters["usage_unavailable"]:
+            if budget is not None and counters["usage_unavailable"]:
                 # As the spawn gate: a spend that cannot be read could be
                 # anything, so nothing starts this tick; asked again next tick.
                 events.setdefault("held", []).append(
@@ -2698,7 +3104,8 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                      + ", ".join(counters["usage_unavailable"]) + ")"})
                 continue
             spent = _committed_tokens(counters)
-            if budget and spent >= CLOSEOUT_BUDGET_FACTOR * budget:
+            # `is not None`: a `/cap tokens 0` (#644) means zero, not "no budget".
+            if budget is not None and spent >= CLOSEOUT_BUDGET_FACTOR * budget:
                 # The human's ruling 2026-11-14 (#632, F5): a close-out may pass
                 # the budget, but none starts once spend reaches 1.5x it —
                 # spend as the spawn gate counts it, reservations included.

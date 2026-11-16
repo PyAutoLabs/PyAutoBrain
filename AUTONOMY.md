@@ -991,6 +991,37 @@ refuses the merge. A PR in any other repo makes no call at all. The revert
 condition covers these the same way: any other call, or a repeat for the same
 close-out, retires the watcher to fake mode.
 
+**Amendment — 2026-11-16 (M3.4/M3.5; PyAutoBrain#644), approved by the human.**
+The shift cockpit's engine (DESIGN `m3_4_m3_5_design`, rulings H4b, H5a, H6a,
+H8a/a, H10a). The watcher's surface gains, and only:
+
+1. **the per-shift `events.jsonl`** in its slot directory, appended inside the
+   tick lock from what the tick already did — local, no network, no LLM. `batch
+   watch --stream` reads it; it goes to neither Mind nor GitHub;
+2. **`/add`** (one Mind `git fetch` per `/add` command, on top of the
+   once-per-shift fetch), **`/cap`**, and **`/kill`** (a local `claude stop` of a
+   worker the watcher started; not network). `/cap` lowers a cap, or raises it
+   back, never above the brief's own value. `/add` is refused within 30 minutes
+   of `review-at:`; it overrides the brief's `exclude:` and an earlier shift's
+   parked hold, never the organ rule. A worker stopped by `/kill` is
+   re-dispatched once, unless the human dropped the task first;
+3. **needs-you event comments**, at most 5 + 1 per shift: one short comment on
+   the brief's `issue:` per event that needs the human (an ignored or refused
+   command, commands unread three ticks running, the watcher unable to post or
+   to write Mind, a dropped task's PR merged anyway), with no `@`, each claimed
+   by its marker before the post and counted in the digest apart from the
+   per-worker pushes; after the fifth, one last comment saying the rest are in
+   the status comment.
+
+It makes no new CI read: `ci` lines come only from the `gh pr checks` the
+close-outs already make (H10a). The 2026-11-13 `/drop` rule "a running worker is
+not killed by the watcher" now reads "… unless the human commands `/kill`".
+The revert condition now also covers a second Mind fetch for one `/add`
+command, a `claude stop` of any session but a running worker of this shift the
+human named in `/kill`, a needs-you comment beyond 5 + 1 in a shift or one with
+an `@`, and any network call from writing or reading `events.jsonl`: any of
+these retires the watcher to fake mode.
+
 ## Human override for Heart RED (development only)
 
 Heart RED still parks every autonomous run and blocks every release. After the
