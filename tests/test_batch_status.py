@@ -45,7 +45,8 @@ def test_dev_in_flight_member_reads_as_in_progress_with_no_button():
     assert st["reviewable"] is False
     assert st["url"] == ""
     assert st["members"][0]["state"] == _status.IN_PROGRESS
-    assert "Nothing to review yet" in _status.render_md(st)
+    assert "_(nothing to review yet)_" in _status.render_md(st)
+    assert _status.badge(st) == {"count": "1 in progress · 0 awaiting review"}
     assert 'class="go"' not in _status.render_html(st)
 
 
@@ -60,6 +61,8 @@ def test_dev_collected_slot_gets_the_button():
     assert st["url"] == f"{PAGES}packets/2026-09-03-pm.html"
     assert 'class="go"' in _status.render_html(st)
     assert "[Review this batch →]" in _status.render_md(st)
+    assert _status.badge(st) == {"count": "0 in progress · 1 awaiting review",
+                                 "status": "yellow", "label": "ready to review"}
 
 
 def test_dev_slot_closes_on_reviewed_at_key():
@@ -126,6 +129,28 @@ def test_md_and_html_agree_on_every_slug_and_the_review_url():
 
 
 def test_fixture_when_nothing_is_open():
-    assert _status.render_md(None) == "> **No batch in flight.**"
+    assert _status.render_md(None) == "## Batch\n\n_(no batch in flight)_"
     assert _status.render_html(None) == (
-        '<div class="verdict ok"><b>No batch in flight.</b></div>')
+        '<a id="batch"></a><h2>Batch</h2>\n<p class="muted">(no batch in flight)</p>')
+    assert _status.badge(None) == {"count": "idle"}
+
+
+def test_an_idle_slot_is_a_quiet_section_and_links_the_shift_issue_tidily():
+    """PyAutoBrain#650: a closed shift with nothing to review is an ordinary
+    section with an `idle` badge and one quiet line; the watcher's raw
+    `— status: <url>` becomes a link named by the shift issue's number."""
+    url = "https://github.com/o/PyAutoMind/issues/571#issuecomment-6883569285"
+    keys = {"dispatched": ["2026-11-14T18:00Z"],
+            "live": [f"closed at review-at — the digest is below — status: {url}"]}
+    st = _status.dev_status("2026-11-14-pm3", keys, [], review_exists=False, pages=PAGES)
+    assert _status.idle(st) and _status.badge(st) == {"count": "idle"}
+    html = _status.render_html(st)
+    assert html.startswith('<a id="batch"></a><h2>Batch 2026-11-14-pm3</h2>')
+    assert (f'<p class="facets">Live: closed at review-at — the digest is below · '
+            f'<a href="{url}">shift issue #571</a></p>') in html
+    assert html.endswith('<p class="muted">(nothing to review yet)</p>')
+    assert f">{url}<" not in html and "status: http" not in html
+    assert 'class="verdict' not in html
+    md = _status.render_md(st)
+    assert f"Live: closed at review-at — the digest is below · [shift issue #571]({url})" in md
+    assert "_idle_" in md

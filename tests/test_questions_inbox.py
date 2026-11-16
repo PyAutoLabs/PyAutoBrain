@@ -607,6 +607,12 @@ def _csp(page):
     return re.search(r"script-src '(sha256-[^']+)'", page).group(1)
 
 
+def _questions_part(page):
+    """The Questions sub-part of the steering block (PyAutoBrain#650)."""
+    start = page.index('<h3 id="inbox">')
+    return page[start:page.index("</div></details>", start)]
+
+
 def test_the_inbox_section_renders_read_only_with_copy_buttons(tmp_path):
     with_q = _intake.render_dashboard_html(_intake.census(_dash_mind(tmp_path / "a")))
     without = _intake.render_dashboard_html(_intake.census(_dash_mind(tmp_path / "b", None)))
@@ -616,39 +622,45 @@ def test_the_inbox_section_renders_read_only_with_copy_buttons(tmp_path):
     assert len(script) == 1
     assert _csp(with_q) == "sha256-" + base64.b64encode(
         hashlib.sha256(script[0].encode()).digest()).decode()
-    box = with_q[with_q.index('<aside class="inbox" id="inbox">'):]
-    box = box[:box.index("</aside>")]
-    assert "Questions (1 open, 1 deferred)" in box
-    assert '<button class="copy" data-cmd="Use the questions skill." ' in box
-    assert ('<li class="task" data-qid="Q17"><button class="copy" '
-            'data-cmd="Use the questions skill. Q17" ') in box
+    box = _questions_part(with_q)
+    assert box.startswith('<h3 id="inbox">Questions <span class="facets">(1 open, 1 deferred')
+    # Ordinary task rows: the sitting's 📋, then one per question.
+    assert ('<div class="task"><button class="copy" data-cmd="Use the questions skill." '
+            in box)
+    assert ('<div class="task"><button class="copy" data-cmd="Use the questions skill. Q17" '
+            in box)
     sys.path.insert(0, str(BRAIN))
     from board.copy_contract import assert_portable_copy_payloads
     assert_portable_copy_payloads(with_q)            # no slash-skill clipboard text
     assert "Brass &lt;b&gt;or&lt;/b&gt; steel?" in box and "<b>or</b>" not in box
     assert "(a) brass · (b) steel" in box
-    assert 'href="https://github.com/example-owner/widgets/issues/70"' in box
+    assert '<a href="https://github.com/example-owner/widgets/issues/70">issue #70</a>' in box
     assert "from shift 2026-11-14-pm2" in box
-    assert "<details><summary>Q18 — levers (deferred until 2026-11-20)" in box
+    assert "<details>\n<summary>1 deferred</summary>" in box
+    assert "deferred until 2026-11-20" in box
     assert "Q16" not in box                                    # answered: not shown
-    assert "Read-only. To answer, paste a 📋 into a chat." in box
-    for gone in ("<form", "<input", "<textarea", "fetch("):
+    assert "read-only; answer by pasting a 📋 into a chat" in box
+    for gone in ("<form", "<input", "<textarea", "fetch(", "<aside", 'class="qid"'):
         assert gone not in box
-    # Straight after the orchestration panel, above the section cards (Goals
-    # and Queue are section blocks above Start here since PyAutoBrain#650).
-    assert with_q.index('class="orchestration-panel') < with_q.index('<aside class="inbox"') \
-        < with_q.index('<nav class="board-nav"')
+    # Inside the one steering block, straight above Start here — never a box
+    # of its own above the section cards.
+    assert '<aside class="inbox"' not in with_q
+    assert with_q.index('<nav class="board-nav"') \
+        < with_q.index("<h2>Goals, queue and questions</h2>") \
+        < with_q.index('<h3 id="inbox">') < with_q.index("<h2>Start here</h2>")
+    assert '<span class="section-badge">2 queued · 1 question</span>' in with_q
     md = _intake.render_dashboard(_intake.census(_dash_mind(tmp_path / "c")))
-    sec = md[md.index("## Questions"):md.index("## Goals")]
-    assert sec.startswith("## Questions (1 open, 1 deferred)")
+    sec = md[md.index("**Questions**"):md.index("## Start here")]
+    assert sec.startswith("**Questions** (1 open, 1 deferred")
     assert "- Q17 — Brass &lt;b&gt;or&lt;/b&gt; steel? " \
            "(https://github.com/example-owner/widgets/issues/70" in sec
 
 
 def test_an_absent_inbox_renders_empty(tmp_path):
     page = _intake.render_dashboard_html(_intake.census(_dash_mind(tmp_path, None)))
-    assert "Questions (0 open, 0 deferred)" in page
-    assert '<p class="muted" id="inbox-empty">(no open questions)</p>' in page
+    box = _questions_part(page)
+    assert "(0 open, 0 deferred" in box
+    assert '<p class="muted">(no open questions)</p>' in box
 
 
 def test_the_digest_link_is_the_dashboards_inbox_anchor(tmp_path):

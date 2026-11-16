@@ -82,6 +82,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "agents"
 from _status import (  # noqa: E402
     dev_status, pick_slot, read_record,
     render_html as _status_box_html, render_md as _status_box_md,
+    badge as _status_badge, ANCHOR as _status_anchor,
 )
 # The human's steering files (queue.md, goals.md): readers shared with the
 # batch planner and `batch brief --new` (PyAutoMind#565). `read_queue` IS the
@@ -1764,8 +1765,8 @@ def census(mind: Path) -> dict:
         "queue": read_queue_entries(mind),
         "queue_order": read_queue(mind),
         "goals": read_goals(mind),
-        # The questions inbox (M3.5, #645), read-only: the section below
-        # the orchestration panel, with a 📋 per question.
+        # The questions inbox (M3.5, #645), read-only: the Questions part of
+        # the steering block (PyAutoBrain#650), with a 📋 per question.
         "questions": _questions.read(mind),
     }
     c["recent"] = recent_events(c)
@@ -2361,7 +2362,6 @@ def render_dashboard(c: dict) -> str:
         L += [""]
     if c["batch"] is not None:
         L += [_status_box_md(c["batch"]), ""]
-    L += _inbox_md(c)
     L += _steer_md(c)
     L += ["## Start here", ""]
 
@@ -2649,80 +2649,28 @@ def _queued_rows(c: dict) -> list:
             for n, ref in enumerate(c.get("queue_order") or [], 1)]
 
 
-#: The one-line empty states of the Goals and Queue blocks (PyAutoBrain#650).
-GOALS_EMPTY = "No goals yet — edit in chat"
-QUEUE_EMPTY = "Queue is empty — add with `/queue`"
-
-
-def _steer_md(c: dict) -> list:
-    """The markdown page's read-only Goals and Queue, straight above Start
-    here (as on the HTML twin)."""
-    goals = c.get("goals") or []
-    L = ["## Goals", ""]
-    L += [f"{g['n']}. {_md_inline_escape(g['text'])}" for g in goals] or [
-        f"_{GOALS_EMPTY} ([`goals.md`](goals.md))_"]
-    L += ["", "## Queue", ""]
-    L += [f"{n}. [{_md_inline_escape(label)}]({ref})" for n, label, ref in _queued_rows(c)] or [
-        f"_{QUEUE_EMPTY} ([`queue.md`](queue.md))_"]
-    return L + [""]
+#: The steering block (PyAutoBrain#650): Goals, Queue and Questions in ONE
+#: ordinary section straight above Start here, folded by the shared
+#: `section_layout` like every other section. Empty states take the page's own
+#: form — a muted, parenthesised line, as "(none right now)" is.
+STEER_TITLE = "Goals, queue and questions"
+STEER_ANCHOR = "steer"
+GOALS_EMPTY = "(no goals yet — edit in chat)"
+QUEUE_EMPTY = "(queue is empty — add with `/queue`)"
+QUESTIONS_EMPTY = "(no open questions)"
 
 
 def _md_inline_escape(text: str) -> str:
     return str(text).replace("<", "&lt;").replace(">", "&gt;").replace("[", "\\[").replace("]", "\\]")
 
 
+# The ★ rank chip every queued prompt row carries, on whichever section the row
+# is in (PyAutoBrain#640).
 _STEER_CSS = """\
-ol#steer-goals{margin:.2rem 0;padding-left:1.4rem}
-ol.steer-queue{list-style:none;margin:.2rem 0;padding-left:0}
 span.star{flex:0 0 auto;display:inline-flex;align-items:center;gap:.15rem;
  min-height:2.75rem;padding:0 .4rem;font-size:1.05rem;color:#d4a017;
  border:1px solid var(--edge);border-radius:9px;background:var(--tint)}
 span.star .qpos{font-size:.75rem;font-weight:700;color:var(--fg)}
-"""
-
-
-def _steer_html(c: dict, link, h2) -> list:
-    """The read-only Goals and Queue blocks, straight above Start here.
-
-    Plain `<h2>` sections, so the shared `section_layout` folds each into the
-    same `details.board-section` block as every other section (PyAutoBrain#650)
-    — closed by default, as they all are. Server-rendered from the census, with
-    no script of their own: each queued prompt shows its ★ rank and the 📋
-    copy button every task row carries. Edits happen in a chat (`/queue` for
-    the queue, PyAutoBrain `skills/queue`)."""
-    goals = c.get("goals") or []
-    queue = _queued_rows(c)
-    H = [h2("Goals", "goals.md")]
-    if goals:
-        H.append('<ol id="steer-goals">'
-                 + "".join(f"<li>{_summary_label(g['text'])}</li>" for g in goals)
-                 + "</ol>")
-    else:
-        H.append(f'<p class="muted" id="steer-goals-empty">{GOALS_EMPTY}</p>')
-    H.append(h2("Queue", "queue.md"))
-    if not queue:
-        return H + [f'<p class="muted" id="steer-queue-empty">'
-                    f"{_md_inline(QUEUE_EMPTY)}</p>"]
-    H.append('<ol class="steer-queue" id="steer-queue">')
-    for n, label, ref in queue:
-        H.append(f'<li class="task" data-ref="{_attr(ref)}">'
-                 + _queue_star(ref, {Path(ref).name: n})
-                 + f'<button class="copy" data-cmd="{_attr(_prompt_payload(ref))}" '
-                 'aria-label="Copy the AI command">📋</button>'
-                 + f'<p>{link(ref, _summary_label(label))}</p></li>')
-    H += ["</ol>",
-          '<p class="muted">Read-only. To change the queue, paste a task\'s 📋 '
-          "text into a chat that ran <code>/queue</code>.</p>"]
-    return H
-
-
-_INBOX_CSS = """\
-.inbox{margin:0 0 1.2rem;padding:.75rem .9rem;border:1px solid var(--edge);
- border-radius:11px;background:var(--tint)}
-.inbox h2{margin:.1rem 0 .4rem;font-size:1.05rem;display:flex;align-items:center;gap:.5rem}
-.inbox ol{list-style:none;margin:.2rem 0;padding-left:0}
-.inbox .qid{font-weight:700;margin-right:.3rem}
-.inbox details{margin:.2rem 0}
 """
 
 
@@ -2749,82 +2697,107 @@ def _questions_payload(qid: str = "") -> str:
     return "Use the questions skill." + (f" {qid}" if qid else "")
 
 
-def _inbox_md(c: dict) -> list:
-    """The markdown page's read-only Questions list (as on the HTML twin)."""
+def _steer_badge(c: dict) -> str:
+    """The block's one badge: queued prompts and open questions."""
+    opened, _deferred = _open_questions(c)
+    return (f"{len(c.get('queue_order') or [])} queued · "
+            f"{len(opened)} question{'' if len(opened) == 1 else 's'}")
+
+
+def _steer_md(c: dict) -> list:
+    """The markdown page's read-only steering block, straight above Start
+    here: the same three sub-parts as the HTML twin, in Start here's own
+    sub-heading form (`**Title** (note)`)."""
+    goals = c.get("goals") or []
     opened, deferred = _open_questions(c)
-    L = [f"## Questions ({len(opened)} open, {len(deferred)} deferred)", ""]
+    L = [f"## {STEER_TITLE}", "", f"_{_steer_badge(c)}_", "", "**Goals** ([`goals.md`](goals.md))", ""]
+    L += [f"{g['n']}. {_md_inline_escape(g['text'])}" for g in goals] or [f"_{GOALS_EMPTY}_"]
+    L += ["", "**Queue** ([`queue.md`](queue.md)) — read-only; change it in a `/queue` chat", ""]
+    L += [f"{n}. [{_md_inline_escape(label)}]({ref})" for n, label, ref in _queued_rows(c)] or [
+        f"_{QUEUE_EMPTY}_"]
+    L += ["", f"**Questions** ({len(opened)} open, {len(deferred)} deferred — "
+          "[`questions.md`](questions.md))", ""]
     for e in opened:
         f = e["fields"]
         age = _age(f.get("asked", ""), c.get("generated", ""))
         L.append(f"- {e['id']} — {_md_inline_escape(f.get('ask', ''))} "
                  f"({f.get('issue', '')}" + (f", {age}" if age else "") + ")")
     if not opened:
-        L.append("_(no open questions — [`questions.md`](questions.md))_")
+        L.append(f"_{QUESTIONS_EMPTY}_")
     return L + [""]
 
 
-def _inbox_html(c: dict, link) -> list:
-    """The read-only questions inbox, straight after the orchestration panel (M3.5,
-    PyAutoBrain#645). Server-rendered with no script of its own: each Open
-    question carries the 📋 every task row has, copying `Use the questions
-    skill. Q<n>` to paste into a chat; the heading's 📋 copies `Use the
-    questions skill.`, which starts a sitting. Portable text, not a slash
-    command (`board/copy_contract.py`), as the task rows' start-dev line is.
-    Deferred entries fold to one line each. No form, input or fetch."""
+def _issue_link(url: str) -> str:
+    """` — issue #N`, linked, as the In flight rows write an issue; "" if none."""
+    if not str(url).startswith("https://"):
+        return ""
+    m = re.search(r"/(?:issues|pull)/(\d+)", url)
+    return f' — <a href="{_attr(url)}">issue #{m.group(1) if m else "?"}</a>'
+
+
+def _question_row(c: dict, e: dict, link) -> str:
+    """One question as an ordinary task row: its 📋 copies `Use the questions
+    skill. Q<n>`; the text is the id, the task, the ask, then the quiet facets."""
+    f = e["fields"]
+    task = f.get("task", "")
+    age = _age(f.get("asked", ""), c.get("generated", ""))
+    text = (f"<b>{_attr(e['id'])}</b> "
+            + link(task, _summary_label(Path(task).stem or e["title"]))
+            + f" — {_summary_label(f.get('ask', ''))}")
+    if f.get("options"):
+        text += f' — <span class="facets">{_summary_label(f["options"])}</span>'
+    text += _issue_link(f.get("issue", ""))
+    meta = f"from shift {_summary_label(f.get('shift', '?'))}" + (f" · {age}" if age else "")
+    if e["state"] == "deferred":
+        meta += f" · deferred until {_summary_label(f.get('until') or 'the next sitting')}"
+    text += f'<span class="facets"> — {meta}</span>'
+    return _html_task(text, _questions_payload(e["id"]))
+
+
+def _steer_html(c: dict, link, h2) -> list:
+    """The read-only steering block, straight above Start here.
+
+    One plain `<h2>` section, so the shared `section_layout` folds it into the
+    same closed `details.board-section` as every other section, with one badge
+    (`_steer_badge`, passed as its summary). Inside, three sub-parts in Start
+    here's conventions — an `<h3>` with a `facets` note, ordinary `.task` rows
+    with their 📋, a muted parenthesised line when empty:
+
+    - Goals, from `goals.md`, as a plain list (goals carry no action);
+    - Queue, from `queue.md` via the planner's `read_queue`, each row with its
+      ★ rank and the prompt's 📋 (PyAutoBrain#640);
+    - Questions (M3.5, PyAutoBrain#645), each row's 📋 copying `Use the
+      questions skill. Q<n>`; deferred ones fold behind a `<details>`.
+
+    Server-rendered, no script, no form or input: edits happen in chat."""
+    goals = c.get("goals") or []
+    queue = _queued_rows(c)
     opened, deferred = _open_questions(c)
-    copy = ('<button class="copy" data-cmd="{cmd}" aria-label="Copy the AI '
-            'command">📋</button>')
-    H = ['<aside class="inbox" id="inbox">',
-         f"<h2>{copy.format(cmd=_questions_payload())}Questions ({len(opened)} open, "
-         f"{len(deferred)} deferred)</h2>",
-         '<ol id="inbox-open">']
-    for e in opened:
-        f = e["fields"]
-        task = f.get("task", "")
-        age = _age(f.get("asked", ""), c.get("generated", ""))
-        bits = [f'<span class="qid">{_attr(e["id"])}</span>'
-                + link(task, _summary_label(Path(task).stem or e["title"])),
-                _summary_label(f.get("ask", ""))]
-        if f.get("options"):
-            bits.append(f'<span class="muted">{_summary_label(f["options"])}</span>')
-        meta = []
-        if f.get("issue", "").startswith("https://"):
-            meta.append(f'<a href="{_attr(f["issue"])}">issue</a>')
-        meta.append(f"from shift {_summary_label(f.get('shift', '?'))}"
-                    + (f" · {age}" if age else ""))
-        bits.append('<span class="muted">' + " · ".join(meta) + "</span>")
-        H.append(f'<li class="task" data-qid="{_attr(e["id"])}">'
-                 + copy.format(cmd=_attr(_questions_payload(e["id"])))
-                 + "<p>" + "<br>".join(bits) + "</p></li>")
-    H.append("</ol>")
-    H.append(f'<p class="muted" id="inbox-empty"{" hidden" if opened else ""}>'
-             "(no open questions)</p>")
-    for e in deferred:
-        f = e["fields"]
-        until = f.get("until") or "the next sitting"
-        H.append(f"<details><summary>{_attr(e['id'])} — "
-                 f"{_summary_label(Path(f.get('task', '')).stem)} (deferred until "
-                 f"{_summary_label(until)})</summary><p>{_summary_label(f.get('ask', ''))}"
-                 "</p></details>")
-    H += ['<p class="muted">Read-only. To answer, paste a 📋 into a chat.</p>', "</aside>"]
+    H = [h2(STEER_TITLE, ""), '<h3 id="goals">Goals</h3>']
+    if goals:
+        H.append("<ol>" + "".join(f"<li>{_summary_label(g['text'])}</li>"
+                                  for g in goals) + "</ol>")
+    else:
+        H.append(f'<p class="muted">{GOALS_EMPTY}</p>')
+    H.append('<h3 id="queue">Queue <span class="facets">(read-only — paste a '
+             "row's 📋 into a chat that ran <code>/queue</code> to change it)</span></h3>")
+    H += [_html_task(link(ref, _summary_label(label)), _prompt_payload(ref),
+                     _queue_star(ref, {Path(ref).name: n}))
+          for n, label, ref in queue] or [f'<p class="muted">{_md_inline(QUEUE_EMPTY)}</p>']
+    H.append(f'<h3 id="inbox">Questions <span class="facets">({len(opened)} open, '
+             f"{len(deferred)} deferred — read-only; answer by pasting a 📋 into a chat)"
+             "</span></h3>")
+    if opened:
+        H.append(_html_task("Answer the open questions in one sitting",
+                            _questions_payload()))
+        H += [_question_row(c, e, link) for e in opened]
+    else:
+        H.append(f'<p class="muted">{QUESTIONS_EMPTY}</p>')
+    if deferred:
+        H += ["<details>", f"<summary>{len(deferred)} deferred</summary>"]
+        H += [_question_row(c, e, link) for e in deferred]
+        H += ["</details>"]
     return H
-
-
-def _inbox_first(page: str) -> str:
-    """Lift the questions inbox above the section cards.
-
-    The shared layout moves the orchestration panel above the navigation
-    cards; the inbox (M3.5) belongs straight after it, at the top of the first
-    screen, not below seven count cards. Goals and Queue are section blocks
-    above Start here (PyAutoBrain#650), so they stay where they are."""
-    start = page.find('<aside class="inbox"')
-    nav = page.find('<nav class="board-nav"')
-    if start < 0 or nav < 0 or nav > start:
-        return page
-    end = page.index("</aside>", start) + len("</aside>")
-    box = page[start:end]
-    page = page[:start] + page[end:]
-    return page[:nav] + box + "\n" + page[nav:]
 
 
 def _with_csp(page: str) -> str:
@@ -2890,7 +2863,7 @@ def render_dashboard_html(c: dict) -> str:
         "<title>PyAutoMind Dashboard</title>",
         f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
         f"{c['generated']} — regenerate, do not hand-edit -->",
-        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}{_STEER_CSS}{_INBOX_CSS}</style>",
+        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}{_STEER_CSS}</style>",
         "</head>",
         "<body>",
         hero(THEME_ORGAN, "Dashboard", navigation=_dashboard_navigation(c),
@@ -2935,7 +2908,6 @@ def render_dashboard_html(c: dict) -> str:
         work_links=[{"label": "Open Mind repository", "href": home}] if home else [], organ="mind",
         refreshed_at=c.get("refreshed_at"),
         refresh_url=home + "/actions/workflows/dashboard_refresh.yml" if home else None))
-    H += _inbox_html(c, link)
     if c.get("drift"):
         H += ['<p>⚠️ <b>Needs lifecycle reconciliation</b> — draft prompts '
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]
@@ -2964,11 +2936,10 @@ def render_dashboard_html(c: dict) -> str:
         # Every section links the markdown file it is rendered from — the
         # registry file is the full record, the page is the view.
         a = (f' <a class="mdsrc" href="{_attr(blob + src)}">markdown '
-             "version</a>") if blob else ""
+             "version</a>") if blob and src else ""
         anchor = {"In flight": "in-flight",
                   "Planned": "planned", "Backlog": "backlog",
-                  "Epics": "epics", "Goals": "goals",
-                  "Queue": "queue"}.get(title)
+                  "Epics": "epics", STEER_TITLE: STEER_ANCHOR}.get(title)
         prefix = f'<a id="{anchor}"></a>' if anchor else ""
         return prefix + f"<h2>{title}{a}</h2>"
 
@@ -3137,11 +3108,13 @@ def render_dashboard_html(c: dict) -> str:
     if footer:
         H.append(footer)
     H += [f"<script>{_THEME_JS}{_MORE_JS}</script>", "</body>", "</html>"]
-    # Goals and Queue have no navigation card to lend them a count badge, so
-    # they supply their own through the shared layout's `summaries`.
-    counts = {"goals": {"count": len(c.get("goals") or [])},
-              "queue": {"count": len(c.get("queue_order") or [])}}
-    return _with_csp(_inbox_first(section_layout("\n".join(H) + "\n", counts)))
+    # The steering and batch blocks have no navigation card to lend them a
+    # count badge, so they supply their own through the shared layout's
+    # `summaries` — the one mechanism every owner uses for that.
+    badges = {STEER_ANCHOR: {"count": _steer_badge(c)}}
+    if c["batch"] is not None:
+        badges[_status_anchor] = _status_badge(c["batch"])
+    return _with_csp(section_layout("\n".join(H) + "\n", badges))
 
 
 def _dashboard_body(page: str) -> str:

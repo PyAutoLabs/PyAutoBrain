@@ -122,7 +122,7 @@ def test_the_box_carries_one_line_when_it_is_supplied():
     st = _box(_status.freeze_line(ACTIVE_REC))
     md, html = _status.render_md(st), _status.render_html(st)
     line = "FROZEN: release validation until 2026-09-03T19:30:00+00:00"
-    assert f"> {line}" in md
+    assert f"\n{line}\n" in md
     assert line in html
     # One line, and above the members — a human reading the box is deciding
     # what to merge.

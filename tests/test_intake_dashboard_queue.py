@@ -1,7 +1,8 @@
 """The read-only Mind dashboard (PyAutoBrain#640): a ★ and the planner's rank
 `#n` on every queued prompt row, a 📋 copy button carrying the task's prompt
-text, Goals and Queue as collapsible blocks straight above Start here
-(PyAutoBrain#650) — and no network: a CSP that pins the one inline script and
+text, Goals, Queue and Questions in one collapsible block straight above
+Start here, built from the page's own conventions (PyAutoBrain#650) — and no
+network: a CSP that pins the one inline script and
 allows no connections.
 
 Golden-HTML assertions on a fictional Mind. The queue is edited in a `/queue`
@@ -84,8 +85,8 @@ STAR_RE = re.compile(r'<span class="star" title="Queued: #(\d+) in queue.md" '
 
 
 def _rows(page: str, ref: str) -> list:
-    """Every task row (section rows and the Queue block) that links `ref`."""
-    rows = re.findall(r'<(?:div|li) class="task"[^>]*>.*?</(?:div|li)>', page, re.S)
+    """Every task row (section rows and the Queue rows) that links `ref`."""
+    rows = re.findall(r'<div class="task">.*?</div>', page, re.S)
     return [r for r in rows if f'/{ref}"' in r or f'"{ref}"' in r]
 
 
@@ -134,9 +135,9 @@ def test_every_task_row_copies_its_prompt_text(tmp_path):
         for row in rows:
             assert (f'<button class="copy" data-cmd="Use the start-dev skill. {ref}" '
                     'aria-label="Copy the AI command">📋</button>') in row, row
-    # The Queue block's rows carry the same copy text, under their queue.md ref.
-    box = _block(page, "Queue")
-    assert box.count('<li class="task" data-ref=') == 2
+    # The Queue rows carry the same copy text, under their queue.md ref.
+    box = _queue(page)
+    assert box.count('<div class="task">') == 2
     assert ('data-cmd="Use the start-dev skill. draft/feature/widgets/axle.md"') in box
     # The copy handler is the shared one: async clipboard, textarea fallback.
     script = re.findall(r"<script>(.*?)</script>", page, re.S)[0]
@@ -147,6 +148,7 @@ def test_every_task_row_copies_its_prompt_text(tmp_path):
 #: The shared collapsible block every section is folded into by
 #: `board/_theme.section_layout` — closed by default (no `open`).
 BLOCK = '<details class="board-section"><summary><h2>{title}'
+STEER = "Goals, queue and questions"
 
 
 def _block(page: str, title: str) -> str:
@@ -155,44 +157,53 @@ def _block(page: str, title: str) -> str:
     return page[start:page.index("</div></details>", start) + len("</div></details>")]
 
 
-def test_goals_then_queue_then_start_here_as_the_shared_blocks(tmp_path):
-    """PyAutoBrain#650: Goals and Queue are the same `details.board-section`
-    block as Start here and its siblings, in that order, back to back."""
+def _queue(page: str) -> str:
+    """The Queue sub-part of the steering block."""
+    block = _block(page, STEER)
+    return block[block.index('<h3 id="queue">'):block.index('<h3 id="inbox">')]
+
+
+def test_one_steering_block_straight_above_start_here(tmp_path):
+    """PyAutoBrain#650: Goals, Queue and Questions share ONE block — the same
+    `details.board-section` as Start here and its siblings — directly above
+    Start here, with one badge and three sub-parts in Start here's own form."""
     page = _html(_mind(tmp_path))
-    goals, queue, start = (page.index(BLOCK.format(title=t))
-                           for t in ("Goals", "Queue", "Start here"))
-    assert page.index('<nav class="board-nav"') < goals < queue < start
-    # Adjacent: each block ends exactly where the next begins.
-    assert goals + len(_block(page, "Goals")) == queue
-    assert queue + len(_block(page, "Queue")) == start
-    # Identical markup to the existing blocks: summary title, count badge,
-    # markdown-source icon, body wrapper — and closed, as they all are.
-    for title, count, src in (("Goals", 2, "goals.md"), ("Queue", 2, "queue.md")):
-        block = _block(page, title)
-        assert block.startswith(f'<details class="board-section"><summary><h2>{title} </h2>'
-                                f'<span class="section-badge">{count}</span>'
-                                '<a class="mdsrc board-source-link" href="https://github.com/'
-                                f'example-owner/PyAutoMind/blob/main/{src}"'), block[:300]
-        assert f'</summary><div class="board-section-body"><a id="{title.lower()}"></a>' in block
+    steer, start = (page.index(BLOCK.format(title=t)) for t in (STEER, "Start here"))
+    assert page.index('<nav class="board-nav"') < steer < start
+    block = _block(page, STEER)
+    assert steer + len(block) == start                  # adjacent
+    # Identical shell to every other section, closed, with one badge.
+    assert block.startswith(f'<details class="board-section"><summary><h2>{STEER}</h2>'
+                            '<span class="section-badge">2 queued · 0 questions</span>'
+                            '</summary><div class="board-section-body"><a id="steer"></a>')
+    assert block.count('class="section-badge"') == 1
     assert "<details open" not in page and 'class="board-section" open' not in page
-    # Moved, not duplicated: the old steering box is gone, one list of each.
-    assert '<aside class="steer"' not in page and "Goals and queue" not in page
-    assert page.count('id="steer-goals"') == page.count('id="steer-queue"') == 1
+    # Three sub-parts, Start here's `<h3>` + quiet `facets` note form.
+    heads = re.findall(r'<h3 id="([a-z]+)">', block)
+    assert heads == ["goals", "queue", "inbox"]
+    assert re.search(r'<h3 id="queue">Queue <span class="facets">\(read-only', block)
+    # Queue rows are the page's ordinary `.task` rows: ★ rank, 📋, link.
+    assert len(STAR_RE.findall(_queue(page))) == 2
+    # Moved, not duplicated: no standalone boxes, no classes of their own.
+    for gone in ('<aside', 'class="steer', 'class="inbox', "steer-queue",
+                 "steer-goals", 'class="qid"', "Goals and queue"):
+        assert gone not in page, gone
+    for gone in (".steer", ".inbox", "ol.steer-queue"):
+        assert gone not in page[page.index("<style>"):page.index("</style>")], gone
+    assert not re.search(r"<h2>(Goals|Queue|Questions)[ <]", page)
 
 
-def test_the_goals_and_queue_blocks_are_read_only(tmp_path):
+def test_the_steering_block_is_read_only(tmp_path):
     page = _html(_mind(tmp_path))
-    goals, queue = _block(page, "Goals"), _block(page, "Queue")
-    assert ('<ol id="steer-goals"><li>Land the flywheel rework</li>'
-            "<li>Keep &lt;b&gt;markup&lt;/b&gt; out &amp; escaped</li></ol>") in goals
-    assert "&lt;img src=x onerror=alert(1)&gt; axle" in queue
+    block = _block(page, STEER)
+    assert ("<ol><li>Land the flywheel rework</li>"
+            "<li>Keep &lt;b&gt;markup&lt;/b&gt; out &amp; escaped</li></ol>") in block
+    assert "&lt;img src=x onerror=alert(1)&gt; axle" in block
     assert "<img" not in page
-    assert "<code>/queue</code>" in queue
-    assert len(STAR_RE.findall(queue)) == 2              # ★ and rank kept
-    for block in (goals, queue):
-        for gone in ("<textarea", "<input", "<form", "<select", "contenteditable",
-                     "<button type=\"button\"", "fetch("):
-            assert gone not in block, gone
+    assert "<code>/queue</code>" in block
+    for gone in ("<textarea", "<input", "<form", "<select", "contenteditable",
+                 "<button type=\"button\"", "fetch("):
+        assert gone not in block, gone
     for gone in ('type="password"', "steer-token", "steer-edit", "steer-toast",
                  "🔑", "Connect this device"):
         assert gone not in page, gone
@@ -235,7 +246,7 @@ def test_without_js_the_stars_and_rows_are_still_in_the_markup(tmp_path):
     the stars, ranks, links and Queue block are all still there."""
     page = re.sub(r"<script>.*?</script>", "", _html(_mind(tmp_path)), flags=re.S)
     assert len(STAR_RE.findall(page)) >= 4
-    assert '<ol class="steer-queue" id="steer-queue">' in _block(page, "Queue")
+    assert _queue(page).count('<div class="task"><span class="star"') == 2
     assert 'href="https://github.com/example-owner/PyAutoMind/blob/main/draft/feature/widgets/sprockets.md"' in page \
         or 'href="draft/feature/widgets/sprockets.md"' in page
 
@@ -250,28 +261,30 @@ def test_the_csp_hash_is_stable_so_check_stays_deterministic(tmp_path):
 def test_absent_queue_and_goals_render_empty_not_a_crash(tmp_path):
     mind = _mind(tmp_path, queue=None, goals=None)
     page = _html(mind)
-    goals, queue = _block(page, "Goals"), _block(page, "Queue")
-    assert ('</a></summary><div class="board-section-body"><a id="goals"></a>\n'
-            '<p class="muted" id="steer-goals-empty">No goals yet — edit in chat</p>\n'
-            "</div></details>") in goals
-    assert ('<p class="muted" id="steer-queue-empty">Queue is empty — add with '
-            "<code>/queue</code></p>\n</div></details>") in queue
-    assert '<span class="section-badge">0</span>' in goals
-    assert '<span class="section-badge">0</span>' in queue
-    assert "<ol" not in goals + queue
+    block = _block(page, STEER)
+    # The page's empty-state form: one muted, parenthesised line per part.
+    assert '<h3 id="goals">Goals</h3>\n<p class="muted">(no goals yet — edit in chat)</p>' in block
+    assert ('<p class="muted">(queue is empty — add with <code>/queue</code>)</p>\n'
+            '<h3 id="inbox">') in block
+    assert '<p class="muted">(no open questions)</p>\n</div></details>' in block
+    assert '<span class="section-badge">0 queued · 0 questions</span>' in block
+    assert "<ol" not in block and 'class="task"' not in block
     assert 'class="star"' not in page
     md = _intake.render_dashboard(_intake.census(mind))
-    assert "_No goals yet — edit in chat ([`goals.md`](goals.md))_" in md
-    assert "_Queue is empty — add with `/queue` ([`queue.md`](queue.md))_" in md
+    assert "_(no goals yet — edit in chat)_" in md
+    assert "_(queue is empty — add with `/queue`)_" in md
+    assert "_(no open questions)_" in md
 
 
 def test_the_markdown_page_shows_goals_and_queue_read_only(tmp_path):
     md = _intake.render_dashboard(_intake.census(_mind(tmp_path)))
-    # Same order as the HTML twin: Goals, Queue, then Start here.
-    assert md.index("## Goals") < md.index("## Queue") < md.index("## Start here")
-    goals = md[md.index("## Goals"):md.index("## Queue")]
+    # Same shape as the HTML twin: one section, three sub-parts, then Start here.
+    assert md.index("## Goals, queue and questions") < md.index("**Goals**") \
+        < md.index("**Queue**") < md.index("**Questions**") < md.index("## Start here")
+    assert "\n## Goals\n" not in md and "\n## Queue\n" not in md and "\n## Questions" not in md
+    goals = md[md.index("**Goals**"):md.index("**Queue**")]
     assert "1. Land the flywheel rework" in goals
-    queue = md[md.index("## Queue"):md.index("## Start here")]
+    queue = md[md.index("**Queue**"):md.index("**Questions**")]
     assert "1. [Sprockets first](draft/feature/widgets/sprockets.md)" in queue
     assert "2. [" in queue and "](draft/feature/widgets/axle.md)" in queue
     assert "<img" not in queue

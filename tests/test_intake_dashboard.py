@@ -1123,10 +1123,15 @@ DEV_RECORD_REVIEWED = """# Batch 2026-09-02 pm
 def test_in_flight_batch_reads_as_in_progress_with_no_button(tmp_path):
     mind = _mind(tmp_path, batches={"2026-09-03-pm.md": DEV_RECORD_IN_FLIGHT})
     page, html = _page(mind), _html(mind)
-    assert "Batch 2026-09-03-pm" in page
+    assert "## Batch 2026-09-03-pm" in page
     assert "autofit-resampling-info" in page and "autofit-resampling-info" in html
     assert "in progress" in page
-    assert "Nothing to review yet" in page
+    assert "_(nothing to review yet)_" in page
+    # An ordinary section block, its counts as the one badge (PyAutoBrain#650).
+    assert ('<details class="board-section"><summary><h2>Batch 2026-09-03-pm</h2>'
+            '<span class="section-badge">1 in progress · 0 awaiting review</span>'
+            '</summary><div class="board-section-body"><a id="batch"></a>') in html
+    assert 'class="verdict' not in html
     assert '<a class="go"' not in html
 
 
@@ -1419,8 +1424,8 @@ def test_empty_mind_has_seven_zero_count_destinations(tmp_path):
     assert nav.count('board-nav-count">0</span>') == 7
     for target in re.findall(r'href="#([^"]+)"', nav):
         assert page.count(f'id="{target}"') == 1
-    # The seven destinations plus the Goals and Queue blocks (PyAutoBrain#650).
-    assert page.count('<details class="board-section">') == 9
+    # The seven destinations plus the steering block (PyAutoBrain#650).
+    assert page.count('<details class="board-section">') == 8
     assert "nothing pending release" in page and "no epics" in page
 
 
