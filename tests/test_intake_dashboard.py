@@ -470,6 +470,21 @@ def test_epics_section_follows_start_here_with_a_resume_prompt(tmp_path):
     assert "bare-epic" in epics
 
 
+def test_epic_summaries_render_code_spans_as_html_not_backticks(tmp_path):
+    """An epic row is a one-line `<summary>` HTML block, where GitHub does not
+    process markdown: its ledger path (and the stray-epic `epics.md` note)
+    must be `<code>`, never literal backticks."""
+    mind = _mind(tmp_path, registries={"epics.md": _EPICS}, drafts={
+        "feature/widgets/orphan.md": _epic_prompt_body("Orphan phase", "no-such-epic", 1),
+    })
+    page = _page(mind)
+    epics = page[page.index("## Epics"):page.index("## In flight")]
+    assert "ledger: <code>widgets/results/notes/inference/PROGRAMME.md</code>" in epics
+    assert "not in <code>epics.md</code>" in epics
+    summaries = [ln for ln in page.splitlines() if "<summary>" in ln]
+    assert summaries and not [ln for ln in summaries if "`" in ln]
+
+
 def _epic_prompt_body(title, epic, phase=None, priority="high"):
     phase_line = f"Phase: {phase}\n" if phase is not None else ""
     return (f"# {title}\n\nType: feature\nTarget: widgets\n"
@@ -521,7 +536,7 @@ def test_a_member_of_an_unregistered_epic_still_groups_loudly(tmp_path):
     page = _page(mind)
     assert "## Epics" in page
     epics = page.split("## Epics")[1]
-    assert "Orphan phase" in epics and "not in `epics.md`" in epics
+    assert "Orphan phase" in epics and "not in <code>epics.md</code>" in epics
     assert "Orphan phase" not in page.split("## Epics")[0]
 
 

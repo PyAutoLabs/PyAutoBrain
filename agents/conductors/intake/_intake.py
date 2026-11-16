@@ -2414,7 +2414,7 @@ def render_dashboard(c: dict) -> str:
             rows = members.get(e["slug"], [])
             head = f"<b>{_summary_label(e.get('title') or e['slug'])}</b>"
             if e.get("ledger"):
-                head += f" — ledger: `{e['ledger']}`"
+                head += f" — ledger: {_summary_label('`' + e['ledger'] + '`')}"
             if e.get("status"):
                 head += f" — {_summary_label(_clip(e['status']))}"
             resume = _task_row(head, _epic_prompt(e))
@@ -2430,7 +2430,7 @@ def render_dashboard(c: dict) -> str:
             rows = members[slug]
             L += ["<details>",
                   f"<summary><b>{_summary_label(slug)}</b> — {len(rows)} "
-                  "queued prompt(s) — ⚠️ not in `epics.md`</summary>", ""]
+                  "queued prompt(s) — ⚠️ not in <code>epics.md</code></summary>", ""]
             L += _items([_bullet(r) for r in rows])
             L += ["", "</details>", ""]
 
