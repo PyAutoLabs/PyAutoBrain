@@ -1,7 +1,8 @@
 """The read-only Mind dashboard (PyAutoBrain#640): a ★ and the planner's rank
 `#n` on every queued prompt row, a 📋 copy button carrying the task's prompt
-text, Goals and Queue at the top — and no network: a CSP that pins the one
-inline script and allows no connections.
+text, Goals and Queue as collapsible blocks straight above Start here
+(PyAutoBrain#650) — and no network: a CSP that pins the one inline script and
+allows no connections.
 
 Golden-HTML assertions on a fictional Mind. The queue is edited in a `/queue`
 chat (Brain `skills/queue`, Mind `scripts/queue_edit.py`), never from the page.
@@ -83,7 +84,7 @@ STAR_RE = re.compile(r'<span class="star" title="Queued: #(\d+) in queue.md" '
 
 
 def _rows(page: str, ref: str) -> list:
-    """Every task row (section rows and the Queue box) that links `ref`."""
+    """Every task row (section rows and the Queue block) that links `ref`."""
     rows = re.findall(r'<(?:div|li) class="task"[^>]*>.*?</(?:div|li)>', page, re.S)
     return [r for r in rows if f'/{ref}"' in r or f'"{ref}"' in r]
 
@@ -133,8 +134,8 @@ def test_every_task_row_copies_its_prompt_text(tmp_path):
         for row in rows:
             assert (f'<button class="copy" data-cmd="Use the start-dev skill. {ref}" '
                     'aria-label="Copy the AI command">📋</button>') in row, row
-    # The Queue box rows carry the same copy text, under their queue.md ref.
-    box = page[page.index('<aside class="steer" id="steer"'):page.index("</aside>")]
+    # The Queue block's rows carry the same copy text, under their queue.md ref.
+    box = _block(page, "Queue")
     assert box.count('<li class="task" data-ref=') == 2
     assert ('data-cmd="Use the start-dev skill. draft/feature/widgets/axle.md"') in box
     # The copy handler is the shared one: async clipboard, textarea fallback.
@@ -143,17 +144,55 @@ def test_every_task_row_copies_its_prompt_text(tmp_path):
     assert 'document.createElement("textarea")' in script
 
 
-def test_the_goals_and_queue_box_is_read_only_and_above_the_cards(tmp_path):
+#: The shared collapsible block every section is folded into by
+#: `board/_theme.section_layout` — closed by default (no `open`).
+BLOCK = '<details class="board-section"><summary><h2>{title}'
+
+
+def _block(page: str, title: str) -> str:
+    """One whole section block, from its `<details>` to its `</details>`."""
+    start = page.index(BLOCK.format(title=title))
+    return page[start:page.index("</div></details>", start) + len("</div></details>")]
+
+
+def test_goals_then_queue_then_start_here_as_the_shared_blocks(tmp_path):
+    """PyAutoBrain#650: Goals and Queue are the same `details.board-section`
+    block as Start here and its siblings, in that order, back to back."""
     page = _html(_mind(tmp_path))
-    box = page[page.index('<aside class="steer" id="steer"'):page.index("</aside>")]
-    assert page.index('<aside class="steer"') < page.index('<nav class="board-nav"')
+    goals, queue, start = (page.index(BLOCK.format(title=t))
+                           for t in ("Goals", "Queue", "Start here"))
+    assert page.index('<nav class="board-nav"') < goals < queue < start
+    # Adjacent: each block ends exactly where the next begins.
+    assert goals + len(_block(page, "Goals")) == queue
+    assert queue + len(_block(page, "Queue")) == start
+    # Identical markup to the existing blocks: summary title, count badge,
+    # markdown-source icon, body wrapper — and closed, as they all are.
+    for title, count, src in (("Goals", 2, "goals.md"), ("Queue", 2, "queue.md")):
+        block = _block(page, title)
+        assert block.startswith(f'<details class="board-section"><summary><h2>{title} </h2>'
+                                f'<span class="section-badge">{count}</span>'
+                                '<a class="mdsrc board-source-link" href="https://github.com/'
+                                f'example-owner/PyAutoMind/blob/main/{src}"'), block[:300]
+        assert f'</summary><div class="board-section-body"><a id="{title.lower()}"></a>' in block
+    assert "<details open" not in page and 'class="board-section" open' not in page
+    # Moved, not duplicated: the old steering box is gone, one list of each.
+    assert '<aside class="steer"' not in page and "Goals and queue" not in page
+    assert page.count('id="steer-goals"') == page.count('id="steer-queue"') == 1
+
+
+def test_the_goals_and_queue_blocks_are_read_only(tmp_path):
+    page = _html(_mind(tmp_path))
+    goals, queue = _block(page, "Goals"), _block(page, "Queue")
     assert ('<ol id="steer-goals"><li>Land the flywheel rework</li>'
-            "<li>Keep &lt;b&gt;markup&lt;/b&gt; out &amp; escaped</li></ol>") in box
-    assert "&lt;img src=x onerror=alert(1)&gt; axle" in box
+            "<li>Keep &lt;b&gt;markup&lt;/b&gt; out &amp; escaped</li></ol>") in goals
+    assert "&lt;img src=x onerror=alert(1)&gt; axle" in queue
     assert "<img" not in page
-    assert "<code>/queue</code>" in box
-    for gone in ("<textarea", "<input", "<button type=\"button\""):
-        assert gone not in box, gone
+    assert "<code>/queue</code>" in queue
+    assert len(STAR_RE.findall(queue)) == 2              # ★ and rank kept
+    for block in (goals, queue):
+        for gone in ("<textarea", "<input", "<form", "<select", "contenteditable",
+                     "<button type=\"button\"", "fetch("):
+            assert gone not in block, gone
     for gone in ('type="password"', "steer-token", "steer-edit", "steer-toast",
                  "🔑", "Connect this device"):
         assert gone not in page, gone
@@ -193,10 +232,10 @@ def test_the_page_makes_no_api_call_and_its_csp_allows_none(tmp_path):
 
 def test_without_js_the_stars_and_rows_are_still_in_the_markup(tmp_path):
     """Everything but the copy action is server-rendered: strip the script and
-    the stars, ranks, links and Queue box are all still there."""
+    the stars, ranks, links and Queue block are all still there."""
     page = re.sub(r"<script>.*?</script>", "", _html(_mind(tmp_path)), flags=re.S)
     assert len(STAR_RE.findall(page)) >= 4
-    assert '<ol class="steer-queue" id="steer-queue">' in page
+    assert '<ol class="steer-queue" id="steer-queue">' in _block(page, "Queue")
     assert 'href="https://github.com/example-owner/PyAutoMind/blob/main/draft/feature/widgets/sprockets.md"' in page \
         or 'href="draft/feature/widgets/sprockets.md"' in page
 
@@ -211,16 +250,25 @@ def test_the_csp_hash_is_stable_so_check_stays_deterministic(tmp_path):
 def test_absent_queue_and_goals_render_empty_not_a_crash(tmp_path):
     mind = _mind(tmp_path, queue=None, goals=None)
     page = _html(mind)
-    assert '<ol id="steer-goals"></ol>' in page
-    assert '<p class="muted" id="steer-goals-empty">(no goals yet)</p>' in page
-    assert '<p class="muted" id="steer-queue-empty">(nothing queued)</p>' in page
+    goals, queue = _block(page, "Goals"), _block(page, "Queue")
+    assert ('</a></summary><div class="board-section-body"><a id="goals"></a>\n'
+            '<p class="muted" id="steer-goals-empty">No goals yet — edit in chat</p>\n'
+            "</div></details>") in goals
+    assert ('<p class="muted" id="steer-queue-empty">Queue is empty — add with '
+            "<code>/queue</code></p>\n</div></details>") in queue
+    assert '<span class="section-badge">0</span>' in goals
+    assert '<span class="section-badge">0</span>' in queue
+    assert "<ol" not in goals + queue
     assert 'class="star"' not in page
     md = _intake.render_dashboard(_intake.census(mind))
-    assert "_(no goals — write them in [`goals.md`](goals.md))_" in md
+    assert "_No goals yet — edit in chat ([`goals.md`](goals.md))_" in md
+    assert "_Queue is empty — add with `/queue` ([`queue.md`](queue.md))_" in md
 
 
 def test_the_markdown_page_shows_goals_and_queue_read_only(tmp_path):
     md = _intake.render_dashboard(_intake.census(_mind(tmp_path)))
+    # Same order as the HTML twin: Goals, Queue, then Start here.
+    assert md.index("## Goals") < md.index("## Queue") < md.index("## Start here")
     goals = md[md.index("## Goals"):md.index("## Queue")]
     assert "1. Land the flywheel rework" in goals
     queue = md[md.index("## Queue"):md.index("## Start here")]

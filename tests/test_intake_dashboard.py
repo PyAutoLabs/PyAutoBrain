@@ -1419,7 +1419,8 @@ def test_empty_mind_has_seven_zero_count_destinations(tmp_path):
     assert nav.count('board-nav-count">0</span>') == 7
     for target in re.findall(r'href="#([^"]+)"', nav):
         assert page.count(f'id="{target}"') == 1
-    assert page.count('<details class="board-section">') == 7
+    # The seven destinations plus the Goals and Queue blocks (PyAutoBrain#650).
+    assert page.count('<details class="board-section">') == 9
     assert "nothing pending release" in page and "no epics" in page
 
 

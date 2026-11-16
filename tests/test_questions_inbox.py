@@ -634,11 +634,12 @@ def test_the_inbox_section_renders_read_only_with_copy_buttons(tmp_path):
     assert "Read-only. To answer, paste a 📋 into a chat." in box
     for gone in ("<form", "<input", "<textarea", "fetch("):
         assert gone not in box
-    # Straight after the steering box, both above the section cards.
-    assert with_q.index('<aside class="steer"') < with_q.index('<aside class="inbox"') \
+    # Straight after the orchestration panel, above the section cards (Goals
+    # and Queue are section blocks above Start here since PyAutoBrain#650).
+    assert with_q.index('class="orchestration-panel') < with_q.index('<aside class="inbox"') \
         < with_q.index('<nav class="board-nav"')
     md = _intake.render_dashboard(_intake.census(_dash_mind(tmp_path / "c")))
-    sec = md[md.index("## Questions"):md.index("## Start here")]
+    sec = md[md.index("## Questions"):md.index("## Goals")]
     assert sec.startswith("## Questions (1 open, 1 deferred)")
     assert "- Q17 — Brass &lt;b&gt;or&lt;/b&gt; steel? " \
            "(https://github.com/example-owner/widgets/issues/70" in sec
