@@ -26,6 +26,16 @@ The same holds in a chat that ran `/questions`: a pasted `Use the questions
 skill. Q17` line or an answer that names work means "record it in `questions.md`":
 follow [`questions`](../questions/questions.md), never `/start_dev`.
 
+## A cockpit chat is not a dev request
+
+If `/cockpit` ran earlier in this chat, a pasted prompt, prompt path, task
+title or dashboard 📋 line means "`/add` it to the shift": follow
+[`cockpit`](../cockpit/cockpit.md), never `/start_dev`. Only route a pasted
+task into development when the human says so in words.
+
+If two or more of `/queue`, `/questions` and `/cockpit` ran in this chat, ask
+which one a paste is for (the queue, the inbox or the shift). Never guess.
+
 ## Classify → dispatch
 
 Infer the work-type from the request using the taxonomy in

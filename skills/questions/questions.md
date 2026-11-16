@@ -20,6 +20,7 @@ It is never a start-dev, `/route`, intake, plan or build request, even when
 the human's answer names work to do. An answered
 task resumes in the **next** shift (a shift already running has counted it),
 or in a session if the human says "start it now" in words.
+If `/queue` or `/cockpit` also ran in this chat, ask which one a paste is for.
 
 ## Verbs
 
