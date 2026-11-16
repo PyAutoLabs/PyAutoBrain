@@ -3273,7 +3273,7 @@ SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(am|pm)$")
 #: `merge-cap: 0` is the safe one: nothing merges unattended until raised.
 NEW_BRIEF_DEFAULTS = {"review-minutes": str(DEFAULT_REVIEW_BUDGET),
                       "lanes": "any", "merge-cap": "0",
-                      "token-budget": "2000000"}
+                      "token-budget": "5000000"}
 
 
 def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:

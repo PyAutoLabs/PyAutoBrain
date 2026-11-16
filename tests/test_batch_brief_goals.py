@@ -109,6 +109,17 @@ def test_new_prints_to_stdout_by_default_and_never_writes_a_record(tmp_path, cap
         "writing a record is the dispatch — the human's act, not this verb's"
 
 
+def test_new_writes_the_5m_token_budget_and_leaves_the_caps_to_the_code(tmp_path, capsys):
+    """PyAutoBrain#656 Witness: `brief --new` carries `token-budget: 5000000`
+    and no `max-workers:` line, so a new shift gets the code default of 4."""
+    mind = _mind(tmp_path)
+    assert _batch.main(["brief", "--new", "2026-11-14-pm", "--review-at",
+                        "2099-01-01T12:00Z", "--mind", str(mind)]) == 0
+    out = capsys.readouterr().out
+    assert "  - token-budget: 5000000\n" in out
+    assert "max-workers:" not in out and "max-sessions:" not in out
+
+
 def test_goals_without_epics_or_tags_fill_idle(tmp_path):
     mind = _mind(tmp_path, "# Goals\n\n## 1. Ship it\n")
     text = _batch.new_brief(mind, "2026-11-14-am", "2099-01-01T12:00Z")

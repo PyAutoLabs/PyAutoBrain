@@ -197,10 +197,21 @@ def test_stop_halts_a_running_shift_at_the_next_tick(tmp_path):
 # --- (d) usage caps ---------------------------------------------------------------
 
 def test_max_workers_refuses_the_next_spawn(tmp_path):
-    mind, brief, home = _shift(tmp_path, names=("t1", "t2", "t3"))
+    mind, brief, home = _shift(tmp_path, names=("t1", "t2", "t3"), caps="  - max-workers: 2\n")
     r = orch.tick(brief, mind, home=home, now=NOW, spawner=orch.FakeSpawner(seconds=3))
     assert len(r["spawned"]) == 2
     assert r["refused"] == [{"task": "t3", "why": "max-workers 2 reached"}]
+
+
+def test_a_brief_without_caps_gets_the_code_defaults_4_workers_8_sessions(tmp_path):
+    """PyAutoBrain#656 Witness: a brief with no `max-workers:` spawns 4, and
+    the session cap it falls back to is 8."""
+    assert orch._brief.CAP_DEFAULTS == {"max-workers": 4, "max-sessions": 8}
+    mind, brief, home = _shift(tmp_path, names=("t1", "t2", "t3", "t4", "t5"))
+    assert "max-workers" not in brief.read_text() and "max-sessions" not in brief.read_text()
+    r = orch.tick(brief, mind, home=home, now=NOW, spawner=orch.FakeSpawner(seconds=3))
+    assert len(r["spawned"]) == 4
+    assert r["refused"] == [{"task": "t5", "why": "max-workers 4 reached"}]
 
 
 def test_max_sessions_refuses_past_the_shift_total(tmp_path):

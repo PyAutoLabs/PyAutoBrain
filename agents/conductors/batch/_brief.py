@@ -23,7 +23,7 @@ from _sizing import (  # noqa: E402 — the caller puts the faculty on sys.path
 
 BACKLOG_POLICIES = ("none", "fill-idle", "scoped")
 #: Optional usage caps (phase 3a) and their defaults when a brief omits them.
-CAP_DEFAULTS = {"max-workers": 2, "max-sessions": 6}
+CAP_DEFAULTS = {"max-workers": 4, "max-sessions": 8}
 #: Permission modes a real worker may run in (phase 3b). `auto` is the default
 #: the human chose 2026-11-03: a worker that still needs a person shows
 #: `blocked` and is parked. `bypassPermissions` is never a worker mode.
