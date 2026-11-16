@@ -103,6 +103,16 @@ call, so the Brain is not bypassed):
   as ordinary dev work through `/start_dev` → `ship_*`. Promotion to a PyAutoFit
   `NonLinearSearch` is the last stage, not the first.
 
+- **`/queue`** — keep `PyAutoMind/queue.md`, the human's ranked list, from
+  chat (PyAutoBrain#640; its only writer). In a chat that ran `/queue`, a pasted
+  prompt, prompt path, title or dashboard 📋 line (`Use the start-dev skill.
+  <path>`) means **add to the queue — never start dev, plan or build**, and
+  `/route` must not send it to `start_dev`. Verbs: add (note, place), remove
+  (to `## Retired`, `shelved-as:`), move up/down/top/bottom/to n, show. The
+  edit is the Mind's `scripts/queue_edit.py` in a temporary worktree detached
+  on `origin/main`, committed with `prompt_sync_push`, then `lifecycle.py
+  check`. The dashboard only reads the queue (★ and rank on each queued task).
+
 - **`update_issue`** — post a progress update (commits, summary, what is left)
   to the active task's GitHub issue, read from the PyAutoMind registry. The
   dev-lifecycle's progress leg; `start_dev_for_user` calls it at milestones.

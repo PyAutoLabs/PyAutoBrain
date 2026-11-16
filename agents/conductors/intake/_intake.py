@@ -84,8 +84,9 @@ from _status import (  # noqa: E402
     render_html as _status_box_html, render_md as _status_box_md,
 )
 # The human's steering files (queue.md, goals.md): readers shared with the
-# batch planner and `batch brief --new` (PyAutoMind#565).
-from _steer import queued_names, read_goals, read_queue_entries  # noqa: E402
+# batch planner and `batch brief --new` (PyAutoMind#565). `read_queue` IS the
+# planner's reader, so a row's ★ `#n` is the planner's rank (PyAutoBrain#640).
+from _steer import queue_ranks, read_goals, read_queue, read_queue_entries  # noqa: E402
 
 # The close-out guard (strong-evidence `looks-shipped` flags): the detector and
 # the one reader the dashboard and the batch planner share.
@@ -1754,9 +1755,11 @@ def census(mind: Path) -> dict:
         # Strong-evidence close-out flags (`intake looks-shipped`), minus what
         # a human dismissed or already closed — the "Looks shipped" section.
         "looks_shipped": _looks_shipped_rows(mind, records),
-        # The human's steering (PyAutoMind#565): the ★ state of every row and
-        # the Goals box at the top of the page.
+        # The human's steering (PyAutoMind#565), read-only (PyAutoBrain#640):
+        # `queue_order` is the planner's own read, so each row's ★ `#n` is its
+        # rank; `queue` gives the labels; `goals` the box at the top.
         "queue": read_queue_entries(mind),
+        "queue_order": read_queue(mind),
         "goals": read_goals(mind),
     }
     c["recent"] = recent_events(c)
@@ -2143,6 +2146,13 @@ def _items(chunks: list) -> list:
     for chunk in chunks:
         out += [chunk, ""]
     return out[:-1] if out else []
+
+
+def _prompt_payload(path: str) -> str:
+    """A prompt row's copy text — the one line every page has always copied
+    for a task. Pasted into a `/queue` chat it means "queue this" (Brain
+    `skills/queue`); anywhere else it routes the task to start-dev."""
+    return f"Use the start-dev skill. {path}"
 
 
 def _registry_payload(e: dict, key: str, verb: str) -> str:
@@ -2599,43 +2609,47 @@ def _attr(value: str) -> str:
 
 
 def _html_task(text_html: str, payload: str, star: str = "") -> str:
-    """One task row on the HTML page: the ★ (a prompt row only), a real copy
-    button, then the text."""
+    """One task row on the HTML page: the ★ rank (a queued prompt row only),
+    a real copy button, then the text."""
     return (f'<div class="task">{star}<button class="copy" '
             f'data-cmd="{_attr(payload)}" aria-label="Copy the AI '
             f'command">📋</button><p>{text_html}</p></div>')
 
 
-def _star_button(path: str, title: str, queued: dict) -> str:
-    """The ★ toggle for a prompt row (PyAutoMind#565).
+def _queue_star(path: str, ranks: dict) -> str:
+    """The read-only ★ and rank for a prompt row `queue.md` queues; else "".
 
-    Rendered pressed, with its queue position, when `queue.md` queues the
-    prompt (matched by basename, as the lifecycle matches). Disabled until the
-    page's script finds a token: with JS off, or without a token, the star is
-    a read-only view of the queue."""
-    pos = queued.get(Path(path).name)
-    on = pos is not None
-    return (f'<button type="button" class="star" data-ref="{_attr(path)}" '
-            f'data-title="{_attr(_clip(title, 120))}" '
-            f'aria-pressed="{"true" if on else "false"}" '
-            f'aria-label="{"Unqueue" if on else "Queue"} this task" disabled>★'
-            f'<span class="qpos">{pos if on else ""}</span></button>')
+    `ranks` is `queue_ranks(read_queue(mind))` — the planner's reader and
+    order — matched by basename, as the lifecycle matches (an entry written
+    against `draft/…` keeps its rank once the prompt is in `active/`). Plain
+    text, no control: the queue is edited in a `/queue` chat (PyAutoBrain#640),
+    and the 📋 beside it copies the text that chat takes."""
+    rank = ranks.get(Path(path).name)
+    if rank is None:
+        return ""
+    return (f'<span class="star" title="Queued: #{rank} in queue.md" '
+            f'aria-label="Queued, rank {rank}">★<span class="qpos">#{rank}</span></span>')
 
 
-def _repo_slug(home: str) -> str:
-    m = re.match(r"https://github\.com/([A-Za-z0-9-]+/[A-Za-z0-9._-]+)$", home)
-    return m.group(1) if m else ""
+def _queued_rows(c: dict) -> list:
+    """(rank, label, ref) for each live `queue.md` prompt, in the planner's
+    order: `read_queue` gives the refs, `read_queue_entries` their labels."""
+    labels = {}
+    for e in c.get("queue") or []:
+        if e["kind"] == "prompt" and e["ref"]:
+            labels.setdefault(e["ref"], e["label"])
+    return [(n, labels.get(ref, Path(ref).stem), ref)
+            for n, ref in enumerate(c.get("queue_order") or [], 1)]
 
 
 def _steer_md(c: dict) -> list:
-    """The markdown page's read-only Goals and Queue (the HTML twin edits)."""
-    goals, queue = c.get("goals") or [], [
-        e for e in c.get("queue") or [] if e["kind"] == "prompt" and e["ref"]]
+    """The markdown page's read-only Goals and Queue (as on the HTML twin)."""
+    goals = c.get("goals") or []
     L = ["## Goals", ""]
     L += [f"{g['n']}. {_md_inline_escape(g['text'])}" for g in goals] or [
         "_(no goals — write them in [`goals.md`](goals.md))_"]
     L += ["", "## Queue", ""]
-    L += [f"{e['pos']}. [{_md_inline_escape(e['label'])}]({e['ref']})" for e in queue] or [
+    L += [f"{n}. [{_md_inline_escape(label)}]({ref})" for n, label, ref in _queued_rows(c)] or [
         "_(nothing queued — [`queue.md`](queue.md) is empty)_"]
     return L + [""]
 
@@ -2651,103 +2665,43 @@ _STEER_CSS = """\
 .steer h3{margin:.7rem 0 .2rem}
 .steer ol{margin:.2rem 0;padding-left:1.4rem}
 .steer ol.steer-queue{list-style:none;padding-left:0}
-.steer-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
-.steer textarea{box-sizing:border-box;width:100%;min-height:9rem;font:inherit;
- font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);
- border-radius:8px;padding:.5rem}
-.steer details{margin-top:.6rem}
-.steer input[type=password]{box-sizing:border-box;width:100%;min-height:44px;
- font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);
- border-radius:8px;padding:.4rem .6rem}
-.steer button.act{min-height:44px;min-width:44px;font:inherit;font-weight:650;
- border:1px solid var(--edge);border-radius:9px;background:var(--btn);color:var(--accent);
- padding:0 .9rem;cursor:pointer}
-.steer .pending{opacity:.6}
-button.star{flex:0 0 auto;min-width:2.75rem;height:2.75rem;font-size:1.15rem;
- border:1px solid var(--edge);border-radius:9px;background:transparent;cursor:pointer;
- color:var(--muted);opacity:.55;position:relative;padding:0}
-button.star[aria-pressed="true"]{color:#d4a017;opacity:1;background:var(--tint)}
-button.star:disabled{cursor:default}
-button.star.pending{animation:starpulse 1s ease-in-out infinite}
-@keyframes starpulse{50%{opacity:.35}}
-button.star .qpos{position:absolute;right:2px;bottom:1px;font-size:.62rem;
- font-weight:700;color:var(--fg)}
-.steer-toast{position:fixed;left:50%;bottom:1rem;transform:translateX(-50%);
- max-width:calc(100vw - 2rem);box-sizing:border-box;padding:.6rem .9rem;
- border-radius:10px;background:var(--fg);color:var(--bg);z-index:10;
- box-shadow:0 4px 16px #0004}
-.steer-toast a{color:inherit;text-decoration:underline}
+span.star{flex:0 0 auto;display:inline-flex;align-items:center;gap:.15rem;
+ min-height:2.75rem;padding:0 .4rem;font-size:1.05rem;color:#d4a017;
+ border:1px solid var(--edge);border-radius:9px;background:var(--tint)}
+span.star .qpos{font-size:.75rem;font-weight:700;color:var(--fg)}
 """
 
 
-def _token_url(repo: str) -> str:
-    """GitHub's new fine-grained token page, prefilled where it accepts it."""
-    owner = repo.split("/")[0]
-    return ("https://github.com/settings/personal-access-tokens/new?"
-            "name=Mind%20dashboard&description=Mind%20dashboard%20%E2%98%85%20and%20goals"
-            f"&target_name={owner}&expires_in=90&issues=write")
-
-
 def _steer_html(c: dict, link) -> list:
-    """The steering box at the top of the page: Goals, Queue, and the token.
+    """The read-only steering box at the top of the page: Goals, then Queue.
 
-    Server-rendered from the census so the page reads right with JS off;
-    the script (`dashboard_edit.js`) takes over when a token is present."""
-    repo = _repo_slug(c.get("home", ""))
-    queued = queued_names(c.get("queue") or [])
+    Server-rendered from the census, with no script of its own: each queued
+    prompt shows its ★ rank and the 📋 copy button every task row carries.
+    Edits happen in a `/queue` chat (PyAutoBrain `skills/queue`)."""
     goals = c.get("goals") or []
-    queue = [e for e in c.get("queue") or [] if e["kind"] == "prompt" and e["ref"]]
-    H = [f'<aside class="steer" id="steer" data-repo="{_attr(repo)}">',
+    queue = _queued_rows(c)
+    H = ['<aside class="steer" id="steer">',
          "<h2>Goals and queue</h2>",
-         '<div class="steer-row"><h3>Goals</h3>'
-         '<button type="button" class="act" id="steer-edit" disabled '
-         'aria-label="Edit the goals">✎</button></div>',
+         "<h3>Goals</h3>",
          '<ol id="steer-goals">'
          + "".join(f"<li>{_summary_label(g['text'])}</li>" for g in goals) + "</ol>",
          f'<p class="muted" id="steer-goals-empty"{" hidden" if goals else ""}>'
          "(no goals yet)</p>",
-         '<textarea id="steer-goals-text" hidden aria-label="Goals, one per line, '
-         'top first" spellcheck="true"></textarea>',
-         '<button type="button" class="act" id="steer-done" hidden>Done</button>',
-         '<p class="muted">One goal per line, top first; at most 10. '
-         "<b>goals.md is public</b>, like the rest of the Mind.</p>",
          "<h3>Queue</h3>",
          '<ol class="steer-queue" id="steer-queue">']
-    for e in queue:
-        H.append(f'<li class="task" data-ref="{_attr(e["ref"])}">'
-                 + _star_button(e["ref"], e["label"], queued)
-                 + f'<p>{link(e["ref"], _summary_label(e["label"]))}</p></li>')
+    for n, label, ref in queue:
+        H.append(f'<li class="task" data-ref="{_attr(ref)}">'
+                 + _queue_star(ref, {Path(ref).name: n})
+                 + f'<button class="copy" data-cmd="{_attr(_prompt_payload(ref))}" '
+                 'aria-label="Copy the AI command">📋</button>'
+                 + f'<p>{link(ref, _summary_label(label))}</p></li>')
     H += ["</ol>",
           f'<p class="muted" id="steer-queue-empty"{" hidden" if queue else ""}>'
           "(nothing queued)</p>",
-          '<details id="steer-connect"><summary>🔑 Connect this device</summary>',
-          '<p class="muted" id="steer-state">Not connected: ★ and goals are '
-          "read-only.</p>",
-          "<p>Paste the dashboard machine account's fine-grained token (never your own) "
-          "with <b>Issues: read and write</b> on the "
-          f'Mind repo only (<a href="{_attr(_token_url(repo))}" rel="noreferrer">'
-          "create one</a>). It stays in this browser and is sent only to "
-          "api.github.com. Each ★ or goals edit opens one small issue that the Mind "
-          "applies and closes.</p>",
-          '<input type="password" id="steer-token" autocomplete="off" '
-          'aria-label="GitHub token">',
-          '<div class="steer-row"><button type="button" class="act" '
-          'id="steer-save">Save</button>'
-          '<button type="button" class="act" id="steer-forget" hidden>Forget '
-          "token</button></div>",
-          "</details>",
-          "</aside>",
-          '<div class="steer-toast" id="steer-toast" role="status" '
-          'aria-live="polite" hidden></div>']
+          '<p class="muted">Read-only. To change the queue, paste a task\'s 📋 '
+          "text into a chat that ran <code>/queue</code>.</p>",
+          "</aside>"]
     return H
-
-
-#: The page's write client (PyAutoMind#565), inlined after the theme script.
-_EDIT_JS_PATH = Path(__file__).resolve().parent / "dashboard_edit.js"
-
-
-def _edit_js() -> str:
-    return _EDIT_JS_PATH.read_text(encoding="utf-8")
 
 
 def _steer_first(page: str) -> str:
@@ -2767,8 +2721,9 @@ def _steer_first(page: str) -> str:
 
 
 def _with_csp(page: str) -> str:
-    """Pin the page's one inline script by hash and allow connections to the
-    GitHub API only. A meta CSP because Pages cannot set headers; the hash is
+    """Pin the page's one inline script by hash and allow no connections at
+    all (`default-src 'none'` covers `connect-src`: the page is read-only since
+    PyAutoBrain#640). A meta CSP because Pages cannot set headers; the hash is
     computed here, so `--check` stays deterministic."""
     import base64
     import hashlib
@@ -2780,7 +2735,6 @@ def _with_csp(page: str) -> str:
     csp = ("default-src 'none'; "
            f"script-src 'sha256-{digest}'; "
            "style-src 'unsafe-inline'; "
-           "connect-src https://api.github.com; "
            "img-src data:; base-uri 'none'; form-action 'none'")
     meta = (f'<meta http-equiv="Content-Security-Policy" content="{csp}">\n'
             '<meta name="referrer" content="no-referrer">')
@@ -2807,17 +2761,17 @@ def render_dashboard_html(c: dict) -> str:
     def link(path, text_html):
         return f'<a href="{_attr(blob + path)}">{text_html}</a>'
 
-    queued = queued_names(c.get("queue") or [])
+    ranks = queue_ranks(c.get("queue_order") or [])
 
     def star(path, title):
-        return _star_button(path, title, queued)
+        return _queue_star(path, ranks)
 
     def record_row(r):
         text = link(r["path"], _summary_label(r["title"])) + pills(
             *(_summary_label(x) for x in (r["target"], r["difficulty"],
                                           r["autonomy"], r["priority"])),
             work_type=r["work_type"])
-        return _html_task(text, f"Use the start-dev skill. {r['path']}",
+        return _html_task(text, _prompt_payload(r["path"]),
                           star(r["path"], r["title"]))
 
     H = [
@@ -2976,7 +2930,7 @@ def render_dashboard_html(c: dict) -> str:
             text += (f' — <span class="facets">'
                      f'{_summary_label(_clip(r["status"]))}</span>')
         text += _pr_column(r)
-        H.append(_html_task(text, f"Use the start-dev skill. {r['path']}",
+        H.append(_html_task(text, _prompt_payload(r["path"]),
                             star(r["path"], r["title"])))
     if not c["in_flight"]:
         H.append('<p class="muted">(nothing in flight)</p>')
@@ -3072,7 +3026,7 @@ def render_dashboard_html(c: dict) -> str:
     footer = boards_footer(dict(_board_links(home)), THEME_ORGAN)
     if footer:
         H.append(footer)
-    H += [f"<script>{_THEME_JS}{_MORE_JS}{_edit_js()}</script>", "</body>", "</html>"]
+    H += [f"<script>{_THEME_JS}{_MORE_JS}</script>", "</body>", "</html>"]
     return _with_csp(_steer_first(section_layout("\n".join(H) + "\n")))
 
 

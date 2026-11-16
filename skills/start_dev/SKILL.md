@@ -1,9 +1,14 @@
 ---
 name: start-dev
-description: Plan and register PyAutoLabs development work, then route it to a library or workspace worktree. Not for questions, reviews, status, or explicit workflow opt-outs.
+description: Plan and register PyAutoLabs development work, then route it to a library or workspace worktree. Not for questions, reviews, status, explicit workflow opt-outs, or a task pasted into a /queue chat (that means add it to queue.md).
 ---
 
 # Start Dev
+
+**Not in a queue chat.** If `/queue` ran earlier in this chat, a pasted
+`Use the start-dev skill. <path>` line (the dashboard's 📋 text), prompt, path
+or title means "add it to `queue.md`": follow [`../queue/queue.md`](../queue/queue.md)
+and stop here.
 
 Follow [`start_dev.md`](start_dev.md) in this directory exactly — the
 authoritative workflow body. `reference.md` holds the long-form templates and
