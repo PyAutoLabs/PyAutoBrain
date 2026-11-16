@@ -180,8 +180,9 @@ def _home_with_parks(tmp_path):
     return now
 
 
-def _inbox(**states):
+def _inbox(answered_at="2026-11-15T08:00Z", **states):
     return {t: [{"id": f"Q{i}", "shift": "2026-11-14-pm2", "issue": Q1, "state": s,
+                 "answered": answered_at if s == "answered" else "",
                  "answer": "yes" if s == "answered" else "",
                  "comment": f"{Q1}#issuecomment-{i}" if s == "answered" else ""}]
             for i, (t, s) in enumerate(states.items(), 1)}
@@ -195,9 +196,11 @@ def test_an_answered_question_releases_the_hold_and_records_the_resume(tmp_path)
                                  resumes)
     assert "alpha" not in held and "eps" not in held
     assert resumes == {"alpha": {"ids": ["Q1"], "shift": "2026-11-14-pm2",
-                                 "comments": [f"{Q1}#issuecomment-1"], "answers": ["yes"]},
+                                 "comments": [f"{Q1}#issuecomment-1"], "answers": ["yes"],
+                                 "picked_in": []},
                        "eps": {"ids": ["Q5"], "shift": "2026-11-14-pm2",
-                               "comments": [f"{Q1}#issuecomment-5"], "answers": ["yes"]}}
+                               "comments": [f"{Q1}#issuecomment-5"], "answers": ["yes"],
+                               "picked_in": []}}
     assert held["beta"] == ("question Q2 dropped by the human: task shelved (reopen it, name "
                             "it in a brief, or /add it)")
     assert held["gamma"] == "waiting on Q3 in your inbox"
@@ -228,6 +231,48 @@ def test_a_later_park_holds_again_and_a_later_finish_releases(tmp_path):
     held = orch.parked_elsewhere(slot, _inbox(alpha="answered", beta="dropped"), resumes)
     assert "alpha" in held and "alpha" not in resumes      # parked again, no entry yet
     assert "beta" not in held                              # finished since
+
+
+def _resumed_in(home, name, task, outcome=None, workers=None):
+    d = home / name
+    d.mkdir()
+    (d / "counters.json").write_text(json.dumps({
+        "outcomes": {task: outcome} if outcome else {}, "parked": [],
+        "picks": {task: {"prompt": f"active/{task}.md"}},
+        "workers": workers or [{"key": "0000000a", "task": task,
+                                "spawned": f"{name[:10]}T09:00:00Z", "exits": ["spawned"]}]}))
+
+
+@pytest.mark.parametrize("outcome,exits", [
+    (None, ["spawned"]),                     # still out at its review-at
+    (None, ["spawned", "crashed", "late"]),  # crashed, or abandoned
+])
+def test_a_release_is_used_up_by_the_shift_that_resumed_it(tmp_path, outcome, exits):
+    """#645 review: one answer resumes a task once. A resume that did not
+    finish holds it again — never a second worker on the same claim."""
+    slot = _home_with_parks(tmp_path)
+    _resumed_in(slot.parent, "2026-11-15-am", "alpha", outcome,
+                [{"key": "0000000a", "task": "alpha", "spawned": "2026-11-15T09:00:00Z",
+                  "exits": exits}])
+    resumes = {}
+    held = orch.parked_elsewhere(slot, _inbox(alpha="answered"), resumes)
+    assert "alpha" not in resumes
+    assert held["alpha"] == ("resumed in shift 2026-11-15-am after Q1 and not finished — not "
+                             "resumed again until a new answer (or name it in a brief)")
+    # A re-answer given after that pick releases it once more.
+    resumes = {}
+    held = orch.parked_elsewhere(slot, _inbox(answered_at="2026-11-15T12:00Z",
+                                              alpha="answered"), resumes)
+    assert "alpha" not in held and resumes["alpha"]["ids"] == ["Q1"]
+    assert resumes["alpha"]["picked_in"] == ["2026-11-15-am"]
+
+
+def test_a_resume_that_parks_again_waits_on_its_new_question(tmp_path):
+    slot = _home_with_parks(tmp_path)
+    _resumed_in(slot.parent, "2026-11-15-am", "alpha",
+                {"questions": [Q2], "prs": [], "merged": []})
+    held = orch.parked_elsewhere(slot, _inbox(alpha="answered"), {})
+    assert held["alpha"].startswith("parked on a question in shift 2026-11-15-am")
 
 
 # --- the reader, the op, and Mind origin/main (real git) ---------------------------
@@ -332,8 +377,9 @@ def test_the_question_add_op_lands_through_minds_own_add_text(tmp_path, monkeypa
     res = mw.commit_ledger(slot, canon, "shift test: questions")
     assert res["committed"] and res["ops"] == 2
     assert [a["why"] for a in res["set_aside"]] == [
-        "question-add: questions_edit.add_text refused: Refused: question add: task "
-        "draft/docs/widgets_ws/gone.md resolves to no draft/ or active/ prompt"]
+        "question-add: task draft/docs/widgets_ws/gone.md is in neither draft/ nor active/ "
+        "on Mind main — set aside, nothing to resume"]
+    assert res["held"] == []
     text = git(bare, "show", "main:questions.md").stdout
     entries = _questions.parse(text)
     assert [(e["id"], e["state"], e["fields"]["task"]) for e in entries] == [
@@ -394,7 +440,8 @@ def test_read_origin(tmp_path):
         git(canon, "fetch", "-q", "origin", "main")))
     assert fetched and got == {"alpha": [{"id": "Q1", "shift": "2026-11-14-pm2", "issue": Q1,
                                           "state": "open", "answer": "", "comment": "",
-                                          "kind": "question", "task": "active/alpha.md"}]}
+                                          "kind": "question", "task": "active/alpha.md",
+                                          "answered": ""}]}
 
 
 @needs_mind
@@ -418,8 +465,10 @@ def test_reader_parity_with_minds_parser():
 @needs_mind
 def test_a_claimed_task_resumes_only_with_a_shift_worker_session(tmp_path):
     bare, canon = _git_mind(tmp_path)
-    resumes = {"alpha": {"ids": ["Q1"], "shift": "2026-11-14-pm2", "comments": []},
-               "beta": {"ids": ["Q2"], "shift": "2026-11-14-pm2", "comments": []}}
+    resumes = {"alpha": {"ids": ["Q1"], "shift": "2026-11-14-pm2", "comments": [],
+                         "picked_in": ["2026-11-14-pm2"]},
+               "beta": {"ids": ["Q2"], "shift": "2026-11-14-pm2", "comments": [],
+                        "picked_in": ["2026-11-14-pm2"]}}
     # The canonical checkout still shows stale drafts nobody pulled.
     stale = [{"path": "draft/docs/widgets_ws/alpha.md", "repos": ["widgets_ws"],
               "declared_repos": ["widgets_ws"]},
@@ -438,7 +487,13 @@ def test_a_claimed_task_resumes_only_with_a_shift_worker_session(tmp_path):
     assert kept2 == [] and out2 == {
         "active/alpha.md": "repo gears_ws claimed by `gears-claim` in active.md on Mind origin/main"}
     assert out == {"active/beta.md": "resumed after Q2, but its claim `beta` in active.md is "
-                                     "an interactive session's — left to the human"}
+                                     "not this home's shift worker's (session: claude-code "
+                                     "desktop (WSL), interactive) — left to the human"}
+    # A shift-worker line from a slot of another home (or one that never
+    # picked the task) is not trusted either.
+    other = {"alpha": dict(resumes["alpha"], picked_in=["2026-11-01-am"])}
+    kept3, out3 = orch.on_origin(recs[:1], canon, set(), resumes=other)
+    assert kept3 == [] and "not this home's shift worker's" in out3["active/alpha.md"]
     # Without a release, the same claimed tasks are dropped as before.
     kept, out = orch.on_origin(recs, canon, set())
     assert kept == [] and set(out) == {"active/alpha.md", "active/beta.md"}
@@ -467,10 +522,11 @@ def test_the_worker_template_pins_the_session_line_and_the_sidecar():
     text = (BATCH / "worker_template.md").read_text()
     assert "- session: shift worker" in text
     assert ".question.json" in text and "the watcher @-mentions" not in text
-    assert orch.SHIFT_WORKER_SESSION_RE.search("shift worker 2026-11-16-am (00000001)")
-    assert orch.SHIFT_WORKER_SESSION_RE.search("Claude Code background job (shift "
-                                               "2026-11-14-pm2 worker)")
-    assert not orch.SHIFT_WORKER_SESSION_RE.search("claude-code desktop (WSL)")
+    assert orch.shift_worker_slot("shift worker 2026-11-16-am (00000001)") == "2026-11-16-am"
+    for loose in ("Claude Code background job (shift 2026-11-14-pm2 worker)",
+                  "claude-code shift worker (batch 2026-11-14-pm2, --auto)",
+                  "claude-code desktop (WSL)", "taken over: shift worker x (y) by hand"):
+        assert orch.shift_worker_slot(loose) == "", loose
 
 
 # --- the dashboard section ----------------------------------------------------------
@@ -623,3 +679,87 @@ def test_the_skill_ships_and_follows_the_queue_conventions():
         assert link.is_symlink() and link.resolve().exists(), link
     commands = (BRAIN / "skills" / "COMMANDS.md").read_text()
     assert "**`/questions`**" in commands
+
+
+def test_a_later_claim_on_the_same_repo_refuses_the_resume(tmp_path, monkeypatch):
+    """#645 review: `claimed_repos` keeps one claim per repo; with the task's
+    own claim first, a desktop claim on the same repo after it must still
+    refuse the resume."""
+    active = ("# Active\n\n## alpha-claim\n- prompt: active/alpha.md\n"
+              "- session: shift worker 2026-11-14-pm2 (00000001)\n- repos:\n  - widgets_ws\n\n"
+              "## desk\n- prompt: active/desk.md\n- session: claude-code desktop (WSL)\n"
+              "- repos:\n  - widgets_ws\n")
+    sections = orch.claim_sections(active)
+    assert orch.claimed_repos(sections)[orch._repo_key("widgets_ws")][1] == "alpha-claim"
+    monkeypatch.setattr(orch, "origin_claims", lambda mind, fetch=None: {
+        "drafts": set(), "active": set(sections), "sections": sections,
+        "repos": orch.claimed_repos(sections)})
+    rec = {"path": "active/alpha.md", "declared_repos": ["widgets_ws"]}
+    resumes = {"alpha": {"ids": ["Q1"], "picked_in": ["2026-11-14-pm2"]}}
+    kept, out = orch.on_origin([rec], tmp_path, set(), resumes=resumes)
+    assert kept == [] and out == {
+        "active/alpha.md": "repo widgets_ws claimed by `desk` in active.md on Mind origin/main"}
+
+
+def test_a_merged_outcome_lands_no_question_and_retires_the_inbox(tmp_path):
+    """#645 review: a `.done` that merged in-turn files no question, and its
+    open inbox entries are answered as the queue entry is retired."""
+    mind, brief, home, slot = _shift(tmp_path, names=("t1",))
+    claude, gh = d.FakeClaude(), FakeGh()
+    _tick(brief, mind, home, NOW, claude, gh)
+    (slot / "leases" / "t1.done").write_text(
+        f"merged https://github.com/example-org/widgets/pull/9\nquestion: {Q1}\n")
+    _tick(brief, mind, home, NOW + _dt.timedelta(minutes=5), claude, gh,
+          d._agents({"t1": "done"}, slot))
+    ops = _ops(slot)
+    assert [o["op"] for o in ops] == ["queue-retire", "question-retire"]
+    assert ops[1] == {"op": "question-retire", "path": "questions.md", "prompt": "t1.md",
+                      "day": "2026-11-04", "by": "the shift worker, in-turn"}
+    assert "inbox" not in orch.read_counters(slot)
+
+
+@needs_mind
+def test_question_retire_answers_a_dangling_blocked_entry_on_the_remote(tmp_path):
+    sys.path.insert(0, str(MIND_SRC / "scripts"))
+    import questions_edit as qe
+    text, _q, _a = qe.add_text(qe.TEMPLATE, dict(_entry("active/alpha.md"), kind="blocked"))
+    bare, canon = _git_mind(tmp_path, questions=text)
+    slot = tmp_path / "slot"
+    counters = {"picks": {"alpha": {"prompt": "draft/docs/widgets_ws/alpha.md"}}}
+    mw.queue_op(slot / mw.LEDGER_DIR, orch.question_retire_op(
+        counters, "alpha", _dt.datetime(2026, 11, 16, tzinfo=_dt.timezone.utc)))
+    res = mw.commit_ledger(slot, canon, "shift test: retire")
+    assert res["committed"]
+    [e] = _questions.parse(git(bare, "show", "main:questions.md").stdout)
+    assert e["state"] == "answered" and e["fields"]["answer"] == "(task completed)"
+    assert e["fields"]["answered"] == "2026-11-16 by the unattended close-out (close)"
+
+
+def test_question_ops_are_held_on_a_missing_script(tmp_path):
+    """#645 review: a Mind main without questions_edit.py holds a question
+    (critical), never sets it aside."""
+    assert mw.is_critical(_questions.add_op(_entry("draft/x/y/z.md")))
+    assert mw.is_critical({"op": "question-retire"})
+    tree = tmp_path / "tree"
+    (tree / "scripts").mkdir(parents=True)
+    with pytest.raises(mw.MindWriteError) as e:
+        mw.apply_op(tree, _questions.add_op(_entry("draft/x/y/z.md")),
+                    type("lm", (), {})())
+    assert not isinstance(e.value, mw.GoneError)
+
+
+def test_an_unfiled_question_is_named_in_the_digest(tmp_path):
+    mind, brief, home, slot = _shift(tmp_path, names=("t1",))
+    claude, gh = d.FakeClaude(), FakeGh()
+    _tick(brief, mind, home, NOW, claude, gh)
+    lease = orch.leases(slot)["t1"]
+    c = orch.read_counters(slot)
+    assert not orch.land_question(slot, c, dict(lease, shift_issue=""), "t1",
+                                  "", "blocked", "x", [], "k", NOW)
+    assert not orch.land_question(slot, c, lease, "t1", "issue-70", "question", "x", [],
+                                  "k", NOW)
+    text = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c,
+                         health=lambda u: "HEALTHY")
+    assert ("Inbox: not filed — `t1` (blocked): no shift issue on its lease (spawned before "
+            "M3.5); see the task's issue or session yourself.") in text
+    assert "Inbox: not filed — `t1` (question): issue `issue-70` is not an https URL" in text

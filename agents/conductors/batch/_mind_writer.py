@@ -25,6 +25,7 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "question-add", "path": "questions.md", "entry": {"task": …, "issue": …, "kind": …,
                                                              "ask": …, "options": [...], "shift": …,
                                                              "asked": …, "worker": …}}
+    {"op": "question-retire", "path": "questions.md", "prompt": "x.md", "day": "YYYY-MM-DD", "by": "…"}
 
 `queue-retire` moves every live `queue.md` entry whose `ref:` names the
 prompt file `prompt` to the `## Retired` footer with `shipped-as:`, using
@@ -42,7 +43,11 @@ live entry naming the prompt is the usual case, and it is silent.
 `lifecycle.py` — so the id (the file's highest plus 1, worked out in that
 tree) is right on a replay over a moved main, and an entry whose `(shift,
 task, issue)` is already there is a skipped note. A question whose prompt is
-in neither `draft/` nor `active/` any more is set aside, with its reason.
+in neither `draft/` nor `active/` any more is set aside, with its reason;
+any other failure (a Mind main without the script) holds it pending.
+`question-retire` answers the merged task's Open and Deferred questions
+(`lifecycle.questions_close_text`, what `lifecycle.py close` runs), queued
+beside every `queue-retire`: an unattended close-out never runs `close`.
 
 `jsonl-upsert` keeps one JSON line per `row[key]`: the line with that key is
 replaced (its other fields kept), else the row is appended. `table-upsert`
@@ -98,7 +103,7 @@ from pathlib import Path
 
 OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
        "set-header", "jsonl-upsert", "table-upsert", "record-key", "queue-retire",
-       "question-add")
+       "question-add", "question-retire")
 #: The keys a `question-add` entry carries; all strings but `options`.
 QUESTION_KEYS = ("task", "issue", "kind", "ask", "options", "shift", "asked", "worker")
 #: What a watcher-run queue retirement says in the footer, in place of the
@@ -115,7 +120,12 @@ REPORT_FILE = "report.jsonl"
 #: Op kinds only the watcher writes, and an `append` to a batch record: the
 #: shift's own record (digest, late lines), pilot row, live line and stage-2
 #: rows. Never set aside — held pending and retried (#632 review).
-CRITICAL_KINDS = ("record-key", "jsonl-upsert", "table-upsert", "table-append")
+CRITICAL_KINDS = ("record-key", "jsonl-upsert", "table-upsert", "table-append",
+                  # The questions inbox (#645): a question or its retirement
+                  # is never lost to a passing fault (a Mind main without
+                  # questions_edit.py yet) — held and retried; only a task
+                  # whose prompt is gone sets a question aside (`GoneError`).
+                  "question-add", "question-retire")
 
 
 def is_critical(op) -> bool:
@@ -130,6 +140,11 @@ class ConflictError(RuntimeError):
 
 class MindWriteError(RuntimeError):
     pass
+
+
+class GoneError(MindWriteError):
+    """The op's subject is gone from Mind main (a question whose prompt was
+    completed or retired): set aside even when the op is critical."""
 
 
 def fetch(mind_repo: Path, remote: str = "origin", branch: str = "main") -> None:
@@ -237,6 +252,17 @@ def validate_op(op: dict, lm) -> list[str]:
                         errs.append("question-add: options must be a list of strings")
                 elif not isinstance(v, str) or not v.strip() or "\n" in v:
                     errs.append(f"question-add: {k} must be one non-empty line")
+    if kind == "question-retire":
+        if op.get("path") != "questions.md":
+            errs.append("question-retire: path must be questions.md")
+        if not isinstance(op.get("prompt"), str) or not re.fullmatch(r"[^/\s]+\.md",
+                                                                     op["prompt"]):
+            errs.append("question-retire: prompt must be a bare prompt file name (x.md)")
+        if not isinstance(op.get("day"), str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}",
+                                                                  op["day"]):
+            errs.append("question-retire: day must be YYYY-MM-DD")
+        if not isinstance(op.get("by"), str) or not op["by"].strip() or "\n" in op["by"]:
+            errs.append("question-retire: by must be one non-empty line")
     if kind == "set-header":
         key, value = op.get("key"), op.get("value")
         if not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Za-z-]*", key):
@@ -358,8 +384,16 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
             target.write_text(_retired_by(new, len(moved)), encoding="utf-8")
     elif kind == "question-add":
         text = target.read_text(encoding="utf-8") if target.exists() else ""
+        qe = _mind_module(tree, "questions_edit", deps=("lifecycle",))
         try:
-            qe = _mind_module(tree, "questions_edit", deps=("lifecycle",))
+            gone = qe.task_now(tree, op["entry"]["task"]) is None
+        except Exception as exc:  # see queue-retire: Mind's script, not ours
+            raise MindWriteError(f"question-add: questions_edit.task_now failed: "
+                                 f"{type(exc).__name__}: {exc}") from exc
+        if gone:
+            raise GoneError(f"question-add: task {op['entry']['task']} is in neither draft/ "
+                            "nor active/ on Mind main — set aside, nothing to resume")
+        try:
             new, qid, added = qe.add_text(text, op["entry"], tree)
         except MindWriteError:
             raise
@@ -369,6 +403,17 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
         if not added:
             return f"question-add: already in questions.md as {qid} — skipped"
         target.write_text(new, encoding="utf-8")
+    elif kind == "question-retire":
+        if not target.exists():
+            return None   # no inbox on this Mind: nothing can dangle
+        try:
+            new, ids = _mind_module(tree, "lifecycle").questions_close_text(
+                target.read_text(encoding="utf-8"), op["prompt"], op["day"], by=op["by"])
+        except Exception as exc:  # see queue-retire
+            raise MindWriteError(f"question-retire: lifecycle.questions_close_text failed: "
+                                 f"{type(exc).__name__}: {exc}") from exc
+        if ids:
+            target.write_text(new, encoding="utf-8")
     elif kind == "jsonl-upsert":
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(jsonl_upsert(target.read_text(encoding="utf-8")
@@ -721,6 +766,9 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
                 except ConflictError as e:
                     (held if is_critical(op) else failed)[f] = (
                         "held" if is_critical(op) else "conflict", str(e))
+                    continue
+                except GoneError as e:
+                    failed[f] = ("set-aside", str(e))
                     continue
                 except (MindWriteError, OSError, KeyError, TypeError, ValueError) as e:
                     (held if is_critical(op) else failed)[f] = (

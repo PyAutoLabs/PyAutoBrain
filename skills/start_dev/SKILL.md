@@ -1,6 +1,6 @@
 ---
 name: start-dev
-description: Plan and register PyAutoLabs development work, then route it to a library or workspace worktree. Not for questions, reviews, status, explicit workflow opt-outs, or a task pasted into a /queue chat (that means add it to queue.md).
+description: Plan and register PyAutoLabs development work, then route it to a library or workspace worktree. Not for questions, reviews, status, explicit workflow opt-outs, a task pasted into a /queue chat (that means add it to queue.md), or an answer or pasted question line in a /questions chat (that means record it in questions.md).
 ---
 
 # Start Dev

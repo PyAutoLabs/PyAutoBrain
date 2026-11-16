@@ -53,10 +53,10 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   change with `{shift_ledger} append|write|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers
   your `active.md` claim, the `draft/ → active/` move and your close-out.
-  Your claim's session line reads `- session: shift worker <slot> (<your
-  session id>)`, `<slot>` being the brief file's name: after the human
-  answers a question you parked on, a later shift resumes your claim only
-  when its session line names a shift worker.
+  Your claim's session line is exactly
+  `- session: shift worker <slot> (<your session id>)`, `<slot>` being the
+  brief file's name without `.md`: after the human answers a question you
+  parked on, a later shift resumes your claim only on that exact line.
   In your `active.md` row, each PR is its own `- library-pr: <url>` (library
   or organ repo) or `- workspace-pr: <url>` line (PyAutoMind REFERENCE.md
   "The PR keys"). Never a bare `pr:`: the ledger refuses it, and `/prm`

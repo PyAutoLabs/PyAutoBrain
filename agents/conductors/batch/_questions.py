@@ -97,6 +97,7 @@ def by_task(entries: list[dict]) -> dict[str, list[dict]]:
             "id": e["id"], "shift": f.get("shift", ""), "issue": f.get("issue", ""),
             "state": e["state"], "answer": f.get("answer", ""),
             "comment": f.get("answer-comment", ""), "kind": f.get("kind", ""),
+            "answered": (f.get("answered") or "").split(" ")[0],
             "task": f.get("task", "")})
     return out
 
@@ -151,6 +152,23 @@ def hold_for(task: str, shift: str, inbox: dict | None) -> tuple[str, dict | Non
     return "answered", {"ids": [e["id"] for e in mine], "shift": shift,
                         "comments": [e["comment"] for e in mine if e.get("comment")],
                         "answers": [e["answer"] for e in mine if e.get("answer")]}
+
+
+def answered_since(task: str, inbox: dict | None, at: str) -> dict | None:
+    """A fresh release for a task whose earlier release a shift used up at
+    `at` (an ISO time): the entries answered after `at`, when none of the
+    task's entries is still open, deferred or dropped; else None."""
+    if inbox is None:
+        return None
+    mine = inbox.get(task) or []
+    if any(e["state"] != "answered" for e in mine):
+        return None
+    fresh = [e for e in mine if (e.get("answered") or "") > (at or "")]
+    if not fresh:
+        return None
+    return {"ids": [e["id"] for e in fresh], "shift": fresh[-1].get("shift", ""),
+            "comments": [e["comment"] for e in fresh if e.get("comment")],
+            "answers": [e["answer"] for e in fresh if e.get("answer")]}
 
 
 # --- the sidecar and the op entry ------------------------------------------------
@@ -210,6 +228,14 @@ def dashboard_link(mind) -> str:
     m = re.search(r"^\s{2}PyAutoMind:[ \t]*\n(?:[ \t]{4,}.*\n)*?[ \t]{4,}github:"
                   r"[ \t]*([^\s#/]+)/([^\s#]+)", text, re.M)
     return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/#inbox" if m else ""
+
+
+def unfiled_lines(counters: dict) -> list[str]:
+    """One digest line per question the watcher could not file (no prompt, no
+    shift issue, an issue that is not a URL): never a silent drop (#645)."""
+    return [f"Inbox: not filed — `{u.get('task')}` ({u.get('kind')}): {u.get('why')}; "
+            "see the task's issue or session yourself."
+            for u in counters.get("inbox_unfiled") or []]
 
 
 def inbox_line(counters: dict, slot_name: str, mind=None, origin=None) -> str:

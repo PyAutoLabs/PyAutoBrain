@@ -543,8 +543,9 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     lines = [DIGEST_HEADING, ""]
     # The one notice of the shift's parked questions (M3.5, #645, Decision
     # H7 a): no @mention mid-shift, one line here; the asks live in the inbox.
-    inbox = _questions.inbox_line(counters, Path(slot).name, mind)
-    lines += [inbox, ""] if inbox else []
+    inbox = [x for x in [_questions.inbox_line(counters, Path(slot).name, mind)]
+             + _questions.unfiled_lines(counters) if x]
+    lines += inbox + [""] if inbox else []
     lines += ["### Brief work"]
     links = MindLinks(mind, issue)
     # A worker still out at review-at keeps its lease (#634, N1).

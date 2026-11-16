@@ -476,6 +476,8 @@ def test_11_an_in_turn_merge_queues_the_queue_retirement(tmp_path):
     events = orch._reap(slot, counters, _later(5), 0, orch.AgentsView([]))
     assert events == [{"task": "t1", "event": "done"}]
     ops = [json.loads(f.read_text()) for f in mw.pending_ops(slot)]
-    assert [o["op"] for o in ops] == ["queue-retire"]
+    # ... and its open inbox questions are answered with it (#645 review).
+    assert [o["op"] for o in ops] == ["queue-retire", "question-retire"]
+    assert ops[1]["prompt"] == "t1.md"
     assert ops[0]["prompt"] == "t1.md" and PR in ops[0]["shipped_as"]
     assert "in-turn" in ops[0]["shipped_as"]

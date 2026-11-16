@@ -972,7 +972,7 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             # op per issue, queued before the counters write; a replay after a
             # crash is a silent repeat in `questions_edit.add_text`.
             done = counters["outcomes"][task]
-            if done.get("questions") and "obsolete" not in done:
+            if done.get("questions") and "obsolete" not in done and not done.get("merged"):
                 for url in done["questions"]:
                     ask, options = _questions.sidecar(lease_dir, task, url)
                     land_question(slot, counters, lease, task, url, "question", ask,
@@ -990,6 +990,11 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 retire = queue_retire_op(counters, task, pr, now, by="the shift worker, in-turn")
                 if retire:
                     _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
+                    # Its inbox questions are moot once merged (#645 review):
+                    # answered as `(task completed)`, as `lifecycle.py close` would.
+                    _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                                          question_retire_op(counters, task, now,
+                                                             by="the shift worker, in-turn"))
                     break
             _write_counters(slot, counters)
             proof = lease_dir / f"{task}.proof.md"
@@ -1077,7 +1082,15 @@ def land_question(slot: Path, counters: dict, lease: dict, task: str, issue: str
     watcher never reads the issue: the ask is the worker's sidecar, else
     `see the question on the issue`. True when it was queued."""
     prompt = lease.get("prompt") or (counters["picks"].get(task) or {}).get("prompt") or ""
-    if not prompt or not str(issue).startswith("https://"):
+    why = ("no prompt recorded for the task" if not prompt
+           else "no shift issue on its lease (spawned before M3.5)" if not issue
+           else f"issue `{str(issue)[:80]}` is not an https URL"
+           if not str(issue).startswith("https://") else "")
+    if why:
+        # Never silent (#645 review): the digest names what was not filed.
+        unfiled = counters.setdefault("inbox_unfiled", [])
+        if not any(u.get("task") == task and u.get("kind") == kind for u in unfiled):
+            unfiled.append({"task": task, "kind": kind, "why": why})
         return False
     entry = {"task": prompt, "issue": issue, "kind": kind,
              "ask": _questions.sanitise(ask, _questions.ASK_MAX),
@@ -1329,10 +1342,17 @@ def claimed_repos(sections: dict[str, dict]) -> dict[str, tuple[str, str]]:
     return out
 
 
-#: A claim's `- session:` that names a shift worker — what a worker writes
-#: (`worker_template.md`: `shift worker <slot> (<session id>)`), and the
-#: wording the first shifts used ("background job (shift … worker)").
-SHIFT_WORKER_SESSION_RE = re.compile(r"\bshift\b.*\bworker\b|\bworker\b.*\bshift\b", re.I)
+#: A claim's `- session:` that names a shift worker, in exactly the wording
+#: `worker_template.md` pins: `shift worker <slot> (<session id>)`. Anything
+#: else (a desktop session, a human who took the task over and rewrote the
+#: line, the free wording of the first shifts) is not resumed unattended.
+SHIFT_WORKER_SESSION_RE = re.compile(r"^shift worker ([A-Za-z0-9_.-]+) \(([^()\s]+)\)$")
+
+
+def shift_worker_slot(session: str) -> str:
+    """The slot a `- session:` line names, when it is a shift worker's; else ""."""
+    m = SHIFT_WORKER_SESSION_RE.match((session or "").strip())
+    return m.group(1) if m else ""
 
 
 def claim_of(sections: dict[str, dict], task: str) -> tuple[str, dict] | None:
@@ -1358,9 +1378,10 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
 
     `resumes` are the tasks an answer released (M3.5, #645, Decision H11): a
     resume task already claimed is kept, at its `active/` path, but only when
-    its claim's `- session:` names a shift worker — a claim an interactive
-    session owns is the human's work and is left alone. Its own claim never
-    counts against its repos."""
+    its claim's `- session:` is `shift worker <slot> (<id>)` for a slot of
+    this home that picked it — a claim an interactive session owns, or one a
+    human took over, is the human's work and is left alone. Its own claim
+    never counts against its repos; every other claim on them does."""
     claims = origin_claims(mind, fetch=fetch)
     if claims is None:
         return records, {}
@@ -1376,14 +1397,21 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
             out[r["path"]] = f"Mind {claims['error']} — fail closed"
         elif claim is not None:
             slug, sec = claim
-            if not SHIFT_WORKER_SESSION_RE.search(sec.get("session") or ""):
-                out[r["path"]] = (f"resumed after {', '.join(resumes[task].get('ids') or [])}, "
-                                  f"but its claim `{slug}` in active.md is an interactive "
-                                  "session's — left to the human")
-            elif held := next((claims["repos"][_repo_key(x)]
-                               for x in r.get("declared_repos") or r.get("repos") or []
-                               if _repo_key(x) in claims.get("repos", {})
-                               and claims["repos"][_repo_key(x)][1] != slug), None):
+            mine = {_repo_key(x) for x in r.get("declared_repos") or r.get("repos") or []}
+            ids = ", ".join(resumes[task].get("ids") or [])
+            if shift_worker_slot(sec.get("session")) not in (resumes[task].get("picked_in")
+                                                              or ()):
+                # Only a claim this watcher's own shift worker wrote, with the
+                # pinned wording and a slot that picked the task: a session
+                # line a human rewrote (or never a shift's) is the human's.
+                out[r["path"]] = (f"resumed after {ids}, but its claim `{slug}` in active.md "
+                                  "is not this home's shift worker's (session: "
+                                  f"{(sec.get('session') or 'none')[:60]}) — left to the human")
+            elif held := next(((repo, other) for other, sec2 in claims["sections"].items()
+                               if other != slug and not sec2["coordinated"]
+                               for repo in sec2["repos"] if _repo_key(repo) in mine), None):
+                # Every other claim on the repo counts, not only the first
+                # (`claimed_repos` keeps one per repo): its own does not.
                 out[r["path"]] = (f"repo {held[0]} claimed by `{held[1]}` in active.md on "
                                   "Mind origin/main")
             else:
@@ -1416,9 +1444,17 @@ def parked_elsewhere(slot: Path, inbox: dict | None = None,
     `d` answered → released, and recorded in `resumes` (`{task: {shift, ids,
     comments}}`); one dropped → held, shelved (Decision H9 a); one open or
     deferred → held, waiting on it; none (a park from before M3.5), or an
-    unreadable inbox (None) → held as before (fail closed)."""
+    unreadable inbox (None) → held as before (fail closed).
+
+    A release is used up by the first later shift that picks the task: if
+    that worker is still out at its review-at, crashes or is abandoned, the
+    task is held again, never resumed twice on one claim. Only an answer
+    given after that pick (a re-answer, or a new question answered) releases
+    it again; a brief that names it is the human's word, as before."""
     out: dict[str, str] = {}
     released: dict[str, dict] = {}
+    picked_in: dict[str, list[str]] = {}
+    used: dict[str, tuple[str, str]] = {}    # task → (pick time, slot) of a used release
     home = Path(slot).parent
     try:
         others = sorted(d for d in home.iterdir()
@@ -1430,10 +1466,13 @@ def parked_elsewhere(slot: Path, inbox: dict | None = None,
         if not c:
             continue
         held, freed = dict(out), dict(released)
+        touched: set[str] = set()
 
-        def park(task: str, why: str, d=d, held=held, freed=freed) -> None:
+        def park(task: str, why: str, d=d, held=held, freed=freed, touched=touched) -> None:
             """Hold `task`, unless the inbox answered its questions from `d`."""
             rule, info = _questions.hold_for(task, d.name, inbox)
+            touched.add(task)
+            used.pop(task, None)
             freed.pop(task, None)
             if rule == "answered":
                 held.pop(task, None)
@@ -1456,16 +1495,39 @@ def parked_elsewhere(slot: Path, inbox: dict | None = None,
                 elif o.get("prs") or o.get("verdicts") or "obsolete" in o:
                     held.pop(task, None)   # finished since: answered
                     freed.pop(task, None)
+                    used.pop(task, None)
+                    touched.add(task)
             for task in c["parked"]:
                 if task not in c["outcomes"]:
                     park(str(task), f"parked in shift {d.name} (blocked on a person) — "
                                     "not startable until answered")
+            for task in c.get("picks") or {}:
+                picked_in.setdefault(task, []).append(d.name)
+                if task in released and task in freed and task not in touched:
+                    # Picked on the release, and no park or finish since:
+                    # still out, crashed or abandoned. The release is used.
+                    info = freed.pop(task)
+                    at = max((str(w.get("spawned") or "") for w in c.get("workers") or []
+                              if w.get("task") == task), default="") or d.name
+                    used[task] = (at, d.name)
+                    held[task] = (f"resumed in shift {d.name} after "
+                                  f"{', '.join(info.get('ids') or [])} and not finished — "
+                                  "not resumed again until a new answer (or name it in a "
+                                  "brief)")
         except (AttributeError, TypeError, ValueError) as e:
             # One malformed file holds nothing and releases nothing (#637 review).
             print(f"orchestrator: {d.name}/{COUNTERS_FILE} has the wrong shape ({e}) — "
                   "read as no hold", file=sys.stderr)
             continue
         out, released = held, freed
+    # A used release comes back only with an answer given after that pick.
+    for task, (at, where) in used.items():
+        info = _questions.answered_since(task, inbox, at)
+        if info is not None and task in out:
+            out.pop(task)
+            released[task] = info
+    for task, info in released.items():
+        info["picked_in"] = list(picked_in.get(task) or [])
     if resumes is not None:
         resumes.update(released)
     return out
@@ -3104,6 +3166,16 @@ def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime,
             "shipped_as": f"{pr} (merged by {by}, {now.strftime('%Y-%m-%d')})"}
 
 
+def question_retire_op(counters: dict, task: str, now: _dt.datetime,
+                       by: str = "the unattended close-out") -> dict:
+    """The ledger op that answers a merged task's Open and Deferred inbox
+    questions as `(task completed)` (`lifecycle.questions_close_text`).
+    Queued beside `queue_retire_op`, which has already checked the prompt."""
+    prompt = (counters.get("picks", {}).get(task) or {}).get("prompt") or ""
+    return {"op": "question-retire", "path": "questions.md", "prompt": Path(prompt).name,
+            "day": now.strftime("%Y-%m-%d"), "by": by}
+
+
 def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_state,
                    tokens=transcript_usage, *, late: bool = False) -> dict:
     """Reap every finished close-out session (the first half of `_closeouts`):
@@ -3206,6 +3278,11 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
                 # the safety net when it did not (#634). A second retire of
                 # the same entry finds none live and is silent.
                 _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
+                # An unattended close-out never runs `lifecycle.py close`, so
+                # the task's Open questions (a `blocked` one whose late `.done`
+                # merged) are answered here, or `check` would drift (#645).
+                _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                                      question_retire_op(counters, co["task"], now))
             events["merged"].append(pr)
         else:
             # Never retried: a close-out that ended without a verdict is the
