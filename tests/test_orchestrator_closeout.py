@@ -199,7 +199,7 @@ def test_a_refused_closeout_is_digested_and_never_retried(tmp_path):
     assert c["glance_auto_merges"] == 0 and c["outcomes"]["named"]["merged"] == []
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
     assert (f"- **Needs you — not merged unattended** — [named]({PR1})\n"
-            "  <sub>`named` · glance · small · pyautobrain · awaiting /prm — close-out refused:"
+            "  <sub>`named` · glance · small · pyautoheart · awaiting /prm — close-out refused:"
             " decision-taken label</sub>") in d
 
 

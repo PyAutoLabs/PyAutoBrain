@@ -115,6 +115,22 @@ def lane_absent_why(r: dict) -> str:
     return "lane absent — unattended picks fail closed; declare a Lane"
 
 
+def declared_repos(p: dict) -> list[str]:
+    """A parsed prompt's `Repos:` header and known target, normalised; its
+    survey `repos` when it declares neither."""
+    from _sizing import KNOWN_REPOS  # noqa: E402
+    out = set()
+    block = re.search(r"^Repos:\n((?:- .+\n)+)", p.get("text") or "", re.M)
+    for ln in block.group(1).splitlines() if block else ():
+        r = normalise_repo(ln[1:].strip())
+        if r in KNOWN_REPOS:
+            out.add(r)
+    t = normalise_repo(p.get("target") or "")
+    if t in KNOWN_REPOS:
+        out.add(t)
+    return sorted(out) or list(p.get("repos") or [])
+
+
 def grade(path: Path, mind: Path) -> dict:
     """Everything the planner needs about one prompt, from the faculty."""
     p = parse_prompt(path, mind)
@@ -136,6 +152,11 @@ def grade(path: Path, mind: Path) -> dict:
         # rulings — 2026-11-12"): `plan` excludes a lane-less draft from an
         # unattended pick and reads it as `any` only when `attended=True`.
         "lane": p.get("lane"), "lane_invalid": p.get("lane_invalid"),
+        "target": p.get("target") or "",
+        # What the prompt declares it will touch — its `Repos:` header and
+        # its target — not every repo its body mentions: the repo-claim gate
+        # (#637, item 4) reads these, so a passing `@repo` never skips a task.
+        "declared_repos": declared_repos(p),
         "priority": p.get("priority") or "normal",
         "blocked": bool(p.get("blocked_by")),
     }
@@ -333,6 +354,37 @@ def pool_gate(r: dict, next_phase: dict[str, float]) -> str:
     return ""
 
 
+def self_organ_why(r: dict) -> str:
+    """Why a shift never dips this draft, or "" (PyAutoBrain#637, item 7): it
+    targets an organ the shift runs on — its watcher, writer or release path
+    (`_brief.SELF_ORGANS`). By rule, not by a brief's `exclude:` list, so a
+    draft filed after the brief is written is kept out too. Read from the
+    target and every repo the draft names: a draft that names one is out."""
+    organs = {normalise_repo(o): o for o in _brief.SELF_ORGANS}
+    hit = sorted({organs[n] for x in {r.get("target") or "", *(r.get("repos") or [])}
+                  if x and (n := normalise_repo(x)) in organs})
+    if not hit:
+        return ""
+    return (f"targets {', '.join(hit)} — a shift never changes its own watcher, "
+            "writer or release path")
+
+
+def scoped_reach_why(r: dict) -> str:
+    """Why `backlog: scoped` may not dip this unqueued draft, or "".
+
+    Human ruling 2026-11-16 (PyAutoBrain#637, item 6; AUTONOMY.md "Shift
+    briefs and unattended `glance`"): queue.md first, then only small
+    single-repo backlog tasks. Anything bigger is queued by the human."""
+    repos = r.get("repos") or []
+    small = r.get("difficulty") == _brief.SCOPED_REACH_DIFFICULTY
+    if small and len(repos) == 1:
+        return ""
+    size = r.get("difficulty") or "unsized"
+    return (f"not in queue.md and {size}, {len(repos)} repo(s) — beyond queue.md a "
+            "scoped dip takes only small single-repo tasks; the human queues "
+            "bigger work (ruling 2026-11-16)")
+
+
 def planner_pool(records: list[dict]) -> list[dict]:
     """The records every session's planner would consider, before its lane
     filters them — what a Lane backfill must cover."""
@@ -411,7 +463,9 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     # run, not which.
     next_phase = next_phases(records)
 
-    pool, lane_absent = [], []
+    shift_dip = brief is not None and not attended
+    scoped_dip = shift_dip and brief.get("backlog", {}).get("value") == "scoped"
+    pool, lane_absent, reach = [], [], []
     for r in records:
         # A brief's named task is the human's own pick, not a backlog dip:
         # neither M2.3 gate below applies to it (the brief's `lanes:` still does).
@@ -427,6 +481,12 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         elif queue_stop and backlog:
             rejected.append((r["path"], "queue.md empty — no backlog dip "
                                         "(named tasks only)"))
+        elif shift_dip and backlog and self_organ_why(r):
+            rejected.append((r["path"], self_organ_why(r)))
+        elif scoped_dip and backlog and queue_rank(r, queue) >= len(queue) \
+                and scoped_reach_why(r):
+            rejected.append((r["path"], scoped_reach_why(r)))
+            reach.append(r["path"])
         else:
             pool.append(r)
 
@@ -496,6 +556,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         # The two M2.3 gates, stated rather than buried in `rejected`.
         "lane_absent": lane_absent,
         "queue_stop": queue_stop,
+        # The 2026-11-16 backlog-reach ruling (#637, item 6), stated likewise.
+        "scoped_reach": reach,
     }
 
 

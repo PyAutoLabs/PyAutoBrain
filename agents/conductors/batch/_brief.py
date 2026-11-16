@@ -30,6 +30,14 @@ CAP_DEFAULTS = {"max-workers": 2, "max-sessions": 6}
 WORKER_MODES = ("auto", "dontAsk", "acceptEdits")
 DEFAULT_WORKER_MODE = "auto"
 SCOPED_KEYS = ("epics", "tags", "tiers")
+#: The organs a shift runs on: its watcher and planner (Brain), its one Mind
+#: writer (Mind) and its release path (Hands). A shift never changes them, so
+#: the planner never dips a draft that targets one (PyAutoBrain#637, item 7).
+#: A brief's named task is the human's own pick and is not gated.
+SELF_ORGANS = ("PyAutoBrain", "PyAutoMind", "PyAutoHands")
+#: The one size `backlog: scoped` may dip beyond `queue.md` (human ruling
+#: 2026-11-16, PyAutoBrain#637, item 6): small and single-repo only.
+SCOPED_REACH_DIFFICULTY = "small"
 
 _ITEM_RE = re.compile(r"^(\s*)-\s+(.*?)\s*$")
 _KEY_RE = re.compile(r"^([a-z][a-z0-9-]*):\s*(.*)$")
@@ -181,6 +189,46 @@ def _previous_record(mind: Path, this: Path) -> Path | None:
     return older[-1] if older else None
 
 
+def _has_minutes(text: str) -> bool:
+    try:
+        return bool(parse(text)["top"].get("review-minutes-actual", {}).get("value"))
+    except BriefError:
+        return False
+
+
+def origin_text(mind: Path, rel: str, ref: str = "origin/main") -> str | None:
+    """`rel` as Mind's local `ref` holds it — a local, read-only `git show`,
+    never a fetch. None when `mind` is not a git checkout of its own or the
+    ref has no such file."""
+    import subprocess
+    try:
+        top = subprocess.run(["git", "-C", str(mind), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=30)
+        if top.returncode != 0 or Path(top.stdout.strip()).resolve() != Path(mind).resolve():
+            return None
+        res = subprocess.run(["git", "-C", str(mind), "show", f"{ref}:{rel}"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return res.stdout if res.returncode == 0 else None
+
+
+def _measured(mind: Path, prev: Path) -> bool:
+    """Whether the previous record carries `review-minutes-actual:` — in the
+    canonical working tree, or on Mind's local `origin/main` ref.
+
+    PyAutoBrain#637, item 5: the gate read only the working tree, which no
+    one pulls mid-shift. A check-in pushed from a linked worktree of the
+    canonical checkout (`prompt_sync_push`, the one Mind writer) moves the
+    local `origin/main` ref at once, whether or not the working tree is
+    fast-forwarded after it, so the next tick counts it. Nothing is fetched:
+    the watcher's network surface is unchanged."""
+    if _has_minutes(prev.read_text(encoding="utf-8", errors="replace")):
+        return True
+    text = origin_text(mind, f"batches/{prev.name}")
+    return bool(text) and _has_minutes(text)
+
+
 def check(path: Path, mind: Path) -> dict:
     """Validate one brief. `errors` refuse it; `warnings` do not."""
     errors: list[str] = []
@@ -289,11 +337,9 @@ def check(path: Path, mind: Path) -> dict:
     # unmeasured. Only for a record that lives among the records.
     if path.parent.resolve() == (mind / "batches").resolve():
         prev = _previous_record(mind, path)
-        if prev is not None:
-            prev_top = parse(prev.read_text(encoding="utf-8", errors="replace"))["top"]
-            if not prev_top.get("review-minutes-actual", {}).get("value"):
-                errors.append(f"review-minutes-actual: missing on the previous "
-                              f"record {prev.name} — measure it before a new brief")
+        if prev is not None and not _measured(mind, prev):
+            errors.append(f"review-minutes-actual: missing on the previous "
+                          f"record {prev.name} — measure it before a new brief")
 
     # The digest, once collect has appended one (phase 3d).
     import _digest  # noqa: E402 — deferred: _digest imports this module

@@ -53,6 +53,10 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   change with `{shift_ledger} append|write|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers
   your `active.md` claim, the `draft/ → active/` move and your close-out.
+  In your `active.md` row, each PR is its own `- library-pr: <url>` (library
+  or organ repo) or `- workspace-pr: <url>` line (PyAutoMind REFERENCE.md
+  "The PR keys"). Never a bare `pr:`: the ledger refuses it, and `/prm`
+  could not find the PR.
 - When you finish, write {lease_dir}/{task}.proof.md first: one proof packet in
   the format of PyAutoMind/batches/AGENTS.md "Proof packet", headed
   `#### {task} — <PR url>`, with the Witness: output trimmed to the lines that

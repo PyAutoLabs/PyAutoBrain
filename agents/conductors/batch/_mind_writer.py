@@ -159,6 +159,8 @@ def validate_op(op: dict, lm) -> list[str]:
             errs.append(f"{kind}: {p} is not a ledger path (scripts/ledger_merge.py)")
     if kind in ("append", "write") and not isinstance(op.get("text"), str):
         errs.append(f"{kind}: text is missing")
+    elif kind == "append" and op.get("path") == "active.md":
+        errs += pr_key_errors(op["text"])
     if kind == "drop-section":
         if not op.get("section"):
             errs.append("drop-section: section is missing")
@@ -213,6 +215,24 @@ def validate_op(op: dict, lm) -> list[str]:
         if not str(op.get("path", "")).endswith(".md"):
             errs.append("set-header: path must be a prompt (.md)")
     return errs
+
+
+#: The PR keys of an `active.md` row (PyAutoMind REFERENCE.md "The PR keys"),
+#: and the keys a worker wrote in their place (PyAutoBrain#637, item 9: a bare
+#: `pr:` made `lifecycle.py check` drift and left /prm nothing to merge).
+PR_KEYS = ("library-pr", "workspace-pr")
+_LOOSE_PR_KEY_RE = re.compile(r"^-\s+((?:[a-z]+[-_])?prs?|pull-request|pr-url)\s*:", re.I | re.M)
+
+
+def pr_key_errors(text: str) -> list[str]:
+    """A refusal for every PR line in an `active.md` row whose key is not one
+    of `PR_KEYS` — `shift_ledger.py` refuses the op when it is queued, so
+    the worker fixes it, and the writer sets it aside if one slips through."""
+    bad = sorted({m.group(1) for m in _LOOSE_PR_KEY_RE.finditer(text or "")
+                  if m.group(1).lower() not in PR_KEYS})
+    return [f"append: active.md key `{k}:` — a PR line uses `library-pr:` or "
+            "`workspace-pr:` (PyAutoMind REFERENCE.md \"The PR keys\"), one per PR"
+            for k in bad]
 
 
 def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:

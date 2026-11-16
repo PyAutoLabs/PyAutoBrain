@@ -65,6 +65,10 @@ LEASE_GRACE_S = 420
 UNLISTED_READS_FOR_CRASH = 2
 #: A task's lease may be re-dispatched after a crash this many times a shift.
 REDISPATCH_LIMIT = 1
+#: Sessions a re-dispatch may start beyond the brief's `max-sessions:`
+#: (PyAutoBrain#637, item 1) — so a backlog dip can never use up the session
+#: a killed worker's task needs. The shift's sessions stay under max + this.
+REDISPATCH_SESSIONS = 1
 #: A real worker `blocked` (waiting on a human) this long is parked: its lease
 #: stays (state `parked`, holding no worker slot) so a late `.done` is still
 #: read, the task is not re-dispatched, and the digest names it.
@@ -79,6 +83,9 @@ CLOSEOUT_TEMPLATE = Path(__file__).with_name("closeout_template.md")
 #: fresh, independent session that runs the witness itself is the leg.
 CLOSEOUT_MODEL = "opus"
 STAGE2_HEADING = "## Unattended `glance` sub-window (stage 2)"
+#: A merged close-out that did not say what became of the task's worktree.
+CLEANUP_UNREPORTED = ("not reported by the close-out — check for a worktree left "
+                      "behind (`worktree_remove <task>`)")
 STAGE2_LOG = "autonomy_log.md"
 #: Hooks every worker's git runs with (core.hooksPath, set through GIT_CONFIG_*):
 #: its pre-commit refuses a commit in PyAutoMind and chains to the repo's own.
@@ -644,10 +651,94 @@ def _committed_tokens(counters: dict) -> int:
     return total
 
 
-def default_token_reserve(budget: int | None, max_sessions: int) -> int:
+def default_token_reserve(budget: int | None, max_sessions: int,
+                          estimate: int | None = None) -> int:
     """The per-worker estimate held at spawn until real usage passes it: an
-    even share of the budget among the sessions the shift may start."""
-    return budget // max(max_sessions, 1) if budget else 0
+    even share of the budget among the sessions the shift may start, or the
+    measured spend of a finished worker when that is larger (#637, item 8).
+
+    An even share alone never refuses a spawn before `max-sessions` does: N
+    reservations of budget/N fit the budget exactly. Shift B (400k, 4
+    sessions) reserved 100k a worker while its workers spent ~125k, so the
+    session cap bound and the shift ended at 498k. With the measured figure
+    held instead, a budget sized below the sessions' real cost refuses the
+    spawn that would pass it."""
+    if not budget:
+        return 0
+    share = budget // max(max_sessions, 1)
+    # Never above half the budget: one outlier worker (450k in a 400k shift)
+    # must not refuse the first spawn (#637 review). Never below the share.
+    return max(share, min(int(estimate or 0), budget // 2))
+
+
+#: Earlier shifts whose finished workers the reservation estimate reads.
+ESTIMATE_SHIFTS = 3
+
+
+def worker_token_estimate(slot: Path, counters: dict, budget: int | None = None,
+                          mind: Path | None = None) -> int | None:
+    """The median measured spend of a worker that finished — in this shift and
+    the last `ESTIMATE_SHIFTS` earlier ones in this watcher's home whose
+    `token-budget:` is within 2x of `budget` (their `counters.json` and brief
+    record: local files, no network). A crashed or unmeasured session is left
+    out: it says nothing about a whole task's cost; so is a slot whose files
+    have the wrong shape. None when there is no such worker yet."""
+    import statistics
+    home, here = Path(slot).parent, Path(slot).name
+    try:
+        earlier = sorted(d for d in home.iterdir() if d.is_dir() and d.name < here
+                         and (d / COUNTERS_FILE).is_file())
+    except OSError:
+        earlier = []
+    if budget:
+        earlier = [d for d in earlier
+                   if (b := slot_budget(d, mind)) and budget / 2 <= b <= budget * 2]
+    totals = []
+    for c in [_safe_counters(d) for d in earlier[-ESTIMATE_SHIFTS:]] + [counters]:
+        try:
+            finished = {w.get("key") for w in c["workers"]
+                        if "finished" in (w.get("exits") or [])}
+            totals += [int(u["total"]) for k, u in c["usage"].items()
+                       if k in finished and u.get("kind") == "worker" and u.get("final")
+                       and not u.get("unmeasured") and u.get("total")]
+        except (AttributeError, TypeError, ValueError, KeyError):
+            continue
+    return int(statistics.median(totals)) if totals else None
+
+
+def slot_budget(slot: Path, mind: Path | None = None) -> int | None:
+    """An earlier shift's `token-budget:` — recorded in its `counters.json`
+    (from #637), else read from its brief record in Mind's working tree."""
+    c = _safe_counters(slot)
+    b = c.get("token_budget") if isinstance(c, dict) else None
+    if isinstance(b, int) and b > 0:
+        return b
+    if mind is None:
+        return None
+    try:
+        brief = _brief.parse((Path(mind) / "batches" / f"{Path(slot).name}.md")
+                             .read_text(encoding="utf-8"))["brief"] or {}
+    except (OSError, _brief.BriefError):
+        return None
+    return _brief._nonneg_int(brief.get("token-budget", {}).get("value", "")) or None
+
+
+def _safe_counters(slot: Path) -> dict:
+    """Another slot's counters, or {} when its file has the wrong shape — a
+    note on stderr, never a planner crash (#637 review)."""
+    try:
+        c = read_counters(slot)
+        for key in ("outcomes", "usage"):
+            if not isinstance(c[key], dict):
+                raise TypeError(f"{key} is not an object")
+        for key in ("parked", "workers"):
+            if not isinstance(c[key], list):
+                raise TypeError(f"{key} is not a list")
+        return c
+    except (AttributeError, TypeError, ValueError, KeyError) as e:
+        print(f"orchestrator: {Path(slot).name}/{COUNTERS_FILE} has the wrong shape "
+              f"({e}) — read as no hold and no measure", file=sys.stderr)
+        return {}
 
 
 # --- locks and leases ------------------------------------------------------------
@@ -807,6 +898,15 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             if task in counters["parked"]:
                 counters["parked"].remove(task)
             mark("finished")
+            # A worker that merged in-turn (`notify`) ran no close-out here:
+            # retire its live queue.md entry as an unattended merge does
+            # (#637, item 11). Queued before the counters write, and a second
+            # retire of the same entry finds none live and is silent.
+            for pr in counters["outcomes"][task].get("merged") or []:
+                retire = queue_retire_op(counters, task, pr, now, by="the shift worker, in-turn")
+                if retire:
+                    _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
+                    break
             _write_counters(slot, counters)
             proof = lease_dir / f"{task}.proof.md"
             if proof.exists():
@@ -1035,9 +1135,77 @@ def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | No
         active = git("show", f"{ref}:active.md")
     except (OSError, subprocess.SubprocessError) as e:
         return {"error": f"git could not run: {e}"[:200]}
-    slugs = {ln[3:].strip() for ln in (active.stdout if active.returncode == 0 else "")
-             .splitlines() if ln.startswith("## ")}
-    return {"drafts": set(filter(None, tree.stdout.split("\0"))), "active": slugs}
+    if active.returncode != 0:
+        # No claims read is not "no claims" (#637 review): fail closed, as an
+        # unreadable `draft/` tree does — unless the ref truly has no
+        # active.md (a Mind with no registry claims nothing).
+        listed = git("ls-tree", "--name-only", ref, "--", "active.md")
+        if listed.returncode != 0 or listed.stdout.strip():
+            return {"error": f"{ref}:active.md unreadable: "
+                             + (active.stderr or "").strip()[:160]}
+    sections = claim_sections(active.stdout if active.returncode == 0 else "")
+    return {"drafts": set(filter(None, tree.stdout.split("\0"))), "active": set(sections),
+            "repos": claimed_repos(sections)}
+
+
+#: A claim that records human-authorized sharing of its repos (#637, item 4).
+_COORDINATION_RE = re.compile(r"^- (coordination|conflict-override):\s*\S", re.M)
+_CLAIM_REPO_RE = re.compile(r"^\s+- ([A-Za-z0-9_.-]+)")
+
+
+def claim_sections(active_text: str) -> dict[str, dict]:
+    """The `## slug` sections of an `active.md`: each one's claimed repos (its
+    `- repos:` block, in either schema `worktree.sh` reads) and whether it
+    records human-authorized coordination (`coordination:` or
+    `conflict-override:`)."""
+    out: dict[str, dict] = {}
+    slug, body = None, []
+
+    def flush():
+        if slug is None:
+            return
+        repos, inside = [], False
+        for ln in body:
+            if ln.startswith("- repos:"):
+                inside = True
+                inline = ln[len("- repos:"):].strip()
+                repos += [x for x in re.split(r"[,\s]+", inline) if x]
+                continue
+            if inside:
+                m = _CLAIM_REPO_RE.match(ln)
+                if m:
+                    repos.append(m.group(1))
+                    continue
+                if ln.strip():
+                    inside = False
+        out[slug] = {"repos": repos,
+                     "coordinated": bool(_COORDINATION_RE.search("\n".join(body)))}
+    for ln in active_text.splitlines():
+        if ln.startswith("## "):
+            flush()
+            slug, body = ln[3:].strip(), []
+        elif slug is not None:
+            body.append(ln)
+    flush()
+    return out
+
+
+def _repo_key(name: str) -> str:
+    """One spelling per repo: the survey's (`_sizing.normalise_repo`)."""
+    from _sizing import normalise_repo  # noqa: E402 — the batch conductor's path
+    return normalise_repo(name)
+
+
+def claimed_repos(sections: dict[str, dict]) -> dict[str, tuple[str, str]]:
+    """{repo key: (repo as written, the claiming slug)} for every claim that
+    does not record human-authorized coordination."""
+    out: dict[str, tuple[str, str]] = {}
+    for slug, sec in sections.items():
+        if sec["coordinated"]:
+            continue
+        for repo in sec["repos"]:
+            out.setdefault(_repo_key(repo), (repo, slug))
+    return out
 
 
 def on_origin(records: list[dict], mind: Path, own: set[str],
@@ -1046,7 +1214,10 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
     unclaimed: a path not under its `draft/` (moved to `active/`, retired, or
     never pushed — the writer's claim move would fail) or a task with a
     `## <task>` section in its `active.md`. A task this shift already picked
-    stays (its own re-dispatch). Returns (kept, {path: why})."""
+    stays (its own re-dispatch). A task whose repo a claim in that
+    `active.md` holds is out too, unless the claim records human-authorized
+    coordination (PyAutoBrain#637, item 4: a named task started twice, then
+    parked on a repo an earlier shift's pick held). Returns (kept, {path: why})."""
     claims = origin_claims(mind, fetch=fetch)
     if claims is None:
         return records, {}
@@ -1061,9 +1232,56 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
             out[r["path"]] = "not in draft/ on Mind origin/main (claimed or retired)"
         elif task in claims["active"]:
             out[r["path"]] = "claimed in active.md on Mind origin/main"
+        elif held := next((claims["repos"][_repo_key(x)]
+                           for x in r.get("declared_repos") or r.get("repos") or []
+                           if _repo_key(x) in claims.get("repos", {})), None):
+            out[r["path"]] = (f"repo {held[0]} claimed by `{held[1]}` in active.md on "
+                              "Mind origin/main")
         else:
             kept.append(r)
     return kept, out
+
+
+def parked_elsewhere(slot: Path) -> dict[str, str]:
+    """{task: why} for every task an earlier shift in this watcher's home left
+    parked on a question — a `question:` (or other push) issue in its `.done`,
+    or blocked on a person past the grace — and that no later shift finished
+    (PyAutoBrain#637, item 3: a prompt still in `draft/` with no claim was
+    picked again by the next shift). Read from the slots' own `counters.json`:
+    local files, no network."""
+    out: dict[str, str] = {}
+    home = Path(slot).parent
+    try:
+        others = sorted(d for d in home.iterdir()
+                        if d.is_dir() and d != Path(slot) and (d / COUNTERS_FILE).is_file())
+    except OSError:
+        return out
+    for d in others:
+        c = _safe_counters(d)
+        if not c:
+            continue
+        held = dict(out)
+        try:
+            for task, o in c["outcomes"].items():
+                if not isinstance(o, dict):
+                    raise TypeError(f"outcome of {task!r} is not an object")
+                if o.get("questions") and "obsolete" not in o and not o.get("merged"):
+                    held[task] = (f"parked on a question in shift {d.name} ("
+                                  + ", ".join(map(str, o["questions"]))
+                                  + ") — not startable until answered")
+                elif o.get("prs") or o.get("verdicts") or "obsolete" in o:
+                    held.pop(task, None)   # finished since: answered
+            for task in c["parked"]:
+                if task not in c["outcomes"]:
+                    held[str(task)] = (f"parked in shift {d.name} (blocked on a person) — "
+                                       "not startable until answered")
+        except (AttributeError, TypeError, ValueError) as e:
+            # One malformed file holds nothing and releases nothing (#637 review).
+            print(f"orchestrator: {d.name}/{COUNTERS_FILE} has the wrong shape ({e}) — "
+                  "read as no hold", file=sys.stderr)
+            continue
+        out = held
+    return out
 
 
 def active_leases(slot: Path) -> dict[str, dict]:
@@ -1103,9 +1321,20 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         """The plan inside the brief, made once a tick when first needed."""
         if "d" not in planned:
             recs = records if records is not None else _batch.survey(mind)
+            # Parked on a question by an earlier shift (#637, item 3): not
+            # startable until answered. A brief that names it again is the
+            # human's word that it is; a task this shift picked stays. Read
+            # first, so the digest gives the park as the reason.
+            named = {Path(t).name for t in _brief.tasks_of(brief)}
+            parked = parked_elsewhere(slot)
+            planned["parked"] = {r["path"]: parked[task_id(r["path"])] for r in recs
+                                 if task_id(r["path"]) in parked
+                                 and task_id(r["path"]) not in counters["picks"]
+                                 and Path(r["path"]).name not in named}
+            recs = [r for r in recs if r["path"] not in planned["parked"]]
             # Against Mind origin/main, not the canonical checkout nobody
             # pulls mid-shift (#632, F4): a draft another shift already
-            # claimed is never picked again.
+            # claimed is never picked again, nor one whose repo a claim holds.
             recs, claimed = on_origin(recs, mind, set(counters["picks"]),
                                       fetch=lambda: _fetch_once(mind, counters, now))
             planned["claimed"] = claimed
@@ -1157,7 +1386,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     d = plan()
     counters["backlog_gates"] = {"lane_absent": sorted(d["lane_absent"]),
                                  "queue_stop": d["queue_stop"],
-                                 "origin": planned.get("claimed") or {}}
+                                 "origin": planned.get("claimed") or {},
+                                 "parked": planned.get("parked") or {},
+                                 "scoped_reach": sorted(d.get("scoped_reach") or [])}
     paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):
         proposed = [] if paused else _propose(
@@ -1169,15 +1400,22 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                "ledger": ledger}
         return _steered(out, commands, paused)
     budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
+    if budget:
+        counters["token_budget"] = budget   # what a later shift's estimate compares
     # A real worker holds a reservation from its spawn until its measured
     # usage passes it, so the budget binds on the first tick (#610). A fake
     # (dry-shift) worker spends nothing.
     reserve = 0
     if getattr(spawner, "real", False):
         reserve = token_reserve if token_reserve is not None \
-            else default_token_reserve(budget, max_sessions)
+            else default_token_reserve(budget, max_sessions,
+                                       worker_token_estimate(slot, counters, budget, mind))
     spawned, refused = [], []
-    for member in [] if paused else d["members"]:
+    # A re-dispatch goes first (#637, item 1): a backlog dip never takes the
+    # worker slot a killed task is waiting for.
+    members = sorted(d["members"],
+                     key=lambda m: task_id(m["path"]) not in counters["pending_redispatch"])
+    for member in [] if paused else members:
         task = task_id(member["path"])
         if task in live or task in counters["done"] or task in counters["abandoned"] \
                 or task in counters["parked"] or task in counters["dropped"]:
@@ -1185,8 +1423,14 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         if len(live) >= max_workers:
             refused.append({"task": task, "why": f"max-workers {max_workers} reached"})
             continue
-        if counters["sessions"] >= max_sessions:
-            refused.append({"task": task, "why": f"max-sessions {max_sessions} reached"})
+        # A re-dispatch may pass `max-sessions` by REDISPATCH_SESSIONS (#637,
+        # item 1): after early dips used every session, a killed worker
+        # stayed "awaiting re-dispatch" to the end of shift A.
+        redo = task in counters["pending_redispatch"]
+        limit = max_sessions + (REDISPATCH_SESSIONS if redo else 0)
+        if counters["sessions"] >= limit:
+            refused.append({"task": task, "why": f"max-sessions {max_sessions} reached"
+                            + (f" (+{REDISPATCH_SESSIONS} for a re-dispatch)" if redo else "")})
             continue
         if counters["usage_unavailable"]:
             # Never counted as 0: a spend the watcher cannot read could be
@@ -2227,16 +2471,17 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
                             review_at)
 
 
-def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime) -> dict | None:
+def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime,
+                    by: str = "the unattended close-out") -> dict | None:
     """The ledger op that retires a merged task's live `queue.md` entry —
     what `lifecycle.py close` does and an unattended close-out skipped once
-    (PyAutoBrain#634). None when the pick recorded no prompt."""
+    (PyAutoBrain#634), as did an in-turn merge (#637). None when the pick
+    recorded no prompt."""
     prompt = (counters.get("picks", {}).get(task) or {}).get("prompt") or ""
     if not prompt:
         return None
     return {"op": "queue-retire", "path": "queue.md", "prompt": Path(prompt).name,
-            "shipped_as": f"{pr} (merged by the unattended close-out, "
-                          f"{now.strftime('%Y-%m-%d')})"}
+            "shipped_as": f"{pr} (merged by {by}, {now.strftime('%Y-%m-%d')})"}
 
 
 def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_state,
@@ -2320,6 +2565,10 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
                 model = CLOSEOUT_MODEL
             co.update(state="merged", gate=gate, model=model)
             co.pop("why", None)
+            # What became of the task's worktree and local branch (#637, item
+            # 10): the close-out removes them as /prm does, or says why not.
+            co["cleanup"] = str((verdict or {}).get("cleanup") or "").strip()[:300] \
+                or CLEANUP_UNREPORTED
             counters["glance_auto_merges"] += 1
             out = counters["outcomes"].setdefault(co["task"], {"prs": [pr], "merged": []})
             if pr not in out["merged"]:

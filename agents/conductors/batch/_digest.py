@@ -44,6 +44,9 @@ PROPOSED = "proposed (shadow)"
 #: A worker whose lease is still held when the digest is built (#634, N1): it
 #: was dispatched and is not done; the late sweep reports how it ends.
 STILL_OUT = "still running at review time — the late sweep will report it"
+#: A killed worker whose re-dispatch never started (PyAutoBrain#637, item 2):
+#: never "not started" — its first worker ran.
+NOT_REDISPATCHED = "crashed — not re-dispatched"
 NO_PACKETS_SHADOW = "- none — shadow shift: nothing was dispatched"
 #: A shadow digest's counters, in one line: every one is 0 by construction.
 SHADOW_COUNTERS = "- all counters 0 — shadow shift, nothing dispatched"
@@ -219,9 +222,12 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
             return _lease_state(lease, agents), True
         if lease is not None:
             return STILL_OUT, True
-        if live and task in counters.get("pending_redispatch", []):
-            return "crashed — awaiting re-dispatch", True
-        return "not started", False
+        if task in counters.get("pending_redispatch", []):
+            if live:
+                return "crashed — awaiting re-dispatch", True
+            return f"{NOT_REDISPATCHED}: {redispatch_why(task, counters)}", False
+        skipped = gate_why(task, counters)
+        return ("not started — skipped: " + skipped if skipped else "not started"), False
     urls = urls_of(out)
     if not urls and "obsolete" in out:
         return ("obsolete (premise check): "
@@ -239,6 +245,8 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
         elif url in out["merged"]:
             state = ("merged unattended (close-out, " + co.get("model", "?") + ")"
                      if co.get("state") == "merged" else "merged")
+            if co.get("state") == "merged" and co.get("cleanup"):
+                state += f" — worktree: {co['cleanup']}"
         elif co.get("state") == "refused":
             state = f"awaiting /prm — close-out refused: {co.get('why', '?')}"
         elif co.get("state") == "running":
@@ -247,6 +255,27 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
             state = health(url)
         parts.append(f"{url} — {state}")
     return "; ".join(parts), True
+
+
+def gate_why(task: str, counters: dict) -> str:
+    """Why the watcher's last plan kept this task out — a claim or a held
+    repo on Mind origin/main, or a park in an earlier shift (#637) — or ""."""
+    gates = counters.get("backlog_gates") or {}
+    for key in ("origin", "parked"):
+        for path, why in (gates.get(key) or {}).items():
+            if Path(path).stem == task:
+                return why
+    return ""
+
+
+def redispatch_why(task: str, counters: dict) -> str:
+    """Why a crashed task's re-dispatch never started: the last refusal the
+    watcher recorded for it, else `review-at:` came first."""
+    last = max((r for r in counters.get("refusals", []) if r.get("task") == task),
+               key=lambda r: r.get("last") or r.get("at") or "", default=None)
+    if last:
+        return f"refused {last.get('why') or last.get('class') or '?'} (last {last.get('last') or last.get('at')})"
+    return "review-at came before a free session"
 
 
 #: `claude agents` states for a session that has ended without succeeding. A
@@ -416,6 +445,7 @@ _PLAIN = (
     ("parked", "Needs you — blocked on a person"),
     ("blocked on a person", "Needs you — blocked on a person"),
     ("abandoned", "Abandoned — crashed twice"),
+    (NOT_REDISPATCHED, "Crashed — not re-dispatched"),
     ("crashed", "Crashed — waiting to be re-dispatched"),
     ("ended", "Crashed"),
     ("obsolete", "Obsolete — nothing to do"),
@@ -521,7 +551,8 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
 
     started = [t for t in named + backlog
                if t in counters.get("outcomes", {}) or t in counters.get("parked", [])
-               or t in counters.get("abandoned", [])]
+               or t in counters.get("abandoned", [])
+               or t in counters.get("pending_redispatch", [])]
     lines += ["", "### Proof packets"]
     lines += ["\n\n".join(_packet(t, slot, counters) for t in started)
               or (NO_PACKETS_SHADOW if _brief.is_shadow(brief) else NO_PICKS)]
@@ -591,7 +622,8 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                    "brief's named tasks only.")
     origin = gates.get("origin") or {}
     closed = {p: w for p, w in origin.items() if w.endswith("fail closed")}
-    claimed = sorted(p for p in origin if p not in closed)
+    repo_held = {p: w for p, w in origin.items() if w.startswith("repo ") and p not in closed}
+    claimed = sorted(p for p in origin if p not in closed and p not in repo_held)
 
     def names(paths):
         return (", ".join(f"`{Path(a).stem}`" for a in paths[:SUMMARY_NAMES])
@@ -604,6 +636,19 @@ def backlog_gate_lines(counters: dict) -> list[str]:
         out.append(f"Mind origin/main could not be read: {len(closed)} draft(s) not picked "
                    f"(fail closed) — {next(iter(closed.values()))[5:]}: "
                    + names(sorted(closed)))
+    if repo_held:
+        out.append(f"Repo claimed on Mind origin/main: {len(repo_held)} draft(s) skipped — "
+                   + "; ".join(f"`{Path(p).stem}` ({w.split(' in active.md')[0]})"
+                               for p, w in sorted(repo_held.items())[:SUMMARY_NAMES]))
+    parked = gates.get("parked") or {}
+    if parked:
+        out.append(f"Parked on a question by an earlier shift: {len(parked)} draft(s) not "
+                   "startable until answered (name one in a brief to start it again): "
+                   + names(sorted(parked)))
+    reach = gates.get("scoped_reach") or []
+    if reach:
+        out.append(f"Backlog reach (ruling 2026-11-16): {len(reach)} unqueued draft(s) not "
+                   "dipped — beyond queue.md only small single-repo tasks: " + names(reach))
     absent = gates.get("lane_absent") or []
     if absent:
         out.append(f"Lane absent: {len(absent)} draft(s) excluded — no valid `Lane:`, "
@@ -934,6 +979,7 @@ def validate(text: str) -> list[str]:
         for item in _items(secs.get(sec, [])):
             slug = _slug(item)
             if slug and item.strip() != NO_PICKS and "not started" not in item \
+                    and NOT_REDISPATCHED not in item \
                     and PROPOSED not in item and STILL_OUT not in item \
                     and f"#### {slug}" not in packets:
                 errs.append(f"digest: {slug} has no proof packet")

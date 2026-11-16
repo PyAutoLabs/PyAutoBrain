@@ -762,6 +762,10 @@ watcher may start sessions for work the brief covers. A watcher tick with **no
 open brief dispatches nothing**, and a brief whose `review-at:` has passed is
 not open.
 
+**Human ruling 2026-11-16 (backlog reach, PyAutoBrain#637):** a `backlog:
+scoped` dip takes `queue.md` first, then only `Difficulty: small` single-repo
+backlog tasks; anything bigger must be queued by the human.
+
 *Revert condition:* one dispatch found outside a brief's scope returns batching
 to per-task `--auto` until the cause is found.
 
