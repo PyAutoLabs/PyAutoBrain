@@ -108,7 +108,7 @@ but spawns nothing — the pilot's baseline; every shift keeps one line in `PyAu
 to `pilot.md` (`?` cells the human's at check-in). A parked worker @-mentions the human on that issue, once. Once a worker's `glance` PR is green, the
 watcher starts one independent close-out session that merges it or refuses; each merge adds a row to the stage-2 table in `PyAutoMind/autonomy_log.md`.
 What a tick does, its state, caps and the install commands: `agents/conductors/batch/AGENTS.md` "The watcher".
-**`/batch watch`** ("how is the shift going?"): run `bin/pyauto-brain batch watch --record <brief> --once` and relay it as written; with no slot on this machine, read the status comment on its `issue:` ([`reference.md`](reference.md)). The human steers with their own comment there (`/pause`, `/resume`, `/drop <task>`, `/stop`); never post one for them.
+**`/batch watch`** ("how is the shift going?"): run `bin/pyauto-brain batch watch --record <brief> --once` and relay it as written; with no slot on this machine, read the status comment on its `issue:` ([`reference.md`](reference.md)). The human steers with their own comment there (`/pause`, `/resume`, `/drop <task>`, `/stop`, `/add <prompt>`, `/cap merges|workers|sessions|tokens <n>`, `/kill <task>`); never post one for them. `batch watch --stream --record <brief>` prints the shift's event stream (`events.jsonl`, local reads only) until it ends — the cockpit's watch ([`reference.md`](reference.md)).
 
 ## When they come back — collect, review, close (2026-08-31)
 
