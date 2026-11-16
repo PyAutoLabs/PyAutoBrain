@@ -1,0 +1,116 @@
+{
+ "closeouts": {
+  "https://github.com/PyAutoLabs/PyAutoGalaxy/pull/716": {
+   "github": {
+    "mergedAt": "",
+    "mergedBy": "",
+    "state": "OPEN"
+   },
+   "started": "2026-11-14T20:29:47Z",
+   "state": "refused",
+   "task": "plot_rst_missing_exports",
+   "why": "PR carries the decision-taken label (docstring |mu| fixes in galaxies_plots.py / fit_interferometer_plots.py added beyond the plot.rst-only plan); merge is human /prm"
+  },
+  "https://github.com/PyAutoLabs/PyAutoLens/pull/863": {
+   "github": {
+    "mergedAt": "",
+    "mergedBy": "",
+    "state": "OPEN"
+   },
+   "started": "2026-11-14T20:32:54Z",
+   "state": "refused",
+   "task": "plot_rst_missing_exports",
+   "why": "PR carries the decision-taken label, and Witness clause 2 fails on the head (subplot_fit_interferometer_tracer is not under Dataset Subplots); clause 3 depends on PyAutoGalaxy#716, which is still open"
+  }
+ },
+ "commands": [
+  {
+   "ack": "dropped `markdown_regeneration_sigma_min`: it had already finished; its PR is never merged unattended",
+   "at": "2026-11-14T20:21:04Z",
+   "by": "Jammy2211",
+   "command": "/drop markdown_regeneration_sigma_min",
+   "id": "6883652146",
+   "url": "https://github.com/PyAutoLabs/PyAutoMind/issues/571#issuecomment-6883652146"
+  }
+ ],
+ "done": [
+  "model_bullet_parameter_count_drift",
+  "markdown_regeneration_sigma_min",
+  "plot_rst_missing_exports"
+ ],
+ "dropped": {
+  "markdown_regeneration_sigma_min": {
+   "at": "2026-11-14T20:21:04Z",
+   "by": "Jammy2211"
+  }
+ },
+ "glance_auto_merges": 0,
+ "outcomes": {
+  "markdown_regeneration_sigma_min": {
+   "issues": [
+    "https://github.com/PyAutoLabs/autolens_workspace/issues/669"
+   ],
+   "merged": [],
+   "prs": [],
+   "questions": [
+    "https://github.com/PyAutoLabs/autolens_workspace/issues/669"
+   ]
+  },
+  "model_bullet_parameter_count_drift": {
+   "issues": [
+    "https://github.com/PyAutoLabs/autolens_workspace/issues/672"
+   ],
+   "merged": [],
+   "prs": [],
+   "questions": [
+    "https://github.com/PyAutoLabs/autolens_workspace/issues/672"
+   ]
+  },
+  "plot_rst_missing_exports": {
+   "issues": [],
+   "merged": [],
+   "prs": [
+    "https://github.com/PyAutoLabs/PyAutoGalaxy/pull/716",
+    "https://github.com/PyAutoLabs/PyAutoLens/pull/863"
+   ]
+  }
+ },
+ "parked": [],
+ "pending_redispatch": [],
+ "picks": {
+  "markdown_regeneration_sigma_min": {
+   "prompt": "draft/docs/autolens_workspace/markdown_regeneration_sigma_min.md",
+   "repos": [
+    "autolens_workspace"
+   ],
+   "size": "small",
+   "tier": "notify",
+   "title": "Regenerate autolens_workspace markdown/ so the MGE pages show sigma_min",
+   "why": "scoped tier notify \u00b7 queue.md #7"
+  },
+  "model_bullet_parameter_count_drift": {
+   "prompt": "draft/docs/workspaces/model_bullet_parameter_count_drift.md",
+   "repos": [
+    "autolens_workspace"
+   ],
+   "size": "small",
+   "tier": "notify",
+   "title": "autolens_workspace: `__Model__` bullets whose profiles or parameter counts do not match the code",
+   "why": "named task"
+  },
+  "plot_rst_missing_exports": {
+   "prompt": "draft/docs/autolens/plot_rst_missing_exports.md",
+   "repos": [
+    "autogalaxy",
+    "autolens"
+   ],
+   "size": "medium",
+   "tier": "glance",
+   "title": "`docs/api/plot.rst` omits already-exported plot symbols",
+   "why": "named task"
+  }
+ },
+ "redispatched": {
+  "model_bullet_parameter_count_drift": 1
+ }
+}

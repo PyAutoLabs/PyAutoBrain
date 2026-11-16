@@ -24,6 +24,14 @@ LOGIN = "example-human"
 PAST_GRACE = NOW + _dt.timedelta(minutes=1, seconds=orch.STALL_GRACE_S)
 
 
+@pytest.fixture(autouse=True)
+def _issue_reads_answer(monkeypatch):
+    """The shift issue's comments read answers "no comments" — these tests are
+    about mentions, not steering, and never reach GitHub. A read that failed
+    three ticks in a row would be its own needs-you event (#644)."""
+    monkeypatch.setattr(orch, "gh_issue_comments", lambda issue, since, run=None: [])
+
+
 class FakeGh:
     """`gh issue comment`: records argv and the body; fails the first `fail` calls."""
 

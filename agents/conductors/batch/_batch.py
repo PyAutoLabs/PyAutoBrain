@@ -131,9 +131,11 @@ def declared_repos(p: dict) -> list[str]:
     return sorted(out) or list(p.get("repos") or [])
 
 
-def grade(path: Path, mind: Path) -> dict:
-    """Everything the planner needs about one prompt, from the faculty."""
-    p = parse_prompt(path, mind)
+def grade(path: Path, mind: Path, text: str | None = None) -> dict:
+    """Everything the planner needs about one prompt, from the faculty.
+    `text`, when given, is the prompt's content (`grade_text`): nothing else
+    is read by path."""
+    p = parse_prompt(path, mind, text=text)
     level, score, factors, derived = effective_difficulty(p)
     tier, why, _ = effective_consequence(p, factors)
     ready, ready_why, _ = effective_unattended(p, level, factors, derived)
@@ -230,6 +232,21 @@ def survey(mind: Path) -> list[dict]:
         g["title"] = _title_of(text)
         out.append(g)
     return out
+
+
+def grade_text(text: str, rel: str, mind: Path) -> dict:
+    """One `survey` record from a prompt's text as Mind origin/main holds it
+    (`/add`, PyAutoBrain#644): the canonical working tree nobody pulls
+    mid-shift may not have it yet. `rel` is its Mind-relative path."""
+    g = grade(Path(mind) / rel, Path(mind), text=text)
+    g["path"] = rel
+    g["looks_shipped"] = rel in _shipped.flagged_paths(mind)
+    g["epic"] = _epic_of(text)
+    g["phase"] = _phase_of(text)
+    g["done"] = _is_done(text)
+    g["themes"] = _themes_of(text)
+    g["title"] = _title_of(text)
+    return g
 
 
 def _title_of(text: str) -> str:
@@ -2931,9 +2948,10 @@ def main(argv=None) -> int:
                          "both fail closed; AUTONOMY.md M2 rulings)")
     ap.add_argument("--json", action="store_true", dest="as_json")
     # brief / plan
-    ap.add_argument("--check", default="", metavar="FILE",
+    ap.add_argument("--check", default="", metavar="FILE", nargs="?", const=True,
                     help="brief: validate this shift brief against "
-                         "PyAutoMind/batches/AGENTS.md")
+                         "PyAutoMind/batches/AGENTS.md; watch --stream: only say "
+                         "whether the stream is attachable now (no FILE)")
     ap.add_argument("--new", default="", metavar="SLOT",
                     help="brief: print a skeleton shift brief for SLOT (e.g. "
                          "2026-11-14-am) whose goals: come from goals.md; "
@@ -2971,6 +2989,14 @@ def main(argv=None) -> int:
                     help="watch: print one snapshot and exit")
     ap.add_argument("--interval", type=float, default=30.0,
                     help="watch: seconds between refreshes (at least 30)")
+    ap.add_argument("--stream", action="store_true",
+                    help="watch: print the shift's events, one plain line each, "
+                         "until the shift ends (the cockpit's watch; local reads only)")
+    ap.add_argument("--from", type=int, default=None, dest="from_seq", metavar="SEQ",
+                    help="watch --stream: print every event after this seq first")
+    ap.add_argument("--for", type=float, default=None, dest="for_min", metavar="MIN",
+                    help="watch --stream: end this segment after MIN minutes "
+                         "(prints `segment-end next=--from N`, exit 3)")
     # premise (and the premise leg of `brief --check`)
     ap.add_argument("--root", type=Path, default=None,
                     help="premise: the workspace root holding the repo checkouts "
@@ -3190,12 +3216,29 @@ def _main_digest(mind: Path, a) -> int:
 
 def _main_watch(a) -> int:
     """`batch watch --record <file> [--once] [--interval N]` — a live view of a
-    running shift; writes nothing anywhere (`_watch`)."""
+    running shift; writes nothing anywhere (`_watch`). With `--stream`, the
+    shift's event stream (`_watch.stream`, PyAutoBrain#644)."""
+    import _watch
+    if isinstance(a.check, str) and a.check:
+        print("batch watch: --check takes no file (the record is --record)", file=sys.stderr)
+        return RC_USAGE
+    if a.stream or a.check is True:
+        env = _watch.env_file()
+        record = Path(a.record or env.get("PYAUTO_SHIFT_BRIEF") or "")
+        if not str(record) or not record.is_file():
+            print(f"batch watch --stream: no brief record ({record or 'none'}; pass --record "
+                  "or set PYAUTO_SHIFT_BRIEF in the orchestrator env file)", file=sys.stderr)
+            return RC_USAGE
+        home = a.home or (Path(env["PYAUTO_ORCHESTRATOR_HOME"])
+                          if env.get("PYAUTO_ORCHESTRATOR_HOME") else None)
+        import _orchestrator
+        return _watch.stream(record, _orchestrator.slot_dir(record, home),
+                             from_seq=a.from_seq, for_min=a.for_min, as_json=a.as_json,
+                             check=a.check is True)
     if not a.record:
         print("batch watch: --record <file> is required", file=sys.stderr)
         return RC_USAGE
     import _orchestrator
-    import _watch
     record = Path(a.record)
     if not record.is_file():
         print(f"batch watch: no such brief record {record}", file=sys.stderr)
@@ -3327,6 +3370,9 @@ def _main_brief(mind: Path, a) -> int:
     """`batch brief --check <file>` — read-only; exit 0 valid, 1 refused.
     `batch brief --new <slot> --review-at <ISO>` — print (or `--out`) a
     skeleton brief whose goals come from goals.md."""
+    if a.check is True:
+        print("batch brief --check: name the brief FILE to check", file=sys.stderr)
+        return RC_USAGE
     if a.new:
         if a.check:
             print("batch brief: --new and --check are separate runs", file=sys.stderr)

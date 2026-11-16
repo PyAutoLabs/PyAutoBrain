@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import subprocess
 import sys
 from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRAIN / "tests"))
@@ -497,3 +500,360 @@ def test_a_create_that_timed_out_after_landing_is_adopted_not_reposted(tmp_path,
     _tick(brief, mind, home, 6, claude, gh, {"t1": "working"})
     assert gh.calls.count("create") == 1 and len(gh.status()) == 1
     assert json.loads((slot / orch.STATUS_MARKER).read_text())["state"] == "posted"
+
+
+# --- `/cap`, `/add`, `/kill` (PyAutoBrain#644; human rulings H5, H6, H8) ------------------
+#
+# Each test below fails on the code before #644: there the comment is not a
+# command at all (`_COMMAND_RE` knew four verbs), so no ack is recorded.
+
+def _acks(slot) -> dict[str, str]:
+    return {c["command"]: c["ack"] for c in orch.read_counters(slot)["commands"]}
+
+
+def test_the_new_verbs_parse_and_the_old_ones_take_one_argument_as_before():
+    assert orch._parse_command("/cap merges 1\n(said in the cockpit)") == ("cap", "merges 1")
+    assert orch._parse_command("/add draft/feature/x/y.md") == ("add", "draft/feature/x/y.md")
+    assert orch._parse_command("/kill `t1`") == ("kill", "t1")
+    assert orch._parse_command("/drop a b") is None and orch._parse_command("/caps 1") is None
+    assert orch._parse_command("/cap merges 1 2") is None
+
+
+def _merge_cap(n: int):
+    return lambda text: text.replace("  - merge-cap: 0\n", f"  - merge-cap: {n}\n")
+
+
+def _cap_shift(tmp_path, monkeypatch, names=("t1",), merge_cap=2):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch, names=names)
+    brief.write_text(_merge_cap(merge_cap)(brief.read_text()))
+    return mind, brief, home, slot
+
+
+@pytest.mark.parametrize("comment,ack", [
+    ("/cap", "ignored: /cap takes merges, workers, sessions or tokens"),
+    ("/cap budget 3", "ignored: /cap takes merges, workers, sessions or tokens"),
+    ("/cap merges many", "ignored: /cap needs a whole number"),
+    ("/cap workers 1.5k", "ignored: /cap needs a whole number"),
+    ("/cap merges 3", "refused: /cap merges 3 is above this brief's merge-cap 2. "
+                      "A higher cap needs a new brief."),
+    ("/cap tokens 1.2M", "refused: /cap tokens 1.2M is above this brief's token-budget 100000. "
+                         "A higher cap needs a new brief."),
+    ("/cap sessions 7", "refused: /cap sessions 7 is above this brief's max-sessions 6. "
+                        "A higher cap needs a new brief."),
+])
+def test_cap_ignored_and_refused_acks_change_nothing(tmp_path, monkeypatch, comment, ack):
+    mind, brief, home, slot = _cap_shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.add(LOGIN, comment, -5)
+    r = _tick(brief, mind, home, 0, claude, gh)
+    assert r["commands"][0]["ack"] == ack
+    assert "caps" not in orch.read_counters(slot) and _spawned(claude) == ["shift:t1"]
+
+
+def test_cap_merges_binds_the_close_out_gate_on_the_tick_that_reads_it(tmp_path, monkeypatch):
+    mind, brief, home, slot = _cap_shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    pr = "https://github.com/example-org/example-repo/pull/7"
+    (slot / "leases" / "t1.done").write_text(pr + "\n")
+    gh.add(LOGIN, "/cap merges 0", 2)
+    r = _tick(brief, mind, home, 3, claude, gh, {"t1": "done"}, health="HEALTHY")
+    assert r["commands"][0]["ack"] == ("merge-cap now 0 of this brief's 2 (0 merged so far): "
+                                       "no new close-out starts.")
+    c = orch.read_counters(slot)
+    assert c["closeouts"][pr] == {"task": "t1", "state": "refused",
+                                  "why": "merge-cap 0 reached this shift"}
+    assert c["caps"]["merge-cap"] | {"at": "x"} == {"value": 0, "by": LOGIN, "at": "x",
+                                                    "was": 2, "brief": 2}
+    assert "- merges: 0 of 0 (0 unattended)" in gh.status()[0]["body"]
+    digest = orch._digest.build(orch._brief.effective(
+        orch._brief.parse(brief.read_text())["brief"], c), slot, c, health=lambda u: "HEALTHY")
+    assert "- cap override: merge-cap 2 → 0 (/cap by example-human at 09:02Z)" in digest
+
+
+def test_cap_workers_holds_new_spawns_and_never_stops_a_running_worker(tmp_path, monkeypatch):
+    mind, brief, home, slot = _cap_shift(tmp_path, monkeypatch, names=("t1", "t2", "t3"))
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.add(LOGIN, "/cap workers 1", -5)
+    r = _tick(brief, mind, home, 0, claude, gh)
+    assert r["commands"][0]["ack"] == "max-workers now 1 of 2."
+    assert _spawned(claude) == ["shift:t1"]
+    assert {x["why"] for x in r["refused"]} == {"max-workers 1 reached"}
+    gh.add(LOGIN, "/cap workers 0", 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == ("max-workers now 0 of 2. 1 still running are not "
+                                       "stopped; no new spawn until fewer than 0.")
+    assert r["live"] == ["t1"]                                  # never killed
+    gh.add(LOGIN, "/cap workers 2", 3)                          # raised back to the brief's
+    r = _tick(brief, mind, home, 4, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == "max-workers now 2 of 2."
+    assert _spawned(claude) == ["shift:t1", "shift:t2"]
+
+
+def test_cap_sessions_holds_new_spawns(tmp_path, monkeypatch):
+    mind, brief, home, slot = _cap_shift(tmp_path, monkeypatch, names=("t1", "t2"))
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.add(LOGIN, "/cap sessions 1", -5)
+    r = _tick(brief, mind, home, 0, claude, gh)
+    assert r["commands"][0]["ack"] == "max-sessions now 1 of 6 (0 started)."
+    assert _spawned(claude) == ["shift:t1"] and r["refused"] == [
+        {"task": "t2", "why": "max-sessions 1 reached"}]
+
+
+def test_cap_tokens_takes_k_and_m_and_lowers_the_spawn_budget(tmp_path, monkeypatch):
+    mind, brief, home, slot = _cap_shift(tmp_path, monkeypatch, names=("t1", "t2"))
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.add(LOGIN, "/cap tokens 0.01k", -5)
+    gh.now = _at(0)
+    r = orch.tick(brief, mind, home=home, now=_at(0), grace_s=0, token_reserve=50,
+                  spawner=orch.RealSpawner(brief, "auto", run=claude),
+                  agents=orch.AgentsView([]), tokens=lambda s: 0, github=gh,
+                  whoami=lambda: BOT, poster=lambda i, b: {"posted": False, "retry": False})
+    assert r["commands"][0]["ack"] == "token-budget now 10 of 100000 (0 committed)."
+    assert _spawned(claude) == [] and all(x["why"].startswith("token-budget 10:")
+                                          for x in r["refused"])
+    assert orch.read_counters(slot)["token_budget"] == 100000    # the brief's own, for estimates
+    assert "- tokens: 0 of 10" in gh.status()[0]["body"]
+
+
+# /add: a draft filed mid-shift, on Mind origin/main only.
+
+ADD_PROMPT = """\
+# {name}
+
+Type: feature
+Target: {target}
+Repos:
+- {target}
+Difficulty: small
+Autonomy: supervised
+Priority: normal
+Status: formalised
+Consequence: glance
+Witness: a unit test
+Review-minutes: 3
+Unattended: ready
+{lane}
+Body.
+"""
+
+
+def _add_shift(tmp_path, monkeypatch, drafts=(), active="", brief_edit=None):
+    """A git-backed shift (`t1` named) whose Mind origin/main gains `drafts`
+    — (path, target, lane) — from another clone after the first tick, so only
+    `/add`'s own fetch can see them."""
+    monkeypatch.setenv(orch.MENTION_ENV, LOGIN)
+    t, bare, canon, brief, home = d._git_shift(tmp_path, monkeypatch)
+    text = brief.read_text().replace(
+        "- review-at: 2026-11-04T11:30Z\n", f"- review-at: 2026-11-04T11:30Z\n- issue: {ISSUE}\n")
+    brief.write_text(brief_edit(text) if brief_edit else text)
+
+    def publish():
+        other = tmp_path / "other"
+        t.git(tmp_path, "clone", "-q", str(bare), str(other))
+        t.git(other, "config", "user.name", "Test")
+        t.git(other, "config", "user.email", "test@example.invalid")
+        for rel, target, lane in drafts:
+            f = other / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(ADD_PROMPT.format(name=Path(rel).stem, target=target,
+                                           lane=f"Lane: {lane}\n" if lane else ""))
+        if active:
+            (other / "active.md").write_text((other / "active.md").read_text() + active)
+        t.git(other, "add", "-A")
+        t.git(other, "commit", "-q", "-m", "filed mid-shift")
+        t.git(other, "push", "-q", "origin", "HEAD:main")
+    return canon, brief, home, orch.slot_dir(brief, home), publish
+
+
+#: A library repo from the body map (never typed: the tenant firewall).
+import _batch  # noqa: E402
+LIB = max(r for r in _batch.LIBRARY_REPOS if not _batch.self_organ_why({"target": r}))
+X = f"draft/feature/{LIB}/x.md"
+
+
+def test_add_makes_a_draft_filed_mid_shift_a_named_task_and_starts_it(tmp_path, monkeypatch):
+    mind, brief, home, slot, publish = _add_shift(
+        tmp_path, monkeypatch, drafts=[(X, LIB, "local-dev")])
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    publish()
+    assert not (mind / X).exists()                       # never pulled into the checkout
+    gh.add(LOGIN, "/add x\n(said in the cockpit: \"also do x\")", 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == ("added x (glance): starts this tick; "
+                                       "max-workers 2, 1 running.")
+    assert _spawned(claude) == ["shift:t1", "shift:x"]
+    c = orch.read_counters(slot)
+    assert c["added"]["x"]["prompt"] == X and c["picks"]["x"]["prompt"] == X
+    assert (slot / "added" / "x.md").read_text().startswith("# x")
+    assert "- **Still running** — x" in gh.status()[0]["body"]
+    snap = _watch.snapshot(brief, slot, _at(3), agents=orch.AgentsView([]),
+                           health=lambda u: "RUNNING")
+    assert {r["task"]: r["why"] for r in snap["tasks"]}["x"] == "added by /add"
+
+
+@pytest.mark.parametrize("case,drafts,arg,ack", [
+    ("not on origin", [], "nothere",
+     "ignored: no prompt nothere.md on Mind origin/main (filed? pushed?)"),
+    ("not on origin by path", [], f"draft/feature/{LIB}/nothere.md",
+     f"ignored: no prompt draft/feature/{LIB}/nothere.md on Mind origin/main (filed? pushed?)"),
+    ("two drafts", [(X, LIB, "local-dev"),
+                    (f"draft/bug/{LIB}/x.md", LIB, "local-dev")], "x",
+     "ignored: x.md names 2 drafts: give the path"),
+    ("already named", [], "t1", "ignored: t1 is already in this shift (running)"),
+    ("no lane", [(X, LIB, None)], "x",
+     "refused: x: no Lane: line (lane absent — unattended picks fail closed; declare a Lane)"),
+    ("organ", [("draft/feature/pyautomind/x.md", "PyAutoMind", "local-dev")], "x",
+     "refused: x targets PyAutoMind — a shift never changes its own watcher, writer or release "
+     "path (the organ rule: /add never overrides it)"),
+    ("lane outside the brief", [(X, LIB, "ral")], X,
+     "refused: x: lane ral not in the brief's lanes"),
+])
+def test_add_ignored_and_refused_acks(tmp_path, monkeypatch, case, drafts, arg, ack):
+    mind, brief, home, slot, publish = _add_shift(tmp_path, monkeypatch, drafts=drafts)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    if drafts:
+        publish()
+    gh.add(LOGIN, f"/add {arg}", 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == ack, case
+    assert _spawned(claude) == ["shift:t1"] and "added" not in orch.read_counters(slot)
+
+
+def test_add_is_refused_on_a_claim_on_mind_origin(tmp_path, monkeypatch):
+    mind, brief, home, slot, publish = _add_shift(
+        tmp_path, monkeypatch, drafts=[(X, LIB, "local-dev")],
+        active="\n## x\n- prompt: active/x.md\n")
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    publish()
+    gh.add(LOGIN, "/add x", 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == "refused: x: claimed in active.md on Mind origin/main"
+
+
+def test_add_overrides_the_briefs_exclude_list(tmp_path, monkeypatch):
+    mind, brief, home, slot, publish = _add_shift(
+        tmp_path, monkeypatch, drafts=[(X, LIB, "local-dev")],
+        brief_edit=lambda s: s.replace("  - backlog: none\n",
+                                       f"  - backlog: none\n  - exclude:\n    - {X}\n"))
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    publish()
+    gh.add(LOGIN, "/add x", 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == ("added x (glance) (was excluded in the brief): starts "
+                                       "this tick; max-workers 2, 1 running.")
+    assert _spawned(claude) == ["shift:t1", "shift:x"]
+
+
+def test_add_is_refused_within_thirty_minutes_of_review_at(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.add(LOGIN, "/add x", 1)
+    r = _tick(brief, mind, home, 121, claude, gh)              # 11:01Z, review-at 11:30Z
+    assert r["commands"][0]["ack"] == ("refused: /add within 30 min of review-at. "
+                                       "A worker needs longer.")
+
+
+def test_add_is_refused_in_a_shadow_shift(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch, extra="  - shadow: yes\n")
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    gh.add(LOGIN, "/add x", 1)
+    r = _tick(brief, mind, home, 2, claude, gh)
+    assert r["commands"][0]["ack"] == "refused: shadow shift: nothing is dispatched."
+
+
+# /kill: `claude stop` is a fake on PATH; no session is ever started or stopped.
+
+def _fake_claude_bin(tmp_path, monkeypatch, rc=0):
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    log = tmp_path / "claude_calls.log"
+    (bindir / "claude").write_text(
+        "#!/bin/sh\n"
+        f"echo \"$@\" >> {log}\n"
+        + ("echo 'Error: no such session' >&2\n" if rc else "echo 'stopped'\n")
+        + f"exit {rc}\n")
+    (bindir / "claude").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    return log
+
+
+def test_kill_stops_the_worker_and_it_is_restarted_once_as_killed(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    log = _fake_claude_bin(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    gh.add(LOGIN, "/kill t1", 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == ("stopping t1's worker 00000001 (claude stop). "
+                                       "It is restarted once, unless you /drop t1.")
+    assert log.read_text() == "stop 00000001\n"
+    r = _tick(brief, mind, home, 4, claude, gh, {"t1": "stopped"})
+    assert r["reaped"] == [{"task": "t1", "event": "dead", "redispatch": "allowed",
+                            "killed": True}]
+    assert _spawned(claude) == ["shift:t1", "shift:t1"]          # re-dispatched once
+    c = orch.read_counters(slot)
+    assert c["workers"][0]["exits"] == ["spawned", "killed"] and c["crashes"] == 0
+    assert c["killed"]["t1"]["by"] == LOGIN and c["redispatched"] == {"t1": 1}
+    assert orch._digest.workers_crashed(c) == 0
+    lines = [e["line"] for e in orch._events.read_events(slot) if e["kind"] in
+             ("steer", "crashed", "redispatched")]
+    assert lines == ["/kill t1 from example-human: stopping t1's worker 00000001 (claude stop). "
+                     "It is restarted once, unless you /drop t1.",
+                     "Worker on t1 stopped by /kill. It restarts once.",
+                     "Restarted t1 (its one retry)."]
+
+
+def test_drop_then_kill_is_final(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    _fake_claude_bin(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    gh.add(LOGIN, "/drop t1", 1)
+    gh.add(LOGIN, "/kill t1", 1.5)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][1]["ack"] == ("stopping t1's worker 00000001 (claude stop). "
+                                       "It is not restarted: t1 was dropped.")
+    _tick(brief, mind, home, 4, claude, gh, {"t1": "stopped"})
+    assert _spawned(claude) == ["shift:t1"]
+
+
+@pytest.mark.parametrize("comment,rc,ack", [
+    ("/kill", 0, "ignored: /kill needs a task name"),
+    ("/kill t9", 0, "ignored: no running worker for t9"),
+    ("/kill t1", 1, "refused: claude stop failed: Error: no such session. Stop it by hand: "
+                    "claude stop 00000001"),
+])
+def test_kill_ignored_and_refused_acks_stop_nothing(tmp_path, monkeypatch, comment, rc, ack):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    _fake_claude_bin(tmp_path, monkeypatch, rc=rc)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    gh.add(LOGIN, comment, 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][0]["ack"] == ack
+    assert "killed" not in orch.read_counters(slot)
+    (e,) = [e for e in orch._events.read_events(slot) if e["kind"] == "steer"]
+    assert e["needs_you"]                                       # an ignored/refused ack
+
+
+def test_kill_a_second_time_is_ignored(tmp_path, monkeypatch):
+    mind, brief, home, slot = _shift(tmp_path, monkeypatch)
+    log = _fake_claude_bin(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    gh.add(LOGIN, "/kill t1", 1)
+    gh.add(LOGIN, "/kill t1", 1.5)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    assert r["commands"][1]["ack"].startswith("ignored: t1's worker 00000001 is already stopping")
+    assert log.read_text() == "stop 00000001\n"
+
+
+def test_command_help_lists_every_verb():
+    assert {"add", "cap", "kill"} <= set(orch.COMMANDS)
+    for verb in orch.COMMANDS:
+        assert f"`/{verb}" in _watch.COMMAND_HELP
