@@ -1,18 +1,23 @@
 # /cockpit — watch a shift and steer it from chat
 
-The shift watcher (a timer, not a session) is the engine. It writes one line per
-event to the shift's `events.jsonl`, and `pyauto-brain batch watch --stream`
-prints them (PyAutoBrain#644). This chat only reads that stream and posts
-steering comments on the shift issue, which the watcher reads on its next tick
-(about 3 minutes). Closing the chat changes nothing about the shift.
-
+The shift watcher (a timer, not a session) writes each event to the shift's
+`events.jsonl`; `pyauto-brain batch watch --stream` prints them (#644). This
+chat reads that stream and steers only by comments on the shift issue, which
+the watcher reads each tick (about 3 min); closing the chat changes nothing.
 The watch is the one carve-out from "sessions end at their deliverable"
-(PyAutoMind `policy/shift_cockpit_watch.md`). The end-at-deliverable hook
-enforces it: it lets through only the canonical stream command below, inside
-the shift's window. If the hook refuses a Monitor, relay its reason in one line
-and stop. Never retry it in another form.
+(PyAutoMind `policy/shift_cockpit_watch.md`); the hook lets through only the
+canonical command below, inside the window. If it refuses a Monitor, relay
+its reason in one line and stop. Never retry it in another form.
 
 Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
+
+## Attach only when asked
+
+Arm the watch only on an explicit request for one: `/cockpit`, "/cockpit
+watch", "watch the shift", "start the cockpit" (policy condition 1: the human
+asked for it in this session). A question ("what's the shift doing?", "is
+anything stuck?") gets a one-shot answer from `batch watch --once` or the reads
+in section 7, with no Monitor; offer the watch in one line if it would help.
 
 ## The rule of this chat
 
@@ -104,13 +109,14 @@ within 2 ticks (about 6 min), or `steer-unread` arrives, say so once.
 | "pause", "hold off", "stop starting things" | `/pause` | no |
 | "carry on", "resume" | `/resume` | no |
 | "drop the PyAutoLens one", "forget X" | `/drop <task>` | no |
-| "stop the shift", "kill everything" | `/stop` | **yes**: echo the comment, wait for "yes" (the watcher stops for good until `STOP` is removed by hand) |
+| "stop the shift", "kill everything" | `/stop` | **yes**: "This stops new work; running workers continue — kill each with /kill <task>?" Post `/stop` on "yes" (the watcher stops for good until `STOP` is removed by hand). Then offer each running worker's `/kill <task>` as its own confirmed comment |
 | "kill that worker and retry", "restart X" | `/kill <task>` | **yes**, one line |
 | "kill X and don't retry" | `/drop <task>`, then `/kill <task>` (two comments, in that order) | **yes** |
 | "also do <prompt>", a pasted task | `/add <draft path>` after the premise check below | no |
-| "only one more merge", "no more merges" | `/cap merges <n>` | no |
-| "fewer workers", "one worker only" | `/cap workers <n>` | no |
-| "keep it under 400k" | `/cap tokens 400000` | no |
+| "only one more merge", "no more merges" | `/cap merges <n>`, n as below | **yes**, with n shown |
+| "one worker only" (a number) | `/cap workers <n>` | **yes**, with n shown |
+| "fewer workers" (no number) | nothing yet: ask "how many workers at most?" | ask |
+| "keep it under 400k" | `/cap tokens 400000` | **yes**, with n shown |
 | "merge #347" | not a comment: the `/prm` procedure on that PR, in this chat. If a close-out is `running` on it, say so and ask the human to wait or `/drop` first | /prm's own |
 | "put X on the queue", "move X up" | not a shift command: the `/queue` procedure | /queue's own |
 | "go through my questions", "answer Q17" | not a shift command: `/questions` (section 6) | n/a |
@@ -124,25 +130,32 @@ within 2 ticks (about 6 min), or `steer-unread` arrives, say so once.
   30 min before `review-at`, lanes, claims, organ rule) answer in the ack.
 - **`/cap`** sets `merges`, `workers`, `sessions` or `tokens` for the rest of
   the shift, never above the brief's own value (the watcher refuses that).
+  `merges` counts the **whole shift**, not merges from now on: read merged
+  and running close-outs from `batch watch --once` first, then "one more
+  merge" is n = merged + running + 1, and "no more merges" is
+  n = merged + running. Confirm every `/cap` in one line with the number,
+  e.g. "Post `/cap merges 3` (2 merged, 0 running, so one more)?"
+- **Unclear wording: ask.** Never guess a verb, a task or a number. One short
+  question, then post on the answer.
 - Only the verbs above; the watcher ignores any other first line.
+
+## Stop watching
+
+On "stop watching" or "close the cockpit", stop the Monitor with `TaskStop`
+and say "Stopped watching; the shift carries on." The shift is unaffected (to
+stop it, that is `/stop`). Do not arm again unless asked.
 
 ## 6. Questions
 
 Parked workers' questions go to the Mind inbox `questions.md`, answered through
-`/questions` (Build B), never in this chat's steering. Count the open ones at
-attach and at shift end, from Mind `origin/main` (one foreground fetch, then a
-local read):
-
-```bash
-git -C <MIND> fetch -q origin && git -C <MIND> show origin/main:questions.md
-```
-
-Count the `### Q<n>` entries under `## Open`. It is a reminder, never a demand.
-When the human says "go through my questions" (or "now" at shift end), hand
-over to the `/questions` skill. If `questions.md` is not on Mind `origin/main`,
-or the `/questions` skill is not installed, say "the questions inbox is not
-installed yet; parked questions are in the digest and on the shift issue" and
-leave the count out.
+`/questions`, never by steering. At attach and at shift end, after one
+foreground `git -C <MIND> fetch -q origin`, count the `### Q<n>` entries under
+`## Open` in `git -C <MIND> show origin/main:questions.md`: a reminder, never a
+demand. "Go through my questions" (or "now" at shift end) hands over to
+`/questions`. If `questions.md` is not on Mind `origin/main`, or the
+`/questions` skill is not installed, say "the questions inbox is not installed
+yet; parked questions are in the digest and on the shift issue" and leave the
+count out.
 
 ## 7. Answering questions about the shift
 

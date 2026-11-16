@@ -12,7 +12,9 @@ and stop here.
 
 **Not in a cockpit chat.** If `/cockpit` ran earlier in this chat, the same
 paste means "`/add` it to the running shift": follow
-[`../cockpit/cockpit.md`](../cockpit/cockpit.md) and stop here.
+[`../cockpit/cockpit.md`](../cockpit/cockpit.md) and stop here. If both
+`/queue` and `/cockpit` ran in this chat, ask whether the paste is for the
+queue or the shift, and stop here.
 
 Follow [`start_dev.md`](start_dev.md) in this directory exactly — the
 authoritative workflow body. `reference.md` holds the long-form templates and

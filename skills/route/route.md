@@ -28,7 +28,9 @@ route a pasted task into development when the human says so in words.
 If `/cockpit` ran earlier in this chat, a pasted prompt, prompt path, task
 title or dashboard 📋 line means "`/add` it to the shift": follow
 [`cockpit`](../cockpit/cockpit.md), never `/start_dev`. Only route a pasted
-task into development when the human says so in words.
+task into development when the human says so in words. If both `/queue` and
+`/cockpit` ran in this chat, ask which one the paste is for: the queue or this
+shift.
 
 ## Classify → dispatch
 

@@ -156,7 +156,7 @@ def test_the_only_re_arm_is_at_segment_end():
     assert "segment-end next=--from N" in proc
     assert "This is the only re-arm." in proc
     assert "Do not arm again." in proc
-    assert "re-arming after any exit but\n  `segment-end`" in proc
+    assert "re-arming after any exit but `segment-end`" in " ".join(proc.split())
 
 
 def test_only_needs_you_lines_are_pushed():
@@ -187,7 +187,9 @@ def test_the_steering_table_covers_exactly_the_watchers_verbs():
     comments = [cell for cell in cells if cell.startswith("`/")]
     named = set(re.findall(r"`/([a-z]+)\b", " ".join(comments)))
     assert named == set(_watcher_verbs()), named
-    assert all(cell.startswith("not ") for cell in cells if cell not in comments)
+    # The rest route elsewhere ("not a comment: …") or ask first ("nothing yet: ask").
+    assert all(cell.startswith(("not ", "nothing yet: ask")) for cell in cells
+               if cell not in comments)
 
 
 @pytest.mark.parametrize("verb", ["/stop", "/kill"])
@@ -211,7 +213,7 @@ def test_questions_go_to_the_questions_skill_and_degrade_without_it():
     proc = _procedure()
     assert "`/questions`" in proc
     assert "origin/main:questions.md" in proc
-    assert "the questions inbox is not\ninstalled yet" in proc
+    assert "the questions inbox is not installed yet" in " ".join(proc.split())
 
 
 def test_the_skill_ships_and_says_a_paste_is_an_add():
@@ -238,3 +240,50 @@ def test_the_skill_is_discoverable():
     assert (BRAIN / ".claude" / "skills" / "cockpit").resolve() == SKILL
     assert (BRAIN / ".codex" / "skills" / "cockpit").resolve() == SKILL
     assert (BRAIN / ".claude" / "commands" / "cockpit.md").read_text() == _procedure()
+
+
+# -- review findings (attach only when asked; /cap, /stop; stop watching) -----
+
+def test_a_question_gets_a_one_shot_read_not_a_watch():
+    front = _front(SKILL / "SKILL.md")
+    assert "what's the shift doing" not in front["description"]
+    assert "never a watch" in front["description"]
+    proc = _procedure()
+    assert "## Attach only when asked" in proc
+    assert proc.index("## Attach only when asked") < proc.index("## 3. Attach")
+    assert "with no Monitor" in proc
+
+
+@pytest.mark.parametrize("verb", ["/cap merges", "/cap workers", "/cap tokens"])
+def test_every_cap_is_confirmed_with_its_number(verb):
+    rows = [line for line in _procedure().splitlines()
+            if line.startswith("| \"") and f"`{verb}" in line.split("|")[2]]
+    assert rows and all("**yes**, with n shown" in row for row in rows), rows
+
+
+def test_the_merge_cap_counts_the_whole_shift():
+    proc = _procedure()
+    assert "n = merged + running + 1" in proc
+    assert "counts the **whole shift**" in proc
+    assert "\"fewer workers\" (no number) | nothing yet: ask" in proc
+    assert "Never guess a verb, a task or a number." in proc
+
+
+def test_stop_says_running_workers_continue_and_offers_kills():
+    row = next(line for line in _procedure().splitlines()
+               if line.startswith("| \"stop the shift\""))
+    assert "running workers continue" in row
+    assert "/kill <task>" in row and "own confirmed comment" in row
+
+
+def test_stop_watching_stops_the_monitor_only():
+    proc = _procedure()
+    assert "## Stop watching" in proc and "`TaskStop`" in proc
+    assert "the shift carries on" in proc
+
+
+def test_a_paste_in_a_queue_and_cockpit_chat_is_asked_about():
+    route = (BRAIN / "skills" / "route" / "route.md").read_text()
+    start = (BRAIN / "skills" / "start_dev" / "SKILL.md").read_text()
+    assert "If both `/queue` and\n`/cockpit` ran in this chat, ask" in route
+    assert "If both\n`/queue` and `/cockpit` ran in this chat, ask" in start
