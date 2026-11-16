@@ -54,6 +54,16 @@ def _issue_reads_answer(monkeypatch):
     monkeypatch.setattr(orch, "gh_issue_comments", lambda issue, since, run=None: [])
 
 
+@pytest.fixture(autouse=True)
+def _scratch_mind_writes_nothing(monkeypatch):
+    """The scratch Mind here is not a git Mind, so the questions a park now
+    files (`question-add`, #645) could only fail to commit — itself a
+    needs-you event (#644). These tests are about mentions: the ops stay
+    pending, unread; `test_questions_inbox.py` lands them on a real Mind."""
+    monkeypatch.setattr(orch._mind_writer, "commit_ledger",
+                        lambda *a, **k: {"committed": None, "ops": 0})
+
+
 class FakeGh:
     """`gh issue comment`: records argv and the body; fails the first `fail` calls."""
 

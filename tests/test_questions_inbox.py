@@ -74,6 +74,15 @@ def _tick(brief, mind, home, now, claude, gh, agents=None):
                      poster=lambda issue, body: orch.gh_comment(issue, body, run=gh))
 
 
+def _mentions(gh):
+    """Comment bodies that @-mention or name a worker as needing the human
+    (#611's mention form). Build A's needs-you event comments (`Shift … needs
+    you: <event>`, no `@`) are not mentions; a scratch Mind triggers them."""
+    bodies = [Path(a[a.index("--body-file") + 1]).read_text() for a in gh.calls
+              if "--body-file" in a]
+    return [b for b in bodies if "@" in b or "the worker on" in b]
+
+
 def _ops(slot):
     return [json.loads(f.read_text()) for f in mw.pending_ops(slot)]
 
@@ -105,8 +114,8 @@ def test_two_parked_workers_give_two_ops_no_mention_and_one_digest_line(tmp_path
     assert e2["ask"] == _questions.NO_SIDECAR_ASK and e2["options"] == []
     assert all(mw.validate_op(o, type("lm", (), {"is_ledger_path": staticmethod(
         lambda p: p == "questions.md")})) == [] for o in ops)
-    # Zero @mentions: nothing posted at all mid-shift.
-    assert gh.calls == []
+    # Zero @mentions: no mention comment mid-shift.
+    assert _mentions(gh) == []
     c = orch.read_counters(slot)
     assert c["pushes"] == 0 and len(c["inbox"]) == 2
     # A re-tick queues nothing more.
@@ -129,7 +138,7 @@ def test_a_worker_blocked_past_the_grace_lands_a_blocked_entry_on_the_shift_issu
     _tick(brief, mind, home, NOW + _dt.timedelta(minutes=1), claude, gh, blocked())
     past = NOW + _dt.timedelta(minutes=1, seconds=orch.STALL_GRACE_S)
     r = _tick(brief, mind, home, past, claude, gh, blocked())
-    assert r["reaped"][0]["event"] == "parked" and gh.calls == []
+    assert r["reaped"][0]["event"] == "parked" and _mentions(gh) == []
     [op] = _ops(slot)
     assert op["entry"]["kind"] == "blocked" and op["entry"]["issue"] == ISSUE
     assert op["entry"]["ask"].startswith("the worker stopped at a prompt nobody answered "
@@ -763,3 +772,22 @@ def test_an_unfiled_question_is_named_in_the_digest(tmp_path):
     assert ("Inbox: not filed — `t1` (blocked): no shift issue on its lease (spawned before "
             "M3.5); see the task's issue or session yourself.") in text
     assert "Inbox: not filed — `t1` (question): issue `issue-70` is not an https URL" in text
+
+
+def test_the_stream_says_added_to_your_inbox_only_for_a_filed_question(tmp_path):
+    """Build A's `question` / `parked` stream lines (DESIGN §1.4) carry
+    "Added to your inbox." and `inbox: true` once the reap filed it (#645)."""
+    import _events
+    mind, brief, home, slot = _shift(tmp_path)
+    claude, gh = d.FakeClaude(), FakeGh()
+    _tick(brief, mind, home, NOW, claude, gh)
+    (slot / "leases" / "t1.done").write_text(f"question: {Q1}\n")
+    (slot / "leases" / "t2.done").write_text(
+        f"merged https://github.com/example-org/widgets/pull/9\nquestion: {Q2}\n")
+    _tick(brief, mind, home, NOW + _dt.timedelta(minutes=5), claude, gh,
+          d._agents({"t1": "done", "t2": "done"}, slot))
+    qs = {e["task"]: e for e in _events.read_events(slot) if e["kind"] == "question"}
+    assert qs["t1"]["line"] == "t1 parked with a question on widgets#70. Added to your inbox."
+    assert qs["t1"]["inbox"] is True and not qs["t1"]["needs_you"]
+    assert qs["t2"]["line"] == "t2 parked with a question on widgets#71."   # merged: not filed
+    assert "inbox" not in qs["t2"]

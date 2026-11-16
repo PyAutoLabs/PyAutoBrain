@@ -2547,7 +2547,8 @@ def _cmd_add(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
     kept, claimed = on_origin([rec], mind, set())
     if not kept:
         return f"refused: {task}: {claimed.get(rel) or 'claimed on Mind origin/main'}"
-    was_parked = task in parked_elsewhere(slot)
+    # The inbox's word on earlier parks (#645): an answered park is not "was parked".
+    was_parked = task in parked_elsewhere(slot, _questions.read_origin(mind))
     counters.setdefault("added", {})[task] = {"prompt": rel, "by": who, "at": at, "record": rec}
     notes = "".join([" (was excluded in the brief)" if excluded else "",
                      " (was parked)" if was_parked else ""])
