@@ -46,6 +46,12 @@ repo_aliases:
   pyautocti: autocti
   pyautoreduce: autoreduce
 
+# The library repos whose public names an unattended or tiered merge may not add
+# or rename (AUTONOMY.md "Public-name narrowing of `glance` — 2026-11-16",
+# PyAutoBrain#641; bin/public_names.py). Each one's package directory is its
+# body-map `package:`. One flow list on one line: read without PyYAML.
+public_name_libraries: [PyAutoFit, PyAutoArray, PyAutoGalaxy, PyAutoLens, PyAutoCTI]
+
 # Which body-map categories mean "library-flow" / "workspace-flow" /
 # "organism-infrastructure" to the sizing faculty; extra literal targets
 # that behave as workspace mentions.

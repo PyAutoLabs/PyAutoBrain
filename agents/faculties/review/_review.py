@@ -33,6 +33,11 @@ from _repo_paths import iter_checkouts, repo_path  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
 
+# The one public-name check (PyAutoBrain#641), shared with the close-out and
+# the tiered merge; it lives beside ci_verdict.py in bin/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
+import public_names  # noqa: E402
+
 WT_BASE = _pyauto_root.pyauto_wt_root()
 
 # Paths that smell like public API / behaviour when changed — flags only,
@@ -113,6 +118,11 @@ def repo_surface(repo: Path) -> dict | None:
             flags.append(name)
     if any(f.endswith(".py") and "test" not in f.lower() for f in changed):
         flags.append("python-source")
+    names = public_name_delta(repo, base)
+    if names and names["verdict"] == public_names.HIT:
+        flags.append("public-name-added-or-renamed")
+    elif names and names["verdict"] == public_names.CANNOT:
+        flags.append("public-names-cannot-tell")
     return {
         "repo": repo.name,
         "path": str(repo),
@@ -124,7 +134,20 @@ def repo_surface(repo: Path) -> dict | None:
         "files": files,
         "risk_flags": flags,
         "claims_to_falsify": claims,
+        **({"public_names": names} if names else {}),
     }
+
+
+def public_name_delta(repo: Path, base: str) -> dict | None:
+    """The public-name delta of a library repo's branch (AUTONOMY.md
+    "Public-name narrowing of `glance` — 2026-11-16"): added and renamed
+    names send the merge to a human `/prm`. None for a repo the ruling does
+    not cover."""
+    v = public_names.for_range(repo, f"{base}..HEAD")
+    if v.get("not_library"):
+        return None
+    keep = ("verdict", "added", "renamed", "removed", "cannot_tell")
+    return {**{k: v[k] for k in keep}, "reason": public_names.reason(v)}
 
 
 def in_place_repos(task: str) -> list[Path]:
@@ -208,6 +231,12 @@ def emit_human(surfaces: list[dict], witness: str = "", adversary: bool = False)
             print(f"     {f}")
         if len(s["files"]) > 40:
             print(f"     ... and {len(s['files']) - 40} more")
+        names = s.get("public_names")
+        if names:
+            print(f"   public names: {names['verdict']}"
+                  + (f" — {names['reason']}" if names["reason"] else ""))
+            for e in names["removed"]:
+                print(f"     info — removed: {e['module']}.{e['name']}")
         claims = s.get("claims_to_falsify") or []
         if claims:
             print("   claims to falsify (adversarial pass — for EACH: what would")

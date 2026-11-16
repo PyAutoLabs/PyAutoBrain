@@ -14,7 +14,16 @@ outcome — the human merges by `/prm` at check-in.
    head. Record what decided it.
 2. Review the diff adversarially: look for a changed default, a user-visible
    error message, a removed or weakened test, a renamed public thing, or a
-   wrong docs claim. Any one of them → refuse.
+   wrong docs claim. Any one of them → refuse. Added or renamed public
+   library names are decided by the one check (AUTONOMY.md "Public-name
+   narrowing of `glance` — 2026-11-16", PyAutoBrain#641). The watcher ran it
+   before starting you; run it again, as a second layer:
+
+       {public_names_cmd}
+
+   Exit 0 passes (a repo the ruling does not cover prints CLEAN). Exit 1 (a
+   public name added or renamed) or 2 (it cannot tell) refuses, with its first
+   output line as the `why`: `public name added/renamed: <names> → human /prm`.
 3. Refuse if the PR carries the `decision-taken` label, if its tier is not
    `glance`, or unless Heart's **scoped development-ship verdict** for the
    PR's repo ({pr_repos}) is `green` (AUTONOMY.md leg 4, PyAutoHeart#340):

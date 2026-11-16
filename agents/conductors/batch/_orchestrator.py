@@ -288,7 +288,9 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
     """The close-out session template filled in for one PR (phase 4b). Its
     Heart check is the scoped development-ship gate for the PR's repo (leg 4,
     PyAutoHeart#340): only `green` merges. Its CI check is `pyauto-brain
-    ci-verdict` on the PR (PyAutoBrain#628): only `GREEN` merges."""
+    ci-verdict` on the PR (PyAutoBrain#628): only `GREEN` merges. Its
+    public-name check is `pyauto-brain public-names` (PyAutoBrain#641): an
+    added or renamed public library name, or a diff it cannot read, refuses."""
     repos = pr_repos(pr_url)
     heart_cmd = (f"bash -c 'source \"{COMMON_SH}\"; consult_vitals_verdict --repos {repos}'"
                  if repos else "")
@@ -298,6 +300,8 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
         shift_ledger=SHIFT_LEDGER, pr_repos=repos or "(none — not a GitHub PR URL)",
         heart_cmd=heart_cmd or "(cannot be scoped — refuse)",
         ci_verdict_cmd=f"{BRAIN_CLI} ci-verdict {pr_url}" if repos
+        else "(not a GitHub PR URL — refuse)",
+        public_names_cmd=f"{BRAIN_CLI} public-names {pr_url}" if repos
         else "(not a GitHub PR URL — refuse)")
 
 
@@ -398,16 +402,38 @@ def run_scoped(run, argv: list[str], task: str, **kw):
     return res
 
 
+#: The verdict fields of a close-out the watcher refused before any session.
+PRESPAWN_GATE = "public-name check (watcher, before spawn)"
+PRESPAWN_MODEL = "none — no close-out session started"
+
+
+def public_names_gate(pr_url: str, check=None) -> str:
+    """The deterministic public-name check (AUTONOMY.md "Public-name
+    narrowing of `glance` — 2026-11-16", PyAutoBrain#641) on one PR, run by
+    the watcher before a close-out session spawns: '' to go on, else the
+    refusal's `why`. A repo outside the ruled libraries goes on; a hit or a
+    check that cannot tell refuses."""
+    try:
+        if check is None:
+            sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
+            import public_names as check  # noqa: E402 — bin/, beside ci_verdict.py
+        v = check.for_pr(pr_url)
+    except Exception as e:   # anything unexpected: fail closed
+        return f"public-name check could not tell: {str(e)[:200]} → human /prm"
+    return check.reason(v) if v.get("verdict") != "CLEAN" else ""
+
+
 class RealSpawner:
     """`claude --bg` workers from the session template (phase 3b)."""
 
     real = True
 
     def __init__(self, brief_path: Path, mode: str, cwd: Path | None = None, run=None,
-                 gh=None):
+                 gh=None, public_names=None):
         self.brief_path, self.mode, self.cwd = Path(brief_path), mode, cwd
         self.run = run or subprocess.run
         self.gh = gh or gh_pr_state
+        self.public_names = public_names or public_names_gate
 
     def pr_state(self, url: str) -> dict | None:
         """GitHub's word on a PR — the merge truth for a close-out (#603)."""
@@ -431,6 +457,15 @@ class RealSpawner:
         return {"pid": 0, "agent_id": m.group(1), "session_id": None, "mode": self.mode}
 
     def spawn_closeout(self, task: str, pr_url: str, prompt_path: str, lease_dir: Path) -> dict:
+        # The public-name check runs here, deterministically, before any
+        # session (#641): a hit or a cannot-tell is this PR's refusal, written
+        # as the verdict a close-out would write, and nothing is spawned.
+        why = self.public_names(pr_url)
+        if why:
+            verdict = {"result": "refused", "pr": pr_url, "why": why,
+                       "gate": PRESPAWN_GATE, "model": PRESPAWN_MODEL}
+            (Path(lease_dir) / f"{task}.closeout").write_text(json.dumps(verdict))
+            return {"pid": 0, "agent_id": None}
         argv = closeout_command(task, pr_url, prompt_path, self.brief_path, lease_dir,
                                 self.mode)
         # The same scoped route as a worker (#634): a close-out may be the

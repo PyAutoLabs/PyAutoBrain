@@ -607,10 +607,10 @@ names are unaffected, and so is the rest of the 2026-11-04 grant. The
 public-API rule "not adopted" on 2026-11-04 is adopted now, in this narrower
 form.
 
-**Enforcement.** Until the close-out and review checks detect this from the
-diff (PyAutoMind `draft/feature/pyautobrain/glance_public_name_check.md`), the
-shipping session or the watcher's close-out applies it by reading the diff.
-Doubt means `/prm`.
+**Enforcement.** Enforced by `bin/public_names.py` (PyAutoBrain#641): the
+shift watcher runs it before any close-out session spawns, and refuses on an
+added or renamed name or a diff it cannot read, and the ship skills and `/prm`
+"Tiered merge" run it as a stop. Doubt means `/prm`.
 
 ## Stage-2 adversary amendment — 2026-11-04
 
@@ -978,6 +978,18 @@ condition now also covers a second status comment in one shift, more than
 one comments read or one status write in a tick, and a command enacted from
 any other login or enacted twice: any of these retires the watcher to fake
 mode.
+
+**Amendment — 2026-11-16 (PyAutoBrain#641), approved by the human.** For the
+"Public-name narrowing of `glance` — 2026-11-16", the watcher may also make
+read-only `gh api` GET calls (the PR itself for its base and head shas,
+`compare` to find the merge base, the PR's file list, the before/after file
+contents, and one `contents/<package>` read at head to confirm the package
+directory exists) on the **library** PRs its own
+workers named, once per close-out and before any close-out session spawns.
+These calls make no writes, and a call that fails gives "cannot tell", which
+refuses the merge. A PR in any other repo makes no call at all. The revert
+condition covers these the same way: any other call, or a repeat for the same
+close-out, retires the watcher to fake mode.
 
 ## Human override for Heart RED (development only)
 

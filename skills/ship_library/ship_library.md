@@ -156,7 +156,8 @@ Who merges follows the prompt's **declared** `Consequence:` header —
   `library-shipped, workspace-pending`, and the close-out runs at the workspace
   PR's own tiered merge.
 - **`judge`, no declared header**, a `decision-taken` PR, a Heart RED-override
-  or corrective-PR-exception ship, or any red / pending-at-cap / conflicting /
+  or corrective-PR-exception ship, a public name added or renamed (`pyauto-brain
+  public-names` exit 1 or 2), or any red / pending-at-cap / conflicting /
   SKIPPED leg → **stop at PR-open**; the human runs `/prm`.
 
 `gh pr merge` is a bare, unchained Bash call; if denied, stop and report.
