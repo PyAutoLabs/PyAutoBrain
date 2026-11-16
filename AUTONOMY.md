@@ -586,6 +586,32 @@ the human did not recall typing that `/prm`.
 *Revert condition:* any `reverted` row demotes `glance` back to a human `/prm`
 immediately, by dated doctrine edit citing the row — stage 1 or stage 2 alike.
 
+## Public-name narrowing of `glance` — 2026-11-16
+
+Amends "The `glance` Shadow-window ruling — 2026-11-04" above. Ruled by the
+human 2026-11-16 after the seeded audit (seed 20261114, 14 rows, read
+2026-11-16): 13 `merged-unchanged`, and one amended to
+`merged-after-substantive-change`. That was row `latent-profile-declarations`
+(PyAutoGalaxy#656), which added seven public `latent_*_from` helpers to
+`autogalaxy.convert` under a name the human would not have chosen. It is a
+naming judgement no CI, witness or reviewer leg caught. Under the
+pre-registered rule, a single identifiable sub-class means "grant narrowed".
+
+**The narrowing.** A change that **adds or renames a public name in a library
+package** goes to a human `/prm`, whatever its declared `Consequence:`. A public
+name is a module-level function, class or constant without a leading
+underscore, or anything exported from a package `__init__`, in PyAutoFit,
+PyAutoArray, PyAutoGalaxy, PyAutoLens or PyAutoCTI. That covers both
+unattended and in-turn merges. Workspace scripts, organ code and private
+names are unaffected, and so is the rest of the 2026-11-04 grant. The
+public-API rule "not adopted" on 2026-11-04 is adopted now, in this narrower
+form.
+
+**Enforcement.** Until the close-out and review checks detect this from the
+diff (PyAutoMind `draft/feature/pyautobrain/glance_public_name_check.md`), the
+shipping session or the watcher's close-out applies it by reading the diff.
+Doubt means `/prm`.
+
 ## Stage-2 adversary amendment — 2026-11-04
 
 Amends "The `glance` Shadow-window ruling — 2026-11-04" above, the same day,
