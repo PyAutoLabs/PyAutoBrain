@@ -39,7 +39,9 @@ repos (workspaces, organs, assistants), tests (`tests/`, `test_*.py`, `conftest.
 modules (a path part with a leading underscore, other than a dunder file such
 as `__init__.py`), private names, and every non-`.py` file — stubs (`.pyi`)
 included. A package `__init__` that star-imports (`from .x import *`) a
-module the diff changed cannot tell: what it re-exports is not read here.
+private module the diff changed, or a star import that cannot be resolved,
+cannot tell: what it re-exports is not compared. A changed public module's
+names are compared directly, so its star import adds nothing.
 
 THE VERDICT. `added` names (new in their module), and `renamed` ones: a public
 name removed and another added in the same module, paired best-effort (same
@@ -319,22 +321,36 @@ def _pair_renames(removed: dict[str, str], added: dict[str, str]):
     return renames, added, removed
 
 
-def star_sources(source: str, init_path: str) -> list[str]:
-    """The modules a package `__init__` star-imports, as dotted names."""
+def star_sources(source: str, init_path: str) -> list[str | None]:
+    """The modules a package `__init__` star-imports, as dotted names; None
+    for a relative import that climbs above the top-level package."""
     pkg = module_name(init_path).split(".")
-    out = []
+    out: list[str | None] = []
     for stmt in _module_statements(ast.parse(source).body):
         if isinstance(stmt, ast.ImportFrom) and any(a.name == "*" for a in stmt.names):
             level = stmt.level or 0
+            if level - 1 >= len(pkg):
+                out.append(None)
+                continue
             base = pkg[:len(pkg) - (level - 1)] if level else []
             out.append(".".join(base + ([stmt.module] if stmt.module else [])))
     return out
 
 
+def _private_module(dotted: str) -> bool:
+    """A module path with a private part (a leading underscore, not dunder)."""
+    return any(part.startswith("_") and not (part.startswith("__") and part.endswith("__"))
+               for part in dotted.split(".")[1:])
+
+
 def star_import_hazards(package: str, changes, after: Callable[[str], str]) -> list[str]:
-    """Each package `__init__` (after the change) that star-imports a module
-    the diff changed: what it re-exports is not read here — cannot tell. An
-    `__init__` that cannot be read is no package file (a namespace package)."""
+    """Each package `__init__` (after the change) whose star import re-exports
+    names this check does not compare: a star import of a **private** module
+    the diff changed (its names are ignored as private, yet the `__init__`
+    makes them public), or one that cannot be resolved. A star import of a
+    changed public module adds nothing: that module's names are compared
+    directly. An `__init__` that cannot be read is no package file (a
+    namespace package)."""
     changed = {module_name(p) for pair in changes for p in pair
                if p and p.endswith(".py") and PurePosixPath(p).parts[:1] == (package,)}
     inits = {"/".join(m.split(".")[:i]) + "/__init__.py"
@@ -351,8 +367,11 @@ def star_import_hazards(package: str, changes, after: Callable[[str], str]) -> l
             out.append(f"{init} (after) does not parse: {type(e).__name__}")
             continue
         for src in stars:
-            if src in changed:
-                out.append(f"{init} star-imports `{src}`, which the diff changed")
+            if src is None:
+                out.append(f"{init} has a star import that cannot be resolved")
+            elif src in changed and _private_module(src):
+                out.append(f"{init} star-imports `{src}`, a private module the diff "
+                           "changed")
     return out
 
 

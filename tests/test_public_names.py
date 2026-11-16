@@ -502,7 +502,26 @@ def test_a_star_import_of_a_changed_module_cannot_tell(tmp_path):
                                   "autogalaxy/_impl.py": "def a():\n    pass\n"})
     v = _change(repo, {"autogalaxy/_impl.py": "def a():\n    pass\n\ndef b():\n    pass\n"})
     assert v["verdict"] == pn.CANNOT
-    assert "autogalaxy/__init__.py star-imports `autogalaxy._impl`" in v["cannot_tell"][0]
+    assert "autogalaxy/__init__.py star-imports `autogalaxy._impl`, a private" \
+        in v["cannot_tell"][0]
+
+
+@needs_git
+def test_a_star_import_of_a_changed_public_module_is_compared_directly(tmp_path):
+    repo = _repo(tmp_path, files={"autogalaxy/__init__.py": "from .agg import *\n",
+                                  "autogalaxy/agg.py": "def a():\n    pass\n"})
+    v = _change(repo, {"autogalaxy/agg.py": "def a():\n    return 1\n"})
+    assert v["verdict"] == pn.CLEAN and v["cannot_tell"] == []
+    v = _change(repo, {"autogalaxy/agg.py": "def a():\n    return 1\n\ndef b():\n    pass\n"})
+    assert v["verdict"] == pn.HIT and [e["name"] for e in v["added"]] == ["b"]
+
+
+@needs_git
+def test_a_star_import_that_cannot_be_resolved_cannot_tell(tmp_path):
+    repo = _repo(tmp_path, files={"autogalaxy/__init__.py": "from ... import *\n",
+                                  "autogalaxy/agg.py": "def a():\n    pass\n"})
+    v = _change(repo, {"autogalaxy/agg.py": "def a():\n    return 1\n"})
+    assert v["verdict"] == pn.CANNOT and "cannot be resolved" in v["cannot_tell"][0]
 
 
 @needs_git
