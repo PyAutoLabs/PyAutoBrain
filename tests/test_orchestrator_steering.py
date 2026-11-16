@@ -358,7 +358,7 @@ def test_record_key_upserts_the_live_line_and_the_box_shows_it():
     keys = _status.read_record(twice)["keys"]
     st = _status.dev_status("x", keys, [], False, "")
     assert st["live"] == "LIVE · 1 finished"
-    assert "> Live: LIVE · 1 finished" in _status.render_md(st)
+    assert "Live: LIVE · 1 finished" in _status.render_md(st)
     url = "https://github.com/o/r/issues/1#issuecomment-2"
     html = _status.render_html({**st, "live": f"LIVE — status: {url}"})
     assert f'<a href="{url}">' in html

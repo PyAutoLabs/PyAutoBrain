@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """agents/conductors/batch/_status.py — one reading of "is a batch in flight?".
 
-The Mind's dashboard opens with this box: the slot that is in flight, every
-member on one line, and — once there is something to review — the button to
-its packet. The *reading* lives here and the dashboard only supplies its facts.
+The Mind's dashboard shows this as the Shift part of its Autopilot block
+(PyAutoBrain#650): the slot that is in flight, every member on one line, and —
+once there is something to review — the button to its packet. The *reading* lives here and the dashboard only supplies its facts.
 
 Two constraints shape this module, and they are why it is a module at all:
 
@@ -66,10 +66,6 @@ NOT_DELIVERED = "not delivered"
 
 #: Tone per display word, as `_theme.pills` classes: go / caution / neutral.
 _TONE = {IN_PROGRESS: "n", AWAITING: "y", RULED: "g", NOT_DELIVERED: "r"}
-
-#: What the box says when nothing is in flight. A fixed sentence, so an
-#: unchanged tree renders an unchanged page.
-FIXTURE = "No batch in flight."
 
 
 def read_record(text: str, member_re=None) -> dict:
@@ -189,7 +185,26 @@ def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
         # A running shift's status, as its watcher last wrote it into the
         # record (`- live:`, PyAutoBrain#622) — a record line, not a clock.
         "live": _one(keys, "live"),
+        "issue": issue_url(keys),
     }
+
+
+def issue_url(keys: dict) -> str:
+    """The shift issue a record names (`- issue:`, its trailing `# …` comment
+    dropped), `''` when it names none."""
+    m = re.match(r"https://\S+", _one(keys, "issue"))
+    return m.group(0) if m else ""
+
+
+def last_shift(records: list) -> dict | None:
+    """`{"slot", "issue"}` of the latest-dispatched record, for the quiet line
+    the dashboard shows once every shift has been reviewed. `records` are
+    `(slot, keys)` pairs; one with no `- dispatched:` is not a shift."""
+    shifts = [(_one(k, "dispatched"), slot, k) for slot, k in records if _one(k, "dispatched")]
+    if not shifts:
+        return None
+    _when, slot, keys = max(shifts)
+    return {"slot": slot, "issue": issue_url(keys)}
 
 
 def pick_slot(rows: list) -> dict | None:
@@ -212,43 +227,109 @@ def review_url(pages: str, slot: str) -> str:
 
 
 # ------------------------------------------------------------ the renders ---
-def _headline(st: dict) -> str:
-    counts = [f"{st['in_progress']} in progress", f"{st['awaiting']} awaiting "
-              "review"]
-    return f"Batch {st['slot']} — " + " · ".join(counts)
+#: The Shift sub-part's anchor on the dashboard.
+ANCHOR = "shift"
+
+#: What the Shift part says when the Mind has no shift record at all.
+FIXTURE = "(no shift yet)"
 
 
-_URL_RE = re.compile(r"https://[^\s<>\"']+")
+def _counts(st: dict) -> str:
+    return f"{st['in_progress']} in progress · {st['awaiting']} awaiting review"
 
 
-def _linked(text: str) -> str:
-    """`text` escaped, with each https URL in it a link."""
-    out, last = [], 0
-    for m in _URL_RE.finditer(text):
-        out.append(_html.escape(text[last:m.start()]))
-        url = _html.escape(m.group(0))
-        out.append(f'<a href="{url}">{url}</a>')
-        last = m.end()
-    return "".join(out) + _html.escape(text[last:])
+def _mode(st: dict) -> str:
+    """`LIVE`/`SHADOW` when the watcher's `- live:` line says the shift is
+    running (it opens with the mode; a closed shift's line does not)."""
+    word = (st.get("live") or "").split(" ", 1)[0]
+    return word if word in ("LIVE", "SHADOW") else ""
 
 
-def render_html(st: dict | None) -> str:
-    """The box as one `verdict` banner — the theme's existing class."""
-    if st is None:
-        return f'<div class="verdict ok"><b>{FIXTURE}</b></div>'
+def is_live(st: dict | None) -> bool:
+    return bool(st) and bool(_mode(st) or st["in_progress"])
+
+
+def to_review(st: dict | None) -> int:
+    """Members a human still has to review once the shift has ended."""
+    if not st:
+        return 0
+    return st["awaiting"] or (len(st["members"]) if st["reviewable"] else 0)
+
+
+def active(st: dict | None) -> bool:
+    """Running, or ended with something to review: the Shift part shows the
+    detail. Otherwise it is one quiet line."""
+    return bool(st) and (is_live(st) or bool(to_review(st)) or st["reviewable"])
+
+
+def badge(st: dict | None) -> str:
+    """The Autopilot badge's shift reading, `''` when the shift has nothing to
+    say: `LIVE · N in progress` while running, `N to review` after."""
+    if is_live(st):
+        return f"{_mode(st) or 'LIVE'} · {st['in_progress']} in progress"
+    n = to_review(st)
+    if n or (st and st["reviewable"]):
+        return f"{n} to review"
+    return ""
+
+
+_STATUS_RE = re.compile(r"\s*—\s*status:\s*(https://\S+)\s*$")
+_ISSUE_RE = re.compile(r"/issues/(\d+)")
+
+
+def _issue_label(url: str) -> str:
+    issue = _ISSUE_RE.search(url)
+    return f"shift issue #{issue.group(1)}" if issue else "shift status"
+
+
+def _live_parts(live: str) -> tuple[str, str]:
+    """(text, url) of a `- live:` line: the watcher's words, and its trailing
+    `— status: <url>`, to be linked by issue number rather than printed raw."""
+    m = _STATUS_RE.search(live)
+    return (live[:m.start()], m.group(1)) if m else (live, "")
+
+
+def _quiet(st: dict | None, last: dict | None) -> tuple[str, str]:
+    """(text, url) of the one quiet line an idle Shift part shows."""
+    if st:
+        return (f"last shift {st['slot']} — closed, nothing to review",
+                st.get("issue") or _live_parts(st.get("live") or "")[1])
+    if last:
+        return f"last shift {last['slot']} — reviewed", last.get("issue", "")
+    return FIXTURE[1:-1], ""
+
+
+def render_html(st: dict | None, last: dict | None = None) -> str:
+    """The Shift sub-part of the dashboard's Autopilot block, in the page's
+    conventions: an `<h3>` with a quiet `facets` note, `facets` lines, the
+    members as a list with their state pills, and — when nothing is running
+    or awaiting review — one muted parenthesised line linking the issue."""
     esc = _html.escape
-    tone = "warn" if st["reviewable"] else "ok"
-    H = [f'<div class="verdict {tone}"><b>{esc(_headline(st))}</b>']
+    if not active(st):
+        text, url = _quiet(st, last)
+        link = f' · <a href="{esc(url)}">{esc(_issue_label(url))}</a>' if url else ""
+        return (f'<h3 id="{ANCHOR}">Shift</h3>\n'
+                f'<p class="muted">({esc(text)}{link})</p>')
+    H = [f'<h3 id="{ANCHOR}">Shift <span class="facets">({esc(st["slot"])} — '
+         f"{esc(_counts(st))})</span></h3>"]
     if st.get("freeze"):
         H.append(f'<p class="facets">{esc(st["freeze"])}</p>')
-    if st.get("live"):
-        H.append(f'<p class="facets">Live: {_linked(st["live"])}</p>')
-    for r in st["members"]:
-        line = (f'<code>{esc(r["slug"])}</code>'
-                f'{pills((r["state"], _TONE.get(r["state"], "n")))}')
-        if r["detail"]:
-            line += f'<span class="facets"> — {esc(r["detail"])}</span>'
-        H.append(f"<p>{line}</p>")
+    text, url = _live_parts(st.get("live") or "")
+    url = url or st.get("issue", "")
+    if text or url:
+        line = f"Live: {esc(text)}" if text else ""
+        if url:
+            line += (" · " if line else "") + f'<a href="{esc(url)}">{esc(_issue_label(url))}</a>'
+        H.append(f'<p class="facets">{line}</p>')
+    if st["members"]:
+        items = []
+        for r in st["members"]:
+            line = (f'<code>{esc(r["slug"])}</code>'
+                    f'{pills((r["state"], _TONE.get(r["state"], "n")))}')
+            if r["detail"]:
+                line += f'<span class="facets"> — {esc(r["detail"])}</span>'
+            items.append(f"<li>{line}</li>")
+        H.append("<ul>" + "".join(items) + "</ul>")
     if st["url"]:
         H.append(f'<p><a class="go" href="{esc(st["url"])}">Review this batch '
                  "→</a></p>")
@@ -258,30 +339,37 @@ def render_html(st: dict | None) -> str:
         H.append(f'<p class="muted">Review packet: <code>'
                  f'{esc(st["packet"])}</code></p>')
     else:
-        H.append('<p class="muted">Nothing to review yet.</p>')
-    return "".join(H) + "</div>"
+        H.append('<p class="muted">(nothing to review yet)</p>')
+    return "\n".join(H)
 
 
-def render_md(st: dict | None) -> str:
-    """The same box in markdown, as a blockquote — the same words, in the
-    same order, so the two versions of a board read as one page."""
-    if st is None:
-        return f"> **{FIXTURE}**"
-    L = [f"> **{_headline(st)}**", ">"]
+def render_md(st: dict | None, last: dict | None = None) -> str:
+    """The same sub-part in markdown — the same words, in the same order, so
+    the two versions of a board read as one page."""
+    if not active(st):
+        text, url = _quiet(st, last)
+        return "**Shift**\n\n_(" + text + (f" · [{_issue_label(url)}]({url})" if url else "") + ")_"
+    L = [f"**Shift** ({st['slot']} — {_counts(st)})", ""]
     if st.get("freeze"):
-        L += [f"> {st['freeze']}", ">"]
-    if st.get("live"):
-        L += [f"> Live: {st['live']}", ">"]
+        L += [st["freeze"], ""]
+    text, url = _live_parts(st.get("live") or "")
+    url = url or st.get("issue", "")
+    if text or url:
+        line = f"Live: {text}" if text else ""
+        if url:
+            line += (" · " if line else "") + f"[{_issue_label(url)}]({url})"
+        L += [line, ""]
     for r in st["members"]:
-        line = f"> - `{r['slug']}` — {r['state']}"
+        line = f"- `{r['slug']}` — {r['state']}"
         if r["detail"]:
             line += f" — {r['detail']}"
         L.append(line)
-    L.append(">")
+    if st["members"]:
+        L.append("")
     if st["url"]:
-        L.append(f"> [Review this batch →]({st['url']})")
+        L.append(f"[Review this batch →]({st['url']})")
     elif st["reviewable"]:
-        L.append(f"> Review packet: `{st['packet']}`")
+        L.append(f"Review packet: `{st['packet']}`")
     else:
-        L.append("> _Nothing to review yet._")
+        L.append("_(nothing to review yet)_")
     return "\n".join(L)

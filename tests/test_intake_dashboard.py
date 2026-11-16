@@ -1123,10 +1123,18 @@ DEV_RECORD_REVIEWED = """# Batch 2026-09-02 pm
 def test_in_flight_batch_reads_as_in_progress_with_no_button(tmp_path):
     mind = _mind(tmp_path, batches={"2026-09-03-pm.md": DEV_RECORD_IN_FLIGHT})
     page, html = _page(mind), _html(mind)
-    assert "Batch 2026-09-03-pm" in page
+    assert "**Shift** (2026-09-03-pm — 1 in progress · 0 awaiting review)" in page
     assert "autofit-resampling-info" in page and "autofit-resampling-info" in html
     assert "in progress" in page
-    assert "Nothing to review yet" in page
+    assert "_(nothing to review yet)_" in page
+    # The Shift part of the Autopilot block; a live shift leads its badge and
+    # its nav card (PyAutoBrain#650). No batch block of its own.
+    assert ('<details class="board-section"><summary><h2>Autopilot</h2>'
+            '<span class="section-badge">LIVE · 1 in progress</span>') in html
+    assert ('board-nav-count">1</span><span class="board-nav-label">Autopilot<') in html
+    assert '<h3 id="shift">Shift <span class="facets">(2026-09-03-pm' in html
+    assert "<h2>Batch" not in html and "## Batch" not in page
+    assert 'class="verdict' not in html
     assert '<a class="go"' not in html
 
 
@@ -1137,6 +1145,11 @@ def test_button_appears_once_collected_is_stamped(tmp_path):
     url = "https://exampleorg.github.io/PyAutoMind/packets/2026-09-03-pm.html"
     assert f"[Review this batch →]({url})" in page
     assert f'<a class="go" href="{url}">Review this batch →</a>' in html
+    # After the shift, the Autopilot badge and nav card read what is to review.
+    n = re.search(r'<span class="section-badge">(\d+) to review</span>', html)
+    assert n and int(n.group(1)) >= 1
+    assert (f'board-nav-count">{n.group(1)}</span><span class="board-nav-label">'
+            "Autopilot<") in html
 
 
 def test_a_reviewed_batch_disappears_from_the_box(tmp_path):
@@ -1399,11 +1412,11 @@ def test_seven_navigation_counts_and_nested_review(tmp_path):
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
     counts = re.findall(r'board-nav-count">(\d+)</span><span class="board-nav-label">([^<]+)', nav)
     assert [(label, int(count)) for count, label in counts] == [
-        ("Start here", 2), ("Epics", len(c["epics"]) + 1),
+        ("Autopilot", 0), ("Start here", 2), ("Epics", len(c["epics"]) + 1),
         ("In flight", c["issued_count"]), ("Planned", 0), ("Backlog", 4),
         ("Recent", len(c["recent"])),
         ("Pending release", len(c["pending_release"]))]
-    assert 'style="--nav-columns:7"' in nav
+    assert 'style="--nav-columns:8"' in nav
     assert "Human review" not in nav and "Parked" not in nav and "Bundles" not in nav
     backlog = page.split('<a id="backlog"></a>')[1].split('<a id="recent"></a>')[0]
     assert '<details id="human-review">' in backlog
@@ -1416,10 +1429,11 @@ def test_empty_mind_has_seven_zero_count_destinations(tmp_path):
     c = _intake.census(_mind(tmp_path))
     page = _intake.render_dashboard_html(c)
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
-    assert nav.count('board-nav-count">0</span>') == 7
+    assert nav.count('board-nav-count">0</span>') == 8
     for target in re.findall(r'href="#([^"]+)"', nav):
         assert page.count(f'id="{target}"') == 1
-    assert page.count('<details class="board-section">') == 7
+    # Eight destinations, Autopilot first (PyAutoBrain#650), one block each.
+    assert page.count('<details class="board-section">') == 8
     assert "nothing pending release" in page and "no epics" in page
 
 
