@@ -87,6 +87,9 @@ from _status import (  # noqa: E402
 # batch planner and `batch brief --new` (PyAutoMind#565). `read_queue` IS the
 # planner's reader, so a row's ★ `#n` is the planner's rank (PyAutoBrain#640).
 from _steer import queue_ranks, read_goals, read_queue, read_queue_entries  # noqa: E402
+# The questions inbox (M3.5, PyAutoBrain#645): the batch conductor's reader,
+# so the page and the watcher read `questions.md` one way.
+import _questions  # noqa: E402
 
 # The close-out guard (strong-evidence `looks-shipped` flags): the detector and
 # the one reader the dashboard and the batch planner share.
@@ -1761,6 +1764,9 @@ def census(mind: Path) -> dict:
         "queue": read_queue_entries(mind),
         "queue_order": read_queue(mind),
         "goals": read_goals(mind),
+        # The questions inbox (M3.5, #645), read-only: the section below
+        # the steering box, with a 📋 per question.
+        "questions": _questions.read(mind),
     }
     c["recent"] = recent_events(c)
     # Needs `in_flight` in place, so it is derived after the dict is built.
@@ -2356,6 +2362,7 @@ def render_dashboard(c: dict) -> str:
     if c["batch"] is not None:
         L += [_status_box_md(c["batch"]), ""]
     L += _steer_md(c)
+    L += _inbox_md(c)
     L += ["## Start here", ""]
 
     # Epic members never appear in the pick lists or the work-type sections —
@@ -2704,17 +2711,115 @@ def _steer_html(c: dict, link) -> list:
     return H
 
 
+_INBOX_CSS = """\
+.inbox{margin:0 0 1.2rem;padding:.75rem .9rem;border:1px solid var(--edge);
+ border-radius:11px;background:var(--tint)}
+.inbox h2{margin:.1rem 0 .4rem;font-size:1.05rem;display:flex;align-items:center;gap:.5rem}
+.inbox ol{list-style:none;margin:.2rem 0;padding-left:0}
+.inbox .qid{font-weight:700;margin-right:.3rem}
+.inbox details{margin:.2rem 0}
+"""
+
+
+def _age(asked: str, today: str) -> str:
+    """`asked` (an ISO time) as an age in whole days against the census date;
+    "" when either cannot be read. Day-grained, so `--check` is stable."""
+    try:
+        days = (_dt.date.fromisoformat(today[:10]) - _dt.date.fromisoformat(asked[:10])).days
+    except (TypeError, ValueError):
+        return ""
+    return "today" if days <= 0 else ("1 day" if days == 1 else f"{days} days")
+
+
+def _open_questions(c: dict) -> tuple:
+    """(open, deferred) inbox entries, oldest first."""
+    qs = sorted(c.get("questions") or [],
+                key=lambda e: (e["fields"].get("asked", ""), e["n"]))
+    return ([e for e in qs if e["state"] == "open"],
+            [e for e in qs if e["state"] == "deferred"])
+
+
+def _questions_payload(qid: str = "") -> str:
+    """The 📋 text for the inbox: the `/questions` skill named portably."""
+    return "Use the questions skill." + (f" {qid}" if qid else "")
+
+
+def _inbox_md(c: dict) -> list:
+    """The markdown page's read-only Questions list (as on the HTML twin)."""
+    opened, deferred = _open_questions(c)
+    L = [f"## Questions ({len(opened)} open, {len(deferred)} deferred)", ""]
+    for e in opened:
+        f = e["fields"]
+        age = _age(f.get("asked", ""), c.get("generated", ""))
+        L.append(f"- {e['id']} — {_md_inline_escape(f.get('ask', ''))} "
+                 f"({f.get('issue', '')}" + (f", {age}" if age else "") + ")")
+    if not opened:
+        L.append("_(no open questions — [`questions.md`](questions.md))_")
+    return L + [""]
+
+
+def _inbox_html(c: dict, link) -> list:
+    """The read-only questions inbox, straight after the steering box (M3.5,
+    PyAutoBrain#645). Server-rendered with no script of its own: each Open
+    question carries the 📋 every task row has, copying `Use the questions
+    skill. Q<n>` to paste into a chat; the heading's 📋 copies `Use the
+    questions skill.`, which starts a sitting. Portable text, not a slash
+    command (`board/copy_contract.py`), as the task rows' start-dev line is.
+    Deferred entries fold to one line each. No form, input or fetch."""
+    opened, deferred = _open_questions(c)
+    copy = ('<button class="copy" data-cmd="{cmd}" aria-label="Copy the AI '
+            'command">📋</button>')
+    H = ['<aside class="inbox" id="inbox">',
+         f"<h2>{copy.format(cmd=_questions_payload())}Questions ({len(opened)} open, "
+         f"{len(deferred)} deferred)</h2>",
+         '<ol id="inbox-open">']
+    for e in opened:
+        f = e["fields"]
+        task = f.get("task", "")
+        age = _age(f.get("asked", ""), c.get("generated", ""))
+        bits = [f'<span class="qid">{_attr(e["id"])}</span>'
+                + link(task, _summary_label(Path(task).stem or e["title"])),
+                _summary_label(f.get("ask", ""))]
+        if f.get("options"):
+            bits.append(f'<span class="muted">{_summary_label(f["options"])}</span>')
+        meta = []
+        if f.get("issue", "").startswith("https://"):
+            meta.append(f'<a href="{_attr(f["issue"])}">issue</a>')
+        meta.append(f"from shift {_summary_label(f.get('shift', '?'))}"
+                    + (f" · {age}" if age else ""))
+        bits.append('<span class="muted">' + " · ".join(meta) + "</span>")
+        H.append(f'<li class="task" data-qid="{_attr(e["id"])}">'
+                 + copy.format(cmd=_attr(_questions_payload(e["id"])))
+                 + "<p>" + "<br>".join(bits) + "</p></li>")
+    H.append("</ol>")
+    H.append(f'<p class="muted" id="inbox-empty"{" hidden" if opened else ""}>'
+             "(no open questions)</p>")
+    for e in deferred:
+        f = e["fields"]
+        until = f.get("until") or "the next sitting"
+        H.append(f"<details><summary>{_attr(e['id'])} — "
+                 f"{_summary_label(Path(f.get('task', '')).stem)} (deferred until "
+                 f"{_summary_label(until)})</summary><p>{_summary_label(f.get('ask', ''))}"
+                 "</p></details>")
+    H += ['<p class="muted">Read-only. To answer, paste a 📋 into a chat.</p>', "</aside>"]
+    return H
+
+
 def _steer_first(page: str) -> str:
     """Lift the Goals and queue box above the section cards.
 
     The shared layout moves the orchestration panel above the navigation
     cards; the steering box belongs straight after it, at the top of the
-    first screen, not below seven count cards."""
+    first screen, not below seven count cards. The questions inbox that
+    follows it (M3.5) travels with it."""
     start = page.find('<aside class="steer"')
     nav = page.find('<nav class="board-nav"')
     if start < 0 or nav < 0 or nav > start:
         return page
     end = page.index("</aside>", start) + len("</aside>")
+    inbox = page.find('<aside class="inbox"', end)
+    if inbox >= 0 and not page[end:inbox].strip():
+        end = page.index("</aside>", inbox) + len("</aside>")
     box = page[start:end]
     page = page[:start] + page[end:]
     return page[:nav] + box + "\n" + page[nav:]
@@ -2783,7 +2888,7 @@ def render_dashboard_html(c: dict) -> str:
         "<title>PyAutoMind Dashboard</title>",
         f"<!-- generated by `pyauto-brain intake dashboard --apply` on "
         f"{c['generated']} — regenerate, do not hand-edit -->",
-        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}{_STEER_CSS}</style>",
+        f"<style>{_theme_css(THEME_ORGAN)}{_FRESH_CSS}{_STEER_CSS}{_INBOX_CSS}</style>",
         "</head>",
         "<body>",
         hero(THEME_ORGAN, "Dashboard", navigation=_dashboard_navigation(c),
@@ -2829,6 +2934,7 @@ def render_dashboard_html(c: dict) -> str:
         refreshed_at=c.get("refreshed_at"),
         refresh_url=home + "/actions/workflows/dashboard_refresh.yml" if home else None))
     H += _steer_html(c, link)
+    H += _inbox_html(c, link)
     if c.get("drift"):
         H += ['<p>⚠️ <b>Needs lifecycle reconciliation</b> — draft prompts '
               "whose body records a fix PR (done, never advanced):</p>", "<ul>"]

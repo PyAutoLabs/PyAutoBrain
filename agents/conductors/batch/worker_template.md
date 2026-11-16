@@ -53,6 +53,10 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   change with `{shift_ledger} append|write|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers
   your `active.md` claim, the `draft/ → active/` move and your close-out.
+  Your claim's session line is exactly
+  `- session: shift worker <slot> (<your session id>)`, `<slot>` being the
+  brief file's name without `.md`: after the human answers a question you
+  parked on, a later shift resumes your claim only on that exact line.
   In your `active.md` row, each PR is its own `- library-pr: <url>` (library
   or organ repo) or `- workspace-pr: <url>` line (PyAutoMind REFERENCE.md
   "The PR keys"). Never a bare `pr:`: the ledger refuses it, and `/prm`
@@ -65,7 +69,14 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
 - Then write {lease_dir}/{task}.done containing the URLs of the PRs you opened,
   one per line — `merged <url>` for a PR you merged in-turn under its tier. An
   issue is marked by why you ended there: `question: <url>` when you parked
-  with a question the human must answer (the watcher @-mentions them), or
-  `verdict: <url>` when you posted a verdict, your deliverable (no mention —
-  the digest lists it). Any other issue line @-mentions the human. Without that file the watcher counts your session as
-  crashed.
+  with a question the human must answer, or `verdict: <url>` when you posted
+  a verdict, your deliverable (the digest lists it). Nobody is @-mentioned
+  mid-shift: a `question:` (or any other issue line) is filed in the human's
+  questions inbox, which they clear in bulk after the shift; their answer is
+  added to your prompt and the next shift resumes the task. Without that file
+  the watcher counts your session as crashed.
+- When you park with `question: <url>`, first write
+  {lease_dir}/{task}.question.json, the line the human reads in the inbox:
+  `{{"issue": "<url>", "ask": "<one line, at most 200 characters>",
+  "options": ["<at most 4 choices, 120 characters each>"]}}`. The question
+  itself still lives on the issue; ask it there in full.

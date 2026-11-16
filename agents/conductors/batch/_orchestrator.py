@@ -23,9 +23,11 @@ git hook injected through the worker's environment refuses a direct commit.
 Nothing here commits, merges or arms a timer: the systemd timer that calls
 `bin/orchestrator_watch.py` is installed by the human. Its only GitHub writes
 are the comments AUTONOMY.md "The watcher's network surface" lists — the
-digest, one @mention per worker per state that needs the human (#611), one
-correction for a late arrival (#610) and one live status comment, then only
-edited (#622) — each claimed by marker first. Each open tick also reads the
+digest, one correction for a late arrival (#610) and one live status
+comment, then only edited (#622) — each claimed by marker first. A parked
+worker's question no longer @-mentions the human (M3.5, #645): it lands in
+PyAutoMind `questions.md` through the one Mind writer, and the digest counts
+it. Each open tick also reads the
 shift issue's comments once, for the human's `/pause` `/resume` `/drop`
 `/stop` (#622) and `/add` `/cap` `/kill` (#644). Every tick that does work
 appends what it did to the slot's `events.jsonl` (`_events`, #644), which
@@ -49,6 +51,7 @@ import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _events  # noqa: E402
 import _mind_writer  # noqa: E402
+import _questions  # noqa: E402
 
 STOP_FILE = "STOP"
 LOCK_FILE = "tick.lock"
@@ -233,7 +236,7 @@ class FakeSpawner:
         self.crash = set(crash or ())
 
     def spawn(self, task: str, prompt_path: str, lease_dir: Path,
-              redispatch: bool = False) -> dict:
+              redispatch: bool = False, resume: dict | None = None) -> dict:
         mode = "crash" if task in self.crash else "ok"
         proc = subprocess.Popen(
             [sys.executable, "-c", _FAKE_WORKER, str(lease_dir), task, mode,
@@ -269,11 +272,38 @@ repeated claim op is skipped by the orchestrator's Mind writer anyway.
 """
 
 
+#: Prepended to the prompt of a task resumed after the human answered the
+#: question an earlier shift parked it on (M3.5, PyAutoBrain#645, Decision H11).
+RESUME_NOTE = """\
+This task parked on a question in shift `{shift}` and the human has answered
+it ({ids}): see "## Answers from the human" in your prompt{comments}. The
+canonical Mind checkout is not pulled mid-shift, so read the prompt from
+`git -C <PyAutoMind> show origin/main:<its path>`. The answer:
+{answers}
+Its claim, issue, branch and worktree may exist: reuse them (look before you
+create, as a re-dispatch does: `git -C <PyAutoMind> show origin/main:active.md`),
+continue from where the earlier worker stopped, and do not queue the claim
+again.
+
+"""
+
+
+def resume_note(resume: dict) -> str:
+    """`RESUME_NOTE` filled in from a `parked_elsewhere` release."""
+    comments = [c for c in resume.get("comments") or [] if c]
+    return RESUME_NOTE.format(
+        shift=resume.get("shift", "?"), ids=", ".join(resume.get("ids") or []) or "?",
+        comments=(" (and " + ", ".join(comments) + ")") if comments else "",
+        answers="\n".join(f"> {a}" for a in resume.get("answers") or []) or "> (see the prompt)")
+
+
 def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path,
-                  redispatch: bool = False) -> str:
+                  redispatch: bool = False, resume: dict | None = None) -> str:
     """The session template filled in for one task; a re-dispatch is told
-    that its predecessor's claim may already exist (#632)."""
+    that its predecessor's claim may already exist (#632), and a resumed
+    task that the human answered its question (M3.5, #645)."""
     head = REDISPATCH_NOTE.format(task=task, task_path=prompt_path) if redispatch else ""
+    head += resume_note(resume) if resume else ""
     return head + WORKER_TEMPLATE.read_text(encoding="utf-8").format(
         task=task, task_path=prompt_path, brief_path=brief_path, lease_dir=lease_dir,
         ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
@@ -352,7 +382,8 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
 
 
 def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Path,
-                    mode: str, redispatch: bool = False) -> list[str]:
+                    mode: str, redispatch: bool = False,
+                    resume: dict | None = None) -> list[str]:
     """The exact argv that starts one worker — named, moded, templated.
 
     No `--session-id`: `claude --bg` (2.1.316) assigns its own, so the worker is
@@ -361,7 +392,7 @@ def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Pa
         raise OrchestratorError(f"worker mode {mode!r} is not one of "
                                 + ", ".join(_brief.WORKER_MODES))
     return ["claude", "--bg", "--name", f"shift:{task}", "--permission-mode", mode,
-            worker_prompt(task, prompt_path, brief_path, lease_dir, redispatch)]
+            worker_prompt(task, prompt_path, brief_path, lease_dir, redispatch, resume)]
 
 
 #: `claude --bg` prints `backgrounded · <8-hex id> · <name>` on its first line.
@@ -449,9 +480,9 @@ class RealSpawner:
         return self.gh(url)
 
     def spawn(self, task: str, prompt_path: str, lease_dir: Path,
-              redispatch: bool = False) -> dict:
+              redispatch: bool = False, resume: dict | None = None) -> dict:
         argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode,
-                               redispatch)
+                               redispatch, resume)
         res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
                          timeout=120, env=worker_env(lease_dir))
         # An untrusted folder is refused here, fast ("Workspace not trusted") —
@@ -937,6 +968,15 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             # The digest reads these at review-at, long after the marker is gone.
             counters["outcomes"][task] = _digest.parse_done(
                 done_marker.read_text(encoding="utf-8", errors="replace"))
+            # Each question lands in the inbox (M3.5, #645): one Mind writer
+            # op per issue, queued before the counters write; a replay after a
+            # crash is a silent repeat in `questions_edit.add_text`.
+            done = counters["outcomes"][task]
+            if done.get("questions") and "obsolete" not in done and not done.get("merged"):
+                for url in done["questions"]:
+                    ask, options = _questions.sidecar(lease_dir, task, url)
+                    land_question(slot, counters, lease, task, url, "question", ask,
+                                  options, rec.get("key") or task, now)
             if task not in counters["done"]:
                 counters["done"].append(task)
             if task in counters["parked"]:
@@ -950,6 +990,11 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 retire = queue_retire_op(counters, task, pr, now, by="the shift worker, in-turn")
                 if retire:
                     _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
+                    # Its inbox questions are moot once merged (#645 review):
+                    # answered as `(task completed)`, as `lifecycle.py close` would.
+                    _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                                          question_retire_op(counters, task, now,
+                                                             by="the shift worker, in-turn"))
                     break
             _write_counters(slot, counters)
             proof = lease_dir / f"{task}.proof.md"
@@ -983,6 +1028,11 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 if task not in counters["parked"]:
                     counters["parked"].append(task)
                 mark("parked")
+                key = rec.get("key") or task
+                land_question(slot, counters, lease, task, lease.get("shift_issue") or "",
+                              "blocked",
+                              f"the worker stopped at a prompt nobody answered (session "
+                              f"{key}, since {since})", [], key, now)
                 _write_counters(slot, counters)
                 lease.update(state="parked", parked_at=_iso(now))
                 events.append({"task": task, "event": "parked",
@@ -1021,6 +1071,35 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                        "redispatch": "allowed" if again else "spent — abandoned",
                        **({"killed": True} if by_kill else {})})
     return events
+
+
+def land_question(slot: Path, counters: dict, lease: dict, task: str, issue: str,
+                  kind: str, ask: str, options: list, worker: str,
+                  now: _dt.datetime) -> bool:
+    """Queue one `question-add` op for the Mind writer (M3.5, #645) and note
+    it in `counters["inbox"]`. Nothing without the task's prompt or an issue
+    (a lease from before M3.5 carries no shift issue: held as before). The
+    watcher never reads the issue: the ask is the worker's sidecar, else
+    `see the question on the issue`. True when it was queued."""
+    prompt = lease.get("prompt") or (counters["picks"].get(task) or {}).get("prompt") or ""
+    why = ("no prompt recorded for the task" if not prompt
+           else "no shift issue on its lease (spawned before M3.5)" if not issue
+           else f"issue `{str(issue)[:80]}` is not an https URL"
+           if not str(issue).startswith("https://") else "")
+    if why:
+        # Never silent (#645 review): the digest names what was not filed.
+        unfiled = counters.setdefault("inbox_unfiled", [])
+        if not any(u.get("task") == task and u.get("kind") == kind for u in unfiled):
+            unfiled.append({"task": task, "kind": kind, "why": why})
+        return False
+    entry = {"task": prompt, "issue": issue, "kind": kind,
+             "ask": _questions.sanitise(ask, _questions.ASK_MAX),
+             "options": list(options or []), "shift": Path(slot).name,
+             "asked": now.strftime("%Y-%m-%dT%H:%MZ"), "worker": str(worker)}
+    if not _questions.note_added(counters, entry):
+        return False
+    _mind_writer.queue_op(Path(slot) / _mind_writer.LEDGER_DIR, _questions.add_op(entry))
+    return True
 
 
 def _parse_iso(value: str) -> _dt.datetime:
@@ -1198,7 +1277,7 @@ def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | No
                              + (active.stderr or "").strip()[:160]}
     sections = claim_sections(active.stdout if active.returncode == 0 else "")
     return {"drafts": set(filter(None, tree.stdout.split("\0"))), "active": set(sections),
-            "repos": claimed_repos(sections)}
+            "repos": claimed_repos(sections), "sections": sections}
 
 
 #: A claim that records human-authorized sharing of its repos (#637, item 4).
@@ -1231,8 +1310,10 @@ def claim_sections(active_text: str) -> dict[str, dict]:
                     continue
                 if ln.strip():
                     inside = False
+        keys = dict(re.findall(r"(?m)^- (session|prompt):[ \t]*(.*?)\s*$", "\n".join(body)))
         out[slug] = {"repos": repos,
-                     "coordinated": bool(_COORDINATION_RE.search("\n".join(body)))}
+                     "coordinated": bool(_COORDINATION_RE.search("\n".join(body))),
+                     "session": keys.get("session", ""), "prompt": keys.get("prompt", "")}
     for ln in active_text.splitlines():
         if ln.startswith("## "):
             flush()
@@ -1261,8 +1342,31 @@ def claimed_repos(sections: dict[str, dict]) -> dict[str, tuple[str, str]]:
     return out
 
 
+#: A claim's `- session:` that names a shift worker, in exactly the wording
+#: `worker_template.md` pins: `shift worker <slot> (<session id>)`. Anything
+#: else (a desktop session, a human who took the task over and rewrote the
+#: line, the free wording of the first shifts) is not resumed unattended.
+SHIFT_WORKER_SESSION_RE = re.compile(r"^shift worker ([A-Za-z0-9_.-]+) \(([^()\s]+)\)$")
+
+
+def shift_worker_slot(session: str) -> str:
+    """The slot a `- session:` line names, when it is a shift worker's; else ""."""
+    m = SHIFT_WORKER_SESSION_RE.match((session or "").strip())
+    return m.group(1) if m else ""
+
+
+def claim_of(sections: dict[str, dict], task: str) -> tuple[str, dict] | None:
+    """(slug, section) of the `active.md` claim on a task: the section named
+    for it, else the one whose `- prompt:` is its file (a worker picks its
+    own slug)."""
+    if task in sections:
+        return task, sections[task]
+    return next(((s, sec) for s, sec in sections.items()
+                 if Path(sec.get("prompt") or "").stem == task), None)
+
+
 def on_origin(records: list[dict], mind: Path, own: set[str],
-              fetch=None) -> tuple[list[dict], dict]:
+              fetch=None, resumes: dict | None = None) -> tuple[list[dict], dict]:
     """`records` without the drafts Mind origin/main no longer holds as
     unclaimed: a path not under its `draft/` (moved to `active/`, retired, or
     never pushed — the writer's claim move would fail) or a task with a
@@ -1270,17 +1374,48 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
     stays (its own re-dispatch). A task whose repo a claim in that
     `active.md` holds is out too, unless the claim records human-authorized
     coordination (PyAutoBrain#637, item 4: a named task started twice, then
-    parked on a repo an earlier shift's pick held). Returns (kept, {path: why})."""
+    parked on a repo an earlier shift's pick held). Returns (kept, {path: why}).
+
+    `resumes` are the tasks an answer released (M3.5, #645, Decision H11): a
+    resume task already claimed is kept, at its `active/` path, but only when
+    its claim's `- session:` is `shift worker <slot> (<id>)` for a slot of
+    this home that picked it — a claim an interactive session owns, or one a
+    human took over, is the human's work and is left alone. Its own claim
+    never counts against its repos; every other claim on them does."""
     claims = origin_claims(mind, fetch=fetch)
     if claims is None:
         return records, {}
+    resumes = resumes or {}
     kept, out = [], {}
     for r in records:
         task = task_id(r.get("path") or "")
+        claim = claim_of(claims.get("sections") or {}, task) if task in resumes \
+            and "error" not in claims else None
         if task in own:
             kept.append(r)
         elif "error" in claims:
             out[r["path"]] = f"Mind {claims['error']} — fail closed"
+        elif claim is not None:
+            slug, sec = claim
+            mine = {_repo_key(x) for x in r.get("declared_repos") or r.get("repos") or []}
+            ids = ", ".join(resumes[task].get("ids") or [])
+            if shift_worker_slot(sec.get("session")) not in (resumes[task].get("picked_in")
+                                                              or ()):
+                # Only a claim this watcher's own shift worker wrote, with the
+                # pinned wording and a slot that picked the task: a session
+                # line a human rewrote (or never a shift's) is the human's.
+                out[r["path"]] = (f"resumed after {ids}, but its claim `{slug}` in active.md "
+                                  "is not this home's shift worker's (session: "
+                                  f"{(sec.get('session') or 'none')[:60]}) — left to the human")
+            elif held := next(((repo, other) for other, sec2 in claims["sections"].items()
+                               if other != slug and not sec2["coordinated"]
+                               for repo in sec2["repos"] if _repo_key(repo) in mine), None):
+                # Every other claim on the repo counts, not only the first
+                # (`claimed_repos` keeps one per repo): its own does not.
+                out[r["path"]] = (f"repo {held[0]} claimed by `{held[1]}` in active.md on "
+                                  "Mind origin/main")
+            else:
+                kept.append(r)
         elif r["path"] not in claims["drafts"]:
             out[r["path"]] = "not in draft/ on Mind origin/main (claimed or retired)"
         elif task in claims["active"]:
@@ -1295,14 +1430,31 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
     return kept, out
 
 
-def parked_elsewhere(slot: Path) -> dict[str, str]:
+def parked_elsewhere(slot: Path, inbox: dict | None = None,
+                     resumes: dict | None = None) -> dict[str, str]:
     """{task: why} for every task an earlier shift in this watcher's home left
     parked on a question — a `question:` (or other push) issue in its `.done`,
     or blocked on a person past the grace — and that no later shift finished
     (PyAutoBrain#637, item 3: a prompt still in `draft/` with no claim was
     picked again by the next shift). Read from the slots' own `counters.json`:
-    local files, no network."""
+    local files, no network.
+
+    `inbox` is `questions.md` on Mind origin/main (`_questions.read_origin`,
+    M3.5 #645). Per task parked in shift `d`: every inbox entry for it from
+    `d` answered → released, and recorded in `resumes` (`{task: {shift, ids,
+    comments}}`); one dropped → held, shelved (Decision H9 a); one open or
+    deferred → held, waiting on it; none (a park from before M3.5), or an
+    unreadable inbox (None) → held as before (fail closed).
+
+    A release is used up by the first later shift that picks the task: if
+    that worker is still out at its review-at, crashes or is abandoned, the
+    task is held again, never resumed twice on one claim. Only an answer
+    given after that pick (a re-answer, or a new question answered) releases
+    it again; a brief that names it is the human's word, as before."""
     out: dict[str, str] = {}
+    released: dict[str, dict] = {}
+    picked_in: dict[str, list[str]] = {}
+    used: dict[str, tuple[str, str]] = {}    # task → (pick time, slot) of a used release
     home = Path(slot).parent
     try:
         others = sorted(d for d in home.iterdir()
@@ -1313,27 +1465,107 @@ def parked_elsewhere(slot: Path) -> dict[str, str]:
         c = _safe_counters(d)
         if not c:
             continue
-        held = dict(out)
+        held, freed = dict(out), dict(released)
+        touched: set[str] = set()
+
+        def park(task: str, why: str, d=d, held=held, freed=freed, touched=touched) -> None:
+            """Hold `task`, unless the inbox answered its questions from `d`."""
+            rule, info = _questions.hold_for(task, d.name, inbox)
+            touched.add(task)
+            used.pop(task, None)
+            freed.pop(task, None)
+            if rule == "answered":
+                held.pop(task, None)
+                freed[task] = info
+            elif rule == "dropped":
+                held[task] = (f"question {', '.join(info['ids'])} dropped by the human: task "
+                              "shelved (reopen it, name it in a brief, or /add it)")
+            elif rule == "waiting":
+                held[task] = f"waiting on {', '.join(info['ids'])} in your inbox"
+            else:
+                held[task] = why
         try:
             for task, o in c["outcomes"].items():
                 if not isinstance(o, dict):
                     raise TypeError(f"outcome of {task!r} is not an object")
                 if o.get("questions") and "obsolete" not in o and not o.get("merged"):
-                    held[task] = (f"parked on a question in shift {d.name} ("
-                                  + ", ".join(map(str, o["questions"]))
-                                  + ") — not startable until answered")
+                    park(task, f"parked on a question in shift {d.name} ("
+                               + ", ".join(map(str, o["questions"]))
+                               + ") — not startable until answered")
                 elif o.get("prs") or o.get("verdicts") or "obsolete" in o:
                     held.pop(task, None)   # finished since: answered
+                    freed.pop(task, None)
+                    used.pop(task, None)
+                    touched.add(task)
             for task in c["parked"]:
                 if task not in c["outcomes"]:
-                    held[str(task)] = (f"parked in shift {d.name} (blocked on a person) — "
-                                       "not startable until answered")
+                    park(str(task), f"parked in shift {d.name} (blocked on a person) — "
+                                    "not startable until answered")
+            for task in c.get("picks") or {}:
+                picked_in.setdefault(task, []).append(d.name)
+                if task in released and task in freed and task not in touched:
+                    # Picked on the release, and no park or finish since:
+                    # still out, crashed or abandoned. The release is used.
+                    info = freed.pop(task)
+                    at = max((str(w.get("spawned") or "") for w in c.get("workers") or []
+                              if w.get("task") == task), default="") or d.name
+                    used[task] = (at, d.name)
+                    held[task] = (f"resumed in shift {d.name} after "
+                                  f"{', '.join(info.get('ids') or [])} and not finished — "
+                                  "not resumed again until a new answer (or name it in a "
+                                  "brief)")
         except (AttributeError, TypeError, ValueError) as e:
             # One malformed file holds nothing and releases nothing (#637 review).
             print(f"orchestrator: {d.name}/{COUNTERS_FILE} has the wrong shape ({e}) — "
                   "read as no hold", file=sys.stderr)
             continue
-        out = held
+        out, released = held, freed
+    # A used release comes back only with an answer given after that pick.
+    for task, (at, where) in used.items():
+        info = _questions.answered_since(task, inbox, at)
+        if info is not None and task in out:
+            out.pop(task)
+            released[task] = info
+    for task, info in released.items():
+        info["picked_in"] = list(picked_in.get(task) or [])
+    if resumes is not None:
+        resumes.update(released)
+    return out
+
+
+def resume_records(records: list[dict], mind: Path, resumes: dict,
+                   ref: str = "origin/main") -> list[dict]:
+    """`records` with each released task that a shift already claimed graded
+    from its `active/<task>.md` on Mind origin/main (M3.5, #645): `survey`
+    reads only `draft/`, and the canonical checkout nobody pulls mid-shift may
+    still show the stale draft, which `on_origin` would drop. A task still in
+    `draft/` on origin keeps its draft record. Each resume record carries
+    `resume` (its ids) for the pick's `why:`. Local git only."""
+    import _batch  # noqa: E402 — deferred, as in `_tick_body`
+    import tempfile
+    if not resumes:
+        return records
+    out = [r for r in records]
+    for task, info in resumes.items():
+        try:
+            shown = subprocess.run(["git", "-C", str(mind), "show", f"{ref}:active/{task}.md"],
+                                   capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            shown = None
+        if shown is not None and shown.returncode == 0 and shown.stdout.strip():
+            with tempfile.TemporaryDirectory(prefix="resume-") as tmp:
+                f = Path(tmp) / "active" / f"{task}.md"
+                f.parent.mkdir()
+                f.write_text(shown.stdout, encoding="utf-8")
+                g = _batch.grade(f, Path(tmp))
+            text = shown.stdout
+            g.update(looks_shipped=False, epic=_batch._epic_of(text),
+                     phase=_batch._phase_of(text), done=_batch._is_done(text),
+                     themes=_batch._themes_of(text), title=_batch._title_of(text))
+            out = [r for r in out if task_id(r["path"]) != task] + [g]
+        for r in out:
+            if task_id(r["path"]) == task:
+                r["resume"] = dict(info)
     return out
 
 
@@ -1390,18 +1622,27 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # human's word that it is; a task this shift picked stays. Read
             # first, so the digest gives the park as the reason.
             named = {Path(t).name for t in _brief.tasks_of(brief)}
-            parked = parked_elsewhere(slot)
+            # The inbox releases a hold once its questions are answered (M3.5,
+            # #645): read from Mind origin/main after the shift's one fetch.
+            resumes: dict = {}
+            inbox = _questions.read_origin(mind, fetch=lambda: _fetch_once(mind, counters, now))
+            parked = parked_elsewhere(slot, inbox, resumes)
             planned["parked"] = {r["path"]: parked[task_id(r["path"])] for r in recs
                                  if task_id(r["path"]) in parked
                                  and task_id(r["path"]) not in counters["picks"]
                                  and Path(r["path"]).name not in named}
             recs = [r for r in recs if r["path"] not in planned["parked"]]
+            resumes = {t: v for t, v in resumes.items() if t not in counters["picks"]}
+            recs = resume_records(recs, mind, resumes)
             # Against Mind origin/main, not the canonical checkout nobody
             # pulls mid-shift (#632, F4): a draft another shift already
             # claimed is never picked again, nor one whose repo a claim holds.
             recs, claimed = on_origin(recs, mind, set(counters["picks"]),
-                                      fetch=lambda: _fetch_once(mind, counters, now))
+                                      fetch=lambda: _fetch_once(mind, counters, now),
+                                      resumes=resumes)
             planned["claimed"] = claimed
+            planned["resume"] = {t: v for t, v in resumes.items()
+                                 if any(task_id(r["path"]) == t for r in recs)}
             # Unattended by construction: an absent Lane is excluded and an
             # empty queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2
             # rulings — 2026-11-12"). Recorded each tick so the digest can say so.
@@ -1460,6 +1701,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                  "queue_stop": d["queue_stop"],
                                  "origin": planned.get("claimed") or {},
                                  "parked": planned.get("parked") or {},
+                                 "resumed": planned.get("resume") or {},
                                  "scoped_reach": sorted(d.get("scoped_reach") or [])}
     paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):
@@ -1526,6 +1768,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                  "heartbeat": _iso(now),
                  "expires": _iso(now + _dt.timedelta(seconds=grace_s)),
                  "pid": 0, "session_id": None, "worktree": None}
+        if (shift or {}).get("issue"):
+            # Where a worker blocked past the grace is filed in the inbox (#645).
+            lease["shift_issue"] = shift["issue"]
         lease_path = slot / "leases" / f"{task}.json"
         if not _create_exclusive(lease_path, lease):
             continue  # a lease appeared since we read them: never a second worker
@@ -1533,6 +1778,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # Only a re-dispatch passes the flag, so a spawner without it
             # (a test's) is called exactly as before.
             again = {"redispatch": True} if task in counters["pending_redispatch"] else {}
+            if member.get("resume"):
+                again["resume"] = member["resume"]   # answered: RESUME_NOTE (#645)
             lease.update(spawner.spawn(task, member["path"], slot / "leases", **again))
         except Exception as e:
             # One task's failed launch is that task's refusal, not the tick's:
@@ -1756,25 +2003,19 @@ def mention_login() -> str:
 
 
 def _mention_triggers(counters: dict, held: dict) -> list[tuple[str, str, str]]:
-    """(task, state, reason) for each worker that needs the human — the push
-    test (AUTONOMY.md): a worker blocked on a person past the grace (parked),
-    or one whose `.done` names an issue not marked `verdict:` (`question:`, a
-    bare URL or any other marker — #632: the test fails toward the human).
-    Read from durable state (`counters.json`, the leases), not from this
-    tick's events, so a tick that died between parking a worker and posting
-    still mentions it on the next; the marker makes it once. A posted
-    `verdict:`, a crash, a refusal, a finished worker or an obsolete premise
-    waits for the digest."""
-    out = []
-    for task in counters["parked"]:
-        since = (held.get(task) or {}).get("stalled_since")
-        out.append((task, "parked", "blocked on a person"
-                    + (f" (blocked since {since})" if since else "")))
-    for task, o in counters["outcomes"].items():
-        if o.get("questions") and "obsolete" not in o:
-            out.append((task, "awaiting-input",
-                        "parked on its issue with a question: " + ", ".join(o["questions"])))
-    return out
+    """(task, state, reason) for each worker that needs the human's @mention
+    on the shift issue. Since M3.5 (#645) none: a worker blocked on a person
+    past the grace (parked) and one whose `.done` names an issue not marked
+    `verdict:` both land in the questions inbox instead (`land_question`),
+    and the digest's one inbox line is their notice. The mention machinery
+    (markers, retries, the late sweep) stays for other triggers; a trigger is
+    read from durable state (`counters.json`, the leases), never from one
+    tick's events, so a tick that died before posting still mentions once."""
+    # M3.5 (#645, Decision H7 a; memory `parked-questions-bulk-inbox`: never
+    # ask mid-run): a parked worker and a question no longer @-mention the
+    # human. Each lands in `questions.md` (`land_question`), and the digest
+    # says how many at review-at. The machinery stays for other triggers.
+    return []
 
 
 def mention_body(login: str, slot_name: str, task: str, state: str, reason: str,
@@ -2306,7 +2547,8 @@ def _cmd_add(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
     kept, claimed = on_origin([rec], mind, set())
     if not kept:
         return f"refused: {task}: {claimed.get(rel) or 'claimed on Mind origin/main'}"
-    was_parked = task in parked_elsewhere(slot)
+    # The inbox's word on earlier parks (#645): an answered park is not "was parked".
+    was_parked = task in parked_elsewhere(slot, _questions.read_origin(mind))
     counters.setdefault("added", {})[task] = {"prompt": rel, "by": who, "at": at, "record": rec}
     notes = "".join([" (was excluded in the brief)" if excluded else "",
                      " (was parked)" if was_parked else ""])
@@ -2925,6 +3167,16 @@ def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime,
             "shipped_as": f"{pr} (merged by {by}, {now.strftime('%Y-%m-%d')})"}
 
 
+def question_retire_op(counters: dict, task: str, now: _dt.datetime,
+                       by: str = "the unattended close-out") -> dict:
+    """The ledger op that answers a merged task's Open and Deferred inbox
+    questions as `(task completed)` (`lifecycle.questions_close_text`).
+    Queued beside `queue_retire_op`, which has already checked the prompt."""
+    prompt = (counters.get("picks", {}).get(task) or {}).get("prompt") or ""
+    return {"op": "question-retire", "path": "questions.md", "prompt": Path(prompt).name,
+            "day": now.strftime("%Y-%m-%d"), "by": by}
+
+
 def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_state,
                    tokens=transcript_usage, *, late: bool = False) -> dict:
     """Reap every finished close-out session (the first half of `_closeouts`):
@@ -3027,6 +3279,11 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
                 # the safety net when it did not (#634). A second retire of
                 # the same entry finds none live and is silent.
                 _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
+                # An unattended close-out never runs `lifecycle.py close`, so
+                # the task's Open questions (a `blocked` one whose late `.done`
+                # merged) are answered here, or `check` would drift (#645).
+                _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
+                                      question_retire_op(counters, co["task"], now))
             events["merged"].append(pr)
         else:
             # Never retried: a close-out that ended without a verdict is the
@@ -3154,7 +3411,13 @@ def stage2_row(now: _dt.datetime, task: str, pr: str, slot_name: str, gate: str,
 def pick_record(member: dict, brief: dict, *, proposed: bool = False) -> dict:
     """What `counters.json` keeps about one pick — enough for the digest and
     `batch watch` to show it by title, size and repo, not by file name."""
-    rec = {"prompt": member["path"], "why": _brief.pick_reason(member, brief),
+    why = _brief.pick_reason(member, brief)
+    if member.get("resume"):
+        # An answer is not a new priority (Decision H11 a): the pick names
+        # the answer, then the standing it re-entered at.
+        why = (f"resumed after {', '.join(member['resume'].get('ids') or ['?'])} was "
+               f"answered · {why}")
+    rec = {"prompt": member["path"], "why": why,
            "tier": member.get("consequence") or "?",
            "title": member.get("title") or "", "size": member.get("difficulty") or "",
            "repos": list(member.get("repos") or [])}

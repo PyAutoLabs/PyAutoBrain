@@ -991,7 +991,7 @@ refuses the merge. A PR in any other repo makes no call at all. The revert
 condition covers these the same way: any other call, or a repeat for the same
 close-out, retires the watcher to fake mode.
 
-**Amendment — 2026-11-16 (M3.4/M3.5; PyAutoBrain#644), approved by the human.**
+**Amendment — 2026-11-16 (M3.4/M3.5; PyAutoBrain#644, #645), approved by the human.**
 The shift cockpit's engine (DESIGN `m3_4_m3_5_design`, rulings H4b, H5a, H6a,
 H8a/a, H10a). The watcher's surface gains, and only:
 
@@ -1021,6 +1021,27 @@ command, a `claude stop` of any session but a running worker of this shift the
 human named in `/kill`, a needs-you comment beyond 5 + 1 in a shift or one with
 an `@`, and any network call from writing or reading `events.jsonl`: any of
 these retires the watcher to fake mode.
+
+The questions inbox (M3.5, PyAutoBrain#645) changes the watcher's surface by:
+
+4. **Questions no longer @-mention the human.** A worker that parks with a
+   question, or is blocked on a person past the stall grace, gets no mention
+   comment. Its question lands in PyAutoMind `questions.md` through the one
+   Mind writer (a `question-add` op, no new network act), and the human's one
+   notice is a line in the digest at `review-at:` (Decision H7 a: "N
+   questions added to your inbox", with the dashboard link). The watcher's
+   comment count goes down; the status comment shows the count as an edit,
+   which notifies nobody.
+5. **Reading `questions.md` from Mind `origin/main`** is a local `git show`
+   after the shift's existing once-per-shift fetch, never a pull or a second
+   fetch. An answered question releases its task's parked hold; the next
+   shift resumes it at its old standing (Decision H11 a), reusing a shift
+   worker's claim with the answer in its prompt. A dropped question shelves
+   the task (H9 a). An unreadable inbox keeps every hold.
+
+The revert condition also covers these: an @mention for a parked question,
+or any read of `questions.md` other than that local one, retires the watcher
+to fake mode.
 
 ## Human override for Heart RED (development only)
 

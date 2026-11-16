@@ -178,6 +178,9 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
             "merges": f"{merges} of {_value(brief, 'merge-cap')}"
                       f" ({values['glance-auto-merges']} unattended)",
             "crashes": values["workers-crashed"],
+            # Questions this shift added to the inbox (M3.5, #645): a count,
+            # never the asks, and no mention — the digest gives the link.
+            "inbox": len(counters.get("inbox") or []),
         },
         "ticks": _ticks(slot, tick_lines) if started else [],
     }
@@ -230,6 +233,8 @@ def render(snap: dict) -> str:
               f"- workers: {b['workers']}", f"- sessions: {b['sessions']}",
               f"- tokens: {b['tokens']}",
               f"- merges: {b['merges']}", f"- workers crashed: {b['crashes']}"]
+    if b.get("inbox"):
+        lines.append(f"- inbox: {b['inbox']} added this shift")
     lines += _steering_lines(snap)
     if snap.get("status_url"):
         lines += ["", f"Status comment: {snap['status_url']}"]
@@ -257,6 +262,8 @@ def render_status(snap: dict) -> str:
     lines += ["", "**Budgets**", f"- workers: {b['workers']}", f"- sessions: {b['sessions']}",
               f"- tokens: {b['tokens']}", f"- merges: {b['merges']}",
               f"- workers crashed: {b['crashes']}"]
+    if b.get("inbox"):
+        lines.append(f"- inbox: {b['inbox']} added this shift")
     for line in _steering_lines(snap):
         lines.append(f"**{line}**" if line in ("Refusals", "Commands") else line)
     if snap.get("commands_unread"):

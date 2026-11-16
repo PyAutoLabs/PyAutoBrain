@@ -1,7 +1,15 @@
-"""PyAutoBrain#611 (M1.6): a blocked shift worker reaches the human through a
-GitHub @mention on the shift's digest issue (the human's channel ruling,
-2026-11-12). The `gh` call sits behind a fake `run`, so nothing reaches
-GitHub; the login comes from the environment or config, never the code.
+"""PyAutoBrain#611 (M1.6): the @mention machinery on the shift's digest issue
+(the human's channel ruling, 2026-11-12). The `gh` call sits behind a fake
+`run`, so nothing reaches GitHub; the login comes from the environment or
+config, never the code.
+
+M3.5 (PyAutoBrain#645, Decision H7 a) removed the two triggers this file was
+written for: a parked worker and a question now land in the questions inbox
+and no longer @-mention anyone. The machinery (markers, one post per worker
+per state, retries, the late sweep, the posting identity) stays for other
+needs-you triggers, so these tests drive it with a stand-in trigger (a parked
+worker, as the old one); the tests marked `real_triggers` pin that the real
+ones are gone.
 """
 
 from __future__ import annotations
@@ -19,6 +27,20 @@ import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 from test_orchestrator_dispatch import _brief, _digest, orch  # noqa: E402
 
 NOW = d.NOW
+
+
+def _stand_in_trigger(counters, held):
+    """A needs-you trigger for the machinery tests: a parked worker."""
+    return [(task, "parked", "blocked on a person" + (
+        f" (blocked since {(held.get(task) or {}).get('stalled_since')})"
+        if (held.get(task) or {}).get("stalled_since") else ""))
+        for task in counters["parked"]]
+
+
+@pytest.fixture(autouse=True)
+def _trigger(request, monkeypatch):
+    if "real_triggers" not in request.keywords:
+        monkeypatch.setattr(orch, "_mention_triggers", _stand_in_trigger)
 ISSUE = "https://github.com/example-org/example-mind/issues/4242"
 LOGIN = "example-human"
 PAST_GRACE = NOW + _dt.timedelta(minutes=1, seconds=orch.STALL_GRACE_S)
@@ -30,6 +52,16 @@ def _issue_reads_answer(monkeypatch):
     about mentions, not steering, and never reach GitHub. A read that failed
     three ticks in a row would be its own needs-you event (#644)."""
     monkeypatch.setattr(orch, "gh_issue_comments", lambda issue, since, run=None: [])
+
+
+@pytest.fixture(autouse=True)
+def _scratch_mind_writes_nothing(monkeypatch):
+    """The scratch Mind here is not a git Mind, so the questions a park now
+    files (`question-add`, #645) could only fail to commit — itself a
+    needs-you event (#644). These tests are about mentions: the ops stay
+    pending, unread; `test_questions_inbox.py` lands them on a real Mind."""
+    monkeypatch.setattr(orch._mind_writer, "commit_ledger",
+                        lambda *a, **k: {"committed": None, "ops": 0})
 
 
 class FakeGh:
@@ -126,17 +158,26 @@ def test_a_crash_makes_no_mention(tmp_path, monkeypatch):
     assert gh.calls == []                       # the push test: the digest carries it
 
 
-def test_a_worker_parked_on_its_issue_is_awaiting_input(tmp_path, monkeypatch):
+def _question_ops(slot):
+    import _mind_writer as mw
+    import json
+    return [json.loads(f.read_text())["entry"] for f in mw.pending_ops(slot)
+            if json.loads(f.read_text()).get("op") == "question-add"]
+
+
+@pytest.mark.real_triggers
+def test_a_worker_parked_on_its_issue_is_filed_in_the_inbox_not_mentioned(tmp_path,
+                                                                          monkeypatch):
+    """M3.5 (#645): the question lands in questions.md; nobody is @-mentioned."""
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGh()
     _tick(brief, mind, home, NOW, claude, gh)
     (slot / "leases" / "t1.done").write_text("question: https://github.com/o/r/issues/77\n")
     _tick(brief, mind, home, NOW + _dt.timedelta(minutes=5), claude, gh,
           d._agents({"t1": "done"}, slot))
-    assert len(gh.calls) == 1
-    body = gh.calls[0][1]
-    assert "needs you — awaiting-input." in body
-    assert "parked on its issue with a question: https://github.com/o/r/issues/77" in body
+    assert gh.calls == [] and orch.read_counters(slot)["pushes"] == 0
+    [entry] = _question_ops(slot)
+    assert (entry["issue"], entry["kind"]) == ("https://github.com/o/r/issues/77", "question")
 
 
 def test_only_an_explicit_verdict_is_not_a_push(tmp_path, monkeypatch):
@@ -160,16 +201,19 @@ def test_only_an_explicit_verdict_is_not_a_push(tmp_path, monkeypatch):
                                   "QUESTION https://github.com/o/r/issues/77\n",
                                   "verdikt: https://github.com/o/r/issues/77\n",
                                   "blocked: https://github.com/o/r/issues/77\n"])
-def test_any_issue_not_marked_verdict_is_a_push(tmp_path, monkeypatch, done):
-    """PyAutoBrain#632 review: the push test fails toward the human — a bare
-    URL, a mis-cased or colon-less `question`, or an unknown marker mentions."""
+@pytest.mark.real_triggers
+def test_any_issue_not_marked_verdict_is_filed_in_the_inbox(tmp_path, monkeypatch, done):
+    """PyAutoBrain#632 review: the test fails toward the human — a bare URL, a
+    mis-cased or colon-less `question`, or an unknown marker is a question.
+    Since M3.5 (#645) it lands in the inbox instead of a mention."""
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGh()
     _tick(brief, mind, home, NOW, claude, gh)
     (slot / "leases" / "t1.done").write_text(done)
     _tick(brief, mind, home, NOW + _dt.timedelta(minutes=5), claude, gh,
           d._agents({"t1": "done"}, slot))
-    assert len(gh.calls) == 1 and "needs you — awaiting-input." in gh.calls[0][1]
+    assert gh.calls == []
+    assert [e["issue"] for e in _question_ops(slot)] == ["https://github.com/o/r/issues/77"]
     assert orch.read_counters(slot)["outcomes"]["t1"]["issues"] == [
         "https://github.com/o/r/issues/77"]
 

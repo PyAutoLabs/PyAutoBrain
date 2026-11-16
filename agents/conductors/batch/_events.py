@@ -168,6 +168,13 @@ class _Batch:
         return sum(1 for k in self.keys if (k or "").startswith(prefix))
 
 
+def _inboxed(counters: dict, task: str, issue: str | None = None) -> bool:
+    """Whether this tick's reap filed `task`'s question (on `issue`) in the
+    questions inbox (M3.5, PyAutoBrain#645: `counters["inbox"]`)."""
+    return any(q.get("task") == task and (issue is None or q.get("issue") == issue)
+               for q in counters.get("inbox") or [])
+
+
 def _outcome(event: dict, counters: dict) -> dict:
     """A `done` reap's outcome: the event's own fields (#644 adds them), else
     the task's outcome in `counters` (an old `tick.log` replay)."""
@@ -198,8 +205,11 @@ def _reaped(b: _Batch, result: dict, counters: dict) -> None:
                   task=task)
         elif ev == "parked":
             since = str(e.get("why") or "").replace("blocked since ", "")
+            filed = _inboxed(counters, task)
             b.add("parked", f"parked:{task}:{run}",
-                  f"{task} is stuck at a prompt (since {_hhmm(since)}).", task=task)
+                  f"{task} is stuck at a prompt (since {_hhmm(since)})."
+                  + (" Added to your inbox." if filed else ""), task=task,
+                  inbox=filed or None)
         elif ev == "done":
             o = _outcome(e, counters)
             merged = list(o.get("merged") or [])
@@ -216,8 +226,13 @@ def _reaped(b: _Batch, result: dict, counters: dict) -> None:
                       f"{task} merged {ref(pr)} in-turn (notify).", task=task, pr=pr)
             questions = [] if "obsolete" in o else list(o.get("questions") or [])
             for q in questions:
+                # "Added to your inbox" only when the watcher filed it (#645):
+                # a merged task's question, or one it could not file, is not.
+                filed = _inboxed(counters, task, q)
                 b.add("question", f"question:{task}:{q}",
-                      f"{task} parked with a question on {ref(q)}.", task=task, url=q)
+                      f"{task} parked with a question on {ref(q)}."
+                      + (" Added to your inbox." if filed else ""), task=task, url=q,
+                      inbox=filed or None)
             if "obsolete" in o or o.get("verdicts") or not (o.get("prs") or questions):
                 if "obsolete" in o:
                     state = "obsolete (premise check)"
@@ -368,7 +383,10 @@ def _digest_event(b: _Batch, result: dict, counters: dict) -> None:
               if isinstance(o, dict) and o.get("questions") and "obsolete" not in o
               and not o.get("merged")]
     parked += [t for t in counters.get("parked") or [] if t not in parked]
-    tail = (f" {len(parked)} task{'s' if len(parked) != 1 else ''} parked on a question."
+    filed = len(counters.get("inbox") or [])
+    tail = (f" {filed} question{'s' if filed != 1 else ''} added to your inbox."
+            if filed else
+            f" {len(parked)} task{'s' if len(parked) != 1 else ''} parked on a question."
             if parked else "")
     if post.get("url"):
         b.add("digest", "digest", f"Shift closed. Digest: {post['url']}.{tail}", url=post["url"])
