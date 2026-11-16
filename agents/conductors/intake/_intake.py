@@ -1521,8 +1521,20 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
     # almost none of what has been happening. Epic members stay out, as they do
     # in every pick list on the page: they are worked in order through their
     # epic, and a Recent row hands out a standalone the start-dev skill.
+    # A planned row and the draft its `prompt:` names are ONE task, so only
+    # the later-dated of the pair is listed (a tie keeps the planned row: the
+    # more specific event, with its own copy payload). An undated planned row
+    # is not listed, so it hides nothing.
+    planned_dates = {}
+    for e in c.get("planned") or []:
+        prompt = (e.get("prompt") or "").split()
+        if prompt and e.get("date"):
+            planned_dates[prompt[0]] = max(e["date"], planned_dates.get(prompt[0], ""))
+    record_dates = {r["path"]: r["date"] for r in c.get("records") or []
+                    if r.get("date") and not r.get("epic")}
     for r in c.get("records") or []:
-        if r.get("date") and not r.get("epic"):
+        if (r.get("date") and not r.get("epic")
+                and r["date"] > planned_dates.get(r["path"], "")):
             events.append({"date": r["date"], "event": "filed",
                            "title": r["title"], "path": r["path"],
                            "payload": f"Use the start-dev skill. {r['path']}"})
@@ -1535,6 +1547,9 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
                            "payload": _review_payload(r)})
     for key, verb in (("planned", "start"),):
         for e in c.get(key) or []:
+            prompt = (e.get("prompt") or "").split()
+            if prompt and record_dates.get(prompt[0], "") > (e.get("date") or ""):
+                continue
             if e.get("date"):
                 events.append({"date": e["date"],
                                "event": e.get("event") or key,
