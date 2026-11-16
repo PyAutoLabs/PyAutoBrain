@@ -683,6 +683,46 @@ def test_recent_names_the_event_each_date_records(tmp_path):
     }
 
 
+def _planned_with_draft(root, planned_date, filed_date):
+    """A Mind whose planned row names a dated draft as its `prompt:`."""
+    draft = _prompt("Gearbox survey").replace(
+        "Status: formalised\n", f"Status: formalised\nFiled: {filed_date}\n")
+    planned = "# Planned\n\n## gearbox-survey\n"
+    if planned_date:
+        planned += f"- filed: {planned_date}\n"
+    planned += "- prompt: draft/feature/widgets/gearbox_survey.md\n"
+    return _mind(root, drafts={"feature/widgets/gearbox_survey.md": draft},
+                 registries={"planned.md": planned})
+
+
+def test_planned_row_and_its_draft_are_one_recent_row(tmp_path):
+    """`recent_events` promises one row per task. A planned row and the draft
+    its `prompt:` names are one task; listing both spent three of the fifty
+    feed rows on duplicates (PyAutoBrain#652)."""
+    rows = _intake.census(_planned_with_draft(tmp_path, "2026-08-12",
+                                              "2026-08-05"))["recent"]
+    assert [(r["date"], r["path"]) for r in rows] == [
+        ("2026-08-12", "planned.md#gearbox-survey")]
+
+
+def test_planned_draft_pair_keeps_the_later_date(tmp_path):
+    """A draft dated after its planned row is the newer event, so it is the
+    one row shown; a tie keeps the planned row."""
+    rows = _intake.census(_planned_with_draft(tmp_path / "later", "2026-08-05",
+                                              "2026-08-12"))["recent"]
+    assert [(r["date"], r["path"]) for r in rows] == [
+        ("2026-08-12", "draft/feature/widgets/gearbox_survey.md")]
+    rows = _intake.census(_planned_with_draft(tmp_path / "tie", "2026-08-12",
+                                              "2026-08-12"))["recent"]
+    assert [r["path"] for r in rows] == ["planned.md#gearbox-survey"]
+
+
+def test_undated_planned_row_does_not_hide_its_draft(tmp_path):
+    """An undated planned row is not in the feed, so its draft must stay."""
+    rows = _intake.census(_planned_with_draft(tmp_path, "", "2026-08-05"))["recent"]
+    assert [r["path"] for r in rows] == ["draft/feature/widgets/gearbox_survey.md"]
+
+
 def test_recent_is_newest_first(tmp_path):
     rows = _intake.census(_recent_mind(tmp_path))["recent"]
     assert [r["date"] for r in rows] == sorted(
