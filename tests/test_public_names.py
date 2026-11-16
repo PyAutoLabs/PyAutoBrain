@@ -1,0 +1,420 @@
+"""`pyauto-brain public-names` — added or renamed public library names go to a
+human `/prm` (PyAutoBrain#641; AUTONOMY.md "Public-name narrowing of `glance`
+— 2026-11-16").
+
+The Witness cases: the seeded audit's row 08 diff (seven `latent_*_from` in
+`autogalaxy/convert.py`) is refused; a private helper and a body-only change
+pass; a rename is caught; a new `__init__` export is caught; a workspace repo is
+ignored; a parse error cannot tell (exit 2); the close-out refusal reaches the
+digest. Offline: local git repos in tmp_path, the row's real before/after files
+(`fixtures/public_names/row08_latent/`, stored as `.py.txt` so the tenant
+firewall does not read upstream library docstrings as organ code), and a fake
+`gh` behind the `run` seam. Repo names here are invented (`LibGalaxy`): the
+real list is `config/policy.yaml` `public_name_libraries:`.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+BRAIN_HOME = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BRAIN_HOME / "bin"))
+
+import public_names as pn  # noqa: E402
+from _repo_paths import repo_path  # noqa: E402 — public_names put agents/ on the path
+
+FIXTURE = BRAIN_HOME / "tests" / "fixtures" / "public_names" / "row08_latent"
+LATENT = sorted([
+    "latent_shear_from", "latent_ellipse_from", "latent_multipole_from",
+    "latent_scaled_multipole_from", "latent_light_multipole_3_from",
+    "latent_light_multipole_4_from", "latent_light_multipoles_from"])
+#: The row's merge commit in the real library checkout, when present.
+ROW08_MERGE = "e92eea86a8b2a8345b0d0135876df634d05a7865"
+LIBS = {"LibGalaxy": "autogalaxy", "LibLens": "autolens"}
+
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+
+
+def _real_libs():
+    try:
+        return pn.load_libraries()
+    except pn.LibrariesError as e:
+        pytest.skip(f"no body map here: {e}")
+
+
+def _row08(tmp_path):
+    """The fixture's before/after trees, with their real `.py` names."""
+    for src in FIXTURE.rglob("*.py.txt"):
+        dst = tmp_path / src.relative_to(FIXTURE).with_suffix("")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(src.read_text())
+    return tmp_path / "before", tmp_path / "after"
+
+
+# --- row 08, the row that made the ruling ---------------------------------------------
+
+def test_witness_row08_all_seven_latent_helpers_are_added_and_refused(tmp_path):
+    before, after = _row08(tmp_path)
+    v = pn.for_trees(before, after, "LibGalaxy", libs=LIBS)
+    assert v["verdict"] == pn.HIT
+    assert sorted(e["name"] for e in v["added"]) == LATENT
+    assert {e["module"] for e in v["added"]} == {"autogalaxy.convert"}
+    assert v["renamed"] == [] and v["removed"] == [] and v["cannot_tell"] == []
+    # external_shear.py only gained a class attribute; _multipole_mixin.py is
+    # a private module: neither is a public-name change.
+    assert v["modules_compared"] == 2
+    why = pn.reason(v)
+    assert why.startswith("public name added/renamed: autogalaxy.convert.latent_")
+    assert why.endswith(" → human /prm")
+
+
+def test_witness_row08_cli_exits_1_and_prints_the_reason_first(tmp_path, capsys):
+    before, after = _row08(tmp_path)
+    rc = pn.main(["--repo-name", "LibGalaxy", "--before", str(before),
+                  "--after", str(after)], libs=LIBS)
+    out = capsys.readouterr().out.splitlines()
+    assert rc == 1
+    assert out[0].startswith("public name added/renamed:")
+    assert sum(1 for line in out if line.startswith("  added:")) == 7
+
+
+@needs_git
+def test_witness_row08_from_the_real_merge_commit_range():
+    libs = _real_libs()
+    name = next((n for n, pkg in libs.items() if pkg == "autogalaxy"), None)
+    assert name, "the ruled libraries include the autogalaxy package"
+    import _pyauto_root
+    repo = repo_path(_pyauto_root.pyauto_root(), name)
+    have = subprocess.run(["git", "-C", str(repo), "cat-file", "-e", ROW08_MERGE],
+                          capture_output=True)
+    if have.returncode != 0:
+        pytest.skip("no library checkout holding row 08's merge commit")
+    v = pn.for_range(repo, f"{ROW08_MERGE}^1..{ROW08_MERGE}", name=name, libs=libs)
+    assert v["verdict"] == pn.HIT
+    assert sorted(e["name"] for e in v["added"]) == LATENT
+    assert v["renamed"] == []
+
+
+# --- a scratch library repo ----------------------------------------------------------
+
+def _git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _repo(tmp_path, name="LibGalaxy", package="autogalaxy", files=None):
+    repo = tmp_path / name
+    (repo / package).mkdir(parents=True)
+    _git(tmp_path, "init", "-q", str(repo))
+    _git(repo, "config", "user.email", "t@example.invalid")
+    _git(repo, "config", "user.name", "t")
+    _write(repo, files or {
+        f"{package}/__init__.py": "from .convert import ell_from\n",
+        f"{package}/convert.py": "def ell_from(a):\n    return a\n\nSCALE = 2\n",
+    })
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    return repo
+
+
+def _write(repo, files):
+    for path, text in files.items():
+        p = repo / path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+
+
+def _change(repo, files, remove=()):
+    _write(repo, files)
+    for path in remove:
+        (repo / path).unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "change")
+    return pn.for_range(repo, "HEAD~1..HEAD", libs=LIBS)
+
+
+@needs_git
+def test_a_private_helper_passes(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/convert.py":
+                       "def _helper(a):\n    return a\n\n_CACHE = {}\n\n"
+                       "def ell_from(a):\n    return _helper(a)\n\nSCALE = 2\n"})
+    assert v["verdict"] == pn.CLEAN and v["added"] == [] and v["renamed"] == []
+
+
+@needs_git
+def test_a_body_only_change_passes(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/convert.py":
+                       "def ell_from(a, b=1):\n    return a * b\n\nSCALE = 3\n"})
+    assert v["verdict"] == pn.CLEAN and v["modules_compared"] == 1
+
+
+@needs_git
+def test_a_method_or_class_attribute_is_not_a_module_level_name(tmp_path):
+    repo = _repo(tmp_path, files={"autogalaxy/__init__.py": "",
+                                  "autogalaxy/profile.py": "class P:\n    pass\n"})
+    v = _change(repo, {"autogalaxy/profile.py":
+                       "class P:\n    latent = {}\n\n    def new_method(self):\n"
+                       "        def inner():\n            pass\n"})
+    assert v["verdict"] == pn.CLEAN
+
+
+@needs_git
+def test_a_rename_is_caught(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/convert.py":
+                       "def ell_comps_from(a):\n    return a\n\nSCALE = 2\n"})
+    assert v["verdict"] == pn.HIT and v["added"] == []
+    assert v["renamed"] == [{"module": "autogalaxy.convert", "old": "ell_from",
+                             "new": "ell_comps_from", "kind": "def"}]
+    assert "autogalaxy.convert.ell_comps_from (renamed from ell_from)" in pn.reason(v)
+
+
+@needs_git
+def test_a_new_init_export_is_caught(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/__init__.py":
+                       "from .convert import ell_from\nfrom .convert import SCALE as scale\n"})
+    assert v["verdict"] == pn.HIT
+    assert v["added"] == [{"module": "autogalaxy", "name": "scale", "kind": "import"}]
+
+
+@needs_git
+def test_a_new_all_entry_and_star_import_in_init_are_caught(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/__init__.py":
+                       "from .convert import ell_from\nfrom .extra import *\n"
+                       "__all__ = ['ell_from', 'Extra']\n"})
+    assert {e["name"] for e in v["added"]} == {"* from .extra", "Extra"}
+
+
+@needs_git
+def test_a_new_module_and_a_module_level_if_block_count(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/new.py":
+                       "try:\n    import jax\n    HAS_JAX = True\nexcept ImportError:\n"
+                       "    HAS_JAX = False\n\nclass Thing:\n    pass\n"})
+    assert sorted(e["name"] for e in v["added"]) == ["HAS_JAX", "Thing"]
+
+
+@needs_git
+def test_a_removal_alone_is_info_not_a_hit(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/convert.py": "def ell_from(a):\n    return a\n"})
+    assert v["verdict"] == pn.CLEAN
+    assert v["removed"] == [{"module": "autogalaxy.convert", "name": "SCALE",
+                             "kind": "assign"}]
+    assert "info — removed" in pn.summary(v)
+
+
+@needs_git
+def test_tests_and_files_outside_the_package_are_ignored(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"test_autogalaxy/test_convert.py": "def test_new():\n    pass\n",
+                       "autogalaxy/tests/helpers.py": "def helper():\n    pass\n",
+                       "autogalaxy/test_more.py": "def thing():\n    pass\n",
+                       "scripts/tool.py": "def tool():\n    pass\n"})
+    assert v["verdict"] == pn.CLEAN and v["modules_compared"] == 0
+
+
+@needs_git
+def test_a_workspace_or_organ_repo_is_ignored(tmp_path):
+    for name in ("galaxy_workspace", "OrganBrain", "galaxy_assistant"):
+        repo = _repo(tmp_path, name=name, package="autogalaxy")
+        v = _change(repo, {"autogalaxy/convert.py": "def brand_new():\n    pass\n"})
+        assert v["verdict"] == pn.CLEAN and v.get("not_library"), name
+    assert pn.main(["--repo", str(tmp_path / "OrganBrain"), "--range", "HEAD~1..HEAD"],
+                   libs=LIBS) == 0
+
+
+@needs_git
+def test_a_parse_error_cannot_tell_and_exits_2(tmp_path, capsys):
+    repo = _repo(tmp_path)
+    _change(repo, {"autogalaxy/convert.py": "def ell_from(a:\n    return a\n"})
+    rc = pn.main(["--repo", str(repo), "--range", "HEAD~1..HEAD"], libs=LIBS)
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert out.startswith("public names: cannot tell — autogalaxy/convert.py (after) "
+                          "does not parse")
+    assert out.splitlines()[0].endswith("→ human /prm")
+
+
+@needs_git
+def test_an_unreadable_range_cannot_tell(tmp_path):
+    repo = _repo(tmp_path)
+    v = pn.for_range(repo, "HEAD~1..HEAD", libs=LIBS)   # there is no HEAD~1
+    assert v["verdict"] == pn.CANNOT
+
+
+def test_usage_errors_exit_64(capsys):
+    assert pn.main([]) == pn.EXIT_USAGE
+    assert pn.main(["not-a-ref"]) == pn.EXIT_USAGE
+
+
+def test_the_library_list_is_policy_config_with_body_map_packages(tmp_path):
+    policy = tmp_path / "policy.yaml"
+    body = tmp_path / "repos.yaml"
+    policy.write_text("other: 1\npublic_name_libraries: [LibGalaxy, 'LibLens']\n")
+    body.write_text("repos:\n  LibGalaxy:\n    path: g/LibGalaxy\n    package: autogalaxy\n"
+                    "  LibLens:\n    package: \"autolens\"  # the lens package\n"
+                    "  galaxy_workspace:\n    category: workspace\ncategories: {}\n")
+    libs = pn.load_libraries(policy, body)
+    assert libs == LIBS
+    assert pn.library_package("ExampleOrg/LibLens", libs) == "autolens"
+    assert pn.library_package("/x/LibGalaxy.git", libs) == "autogalaxy"
+    assert pn.library_package("ExampleOrg/galaxy_workspace", libs) is None
+    body.write_text("repos:\n  LibGalaxy:\n    package: autogalaxy\n")
+    with pytest.raises(pn.LibrariesError, match="LibLens"):
+        pn.load_libraries(policy, body)   # a ruled library with no package: fail closed
+    policy.write_text("other: 1\n")
+    with pytest.raises(pn.LibrariesError):
+        pn.load_libraries(policy, body)
+
+
+def test_an_unreadable_library_list_cannot_tell(monkeypatch, tmp_path):
+    def boom():
+        raise pn.LibrariesError("the body map is unreadable")
+    monkeypatch.setattr(pn, "load_libraries", boom)
+    v = pn.for_trees(tmp_path, tmp_path, "AnyRepo")
+    assert v["verdict"] == pn.CANNOT and "body map" in v["cannot_tell"][0]
+
+
+def test_the_real_config_rules_the_five_library_packages():
+    libs = _real_libs()
+    assert sorted(libs.values()) == ["autoarray", "autocti", "autofit", "autogalaxy",
+                                     "autolens"]
+
+
+# --- the PR read: `gh api`, read-only, behind the `run` seam --------------------------
+
+class FakeGh:
+    def __init__(self, files, sources, fail=None):
+        self.files, self.sources, self.fail, self.calls = files, sources, fail, []
+
+    def __call__(self, argv, **kw):
+        self.calls.append(argv)
+        path = next(a for a in argv[2:] if a.startswith("repos/"))
+        if self.fail and self.fail in path:
+            return subprocess.CompletedProcess(argv, 1, "", "HTTP 502")
+        if path.endswith("/pulls/7"):
+            out = json.dumps({"base": "b" * 40, "head": "h" * 40})
+        elif "/compare/" in path:
+            out = json.dumps({"sha": "m" * 40})
+        elif "/pulls/7/files" in path:
+            out = "\n".join(json.dumps(f) for f in self.files)
+        elif "/contents/" in path:
+            fpath, ref = path.split("/contents/", 1)[1].split("?ref=")
+            key = (fpath, ref[0])
+            if key not in self.sources:
+                return subprocess.CompletedProcess(argv, 1, "", "HTTP 404")
+            out = self.sources[key]
+        else:
+            raise AssertionError(path)
+        return subprocess.CompletedProcess(argv, 0, out, "")
+
+
+def test_a_pr_is_read_from_its_merge_base_and_head():
+    gh = FakeGh(
+        files=[{"filename": "autolens/lens.py", "status": "modified"},
+               {"filename": "autolens/new.py", "status": "added"},
+               {"filename": "docs/x.rst", "status": "modified"}],
+        sources={("autolens/lens.py", "m"): "def a():\n    pass\n",
+                 ("autolens/lens.py", "h"): "def a():\n    return 1\n",
+                 ("autolens/new.py", "h"): "class New:\n    pass\n"})
+    v = pn.for_pr("ExampleOrg/LibLens#7", run=gh, libs=LIBS)
+    assert v["verdict"] == pn.HIT and v["base"] == "m" * 40
+    assert [e["name"] for e in v["added"]] == ["New"]
+    assert all(c[:2] == ["gh", "api"] for c in gh.calls)   # read-only: gh api only
+
+
+def test_an_unreadable_gh_reply_cannot_tell():
+    gh = FakeGh(files=[], sources={}, fail="/compare/")
+    assert pn.for_pr("ExampleOrg/LibLens#7", run=gh, libs=LIBS)["verdict"] == pn.CANNOT
+    gh = FakeGh(files=[{"filename": "autolens/lens.py", "status": "modified"}],
+                sources={("autolens/lens.py", "m"): "X = 1\n"})
+    v = pn.for_pr("ExampleOrg/LibLens#7", run=gh, libs=LIBS)   # head contents 404
+    assert v["verdict"] == pn.CANNOT and "could not be read" in v["cannot_tell"][0]
+
+
+def test_a_non_library_pr_asks_github_nothing():
+    gh = FakeGh(files=[], sources={})
+    assert pn.main(["ExampleOrg/lens_workspace#7"], run=gh, libs=LIBS) == 0
+    assert gh.calls == []
+
+
+# --- wired: the close-out, the tiered merge, the review surface -----------------------
+
+def test_the_closeout_prompt_runs_the_check_on_its_pr(tmp_path):
+    sys.path.insert(0, str(BRAIN_HOME / "tests"))
+    from test_orchestrator_closeout import PR1, orch
+    tmpl = (BRAIN_HOME / "agents/conductors/batch/closeout_template.md").read_text()
+    assert "{public_names_cmd}" in tmpl and "public name added/renamed" in tmpl
+    prompt = orch.closeout_prompt("t1", PR1, "draft/x/t1.md", tmp_path / "b.md",
+                                  tmp_path / "leases")
+    assert f"pyauto-brain public-names {PR1}" in prompt
+
+
+def test_the_closeout_refusal_reaches_the_digest(tmp_path):
+    sys.path.insert(0, str(BRAIN_HOME / "tests"))
+    import test_orchestrator_closeout as tc
+    before, after = _row08(tmp_path / "row08")
+    v = pn.for_trees(before, after, "LibGalaxy", libs=LIBS)
+    why = pn.reason(v)
+    mind, brief, home, sp = tc._shift(tmp_path)
+    tc._tick(brief, mind, home, sp, 1)
+    tc._verdict(home, brief, "named", result="refused", pr=tc.PR1, why=why, gate="",
+                model="claude-opus-5-5")
+    tc._tick(brief, mind, home, sp, 2)
+    slot = tc.orch.slot_dir(brief, home)
+    c = tc.orch.read_counters(slot)
+    assert c["closeouts"][tc.PR1] == {**c["closeouts"][tc.PR1], "state": "refused",
+                                      "why": why}
+    assert c["glance_auto_merges"] == 0
+    d = tc._digest.build(tc._brief.parse(brief.read_text())["brief"], slot, c,
+                         health=tc.t._health)
+    assert f"awaiting /prm — close-out refused: {why}</sub>" in d
+
+
+def test_the_tiered_merge_and_ship_skills_refuse_on_a_hit():
+    ref = (BRAIN_HOME / "skills/prm/reference.md").read_text()
+    tiered = ref.split("## Tiered merge", 1)[1].split("\n## ", 1)[0]
+    assert "pyauto-brain public-names" in tiered and "Exit 1" in tiered
+    for skill in ("ship_library", "ship_workspace"):
+        text = (BRAIN_HOME / "skills" / skill / f"{skill}.md").read_text()
+        assert "public-names` exit 1 or 2" in text.replace("\n  ", " ")
+
+
+def test_the_cli_is_dispatched_by_pyauto_brain(tmp_path):
+    libs = _real_libs()
+    name = next(n for n, pkg in libs.items() if pkg == "autogalaxy")
+    before, after = _row08(tmp_path)
+    r = subprocess.run([str(BRAIN_HOME / "bin" / "pyauto-brain"), "public-names",
+                        "--repo-name", name, "--before", str(before),
+                        "--after", str(after)], capture_output=True, text=True)
+    assert r.returncode == 1 and r.stdout.startswith("public name added/renamed:")
+
+
+@needs_git
+def test_the_review_surface_lists_the_public_name_delta(tmp_path, monkeypatch):
+    sys.path.insert(0, str(BRAIN_HOME / "agents" / "faculties" / "review"))
+    import _review
+    monkeypatch.setattr(pn, "load_libraries", lambda: LIBS)
+    repo = _repo(tmp_path)
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _change(repo, {"autogalaxy/convert.py":
+                   "def ell_from(a):\n    return a\n\ndef latent_from(a):\n    pass\n"})
+    s = _review.repo_surface(repo)
+    assert "public-name-added-or-renamed" in s["risk_flags"]
+    assert s["public_names"]["verdict"] == pn.HIT
+    assert [e["name"] for e in s["public_names"]["added"]] == ["latent_from"]
+    assert [e["name"] for e in s["public_names"]["removed"]] == ["SCALE"]
+    ws = _repo(tmp_path, name="galaxy_workspace")
+    _git(ws, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _change(ws, {"autogalaxy/convert.py": "def other():\n    pass\n"})
+    assert "public_names" not in _review.repo_surface(ws)

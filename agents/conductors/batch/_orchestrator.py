@@ -288,7 +288,9 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
     """The close-out session template filled in for one PR (phase 4b). Its
     Heart check is the scoped development-ship gate for the PR's repo (leg 4,
     PyAutoHeart#340): only `green` merges. Its CI check is `pyauto-brain
-    ci-verdict` on the PR (PyAutoBrain#628): only `GREEN` merges."""
+    ci-verdict` on the PR (PyAutoBrain#628): only `GREEN` merges. Its
+    public-name check is `pyauto-brain public-names` (PyAutoBrain#641): an
+    added or renamed public library name, or a diff it cannot read, refuses."""
     repos = pr_repos(pr_url)
     heart_cmd = (f"bash -c 'source \"{COMMON_SH}\"; consult_vitals_verdict --repos {repos}'"
                  if repos else "")
@@ -298,6 +300,8 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
         shift_ledger=SHIFT_LEDGER, pr_repos=repos or "(none — not a GitHub PR URL)",
         heart_cmd=heart_cmd or "(cannot be scoped — refuse)",
         ci_verdict_cmd=f"{BRAIN_CLI} ci-verdict {pr_url}" if repos
+        else "(not a GitHub PR URL — refuse)",
+        public_names_cmd=f"{BRAIN_CLI} public-names {pr_url}" if repos
         else "(not a GitHub PR URL — refuse)")
 
 

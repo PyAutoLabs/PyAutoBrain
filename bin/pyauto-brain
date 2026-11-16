@@ -44,6 +44,9 @@
 #   pyauto-brain ci-verdict <owner/repo>#<n> [--json]
 #                                 (tool)      read-only: one PR's CI verdict — GREEN/PENDING/RED
 #                                 with reasons (bin/ci_verdict.py; /prm, the close-out, pr_health)
+#   pyauto-brain public-names <owner/repo>#<n> | --repo <path> --range a..b [--json]
+#                                 (tool)      read-only: does a change add or rename a public
+#                                 library name? CLEAN/HIT/CANNOT-TELL (bin/public_names.py)
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Renamed from `pyauto-agent`; the former back-compat shim has been removed now
@@ -168,6 +171,7 @@ EOF
   # A tool, not an agent: listed as prose for the same reason as the surfaces.
   echo "Tools (read-only helpers the merge paths share):"
   echo "  ci-verdict <owner/repo>#<n> [--json] — one PR's CI: GREEN, PENDING or RED, with reasons"
+  echo "  public-names <owner/repo>#<n> [--json] — a public library name added or renamed: a human /prm"
   echo
   echo "Run 'pyauto-brain help <agent>' for that agent's full docs."
 }
@@ -215,6 +219,9 @@ main() {
   ensure_session_environment
   if [[ "$sub" == "ci-verdict" ]]; then
     exec python3 "$BRAIN_HOME/bin/ci_verdict.py" "$@"
+  fi
+  if [[ "$sub" == "public-names" ]]; then
+    exec python3 "$BRAIN_HOME/bin/public_names.py" "$@"
   fi
   local script="${AGENT_SCRIPT[$sub]:-}"
   if [[ -z "$script" || ! -f "$script" ]]; then

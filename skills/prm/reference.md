@@ -144,6 +144,12 @@ differences:
   CI, such as the website, stays a human merge) — report and stop; the human
   runs `/prm`. The library-first, sibling-branch and data-worktree guards
   apply verbatim.
+- **Public names (step 4, every tier).** Run `pyauto-brain public-names
+  <owner/repo>#<n>` on each PR (`bin/public_names.py`, PyAutoBrain#641).
+  Exit 1 — a public library name added or renamed — or 2 — it cannot tell —
+  refuses: report its first line and stop; the human runs `/prm`
+  (`AUTONOMY.md` "Public-name narrowing of `glance` — 2026-11-16"). A repo
+  outside the five libraries prints CLEAN, exit 0.
 - **The merge call.** `gh pr merge <n> --merge` as a **bare, unchained** Bash
   call (no `&&`, `;` or pipe); if the permission layer denies it, stop and
   report — never retry it another way. For `glance`, the close-out appends the

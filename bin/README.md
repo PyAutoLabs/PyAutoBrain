@@ -18,6 +18,13 @@ Executable tooling for the PyAuto organism.
   mergeability → GREEN / PENDING / RED with reasons; exit 0 · 2 · 1. `/prm`
   step 2 and the shift close-out run it; the watcher's `pr_health` feeds its
   `gh pr checks` rows to the same `judge`.
+- **`public_names.py`** — `pyauto-brain public-names <owner/repo>#<n>`, or
+  `--repo <path> --range a..b`: does a change add or rename a public name in
+  a library package (PyAutoBrain#641; AUTONOMY.md "Public-name narrowing of
+  `glance` — 2026-11-16")? `ast` over each changed module before and after;
+  exit 0 CLEAN (or not a library repo) · 1 HIT · 2 cannot tell. The shift
+  close-out and the in-turn tiered merge refuse on 1 or 2; the review
+  faculty lists the delta in its ReviewSurface.
 - **`lane_backfill.py`** — proposes a `Lane:` for every lane-less draft in
   the planner pool, from intake's own lane signals, as a table for a human to
   skim; `--apply [--from <table>]` writes the headers (commits nothing).

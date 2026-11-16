@@ -44,7 +44,12 @@ Heart and the agent reasons over the verdict.
    or, for an in-place task with no worktree, the checkouts its `active.md`
    `- repos:` block claims — or explicit repo paths and emits, per repo: merge-base against `origin/main`, commits
    ahead, diff stat, changed files, and risk flags (public-API-shaped paths,
-   config/schema files, tests changed or not, generated files).
+   config/schema files, tests changed or not, generated files). For a
+   library repo it also lists the **public-name delta** (`public_names`,
+   from `bin/public_names.py`, PyAutoBrain#641): an added or renamed public
+   name raises `public-name-added-or-renamed`, and the merge is a human
+   `/prm` whatever the tier (AUTONOMY.md "Public-name narrowing of `glance`
+   — 2026-11-16"). Say so in the verdict; it is not a code finding.
 2. The reviewing agent runs, over that surface: a **code review at high
    effort** (correctness first, then reuse/simplification) and a **verify
    pass** — drive the affected flow end-to-end, not just tests (for
