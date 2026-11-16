@@ -24,9 +24,9 @@ in section 7, with no Monitor; offer the watch in one line if it would help.
 After `/cockpit`, a pasted task is an **add to this shift**. That covers a whole
 prompt, a prompt path or GitHub link, a task title, or a dashboard 📋 line such
 as `Use the start-dev skill. draft/feature/x/y.md`. It is never a start-dev,
-`/route`, intake, plan or build request (see "Steering", `/add`). If the human
-clearly wants a task started outside the shift ("start this one now, not in
-the shift"), confirm in one line, then route normally.
+`/route`, intake, plan or build request (see "Steering", `/add`). If `/queue`
+or `/questions` also ran in this chat, ask which one the paste is for. To start
+a task outside the shift, confirm in one line, then route normally.
 
 ## 1. Find the shift
 

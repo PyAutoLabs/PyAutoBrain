@@ -15,6 +15,7 @@ prompt path or GitHub link, a task title, or a dashboard 📋 line such as
 `/route`, intake, plan or build request. Do not read the prompt to plan it, and
 do not offer to start it. If the human clearly wants to leave queue mode
 ("start this one now"), confirm that in one line, then route normally.
+If `/questions` or `/cockpit` also ran in this chat, ask which one a paste is for.
 
 ## Verbs (plain words map onto these)
 

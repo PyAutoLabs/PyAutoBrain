@@ -113,6 +113,16 @@ call, so the Brain is not bypassed):
   on `origin/main`, committed with `prompt_sync_push`, then `lifecycle.py
   check`. The dashboard only reads the queue (★ and rank on each queued task).
 
+- **`/questions`** — clear `PyAutoMind/questions.md`, the inbox of questions
+  shift workers parked on (PyAutoBrain#645; the one chat writer). A sitting
+  goes oldest first: answer (posted on the question's issue as the human,
+  then appended to the task's prompt so the next shift resumes it), later
+  (defer), drop (the task is shelved) or skip. A pasted `Use the questions skill. Q17`
+  (the dashboard's 📋) opens that question — **never start dev**. Writes through
+  the Mind's `scripts/questions_edit.py` in a temporary worktree detached on
+  `origin/main`, committed with `prompt_sync_push`, then `lifecycle.py check`,
+  as `/queue` writes the queue.
+
 - **`/cockpit`** — watch a running shift from chat and steer it
   (PyAutoBrain#646). One Monitor on the canonical `batch watch --stream`
   command, inside the shift's window, re-armed only at `segment-end`; the one
@@ -122,7 +132,8 @@ call, so the Brain is not bypassed):
   `/add` (`/stop` and `/kill` confirmed first). In a chat that ran `/cockpit`, a
   pasted prompt, prompt path, title or dashboard 📋 line means **`/add` it to
   the shift — never start dev**, and `/route` must not send it to `start_dev`.
-  Questions go to `/questions`.
+  Questions go to `/questions`. When more than one of `/queue`, `/questions`
+  and `/cockpit` ran in one chat, a paste is asked about, never guessed.
 
 - **`update_issue`** — post a progress update (commits, summary, what is left)
   to the active task's GitHub issue, read from the PyAutoMind registry. The

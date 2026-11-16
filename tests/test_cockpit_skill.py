@@ -285,5 +285,9 @@ def test_stop_watching_stops_the_monitor_only():
 def test_a_paste_in_a_queue_and_cockpit_chat_is_asked_about():
     route = (BRAIN / "skills" / "route" / "route.md").read_text()
     start = (BRAIN / "skills" / "start_dev" / "SKILL.md").read_text()
-    assert "If both `/queue` and\n`/cockpit` ran in this chat, ask" in route
-    assert "If both\n`/queue` and `/cockpit` ran in this chat, ask" in start
+    flat = lambda text: " ".join(text.split())  # noqa: E731
+    rule = "two or more of `/queue`, `/questions` and `/cockpit` ran in this chat, ask"
+    assert rule in flat(route) and rule in flat(start)
+    assert "`/questions` also ran in this chat, ask" in flat(_procedure())
+    assert "a paste is asked about, never guessed" in flat(
+        (BRAIN / "skills" / "COMMANDS.md").read_text())
