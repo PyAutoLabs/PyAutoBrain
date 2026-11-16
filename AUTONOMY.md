@@ -981,8 +981,10 @@ mode.
 
 **Amendment — 2026-11-16 (PyAutoBrain#641), approved by the human.** For the
 "Public-name narrowing of `glance` — 2026-11-16", the watcher may also make
-read-only `gh api` GET calls (`compare` to find the merge base, the PR's file
-list and the before/after file contents) on the **library** PRs its own
+read-only `gh api` GET calls (the PR itself for its base and head shas,
+`compare` to find the merge base, the PR's file list, the before/after file
+contents, and one `contents/<package>` read at head to confirm the package
+directory exists) on the **library** PRs its own
 workers named, once per close-out and before any close-out session spawns.
 These calls make no writes, and a call that fails gives "cannot tell", which
 refuses the merge. A PR in any other repo makes no call at all. The revert
