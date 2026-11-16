@@ -23,7 +23,8 @@ Executable tooling for the PyAuto organism.
   a library package (PyAutoBrain#641; AUTONOMY.md "Public-name narrowing of
   `glance` — 2026-11-16")? `ast` over each changed module before and after;
   exit 0 CLEAN (or not a library repo) · 1 HIT · 2 cannot tell. The shift
-  close-out and the in-turn tiered merge refuse on 1 or 2; the review
+  watcher refuses on 1 or 2 before any close-out session spawns, the
+  close-out and the in-turn tiered merge stop on them too, and the review
   faculty lists the delta in its ReviewSurface.
 - **`lane_backfill.py`** — proposes a `Lane:` for every lane-less draft in
   the planner pool, from intake's own lane signals, as a table for a human to

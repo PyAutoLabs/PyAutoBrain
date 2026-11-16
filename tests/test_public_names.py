@@ -240,7 +240,7 @@ def test_a_parse_error_cannot_tell_and_exits_2(tmp_path, capsys):
     rc = pn.main(["--repo", str(repo), "--range", "HEAD~1..HEAD"], libs=LIBS)
     out = capsys.readouterr().out
     assert rc == 2
-    assert out.startswith("public names: cannot tell — autogalaxy/convert.py (after) "
+    assert out.startswith("public-name check could not tell: autogalaxy/convert.py (after) "
                           "does not parse")
     assert out.splitlines()[0].endswith("→ human /prm")
 
@@ -278,11 +278,15 @@ def test_the_library_list_is_policy_config_with_body_map_packages(tmp_path):
 
 
 def test_an_unreadable_library_list_cannot_tell(monkeypatch, tmp_path):
-    def boom():
-        raise pn.LibrariesError("the body map is unreadable")
-    monkeypatch.setattr(pn, "load_libraries", boom)
+    def boom(*a, **k):
+        raise pn.LibrariesError("config/policy.yaml unreadable")
+    monkeypatch.setattr(pn, "ruled_libraries", boom)
     v = pn.for_trees(tmp_path, tmp_path, "AnyRepo")
-    assert v["verdict"] == pn.CANNOT and "body map" in v["cannot_tell"][0]
+    assert v["verdict"] == pn.CANNOT and "policy" in v["cannot_tell"][0]
+    monkeypatch.setattr(pn, "ruled_libraries", lambda *a, **k: ["LibGalaxy"])
+    monkeypatch.setattr(pn, "_body_map", lambda *a, **k: {})
+    v = pn.for_trees(tmp_path, tmp_path, "LibGalaxy")   # a library with no package
+    assert v["verdict"] == pn.CANNOT and "package" in v["cannot_tell"][0]
 
 
 def test_the_real_config_rules_the_five_library_packages():
@@ -294,8 +298,9 @@ def test_the_real_config_rules_the_five_library_packages():
 # --- the PR read: `gh api`, read-only, behind the `run` seam --------------------------
 
 class FakeGh:
-    def __init__(self, files, sources, fail=None):
+    def __init__(self, files, sources, fail=None, merge_base="m" * 40, packages=("autolens",)):
         self.files, self.sources, self.fail, self.calls = files, sources, fail, []
+        self.merge_base, self.packages = merge_base, packages
 
     def __call__(self, argv, **kw):
         self.calls.append(argv)
@@ -305,15 +310,18 @@ class FakeGh:
         if path.endswith("/pulls/7"):
             out = json.dumps({"base": "b" * 40, "head": "h" * 40})
         elif "/compare/" in path:
-            out = json.dumps({"sha": "m" * 40})
+            out = json.dumps({"sha": self.merge_base})
         elif "/pulls/7/files" in path:
             out = "\n".join(json.dumps(f) for f in self.files)
         elif "/contents/" in path:
             fpath, ref = path.split("/contents/", 1)[1].split("?ref=")
             key = (fpath, ref[0])
-            if key not in self.sources:
+            if "--jq" in argv and fpath in self.packages and ref[0] == "h":
+                out = json.dumps({"t": "array"})   # the package directory listing
+            elif key not in self.sources:
                 return subprocess.CompletedProcess(argv, 1, "", "HTTP 404")
-            out = self.sources[key]
+            else:
+                out = self.sources[key]
         else:
             raise AssertionError(path)
         return subprocess.CompletedProcess(argv, 0, out, "")
@@ -404,7 +412,9 @@ def test_the_cli_is_dispatched_by_pyauto_brain(tmp_path):
 def test_the_review_surface_lists_the_public_name_delta(tmp_path, monkeypatch):
     sys.path.insert(0, str(BRAIN_HOME / "agents" / "faculties" / "review"))
     import _review
-    monkeypatch.setattr(pn, "load_libraries", lambda: LIBS)
+    monkeypatch.setattr(pn, "ruled_libraries", lambda *a, **k: list(LIBS))
+    monkeypatch.setattr(pn, "_body_map",
+                        lambda *a, **k: {k_.casefold(): v for k_, v in LIBS.items()})
     repo = _repo(tmp_path)
     _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     _change(repo, {"autogalaxy/convert.py":
@@ -418,3 +428,153 @@ def test_the_review_surface_lists_the_public_name_delta(tmp_path, monkeypatch):
     _git(ws, "update-ref", "refs/remotes/origin/main", "HEAD")
     _change(ws, {"autogalaxy/convert.py": "def other():\n    pass\n"})
     assert "public_names" not in _review.repo_surface(ws)
+
+
+# --- review round 1 (4605a26): case, the watcher gate, packages, stars, merge-base ----
+
+def test_repo_names_match_case_folded_owner_repo_and_list(tmp_path):
+    assert pn.library_package("examplelabs/libgalaxy#656".split("#")[0], LIBS) == "autogalaxy"
+    assert pn.library_package("EXAMPLE/LIBLENS", LIBS) == "autolens"
+    policy, body = tmp_path / "policy.yaml", tmp_path / "repos.yaml"
+    policy.write_text("public_name_libraries: [libgalaxy]\n")
+    body.write_text("repos:\n  LibGalaxy:\n    package: autogalaxy\n")
+    assert pn.library_package("examplelabs/LIBGALAXY", policy_path=policy,
+                              map_path=body) == "autogalaxy"
+    gh = FakeGh(files=[{"filename": "autolens/new.py", "status": "added"}],
+                sources={("autolens/new.py", "h"): "def brand_new():\n    pass\n"})
+    assert pn.main(["examplelabs/liblens#7"], run=gh, libs=LIBS) == 1
+
+
+def test_a_non_library_passes_before_the_body_map_is_read(tmp_path):
+    policy = tmp_path / "policy.yaml"
+    policy.write_text("public_name_libraries: [LibGalaxy]\n")
+    gone = tmp_path / "no-mind" / "repos.yaml"
+    assert pn.library_package("x/galaxy_workspace", policy_path=policy, map_path=gone) is None
+    with pytest.raises(pn.LibrariesError, match="unreadable"):
+        pn.library_package("x/LibGalaxy", policy_path=policy, map_path=gone)
+
+
+def test_a_non_library_pr_passes_when_mind_is_unreadable(monkeypatch):
+    monkeypatch.setattr(pn, "_body_map", lambda map_path=None: (_ for _ in ()).throw(
+        pn.LibrariesError("the body map is unreadable")))
+    gh = FakeGh(files=[], sources={})
+    assert pn.main(["ExampleOrg/some_workspace#7"], run=gh) == 0 and gh.calls == []
+
+
+def test_a_package_directory_missing_at_the_head_cannot_tell(tmp_path):
+    before, after = tmp_path / "b", tmp_path / "a"
+    (before / "autogalaxy").mkdir(parents=True)
+    (after / "galaxy").mkdir(parents=True)   # a stale `package:`
+    v = pn.for_trees(before, after, "LibGalaxy", libs=LIBS)
+    assert v["verdict"] == pn.CANNOT and "package directory" in v["cannot_tell"][0]
+    gh = FakeGh(files=[], sources={}, packages=())
+    v = pn.for_pr("ExampleOrg/LibLens#7", run=gh, libs=LIBS)
+    assert v["verdict"] == pn.CANNOT and "package directory" in v["cannot_tell"][0]
+
+
+@needs_git
+def test_a_stale_package_in_a_range_cannot_tell(tmp_path):
+    repo = _repo(tmp_path, package="galaxy", files={"galaxy/__init__.py": ""})
+    _change(repo, {"galaxy/x.py": "def y():\n    pass\n"})
+    v = pn.for_range(repo, "HEAD~1..HEAD", libs=LIBS)   # LIBS says autogalaxy
+    assert v["verdict"] == pn.CANNOT and "package directory" in v["cannot_tell"][0]
+
+
+def test_an_empty_merge_base_cannot_tell():
+    gh = FakeGh(files=[], sources={}, merge_base="")
+    v = pn.for_pr("ExampleOrg/LibLens#7", run=gh, libs=LIBS)
+    assert v["verdict"] == pn.CANNOT and "merge-base" in v["cannot_tell"][0]
+
+
+@needs_git
+def test_all_extend_and_append_in_init_are_read(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/__init__.py":
+                       "from .convert import ell_from\n__all__ = ['ell_from']\n"
+                       "__all__.extend(['Extra'])\n__all__.append('More')\n"
+                       "__all__ += ['Third']\n"})
+    assert {e["name"] for e in v["added"]} == {"Extra", "More", "Third"}
+
+
+@needs_git
+def test_a_star_import_of_a_changed_module_cannot_tell(tmp_path):
+    repo = _repo(tmp_path, files={"autogalaxy/__init__.py": "from ._impl import *\n",
+                                  "autogalaxy/_impl.py": "def a():\n    pass\n"})
+    v = _change(repo, {"autogalaxy/_impl.py": "def a():\n    pass\n\ndef b():\n    pass\n"})
+    assert v["verdict"] == pn.CANNOT
+    assert "autogalaxy/__init__.py star-imports `autogalaxy._impl`" in v["cannot_tell"][0]
+
+
+@needs_git
+def test_stub_files_are_skipped(tmp_path):
+    repo = _repo(tmp_path)
+    v = _change(repo, {"autogalaxy/convert.pyi": "def stub_only() -> int: ...\n"})
+    assert v["verdict"] == pn.CLEAN and v["modules_compared"] == 0
+
+
+class _Check:
+    """A stand-in for the public_names module behind the watcher's gate."""
+
+    def __init__(self, verdict):
+        self.verdict = verdict
+
+    def for_pr(self, url):
+        return self.verdict
+
+    reason = staticmethod(pn.reason)
+
+
+def test_the_watcher_gate_says_why_or_nothing():
+    gate = sys.modules["test_orchestrator_closeout"].orch.public_names_gate \
+        if "test_orchestrator_closeout" in sys.modules else None
+    if gate is None:
+        sys.path.insert(0, str(BRAIN_HOME / "tests"))
+        from test_orchestrator_closeout import orch
+        gate = orch.public_names_gate
+    clean = {"verdict": pn.CLEAN, "added": [], "renamed": [], "cannot_tell": []}
+    assert gate("u", check=_Check(clean)) == ""
+    hit = {"verdict": pn.HIT, "added": [{"module": "m", "name": "n"}], "renamed": [],
+           "cannot_tell": []}
+    assert gate("u", check=_Check(hit)) == "public name added/renamed: m.n → human /prm"
+    cannot = {"verdict": pn.CANNOT, "added": [], "renamed": [], "cannot_tell": ["x"]}
+    assert gate("u", check=_Check(cannot)) == "public-name check could not tell: x → human /prm"
+
+
+def test_the_watcher_refuses_a_public_name_pr_before_any_closeout_session(tmp_path):
+    sys.path.insert(0, str(BRAIN_HOME / "tests"))
+    import test_orchestrator_closeout as tc
+    before, after = _row08(tmp_path / "row08")
+    why = pn.reason(pn.for_trees(before, after, "LibGalaxy", libs=LIBS))
+    launched = []
+
+    def no_claude(argv, **kw):
+        launched.append(argv)
+        raise AssertionError("no close-out session may start")
+
+    real = tc.orch.RealSpawner(tmp_path / "b.md", "auto", run=no_claude,
+                               public_names=lambda url: why if url == tc.PR1 else "")
+
+    class Gated(tc.Spawner):
+        def spawn_closeout(self, task, pr_url, prompt_path, lease_dir):
+            self.closeouts.append((task, pr_url))
+            if pr_url != tc.PR1:
+                return super().spawn_closeout(task, pr_url, prompt_path, lease_dir)
+            return real.spawn_closeout(task, pr_url, prompt_path, lease_dir)
+
+    mind = tc.t._mind(tmp_path / "mind")
+    brief = tmp_path / "shift.md"
+    brief.write_text(tc.t.BRIEF.format(issue=tc.t.ISSUE, packet=""))
+    home, sp = tmp_path / "home", Gated()
+    tc.orch.tick(brief, mind, home=home, now=tc.t.NOW, spawner=sp, agents=tc.Agents(),
+                 health=tc._health({}))
+    tc._tick(brief, mind, home, sp, 1)   # green: the gate refuses PR1
+    tc._tick(brief, mind, home, sp, 2)   # the refusal is reaped
+    assert launched == []
+    slot = tc.orch.slot_dir(brief, home)
+    c = tc.orch.read_counters(slot)
+    co = c["closeouts"][tc.PR1]
+    assert co["state"] == "refused" and co["why"] == why and co.get("agent_id") is None
+    assert c["glance_auto_merges"] == 0
+    d = tc._digest.build(tc._brief.parse(brief.read_text())["brief"], slot, c,
+                         health=tc.t._health)
+    assert f"awaiting /prm — close-out refused: {why}</sub>" in d

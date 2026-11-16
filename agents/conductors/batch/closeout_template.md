@@ -16,7 +16,8 @@ outcome — the human merges by `/prm` at check-in.
    error message, a removed or weakened test, a renamed public thing, or a
    wrong docs claim. Any one of them → refuse. Added or renamed public
    library names are decided by the one check (AUTONOMY.md "Public-name
-   narrowing of `glance` — 2026-11-16", PyAutoBrain#641):
+   narrowing of `glance` — 2026-11-16", PyAutoBrain#641). The watcher ran it
+   before starting you; run it again, as a second layer:
 
        {public_names_cmd}
 

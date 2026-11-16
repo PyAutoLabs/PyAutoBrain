@@ -10,27 +10,36 @@ WHY. AUTONOMY.md "Public-name narrowing of `glance` — 2026-11-16": a change
 that adds or renames a public name in a library package goes to a human `/prm`,
 whatever its declared `Consequence:`. The seeded audit's one amended row (row
 08, `latent-profile-declarations`) added seven public `latent_*_from` helpers
-that no CI, witness or reviewer leg caught. This is the one deterministic check every merge
-path shares: the watcher's close-out, the in-turn tiered merge (`/prm`
-reference.md "Tiered merge") and the review faculty's ReviewSurface.
+that no CI, witness or reviewer leg caught. One implementation, run three
+ways: deterministically by the shift watcher before it spawns any close-out
+session (`_orchestrator.RealSpawner.spawn_closeout`: a hit or a cannot-tell
+writes the refusal and no session starts), as a stop in the in-turn tiered
+merge (`/prm` reference.md "Tiered merge", the ship skills) and again in the
+close-out prompt; the review faculty lists the delta in its ReviewSurface.
 
 WHAT IS PUBLIC (per module, parsed with `ast`, before and after):
   * a module-level `def`, `async def` or `class`, or a `NAME = …` assignment,
     whose name has no leading underscore — including ones under a module-level
     `if` / `try` / `with`;
   * in a package `__init__.py`, also every name it imports (a re-export) and
-    every `__all__` entry; a `from x import *` counts as the name `* from x`.
+    every `__all__` entry (`=`, `+=`, `.extend(...)`, `.append(...)`); a
+    `from x import *` counts as the name `* from x`.
 
 WHICH REPOS. The libraries the ruling names, listed in `config/policy.yaml`
-`public_name_libraries:` (a declared config surface); each one's package
-directory is its body-map `package:` (PyAutoMind `repos.yaml`). A listed library
-the body map gives no package for, or a config that cannot be read, cannot
-tell: the check fails closed rather than skip a library.
+`public_name_libraries:` (a declared config surface), matched case-folded
+(owner, repo and list). Membership is decided before the body map is read, so
+a repo outside the list passes even when PyAutoMind is unreadable. A listed
+library's package directory is its body-map `package:` (PyAutoMind
+`repos.yaml`); no package, an unreadable map or config, or a package directory
+missing on the head side cannot tell: the check fails closed rather than pass
+a library it did not read.
 
 WHAT IS COMPARED. Only `.py` files under that package directory. Ignored: other
 repos (workspaces, organs, assistants), tests (`tests/`, `test_*.py`, `conftest.py`), private
 modules (a path part with a leading underscore, other than a dunder file such
-as `__init__.py`), private names, and every non-`.py` file.
+as `__init__.py`), private names, and every non-`.py` file — stubs (`.pyi`)
+included. A package `__init__` that star-imports (`from .x import *`) a
+module the diff changed cannot tell: what it re-exports is not read here.
 
 THE VERDICT. `added` names (new in their module), and `renamed` ones: a public
 name removed and another added in the same module, paired best-effort (same
@@ -117,9 +126,8 @@ def body_map_packages(text: str) -> dict[str, str]:
     return out
 
 
-def load_libraries(policy_path: Path = POLICY_PATH, map_path: Path | None = None) -> dict:
-    """{library repo: package directory} for the ruled libraries. Raises
-    LibrariesError when the list, the body map or a package is missing."""
+def ruled_libraries(policy_path: Path = POLICY_PATH) -> list[str]:
+    """The `public_name_libraries:` list. Raises LibrariesError without it."""
     try:
         names = _flow_list(Path(policy_path).read_text(encoding="utf-8"),
                            "public_name_libraries")
@@ -127,29 +135,55 @@ def load_libraries(policy_path: Path = POLICY_PATH, map_path: Path | None = None
         raise LibrariesError(f"config/policy.yaml unreadable: {e}") from e
     if not names:
         raise LibrariesError("no `public_name_libraries:` list in config/policy.yaml")
+    return names
+
+
+def _body_map(map_path: Path | None = None) -> dict[str, str]:
+    """casefolded repo name → package, from the body map."""
     if map_path is None:
         map_path = repo_path(_pyauto_root.pyauto_root(), MIND_REPO) / "repos.yaml"
     try:
-        packages = body_map_packages(Path(map_path).read_text(encoding="utf-8"))
+        text = Path(map_path).read_text(encoding="utf-8")
     except OSError as e:
         raise LibrariesError(f"the body map is unreadable: {e}") from e
-    missing = [n for n in names if n not in packages]
+    return {k.casefold(): v for k, v in body_map_packages(text).items()}
+
+
+def load_libraries(policy_path: Path = POLICY_PATH, map_path: Path | None = None) -> dict:
+    """{library repo: package directory} for every ruled library. Raises
+    LibrariesError when the list, the body map or a package is missing."""
+    names = ruled_libraries(policy_path)
+    packages = _body_map(map_path)
+    missing = [n for n in names if n.casefold() not in packages]
     if missing:
         raise LibrariesError("no body-map `package:` for " + ", ".join(missing))
-    return {n: packages[n] for n in names}
+    return {n: packages[n.casefold()] for n in names}
 
 
-def library_package(repo: str, libs: dict) -> str | None:
-    """The package directory of a library repo (`owner/Repo`, a path or a bare
-    name), or None for any repo the ruling does not cover."""
+def repo_key(repo: str) -> str:
+    """`Owner/Repo`, a path, a URL or a bare name → the casefolded repo name."""
     name = PurePosixPath(str(repo or "").rstrip("/")).name
     if name.endswith(".git"):
         name = name[:-4]
-    return libs.get(name)
+    return name.casefold()
 
 
-def _libs(libs: dict | None) -> dict:
-    return load_libraries() if libs is None else libs
+def library_package(repo: str, libs: dict | None = None,
+                    policy_path: Path = POLICY_PATH, map_path: Path | None = None) -> str | None:
+    """The package directory of a ruled library repo, matched case-folded, or
+    None for any repo the ruling does not cover. Membership comes from `libs`
+    or the policy list first, so the body map is read only for a library;
+    LibrariesError when a library's package cannot be found."""
+    key = repo_key(repo)
+    if libs is not None:
+        return {k.casefold(): v for k, v in libs.items()}.get(key)
+    match = [n for n in ruled_libraries(policy_path) if n.casefold() == key]
+    if not match:
+        return None
+    package = _body_map(map_path).get(key)
+    if not package:
+        raise LibrariesError(f"no body-map `package:` for {match[0]}")
+    return package
 
 
 def is_library_module(path: str, package: str) -> bool:
@@ -234,6 +268,17 @@ def public_names(source: str, is_init: bool = False) -> dict[str, str]:
                             names.setdefault(s, "__all__")
                     elif not isinstance(stmt, ast.AugAssign):
                         names[n] = "assign"
+        elif (is_init and isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)
+              and isinstance(stmt.value.func, ast.Attribute)
+              and isinstance(stmt.value.func.value, ast.Name)
+              and stmt.value.func.value.id == "__all__"
+              and stmt.value.func.attr in ("extend", "append")):
+            for arg in stmt.value.args:
+                found = _strings(arg) if stmt.value.func.attr == "extend" else (
+                    [arg.value] if isinstance(arg, ast.Constant)
+                    and isinstance(arg.value, str) else [])
+                for s_ in found:
+                    names.setdefault(s_, "__all__")
         elif is_init and isinstance(stmt, ast.Import):
             for a in stmt.names:
                 names[a.asname or a.name.split(".")[0]] = "import"
@@ -274,6 +319,43 @@ def _pair_renames(removed: dict[str, str], added: dict[str, str]):
     return renames, added, removed
 
 
+def star_sources(source: str, init_path: str) -> list[str]:
+    """The modules a package `__init__` star-imports, as dotted names."""
+    pkg = module_name(init_path).split(".")
+    out = []
+    for stmt in _module_statements(ast.parse(source).body):
+        if isinstance(stmt, ast.ImportFrom) and any(a.name == "*" for a in stmt.names):
+            level = stmt.level or 0
+            base = pkg[:len(pkg) - (level - 1)] if level else []
+            out.append(".".join(base + ([stmt.module] if stmt.module else [])))
+    return out
+
+
+def star_import_hazards(package: str, changes, after: Callable[[str], str]) -> list[str]:
+    """Each package `__init__` (after the change) that star-imports a module
+    the diff changed: what it re-exports is not read here — cannot tell. An
+    `__init__` that cannot be read is no package file (a namespace package)."""
+    changed = {module_name(p) for pair in changes for p in pair
+               if p and p.endswith(".py") and PurePosixPath(p).parts[:1] == (package,)}
+    inits = {"/".join(m.split(".")[:i]) + "/__init__.py"
+             for m in changed for i in range(1, len(m.split(".")))}
+    out = []
+    for init in sorted(inits):
+        try:
+            source = after(init)
+        except Exception:
+            continue
+        try:
+            stars = star_sources(source, init)
+        except (SyntaxError, ValueError) as e:
+            out.append(f"{init} (after) does not parse: {type(e).__name__}")
+            continue
+        for src in stars:
+            if src in changed:
+                out.append(f"{init} star-imports `{src}`, which the diff changed")
+    return out
+
+
 def compare(package: str, changes: Iterable[tuple[str | None, str | None]],
             before: Callable[[str], str], after: Callable[[str], str]) -> dict:
     """The public-name delta over the changed files.
@@ -282,7 +364,9 @@ def compare(package: str, changes: Iterable[tuple[str | None, str | None]],
     exist on that side; a renamed file has both. `before` / `after` read a
     path's source on that side (they raise to say it could not be read).
     Only library modules of `package` are compared."""
-    added, renamed, removed, cannot = [], [], [], []
+    changes = list(changes)
+    added, renamed, removed = [], [], []
+    cannot = star_import_hazards(package, changes, after)
     modules = 0
     for old, new in changes:
         old = old if old and is_library_module(old, package) else None
@@ -334,7 +418,7 @@ def reason(v: dict) -> str:
     """The one-line refusal reason the close-out writes as its `why` (and the
     digest shows); empty for a CLEAN."""
     if v["verdict"] == CANNOT:
-        return ("public names: cannot tell — " + "; ".join(v["cannot_tell"][:2])
+        return ("public-name check could not tell: " + "; ".join(v["cannot_tell"][:2])
                 + (f"; +{len(v['cannot_tell']) - 2} more" if len(v["cannot_tell"]) > 2 else "")
                 + " → human /prm")
     if v["verdict"] == HIT:
@@ -365,6 +449,11 @@ def summary(v: dict) -> str:
         lines.append(f"  info — removed (not covered by the ruling): "
                      f"{e['module']}.{e['name']} ({e['kind']})")
     return "\n".join(lines)
+
+
+def missing_package(package: str) -> str:
+    return (f"package directory `{package}/` is missing at the head — the body "
+            "map's `package:` may be stale")
 
 
 def _cannot(subject: str, why: str) -> dict:
@@ -429,7 +518,7 @@ def for_range(repo: Path, rng: str, name: str = "", run=None,
     name = name or repo_name(repo, run)
     subject = f"{name} {rng}"
     try:
-        package = library_package(name, _libs(libs))
+        package = library_package(name, libs)
     except LibrariesError as e:
         return _cannot(subject, str(e))
     if not package:
@@ -445,6 +534,10 @@ def for_range(repo: Path, rng: str, name: str = "", run=None,
             _git(run, repo, "diff", "--name-status", "-M", base, head, "--", package))
     except Exception as e:
         return _cannot(subject, f"the range could not be read: {e}")
+    try:
+        _git(run, repo, "cat-file", "-e", f"{head}:{package}")
+    except Exception:
+        return _cannot(subject, missing_package(package))
     v = compare(package, changes, lambda p: _git(run, repo, "show", f"{base}:{p}"),
                 lambda p: _git(run, repo, "show", f"{head}:{p}"))
     return {"subject": subject, "base": base, "head": head, **v}
@@ -454,12 +547,14 @@ def for_trees(before: Path, after: Path, name: str, libs: dict | None = None) ->
     """The check over two trees on disk (each a copy of the repo root)."""
     subject = f"{name} {before} → {after}"
     try:
-        package = library_package(name, _libs(libs))
+        package = library_package(name, libs)
     except LibrariesError as e:
         return _cannot(subject, str(e))
     if not package:
         return _not_library(subject)
     before, after = Path(before), Path(after)
+    if not (after / package).is_dir():
+        return _cannot(subject, missing_package(package))
     paths = set()
     for root in (before, after):
         pkg = root / package
@@ -494,7 +589,7 @@ def for_pr(ref: str, run=None, libs: dict | None = None) -> dict:
     repo, number = parse_ref(ref)
     subject = f"{repo}#{number}"
     try:
-        package = library_package(repo, _libs(libs))
+        package = library_package(repo, libs)
     except LibrariesError as e:
         return _cannot(subject, str(e))
     if not package:
@@ -508,8 +603,13 @@ def for_pr(ref: str, run=None, libs: dict | None = None) -> dict:
             return _cannot(subject, "the PR read gave an empty base or head sha")
         mb = _gh(run, f"repos/{repo}/compare/{base_sha}...{head}", "--jq",
                  "{sha: .merge_base_commit.sha}")
-        base = str((mb[0] if mb and isinstance(mb[0], dict) else {}).get("sha") or "") \
-            or base_sha
+        base = str((mb[0] if mb and isinstance(mb[0], dict) else {}).get("sha") or "")
+        if not base:
+            return _cannot(subject, "the compare read gave an empty merge-base sha")
+        try:
+            _gh(run, f"repos/{repo}/contents/{package}?ref={head}", "--jq", "{t: type}")
+        except GhError:
+            return _cannot(subject, missing_package(package))
         files = _gh(run, "--paginate", f"repos/{repo}/pulls/{number}/files?per_page=100",
                     "--jq", ".[] | {filename, status, previous_filename}")
     except GhError as e:
