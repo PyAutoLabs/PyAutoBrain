@@ -132,6 +132,22 @@ def test_it_refuses_with_stop_present_or_after_shift_end(tmp_path):
     assert rc == 2 and "is over (shift-end written)" in err
 
 
+def test_from_before_shift_end_still_attaches_and_gets_the_last_lines(tmp_path):
+    """Review of #644: a cockpit re-attaching with `--from` after the shift
+    ended still prints what it missed, the digest and `shift-end`, then exits."""
+    record, slot = _setup(tmp_path)
+    _emit(slot, 0, {"action": "ticked", "spawned": [{"task": "t1"}]})
+    _emit(slot, 120, {"action": "digest", "post": {"posted": True, "url": "https://x/9"}},
+          quiet=True)
+    later = Clock(REVIEW_AT + _dt.timedelta(minutes=5))
+    rc, out, err, polls = _run(record, slot, later, from_seq=2)
+    assert (rc, err, polls) == (0, "", []) and out.splitlines()[1:] == [
+        "19:00Z Shift closed. Digest: https://x/9.",
+        "19:00Z Shift 2026-11-16-pm over. Nothing is still running."]
+    rc, _, err, _ = _run(record, slot, Clock(REVIEW_AT + _dt.timedelta(minutes=5)), from_seq=4)
+    assert rc == 2 and "is over (shift-end written)" in err
+
+
 # --- attach, catch-up, follow, every exit ---------------------------------------------
 
 def test_attach_summary_makes_no_network_read(tmp_path, monkeypatch):

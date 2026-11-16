@@ -36,6 +36,9 @@ SCHEMA = 1
 LINE_MAX = 300
 #: One JSON line, at most this many bytes (one local append, never torn).
 RECORD_MAX = 1024
+#: A dedup key, at most this many characters: stored and compared truncated
+#: alike, so a long key can never repeat on every tick.
+KEY_MAX = 200
 #: CI verdicts that make a `ci` line; RUNNING never does, UNKNOWN is skipped
 #: ("gh could not say" — the tick asks again).
 CI_EMIT = ("HEALTHY", "FAILED", "NO-CHECKS")
@@ -142,13 +145,14 @@ class _Batch:
         return key in self.keys
 
     def add(self, kind: str, key: str, line: str, *, needs_you: bool = False, **extra) -> None:
+        key = key[:KEY_MAX]
         if key in self.keys:
             return
         self.keys.add(key)
         self.seq += 1
         e = {"v": SCHEMA, "seq": self.seq,
              "at": self.now.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-             "slot": self.slot.name, "kind": kind, "key": key[:300],
+             "slot": self.slot.name, "kind": kind, "key": key,
              "line": _clean(line), "needs_you": bool(needs_you)}
         for k, v in extra.items():
             if v not in (None, "", [], {}):
@@ -272,17 +276,24 @@ def _refused(b: _Batch, result: dict) -> None:
 
 
 def _ci(b: _Batch, result: dict, state: dict) -> None:
+    """A `ci` line when a PR's verdict changes to HEALTHY, FAILED or
+    NO-CHECKS — again after any change, e.g. green, then a new push RUNNING,
+    then red or green once more. The key carries how many `ci` lines the PR
+    already has, so each transition is its own key; with the state file
+    lost, the last verdict comes from the file's own `ci` lines (at most one
+    repeated line)."""
     for pr, verdict in sorted((result.get("health") or {}).items()):
         if verdict == "UNKNOWN":
             continue
-        last = state["ci"].get(pr)
+        mine = [e for e in b.existing + b.events if e.get("kind") == "ci" and e.get("pr") == pr]
+        last = state["ci"].get(pr, mine[-1].get("verdict") if mine else None)
         state["ci"][pr] = verdict
         if verdict not in CI_EMIT or verdict == last:
             continue
         line = {"HEALTHY": f"CI green on {ref(pr)}.",
                 "FAILED": f"CI red on {ref(pr)}: never merged unattended.",
                 "NO-CHECKS": f"No CI checks on {ref(pr)}: left for your /prm."}[verdict]
-        b.add("ci", f"ci:{pr}:{verdict}", line, pr=pr)
+        b.add("ci", f"ci:{pr}:{len(mine) + 1}:{verdict}", line, pr=pr, verdict=verdict)
 
 
 def _closeouts(b: _Batch, result: dict, counters: dict, info: dict) -> None:
@@ -435,7 +446,6 @@ def _encode(e: dict) -> bytes:
             if k in e and len(e[k]) > 120:
                 e[k] = e[k][:120]
         e["line"] = e["line"][:max(len(e["line"]) - 60, 40)]
-        e["key"] = e["key"][:200]
         raw = json.dumps(e, sort_keys=True, ensure_ascii=False).encode("utf-8")
         if len(e["line"]) <= 40:
             break

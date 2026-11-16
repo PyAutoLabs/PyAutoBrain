@@ -492,13 +492,31 @@ task of this shift only, else "no such task in this shift"; `counters.json`
 re-dispatched, its PR refused for close-out; a close-out already running checks
 the marker just before merging and refuses, and a merge that lands anyway is
 recorded as merged outside the close-out, with no stage-2 row; a live worker is
-shown `dropped, still running` and stopping it is the human's, `claude stop
-<id>`) and `/stop` (writes `STOP`; that tick commits nothing to Mind). Each comment acts once, by id, and is acknowledged
+shown `dropped, still running` until the human stops it, by hand or by `/kill`)
+and `/stop` (writes `STOP`; that tick commits nothing to Mind). PyAutoBrain#644
+adds three, making seven: `/cap merges|workers|sessions|tokens <n>` (lowers a
+cap for this shift, or raises it back, never above the brief's own value;
+`_brief.effective` applies it from that tick), `/add <prompt>` (one Mind fetch
+per command; the draft on origin/main becomes a named task, refused within 30
+min of `review-at:`; it overrides `exclude:` and an earlier shift's parked hold,
+never the organ rule) and `/kill <task>` (the watcher runs a local `claude stop`
+on that task's running worker; the reap marks the exit `killed`, not crashed,
+and it is re-dispatched once unless dropped first). Each comment acts once, by id, and is acknowledged
 once in the status comment's `Commands` list. Without a login, nothing is read
 and the comment says steering is off. The dashboard's copy is the record's `-
 live:` line (`record-key` op, one Mind writer, on a change of state), shown in
 the batch box. Doctrine: AUTONOMY.md watcher network surface, amendment
 2026-11-13.
+
+**The event stream (PyAutoBrain#644).** Every tick that does work appends what
+it did to `<slot>/events.jsonl` (`_events.record_tick`, inside the tick lock,
+local only), one plain line per event, deduplicated by key in the file itself;
+`batch watch --stream` prints it until `shift-end`. A needs-you event (an
+`ignored:`/`refused:` ack, commands unread three ticks running, the watcher
+unable to post or write Mind, a dropped task's PR merged anyway) is also one
+short comment on the brief's `issue:`, no `@`, marker `mentions/event.<seq>`,
+at most 5 + 1 a shift, counted as `event_comments` apart from `pushes`.
+Doctrine: AUTONOMY.md watcher network surface, amendment 2026-11-16 (#644).
 
 **The watcher's GitHub identity (human rulings 2026-11-12, #611, and
 2026-11-14, #630).** The watcher posts as its own minimal GitHub App,

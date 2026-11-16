@@ -695,6 +695,11 @@ def worker_lines(counters: dict, links: MindLinks | None = None) -> list[str]:
     if pushes > 1:
         out.append(f"- finding: {pushes} pushes this shift — the push test budgets "
                    "about one (AUTONOMY.md)")
+    events = int(counters.get("event_comments") or 0)
+    if events:
+        # Needs-you event comments (#644) have their own cap, 5 + 1 a shift,
+        # and are not pushes for the finding above.
+        out.append(f"- needs-you event comments: {events} (at most 5 + 1 a shift)")
     return out
 
 

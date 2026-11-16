@@ -1009,8 +1009,9 @@ H8a/a, H10a). The watcher's surface gains, and only:
    the brief's `issue:` per event that needs the human (an ignored or refused
    command, commands unread three ticks running, the watcher unable to post or
    to write Mind, a dropped task's PR merged anyway), with no `@`, each claimed
-   by its marker before the post and counted as a push; after the fifth, one
-   last comment saying the rest are in the status comment.
+   by its marker before the post and counted in the digest apart from the
+   per-worker pushes; after the fifth, one last comment saying the rest are in
+   the status comment.
 
 It makes no new CI read: `ci` lines come only from the `gh pr checks` the
 close-outs already make (H10a). The 2026-11-13 `/drop` rule "a running worker is

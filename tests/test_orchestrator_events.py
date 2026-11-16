@@ -361,7 +361,8 @@ def test_needs_you_events_post_at_most_five_comments_and_one_overflow(tmp_path):
     assert all("@you" not in body for _, body in poster.calls)
     assert "further needs-you events are in the status comment" in poster.calls[-1][1]
     assert "needs you: /cap from x: ignored: 1" in poster.calls[0][1]
-    assert orch.read_counters(slot)["pushes"] == 6
+    c = orch.read_counters(slot)
+    assert c["event_comments"] == 6 and c["pushes"] == 0     # not pushes (review #644)
     # Later ticks post nothing more: the overflow comment was the last.
     more = [{"seq": 90, "kind": "impaired", "line": "x", "needs_you": True}]
     assert orch._event_comments(slot, more, issue, poster, NOW) == [] and len(poster.calls) == 6
@@ -392,7 +393,37 @@ def test_a_failed_needs_you_comment_is_retried_with_the_mentions(tmp_path):
     assert orch.mentions_due(slot)
     c = orch.read_counters(slot)
     orch._retry_mentions(slot, c, poster, NOW)
-    assert not orch.mentions_due(slot) and c["pushes"] == 1
+    assert not orch.mentions_due(slot) and c["event_comments"] == 1 and c["pushes"] == 0
+
+
+def test_needs_you_comments_never_raise_the_push_finding():
+    c = {"pushes": 1, "event_comments": 6, "workers": [], "picks": {}}
+    lines = orch._digest.worker_lines(c)
+    assert not any("pushes this shift" in x for x in lines)
+    assert "- needs-you event comments: 6 (at most 5 + 1 a shift)" in lines
+    assert any("2 pushes this shift" in x for x in orch._digest.worker_lines({**c, "pushes": 2}))
+
+
+def test_a_ci_line_comes_again_after_a_change_and_never_repeats_otherwise(tmp_path):
+    slot = _slot(tmp_path)
+    for m, v in enumerate(("RUNNING", "HEALTHY", "HEALTHY", "RUNNING", "FAILED", "FAILED",
+                           "UNKNOWN", "HEALTHY")):
+        _record(slot, m, {"action": "ticked", "health": {PR: v}})
+    assert [e["line"] for e in _events.read_events(slot) if e["kind"] == "ci"] == [
+        "CI green on example-lib#901.", "CI red on example-lib#901: never merged unattended.",
+        "CI green on example-lib#901."]
+    (slot / _events.STATE_FILE).unlink()                       # lost: the file knows the last
+    _record(slot, 9, {"action": "ticked", "health": {PR: "HEALTHY"}})
+    assert sum(e["kind"] == "ci" for e in _events.read_events(slot)) == 3
+
+
+def test_a_long_key_is_compared_as_stored_and_never_repeats(tmp_path):
+    slot = _slot(tmp_path)
+    long_task = "t" * 400
+    for m in range(4):
+        _record(slot, m, {"action": "ticked", "refused": [{"task": long_task, "why": "spawn failed"}]})
+    (e,) = [e for e in _events.read_events(slot) if e["kind"] == "refused"]
+    assert len(e["key"]) == _events.KEY_MAX
 
 
 def test_fixture_is_the_real_shift_b_log():

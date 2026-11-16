@@ -853,6 +853,23 @@ def test_kill_a_second_time_is_ignored(tmp_path, monkeypatch):
     assert log.read_text() == "stop 00000001\n"
 
 
+def test_cap_tokens_zero_stops_close_outs_as_its_ack_says(tmp_path, monkeypatch):
+    """Review of #644: the close-out gates read `budget is not None`, so a
+    `/cap tokens 0` means zero, never "no budget"."""
+    mind, brief, home, slot = _cap_shift(tmp_path, monkeypatch)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    pr = "https://github.com/example-org/example-repo/pull/8"
+    (slot / "leases" / "t1.done").write_text(pr + "\n")
+    gh.add(LOGIN, "/cap tokens 0", 2)
+    r = _tick(brief, mind, home, 3, claude, gh, {"t1": "done"}, health="HEALTHY")
+    assert r["commands"][0]["ack"] == ("token-budget now 0 of 100000 (0 committed): "
+                                       "no new spawn or close-out.")
+    co = orch.read_counters(slot)["closeouts"][pr]
+    assert co["state"] == "refused" and co["why"].startswith("token spend 0 (committed) reached")
+    assert r["closeouts"]["started"] == []
+
+
 def test_command_help_lists_every_verb():
     assert {"add", "cap", "kill"} <= set(orch.COMMANDS)
     for verb in orch.COMMANDS:

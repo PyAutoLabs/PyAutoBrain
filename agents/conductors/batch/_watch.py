@@ -367,9 +367,12 @@ def _window(record: Path) -> tuple:
     return start, end
 
 
-def attachable(record: Path, slot: Path, now: _dt.datetime) -> tuple[bool, str]:
+def attachable(record: Path, slot: Path, now: _dt.datetime,
+               from_seq: int | None = None) -> tuple[bool, str]:
     """(may the stream run now?, why not). Window: `dispatched:` − 30 min to
-    `review-at:` + 45 min; never with `STOP` present or after `shift-end`."""
+    `review-at:` + 45 min; never with `STOP` present, nor after `shift-end` —
+    unless `from_seq` is before it: a cockpit re-attaching with `--from`
+    still gets the lines it missed, the digest and `shift-end`, then exits."""
     try:
         start, end = _window(record)
     except (OSError, _brief.BriefError) as e:
@@ -383,7 +386,9 @@ def attachable(record: Path, slot: Path, now: _dt.datetime) -> tuple[bool, str]:
         return False, f"shift {slot.name} watch window is over (review-at + 45 min)"
     if (slot / _orchestrator.STOP_FILE).exists():
         return False, f"STOP present in {slot}: the watcher does nothing"
-    if any(e.get("kind") == "shift-end" for e in _events.read_events(slot)):
+    end_seq = next((e["seq"] for e in _events.read_events(slot)
+                    if e.get("kind") == "shift-end"), None)
+    if end_seq is not None and (from_seq is None or from_seq >= end_seq):
         return False, f"shift {slot.name} is over (shift-end written)"
     return True, ""
 
@@ -464,7 +469,7 @@ def stream(record: Path, slot: Path, *, from_seq: int | None = None,
     clock = clock or (lambda: _dt.datetime.now(_dt.timezone.utc))
     record, slot = Path(record), Path(slot)
     began = clock()
-    ok, why = attachable(record, slot, began)
+    ok, why = attachable(record, slot, began, from_seq)
     if not ok:
         err.write(f"batch watch --stream: {why}\n")
         return RC_REFUSED

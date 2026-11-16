@@ -1825,6 +1825,13 @@ def _retry_mentions(slot: Path, counters: dict, poster, now: _dt.datetime) -> li
         for marker in sorted(d.glob("*.json")):
             rec = retry_post(marker, marker.with_suffix(".md"), poster, now)
             if rec is not None:
+                if marker.stem.startswith("event."):
+                    # A needs-you event comment (#644): counted apart from pushes.
+                    if rec.get("state") == "posted":
+                        counters["event_comments"] = int(counters.get("event_comments") or 0) + 1
+                    out.append({"event": rec.get("event"), "post": rec["state"],
+                                "retry": rec["tries"]})
+                    continue
                 w = last_worker(counters, rec.get("task", ""))
                 _note_mention(counters, w if w and w.get("key") == rec.get("worker") else None,
                               marker.stem, rec)
@@ -2345,6 +2352,8 @@ def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict
     old = (counters.get("killed") or {}).get(task) or {}
     if old.get("key") == key:
         return f"ignored: {task}'s worker {key} is already stopping (/kill at {old.get('at')})"
+    # A crash between this stop and the counters write leaves the comment
+    # unseen: the next tick stops the same agent id again, at most — never another session.
     ok, why = (ctx.get("stop") or claude_stop)(agent)
     if not ok:
         return (f"refused: claude stop failed: {why[:160]}. Stop it by hand: "
@@ -2429,7 +2438,8 @@ def _event_comments(slot: Path, events: list[dict], issue: str, poster,
     """One comment per needs-you event on the shift issue (human ruling H4b),
     at most `EVENT_COMMENTS_MAX` a shift and then one overflow comment, each
     claimed by its marker before the post (`mentions/event.<seq>`); a post
-    `gh` said failed is retried with the mentions. Each counts as a push."""
+    `gh` said failed is retried with the mentions. Each counts in
+    `event_comments`, apart from the per-worker `pushes`."""
     todo = [e for e in events if e.get("needs_you")]
     if not todo or not issue.startswith("http") or (slot / STOP_FILE).exists():
         return []
@@ -2454,7 +2464,9 @@ def _event_comments(slot: Path, events: list[dict], issue: str, poster,
             continue
         sent += 1
         if rec.get("state") == "posted":
-            counters["pushes"] += 1
+            # Counted apart from the per-worker pushes, whose digest finding
+            # budgets about one a shift (AUTONOMY.md push test).
+            counters["event_comments"] = int(counters.get("event_comments") or 0) + 1
         out.append({"event": e["seq"], "post": rec.get("state")})
         if name == EVENT_OVERFLOW:
             break
@@ -3084,7 +3096,7 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                            "no close-out starts this late"}
                 events["refused"].append(pr)
                 continue
-            if budget and counters["usage_unavailable"]:
+            if budget is not None and counters["usage_unavailable"]:
                 # As the spawn gate: a spend that cannot be read could be
                 # anything, so nothing starts this tick; asked again next tick.
                 events.setdefault("held", []).append(
@@ -3092,7 +3104,8 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                      + ", ".join(counters["usage_unavailable"]) + ")"})
                 continue
             spent = _committed_tokens(counters)
-            if budget and spent >= CLOSEOUT_BUDGET_FACTOR * budget:
+            # `is not None`: a `/cap tokens 0` (#644) means zero, not "no budget".
+            if budget is not None and spent >= CLOSEOUT_BUDGET_FACTOR * budget:
                 # The human's ruling 2026-11-14 (#632, F5): a close-out may pass
                 # the budget, but none starts once spend reaches 1.5x it —
                 # spend as the spawn gate counts it, reservations included.
