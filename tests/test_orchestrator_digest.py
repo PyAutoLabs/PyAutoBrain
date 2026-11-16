@@ -40,8 +40,8 @@ BRIEF = """\
   - goals:
     - 1. dry shift
   - tasks:
-    - draft/feature/pyautobrain/named.md
-    - draft/feature/pyautobrain/never.md
+    - draft/feature/pyautoheart/named.md
+    - draft/feature/pyautoheart/never.md
   - backlog: scoped
   - scoped:
     - epics: e1
@@ -52,13 +52,15 @@ BRIEF = """\
   - max-workers: 3
 """
 
+# The fixture prompts target an organ other than Brain, Mind or Hands: a shift
+# never dips those (PyAutoBrain#637, item 7), and these shifts dip `picked`.
 PROMPT = """\
 # {name}
 
 Type: feature
-Target: PyAutoBrain
+Target: PyAutoHeart
 Repos:
-- PyAutoBrain
+- PyAutoHeart
 Difficulty: small
 Autonomy: supervised
 Priority: normal
@@ -75,7 +77,7 @@ Body.
 # A non-empty queue.md: an empty or absent one stops an unattended shift's
 # backlog dip (M2.3), and these shifts dip for `picked`. Its one entry ranks
 # nothing the brief admits, so every pick still reads "not in queue.md".
-QUEUE = "# Queue\n\n## 1. Elsewhere\n- kind: prompt\n- ref: draft/feature/pyautobrain/outside.md\n"
+QUEUE = "# Queue\n\n## 1. Elsewhere\n- kind: prompt\n- ref: draft/feature/pyautoheart/outside.md\n"
 
 PROOF = """\
 #### named — https://github.com/o/r/pull/1
@@ -114,7 +116,7 @@ class _Working:
 
 
 def _mind(root: Path) -> Path:
-    folder = root / "draft" / "feature" / "pyautobrain"
+    folder = root / "draft" / "feature" / "pyautoheart"
     folder.mkdir(parents=True)
     (folder / "named.md").write_text(PROMPT.format(name="named", epic=""))
     (folder / "picked.md").write_text(PROMPT.format(name="picked", epic="Epic: e1\n"))
@@ -175,12 +177,12 @@ def test_digest_separates_brief_work_from_backlog_picks_with_reasons(tmp_path):
     # Each task: the outcome in plain words and the title, linked to its PR
     # (never to a Mind path, which moves and 404s, #634); the detail below.
     assert ("- **Merged** — [named](https://github.com/o/r/pull/1)\n"
-            "  <sub>`named` · glance · small · pyautobrain · merged</sub>") in work
+            "  <sub>`named` · glance · small · pyautoheart · merged</sub>") in work
     assert "- **Not started** — never\n  <sub>`never` · not started</sub>" in work
     assert "blob/main" not in d
     # Green and glance: since phase 4b its close-out is running at review time.
     assert ("- **Still running — close-out checking it** — [picked](https://github.com/o/r/pull/2)\n"
-            "  <sub>`picked` · glance · small · pyautobrain · close-out running"
+            "  <sub>`picked` · glance · small · pyautoheart · close-out running"
             " · why: scoped epic e1 · not in queue.md") in picks
     assert "`named`" not in picks
 

@@ -44,9 +44,9 @@ def test_a_shadow_tick_proposes_with_reasons_and_spawns_nothing(tmp_path):
     slot = orch.slot_dir(brief, home)
     assert orch.leases(slot) == {}
     picks = orch.read_counters(slot)["picks"]
-    assert picks["named"] == {"prompt": "draft/feature/pyautobrain/named.md",
+    assert picks["named"] == {"prompt": "draft/feature/pyautoheart/named.md",
                               "why": "named task", "tier": "glance", "proposed": True,
-                              "title": "named", "size": "small", "repos": ["pyautobrain"]}
+                              "title": "named", "size": "small", "repos": ["pyautoheart"]}
     assert picks["picked"]["why"].startswith("scoped epic e1 · not in queue.md")
     assert orch.read_counters(slot)["sessions"] == 0
 
@@ -72,8 +72,8 @@ def test_the_shadow_digest_lists_proposals_and_validates(tmp_path):
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot,
                       orch.read_counters(slot), health=t._health)
     assert ("- **Proposed (shadow)** — named\n"
-            "  <sub>`named` · glance · small · pyautobrain · proposed (shadow)</sub>") in d
-    assert ("- **Proposed (shadow)** — picked\n  <sub>`picked` · glance · small · pyautobrain"
+            "  <sub>`named` · glance · small · pyautoheart · proposed (shadow)</sub>") in d
+    assert ("- **Proposed (shadow)** — picked\n  <sub>`picked` · glance · small · pyautoheart"
             " · proposed (shadow) · why: scoped epic e1 · not in queue.md") in d
     assert "- **Not started** — never" in d
     assert _digest.NO_PACKETS_SHADOW in d
@@ -191,4 +191,4 @@ def test_batch_watch_shows_titles(tmp_path):
     mind, brief, home = _shadow(tmp_path)
     orch.tick(brief, mind, home=home, now=t.NOW, spawner=NoSpawn())
     text = _watch.render(_watch.snapshot(brief, orch.slot_dir(brief, home), t.NOW, health=t._health))
-    assert "- **named** (`named`; small · pyautobrain) — proposed (shadow)" in text
+    assert "- **named** (`named`; small · pyautoheart) — proposed (shadow)" in text

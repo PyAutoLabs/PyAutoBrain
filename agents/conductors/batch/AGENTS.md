@@ -267,7 +267,16 @@ the plan inside the brief, the caps (`max-workers:`, default 2;
 is checked against Mind `origin/main` (#632): a draft not under its `draft/` or
 claimed in its `active.md` is excluded unless this shift picked it, read from the
 local `origin/main` ref after one `git fetch` per shift through the one Mind
-writer's own fetch (never a pull); an unreadable ref fails closed. State lives
+writer's own fetch (never a pull); an unreadable ref fails closed. From
+PyAutoBrain#637 the same read also skips a task whose declared repo (`Repos:`
+header and target) a claim in that `active.md` holds, unless the claim records
+`coordination:` or `conflict-override:`; a task an earlier shift in the same
+home left parked on a question is not startable until a later shift finishes
+it or a brief names it again; a dip never takes a Brain, Mind or Hands target;
+a `backlog: scoped` dip beyond `queue.md` takes only small single-repo tasks
+(ruling 2026-11-16); a re-dispatch goes first and may pass `max-sessions:` by
+one; and a worker's token reservation is the larger of the even share and the
+mean spend of finished workers in this and the last three shifts. State lives
 under `$PYAUTO_ORCHESTRATOR_HOME` (default `.orchestrator` under the worktree
 root), one directory per brief: `STOP`, `leases/`, `counters.json`, `tick.log`.
 Until phase 3b it spawns only stub workers (`PYAUTO_ORCHESTRATOR_FAKE=1`); a real

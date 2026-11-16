@@ -53,14 +53,22 @@ outcome — the human merges by `/prm` at check-in.
 
    Do **not** append the Shadow-window row: the watcher writes the stage-2
    row from your verdict.
-7. End at your deliverable. Never arm anything that outlives your turn.
+7. After a merge, remove the task's worktree and local branch as `/prm` does
+   (`skills/prm/closeout.md` steps 5–6): `worktree_remove <slug>` once your
+   `drop-section active.md <slug>` is queued — the stale-claim guard counts a
+   claim release queued in {ledger_dir}/ — then `git -C <repo> branch -d
+   feature/<slug>` for a local branch left in a canonical checkout. Never
+   `PYAUTO_WT_FORCE=1`, never `rm -rf`: a dirty tree or any other refusal
+   stays, and you say why in the verdict's `cleanup` field.
+8. End at your deliverable. Never arm anything that outlives your turn.
 
 Last, write {lease_dir}/{task}.closeout as one JSON object:
 
     {{"result": "merged" | "refused", "pr": "{pr_url}",
       "why": "<one line — required when refused>",
       "gate": "tests …/witness …/review …/heart …",
-      "model": "<your model id>"}}
+      "model": "<your model id>",
+      "cleanup": "<after a merge: `worktree and branch removed`, or why not>"}}
 
 Without that file the watcher records the close-out as ended without a
 verdict and never retries it.

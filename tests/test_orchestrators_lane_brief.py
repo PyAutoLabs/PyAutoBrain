@@ -220,7 +220,9 @@ def test_plan_under_a_brief_puts_named_tasks_first_and_never_dips_outside():
         "draft/feature/autolens/example_named_task.md", "draft/named.md"))["brief"]
     recs = [_rec("draft/cheap.md", tier="judge", epic="other-epic"),
             _rec("draft/named.md", tier="judge", review_minutes=20),
-            _rec("draft/in_scope.md", epic="cluster-strong-lensing"),
+            # One repo: beyond queue.md a scoped dip is small single-repo
+            # only (ruling 2026-11-16, PyAutoBrain#637).
+            _rec("draft/in_scope.md", epic="cluster-strong-lensing", repos=["pyautoheart"]),
             _rec("draft/excluded.md", epic="euclid-dr1", tier="notify")]
     d = _batch.plan(recs, session_lane="local-dev", brief=brief)
     paths = [m["path"] for m in d["members"]]

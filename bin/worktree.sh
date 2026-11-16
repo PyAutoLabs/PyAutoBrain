@@ -304,11 +304,30 @@ worktree_add_repo() {
 # the next one, and the completion record went unwritten).
 # Fail-open by design: anything unknown (no active.md, unfetched origin/main,
 # squash-merged branch) returns 1 = "not stale" and the caller proceeds.
+# A shift session (PYAUTO_SHIFT_LEDGER_DIR set) never commits to PyAutoMind:
+# it queues its claim release as a `drop-section active.md <task>` op, which
+# the shift's one Mind writer commits, and nobody pulls the canonical
+# checkout mid-shift. A release queued (or already committed) in that ledger
+# is a released claim (PyAutoBrain#637, item 10). Only the guard's question
+# changes: the dirty-repo refusal in worktree_remove still applies.
+_worktree_release_queued() {
+  local task="$1" ledger="${PYAUTO_SHIFT_LEDGER_DIR:-}" f
+  [[ -n "$ledger" && -d "$ledger" ]] || return 1
+  for f in "$ledger"/*.json "$ledger"/committed/*.json; do
+    [[ -f "$f" ]] || continue
+    grep -Eq '"op": *"drop-section"' "$f" || continue
+    grep -Eq '"path": *"active\.md"' "$f" || continue
+    grep -Fq "\"section\": \"${task}\"" "$f" && return 0
+  done
+  return 1
+}
+
 worktree_claim_is_stale() {
   local task="$1" root="$2"
   local active="$(pyauto_repo_path PyAutoMind "$PYAUTO_MAIN")/active.md"
   [[ -f "$active" ]] || return 1
   grep -Eq "^## ${task}([[:space:]]|\$)" "$active" || return 1
+  _worktree_release_queued "$task" && return 1
 
   local entry head saw_merged=0
   for entry in "$root"/*; do
