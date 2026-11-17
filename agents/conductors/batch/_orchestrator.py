@@ -1328,8 +1328,9 @@ def coordinated_for(sec: dict, task: str) -> bool:
     """Whether a claim's `coordination:` / `conflict-override:` line frees its
     repos for `task` (ruling R2, 2026-11-17): only when it names the task, by
     its slug or prompt stem (`-` and `_` alike). Such a line records sharing
-    the human approved with one named task — PyAutoFit#1777 was dispatched onto
-    a claim whose override named another task — never a free pass for any."""
+    the human approved with one named task — in shift 2026-11-16-pm a task was
+    dispatched onto a claim whose override named another task — never a free
+    pass for any."""
     text = _slug_form(sec.get("coordination") or "")
     name = _slug_form(task or "")
     return bool(name) and bool(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text))

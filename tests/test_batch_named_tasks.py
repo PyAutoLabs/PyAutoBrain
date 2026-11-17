@@ -188,12 +188,12 @@ def test_5_a_coordinated_claim_frees_its_repo_only_for_the_task_it_names(tmp_pat
     bare, mind = tmp_path / "mind.git", tmp_path / "mind"
     _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
     _git(tmp_path, "clone", "-q", str(bare), str(mind))
-    other = _write(mind, "grid_offset_roundtrip", target="PyAutoFit")
-    sharer = _write(mind, "three_autos_public_framing", target="PyAutoFit")
+    other = _write(mind, "grid_offset_roundtrip", target="PyAutoCortex")
+    sharer = _write(mind, "three_autos_public_framing", target="PyAutoCortex")
     (mind / "active.md").write_text(
         "# Active\n\n## ep-projected-model-shared-prior\n- status: library-dev\n"
-        "- repos:\n  - PyAutoFit: feature/ep-projected-model-shared-prior\n"
-        "- conflict-override: PyAutoFit also claimed by three-autos-public-framing; "
+        "- repos:\n  - PyAutoCortex: feature/ep-projected-model-shared-prior\n"
+        "- conflict-override: PyAutoCortex also claimed by three-autos-public-framing; "
         "human approved a separate worktree\n")
     _git(mind, "add", "-A")
     _git(mind, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q",
@@ -203,7 +203,7 @@ def test_5_a_coordinated_claim_frees_its_repo_only_for_the_task_it_names(tmp_pat
     records = [_batch.grade(mind / p, mind) for p in (other, sharer)]
     kept, out = orch.on_origin(records, mind, own=set())
     assert [r["path"] for r in kept] == [sharer]
-    assert out == {other: "repo PyAutoFit claimed by `ep-projected-model-shared-prior` "
+    assert out == {other: "repo PyAutoCortex claimed by `ep-projected-model-shared-prior` "
                           "in active.md on Mind origin/main"}
     lines = _digest.backlog_gate_lines({"backlog_gates": {"origin": out}})
     assert any(ln.startswith("Repo claimed on Mind origin/main: 1 draft(s) skipped")
@@ -271,7 +271,7 @@ def _organ(tmp_path, body, *, target="PyAutoBrain", repos=None):
 
 
 @pytest.mark.parametrize("body", [
-    "Change `PyAutoLabs/PyAutoBrain/agents/conductors/batch/_orchestrator.py`.",
+    "Change `example-org/PyAutoBrain/agents/conductors/batch/_orchestrator.py`.",
     "Change `./agents/conductors/batch/_orchestrator.py`.",
     "Change `/home/u/PyAutoBrain/agents/conductors/batch/_orchestrator.py`.",
     "Change `_orchestrator.py` and `agents/conductors/intake/_dashboard.py`.",
@@ -287,18 +287,18 @@ def test_review_the_shift_own_code_is_refused_however_it_is_written(tmp_path, bo
 
 @pytest.mark.parametrize("body", [
     "Then run `/prm` and see `/`.",
-    "Touch `*/__init__.py` across `PyAutoLabs/autogalaxy_visualization`.",
-    "Edit `autolens_workspace/scripts/x.py`.",
+    "Touch `*/__init__.py` across `example-org/PyAutoEyes`.",
+    "Edit `PyAutoHeart/scripts/x.py`.",
 ])
 def test_review_non_paths_and_other_repos_paths_are_not_refused(tmp_path, body):
     errors, _, _ = _organ(tmp_path, body, target="PyAutoBrain",
-                          repos=["PyAutoBrain", "PyAutoHands", "autolens_workspace"])
+                          repos=["PyAutoBrain", "PyAutoHands", "PyAutoHeart"])
     assert errors == []
 
 
 def test_review_an_unprefixed_self_path_with_other_repos_declared_is_the_humans_call(tmp_path):
     errors, warnings, _ = _organ(tmp_path, "Run `scripts/fit.py` on the cluster.",
-                                 target="PyAutoMind", repos=["PyAutoMind", "autolens_workspace"])
+                                 target="PyAutoMind", repos=["PyAutoMind", "PyAutoHeart"])
     assert errors == [] and warnings and "the human decides" in warnings[0]
 
 
@@ -362,7 +362,7 @@ def test_review2_self_code_is_refused_in_every_spelling(tmp_path, body, target):
 
 
 @pytest.mark.parametrize("body", [
-    "Fires on `PyAutoLabs/autolens_visualization` and `PyAutoLabs/PyAutoHands`.",
+    "Fires on `example-org/PyAutoPulse` and `example-org/PyAutoHands`.",
     "Moves the watcher, as `draft/feature/pyautobrain/other.md` and `batches/2026-11-13-am.md` say.",
     "From v1.2/v1.3.0 onwards.",
 ])
@@ -406,7 +406,7 @@ def test_review3_a_self_directory_without_its_slash_is_still_read(tmp_path, body
     assert errors
 
 
-@pytest.mark.parametrize("body", ["See `PyAutoBrain/`.", "See `PyAutoLabs/PyAutoBrain/`.",
+@pytest.mark.parametrize("body", ["See `PyAutoBrain/`.", "See `example-org/PyAutoBrain/`.",
                                   "As `../../../active/foo.md` says."])
 def test_review3_repo_dirs_and_relative_records_show_nothing(tmp_path, body):
     errors, warnings, notes = _organ(tmp_path, body, target="PyAutoBrain")
