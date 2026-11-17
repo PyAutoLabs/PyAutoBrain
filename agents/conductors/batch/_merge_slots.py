@@ -148,14 +148,18 @@ def take(slot: Path, pr: str, by: str, task: str = "") -> tuple[bool, str]:
         return False, why
 
 
-def release(slot: Path, pr: str, by: str, why: str = "") -> bool:
-    """Free `pr`'s slot, only when `by` took it. True when one was freed."""
+def release(slot: Path, pr: str, by: str, why: str = "", *, task: str | None = None) -> bool:
+    """Free `pr`'s slot, only when `by` took it — and, when `task` is given
+    (every worker or close-out session holds as one class), only for that
+    task. True when one was freed."""
     key = pr_key(pr)
     if key is None:
         return False
     with _locked(slot) as data:
         held = data["slots"].get(key)
         if not held or held.get("by") != by:
+            return False
+        if task is not None and held.get("task") != task:
             return False
         del data["slots"][key]
         data["released"].append({"pr": key, "by": by, "task": held.get("task", ""),

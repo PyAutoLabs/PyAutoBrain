@@ -218,3 +218,16 @@ def test_a_worker_take_names_its_task(tmp_path):
     slot, _ = _published(tmp_path, cap=2)
     r = _slot_cli(slot, "take", PR1)
     assert r.returncode == 2 and "--task" in r.stdout
+
+
+def test_a_worker_release_names_and_matches_its_task(tmp_path):
+    """Every session holds as `worker`: a release frees only its own task's
+    slot, and one that names no task cannot tell (#661 re-review)."""
+    slot, _ = _published(tmp_path, cap=1)
+    assert _slot_cli(slot, "take", PR1, "--task", "a").returncode == 0
+    r = _slot_cli(slot, "release", PR1, "--task", "b")
+    assert r.returncode == 1 and "task a" in r.stdout, r.stdout
+    assert _slot_cli(slot, "release", PR1).returncode == 2
+    assert "1 of merge-cap 1" in _slot_cli(slot, "status").stdout
+    assert _slot_cli(slot, "release", PR1, "--task", "a").returncode == 0
+    assert "0 of merge-cap 1" in _slot_cli(slot, "status").stdout

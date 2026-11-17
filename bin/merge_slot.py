@@ -28,8 +28,9 @@ is not a shift, so nothing is counted; 1 = refused (no slot left, the shift is
 paused, no cap published, or the PR's slot is another task's) — do not merge,
 leave the PR for `/prm`; 2 = cannot tell (not a PR URL, no task named, or the
 slot directory or its file cannot be read) — do not merge either.
-`release` exits 0 when it freed this caller's slot, 1 when there was none to
-free. `status` prints the count and exits 0.
+`release` (task required, as for `take`) exits 0 when it freed this task's
+slot, 1 when there was none to free (the holder is named). `status` prints the
+count and exits 0.
 """
 
 from __future__ import annotations
@@ -81,8 +82,8 @@ def main(argv=None) -> int:
               "no merge slot is counted")
         return 0
     task = args.task or os.environ.get("PYAUTO_SHIFT_TASK", "")
-    if args.action == "take" and not task:
-        print("cannot tell: a take in a shift names its task (--task <slug>) — "
+    if args.action in ("take", "release") and not task:
+        print(f"cannot tell: a {args.action} in a shift names its task (--task <slug>) — "
               "do not merge; leave the PR for /prm")
         return 2
     try:
@@ -91,10 +92,15 @@ def main(argv=None) -> int:
             print(("taken: " if ok else "refused: ") + why)
             return 0 if ok else 1
         if args.action == "release":
-            freed = _merge_slots.release(slot, args.pr, WORKER, args.why)
-            print(f"released {args.pr}" if freed
-                  else f"no merge slot of yours held for {args.pr}")
-            return 0 if freed else 1
+            freed = _merge_slots.release(slot, args.pr, WORKER, args.why, task=task)
+            if freed:
+                print(f"released {args.pr}")
+                return 0
+            held = _merge_slots.state(slot)["slots"].get(_merge_slots.pr_key(args.pr))
+            print(f"no merge slot of task {task} held for {args.pr}"
+                  + (f" — it is held by {held.get('by', '?')} for task {held.get('task') or '?'}"
+                     if held else ""))
+            return 1
         data = _merge_slots.state(slot)
         cap = data.get("cap")
         line = (f"{len(data['slots'])} of merge-cap {cap if cap is not None else '(none published)'}"
