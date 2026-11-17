@@ -50,9 +50,17 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   session that runs the witness and merges, or refuses (AUTONOMY.md
   "Unattended `glance` merges"). A `notify` task merges in-turn as usual.
 - Never commit to PyAutoMind yourself — a hook refuses it. Queue each Mind
-  change with `{shift_ledger} append|write|move|remove|drop-section ...`
+  change with `{shift_ledger} --task {task} append|write|edit|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers
   your `active.md` claim, the `draft/ → active/` move and your close-out.
+  `write` only creates a file; to change one that exists, use
+  `{shift_ledger} --task {task} edit <path> --old-file <was> --new-file <now>`
+  (`--old` must appear exactly once in the file as it is on Mind main). Queue
+  your edits first and your `complete/` record last: if any op of yours is
+  set aside, the record is held and the task is not recorded shipped. A
+  refused op is not queued; read why, fix it and queue it again. Your
+  calibration row is
+  `{shift_ledger} --task {task} table-append autonomy_log.md "## Calibration runs" --text "| … |"`.
   Your claim's session line is exactly
   `- session: shift worker <slot> (<your session id>)`, `<slot>` being the
   brief file's name without `.md`: after the human answers a question you

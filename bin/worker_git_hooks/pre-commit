@@ -10,7 +10,7 @@ if [ "${PYAUTO_SHIFT_WORKER:-}" = "1" ]; then
   case "$origin" in
     */PyAutoMind|*/PyAutoMind.git|*/PyAutoMind/)
       echo "pre-commit: shift workers never commit to PyAutoMind — hand the change to the orchestrator with" >&2
-      echo "  bin/shift_ledger.py append|write|move|remove|drop-section ...   (ledger: \$PYAUTO_SHIFT_LEDGER_DIR)" >&2
+      echo "  bin/shift_ledger.py --task <task> append|write|edit|move|remove|drop-section ...   (ledger: \$PYAUTO_SHIFT_LEDGER_DIR)" >&2
       exit 1 ;;
   esac
 fi

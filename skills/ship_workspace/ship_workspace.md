@@ -93,7 +93,7 @@ stop and report.
 3 note); ship without interactive sign-off, add the `## Validation checklist`
 to the PR body (`../ship_library/reference.md` → "Validation checklist
 (--auto)"), **stop at PR-open**, append the calibration row to
-`PyAutoMind/autonomy_log.md` (its **first** table, never the Shadow window at
+`PyAutoMind/autonomy_log.md` (its **first** table, `## Calibration runs`, never the Shadow window at
 the end — `../ship_library/reference.md` → "Which table"), set `active.md` to
 awaiting-merge. Failed leg →
 park per [`../../AUTONOMY.md`](../../AUTONOMY.md). Step 5's offered merge is

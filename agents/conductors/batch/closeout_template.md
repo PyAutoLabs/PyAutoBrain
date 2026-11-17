@@ -53,12 +53,18 @@ outcome — the human merges by `/prm` at check-in.
 6. If everything passed, use the prm skill on {pr_url}: the full close-out,
    judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with
-   `{shift_ledger} append|write|move|remove|drop-section ...` (ops land in
-   {ledger_dir}/) and the orchestrator commits them. With the complete
-   record, also retire the task's `queue.md` entry, as `lifecycle.py close`
-   does (it is silent when there is none):
+   `{shift_ledger} --task {task} append|write|edit|move|remove|drop-section ...`
+   (ops land in {ledger_dir}/) and the orchestrator commits them. `write`
+   only creates a file; change one that exists with
+   `{shift_ledger} --task {task} edit <path> --old-file <was> --new-file <now>`
+   (`--old` must appear exactly once in it on Mind main). Queue every edit
+   first and the complete record last: if any op of the task is set aside,
+   its record is held, not recorded shipped. A refused op is not queued; fix
+   it and queue it again. With the complete record, also retire the task's
+   `queue.md` entry, as `lifecycle.py close` does (it is silent when there is
+   none):
 
-       {shift_ledger} queue-retire queue.md <prompt file name> --text "{pr_url} → <complete record path> (<date>)"
+       {shift_ledger} --task {task} queue-retire queue.md <prompt file name> --text "{pr_url} → <complete record path> (<date>)"
 
    Do **not** append the Shadow-window row: the watcher writes the stage-2
    row from your verdict.

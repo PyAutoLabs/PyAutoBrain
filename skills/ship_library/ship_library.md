@@ -107,7 +107,7 @@ step or evidence leg fails, stop and report — do not proceed.
 carries the `## Validation checklist` section
 ([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run
 **stops at PR-open** unless step 6's declared tier merges it, a calibration row is
-appended to `PyAutoMind/autonomy_log.md` (its **first** table, never the
+appended to `PyAutoMind/autonomy_log.md` (its **first** table, `## Calibration runs`, never the
 Shadow window at the end — [`reference.md`](reference.md) → "Which table"),
 and `active.md` moves to
 `library-shipped, awaiting-merge`. Any failed leg → park per
