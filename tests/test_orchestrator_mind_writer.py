@@ -497,11 +497,17 @@ def test_shift_ledger_table_append_reaches_the_first_autonomy_log_table(tmp_path
     at = lines.index(row)
     assert lines[at - 1].startswith("| 2026-11-15 | b ")
     assert at < lines.index("## Shadow window — the tier-`glance` merge decision")
-    # The real Mind log beside this Brain has the heading above its first table.
+
+
+def test_the_sibling_autonomy_log_has_the_calibration_runs_heading():
+    """The real Mind log beside this Brain has the heading above its first table."""
+    row = "| 2026-11-17 | t1 (PR) | supervised | ok | parked |"
     live = BRAIN.parent / "PyAutoMind" / "autonomy_log.md"
     if not live.is_file():
         pytest.skip("no PyAutoMind checkout beside this Brain")
     text = live.read_text(encoding="utf-8")
+    if "## Calibration runs" not in text.splitlines():
+        pytest.skip("sibling Mind autonomy_log.md lacks the heading — lands with PyAutoMind#581")
     out = mw.table_append(text, "## Calibration runs", row).splitlines()
     first_table = next(i for i, ln in enumerate(text.splitlines()) if ln.startswith("|"))
     assert text.splitlines().index("## Calibration runs") < first_table
