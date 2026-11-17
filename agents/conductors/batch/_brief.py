@@ -444,7 +444,7 @@ def _path_parts(token: str) -> tuple[list[str], bool] | None:
     parts = [x.lower() for x in t.split("/") if x and x not in (".", "..")]
     # A self prefix written without its slash (`.github/workflows`, `scripts`)
     # is still that directory.
-    if "/".join(parts) + "/" in _SELF_PREFIXES:
+    if "/".join(parts) + "/" in _SELF_PREFIXES or "/".join(parts[1:]) + "/" in _SELF_PREFIXES:
         t = t.rstrip("/") + "/"
     is_dir = t.endswith("/")
     if not parts or (len(parts) == 1 and not is_dir):
@@ -495,7 +495,8 @@ def _classify(parts: list[str], hit: list[str], only_self: bool, organs: dict,
     # Mind's).
     # A prefix only that organ has (`DISTINCT_PREFIXES`) is its code at the
     # start of a path too, whatever else the task declares.
-    deep = any(f"/{pre.lower()}" in rel[1:] or (pre in DISTINCT_PREFIXES and rel.startswith(pre))
+    deep = any(rel.startswith(pre) or f"/{pre}" in rel[1:] for pre in DISTINCT_PREFIXES) \
+        or any(f"/{pre.lower()}" in rel[1:]
                for o in hit for pre in SELF_PATHS[o] if pre.count("/") > 1)
     cands = [o for o in hit if any(rel.startswith(pre.lower()) for pre in SELF_PATHS[o])]
     if deep or (cands and only_self):

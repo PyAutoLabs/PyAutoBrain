@@ -411,3 +411,12 @@ def test_review3_a_self_directory_without_its_slash_is_still_read(tmp_path, body
 def test_review3_repo_dirs_and_relative_records_show_nothing(tmp_path, body):
     errors, warnings, notes = _organ(tmp_path, body, target="PyAutoBrain")
     assert errors == [] and notes == [] and "names no path" in warnings[0], (warnings, notes)
+
+
+def test_review4_the_batch_conductor_is_refused_whatever_the_task_declares(tmp_path):
+    errors, _, _ = _organ(tmp_path, "Edit `agents/conductors/batch/_orchestrator.py`.",
+                          target="PyAutoMind")
+    assert errors
+    errors, _, _ = _organ(tmp_path, "Edit `PyAutoMind/scripts` and `docs/x.md`.",
+                          target="PyAutoMind")
+    assert errors
