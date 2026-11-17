@@ -209,10 +209,15 @@ def _is_done(text: str) -> bool:
 def _phase_of(text: str) -> float:
     """`Phase: <n>` as a sortable number; phase-less members sort last."""
     raw = _header_of(text, "phase")
-    try:
-        return float(raw.rstrip("abcdefgh") or "inf")
-    except ValueError:
-        return float("inf")
+    # The leading number: `5a`/`5A` → 5, `6b2` → 6 (M3.6b review). A label
+    # with no leading number (`C2`) sorts last but is still a declared phase
+    # (`_phase_declared`), so the per-epic limit counts it.
+    m = re.match(r"\s*(\d+(?:\.\d+)?)", raw)
+    return float(m.group(1)) if m else float("inf")
+
+
+def _phase_declared(text: str) -> bool:
+    return bool(_header_of(text, "phase"))
 
 
 def survey(mind: Path) -> list[dict]:
@@ -231,6 +236,7 @@ def survey(mind: Path) -> list[dict]:
         g["looks_shipped"] = f.relative_to(mind).as_posix() in flagged
         g["epic"] = _epic_of(text)
         g["phase"] = _phase_of(text)
+        g["phase_declared"] = _phase_declared(text)
         g["done"] = _is_done(text)
         g["themes"] = _themes_of(text)
         g["title"] = _title_of(text)
@@ -247,6 +253,7 @@ def grade_text(text: str, rel: str, mind: Path) -> dict:
     g["looks_shipped"] = rel in _shipped.flagged_paths(mind)
     g["epic"] = _epic_of(text)
     g["phase"] = _phase_of(text)
+    g["phase_declared"] = _phase_declared(text)
     g["done"] = _is_done(text)
     g["themes"] = _themes_of(text)
     g["title"] = _title_of(text)
@@ -316,6 +323,9 @@ def pool_gate(r: dict, next_phase: dict[str, float]) -> str:
     if r.get("epic") and has_phase(r) and r["phase"] > next_phase.get(
             r["epic"], float("inf")):
         return f"epic {r['epic']} phase {r['phase']:g} is not next"
+    if r.get("epic") and has_phase(r) and r["phase"] == float("inf") \
+            and next_phase.get(r["epic"], float("inf")) < float("inf"):
+        return f"epic {r['epic']} phase (unnumbered) is not next"
     if r["autonomy"] == "human-required":
         return f"autonomy {r['autonomy']} — would park at ship"
     if r["unattended"] != "ready":
@@ -327,8 +337,11 @@ def pool_gate(r: dict, next_phase: dict[str, float]) -> str:
 
 
 def has_phase(r: dict) -> bool:
-    """Whether a record carries a `Phase:` number (`_phase_of` reads a missing
+    """Whether a record declares a `Phase:` (`phase_declared`, from the
+    survey); else whether its phase is a number (`_phase_of` reads a missing
     one as infinity, so phase-less side tasks sort last)."""
+    if "phase_declared" in r:
+        return bool(r["phase_declared"])
     phase = r.get("phase", float("inf"))
     return isinstance(phase, (int, float)) and phase != float("inf")
 
@@ -462,7 +475,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
                                         "(named tasks only)"))
         elif shift_dip and backlog and self_organ_why(r):
             rejected.append((r["path"], self_organ_why(r)))
-        elif shift_dip and backlog and not r.get("witness"):
+        elif shift_dip and backlog and not r.get("witness") and not r.get("resume"):
             # A shift dips only witnessed drafts (M3.6b): one without a
             # `Witness:` is reviewed as `judge`, so it is never cheap fill.
             # Counted for the digest; a named task is the human's pick.
@@ -3406,8 +3419,8 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
         # PyAutoBrain#637 item 6) is the default, not `fill-idle` (M3.6b) —
         # under `scoped` the planner dips queue.md first, then only small
         # single-repo tasks, and these tiers are the ones a shift may merge.
-        L += ["  - backlog: scoped                 # reach ruling 2026-11-16: queue.md "
-              "first, then small single-repo",
+        L += ["  - backlog: scoped                 # tiers a shift may merge; beyond "
+              "queue.md small single-repo only (ruling 2026-11-16)",
               "  - scoped:",
               f"    - tiers: {', '.join(NEW_BRIEF_SCOPED_TIERS)}"]
     L += [f"  - review-minutes: {NEW_BRIEF_DEFAULTS['review-minutes']}",
@@ -3442,7 +3455,17 @@ def named_skips(brief: dict, mind: Path) -> tuple[dict[str, str], str]:
     d = plan(recs, session_lane="local-dev", brief=brief, queue=read_queue(mind))
     rejected = {Path(p).name: w for p, w in d["rejected"]}
     rejected.update({Path(p).name: w for p, w in held.items()})
-    return {t: rejected[Path(t).name] for t in named if Path(t).name in rejected}, note
+    members = {Path(m["path"]).name for m in d["members"]}
+    out = {}
+    for t in named:
+        name = Path(t).name
+        if name in rejected:
+            out[t] = rejected[name]
+        elif name not in members and _brief._resolve(mind, t) is not None:
+            # In active/ (already issued): `_brief.check` resolves it, so no
+            # warning came from there, and no survey of draft/ holds it.
+            out[t] = orch.NAMED_NO_DRAFT
+    return out, note
 
 
 #: `PYAUTO_BRIEF_ISSUE=off`: `brief --new --out` makes no shift issue.

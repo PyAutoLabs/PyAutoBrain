@@ -1317,7 +1317,7 @@ def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | No
 #: A claim that records human-authorized sharing of its repos (#637, item 4).
 _COORDINATION_RE = re.compile(r"^- (coordination|conflict-override):\s*\S", re.M)
 _CLAIM_REPO_RE = re.compile(r"^\s+- ([A-Za-z0-9_.-]+)")
-_COORDINATION_LINE_RE = re.compile(r"(?m)^- (?:coordination|conflict-override):.*$")
+_COORDINATION_LINE_RE = re.compile(r"(?m)^- (?:coordination|conflict-override):(.*)$")
 
 
 def _slug_form(text: str) -> str:
@@ -1363,7 +1363,7 @@ def claim_sections(active_text: str) -> dict[str, dict]:
         keys = dict(re.findall(r"(?m)^- (session|prompt):[ \t]*(.*?)\s*$", "\n".join(body)))
         out[slug] = {"repos": repos,
                      "coordinated": bool(_COORDINATION_RE.search("\n".join(body))),
-                     "coordination": " ".join(m.group(0) for m in
+                     "coordination": " ".join(m.group(1) for m in
                                               _COORDINATION_LINE_RE.finditer("\n".join(body))),
                      "session": keys.get("session", ""), "prompt": keys.get("prompt", "")}
     for ln in active_text.splitlines():
@@ -1658,6 +1658,24 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     return out
 
 
+#: A named task the plan never saw: not in the survey of `draft/`.
+NAMED_NO_DRAFT = "no draft prompt for it (already issued to active/, retired or never pushed)"
+
+
+def _named_reasons(brief: dict, d: dict, planned: dict) -> dict[str, str]:
+    """{named task: why it did not start} for the digest (M3.6b): the plan's
+    rejection, or — for a named task neither picked, rejected, held by a claim
+    nor parked — that it has no draft prompt to start."""
+    named = _brief.tasks_of(brief)
+    names = {Path(t).name for t in named}
+    out = {p: w for p, w in d["rejected"] if Path(p).name in names}
+    seen = {Path(p).name for p in [*out, *(m["path"] for m in d["members"]),
+                                   *(planned.get("claimed") or {}),
+                                   *(planned.get("parked") or {})]}
+    out.update({t: NAMED_NO_DRAFT for t in named if Path(t).name not in seen})
+    return out
+
+
 def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                tokens, health=None, pr_state=None, *, poster=None, shift=None,
                token_reserve=None, whoami=None, github=None) -> dict:
@@ -1767,9 +1785,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                  # M3.6b: why each named task did not start (the
                                  # digest's "Not started" reason), and the backlog
                                  # drafts kept out for want of a `Witness:`.
-                                 "named": {p: w for p, w in d["rejected"]
-                                           if Path(p).name in {Path(t).name for t in
-                                                               _brief.tasks_of(brief)}},
+                                 "named": _named_reasons(brief, d, planned),
                                  "witness_absent": sorted(d.get("witness_absent") or [])}
     paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):

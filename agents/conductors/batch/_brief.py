@@ -415,8 +415,31 @@ SELF_PATHS = {
     "PyAutoMind": ("scripts/", ".github/workflows/"),
     "PyAutoHands": ("",),
 }
-#: A backticked token with a `/` in it, read as a path (URLs excluded).
-_PATH_RE = re.compile(r"`([^`\s]*/[^`\s]*)`")
+#: Path candidates in a prompt: any backticked token, and an unbackticked
+#: token that looks like a file path (segments and an extension).
+_TICKED_RE = re.compile(r"`([^`\s]+)`")
+_BARE_PATH_RE = re.compile(r"(?<![\w/.-])((?:[\w.-]+/)+[\w.-]+\.\w+)")
+
+
+def _path_parts(token: str) -> list[str] | None:
+    """A token's path segments, or None when it is not a file path: a URL, a
+    glob, a slash command (`/prm`) or a bare `/`. A `:line` suffix is dropped."""
+    t = token.strip().rstrip(".,;)").removeprefix("@")
+    if "://" in t or "*" in t or "#" in t or "@" in t:   # URL, glob, Repo#N, action@ref
+        return None
+    t = re.sub(r":\d[\d,-]*$", "", t).removeprefix("./")
+    parts = [x for x in t.split("/") if x and x != "."]
+    return parts if len(parts) >= 2 else None
+
+
+def _own_files(mind: Path) -> dict[str, set[str]]:
+    """File names in the shift's own code, per organ, for a prompt that names
+    one bare (`_orchestrator.py`): this conductor's own directory and Mind's
+    `scripts/`."""
+    def code(d: Path) -> set[str]:
+        return {f.name for f in d.iterdir() if f.is_file() and f.suffix in (".py", ".sh")} \
+            if d.is_dir() else set()
+    return {"PyAutoBrain": code(Path(__file__).parent), "PyAutoMind": code(Path(mind) / "scripts")}
 
 
 def organ_findings(name: str, path: Path, mind: Path) -> tuple[list[str], list[str], list[str]]:
@@ -425,34 +448,64 @@ def organ_findings(name: str, path: Path, mind: Path) -> tuple[list[str], list[s
     The organ rule was a dip rule only (`_batch.self_organ_why`); a named task
     is the human's pick, and in shift 2026-11-16-pm the human had to rule in
     chat that a renderer is not the watcher, writer or release path. This says
-    it at launch instead: a task that targets an organ the shift runs on and
-    names a path in that organ's own code is refused; one that names only
-    other paths passes with a line saying so; one that names no path is a
-    warning, because only the human can tell."""
-    from _sizing import normalise_repo  # noqa: E402 — the faculty is on sys.path
+    it at launch instead (M3.6b), for a task that targets an organ the shift
+    runs on:
+
+    - refused when it names the shift's own code: a path under an organ's
+      `SELF_PATHS` with that organ written in it (`PyAutoMind/scripts/x.py`,
+      an absolute or `PyAutoLabs/…` path), or unprefixed when the task
+      declares only self organs, or a bare file name of that code;
+    - a warning when an unprefixed path could be a self organ's own code but
+      the task also declares another repo (which owns it is the human's call),
+      or when it names no path at all;
+    - otherwise passed, with a line saying so."""
+    from _sizing import KNOWN_REPOS, normalise_repo  # noqa: E402 — on sys.path
     p = parse_prompt(path, mind)
+    text = p.get("text") or ""
     organs = {normalise_repo(o): o for o in SELF_ORGANS}
-    declared = {normalise_repo(x) for x in [p.get("target") or "",
-                                            *re.findall(r"(?m)^- (\S+)", _repos_block(p))]}
+    # The `Target:` header, not `parse_prompt`'s target (the draft's folder).
+    head = re.search(r"(?m)^Target:[ \t]*(\S+)", text)
+    declared = {normalise_repo(x) for x in [head.group(1) if head else p.get("target") or "",
+                                            *re.findall(r"(?m)^- (\S+)", _repos_block(p))] if x}
     hit = [organs[k] for k in organs if k in declared]
     if not hit:
         return [], [], []
-    paths = sorted({m.rstrip(".,;:)").split(":")[0]
-                    for m in _PATH_RE.findall(p.get("text") or "") if "://" not in m})
+    only_self = declared <= set(organs)
+    own_files = _own_files(mind)
+    tokens = _TICKED_RE.findall(text) + _BARE_PATH_RE.findall(text)
+    own, maybe, paths = [], [], []
+    for tok in dict.fromkeys(tokens):
+        if "/" not in tok:
+            if any(tok in own_files.get(o, ()) for o in hit):
+                own.append(tok)
+            continue
+        parts = _path_parts(tok)
+        if parts is None:
+            continue
+        rel = "/".join(parts)
+        paths.append(rel)
+        at = next((i for i, seg in enumerate(parts)
+                   if normalise_repo(seg) in organs or normalise_repo(seg) in KNOWN_REPOS), None)
+        if at is not None:
+            organ = organs.get(normalise_repo(parts[at]))
+            rest = "/".join(parts[at + 1:])   # "" is the repo itself, not a path in it
+            if organ and rest and any(rest.startswith(pre) for pre in SELF_PATHS[organ]):
+                own.append(rel)
+            continue
+        cands = [o for o in hit if any(rel.startswith(pre) for pre in SELF_PATHS[o])]
+        if cands:
+            (own if only_self else maybe).append(rel)
+    if own:
+        return [f"organ rule: {name} names {own[0]} — the shift's own watcher, writer "
+                "or release path; a shift never changes it (run it in chat)"], [], []
+    if maybe:
+        return [], [f"organ rule: {name} names {maybe[0]}, which may be "
+                    f"{'/'.join(hit)} code the shift runs on, and declares other repos "
+                    "too — the human decides"], []
     if not paths:
         return [], [f"organ rule: {name} targets {', '.join(hit)} and names no path — "
                     "the human decides whether it touches the watcher, writer or "
                     "release path"], []
-    own = []
-    for rel in paths:
-        head, _, rest = rel.partition("/")
-        cands = [o for o in hit if normalise_repo(head) == normalise_repo(o)]
-        rel_in, check = (rest, cands) if cands else (rel, hit)
-        if any(rel_in.startswith(pre) for o in check for pre in SELF_PATHS[o]):
-            own.append(rel)
-    if own:
-        return [f"organ rule: {name} names {own[0]} — the shift's own watcher, writer "
-                "or release path; a shift never changes it (run it in chat)"], [], []
     return [], [], [f"organ rule: {name} targets {', '.join(hit)} but names only "
                      f"{', '.join(paths[:3])}" + (" …" if len(paths) > 3 else "")
                      + " — not the watcher, writer or release path; passes"]

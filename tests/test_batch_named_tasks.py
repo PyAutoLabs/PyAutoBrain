@@ -253,3 +253,90 @@ def test_7_a_named_renderer_task_passes_the_organ_rule_with_a_line(tmp_path, cap
     assert rc == 0, out
     assert any("vague" in ln and "!" in ln and "names no path" in ln
                for ln in out.splitlines()), out
+
+
+# --- review fixes (Fable 5.2, FINDINGS 1, 2, 3, 7, 8) -----------------------------------
+
+def _organ(tmp_path, body, *, target="PyAutoBrain", repos=None):
+    """organ_findings for one prompt with `body`, declaring `repos` (default: the target)."""
+    mind = tmp_path / "mind"
+    (mind / "scripts").mkdir(parents=True, exist_ok=True)
+    (mind / "scripts" / "lifecycle.py").write_text("")
+    rel = _write(mind, "t", target=target, body=body)
+    if repos is not None:
+        f = mind / rel
+        f.write_text(f.read_text().replace(f"Repos:\n- {target}\n",
+                                           "Repos:\n" + "".join(f"- {r}\n" for r in repos)))
+    return _batch._brief.organ_findings("t", mind / rel, mind)
+
+
+@pytest.mark.parametrize("body", [
+    "Change `PyAutoLabs/PyAutoBrain/agents/conductors/batch/_orchestrator.py`.",
+    "Change `./agents/conductors/batch/_orchestrator.py`.",
+    "Change `/home/u/PyAutoBrain/agents/conductors/batch/_orchestrator.py`.",
+    "Change `_orchestrator.py` and `agents/conductors/intake/_dashboard.py`.",
+    "Change agents/conductors/batch/_orchestrator.py and `docs/x.md`.",
+    "Change `PyAutoMind/scripts/lifecycle.py`.",
+    "Change `lifecycle.py` in Mind.",
+])
+def test_review_the_shift_own_code_is_refused_however_it_is_written(tmp_path, body):
+    target = "PyAutoMind" if "lifecycle.py` in" in body else "PyAutoBrain"
+    errors, warnings, notes = _organ(tmp_path, body, target=target)
+    assert errors and "watcher, writer or release path" in errors[0], (errors, warnings, notes)
+
+
+@pytest.mark.parametrize("body", [
+    "Then run `/prm` and see `/`.",
+    "Touch `*/__init__.py` across `PyAutoLabs/autogalaxy_visualization`.",
+    "Edit `autolens_workspace/scripts/x.py`.",
+])
+def test_review_non_paths_and_other_repos_paths_are_not_refused(tmp_path, body):
+    errors, _, _ = _organ(tmp_path, body, target="PyAutoBrain",
+                          repos=["PyAutoBrain", "PyAutoHands", "autolens_workspace"])
+    assert errors == []
+
+
+def test_review_an_unprefixed_self_path_with_other_repos_declared_is_the_humans_call(tmp_path):
+    errors, warnings, _ = _organ(tmp_path, "Run `scripts/fit.py` on the cluster.",
+                                 target="PyAutoMind", repos=["PyAutoMind", "autolens_workspace"])
+    assert errors == [] and warnings and "the human decides" in warnings[0]
+
+
+def test_review_a_phase_label_keeps_its_leading_number_and_counts_as_a_phase():
+    assert _batch._phase_of("Phase: 5A\n") == 5 and _batch._phase_of("Phase: 6b2\n") == 6
+    assert _batch._phase_of("Phase: C2\n") == float("inf") and _batch._phase_declared("Phase: C2\n")
+    a, b = rec("a.md", epic="e", phase=5), rec("b.md", epic="e", phase=float("inf"))
+    b["phase_declared"] = True        # `Phase: C2`: a phase, not a side task
+    dec = _batch.plan([a, b], budget=100)
+    assert [m["path"] for m in dec["members"]] == ["a.md"]
+    assert "not next" in dict(dec["rejected"])["b.md"]
+
+
+@pytest.mark.parametrize("task", ["coordination", "conflict_override", "human"])
+def test_review_the_coordination_key_and_common_words_free_nothing_by_themselves(task):
+    sec = {"coordination": orch._COORDINATION_LINE_RE.search(
+        "- conflict-override: human approved sharing with three-autos-public-framing").group(1)}
+    assert not orch.coordinated_for(sec, task if task != "human" else "humans")
+    assert orch.coordinated_for(sec, "three_autos_public_framing")
+
+
+def test_review_a_named_task_already_in_active_says_why_it_will_not_start(tmp_path, capsys):
+    mind, brief, _ = _shift(tmp_path)
+    issued = mind / "active" / "already.md"
+    issued.parent.mkdir(parents=True)
+    issued.write_text(PROMPT.format(name="already", target="PyAutoHeart", headers="",
+                                    witness="Witness: a unit test\n", body="Body."))
+    brief.write_text(brief.read_text().replace("draft/feature/x/none.md",
+                                               "draft/feature/x/already.md"))
+    rc, out = _check(brief, mind, capsys)
+    assert any("already" in ln and "will not start" in ln and "no draft prompt" in ln
+               for ln in out.splitlines()), out
+
+
+def test_review_a_resumed_task_is_not_held_back_for_want_of_a_witness():
+    r = rec("draft/feature/x/r.md", witness=None)
+    r["resume"] = ["Q3"]
+    brief = {"backlog": {"value": "fill-idle", "children": []},
+             "lanes": {"value": "any", "children": []}}
+    dec = _batch.plan([r], budget=100, brief=brief, queue=["x"])
+    assert [m["path"] for m in dec["members"]] == ["draft/feature/x/r.md"], dec["rejected"]
