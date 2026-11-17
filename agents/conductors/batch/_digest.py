@@ -290,9 +290,11 @@ def no_slot_merges(counters: dict) -> list[str]:
 
 def gate_why(task: str, counters: dict) -> str:
     """Why the watcher's last plan kept this task out — a claim or a held
-    repo on Mind origin/main, or a park in an earlier shift (#637) — or ""."""
+    repo on Mind origin/main, a park in an earlier shift (#637), or the
+    planner's own reason for a named task (M3.6b: epic, budget, Blocked-by) —
+    or ""."""
     gates = counters.get("backlog_gates") or {}
-    for key in ("origin", "parked"):
+    for key in ("origin", "parked", "named"):
         for path, why in (gates.get(key) or {}).items():
             if Path(path).stem == task:
                 return why
@@ -714,6 +716,11 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                    "their old standing — " + "; ".join(
                        f"`{t}` ({', '.join(v.get('ids') or [])} answered)"
                        for t, v in sorted(resumed.items())[:SUMMARY_NAMES]))
+    bare = gates.get("witness_absent") or []
+    if bare:
+        out.append(f"No Witness: {len(bare)} draft(s) not dipped — a shift dips only "
+                   "witnessed drafts; declare a Witness: to make one pickable: "
+                   + names(bare))
     reach = gates.get("scoped_reach") or []
     if reach:
         out.append(f"Backlog reach (ruling 2026-11-16): {len(reach)} unqueued draft(s) not "

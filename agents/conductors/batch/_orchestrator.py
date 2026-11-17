@@ -1317,6 +1317,22 @@ def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | No
 #: A claim that records human-authorized sharing of its repos (#637, item 4).
 _COORDINATION_RE = re.compile(r"^- (coordination|conflict-override):\s*\S", re.M)
 _CLAIM_REPO_RE = re.compile(r"^\s+- ([A-Za-z0-9_.-]+)")
+_COORDINATION_LINE_RE = re.compile(r"(?m)^- (?:coordination|conflict-override):.*$")
+
+
+def _slug_form(text: str) -> str:
+    return re.sub(r"[-_]+", "-", text.lower())
+
+
+def coordinated_for(sec: dict, task: str) -> bool:
+    """Whether a claim's `coordination:` / `conflict-override:` line frees its
+    repos for `task` (ruling R2, 2026-11-17): only when it names the task, by
+    its slug or prompt stem (`-` and `_` alike). Such a line records sharing
+    the human approved with one named task — PyAutoFit#1777 was dispatched onto
+    a claim whose override named another task — never a free pass for any."""
+    text = _slug_form(sec.get("coordination") or "")
+    name = _slug_form(task or "")
+    return bool(name) and bool(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text))
 
 
 def claim_sections(active_text: str) -> dict[str, dict]:
@@ -1347,6 +1363,8 @@ def claim_sections(active_text: str) -> dict[str, dict]:
         keys = dict(re.findall(r"(?m)^- (session|prompt):[ \t]*(.*?)\s*$", "\n".join(body)))
         out[slug] = {"repos": repos,
                      "coordinated": bool(_COORDINATION_RE.search("\n".join(body))),
+                     "coordination": " ".join(m.group(0) for m in
+                                              _COORDINATION_LINE_RE.finditer("\n".join(body))),
                      "session": keys.get("session", ""), "prompt": keys.get("prompt", "")}
     for ln in active_text.splitlines():
         if ln.startswith("## "):
@@ -1442,7 +1460,7 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
                                   "is not this home's shift worker's (session: "
                                   f"{(sec.get('session') or 'none')[:60]}) — left to the human")
             elif held := next(((repo, other) for other, sec2 in claims["sections"].items()
-                               if other != slug and not sec2["coordinated"]
+                               if other != slug and not coordinated_for(sec2, task)
                                for repo in sec2["repos"] if _repo_key(repo) in mine), None):
                 # Every other claim on the repo counts, not only the first
                 # (`claimed_repos` keeps one per repo): its own does not.
@@ -1454,14 +1472,23 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
             out[r["path"]] = "not in draft/ on Mind origin/main (claimed or retired)"
         elif task in claims["active"]:
             out[r["path"]] = "claimed in active.md on Mind origin/main"
-        elif held := next((claims["repos"][_repo_key(x)]
-                           for x in r.get("declared_repos") or r.get("repos") or []
-                           if _repo_key(x) in claims.get("repos", {})), None):
+        elif held := _held_for(claims.get("sections") or {}, task,
+                               r.get("declared_repos") or r.get("repos") or []):
             out[r["path"]] = (f"repo {held[0]} claimed by `{held[1]}` in active.md on "
                               "Mind origin/main")
         else:
             kept.append(r)
     return kept, out
+
+
+def _held_for(sections: dict[str, dict], task: str, repos) -> tuple[str, str] | None:
+    """(repo as written, claiming slug) of the first claim on one of `repos`
+    that does not free it for `task` (R2: a coordination line frees a repo
+    only for the task it names), or None."""
+    mine = {_repo_key(x) for x in repos}
+    return next(((repo, slug) for slug, sec in sections.items()
+                 if not coordinated_for(sec, task)
+                 for repo in sec["repos"] if _repo_key(repo) in mine), None)
 
 
 def parked_elsewhere(slot: Path, inbox: dict | None = None,
@@ -1736,7 +1763,14 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                  "origin": planned.get("claimed") or {},
                                  "parked": planned.get("parked") or {},
                                  "resumed": planned.get("resume") or {},
-                                 "scoped_reach": sorted(d.get("scoped_reach") or [])}
+                                 "scoped_reach": sorted(d.get("scoped_reach") or []),
+                                 # M3.6b: why each named task did not start (the
+                                 # digest's "Not started" reason), and the backlog
+                                 # drafts kept out for want of a `Witness:`.
+                                 "named": {p: w for p, w in d["rejected"]
+                                           if Path(p).name in {Path(t).name for t in
+                                                               _brief.tasks_of(brief)}},
+                                 "witness_absent": sorted(d.get("witness_absent") or [])}
     paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):
         proposed = [] if paused else _propose(

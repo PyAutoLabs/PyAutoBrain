@@ -75,7 +75,9 @@ def test_non_library_repos_do_not_claim_a_shift():
 
 
 def test_one_slice_per_epic():
-    d = _batch.plan([rec("a.md", epic="euclid"), rec("b.md", epic="euclid")],
+    """One `Phase:` task per epic (ruling R5, 2026-11-17); a side task with no
+    `Phase:` is not counted (tests/test_batch_named_tasks.py)."""
+    d = _batch.plan([rec("a.md", epic="euclid", phase=2), rec("b.md", epic="euclid", phase=2)],
                     budget=100)
     assert paths(d) == ["a.md"]
     assert "epic euclid already" in why(d, "b.md")

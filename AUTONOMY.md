@@ -804,6 +804,19 @@ not open.
 scoped` dip takes `queue.md` first, then only `Difficulty: small` single-repo
 backlog tasks; anything bigger must be queued by the human.
 
+**Human rulings R5 and R2 — 2026-11-17 (M3.6b, PyAutoBrain#667).** R5
+(option a): the one-slice-per-epic limit and phase order bind only tasks with
+a `Phase:` number; a side task of the epic shares the shift and orders itself
+by `Blocked-by:`. Every named task that will not start is listed with its
+reason at `batch brief --check` and in the digest. R2: the planner never
+dispatches a task whose repo another active task claims, named or backlog; a
+`coordination:` / `conflict-override:` line frees a repo only for the task it
+names. Also approved: a shift dips only witnessed drafts (counted in the
+digest); `brief --new` with no goal epic or tag writes `backlog: scoped` with
+`tiers: notify, glance`; and `brief --check` applies the organ rule to named
+tasks — refused when the prompt names the shift's own code (`_brief.SELF_PATHS`),
+passed with a line when it names only other paths, a warning when it names none.
+
 **Launch preflight — 2026-11-17 (M3.6a, PyAutoBrain#659), approved by the
 human.** A live brief (not `shadow: yes`) names its shift **`issue:`**: `batch
 brief --new --out` creates it on PyAutoMind and writes it, and `batch brief

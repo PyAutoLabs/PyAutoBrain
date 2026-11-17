@@ -404,6 +404,65 @@ def launch_errors(top: dict, brief: dict | None) -> list[str]:
     return []
 
 
+# --- the organ rule for a named task (M3.6b) -------------------------------------
+
+#: The shift's own code, per organ it runs on: its watcher and planner (Brain),
+#: its one Mind writer and lifecycle (Mind) and its release path (all of Hands,
+#: so the empty prefix). A named task that names a path here is refused at
+#: `brief --check`: a shift never changes what runs it.
+SELF_PATHS = {
+    "PyAutoBrain": ("agents/conductors/batch/",),
+    "PyAutoMind": ("scripts/", ".github/workflows/"),
+    "PyAutoHands": ("",),
+}
+#: A backticked token with a `/` in it, read as a path (URLs excluded).
+_PATH_RE = re.compile(r"`([^`\s]*/[^`\s]*)`")
+
+
+def organ_findings(name: str, path: Path, mind: Path) -> tuple[list[str], list[str], list[str]]:
+    """(errors, warnings, notes) of the organ rule for one named task.
+
+    The organ rule was a dip rule only (`_batch.self_organ_why`); a named task
+    is the human's pick, and in shift 2026-11-16-pm the human had to rule in
+    chat that a renderer is not the watcher, writer or release path. This says
+    it at launch instead: a task that targets an organ the shift runs on and
+    names a path in that organ's own code is refused; one that names only
+    other paths passes with a line saying so; one that names no path is a
+    warning, because only the human can tell."""
+    from _sizing import normalise_repo  # noqa: E402 — the faculty is on sys.path
+    p = parse_prompt(path, mind)
+    organs = {normalise_repo(o): o for o in SELF_ORGANS}
+    declared = {normalise_repo(x) for x in [p.get("target") or "",
+                                            *re.findall(r"(?m)^- (\S+)", _repos_block(p))]}
+    hit = [organs[k] for k in organs if k in declared]
+    if not hit:
+        return [], [], []
+    paths = sorted({m.rstrip(".,;:)").split(":")[0]
+                    for m in _PATH_RE.findall(p.get("text") or "") if "://" not in m})
+    if not paths:
+        return [], [f"organ rule: {name} targets {', '.join(hit)} and names no path — "
+                    "the human decides whether it touches the watcher, writer or "
+                    "release path"], []
+    own = []
+    for rel in paths:
+        head, _, rest = rel.partition("/")
+        cands = [o for o in hit if normalise_repo(head) == normalise_repo(o)]
+        rel_in, check = (rest, cands) if cands else (rel, hit)
+        if any(rel_in.startswith(pre) for o in check for pre in SELF_PATHS[o]):
+            own.append(rel)
+    if own:
+        return [f"organ rule: {name} names {own[0]} — the shift's own watcher, writer "
+                "or release path; a shift never changes it (run it in chat)"], [], []
+    return [], [], [f"organ rule: {name} targets {', '.join(hit)} but names only "
+                     f"{', '.join(paths[:3])}" + (" …" if len(paths) > 3 else "")
+                     + " — not the watcher, writer or release path; passes"]
+
+
+def _repos_block(p: dict) -> str:
+    m = re.search(r"^Repos:\n((?:- .+\n)+)", p.get("text") or "", re.M)
+    return m.group(1) if m else ""
+
+
 # --- scope ---------------------------------------------------------------------
 
 def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str, str]], list[str]]:

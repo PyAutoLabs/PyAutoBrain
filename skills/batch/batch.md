@@ -32,6 +32,7 @@ Resolve it to prompt paths; plan exactly that set as a brief's named tasks, or
 its named tasks go first, then the backlog dip its policy allows (`none` |
 `fill-idle` | `scoped:` plus `exclude:`). Backlog the brief does not cover is
 never dipped, and every dipped pick carries a one-line reason in the digest.
+`brief --check` says why any named task will not start (AUTONOMY.md, R5 and R2).
 Report, per task they named:
 
 - **taken** — with its tier and review-minutes;
