@@ -1275,6 +1275,110 @@ def _fetch_once(mind: Path, counters: dict, now: _dt.datetime) -> None:
         counters["origin_fetch"] = {"at": _iso(now), "ok": False, "error": str(e)[:200]}
 
 
+#: An answer restarts its task this shift only with more than this left (M3.6c).
+INSHIFT_RESTART_S = 30 * 60
+#: The bounded re-fetch for an in-shift answer: at most this often (M3.6c).
+ANSWER_FETCH_EVERY_S = 10 * 60
+
+
+def _open_parks(counters: dict) -> list[str]:
+    """Tasks of this shift parked on a question not yet released in-shift."""
+    released = counters.get("inshift_released") or {}
+    return [t for t, o in (counters.get("outcomes") or {}).items()
+            if isinstance(o, dict) and o.get("questions") and "obsolete" not in o
+            and not o.get("merged") and t not in released]
+
+
+def _fetch_for_answers(mind: Path, counters: dict, now: _dt.datetime,
+                       review_at: _dt.datetime | None) -> None:
+    """The shift's one fetch (`_fetch_once`), then — M3.6c, human-approved
+    2026-11-17 (AUTONOMY.md "The watcher's network surface") — the same
+    writer's fetch again, only while a task of this shift is parked on a
+    question, more than `INSHIFT_RESTART_S` remain before `review-at:`, and at
+    most every `ANSWER_FETCH_EVERY_S`: an answer from the phone moves only
+    the remote, and the inbox is read from the local `origin/main`."""
+    last = counters.get("origin_fetch")
+    if not last:
+        _fetch_once(mind, counters, now)
+        return
+    if not _open_parks(counters) or review_at is None \
+            or (review_at - now).total_seconds() <= INSHIFT_RESTART_S:
+        return
+    at = _parse_iso(last.get("at") or "") if last.get("at") else None
+    if at is not None and (now - at).total_seconds() < ANSWER_FETCH_EVERY_S:
+        return
+    try:
+        _mind_writer.fetch(mind)
+        counters["origin_fetch"] = {"at": _iso(now), "ok": True}
+    except _mind_writer.MindWriteError as e:
+        counters["origin_fetch"] = {"at": _iso(now), "ok": False, "error": str(e)[:200]}
+    counters["answer_fetches"] = int(counters.get("answer_fetches") or 0) + 1
+
+
+def released_here(slot: Path, counters: dict, inbox: dict | None, now: _dt.datetime,
+                  review_at: _dt.datetime | None) -> dict[str, dict]:
+    """{task: release} for each task THIS shift parked on a question that the
+    inbox has answered, while more than `INSHIFT_RESTART_S` remain (M3.6c):
+    the task restarts this shift instead of the next. Its parked outcome moves
+    to `inshift_released` (so it is used once), and it leaves `done`."""
+    if review_at is None or (review_at - now).total_seconds() <= INSHIFT_RESTART_S:
+        return {}
+    out = {}
+    for task in _open_parks(counters):
+        rule, info = _questions.hold_for(task, Path(slot).name, inbox)
+        if rule != "answered":
+            continue
+        info = dict(info, picked_in=[Path(slot).name])
+        counters.setdefault("inshift_released", {})[task] = {
+            "ids": info["ids"], "at": _iso(now), "outcome": counters["outcomes"].pop(task)}
+        if task in counters["done"]:
+            counters["done"].remove(task)
+        out[task] = info
+    return out
+
+
+def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
+    """Carry-over at a shift's first tick (M3.6c): the newest earlier slot's
+    late `glance`/`notify` PRs — never closed out, or refused only because
+    they went green too close to `review-at:` — enter this shift's outcomes,
+    so its close-out path takes them under this shift's grant (`merge-cap:`,
+    CI green, the close-out session's own checks). A PR refused for its tier,
+    its CI or a `/drop` stays the human's. Recorded once, as `carried_in`."""
+    home, here = Path(slot).parent, Path(slot).name
+    try:
+        earlier = sorted(d for d in home.iterdir() if d.is_dir() and d.name < here
+                         and (d / COUNTERS_FILE).is_file())
+    except OSError:
+        earlier = []
+    rec = {"from": earlier[-1].name if earlier else "", "prs": [], "at": _iso(now)}
+    prev = _safe_counters(earlier[-1]) if earlier else {}
+    try:
+        cut = "green within "
+        for task, o in (prev.get("outcomes") or {}).items():
+            pick = (prev.get("picks") or {}).get(task) or {}
+            if pick.get("tier") not in ("glance", "notify") or task in counters["outcomes"]:
+                continue
+            prs = [u for u in o.get("prs") or [] if "/pull/" in u
+                   and u not in (o.get("merged") or [])
+                   and ((prev.get("closeouts") or {}).get(u) is None
+                        or str(((prev.get("closeouts") or {}).get(u) or {}).get("why", ""))
+                        .startswith(cut))]
+            if not prs:
+                continue
+            counters["outcomes"][task] = {"prs": prs, "merged": [], "issues": [],
+                                          "carried_from": rec["from"]}
+            counters["picks"][task] = dict(pick, why=f"carried over from {rec['from']} · "
+                                                     + str(pick.get("why") or ""))
+            if task not in counters["done"]:
+                counters["done"].append(task)
+            rec["prs"] += prs
+    except (AttributeError, TypeError) as e:
+        print(f"orchestrator: {rec['from']}/{COUNTERS_FILE} has the wrong shape ({e}) — "
+              "nothing carried over", file=sys.stderr)
+    counters["carried_in"] = rec
+    return rec
+
+
 def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | None:
     """What Mind `origin/main` holds, read locally and read-only (#632, F4):
     its `draft/` paths and the `## slug` sections of its `active.md`.
@@ -1706,14 +1810,24 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # The inbox releases a hold once its questions are answered (M3.5,
             # #645): read from Mind origin/main after the shift's one fetch.
             resumes: dict = {}
-            inbox = _questions.read_origin(mind, fetch=lambda: _fetch_once(mind, counters, now))
+            review_at = _brief._iso((shift or {}).get("review_at") or "")
+            inbox = _questions.read_origin(
+                mind, fetch=lambda: _fetch_for_answers(mind, counters, now, review_at))
             parked = parked_elsewhere(slot, inbox, resumes)
+            # This shift's own parks an answer released with time left (M3.6c).
+            here = released_here(slot, counters, inbox, now, review_at)
+            if here:
+                resumes.update(here)
+                _write_counters(slot, counters)
             planned["parked"] = {r["path"]: parked[task_id(r["path"])] for r in recs
                                  if task_id(r["path"]) in parked
                                  and task_id(r["path"]) not in counters["picks"]
                                  and Path(r["path"]).name not in named}
             recs = [r for r in recs if r["path"] not in planned["parked"]]
-            resumes = {t: v for t, v in resumes.items() if t not in counters["picks"]}
+            # A task this shift picked is never resumed from an earlier park —
+            # except one this shift's own answer just released (M3.6c).
+            resumes = {t: v for t, v in resumes.items()
+                       if t not in counters["picks"] or t in here}
             recs = resume_records(recs, mind, resumes)
             # Against Mind origin/main, not the canonical checkout nobody
             # pulls mid-shift (#632, F4): a draft another shift already
@@ -1761,6 +1875,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                 own_tasks=counters["redispatched"])
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
+    if "carried_in" not in counters and not _brief.is_shadow(brief):
+        carry_in(slot, counters, now)       # the shift's first tick (M3.6c)
+        _write_counters(slot, counters)
     closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state,
                            tokens=tokens,
                            review_at=_brief._iso((shift or {}).get("review_at") or ""))

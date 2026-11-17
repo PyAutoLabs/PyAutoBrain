@@ -499,7 +499,13 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     for r in pool:
         r["queue_rank"] = queue_rank(r, queue)
         r["queued"] = r["queue_rank"] < len(queue)
-    pool.sort(key=lambda r: (r["queue_rank"], priority_rank(r),
+    # `first: glance` (M3.6c): ready glance work goes first, before even the
+    # brief's named judge tasks — the late glance PRs of 2026-11-16-pm started
+    # with 45 and 37 minutes left. Without the line the order is unchanged.
+    first_glance = brief is not None and \
+        (brief.get("first") or {}).get("value") == "glance"
+    pool.sort(key=lambda r: (0 if first_glance and r["consequence"] == "glance" else 1,
+                             r["queue_rank"], priority_rank(r),
                              r["review_minutes"], r["path"]))
 
     members, spent, seen_epics, libs = [], 0, set(), set()

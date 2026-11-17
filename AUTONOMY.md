@@ -817,6 +817,17 @@ digest); `brief --new` with no goal epic or tag writes `backlog: scoped` with
 tasks — refused when the prompt names the shift's own code (`_brief.SELF_PATHS`),
 passed with a line when it names only other paths, a warning when it names none.
 
+**Shift throughput — 2026-11-17 (M3.6c, PyAutoBrain#669), approved by the
+human.** The first tick of a shift closes out the newest earlier slot's late
+`glance`/`notify` PRs (never closed out, or refused only by the close-out
+cutoff) under the new shift's grant; a PR refused for its tier, CI or `/drop`
+stays the human's. A task an answer released is admitted whatever the brief's
+backlog scope, and a task parked this shift restarts this shift when answered
+with more than 30 minutes left. `first: glance` in a brief starts ready
+`glance` work before named `judge` tasks. With no `max-sessions:` and a
+`token-budget:`, the session cap is `max(2 × max-workers, ceil(token-budget /
+150k))`; an explicit value wins.
+
 **Launch preflight — 2026-11-17 (M3.6a, PyAutoBrain#659), approved by the
 human.** A live brief (not `shadow: yes`) names its shift **`issue:`**: `batch
 brief --new --out` creates it on PyAutoMind and writes it, and `batch brief
@@ -918,7 +929,10 @@ the exemption it runs under is `PyAutoMind/policy/shift_watcher.md`).
   and **one comment per shift** on the brief's `issue:` (the digest, phase 3d);
   and, inside "One Mind writer per shift", the writer's own `git fetch` of
   PyAutoMind `main` — at each commit, and once per shift before its first plan
-  (2026-11-14, PyAutoBrain#632).
+  (2026-11-14, PyAutoBrain#632); and again, at most every 10 minutes, only
+  while a task of the shift is parked on a question and more than 30 minutes
+  remain before `review-at:`, so an answer given from the phone can restart it
+  in-shift (human-approved 2026-11-17, M3.6c, PyAutoBrain#669).
   It starts worker sessions (`claude --bg`, phase 3b) — that is dispatch, ruled
   by "Shift briefs and unattended `glance`", not a network read.
 - **Opt-in and laptop-only.** It runs only from a systemd user timer the human
