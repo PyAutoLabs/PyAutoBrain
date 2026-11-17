@@ -3561,6 +3561,27 @@ def shift_briefs(mind: Path, ref: str = ORIGIN_REF) -> list[dict] | None:
 #: owed is caught up (the laptop was off through the late window). Bounded,
 #: so an old slot is never digested days later.
 CATCH_UP_S = 24 * 3600
+#: Claimed in a slot the first time a tick finds it past `CATCH_UP_S` with
+#: something still owed, so the "abandoned" line is printed once.
+ABANDONED_MARKER = "abandoned.noted"
+
+
+def _owes(slot: Path) -> str:
+    """What `late_owed` found, in words, with the leases still held."""
+    slot = Path(slot)
+    bits = []
+    if not (slot / DIGEST_MARKER).exists():
+        bits.append("digest not posted")
+    elif post_due(slot / DIGEST_MARKER):
+        bits.append("digest post retry due")
+    if post_due(slot / CORRECTION_MARKER):
+        bits.append("correction post retry due")
+    ops = len(_mind_writer.pending_ops(slot))
+    if ops:
+        bits.append(f"{ops} queued Mind op{'s' if ops != 1 else ''}")
+    n = len(list((slot / "leases").glob("*.json")))
+    bits.append(f"{n} lease{'s' if n != 1 else ''}")
+    return "; ".join(bits)
 
 
 def _override_state(path: Path, now: _dt.datetime) -> str:
@@ -3610,6 +3631,16 @@ def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
     owed = [b for b in briefs if b["review_at"] + late_s <= now < b["review_at"] + late_s + catch_s
             and (Path(home) / b["name"] / "leases").is_dir()
             and late_owed(Path(home) / b["name"])]
+    # Past the catch-up with something still owed: never ticked again, so the
+    # human is told once which slot was left and what it owes (M3.6a review).
+    abandoned = []
+    for b in briefs:
+        slot = Path(home) / b["name"]
+        if now >= b["review_at"] + late_s + catch_s and (slot / "leases").is_dir() \
+                and late_owed(slot) and _create_exclusive(slot / ABANDONED_MARKER,
+                                                          {"at": _iso(now)}):
+            abandoned.append(f"abandoned: {b['name']} past catch-up ({_owes(slot)}) — "
+                             f"run `batch digest --record {b['rel']}` and close it by hand")
     reasons: list[str] = []
     first: list[Path] = []
     if state == "open":
@@ -3639,7 +3670,7 @@ def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
     paths = first + paths
     if not paths and not reasons:
         reasons.append(f"no open brief on {ref}")
-    return paths, "; ".join(reasons)
+    return paths, "; ".join(reasons + abandoned)
 
 
 def watch(mind: Path, *, home: Path | None = None, now: _dt.datetime | None = None,

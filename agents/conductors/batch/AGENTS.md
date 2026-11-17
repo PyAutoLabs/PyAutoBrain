@@ -317,7 +317,10 @@ the tick prints `idle: two open briefs on origin/main (a, b)`. A pushed brief
 missing from the checkout's working tree is not ticked (`pushed, but the Mind
 checkout is behind`). A brief past its late window is still ticked, for up
 to a day, while its slot owes something (`late_owed`: no digest yet, a post
-retry due, a queued Mind op), so a laptop that was off catches up. The tick
+retry due, a queued Mind op), so a laptop that was off catches up. Past that
+day it is not ticked again; the first tick after says once (`abandoned: <slot>
+past catch-up (<what it owes>; N leases)`, marker `abandoned.noted`) so the
+human runs `batch digest` and closes it by hand. The tick
 reads the local `origin/main` ref and never fetches it: the Mind checkout it
 reads must be fetched (or the brief pushed from it) before launch, or the
 tick idles `no open brief`. `--brief` or `$PYAUTO_SHIFT_BRIEF` is an override:

@@ -283,3 +283,21 @@ def test_the_late_window_stop_waits_for_a_queued_mind_op(tmp_path, monkeypatch):
     r = d._tick(brief, mind, home, review_at + 46 * MIN, claude,
                 agents=d._agents({"t1": "working"}, slot))
     assert "late window closed" not in str(r.get("reason")), r
+
+
+def test_a_slot_past_the_catch_up_cap_is_named_abandoned_once(tmp_path):
+    """Inside the 24 h catch-up a slot that owes its digest is ticked; past it
+    the tick does not, and says once which slot was left and what it owes."""
+    review_at = NOW - 60 * MIN
+    _, mind = _origin(tmp_path, {"2026-11-04-am": (review_at - 180 * MIN, review_at)})
+    home = tmp_path / "home"
+    (home / "2026-11-04-am" / "leases").mkdir(parents=True)
+    (home / "2026-11-04-am" / "leases" / "t1.json").write_text("{}")
+    cap = review_at + _dt.timedelta(seconds=orch._brief.LATE_WINDOW_S + orch.CATCH_UP_S)
+    assert _names(orch.find_briefs(mind, cap - MIN, home=home)[0]) == ["2026-11-04-am"]
+    paths, why = orch.find_briefs(mind, cap + MIN, home=home)
+    assert paths == []
+    assert "abandoned: 2026-11-04-am past catch-up" in why, why
+    assert "digest not posted" in why and "1 lease" in why
+    # Named once, not every tick.
+    assert "abandoned" not in orch.find_briefs(mind, cap + 4 * MIN, home=home)[1]
