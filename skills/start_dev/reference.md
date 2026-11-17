@@ -77,6 +77,24 @@ Legacy check: if a target repo's **main checkout** is on a feature branch not
 referenced by any `worktree:` claim, warn (unregistered prior-session work) —
 ask whether to proceed; don't treat it as an automatic conflict.
 
+## Tier + merge mode line
+
+`start_dev` step 3. The line follows the prompt's **declared** `Consequence:`
+(never sizing-inferred), per [`../../AUTONOMY.md`](../../AUTONOMY.md) "Merge
+authority follows Consequence — 2026-10-02":
+
+```
+Tier: notify — merge mode: auto-merge on green (in-turn wait, then /prm close-out)
+Tier: glance — merge mode: auto-merge on green if the Witness passes, post-merge summary
+Tier: judge (or undeclared) — merge mode: human /prm
+```
+
+Produce it with `pyauto-brain merge-mode <prompt>` (add `--auto` under
+`--auto`, `--in-shift` in a shift worker). It prints one line, `effective
+level: <level>; merge mode: <mode>`. Put that line in the plan before work
+starts, so a worker and a reader see the same answer (ruling R3, AUTONOMY.md
+"`notify` merges under `--auto` and inside a shift — 2026-11-17").
+
 ## Branch survey (the former /plan_branches)
 
 Run after the plan is approved (start_dev step 4): survey every repository the plan will touch, report branch state, and propose a single working branch name for the task.
