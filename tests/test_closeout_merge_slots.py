@@ -75,7 +75,7 @@ class InTurnMerger(tc.Spawner):
         lease_dir = Path(lease_dir)
         lease_dir.mkdir(parents=True, exist_ok=True)
         pr = self.prs[task]
-        script = (f'if "{CLI}" merge-slot take "{pr}"; then\n'
+        script = (f'if "{CLI}" merge-slot take "{pr}" --task "{task}"; then\n'
                   f'  gh pr merge "{pr}" --squash\n'
                   f'  echo "merged {pr}" > "{lease_dir}/{task}.done"\n'
                   f'else\n'
@@ -123,7 +123,8 @@ def test_take_is_atomic_across_processes(tmp_path):
     sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "batch"))
     import _merge_slots
     _merge_slots.publish(slot, 3, False)
-    procs = [subprocess.Popen([str(CLI), "merge-slot", "take", f"https://github.com/o/r/pull/{i}"],
+    procs = [subprocess.Popen([str(CLI), "merge-slot", "take", f"https://github.com/o/r/pull/{i}",
+                               "--task", f"t{i}"],
                               env=_shift_env(slot), stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True)
              for i in range(10)]
@@ -141,17 +142,17 @@ def test_watcher_closeout_and_worker_share_slots(tmp_path):
     slot = orch.slot_dir(brief, home)
     r = tc._tick(brief, mind, home, sp, 1)
     assert r["closeouts"]["started"] == [PR1], r["closeouts"]
-    assert _slot_cli(slot, "take", PR2).returncode == 1
+    assert _slot_cli(slot, "take", PR2, "--task", "picked").returncode == 1
     # The close-out session's own /prm take for its PR is the watcher's slot.
-    assert _slot_cli(slot, "take", PR1).returncode == 0
+    assert _slot_cli(slot, "take", PR1, "--task", "named").returncode == 0
     # A worker cannot free the watcher's slot.
-    _slot_cli(slot, "release", PR1)
-    assert _slot_cli(slot, "take", PR2).returncode == 1
+    _slot_cli(slot, "release", PR1, "--task", "named")
+    assert _slot_cli(slot, "take", PR2, "--task", "picked").returncode == 1
     # The close-out refuses: the watcher frees its slot, and the worker gets it.
     tc._verdict(home, brief, "named", result="refused", pr=PR1, why="witness failed")
     tc._tick(brief, mind, home, sp, 2)
     assert orch.read_counters(slot)["closeouts"][PR1]["state"] == "refused"
-    assert _slot_cli(slot, "take", PR2).returncode == 0
+    assert _slot_cli(slot, "take", PR2, "--task", "picked").returncode == 0
     st = _slot_cli(slot, "status", PR1)
     assert "witness failed" in st.stdout or "released" in st.stdout, st.stdout
 
@@ -168,13 +169,52 @@ def test_outside_a_shift_the_take_is_a_no_op(tmp_path):
 def test_no_published_cap_or_a_pause_fails_closed(tmp_path):
     slot = tmp_path / "slot"
     (slot / mw.LEDGER_DIR).mkdir(parents=True)
-    r = _slot_cli(slot, "take", PR1)
+    r = _slot_cli(slot, "take", PR1, "--task", "t")
     assert r.returncode == 1 and "no merge-cap" in r.stdout
     sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "batch"))
     import _merge_slots
     _merge_slots.publish(slot, 2, True)
-    r = _slot_cli(slot, "take", PR1)
+    r = _slot_cli(slot, "take", PR1, "--task", "t")
     assert r.returncode == 1 and "paused" in r.stdout
     gone = tmp_path / "nowhere"
-    r = _slot_cli(gone, "take", PR1)
+    r = _slot_cli(gone, "take", PR1, "--task", "t")
     assert r.returncode == 2
+
+
+# --- review findings (M3.6e review, #661) -----------------------------------------
+
+def _published(tmp_path, cap=1):
+    slot = tmp_path / "slot"
+    (slot / mw.LEDGER_DIR).mkdir(parents=True)
+    sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "batch"))
+    import _merge_slots
+    _merge_slots.publish(slot, cap, False)
+    return slot, _merge_slots
+
+
+def test_a_pr_number_shared_across_repos_never_shares_a_slot(tmp_path):
+    """Two workers on PR #12 of different repos, or of the same repo under
+    two tasks, never merge on one slot; a bare number cannot be told apart."""
+    slot, _ = _published(tmp_path, cap=1)
+    a, b = "https://github.com/o/a/pull/12", "https://github.com/o/b/pull/12"
+    assert _slot_cli(slot, "take", a, "--task", "ta").returncode == 0
+    assert _slot_cli(slot, "take", b, "--task", "tb").returncode == 1     # cap 1 used
+    assert _slot_cli(slot, "take", a, "--task", "tb").returncode == 1     # not tb's slot
+    r = _slot_cli(slot, "take", "12", "--task", "ta")
+    assert r.returncode == 2 and "pull" in r.stdout                        # not a PR URL
+    assert _slot_cli(slot, "take", a + "/files", "--task", "ta").returncode == 0   # same PR
+
+
+def test_a_closeout_take_of_the_watchers_slot_is_normalised(tmp_path):
+    slot, ms = _published(tmp_path, cap=1)
+    ok, _ = ms.take(slot, PR1, ms.WATCHER, "named")
+    assert ok
+    assert _slot_cli(slot, "take", PR1 + "/", "--task", "named").returncode == 0
+    assert _slot_cli(slot, "take", PR1 + "#issuecomment-1", "--task", "named").returncode == 0
+    assert _slot_cli(slot, "take", PR1, "--task", "other").returncode == 1
+
+
+def test_a_worker_take_names_its_task(tmp_path):
+    slot, _ = _published(tmp_path, cap=2)
+    r = _slot_cli(slot, "take", PR1)
+    assert r.returncode == 2 and "--task" in r.stdout

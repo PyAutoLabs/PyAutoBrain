@@ -89,7 +89,9 @@ def test_titles_link_to_the_pr_else_the_work_issue_else_plain_and_mind_links_nev
     counters = {"picks": {"t1": {"title": "One", "prompt": "draft/bug/x/t1.md"},
                           "t2": {"title": "Two", "prompt": "draft/bug/x/t2.md"},
                           "t3": {"title": "Three", "prompt": "draft/bug/x/t3.md"}},
-                "outcomes": {"t1": {"prs": [PR], "merged": [PR], "issues": []}}}
+                "outcomes": {"t1": {"prs": [PR], "merged": [PR], "issues": []}},
+                # t1 merged in-turn on its merge slot (R3, #661).
+                "slot_holders": {PR: {"by": "worker", "task": "t1"}}}
     assert _digest.work_link("t1", counters, links) == PR
     assert _digest.work_link("t2", counters, links) == WORK_ISSUE     # its claim's issue
     assert _digest.work_link("t3", counters, links) == ""             # neither: plain

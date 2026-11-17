@@ -93,7 +93,7 @@ class AutoWorker(tc.Spawner):
         script = (f'mode=$("{CLI}" merge-mode "{prompt_path}" --auto --in-shift)\n'
                   f'echo "$mode" > "{lease_dir}/{task}.mode"\n'
                   f'case "$mode" in *"merge mode: auto-merge on green"*)\n'
-                  f'  if "{CLI}" merge-slot take "{PR}"; then\n'
+                  f'  if "{CLI}" merge-slot take "{PR}" --task "{task}"; then\n'
                   f'    gh pr merge "{PR}" --squash\n'
                   f'    echo "merged {PR}" > "{lease_dir}/{task}.done"; exit 0\n'
                   f'  fi;;\n'
@@ -144,3 +144,71 @@ def test_merge_mode_prints_effective_level_line(tmp_path):
     # start_dev step 3 produces its line from this command.
     start_dev = (BRAIN / "skills" / "start_dev" / "start_dev.md").read_text()
     assert "pyauto-brain merge-mode" in start_dev
+
+
+# --- review findings (M3.6e review, #661) -----------------------------------------
+
+class NoSlotWorker(tc.Spawner):
+    """A worker that merged in-turn without taking a merge slot — the
+    2026-11-16-pm failure, and R3's revert-condition evidence."""
+
+    def __init__(self, bindir: Path):
+        super().__init__()
+        self.bindir = bindir
+
+    def spawn(self, task, prompt_path, lease_dir):
+        lease_dir = Path(lease_dir)
+        lease_dir.mkdir(parents=True, exist_ok=True)
+        (lease_dir / f"{task}.done").write_text(f"merged {PR}\n")
+        return {"pid": 0, "session_id": None, "worktree": None}
+
+
+def _bug_shift(tmp_path, sp_cls):
+    bindir, log = ms._fake_gh(tmp_path)
+    mind = tmp_path / "mind"
+    _prompt(mind)
+    (mind / "queue.md").write_text(t.QUEUE)
+    brief = tmp_path / "shift.md"
+    brief.write_text(BRIEF.format(issue=t.ISSUE))
+    home = tmp_path / "home"
+    sp = sp_cls(bindir, mind) if sp_cls is AutoWorker else sp_cls(bindir)
+    orch.tick(brief, mind, home=home, now=t.NOW, spawner=sp, agents=tc.Agents(),
+              health=tc._health({}))
+    tc._tick(brief, mind, home, sp, 1)
+    return brief, orch.slot_dir(brief, home)
+
+
+def _digest_of(brief, slot):
+    c = orch.read_counters(slot)
+    return orch._digest.build(orch._brief.parse(brief.read_text())["brief"], slot, c,
+                              health=lambda u: "HEALTHY")
+
+
+def test_an_in_turn_merge_with_its_slot_reads_merge_slot(tmp_path):
+    brief, slot = _bug_shift(tmp_path, AutoWorker)
+    d = _digest_of(brief, slot)
+    assert "merged in-turn by the worker (merge slot)" in d
+    assert "NO merge slot" not in d
+
+
+def test_an_in_turn_merge_without_a_slot_is_flagged_and_counted(tmp_path):
+    brief, slot = _bug_shift(tmp_path, NoSlotWorker)
+    d = _digest_of(brief, slot)
+    assert "merged in-turn with NO merge slot" in d
+    assert "Merged with NO merge slot — needs you" in d
+    c = orch.read_counters(slot)
+    ack = orch._cmd_cap(slot, c, "merges 1", "someone", "2026-11-04T09:05Z",
+                        {"brief": orch._brief.parse(brief.read_text())["brief"]})
+    assert "1 merged with no merge slot" in ack and "no new merge starts" in ack, ack
+
+
+def test_a_notify_closeout_refuses_without_a_witness():
+    text = orch.closeout_prompt("t1", PR, "draft/bug/x/t1.md", Path("b.md"), Path("leases"))
+    assert "`notify` task that declares no `Witness:`" in text
+    assert "merge-slot take " + PR + " --task t1" in text
+
+
+def test_the_worker_names_its_task_on_every_merge_slot_call():
+    text = orch.worker_prompt("t1", "draft/bug/x/t1.md", Path("b.md"), Path("leases"))
+    assert "merge-slot take <pr-url> --task t1" in text
+    assert "merge-slot release <pr-url> --task t1" in text

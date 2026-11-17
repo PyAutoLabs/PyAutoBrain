@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 import _brief  # noqa: E402
+import _merge_slots  # noqa: E402 — slot evidence for an in-turn merge (R3, #661)
 import _questions  # noqa: E402 — the inbox line (M3.5, #645)
 
 # The one CI judgement (PyAutoBrain#628) lives in bin/, beside its CLI.
@@ -48,6 +49,10 @@ STILL_OUT = "still running at review time — the late sweep will report it"
 #: A PR the worker merged in-turn — after taking a merge slot against the
 #: shift's `merge-cap:` (AUTONOMY.md ruling R3, 2026-11-17, PyAutoBrain#661).
 IN_TURN_MERGED = "merged in-turn by the worker (merge slot)"
+#: A PR the worker reported merged in-turn with no merge slot held for its
+#: task: past the shift's `merge-cap:` count, and the evidence ruling R3's
+#: revert condition reads.
+IN_TURN_NO_SLOT = "merged in-turn with NO merge slot — R3 revert-condition evidence"
 #: A killed worker whose re-dispatch never started (PyAutoBrain#637, item 2):
 #: never "not started" — its first worker ran.
 NOT_REDISPATCHED = "crashed — not re-dispatched"
@@ -250,8 +255,10 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
         elif url in out["merged"]:
             # Which path each merge took (R3, #661): a close-out, or the
             # worker in-turn after taking a merge slot.
-            state = ("merged unattended (close-out, " + co.get("model", "?") + ")"
-                     if co.get("state") == "merged" else IN_TURN_MERGED)
+            if co.get("state") == "merged":
+                state = "merged unattended (close-out, " + co.get("model", "?") + ")"
+            else:
+                state = IN_TURN_MERGED if has_slot(counters, task, url) else IN_TURN_NO_SLOT
             if co.get("state") == "merged" and co.get("cleanup"):
                 state += f" — worktree: {co['cleanup']}"
         elif co.get("state") == "refused":
@@ -262,6 +269,23 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
             state = health(url)
         parts.append(f"{url} — {state}")
     return "; ".join(parts), True
+
+
+def has_slot(counters: dict, task: str, url: str) -> bool:
+    """Whether the shift's merge-slot file (as last synced into `counters`
+    as `slot_holders`) shows a slot for this PR held for this task."""
+    held = (counters.get("slot_holders") or {}).get(_merge_slots.pr_key(url) or url)
+    return bool(held) and held.get("task") == task
+
+
+def no_slot_merges(counters: dict) -> list[str]:
+    """In-turn merges a worker reported with no merge slot for its task —
+    each one a merge `merge-cap:` did not count (R3, #661)."""
+    closeouts = counters.get("closeouts", {})
+    return [url for task, o in counters.get("outcomes", {}).items()
+            for url in o.get("merged") or []
+            if (closeouts.get(url) or {}).get("state") != "merged"
+            and not has_slot(counters, task, url)]
 
 
 def gate_why(task: str, counters: dict) -> str:
@@ -436,6 +460,7 @@ def label(task: str, pick: dict | None, url: str = "") -> str:
 #: its `task_state`; the first match wins. The exact state stays on the
 #: entry's second line, so nothing is lost by the short form.
 _PLAIN = (
+    (IN_TURN_NO_SLOT, "Merged with NO merge slot — needs you"),
     ("merged", "Merged"),
     ("awaiting /prm — close-out refused: CI FAILED", "CI failed — needs you"),
     ("awaiting /prm — close-out refused: CI RED", "CI failed — needs you"),
@@ -541,6 +566,10 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     watcher's Mind checkout, read locally for the prompt links (#634)."""
     tiers = tiers or {}
     health = health or pr_health
+    try:   # the slot file is the merge evidence; fresh at build time
+        counters = {**counters, "slot_holders": _merge_slots.holders(slot)}
+    except (_merge_slots.MergeSlotError, OSError):
+        pass
     picks = counters.get("picks", {})
     named = [Path(p).stem for p in _brief.tasks_of(brief)]
     backlog = [t for t in picks if t not in named]

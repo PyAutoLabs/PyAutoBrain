@@ -2433,15 +2433,19 @@ def _cmd_cap(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
     if key == "merge-cap":
         # Every slot taken this shift — in-turn merges, close-outs merged and
         # close-outs still running alike (R3, #661).
+        # An in-turn merge made with no slot is counted too (#661 review).
         try:
             taken = _merge_slots.used(slot)
+            unslotted = len(_digest.no_slot_merges(
+                {**counters, "slot_holders": _merge_slots.holders(slot)}))
         except (_merge_slots.MergeSlotError, OSError):
-            taken = None
-        if taken is None:
             return f"merge-cap now {n} of this brief's {of} (merge slots unreadable)."
-        tail = (": no new merge starts." if taken >= n
-                else f": up to {n - taken} more may merge.")
-        return f"merge-cap now {n} of this brief's {of} ({taken} merge slot(s) taken so far){tail}"
+        count = taken + unslotted
+        tail = (": no new merge starts." if count >= n
+                else f": up to {n - count} more may merge.")
+        extra = f", plus {unslotted} merged with no merge slot" if unslotted else ""
+        return (f"merge-cap now {n} of this brief's {of} ({taken} merge slot(s) taken so far"
+                f"{extra}){tail}")
     if key == "max-workers":
         live = len(active_leases(slot))
         return f"max-workers now {n} of {of}." + (
@@ -3161,6 +3165,9 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     try:
         _merge_slots.publish(slot, _brief._nonneg_int(brief.get("merge-cap", {}).get("value", ""))
                              or 0, _brief.is_shadow(brief) or bool(counters.get("paused")))
+        # Who holds which slot, for the live view and the digest's label of
+        # each in-turn merge (slot or NO slot).
+        counters["slot_holders"] = _merge_slots.holders(slot)
     except (_merge_slots.MergeSlotError, OSError) as e:
         events["slots_error"] = str(e)[:300]   # a take reads what is there, or cannot tell
     if _brief.is_shadow(brief) or counters.get("paused"):

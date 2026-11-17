@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """bin/merge_slot.py — take, release or show a shift's merge slot (PyAutoBrain#661).
 
-    pyauto-brain merge-slot take <pr>
-    pyauto-brain merge-slot release <pr> [--why <text>]
-    pyauto-brain merge-slot status [<pr>]
+    pyauto-brain merge-slot take <pr-url> --task <slug>
+    pyauto-brain merge-slot release <pr-url> --task <slug> [--why <text>]
+    pyauto-brain merge-slot status [<pr-url>]
+
+`<pr-url>` is `https://github.com/<owner>/<repo>/pull/<n>` (a trailing `/`,
+`/files` or `#…` is dropped); anything else cannot be told apart from another
+repo's PR of the same number and exits 2. `--task` (or `PYAUTO_SHIFT_TASK`) is
+required for a take in a shift: a held slot answers yes again only to the same
+task — the worker that took it, or the close-out session of the task the
+watcher took it for.
 
 WHY. AUTONOMY.md "`notify` merges under `--auto` and inside a shift —
 2026-11-17" (ruling R3): inside a shift every merge counts against the brief's
@@ -16,10 +23,11 @@ WHERE. A shift worker's environment carries `PYAUTO_SHIFT_WORKER=1` and
 directory is that ledger directory's parent, and the counter is its
 `merge_slots.json` (`agents/conductors/batch/_merge_slots.py`).
 
-EXIT. 0 = the slot is taken (or already held for this PR), or this is not a
-shift, so nothing is counted; 1 = refused (no slot left, the shift is paused,
-or no cap published) — do not merge, leave the PR for `/prm`; 2 = cannot tell
-(the slot directory or its file cannot be read) — do not merge either.
+EXIT. 0 = the slot is taken (or already held for this PR and task), or this
+is not a shift, so nothing is counted; 1 = refused (no slot left, the shift is
+paused, no cap published, or the PR's slot is another task's) — do not merge,
+leave the PR for `/prm`; 2 = cannot tell (not a PR URL, no task named, or the
+slot directory or its file cannot be read) — do not merge either.
 `release` exits 0 when it freed this caller's slot, 1 when there was none to
 free. `status` prints the count and exits 0.
 """
@@ -58,6 +66,14 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.action in ("take", "release") and not args.pr:
         ap.error(f"{args.action} needs a PR URL")
+    if args.pr and _merge_slots.pr_key(args.pr) is None:
+        if _slot() is None and args.action == "take":
+            print("not in a shift (no PYAUTO_SHIFT_WORKER / PYAUTO_SHIFT_LEDGER_DIR): "
+                  "no merge slot is counted")
+            return 0
+        print(f"cannot tell: {args.pr!r} is not a https://github.com/<owner>/<repo>/pull/<n> "
+              "URL — do not merge; leave the PR for /prm")
+        return 2
 
     slot = _slot()
     if slot is None:
@@ -65,6 +81,10 @@ def main(argv=None) -> int:
               "no merge slot is counted")
         return 0
     task = args.task or os.environ.get("PYAUTO_SHIFT_TASK", "")
+    if args.action == "take" and not task:
+        print("cannot tell: a take in a shift names its task (--task <slug>) — "
+              "do not merge; leave the PR for /prm")
+        return 2
     try:
         if args.action == "take":
             ok, why = _merge_slots.take(slot, args.pr, WORKER, task)
@@ -81,8 +101,10 @@ def main(argv=None) -> int:
                 + (" — paused" if data.get("paused") else ""))
         print(line)
         if args.pr:
-            held = data["slots"].get(args.pr)
-            print(f"{args.pr}: " + (f"held by {held.get('by', '?')}" if held
+            key = _merge_slots.pr_key(args.pr)
+            held = data["slots"].get(key)
+            print(f"{key}: " + (f"held by {held.get('by', '?')} for task {held.get('task') or '?'}"
+                                if held
                                     else _merge_slots.why_unmerged(slot, args.pr)
                                     or "no slot, no refusal recorded"))
         return 0

@@ -26,7 +26,7 @@ Executable tooling for the PyAuto organism.
   watcher refuses on 1 or 2 before any close-out session spawns, the
   close-out and the in-turn tiered merge stop on them too, and the review
   faculty lists the delta in its ReviewSurface.
-- **`merge_slot.py`** — `pyauto-brain merge-slot take|release|status <pr>`:
+- **`merge_slot.py`** — `pyauto-brain merge-slot take|release|status <pr-url> --task <slug>`:
   inside a shift, one merge slot against the brief's `merge-cap:`
   (PyAutoBrain#661; AUTONOMY.md ruling R3, 2026-11-17). A worker runs `take`
   as its own bare call before a bare `gh pr merge`; the watcher's close-outs

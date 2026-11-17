@@ -12,7 +12,9 @@ Merge only if every check below passes; otherwise refuse. A refusal is a good
 outcome — the human merges by `/prm` at check-in.
 
 1. Read the task's `Witness:` header and **run it yourself** against the PR's
-   head. Record what decided it.
+   head. Record what decided it. A `notify` task that declares no `Witness:`
+   is refused, with why `notify with no Witness: → human /prm` (ruling R3:
+   the close-out session runs the witness).
 2. Review the diff adversarially: look for a changed default, a user-visible
    error message, a removed or weakened test, a renamed public thing, or a
    wrong docs claim. Any one of them → refuse. Added or renamed public
@@ -63,8 +65,9 @@ outcome — the human merges by `/prm` at check-in.
 
    Do **not** append the Shadow-window row: the watcher writes the stage-2
    row from your verdict for a `glance` PR, and none for a `notify` one.
-   The `/prm` merge slot take (reference.md "Tiered merge") succeeds for
-   this PR: the watcher took its slot before starting you.
+   The `/prm` merge slot take (reference.md "Tiered merge") is
+   `pyauto-brain merge-slot take {pr_url} --task {task}`; it succeeds for
+   this PR and task: the watcher took its slot before starting you.
 7. After a merge, remove the task's worktree and local branch as `/prm` does
    (`skills/prm/closeout.md` steps 5–6): `worktree_remove <slug>` once your
    `drop-section active.md <slug>` is queued — the stale-claim guard counts a

@@ -13,9 +13,12 @@ through a temporary file and `os.replace`, so two takes can never both see the
 last free slot. The watcher publishes the cap (and whether the shift is paused)
 every tick. It fails closed: no published cap, or a paused shift, refuses.
 
-A take is idempotent per PR: a PR that already holds a slot is told yes again,
-so a close-out session's own `/prm` take for the PR the watcher took a slot
-for succeeds. A release frees a slot only for the caller that took it.
+Slots are keyed by the PR's canonical URL (`pr_key`): a bare number, or any
+other string, is never a key, so PR #12 of two repos never shares a slot. A
+take is idempotent per PR and task: a PR that already holds a slot is told yes
+again only for the same task — the worker that took it, or the close-out
+session for the task the watcher took it for (its own `/prm` take). Anyone
+else is refused. A release frees a slot only for the caller that took it.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ import datetime as _dt
 import fcntl
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -32,6 +36,20 @@ SLOTS_FILE = "merge_slots.json"
 LOCK_FILE = "merge_slots.lock"
 #: Who the watcher is, as a slot holder.
 WATCHER = "watcher"
+
+
+#: A GitHub PR URL, with anything after the number (`/files`, `/`, `#…`, `?…`).
+_PR_URL_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/(\d+)"
+                        r"(?:[/?#].*)?$")
+
+
+def pr_key(url: str) -> str | None:
+    """The canonical `https://github.com/<owner>/<repo>/pull/<n>` for a PR URL
+    (owner and repo case-folded, as GitHub resolves them), else None."""
+    m = _PR_URL_RE.match((url or "").strip())
+    if not m:
+        return None
+    return f"https://github.com/{m.group(1).lower()}/{m.group(2).lower()}/pull/{int(m.group(3))}"
 
 
 class MergeSlotError(RuntimeError):
@@ -103,33 +121,44 @@ def publish(slot: Path, cap: int, paused: bool) -> None:
 
 
 def take(slot: Path, pr: str, by: str, task: str = "") -> tuple[bool, str]:
-    """(taken, why). Idempotent per PR; every refusal is recorded."""
+    """(taken, why). Idempotent per PR and task; every refusal is recorded."""
+    key = pr_key(pr)
+    if key is None:
+        return False, (f"{pr!r} is not a https://github.com/<owner>/<repo>/pull/<n> URL "
+                       "— left for your /prm")
     with _locked(slot) as data:
-        held = data["slots"].get(pr)
-        if held:
-            return True, f"{pr} already holds a merge slot (taken by {held.get('by', '?')})"
+        held = data["slots"].get(key)
         cap, used = data.get("cap"), len(data["slots"])
-        if cap is None:
+        if held and task and held.get("task") == task:
+            return True, (f"{key} already holds a merge slot for task {task} "
+                          f"(taken by {held.get('by', '?')})")
+        if held:
+            why = (f"{key} holds a merge slot for task {held.get('task') or '?'}, "
+                   f"not {task or '(no task)'} — left for your /prm")
+        elif cap is None:
             why = "no merge-cap published by the watcher — left for your /prm"
         elif data.get("paused"):
             why = "the shift is paused — left for your /prm"
         elif used >= int(cap):
             why = f"merge-cap {cap} reached this shift — left for your /prm"
         else:
-            data["slots"][pr] = {"by": by, "task": task, "at": _now()}
-            return True, f"merge slot {used + 1} of merge-cap {cap} taken for {pr}"
-        data["refusals"].append({"pr": pr, "by": by, "task": task, "why": why, "at": _now()})
+            data["slots"][key] = {"by": by, "task": task, "at": _now()}
+            return True, f"merge slot {used + 1} of merge-cap {cap} taken for {key}"
+        data["refusals"].append({"pr": key, "by": by, "task": task, "why": why, "at": _now()})
         return False, why
 
 
 def release(slot: Path, pr: str, by: str, why: str = "") -> bool:
     """Free `pr`'s slot, only when `by` took it. True when one was freed."""
+    key = pr_key(pr)
+    if key is None:
+        return False
     with _locked(slot) as data:
-        held = data["slots"].get(pr)
+        held = data["slots"].get(key)
         if not held or held.get("by") != by:
             return False
-        del data["slots"][pr]
-        data["released"].append({"pr": pr, "by": by, "task": held.get("task", ""),
+        del data["slots"][key]
+        data["released"].append({"pr": key, "by": by, "task": held.get("task", ""),
                                  "why": why, "at": _now()})
         return True
 
@@ -148,10 +177,19 @@ def used(slot: Path) -> int:
     return len(state(slot)["slots"])
 
 
+def holders(slot: Path) -> dict:
+    """{canonical PR URL: {by, task}} for every slot held now; {} with no file."""
+    if not (Path(slot) / SLOTS_FILE).exists():
+        return {}
+    return {k: {"by": v.get("by", ""), "task": v.get("task", "")}
+            for k, v in state(slot)["slots"].items()}
+
+
 def why_unmerged(slot: Path, pr: str) -> str:
     """The last refusal or release recorded for `pr`, else ""."""
     if not (Path(slot) / SLOTS_FILE).exists():
         return ""
+    pr = pr_key(pr) or pr
     data = state(slot)
     seen = [("refused", r) for r in data["refusals"] if r.get("pr") == pr] \
         + [("released", r) for r in data["released"] if r.get("pr") == pr]

@@ -156,14 +156,16 @@ differences:
   `/prm`. `pyauto-brain merge-mode <prompt> --auto` says which (AUTONOMY.md
   "`notify` merges under `--auto` and inside a shift — 2026-11-17").
 - **Inside a shift, a merge slot first.** When `PYAUTO_SHIFT_WORKER` is set,
-  run `pyauto-brain merge-slot take <pr-url>` as its **own bare call** right
-  before the merge call. Exit 0 → merge. Exit 1 (no slot left under
-  `merge-cap:`, or the shift is paused) or 2 (it cannot tell) → do not merge:
-  report its line and stop, leaving the PR for `/prm`. Never wrap the merge
-  in it. A close-out session's take for its own PR succeeds: the watcher took
-  that slot.
+  run `pyauto-brain merge-slot take <pr-url> --task <slug>` (the full
+  `https://github.com/<owner>/<repo>/pull/<n>` URL and the task's slug) as
+  its **own bare call** right before the merge call. Exit 0 → merge. Exit 1
+  (no slot left under `merge-cap:`, the shift is paused, or the slot is
+  another task's) or 2 (it cannot tell) → do not merge: report its line and
+  stop, leaving the PR for `/prm`. Never wrap the merge in it. A close-out
+  session's take for its own PR and task succeeds: the watcher took that
+  slot.
   If the take succeeded and the merge call then fails, run
-  `pyauto-brain merge-slot release <pr-url> --why "merge failed"` so the
+  `pyauto-brain merge-slot release <pr-url> --task <slug> --why "merge failed"` so the
   slot returns to the shift, then stop as above.
 - **The merge call.** `gh pr merge <n> --merge` as a **bare, unchained** Bash
   call (no `&&`, `;` or pipe); if the permission layer denies it, stop and
