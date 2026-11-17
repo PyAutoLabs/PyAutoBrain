@@ -176,8 +176,11 @@ def test_digest_separates_brief_work_from_backlog_picks_with_reasons(tmp_path):
     picks = d.split("### Backlog picks")[1].split("### Proof packets")[0]
     # Each task: the outcome in plain words and the title, linked to its PR
     # (never to a Mind path, which moves and 404s, #634); the detail below.
-    assert ("- **Merged** — [named](https://github.com/o/r/pull/1)\n"
-            "  <sub>`named` · glance · small · pyautoheart · merged</sub>") in work
+    # This fixture's worker wrote `merged` with no merge slot taken: the
+    # digest says so from the slot file (R3, #661 review).
+    assert ("- **Merged with NO merge slot — needs you** — [named](https://github.com/o/r/pull/1)\n"
+            "  <sub>`named` · glance · small · pyautoheart · merged in-turn with NO merge slot"
+            " — R3 revert-condition evidence</sub>") in work
     assert "- **Not started** — never\n  <sub>`never` · not started</sub>" in work
     assert "blob/main" not in d
     # Green and glance: since phase 4b its close-out is running at review time.

@@ -614,13 +614,16 @@ def test_an_op_set_aside_after_the_digest_reaches_the_human(tmp_path, monkeypatc
     claude = FakeClaude()
     _tick(brief, canon, home, NOW, claude)
     (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/9\n")
-    mw.queue_op(slot / mw.LEDGER_DIR, {"op": "remove", "path": "active/missing.md"})
+    # A set-aside that needs the human (a move whose source is not there): a
+    # remove of a missing file is mechanical since #660, a note only.
+    mw.queue_op(slot / mw.LEDGER_DIR, {"op": "move", "path": "active/missing.md",
+                                       "to": "active/elsewhere.md"})
     poster = td.Poster()
     kw = dict(home=home, grace_s=0, spawner=orch.RealSpawner(brief, "auto", run=claude),
               agents=_agents({"t1": "done"}, slot), tokens=lambda s: 0, poster=poster)
     r = orch.tick(brief, canon, now=AFTER, **kw)
     assert r["action"] == "digest" and r["ledger"]["committed"]
-    assert [a["op"] for a in r["ledger"]["set_aside"]] == ["remove"]
+    assert [a["op"] for a in r["ledger"]["set_aside"]] == ["move"]
     assert "set aside" not in poster.calls[0][1]          # the digest was built first
     assert orch.ledger_unreported(slot)
     r = orch.tick(brief, canon, now=AFTER + _dt.timedelta(minutes=3), **kw)

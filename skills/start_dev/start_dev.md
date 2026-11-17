@@ -93,15 +93,10 @@ Two levels: **high-level** (3–8 plain-English bullets, no code) and
 **detailed** (file paths, functions/classes, changes per step, trade-offs,
 testing) — enough for a fresh session to start from the issue alone. The
 high-level plan ends with one **tier + merge mode** line from the prompt's
-**declared** `Consequence:` (never sizing-inferred), per
-[`../../AUTONOMY.md`](../../AUTONOMY.md) "Merge authority follows Consequence —
-2026-10-02":
-
-```
-Tier: notify — merge mode: auto-merge on green (in-turn wait, then /prm close-out)
-Tier: glance — merge mode: auto-merge on green if the Witness passes, post-merge summary
-Tier: judge (or undeclared) — merge mode: human /prm
-```
+**declared** `Consequence:` (never sizing-inferred): run
+`pyauto-brain merge-mode <prompt>` (`--auto` under `--auto`, `--in-shift` in a
+shift worker) and put its `effective level: <level>; merge mode: <mode>` line
+in the plan ([`reference.md`](reference.md) → "Tier + merge mode line").
 
 **Approving the plan authorizes that merge mode**; a plan without the line
 authorizes no merge. An epic's approval chains auto-merged phases without

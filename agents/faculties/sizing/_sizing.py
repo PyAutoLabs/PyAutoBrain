@@ -1097,6 +1097,45 @@ def effective_autonomy(p: dict, difficulty: str):
     return level, cap, declared
 
 
+#: The merge modes `merge_mode` can return (AUTONOMY.md "Merge authority
+#: follows Consequence — 2026-10-02" and its ruling R3 of 2026-11-17).
+MERGE_HUMAN = "human /prm"
+MERGE_ON_GREEN = "auto-merge on green"
+MERGE_ON_GREEN_WITNESS = "auto-merge on green if the Witness passes"
+#: Appended inside a shift: every merge first takes a slot against `merge-cap:`.
+MERGE_SLOT_SUFFIX = " after a merge slot"
+
+
+def merge_mode(p: dict, level: str, *, auto: bool = False, in_shift: bool = False) -> str:
+    """Who merges this task, in the words `start_dev` step 3 prints.
+
+    The merge mode follows the DECLARED `Consequence:` alone (a tier the
+    sizing faculty would infer never carries merge authority): `judge` or no
+    header is a human `/prm`; `glance` auto-merges on green only if the
+    `Witness:` passes; `notify` auto-merges on green. The effective `level`
+    decides the checkpoints, not who merges — except, under ruling R3, that a
+    `notify` task whose work-type cap lowered its level, run under `--auto`,
+    merges only when it declares a `Witness:`, else it is a human `/prm`. A
+    shift is an `--auto` launch, and inside one the merge waits for a merge
+    slot (`pyauto-brain merge-slot take`).
+    """
+    tier = p.get("declared_consequence")
+    witness = bool((p.get("witness") or "").strip())
+    if tier == "notify":
+        declared = p.get("declared_autonomy")
+        lowered = bool(declared) and level != declared
+        if (auto or in_shift) and lowered and not witness:
+            return MERGE_HUMAN
+        mode = MERGE_ON_GREEN
+    elif tier == "glance":
+        if not witness:
+            return MERGE_HUMAN
+        mode = MERGE_ON_GREEN_WITNESS
+    else:
+        return MERGE_HUMAN
+    return mode + (MERGE_SLOT_SUFFIX if in_shift else "")
+
+
 def effective_difficulty(p: dict):
     """(level, score, factors, derived_level) — the DECLARED level wins.
 

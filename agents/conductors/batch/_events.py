@@ -363,13 +363,34 @@ def _impaired(b: _Batch, result: dict) -> None:
             why = str(ledger["error"])[:160]
             b.add("impaired", f"impaired:ledger-error:{why[:80]}",
                   f"Mind write failed: {why}.", needs_you=True)
-        for word, items in (("set aside", ledger.get("set_aside")), ("held", ledger.get("held"))):
-            for x in items or []:
-                op = x.get("op") if isinstance(x, dict) else str(x)
-                why = (x.get("why") if isinstance(x, dict) else "") or "?"
-                where = x.get("file") if isinstance(x, dict) else ""
-                b.add("impaired", f"impaired:ledger:{word}:{where or op}:{str(why)[:60]}",
-                      f"Mind write {word}: {op}, {why}.", needs_you=True)
+        # A mechanical set-aside (already true on main) is a digest line only;
+        # a worker's human set-asides are one NEEDS YOU per task (#660).
+        by_task: dict = {}
+        per_op = []
+        for x in ledger.get("set_aside") or []:
+            if isinstance(x, dict) and x.get("needs") == "mechanical":
+                continue
+            if isinstance(x, dict) and isinstance(x.get("task"), str) and x["task"]:
+                by_task.setdefault(x["task"], []).append(x)
+            else:
+                per_op.append(("set aside", x))
+        for task, xs in sorted(by_task.items()):
+            paths = ", ".join(sorted({str(x.get("path") or x.get("op") or "?") for x in xs}))
+            n = len(xs)
+            tail = ("; its completion record is held — not shipped to Mind"
+                    if any(x.get("kind") == "withheld" for x in xs) else
+                    "; its completion record is already on main — check it"
+                    if any(x.get("record") == "on-main" for x in xs) else "")
+            b.add("impaired", f"impaired:ledger:task:{task}",
+                  f"Mind write set aside for `{task}`: {n} op{'s' if n != 1 else ''} "
+                  f"({paths}){tail}.", needs_you=True, task=task)
+        per_op += [("held", x) for x in ledger.get("held") or []]
+        for word, x in per_op:
+            op = x.get("op") if isinstance(x, dict) else str(x)
+            why = (x.get("why") if isinstance(x, dict) else "") or "?"
+            where = x.get("file") if isinstance(x, dict) else ""
+            b.add("impaired", f"impaired:ledger:{word}:{where or op}:{str(why)[:60]}",
+                  f"Mind write {word}: {op}, {why}.", needs_you=True)
 
 
 def _login_expired(b: _Batch, result: dict) -> None:

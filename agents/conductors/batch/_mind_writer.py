@@ -13,6 +13,7 @@ Ops (one JSON object per file, applied in file-name order):
 
     {"op": "append",       "path": "active.md", "text": "..."}
     {"op": "write",        "path": "complete/2026/11/x.md", "text": "..."}   # must not exist
+    {"op": "edit",         "path": "draft/a/b/x.md", "old": "...", "new": "..."}   # must exist
     {"op": "move",         "path": "draft/a/b/x.md", "to": "active/x.md"}
     {"op": "remove",       "path": "active/x.md"}
     {"op": "drop-section", "path": "active.md", "section": "task-name"}
@@ -61,6 +62,25 @@ key's own line replaced, else inserted after `- issue:` (else `- review-at:`).
 The watcher writes the dashboard's `- live:` status line this way
 (PyAutoBrain#622); a record no longer on main is skipped, like `set-header`.
 
+`write` only creates; `edit` changes a file that exists, replacing `old`,
+which must appear in it exactly once, with `new` — an expected-base check, so
+an edit never clobbers a concurrent change (M3.6d, PyAutoBrain#660: shift
+2026-11-16-pm's `write` edits to existing drafts were set aside).
+
+A worker's ops carry their `task` (`shift_ledger.py --task`). A task's
+*closing* ops (`_closing`: its `complete/` record, `drop-section`, the
+`active/` prompt's `remove`, `queue-retire`, `question-retire`, and any op on
+a path one of them creates) apply after every other op, one group per task,
+and are *withheld* — set aside with the task, never retried — when any
+sibling op of that task was set aside for a human, this run or earlier in
+the shift (a group that fails part-way is rolled back first); while a sibling
+is *held* the group stays pending beside it. Mind never records a task
+shipped while one of its changes is missing. An op that fails only because it is already true on main
+(`MechanicalError`: an edit already applied, a write of the text the file
+has, a remove of a file that is gone) is set aside as `needs: mechanical` —
+a digest line, not a "needs you". `shift_ledger.py` refuses at queue time
+what would fail (`queue_refusals`), so the worker can still switch.
+
 `set-header` sets one `Key: value` line in a prompt's header block (replacing
 the key's line if present) — how a shift worker records the premise check's
 `Verified:` stamp (`batch premise --record`) without touching the file itself.
@@ -101,9 +121,13 @@ import tempfile
 import types
 from pathlib import Path
 
-OPS = ("append", "write", "move", "remove", "drop-section", "table-append",
+OPS = ("append", "write", "edit", "move", "remove", "drop-section", "table-append",
        "set-header", "jsonl-upsert", "table-upsert", "record-key", "queue-retire",
        "question-add", "question-retire")
+#: A worker's task name, as `shift_ledger.py --task` tags its ops.
+TASK_RE = re.compile(r"[A-Za-z0-9][\w.-]*")
+#: The `needs` of a set-aside op: already true on main, or the human's call.
+NEEDS_MECHANICAL, NEEDS_HUMAN = "mechanical", "human"
 #: The keys a `question-add` entry carries; all strings but `options`.
 QUESTION_KEYS = ("task", "issue", "kind", "ask", "options", "shift", "asked", "worker")
 #: What a watcher-run queue retirement says in the footer, in place of the
@@ -129,9 +153,27 @@ CRITICAL_KINDS = ("record-key", "jsonl-upsert", "table-upsert", "table-append",
 
 
 def is_critical(op) -> bool:
-    return isinstance(op, dict) and (
-        op.get("op") in CRITICAL_KINDS
-        or (op.get("op") == "append" and str(op.get("path", "")).startswith("batches/")))
+    """A watcher op (never set aside, held pending). A worker's own
+    `table-append` (its calibration row, tagged with its `task`) is not: a
+    bad one is set aside and told, never retried every tick (#660)."""
+    if not isinstance(op, dict):
+        return False
+    if op.get("op") == "table-append" and op.get("task"):
+        return False
+    return (op.get("op") in CRITICAL_KINDS
+            or (op.get("op") == "append" and str(op.get("path", "")).startswith("batches/")))
+
+
+def _closing(op) -> bool:
+    """A tagged op that records its task done: the `complete/` record, the
+    `## slug` drop, the `active/` prompt's removal, the queue and questions
+    retirements. Applied last, and withheld when a sibling was set aside."""
+    if not isinstance(op, dict) or not op.get("task"):
+        return False
+    kind, path = op.get("op"), str(op.get("path", ""))
+    return ((kind == "write" and path.startswith("complete/"))
+            or (kind == "remove" and path.startswith("active/"))
+            or kind in ("drop-section", "queue-retire", "question-retire"))
 
 
 class ConflictError(RuntimeError):
@@ -140,6 +182,12 @@ class ConflictError(RuntimeError):
 
 class MindWriteError(RuntimeError):
     pass
+
+
+class MechanicalError(MindWriteError):
+    """The op is already true on main (an edit already applied, a write of the
+    text the file already has, a remove of a file that is gone): set aside
+    with `needs: mechanical` — a digest line, nothing for the human."""
 
 
 class GoneError(MindWriteError):
@@ -186,6 +234,17 @@ def validate_op(op: dict, lm) -> list[str]:
             errs.append(f"{kind}: a path is missing")
         elif p.startswith("/") or not lm.is_ledger_path(p):
             errs.append(f"{kind}: {p} is not a ledger path (scripts/ledger_merge.py)")
+    if "task" in op and (not isinstance(op["task"], str)
+                         or not TASK_RE.fullmatch(op["task"])):
+        errs.append(f"{kind}: task must be one task name ([A-Za-z0-9][\\w.-]*)")
+    if kind == "edit":
+        old, new = op.get("old"), op.get("new")
+        if not isinstance(old, str) or not old:
+            errs.append("edit: old (the expected base text) is missing")
+        if not isinstance(new, str):
+            errs.append("edit: new is missing")
+        elif new == old:
+            errs.append("edit: new is the same as old — nothing to change")
     if kind in ("append", "write") and not isinstance(op.get("text"), str):
         errs.append(f"{kind}: text is missing")
     elif kind == "append" and op.get("path") == "active.md":
@@ -317,9 +376,18 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
         return note
     elif kind == "write":
         if target.exists():
-            raise MindWriteError(f"write: {op['path']} already exists")
+            if target.read_text(encoding="utf-8") == op["text"]:
+                raise MechanicalError(f"write: {op['path']} already has this text on main")
+            raise MindWriteError(f"write: {op['path']} already exists — `write` only "
+                                 "creates; `edit` changes an existing file")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(op["text"], encoding="utf-8")
+    elif kind == "edit":
+        if not target.exists():
+            raise MindWriteError(f"edit: {op['path']} does not exist on main")
+        text = target.read_text(encoding="utf-8")
+        target.write_text(edit_text(text, op["path"], op["old"], op["new"]),
+                          encoding="utf-8")
     elif kind == "move":
         dest = tree / op["to"]
         if not target.exists() and dest.exists():
@@ -341,7 +409,7 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
         _git(tree, "mv", op["path"], op["to"])
     elif kind == "remove":
         if not target.exists():
-            raise MindWriteError(f"remove: {op['path']} does not exist")
+            raise MechanicalError(f"remove: {op['path']} does not exist (already gone)")
         _git(tree, "rm", "-q", op["path"])
     elif kind == "drop-section":
         preamble, entries = lm.split_entries(target.read_text(encoding="utf-8"))
@@ -425,6 +493,102 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
                                        if target.exists() else "",
                                        op["key"], op["row"], op.get("header", "")),
                           encoding="utf-8")
+
+
+def edit_text(text: str, path: str, old: str, new: str) -> str:
+    """`text` with its one `old` replaced by `new`. `MechanicalError` when the
+    edit is already there (a non-empty `new` present and every `old` inside
+    it);
+    `MindWriteError` when `old` is not there exactly once (the base moved)."""
+    n, done = text.count(old), (text.count(new) if new else 0)
+    if done and n == done * new.count(old):
+        raise MechanicalError(f"edit: {path} already has the new text on main")
+    if n != 1:
+        raise MindWriteError(f"edit: expected base not found in {path}" if not n else
+                             f"edit: expected base ambiguous in {path} ({n} matches)")
+    return text.replace(old, new, 1)
+
+
+def _main_text(mind: Path, path: str, ref: str = "origin/main") -> str | None:
+    """`path` as Mind's `origin/main` has it (no fetch: the writer fetches
+    each tick); None when it is not there. Raises MindWriteError when git
+    cannot read the ref at all."""
+    if _git(Path(mind), "rev-parse", "--verify", "-q", ref, check=False).returncode:
+        raise MindWriteError(f"no {ref} in {mind}")
+    res = _git(Path(mind), "show", f"{ref}:{path}", check=False)
+    return res.stdout if res.returncode == 0 else None
+
+
+def _ledger_ops(ledger_dir: Path) -> list[dict]:
+    """This shift's pending ops, in order. Committed ops are already on
+    origin/main (the writer fetches each tick, and its push moves the
+    tracking ref): replaying them would undo a later change by someone else."""
+    return [op for f in sorted(Path(ledger_dir).glob("*.json")) if (op := _op_of(f))]
+
+
+def _expected(mind: Path, path: str, ops: list[dict]) -> str | None:
+    """`path` once this shift's queued ops apply over origin/main: what a new
+    op on it will meet (a `draft/ → active/` move, then an edit of it)."""
+    state: dict = {}
+
+    def get(p):
+        if p not in state:
+            state[p] = _main_text(mind, p)
+        return state[p]
+
+    for o in ops:
+        kind, p = o.get("op"), o.get("path")
+        if not isinstance(p, str):
+            continue
+        if kind == "write" and isinstance(o.get("text"), str):
+            state[p] = o["text"]
+        elif kind == "remove":
+            state[p] = None
+        elif kind == "move" and isinstance(o.get("to"), str) and get(p) is not None:
+            state[o["to"]], state[p] = get(p), None
+        elif kind == "edit" and get(p) is not None:
+            try:
+                state[p] = edit_text(get(p), p, o.get("old") or "", o.get("new") or "")
+            except MindWriteError:
+                pass   # already applied, or will be set aside: main's text stands
+    return get(path)
+
+
+def queue_refusals(mind: Path, op: dict, ledger_dir: Path) -> list[str]:
+    """Why `shift_ledger.py` refuses to queue `op`, checked against Mind
+    `origin/main` and this shift's queued ops — so the worker, still running,
+    can switch (#660). Empty when it may be queued, and when git cannot be
+    read: then apply time is the backstop."""
+    kind, path = op.get("op"), op.get("path")
+    if kind not in ("write", "edit", "table-append") or not isinstance(path, str):
+        return []
+    try:
+        text = _expected(Path(mind), path, _ledger_ops(ledger_dir))
+    except MindWriteError:
+        return []
+    if kind == "write" and text is not None:
+        if text == op.get("text"):
+            return []   # already true: set aside as mechanical, a note
+        return [f"write: {path} already exists on Mind origin/main (or a queued op "
+                "creates it) — use `edit` to change it (`write` only creates)"]
+    if kind == "edit":
+        if text is None:
+            return [f"edit: {path} is not on Mind origin/main — use `write` to create it"]
+        try:
+            edit_text(text, path, op.get("old") or "", op.get("new") or "")
+        except MechanicalError as e:
+            return [f"{e} — nothing to queue"]
+        except MindWriteError as e:
+            return [f"{e} — `old` must appear exactly once in {path} as it is on "
+                    "Mind origin/main"]
+    if kind == "table-append":
+        if text is None:
+            return [f"table-append: {path} is not on Mind origin/main"]
+        try:
+            table_append(text, str(op.get("heading", "")), str(op.get("row", "")))
+        except MindWriteError as e:
+            return [f"{e} in {path} on Mind origin/main"]
+    return []
 
 
 def _mind_module(tree: Path, name: str, deps: tuple = ()):
@@ -671,14 +835,19 @@ def pending_ops(slot: Path) -> list[Path]:
     return sorted(f for f in d.glob("*.json")) if d.is_dir() else []
 
 
-def _set_aside(slot: Path, f: Path, why: str) -> dict:
-    """Move one op file out of the way with its reason; returns its record."""
+def _set_aside(slot: Path, f: Path, why: str, needs: str = NEEDS_HUMAN) -> dict:
+    """Move one op file out of the way with its reason; returns its record,
+    with the op's `task` (when tagged) and whose move it is (`needs`)."""
     d = Path(slot) / LEDGER_DIR / SET_ASIDE_DIR
     d.mkdir(parents=True, exist_ok=True)
     op = _op_of(f)
     (d / (f.name + ".why")).write_text(why + "\n", encoding="utf-8")
     f.replace(d / f.name)
-    return {"file": f.name, "op": op.get("op"), "path": op.get("path"), "why": why}
+    out = {"file": f.name, "op": op.get("op"), "path": op.get("path"), "why": why,
+           "needs": needs}
+    if isinstance(op.get("task"), str):
+        out["task"] = op["task"]
+    return out
 
 
 def _op_of(f: Path) -> dict:
@@ -691,7 +860,8 @@ def _op_of(f: Path) -> dict:
 
 def report(slot: Path) -> list[dict]:
     """Every entry of `ledger/report.jsonl`, oldest first: {kind: skipped |
-    set-aside | conflict | held, file, op, path, why}."""
+    set-aside | conflict | withheld | held, file, op, path, why, and for a
+    set-aside op its `needs` (mechanical | human) and `task` when tagged}."""
     f = Path(slot) / LEDGER_DIR / REPORT_FILE
     out = []
     for line in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else ()):
@@ -718,18 +888,87 @@ def committed_ops(slot: Path) -> list[dict]:
             if (op := _op_of(f))] if d.is_dir() else []
 
 
+def _apply_one(tree: Path, op: dict, lm, ctx: dict) -> tuple[str, object]:
+    """Apply one op: ("ok", note), ("held", entry) or ("failed", entry), an
+    entry being (kind, why, needs)."""
+    crit = is_critical(op)
+    try:
+        return "ok", apply_op(tree, op, lm, ctx)
+    except ConflictError as e:
+        out = ("held" if crit else "conflict", str(e), NEEDS_HUMAN)
+    except GoneError as e:
+        return "failed", ("set-aside", str(e), NEEDS_HUMAN)
+    except MechanicalError as e:
+        out = ("held" if crit else "set-aside", str(e), NEEDS_MECHANICAL)
+    except (MindWriteError, OSError, KeyError, TypeError, ValueError) as e:
+        out = ("held" if crit else "set-aside", str(e) or type(e).__name__, NEEDS_HUMAN)
+    return ("held" if crit else "failed"), out
+
+
+def _withheld(task: str, cause: str) -> tuple:
+    return ("withheld", f"{task}: held with its task — {cause} set aside; not "
+            "recorded shipped", NEEDS_HUMAN)
+
+
+def _apply_group(tree: Path, task: str, group: list, lm, ctx: dict,
+                 failed: dict, held: dict, deferred: set) -> list:
+    """Apply one task's closing ops as a unit; returns their notes. If one
+    fails for a human (or is held), every file the group touched is put back
+    as it was and the rest are withheld (or kept pending): the record never
+    lands alone. A mechanical failure is a note-like set-aside and does not
+    stop the group."""
+    paths = {op["path"] for _f, op in group}
+    before = {p: ((tree / p).read_bytes() if (tree / p).is_file() else None) for p in paths}
+    notes = []
+    for i, (f, op) in enumerate(group):
+        where, out = _apply_one(tree, op, lm, ctx)
+        if where == "ok":
+            if out:
+                notes.append((f, op, out))
+            continue
+        if where == "failed" and out[2] == NEEDS_MECHANICAL:
+            failed[f] = out
+            continue
+        for p, data in before.items():   # roll the group back
+            target = tree / p
+            if data is None:
+                if target.exists():
+                    target.unlink()
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+        (held if where == "held" else failed)[f] = out
+        for g, _op in group:
+            if g == f or (g in failed and failed[g][2] == NEEDS_MECHANICAL):
+                continue
+            if where == "held":
+                deferred.add(g)
+            else:
+                failed[g] = _withheld(task, f.name)
+        return []
+    return notes
+
+
 def commit_ledger(slot: Path, mind_repo: Path, message: str,
                   remote: str = "origin", branch: str = "main",
                   own_tasks=()) -> dict:
     """Commit every pending op in `<slot>/ledger/` to PyAutoMind as one commit.
 
     Returns {"committed": sha | None, "ops": n, "tries": k, "skipped": notes,
-    "set_aside": [{file, op, path, why, kind}], "held": [...]}. `own_tasks`
+    "set_aside": [{file, op, path, why, kind, needs, task?}], "held": [...]}. `own_tasks`
     are the tasks this shift re-dispatched: only their repeated claims may be
     skipped as already done (#632 review). A worker op that is invalid or
     cannot apply is set aside (a claim already on main from someone else as a
     `conflict`); a critical op is held pending instead. Only a push rejected
     `PUSH_TRIES` times raises, with every op left pending.
+
+    A task's closing ops (`_closing`, and any op on a path one of them
+    creates) apply after every other op, task by task, as one group: when one
+    of the task's ops was set aside for a human (this run or in an earlier
+    `report`) or is in conflict, the group is `withheld` — set aside with it,
+    not retried; when one of them is *held* (retried), the group stays pending
+    beside it. A group that fails part-way is rolled back, so a record never
+    lands without the rest of its group.
     """
     mind_repo = Path(mind_repo)
     files = pending_ops(slot)
@@ -742,15 +981,34 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
         try:
             op = json.loads(f.read_text(encoding="utf-8"))
         except ValueError as e:
-            invalid[f] = ("set-aside", f"not JSON ({e})")
+            invalid[f] = ("set-aside", f"not JSON ({e})", NEEDS_HUMAN)
             continue
         errs = validate_op(op, lm) if isinstance(op, dict) else ["not a JSON object"]
         if errs:
             (unready if is_critical(op) else invalid)[f] = (
-                "held" if is_critical(op) else "set-aside", "; ".join(errs))
+                "held" if is_critical(op) else "set-aside", "; ".join(errs), NEEDS_HUMAN)
             continue
         ops.append((f, op))
-    seen_held = {(e.get("file"), e.get("kind")) for e in report(slot)}
+    # A task's ops land together: its closing ops go last, grouped by task.
+    creates: dict = {}
+    for _f, op in ops:
+        if _closing(op) and op.get("op") == "write":
+            creates.setdefault(op["task"], set()).add(op["path"])
+    closing = {f for f, op in ops
+               if _closing(op) or op.get("path") in creates.get(op.get("task"), ())}
+    groups: dict = {}
+    for f, op in ops:
+        if f in closing:
+            groups.setdefault(op["task"], []).append((f, op))
+    ops = [x for x in ops if x[0] not in closing]
+    recorded = {op["task"] for op in ctx["prior"] if isinstance(op.get("task"), str)
+                and op.get("op") == "write" and str(op.get("path", "")).startswith("complete/")}
+    earlier = report(slot)
+    seen_held = {(e.get("file"), e.get("kind")) for e in earlier}
+    blocked_before = {e["task"]: e.get("file") for e in earlier
+                      if isinstance(e.get("task"), str)
+                      and e.get("kind") in ("set-aside", "conflict", "withheld")
+                      and e.get("needs") != NEEDS_MECHANICAL}
 
     for attempt in range(1, PUSH_TRIES + 1):
         fetch(mind_repo, remote, branch)
@@ -759,24 +1017,37 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
         try:
             _git(mind_repo, "worktree", "add", "-q", "--detach", str(tree),
                  f"{remote}/{branch}")
-            notes, failed, held = [], dict(invalid), dict(unready)
+            notes, failed, held, deferred = [], dict(invalid), dict(unready), set()
+            blocked = dict(blocked_before)
+            for f in invalid:
+                task = _op_of(f).get("task")
+                if isinstance(task, str):
+                    blocked.setdefault(task, f.name)
             for f, op in ops:
-                try:
-                    note = apply_op(tree, op, lm, ctx)
-                except ConflictError as e:
-                    (held if is_critical(op) else failed)[f] = (
-                        "held" if is_critical(op) else "conflict", str(e))
+                where, out = _apply_one(tree, op, lm, ctx)
+                if where == "ok":
+                    if out:
+                        notes.append((f, op, out))
                     continue
-                except GoneError as e:
-                    failed[f] = ("set-aside", str(e))
+                (held if where == "held" else failed)[f] = out
+                if where == "failed" and out[2] != NEEDS_MECHANICAL \
+                        and isinstance(op.get("task"), str):
+                    blocked.setdefault(op["task"], f.name)
+            waiting = {_op_of(f).get("task") for f in held} - {None}
+            for task, group in groups.items():
+                if task in blocked:
+                    for f, _op in group:
+                        failed[f] = _withheld(task, blocked[task])
                     continue
-                except (MindWriteError, OSError, KeyError, TypeError, ValueError) as e:
-                    (held if is_critical(op) else failed)[f] = (
-                        "held" if is_critical(op) else "set-aside",
-                        str(e) or type(e).__name__)
+                if task in waiting:   # a sibling is held: wait beside it
+                    deferred.update(f for f, _op in group)
                     continue
-                if note:
-                    notes.append((f, op, note))
+                notes += _apply_group(tree, task, group, lm, ctx, failed, held, deferred)
+            for f in failed:
+                task = _op_of(f).get("task")
+                kind, why, needs = failed[f]
+                if task in recorded and needs != NEEDS_MECHANICAL:
+                    failed[f] = (kind, why, needs, "on-main")
             _git(tree, "add", "-A")
             if not _git(tree, "status", "--porcelain").stdout.strip():
                 sha = None  # every op was already true on main (or set aside)
@@ -787,11 +1058,12 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
                 if pushed.returncode != 0:
                     continue  # main moved: replay the ops on the new origin/main
             aside = []
-            for f, (kind, why) in sorted(failed.items()):
-                aside.append({**_set_aside(slot, f, why), "kind": kind})
+            for f, (kind, why, needs, *record) in sorted(failed.items()):
+                aside.append({**_set_aside(slot, f, why, needs), "kind": kind,
+                              **({"record": record[0]} if record else {})})
             held_out = [{"file": f.name, "op": _op_of(f).get("op"),
                          "path": _op_of(f).get("path"), "why": why, "kind": "held"}
-                        for f, (_k, why) in sorted(held.items())]
+                        for f, (_k, why, _n) in sorted(held.items())]
             _report(slot, [{"kind": "skipped", "file": f.name, "op": op.get("op"),
                             "path": op.get("path"), "why": n} for f, op, n in notes]
                     + aside + [h for h in held_out if (h["file"], "held") not in seen_held])
@@ -800,9 +1072,10 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
             done = Path(slot) / LEDGER_DIR / COMMITTED_DIR
             done.mkdir(parents=True, exist_ok=True)
             for f in files:
-                if f not in failed and f not in held:
+                if f not in failed and f not in held and f not in deferred:
                     f.replace(done / f.name)
-            return {"committed": sha, "ops": len(files) - len(failed) - len(held),
+            return {"committed": sha,
+                    "ops": len(files) - len(failed) - len(held) - len(deferred),
                     "tries": attempt, "skipped": [n for _f, _o, n in notes],
                     "set_aside": aside, "held": held_out}
         finally:

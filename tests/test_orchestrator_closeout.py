@@ -115,16 +115,39 @@ def test_a_merged_verdict_counts_and_queues_one_stage2_row(tmp_path):
 
 # --- each guard failing on its own → nothing started, the reason digested -------
 
-def test_a_non_glance_task_is_never_closed_out(tmp_path):
+def test_a_notify_pr_left_open_is_closed_out_like_glance(tmp_path):
+    """Ruling R3 (AUTONOMY.md, 2026-11-17, #661): the watcher closes out a
+    `notify` PR a worker left open on the same terms as a `glance` one — and
+    its merge is no stage-2 row and no unattended `glance` merge."""
     mind, brief, home, sp = _shift(tmp_path, cap=2)
     slot = orch.slot_dir(brief, home)
     c = orch.read_counters(slot)
     c["picks"]["named"]["tier"] = "notify"
     orch._write_counters(slot, c)
     _tick(brief, mind, home, sp, 1)
+    assert ("named", PR1) in sp.closeouts
+    _verdict(home, brief, "named", result="merged", pr=PR1, gate="witness PASS",
+             model="claude-opus-5-5")
+    r = _tick(brief, mind, home, sp, 2)
+    assert r["closeouts"]["merged"] == [PR1]
+    c = orch.read_counters(slot)
+    assert c["outcomes"]["named"]["merged"] == [PR1]
+    assert c["glance_auto_merges"] == 0
+    assert _stage2_rows(slot) == []
+
+
+@pytest.mark.parametrize("tier", ["judge", "?"])
+def test_a_judge_or_undeclared_task_is_never_closed_out(tier, tmp_path):
+    mind, brief, home, sp = _shift(tmp_path, cap=2)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    c["picks"]["named"]["tier"] = tier
+    orch._write_counters(slot, c)
+    _tick(brief, mind, home, sp, 1)
     assert ("named", PR1) not in sp.closeouts
     co = orch.read_counters(slot)["closeouts"][PR1]
-    assert co["state"] == "refused" and "only glance merges unattended" in co["why"]
+    assert co["state"] == "refused"
+    assert "never merged unattended → your /prm" in co["why"], co["why"]
 
 
 def test_witness_343_a_pr_with_zero_completed_checks_is_refused_at_merge(tmp_path):
@@ -165,7 +188,7 @@ def test_merge_cap_counts_merges_and_in_flight_closeouts(tmp_path):
     assert len(r["closeouts"]["started"]) == 1 and len(r["closeouts"]["refused"]) == 1
     c = orch.read_counters(orch.slot_dir(brief, home))
     refused = [co for co in c["closeouts"].values() if co["state"] == "refused"]
-    assert refused[0]["why"] == "merge-cap 1 reached this shift"
+    assert refused[0]["why"] == "merge-cap 1 reached this shift — left for your /prm"
 
 
 def test_merge_cap_zero_starts_nothing(tmp_path):

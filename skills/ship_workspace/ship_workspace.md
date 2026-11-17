@@ -93,7 +93,7 @@ stop and report.
 3 note); ship without interactive sign-off, add the `## Validation checklist`
 to the PR body (`../ship_library/reference.md` → "Validation checklist
 (--auto)"), **stop at PR-open**, append the calibration row to
-`PyAutoMind/autonomy_log.md` (its **first** table, never the Shadow window at
+`PyAutoMind/autonomy_log.md` (its **first** table, `## Calibration runs`, never the Shadow window at
 the end — `../ship_library/reference.md` → "Which table"), set `active.md` to
 awaiting-merge. Failed leg →
 park per [`../../AUTONOMY.md`](../../AUTONOMY.md). Step 5's offered merge is
@@ -113,6 +113,8 @@ Who merges follows the prompt's **declared** `Consequence:` header —
   exactly as a human-typed `/prm` would — the library-first gate included (a
   workspace PR whose library PR is not `MERGED` stops there). For `glance`, the close-out appends
   the Shadow-window row and the ledger ends with the post-merge summary.
+  Inside a shift the merge first takes a merge slot, and the R3 witness
+  condition applies (`/prm` reference.md "Tiered merge").
 - **`judge`, no declared header**, a `decision-taken` PR, a Heart RED-override
   or corrective-PR-exception ship, a public name added or renamed (`pyauto-brain
   public-names` exit 1 or 2), or any red / pending-at-cap / conflicting /

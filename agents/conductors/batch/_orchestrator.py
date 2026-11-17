@@ -51,6 +51,7 @@ import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _events  # noqa: E402
 import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
+import _merge_slots  # noqa: E402 — one merge-cap count per shift (R3, #661)
 import _mind_writer  # noqa: E402
 import _questions  # noqa: E402
 
@@ -2501,11 +2502,21 @@ def _cmd_cap(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
                                             "brief": ceiling}
     of = f"{ceiling}" if ceiling is not None else "none"
     if key == "merge-cap":
-        merged = int(counters.get("glance_auto_merges") or 0)
-        running = sum(1 for co in counters["closeouts"].values() if co.get("state") == "running")
-        tail = (": no new close-out starts." if merged + running >= n
-                else f": up to {n - merged - running} more may start.")
-        return f"merge-cap now {n} of this brief's {of} ({merged} merged so far){tail}"
+        # Every slot taken this shift — in-turn merges, close-outs merged and
+        # close-outs still running alike (R3, #661).
+        # An in-turn merge made with no slot is counted too (#661 review).
+        try:
+            taken = _merge_slots.used(slot)
+            unslotted = len(_digest.no_slot_merges(
+                {**counters, "slot_holders": _merge_slots.holders(slot)}))
+        except (_merge_slots.MergeSlotError, OSError):
+            return f"merge-cap now {n} of this brief's {of} (merge slots unreadable)."
+        count = taken + unslotted
+        tail = (": no new merge starts." if count >= n
+                else f": up to {n - count} more may merge.")
+        extra = f", plus {unslotted} merged with no merge slot" if unslotted else ""
+        return (f"merge-cap now {n} of this brief's {of} ({taken} merge slot(s) taken so far"
+                f"{extra}){tail}")
     if key == "max-workers":
         live = len(active_leases(slot))
         return f"max-workers now {n} of {of}." + (
@@ -3219,6 +3230,17 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     pr_state = pr_state or getattr(spawner, "pr_state", None)
     events = reap_closeouts(slot, counters, now, agents, pr_state, tokens)
     events.setdefault("started", [])
+    # The cap every in-shift merge takes a slot against, worker or close-out
+    # (ruling R3, #661). A shadow or paused shift publishes a pause: a
+    # worker's take is refused and the PR waits for /prm.
+    try:
+        _merge_slots.publish(slot, _brief._nonneg_int(brief.get("merge-cap", {}).get("value", ""))
+                             or 0, _brief.is_shadow(brief) or bool(counters.get("paused")))
+        # Who holds which slot, for the live view and the digest's label of
+        # each in-turn merge (slot or NO slot).
+        counters["slot_holders"] = _merge_slots.holders(slot)
+    except (_merge_slots.MergeSlotError, OSError) as e:
+        events["slots_error"] = str(e)[:300]   # a take reads what is there, or cannot tell
     if _brief.is_shadow(brief) or counters.get("paused"):
         return events   # paused (#622): a green PR waits; it is not refused
     return _start_closeouts(slot, brief, counters, spawner, now, health, events,
@@ -3333,17 +3355,21 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
             # 10): the close-out removes them as /prm does, or says why not.
             co["cleanup"] = str((verdict or {}).get("cleanup") or "").strip()[:300] \
                 or CLEANUP_UNREPORTED
-            counters["glance_auto_merges"] += 1
             out = counters["outcomes"].setdefault(co["task"], {"prs": [pr], "merged": []})
             if pr not in out["merged"]:
                 out["merged"].append(pr)
-            _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
-                "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
-                # One row per PR and shift, even if a crash between this queue
-                # and the counters write below reaps the close-out twice (#632).
-                "unique": f"| {co['task']} ({pr}) | {slot.name} |",
-                "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"],
-                                  merged_by=(gh or {}).get("mergedBy") or "")})
+            tier = co.get("tier") or counters["picks"].get(co["task"], {}).get("tier", "?")
+            if tier == "glance":
+                # Only a `glance` close-out is a stage-2 row and an unattended
+                # `glance` merge; a `notify` one (ruling R3, #661) is neither.
+                counters["glance_auto_merges"] += 1
+                _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
+                    "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
+                    # One row per PR and shift, even if a crash between this queue
+                    # and the counters write below reaps the close-out twice (#632).
+                    "unique": f"| {co['task']} ({pr}) | {slot.name} |",
+                    "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"],
+                                      merged_by=(gh or {}).get("mergedBy") or "")})
             retire = queue_retire_op(counters, co["task"], pr, now)
             if retire:
                 # The close-out queues this with its complete record; this is
@@ -3367,6 +3393,13 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
                 why = "the close-out session ended without a verdict"
             co.update(state="refused", why=why)
             events["refused"].append(pr)
+        if co["state"] == "refused":
+            # A refused close-out frees the merge slot the watcher took for it
+            # (R3, #661); a merge made outside the close-out is not the shift's.
+            try:
+                _merge_slots.release(slot, pr, _merge_slots.WATCHER, co.get("why") or "refused")
+            except (_merge_slots.MergeSlotError, OSError):
+                pass   # the slot stays held: fails toward fewer merges
         if late:
             co["late"] = _iso(now)
         if co.get("agent_id") in counters["usage"]:
@@ -3381,7 +3414,6 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
     """Start one close-out per newly green PR, under the watcher's guards."""
     lease_dir = slot / "leases"
     health = health or _digest.pr_health
-    cap = _brief._nonneg_int(brief.get("merge-cap", {}).get("value", "")) or 0
     budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
     for task, out in counters["outcomes"].items():
         for pr in out["prs"]:
@@ -3393,9 +3425,12 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                                              "why": "dropped by /drop — the human's /prm"}
                 events["refused"].append(pr)
                 continue
-            if tier != "glance":
+            if tier not in ("glance", "notify"):
+                # Ruling R3 (2026-11-17, #661): a `notify` PR a worker left
+                # open is closed out on the same terms as a `glance` one.
                 counters["closeouts"][pr] = {"task": task, "state": "refused",
-                                             "why": f"tier {tier} — only glance merges unattended"}
+                                             "why": f"tier {tier} — never merged unattended "
+                                                    "→ your /prm"}
                 events["refused"].append(pr)
                 continue
             verdict = health(pr)
@@ -3404,14 +3439,6 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             if verdict != "HEALTHY":
                 counters["closeouts"][pr] = {"task": task, "state": "refused",
                                              "why": f"CI {verdict} — never merged unattended"}
-                events["refused"].append(pr)
-                continue
-            in_flight = sum(1 for c in counters["closeouts"].values() if c["state"] == "running")
-            if counters["glance_auto_merges"] + in_flight >= cap:
-                # Final for this shift, like every refusal: the PR waits for a
-                # human `/prm`, and the digest says why.
-                counters["closeouts"][pr] = {"task": task, "state": "refused",
-                                             "why": f"merge-cap {cap} reached this shift"}
                 events["refused"].append(pr)
                 continue
             if review_at is not None \
@@ -3443,14 +3470,31 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                            f"{CLOSEOUT_BUDGET_FACTOR}× token-budget {budget}"}
                 events["refused"].append(pr)
                 continue
+            # One merge-slot count for the shift (R3, #661): a worker's in-turn
+            # merge and a close-out take from it alike. Taken last, just
+            # before the spawn, so no other refusal holds a slot.
+            try:
+                taken, why = _merge_slots.take(slot, pr, _merge_slots.WATCHER, task)
+            except (_merge_slots.MergeSlotError, OSError) as e:
+                taken, why = False, f"merge slot cannot tell ({str(e)[:200]}) — left for your /prm"
+            if not taken:
+                # Final for this shift, like every refusal: the PR waits for a
+                # human `/prm`, and the digest says why.
+                counters["closeouts"][pr] = {"task": task, "state": "refused", "why": why}
+                events["refused"].append(pr)
+                continue
             prompt = counters["picks"].get(task, {}).get("prompt", "")
-            co = {"task": task, "state": "running", "started": _iso(now)}
+            co = {"task": task, "state": "running", "started": _iso(now), "tier": tier}
             try:
                 co.update(spawner.spawn_closeout(task, pr, prompt, lease_dir))
             except Exception as e:
                 counters["closeouts"][pr] = {"task": task, "state": "refused",
                                              "why": f"the close-out could not start: {str(e)[:300]}"}
                 events["refused"].append(pr)
+                try:
+                    _merge_slots.release(slot, pr, _merge_slots.WATCHER, "the close-out could not start")
+                except (_merge_slots.MergeSlotError, OSError):
+                    pass
                 _write_counters(slot, counters)
                 continue
             counters["closeouts"][pr] = co

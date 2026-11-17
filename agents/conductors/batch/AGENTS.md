@@ -379,8 +379,14 @@ a failed launch is one `launch-failed` record per task) with its blocked minutes
 **One Mind writer (phase 3c).** Workers never commit to PyAutoMind. Each Mind
 change — the `active.md` claim, the `draft/ → active/` move, the close-out — is
 queued as an op file in `<slot>/ledger/` by `bin/shift_ledger.py`
-(`append | write | move | remove | drop-section`; every path must be *ledger*
-by PyAutoMind's own `scripts/ledger_merge.py`, default deny). Each tick, after
+(`--task <task>` then `append | write | edit | move | remove | drop-section |
+table-append | set-header | queue-retire`; every path must be *ledger* by
+PyAutoMind's own `scripts/ledger_merge.py`, default deny). `write` only
+creates; `edit` replaces an expected old text that must appear exactly once,
+so it never clobbers a concurrent change. `shift_ledger.py` refuses at queue
+time a `write` to a path already on Mind `origin/main` (or created by a queued
+op), an `edit` whose base is not there, and a `table-append` whose `## `
+heading or table is missing, so the worker can switch while it runs. Each tick, after
 the reap, `_mind_writer.commit_ledger` applies all pending ops in a temporary
 detached worktree on `origin/main`, commits once and pushes; if `main` moved it
 replays the ops on the new `origin/main` (up to three tries). It never resets,
@@ -389,7 +395,22 @@ Committed op files move to `ledger/committed/`. One bad op never strands the
 rest (#632): a re-dispatched task's repeat of a claim this shift already
 committed, with main's content matching it, is a skipped note; the same shape
 from anyone else is a conflict, set aside; any other worker op that is invalid
-or cannot apply is set aside in `ledger/set_aside/` — and the rest commit. The
+or cannot apply is set aside in `ledger/set_aside/` — and the rest commit. A
+task's ops land together (#660): its closing ops (the `complete/` record,
+`drop-section`, the `active/` prompt's `remove`, `queue-retire`,
+`question-retire`) apply last, and are *withheld* — set aside, not retried —
+when any op of that task was set aside for a human this shift, so Mind never
+records it shipped with a change missing. They apply as one group per task: if
+one fails for a human the group is rolled back and withheld; while a sibling
+op is *held* (retried) the group stays pending beside it; an op on a path the
+group creates (an edit of the `complete/` record) is part of the group. Two
+limits: a `complete/` record committed in an earlier tick than a sibling that
+fails later stays on main (the NEEDS YOU line and the digest say "already on
+main"), and the block is sticky for the shift — a re-dispatched task's record
+is withheld too, for the rest of the shift. An op that is already true on main
+(an edit already applied, a write of the same text, a remove of a gone file) is
+set aside as *mechanical*: a digest line, never a NEEDS YOU; a task's human
+set-asides are one NEEDS YOU event naming the task. The
 watcher's own ops (record appends, pilot row, live line, stage-2 rows) are never
 set aside: they are held pending and retried. Every note, set-aside, conflict
 and hold goes to `ledger/report.jsonl`, into the digest, and after `review-at:`
@@ -473,15 +494,17 @@ ends at PR-open (`worker_template.md`). Each tick, `_closeouts` first reaps
 running close-outs — `<task>.closeout` (`merged` | `refused`, `why`, `gate`,
 `model`), or a session gone without one, which is recorded refused — then, for
 each PR a worker named, judges the guards it can see with its own reads: the
-recorded tier is `glance`, `gh pr checks` is green — at least one completed
-check, all green (pending waits a tick; red, none or unknown is refused), merges plus in-flight close-outs are under `merge-cap:`, the
-shift is not shadow, `review-at:` is more than 20 minutes away, and spend is
-under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"). Then it starts **one** close-out session
+recorded tier is `glance` or `notify` (ruling R3, 2026-11-17), `gh pr checks` is green — at least one completed
+check, all green (pending waits a tick; red, none or unknown is refused), the
+shift is not shadow, `review-at:` is more than 20 minutes away, spend is
+under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"),
+and — last — a merge slot is free under `merge-cap:` (`_merge_slots.py`; a
+worker's in-turn merge takes from the same count). Then it starts **one** close-out session
 (`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus`).
 That session is the independent leg: it runs the `Witness:` itself, reviews the
 diff adversarially, checks the `decision-taken` label and Heart, and only then
-runs the `/prm` close-out — or refuses. A merge bumps `glance_auto_merges`,
-marks the PR merged, and queues a `table-append` op that lands one row in
+runs the `/prm` close-out — or refuses. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`
+and queues a `table-append` op that lands one row in
 `autonomy_log.md` "Unattended `glance` sub-window (stage 2)" through the one Mind
 writer. Every refusal is final for the shift and named in the digest
 (`awaiting /prm — close-out refused: <why>`). Same-model close-out: AUTONOMY

@@ -236,3 +236,17 @@ reply or state change still needs explicit authorization. The conductor's
 bounded direct comment read leaves response state unknown on settled threads
 when it cannot establish full post-settlement coverage; the Ears scan provides
 the paginated evidence. Fetch full relevant comments before making a judgment.
+
+A stale or cached snapshot turns active or unknown follow-ups into unknown, but
+settled threads Ears observed as inactive (including historical follow-ups,
+older than 30 days) stay quiet; scan prints the historical ones as a count.
+Unknown delivery rows for Announcements and Show and tell are dropped.
+
+## Close due
+
+Scan passes through Ears' optional `close_due` and `awaiting_contributor_since`
+and lists due threads under "Close due (21d)" with the standard message from
+`PyAutoMind/policy/community_close_due.md` (`close_message` in `--json`).
+`close_due` is a candidate, not a verdict: read the thread and keep it open
+when our last comment did not ask the contributor for anything. The human
+approves the batch once per session before any post or close.
