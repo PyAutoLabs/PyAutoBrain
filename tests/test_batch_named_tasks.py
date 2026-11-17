@@ -387,3 +387,27 @@ def test_review2_a_target_header_naming_several_repos_is_read(tmp_path):
     f.write_text(f.read_text().replace("Target: PyAutoHeart", "Target: PyAutoBrain, PyAutoMind"))
     errors, _, _ = _batch._brief.organ_findings("t", f, mind)
     assert errors
+
+
+# --- third review (Fable 5.2) ----------------------------------------------------------
+
+def test_review3_a_repos_own_ci_workflow_is_not_the_minds(tmp_path):
+    errors, _, notes = _organ(tmp_path, "Edit `.github/workflows/tests.yml`.", target="PyAutoBrain")
+    assert errors == [] and notes, notes
+    errors, warnings, _ = _organ(tmp_path, "Edit `.github/workflows/heart-health.yml`.",
+                                 target="PyAutoBrain", repos=["PyAutoBrain", "PyAutoHeart"])
+    assert errors == []
+
+
+@pytest.mark.parametrize("body", ["Add a workflow under `.github/workflows` and update `docs/x.md`.",
+                                  "Add `scripts` and update `docs/x.md`."])
+def test_review3_a_self_directory_without_its_slash_is_still_read(tmp_path, body):
+    errors, _, _ = _organ(tmp_path, body, target="PyAutoMind")
+    assert errors
+
+
+@pytest.mark.parametrize("body", ["See `PyAutoBrain/`.", "See `PyAutoLabs/PyAutoBrain/`.",
+                                  "As `../../../active/foo.md` says."])
+def test_review3_repo_dirs_and_relative_records_show_nothing(tmp_path, body):
+    errors, warnings, notes = _organ(tmp_path, body, target="PyAutoBrain")
+    assert errors == [] and notes == [] and "names no path" in warnings[0], (warnings, notes)

@@ -415,6 +415,10 @@ SELF_PATHS = {
     "PyAutoMind": ("scripts/", ".github/workflows/"),
     "PyAutoHands": ("",),
 }
+#: Self prefixes no other repo has: unprefixed, they still name that organ's
+#: code (`.github/workflows/` and `scripts/` are every repo's).
+DISTINCT_PREFIXES = ("agents/conductors/batch/",)
+_SELF_PREFIXES = {pre.lower() for pres in SELF_PATHS.values() for pre in pres if pre}
 #: Path candidates in a prompt: any backticked token, and an unbackticked
 #: token that looks like a file path (segments and a lettered extension).
 _TICKED_RE = re.compile(r"`([^`\s]+)`")
@@ -437,13 +441,17 @@ def _path_parts(token: str) -> tuple[list[str], bool] | None:
     glob = "*" in t
     if glob:
         t = t.split("*", 1)[0].rsplit("/", 1)[0] + "/"
+    parts = [x.lower() for x in t.split("/") if x and x not in (".", "..")]
+    # A self prefix written without its slash (`.github/workflows`, `scripts`)
+    # is still that directory.
+    if "/".join(parts) + "/" in _SELF_PREFIXES:
+        t = t.rstrip("/") + "/"
     is_dir = t.endswith("/")
-    parts = [x.lower() for x in t.split("/") if x and x != "."]
     if not parts or (len(parts) == 1 and not is_dir):
         return None
     if len(parts) == 2 and not is_dir and not glob and "." not in parts[-1]:
         return None
-    return parts, glob
+    return parts + ([""] if is_dir else []), glob
 
 
 def _own_files(mind: Path) -> dict[str, set[str]]:
@@ -460,14 +468,17 @@ def _classify(parts: list[str], hit: list[str], only_self: bool, organs: dict,
               known, declared: set[str]) -> str:
     """"own" | "maybe" | "other" | "neutral" for one path's segments."""
     from _sizing import normalise_repo  # noqa: E402
-    if ("/".join(parts) + "/").startswith(MIND_DOCS):
+    # `parts` ends in "" for a directory token: its last name may then be a
+    # repo (`PyAutoBrain/`), which the attribution below reads.
+    rel = "/".join(x for x in parts if x) + "/"
+    if rel.startswith(MIND_DOCS):
         return "neutral"          # a Mind record, wherever its folder is named
     # An explicit repo segment (never the file name itself) attributes the path.
     at = next((i for i, seg in enumerate(parts[:-1])
                if normalise_repo(seg) in organs or normalise_repo(seg) in known), None)
     if at is not None:
         organ = organs.get(normalise_repo(parts[at]))
-        rest = "/".join(parts[at + 1:]) + "/"
+        rest = "/".join(x for x in parts[at + 1:] if x) + "/"
         if rest == "/":
             return "neutral"                       # the repo itself, not a path in it
         if organ and any(rest.startswith(pre.lower()) for pre in SELF_PATHS[organ]):
@@ -477,12 +488,15 @@ def _classify(parts: list[str], hit: list[str], only_self: bool, organs: dict,
         # A path in a repo the task declares shows what it changes; one in a
         # repo it does not declare shows nothing either way.
         return "other" if normalise_repo(parts[at]) in declared else "neutral"
-    rel = "/".join(parts) + "/"
-    if rel.startswith(MIND_DOCS):
-        return "neutral"
     # A multi-segment self prefix found anywhere (a worktree or absolute path).
-    deep = any(f"/{pre.lower()}" in "/" + rel for o in SELF_ORGANS for pre in SELF_PATHS[o]
-               if pre.count("/") > 1)
+    # Inside a longer path only (a worktree or an absolute path), and only
+    # for an organ this task targets: at the start it is plainly unprefixed,
+    # which `cands` judges below (another repo's `.github/workflows/` is not
+    # Mind's).
+    # A prefix only that organ has (`DISTINCT_PREFIXES`) is its code at the
+    # start of a path too, whatever else the task declares.
+    deep = any(f"/{pre.lower()}" in rel[1:] or (pre in DISTINCT_PREFIXES and rel.startswith(pre))
+               for o in hit for pre in SELF_PATHS[o] if pre.count("/") > 1)
     cands = [o for o in hit if any(rel.startswith(pre.lower()) for pre in SELF_PATHS[o])]
     if deep or (cands and only_self):
         return "own"
@@ -532,7 +546,7 @@ def organ_findings(name: str, path: Path, mind: Path) -> tuple[list[str], list[s
         if got is None:
             continue
         kind = _classify(got[0], hit, only_self, organs, KNOWN_REPOS, declared)
-        rel = "/".join(got[0])
+        rel = "/".join(x for x in got[0] if x)
         if kind == "own":
             own.append(rel)
         elif kind == "maybe":
