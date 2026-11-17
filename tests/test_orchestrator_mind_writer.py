@@ -550,3 +550,111 @@ def test_two_human_set_asides_for_one_task_are_one_needs_you_event(tmp_path, min
     assert len(needs) == 1 and needs[0]["key"] == "impaired:ledger:task:t3"
     assert "`t3`" in needs[0]["line"] and "2 ops" in needs[0]["line"]
     assert "active/t2.md" in needs[0]["line"] and "draft/feature/x/t1.md" in needs[0]["line"]
+
+
+# --- M3.6d review findings (PyAutoBrain#660) ----------------------------------------
+
+def _q(slot, **op):
+    mw.queue_op(slot / "ledger", op)
+
+
+def test_an_edit_to_empty_text_on_a_moved_base_is_the_humans(tmp_path, mind):
+    """`new == ""` must not make an absent base look already applied."""
+    bare, canon, other = mind
+    slot = tmp_path / "slot"
+    res = _queue(slot, "--task", "t2", "edit", "active/t2.md", "--old", "# nope\n", "--new", "",
+                 mind_repo=canon, worker=True)
+    assert res.returncode == 1 and "expected base not found" in res.stderr, res.stderr
+    _push_from(other, "active/t2.md", "# t2 by someone else\n", "someone else's t2")
+    _q(slot, op="edit", path="active/t2.md", task="t2", old="# t2\n", new="")
+    _q(slot, op="write", path="complete/2026/11/t2.md", text="## t2\n", task="t2")
+    res = mw.commit_ledger(slot, canon, "empty edit")
+    kinds = sorted((a["kind"], a["needs"]) for a in res["set_aside"])
+    assert kinds == [("set-aside", "human"), ("withheld", "human")]
+    assert _remote_tree(bare, "complete/2026/11/t2.md").returncode != 0
+
+
+@pytest.mark.parametrize("order", ["record-first", "record-last"])
+def test_a_failing_closing_op_holds_the_record_it_closes_with(tmp_path, mind, order):
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    record = dict(op="write", path="complete/2026/11/t2.md", text="## t2\n", task="t2")
+    drop = dict(op="drop-section", path="active.md", section="nope", task="t2")
+    for op in ((record, drop) if order == "record-first" else (drop, record)):
+        _q(slot, **op)
+    res = mw.commit_ledger(slot, canon, "closing")
+    assert _remote_tree(bare, "complete/2026/11/t2.md").returncode != 0
+    by = {a["op"]: a for a in res["set_aside"]}
+    assert by["drop-section"]["kind"] == "set-aside" and by["write"]["kind"] == "withheld"
+    [e] = [e for e in _events_of(slot, res) if e["needs_you"]]
+    assert "completion record is held" in e["line"]
+
+
+def test_the_needs_you_line_says_held_only_when_a_record_was_withheld(tmp_path, mind):
+    _, canon, _ = mind
+    slot = tmp_path / "slot"
+    _q(slot, op="edit", path="active/t2.md", task="t3", old="# nope\n", new="# t3\n")
+    res = mw.commit_ledger(slot, canon, "no record")
+    [e] = [e for e in _events_of(slot, res) if e["needs_you"]]
+    assert "`t3`" in e["line"] and "held" not in e["line"]
+
+
+def test_a_committed_op_is_not_replayed_over_main_at_queue_time(tmp_path, mind):
+    bare, canon, other = mind
+    slot = tmp_path / "slot"
+    assert _queue(slot, "--task", "t1", "write", "draft/feature/x/n.md", "--text", "v1\n",
+                  mind_repo=canon, worker=True).returncode == 0
+    assert mw.commit_ledger(slot, canon, "v1")["committed"]
+    _push_from(other, "draft/feature/x/n.md", "v2\n", "someone else's v2")
+    git(canon, "fetch", "-q", "origin")
+    res = _queue(slot, "--task", "t1", "edit", "draft/feature/x/n.md", "--old", "v2\n",
+                 "--new", "v3\n", mind_repo=canon, worker=True)
+    assert res.returncode == 0, res.stderr
+
+
+def test_a_task_may_edit_the_complete_record_it_writes(tmp_path, mind):
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    _q(slot, op="write", path="complete/2026/11/t2.md", text="a\n", task="t2")
+    _q(slot, op="edit", path="complete/2026/11/t2.md", old="a\n", new="b\n", task="t2")
+    _q(slot, op="append", path="active.md", text="\n## t6\n- x\n", task="t6")
+    res = mw.commit_ledger(slot, canon, "record then edit")
+    assert res["committed"] and not res["set_aside"]
+    assert _remote_tree(bare, "complete/2026/11/t2.md").stdout == "b\n"
+
+
+def test_a_held_sibling_keeps_its_tasks_record_pending(tmp_path, mind):
+    """A held op is retried, so its task's record waits beside it — never
+    withheld for good, never landing alone."""
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    entry = {"task": "t2", "issue": "https://example.invalid/issues/2", "kind": "choice",
+             "ask": "which?", "options": ["a", "b"], "shift": "s", "asked": "2026-11-17",
+             "worker": "w"}
+    _q(slot, op="question-add", path="questions.md", entry=entry, task="t2")  # no script: held
+    _q(slot, op="write", path="complete/2026/11/t2.md", text="## t2\n", task="t2")
+    for _ in range(2):
+        res = mw.commit_ledger(slot, canon, "held")
+        assert [h["op"] for h in res["held"]] == ["question-add"] and not res["set_aside"]
+        assert _remote_tree(bare, "complete/2026/11/t2.md").returncode != 0
+        assert len(mw.pending_ops(slot)) == 2
+
+
+def test_a_set_aside_after_the_record_landed_says_it_is_on_main(tmp_path, mind):
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    _q(slot, op="write", path="complete/2026/11/t2.md", text="## t2\n", task="t2")
+    assert mw.commit_ledger(slot, canon, "record")["committed"]
+    _q(slot, op="edit", path="active/t2.md", task="t2", old="# nope\n", new="# t2 v2\n")
+    res = mw.commit_ledger(slot, canon, "late edit")
+    [e] = [e for e in _events_of(slot, res) if e["needs_you"]]
+    assert "already on main" in e["line"]
+    import _digest
+    assert any("already on main" in ln for ln in _digest.report_lines(slot))
+
+
+def test_shift_ledger_names_a_missing_mind_checkout_cleanly(tmp_path):
+    res = _queue(tmp_path / "slot", "--task", "t1", "append", "active.md", "--text", "x",
+                 mind_repo=tmp_path / "no-such-mind", worker=True)
+    assert res.returncode == 2 and "Traceback" not in res.stderr
+    assert "no-such-mind" in res.stderr

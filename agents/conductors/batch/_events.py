@@ -376,10 +376,13 @@ def _impaired(b: _Batch, result: dict) -> None:
         for task, xs in sorted(by_task.items()):
             paths = ", ".join(sorted({str(x.get("path") or x.get("op") or "?") for x in xs}))
             n = len(xs)
+            tail = ("; its completion record is held — not shipped to Mind"
+                    if any(x.get("kind") == "withheld" for x in xs) else
+                    "; its completion record is already on main — check it"
+                    if any(x.get("record") == "on-main" for x in xs) else "")
             b.add("impaired", f"impaired:ledger:task:{task}",
                   f"Mind write set aside for `{task}`: {n} op{'s' if n != 1 else ''} "
-                  f"({paths}); its completion record is held — not shipped to Mind.",
-                  needs_you=True, task=task)
+                  f"({paths}){tail}.", needs_you=True, task=task)
         per_op += [("held", x) for x in ledger.get("held") or []]
         for word, x in per_op:
             op = x.get("op") if isinstance(x, dict) else str(x)

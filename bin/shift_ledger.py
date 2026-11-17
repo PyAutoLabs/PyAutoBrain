@@ -102,7 +102,13 @@ def main(argv=None) -> int:
             op["unique"] = op["row"] if a.unique is True else a.unique
     mind = _mind(a.mind)
     if mind:
-        errs = mw.validate_op(op, mw._ledger_merge(mind))
+        try:
+            lm = mw._ledger_merge(mind)
+        except mw.MindWriteError as e:
+            print(f"shift_ledger: cannot check against Mind — {e} (set --mind or "
+                  "$PYAUTO_MIND to a PyAutoMind checkout)", file=sys.stderr)
+            return 2
+        errs = mw.validate_op(op, lm)
         errs = errs or mw.queue_refusals(mind, op, Path(ledger))
         if errs:
             print("shift_ledger: refused — " + "; ".join(errs), file=sys.stderr)

@@ -347,7 +347,14 @@ task's ops land together (#660): its closing ops (the `complete/` record,
 `drop-section`, the `active/` prompt's `remove`, `queue-retire`,
 `question-retire`) apply last, and are *withheld* — set aside, not retried —
 when any op of that task was set aside for a human this shift, so Mind never
-records it shipped with a change missing. An op that is already true on main
+records it shipped with a change missing. They apply as one group per task: if
+one fails for a human the group is rolled back and withheld; while a sibling
+op is *held* (retried) the group stays pending beside it; an op on a path the
+group creates (an edit of the `complete/` record) is part of the group. Two
+limits: a `complete/` record committed in an earlier tick than a sibling that
+fails later stays on main (the NEEDS YOU line and the digest say "already on
+main"), and the block is sticky for the shift — a re-dispatched task's record
+is withheld too, for the rest of the shift. An op that is already true on main
 (an edit already applied, a write of the same text, a remove of a gone file) is
 set aside as *mechanical*: a digest line, never a NEEDS YOU; a task's human
 set-asides are one NEEDS YOU event naming the task. The

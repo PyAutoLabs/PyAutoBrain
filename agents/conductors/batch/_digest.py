@@ -599,7 +599,10 @@ def report_line(e: dict) -> str:
     head = _REPORT_WORDS.get(kind, f"warning: Mind ledger {e.get('kind')}")
     where = f" (`ledger/set_aside/{e.get('file')}`)" if e.get("kind") in (
         "set-aside", "conflict", "withheld") else ""
-    return f"- {head} — {e.get('op') or '?'} {e.get('path') or '?'}: {e.get('why')}{where}"
+    note = (f" — `{e.get('task')}`'s complete record is already on main"
+            if e.get("record") == "on-main" else "")
+    return (f"- {head} — {e.get('op') or '?'} {e.get('path') or '?'}: {e.get('why')}"
+            f"{where}{note}")
 
 
 def report_lines(slot: Path) -> list[str]:
