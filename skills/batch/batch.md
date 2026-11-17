@@ -74,19 +74,8 @@ In order:
    `expected-effects:` and **`review-at:`** — **before** any session starts;
    that file makes the launch auditable. `review-at:` is when the human expects
    to be back and where the grant expires: **if they did not say, ask before
-   dispatching** — never infer it from a schedule, a previous batch, or the
-   time of day. **If they will want to *run* the batch, write
-   `- integration: yes` into the record** (collect then builds the worktree).
-   **A shift brief** is composed with `batch brief --new <slot> --review-at
-   <ISO> --out <file>`, which also makes the shift issue on PyAutoMind and
-   writes `issue:` (2026-11-17). Then `batch brief --check <file>`: it refuses
-   a live brief without `issue:`, and an expired CLI login (the human runs
-   `claude /login`). **Pushing the brief is the launch**: the watcher finds it
-   on Mind `origin/main` itself, ticks it from `dispatched:` to `review-at:`,
-   and stops 45 min after `review-at:`. Never two open briefs at once. It
-   reads the `origin/main` ref of the Mind checkout in its env file **without
-   fetching**, so push the brief from that checkout or `git fetch` it before
-   launch; otherwise the watcher idles with "no open brief".
+   dispatching** — never infer it from a schedule, a previous batch, or the time of day. **If they will want to *run* the batch, write `- integration: yes` into the record** (collect then builds the worktree).
+   **A shift brief** (`brief --new … --out` makes its shift issue; `--check`; push = launch): [`reference.md`](reference.md) "Launching a shift brief".
 3. Start one session per member, each carrying `/start_dev <path> --auto` plus
    the member-session contract below (the batch record informs a member of the
    shift's grant at leg 4, not the dispatch line). Spawn them if this harness
