@@ -83,7 +83,10 @@ In order:
    a live brief without `issue:`, and an expired CLI login (the human runs
    `claude /login`). **Pushing the brief is the launch**: the watcher finds it
    on Mind `origin/main` itself, ticks it from `dispatched:` to `review-at:`,
-   and stops 45 min after `review-at:`. Never two open briefs at once.
+   and stops 45 min after `review-at:`. Never two open briefs at once. It
+   reads the `origin/main` ref of the Mind checkout in its env file **without
+   fetching**, so push the brief from that checkout or `git fetch` it before
+   launch; otherwise the watcher idles with "no open brief".
 3. Start one session per member, each carrying `/start_dev <path> --auto` plus
    the member-session contract below (the batch record informs a member of the
    shift's grant at leg 4, not the dispatch line). Spawn them if this harness

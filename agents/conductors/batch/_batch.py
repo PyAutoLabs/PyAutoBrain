@@ -3494,29 +3494,38 @@ def _main_brief(mind: Path, a) -> int:
             print(f"batch brief --new: --issue {a.issue!r} is not a GitHub issue URL",
                   file=sys.stderr)
             return RC_USAGE
-        # The shift issue first (M3.6a, PyAutoBrain#659), so a failed create
-        # writes nothing — no brief, no heart-green draft. A file that already
-        # names one keeps it: a re-run never makes a second issue.
-        issue = a.issue.strip() or (_issue_in(Path(a.out)) if a.out else "")
-        if a.out and not issue and \
-                os.environ.get(BRIEF_ISSUE_ENV, "").strip().lower() != "off":
-            issue, why = create_shift_issue(mind, a.new, a.review_at)
-            if not issue:
-                print(f"batch brief --new: no shift issue, so nothing written — {why}. "
-                      "Pass --issue <url> to name one by hand.", file=sys.stderr)
-                return RC_FINDINGS
-            print(f"batch brief --new: made the shift issue {issue}", file=sys.stderr)
         heart = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or _green.DEFAULT_MODE,
                            preview=not a.out)
-        text = new_brief(mind, a.new, a.review_at, heart=heart, issue=issue)
         if heart["filed"]:
             print(f"batch brief --new: heart-green filed {len(heart['filed'])} "
                   f"draft(s) in {mind} (uncommitted — commit them with the "
                   "record): " + ", ".join(heart["filed"]), file=sys.stderr)
         for line in goals_report(mind):
             print(line, file=sys.stderr)
+        # The shift issue (M3.6a, PyAutoBrain#659) is made last, just before
+        # the write, so nothing that can still fail stands between the two. A
+        # file that already names one keeps it: a re-run never makes a second.
+        issue = a.issue.strip() or (_issue_in(Path(a.out)) if a.out else "")
+        made = False
+        if a.out and not issue and \
+                os.environ.get(BRIEF_ISSUE_ENV, "").strip().lower() != "off":
+            issue, why = create_shift_issue(mind, a.new, a.review_at)
+            if not issue:
+                print(f"batch brief --new: no shift issue, so no brief written — {why}. "
+                      "Pass --issue <url> to name one by hand.", file=sys.stderr)
+                return RC_FINDINGS
+            made = True
+            print(f"batch brief --new: made the shift issue {issue}", file=sys.stderr)
+        text = new_brief(mind, a.new, a.review_at, heart=heart, issue=issue)
         if a.out:
-            Path(a.out).write_text(text, encoding="utf-8")
+            try:
+                Path(a.out).write_text(text, encoding="utf-8")
+            except OSError as e:
+                hint = (f" The shift issue {issue} exists: re-run with `--issue {issue}` "
+                        "so no second one is made." if made else "")
+                print(f"batch brief --new: could not write {a.out} ({e}).{hint}",
+                      file=sys.stderr)
+                return RC_FINDINGS
             print(f"batch brief --new: wrote {a.out} "
                   f"({len(read_goals(mind))} goal(s) from goals.md)")
         else:

@@ -172,3 +172,18 @@ def test_check_refuses_on_expired_login(tmp_path, monkeypatch, capsys):
         '{"loggedIn": true, "loginExpiresAt": "2099-06-01T00:00:00.000Z"}\n')
     rc, out = _check(brief, mind, capsys)
     assert rc == 0, out
+
+
+def test_a_write_failure_after_the_issue_names_it_for_a_rerun(tmp_path, monkeypatch, capsys):
+    """The issue is made just before the write; if the write still fails, its
+    URL is printed so a re-run reuses it rather than making a second."""
+    monkeypatch.delenv("PYAUTO_BRIEF_ISSUE", raising=False)
+    mind = _mind(tmp_path)
+    log = _fake(tmp_path, monkeypatch, "gh", ISSUE + "\n")
+    out = tmp_path / "no-such-dir" / "2026-11-17-pm.md"
+    rc = _batch.main(["brief", "--new", "2026-11-17-pm", "--review-at", "2099-01-01T12:00Z",
+                      "--mind", str(mind), "--out", str(out)])
+    assert rc == _batch.RC_FINDINGS and not out.exists()
+    err = capsys.readouterr().err
+    assert ISSUE in err and f"--issue {ISSUE}" in err
+    assert len(_calls(log)) == 1

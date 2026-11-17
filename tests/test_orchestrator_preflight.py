@@ -216,3 +216,70 @@ def test_after_late_window_no_tick_and_lease_mtime_unchanged(tmp_path, monkeypat
     assert (slot / orch.LOG_FILE).read_text() == log_before
     assert not (slot / orch.LOCK_FILE).exists()
     json.dumps(r)
+
+
+# --- review findings (M3.6a, #659): the override and the end -------------------------
+
+def _names(paths) -> list[str]:
+    return [Path(p).stem for p in paths]
+
+
+def test_a_stale_override_in_its_late_window_does_not_displace_the_open_brief(tmp_path):
+    """The env file still names shift A, ended 10 min ago; shift B is open.
+    B is ticked, and A alongside it as one more late brief."""
+    _, mind = _origin(tmp_path, {
+        "2026-11-04-am": (NOW - 180 * MIN, NOW - 10 * MIN),
+        "2026-11-04-pm": (NOW - 5 * MIN, NOW + 180 * MIN)})
+    paths, why = orch.find_briefs(mind, NOW, override=mind / "batches" / "2026-11-04-am.md",
+                                  home=tmp_path / "home")
+    assert _names(paths) == ["2026-11-04-pm", "2026-11-04-am"], (paths, why)
+    # An override that is itself open still takes the open brief's place.
+    paths, _ = orch.find_briefs(mind, NOW, override=mind / "batches" / "2026-11-04-pm.md",
+                                home=tmp_path / "home")
+    assert _names(paths) == ["2026-11-04-pm", "2026-11-04-am"]
+
+
+def test_a_brief_past_its_late_window_is_caught_up_until_its_digest_is_out(tmp_path):
+    """The laptop was off through the late window: the digest is still owed,
+    so the brief is still ticked; once it is posted and nothing is owed, not."""
+    _, mind = _origin(tmp_path, {"2026-11-04-am": (NOW - 300 * MIN, NOW - 120 * MIN)})
+    home = tmp_path / "home"
+    slot = home / "2026-11-04-am"
+    (slot / "leases").mkdir(parents=True)
+    assert _names(orch.find_briefs(mind, NOW, home=home)[0]) == ["2026-11-04-am"]
+    (slot / orch.DIGEST_MARKER).write_text(json.dumps({"state": "failed", "tries": 1}))
+    assert _names(orch.find_briefs(mind, NOW, home=home)[0]) == ["2026-11-04-am"]
+    (slot / orch.DIGEST_MARKER).write_text(json.dumps({"state": "posted", "tries": 1}))
+    assert orch.find_briefs(mind, NOW, home=home)[0] == []
+    # A slot the watcher never touched is not caught up.
+    assert orch.find_briefs(mind, NOW, home=tmp_path / "other")[0] == []
+
+
+def _ended_shift(tmp_path, monkeypatch):
+    """Witness 5's shift: digest out at review-at, the worker still out."""
+    monkeypatch.setenv("PYAUTO_LOGIN_PROBE", "off")
+    mind, brief, home = d._shift(tmp_path)
+    claude = d.FakeClaude()
+    d._tick(brief, mind, home, NOW, claude)
+    slot = orch.slot_dir(brief, home)
+    review_at = _dt.datetime(2026, 11, 4, 11, 30, tzinfo=_dt.timezone.utc)
+    d._tick(brief, mind, home, review_at + MIN, claude, agents=d._agents({"t1": "working"}, slot))
+    return mind, brief, home, slot, claude, review_at
+
+
+def test_the_late_window_stop_waits_for_a_due_digest_retry(tmp_path, monkeypatch):
+    mind, brief, home, slot, claude, review_at = _ended_shift(tmp_path, monkeypatch)
+    (slot / orch.DIGEST_MARKER).write_text(json.dumps(
+        {"state": "failed", "tries": 1, "issue": "", "at": "2026-11-04T11:31:00Z"}))
+    r = d._tick(brief, mind, home, review_at + 46 * MIN, claude,
+                agents=d._agents({"t1": "working"}, slot))
+    assert "late window closed" not in str(r.get("reason")), r
+
+
+def test_the_late_window_stop_waits_for_a_queued_mind_op(tmp_path, monkeypatch):
+    mind, brief, home, slot, claude, review_at = _ended_shift(tmp_path, monkeypatch)
+    orch._mind_writer.queue_op(slot / orch._mind_writer.LEDGER_DIR,
+                               {"op": "append", "path": "batches/x.md", "text": "x"})
+    r = d._tick(brief, mind, home, review_at + 46 * MIN, claude,
+                agents=d._agents({"t1": "working"}, slot))
+    assert "late window closed" not in str(r.get("reason")), r

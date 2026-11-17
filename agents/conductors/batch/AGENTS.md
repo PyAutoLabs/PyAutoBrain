@@ -212,7 +212,9 @@ first makes the shift issue: one `gh issue create` on the Mind's `origin` repo
 chat, never in the watcher (AUTONOMY.md, the 2026-11-17 exception to "The
 Brain reads no network"). A file that already names an `issue:` keeps it, so
 a re-run never makes a second; `--issue <url>` names one by hand;
-`PYAUTO_BRIEF_ISSUE=off` skips it. If `gh` fails, nothing is written (exit 1).
+`PYAUTO_BRIEF_ISSUE=off` skips it. The issue is made last, just before the
+write: if `gh` fails, no brief is written (exit 1), and if the write fails
+after it, the URL is printed to re-run with `--issue <url>`.
 `brief --check` then adds what only a launch needs (`_brief.launch_errors`,
 `login_findings`): a live brief (not `shadow: yes`) without a GitHub issue URL
 is refused (`issue: missing — …`), and so is a CLI login that has expired
@@ -313,12 +315,19 @@ never a fetch), so only a pushed brief opens. It ticks the one open brief
 < + 45 min, for the digest and the late sweep). Two open briefs tick neither:
 the tick prints `idle: two open briefs on origin/main (a, b)`. A pushed brief
 missing from the checkout's working tree is not ticked (`pushed, but the Mind
-checkout is behind`). `--brief` or `$PYAUTO_SHIFT_BRIEF` is an override,
-honoured only inside that brief's window (`dispatched:` → `review-at:` + 45
-min); a stale one in the env file is ignored.
+checkout is behind`). A brief past its late window is still ticked, for up
+to a day, while its slot owes something (`late_owed`: no digest yet, a post
+retry due, a queued Mind op), so a laptop that was off catches up. The tick
+reads the local `origin/main` ref and never fetches it: the Mind checkout it
+reads must be fetched (or the brief pushed from it) before launch, or the
+tick idles `no open brief`. `--brief` or `$PYAUTO_SHIFT_BRIEF` is an override:
+while that brief is open it takes the open brief's place; in its late window
+it is one more late brief, ticked beside the open one; otherwise it is
+ignored, so a stale env file never displaces the next shift.
 
-**The end: `review-at:` + 45 min.** Once the digest is posted and the late
-window (`_brief.LATE_WINDOW_S`) has closed, a tick of that brief returns
+**The end: `review-at:` + 45 min.** Once the late window
+(`_brief.LATE_WINDOW_S`) has closed and nothing is owed (the digest posted, no
+post retry due, no queued Mind op), a tick of that brief returns
 `idle: late window closed at …` before the lock: no reap, no lease renewed, no
 `tick.log` line. A worker still out by then is in the digest, for the human.
 

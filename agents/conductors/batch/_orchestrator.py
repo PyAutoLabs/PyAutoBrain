@@ -1127,6 +1127,15 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
     return True, "open", rec["brief"]
 
 
+def late_owed(slot: Path) -> bool:
+    """What the watcher still owes a shift once its late window has closed
+    (M3.6a review): the digest not yet claimed, a digest or correction post
+    that failed with tries left, or a queued Mind op. Local reads only."""
+    slot = Path(slot)
+    return (not (slot / DIGEST_MARKER).exists() or post_due(slot / DIGEST_MARKER)
+            or post_due(slot / CORRECTION_MARKER) or bool(_mind_writer.pending_ops(slot)))
+
+
 def _late_closed(brief_path: Path, now: _dt.datetime) -> str:
     """When the late window closed (`review-at:` + `_brief.LATE_WINDOW_S`) as
     ISO, if it has; else "" (M3.6a, PyAutoBrain#659). Local reads only."""
@@ -1188,12 +1197,13 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 
     is_open, why, brief = brief_open(brief_path, mind, now)
     if not is_open:
-        # The late window has closed and the digest is out (M3.6a,
-        # PyAutoBrain#659): the shift is over for the watcher. No lock, no
-        # reap, no lease renewed, no log line — a worker still out is the
-        # human's, by the digest.
+        # The late window has closed and nothing is owed (M3.6a,
+        # PyAutoBrain#659): the digest is out with no retry due and no Mind op
+        # is queued. The shift is over for the watcher: no lock, no reap, no
+        # lease renewed, no log line — a worker still out is the human's, by
+        # the digest. Anything still owed is caught up first, below.
         closed = _late_closed(brief_path, now)
-        if closed and (slot / DIGEST_MARKER).exists():
+        if closed and not late_owed(slot):
             return {"action": "idle", "reason": f"late window closed at {closed} "
                                                 "(review-at + 45 min); the digest is posted"}
         if why.startswith("review-at") and (slot / "leases").is_dir() \
@@ -3547,47 +3557,73 @@ def shift_briefs(mind: Path, ref: str = ORIGIN_REF) -> list[dict] | None:
     return sorted(out, key=lambda b: b["name"])
 
 
-def _override_window(path: Path, now: _dt.datetime) -> bool:
-    """Whether an override brief (`--brief`, `$PYAUTO_SHIFT_BRIEF`) is inside
-    its own window: `dispatched:` to `review-at:` + the late window."""
+#: How long after `review-at:` + the late window a shift whose digest is still
+#: owed is caught up (the laptop was off through the late window). Bounded,
+#: so an old slot is never digested days later.
+CATCH_UP_S = 24 * 3600
+
+
+def _override_state(path: Path, now: _dt.datetime) -> str:
+    """Where an override brief (`--brief`, `$PYAUTO_SHIFT_BRIEF`) is in its own
+    window: "open" (`dispatched:` <= now < `review-at:`), "late" (to
+    `review-at:` + the late window), else ""."""
     try:
         top = _brief.parse(Path(path).read_text(encoding="utf-8"))["top"]
     except (OSError, _brief.BriefError):
-        return False
+        return ""
     start = _brief._iso((top.get("dispatched") or {}).get("value", ""))
     end = _brief._iso((top.get("review-at") or {}).get("value", ""))
-    return start is not None and end is not None and \
-        start <= now < end + _dt.timedelta(seconds=_brief.LATE_WINDOW_S)
+    if start is None or end is None or now < start:
+        return ""
+    if now < end:
+        return "open"
+    return "late" if now < end + _dt.timedelta(seconds=_brief.LATE_WINDOW_S) else ""
 
 
 def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
-                ref: str = ORIGIN_REF) -> tuple[list[Path], str]:
+                ref: str = ORIGIN_REF, home: Path | None = None) -> tuple[list[Path], str]:
     """(the brief files to tick, why something is not ticked).
 
     The one open brief on `ref` (`dispatched:` <= now < `review-at:`), then
     every late one (`review-at:` <= now < + 45 min, for its digest and late
-    sweep). Two open briefs tick neither: which grant holds is the human's
-    word, not the watcher's guess. A brief is ticked from Mind's working tree;
-    one pushed but missing there is named, not ticked. An override inside
-    its window takes the open brief's place."""
-    honoured = override is not None and _override_window(override, now)
+    sweep), then any past that window whose slot still has something owed
+    (`late_owed`: the laptop was off through the late window), up to
+    `CATCH_UP_S`. Two open briefs tick neither: which grant holds is the
+    human's word, not the watcher's guess. A brief is ticked from Mind's
+    working tree; one pushed but missing there is named, not ticked.
+
+    An override takes the open brief's place only while it is open itself;
+    in its late window it is one more late brief, ticked beside the open one
+    (M3.6a review: a stale env file must never displace the next shift)."""
+    state = _override_state(override, now) if override is not None else ""
     briefs = shift_briefs(mind, ref)
     if briefs is None:
-        if honoured:
+        if state:
             return [Path(override)], ""
         return [], f"no {ref} in {mind} to find the shift brief on"
+    home = home or orchestrator_home()
     late_s = _dt.timedelta(seconds=_brief.LATE_WINDOW_S)
+    catch_s = _dt.timedelta(seconds=CATCH_UP_S)
+    own = Path(override).stem if state else None
     opened = [b for b in briefs if b["dispatched"] <= now < b["review_at"]]
     late = [b for b in briefs if b["review_at"] <= now < b["review_at"] + late_s]
+    owed = [b for b in briefs if b["review_at"] + late_s <= now < b["review_at"] + late_s + catch_s
+            and (Path(home) / b["name"] / "leases").is_dir()
+            and late_owed(Path(home) / b["name"])]
     reasons: list[str] = []
-    paths: list[Path] = [Path(override)] if honoured else []
-    picks = late if honoured else (opened[:1] if len(opened) == 1 else []) + late
-    if not honoured and len(opened) > 1:
-        count = "two" if len(opened) == 2 else str(len(opened))
-        reasons.append(f"{count} open briefs on {ref} ("
-                       + ", ".join(b["name"] for b in opened) + ")")
+    first: list[Path] = []
+    if state == "open":
+        first.append(Path(override))
+        picks = late + owed
+    else:
+        if len(opened) > 1:
+            count = "two" if len(opened) == 2 else str(len(opened))
+            reasons.append(f"{count} open briefs on {ref} ("
+                           + ", ".join(b["name"] for b in opened) + ")")
+        picks = (opened if len(opened) == 1 else []) + late + owed
+    paths: list[Path] = []
     for b in picks:
-        if honoured and b["name"] == Path(override).stem:
+        if b["name"] == own:
             continue
         path = Path(mind) / b["rel"]
         if path.is_file():
@@ -3595,6 +3631,12 @@ def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
         else:
             reasons.append(f"{b['name']} is pushed, but the Mind checkout is behind "
                            f"(no {b['rel']} in {mind})")
+    if state == "late":
+        # After the open brief (if any), before the other late ones.
+        at = 1 if opened and len(opened) == 1 and paths and paths[0].stem == opened[0]["name"] \
+            else 0
+        paths.insert(at, Path(override))
+    paths = first + paths
     if not paths and not reasons:
         reasons.append(f"no open brief on {ref}")
     return paths, "; ".join(reasons)
@@ -3607,7 +3649,7 @@ def watch(mind: Path, *, home: Path | None = None, now: _dt.datetime | None = No
     none; else {"action": "watch", "ticked": {slot: tick result}} plus a
     `reason` for what was left out."""
     now = now or _now()
-    paths, why = find_briefs(mind, now, override=override)
+    paths, why = find_briefs(mind, now, override=override, home=home)
     out: dict = {"action": "watch", "ticked": {}}
     if override is not None and Path(override) not in paths:
         out["override"] = (f"{override} not honoured: outside its window "
