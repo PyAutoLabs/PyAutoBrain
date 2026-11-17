@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 
 MAX_BYTES = 8 * 1024 * 1024
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+# Broadcast categories carry no request, so they never owe a delivery update.
+BROADCAST = {"Announcements", "Show and tell"}
 
 
 def timestamp(value):
@@ -80,6 +82,7 @@ def validate(snapshot, state):
         if 'closed' in row and type(row['closed']) is not bool:
             raise ValueError('invalid closed state')
         validate_follow_up(row)
+        validate_close_due(row)
     validate_delivery(snapshot.get('follow_through', []), snapshot['conversations'])
 
 
@@ -104,6 +107,28 @@ def validate_follow_up(row):
         raise ValueError("inactive follow-up carries candidate")
     if row["awaiting_response"] is not f["review_needed"]:
         raise ValueError("inconsistent follow-up response")
+
+
+def validate_close_due(row):
+    """Optional Ears close-due observation (Mind policy/community_close_due.md)."""
+    if "close_due" not in row and "awaiting_contributor_since" not in row:
+        return
+    due, since = row.get("close_due"), row.get("awaiting_contributor_since")
+    if due is not None and type(due) is not bool:
+        raise ValueError("invalid close-due state")
+    if since is not None:
+        timestamp(since)
+    if due and (since is None or row.get("closed") or row["kind"] not in {"issue", "discussion"}):
+        raise ValueError("inconsistent close-due evidence")
+
+
+def settled_quiet(source):
+    """A settled thread Ears observed with no pending follow-up (incl. history).
+
+    A stale snapshot cannot add activity Ears never saw, so these stay quiet
+    rather than becoming unknown; only active or unknown candidates degrade.
+    """
+    return source.get("follow_up", {}).get("review_needed") is False
 
 
 def validate_delivery(rows, conversations):
@@ -162,16 +187,24 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
         # unknown; do not infer a last actor or fetch comments to fill them.
         since = source.get("waiting_since")
         row = {k: source[k] for k in ("repo", "number", "title", "author", "url", "category", "answered", "coverage", "cached")}
+        current_claim = not (stale or source["cached"]) or settled_quiet(source)
         row.update(type=source["kind"], closed=source.get('closed', False), labels=[], comments=None,
                    updated_at=None, last_actor=None,
-                   awaiting_response=None if stale or source["cached"] else source["awaiting_response"],
+                   awaiting_response=source["awaiting_response"] if current_claim else None,
                    waiting_days=round(max(0, (generated - timestamp(since)).total_seconds()) / 86400, 1) if since else None,
                    review_requested=source["review_requested"],
                    observed_awaiting_response=source["awaiting_response"])
         if "follow_up" in source:
             row["follow_up"] = dict(source["follow_up"],
-                                    review_needed=None if stale or source["cached"] else source["follow_up"]["review_needed"])
+                                    review_needed=source["follow_up"]["review_needed"] if current_claim else None)
             row["observed_follow_up"] = source["follow_up"]
+        if source.get("historical_follow_up_at"):
+            row["historical_follow_up_at"] = source["historical_follow_up_at"]
+        if "close_due" in source:
+            # Passed through as observed; the session re-reads each thread
+            # before posting, so a stale snapshot only needs a refresh first.
+            row["close_due"] = source["close_due"]
+            row["awaiting_contributor_since"] = source["awaiting_contributor_since"]
         rows.append(row)
     discussions = [r for r in rows if r["type"] == "discussion" and not r['closed']]
     issues = [r for r in rows if r["type"] == "issue" and not r["closed"]
@@ -183,10 +216,15 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
     unknown = sum(r["awaiting_response"] is None or r["coverage"] != "complete" for r in rows)
     if unknown:
         degraded.append(f"Ears: {unknown} conversation(s) with unknown response state or incomplete coverage")
+    categories = {r["url"]: r["category"] for r in rows}
     delivery = [dict(r, observed_state=r['state'],
                      state='unknown' if stale else r['state'],
                      update_owed=None if stale else r['update_owed'])
                 for r in snapshot.get('follow_through', [])]
+    # Announcements and Show and tell never carry delivery work; their
+    # "unknown" rows are noise, not a coverage gap.
+    delivery = [r for r in delivery
+                if not (r['state'] == 'unknown' and categories.get(r['discussion']) in BROADCAST)]
     if any(r['state'] == 'unknown' for r in delivery):
         degraded.append('Delivery evidence is incomplete; unknown is not delivered')
     return {
@@ -201,6 +239,9 @@ def adapt(snapshot, state, self_logins, org, hub, current=None):
         "stale": stale, "source": "ears", "coverage": receipts,
         "follow_through": delivery,
         "follow_up_review": [r for r in rows if "follow_up" in r and r["follow_up"]["review_needed"] is not False],
+        "historical_follow_up": sum(bool(r.get("historical_follow_up_at")) for r in rows),
+        "close_due": sorted([r for r in rows if r.get("close_due") is True],
+                            key=lambda r: r["awaiting_contributor_since"]),
         "valid_until": state["valid_until"],
         "next_action": "Use community triage <ref> to assess context and draft a reply for human approval; this surface posts nothing",
     }

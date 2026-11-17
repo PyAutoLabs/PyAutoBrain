@@ -106,6 +106,35 @@ never post or promise a release automatically, and never reopen a settled
 Discussion because implementation continued. Follow Ears' REFERENCE.md for
 explicit maintainer `Delivery-*` evidence links; these are links, not task state.
 
+## Close due
+
+A thread where we spoke last and the contributor has been silent for 21 days
+is closed with a standard message. The rule and the message are in
+`PyAutoMind/policy/community_close_due.md`; it never applies to a thread
+waiting on us.
+
+1. The scan's **Close due (21d)** section lists Ears' `close_due` candidates,
+   each with the message prefilled (`close_message` in `--json`). A stale
+   snapshot needs a refresh, or a re-read of each thread, before posting.
+2. Read each thread. Drop any where our last comment did not ask the
+   contributor for something (an accepted idea, "we'll look at this"). Fill in
+   `<context>` and `<with what we asked for>`.
+3. Present the batch; the human approves it once for the session.
+4. Post and close each one from a local CLI:
+   - Discussion: get the node id, then
+
+     ```bash
+     gh api graphql -f query='mutation($d: ID!, $b: String!) {
+       addDiscussionComment(input:{discussionId:$d, body:$b}) { comment { url } } }' \
+       -f d=<discussion id> -f b="$(cat message.md)"
+     gh api graphql -f query='mutation { closeDiscussion(input:{discussionId:"<discussion id>", reason:OUTDATED}) {
+       discussion { closed stateReason } } }'
+     ```
+
+   - Issue: `gh issue close <n> -R <owner/repo> --reason "not planned" --comment "$(cat message.md)"`
+
+No Action or timer closes threads, and nothing is posted without that approval.
+
 ## Boundary
 
 - **Hears and drafts; the human speaks.** Every outward message is presented
