@@ -56,6 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
 import _green  # noqa: E402 — the keep-Heart-green lane (PyAutoBrain#625)
+import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
 # The human's goals (goals.md, PyAutoMind#565): `brief --new` copies them.
 from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
 # The close-out guard's reader (intake `looks-shipped`): the live flags minus
@@ -2966,6 +2967,11 @@ def main(argv=None) -> int:
                          "--mind")
     ap.add_argument("--green-cap", type=int, default=_green.DEFAULT_CAP,
                     help="brief --new / green: at most this many new drafts")
+    ap.add_argument("--issue", default="", metavar="URL",
+                    help="brief --new: the shift issue to write as `issue:` instead "
+                         "of creating one (with --out, `brief --new` makes one "
+                         "`gh issue create` on PyAutoMind unless this is given or "
+                         "$PYAUTO_BRIEF_ISSUE=off)")
     ap.add_argument("--heart-json", default="", metavar="FILE",
                     help="brief --new / green: read this saved `readiness --json` "
                          "or state.json instead of Heart (a replay; --at sets now)")
@@ -3315,7 +3321,7 @@ def goals_report(mind: Path) -> list[str]:
 
 
 def new_brief(mind: Path, slot: str, review_at: str, now=None,
-              heart: dict | None = None) -> str:
+              heart: dict | None = None, issue: str = "") -> str:
     """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
 
     `goals.md` has one kind of writer, the human (by hand or in chat), so
@@ -3327,7 +3333,10 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
 
     `heart` is the keep-Heart-green lane's result (`_green.run`): its picks
     become a last `heart-green` goal plus named `tasks:`, and its report the
-    record's `## Heart` section (PyAutoBrain#625)."""
+    record's `## Heart` section (PyAutoBrain#625).
+
+    `issue` is the shift issue (`create_shift_issue`), written as `issue:`
+    (M3.6a, PyAutoBrain#659): `brief --check` refuses a live brief without it."""
     goals = read_goals(mind)
     now = now or _dt.datetime.now(_dt.timezone.utc)
     epics: list[str] = []
@@ -3339,9 +3348,11 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
     L = [f"# Batch {slot.rsplit('-', 1)[0]} {slot.rsplit('-', 1)[-1]}",
          f"- dispatched: {now.strftime('%Y-%m-%dT%H:%MZ')}",
          f"- review-at: {review_at}",
-         f"- shift: {shift}",
-         "- brief:",
-         "  - goals:                          # from goals.md, in order"]
+         f"- shift: {shift}"]
+    if issue:
+        L.append(f"- issue: {issue}")
+    L += ["- brief:",
+          "  - goals:                          # from goals.md, in order"]
     # A goal is one line of plain text (goals.md's own check); ` # ` would
     # read as a trailing comment here, so it is spelled out.
     L += [f"    - {g['n']}. " + re.sub(r"\s#\s", " no. ", g["text"]) for g in goals]
@@ -3367,6 +3378,80 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
           f"  - token-budget: {NEW_BRIEF_DEFAULTS['token-budget']}"]
     text = "\n".join(L) + "\n"
     return text + "\n" + _green.section(heart) if heart else text
+
+
+#: `PYAUTO_BRIEF_ISSUE=off`: `brief --new --out` makes no shift issue.
+BRIEF_ISSUE_ENV = "PYAUTO_BRIEF_ISSUE"
+_GITHUB_REMOTE_RE = re.compile(r"github\.com[:/]([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
+
+
+def mind_repo(mind: Path) -> str:
+    """`owner/repo` of the Mind checkout's `origin` on GitHub, or ""."""
+    try:
+        res = subprocess.run(["git", "-C", str(mind), "remote", "get-url", "origin"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    m = _GITHUB_REMOTE_RE.search(res.stdout.strip()) if res.returncode == 0 else None
+    return f"{m.group(1)}/{m.group(2)}" if m else ""
+
+
+def create_shift_issue(mind: Path, slot: str, review_at: str, run=None) -> tuple[str, str]:
+    """(issue URL, "") or ("", why not): the one `gh issue create` on the Mind
+    repo that `brief --new --out` makes (M3.6a, PyAutoBrain#659; AUTONOMY.md
+    "The Brain reads no network", the 2026-11-17 exception). It runs in the
+    launch chat, never in the watcher."""
+    repo = mind_repo(mind)
+    if not repo:
+        return "", f"no GitHub `origin` remote in {mind} to make the shift issue on"
+    body = (f"The shift issue for `batches/{slot}.md` (review at {review_at}).\n\n"
+            "The watcher keeps one live status comment here, reads the steering "
+            "commands (`/pause`, `/resume`, `/drop`, `/stop`, `/add`, `/cap`, `/kill`) "
+            "from comments here, and posts the digest here at `review-at:`.\n")
+    run = run or subprocess.run
+    try:
+        res = run(["gh", "issue", "create", "--repo", repo,
+                   "--title", f"Shift {slot} (review at {review_at})", "--body", body],
+                  capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", f"gh issue create failed ({e})"
+    m = _brief.ISSUE_RE.search(res.stdout or "") if res.returncode == 0 else None
+    if not m:
+        return "", (f"gh issue create on {repo} failed (exit {res.returncode}): "
+                    + ((res.stderr or res.stdout or "").strip()[:200] or "no issue URL"))
+    return m.group(0), ""
+
+
+def _issue_in(path: Path) -> str:
+    """The `issue:` an existing brief file already names, or ""."""
+    try:
+        top = _brief.parse(path.read_text(encoding="utf-8", errors="replace"))["top"]
+    except (OSError, _brief.BriefError):
+        return ""
+    return (top.get("issue") or {}).get("value", "").strip()
+
+
+def login_findings(top: dict, brief: dict | None) -> tuple[dict, list[str], list[str]]:
+    """(probe result, errors, warnings) of the CLI login for a launch (M3.6a):
+    an expired login, or one that lapses before `review-at:`, refuses it. A
+    shadow brief starts no worker and is not probed."""
+    if brief is None or _brief.is_shadow(brief):
+        return {"state": "skipped", "detail": "shadow shift", "expires_at": ""}, [], []
+    login = _login.probe()
+    errors, warnings = [], []
+    if login["state"] == "expired":
+        errors.append(f"login: {_login.EXPIRED_LINE} ({login['detail']})")
+    elif login["state"] == "unknown":
+        warnings.append(f"login: could not tell whether the CLI login holds "
+                        f"({login['detail']})")
+    elif login["state"] == "ok":
+        review_at = _brief._iso((top.get("review-at") or {}).get("value", ""))
+        lapses = _login.expires(login)
+        if review_at is not None and lapses is not None and lapses < review_at:
+            errors.append(f"login: the CLI login expires at {login['expires_at']}, before "
+                          f"review-at {top['review-at']['value']} — run `claude /login` "
+                          "before the launch")
+    return login, errors, warnings
 
 
 def goal_one_warning(path: Path, mind: Path) -> str:
@@ -3405,17 +3490,42 @@ def _main_brief(mind: Path, a) -> int:
             print("batch brief --new: --review-at <ISO time> is required — the "
                   "grant expires there, and it is yours to declare", file=sys.stderr)
             return RC_USAGE
+        if a.issue and not _brief.ISSUE_RE.fullmatch(a.issue.strip()):
+            print(f"batch brief --new: --issue {a.issue!r} is not a GitHub issue URL",
+                  file=sys.stderr)
+            return RC_USAGE
         heart = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or _green.DEFAULT_MODE,
                            preview=not a.out)
-        text = new_brief(mind, a.new, a.review_at, heart=heart)
         if heart["filed"]:
             print(f"batch brief --new: heart-green filed {len(heart['filed'])} "
                   f"draft(s) in {mind} (uncommitted — commit them with the "
                   "record): " + ", ".join(heart["filed"]), file=sys.stderr)
         for line in goals_report(mind):
             print(line, file=sys.stderr)
+        # The shift issue (M3.6a, PyAutoBrain#659) is made last, just before
+        # the write, so nothing that can still fail stands between the two. A
+        # file that already names one keeps it: a re-run never makes a second.
+        issue = a.issue.strip() or (_issue_in(Path(a.out)) if a.out else "")
+        made = False
+        if a.out and not issue and \
+                os.environ.get(BRIEF_ISSUE_ENV, "").strip().lower() != "off":
+            issue, why = create_shift_issue(mind, a.new, a.review_at)
+            if not issue:
+                print(f"batch brief --new: no shift issue, so no brief written — {why}. "
+                      "Pass --issue <url> to name one by hand.", file=sys.stderr)
+                return RC_FINDINGS
+            made = True
+            print(f"batch brief --new: made the shift issue {issue}", file=sys.stderr)
+        text = new_brief(mind, a.new, a.review_at, heart=heart, issue=issue)
         if a.out:
-            Path(a.out).write_text(text, encoding="utf-8")
+            try:
+                Path(a.out).write_text(text, encoding="utf-8")
+            except OSError as e:
+                hint = (f" The shift issue {issue} exists: re-run with `--issue {issue}` "
+                        "so no second one is made." if made else "")
+                print(f"batch brief --new: could not write {a.out} ({e}).{hint}",
+                      file=sys.stderr)
+                return RC_FINDINGS
             print(f"batch brief --new: wrote {a.out} "
                   f"({len(read_goals(mind))} goal(s) from goals.md)")
         else:
@@ -3429,6 +3539,19 @@ def _main_brief(mind: Path, a) -> int:
               "(the digest is `batch digest --record <file>`)", file=sys.stderr)
         return RC_USAGE
     res = _brief.check(Path(a.check), mind)
+    # What only a launch needs (M3.6a, PyAutoBrain#659): the shift issue, and a
+    # CLI login that holds until review-at. `_brief.check` stays the watcher's.
+    try:
+        rec = _brief.parse(Path(a.check).read_text(encoding="utf-8", errors="replace"))
+    except (OSError, _brief.BriefError):
+        rec = None
+    if rec is not None:
+        res["errors"] += _brief.launch_errors(rec["top"], rec["brief"])
+        login, errs, warns = login_findings(rec["top"], rec["brief"])
+        res["login"] = login
+        res["errors"] += errs
+        res["warnings"] += warns
+        res["ok"] = not res["errors"]
     warn = goal_one_warning(Path(a.check), mind)
     if warn:
         res["warnings"].append(warn)

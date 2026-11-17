@@ -38,6 +38,12 @@ SELF_ORGANS = ("PyAutoBrain", "PyAutoMind", "PyAutoHands")
 #: The one size `backlog: scoped` may dip beyond `queue.md` (human ruling
 #: 2026-11-16, PyAutoBrain#637, item 6): small and single-repo only.
 SCOPED_REACH_DIFFICULTY = "small"
+#: The late window (human ruling H2): the watcher's digest and late sweep run
+#: from `review-at:` to this long after it, and then it stops ticking the slot
+#: (M3.6a, PyAutoBrain#659). `batch watch --stream` ends at the same time.
+LATE_WINDOW_S = 45 * 60
+#: A shift issue: the brief's `issue:` value (M3.6a).
+ISSUE_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 
 _ITEM_RE = re.compile(r"^(\s*)-\s+(.*?)\s*$")
 _KEY_RE = re.compile(r"^([a-z][a-z0-9-]*):\s*(.*)$")
@@ -379,6 +385,23 @@ def check(path: Path, mind: Path) -> dict:
     errors += _digest.validate(path.read_text(encoding="utf-8", errors="replace"))
 
     return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+def launch_errors(top: dict, brief: dict | None) -> list[str]:
+    """What only a launch needs (M3.6a, PyAutoBrain#659): `batch brief --check`
+    adds these to `check`; the watcher does not. A live brief (not `shadow:
+    yes`) needs its shift issue: the status comment, the steering commands and
+    the digest all go there, and shift 2026-11-16-pm had none."""
+    if brief is None or is_shadow(brief):
+        return []
+    issue = (top.get("issue") or {}).get("value", "").strip()
+    if not issue:
+        return ["issue: missing — a live brief needs its shift issue "
+                "(batch brief --new creates it)"]
+    if not ISSUE_RE.fullmatch(issue):
+        return [f"issue: {issue!r} is not a GitHub issue URL — a live brief needs its "
+                "shift issue (batch brief --new creates it)"]
+    return []
 
 
 # --- scope ---------------------------------------------------------------------

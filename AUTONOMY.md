@@ -804,6 +804,19 @@ not open.
 scoped` dip takes `queue.md` first, then only `Difficulty: small` single-repo
 backlog tasks; anything bigger must be queued by the human.
 
+**Launch preflight — 2026-11-17 (M3.6a, PyAutoBrain#659), approved by the
+human.** A live brief (not `shadow: yes`) names its shift **`issue:`**: `batch
+brief --new --out` creates it on PyAutoMind and writes it, and `batch brief
+--check` refuses a live brief without it, and refuses the launch while the CLI
+login has expired or expires before `review-at:`. **Only a pushed brief
+opens:** the watcher finds the brief itself on Mind `origin/main`, read
+locally and never fetched for this, taking the one whose `dispatched:` has
+passed and whose `review-at:` has not. Two open briefs grant nothing: the
+watcher idles and says so. `PYAUTO_SHIFT_BRIEF` (or `--brief`) is only an
+override, honoured inside that brief's own window. **The watcher's part in a
+shift ends at `review-at:` + 45 min:** once the digest is posted and that late
+window has closed, it stops ticking the slot and renews no lease.
+
 *Revert condition:* one dispatch found outside a brief's scope returns batching
 to per-task `--auto` until the cause is found.
 
@@ -1054,6 +1067,8 @@ The questions inbox (M3.5, PyAutoBrain#645) changes the watcher's surface by:
 The revert condition also covers these: an @mention for a parked question,
 or any read of `questions.md` other than that local one, retires the watcher
 to fake mode.
+
+**Login probe — 2026-11-17.** The watcher runs `claude auth status --json` (local, no model call) on a shift's first tick and when a worker shows as blocked. `loggedIn: false`, or a `loginExpiresAt` already passed, is a `login-expired` event, never "blocked on a person", and no worker starts until it passes.
 
 ## Human override for Heart RED (development only)
 
@@ -1317,6 +1332,8 @@ Codex hook list.
   opt-in through a human-installed timer and laptop-only; the full terms and
   their revert condition are "The watcher's network surface — 2026-11-03"
   above.
+
+  A fourth exception, added 2026-11-17: `batch brief --new --out <file>` makes one `gh issue create` on PyAutoMind for the shift issue and writes its URL as `issue:`. It runs in the launch chat, never in the watcher; `--issue <url>` or `PYAUTO_BRIEF_ISSUE=off` skips it.
 
   Any *further* network surface in the Brain is a new decision, not covered by
   this line.

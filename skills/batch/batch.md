@@ -74,9 +74,8 @@ In order:
    `expected-effects:` and **`review-at:`** — **before** any session starts;
    that file makes the launch auditable. `review-at:` is when the human expects
    to be back and where the grant expires: **if they did not say, ask before
-   dispatching** — never infer it from a schedule, a previous batch, or the
-   time of day. **If they will want to *run* the batch, write
-   `- integration: yes` into the record** (collect then builds the worktree).
+   dispatching** — never infer it from a schedule, a previous batch, or the time of day. **If they will want to *run* the batch, write `- integration: yes` into the record** (collect then builds the worktree).
+   **A shift brief** (`brief --new … --out` makes its shift issue; `--check`; push = launch): [`reference.md`](reference.md) "Launching a shift brief".
 3. Start one session per member, each carrying `/start_dev <path> --auto` plus
    the member-session contract below (the batch record informs a member of the
    shift's grant at leg 4, not the dispatch line). Spawn them if this harness
@@ -97,7 +96,7 @@ In order:
 5. Confirm what was dispatched, and stop. Do not follow the runs.
 
 **Brief verbs** (`batch brief --check`, `batch plan --brief`, `batch digest`):
-[`reference.md`](reference.md). Run the check before writing a brief's `review-at:`. `brief --new` also runs the keep-Heart-green lane: a `## Heart` section and up to 3 bug drafts for fixable Heart reasons (only with `--out` and a non-shared `--mind`; named as tasks only with `--green pick`); it never releases (`batch green` = dry run; `agents/conductors/batch/AGENTS.md`).
+[`reference.md`](reference.md). Run the check before pushing a brief; it refuses a live brief without `issue:` or with an expired CLI login. `brief --new` also runs the keep-Heart-green lane: a `## Heart` section and up to 3 bug drafts for fixable Heart reasons (only with `--out` and a non-shared `--mind`; named as tasks only with `--green pick`); it never releases (`batch green` = dry run; `agents/conductors/batch/AGENTS.md`).
 
 ## The watcher (phases 3a–3d)
 

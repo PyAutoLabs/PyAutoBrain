@@ -28,6 +28,7 @@ import re
 from pathlib import Path
 
 import _digest  # noqa: E402 — the batch conductor puts this directory on sys.path
+import _login  # noqa: E402 — its wording only; the probe runs in the tick, not here
 
 EVENTS_FILE = "events.jsonl"
 STATE_FILE = "events.state.json"
@@ -48,7 +49,7 @@ UNREAD_TICKS = 3
 KINDS = ("shift-open", "spawned", "redispatched", "crashed", "pr-opened", "finished",
          "question", "parked", "ci", "closeout-started", "merged", "merged-outside",
          "refused", "cap", "steer", "steer-unread", "impaired", "late", "digest",
-         "stopped", "shift-end")
+         "stopped", "shift-end", "login-expired")
 #: The kinds after which the stream has nothing more to follow.
 FINAL_KINDS = ("shift-end", "stopped")
 
@@ -392,6 +393,18 @@ def _impaired(b: _Batch, result: dict) -> None:
                   f"Mind write {word}: {op}, {why}.", needs_you=True)
 
 
+def _login_expired(b: _Batch, result: dict) -> None:
+    """The CLI login has expired (M3.6a, PyAutoBrain#659): its own needs-you
+    event, once per episode (keyed by when the tick first saw it) — never read
+    as a worker blocked on a person."""
+    login = result.get("login") or {}
+    if login.get("state") != "expired":
+        return
+    since = login.get("since") or login.get("at") or b.now.isoformat()
+    b.add("login-expired", f"login-expired:{since}",
+          _login.EXPIRED_LINE + ". No worker starts until it passes.", needs_you=True)
+
+
 def _late(b: _Batch, result: dict) -> None:
     for line in result.get("late") or []:
         text = _LATE_TAIL_RE.sub("", str(line).removeprefix("- late: ").strip())
@@ -449,6 +462,7 @@ def record_tick(slot: Path, now: _dt.datetime, result: dict, counters: dict | No
     _spawned(b, result, counters)
     _refused(b, result)
     _impaired(b, result)
+    _login_expired(b, result)
     _late(b, result)
     if action in ("ticked", "shadow", "stopped"):
         if counters.get("commands_unread"):

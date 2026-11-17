@@ -80,9 +80,12 @@ def test_new_prefills_goals_and_passes_check(tmp_path, capsys):
     mind = _mind(tmp_path)
     out = tmp_path / "brief.md"
     rc = _batch.main(["brief", "--new", "2026-11-14-am", "--review-at",
-                      "2099-01-01T12:00Z", "--mind", str(mind), "--out", str(out)])
+                      "2099-01-01T12:00Z", "--mind", str(mind), "--out", str(out),
+                      "--issue", "https://github.com/example-org/PyAutoMind/issues/1"])
     assert rc == 0
     text = out.read_text()
+    # A live brief needs its shift issue (M3.6a, PyAutoBrain#659).
+    assert "- issue: https://github.com/example-org/PyAutoMind/issues/1\n" in text
     assert ("  - goals:" in text and "    - 1. Land the flywheel rework\n"
             "    - 2. Clear review-ready PRs\n" in text)
     assert "  - backlog: scoped" in text
@@ -147,7 +150,8 @@ def test_new_needs_a_slot_and_a_review_at(tmp_path):
 def test_check_warns_when_goal_one_is_missing_from_the_brief(tmp_path, capsys):
     mind = _mind(tmp_path)
     out = tmp_path / "brief.md"
-    text = _batch.new_brief(mind, "2026-11-14-am", "2099-01-01T12:00Z")
+    text = _batch.new_brief(mind, "2026-11-14-am", "2099-01-01T12:00Z",
+                            issue="https://github.com/example-org/PyAutoMind/issues/1")
     out.write_text(text.replace("1. Land the flywheel rework", "1. Something else"))
     assert _batch.main(["brief", "--check", str(out), "--mind", str(mind),
                         "--no-premise"]) == 0

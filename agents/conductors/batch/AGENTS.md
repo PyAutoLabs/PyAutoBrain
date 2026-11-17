@@ -206,6 +206,24 @@ is copied as their word; `--new` also prints on stderr how the goals changed
 since the newest brief. `brief --check` warns when `goals.md`'s goal 1 is
 missing from a brief (PyAutoMind#565; readers in `_steer.py`).
 
+**The launch preflight (M3.6a, PyAutoBrain#659).** With `--out`, `brief --new`
+first makes the shift issue: one `gh issue create` on the Mind's `origin` repo
+(`create_shift_issue`), written as `- issue: <url>`. It runs in the launch
+chat, never in the watcher (AUTONOMY.md, the 2026-11-17 exception to "The
+Brain reads no network"). A file that already names an `issue:` keeps it, so
+a re-run never makes a second; `--issue <url>` names one by hand;
+`PYAUTO_BRIEF_ISSUE=off` skips it. The issue is made last, just before the
+write: if `gh` fails, no brief is written (exit 1), and if the write fails
+after it, the URL is printed to re-run with `--issue <url>`.
+`brief --check` then adds what only a launch needs (`_brief.launch_errors`,
+`login_findings`): a live brief (not `shadow: yes`) without a GitHub issue URL
+is refused (`issue: missing — …`), and so is a CLI login that has expired
+("login: CLI login expired: run `claude /login`") or that expires before
+`review-at:`. The login is read by `_login.probe`: `claude auth status
+--json` (`loggedIn`, `loginExpiresAt`), no model call; a probe that cannot
+tell only warns, and `PYAUTO_LOGIN_PROBE=off` skips it. `_brief.check` itself
+is unchanged: the watcher's open-brief gate does not require `issue:`.
+
 ## The keep-Heart-green lane (`_green.py`, PyAutoBrain#625)
 
 The human, 2026-11-13: "having the autonomous agent constantly trying to
@@ -258,8 +276,8 @@ pin that and record every process a full brief run starts.
 
 ## The watcher (phases 3a–3d)
 
-`bin/orchestrator_watch.py --brief <record> --mind <PyAutoMind>` runs **one
-tick**: `STOP` first, then the open-brief gate, the tick lock, the lease reap,
+`bin/orchestrator_watch.py --mind <PyAutoMind>` finds the brief and runs **one
+tick** of it (finding it is below, "Which brief"); `STOP` first, then the open-brief gate, the tick lock, the lease reap,
 the plan inside the brief, the caps (`max-workers:`, default 4;
 `max-sessions:`, default 8) and an exclusive-create lease per spawn. The plan
 is checked against Mind `origin/main` (#632): a draft not under its `draft/` or
@@ -289,6 +307,41 @@ be landed early. Until 2026-11-05 the gate ignored `dispatched:` and a brief
 opened the moment it landed (pilot shadow shift 1 opened a day early;
 PyAutoBrain#589). `batch watch` says `not yet open — opens in …` before the
 start.
+
+**Which brief (M3.6a, PyAutoBrain#659).** The watcher reads the briefs itself
+from Mind `origin/main` (`shift_briefs`: a local `git ls-tree` / `git show`,
+never a fetch), so only a pushed brief opens. It ticks the one open brief
+(`dispatched:` <= now < `review-at:`) and every late one (`review-at:` <= now
+< + 45 min, for the digest and the late sweep). Two open briefs tick neither:
+the tick prints `idle: two open briefs on origin/main (a, b)`. A pushed brief
+missing from the checkout's working tree is not ticked (`pushed, but the Mind
+checkout is behind`). A brief past its late window is still ticked, for up
+to a day, while its slot owes something (`late_owed`: no digest yet, a post
+retry due, a queued Mind op), so a laptop that was off catches up. Past that
+day it is not ticked again; the first tick after says once (`abandoned: <slot>
+past catch-up (<what it owes>; N leases)`, marker `abandoned.noted`) so the
+human runs `batch digest` and closes it by hand. The tick
+reads the local `origin/main` ref and never fetches it: the Mind checkout it
+reads must be fetched (or the brief pushed from it) before launch, or the
+tick idles `no open brief`. `--brief` or `$PYAUTO_SHIFT_BRIEF` is an override:
+while that brief is open it takes the open brief's place; in its late window
+it is one more late brief, ticked beside the open one; otherwise it is
+ignored, so a stale env file never displaces the next shift.
+
+**The end: `review-at:` + 45 min.** Once the late window
+(`_brief.LATE_WINDOW_S`) has closed and nothing is owed (the digest posted, no
+post retry due, no queued Mind op), a tick of that brief returns
+`idle: late window closed at …` before the lock: no reap, no lease renewed, no
+`tick.log` line. A worker still out by then is in the digest, for the human.
+
+**The login hold.** A real spawner probes the CLI login (`_login.probe`) when a
+member waits to start and the last probe was not `ok` (the shift's first
+spawning tick, and each tick after an expiry), and again whenever a worker
+shows `blocked`. An expired login holds every spawn and is its own
+`login-expired` event ("CLI login expired: run `claude /login`. No worker
+starts until it passes."), a needs-you comment on the shift issue, never a
+worker "blocked on a person". It is kept in `counters["login"]` and in the
+tick's result.
 
 **Real workers (phase 3b).** Without `PYAUTO_ORCHESTRATOR_FAKE=1` each spawn is
 `claude --bg --name shift:<task> --permission-mode <worker-mode> <prompt>`, the
@@ -622,8 +675,9 @@ workers are ever launched there.
 
 **Installing the timer is the human's act** — no session runs these. Copy
 `bin/systemd/pyauto-orchestrator.{service,timer}` to `~/.config/systemd/user/`,
-write `~/.config/pyauto/orchestrator.env` with `PYAUTO_BRAIN`, `PYAUTO_MIND`,
-`PYAUTO_SHIFT_BRIEF` (and `PYAUTO_ORCHESTRATOR_FAKE=1` until 3b), then
+write `~/.config/pyauto/orchestrator.env` with `PYAUTO_BRAIN`, `PYAUTO_MIND`
+(and `PYAUTO_ORCHESTRATOR_FAKE=1` until 3b; `PYAUTO_SHIFT_BRIEF` only as an
+override, see "Which brief"), then
 `systemctl --user daemon-reload && systemctl --user enable --now
 pyauto-orchestrator.timer`. The service carries `KillMode=process`: under the
 default (`control-group`) systemd killed every process a tick started when the

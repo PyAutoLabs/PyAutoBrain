@@ -50,6 +50,7 @@ import _app_token  # noqa: E402 — the batch conductor puts this directory on s
 import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _events  # noqa: E402
+import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
 import _merge_slots  # noqa: E402 — one merge-cap count per shift (R3, #661)
 import _mind_writer  # noqa: E402
 import _questions  # noqa: E402
@@ -1127,6 +1128,29 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
     return True, "open", rec["brief"]
 
 
+def late_owed(slot: Path) -> bool:
+    """What the watcher still owes a shift once its late window has closed
+    (M3.6a review): the digest not yet claimed, a digest or correction post
+    that failed with tries left, or a queued Mind op. Local reads only."""
+    slot = Path(slot)
+    return (not (slot / DIGEST_MARKER).exists() or post_due(slot / DIGEST_MARKER)
+            or post_due(slot / CORRECTION_MARKER) or bool(_mind_writer.pending_ops(slot)))
+
+
+def _late_closed(brief_path: Path, now: _dt.datetime) -> str:
+    """When the late window closed (`review-at:` + `_brief.LATE_WINDOW_S`) as
+    ISO, if it has; else "" (M3.6a, PyAutoBrain#659). Local reads only."""
+    try:
+        top = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))["top"]
+    except (OSError, _brief.BriefError):
+        return ""
+    at = _brief._iso((top.get("review-at") or {}).get("value", ""))
+    if at is None:
+        return ""
+    closes = at + _dt.timedelta(seconds=_brief.LATE_WINDOW_S)
+    return _iso(closes) if now >= closes else ""
+
+
 def _default_pr_state():
     """GitHub's word on a PR at `review-at:` — none asked in a dry shift."""
     return FakeSpawner().pr_state if os.environ.get(FAKE_ENV) == "1" else gh_pr_state
@@ -1174,6 +1198,15 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 
     is_open, why, brief = brief_open(brief_path, mind, now)
     if not is_open:
+        # The late window has closed and nothing is owed (M3.6a,
+        # PyAutoBrain#659): the digest is out with no retry due and no Mind op
+        # is queued. The shift is over for the watcher: no lock, no reap, no
+        # lease renewed, no log line — a worker still out is the human's, by
+        # the digest. Anything still owed is caught up first, below.
+        closed = _late_closed(brief_path, now)
+        if closed and not late_owed(slot):
+            return {"action": "idle", "reason": f"late window closed at {closed} "
+                                                "(review-at + 45 min); the digest is posted"}
         if why.startswith("review-at") and (slot / "leases").is_dir() \
                 and not (slot / DIGEST_MARKER).exists():
             if not _take_lock(slot, now):
@@ -1733,7 +1766,11 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     # worker slot a killed task is waiting for.
     members = sorted(d["members"],
                      key=lambda m: task_id(m["path"]) not in counters["pending_redispatch"])
-    for member in [] if paused else members:
+    # The CLI login (M3.6a, #659): an expired one holds every spawn, as its
+    # own event — never a worker "blocked on a person".
+    login = _login_hold(counters, spawner, [] if paused else members, live, now)
+    hold = paused or (login or {}).get("state") == "expired"
+    for member in [] if hold else members:
         task = task_id(member["path"])
         if task in live or task in counters["done"] or task in counters["abandoned"] \
                 or task in counters["parked"] or task in counters["dropped"]:
@@ -1815,7 +1852,41 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
            "closeouts": closeouts}
     if mentions:
         out["mentions"] = mentions
+    if login:
+        out["login"] = login
     return _steered(out, commands, paused)
+
+
+def _login_hold(counters: dict, spawner, members: list[dict], live: dict,
+                now: _dt.datetime, probe=None) -> dict | None:
+    """The CLI login as this tick sees it (M3.6a, PyAutoBrain#659), or None.
+
+    Probed (`claude auth status --json`, local, no model call) only for a
+    real spawner, and only when a member is waiting to start while the last
+    probe was not `ok` — the shift's first tick, or one after an expiry — or
+    when a worker shows `blocked` this tick, which an expired login looks
+    like. `expired` holds every spawn until a probe passes; `unknown` holds
+    nothing. Kept in `counters["login"]`, with `since` the first tick of an
+    expiry (the event's key)."""
+    if not getattr(spawner, "real", False):
+        return None
+    last = counters.get("login") or {}
+    blocked = any(w.get("blocked_seen") == _iso(now) and w.get("task") not in counters["parked"]
+                  for w in counters["workers"])
+    held = (set(live) | set(counters["done"]) | set(counters["abandoned"])
+            | set(counters["parked"]) | set(counters["dropped"]))
+    wanted = any(task_id(m["path"]) not in held for m in members)
+    if not (blocked or (wanted and last.get("state") != "ok")):
+        return last if last.get("state") == "expired" else None
+    res = (probe or _login.probe)()
+    if res.get("state") == "skipped":
+        return None
+    rec = {**res, "at": _iso(now)}
+    if res.get("state") == "expired":
+        rec["since"] = (last.get("since") if last.get("state") == "expired" else None) \
+            or _iso(now)
+    counters["login"] = rec
+    return rec
 
 
 def _steered(out: dict, commands: list, paused: bool) -> dict:
@@ -3485,28 +3556,229 @@ def _propose(members: list[dict], brief: dict, counters: dict, max_sessions: int
     return out
 
 
+# --- which brief: the one open on Mind origin/main (M3.6a, PyAutoBrain#659) -------
+
+#: The env file's brief: now only an override, honoured inside its own window.
+SHIFT_BRIEF_ENV = "PYAUTO_SHIFT_BRIEF"
+ORIGIN_REF = "origin/main"
+
+
+def shift_briefs(mind: Path, ref: str = ORIGIN_REF) -> list[dict] | None:
+    """Every shift brief on Mind's local `ref`: {name, rel, dispatched,
+    review_at} for each top-level `batches/*.md` with a `brief:` block and
+    both times. None when `mind` is not its own git checkout or has no such
+    ref. Local `git ls-tree` / `git show` only — never a fetch: only a pushed
+    brief opens, so pushing the brief stays the launch."""
+    def git(*args):
+        try:
+            res = subprocess.run(["git", "-C", str(mind), *args], capture_output=True,
+                                 text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return res.stdout if res.returncode == 0 else None
+    top = git("rev-parse", "--show-toplevel")
+    if top is None or Path(top.strip()).resolve() != Path(mind).resolve():
+        return None
+    listing = git("ls-tree", "--name-only", ref, "batches/")
+    if listing is None:
+        return None
+    out = []
+    for rel in listing.splitlines():
+        name = Path(rel).name
+        if not name.endswith(".md") or name == "AGENTS.md":
+            continue
+        text = git("show", f"{ref}:{rel}")
+        try:
+            rec = _brief.parse(text or "")
+        except _brief.BriefError:
+            continue
+        top_keys = rec["top"]
+        start = _brief._iso((top_keys.get("dispatched") or {}).get("value", ""))
+        end = _brief._iso((top_keys.get("review-at") or {}).get("value", ""))
+        if rec["brief"] is None or start is None or end is None:
+            continue
+        out.append({"name": Path(rel).stem, "rel": rel, "dispatched": start, "review_at": end})
+    return sorted(out, key=lambda b: b["name"])
+
+
+#: How long after `review-at:` + the late window a shift whose digest is still
+#: owed is caught up (the laptop was off through the late window). Bounded,
+#: so an old slot is never digested days later.
+CATCH_UP_S = 24 * 3600
+#: Claimed in a slot the first time a tick finds it past `CATCH_UP_S` with
+#: something still owed, so the "abandoned" line is printed once.
+ABANDONED_MARKER = "abandoned.noted"
+
+
+def _owes(slot: Path) -> str:
+    """What `late_owed` found, in words, with the leases still held."""
+    slot = Path(slot)
+    bits = []
+    if not (slot / DIGEST_MARKER).exists():
+        bits.append("digest not posted")
+    elif post_due(slot / DIGEST_MARKER):
+        bits.append("digest post retry due")
+    if post_due(slot / CORRECTION_MARKER):
+        bits.append("correction post retry due")
+    ops = len(_mind_writer.pending_ops(slot))
+    if ops:
+        bits.append(f"{ops} queued Mind op{'s' if ops != 1 else ''}")
+    n = len(list((slot / "leases").glob("*.json")))
+    bits.append(f"{n} lease{'s' if n != 1 else ''}")
+    return "; ".join(bits)
+
+
+def _override_state(path: Path, now: _dt.datetime) -> str:
+    """Where an override brief (`--brief`, `$PYAUTO_SHIFT_BRIEF`) is in its own
+    window: "open" (`dispatched:` <= now < `review-at:`), "late" (to
+    `review-at:` + the late window), else ""."""
+    try:
+        top = _brief.parse(Path(path).read_text(encoding="utf-8"))["top"]
+    except (OSError, _brief.BriefError):
+        return ""
+    start = _brief._iso((top.get("dispatched") or {}).get("value", ""))
+    end = _brief._iso((top.get("review-at") or {}).get("value", ""))
+    if start is None or end is None or now < start:
+        return ""
+    if now < end:
+        return "open"
+    return "late" if now < end + _dt.timedelta(seconds=_brief.LATE_WINDOW_S) else ""
+
+
+def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
+                ref: str = ORIGIN_REF, home: Path | None = None) -> tuple[list[Path], str]:
+    """(the brief files to tick, why something is not ticked).
+
+    The one open brief on `ref` (`dispatched:` <= now < `review-at:`), then
+    every late one (`review-at:` <= now < + 45 min, for its digest and late
+    sweep), then any past that window whose slot still has something owed
+    (`late_owed`: the laptop was off through the late window), up to
+    `CATCH_UP_S`. Two open briefs tick neither: which grant holds is the
+    human's word, not the watcher's guess. A brief is ticked from Mind's
+    working tree; one pushed but missing there is named, not ticked.
+
+    An override takes the open brief's place only while it is open itself;
+    in its late window it is one more late brief, ticked beside the open one
+    (M3.6a review: a stale env file must never displace the next shift)."""
+    state = _override_state(override, now) if override is not None else ""
+    briefs = shift_briefs(mind, ref)
+    if briefs is None:
+        if state:
+            return [Path(override)], ""
+        return [], f"no {ref} in {mind} to find the shift brief on"
+    home = home or orchestrator_home()
+    late_s = _dt.timedelta(seconds=_brief.LATE_WINDOW_S)
+    catch_s = _dt.timedelta(seconds=CATCH_UP_S)
+    own = Path(override).stem if state else None
+    opened = [b for b in briefs if b["dispatched"] <= now < b["review_at"]]
+    late = [b for b in briefs if b["review_at"] <= now < b["review_at"] + late_s]
+    owed = [b for b in briefs if b["review_at"] + late_s <= now < b["review_at"] + late_s + catch_s
+            and (Path(home) / b["name"] / "leases").is_dir()
+            and late_owed(Path(home) / b["name"])]
+    # Past the catch-up with something still owed: never ticked again, so the
+    # human is told once which slot was left and what it owes (M3.6a review).
+    abandoned = []
+    for b in briefs:
+        slot = Path(home) / b["name"]
+        if now >= b["review_at"] + late_s + catch_s and (slot / "leases").is_dir() \
+                and late_owed(slot) and _create_exclusive(slot / ABANDONED_MARKER,
+                                                          {"at": _iso(now)}):
+            abandoned.append(f"abandoned: {b['name']} past catch-up ({_owes(slot)}) — "
+                             f"run `batch digest --record {b['rel']}` and close it by hand")
+    reasons: list[str] = []
+    first: list[Path] = []
+    if state == "open":
+        first.append(Path(override))
+        picks = late + owed
+    else:
+        if len(opened) > 1:
+            count = "two" if len(opened) == 2 else str(len(opened))
+            reasons.append(f"{count} open briefs on {ref} ("
+                           + ", ".join(b["name"] for b in opened) + ")")
+        picks = (opened if len(opened) == 1 else []) + late + owed
+    paths: list[Path] = []
+    for b in picks:
+        if b["name"] == own:
+            continue
+        path = Path(mind) / b["rel"]
+        if path.is_file():
+            paths.append(path)
+        else:
+            reasons.append(f"{b['name']} is pushed, but the Mind checkout is behind "
+                           f"(no {b['rel']} in {mind})")
+    if state == "late":
+        # After the open brief (if any), before the other late ones.
+        at = 1 if opened and len(opened) == 1 and paths and paths[0].stem == opened[0]["name"] \
+            else 0
+        paths.insert(at, Path(override))
+    paths = first + paths
+    if not paths and not reasons:
+        reasons.append(f"no open brief on {ref}")
+    return paths, "; ".join(reasons + abandoned)
+
+
+def watch(mind: Path, *, home: Path | None = None, now: _dt.datetime | None = None,
+          override: Path | None = None, **kw) -> dict:
+    """One timer firing (M3.6a, PyAutoBrain#659): find the brief(s) on Mind
+    `origin/main` and tick each. {"action": "idle", "reason"} when there is
+    none; else {"action": "watch", "ticked": {slot: tick result}} plus a
+    `reason` for what was left out."""
+    now = now or _now()
+    paths, why = find_briefs(mind, now, override=override, home=home)
+    out: dict = {"action": "watch", "ticked": {}}
+    if override is not None and Path(override) not in paths:
+        out["override"] = (f"{override} not honoured: outside its window "
+                           "(dispatched → review-at + 45 min)")
+    if not paths:
+        return {"action": "idle", "reason": why, **({"override": out["override"]}
+                                                    if "override" in out else {})}
+    for path in paths:
+        try:
+            out["ticked"][path.stem] = tick(path, mind, home=home, now=now, **kw)
+        except OrchestratorError as e:
+            out["ticked"][path.stem] = {"action": "error", "reason": str(e)}
+    if why:
+        out["reason"] = why
+    return out
+
+
+def _result_line(res: dict) -> str:
+    return f"{res['action']}: " + (res.get("reason") or
+                                   f"spawned {len(res.get('spawned', []))}, "
+                                   f"refused {len(res.get('refused', []))}, "
+                                   f"live {len(res.get('live', []))}")
+
+
 def main(argv=None) -> int:
     import argparse
     ap = argparse.ArgumentParser(
         prog="orchestrator_watch",
         description="One shift-watcher tick (run by a systemd user timer the "
                     "human installs). Fake workers only until phase 3b.")
-    ap.add_argument("--brief", required=True, type=Path,
-                    help="the shift brief record (PyAutoMind/batches/<slot>.md)")
+    ap.add_argument("--brief", type=Path, default=None,
+                    help="override: tick this brief record instead of the one open "
+                         "on Mind origin/main — honoured only inside its own window "
+                         "(dispatched → review-at + 45 min); default "
+                         f"${SHIFT_BRIEF_ENV}, else none")
     ap.add_argument("--mind", required=True, type=Path)
     ap.add_argument("--home", type=Path, default=None,
                     help=f"state directory (default ${HOME_ENV}, else "
                          ".orchestrator under the worktree root)")
     ap.add_argument("--json", action="store_true", dest="as_json")
     a = ap.parse_args(argv)
-    try:
-        res = tick(a.brief, a.mind.resolve(), home=a.home)
-    except OrchestratorError as e:
+    env_brief = os.environ.get(SHIFT_BRIEF_ENV, "").strip()
+    override = a.brief or (Path(env_brief) if env_brief else None)
+    res = watch(a.mind.resolve(), home=a.home, override=override)
+    ticked = res.get("ticked") or {}
+    if a.as_json:
+        one = len(ticked) == 1 and not res.get("reason")
+        print(json.dumps(next(iter(ticked.values())) if one else res, indent=2))
+    else:
+        for name, r in ticked.items():
+            print((f"{name}: " if len(ticked) > 1 else "") + _result_line(r))
+        if res.get("reason"):
+            print(f"idle: {res['reason']}")
+    errors = [r["reason"] for r in ticked.values() if r.get("action") == "error"]
+    for e in errors:
         print(f"orchestrator_watch: {e}", file=sys.stderr)
-        return 2
-    print(json.dumps(res, indent=2) if a.as_json else
-          f"{res['action']}: " + (res.get("reason") or
-                                 f"spawned {len(res.get('spawned', []))}, "
-                                 f"refused {len(res.get('refused', []))}, "
-                                 f"live {len(res.get('live', []))}"))
-    return 0
+    return 2 if errors else 0
