@@ -1335,6 +1335,11 @@ def released_here(slot: Path, counters: dict, inbox: dict | None, now: _dt.datet
         pending.clear()
         return {}
     used = counters.get("inshift_released") or {}
+    if inbox is not None:
+        # A pending release the human reopened or dropped since is withdrawn.
+        for task in list(pending):
+            if _questions.hold_for(task, Path(slot).name, inbox)[0] != "answered":
+                pending.pop(task)
     for task in _open_parks(counters):
         rule, info = _questions.hold_for(task, Path(slot).name, inbox)
         if rule != "answered":
@@ -1385,7 +1390,10 @@ def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
         for task, o in (prev.get("outcomes") or {}).items():
             pick = (prev.get("picks") or {}).get(task) or {}
             if pick.get("tier") not in ("glance", "notify") or task in counters["outcomes"] \
-                    or o.get("questions"):
+                    or o.get("questions") or task in (prev.get("dropped") or {}):
+                # A `/drop`ped task's PR is the human's, whatever its shift
+                # recorded for it (M3.6c review: a late or paused one has no
+                # close-out refusal to read).
                 # A task parked on a question stays parked: its PR waits on
                 # the answer, and `parked_elsewhere` keeps its hold (review).
                 continue
@@ -3651,7 +3659,7 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                 # human since its shift: only an OPEN one is closed out, so a
                 # human's merge is never counted as an unattended one.
                 gh = pr_state(pr) if pr_state else None
-                if gh is None:
+                if not gh:
                     continue      # GitHub unreadable: asked again next tick, never assumed
                 state = gh.get("state")
                 if state != "OPEN":

@@ -263,7 +263,7 @@ def _carry_shift(tmp_path, prev_extra: dict, merged=()):
     prev = _previous_slot(home)
     c = json.loads((prev / orch.COUNTERS_FILE).read_text())
     for k, v in prev_extra.items():
-        c[k].update(v)
+        c.setdefault(k, {}).update(v)
     (prev / orch.COUNTERS_FILE).write_text(json.dumps(c))
     mind = t._mind(tmp_path / "mind")
     brief = tmp_path / "2026-11-04-am.md"
@@ -395,3 +395,32 @@ def test_review_once_per_answer_a_new_answered_question_restarts_again(tmp_path,
     assert "Q8" in claude.calls[-1][0][-1]
     assert [x["ids"] for x in orch.read_counters(slot)["inshift_released"]["t1"]] == \
         [["Q7"], ["Q8"]]
+
+
+def test_review2_a_dropped_tasks_late_pr_is_not_carried(tmp_path):
+    r, c = _carry_shift(tmp_path, {"dropped": {"late": {"at": "2026-11-03T18:00Z"}}})
+    assert LATE not in c["carried_in"]["prs"] and LATE not in r["closeouts"]["started"]
+
+
+def test_review2_a_pending_release_clears_at_30_minutes_and_the_park_stays(tmp_path,
+                                                                         monkeypatch):
+    mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
+    (mind / "draft" / "feature" / "pyautobrain" / "t2.md").write_text(d.PROMPT.format(name="t2"))
+    brief.write_text(brief.read_text().replace(
+        "    - draft/feature/pyautobrain/t1.md",
+        "    - draft/feature/pyautobrain/t2.md\n    - draft/feature/pyautobrain/t1.md")
+        + "  - max-workers: 1\n  - max-sessions: 8\n")
+    review_at = _dt.datetime(2026, 11, 4, 11, 30, tzinfo=_dt.timezone.utc)
+    d._tick(brief, mind, home, review_at - _dt.timedelta(minutes=40), claude)
+    assert "t1" in orch.read_counters(slot)["inshift_pending"]
+    r = d._tick(brief, mind, home, review_at - _dt.timedelta(minutes=29), claude)
+    c = orch.read_counters(slot)
+    assert r["spawned"] == [] and c["inshift_pending"] == {}
+    assert c["outcomes"]["t1"]["questions"] and "t1" in c["done"]
+
+
+def test_review2_the_digest_names_an_in_shift_restart(tmp_path, monkeypatch):
+    mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
+    d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=20), claude)
+    lines = t._digest.backlog_gate_lines(orch.read_counters(slot))
+    assert "Restarted in-shift after an answer: 1 task(s) — `t1` (Q7)" in lines

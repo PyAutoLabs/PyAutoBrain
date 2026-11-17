@@ -722,6 +722,11 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                    "closed out under this shift's grant — " + ", ".join(carried["prs"][:SUMMARY_NAMES])
                    + (f" +{len(carried['prs']) - SUMMARY_NAMES} more"
                       if len(carried["prs"]) > SUMMARY_NAMES else ""))
+    again = counters.get("inshift_released") or {}
+    if again:
+        out.append(f"Restarted in-shift after an answer: {len(again)} task(s) — "
+                   + "; ".join(f"`{t}` ({', '.join(i for r in rs for i in r.get('ids') or [])})"
+                               for t, rs in sorted(again.items())[:SUMMARY_NAMES]))
     bare = gates.get("witness_absent") or []
     if bare:
         out.append(f"No Witness: {len(bare)} draft(s) not dipped — a shift dips only "
