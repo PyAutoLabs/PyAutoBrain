@@ -103,6 +103,12 @@ Tier: glance — merge mode: auto-merge on green if the Witness passes, post-mer
 Tier: judge (or undeclared) — merge mode: human /prm
 ```
 
+Produce the mode with `pyauto-brain merge-mode <prompt>` (add `--auto` under
+`--auto`, `--in-shift` in a shift worker). It prints one line, `effective
+level: <level>; merge mode: <mode>`. Put that line in the plan before work
+starts, so a worker and a reader see the same answer (ruling R3, AUTONOMY.md
+"`notify` merges under `--auto` and inside a shift — 2026-11-17").
+
 **Approving the plan authorizes that merge mode**; a plan without the line
 authorizes no merge. An epic's approval chains auto-merged phases without
 re-asking, stopping at a `judge` phase, a failure, Heart RED or unnamed scope.

@@ -45,6 +45,9 @@ PROPOSED = "proposed (shadow)"
 #: A worker whose lease is still held when the digest is built (#634, N1): it
 #: was dispatched and is not done; the late sweep reports how it ends.
 STILL_OUT = "still running at review time — the late sweep will report it"
+#: A PR the worker merged in-turn — after taking a merge slot against the
+#: shift's `merge-cap:` (AUTONOMY.md ruling R3, 2026-11-17, PyAutoBrain#661).
+IN_TURN_MERGED = "merged in-turn by the worker (merge slot)"
 #: A killed worker whose re-dispatch never started (PyAutoBrain#637, item 2):
 #: never "not started" — its first worker ran.
 NOT_REDISPATCHED = "crashed — not re-dispatched"
@@ -245,8 +248,10 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
         elif url in out.get("issues", []):
             state = "PARKED-ON-ISSUE"
         elif url in out["merged"]:
+            # Which path each merge took (R3, #661): a close-out, or the
+            # worker in-turn after taking a merge slot.
             state = ("merged unattended (close-out, " + co.get("model", "?") + ")"
-                     if co.get("state") == "merged" else "merged")
+                     if co.get("state") == "merged" else IN_TURN_MERGED)
             if co.get("state") == "merged" and co.get("cleanup"):
                 state += f" — worktree: {co['cleanup']}"
         elif co.get("state") == "refused":

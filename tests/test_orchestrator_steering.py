@@ -563,11 +563,11 @@ def test_cap_merges_binds_the_close_out_gate_on_the_tick_that_reads_it(tmp_path,
     (slot / "leases" / "t1.done").write_text(pr + "\n")
     gh.add(LOGIN, "/cap merges 0", 2)
     r = _tick(brief, mind, home, 3, claude, gh, {"t1": "done"}, health="HEALTHY")
-    assert r["commands"][0]["ack"] == ("merge-cap now 0 of this brief's 2 (0 merged so far): "
-                                       "no new close-out starts.")
+    assert r["commands"][0]["ack"] == ("merge-cap now 0 of this brief's 2 (0 merge slot(s) "
+                                       "taken so far): no new merge starts.")
     c = orch.read_counters(slot)
     assert c["closeouts"][pr] == {"task": "t1", "state": "refused",
-                                  "why": "merge-cap 0 reached this shift"}
+                                  "why": "merge-cap 0 reached this shift — left for your /prm"}
     assert c["caps"]["merge-cap"] | {"at": "x"} == {"value": 0, "by": LOGIN, "at": "x",
                                                     "was": 2, "brief": 2}
     assert "- merges: 0 of 0 (0 unattended)" in gh.status()[0]["body"]

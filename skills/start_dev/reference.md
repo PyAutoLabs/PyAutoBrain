@@ -240,7 +240,10 @@ Only when the human launches with an explicit `--auto` (never ambient — the
 activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
 
 1. Compute the **effective level** = min(prompt `Autonomy:` header, work-type
-   cap from the contract); missing header → `human-required`.
+   cap from the contract); missing header → `human-required`. Run
+   `pyauto-brain merge-mode <prompt> --auto` (`--in-shift` too in a shift
+   worker) and put its one line, `effective level: <level>; merge mode:
+   <mode>`, on the issue with the plan.
 2. **`safe`** → skip the Plan-Mode hold: write both plan levels into the issue
    (step 5 below) and proceed straight through steps 4–7 and into
    `start_library`/`start_workspace` and implementation. The plan the human
@@ -249,7 +252,12 @@ activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
    decide-and-flag ([`../../AUTONOMY.md`](../../AUTONOMY.md),
    "Decide-and-flag") — ship through the autonomous-ship gate, flag the
    decision in the PR body, and **end at PR-open** (a `decision-taken` PR is
-   never auto-merged, whatever its tier). Every
+   never auto-merged, whatever its tier). Label the PR `decision-taken` only
+   when a decision was actually taken. A `notify` task whose cap lowered it to
+   `supervised`, with its `Witness:` held and no decision taken, goes on to the
+   tiered merge (ruling R3, AUTONOMY.md "`notify` merges under `--auto` and
+   inside a shift — 2026-11-17"); with no `Witness:` declared it ends at
+   PR-open for `/prm`. Every
    *other* judgment gate — a scope/design fork the plan didn't settle, a second
    flagged decision, a hard blocker — still becomes a batched issue question
    with an `awaiting-input` park (the contract's "Checkpoint-and-continue"

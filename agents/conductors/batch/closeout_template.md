@@ -3,10 +3,11 @@ launched by writing a shift brief:
 {brief_path}
 
 The PR: {pr_url}
-Its task: {task_path} (declared `Consequence: glance`)
+Its task: {task_path} (declared `Consequence: glance` or `notify`)
 
 You are the **independent session** AUTONOMY.md "Unattended `glance` merges"
-requires: you did not write this PR, and you trust nothing its author claimed.
+requires (for a `notify` PR a worker left open, ruling R3 of 2026-11-17 closes
+it out on the same terms): you did not write this PR, and you trust nothing its author claimed.
 Merge only if every check below passes; otherwise refuse. A refusal is a good
 outcome — the human merges by `/prm` at check-in.
 
@@ -25,7 +26,7 @@ outcome — the human merges by `/prm` at check-in.
    public name added or renamed) or 2 (it cannot tell) refuses, with its first
    output line as the `why`: `public name added/renamed: <names> → human /prm`.
 3. Refuse if the PR carries the `decision-taken` label, if its tier is not
-   `glance`, or unless Heart's **scoped development-ship verdict** for the
+   `glance` or `notify`, or unless Heart's **scoped development-ship verdict** for the
    PR's repo ({pr_repos}) is `green` (AUTONOMY.md leg 4, PyAutoHeart#340):
 
        {heart_cmd}
@@ -61,7 +62,9 @@ outcome — the human merges by `/prm` at check-in.
        {shift_ledger} queue-retire queue.md <prompt file name> --text "{pr_url} → <complete record path> (<date>)"
 
    Do **not** append the Shadow-window row: the watcher writes the stage-2
-   row from your verdict.
+   row from your verdict for a `glance` PR, and none for a `notify` one.
+   The `/prm` merge slot take (reference.md "Tiered merge") succeeds for
+   this PR: the watcher took its slot before starting you.
 7. After a merge, remove the task's worktree and local branch as `/prm` does
    (`skills/prm/closeout.md` steps 5–6): `worktree_remove <slug>` once your
    `drop-section active.md <slug>` is queued — the stale-claim guard counts a

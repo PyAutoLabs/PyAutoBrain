@@ -177,7 +177,8 @@ def test_digest_separates_brief_work_from_backlog_picks_with_reasons(tmp_path):
     # Each task: the outcome in plain words and the title, linked to its PR
     # (never to a Mind path, which moves and 404s, #634); the detail below.
     assert ("- **Merged** — [named](https://github.com/o/r/pull/1)\n"
-            "  <sub>`named` · glance · small · pyautoheart · merged</sub>") in work
+            "  <sub>`named` · glance · small · pyautoheart · merged in-turn by the worker"
+            " (merge slot)</sub>") in work
     assert "- **Not started** — never\n  <sub>`never` · not started</sub>" in work
     assert "blob/main" not in d
     # Green and glance: since phase 4b its close-out is running at review time.

@@ -151,6 +151,8 @@ Who merges follows the prompt's **declared** `Consequence:` header —
   [`/prm`](../prm/prm.md) procedure from its step 2 — judge, merge, close-out —
   exactly as a human-typed `/prm` would. For `glance`, the close-out appends
   the Shadow-window row and the ledger ends with the post-merge summary.
+  Inside a shift the merge first takes a merge slot, and the R3 witness
+  condition applies (`/prm` reference.md "Tiered merge").
   When step 5 routed the task to `/start_workspace` (options i / ii), merge the
   library PR but **run no close-out** — the task stays open as
   `library-shipped, workspace-pending`, and the close-out runs at the workspace

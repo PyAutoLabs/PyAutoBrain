@@ -113,6 +113,8 @@ Who merges follows the prompt's **declared** `Consequence:` header —
   exactly as a human-typed `/prm` would — the library-first gate included (a
   workspace PR whose library PR is not `MERGED` stops there). For `glance`, the close-out appends
   the Shadow-window row and the ledger ends with the post-merge summary.
+  Inside a shift the merge first takes a merge slot, and the R3 witness
+  condition applies (`/prm` reference.md "Tiered merge").
 - **`judge`, no declared header**, a `decision-taken` PR, a Heart RED-override
   or corrective-PR-exception ship, a public name added or renamed (`pyauto-brain
   public-names` exit 1 or 2), or any red / pending-at-cap / conflicting /

@@ -29,7 +29,7 @@ Where the dev workflow stops for a human today:
 | Checkpoint | `safe` | `supervised` | `human-required` |
 |------------|--------|--------------|------------------|
 | Plan approval | write plan to the issue, proceed | write plan to the issue, proceed | present + wait |
-| Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere — except under an explicit `--auto` launch, where it resolves to decide-and-flag (below; 2026-09-07) | present + wait |
+| Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere — except under an explicit `--auto` launch, where it resolves to decide-and-flag (below; 2026-09-07) (a `notify` task merges in-turn under R3, "`notify` merges under `--auto` and inside a shift — 2026-11-17") | present + wait |
 | Heart YELLOW | park, unless the reason set was human-acknowledged at launch (see the autonomous-ship gate) | same as `safe` | present + wait |
 | Heart RED | stop, report | stop, report | stop, report — a live human may separately invoke the development override or corrective-PR exception below; neither is an autonomy level |
 | Merge / close | by declared `Consequence:` (2026-10-02 section) | by declared `Consequence:` | by declared `Consequence:` |
@@ -258,7 +258,7 @@ checkpoint of an effective-`supervised` run.** The human's direction
 (2026-08-31): *"I dont really want these parked at ship judgements, ideally we
 send off a batch and then dont think about it again, the parked thing is an
 annoying middle ground which requires human time."* The argument: every
-autonomous run already ends at PR-open with merge left to the human, so **the PR
+autonomous run already ends at PR-open with merge left to the human (a `notify` task merges in-turn under R3, "`notify` merges under `--auto` and inside a shift — 2026-11-17"), so **the PR
 review IS the approval the `supervised` level exists to provide**. A mid-run park
 at ship sign-off is a redundant *second* checkpoint — it costs a GitHub-issue
 round-trip before a PR even exists, and then asks the human for the same
@@ -537,6 +537,18 @@ It is not adopted here; it needs its own doctrine edit.
 *Revert condition:* any reverted auto-merge demotes its tier (above); an
 auto-merge found to have bypassed one of the never-auto-merge rules retires this
 section and returns every merge to `/prm`.
+
+### `notify` merges under `--auto` and inside a shift — 2026-11-17 (ruling R3)
+
+The human's ruling R3, 2026-11-17, from the review of shift 2026-11-16-pm. Two workers on the same `bug · safe · notify` header did opposite things: PyAutoBrain#654 stopped at decide-and-flag because the `bug` cap lowered it to `supervised`, and PyAutoBrain#655 merged in-turn. The shift then read "2 merged of merge-cap 1".
+
+- **A work-type cap does not stop a `notify` merge.** "Per-work-type caps" sets the effective level, and the level decides the checkpoints. Who merges is decided by the table above. A `notify` task whose cap lowered it to `supervised`, launched with `--auto` and with its `Witness:` held, merges in-turn on green. If the prompt declares no `Witness:`, it goes to `/prm`. A PR that took a decision under decide-and-flag carries `decision-taken` and is never auto-merged, as before.
+- **Inside a shift, every merge counts against `merge-cap:`.** Before `gh pr merge`, a worker takes a merge slot with `pyauto-brain merge-slot take <pr>`, as its own bare call. If no slot is left, or the shift is paused, it does not merge and leaves the PR for `/prm`. The watcher's close-outs take slots from the same count. The digest says for each merge whether the worker merged it in-turn or a close-out did.
+- **The watcher agrees with the worker.** It no longer refuses a `notify` PR as "only glance merges unattended". It closes out a `notify` PR a worker left open exactly as it closes out a `glance` one: Heart not RED, a merge slot free, the `Witness:` run by the close-out session, and nothing from "Never auto-merged". `judge`, an undeclared tier and `decision-taken` still go to `/prm`.
+- **These are `notify` merges, not stage-2 rows.** They do not count toward the unattended `glance` sub-window. The 2026-11-16-pm overrun was two `notify` merges made in-turn, outside "Unattended `glance` merges — 2026-11-03", so it does not trigger that sub-rule's revert condition.
+- Outside a shift, nothing changes.
+
+*Revert condition:* one in-shift merge past `merge-cap:` after this is built returns every in-shift `notify` merge to `/prm`.
 
 ## The `glance` Shadow-window ruling — 2026-11-04
 
