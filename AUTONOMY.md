@@ -1315,13 +1315,13 @@ Codex hook list.
   name instead — and every pushed ref carries a `sweep-after:` date on the
   batch record, after which `bin/branch_sweep.sh` may delete it.
 
-  A third exception, added 2026-11-17: `batch brief --new --out <file>` makes one `gh issue create` on PyAutoMind for the shift issue and writes its URL as `issue:`. It runs in the launch chat, never in the watcher; `--issue <url>` or `PYAUTO_BRIEF_ISSUE=off` skips it.
-
   A third exception, added 2026-11-03: the **shift watcher** — read-only
   `gh pr checks` and `claude agents --json`, and one issue comment per shift —
   opt-in through a human-installed timer and laptop-only; the full terms and
   their revert condition are "The watcher's network surface — 2026-11-03"
   above.
+
+  A fourth exception, added 2026-11-17: `batch brief --new --out <file>` makes one `gh issue create` on PyAutoMind for the shift issue and writes its URL as `issue:`. It runs in the launch chat, never in the watcher; `--issue <url>` or `PYAUTO_BRIEF_ISSUE=off` skips it.
 
   Any *further* network surface in the Brain is a new decision, not covered by
   this line.
