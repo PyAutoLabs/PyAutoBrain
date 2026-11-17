@@ -162,6 +162,9 @@ differences:
   report its line and stop, leaving the PR for `/prm`. Never wrap the merge
   in it. A close-out session's take for its own PR succeeds: the watcher took
   that slot.
+  If the take succeeded and the merge call then fails, run
+  `pyauto-brain merge-slot release <pr-url> --why "merge failed"` so the
+  slot returns to the shift, then stop as above.
 - **The merge call.** `gh pr merge <n> --merge` as a **bare, unchained** Bash
   call (no `&&`, `;` or pipe); if the permission layer denies it, stop and
   report — never retry it another way. For `glance`, the close-out appends the

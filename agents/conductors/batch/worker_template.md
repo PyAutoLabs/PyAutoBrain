@@ -53,6 +53,9 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   before a bare `gh pr merge` (ruling R3, AUTONOMY.md "`notify` merges under
   `--auto` and inside a shift — 2026-11-17"). If it refuses, do not merge:
   list the PR in your `.done` without `merged`, and it is left for `/prm`.
+  If the take succeeded but `gh pr merge` then fails, free the slot with
+  `{brain_cli} merge-slot release <pr> --why "merge failed"` and list the PR
+  without `merged`.
 - Never commit to PyAutoMind yourself — a hook refuses it. Queue each Mind
   change with `{shift_ledger} append|write|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers
