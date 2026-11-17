@@ -1621,7 +1621,8 @@ def resume_records(records: list[dict], mind: Path, resumes: dict,
                 g = _batch.grade(f, Path(tmp))
             text = shown.stdout
             g.update(looks_shipped=False, epic=_batch._epic_of(text),
-                     phase=_batch._phase_of(text), done=_batch._is_done(text),
+                     phase=_batch._phase_of(text),
+                     phase_declared=_batch._phase_declared(text), done=_batch._is_done(text),
                      themes=_batch._themes_of(text), title=_batch._title_of(text))
             out = [r for r in out if task_id(r["path"]) != task] + [g]
         for r in out:

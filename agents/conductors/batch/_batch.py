@@ -320,12 +320,12 @@ def pool_gate(r: dict, next_phase: dict[str, float]) -> str:
     # Phase order binds only a task with a `Phase:` number (ruling R5, option
     # a, 2026-11-17): a side task of the epic (no `Phase:`) is not a later
     # phase, and orders itself by `Blocked-by:` below.
-    if r.get("epic") and has_phase(r) and r["phase"] > next_phase.get(
-            r["epic"], float("inf")):
-        return f"epic {r['epic']} phase {r['phase']:g} is not next"
     if r.get("epic") and has_phase(r) and r["phase"] == float("inf") \
             and next_phase.get(r["epic"], float("inf")) < float("inf"):
         return f"epic {r['epic']} phase (unnumbered) is not next"
+    if r.get("epic") and has_phase(r) and r["phase"] > next_phase.get(
+            r["epic"], float("inf")):
+        return f"epic {r['epic']} phase {r['phase']:g} is not next"
     if r["autonomy"] == "human-required":
         return f"autonomy {r['autonomy']} — would park at ship"
     if r["unattended"] != "ready":
@@ -3432,6 +3432,11 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
     return text + "\n" + _green.section(heart) if heart else text
 
 
+#: `brief --check`'s word for a named task whose prompt is in `active/`.
+NAMED_IN_ACTIVE = ("its prompt is in active/ — already issued: a shift starts it only "
+                   "as a resume after an answered question (or it has started)")
+
+
 def named_skips(brief: dict, mind: Path) -> tuple[dict[str, str], str]:
     """({named task: why it will not start}, a note when the claims on Mind
     origin/main could not be read) — the watcher's own gates, run at
@@ -3463,8 +3468,10 @@ def named_skips(brief: dict, mind: Path) -> tuple[dict[str, str], str]:
             out[t] = rejected[name]
         elif name not in members and _brief._resolve(mind, t) is not None:
             # In active/ (already issued): `_brief.check` resolves it, so no
-            # warning came from there, and no survey of draft/ holds it.
-            out[t] = orch.NAMED_NO_DRAFT
+            # warning came from there, and no survey of draft/ holds it. A
+            # shift resumes it only once its question is answered, and on a
+            # record re-checked after launch it is a task that started.
+            out[t] = NAMED_IN_ACTIVE
     return out, note
 
 

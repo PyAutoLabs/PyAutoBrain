@@ -309,7 +309,7 @@ def test_review_a_phase_label_keeps_its_leading_number_and_counts_as_a_phase():
     b["phase_declared"] = True        # `Phase: C2`: a phase, not a side task
     dec = _batch.plan([a, b], budget=100)
     assert [m["path"] for m in dec["members"]] == ["a.md"]
-    assert "not next" in dict(dec["rejected"])["b.md"]
+    assert dict(dec["rejected"])["b.md"] == "epic e phase (unnumbered) is not next"
 
 
 @pytest.mark.parametrize("task", ["coordination", "conflict_override", "human"])
@@ -329,7 +329,7 @@ def test_review_a_named_task_already_in_active_says_why_it_will_not_start(tmp_pa
     brief.write_text(brief.read_text().replace("draft/feature/x/none.md",
                                                "draft/feature/x/already.md"))
     rc, out = _check(brief, mind, capsys)
-    assert any("already" in ln and "will not start" in ln and "no draft prompt" in ln
+    assert any("already" in ln and "will not start" in ln and "in active/" in ln
                for ln in out.splitlines()), out
 
 
@@ -340,3 +340,50 @@ def test_review_a_resumed_task_is_not_held_back_for_want_of_a_witness():
              "lanes": {"value": "any", "children": []}}
     dec = _batch.plan([r], budget=100, brief=brief, queue=["x"])
     assert [m["path"] for m in dec["members"]] == ["draft/feature/x/r.md"], dec["rejected"]
+
+
+# --- second review (Fable 5.2) ---------------------------------------------------------
+
+@pytest.mark.parametrize("body,target", [
+    ("Rework everything under `agents/conductors/batch/`.", "PyAutoBrain"),
+    ("Rework `PyAutoBrain/agents/conductors/batch/` and `docs/x.md`.", "PyAutoBrain"),
+    ("Edit `.github/workflows/` and `docs/x.md`.", "PyAutoMind"),
+    ("Edit `scripts/` and `docs/x.md`.", "PyAutoMind"),
+    ("Edit `agents/conductors/batch/_*.py` and `tests/test_x.py`.", "PyAutoBrain"),
+    ("Reword `worker_template.md` and `docs/x.md`.", "PyAutoBrain"),
+    ("Change _orchestrator.py and `docs/x.md`.", "PyAutoBrain"),
+    ("See `/home/u/worktrees/PyAutoBrain-foo/agents/conductors/batch/_batch.py`.", "PyAutoBrain"),
+    ("See `Agents/Conductors/Batch/_batch.py`.", "PyAutoBrain"),
+    ("See `agents/conductors/batch/autolens.py` and `docs/x.md`.", "PyAutoBrain"),
+])
+def test_review2_self_code_is_refused_in_every_spelling(tmp_path, body, target):
+    errors, warnings, notes = _organ(tmp_path, body, target=target)
+    assert errors, (warnings, notes)
+
+
+@pytest.mark.parametrize("body", [
+    "Fires on `PyAutoLabs/autolens_visualization` and `PyAutoLabs/PyAutoHands`.",
+    "Moves the watcher, as `draft/feature/pyautobrain/other.md` and `batches/2026-11-13-am.md` say.",
+    "From v1.2/v1.3.0 onwards.",
+])
+def test_review2_repo_names_mind_records_and_versions_show_nothing(tmp_path, body):
+    errors, warnings, notes = _organ(tmp_path, body, target="PyAutoBrain")
+    assert errors == [] and notes == [] and "names no path" in warnings[0], (errors, warnings)
+
+
+def test_review2_branch_names_are_not_hands_paths(tmp_path):
+    """Any real path in a Hands-only task is Hands code (the approved rule);
+    a branch name is not a path."""
+    errors, warnings, _ = _organ(tmp_path, "Push `origin/main` from `feature/x`.",
+                                 target="PyAutoHands")
+    assert errors == [] and "names no path" in warnings[0]
+
+
+def test_review2_a_target_header_naming_several_repos_is_read(tmp_path):
+    mind = tmp_path / "mind"
+    rel = _write(mind, "t", target="PyAutoHeart",
+                 body="Change `agents/conductors/batch/_batch.py`.")
+    f = mind / rel
+    f.write_text(f.read_text().replace("Target: PyAutoHeart", "Target: PyAutoBrain, PyAutoMind"))
+    errors, _, _ = _batch._brief.organ_findings("t", f, mind)
+    assert errors
