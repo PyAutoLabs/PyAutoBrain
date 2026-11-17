@@ -81,9 +81,11 @@ def mind(tmp_path):
     return bare, canon, other
 
 
-def _queue(slot, *argv, mind_repo):
-    env = {**os.environ, "PYAUTO_SHIFT_LEDGER_DIR": str(slot / "ledger"),
-           "PYAUTO_MIND": str(mind_repo)}
+def _queue(slot, *argv, mind_repo, worker=False):
+    env = {k: v for k, v in os.environ.items() if k != "PYAUTO_SHIFT_WORKER"}
+    env.update({"PYAUTO_SHIFT_LEDGER_DIR": str(slot / "ledger"), "PYAUTO_MIND": str(mind_repo)})
+    if worker:
+        env["PYAUTO_SHIFT_WORKER"] = "1"
     return subprocess.run([sys.executable, str(BRAIN / "bin" / "shift_ledger.py"), *argv],
                           capture_output=True, text=True, env=env)
 
@@ -344,3 +346,207 @@ def test_a_tick_commits_what_the_workers_queued(tmp_path, mind):
                   spawner=orch.FakeSpawner(), records=[])
     assert r["ledger"]["ops"] == 1 and r["ledger"]["committed"]
     assert "## t9" in _remote_tree(bare, "active.md").stdout
+
+
+# --- M3.6d (PyAutoBrain#660): the edit op, a task's ops land together ----------------
+
+def _push_from(other, path, text, message):
+    """Another session changes one Mind file on main."""
+    git(other, "pull", "-q", "origin", "main")
+    f = other / path
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+    git(other, "add", "-A")
+    git(other, "commit", "-qm", message)
+    git(other, "push", "-q", "origin", "HEAD:main")
+
+
+def test_a_write_on_a_path_on_main_is_refused_at_queue_time(tmp_path, mind):
+    """Shift 2026-11-16-pm: `write` edits to existing drafts were set aside
+    after the worker had ended. Now the worker is told when it queues."""
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    res = _queue(slot, "--task", "t1", "write", "draft/feature/x/t1.md", "--text", "# t1 v2\n",
+                 mind_repo=canon, worker=True)
+    assert res.returncode == 1, res.stderr
+    assert "already exists on Mind origin/main" in res.stderr and "edit" in res.stderr
+    assert mw.pending_ops(slot) == []
+    # A path a pending op of this shift creates is refused the same way.
+    assert _queue(slot, "--task", "t1", "write", "complete/2026/11/t1.md", "--text", "a\n",
+                  mind_repo=canon, worker=True).returncode == 0
+    res = _queue(slot, "--task", "t1", "write", "complete/2026/11/t1.md", "--text", "b\n",
+                 mind_repo=canon, worker=True)
+    assert res.returncode == 1 and "edit" in res.stderr
+    # An edit whose base is not there, and a table-append with no heading.
+    res = _queue(slot, "--task", "t1", "edit", "draft/feature/x/t1.md", "--old", "# nope\n",
+                 "--new", "# t1 v2\n", mind_repo=canon, worker=True)
+    assert res.returncode == 1 and "expected base" in res.stderr
+    res = _queue(slot, "--task", "t1", "table-append", "active.md", "## Calibration runs",
+                 "--text", "| a | b |", mind_repo=canon, worker=True)
+    assert res.returncode == 1 and "Calibration runs" in res.stderr
+    # A shift worker must name its task.
+    res = _queue(slot, "append", "active.md", "--text", "\n## t9\n- x\n", mind_repo=canon,
+                 worker=True)
+    assert res.returncode != 0 and "--task" in res.stderr
+    assert len(mw.pending_ops(slot)) == 1
+
+
+def test_the_edit_op_applies_on_a_matching_base_and_is_set_aside_on_a_moved_one(
+        tmp_path, mind):
+    bare, canon, other = mind
+    slot = tmp_path / "slot"
+    for task, path, old, new in (("t1", "draft/feature/x/t1.md", "# t1\n", "# t1\n\nMore.\n"),
+                                 ("t2", "active/t2.md", "# t2\n", "# t2 done\n")):
+        res = _queue(slot, "--task", task, "edit", path, "--old", old, "--new", new,
+                     mind_repo=canon, worker=True)
+        assert res.returncode == 0, res.stderr
+    # Someone else changes t2's file between the queue and the commit.
+    _push_from(other, "active/t2.md", "# t2 by someone else\n", "someone else's t2")
+    res = mw.commit_ledger(slot, canon, "edits")
+    assert res["committed"] and res["ops"] == 1
+    assert _remote_tree(bare, "draft/feature/x/t1.md").stdout == "# t1\n\nMore.\n"
+    assert _remote_tree(bare, "active/t2.md").stdout == "# t2 by someone else\n"   # not clobbered
+    [aside] = res["set_aside"]
+    assert aside["op"] == "edit" and aside["task"] == "t2" and aside["needs"] == "human"
+    assert "expected base not found" in aside["why"]
+    # The same edit again is already true on main: mechanical, not the human's.
+    mw.queue_op(slot / "ledger", {"op": "edit", "path": "draft/feature/x/t1.md", "task": "t1",
+                                  "old": "# t1\n", "new": "# t1\n\nMore.\n"})
+    res = mw.commit_ledger(slot, canon, "again")
+    assert res["committed"] is None and res["set_aside"][0]["needs"] == "mechanical"
+    assert _remote_tree(bare, "draft/feature/x/t1.md").stdout == "# t1\n\nMore.\n"
+
+
+def _close_out_t2(slot, canon):
+    for argv in (["write", "complete/2026/11/t2.md", "--text", "## t2\n- completed: x\n"],
+                 ["drop-section", "active.md", "t2"]):
+        res = _queue(slot, "--task", "t2", *argv, mind_repo=canon, worker=True)
+        assert res.returncode == 0, res.stderr
+
+
+@pytest.mark.parametrize("when", ["same-commit", "earlier-commit"])
+def test_a_worker_with_an_op_set_aside_has_its_complete_record_held(tmp_path, mind, when):
+    """Shift 2026-11-16-pm: three edits were set aside but the complete/ record
+    committed, so Mind recorded the task shipped. Now the record is withheld."""
+    bare, canon, other = mind
+    slot = tmp_path / "slot"
+    assert _queue(slot, "--task", "t2", "edit", "active/t2.md", "--old", "# t2\n", "--new",
+                  "# t2 done\n", mind_repo=canon, worker=True).returncode == 0
+    _push_from(other, "active/t2.md", "# t2 by someone else\n", "someone else's t2")
+    if when == "same-commit":
+        _close_out_t2(slot, canon)       # queued after the edit: still applied last
+    else:
+        first = mw.commit_ledger(slot, canon, "first")
+        assert [a["kind"] for a in first["set_aside"]] == ["set-aside"]
+        _close_out_t2(slot, canon)
+    assert _queue(slot, "--task", "t1", "move", "draft/feature/x/t1.md", "active/t1.md",
+                  mind_repo=canon, worker=True).returncode == 0      # another task's op
+    res = mw.commit_ledger(slot, canon, "close")
+    assert res["committed"]                                          # t1's claim landed
+    assert _remote_tree(bare, "active/t1.md").returncode == 0
+    assert _remote_tree(bare, "complete/2026/11/t2.md").returncode != 0
+    assert "## t2" in _remote_tree(bare, "active.md").stdout
+    withheld = [a for a in res["set_aside"] if a["kind"] == "withheld"]
+    assert sorted(a["op"] for a in withheld) == ["drop-section", "write"]
+    assert all(a["task"] == "t2" and a["needs"] == "human" for a in withheld)
+    assert all("held with its task" in a["why"] and "not recorded shipped" in a["why"]
+               for a in withheld)
+    aside = slot / "ledger" / mw.SET_ASIDE_DIR
+    assert len(list(aside.glob("*.json"))) == 3 and not mw.pending_ops(slot)
+    import _digest
+    assert any("withheld" in ln and "ledger/set_aside/" in ln
+               for ln in _digest.report_lines(slot))
+
+
+AUTONOMY_LOG = """# Autonomy calibration log
+
+Append-only record of `--auto` workflow runs.
+
+## Calibration runs
+
+| date | task | effective level | gates (tests/smoke/review/heart) | outcome |
+|------|------|-----------------|----------------------------------|---------|
+| 2026-11-13 | a | supervised | ok | merged-unchanged |
+
+| 2026-11-15 | b | supervised | ok | merged-unchanged |
+
+The calibration row goes in the table above, at the end of its last segment.
+
+## Shadow window — the tier-`glance` merge decision
+
+| date | task | human action |
+|------|------|--------------|
+| 2026-11-01 | s | merged |
+"""
+
+
+def test_shift_ledger_table_append_reaches_the_first_autonomy_log_table(tmp_path, mind):
+    """Five workers of shift 2026-11-16-pm could not queue their calibration
+    row: `table-append` needs a `## ` heading, and the CLI never set one."""
+    bare, canon, other = mind
+    _push_from(other, "autonomy_log.md", AUTONOMY_LOG, "log")
+    git(canon, "fetch", "-q", "origin")
+    slot = tmp_path / "slot"
+    row = "| 2026-11-17 | t1 (PR) | supervised | ok | parked |"
+    res = _queue(slot, "--task", "t1", "table-append", "autonomy_log.md", "## Calibration runs",
+                 "--text", row, mind_repo=canon, worker=True)
+    assert res.returncode == 0, res.stderr
+    res = mw.commit_ledger(slot, canon, "row")
+    assert res["committed"] and not res["set_aside"] and not res["held"]
+    lines = _remote_tree(bare, "autonomy_log.md").stdout.splitlines()
+    at = lines.index(row)
+    assert lines[at - 1].startswith("| 2026-11-15 | b ")
+    assert at < lines.index("## Shadow window — the tier-`glance` merge decision")
+    # The real Mind log beside this Brain has the heading above its first table.
+    live = BRAIN.parent / "PyAutoMind" / "autonomy_log.md"
+    if not live.is_file():
+        pytest.skip("no PyAutoMind checkout beside this Brain")
+    text = live.read_text(encoding="utf-8")
+    out = mw.table_append(text, "## Calibration runs", row).splitlines()
+    first_table = next(i for i, ln in enumerate(text.splitlines()) if ln.startswith("|"))
+    assert text.splitlines().index("## Calibration runs") < first_table
+    at = out.index(row)
+    assert out[at - 1].startswith("|")
+    assert at < next(i for i, ln in enumerate(out) if ln.startswith("## Shadow window"))
+
+
+def _events_of(slot, ledger):
+    import _events
+    slot.mkdir(parents=True, exist_ok=True)
+    return _events.record_tick(slot, _dt.datetime(2026, 11, 17, 9, 0, tzinfo=_dt.timezone.utc),
+                               {"action": "ticked", "ledger": ledger}, counters={})
+
+
+def test_a_mechanical_set_aside_is_a_digest_line_not_a_needs_you_event(tmp_path, mind):
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    # Already true on main: a remove of a file that is gone, a write of the
+    # text the file already has.
+    mw.queue_op(slot / "ledger", {"op": "remove", "path": "active/gone.md", "task": "t2"})
+    mw.queue_op(slot / "ledger", {"op": "write", "path": "active/t2.md", "text": "# t2\n",
+                                  "task": "t2"})
+    mw.queue_op(slot / "ledger", {"op": "write", "path": "complete/2026/11/t2.md",
+                                  "text": "## t2\n", "task": "t2"})
+    res = mw.commit_ledger(slot, canon, "mechanical")
+    assert {a["needs"] for a in res["set_aside"]} == {"mechanical"} and len(res["set_aside"]) == 2
+    assert _remote_tree(bare, "complete/2026/11/t2.md").stdout == "## t2\n"   # not withheld
+    events = _events_of(slot, res)
+    assert not [e for e in events if e["needs_you"]], events
+    import _digest
+    lines = [ln for ln in _digest.report_lines(slot) if ln]
+    assert len(lines) == 2 and all("mechanical" in ln and ln.startswith("- note:")
+                                   for ln in lines)
+
+
+def test_two_human_set_asides_for_one_task_are_one_needs_you_event(tmp_path, mind):
+    bare, canon, _ = mind
+    slot = tmp_path / "slot"
+    for path in ("draft/feature/x/t1.md", "active/t2.md"):
+        mw.queue_op(slot / "ledger", {"op": "edit", "path": path, "task": "t3",
+                                      "old": "# nope\n", "new": "# t3\n"})
+    res = mw.commit_ledger(slot, canon, "human")
+    assert [a["needs"] for a in res["set_aside"]] == ["human", "human"]
+    needs = [e for e in _events_of(slot, res) if e["needs_you"]]
+    assert len(needs) == 1 and needs[0]["key"] == "impaired:ledger:task:t3"
+    assert "`t3`" in needs[0]["line"] and "2 ops" in needs[0]["line"]
+    assert "active/t2.md" in needs[0]["line"] and "draft/feature/x/t1.md" in needs[0]["line"]

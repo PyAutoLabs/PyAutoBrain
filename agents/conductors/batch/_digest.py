@@ -585,14 +585,20 @@ _REPORT_WORDS = {
     "set-aside": "warning: Mind ledger op set aside, not committed",
     "conflict": "warning: CONFLICT — Mind ledger op set aside, not committed",
     "held": "warning: Mind ledger op held pending, retried every tick",
+    "withheld": "warning: Mind ledger op withheld with its task, not committed",
+    # A set-aside whose `needs` is mechanical (#660): already true on main.
+    "mechanical": "note: Mind ledger op set aside (mechanical — already true on main, "
+                  "no action)",
 }
 
 
 def report_line(e: dict) -> str:
     """One `ledger/report.jsonl` entry as a digest or late line."""
-    head = _REPORT_WORDS.get(e.get("kind"), f"warning: Mind ledger {e.get('kind')}")
+    kind = "mechanical" if (e.get("kind") == "set-aside"
+                            and e.get("needs") == "mechanical") else e.get("kind")
+    head = _REPORT_WORDS.get(kind, f"warning: Mind ledger {e.get('kind')}")
     where = f" (`ledger/set_aside/{e.get('file')}`)" if e.get("kind") in (
-        "set-aside", "conflict") else ""
+        "set-aside", "conflict", "withheld") else ""
     return f"- {head} — {e.get('op') or '?'} {e.get('path') or '?'}: {e.get('why')}{where}"
 
 

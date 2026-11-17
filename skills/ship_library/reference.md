@@ -79,8 +79,9 @@ human's merge decision) and push Mind with
 
 **Which table.** The calibration row goes in the **first** table of that
 file — the five-cell `| date | task | effective level | gates | outcome |`
-table under the top heading — as the last row of its final segment, in date
-order. It never goes at the end of the file: the table that sits there is the
+table under the `## Calibration runs` heading — as the last row of its final
+segment, in date order. A shift worker queues it as
+`shift_ledger.py --task <task> table-append autonomy_log.md "## Calibration runs" --text "| … |"`. It never goes at the end of the file: the table that sits there is the
 **Shadow window** (`## Shadow window`), which is the close-out's alone,
 tier-`glance` only (tier-`notify` until 2026-10-02), appended at close-out with
 a fixed `human action` vocabulary. Six
