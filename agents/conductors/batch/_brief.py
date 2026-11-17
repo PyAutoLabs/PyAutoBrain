@@ -30,6 +30,8 @@ CAP_DEFAULTS = {"max-workers": 4, "max-sessions": 8}
 WORKER_MODES = ("auto", "dontAsk", "acceptEdits")
 DEFAULT_WORKER_MODE = "auto"
 SCOPED_KEYS = ("epics", "tags", "tiers")
+#: `first:` values (M3.6c): `glance` sorts ready glance work first.
+FIRST_VALUES = ("glance",)
 #: The organs a shift runs on: its watcher and planner (Brain), its one Mind
 #: writer (Mind) and its release path (Hands). A shift never changes them, so
 #: the planner never dips a draft that targets one (PyAutoBrain#637, item 7).
@@ -142,10 +144,35 @@ def excluded_of(brief: dict) -> tuple[set[str], dict[str, list[str]]]:
     return paths, keyed
 
 
+#: Tokens one worker session is assumed to need at least, for a session cap
+#: derived from the budget (M3.6c, human 2026-11-17): the cap is
+#: `max(2 × max-workers, ceil(token-budget / SESSION_TOKEN_FLOOR))`, so the
+#: token budget binds before the session count does.
+SESSION_TOKEN_FLOOR = 150_000
+
+
 def cap_of(brief: dict, key: str) -> int:
-    """A usage cap from the brief, or its default when the brief omits it."""
+    """A usage cap from the brief, or its default when the brief omits it.
+    With no `max-sessions:`, a brief with a `token-budget:` gets a cap derived
+    from it and `max-workers:` (M3.6c) — the fixed 8 stopped all new starts in
+    shift 2026-11-16-pm with 2.3M of 5M tokens unspent."""
     value = _nonneg_int(brief.get(key, {}).get("value", ""))
-    return CAP_DEFAULTS[key] if value is None else value
+    if value is not None:
+        return value
+    if key == "max-sessions":
+        budget = _nonneg_int(brief.get("token-budget", {}).get("value", ""))
+        if budget:
+            return max(2 * cap_of(brief, "max-workers"), -(-budget // SESSION_TOKEN_FLOOR))
+    return CAP_DEFAULTS[key]
+
+
+def cap_source(brief: dict, key: str) -> str:
+    """Where `cap_of` took a cap from: `brief`, `from token-budget` or `default`."""
+    if _nonneg_int(brief.get(key, {}).get("value", "")) is not None:
+        return "brief"
+    if key == "max-sessions" and _nonneg_int(brief.get("token-budget", {}).get("value", "")):
+        return "from token-budget"
+    return "default"
 
 
 #: The caps a `/cap` steering command may lower for one shift (#644).
@@ -334,6 +361,10 @@ def check(path: Path, mind: Path) -> dict:
                       + ", ".join(WORKER_MODES)
                       + (" (bypassPermissions is never a worker mode)"
                          if brief["worker-mode"]["value"] == "bypassPermissions" else ""))
+    # `first: glance` (M3.6c): ready glance work starts before named judge tasks.
+    if "first" in brief and brief["first"]["value"] not in FIRST_VALUES:
+        errors.append(f"brief.first: {brief['first']['value'] or 'empty'} — only "
+                      + " | ".join(FIRST_VALUES) + " (or leave the line out)")
     for key in ("sandbox", "shadow"):
         if key in brief and brief[key]["value"].lower() not in ("yes", "no"):
             errors.append(f"brief.{key}: {brief[key]['value']} — yes or no")
@@ -601,7 +632,9 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
                                   or themes & set(ex_keyed.get("tags", []))):
             rejected.append((r["path"], "excluded by the brief"))
             continue
-        if name not in named_names:
+        # A task an answer released (the inbox, M3.5) is the human's word, as
+        # naming it would be (M3.6c): no dip policy keeps it out.
+        if name not in named_names and not r.get("resume"):
             if backlog == "none":
                 rejected.append((r["path"], "outside the brief (backlog: none)"))
                 continue

@@ -123,7 +123,8 @@ def test_live_snapshot_shows_every_task_state_reason_health_and_budget(tmp_path)
     assert "- parked — parked: awaiting-input" in text
     assert "- crashed — crashed — awaiting re-dispatch" in text
     assert "- workers: 2 live of 3" in text
-    assert "- sessions: 4 of 8" in text  # the max-sessions default (PyAutoBrain#656)
+    # No max-sessions: derived from token-budget 5000 and max-workers 3 (M3.6c).
+    assert "- sessions: 4 of 6 (from token-budget)" in text
     assert "- tokens: 1234 of 5000" in text
     assert "- merges: 1 of 2 (1 unattended)" in text
     assert "- workers crashed: 1" in text

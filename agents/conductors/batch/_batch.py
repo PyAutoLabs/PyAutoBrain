@@ -461,7 +461,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     for r in records:
         # A brief's named task is the human's own pick, not a backlog dip:
         # neither M2.3 gate below applies to it (the brief's `lanes:` still does).
-        backlog = Path(r["path"]).name not in named_names
+        # A task an answer released is the human's word too (M3.6c): no dip gate.
+        backlog = Path(r["path"]).name not in named_names and not r.get("resume")
         why = pool_gate(r, next_phase)
         if why:
             rejected.append((r["path"], why))
