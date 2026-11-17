@@ -404,6 +404,177 @@ def launch_errors(top: dict, brief: dict | None) -> list[str]:
     return []
 
 
+# --- the organ rule for a named task (M3.6b) -------------------------------------
+
+#: The shift's own code, per organ it runs on: its watcher and planner (Brain),
+#: its one Mind writer and lifecycle (Mind) and its release path (all of Hands,
+#: so the empty prefix). A named task that names a path here is refused at
+#: `brief --check`: a shift never changes what runs it.
+SELF_PATHS = {
+    "PyAutoBrain": ("agents/conductors/batch/",),
+    "PyAutoMind": ("scripts/", ".github/workflows/"),
+    "PyAutoHands": ("",),
+}
+#: Self prefixes no other repo has: unprefixed, they still name that organ's
+#: code (`.github/workflows/` and `scripts/` are every repo's).
+DISTINCT_PREFIXES = ("agents/conductors/batch/",)
+_SELF_PREFIXES = {pre.lower() for pres in SELF_PATHS.values() for pre in pres if pre}
+#: Path candidates in a prompt: any backticked token, and an unbackticked
+#: token that looks like a file path (segments and a lettered extension).
+_TICKED_RE = re.compile(r"`([^`\s]+)`")
+_BARE_PATH_RE = re.compile(r"(?<![\w/.-])((?:[\w.-]+/)+[\w.-]+\.[A-Za-z]\w*)")
+#: Mind's own records: a prompt that cites another prompt or record says
+#: nothing about which code it changes, so such a path is neutral.
+MIND_DOCS = ("draft/", "active/", "complete/", "batches/")
+
+
+def _path_parts(token: str) -> tuple[list[str], bool] | None:
+    """(lower-cased path segments, glob) of a token, or None when it is not a
+    file path: a URL, `Repo#N`, an `action@ref`, a slash command (`/prm`), a
+    bare `/`, or a two-segment token with no extension (`origin/main`). A
+    `:line` suffix and a leading `@` or `./` are dropped; a glob keeps the
+    segments before its first `*`."""
+    t = token.strip().rstrip(".,;)").removeprefix("@")
+    if "://" in t or "#" in t or "@" in t:
+        return None
+    t = re.sub(r":\d[\d,-]*$", "", t).removeprefix("./")
+    glob = "*" in t
+    if glob:
+        t = t.split("*", 1)[0].rsplit("/", 1)[0] + "/"
+    parts = [x.lower() for x in t.split("/") if x and x not in (".", "..")]
+    # A self prefix written without its slash (`.github/workflows`, `scripts`)
+    # is still that directory.
+    if "/".join(parts) + "/" in _SELF_PREFIXES or "/".join(parts[1:]) + "/" in _SELF_PREFIXES:
+        t = t.rstrip("/") + "/"
+    is_dir = t.endswith("/")
+    if not parts or (len(parts) == 1 and not is_dir):
+        return None
+    if len(parts) == 2 and not is_dir and not glob and "." not in parts[-1]:
+        return None
+    return parts + ([""] if is_dir else []), glob
+
+
+def _own_files(mind: Path) -> dict[str, set[str]]:
+    """File names of the shift's own code, per organ, for a prompt that names
+    one bare (`_orchestrator.py`, `worker_template.md`): this conductor's
+    directory (bar its AGENTS.md) and Mind's `scripts/`."""
+    def names(d: Path, keep) -> set[str]:
+        return {f.name for f in d.iterdir() if f.is_file() and keep(f)} if d.is_dir() else set()
+    return {"PyAutoBrain": names(Path(__file__).parent, lambda f: f.name != "AGENTS.md"),
+            "PyAutoMind": names(Path(mind) / "scripts", lambda f: f.suffix in (".py", ".sh"))}
+
+
+def _classify(parts: list[str], hit: list[str], only_self: bool, organs: dict,
+              known, declared: set[str]) -> str:
+    """"own" | "maybe" | "other" | "neutral" for one path's segments."""
+    from _sizing import normalise_repo  # noqa: E402
+    # `parts` ends in "" for a directory token: its last name may then be a
+    # repo (`PyAutoBrain/`), which the attribution below reads.
+    rel = "/".join(x for x in parts if x) + "/"
+    if rel.startswith(MIND_DOCS):
+        return "neutral"          # a Mind record, wherever its folder is named
+    # An explicit repo segment (never the file name itself) attributes the path.
+    at = next((i for i, seg in enumerate(parts[:-1])
+               if normalise_repo(seg) in organs or normalise_repo(seg) in known), None)
+    if at is not None:
+        organ = organs.get(normalise_repo(parts[at]))
+        rest = "/".join(x for x in parts[at + 1:] if x) + "/"
+        if rest == "/":
+            return "neutral"                       # the repo itself, not a path in it
+        if organ and any(rest.startswith(pre.lower()) for pre in SELF_PATHS[organ]):
+            return "own"
+        if organ == "PyAutoMind" and rest.startswith(MIND_DOCS):
+            return "neutral"
+        # A path in a repo the task declares shows what it changes; one in a
+        # repo it does not declare shows nothing either way.
+        return "other" if normalise_repo(parts[at]) in declared else "neutral"
+    # A multi-segment self prefix found anywhere (a worktree or absolute path).
+    # Inside a longer path only (a worktree or an absolute path), and only
+    # for an organ this task targets: at the start it is plainly unprefixed,
+    # which `cands` judges below (another repo's `.github/workflows/` is not
+    # Mind's).
+    # A prefix only that organ has (`DISTINCT_PREFIXES`) is its code at the
+    # start of a path too, whatever else the task declares.
+    deep = any(rel.startswith(pre) or f"/{pre}" in rel[1:] for pre in DISTINCT_PREFIXES) \
+        or any(f"/{pre.lower()}" in rel[1:]
+               for o in hit for pre in SELF_PATHS[o] if pre.count("/") > 1)
+    cands = [o for o in hit if any(rel.startswith(pre.lower()) for pre in SELF_PATHS[o])]
+    if deep or (cands and only_self):
+        return "own"
+    return "maybe" if cands else "other"
+
+
+def organ_findings(name: str, path: Path, mind: Path) -> tuple[list[str], list[str], list[str]]:
+    """(errors, warnings, notes) of the organ rule for one named task.
+
+    The organ rule was a dip rule only (`_batch.self_organ_why`); a named task
+    is the human's pick, and in shift 2026-11-16-pm the human had to rule in
+    chat that a renderer is not the watcher, writer or release path. This says
+    it at launch instead (M3.6b), for a task that targets an organ the shift
+    runs on:
+
+    - refused when it names the shift's own code: a path under an organ's
+      `SELF_PATHS` with that organ written in it, under a multi-segment self
+      prefix anywhere in the path, unprefixed when the task declares only
+      self organs, or a bare file name of that code;
+    - a warning when an unprefixed path could be a self organ's own code but
+      the task also declares another repo (the human's call), or when it names
+      no path that shows what it changes;
+    - otherwise passed, with a line saying so. A path in an undeclared repo,
+      a repo name alone and a Mind record (`MIND_DOCS`) show nothing either way."""
+    from _sizing import KNOWN_REPOS, normalise_repo  # noqa: E402 — on sys.path
+    p = parse_prompt(path, mind)
+    text = p.get("text") or ""
+    organs = {normalise_repo(o): o for o in SELF_ORGANS}
+    # The `Target:` header (every repo it names), else `parse_prompt`'s
+    # target (the draft's folder); then the `Repos:` block.
+    head = re.search(r"(?m)^Target:[ \t]*(.+)$", text)
+    targets = re.findall(r"[\w.-]+", head.group(1)) if head else [p.get("target") or ""]
+    declared = {normalise_repo(x) for x in [*targets,
+                                            *re.findall(r"(?m)^- (\S+)", _repos_block(p))] if x}
+    hit = [organs[k] for k in organs if k in declared]
+    if not hit:
+        return [], [], []
+    only_self = declared <= set(organs)
+    own_files = _own_files(mind)
+    bare_names = {n for o in hit for n in own_files.get(o, ())}
+    own, maybe, paths = [], [], []
+    for n in sorted(bare_names):
+        if re.search(rf"(?<![\w/.-]){re.escape(n)}(?![\w-])", text):
+            own.append(n)
+    for tok in dict.fromkeys(_TICKED_RE.findall(text) + _BARE_PATH_RE.findall(text)):
+        got = _path_parts(tok)
+        if got is None:
+            continue
+        kind = _classify(got[0], hit, only_self, organs, KNOWN_REPOS, declared)
+        rel = "/".join(x for x in got[0] if x)
+        if kind == "own":
+            own.append(rel)
+        elif kind == "maybe":
+            maybe.append(rel)
+        elif kind == "other" and not got[1]:
+            paths.append(rel)
+    if own:
+        return [f"organ rule: {name} names {own[0]} — the shift's own watcher, writer "
+                "or release path; a shift never changes it (run it in chat)"], [], []
+    if maybe:
+        return [], [f"organ rule: {name} names {maybe[0]}, which may be "
+                    f"{'/'.join(hit)} code the shift runs on, and declares other repos "
+                    "too — the human decides"], []
+    if not paths:
+        return [], [f"organ rule: {name} targets {', '.join(hit)} and names no path that "
+                    "shows what it changes — the human decides whether it touches the "
+                    "watcher, writer or release path"], []
+    return [], [], [f"organ rule: {name} targets {', '.join(hit)} but names only "
+                     f"{', '.join(paths[:3])}" + (" …" if len(paths) > 3 else "")
+                     + " — not the watcher, writer or release path; passes"]
+
+
+def _repos_block(p: dict) -> str:
+    m = re.search(r"^Repos:\n((?:- .+\n)+)", p.get("text") or "", re.M)
+    return m.group(1) if m else ""
+
+
 # --- scope ---------------------------------------------------------------------
 
 def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str, str]], list[str]]:

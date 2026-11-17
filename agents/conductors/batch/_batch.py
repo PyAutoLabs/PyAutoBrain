@@ -162,6 +162,9 @@ def grade(path: Path, mind: Path, text: str | None = None) -> dict:
         "declared_repos": declared_repos(p),
         "priority": p.get("priority") or "normal",
         "blocked": bool(p.get("blocked_by")),
+        # What it waits for, so a rejection names it (M3.6b: a side task
+        # orders itself after its epic's phase by `Blocked-by:`).
+        "blocked_by": list(p.get("blocked_by") or []),
     }
 
 
@@ -206,10 +209,15 @@ def _is_done(text: str) -> bool:
 def _phase_of(text: str) -> float:
     """`Phase: <n>` as a sortable number; phase-less members sort last."""
     raw = _header_of(text, "phase")
-    try:
-        return float(raw.rstrip("abcdefgh") or "inf")
-    except ValueError:
-        return float("inf")
+    # The leading number: `5a`/`5A` → 5, `6b2` → 6 (M3.6b review). A label
+    # with no leading number (`C2`) sorts last but is still a declared phase
+    # (`_phase_declared`), so the per-epic limit counts it.
+    m = re.match(r"\s*(\d+(?:\.\d+)?)", raw)
+    return float(m.group(1)) if m else float("inf")
+
+
+def _phase_declared(text: str) -> bool:
+    return bool(_header_of(text, "phase"))
 
 
 def survey(mind: Path) -> list[dict]:
@@ -228,6 +236,7 @@ def survey(mind: Path) -> list[dict]:
         g["looks_shipped"] = f.relative_to(mind).as_posix() in flagged
         g["epic"] = _epic_of(text)
         g["phase"] = _phase_of(text)
+        g["phase_declared"] = _phase_declared(text)
         g["done"] = _is_done(text)
         g["themes"] = _themes_of(text)
         g["title"] = _title_of(text)
@@ -244,6 +253,7 @@ def grade_text(text: str, rel: str, mind: Path) -> dict:
     g["looks_shipped"] = rel in _shipped.flagged_paths(mind)
     g["epic"] = _epic_of(text)
     g["phase"] = _phase_of(text)
+    g["phase_declared"] = _phase_declared(text)
     g["done"] = _is_done(text)
     g["themes"] = _themes_of(text)
     g["title"] = _title_of(text)
@@ -307,16 +317,33 @@ def pool_gate(r: dict, next_phase: dict[str, float]) -> str:
     if r.get("looks_shipped"):
         return ("looks shipped — confirm (close) or "
                 f"dismiss it ({_shipped.DISMISS_FILE}) first")
-    if r.get("epic") and r.get("phase", float("inf")) > next_phase.get(
+    # Phase order binds only a task with a `Phase:` number (ruling R5, option
+    # a, 2026-11-17): a side task of the epic (no `Phase:`) is not a later
+    # phase, and orders itself by `Blocked-by:` below.
+    if r.get("epic") and has_phase(r) and r["phase"] == float("inf") \
+            and next_phase.get(r["epic"], float("inf")) < float("inf"):
+        return f"epic {r['epic']} phase (unnumbered) is not next"
+    if r.get("epic") and has_phase(r) and r["phase"] > next_phase.get(
             r["epic"], float("inf")):
-        return f"epic {r['epic']} phase {r.get('phase')} is not next"
+        return f"epic {r['epic']} phase {r['phase']:g} is not next"
     if r["autonomy"] == "human-required":
         return f"autonomy {r['autonomy']} — would park at ship"
     if r["unattended"] != "ready":
         return f"unattended: {r['unattended']}"
     if r["blocked"]:
-        return "declares Blocked-by:"
+        waits = "; ".join(r.get("blocked_by") or [])
+        return f"waits for {waits} (its Blocked-by)" if waits else "declares Blocked-by:"
     return ""
+
+
+def has_phase(r: dict) -> bool:
+    """Whether a record declares a `Phase:` (`phase_declared`, from the
+    survey); else whether its phase is a number (`_phase_of` reads a missing
+    one as infinity, so phase-less side tasks sort last)."""
+    if "phase_declared" in r:
+        return bool(r["phase_declared"])
+    phase = r.get("phase", float("inf"))
+    return isinstance(phase, (int, float)) and phase != float("inf")
 
 
 def self_organ_why(r: dict) -> str:
@@ -430,7 +457,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
 
     shift_dip = brief is not None and not attended
     scoped_dip = shift_dip and brief.get("backlog", {}).get("value") == "scoped"
-    pool, lane_absent, reach = [], [], []
+    pool, lane_absent, reach, witness_absent = [], [], [], []
     for r in records:
         # A brief's named task is the human's own pick, not a backlog dip:
         # neither M2.3 gate below applies to it (the brief's `lanes:` still does).
@@ -448,6 +475,13 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
                                         "(named tasks only)"))
         elif shift_dip and backlog and self_organ_why(r):
             rejected.append((r["path"], self_organ_why(r)))
+        elif shift_dip and backlog and not r.get("witness") and not r.get("resume"):
+            # A shift dips only witnessed drafts (M3.6b): one without a
+            # `Witness:` is reviewed as `judge`, so it is never cheap fill.
+            # Counted for the digest; a named task is the human's pick.
+            rejected.append((r["path"], "no Witness — a shift dips only witnessed "
+                                        "drafts (declare one to make it pickable)"))
+            witness_absent.append(r["path"])
         elif scoped_dip and backlog and queue_rank(r, queue) >= len(queue) \
                 and scoped_reach_why(r):
             rejected.append((r["path"], scoped_reach_why(r)))
@@ -470,8 +504,11 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
 
     members, spent, seen_epics, libs = [], 0, set(), set()
     for r in pool:
-        if r["epic"] and r["epic"] in seen_epics:
-            rejected.append((r["path"], f"epic {r['epic']} already in this batch"))
+        # One slice per epic counts only `Phase:` tasks (ruling R5, option a,
+        # 2026-11-17): a side task of the epic shares the shift with its phase.
+        if r["epic"] and has_phase(r) and r["epic"] in seen_epics:
+            rejected.append((r["path"], f"epic {r['epic']} already has a phase task in "
+                                        "this batch (one Phase: task per epic)"))
             continue
         # Concurrent members do not collide at dispatch (separate worktrees) —
         # they collide at MERGE, because the first /prm moves main and
@@ -489,7 +526,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
             continue
         members.append(r)
         spent += cost
-        if r["epic"]:
+        if r["epic"] and has_phase(r):
             seen_epics.add(r["epic"])
         libs.update(x for x in r["repos"] if x in LIBRARY_REPOS)
 
@@ -523,6 +560,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         "queue_stop": queue_stop,
         # The 2026-11-16 backlog-reach ruling (#637, item 6), stated likewise.
         "scoped_reach": reach,
+        # Backlog drafts with no `Witness:`, kept out of a shift's dip (M3.6b).
+        "witness_absent": witness_absent,
     }
 
 
@@ -3320,13 +3359,19 @@ def goals_report(mind: Path) -> list[str]:
     return L
 
 
+#: `brief --new`'s scope when no goal names an epic or tag (M3.6b): the tiers
+#: a shift may merge, under the 2026-11-16 backlog-reach ruling.
+NEW_BRIEF_SCOPED_TIERS = ("notify", "glance")
+
+
 def new_brief(mind: Path, slot: str, review_at: str, now=None,
               heart: dict | None = None, issue: str = "") -> str:
     """A skeleton shift brief whose `goals:` are `goals.md`'s, in order.
 
     `goals.md` has one kind of writer, the human (by hand or in chat), so
     every goal is copied as their word. `backlog: scoped` covers the union of
-    the goals' `epics:`/`tags:`; with none named, `fill-idle`. Every other required key
+    the goals' `epics:`/`tags:`; with none named, `scoped` by the tiers a shift
+    may merge (`NEW_BRIEF_SCOPED_TIERS`). Every other required key
     gets a default the human edits. Writing the record (with its `review-at:`)
     is the dispatch, so this only composes the text (batches/AGENTS.md
     "Shift brief").
@@ -3370,7 +3415,14 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
         if tags:
             L.append(f"    - tags: {', '.join(tags)}")
     else:
-        L.append("  - backlog: fill-idle              # no goal names an epic or tag")
+        # No goal names an epic or tag: the backlog-reach ruling (2026-11-16,
+        # PyAutoBrain#637 item 6) is the default, not `fill-idle` (M3.6b) —
+        # under `scoped` the planner dips queue.md first, then only small
+        # single-repo tasks, and these tiers are the ones a shift may merge.
+        L += ["  - backlog: scoped                 # tiers a shift may merge; beyond "
+              "queue.md small single-repo only (ruling 2026-11-16)",
+              "  - scoped:",
+              f"    - tiers: {', '.join(NEW_BRIEF_SCOPED_TIERS)}"]
     L += [f"  - review-minutes: {NEW_BRIEF_DEFAULTS['review-minutes']}",
           f"  - lanes: {NEW_BRIEF_DEFAULTS['lanes']}",
           f"  - merge-cap: {NEW_BRIEF_DEFAULTS['merge-cap']}"
@@ -3378,6 +3430,49 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
           f"  - token-budget: {NEW_BRIEF_DEFAULTS['token-budget']}"]
     text = "\n".join(L) + "\n"
     return text + "\n" + _green.section(heart) if heart else text
+
+
+#: `brief --check`'s word for a named task whose prompt is in `active/`.
+NAMED_IN_ACTIVE = ("its prompt is in active/ — already issued: a shift starts it only "
+                   "as a resume after an answered question (or it has started)")
+
+
+def named_skips(brief: dict, mind: Path) -> tuple[dict[str, str], str]:
+    """({named task: why it will not start}, a note when the claims on Mind
+    origin/main could not be read) — the watcher's own gates, run at
+    `brief --check` (M3.6b, ruling R5): the claim gate against Mind's local
+    `origin/main` (never a fetch), then `plan` under this brief, unattended,
+    on the watcher's lane. A task the planner keeps is not listed; one that
+    resolves to no prompt is `_brief.check`'s warning already."""
+    import _orchestrator as orch  # noqa: E402 — deferred: it imports this module
+    named = _brief.tasks_of(brief)
+    if not named:
+        return {}, ""
+    recs = survey(mind)
+    note = ""
+    claims = orch.origin_claims(mind)
+    held: dict[str, str] = {}
+    if claims is not None and "error" in claims:
+        note = (f"brief.tasks: claims on Mind origin/main not read ({claims['error']}) — "
+                "the watcher fails closed on that; repo claims not checked here")
+    elif claims is not None:
+        recs, held = orch.on_origin(recs, mind, own=set())
+    d = plan(recs, session_lane="local-dev", brief=brief, queue=read_queue(mind))
+    rejected = {Path(p).name: w for p, w in d["rejected"]}
+    rejected.update({Path(p).name: w for p, w in held.items()})
+    members = {Path(m["path"]).name for m in d["members"]}
+    out = {}
+    for t in named:
+        name = Path(t).name
+        if name in rejected:
+            out[t] = rejected[name]
+        elif name not in members and _brief._resolve(mind, t) is not None:
+            # In active/ (already issued): `_brief.check` resolves it, so no
+            # warning came from there, and no survey of draft/ holds it. A
+            # shift resumes it only once its question is answered, and on a
+            # record re-checked after launch it is a task that started.
+            out[t] = NAMED_IN_ACTIVE
+    return out, note
 
 
 #: `PYAUTO_BRIEF_ISSUE=off`: `brief --new --out` makes no shift issue.
@@ -3555,6 +3650,23 @@ def _main_brief(mind: Path, a) -> int:
     warn = goal_one_warning(Path(a.check), mind)
     if warn:
         res["warnings"].append(warn)
+    # M3.6b: every named task that will not start, with the planner's own
+    # reason, and the organ rule for each one, before the shift opens.
+    res["notes"] = []
+    if rec is not None and rec["brief"] is not None:
+        why_not, claim_note = named_skips(rec["brief"], mind)
+        res["warnings"] += [f"brief.tasks: {Path(t).stem} will not start — {w}"
+                            for t, w in why_not.items()]
+        if claim_note:
+            res["warnings"].append(claim_note)
+        for t in _brief.tasks_of(rec["brief"]):
+            f = _brief._resolve(mind, t)
+            if f is not None:
+                errs, warns, notes = _brief.organ_findings(Path(t).stem, f, mind)
+                res["errors"] += errs
+                res["warnings"] += warns
+                res["notes"] += notes
+        res["ok"] = not res["errors"]
     # The premise leg: a named task whose premise is gone on main is flagged
     # here, before the shift pays a worker to discover it. A warning, not a
     # refusal — the check is mechanical, and the human reads the evidence.
@@ -3573,6 +3685,8 @@ def _main_brief(mind: Path, a) -> int:
             print(f"  ✗ {e}")
         for w in res["warnings"]:
             print(f"  ! {w}")
+        for n in res.get("notes") or []:
+            print(f"  · {n}")
         for p in res["premise"]:
             print(f"  premise {p['status']}: {p['task']}")
     return RC_OK if res["ok"] else RC_FINDINGS

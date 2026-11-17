@@ -48,7 +48,7 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 |---|---|
 | **Review-minute budget** | the human's hour is the binding resource; see above |
 | **One member per *library* repo per shift** | concurrent members do not collide at dispatch (separate worktrees) — they collide at **merge**, because the first `/prm` moves `main` and invalidates the others' test and smoke evidence. Workspace, docs and organ repos are exempt: two docs changes in one shift cost nothing. Work concentrates in four repos (PyAutoFit 118/332 August records, PyAutoArray 98, PyAutoGalaxy 82, PyAutoLens 78), so effective parallelism is two or three, not six. |
-| **One slice per epic per batch** | epic phases are ordered, so two members could not run in parallel anyway — and this is what interleaves small pieces of long programmes with standalone work |
+| **One `Phase:` task per epic per batch** | epic phases are ordered, so two members could not run in parallel anyway — and this is what interleaves small pieces of long programmes with standalone work. A side task of the epic (no `Phase:`) is not counted and orders itself by `Blocked-by:` (ruling R5, M3.6b) |
 | **`Unattended: ready` only** | `needs-slicing` goes to the decomposition pass (`batch slice`); `never` never enters a batch |
 | **Lane match** | a session detects its own lane and plans only that one |
 | **No Lane, no unattended pick** | a backlog draft with no valid `Lane:` is excluded from every unattended plan (the default, and the watcher) and the plan says so; `--attended` reads it as `any`. A lane-less draft that needs the laptop, RAL or private data would otherwise reach a cloud worker (M2.3, `AUTONOMY.md` "M2 rulings — 2026-11-12") |
@@ -198,7 +198,8 @@ whole grant (`AUTONOMY.md`, "Shift briefs and unattended `glance`").
 
 `batch brief --new <YYYY-MM-DD-am|pm> --review-at <ISO>` composes that writing:
 a skeleton brief whose `goals:` are `PyAutoMind/goals.md`'s, in order, with
-`backlog: scoped` to their `epics:`/`tags:` (else `fill-idle`) and
+`backlog: scoped` to their `epics:`/`tags:` (else `scoped` by `tiers: notify,
+glance`, M3.6b) and
 `merge-cap: 0`. It prints to stdout (`--out FILE` writes it) and never writes a
 record into `batches/` — saving it there is the human's dispatch.
 `goals.md` is written by the human alone (by hand or in chat), so every goal
@@ -285,8 +286,11 @@ claimed in its `active.md` is excluded unless this shift picked it, read from th
 local `origin/main` ref after one `git fetch` per shift through the one Mind
 writer's own fetch (never a pull); an unreadable ref fails closed. From
 PyAutoBrain#637 the same read also skips a task whose declared repo (`Repos:`
-header and target) a claim in that `active.md` holds, unless the claim records
-`coordination:` or `conflict-override:`; a task an earlier shift in the same
+header and target) a claim in that `active.md` holds, unless the claim's
+`coordination:` or `conflict-override:` line names that task (ruling R2, M3.6b;
+a shift's dip also skips a draft with no `Witness:`, counted in the digest, and
+`brief --check` lists each named task that will not start and applies the
+organ rule to it); a task an earlier shift in the same
 home left parked on a question is not startable until a later shift finishes
 it or a brief names it again; a dip never takes a Brain, Mind or Hands target;
 a `backlog: scoped` dip beyond `queue.md` takes only small single-repo tasks

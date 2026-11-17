@@ -221,11 +221,13 @@ def test_4_a_task_on_a_repo_claimed_on_origin_is_skipped_unless_coordinated(tmp_
     git(tmp_path, "clone", "-q", str(bare), str(mind))
     paths = [_write(mind, n, repos=(r,)) for n, r in
              (("a1", "PyAutoEyes"), ("a2", "PyAutoPulse"), ("a3", "PyAutoCortex"))]
+    # The coordination line names a2: since ruling R2 (M3.6b) it frees the
+    # repo only for the task it names (tests/test_batch_named_tasks.py).
     (mind / "active.md").write_text(
         "# Active\n\n## earlier-pick\n- status: workspace-dev\n- repos:\n"
         "  - PyAutoEyes: feature/earlier-pick\n- prompt: active/z.md\n\n"
         "## shared-claim\n- repos:\n  - PyAutoPulse (feature/shared)\n"
-        "- coordination: human approved sharing this repo\n")
+        "- coordination: human approved sharing this repo with a2\n")
     _commit(mind, "seed")
     git(mind, "push", "-q", "origin", "HEAD:main")
     git(mind, "fetch", "-q", "origin")

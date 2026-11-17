@@ -181,7 +181,9 @@ def test_digest_separates_brief_work_from_backlog_picks_with_reasons(tmp_path):
     assert ("- **Merged with NO merge slot — needs you** — [named](https://github.com/o/r/pull/1)\n"
             "  <sub>`named` · glance · small · pyautoheart · merged in-turn with NO merge slot"
             " — R3 revert-condition evidence</sub>") in work
-    assert "- **Not started** — never\n  <sub>`never` · not started</sub>" in work
+    # The fixture writes no prompt for `never`: it says so (M3.6b, R5).
+    assert ("- **Not started** — never\n  <sub>`never` · not started — skipped: no draft "
+            "prompt for it (already issued to active/, retired or never pushed)</sub>") in work
     assert "blob/main" not in d
     # Green and glance: since phase 4b its close-out is running at review time.
     assert ("- **Still running — close-out checking it** — [picked](https://github.com/o/r/pull/2)\n"
