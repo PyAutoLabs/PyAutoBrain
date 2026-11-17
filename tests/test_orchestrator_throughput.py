@@ -65,6 +65,18 @@ def _previous_slot(home: Path, name="2026-11-03-pm") -> Path:
     return slot
 
 
+class _OpenSpawner(co.Spawner):
+    """GitHub reads every PR OPEN, except those named MERGED."""
+
+    def __init__(self, merged=()):
+        super().__init__()
+        self.merged = set(merged)
+
+    def pr_state(self, url):
+        return {"state": "MERGED" if url in self.merged else "OPEN", "mergedAt": "",
+                "mergedBy": ""}
+
+
 def test_1_the_first_tick_closes_out_the_last_shifts_late_glance_prs(tmp_path):
     home = tmp_path / "home"
     _previous_slot(home)
@@ -72,7 +84,7 @@ def test_1_the_first_tick_closes_out_the_last_shifts_late_glance_prs(tmp_path):
     brief = tmp_path / "2026-11-04-am.md"
     brief.write_text(t.BRIEF.format(issue=t.ISSUE, packet="").replace("merge-cap: 1",
                                                                       "merge-cap: 4"))
-    sp = co.Spawner()
+    sp = _OpenSpawner()
     r = orch.tick(brief, mind, home=home, now=t.NOW, spawner=sp, agents=co.Agents(),
                   health=co._health({}))
     assert {LATE, CUT} <= set(r["closeouts"]["started"]), r["closeouts"]
@@ -242,3 +254,144 @@ def test_4_the_2026_11_16_pm_brief_never_refuses_on_sessions_under_half_its_budg
             (slot / "leases" / f"{task}.done").write_text("https://github.com/o/r/pull/1\n")
         now += _dt.timedelta(minutes=5)
     assert orch.read_counters(slot)["sessions"] > 8      # past the old cap
+
+
+# --- review fixes (Fable 5.2) ----------------------------------------------------------
+
+def _carry_shift(tmp_path, prev_extra: dict, merged=()):
+    home = tmp_path / "home"
+    prev = _previous_slot(home)
+    c = json.loads((prev / orch.COUNTERS_FILE).read_text())
+    for k, v in prev_extra.items():
+        c[k].update(v)
+    (prev / orch.COUNTERS_FILE).write_text(json.dumps(c))
+    mind = t._mind(tmp_path / "mind")
+    brief = tmp_path / "2026-11-04-am.md"
+    brief.write_text(t.BRIEF.format(issue=t.ISSUE, packet="").replace("merge-cap: 1",
+                                                                      "merge-cap: 4"))
+    sp = _OpenSpawner(merged)
+    r = orch.tick(brief, mind, home=home, now=t.NOW, spawner=sp, agents=co.Agents(),
+                  health=co._health({}))
+    return r, orch.read_counters(orch.slot_dir(brief, home))
+
+
+def test_review_a_carried_pr_the_human_merged_since_is_not_closed_out(tmp_path):
+    r, c = _carry_shift(tmp_path, {}, merged=(LATE,))
+    assert LATE not in r["closeouts"]["started"] and CUT in r["closeouts"]["started"]
+    assert c["closeouts"][LATE]["why"].endswith("GitHub reads it MERGED — not closed out")
+    assert c.get("glance_auto_merges", 0) == 0
+
+
+def test_review_a_question_parked_tasks_pr_is_not_carried(tmp_path):
+    r, c = _carry_shift(tmp_path, {"outcomes": {"late": {"prs": [LATE], "merged": [],
+                                                         "questions": [Q1]}}})
+    assert LATE not in c["carried_in"]["prs"] and "late" not in c["outcomes"]
+
+
+def test_review_an_undated_or_empty_newest_slot_does_not_hide_the_last_real_one(tmp_path):
+    home = tmp_path / "home"
+    _previous_slot(home)
+    for name in ("2026-11-04-aa", "2026-11-03-zz"):          # a shadow/empty slot
+        (home / name).mkdir()
+        (home / name / orch.COUNTERS_FILE).write_text(json.dumps({"picks": {"x": {}}}))
+    slot = home / "2026-11-04-am"
+    slot.mkdir()
+    c = {"outcomes": {}, "picks": {}, "done": []}
+    assert orch.carry_in(slot, c, NOW)["from"] == "2026-11-03-pm"
+    undated = home / "shift"
+    undated.mkdir()
+    assert orch.carry_in(undated, {"outcomes": {}, "picks": {}, "done": []}, NOW)["prs"] == []
+
+
+def test_review_the_first_tick_restarts_a_task_answered_since_the_last_shift(tmp_path,
+                                                                           monkeypatch):
+    """Witness clause 1, second half, by a tick: `backlog: none`, the task not
+    named, and still restarted with the human's answer."""
+    mind, brief, home = d._shift(tmp_path, names=("t0",))
+    (mind / "draft" / "feature" / "pyautobrain" / "t1.md").write_text(d.PROMPT.format(name="t1"))
+    prev = home / "2026-11-03-pm"
+    prev.mkdir(parents=True)
+    (prev / orch.COUNTERS_FILE).write_text(json.dumps({
+        "outcomes": {"t1": {"questions": [Q1], "prs": [], "merged": []}}, "parked": [],
+        "picks": {"t1": {"prompt": "draft/feature/pyautobrain/t1.md"}}}))
+    monkeypatch.setattr(_questions, "read_origin", lambda *a, **k: {"t1": [
+        {"id": "Q3", "shift": "2026-11-03-pm", "issue": Q1, "state": "answered",
+         "answered": "2026-11-03T22:00Z", "answer": "yes", "comment": ""}]})
+    claude = d.FakeClaude()
+    r = d._tick(brief, mind, home, NOW, claude)
+    assert sorted(s["task"] for s in r["spawned"]) == ["t0", "t1"], r
+    prompt = next(c[0][-1] for c in claude.calls if "shift:t1" in c[0])
+    assert "parked on a question" in prompt and "Q3" in prompt
+
+
+def test_review_a_release_refused_one_tick_still_resumes_the_next(tmp_path, monkeypatch):
+    mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
+    (mind / "draft" / "feature" / "pyautobrain" / "t2.md").write_text(d.PROMPT.format(name="t2"))
+    brief.write_text(brief.read_text().replace(
+        "    - draft/feature/pyautobrain/t1.md",
+        "    - draft/feature/pyautobrain/t2.md\n    - draft/feature/pyautobrain/t1.md")
+        + "  - max-workers: 1\n  - max-sessions: 8\n")
+    r = d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=30), claude)
+    assert [s["task"] for s in r["spawned"]] == ["t2"]            # t1 held by max-workers
+    c = orch.read_counters(slot)
+    assert "t1" in c["outcomes"] and "t1" in c["inshift_pending"]  # the park is kept
+    (slot / "leases" / "t2.done").write_text("https://github.com/o/r/pull/9\n")
+    r = d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=40), claude,
+                d._agents({"t2": "done"}, slot))
+    assert [s["task"] for s in r["spawned"]] == ["t1"], r
+    prompt = claude.calls[-1][0][-1]
+    assert "parked on a question" in prompt and "Q7" in prompt
+
+
+def test_review_a_release_that_never_spawns_leaves_the_park_for_the_next_shift(tmp_path,
+                                                                              monkeypatch):
+    mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
+    review_at = _dt.datetime(2026, 11, 4, 11, 30, tzinfo=_dt.timezone.utc)
+    monkeypatch.setattr(orch, "INSHIFT_RESTART_S", 10**6)        # never in time
+    d._tick(brief, mind, home, review_at - _dt.timedelta(minutes=40), claude)
+    c = orch.read_counters(slot)
+    assert "t1" in c["outcomes"] and c["outcomes"]["t1"]["questions"]
+    resumes = {}
+    nxt = home / "2026-11-05-am"
+    nxt.mkdir()
+    orch.parked_elsewhere(nxt, {"t1": [{"id": "Q7", "shift": slot.name, "state": "answered",
+                                        "answered": "x", "answer": "y", "comment": ""}]},
+                          resumes)
+    assert "t1" in resumes
+
+
+def test_review_first_glance_reorders_but_selects_the_same_tasks():
+    def r(path, tier, minutes):
+        return {"path": path, "repos": [], "work_type": "feature", "difficulty": "small",
+                "score": 1, "consequence": tier, "witness": "w", "review_minutes": minutes,
+                "unattended": "ready", "why": "", "ready_why": [], "epic": "", "lane": "any",
+                "priority": "normal", "blocked": False, "autonomy": "safe",
+                "autonomy_cap": "safe", "declared_autonomy": "safe", "done": False,
+                "phase": float("inf")}
+    recs = [r("j1.md", "judge", 40)] + [r(f"g{i}.md", "glance", 5) for i in (1, 2, 3)]
+    base = {"backlog": {"value": "fill-idle", "children": []},
+            "lanes": {"value": "any", "children": []},
+            "tasks": {"value": "", "children": [{"text": "j1.md"}]},
+            "review-minutes": {"value": "45", "children": []}}
+    a = _batch.plan(recs, brief=base, queue=["x"])
+    b = _batch.plan(recs, brief=dict(base, first={"value": "glance", "children": []}),
+                    queue=["x"])
+    assert [m["path"] for m in a["members"]] == [m["path"] for m in b["members"]]
+
+
+def test_review_once_per_answer_a_new_answered_question_restarts_again(tmp_path, monkeypatch):
+    mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
+    r = d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=20), claude)
+    assert [s["task"] for s in r["spawned"]] == ["t1"]
+    (slot / "leases" / "t1.done").write_text(f"question: {Q1}\n")      # parks again
+    d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=25), claude,
+            d._agents({"t1": "done"}, slot))
+    entry = {"shift": slot.name, "issue": Q1, "state": "answered", "answered": "x",
+             "answer": "y", "comment": ""}
+    monkeypatch.setattr(_questions, "read_origin", lambda *a, **k: {"t1": [
+        dict(entry, id="Q7"), dict(entry, id="Q8")]})
+    r = d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=40), claude)
+    assert [s["task"] for s in r["spawned"]] == ["t1"], r
+    assert "Q8" in claude.calls[-1][0][-1]
+    assert [x["ids"] for x in orch.read_counters(slot)["inshift_released"]["t1"]] == \
+        [["Q7"], ["Q8"]]

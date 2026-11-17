@@ -461,7 +461,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     for r in records:
         # A brief's named task is the human's own pick, not a backlog dip:
         # neither M2.3 gate below applies to it (the brief's `lanes:` still does).
-        backlog = Path(r["path"]).name not in named_names
+        # A task an answer released is the human's word too (M3.6c): no dip gate.
+        backlog = Path(r["path"]).name not in named_names and not r.get("resume")
         why = pool_gate(r, next_phase)
         if why:
             rejected.append((r["path"], why))
@@ -499,13 +500,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     for r in pool:
         r["queue_rank"] = queue_rank(r, queue)
         r["queued"] = r["queue_rank"] < len(queue)
-    # `first: glance` (M3.6c): ready glance work goes first, before even the
-    # brief's named judge tasks — the late glance PRs of 2026-11-16-pm started
-    # with 45 and 37 minutes left. Without the line the order is unchanged.
-    first_glance = brief is not None and \
-        (brief.get("first") or {}).get("value") == "glance"
-    pool.sort(key=lambda r: (0 if first_glance and r["consequence"] == "glance" else 1,
-                             r["queue_rank"], priority_rank(r),
+    pool.sort(key=lambda r: (r["queue_rank"], priority_rank(r),
                              r["review_minutes"], r["path"]))
 
     members, spent, seen_epics, libs = [], 0, set(), set()

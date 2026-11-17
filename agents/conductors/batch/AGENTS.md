@@ -282,7 +282,8 @@ tick** of it (finding it is below, "Which brief"); `STOP` first, then the open-b
 the plan inside the brief, the caps (`max-workers:`, default 4;
 `max-sessions:`, default `max(2 × max-workers, ceil(token-budget / 150k))` when the
 brief has a `token-budget:`, else 8 — M3.6c) and an exclusive-create lease per
-spawn; `first: glance` sorts ready glance work before named judge tasks. The plan
+spawn; `first: glance` starts ready glance work before named judge tasks (spawn
+order only: what the plan selects is unchanged). The plan
 is checked against Mind `origin/main` (#632): a draft not under its `draft/` or
 claimed in its `active.md` is excluded unless this shift picked it, read from the
 local `origin/main` ref after one `git fetch` per shift through the one Mind
@@ -535,7 +536,8 @@ tick takes the newest earlier slot's late `glance`/`notify` PRs (never closed
 out, or refused only for going green too near `review-at:`) into its own
 close-out path under its own grant, and the digest names them ("Carried over
 from …"). A task this shift parked on a question restarts this shift when the
-inbox answers it with more than 30 minutes left (once per answer); the writer's
+inbox answers it with more than 30 minutes left (once per answer; a release
+waits for its spawn, else the park stays for the next shift); the writer's
 fetch repeats for that only while such a park is open, at most every 10 minutes.
 A task an answer released is admitted whatever the brief's backlog scope.
 

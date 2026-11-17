@@ -824,7 +824,8 @@ cutoff) under the new shift's grant; a PR refused for its tier, CI or `/drop`
 stays the human's. A task an answer released is admitted whatever the brief's
 backlog scope, and a task parked this shift restarts this shift when answered
 with more than 30 minutes left. `first: glance` in a brief starts ready
-`glance` work before named `judge` tasks. With no `max-sessions:` and a
+`glance` work before named `judge` tasks (spawn order; the plan's selection is
+unchanged), and a released or answered task counts as the human's pick. With no `max-sessions:` and a
 `token-budget:`, the session cap is `max(2 × max-workers, ceil(token-budget /
 150k))`; an explicit value wins.
 

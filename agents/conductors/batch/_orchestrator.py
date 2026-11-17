@@ -1275,6 +1275,7 @@ def _fetch_once(mind: Path, counters: dict, now: _dt.datetime) -> None:
         counters["origin_fetch"] = {"at": _iso(now), "ok": False, "error": str(e)[:200]}
 
 
+_DATED_SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 #: An answer restarts its task this shift only with more than this left (M3.6c).
 INSHIFT_RESTART_S = 30 * 60
 #: The bounded re-fetch for an in-shift answer: at most this often (M3.6c).
@@ -1282,11 +1283,12 @@ ANSWER_FETCH_EVERY_S = 10 * 60
 
 
 def _open_parks(counters: dict) -> list[str]:
-    """Tasks of this shift parked on a question not yet released in-shift."""
-    released = counters.get("inshift_released") or {}
+    """Tasks of this shift parked on a question whose answer is not yet in
+    hand (a release pending its spawn is not open: the answer was seen)."""
+    pending = counters.get("inshift_pending") or {}
     return [t for t, o in (counters.get("outcomes") or {}).items()
             if isinstance(o, dict) and o.get("questions") and "obsolete" not in o
-            and not o.get("merged") and t not in released]
+            and not o.get("merged") and t not in pending]
 
 
 def _fetch_for_answers(mind: Path, counters: dict, now: _dt.datetime,
@@ -1319,22 +1321,43 @@ def released_here(slot: Path, counters: dict, inbox: dict | None, now: _dt.datet
                   review_at: _dt.datetime | None) -> dict[str, dict]:
     """{task: release} for each task THIS shift parked on a question that the
     inbox has answered, while more than `INSHIFT_RESTART_S` remain (M3.6c):
-    the task restarts this shift instead of the next. Its parked outcome moves
-    to `inshift_released` (so it is used once), and it leaves `done`."""
+    the task restarts this shift instead of the next.
+
+    Idempotent and durable (M3.6c review): the release is held in
+    `inshift_pending` and returned on every tick until the task actually
+    spawns (`_spawned_release` then uses it up); the parked outcome stays put
+    meanwhile, so a release that never spawns — a full cap, a pause, the
+    clock — still leaves the park for the next shift's `parked_elsewhere`.
+    Once per answer: ids already used to restart the task never release it
+    again; a new question answered later does."""
+    pending = counters.setdefault("inshift_pending", {})
     if review_at is None or (review_at - now).total_seconds() <= INSHIFT_RESTART_S:
+        pending.clear()
         return {}
-    out = {}
+    used = counters.get("inshift_released") or {}
     for task in _open_parks(counters):
         rule, info = _questions.hold_for(task, Path(slot).name, inbox)
         if rule != "answered":
             continue
-        info = dict(info, picked_in=[Path(slot).name])
-        counters.setdefault("inshift_released", {})[task] = {
-            "ids": info["ids"], "at": _iso(now), "outcome": counters["outcomes"].pop(task)}
-        if task in counters["done"]:
-            counters["done"].remove(task)
-        out[task] = info
-    return out
+        spent = {i for r in used.get(task) or [] for i in r.get("ids") or []}
+        fresh = [i for i in info["ids"] if i not in spent]
+        if fresh:
+            pending[task] = dict(info, ids=fresh, picked_in=[Path(slot).name])
+    return {t: dict(v) for t, v in pending.items()
+            if t in (counters.get("outcomes") or {})}
+
+
+def _spawned_release(counters: dict, task: str, now: _dt.datetime) -> None:
+    """A pending in-shift release whose task has just spawned: its parked
+    outcome moves to `inshift_released` (the ids are used), it leaves `done`."""
+    info = (counters.get("inshift_pending") or {}).pop(task, None)
+    if info is None:
+        return
+    counters.setdefault("inshift_released", {}).setdefault(task, []).append(
+        {"ids": info.get("ids") or [], "at": _iso(now),
+         "outcome": counters["outcomes"].pop(task, None)})
+    if task in counters["done"]:
+        counters["done"].remove(task)
 
 
 def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
@@ -1346,8 +1369,13 @@ def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
     its CI or a `/drop` stays the human's. Recorded once, as `carried_in`."""
     home, here = Path(slot).parent, Path(slot).name
     try:
+        # Dated slots only (`YYYY-MM-DD-…`, a brief record's stem), the newest
+        # one that ran something: a shadow or empty slot carries nothing and
+        # must not hide an older one; an override brief's stem carries nothing.
         earlier = sorted(d for d in home.iterdir() if d.is_dir() and d.name < here
-                         and (d / COUNTERS_FILE).is_file())
+                         and _DATED_SLOT_RE.match(d.name) and (d / COUNTERS_FILE).is_file()
+                         and (_safe_counters(d) or {}).get("outcomes")) \
+            if _DATED_SLOT_RE.match(here) else []
     except OSError:
         earlier = []
     rec = {"from": earlier[-1].name if earlier else "", "prs": [], "at": _iso(now)}
@@ -1356,7 +1384,10 @@ def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
         cut = "green within "
         for task, o in (prev.get("outcomes") or {}).items():
             pick = (prev.get("picks") or {}).get(task) or {}
-            if pick.get("tier") not in ("glance", "notify") or task in counters["outcomes"]:
+            if pick.get("tier") not in ("glance", "notify") or task in counters["outcomes"] \
+                    or o.get("questions"):
+                # A task parked on a question stays parked: its PR waits on
+                # the answer, and `parked_elsewhere` keeps its hold (review).
                 continue
             prs = [u for u in o.get("prs") or [] if "/pull/" in u
                    and u not in (o.get("merged") or [])
@@ -1374,7 +1405,7 @@ def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
             rec["prs"] += prs
     except (AttributeError, TypeError) as e:
         print(f"orchestrator: {rec['from']}/{COUNTERS_FILE} has the wrong shape ({e}) — "
-              "nothing carried over", file=sys.stderr)
+              "carry-over stopped there", file=sys.stderr)
     counters["carried_in"] = rec
     return rec
 
@@ -1816,9 +1847,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             parked = parked_elsewhere(slot, inbox, resumes)
             # This shift's own parks an answer released with time left (M3.6c).
             here = released_here(slot, counters, inbox, now, review_at)
-            if here:
-                resumes.update(here)
-                _write_counters(slot, counters)
+            resumes.update(here)
+            _write_counters(slot, counters)
             planned["parked"] = {r["path"]: parked[task_id(r["path"])] for r in recs
                                  if task_id(r["path"]) in parked
                                  and task_id(r["path"]) not in counters["picks"]
@@ -1832,7 +1862,12 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # Against Mind origin/main, not the canonical checkout nobody
             # pulls mid-shift (#632, F4): a draft another shift already
             # claimed is never picked again, nor one whose repo a claim holds.
-            recs, claimed = on_origin(recs, mind, set(counters["picks"]),
+            # A carried task (M3.6c) is closed out, never planned: not this
+            # shift's own pick for the claim gate, and out of the plan.
+            carried = {t for t, o in (counters.get("outcomes") or {}).items()
+                       if isinstance(o, dict) and o.get("carried_from")}
+            recs = [r for r in recs if task_id(r["path"]) not in carried]
+            recs, claimed = on_origin(recs, mind, set(counters["picks"]) - carried,
                                       fetch=lambda: _fetch_once(mind, counters, now),
                                       resumes=resumes)
             planned["claimed"] = claimed
@@ -1933,15 +1968,21 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     spawned, refused = [], []
     # A re-dispatch goes first (#637, item 1): a backlog dip never takes the
     # worker slot a killed task is waiting for.
+    first_glance = (brief.get("first") or {}).get("value") == "glance"
     members = sorted(d["members"],
-                     key=lambda m: task_id(m["path"]) not in counters["pending_redispatch"])
+                     key=lambda m: (task_id(m["path"]) not in counters["pending_redispatch"],
+                                    # `first: glance` (M3.6c): spawn order only —
+                                    # the plan's selection is unchanged.
+                                    not (first_glance and m.get("consequence") == "glance")))
     # The CLI login (M3.6a, #659): an expired one holds every spawn, as its
     # own event — never a worker "blocked on a person".
     login = _login_hold(counters, spawner, [] if paused else members, live, now)
     hold = paused or (login or {}).get("state") == "expired"
     for member in [] if hold else members:
         task = task_id(member["path"])
-        if task in live or task in counters["done"] or task in counters["abandoned"] \
+        released = member.get("resume") and task in (counters.get("inshift_pending") or {})
+        if task in live or (task in counters["done"] and not released) \
+                or task in counters["abandoned"] \
                 or task in counters["parked"] or task in counters["dropped"]:
             continue
         if len(live) >= max_workers:
@@ -2007,6 +2048,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             counters["usage"][lease["worker"]] = {"kind": "worker", "task": task,
                                                   "total": None, "reserve": reserve}
         counters["picks"][task] = pick_record(member, brief)
+        if released:
+            _spawned_release(counters, task, now)
         if task in counters["pending_redispatch"]:
             counters["pending_redispatch"].remove(task)
             counters["redispatched"][task] = counters["redispatched"].get(task, 0) + 1
@@ -3413,7 +3456,7 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     if _brief.is_shadow(brief) or counters.get("paused"):
         return events   # paused (#622): a green PR waits; it is not refused
     return _start_closeouts(slot, brief, counters, spawner, now, health, events,
-                            review_at)
+                            review_at, pr_state=pr_state)
 
 
 def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime,
@@ -3579,7 +3622,8 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
 
 
 def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
-                     health, events: dict, review_at: _dt.datetime | None) -> dict:
+                     health, events: dict, review_at: _dt.datetime | None,
+                     pr_state=None) -> dict:
     """Start one close-out per newly green PR, under the watcher's guards."""
     lease_dir = slot / "leases"
     health = health or _digest.pr_health
@@ -3602,6 +3646,21 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                                                     "→ your /prm"}
                 events["refused"].append(pr)
                 continue
+            if out.get("carried_from"):
+                # A carried PR (M3.6c) may have been merged or closed by the
+                # human since its shift: only an OPEN one is closed out, so a
+                # human's merge is never counted as an unattended one.
+                gh = pr_state(pr) if pr_state else None
+                if gh is None:
+                    continue      # GitHub unreadable: asked again next tick, never assumed
+                state = gh.get("state")
+                if state != "OPEN":
+                    counters["closeouts"][pr] = {
+                        "task": task, "state": "refused",
+                        "why": f"carried over from {out['carried_from']}, but GitHub reads it "
+                               f"{state or '?'} — not closed out"}
+                    events["refused"].append(pr)
+                    continue
             verdict = health(pr)
             if verdict == "RUNNING":
                 continue  # CI has not landed yet; look again next tick
