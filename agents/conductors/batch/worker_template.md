@@ -48,7 +48,16 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
 - If the task is `Consequence: glance`, end at PR-open: do not wait for CI
   and do not merge. Once CI lands, the watcher starts an independent close-out
   session that runs the witness and merges, or refuses (AUTONOMY.md
-  "Unattended `glance` merges"). A `notify` task merges in-turn as usual.
+  "Unattended `glance` merges"). A `notify` task merges in-turn only after
+  `{brain_cli} merge-slot take <pr-url> --task {task}` exits 0, run as its own
+  bare call just
+  before a bare `gh pr merge` (ruling R3, AUTONOMY.md "`notify` merges under
+  `--auto` and inside a shift — 2026-11-17"). If it refuses, do not merge:
+  list the PR in your `.done` without `merged`, and it is left for `/prm`.
+  If the take succeeded but `gh pr merge` then fails, free the slot with
+  `{brain_cli} merge-slot release <pr-url> --task {task} --why "merge failed"`
+  and list the PR
+  without `merged`.
 - Never commit to PyAutoMind yourself — a hook refuses it. Queue each Mind
   change with `{shift_ledger} --task {task} append|write|edit|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers

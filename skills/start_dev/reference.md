@@ -77,6 +77,24 @@ Legacy check: if a target repo's **main checkout** is on a feature branch not
 referenced by any `worktree:` claim, warn (unregistered prior-session work) —
 ask whether to proceed; don't treat it as an automatic conflict.
 
+## Tier + merge mode line
+
+`start_dev` step 3. The line follows the prompt's **declared** `Consequence:`
+(never sizing-inferred), per [`../../AUTONOMY.md`](../../AUTONOMY.md) "Merge
+authority follows Consequence — 2026-10-02":
+
+```
+Tier: notify — merge mode: auto-merge on green (in-turn wait, then /prm close-out)
+Tier: glance — merge mode: auto-merge on green if the Witness passes, post-merge summary
+Tier: judge (or undeclared) — merge mode: human /prm
+```
+
+Produce it with `pyauto-brain merge-mode <prompt>` (add `--auto` under
+`--auto`, `--in-shift` in a shift worker). It prints one line, `effective
+level: <level>; merge mode: <mode>`. Put that line in the plan before work
+starts, so a worker and a reader see the same answer (ruling R3, AUTONOMY.md
+"`notify` merges under `--auto` and inside a shift — 2026-11-17").
+
 ## Branch survey (the former /plan_branches)
 
 Run after the plan is approved (start_dev step 4): survey every repository the plan will touch, report branch state, and propose a single working branch name for the task.
@@ -240,7 +258,10 @@ Only when the human launches with an explicit `--auto` (never ambient — the
 activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
 
 1. Compute the **effective level** = min(prompt `Autonomy:` header, work-type
-   cap from the contract); missing header → `human-required`.
+   cap from the contract); missing header → `human-required`. Run
+   `pyauto-brain merge-mode <prompt> --auto` (`--in-shift` too in a shift
+   worker) and put its one line, `effective level: <level>; merge mode:
+   <mode>`, on the issue with the plan.
 2. **`safe`** → skip the Plan-Mode hold: write both plan levels into the issue
    (step 5 below) and proceed straight through steps 4–7 and into
    `start_library`/`start_workspace` and implementation. The plan the human
@@ -249,7 +270,12 @@ activation rule in [`../../AUTONOMY.md`](../../AUTONOMY.md)):
    decide-and-flag ([`../../AUTONOMY.md`](../../AUTONOMY.md),
    "Decide-and-flag") — ship through the autonomous-ship gate, flag the
    decision in the PR body, and **end at PR-open** (a `decision-taken` PR is
-   never auto-merged, whatever its tier). Every
+   never auto-merged, whatever its tier). Label the PR `decision-taken` only
+   when a decision was actually taken. A `notify` task whose cap lowered it to
+   `supervised`, with its `Witness:` held and no decision taken, goes on to the
+   tiered merge (ruling R3, AUTONOMY.md "`notify` merges under `--auto` and
+   inside a shift — 2026-11-17"); with no `Witness:` declared it ends at
+   PR-open for `/prm`. Every
    *other* judgment gate — a scope/design fork the plan didn't settle, a second
    flagged decision, a hard blocker — still becomes a batched issue question
    with an `awaiting-input` park (the contract's "Checkpoint-and-continue"

@@ -26,6 +26,15 @@ Executable tooling for the PyAuto organism.
   watcher refuses on 1 or 2 before any close-out session spawns, the
   close-out and the in-turn tiered merge stop on them too, and the review
   faculty lists the delta in its ReviewSurface.
+- **`merge_slot.py`** — `pyauto-brain merge-slot take|release|status <pr-url> --task <slug>`:
+  inside a shift, one merge slot against the brief's `merge-cap:`
+  (PyAutoBrain#661; AUTONOMY.md ruling R3, 2026-11-17). A worker runs `take`
+  as its own bare call before a bare `gh pr merge`; the watcher's close-outs
+  take from the same file-locked count. Exit 0 taken (or not a shift) · 1
+  refused · 2 cannot tell.
+- **`merge_mode.py`** — `pyauto-brain merge-mode <prompt> [--auto]
+  [--in-shift]`: prints `effective level: <level>; merge mode: <mode>`, the
+  line `start_dev` step 3 puts in the plan. Read-only.
 - **`lane_backfill.py`** — proposes a `Lane:` for every lane-less draft in
   the planner pool, from intake's own lane signals, as a table for a human to
   skim; `--apply [--from <table>]` writes the headers (commits nothing).

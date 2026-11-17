@@ -47,6 +47,13 @@
 #   pyauto-brain public-names <owner/repo>#<n> | --repo <path> --range a..b [--json]
 #                                 (tool)      read-only: does a change add or rename a public
 #                                 library name? CLEAN/HIT/CANNOT-TELL (bin/public_names.py)
+#   pyauto-brain merge-slot take|release|status <pr-url> [--task <slug>]
+#                                 (tool)      inside a shift, a merge slot against `merge-cap:`
+#                                 before a bare `gh pr merge` — 0 taken / not a shift, 1 refused,
+#                                 2 cannot tell (bin/merge_slot.py; AUTONOMY.md ruling R3)
+#   pyauto-brain merge-mode <prompt> [--auto] [--in-shift]
+#                                 (tool)      read-only: `effective level: <level>; merge mode:
+#                                 <mode>` for one prompt (bin/merge_mode.py; start_dev step 3)
 #   pyauto-brain help   [name]    list agents or show one agent's docs
 #
 # Renamed from `pyauto-agent`; the former back-compat shim has been removed now
@@ -172,6 +179,8 @@ EOF
   echo "Tools (read-only helpers the merge paths share):"
   echo "  ci-verdict <owner/repo>#<n> [--json] — one PR's CI: GREEN, PENDING or RED, with reasons"
   echo "  public-names <owner/repo>#<n> [--json] — a public library name added or renamed: a human /prm"
+  echo "  merge-slot take|release|status <pr-url> --task <slug> — inside a shift, a merge slot before a bare gh pr merge"
+  echo "  merge-mode <prompt> [--auto] [--in-shift] — the effective level and merge mode, one line"
   echo
   echo "Run 'pyauto-brain help <agent>' for that agent's full docs."
 }
@@ -222,6 +231,12 @@ main() {
   fi
   if [[ "$sub" == "public-names" ]]; then
     exec python3 "$BRAIN_HOME/bin/public_names.py" "$@"
+  fi
+  if [[ "$sub" == "merge-slot" ]]; then
+    exec python3 "$BRAIN_HOME/bin/merge_slot.py" "$@"
+  fi
+  if [[ "$sub" == "merge-mode" ]]; then
+    exec python3 "$BRAIN_HOME/bin/merge_mode.py" "$@"
   fi
   local script="${AGENT_SCRIPT[$sub]:-}"
   if [[ -z "$script" || ! -f "$script" ]]; then

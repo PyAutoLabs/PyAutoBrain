@@ -441,15 +441,17 @@ ends at PR-open (`worker_template.md`). Each tick, `_closeouts` first reaps
 running close-outs — `<task>.closeout` (`merged` | `refused`, `why`, `gate`,
 `model`), or a session gone without one, which is recorded refused — then, for
 each PR a worker named, judges the guards it can see with its own reads: the
-recorded tier is `glance`, `gh pr checks` is green — at least one completed
-check, all green (pending waits a tick; red, none or unknown is refused), merges plus in-flight close-outs are under `merge-cap:`, the
-shift is not shadow, `review-at:` is more than 20 minutes away, and spend is
-under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"). Then it starts **one** close-out session
+recorded tier is `glance` or `notify` (ruling R3, 2026-11-17), `gh pr checks` is green — at least one completed
+check, all green (pending waits a tick; red, none or unknown is refused), the
+shift is not shadow, `review-at:` is more than 20 minutes away, spend is
+under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"),
+and — last — a merge slot is free under `merge-cap:` (`_merge_slots.py`; a
+worker's in-turn merge takes from the same count). Then it starts **one** close-out session
 (`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus`).
 That session is the independent leg: it runs the `Witness:` itself, reviews the
 diff adversarially, checks the `decision-taken` label and Heart, and only then
-runs the `/prm` close-out — or refuses. A merge bumps `glance_auto_merges`,
-marks the PR merged, and queues a `table-append` op that lands one row in
+runs the `/prm` close-out — or refuses. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`
+and queues a `table-append` op that lands one row in
 `autonomy_log.md` "Unattended `glance` sub-window (stage 2)" through the one Mind
 writer. Every refusal is final for the shift and named in the digest
 (`awaiting /prm — close-out refused: <why>`). Same-model close-out: AUTONOMY
