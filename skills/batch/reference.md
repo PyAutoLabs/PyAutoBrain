@@ -84,7 +84,15 @@ tasks first, then only the backlog its policy covers, against its
 `review-minutes:`. Run the check before writing a brief's `review-at:` into
 `batches/`. The check also runs `batch premise` on each named task and warns
 when one is **obsolete on main** (`--no-premise` skips it) — drop that task
-before the shift pays a worker to find out. Dispatch is the watcher's (`batch.md`, "The watcher"), not a verb. `batch digest
+before the shift pays a worker to find out. For a live brief (not `shadow: yes`)
+the check also refuses a missing `issue:` and a CLI login that has expired or
+expires before `review-at:` (`claude auth status --json`, no model call; the
+human runs `claude /login`). `batch brief --new <slot> --review-at <ISO> --out
+<file>` makes that shift issue on PyAutoMind (one `gh issue create`) and
+writes it as `issue:`; `--issue <url>` names one instead, and a file that
+already has one keeps it. Dispatch is the watcher's (`batch.md`, "The watcher"), not a verb:
+it finds the one open brief on Mind `origin/main` (only a pushed brief opens;
+two open briefs tick neither) and ends at `review-at:` + 45 min. `batch digest
 --record <file>` prints a shift's digest and writes nothing; the record append
 and the one issue comment are the watcher's, at `review-at:`.
 

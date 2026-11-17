@@ -343,8 +343,8 @@ STREAM_POLL_S = 5
 #: The stream may attach this long before `dispatched:` …
 ATTACH_BEFORE_S = 30 * 60
 #: … and runs until this long after `review-at:` (the late-sweep window,
-#: human ruling H2).
-LATE_WINDOW_S = 45 * 60
+#: human ruling H2) — the watcher's own end (M3.6a, PyAutoBrain#659).
+LATE_WINDOW_S = _brief.LATE_WINDOW_S
 #: Events printed on attach without `--from`.
 CATCH_UP = 5
 #: Exit codes: done (shift over, STOP, window), refused, segment over.

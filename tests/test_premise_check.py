@@ -399,6 +399,7 @@ BRIEF = """\
 # Batch 2026-11-06 pm
 - dispatched: 2026-11-06T11:20Z
 - review-at: 2026-11-06T12:20Z
+- issue: https://github.com/example-org/PyAutoMind/issues/1
 - brief:
   - goals:
     - 1. replay

@@ -846,5 +846,11 @@ def test_a_parked_worker_that_ends_without_a_done_is_released_not_a_crash(tmp_pa
 
 def test_main_prints_a_digest_tick_without_a_keyerror(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(orch, "tick", lambda *a, **k: {"action": "digest", "post": None})
+    # `--brief` is an override honoured inside its own window (M3.6a, #659).
+    now = _dt.datetime.now(_dt.timezone.utc)
+    hours = lambda h: (now + _dt.timedelta(hours=h)).strftime("%Y-%m-%dT%H:%MZ")  # noqa: E731
+    (tmp_path / "b.md").write_text(BRIEF.format(tasks="", budget=1, extra="")
+                                   .replace("2026-11-04T08:30Z", hours(-1))
+                                   .replace("2026-11-04T11:30Z", hours(1)))
     assert orch.main(["--brief", str(tmp_path / "b.md"), "--mind", str(tmp_path)]) == 0
     assert capsys.readouterr().out.startswith("digest: spawned 0")

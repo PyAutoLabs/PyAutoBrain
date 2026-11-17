@@ -18,4 +18,7 @@ Type=oneshot
 # on a machine without systemd-run, is still spared.
 KillMode=process
 EnvironmentFile=%h/.config/pyauto/orchestrator.env
-ExecStart=/usr/bin/env python3 ${PYAUTO_BRAIN}/bin/orchestrator_watch.py --brief ${PYAUTO_SHIFT_BRIEF} --mind ${PYAUTO_MIND}
+# The tick finds the one open brief on PyAutoMind origin/main itself (M3.6a,
+# PyAutoBrain#659). PYAUTO_SHIFT_BRIEF in the env file is only an override,
+# honoured inside that brief's own window (dispatched -> review-at + 45 min).
+ExecStart=/usr/bin/env python3 ${PYAUTO_BRAIN}/bin/orchestrator_watch.py --mind ${PYAUTO_MIND}

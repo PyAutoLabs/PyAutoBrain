@@ -77,6 +77,13 @@ In order:
    dispatching** — never infer it from a schedule, a previous batch, or the
    time of day. **If they will want to *run* the batch, write
    `- integration: yes` into the record** (collect then builds the worktree).
+   **A shift brief** is composed with `batch brief --new <slot> --review-at
+   <ISO> --out <file>`, which also makes the shift issue on PyAutoMind and
+   writes `issue:` (2026-11-17). Then `batch brief --check <file>`: it refuses
+   a live brief without `issue:`, and an expired CLI login (the human runs
+   `claude /login`). **Pushing the brief is the launch**: the watcher finds it
+   on Mind `origin/main` itself, ticks it from `dispatched:` to `review-at:`,
+   and stops 45 min after `review-at:`. Never two open briefs at once.
 3. Start one session per member, each carrying `/start_dev <path> --auto` plus
    the member-session contract below (the batch record informs a member of the
    shift's grant at leg 4, not the dispatch line). Spawn them if this harness
@@ -97,7 +104,7 @@ In order:
 5. Confirm what was dispatched, and stop. Do not follow the runs.
 
 **Brief verbs** (`batch brief --check`, `batch plan --brief`, `batch digest`):
-[`reference.md`](reference.md). Run the check before writing a brief's `review-at:`. `brief --new` also runs the keep-Heart-green lane: a `## Heart` section and up to 3 bug drafts for fixable Heart reasons (only with `--out` and a non-shared `--mind`; named as tasks only with `--green pick`); it never releases (`batch green` = dry run; `agents/conductors/batch/AGENTS.md`).
+[`reference.md`](reference.md). Run the check before pushing a brief; it refuses a live brief without `issue:` or with an expired CLI login. `brief --new` also runs the keep-Heart-green lane: a `## Heart` section and up to 3 bug drafts for fixable Heart reasons (only with `--out` and a non-shared `--mind`; named as tasks only with `--green pick`); it never releases (`batch green` = dry run; `agents/conductors/batch/AGENTS.md`).
 
 ## The watcher (phases 3a–3d)
 

@@ -28,6 +28,16 @@ def _no_real_heart_lane(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_launch_probes(monkeypatch):
+    """M3.6a (PyAutoBrain#659): `brief --check` and the watcher's first tick
+    run `claude auth status --json`, and `brief --new --out` makes one `gh
+    issue create`. Both off in tests; a test that wants them deletes the
+    variable and puts a fake `claude` / `gh` on PATH."""
+    monkeypatch.setenv("PYAUTO_LOGIN_PROBE", "off")
+    monkeypatch.setenv("PYAUTO_BRIEF_ISSUE", "off")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_github(monkeypatch):
     """The shift watcher's GitHub seams never reach GitHub from a test
     (PyAutoBrain#610 Witness 5: the suite passes offline). A test that passes
