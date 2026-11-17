@@ -106,15 +106,34 @@ def days_since(iso):
     return round((datetime.now(timezone.utc) - then).total_seconds() / 86400, 1)
 
 
+def close_message(entry):
+    """The standard close message (Mind policy/community_close_due.md).
+
+    <context> and <what we asked for> are filled in by the session after
+    reading the thread; the human approves the batch before anything is posted.
+    """
+    opening = (f"Hi @{entry['author']}, we're closing this for now because we haven't "
+               "heard back in three weeks. Nothing is lost. If you're still <context>, ")
+    if entry["type"] == "discussion":
+        return opening + ("reopen this discussion or just reply here <with what we asked for> "
+                          "and we'll pick it up again.")
+    # Issue authors cannot reopen an issue a maintainer closed.
+    return opening + "reply here <with what we asked for> and we'll reopen it."
+
+
 def build_scan(base=None):
     """Compatibility surface over Ears' published evidence; no GitHub scan."""
     from _ears_feed import load
     base = base or os.environ.get(
         "COMMUNITY_EARS_URL", f"https://{PRIMARY_ORG.lower()}.github.io/PyAutoEars")
     try:
-        return load(base, SELF_LOGINS, PRIMARY_ORG, HUB)
+        surface = load(base, SELF_LOGINS, PRIMARY_ORG, HUB)
     except ValueError as exc:
         fail(4, str(exc))
+    for entry in surface["close_due"]:
+        entry["days_silent"] = days_since(entry["awaiting_contributor_since"])
+        entry["close_message"] = close_message(entry)
+    return surface
 
 
 def print_scan(s):
@@ -142,9 +161,20 @@ def print_scan(s):
     for candidate in s.get('follow_up_review', []):
         state = "needs review" if candidate['follow_up']['review_needed'] else "unknown; refresh/check coverage"
         print(f"Follow-up:            {ref_label(candidate)} — {state} (contributor reopening not required)")
+    if s.get('historical_follow_up'):
+        print(f"Historical follow-ups: {s['historical_follow_up']} (settled, >30 days; not listed)")
     for delivery in s.get('follow_through', []):
         owed = ' — contributor update owed' if delivery['update_owed'] is True else ''
         print(f"Delivery:             {delivery['discussion']} — {delivery['state']}{owed}")
+    if s.get('close_due'):
+        print(f"Close due (21d):      {len(s['close_due'])} waiting on the contributor"
+              " — approve the batch once, then post and close (Mind policy/community_close_due.md)")
+        if s['stale']:
+            print("                      snapshot is stale: re-read each thread before posting")
+        for e in s['close_due']:
+            days = f"{e['days_silent']:.0f}d" if e.get('days_silent') is not None else "?"
+            print(f"  x {ref_label(e)} [{days} silent] @{e['author']}: {e['title'][:70]}")
+            print(f"      {e['close_message']}")
     print(f"Next action:          {s['next_action']}")
 
 
