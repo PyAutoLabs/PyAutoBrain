@@ -85,6 +85,10 @@ missing phase.
 - Request concise results: changed files, pass/fail counts, and only the
   decision-relevant tail of a failure.
 - Keep full logs in a file or harness transcript, not chat.
+- Anthropic execution workers (Agent-tool subagents, shift workers, shift
+  close-outs) run Opus at medium effort unless the human asks otherwise,
+  whatever the session's own effort. An independent reviewer on another model
+  leaves effort unset.
 - Do not rerun an unchanged successful check unless inputs or its gate changed.
 - Prefer native completion events. Do not repeatedly poll unchanged pending
   state or agent lists; use bounded waits only when needed, and never arm a

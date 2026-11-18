@@ -351,7 +351,8 @@ worker "blocked on a person". It is kept in `counters["login"]` and in the
 tick's result.
 
 **Real workers (phase 3b).** Without `PYAUTO_ORCHESTRATOR_FAKE=1` each spawn is
-`claude --bg --name shift:<task> --permission-mode <worker-mode> <prompt>`, the
+`claude --bg --name shift:<task> --model opus --effort medium --permission-mode
+<worker-mode> <prompt>` (`WORKER_MODEL`/`WORKER_EFFORT`, PyAutoBrain#672), the
 prompt filled from `worker_template.md` (the `/start_dev <path> --auto` line,
 the end-at-deliverable contract, the brief path, "never commit to PyAutoMind
 yourself", and the `<lease>/<task>.done` marker). The lease records the short
@@ -507,7 +508,7 @@ shift is not shadow, `review-at:` is more than 20 minutes away, spend is
 under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"),
 and — last — a merge slot is free under `merge-cap:` (`_merge_slots.py`; a
 worker's in-turn merge takes from the same count). Then it starts **one** close-out session
-(`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus`).
+(`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus --effort medium`).
 That session is the independent leg: it runs the `Witness:` itself, reviews the
 diff adversarially, checks the `decision-taken` label and Heart, and only then
 runs the `/prm` close-out — or refuses. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`

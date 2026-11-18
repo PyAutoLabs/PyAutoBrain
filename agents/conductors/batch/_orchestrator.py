@@ -87,10 +87,16 @@ ENDED_STATES = _digest.ENDED_STATES
 #: The worker prompt every real worker starts from (never a bare session).
 WORKER_TEMPLATE = Path(__file__).with_name("worker_template.md")
 CLOSEOUT_TEMPLATE = Path(__file__).with_name("closeout_template.md")
+#: The model and effort every spawned worker starts on — the human's ruling of
+#: 2026-11-18 (PyAutoBrain#672): Opus at medium effort, whatever the effort of
+#: the session that composed the shift.
+WORKER_MODEL = "opus"
+WORKER_EFFORT = "medium"
 #: The close-out session's model (phase 4b). The same model as the workers —
 #: the human's call 2026-11-04 (AUTONOMY.md "Stage-2 adversary amendment"): a
-#: fresh, independent session that runs the witness itself is the leg.
-CLOSEOUT_MODEL = "opus"
+#: fresh, independent session that runs the witness itself is the leg. Its
+#: effort follows the workers too (2026-11-18). Stage-2 rows record this name.
+CLOSEOUT_MODEL = WORKER_MODEL
 STAGE2_HEADING = "## Unattended `glance` sub-window (stage 2)"
 #: A merged close-out that did not say what became of the task's worktree.
 CLEANUP_UNREPORTED = ("not reported by the close-out — check for a worktree left "
@@ -349,12 +355,12 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
 def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                      lease_dir: Path, mode: str) -> list[str]:
     """The argv that starts one close-out session: its own name, the close-out
-    model, the brief's worker mode."""
+    model at the workers' effort, the brief's worker mode. The prompt is last."""
     if mode not in _brief.WORKER_MODES:
         raise OrchestratorError(f"worker mode {mode!r} is not one of "
                                 + ", ".join(_brief.WORKER_MODES))
     return ["claude", "--bg", "--name", f"shift-close:{task}", "--model", CLOSEOUT_MODEL,
-            "--permission-mode", mode,
+            "--effort", WORKER_EFFORT, "--permission-mode", mode,
             closeout_prompt(task, pr_url, prompt_path, brief_path, lease_dir)]
 
 
@@ -386,14 +392,16 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
 def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Path,
                     mode: str, redispatch: bool = False,
                     resume: dict | None = None) -> list[str]:
-    """The exact argv that starts one worker — named, moded, templated.
+    """The exact argv that starts one worker — named, on `WORKER_MODEL` at
+    `WORKER_EFFORT`, moded, templated; the prompt is the last element.
 
     No `--session-id`: `claude --bg` (2.1.316) assigns its own, so the worker is
     tracked by the short id the launch prints."""
     if mode not in _brief.WORKER_MODES:
         raise OrchestratorError(f"worker mode {mode!r} is not one of "
                                 + ", ".join(_brief.WORKER_MODES))
-    return ["claude", "--bg", "--name", f"shift:{task}", "--permission-mode", mode,
+    return ["claude", "--bg", "--name", f"shift:{task}", "--model", WORKER_MODEL,
+            "--effort", WORKER_EFFORT, "--permission-mode", mode,
             worker_prompt(task, prompt_path, brief_path, lease_dir, redispatch, resume)]
 
 
