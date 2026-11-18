@@ -1550,7 +1550,7 @@ def claimed_repos(sections: dict[str, dict]) -> dict[str, tuple[str, str]]:
 #: `worker_template.md` pins: `shift worker <slot> (<session id>)`. Anything
 #: else (a desktop session, a human who took the task over and rewrote the
 #: line, the free wording of the first shifts) is not resumed unattended.
-SHIFT_WORKER_SESSION_RE = re.compile(r"^shift worker ([A-Za-z0-9_.-]+) \(([^()\s]+)\)$")
+SHIFT_WORKER_SESSION_RE = _mind_writer.SHIFT_WORKER_SESSION_RE
 
 
 def shift_worker_slot(session: str) -> str:

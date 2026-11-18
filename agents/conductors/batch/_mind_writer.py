@@ -76,7 +76,12 @@ and are *withheld* — set aside with the task, never retried — when any
 sibling op of that task was set aside for a human, this run or earlier in
 the shift (a group that fails part-way is rolled back first); while a sibling
 is *held* the group stays pending beside it. Mind never records a task
-shipped while one of its changes is missing. An op that fails only because it is already true on main
+shipped while one of its changes is missing. A `drop-section` paired with
+an `append` of the same task re-adding that `## slug` to the same path is an
+*update* of the task's own claim, not a close (PyAutoBrain#681): the drop
+applies directly before its append, the two as one unit, and only when main's
+section is this shift's own (`_own_section`) — else a conflict, set aside.
+An op that fails only because it is already true on main
 (`MechanicalError`: an edit already applied, a write of the text the file
 has, a remove of a file that is gone) is set aside as `needs: mechanical` —
 a digest line, not a "needs you". `shift_ledger.py` refuses at queue time
@@ -139,6 +144,9 @@ QUESTION_RULING = "ruling"
 #: `lifecycle.py close` it did not run.
 QUEUE_RETIRED_BY = "retired by the shift close-out (queue-retire)"
 PUSH_TRIES = 3
+#: A claim's `- session:` naming a shift worker: `shift worker <slot> (<id>)`,
+#: the id a short one or a full session UUID (the orchestrator's own test).
+SHIFT_WORKER_SESSION_RE = re.compile(r"^shift worker ([A-Za-z0-9_.-]+) \(([^()\s]+)\)$")
 LEDGER_DIR = "ledger"
 COMMITTED_DIR = "committed"
 #: Ops that could not apply (or were invalid), kept for the human with their
@@ -678,6 +686,52 @@ def _new_sections(old: str, text: str, path: str, lm,
     return (pre + "".join(rest) if rest else ""), note
 
 
+def _update_pairs(ops: list) -> dict:
+    """{append file: (drop file, drop op)} — each task's `drop-section` whose
+    `## slug` an `append` of the same task re-adds to the same path: an update
+    of its own claim (PyAutoBrain#681), not a closing op. A lone drop stays
+    closing."""
+    pairs = {}
+    for f, op in ops:
+        if op.get("op") != "drop-section" or not op.get("task"):
+            continue
+        heading = f"## {op['section']}"
+        for g, other in ops:
+            if (g not in pairs and other.get("op") == "append"
+                    and other.get("task") == op["task"] and other.get("path") == op["path"]
+                    and any(ln.strip() == heading
+                            for ln in str(other.get("text", "")).splitlines())):
+                pairs[g] = (f, op)
+                break
+    return pairs
+
+
+def _own_section(tree: Path, op: dict, lm, ctx: dict) -> None:
+    """ConflictError unless main's `## section` (the one an update pair drops)
+    is this shift's own: exactly a section this shift committed earlier
+    (`ctx["prior"]`), or its `- session:` names this slot's shift worker. A
+    section that is not there is left to the drop's own error (#681)."""
+    target, heading = tree / op["path"], f"## {op['section']}"
+    if not target.is_file():
+        return
+    body = dict(lm.split_entries(target.read_text(encoding="utf-8"))[1]).get(heading)
+    if body is None:
+        return
+    ours = {}
+    for p in ctx["prior"]:
+        if p.get("op") == "append" and p.get("path") == op["path"]:
+            ours.update(lm.split_entries(p.get("text") or "")[1])
+    if ours.get(heading) == body:
+        return
+    for ln in body.splitlines():
+        if ln.startswith("- session:"):
+            m = SHIFT_WORKER_SESSION_RE.match(ln[len("- session:"):].strip())
+            if m and ctx.get("slot") and m.group(1) == ctx["slot"]:
+                return
+    raise ConflictError(f"drop-section: {heading} in {op['path']} is not this shift's "
+                        "own claim — its update is a conflict")
+
+
 def record_key(text: str, key: str, value: str,
                after: tuple[str, ...] = ("issue", "review-at")) -> str:
     """`text` with one top-level `- key: value` line above the first `## `
@@ -987,7 +1041,7 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
     if not files:
         return {"committed": None, "ops": 0, "tries": 0}
     lm = _ledger_merge(mind_repo)
-    ctx = {"own": set(own_tasks), "prior": committed_ops(slot)}
+    ctx = {"own": set(own_tasks), "prior": committed_ops(slot), "slot": Path(slot).name}
     ops, invalid, unready = [], {}, {}
     for f in files:
         try:
@@ -1001,6 +1055,11 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
                 "held" if is_critical(op) else "set-aside", "; ".join(errs), NEEDS_HUMAN)
             continue
         ops.append((f, op))
+    # A drop + append of the task's own `## slug` is an update, applied as
+    # one unit where the append stands (#681); the drop is not closing.
+    pairs = _update_pairs(ops)
+    paired = {f for f, _op in pairs.values()}
+    ops = [x for x in ops if x[0] not in paired]
     # A task's ops land together: its closing ops go last, grouped by task.
     creates: dict = {}
     for _f, op in ops:
@@ -1036,6 +1095,20 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
                 if isinstance(task, str):
                     blocked.setdefault(task, f.name)
             for f, op in ops:
+                if f in pairs:   # an update of the task's own claim (#681)
+                    unit = [pairs[f], (f, op)]
+                    try:
+                        _own_section(tree, pairs[f][1], lm, ctx)
+                    except ConflictError as e:
+                        failed[unit[0][0]] = ("conflict", str(e), NEEDS_HUMAN)
+                        failed[f] = _withheld(op["task"], unit[0][0].name)
+                    else:
+                        notes += _apply_group(tree, op["task"], unit, lm, ctx,
+                                              failed, held, deferred)
+                    for g, _op in unit:
+                        if g in failed and failed[g][2] != NEEDS_MECHANICAL:
+                            blocked.setdefault(op["task"], g.name)
+                    continue
                 where, out = _apply_one(tree, op, lm, ctx)
                 if where == "ok":
                     if out:

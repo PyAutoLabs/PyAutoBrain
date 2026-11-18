@@ -664,3 +664,90 @@ def test_shift_ledger_names_a_missing_mind_checkout_cleanly(tmp_path):
                  mind_repo=tmp_path / "no-such-mind", worker=True)
     assert res.returncode == 2 and "Traceback" not in res.stderr
     assert "no-such-mind" in res.stderr
+
+
+# --- A shift worker updating its own claim (PyAutoBrain#681) ------------------------
+
+SLOT = "2026-11-18-pm2"
+SESSION = "- session: shift worker {slot} (b53f7ee2-2b5d-47c1-9042-4f2098218a54)\n"
+
+
+def _claim(status, slot=SLOT):
+    """The `## t1` claim a shift worker appends, as shift 2026-11-18-pm2's did."""
+    return ("\n## t1\n- issue: https://example.invalid/issues/1\n" + SESSION.format(slot=slot)
+            + f"- status: {status}\n- prompt: active/t1.md\n")
+
+
+def _update(slot, section="t1"):
+    """The worker's update at PR-open: drop its `## slug`, append it anew."""
+    _q(slot, op="drop-section", path="active.md", task=section, section=section)
+    _q(slot, op="append", path="active.md", task=section,
+       text=_claim("library-shipped, awaiting-merge").replace("## t1", f"## {section}"))
+
+
+def test_an_update_of_the_shifts_own_claim_commits(tmp_path, mind):
+    """The claim this shift committed earlier is replaced in place; nothing is
+    set aside, and a re-dispatch's repeat of the new claim is still skipped."""
+    bare, canon, _ = mind
+    slot = tmp_path / SLOT
+    _q(slot, op="append", path="active.md", task="t1", text=_claim("in-progress"))
+    assert mw.commit_ledger(slot, canon, "claim")["committed"]
+    _update(slot)
+    res = mw.commit_ledger(slot, canon, "update")
+    assert res["committed"] and res["set_aside"] == [] and res["ops"] == 2
+    active = _remote_tree(bare, "active.md").stdout
+    assert active.count("## t1") == 1 and "awaiting-merge" in active
+    assert "in-progress" not in active and "## t2" in active
+    assert mw.report(slot) == []
+    _q(slot, op="append", path="active.md", task="t1",
+       text=_claim("library-shipped, awaiting-merge"))
+    res = mw.commit_ledger(slot, canon, "again", own_tasks={"t1"})
+    assert res["set_aside"] == [] and res["skipped"] == [
+        "append: ## t1 already in active.md from this shift's own claim — skipped"]
+
+
+def test_an_update_of_a_claim_whose_session_names_this_slot_commits(tmp_path, mind):
+    """Main's section is not one this shift committed (rewritten since, or
+    from an earlier ledger), but its session line names this slot's worker."""
+    bare, canon, other = mind
+    slot = tmp_path / SLOT
+    _push_from(other, "active.md", ACTIVE + _claim("in-progress"), "t1 claim")
+    _update(slot)
+    res = mw.commit_ledger(slot, canon, "update")
+    assert res["committed"] and res["set_aside"] == []
+    active = _remote_tree(bare, "active.md").stdout
+    assert active.count("## t1") == 1 and "awaiting-merge" in active
+
+
+@pytest.mark.parametrize("owner", ["other-slot", "human"])
+def test_an_update_of_someone_elses_claim_is_a_conflict(tmp_path, mind, owner):
+    bare, canon, other = mind
+    slot = tmp_path / SLOT
+    if owner == "other-slot":
+        _push_from(other, "active.md", ACTIVE + _claim("in-progress", slot="2026-11-18-am"),
+                   "t1 claim by another shift")
+        section = "t1"
+    else:   # the seed's `## t2`, written by a human, no session line
+        section = "t2"
+    before = _remote_tree(bare, "active.md").stdout
+    _update(slot, section)
+    res = mw.commit_ledger(slot, canon, "update")
+    by = {a["op"]: a for a in res["set_aside"]}
+    assert by["drop-section"]["kind"] == "conflict" and by["append"]["kind"] == "withheld"
+    assert "conflict" in by["drop-section"]["why"]
+    assert _remote_tree(bare, "active.md").stdout == before
+
+
+def test_a_lone_drop_section_still_closes_and_is_withheld(tmp_path, mind):
+    """No matching append: the drop is closing as before — applied last, and
+    withheld with its task when a sibling op is set aside."""
+    bare, canon, _ = mind
+    slot = tmp_path / SLOT
+    _q(slot, op="drop-section", path="active.md", task="t2", section="t2")
+    _q(slot, op="append", path="active.md", task="t2", text="\n## t9\n- issue: other\n")
+    _q(slot, op="edit", path="active/t2.md", task="t2", old="# nope\n", new="# t2!\n")
+    res = mw.commit_ledger(slot, canon, "lone drop")
+    by = {a["op"]: a for a in res["set_aside"]}
+    assert by["edit"]["kind"] == "set-aside" and by["drop-section"]["kind"] == "withheld"
+    active = _remote_tree(bare, "active.md").stdout
+    assert "## t2" in active and "## t9" in active
