@@ -600,8 +600,10 @@ members at the lowest phase, in `draft/` and `active/`), checks the gates
 (`looks-shipped` and `obsolete` first, then `claimed`, `unattended`,
 `human-required`, `blocked-by`, `no-lane`; an epic with no open member is
 `no-next-phase`) and files each as an inbox entry of kind `ruling` (a `gate:`,
-no `issue:`), skipping one still Open or Deferred on Mind origin/main and
-filing none while Mind main has no `ruling` kind. Dry run by default;
+no `issue:`), skipping a task and gate already ruled on Mind origin/main in
+any state (once answered or dropped it stays quiet; `/questions` reopen asks
+again — the human's ruling, 2026-11-18) and filing none while Mind main has
+no `ruling` kind. Dry run by default;
 `--queue <slot>` queues `question-add` ops, `--apply` writes a session-branch
 checkout (never main). `finish_shift` runs it offline before the digest, whose
 last line is "The next shift needs N rulings from you." Rulings never hold or

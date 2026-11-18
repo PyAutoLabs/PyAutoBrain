@@ -305,12 +305,17 @@ def test_an_open_ruling_on_origin_is_not_filed_again(tmp_path):
 
 
 @needs_git
-def test_a_ruling_is_filed_again_once_the_earlier_one_is_answered(tmp_path):
-    res = _run(_mind(tmp_path, questions=_inbox_with(
-        "Answered", "- answered: 2026-11-18 by h (chat)\n- answer: wait\n")), tmp_path)
-    assert _gates(res) == [("example_epic.md", "no-next-phase"),
-                           ("example_task.md", "claimed")]
-    assert res["skipped"] == [] and res["open"] == []
+@pytest.mark.parametrize("state,extra", [
+    ("Answered", "- answered: 2026-11-18 by h (chat)\n- answer: wait\n"),
+    ("Dropped", "- dropped: 2026-11-18 by h — not now\n")])
+def test_a_ruled_gate_stays_quiet_once_answered_or_dropped(tmp_path, state, extra):
+    """The human's L1 ruling (2026-11-18): once a task's gate is ruled on, the
+    pass does not ask again while the gate holds; it is not counted as open."""
+    res = _run(_mind(tmp_path, questions=_inbox_with(state, extra)), tmp_path)
+    assert _gates(res) == [("example_epic.md", "no-next-phase")]
+    assert [(Path(r["task"]).name, r["gate"], q) for r, q in res["skipped"]] == [
+        ("example_task.md", "claimed", f"Q1, {state.lower()}")]
+    assert res["open"] == []
 
 
 # --- the Mind-version guard ---------------------------------------------------------

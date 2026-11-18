@@ -232,10 +232,10 @@ def run(mind, *, root=None, fetch: bool = False, shift: str = "", now=None,
         check_premise=None) -> dict:
     """The pass, read-only. Returns `{entries, found, rulings, skipped, open,
     not_filed, notes, shift}`: `found` is every gate as a ruling entry,
-    `rulings` those to file (not already Open or Deferred on Mind origin/main,
-    and none at all when Mind main has no `ruling` kind), `skipped` the
-    `(entry, id)` already open, `open` the Open and Deferred rulings on Mind
-    origin/main."""
+    `rulings` those to file (no ruling on the same task and gate in any state
+    on Mind origin/main — once ruled, quiet — and none at all when Mind main
+    has no `ruling` kind), `skipped` the `(entry, id)` already ruled, `open`
+    the Open and Deferred rulings on Mind origin/main."""
     import _orchestrator as orch  # noqa: E402 — deferred: it imports this module
     mind = Path(mind)
     now = now or _dt.datetime.now(_dt.timezone.utc)
@@ -356,10 +356,21 @@ def run(mind, *, root=None, fetch: bool = False, shift: str = "", now=None,
                     for t, xs in (origin or {}).items() for x in xs
                     if _questions.is_ruling(x) and x["state"] in ("open", "deferred")),
                    key=lambda x: int(x["id"][1:]) if x["id"][1:].isdigit() else 0)
+    # Once ruled, quiet (the human's L1 ruling, 2026-11-18): a ruling in any
+    # state — Open, Deferred, Answered or Dropped — keeps its task and gate
+    # from being filed again; `/questions` reopen asks again. An open one is
+    # named first.
+    ruled: dict = {}
+    for t, xs in (origin or {}).items():
+        for x in xs:
+            if _questions.is_ruling(x):
+                key = (t, x.get("gate", ""))
+                if key not in ruled or x["state"] in ("open", "deferred"):
+                    ruled[key] = x["id"] if x["state"] in ("open", "deferred") \
+                        else f"{x['id']}, {x['state']}"
     rulings, skipped = [], []
     for f in found:
-        have = next((o["id"] for o in open_ if (o["task"], o["gate"])
-                     == (Path(f["task"]).stem, f["gate"])), None)
+        have = ruled.get((Path(f["task"]).stem, f["gate"]))
         if have:
             skipped.append((f, have))
         else:
@@ -535,14 +546,14 @@ def report(res: dict, *, written: list[str] | None = None, queued: list | None =
         lines.append(f"Rulings not filed: {res['not_filed']} — {n_new} found.")
     elif queued is not None:
         lines.append(f"Queued {len(queued)} ruling(s) in {slot}; {n_skip} skipped as already "
-                     "open.")
+                     "ruled.")
     elif written is not None:
         lines += [f"  {w}" for w in written]
         lines.append(f"Applied {len(written)} ruling(s) (not committed); {n_skip} skipped as "
-                     "already open.")
+                     "already ruled.")
     else:
         lines.append(f"Dry run: would file {n_new} ruling(s); {n_skip} skipped as already "
-                     "open; nothing written.")
+                     "ruled; nothing written.")
     lines.append(f"Open or deferred rulings on Mind origin/main: {len(res['open'])}.")
     return "\n".join(lines)
 
@@ -553,5 +564,5 @@ def _ruling_line(f: dict, skipped: dict, pad: str, shown: set) -> str:
         return f"{pad}ruling {f['gate']} (listed above)"
     shown.add(key)
     q = skipped.get(key)
-    head = f"{pad}ruling {f['gate']}" + (f" (already open as {q})" if q else "")
+    head = f"{pad}ruling {f['gate']}" + (f" (already in your inbox as {q})" if q else "")
     return f"{head} — {f['ask']} [{' | '.join(f['options'])}]"
