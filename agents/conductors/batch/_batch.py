@@ -117,8 +117,14 @@ def lane_absent_why(r: dict) -> str:
 
 
 def declared_repos(p: dict) -> list[str]:
-    """A parsed prompt's `Repos:` header and known target, normalised; its
-    survey `repos` when it declares neither."""
+    """The repos a parsed prompt will touch, normalised: its `Repos:` header
+    when that names any known repo; otherwise its `Target:` when that is a
+    known repo; otherwise its survey `repos`.
+
+    `Target:` is not unioned into a declared `Repos:` block: it is often only
+    an epic label (a prompt with `Target: autofit` whose `Repos:` lists only
+    PyAutoCortex), so adding it made the claim gate report a false conflict
+    on a repo the prompt never touches (PyAutoBrain#675)."""
     from _sizing import KNOWN_REPOS  # noqa: E402
     out = set()
     block = re.search(r"^Repos:\n((?:- .+\n)+)", p.get("text") or "", re.M)
@@ -126,10 +132,12 @@ def declared_repos(p: dict) -> list[str]:
         r = normalise_repo(ln[1:].strip())
         if r in KNOWN_REPOS:
             out.add(r)
+    if out:
+        return sorted(out)
     t = normalise_repo(p.get("target") or "")
     if t in KNOWN_REPOS:
-        out.add(t)
-    return sorted(out) or list(p.get("repos") or [])
+        return [t]
+    return list(p.get("repos") or [])
 
 
 def grade(path: Path, mind: Path, text: str | None = None) -> dict:
