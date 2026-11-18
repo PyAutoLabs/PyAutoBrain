@@ -420,7 +420,13 @@ when any op of that task was set aside for a human this shift, so Mind never
 records it shipped with a change missing. They apply as one group per task: if
 one fails for a human the group is rolled back and withheld; while a sibling
 op is *held* (retried) the group stays pending beside it; an op on a path the
-group creates (an edit of the `complete/` record) is part of the group. Two
+group creates (an edit of the `complete/` record) is part of the group. A
+`drop-section` paired with an `append` of the same task re-adding that
+`## slug` to the same path is not closing but an *update* of the worker's own
+claim (2026-11-18, PyAutoBrain#681: a worker's PR-open claim update was set
+aside as a conflict): the drop applies just before its append, as one unit,
+and only when main's section is one this shift committed or its `- session:`
+names this slot's shift worker — anyone else's is a conflict, set aside. Two
 limits: a `complete/` record committed in an earlier tick than a sibling that
 fails later stays on main (the NEEDS YOU line and the digest say "already on
 main"), and the block is sticky for the shift — a re-dispatched task's record
