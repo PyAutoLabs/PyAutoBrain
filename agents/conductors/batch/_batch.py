@@ -2968,7 +2968,8 @@ RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="batch")
     ap.add_argument("verb", choices=["plan", "collect", "brief", "digest", "watch",
-                                     "slice", "premise", "green", "questions"], nargs="?",
+                                     "slice", "premise", "green", "questions", "ready"],
+                    nargs="?",
                     default="plan")
     ap.add_argument("prompt", nargs="?", default="",
                     help="slice: the needs-slicing prompt to decompose; "
@@ -3035,6 +3036,12 @@ def main(argv=None) -> int:
                     help="questions: print `questions_edit.py add` lines for every "
                          "task an earlier shift left parked and still held (reads "
                          "the watcher's slots and Mind origin/main; writes nothing)")
+    # ready (M3.3, PyAutoBrain#671)
+    ap.add_argument("--queue", type=Path, default=None, metavar="SLOT_DIR", dest="queue_slot",
+                    help="ready: queue each new ruling as a question-add op in this "
+                         "shift slot's Mind-writer ledger (default: a dry run that "
+                         "writes nothing); --apply instead writes them into --mind's "
+                         "questions.md on a session branch (never main, no commit)")
     # watch
     ap.add_argument("--once", action="store_true",
                     help="watch: print one snapshot and exit")
@@ -3115,6 +3122,8 @@ def main(argv=None) -> int:
             return _main_green(mind, a)
         if a.verb == "questions":
             return _main_questions(mind, a)
+        if a.verb == "ready":
+            return _main_ready(mind, a)
         return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)
@@ -3132,6 +3141,46 @@ def _main_questions(mind: Path, a) -> int:
     home = a.home or _orchestrator.orchestrator_home()
     print("\n".join(_questions.backfill(home, mind)))
     return 0
+
+
+def _main_ready(mind: Path, a) -> int:
+    """`batch ready [--queue SLOT_DIR | --apply] [--fetch] [--root DIR]` — the
+    readiness pass (M3.3, PyAutoBrain#671, `_ready`): every queue.md entry's
+    next unit(s), their gates, and the rulings it would file. A dry run by
+    default; the premise check is offline unless `--fetch`."""
+    import _ready
+    if a.queue_slot is not None and a.apply:
+        raise BatchUsageError("batch ready: --queue and --apply are exclusive")
+    if not (mind / "queue.md").is_file() and not (mind / "draft").is_dir():
+        print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
+        return RC_NO_MIND
+    slot = a.queue_slot.resolve() if a.queue_slot is not None else None
+    if slot is not None and _ready.slot_refusal(slot):
+        print(_ready.slot_refusal(slot), file=sys.stderr)
+        return RC_USAGE
+    res = _ready.run(mind, root=a.root, fetch=a.fetch,
+                     shift=slot.name if slot is not None else "")
+    if a.apply:
+        try:
+            written = _ready.apply(res, mind)
+        except _ready.ApplyRefused as e:
+            print(e, file=sys.stderr)
+            return RC_USAGE
+        print(_ready.report(res, written=written))
+        return RC_OK
+    if slot is not None:
+        try:
+            queued = _ready.queue(res, slot)
+        except _ready.QueueRefused as e:
+            print(e, file=sys.stderr)
+            return RC_USAGE
+        print(_ready.report(res, queued=queued, slot=slot))
+        return RC_OK
+    if a.as_json:
+        print(json.dumps({k: v for k, v in res.items()}, indent=2, default=str))
+    else:
+        print(_ready.report(res))
+    return RC_OK
 
 
 def _main_slice(mind: Path, a) -> int:

@@ -26,6 +26,7 @@ Ops (one JSON object per file, applied in file-name order):
     {"op": "question-add", "path": "questions.md", "entry": {"task": …, "issue": …, "kind": …,
                                                              "ask": …, "options": [...], "shift": …,
                                                              "asked": …, "worker": …}}
+                    (kind `ruling`, from the readiness pass: `gate` required, `issue` optional)
     {"op": "question-retire", "path": "questions.md", "prompt": "x.md", "day": "YYYY-MM-DD", "by": "…"}
 
 `queue-retire` moves every live `queue.md` entry whose `ref:` names the
@@ -129,7 +130,11 @@ TASK_RE = re.compile(r"[A-Za-z0-9][\w.-]*")
 #: The `needs` of a set-aside op: already true on main, or the human's call.
 NEEDS_MECHANICAL, NEEDS_HUMAN = "mechanical", "human"
 #: The keys a `question-add` entry carries; all strings but `options`.
-QUESTION_KEYS = ("task", "issue", "kind", "ask", "options", "shift", "asked", "worker")
+QUESTION_KEYS = ("task", "issue", "kind", "ask", "options", "shift", "asked", "worker",
+                 "gate")
+#: A `ruling` (the readiness pass's, M3.3, PyAutoBrain#671) needs `gate` and
+#: may have no `issue`; every other kind needs `issue` and has no `gate`.
+QUESTION_RULING = "ruling"
 #: What a watcher-run queue retirement says in the footer, in place of the
 #: `lifecycle.py close` it did not run.
 QUEUE_RETIRED_BY = "retired by the shift close-out (queue-retire)"
@@ -304,8 +309,15 @@ def validate_op(op: dict, lm) -> list[str]:
             extra = sorted(set(entry) - set(QUESTION_KEYS))
             if extra:
                 errs.append(f"question-add: unknown entry keys {', '.join(extra)}")
+            ruling = entry.get("kind") == QUESTION_RULING
             for k in QUESTION_KEYS:
                 v = entry.get(k)
+                if (k == "issue" and ruling and v is None) or (k == "gate" and not ruling
+                                                               and v is None):
+                    continue
+                if k == "gate" and not ruling:
+                    errs.append("question-add: gate is for kind ruling only")
+                    continue
                 if k == "options":
                     if not isinstance(v, list) or not all(isinstance(o, str) for o in v):
                         errs.append("question-add: options must be a list of strings")
