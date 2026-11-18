@@ -3328,6 +3328,9 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         # is named in the digest itself, which still reaches the record.
         _auth().failed()
         _note_auth(counters, now)
+    # The readiness pass (M3.3, PyAutoBrain#671): every gate on the next
+    # shift's queue becomes a ruling, queued for this shift's one Mind writer.
+    readiness_pass(slot, counters, mind, now)
     # Everything the Mind writer reported so far is in this digest; what it
     # reports from here on reaches the human through the late sweep (#632).
     counters["ledger_reported"] = len(_mind_writer.report(slot))
@@ -3369,6 +3372,23 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if closing:
         result["status"] = closing
     return result
+
+
+def readiness_pass(slot: Path, counters: dict, mind: Path, now: _dt.datetime) -> None:
+    """Run `batch ready` at shift end (M3.3, PyAutoBrain#671): offline (the
+    premise check never fetches, no gh), against the watcher's Mind, each new
+    ruling queued as a `question-add` op in this shift's own ledger and noted
+    in `counters["rulings"]`. A shadow shift runs it too: its digest is
+    written through the same writer. A failure never breaks the close: its
+    reason is recorded and the digest says so."""
+    try:
+        import _ready  # noqa: E402 — inside the try: an import failure is a failed pass
+        res = _ready.run(mind, fetch=False, shift=Path(slot).name, now=now)
+        _ready.queue(res, slot, counters)
+    except Exception as e:  # noqa: BLE001 — the digest must still be written
+        r = counters.setdefault("rulings", {})
+        r.setdefault("new", [])
+        r["error"] = f"{type(e).__name__}: {e}"[:200]
 
 
 def _close_status(brief_path: Path, slot: Path, issue: str, now: _dt.datetime,

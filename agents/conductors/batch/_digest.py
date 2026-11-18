@@ -613,6 +613,14 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
     lines += report_lines(slot)
     lines += identity_lines(counters)
+    # The readiness pass's count is the digest's last line (M3.3, #671).
+    try:
+        import _ready  # noqa: E402 — deferred: it imports the batch conductor
+        lines += _ready.digest_lines(counters)
+    except Exception as e:  # noqa: BLE001 — never break the digest
+        if "rulings" in counters:
+            lines += ["", f"Readiness pass failed: the digest could not read it "
+                          f"({type(e).__name__}: {e})"[:240]]
     return "\n".join(lines) + "\n"
 
 

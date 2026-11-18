@@ -2715,12 +2715,31 @@ def _age(asked: str, today: str) -> str:
     return "today" if days <= 0 else ("1 day" if days == 1 else f"{days} days")
 
 
+def _is_ruling(e: dict) -> bool:
+    return e["fields"].get("kind") == "ruling"
+
+
 def _open_questions(c: dict) -> tuple:
-    """(open, deferred) inbox entries, oldest first."""
-    qs = sorted(c.get("questions") or [],
+    """(open, deferred) inbox questions, oldest first. Rulings (the readiness
+    pass's, PyAutoBrain#671) are counted apart, as the digest's inbox line
+    counts them (`_open_rulings`)."""
+    qs = sorted((e for e in c.get("questions") or [] if not _is_ruling(e)),
                 key=lambda e: (e["fields"].get("asked", ""), e["n"]))
     return ([e for e in qs if e["state"] == "open"],
             [e for e in qs if e["state"] == "deferred"])
+
+
+def _open_rulings(c: dict) -> list:
+    """Open and deferred rulings, oldest first."""
+    return sorted((e for e in c.get("questions") or [] if _is_ruling(e)
+                   and e["state"] in ("open", "deferred")),
+                  key=lambda e: (e["fields"].get("asked", ""), e["n"]))
+
+
+def _subject(f: dict) -> str:
+    """`ruling <gate>` for a ruling, else the entry's issue URL."""
+    return f"ruling {f.get('gate') or '?'}" if f.get("kind") == "ruling" \
+        else f.get("issue", "")
 
 
 def _questions_payload(qid: str = "") -> str:
@@ -2757,14 +2776,17 @@ def _autopilot_md(c: dict) -> list:
     L += ["", "**Queue** ([`queue.md`](queue.md)) — read-only; change it in a `/queue` chat", ""]
     L += [f"{n}. [{_md_inline_escape(label)}]({ref})" for n, label, ref in _queued_rows(c)] or [
         f"_{QUEUE_EMPTY}_"]
-    L += ["", f"**Questions** ({len(opened)} open, {len(deferred)} deferred — "
+    n_rul = len(_open_rulings(c))
+    L += ["", f"**Questions** ({len(opened)} open, {len(deferred)} deferred"
+          + (f", {n_rul} ruling{'' if n_rul == 1 else 's'}" if n_rul else "") + " — "
           "[`questions.md`](questions.md))", ""]
-    for e in opened:
+    rulings = _open_rulings(c)
+    for e in opened + rulings:
         f = e["fields"]
         age = _age(f.get("asked", ""), c.get("generated", ""))
         L.append(f"- {e['id']} — {_md_inline_escape(f.get('ask', ''))} "
-                 f"({f.get('issue', '')}" + (f", {age}" if age else "") + ")")
-    if not opened:
+                 f"({_subject(f)}" + (f", {age}" if age else "") + ")")
+    if not opened and not rulings:
         L.append(f"_{QUESTIONS_EMPTY}_")
     L += ["", _shift_md(c.get("batch"), c.get("last_batch")), ""]
     return L
@@ -2789,7 +2811,8 @@ def _question_row(c: dict, e: dict, link) -> str:
             + f" — {_summary_label(f.get('ask', ''))}")
     if f.get("options"):
         text += f' — <span class="facets">{_summary_label(f["options"])}</span>'
-    text += _issue_link(f.get("issue", ""))
+    text += (f' — <span class="facets">{_summary_label(_subject(f))}</span>'
+             if _is_ruling(e) else _issue_link(f.get("issue", "")))
     meta = f"from shift {_summary_label(f.get('shift', '?'))}" + (f" · {age}" if age else "")
     if e["state"] == "deferred":
         meta += f" · deferred until {_summary_label(f.get('until') or 'the next sitting')}"
@@ -2830,9 +2853,11 @@ def _autopilot_html(c: dict, link, h2) -> list:
     H += [_html_task(link(ref, _summary_label(label)), _prompt_payload(ref),
                      _queue_star(ref, {Path(ref).name: n}))
           for n, label, ref in queue] or [f'<p class="muted">{_md_inline(QUEUE_EMPTY)}</p>']
+    rulings = _open_rulings(c)
+    n_rul = (f", {len(rulings)} ruling{'' if len(rulings) == 1 else 's'}" if rulings else "")
     H.append(f'<h3 id="inbox">Questions <span class="facets">({len(opened)} open, '
-             f"{len(deferred)} deferred — read-only; answer by pasting a 📋 into a chat)"
-             "</span></h3>")
+             f"{len(deferred)} deferred{n_rul} — read-only; answer by pasting a 📋 into a "
+             "chat)</span></h3>")
     if opened:
         H.append(_html_task("Answer the open questions in one sitting",
                             _questions_payload()))
@@ -2843,6 +2868,7 @@ def _autopilot_html(c: dict, link, h2) -> list:
         H += ["<details>", f"<summary>{len(deferred)} deferred</summary>"]
         H += [_question_row(c, e, link) for e in deferred]
         H += ["</details>"]
+    H += [_question_row(c, e, link) for e in rulings]
     H.append(_shift_html(c.get("batch"), c.get("last_batch")))
     return H
 

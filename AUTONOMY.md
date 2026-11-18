@@ -1094,6 +1094,8 @@ The questions inbox (M3.5, PyAutoBrain#645) changes the watcher's surface by:
    worker's claim with the answer in its prompt. A dropped question shelves
    the task (H9 a). An unreadable inbox keeps every hold.
 
+6. **The readiness pass (M3.3, PyAutoBrain#671)** runs offline at shift end (no fetch, no gh; Mind read from its local `origin/main`) and files each gate on the queue's next units as a `ruling` through the one Mind writer (`question-add`), never a direct push to Mind main.
+
 The revert condition also covers these: an @mention for a parked question,
 or any read of `questions.md` other than that local one, retires the watcher
 to fake mode.

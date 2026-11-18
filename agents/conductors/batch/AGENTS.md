@@ -595,6 +595,21 @@ starts `resumed after Q<n> was answered`. The human answers in a `/questions`
 chat (`skills/questions`). `batch questions --backfill` prints the
 `questions_edit.py add` lines that seed the inbox from today's holds.
 
+**The readiness pass (M3.3, PyAutoBrain#671, `_ready.py`).** `batch ready`
+resolves each `queue.md` entry to its next unit(s) (an epic ledger to its open
+members at the lowest phase, in `draft/` and `active/`), checks the gates
+(`looks-shipped` and `obsolete` first, then `claimed`, `unattended`,
+`human-required`, `blocked-by`, `no-lane`; an epic with no open member is
+`no-next-phase`) and files each as an inbox entry of kind `ruling` (a `gate:`,
+no `issue:`), skipping a task and gate already ruled on Mind origin/main in
+any state (once answered or dropped it stays quiet; `/questions` reopen asks
+again — the human's ruling, 2026-11-18) and filing none while Mind main has
+no `ruling` kind. Dry run by default;
+`--queue <slot>` queues `question-add` ops, `--apply` writes a session-branch
+checkout (never main). `finish_shift` runs it offline before the digest, whose
+last line is "The next shift needs N rulings from you." Rulings never hold or
+release a parked task, and the inbox line leaves them out.
+
 **Watching and steering a shift from its issue (PyAutoBrain#622).** Each open
 tick ends with the shift's **status comment** on the brief's `issue:`: the
 `batch watch` snapshot as Markdown (`_watch.render_status`, no tick log),

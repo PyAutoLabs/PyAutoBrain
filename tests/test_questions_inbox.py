@@ -449,8 +449,8 @@ def test_read_origin(tmp_path):
         git(canon, "fetch", "-q", "origin", "main")))
     assert fetched and got == {"alpha": [{"id": "Q1", "shift": "2026-11-14-pm2", "issue": Q1,
                                           "state": "open", "answer": "", "comment": "",
-                                          "kind": "question", "task": "active/alpha.md",
-                                          "answered": ""}]}
+                                          "kind": "question", "gate": "",
+                                          "task": "active/alpha.md", "answered": ""}]}
 
 
 @needs_mind
@@ -804,3 +804,22 @@ def test_the_stream_says_added_to_your_inbox_only_for_a_filed_question(tmp_path)
     assert qs["t1"]["inbox"] is True and not qs["t1"]["needs_you"]
     assert qs["t2"]["line"] == "t2 parked with a question on widgets#71."   # merged: not filed
     assert "inbox" not in qs["t2"]
+
+
+def test_the_inbox_section_shows_a_ruling_by_its_gate_and_counts_it_apart(tmp_path):
+    ruling = ("### Q19. cogs — Repo claimed: wait, coordinate or drop?\n"
+              "- task: draft/feature/widgets/cogs.md\n- kind: ruling\n- gate: claimed\n"
+              "- ask: Repo claimed: wait, coordinate or drop?\n"
+              "- options: (a) wait · (b) coordinate\n- shift: ready-2026-11-18\n"
+              "- asked: 2026-11-18T18:00Z\n- worker: readiness pass\n\n")
+    text = QUESTIONS.replace("## Deferred\n", ruling + "## Deferred\n")
+    page = _intake.render_dashboard_html(_intake.census(_dash_mind(tmp_path / "a", text)))
+    box = _questions_part(page)
+    assert box.startswith('<h3 id="inbox">Questions <span class="facets">(1 open, 1 deferred, '
+                          '1 ruling')
+    assert '<span class="facets">ruling claimed</span>' in box and "()" not in box
+    assert '<span class="section-badge">2 queued · 1 question</span>' in page
+    md = _intake.render_dashboard(_intake.census(_dash_mind(tmp_path / "b", text)))
+    sec = md[md.index("**Questions**"):md.index("**Shift**")]
+    assert sec.startswith("**Questions** (1 open, 1 deferred, 1 ruling")
+    assert "- Q19 — Repo claimed: wait, coordinate or drop? (ruling claimed" in sec

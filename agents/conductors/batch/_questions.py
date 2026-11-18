@@ -97,6 +97,7 @@ def by_task(entries: list[dict]) -> dict[str, list[dict]]:
             "id": e["id"], "shift": f.get("shift", ""), "issue": f.get("issue", ""),
             "state": e["state"], "answer": f.get("answer", ""),
             "comment": f.get("answer-comment", ""), "kind": f.get("kind", ""),
+            "gate": f.get("gate", ""),
             "answered": (f.get("answered") or "").split(" ")[0],
             "task": f.get("task", "")})
     return out
@@ -132,6 +133,21 @@ def read_origin(mind, ref: str = "origin/main", fetch=None, run=None) -> dict | 
 
 # --- the parked hold -------------------------------------------------------------
 
+#: The inbox kind the readiness pass files (M3.3, PyAutoBrain#671): a gate on a
+#: queued task for the human to rule on. It is answered like a question but
+#: never holds or releases a parked task, and the inbox line leaves it out.
+RULING = "ruling"
+
+
+def is_ruling(e: dict) -> bool:
+    return (e.get("kind") or "") == RULING
+
+
+def questions_only(entries) -> list[dict]:
+    """The entries that are questions (or blocked), not rulings."""
+    return [e for e in entries or [] if not is_ruling(e)]
+
+
 def hold_for(task: str, shift: str, inbox: dict | None) -> tuple[str, dict | None]:
     """How the inbox rules on one task an earlier shift `shift` left parked:
     ("held", None) — no entry (a park from before M3.5) or no readable inbox;
@@ -140,7 +156,7 @@ def hold_for(task: str, shift: str, inbox: dict | None) -> tuple[str, dict | Non
     ("answered", {ids, comments, answers}) — every entry is answered."""
     if inbox is None:
         return "held", None
-    mine = [e for e in inbox.get(task, []) if e.get("shift") == shift]
+    mine = [e for e in questions_only(inbox.get(task)) if e.get("shift") == shift]
     if not mine:
         return "held", None
     dropped = [e["id"] for e in mine if e["state"] == "dropped"]
@@ -160,7 +176,7 @@ def answered_since(task: str, inbox: dict | None, at: str) -> dict | None:
     task's entries is still open, deferred or dropped; else None."""
     if inbox is None:
         return None
-    mine = inbox.get(task) or []
+    mine = questions_only(inbox.get(task))
     if any(e["state"] != "answered" for e in mine):
         return None
     fresh = [e for e in mine if (e.get("answered") or "") > (at or "")]
@@ -205,7 +221,15 @@ def add_op(entry: dict) -> dict:
 
 def note_added(counters: dict, entry: dict) -> bool:
     """Record one question this shift added (`counters["inbox"]`), once per
-    (task, issue). True when it is new."""
+    (task, issue). A ruling goes in `counters["rulings"]["new"]` instead, once
+    per (task, gate): the two are never counted together. True when it is new."""
+    if is_ruling(entry):
+        new = counters.setdefault("rulings", {}).setdefault("new", [])
+        key = (Path(entry["task"]).stem, entry.get("gate", ""))
+        if any((r.get("task"), r.get("gate")) == key for r in new):
+            return False
+        new.append({"task": key[0], "path": entry["task"], "gate": key[1]})
+        return True
     seen = counters.setdefault("inbox", [])
     key = (Path(entry["task"]).stem, entry["issue"])
     if any((q.get("task"), q.get("issue")) == key for q in seen):
@@ -251,9 +275,13 @@ def inbox_line(counters: dict, slot_name: str, mind=None, origin=None) -> str:
         origin = read_origin(mind)
     ids, open_n = [], None
     if origin is not None:
-        mine = [e for es in origin.values() for e in es if e.get("shift") == slot_name]
+        # Rulings (the readiness pass's) are not questions: the digest's last
+        # line counts them.
+        mine = [e for es in origin.values() for e in questions_only(es)
+                if e.get("shift") == slot_name]
         ids = [e["id"] for e in sorted(mine, key=lambda e: int(e["id"][1:]))]
-        open_n = sum(e["state"] == "open" for es in origin.values() for e in es)
+        open_n = sum(e["state"] == "open" for es in origin.values()
+                     for e in questions_only(es))
     n = len(added)
     line = f"Inbox: {n} question{'s' if n != 1 else ''} added to your inbox this shift"
     if ids:
