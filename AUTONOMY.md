@@ -935,7 +935,9 @@ the exemption it runs under is `PyAutoMind/policy/shift_watcher.md`).
   remain before `review-at:`, so an answer given from the phone can restart it
   in-shift (human-approved 2026-11-17, M3.6c, PyAutoBrain#669).
   It starts worker sessions (`claude --bg`, phase 3b) — that is dispatch, ruled
-  by "Shift briefs and unattended `glance`", not a network read.
+  by "Shift briefs and unattended `glance`", not a network read. Workers and
+  close-outs start as Opus at medium effort (`WORKER_MODEL`/`WORKER_EFFORT`,
+  PyAutoBrain#672).
 - **Opt-in and laptop-only.** It runs only from a systemd user timer the human
   installs, only while a brief is open, and never while `STOP` exists. No
   conductor, faculty or skill calls it; no session arms it.
