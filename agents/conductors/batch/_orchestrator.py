@@ -1569,8 +1569,30 @@ def claim_of(sections: dict[str, dict], task: str) -> tuple[str, dict] | None:
                  if Path(sec.get("prompt") or "").stem == task), None)
 
 
+def released_picks(counters: dict) -> set[str]:
+    """This shift's own picks that no longer hold their library repos
+    (PyAutoBrain#679): done or abandoned, and either every PR they opened has
+    merged, or they ended with no PR and no open question. Everything else
+    holds: a live lease, a park on a question or a person, a PR open or
+    refused (a judge PR awaiting /prm, a glance PR past `merge-cap:`), a
+    pending re-dispatch or an answered park waiting to restart."""
+    hold = {*(counters.get("parked") or []), *(counters.get("pending_redispatch") or []),
+            *(counters.get("inshift_pending") or {})}
+    out = set()
+    for task in {*(counters.get("done") or []), *(counters.get("abandoned") or [])}:
+        if task not in (counters.get("picks") or {}) or task in hold:
+            continue
+        o = (counters.get("outcomes") or {}).get(task)
+        o = o if isinstance(o, dict) else {}
+        prs, merged = o.get("prs") or [], set(o.get("merged") or [])
+        if (prs and all(u in merged for u in prs)) or (not prs and not o.get("questions")):
+            out.add(task)
+    return out
+
+
 def on_origin(records: list[dict], mind: Path, own: set[str],
-              fetch=None, resumes: dict | None = None) -> tuple[list[dict], dict]:
+              fetch=None, resumes: dict | None = None, released: set[str] | None = None,
+              slot_name: str = "") -> tuple[list[dict], dict]:
     """`records` without the drafts Mind origin/main no longer holds as
     unclaimed: a path not under its `draft/` (moved to `active/`, retired, or
     never pushed — the writer's claim move would fail) or a task with a
@@ -1585,11 +1607,24 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
     its claim's `- session:` is `shift worker <slot> (<id>)` for a slot of
     this home that picked it — a claim an interactive session owns, or one a
     human took over, is the human's work and is left alone. Its own claim
-    never counts against its repos; every other claim on them does."""
+    never counts against its repos; every other claim on them does.
+
+    `released` (PyAutoBrain#679) are this shift's own picks that hold no
+    library any more (`released_picks`). A claim one of them left behind —
+    the close-out queues its `drop-section`, but a set-aside op, a failed push
+    or a close-out that skipped it leaves the section — holds nothing, when
+    its `- session:` is this shift's own worker (`slot_name`). Any other
+    claim still holds."""
     claims = origin_claims(mind, fetch=fetch)
     if claims is None:
         return records, {}
     resumes = resumes or {}
+    spent = set()   # claim slugs of this shift's released picks
+    if released and slot_name and "error" not in claims:
+        for t in released:
+            c = claim_of(claims.get("sections") or {}, t)
+            if c and shift_worker_slot(c[1].get("session")) == slot_name:
+                spent.add(c[0])
     kept, out = [], {}
     for r in records:
         task = task_id(r.get("path") or "")
@@ -1612,7 +1647,8 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
                                   "is not this home's shift worker's (session: "
                                   f"{(sec.get('session') or 'none')[:60]}) — left to the human")
             elif held := next(((repo, other) for other, sec2 in claims["sections"].items()
-                               if other != slug and not coordinated_for(sec2, task)
+                               if other != slug and other not in spent
+                               and not coordinated_for(sec2, task)
                                for repo in sec2["repos"] if _repo_key(repo) in mine), None):
                 # Every other claim on the repo counts, not only the first
                 # (`claimed_repos` keeps one per repo): its own does not.
@@ -1625,7 +1661,8 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
         elif task in claims["active"]:
             out[r["path"]] = "claimed in active.md on Mind origin/main"
         elif held := _held_for(claims.get("sections") or {}, task,
-                               r.get("declared_repos") or r.get("repos") or []):
+                               r.get("declared_repos") or r.get("repos") or [],
+                               ignore=spent):
             out[r["path"]] = (f"repo {held[0]} claimed by `{held[1]}` in active.md on "
                               "Mind origin/main")
         else:
@@ -1633,13 +1670,14 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
     return kept, out
 
 
-def _held_for(sections: dict[str, dict], task: str, repos) -> tuple[str, str] | None:
+def _held_for(sections: dict[str, dict], task: str, repos,
+              ignore=frozenset()) -> tuple[str, str] | None:
     """(repo as written, claiming slug) of the first claim on one of `repos`
     that does not free it for `task` (R2: a coordination line frees a repo
-    only for the task it names), or None."""
+    only for the task it names), or None. A slug in `ignore` holds nothing."""
     mine = {_repo_key(x) for x in repos}
     return next(((repo, slug) for slug, sec in sections.items()
-                 if not coordinated_for(sec, task)
+                 if slug not in ignore and not coordinated_for(sec, task)
                  for repo in sec["repos"] if _repo_key(repo) in mine), None)
 
 
@@ -1883,9 +1921,11 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             carried = {t for t, o in (counters.get("outcomes") or {}).items()
                        if isinstance(o, dict) and o.get("carried_from")}
             recs = [r for r in recs if task_id(r["path"]) not in carried]
+            # A pick whose PRs have all merged frees its library (#679).
+            freed = released_picks(counters) - carried
             recs, claimed = on_origin(recs, mind, set(counters["picks"]) - carried,
                                       fetch=lambda: _fetch_once(mind, counters, now),
-                                      resumes=resumes)
+                                      resumes=resumes, released=freed, slot_name=slot.name)
             planned["claimed"] = claimed
             planned["resume"] = {t: v for t, v in resumes.items()
                                  if any(task_id(r["path"]) == t for r in recs)}
@@ -1893,7 +1933,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # empty queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2
             # rulings — 2026-11-12"). Recorded each tick so the digest can say so.
             planned["d"] = _batch.plan(recs, session_lane="local-dev", brief=brief,
-                                       queue=_batch.read_queue(mind))
+                                       queue=_batch.read_queue(mind), released=freed)
         return planned["d"]
 
     def known(task: str) -> bool:
