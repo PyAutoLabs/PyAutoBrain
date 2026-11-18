@@ -1,8 +1,8 @@
 """`declared_repos` and the batch claim gate (PyAutoBrain#675).
 
 A prompt's `Target:` is often only an epic label: a prompt with
-`Target: autofit` whose `Repos:` lists only PyAutoCortex never touches
-PyAutoFit, so a claim on PyAutoFit must not hold it.
+`Target: pyautoeyes` whose `Repos:` lists only PyAutoCortex never touches
+PyAutoEyes, so a claim on PyAutoEyes must not hold it.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ import _batch  # noqa: E402
 import _orchestrator as orch  # noqa: E402
 from _sizing import normalise_repo  # noqa: E402
 
-ACTIVE = ("# Active\n\n## fit-work\n- prompt: active/feature/autofit/fit-work.md\n"
-          "- session: claude-code desktop (WSL)\n- repos:\n  - PyAutoFit\n")
+ACTIVE = ("# Active\n\n## eyes-work\n- prompt: active/feature/pyautoeyes/eyes-work.md\n"
+          "- session: claude-code desktop (WSL)\n- repos:\n  - PyAutoEyes\n")
 
 
 def _prompt(target: str, repos: list[str] | None) -> dict:
@@ -30,25 +30,25 @@ def _prompt(target: str, repos: list[str] | None) -> dict:
 
 
 def test_repos_block_wins_over_an_epic_label_target():
-    p = _prompt("autofit", ["PyAutoCortex"])
+    p = _prompt("pyautoeyes", ["PyAutoCortex"])
     assert _batch.declared_repos(p) == [normalise_repo("PyAutoCortex")]
 
 
 def test_claim_on_the_target_does_not_hold_a_prompt_that_never_touches_it():
     sections = orch.claim_sections(ACTIVE)
-    cortex_only = _batch.declared_repos(_prompt("autofit", ["PyAutoCortex"]))
+    cortex_only = _batch.declared_repos(_prompt("pyautoeyes", ["PyAutoCortex"]))
     assert orch._held_for(sections, "cortex-ledger", cortex_only) is None
-    touches_fit = _batch.declared_repos(_prompt("autofit", ["PyAutoFit", "PyAutoCortex"]))
-    assert orch._held_for(sections, "fit-follow-up", touches_fit) == ("PyAutoFit", "fit-work")
+    touches_eyes = _batch.declared_repos(_prompt("pyautoeyes", ["PyAutoEyes", "PyAutoCortex"]))
+    assert orch._held_for(sections, "eyes-follow-up", touches_eyes) == ("PyAutoEyes", "eyes-work")
 
 
 def test_no_repos_block_falls_back_to_target():
-    assert _batch.declared_repos(_prompt("autofit", None)) == [normalise_repo("autofit")]
+    assert _batch.declared_repos(_prompt("pyautoeyes", None)) == [normalise_repo("pyautoeyes")]
 
 
 def test_repos_block_of_unknown_names_falls_back_to_target():
-    p = _prompt("autofit", ["not_a_repo", "another_unknown"])
-    assert _batch.declared_repos(p) == [normalise_repo("autofit")]
+    p = _prompt("pyautoeyes", ["not_a_repo", "another_unknown"])
+    assert _batch.declared_repos(p) == [normalise_repo("pyautoeyes")]
 
 
 def test_unknown_target_and_no_repos_falls_back_to_survey():
