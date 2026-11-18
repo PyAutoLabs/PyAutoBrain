@@ -424,7 +424,7 @@ def test_review4_the_batch_conductor_is_refused_whatever_the_task_declares(tmp_p
 
 # --- PyAutoBrain#679: a shift's library slot frees once its task's PR has merged ------
 
-PR1 = "https://github.com/example-org/PyAutoGalaxy/pull/7"
+PR1 = "https://github.com/example-org/autogalaxy/pull/7"
 GALAXY = ("ag_bug_one", "ag_bug_two")
 
 
@@ -433,7 +433,7 @@ def _galaxy_shift(tmp_path: Path) -> tuple[Path, Path, Path]:
     mind, brief, home = _shift(tmp_path)
     rels = []
     for name in GALAXY:
-        rel = _write(mind, name, target="PyAutoGalaxy")
+        rel = _write(mind, name, target="autogalaxy")
         f = mind / rel
         f.write_text(f.read_text().replace("Consequence: notify", "Consequence: glance"))
         rels.append(rel)
@@ -512,13 +512,13 @@ def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
     bare, mind = tmp_path / "mind.git", tmp_path / "mind"
     _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
     _git(tmp_path, "clone", "-q", str(bare), str(mind))
-    first = _write(mind, "ag_bug_one", target="PyAutoGalaxy")
-    second = _write(mind, "ag_bug_two", target="PyAutoGalaxy")
+    first = _write(mind, "ag_bug_one", target="autogalaxy")
+    second = _write(mind, "ag_bug_two", target="autogalaxy")
 
     def claim(session):
         (mind / "active.md").write_text(
             f"# Active\n\n## ag-bug-one\n- prompt: {first}\n- session: {session}\n"
-            "- repos:\n  - PyAutoGalaxy: feature/ag-bug-one\n")
+            "- repos:\n  - autogalaxy: feature/ag-bug-one\n")
         _git(mind, "add", "-A")
         _git(mind, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit",
              "-q", "-m", "claim")
@@ -527,7 +527,7 @@ def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
 
     claim("shift worker 2026-11-18-pm (abc123)")
     records = [_batch.grade(mind / second, mind)]
-    held = {second: "repo PyAutoGalaxy claimed by `ag-bug-one` in active.md on "
+    held = {second: "repo autogalaxy claimed by `ag-bug-one` in active.md on "
                     "Mind origin/main"}
     assert orch.on_origin(records, mind, own={"ag_bug_one"}) == ([], held)
     kept, out = orch.on_origin(records, mind, own={"ag_bug_one"}, released={"ag_bug_one"},
