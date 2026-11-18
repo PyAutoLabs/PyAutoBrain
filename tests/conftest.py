@@ -28,6 +28,18 @@ def _no_real_heart_lane(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_task_worktree_paths(monkeypatch):
+    """A task worktree's `activate.sh` (written by `bin/worktree.sh`) exports
+    the organ paths below, and resolvers honour them as hard overrides (e.g.
+    `_hygiene_repos.candidate_map_paths` and `PYAUTO_MIND`). CI sets none of
+    them, so start every test from CI's environment; a test that needs one
+    sets it itself (PyAutoBrain#677)."""
+    for name in ("PYAUTO_TASK", "PYAUTO_ROOT", "PYAUTO_BRAIN", "PYAUTO_MIND",
+                 "PYAUTO_HEART", "PYAUTO_HANDS"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_launch_probes(monkeypatch):
     """M3.6a (PyAutoBrain#659): `brief --check` and the watcher's first tick
     run `claude auth status --json`, and `brief --new --out` makes one `gh
