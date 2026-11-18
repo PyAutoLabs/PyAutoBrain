@@ -64,7 +64,16 @@ def test_one_member_per_library_repo_per_shift():
     d = _batch.plan([rec("a.md", repos=["autoarray"]),
                      rec("b.md", repos=["autoarray"])], budget=100)
     assert paths(d) == ["a.md"]
-    assert "autoarray already claimed" in why(d, "b.md")
+    assert "autoarray held by a until its PR merges" in why(d, "b.md")
+
+
+def test_a_released_member_holds_no_library():
+    """PyAutoBrain#679: a pick whose PR merged collides with nothing at merge,
+    so the next task on its library is admitted; it stays a member."""
+    two = [rec("a.md", repos=["autoarray"]), rec("b.md", repos=["autoarray"])]
+    d = _batch.plan(two, budget=100, released={"a"})
+    assert paths(d) == ["a.md", "b.md"]
+    assert paths(_batch.plan(two, budget=100, released={"b"})) == ["a.md"]
 
 
 def test_non_library_repos_do_not_claim_a_shift():

@@ -397,7 +397,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          cap: int = DEFAULT_BACKPRESSURE_CAP, queue: list[str] | None = None,
          awaiting_source: str = "given", carried: list[str] | None = None,
          carried_from: str = "", brief: dict | None = None,
-         attended: bool = False) -> dict:
+         attended: bool = False, released: set[str] | None = None) -> dict:
     """Compose the next batch — a BatchDecision.
 
     Every constraint states itself in `rejected`, because a planner that
@@ -511,7 +511,12 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     pool.sort(key=lambda r: (r["queue_rank"], priority_rank(r),
                              r["review_minutes"], r["path"]))
 
-    members, spent, seen_epics, libs = [], 0, set(), set()
+    # `released` (PyAutoBrain#679): the watcher's own picks whose PRs have all
+    # merged, or that ended with no PR and no open question. They stay members
+    # (known, counted, never re-dispatched) but hold no library: a merged PR
+    # collides with nothing, so the next task on that library may start.
+    released = released or set()
+    members, spent, seen_epics, libs = [], 0, set(), {}
     for r in pool:
         # One slice per epic counts only `Phase:` tasks (ruling R5, option a,
         # 2026-11-17): a side task of the epic shares the shift with its phase.
@@ -527,7 +532,11 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         # repos are exempt — two docs changes in one shift cost nothing.
         clash = next((x for x in r["repos"] if x in LIBRARY_REPOS and x in libs), None)
         if clash:
-            rejected.append((r["path"], f"{clash} already claimed this shift"))
+            holder = libs[clash]
+            rejected.append((r["path"], f"{clash} held by {holder} — will start after "
+                                        f"{holder}'s PR merges"
+                             if Path(r["path"]).name in named_names
+                             else f"{clash} held by {holder} until its PR merges"))
             continue
         cost = 0 if r["consequence"] in CHEAP_TIERS else r["review_minutes"]
         if spent + cost > effective_budget:
@@ -537,7 +546,9 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         spent += cost
         if r["epic"] and has_phase(r):
             seen_epics.add(r["epic"])
-        libs.update(x for x in r["repos"] if x in LIBRARY_REPOS)
+        if Path(r["path"]).stem not in released:
+            libs.update((x, Path(r["path"]).stem) for x in r["repos"]
+                        if x in LIBRARY_REPOS and x not in libs)
 
     other_lane = _lane_counts(
         r for r in records

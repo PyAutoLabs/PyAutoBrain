@@ -420,3 +420,122 @@ def test_review4_the_batch_conductor_is_refused_whatever_the_task_declares(tmp_p
     errors, _, _ = _organ(tmp_path, "Edit `PyAutoMind/scripts` and `docs/x.md`.",
                           target="PyAutoMind")
     assert errors
+
+
+# --- PyAutoBrain#679: a shift's library slot frees once its task's PR has merged ------
+
+PR1 = "https://github.com/example-org/PyAutoGalaxy/pull/7"
+GALAXY = ("ag_bug_one", "ag_bug_two")
+
+
+def _galaxy_shift(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A brief naming two glance tasks on one library, first tick already run."""
+    mind, brief, home = _shift(tmp_path)
+    rels = []
+    for name in GALAXY:
+        rel = _write(mind, name, target="PyAutoGalaxy")
+        f = mind / rel
+        f.write_text(f.read_text().replace("Consequence: notify", "Consequence: glance"))
+        rels.append(rel)
+    brief.write_text(brief.read_text().replace(
+        "    - draft/feature/x/none.md", "\n".join(f"    - {r}" for r in rels)))
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["ag_bug_one"], r
+    return mind, brief, home
+
+
+def _end(brief: Path, home: Path, task: str, outcome: dict | None, *, how="done",
+         **extra) -> None:
+    """The first task's worker has ended: its lease gone, its outcome recorded."""
+    slot = orch.slot_dir(brief, home)
+    (slot / "leases" / f"{task}.json").unlink()
+    c = orch.read_counters(slot)
+    c[how].append(task)
+    if outcome is not None:
+        c["outcomes"][task] = outcome
+    for k, v in extra.items():
+        c[k] = v
+    orch._write_counters(slot, c)
+
+
+def test_679_1_the_second_task_on_a_library_waits_while_the_first_is_live(tmp_path):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert r["spawned"] == [], r
+    named = orch.read_counters(orch.slot_dir(brief, home))["backlog_gates"]["named"]
+    assert named == {"draft/feature/x/ag_bug_two.md":
+                     "autogalaxy held by ag_bug_one — will start after ag_bug_one's PR "
+                     "merges"}, named
+
+
+def test_679_2_the_second_task_starts_once_every_pr_of_the_first_has_merged(tmp_path):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    _end(brief, home, "ag_bug_one", {"prs": [PR1], "merged": [PR1], "issues": []})
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
+
+
+@pytest.mark.parametrize("outcome, extra", [
+    ({"prs": [PR1], "merged": [], "issues": []}, {}),                     # PR open
+    ({"prs": [PR1], "merged": [], "issues": []},                          # refused
+     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused", "why": "red"}}}),
+    ({"prs": [], "merged": [], "issues": [ISSUE], "questions": [ISSUE]}, {}),  # question
+    ({"prs": [PR1, PR1 + "0"], "merged": [PR1], "issues": []}, {}),       # one of two
+])
+def test_679_3_an_open_or_refused_pr_or_a_question_still_holds(tmp_path, outcome, extra):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    _end(brief, home, "ag_bug_one", outcome, **extra)
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert r["spawned"] == [], r
+
+
+def test_679_3_a_park_on_a_person_still_holds(tmp_path):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    _end(brief, home, "ag_bug_one", None, how="parked")
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert r["spawned"] == [], r
+
+
+def test_679_4_an_abandoned_task_with_no_pr_frees_its_library(tmp_path):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    _end(brief, home, "ag_bug_one", None, how="abandoned")
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
+
+
+def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
+    """The close-out queues `drop-section active.md`, but a set-aside op or a
+    failed push leaves the claim on origin: only this shift's own worker's
+    claim on a released pick is passed over; any other claim still holds."""
+    if shutil.which("git") is None:
+        pytest.skip("needs git")
+    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
+    _git(tmp_path, "clone", "-q", str(bare), str(mind))
+    first = _write(mind, "ag_bug_one", target="PyAutoGalaxy")
+    second = _write(mind, "ag_bug_two", target="PyAutoGalaxy")
+
+    def claim(session):
+        (mind / "active.md").write_text(
+            f"# Active\n\n## ag-bug-one\n- prompt: {first}\n- session: {session}\n"
+            "- repos:\n  - PyAutoGalaxy: feature/ag-bug-one\n")
+        _git(mind, "add", "-A")
+        _git(mind, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit",
+             "-q", "-m", "claim")
+        _git(mind, "push", "-q", "origin", "HEAD:main")
+        _git(mind, "fetch", "-q", "origin")
+
+    claim("shift worker 2026-11-18-pm (abc123)")
+    records = [_batch.grade(mind / second, mind)]
+    held = {second: "repo PyAutoGalaxy claimed by `ag-bug-one` in active.md on "
+                    "Mind origin/main"}
+    assert orch.on_origin(records, mind, own={"ag_bug_one"}) == ([], held)
+    kept, out = orch.on_origin(records, mind, own={"ag_bug_one"}, released={"ag_bug_one"},
+                               slot_name="2026-11-18-pm")
+    assert (kept, out) == (records, {})
+    # Another shift's worker, or a human who took the claim over: it holds.
+    assert orch.on_origin(records, mind, own={"ag_bug_one"}, released={"ag_bug_one"},
+                          slot_name="2026-11-18-am") == ([], held)
+    claim("desktop session, human")
+    assert orch.on_origin(records, mind, own={"ag_bug_one"}, released={"ag_bug_one"},
+                          slot_name="2026-11-18-pm") == ([], held)

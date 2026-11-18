@@ -306,6 +306,15 @@ Until phase 3b it spawns only stub workers (`PYAUTO_ORCHESTRATOR_FAKE=1`); a rea
 dispatch is refused. Doctrine: `AUTONOMY.md` "The watcher's network surface —
 2026-11-03"; the exemption it runs under, `PyAutoMind/policy/shift_watcher.md`.
 
+**A library slot frees at merge (2026-11-18, PyAutoBrain#679).** The plan
+admits one task per library repo, because concurrent library PRs collide at
+merge. A task this shift picked holds its library while it runs, while its PR
+is open or refused, and while it is parked. Once it is done and every PR it
+opened has merged (or it ended with no PR and no open question), the next tick
+may start the next task on that library. The finished task stays in the plan,
+so it is never re-dispatched. A claim it left in `active.md`, written by this
+shift's own worker, no longer holds the repo either.
+
 **The open-brief gate is a window: `dispatched:` → `review-at:`.** A brief
 that passes `batch brief --check` is open only from its `dispatched:` until its
 `review-at:`. Before the start, a tick is idle (`not yet open: opens at

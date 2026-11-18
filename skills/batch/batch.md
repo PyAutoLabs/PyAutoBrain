@@ -40,8 +40,9 @@ Report, per task they named:
   `autonomy human-required — would park at ship` (it cannot run unattended; it
   would come back as a question — `supervised` no longer parks, AUTONOMY.md
   "Decide-and-flag"), `Status: says the work is already done`, `epic <slug>
-  phase N is not next`, `<repo> already claimed this shift`, `would exceed the
-  budget`.
+  phase N is not next`, `<repo> held by <task> until its PR merges` (a shift
+  starts the next task on that library once the earlier one's PR has merged,
+  PyAutoBrain#679, 2026-11-18), `would exceed the budget`.
 
 If everything they named is rejected, **say so plainly and offer the planner's
 own proposal instead** — never hand back a batch they did not ask for as though
