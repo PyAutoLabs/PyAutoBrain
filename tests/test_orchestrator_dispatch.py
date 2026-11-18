@@ -383,6 +383,7 @@ def test_live_sandbox_worker():
     yields a non-zero token count. Removed afterwards."""
     import time
     res = subprocess.run(["claude", "--bg", "--name", "shift:live-witness",
+                          "--model", orch.WORKER_MODEL, "--effort", orch.WORKER_EFFORT,
                           "--permission-mode", "auto",
                           "Reply with the single word DONE and stop."],
                          cwd=_trusted_root(), capture_output=True, text=True,

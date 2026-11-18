@@ -393,8 +393,8 @@ def test_a_started_closeout_is_written_before_the_tick_goes_on(tmp_path, monkeyp
 def test_closeout_command_is_named_moded_and_on_the_closeout_model(tmp_path):
     argv = orch.closeout_command("t1", PR1, "draft/x/t1.md", tmp_path / "b.md",
                                  tmp_path / "leases", "auto")
-    assert argv[:8] == ["claude", "--bg", "--name", "shift-close:t1", "--model", "opus",
-                        "--permission-mode", "auto"]
+    assert argv[:10] == ["claude", "--bg", "--name", "shift-close:t1", "--model", "opus",
+                         "--effort", "medium", "--permission-mode", "auto"]
     prompt = argv[-1]
     assert PR1 in prompt and "run it yourself" in prompt
     assert str(tmp_path / "leases" / "t1.closeout") in prompt
