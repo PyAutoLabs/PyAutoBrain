@@ -315,7 +315,8 @@ def sweep_wait_state(url: str, counters: dict) -> str:
     """A PR held while the sweep's run list is unreadable (M3.7e, #694): since
     when the sweep is unknown, from the wait's `why`."""
     wait = (counters.get("sweep_waits") or {}).get(url) or {}
-    since = str(wait.get("why") or "").rpartition(" since ")[2] or wait.get("since") or "?"
+    _, sep, since = str(wait.get("why") or "").partition(" since ")
+    since = (since if sep else "") or wait.get("since") or "?"
     return f"waiting: workspace sweep unknown since {since}"
 
 

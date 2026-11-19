@@ -56,10 +56,12 @@ NO_VERDICT = ("cancelled",)
 #: (measured from the streak's first failure) holds every PR a merge could
 #: break: a wait, not a refusal (review round 2).
 UNKNOWN_AFTER_S = 1800
-#: A failed read whose previous read attempt (good or failed) is older than
-#: this starts a fresh streak: the 30 minutes count only continuous failures
-#: inside one run of ticks, never across a gap between shifts (#694).
-SWEEP_STREAK_GAP_S = 600
+#: A failed read starts a fresh streak when the previous read attempt (good
+#: or failed) was made by another shift (`read_shift`, none recorded counts
+#: as another), or is older than this backstop: far above any tick, even one
+#: whose gh calls all hang to their timeouts; it covers a laptop asleep
+#: mid-shift (#694, review round 1).
+SWEEP_STREAK_GAP_S = 7200
 UNKNOWN_WHY = "workspace sweep unknown: run list unreadable since {since}"
 SWEEP_DIR = "sweep"
 STATE_FILE = "state.json"
@@ -348,17 +350,20 @@ def is_red(run: dict | None) -> bool:
     return bool(run) and run.get("status") == "completed" and run.get("conclusion") in RED
 
 
-def observe(home: Path, cfg: dict, now: _dt.datetime) -> dict:
-    """The tick's one read of the sweep (once a tick: `read_at`). Returns the
-    state; a failed list keeps the last known runs, with the error noted."""
+def observe(home: Path, cfg: dict, now: _dt.datetime, shift: str = "") -> dict:
+    """The tick's one read of the sweep (once a tick: `read_at`, by `shift`,
+    the slot's name). Returns the state; a failed list keeps the last known
+    runs, with the error noted."""
     state = load_state(home)
     if not cfg or state.get("read_at") == _iso(now):
         return state
     prev = _parse(state.get("read_at") or "")
-    state["read_at"] = _iso(now)
+    prev_shift = state.get("read_shift") or ""
+    state.update(read_at=_iso(now), read_shift=shift)
     runs, why = list_runs(cfg)
     if runs is None:
-        gap = prev is None or (now - prev).total_seconds() > SWEEP_STREAK_GAP_S
+        gap = prev is None or not prev_shift or prev_shift != shift \
+            or (now - prev).total_seconds() > SWEEP_STREAK_GAP_S
         since = "" if gap else state.get("fail_since") or ""
         state.update(ok=False, error=why, fail_since=since or _iso(now))
         _write(sweep_dir(home) / STATE_FILE, state)
@@ -404,9 +409,10 @@ def red_run(home: Path, state: dict | None = None) -> dict | None:
 
 def unknown_since(state: dict, now: _dt.datetime) -> str | None:
     """The first failure of the current failing streak (`fail_since`, reset
-    by any successful read and by a gap over SWEEP_STREAK_GAP_S since the
-    previous read) when it is UNKNOWN_AFTER_S old or more; else None. One
-    failure after a long gap is no unknown state."""
+    by any successful read, a change of shift and a gap over
+    SWEEP_STREAK_GAP_S since the previous read) when it is UNKNOWN_AFTER_S
+    old or more; else None. One failure after a long gap is no unknown
+    state."""
     since = state.get("fail_since") or ""
     at = _parse(since) if since else None
     if at is None or (now - at).total_seconds() < UNKNOWN_AFTER_S:

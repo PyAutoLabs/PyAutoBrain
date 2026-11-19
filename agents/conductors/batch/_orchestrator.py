@@ -3396,7 +3396,7 @@ def _sweep_tick(slot: Path, counters: dict, now: _dt.datetime) -> None:
         return
     home = slot.parent
     try:
-        state = _sweep.observe(home, cfg, now)
+        state = _sweep.observe(home, cfg, now, slot.name)
         hmap = _sweep.heart_map()        # local reads of the Heart checkout
         everything = _flow_keys(hmap)
         blk = _sweep.block(home, cfg, hmap, _repo_key, state, now, everything)
@@ -3419,7 +3419,7 @@ def _sweep_read(slot: Path, counters: dict, now: _dt.datetime) -> None:
     if not cfg:
         return
     try:
-        _sweep.observe(slot.parent, cfg, now)
+        _sweep.observe(slot.parent, cfg, now, slot.name)
     except Exception as e:  # noqa: BLE001
         counters["sweep"] = {**(counters.get("sweep") or {}),
                              "error": f"{type(e).__name__}: {e}"[:200]}
