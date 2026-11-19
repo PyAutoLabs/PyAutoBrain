@@ -108,6 +108,19 @@ priority. `retired`, `epic-slice` and `theme-sweep` entries are skipped rather
 than resolved: resolving one is a decision (which phase? which chip?), and the
 reader does not decide.
 
+**A queued epic ledger queues its members** (PyAutoBrain#696). A `kind:
+prompt` entry whose prompt is an epic ledger (`Epic:`, no `Phase:`, `Status:
+campaign map`), or which `epics.md` lists as an epic's `- ledger:`, makes every
+member of that epic count as queued at the ledger's rank (`queue_standing`, the
+one test of "is this queued?"). So the backlog-reach ruling no longer keeps a
+medium or multi-repo phase out. Every other gate still applies: phase order,
+`human-required`, `Unattended:`, `Blocked-by:`, Witness, lane, repo holds and
+budget. A queued phase or side task queues only itself. `batch plan` (text and
+`--json` `queued_epics`), `brief --check` and the digest give one line per
+queued epic: what it takes, or why nothing (its next phase and each member's
+gate, or "no draft prompt" — file it from the epic's Continue prompt in an
+attended chat).
+
 `plan` also reports what the **previous slot carried**: the members its
 `outcomes:` block marks `carried` are read first, because they are already
 costing the human review-minutes in the slot being planned and a batch composed
@@ -199,8 +212,9 @@ whole grant (`AUTONOMY.md`, "Shift briefs and unattended `glance`").
 `batch brief --new <YYYY-MM-DD-am|pm> --review-at <ISO>` composes that writing:
 a skeleton brief whose `goals:` are `PyAutoMind/goals.md`'s, in order, with
 `backlog: scoped` to their `epics:`/`tags:` (else `scoped` by `tiers: notify,
-glance`, M3.6b) and
-`merge-cap: 0`. It prints to stdout (`--out FILE` writes it) and never writes a
+glance`, M3.6b), plus the epics of `queue.md`'s queued ledgers, `merge-cap: 0`,
+and `lanes: any local-dev ral` with a `ral-allowance:` of 2 packets, partition
+`ral`, 64 cpu-hours (PyAutoBrain#696; edit either per shift). It prints to stdout (`--out FILE` writes it) and never writes a
 record into `batches/` — saving it there is the human's dispatch.
 `goals.md` is written by the human alone (by hand or in chat), so every goal
 is copied as their word; `--new` also prints on stderr how the goals changed
@@ -297,7 +311,7 @@ organ rule to it); a task an earlier shift in the same
 home left parked on a question is not startable until a later shift finishes
 it or a brief names it again; a dip never takes a Brain, Mind or Hands target;
 a `backlog: scoped` dip beyond `queue.md` takes only small single-repo tasks
-(ruling 2026-11-16); a re-dispatch goes first and may pass `max-sessions:` by
+(ruling 2026-11-16; a queued epic ledger queues its members, #696); a re-dispatch goes first and may pass `max-sessions:` by
 one; and a worker's token reservation is the larger of the even share and the
 mean spend of finished workers in this and the last three shifts. State lives
 under `$PYAUTO_ORCHESTRATOR_HOME` (default `.orchestrator` under the worktree

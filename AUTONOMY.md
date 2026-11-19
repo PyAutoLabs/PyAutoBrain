@@ -971,7 +971,9 @@ not open.
 
 **Human ruling 2026-11-16 (backlog reach, PyAutoBrain#637):** a `backlog:
 scoped` dip takes `queue.md` first, then only `Difficulty: small` single-repo
-backlog tasks; anything bigger must be queued by the human.
+backlog tasks; anything bigger must be queued by the human. Narrowed
+2026-11-19 (human, PyAutoBrain#696): queuing an epic ledger queues its
+members, at the ledger's rank; phase order and every other gate still apply.
 
 **Human rulings R5 and R2 — 2026-11-17 (M3.6b, PyAutoBrain#667).** R5
 (option a): the one-slice-per-epic limit and phase order bind only tasks with

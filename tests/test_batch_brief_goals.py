@@ -188,3 +188,63 @@ def test_goals_are_copied_as_written_with_or_without_git(tmp_path):
     assert [c["text"] for c in _brief.parse(text)["brief"]["goals"]["children"]] == [
         "1. Land the flywheel rework", "2. Clear review-ready PRs"]
     assert "# - " not in text
+
+
+# --- RAL by default, and queued epics in scope (PyAutoBrain#696) ------------
+
+LEDGER_TEXT = """# Widgets epic
+
+Type: feature
+Target: widgets
+Difficulty: too-large
+Autonomy: human-required
+Status: campaign map — phases route one at a time
+Epic: widgets
+Lane: local-dev
+"""
+QUEUE_TEXT = """# Queue
+
+## 1. Widgets epic
+- kind: prompt
+- ref: draft/feature/x/widgets_epic.md
+"""
+
+
+def test_an_unedited_new_brief_allows_ral_and_passes_check(tmp_path, capsys):
+    """The Witness, part (a): `brief --new` writes `ral` into `lanes:` with a
+    `ral-allowance:` block, and `brief --check` passes it as written."""
+    mind = _mind(tmp_path, "# Goals\n\n## 1. Ship it\n")
+    out = tmp_path / "brief.md"
+    assert _batch.main(["brief", "--new", "2026-11-14-am", "--review-at",
+                        "2099-01-01T12:00Z", "--mind", str(mind), "--out", str(out),
+                        "--issue", "https://github.com/example-org/PyAutoMind/issues/1"]) == 0
+    text = out.read_text()
+    brief = _brief.parse(text)["brief"]
+    assert "ral" in _brief.lanes_of(brief)
+    allow = _brief._keyed(brief["ral-allowance"]["children"])
+    assert {k: v["value"] for k, v in allow.items()} == {
+        "packets": "2", "partition": "ral", "cpu-hours": "64"}
+    assert _brief.check(out, mind)["ok"]
+    capsys.readouterr()
+    assert _batch.main(["brief", "--check", str(out), "--mind", str(mind),
+                        "--no-premise"]) == 0
+
+
+def test_new_puts_queued_epics_in_scope_and_check_says_why_one_is_idle(tmp_path, capsys):
+    """A queued epic ledger queues its phases, so `brief --new` scopes the
+    brief to its epic beside the default tiers, and `brief --check` warns,
+    one line per queued epic, why nothing of it starts."""
+    mind = _mind(tmp_path, "# Goals\n\n## 1. Ship it\n")
+    (mind / "draft" / "feature" / "x" / "widgets_epic.md").write_text(LEDGER_TEXT)
+    (mind / "queue.md").write_text(QUEUE_TEXT)
+    text = _batch.new_brief(mind, "2026-11-14-am", "2099-01-01T12:00Z",
+                            issue="https://github.com/example-org/PyAutoMind/issues/1")
+    scoped = _brief.scoped_of(_brief.parse(text)["brief"])
+    assert scoped == {"tiers": ["notify", "glance"], "epics": ["widgets"]}
+    out = tmp_path / "brief.md"
+    out.write_text(text)
+    assert _batch.main(["brief", "--check", str(out), "--mind", str(mind),
+                        "--no-premise"]) == 0
+    printed = capsys.readouterr().out
+    assert ("! queued epic widgets (q1): nothing — no draft prompt for its next "
+            "phase") in printed

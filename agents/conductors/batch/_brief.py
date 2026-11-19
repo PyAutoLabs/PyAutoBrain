@@ -688,7 +688,8 @@ def rank_note(record: dict) -> str:
     (M2.3, 2026-11-12), then the path — so a tie is alphabetical, and says so."""
     parts = []
     if record.get("queued"):
-        parts.append(f"queue.md #{record['queue_rank'] + 1}")
+        parts.append(f"queue.md #{record['queue_rank'] + 1}"
+                     + (f" via epic {record['queued_via']}" if record.get("queued_via") else ""))
     elif "queue_rank" in record:
         parts.append("not in queue.md")
         parts.append(f"priority {record.get('priority') or 'normal'}")

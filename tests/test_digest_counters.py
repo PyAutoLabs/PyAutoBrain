@@ -255,3 +255,17 @@ def test_refusals_are_one_entry_per_task_and_reason_class(tmp_path):
     _digest.note_refusals(old, [{"task": "a", "why": "token-budget 400000 spent (3)"}],
                           "2026-11-16T13:05:00Z")
     assert len(old["refusals"]) == 2 and "3× from" in _digest.refusal_lines(old)[0]
+
+
+def test_the_digest_says_per_queued_epic_what_it_gave_or_why_not():
+    """PyAutoBrain#696: one line per queued epic ledger under the backlog
+    picks, never read as the continuation of the pick above it."""
+    lines = _digest.backlog_gate_lines({"backlog_gates": {"queued_epics": [
+        "lib (q1): takes p5c",
+        "cti (q2): nothing — next phase 2: p2a (autonomy human-required — would park at ship)"]}})
+    assert lines[1:] == ["Queued epics:", "· lib (q1): takes p5c",
+                         "· cti (q2): nothing — next phase 2: p2a (autonomy "
+                         "human-required — would park at ship)"]
+    section = ["- `a-pick` — why: scoped epic lib · queue.md #1 via epic lib"] + lines
+    (item,) = _digest._items(section)
+    assert "Queued epics" not in item
