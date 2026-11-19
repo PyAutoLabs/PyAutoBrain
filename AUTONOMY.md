@@ -322,12 +322,30 @@ never an assumption:
    downstream breakage with human PR review — an autonomous run doesn't have
    that reviewer, so it runs the dependents' suites too. Repos with no test
    dir (organism/doc repos): leg is n/a, stated in the PR body.
-2. **Smoke** — the curated `smoke_tests.txt` subsets (Heart's `smoke_test`
-   skill, all six workspaces by default) run with the task worktree's
-   `activate.sh` sourced, so they exercise the branch. Applies where the
-   changed repo has a downstream script surface; organism/doc-only changes:
-   n/a, stated in the PR body. Never grow the curated lists to make this leg
-   feel stronger.
+2. **Smoke** — the curated `smoke_tests.txt` subsets, run with the task
+   worktree's `activate.sh` sourced so they exercise the branch. Applies
+   where the changed repo has a downstream script surface; organism/doc-only
+   changes: n/a, stated in the PR body. Never grow the curated lists to make
+   this leg feel stronger. **Split by who runs it (2026-11-19, PyAutoHeart#352,
+   the human's "approve C"):**
+   - *Worker (shift or `--auto`)* — a **targeted** smoke only, beside the
+     changed repo's unit tests and the task's `Witness:`:
+     `pyauto-heart smoke --targeted --changed-files <the diff's files>` runs
+     the curated scripts that reference the changed code (a changed module's
+     import path, or a public name the diff touches); none match → the
+     cheapest script of the changed repo's own workspace, as an import check.
+     The PR body says which smoke ran.
+   - *Before any unattended merge* — the **full affected** smoke on the PR
+     head: `pyauto-heart smoke --affected-by <the PR's repo> --jobs 3` (every
+     workspace whose install chain has the repo, three at a time,
+     thread-capped). The close-out runs it for a `glance` PR or a `notify` PR
+     the worker left open (`agents/conductors/batch/closeout_template.md`);
+     a `notify` worker that merges in-turn (R3) runs it itself first. Any
+     failure refuses the merge → `/prm`.
+   - *PRs bound for the human's `/prm`* (`decision-taken`, `judge`, a
+     public-name hit, a refusal) — no automatic full sweep: the worker's
+     targeted smoke plus PR CI; the human runs `/smoke_test` if they want it.
+   A human `/smoke_test` with no flags still runs every workspace serially.
 3. **Review** — review-faculty verdict **CLEAN**
    (`agents/faculties/review/AGENTS.md`). FINDINGS → resolve and re-review, or
    park to a human checkpoint; BLOCKED → park. When the surface lifted any

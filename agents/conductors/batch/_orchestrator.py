@@ -400,6 +400,22 @@ def update_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
         lease_dir=lease_dir, after="\n".join(f"- {u}" for u in after))
 
 
+#: Workspaces a close-out smokes at once (PyAutoHeart#352): laptop-safe, and
+#: Heart caps each one's thread pools so the three share the cores.
+CLOSEOUT_SMOKE_JOBS = 3
+
+
+def smoke_command(repos: str) -> str:
+    """The close-out's full affected smoke (AUTONOMY.md leg 2, split
+    2026-11-19, PyAutoHeart#352): every smoke workspace whose install chain
+    has the PR's repo, CLOSEOUT_SMOKE_JOBS at a time, against the task root
+    the close-out brought to the PR's head. Empty when the repo is unknown."""
+    if not repos:
+        return ""
+    return (f"bash -c 'source \"{COMMON_SH}\"; \"$(resolve_heart)\" smoke "
+            f"--root \"$PWD\" --affected-by {repos} --jobs {CLOSEOUT_SMOKE_JOBS}'")
+
+
 def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                     lease_dir: Path, after: list[str] | None = None,
                     before: list[str] | None = None) -> str:
@@ -421,6 +437,7 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
         else "(not a GitHub PR URL — refuse)",
         public_names_cmd=f"{BRAIN_CLI} public-names {pr_url}" if repos
         else "(not a GitHub PR URL — refuse)",
+        smoke_cmd=smoke_command(repos) or "(not a GitHub PR URL — refuse)",
         after_step=after_step(after, before))
 
 

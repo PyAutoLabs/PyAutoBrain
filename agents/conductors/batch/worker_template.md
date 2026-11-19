@@ -45,14 +45,28 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   It is the check the organ's PR CI runs. PyAutoHeart#347 failed CI on a
   hard-coded repo name it would have caught. A finding outside your diff is
   not yours: name it in your proof packet. Other repos skip this step.
+- Smoke is **targeted** in a shift (AUTONOMY.md leg 2, split 2026-11-19,
+  PyAutoHeart#352). At the ship step run the changed repo's unit tests, the
+  task's `Witness:`, and only this smoke, never the full workspace sweep
+  (not a bare `/smoke_test`), from your task root with `activate.sh` sourced:
+
+      cd <task root> && source activate.sh && pyauto-heart smoke --root "$PWD" --targeted --changed-files $(git -C <repo> diff --name-only origin/main...HEAD | sed 's|^|<repo>/|')
+
+  It runs the curated scripts that reference your change, or one cheap
+  import-check script when none do. Say in the PR body which smoke ran (the
+  scripts it picked, or the import check) and that the full affected smoke
+  runs before an unattended merge. A failure is yours to fix like a test.
 - If the task is `Consequence: glance`, end at PR-open: do not wait for CI
   and do not merge. Once CI lands, the watcher starts an independent close-out
   session that runs the witness and merges, or refuses (AUTONOMY.md
   "Unattended `glance` merges"). A `notify` task merges in-turn only after
   `{brain_cli} merge-slot take <pr-url> --task {task}` exits 0, run as its own
   bare call just
-  before a bare `gh pr merge` (ruling R3, AUTONOMY.md "`notify` merges under
-  `--auto` and inside a shift — 2026-11-17"). If it refuses, do not merge:
+  before a bare `gh pr merge`, and only after the full affected smoke passed
+  on your head: `pyauto-heart smoke --root "$PWD" --affected-by <repo> --jobs 3`
+  from the task root (a failure: do not merge; list the PR without
+  `merged`) (ruling R3, AUTONOMY.md "`notify` merges under `--auto` and
+  inside a shift — 2026-11-17"). If it refuses, do not merge:
   list the PR in your `.done` without `merged`, and it is left for `/prm`.
   A refusal naming an earlier open sibling PR of this shift means end at
   PR-open: the close-out merges yours after it, in order (M3.6j).
