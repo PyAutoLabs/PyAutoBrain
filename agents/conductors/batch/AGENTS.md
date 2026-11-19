@@ -566,7 +566,14 @@ merged one is in the branch. A PR needing a third update refuses (`main kept
 moving`, `UPDATE_LIMIT` 2). A waiting or updated PR at `review-at:` is not
 refused; the next shift carries it with what it waited behind. The digest says
 `waits behind <A> (<A's state>) — merge <A> first` and lists a per-library
-"Merge order" block, ▶ on the PR that needs your /prm now.
+"Merge order" block, ▶ on the PR that needs your /prm now. The in-turn path
+keeps the same order: `merge-slot take` (`bin/merge_slot.py`) refuses a
+`notify` worker's in-turn merge while an earlier shift PR on the same library
+is open (`in_turn_merge_blockers`, the close-out's rule), so that PR ends at
+PR-open and merges through the wait above. An `updated` PR's CI is read only
+once GitHub shows the head the update made; a head that moved since refuses.
+The spawn loop also refuses a task whose library a live, parked or
+re-dispatch-pending task holds, whatever the plan's order made of it.
 
 **Watching a shift live (`batch watch`, PyAutoBrain#575).** `batch watch
 --record <brief> [--once] [--interval N]` (`_watch.py`) draws a running shift

@@ -320,7 +320,8 @@ touch the same lines, keep the change minimal and say so in the PR body and
 your proof packet: after a sibling merges, the close-out updates your branch
 from main and refuses (leaving it for the human's /prm) on a conflict. A
 `worktree_check_conflict` hit that names only a listed sibling's branch slug
-is not a conflict (ruling e, 2026-11-19): go on.
+is not a conflict (ruling e, 2026-11-19): go on. Never merge in-turn ahead
+of a sibling: `merge-slot take` refuses while one is open, so end at PR-open.
 
 """
 
@@ -684,11 +685,12 @@ def _liveness_known(agents) -> bool:
 
 
 def gh_pr_state(url: str, run=None) -> dict | None:
-    """One read-only `gh pr view`: {state, mergedAt, mergedBy} as GitHub has
-    it, or None when GitHub could not say (#603: the merge truth)."""
+    """One read-only `gh pr view`: {state, mergedAt, mergedBy, head} as GitHub
+    has it, or None when GitHub could not say (#603: the merge truth). `head`
+    (the head sha) tells an updated branch's CI from an older head's (M3.6j)."""
     run = run or subprocess.run
     try:
-        res = run(["gh", "pr", "view", url, "--json", "state,mergedAt,mergedBy"],
+        res = run(["gh", "pr", "view", url, "--json", "state,mergedAt,mergedBy,headRefOid"],
                   capture_output=True, text=True, timeout=60)
         if res.returncode != 0:
             return None
@@ -699,7 +701,8 @@ def gh_pr_state(url: str, run=None) -> dict | None:
         return None
     by = data.get("mergedBy") or {}
     return {"state": str(data["state"]).upper(), "mergedAt": data.get("mergedAt") or "",
-            "mergedBy": by.get("login", "") if isinstance(by, dict) else str(by)}
+            "mergedBy": by.get("login", "") if isinstance(by, dict) else str(by),
+            "head": str(data.get("headRefOid") or "")}
 
 
 _USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
@@ -1654,6 +1657,26 @@ def sibling_prs(counters: dict, repos) -> list[str]:
     return sorted(set(out), key=_pr_number)
 
 
+def _library_holder(counters: dict, live: dict, task: str, repos) -> tuple[str, str] | None:
+    """(library repo, holding task) when a live, parked or re-dispatch-pending
+    task other than `task` already holds one of `repos`' library repos."""
+    from _sizing import LIBRARY_REPOS  # noqa: E402 — the batch conductor's path
+    mine = {_repo_key(r) for r in repos} & LIBRARY_REPOS
+    if not mine:
+        return None
+    holders = [*live, *(counters.get("parked") or []),
+               *(counters.get("pending_redispatch") or [])]
+    for other in dict.fromkeys(holders):
+        if other == task:
+            continue
+        theirs = {_repo_key(r) for r in ((counters.get("picks") or {}).get(other) or {})
+                  .get("repos") or []}
+        hit = next((r for r in sorted(mine) if r in theirs), None)
+        if hit:
+            return hit, other
+    return None
+
+
 def _pr_number(url: str) -> int:
     """A PR URL's number (0 when it is not a PR URL)."""
     key = _merge_slots.pr_key(url)
@@ -2173,6 +2196,14 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         if task in live or (task in counters["done"] and not released) \
                 or task in counters["abandoned"] \
                 or task in counters["parked"] or task in counters["dropped"]:
+            continue
+        # Never two workers on one library (M3.6j review F2): a live, parked
+        # or re-dispatch-pending task holds its library repos whatever the
+        # plan's rank order made of it this tick.
+        holder = _library_holder(counters, live, task, member.get("repos") or [])
+        if holder:
+            refused.append({"task": task, "why": f"{holder[0]} held by {holder[1]} "
+                                                 "while its worker runs"})
             continue
         if len(live) >= max_workers:
             refused.append({"task": task, "why": f"max-workers {max_workers} reached"})
@@ -3923,6 +3954,24 @@ def _merge_blockers(counters: dict, pr: str, pr_state, cache: dict) -> list[str]
     return out
 
 
+def in_turn_merge_blockers(slot: Path, pr: str, pr_state=None) -> list[str]:
+    """The earlier PRs of this shift a worker's in-turn merge of `pr` would
+    jump (M3.6j review F1): the same rule as the close-out's wait
+    (`_merge_blockers`), read from the slot's `counters.json`. `merge-slot
+    take` refuses while any is open, so the PR ends at PR-open and the
+    watcher's close-out merges it in order. A missing counters file (no shift
+    state yet) blocks nothing; an unreadable one raises `OSError`/`ValueError`."""
+    path = Path(slot) / COUNTERS_FILE
+    if not path.exists():
+        return []
+    counters = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(counters, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    counters.setdefault("outcomes", {})
+    counters.setdefault("closeouts", {})
+    return _merge_blockers(counters, pr, pr_state or gh_pr_state, {})
+
+
 def _gh_once(pr_state, cache: dict, url: str) -> dict | None:
     """`pr_state(url)`, read at most once a tick; None when it cannot say."""
     if url not in cache:
@@ -4037,6 +4086,16 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             if prev.get("behind") != behind:
                 events.setdefault("waiting", []).append(pr)
             continue
+        if again and co.get("state") == "updated" and co.get("head"):
+            # CI is judged on the head the update made (review F5): until
+            # GitHub shows that head, a check read may be an older head's.
+            head = (_gh_once(pr_state, cache, pr) or {}).get("head") or ""
+            if not head:
+                continue      # GitHub cannot say yet: asked again next tick
+            if head != co["head"]:
+                refuse(pr, task, f"head moved after the branch update ({co['head'][:12]} → "
+                                 f"{head[:12]}) → your /prm", held=True)
+                continue
         verdict = health(pr)
         if verdict == "RUNNING":
             continue  # CI has not landed yet; look again next tick

@@ -360,10 +360,11 @@ def test_gh_pr_state_reads_state_merged_at_and_by():
         seen.append(argv)
         return SimpleNamespace(returncode=0, stdout=json.dumps(
             {"state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z",
-             "mergedBy": {"login": "someone"}}))
+             "mergedBy": {"login": "someone"}, "headRefOid": "abc123"}))
     assert orch.gh_pr_state(PR1, run=run) == {
-        "state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z", "mergedBy": "someone"}
-    assert seen == [["gh", "pr", "view", PR1, "--json", "state,mergedAt,mergedBy"]]
+        "state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z", "mergedBy": "someone",
+        "head": "abc123"}
+    assert seen == [["gh", "pr", "view", PR1, "--json", "state,mergedAt,mergedBy,headRefOid"]]
     assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
         returncode=1, stdout="")) is None
     assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
@@ -574,14 +575,16 @@ class OrderSpawner(t.FilesSpawner):
         return {"pid": 0, "agent_id": f"co{len(self.closeouts):06d}"}
 
 
-def _gh_states(states):
-    """`gh pr view`: OPEN unless named; a name may map to None (unreadable)."""
+def _gh_states(states, heads=None):
+    """`gh pr view`: OPEN unless named; a name may map to None (unreadable).
+    Every head reads `abc123` (the updated head) unless `heads` says else."""
     def read(url):
         if url in states and states[url] is None:
             return None
         st = states.get(url, "OPEN")
         st, at = st if isinstance(st, tuple) else (st, "")
-        return {"state": st, "mergedAt": at, "mergedBy": "a-maintainer" if at else ""}
+        return {"state": st, "mergedAt": at, "mergedBy": "a-maintainer" if at else "",
+                "head": (heads or {}).get(url, "abc123")}
     return read
 
 
@@ -597,10 +600,11 @@ def _order_shift(tmp_path, picked=GA8, cap=2):
     return mind, brief, home, sp
 
 
-def _otick(brief, mind, home, sp, minutes, states=None, health=None, agents=None):
+def _otick(brief, mind, home, sp, minutes, states=None, health=None, agents=None,
+           heads=None):
     return orch.tick(brief, mind, home=home, now=t.NOW + _dt.timedelta(minutes=minutes),
                      spawner=sp, agents=agents or Agents(), health=health or _health({}),
-                     pr_state=_gh_states(states or {}))
+                     pr_state=_gh_states(states or {}, heads))
 
 
 def _slots(brief, home):
@@ -788,3 +792,57 @@ def test_683_carry_in_carries_an_updated_or_waiting_pr_with_what_it_waited_behin
     # In the new shift the carried #8 still waits behind the uncarried #7.
     c.update(closeouts={}, dropped={}, merge_waits={})
     assert orch._merge_blockers(c, GA8, _gh_states({}), {}) == [GA7]
+
+
+# --- M3.6j review fixes ----------------------------------------------------------------
+
+def test_683_f5_ci_is_judged_only_on_the_head_the_update_made(tmp_path):
+    """An `updated` PR's CI is read only once GitHub shows the update's head;
+    a head GitHub cannot give waits, and a head that moved since refuses."""
+    mind, brief, home, sp, r, states = _updated(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    n = len(sp.closeouts)
+    # GitHub cannot say the head yet: no close-out, even on a green read.
+    _otick(brief, mind, home, sp, 33, states, heads={GA8: ""})
+    assert len(sp.closeouts) == n
+    assert orch.read_counters(slot)["closeouts"][GA8]["state"] == "updated"
+    # The head moved after the update: refused for /prm, the slot freed.
+    r = _otick(brief, mind, home, sp, 34, states, heads={GA8: "fff999"})
+    assert r["closeouts"]["refused"] == [GA8] and len(sp.closeouts) == n
+    co = orch.read_counters(slot)["closeouts"][GA8]
+    assert co["why"] == "head moved after the branch update (abc123 → fff999) → your /prm"
+    assert orch._merge_slots.pr_key(GA8) not in _slots(brief, home)
+
+
+def test_683_f1_an_in_turn_merge_take_refuses_while_an_earlier_sibling_is_open(
+        tmp_path, monkeypatch, capsys):
+    """`merge-slot take` (the slot a `notify` worker's in-turn merge must take)
+    refuses while an earlier shift PR on the same library is open, so the
+    in-turn path cannot jump the merge order; once it merged, it is taken."""
+    sys.path.insert(0, str(BRAIN / "bin"))
+    import merge_slot
+    slot = tmp_path / "slot"
+    (slot / "ledger").mkdir(parents=True)
+    (slot / orch.COUNTERS_FILE).write_text(json.dumps({
+        "outcomes": {"named": {"prs": [GA7], "merged": [], "issues": []}}}))
+    orch._merge_slots.publish(slot, 2, False)
+    monkeypatch.setenv("PYAUTO_SHIFT_WORKER", "1")
+    monkeypatch.setenv("PYAUTO_SHIFT_LEDGER_DIR", str(slot / "ledger"))
+    gh = {GA7: "OPEN"}
+    monkeypatch.setattr(orch, "gh_pr_state", lambda u: {"state": gh.get(u, "OPEN"),
+                                                        "mergedAt": "", "mergedBy": ""})
+    assert merge_slot.main(["take", GA8, "--task", "picked"]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith(f"refused: {GA7} of this shift on the same library is still open")
+    assert "end at PR-open" in out
+    assert orch._merge_slots.used(slot) == 0
+    # Another library, or the sibling merged: the take goes through.
+    assert merge_slot.main(["take", FIT8, "--task", "other"]) == 0
+    gh[GA7] = "MERGED"
+    assert merge_slot.main(["take", GA8, "--task", "picked"]) == 0
+    # GitHub cannot say: the sibling blocks (ruling c).
+    monkeypatch.setattr(orch, "gh_pr_state", lambda u: None)
+    assert merge_slot.main(["take", GA8.replace("/8", "/10"), "--task", "x"]) == 1
+    # An unreadable counters file cannot tell the order: do not merge.
+    (slot / orch.COUNTERS_FILE).write_text("{not json")
+    assert merge_slot.main(["take", GA8.replace("/8", "/11"), "--task", "y"]) == 2

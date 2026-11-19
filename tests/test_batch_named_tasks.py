@@ -649,3 +649,20 @@ def test_683_7_a_finished_picks_leftover_claim_does_not_hold_with_its_pr_open(tm
     kept, out = orch.on_origin(records, mind, own={"ag_bug_one"},
                                released=orch.released_picks(c), slot_name="2026-11-18-pm")
     assert (kept, out) == (records, {})
+
+
+def test_683_f2_a_live_task_holds_its_library_even_when_it_leaves_the_plan(tmp_path):
+    """Review F2: the plan gives a library to the first member that asks, in
+    its own order; a live task that is no longer a member this tick (here its
+    draft left the survey, as when the canonical checkout is pulled and the
+    claimed draft has moved to `active/`; a queue.md reorder does the same
+    for backlog picks) held nothing there. The spawn loop never starts a
+    second worker on that library, and its refusal names the live one."""
+    mind, brief, home = _galaxy_shift(tmp_path)
+    (mind / "draft/feature/x/ag_bug_one.md").unlink()
+    slot = orch.slot_dir(brief, home)
+    working = d._agents({"ag_bug_one": "working"}, slot)    # its usage reads
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude(), agents=working)
+    assert r["spawned"] == [], r
+    assert {"task": "ag_bug_two",
+            "why": "autogalaxy held by ag_bug_one while its worker runs"} in r["refused"], r
