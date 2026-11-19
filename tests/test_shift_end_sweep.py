@@ -286,6 +286,20 @@ class TwoLibs(tc.Spawner):
         self.closeouts = []
 
 
+class LateLibs(TwoLibs):
+    """TwoLibs whose workers report only when the test calls `finish`: a
+    shift can tick on, a few minutes apart, before its PRs open."""
+
+    def spawn(self, task, prompt_path, lease_dir):
+        Path(lease_dir).mkdir(parents=True, exist_ok=True)
+        self.lease_dir = Path(lease_dir)
+        return {"pid": 0, "session_id": None, "worktree": None}
+
+    def finish(self):
+        for task, text in self.done.items():
+            (self.lease_dir / f"{task}.done").write_text(text)
+
+
 def _red(sweep, project="autofit", rid=200, fit="d"):
     sweep.runs = [_run(rid, "failure", minutes=-60), _run(100)]
     sweep.artifacts = {
@@ -801,3 +815,105 @@ def test_r1_8_a_clear_before_the_artifacts_are_read_still_files_the_draft(tmp_pa
         _ltick(mind, brief, home, sp, minutes)
     assert [o["path"].rsplit("/", 1)[1] for o in _draft_ops(slot)] == \
         ["workspace_sweep_red_200.md"]
+
+
+# --- follow-ups (PyAutoBrain#694) ---------------------------------------------------
+
+def _fail_every(mind, brief, home, sp, minutes):
+    """Ticks a few minutes apart (one run of ticks); a LateLibs shift's PRs
+    open on the last."""
+    for m in minutes[:-1]:
+        _ltick(mind, brief, home, sp, m)
+    if isinstance(sp, LateLibs):
+        sp.finish()
+    _ltick(mind, brief, home, sp, minutes[-1])
+
+
+def _seed(home, **state):
+    sd = orch._sweep.sweep_dir(home)
+    sd.mkdir(parents=True)
+    (sd / orch._sweep.STATE_FILE).write_text(json.dumps(
+        {"ok": False, "error": "HTTP 502", **state}))
+    return sd / orch._sweep.STATE_FILE
+
+
+@pytest.mark.parametrize("prev_shift", ["2026-11-04-earlier-shift", None])
+def test_694_a_failed_read_in_a_new_shift_starts_a_fresh_streak(tmp_path, sweep, prev_shift):
+    """The previous shift's last read failed (a streak an hour old, its last
+    read 5 minutes ago); the next shift's first read fails too: a fresh
+    streak, so no PR is held as unknown. State with no shift recorded is
+    treated the same."""
+    seed = {"read_at": orch._iso(_at(-5)), "fail_since": orch._iso(_at(-60))}
+    if prev_shift:
+        seed["read_shift"] = prev_shift
+    path = _seed(tmp_path / "home", **seed)
+    sweep.runs = None
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    _ltick(mind, brief, home, sp, 1)
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert not c["sweep"].get("block")
+    assert c["sweep_waits"] == {}
+    assert sorted(pr for _, pr in sp.closeouts) == sorted([FIT8, GA7])
+    state = json.loads(path.read_text())
+    assert state["fail_since"] == "2026-11-04T09:00:00Z"
+    assert state["read_shift"] == orch.slot_dir(brief, home).name
+
+
+def test_694_slow_ticks_in_one_shift_still_hold_prs_after_30_minutes(tmp_path, sweep):
+    """An outage where each gh call hangs to its timeout: ticks 12 minutes
+    apart, every read failing. The streak runs on, so PRs are held."""
+    sweep.runs = None
+    mind, brief, home, _ = _libs_shift(tmp_path)
+    sp = LateLibs()
+    _fail_every(mind, brief, home, sp, [0, 12, 24, 36])
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["sweep"]["block"]["why"] == UNKNOWN.format("2026-11-04T09:00:00Z")
+    assert set(c["sweep_waits"]) == {FIT8, GA7} and sp.closeouts == []
+
+
+def test_694_a_gap_over_two_hours_in_one_shift_restarts_the_streak(tmp_path, sweep):
+    """The laptop asleep mid-shift: failing reads 0-20, then failing reads
+    from 141 (a 121-minute gap): the streak counts from 141."""
+    sweep.runs = None
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    _fail_every(mind, brief, home, sp, list(range(0, 21, 5)))
+    _ltick(mind, brief, home, sp, 141)
+    assert not orch.read_counters(slot)["sweep"].get("block")
+    state = json.loads((orch._sweep.sweep_dir(home) / orch._sweep.STATE_FILE).read_text())
+    assert state["fail_since"] == "2026-11-04T11:21:00Z"
+
+
+def test_694_30_minutes_of_continuous_failures_still_hold_prs(tmp_path, sweep):
+    sweep.runs = None
+    mind, brief, home, _ = _libs_shift(tmp_path)
+    sp = LateLibs()
+    _fail_every(mind, brief, home, sp, list(range(0, 31, 5)))
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert set(c["sweep_waits"]) == {FIT8, GA7}
+    assert sp.closeouts == []
+
+
+def test_694_the_digest_row_of_a_pr_held_by_an_unknown_sweep_says_so(tmp_path, sweep):
+    sweep.runs = None
+    mind, brief, home, _ = _libs_shift(tmp_path)
+    sp = LateLibs()
+    _fail_every(mind, brief, home, sp, list(range(0, 31, 5)))
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    row = "waiting: workspace sweep unknown since 2026-11-04T09:00:00Z"
+    for task, pr in (("named", FIT8), ("picked", GA7)):
+        assert _digest.task_state(task, c, t._health)[0] == f"{pr} — {row}"
+    d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
+    assert d.count("- **Waiting — workspace sweep unknown** — ") == 2
+    assert d.count(f" · {row}") == 2
+    why = UNKNOWN.format("2026-11-04T09:00:00Z")
+    assert f"- {why} — blocked:" in d and "PRs waiting: autofit#8, autogalaxy#7" in d
+
+
+def test_694_the_digest_row_falls_back_to_the_waits_own_since():
+    counters = {"sweep_waits": {FIT8: {"task": "named", "why": "unreadable",
+                                       "since": "2026-11-04T09:31:00Z"}}}
+    assert _digest.sweep_wait_state(FIT8, counters) == \
+        "waiting: workspace sweep unknown since 2026-11-04T09:31:00Z"

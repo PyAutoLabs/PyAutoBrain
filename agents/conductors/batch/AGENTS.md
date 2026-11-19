@@ -412,7 +412,9 @@ red: <url>`, right after the S7 check. An unmapped workspace or an
 unreadable report blocks every library, chain and workspace repo. A run
 list failing for 30 minutes from the streak's first failure holds those
 PRs in `counters["sweep_waits"]` instead (a wait, re-judged each tick, no
-refusal), and `early_close_ready` keeps the shift open. A running close-out on a
+refusal), and `early_close_ready` keeps the shift open. A failed read whose
+previous read was another shift's (`read_shift`), or over 2 hours old
+(`SWEEP_STREAK_GAP_S`), starts a fresh streak. A running close-out on a
 blocked repo gets `leases/<task>.sweep-red` and refuses before it merges;
 a marker the current block does not cover is removed.
 A later green run clears the block, as does `/clear-sweep`. The latest

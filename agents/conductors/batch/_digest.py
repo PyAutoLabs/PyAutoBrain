@@ -266,6 +266,8 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
                 state += f" — worktree: {co['cleanup']}"
         elif url in (counters.get("merge_waits") or {}):
             state = wait_state(url, counters)          # merge order (M3.6j, #683)
+        elif url in (counters.get("sweep_waits") or {}):
+            state = sweep_wait_state(url, counters)    # unknown sweep (M3.7e, #694)
         elif co.get("state") == "refused":
             state = f"awaiting /prm — close-out refused: {co.get('why', '?')}"
         elif co.get("state") == "running":
@@ -307,6 +309,15 @@ def _order_word(url: str, counters: dict) -> str:
     if co.get("state") in ("updated", "current"):
         return "branch updated, CI re-running"
     return "open"
+
+
+def sweep_wait_state(url: str, counters: dict) -> str:
+    """A PR held while the sweep's run list is unreadable (M3.7e, #694): since
+    when the sweep is unknown, from the wait's `why`."""
+    wait = (counters.get("sweep_waits") or {}).get(url) or {}
+    _, sep, since = str(wait.get("why") or "").partition(" since ")
+    since = (since if sep else "") or wait.get("since") or "?"
+    return f"waiting: workspace sweep unknown since {since}"
 
 
 def wait_state(url: str, counters: dict) -> str:
@@ -615,6 +626,7 @@ _PLAIN = (
     ("close-out running", "Still running — close-out checking it"),
     (UPDATING, "Still running — close-out updating the branch from main"),
     ("waits behind", "Waiting — merges after an earlier PR (your /prm first)"),
+    ("waiting: workspace sweep unknown", "Waiting — workspace sweep unknown"),
     (UPDATED, "Branch updated from main — CI re-running"),
     (CURRENT, "Branch up to date — awaiting its merge close-out"),
     (STILL_OUT, "Still running at review time"),
