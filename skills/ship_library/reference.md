@@ -97,7 +97,12 @@ Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
 1. `source "$WT_ROOT/activate.sh"`; run `python -m pytest <test_dir>/ -x` from
    inside `"$WT_ROOT/<repo>"` (skip only if the repo has no test dir). These
    tests feed Heart's verdict — a failure means **stop**, return the failing
-   names + traceback tail, do not commit, do not try to fix.
+   names + traceback tail, do not commit, do not try to fix. A shift worker
+   runs only the test modules its diff changes or that cover the changed
+   code, plus the `Witness:`, with `python -m pytest -q -n 4 <modules>`; PR CI
+   is the full-suite verdict. It still runs each dependant's full suite
+   (`-n 4`) when the review surface flags a public API change (ruling S1 in
+   `AUTONOMY.md` "Shift speed — 2026-11-19").
 2. If the worktree is not on `feature/<task-name>`, stop and report — never
    auto-switch branches.
 3. `git -C "$WT_ROOT/<repo>" add -A && git commit -m "<message>" && git push -u origin feature/<task-name>`.

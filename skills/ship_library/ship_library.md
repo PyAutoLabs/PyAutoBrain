@@ -83,7 +83,10 @@ rules rather than weakening the gate:
 Under `--auto`, this step is the four-leg **autonomous-ship gate** — tests
 (+ downstream dependents on public-API changes), smoke, review-faculty CLEAN,
 Heart — per `AUTONOMY.md` "The autonomous-ship gate"; do not restate it here.
-A same-conversation reread is not an independent review.
+A same-conversation reread is not an independent review. A shift worker runs
+the tests leg as the changed and covering test modules plus the `Witness:`
+(the dependants' full suites still run on a public API change), and PR CI is
+the full-suite verdict: ruling S1 in `AUTONOMY.md` "Shift speed — 2026-11-19".
 
 ### 4. Execute the ship (feature-dev)
 
@@ -102,9 +105,12 @@ delegation still follows MODEL_DELEGATION.md; capability absence is handled by
 its cross-environment handoff rather than by provider-name conditionals. If any
 step or evidence leg fails, stop and report — do not proceed.
 
-**Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
-3 note); then ship **without interactive sign-off** — the PR body additionally
-carries the `## Validation checklist` section
+**Under `--auto`:** all four legs of the autonomous-ship gate must pass (step
+3 note). A shift worker runs no adversary pass (`AUTONOMY.md` leg 5): the
+close-out session or the human at `/prm` is the adversary, ruling S3 in
+"Shift speed — 2026-11-19". It starts its one independent review beside the
+tests and the targeted smoke, and opens the PR as soon as they pass. Then
+ship **without interactive sign-off**: the PR body additionally carries the `## Validation checklist` section
 ([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run
 **stops at PR-open** unless step 6's declared tier merges it, a calibration row is
 appended to `PyAutoMind/autonomy_log.md` (its **first** table, `## Calibration runs`, never the

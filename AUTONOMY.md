@@ -321,7 +321,10 @@ never an assumption:
    entries). The audit found the shipped-repos-only contract papers over
    downstream breakage with human PR review — an autonomous run doesn't have
    that reviewer, so it runs the dependents' suites too. Repos with no test
-   dir (organism/doc repos): leg is n/a, stated in the PR body.
+   dir (organism/doc repos): leg is n/a, stated in the PR body. Inside a
+   shift the worker runs the changed and covering test modules plus the
+   `Witness:` instead, and PR CI is the full-suite verdict: ruling S1 in
+   "Shift speed — 2026-11-19" below.
 2. **Smoke** — the curated `smoke_tests.txt` subsets, run with the task
    worktree's `activate.sh` sourced so they exercise the branch. Applies
    where the changed repo has a downstream script surface; organism/doc-only
@@ -401,6 +404,10 @@ never an assumption:
    *Revert condition:* if the leg produces no finding across 30 runs it is
    ceremony, and this clause is removed rather than left as theatre.
 
+   Inside a shift the worker runs no adversary pass; the close-out session or
+   the human at `/prm` is the adversary: ruling S3 in "Shift speed —
+   2026-11-19" below.
+
 A failed leg downgrades the run to a human checkpoint: state written to the
 issue, nothing force-shipped, never modify code to make a leg pass.
 
@@ -473,6 +480,37 @@ grant to license. A Cortex record therefore carries no `heart-ack:` and no
 own `batches/AGENTS.md` drops both: the Heart gates releases, not runs), and
 **their absence there is never read as an unacknowledged RED** — the fields are
 not missing, they do not exist on that schema.
+
+## Shift speed — 2026-11-19
+
+The human's rulings, 2026-11-19, on the orchestrator speed review
+(`Science/scratch/orchestrator_speed_review_2026-11-19/review.md`; M3.7a,
+PyAutoBrain#686). They bring a shift worker's ship step close to a chat
+build's loop. Measured over shifts 2026-11-18-pm, -pm2 and 2026-11-19-am
+(7 workers), the real work took 10 to 16 minutes per task. The full local
+unit suite added 5 to 19 minutes, and 10 to 15 more when laptop load caused
+false failures and a rerun. PR CI runs the same suite on Python 3.12 and
+3.13, and the merge reads that verdict. The worker's adversary pass cost 60
+to 130k tokens per task, while the close-out session (unattended) or the
+human (`/prm`) already reads the PR a second time.
+
+- **S1, leg 1 in a shift.** The worker runs the test modules its diff
+  changes or that cover the changed code, plus the `Witness:`. PR CI is the
+  full-suite verdict for the shipped repo. The dependants' full suites still
+  run locally when the diff changes public API (they are not in the PR's
+  CI). A red CI after the worker has ended sends the PR to `/prm`, as now.
+- **S3, leg 5 in a shift.** The worker runs one independent review (leg 3)
+  and no adversary pass. The adversary is the close-out session for an
+  unattended merge ("Stage-2 adversary amendment — 2026-11-04") and the
+  human at `/prm` for everything else.
+
+A worker caps any pytest it runs at `-n 4`. It starts the review beside the
+tests and the targeted smoke (leg 2), and opens the PR as soon as they pass
+(`agents/conductors/batch/worker_template.md`).
+
+Outside a shift (an `--auto` chat) nothing changes.
+
+Later rulings from the same review (S2, S4 to S7) are added to this section.
 
 ## Merge authority follows Consequence — 2026-10-02
 

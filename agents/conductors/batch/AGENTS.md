@@ -911,7 +911,9 @@ in a session **using a different model from the one that wrote the branch**. A
 self-run adversary leg is an absent leg, not a weak one. `collect` cannot run
 it for you and does not pretend to: with no `adversary` block in the evidence
 the leg is UNOBSERVABLE and the member reaches the human as SUSPECT — the
-honest state, rather than a gap that closes itself.
+honest state, rather than a gap that closes itself. The shift worker does not
+run this pass (`AUTONOMY.md` "Shift speed — 2026-11-19", ruling S3): your read,
+or the close-out session for an unattended merge, is the adversary.
 
 **What to expect from batch 1.** Small. The planner picks against a 45-minute
 review budget, and with almost no prompt carrying a `Witness:` nearly everything
