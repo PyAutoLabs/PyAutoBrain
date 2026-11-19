@@ -92,9 +92,12 @@ def test_ship_library_follows_the_shift_rule():
     skill = _flat((BRAIN / "skills" / "ship_library" / "ship_library.md").read_text(encoding="utf-8"))
     # Outside a shift a batch launch still needs leg 5; the shift worker is the exception.
     assert "five under a batch launch" in skill
-    assert "The exception is a shift worker, which runs no adversary pass" in skill
-    assert "ruling S3" in skill and "Shift speed — 2026-11-19" in skill
+    assert "a shift worker runs no adversary pass (ruling S3" in skill
+    assert "Shift speed — 2026-11-19" in skill
+    assert "Shift worker tests: ruling S1, see [`reference.md`]" in skill
     ref = (BRAIN / "skills" / "ship_library" / "reference.md").read_text(encoding="utf-8")
     step1 = _flat(ref.split("## Execution contract", 1)[1].split("\n2. ", 1)[0])
     assert "shift worker" in step1 and "-n 4" in step1
     assert "Shift speed — 2026-11-19" in step1
+    assert "beside these tests and the targeted smoke" in step1
+    assert "no adversary pass (ruling S3)" in step1

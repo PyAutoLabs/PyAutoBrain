@@ -102,7 +102,9 @@ Build/release step. Per repo, after the vitals faculty / Heart verdict is GREEN:
    code, plus the `Witness:`, with `python -m pytest -q -n 4 <modules>`; PR CI
    is the full-suite verdict. It still runs each dependant's full suite
    (`-n 4`) when the review surface flags a public API change (ruling S1 in
-   `AUTONOMY.md` "Shift speed — 2026-11-19").
+   `AUTONOMY.md` "Shift speed — 2026-11-19"). It starts its one independent
+   review beside these tests and the targeted smoke, runs no adversary pass
+   (ruling S3), and opens the PR as soon as they pass.
 2. If the worktree is not on `feature/<task-name>`, stop and report — never
    auto-switch branches.
 3. `git -C "$WT_ROOT/<repo>" add -A && git commit -m "<message>" && git push -u origin feature/<task-name>`.
