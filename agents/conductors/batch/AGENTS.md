@@ -394,6 +394,35 @@ close-out, no merge slot and no CI read. It stays an earlier PR in the merge
 order, so later PRs on its library wait until GitHub says MERGED or CLOSED.
 The digest's `### Waited behind your /prm` names them, one line per library.
 
+**S4: the shift-end sweep and the red block (M3.7e, PyAutoBrain#692).**
+`_sweep.py` holds the mechanics; `config/policy.yaml` `shift_watcher:`
+names the workflow (`sweep_repo`, `sweep_workflow`, `sweep_siblings`). At
+close, `finish_shift` dispatches the Workspace Smoke workflow once
+(`gh workflow run`, no inputs, marker `sweep.dispatched`) when GitHub
+confirmed a merge this shift on a library, workspace or Heart chain repo.
+`late_sweep` makes it instead when a close-out merged after the close. A
+shadow shift never dispatches, and a failed dispatch is not retried. Each shift tick makes one
+`gh run list` of the workflow on `main`, before steering. Each run's
+artifacts are downloaded once per run id, at most 3 tries, into
+`<home>/sweep/`, which every shift shares. When the latest completed run (a
+cancelled one is skipped) is red and not cleared, `_start_closeouts` refuses a PR on a failing
+workspace's chain (Heart `config/repos.yaml` `smoke:`, read locally, plus
+the workspace repo from Heart's validation workflow) as `workspace sweep
+red: <url>`, right after the S7 check. An unmapped workspace or an
+unreadable report blocks every library, chain and workspace repo. A run
+list failing for 30 minutes from the streak's first failure holds those
+PRs in `counters["sweep_waits"]` instead (a wait, re-judged each tick, no
+refusal), and `early_close_ready` keeps the shift open. A running close-out on a
+blocked repo gets `leases/<task>.sweep-red` and refuses before it merges;
+a marker the current block does not cover is removed.
+A later green run clears the block, as does `/clear-sweep`. The latest
+red run, cleared or not, files one bug draft (`draft/bug/<most upstream suspect library>/
+workspace_sweep_red_<id>.md`, marker `sweep/drafted/<id>`) through the one
+Mind writer, with suspect PRs from one compare read per affected repo. All
+these calls use the human's own `gh` login (decision b). The digest's
+`### Workspace sweep` names the dispatch, the verified SHA per library and
+any red block. Nothing in the watcher reverts or bisects.
+
 **Deploy.** Installing the units is the human's step, when no shift is live:
 
     cp bin/systemd/pyauto-orchestrator.{service,timer,path} ~/.config/systemd/user/
@@ -760,7 +789,9 @@ per command; the draft on origin/main becomes a named task, refused within 30
 min of `review-at:`; it overrides `exclude:` and an earlier shift's parked hold,
 never the organ rule) and `/kill <task>` (the watcher runs a local `claude stop`
 on that task's running worker; the reap marks the exit `killed`, not crashed,
-and it is re-dispatched once unless dropped first). Each comment acts once, by id, and is acknowledged
+and it is re-dispatched once unless dropped first). M3.7e adds `/clear-sweep`, making
+eight: it clears the red sweep block for the latest red run id only
+(`<home>/sweep/cleared.json`, kept for later shifts). Each comment acts once, by id, and is acknowledged
 once in the status comment's `Commands` list. Without a login, nothing is read
 and the comment says steering is off. The dashboard's copy is the record's `-
 live:` line (`record-key` op, one Mind writer, on a change of state), shown in

@@ -73,7 +73,11 @@ targeted smoke, and the full sweep runs in the cloud after the merge.
 7. Immediately before you merge — after every check above, and again right
    before the merge command itself — look for {lease_dir}/{task}.dropped. If
    it exists, the human dropped this task with `/drop` mid-shift: do not merge;
-   refuse with why `dropped by /drop`.
+   refuse with why `dropped by /drop`. Look, at the same two moments, for
+   {lease_dir}/{task}.sweep-red. If it exists, the cloud workspace sweep on
+   `main` went red on a repo this PR touches, or cannot be read: do not
+   merge; refuse with why `<the text in that file> → /prm`, its one line
+   verbatim.
 8. Take the merge slot yourself, as a bare call, immediately before the merge
    (AUTONOMY.md "Shift speed", decision A of M3.7b):
 

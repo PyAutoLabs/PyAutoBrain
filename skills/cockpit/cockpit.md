@@ -117,6 +117,7 @@ within 3 ticks (about 3 min), or `steer-unread` arrives, say so once.
 | "one worker only" (a number) | `/cap workers <n>` | **yes**, with n shown |
 | "fewer workers" (no number) | nothing yet: ask "how many workers at most?" | ask |
 | "keep it under 400k" | `/cap tokens 400000` | **yes**, with n shown |
+| "the red sweep is fine", "unblock merges" | `/clear-sweep` (clears the latest red workspace sweep only) | **yes**, naming the run |
 | "merge #347" | not a comment: the `/prm` procedure on that PR, in this chat. If a close-out is `running` on it, say so and ask the human to wait or `/drop` first | /prm's own |
 | "put X on the queue", "move X up" | not a shift command: the `/queue` procedure | /queue's own |
 | "go through my questions", "answer Q17" | not a shift command: `/questions` (section 6) | n/a |
@@ -136,8 +137,7 @@ within 3 ticks (about 3 min), or `steer-unread` arrives, say so once.
   n = merged + running. Confirm every `/cap` in one line with the number,
   e.g. "Post `/cap merges 3` (2 merged, 0 running, so one more)?"
 - **Unclear wording: ask.** Never guess a verb, a task or a number. One short
-  question, then post on the answer.
-- Only the verbs above; the watcher ignores any other first line.
+  question, then post on the answer; the watcher ignores any other first line.
 
 ## Stop watching
 

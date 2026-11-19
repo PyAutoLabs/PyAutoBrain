@@ -80,6 +80,18 @@ def _no_real_github(monkeypatch):
         for key in ("PYAUTO_SHIFT_APP_ID", "PYAUTO_SHIFT_APP_INSTALLATION_ID",
                     "PYAUTO_SHIFT_APP_KEY"):     # PyAutoBrain#630
             monkeypatch.delenv(key, raising=False)
+    sweep = sys.modules.get("_sweep")
+    if sweep is not None:
+        # M3.7e: the sweep's `gh workflow run`, `gh run list`, `gh run
+        # download` and compare reads are offline; a test fakes `run_gh`.
+        import subprocess
+
+        monkeypatch.setattr(sweep, "run_gh", lambda argv, timeout=120:
+                            subprocess.CompletedProcess(argv, 1, "", "offline (tests)"))
+        # Off unless a test configures it: an unreadable run list fails
+        # closed (it blocks every close-out), so offline it must not be on.
+        if orch is not None:
+            monkeypatch.setattr(orch, "_sweep_cfg", lambda: {})
     if digest is not None:
         real_health = digest.pr_health
         monkeypatch.setattr(digest, "pr_health", lambda url, run=None:

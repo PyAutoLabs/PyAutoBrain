@@ -29,8 +29,8 @@ worker's question no longer @-mentions the human (M3.5, #645): it lands in
 PyAutoMind `questions.md` through the one Mind writer, and the digest counts
 it. Each open tick also reads the
 shift issue's comments once, for the human's `/pause` `/resume` `/drop`
-`/stop` (#622) and `/add` `/cap` `/kill` (#644). Every tick that does work
-appends what it did to the slot's `events.jsonl` (`_events`, #644), which
+`/stop` (#622), `/add` `/cap` `/kill` (#644) and `/clear-sweep` (M3.7e). Every
+tick that does work appends what it did to the slot's `events.jsonl` (`_events`, #644), which
 `batch watch --stream` prints; a needs-you event is also one short comment on
 the shift issue, at most `EVENT_COMMENTS_MAX` a shift.
 """
@@ -54,6 +54,7 @@ import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
 import _merge_slots  # noqa: E402 — one merge-cap count per shift (R3, #661)
 import _mind_writer  # noqa: E402
 import _questions  # noqa: E402
+import _sweep  # noqa: E402 — the shift-end cloud sweep (M3.7e, PyAutoBrain#692)
 
 STOP_FILE = "STOP"
 LOCK_FILE = "tick.lock"
@@ -2227,6 +2228,10 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         named = {task_id(p) for p in _brief.tasks_of(brief)}
         return task in named or task in {task_id(m["path"]) for m in plan()["members"]}
 
+    # The cloud sweep (M3.7e): one run-list read a tick, before steering, so a
+    # `/clear-sweep` this tick clears the red run this tick reads.
+    if not _brief.is_shadow(brief):
+        _sweep_read(slot, counters, now)
     # The human steers from the shift issue (#622): read once, before anything
     # this tick starts, so a /pause or /drop binds on the tick that reads it.
     ctx = {"brief": brief, "now": now, "mind": mind,
@@ -2243,6 +2248,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         # A /stop this tick: from here on it is the STOP file's tick.
         return {"action": "stopped", "reason": f"{STOP_FILE} written by /stop",
                 "reaped": reaped, "commands": commands}
+    if not _brief.is_shadow(brief):
+        _sweep_tick(slot, counters, now)   # the red block and its one bug draft
+        _write_counters(slot, counters)
     # One Mind writer: whatever the workers queued is committed here, by the
     # orchestrator alone, from a temporary worktree — never by a worker.
     ledger = {"committed": None, "ops": 0}
@@ -2803,10 +2811,10 @@ STATUS_TAG_PREFIX = "<!-- pyauto-shift-status "
 #: rewritten through the one Mind writer when the shift's state changes.
 LIVE_KEY_FILE = "live.key"
 #: The steering commands, read from the human's comments on the shift issue
-#: (#622; `/add`, `/cap` and `/kill` from #644).
-COMMANDS = ("pause", "resume", "drop", "stop", "add", "cap", "kill")
+#: (#622; `/add`, `/cap` and `/kill` from #644; `/clear-sweep` from M3.7e, #692).
+COMMANDS = ("pause", "resume", "drop", "stop", "add", "cap", "kill", "clear-sweep")
 _COMMAND_RE = re.compile(
-    r"^/(pause|resume|drop|stop|add|cap|kill)\b[ \t]*(\S+)?(?:[ \t]+(\S+))?[ \t]*$")
+    r"^/(pause|resume|drop|stop|add|cap|kill|clear-sweep)\b[ \t]*(\S+)?(?:[ \t]+(\S+))?[ \t]*$")
 #: The one verb that takes two arguments (`/cap <what> <n>`).
 _TWO_ARGS = ("cap",)
 _TASK_ARG_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
@@ -2927,10 +2935,11 @@ def _apply_command(slot: Path, counters: dict, cmd: str, arg: str, who: str,
     whether a task belongs to this shift (a pick, a lease, a brief or plan
     member). `ctx` is what `/add`, `/cap` and `/kill` judge against: the
     brief as written, `now`, `review_at` and the Mind checkout."""
-    if cmd in ("add", "cap", "kill"):
+    if cmd in ("add", "cap", "kill", "clear-sweep"):
         ctx = ctx or {}
         try:
-            return {"add": _cmd_add, "cap": _cmd_cap, "kill": _cmd_kill}[cmd](
+            return {"add": _cmd_add, "cap": _cmd_cap, "kill": _cmd_kill,
+                    "clear-sweep": _cmd_clear_sweep}[cmd](
                 slot, counters, arg, who, at, ctx)
         except Exception as e:   # one command's failure is its ack, never the tick's
             return f"refused: /{cmd} could not be judged ({str(e)[:200]})"
@@ -3286,6 +3295,177 @@ def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict
     return f"stopping {task}'s worker {key} (claude stop). {tail}"
 
 
+# --- the shift-end cloud sweep (M3.7e, PyAutoBrain#692; ruling S4) -------------------
+
+def _sweep_cfg() -> dict:
+    """The sweep's repo and workflow (`config/policy.yaml` `shift_watcher:`
+    `sweep_repo`, `sweep_workflow`, `sweep_siblings`); empty: the sweep is
+    off — always in fake mode (a dry shift makes no GitHub call)."""
+    if os.environ.get(FAKE_ENV) == "1":
+        return {}
+    return _sweep.config(POLICY_PATH)
+
+
+def _is_library(repo: str) -> bool:
+    from _sizing import LIBRARY_REPOS  # noqa: E402 — the batch conductor's path
+    return _repo_key(repo) in LIBRARY_REPOS if repo else False
+
+
+def _flow_keys(hmap: dict | None = None) -> set[str]:
+    """Every repo a merge could break, as canonical keys: the library and
+    workspace repos, plus every repo in Heart's install chains and workspace
+    map (the Nerves package is in every chain)."""
+    from _sizing import LIBRARY_REPOS, WORKSPACE_REPOS  # noqa: E402
+    hmap = _sweep.heart_map() if hmap is None else hmap
+    names = set(LIBRARY_REPOS) | set(WORKSPACE_REPOS)
+    for chain in (hmap.get("chains") or {}).values():
+        names |= set(chain)
+    names |= set((hmap.get("dirs") or {}).values()) | set((hmap.get("projects") or {}).values())
+    return {_repo_key(n) for n in names if n}
+
+
+def _chain_library(hmap: dict):
+    """A library repo, or one in any of Heart's install chains: what the
+    verified-through line and the bug draft's target name."""
+    chained = {_repo_key(r) for chain in (hmap.get("chains") or {}).values() for r in chain}
+    return lambda repo: _is_library(repo) or _repo_key(repo) in chained
+
+
+def _is_flow_repo(repo: str, hmap: dict | None = None) -> bool:
+    """A repo the sweep covers: a merge there makes the shift dispatch it."""
+    return bool(repo) and _repo_key(repo) in _flow_keys(hmap)
+
+
+def _sweep_blocks(blk: dict | None, pr: str) -> bool:
+    """Whether the sweep block `blk` blocks an unattended merge of `pr`."""
+    return _sweep.blocks(blk, pr_repos(pr), _repo_key)
+
+
+def _shift_merges(counters: dict, start: _dt.datetime | None) -> list[str]:
+    """The shift's GitHub-confirmed merges: in the window at `review-at:` (or
+    the early close), and every close-out GitHub showed MERGED — a late one
+    reaped after the close included. A carried PR merged before the shift
+    began does not count."""
+    out = []
+    for url, gh in (counters.get("github") or {}).items():
+        if not (isinstance(gh, dict) and gh.get("in_window")):
+            continue
+        at = _iso_or_none(gh.get("mergedAt") or "")
+        if start is not None and at is not None and at < start:
+            continue
+        out.append(url)
+    out += [pr for pr, co in (counters.get("closeouts") or {}).items()
+            if co.get("state") == "merged" and pr not in out]
+    return out
+
+
+def _sweep_dispatch(slot: Path, counters: dict, now: _dt.datetime,
+                    start: _dt.datetime | None = None) -> bool:
+    """The one `gh workflow run` of the sweep per shift (S4), under the
+    human's own `gh` login (decision b): at the close, or from the late sweep
+    when a close-out merged after it — only when GitHub confirmed at least
+    one merge on a repo the sweep covers. `sweep.dispatched` is claimed
+    exclusively first, so a shift never dispatches twice; a failed dispatch
+    is recorded for the digest and never retried. True when this call
+    dispatched (or tried to)."""
+    cfg = _sweep_cfg()
+    if not cfg or (slot / _sweep.DISPATCH_MARKER).exists():
+        return False
+    hmap = _sweep.heart_map()
+    merged = [u for u in _shift_merges(counters, start) if _is_flow_repo(pr_repos(u), hmap)]
+    if not merged:
+        return False
+    if not _create_exclusive(slot / _sweep.DISPATCH_MARKER, {"at": _iso(now), "prs": merged}):
+        return False
+    try:
+        res = _sweep.dispatch(cfg)
+    except Exception as e:  # noqa: BLE001 — a failed dispatch is the digest's line
+        res = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+    counters["sweep_dispatch"] = {"at": _iso(now), "prs": merged, **res}
+    return True
+
+
+def _sweep_tick(slot: Path, counters: dict, now: _dt.datetime) -> None:
+    """The sweep this tick: the one run-list read (skipped when this tick has
+    made it), the block (an unreadable run list, or the latest red run not
+    cleared), the latest red run's one bug draft — cleared or not — queued
+    for the one Mind writer, and the snapshot the close-outs and the digest
+    read (`counters["sweep"]`). A failure keeps the last known block."""
+    cfg = _sweep_cfg()
+    if not cfg:
+        return
+    home = slot.parent
+    try:
+        state = _sweep.observe(home, cfg, now)
+        hmap = _sweep.heart_map()        # local reads of the Heart checkout
+        everything = _flow_keys(hmap)
+        blk = _sweep.block(home, cfg, hmap, _repo_key, state, now, everything)
+        chain_lib = _chain_library(hmap)
+        red = _sweep.latest_red(state)
+        if red:
+            _sweep.file_draft(home, cfg, hmap,
+                              _sweep.block_for(home, cfg, hmap, _repo_key, red, everything),
+                              slot / _mind_writer.LEDGER_DIR, now, _repo_key, chain_lib,
+                              _mind_writer.queue_op)
+        counters["sweep"] = _sweep.snapshot(home, cfg, state, blk, _repo_key, chain_lib)
+    except Exception as e:  # noqa: BLE001 — never the tick's failure
+        counters["sweep"] = {**(counters.get("sweep") or {}),
+                             "error": f"{type(e).__name__}: {e}"[:200]}
+
+
+def _sweep_read(slot: Path, counters: dict, now: _dt.datetime) -> None:
+    """The tick's one run-list read, made before steering."""
+    cfg = _sweep_cfg()
+    if not cfg:
+        return
+    try:
+        _sweep.observe(slot.parent, cfg, now)
+    except Exception as e:  # noqa: BLE001
+        counters["sweep"] = {**(counters.get("sweep") or {}),
+                             "error": f"{type(e).__name__}: {e}"[:200]}
+
+
+def _sweep_red_markers(slot: Path, counters: dict) -> None:
+    """`<lease dir>/<task>.sweep-red` (the run URL) for each running close-out
+    on a blocked repo: the session checks it right before merging and refuses
+    (closeout_template.md step 7). Once the block is gone (a green run,
+    `/clear-sweep`) the markers are removed."""
+    blk = (counters.get("sweep") or {}).get("block")
+    tasks: dict[str, list[str]] = {}
+    for pr, co in (counters.get("closeouts") or {}).items():
+        if co.get("task"):
+            tasks.setdefault(co["task"], []).append(pr)
+    # A marker the current block does not cover goes: no block at all, or a
+    # newer block on other repos (review round 1).
+    for marker in (slot / "leases").glob(f"*{_sweep.SWEEP_RED_SUFFIX}"):
+        task = marker.name[:-len(_sweep.SWEEP_RED_SUFFIX)]
+        if not blk or not any(_sweep_blocks(blk, pr) for pr in tasks.get(task, [])):
+            marker.unlink(missing_ok=True)
+    if not blk:
+        return
+    text = (blk.get("why") or "workspace sweep red") + "\n"   # a complete reason line
+    for pr, co in (counters.get("closeouts") or {}).items():
+        if co.get("state") != "running" or not co.get("task") or not _sweep_blocks(blk, pr):
+            continue
+        marker = slot / "leases" / f"{co['task']}{_sweep.SWEEP_RED_SUFFIX}"
+        if not marker.exists() or marker.read_text(encoding="utf-8") != text:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(text, encoding="utf-8")
+
+
+def _cmd_clear_sweep(slot: Path, counters: dict, arg: str, who: str, at: str,
+                     ctx: dict) -> str:
+    """`/clear-sweep`: the human clears the red block for the latest red run id
+    only, recorded in `<home>/sweep/cleared.json` (it carries to later shifts).
+    A newer red run blocks again."""
+    if arg:
+        return "ignored: /clear-sweep takes no argument"
+    if not _sweep_cfg():
+        return ("ignored: no workspace sweep is configured (`config/policy.yaml` "
+                "`shift_watcher: sweep_repo:`)")
+    return _sweep.clear(slot.parent, who, at)
+
+
 # --- the event stream's watcher side (#644) --------------------------------------------
 
 #: Needs-you event comments a shift may post (human ruling H4b), then one
@@ -3586,6 +3766,14 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                 if co["state"] == "merged" else f"close-out on {pr} ended: {co.get('why', '?')}")
         lines.append(f"- late: {co['task']} — {what} (after review-at, {_iso(now)})")
         counters["late"].append(co["task"])
+    # A close-out that merged after the close, with no sweep dispatched yet:
+    # the shift's one dispatch is made here (M3.7e review round 1).
+    if not _brief.is_shadow(brief) and _sweep_dispatch(
+            slot, counters, now, _brief._iso((top.get("dispatched") or {}).get("value", ""))):
+        disp = counters.get("sweep_dispatch") or {}
+        what = ("workspace sweep dispatched" if disp.get("ok") else
+                f"workspace sweep not dispatched ({disp.get('error') or '?'}) — run it from chat")
+        lines.append(f"- late: {what} (after review-at, {_iso(now)})")
     # A Mind op set aside, in conflict or held after the digest was built
     # reaches the human here: a late line, the record and the correction.
     for e in ledger_unreported(slot):
@@ -3659,6 +3847,10 @@ def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
     # "nothing to do" — an unread `/add` or `/resume` on the shift issue, or
     # drafts the plan dropped because Mind origin/main failed closed.
     if counters.get("commands_unread"):
+        return False
+    # The sweep's run list unreadable (M3.7e review round 2): an unread input.
+    if (((counters.get("sweep") or {}).get("block") or {}).get("kind") == "unknown"
+            or counters.get("sweep_waits")):
         return False
     origin = (counters.get("backlog_gates") or {}).get("origin") or {}
     if any(str(w).endswith(FAIL_CLOSED) for w in origin.values()):
@@ -3776,6 +3968,11 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if not _brief.is_shadow(brief):
         _github_merges(counters, closed_at or _brief._iso(
             (top.get("review-at") or {}).get("value", "")), pr_state)
+        # S4 (M3.7e): the one sweep dispatch, after the last merge and before
+        # the digest; then this tick's one read of the sweep, if not made yet.
+        _sweep_dispatch(slot, counters, now,
+                        _brief._iso((top.get("dispatched") or {}).get("value", "")))
+        _sweep_tick(slot, counters, now)
     issue = (top.get("issue") or {}).get("value", "")
     if issue.startswith("http"):
         # The digest is about to be posted: an App identity that cannot be had
@@ -3948,6 +4145,7 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
         counters["slot_holders"] = _merge_slots.holders(slot)
     except (_merge_slots.MergeSlotError, OSError) as e:
         events["slots_error"] = str(e)[:300]   # a take reads what is there, or cannot tell
+    _sweep_red_markers(slot, counters)
     if _brief.is_shadow(brief) or counters.get("paused"):
         return events   # paused (#622): an open PR waits; it is not refused
     return _start_closeouts(slot, brief, counters, spawner, now, health, events,
@@ -4380,6 +4578,10 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
     before_waits = counters.get("merge_waits") or {}
     waits: dict = {}
     counters["merge_waits"] = waits
+    # PRs held while the sweep is unknown (M3.7e), rebuilt each tick.
+    before_sweep = counters.get("sweep_waits") or {}
+    sweep_waits: dict = {}
+    counters["sweep_waits"] = sweep_waits
     seen = counters.setdefault("pr_seen", {})   # when the watcher first saw each PR
 
     def refuse(pr: str, task: str, why: str, held: bool = False) -> None:
@@ -4443,6 +4645,20 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             continue
         if DECISION_TAKEN in labels:
             refuse(pr, task, DECISION_TAKEN_WHY, held=again)
+            continue
+        # The red sweep (M3.7e): a PR on a failing workspace's install chain
+        # is the human's /prm until a later sweep is green or /clear-sweep.
+        blk = (counters.get("sweep") or {}).get("block")
+        if _sweep_blocks(blk, pr):
+            if blk.get("kind") == "unknown":
+                # The run list is unreadable (M3.7e review round 2): a wait,
+                # like the merge order's — no session, no slot, no refusal;
+                # judged again next tick.
+                prev = before_sweep.get(pr) or {}
+                sweep_waits[pr] = {"task": task, "why": blk["why"],
+                                   "since": prev.get("since") or _iso(now)}
+                continue
+            refuse(pr, task, blk["why"], held=again)
             continue
         # Merge order (M3.6j): an earlier library PR of this shift still open
         # holds this one back. Waiting is not a refusal and takes no slot. An

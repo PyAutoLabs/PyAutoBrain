@@ -1,0 +1,162 @@
+{
+ "ready": false,
+ "run_label": "all-results",
+ "summary": {
+  "passed": 1399,
+  "skipped": 125,
+  "failed": 14
+ },
+ "per_project": {
+  "autofit": {
+   "passed": 55,
+   "skipped": 11
+  },
+  "autogalaxy": {
+   "passed": 254,
+   "skipped": 16
+  },
+  "autolens": {
+   "passed": 664,
+   "skipped": 56
+  },
+  "howtofit": {
+   "passed": 38
+  },
+  "howtogalaxy": {
+   "passed": 60
+  },
+  "howtolens": {
+   "passed": 82
+  },
+  "autofit_test": {
+   "passed": 57,
+   "skipped": 7
+  },
+  "autogalaxy_test": {
+   "passed": 58,
+   "skipped": 6
+  },
+  "autolens_test": {
+   "skipped": 29,
+   "passed": 122,
+   "failed": 14
+  },
+  "euclid": {
+   "passed": 9
+  }
+ },
+ "failures": [
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/imaging/jax_likelihood/delaunay.py",
+   "status": "failed",
+   "duration_seconds": 8.7,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/imaging"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/imaging/jax_likelihood/rectangular.py",
+   "status": "failed",
+   "duration_seconds": 9.17,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/imaging"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/imaging/jax_likelihood/rectangular_dspl.py",
+   "status": "failed",
+   "duration_seconds": 17.79,
+   "classification": "source_code_bug",
+   "project": "autolens_test",
+   "directory": "scripts/imaging"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/imaging/jax_likelihood/rectangular_dspl_rtu.py",
+   "status": "failed",
+   "duration_seconds": 14.66,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/imaging"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/imaging/jax_likelihood/rectangular_mge.py",
+   "status": "failed",
+   "duration_seconds": 14.98,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/imaging"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/imaging/jax_likelihood/rectangular_mge_rtu.py",
+   "status": "failed",
+   "duration_seconds": 14.68,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/imaging"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/imaging/jax_likelihood/rectangular_rtu.py",
+   "status": "failed",
+   "duration_seconds": 8.42,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/imaging"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/interferometer/datacube/delaunay.py",
+   "status": "failed",
+   "duration_seconds": 12.15,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/interferometer"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/interferometer/datacube/rectangular.py",
+   "status": "failed",
+   "duration_seconds": 6.61,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/interferometer"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/interferometer/jax_likelihood/delaunay.py",
+   "status": "failed",
+   "duration_seconds": 7.02,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/interferometer"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/interferometer/jax_likelihood/rectangular.py",
+   "status": "failed",
+   "duration_seconds": 5.25,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/interferometer"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/interferometer/jax_likelihood/rectangular_dspl.py",
+   "status": "failed",
+   "duration_seconds": 11.92,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/interferometer"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/interferometer/jax_likelihood/rectangular_mge.py",
+   "status": "failed",
+   "duration_seconds": 8.77,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/interferometer"
+  },
+  {
+   "file": "/home/runner/work/PyAutoHeart/PyAutoHeart/workspace/scripts/interferometer/jax_likelihood/rectangular_sparse.py",
+   "status": "failed",
+   "duration_seconds": 6.76,
+   "classification": "workspace_issue",
+   "project": "autolens_test",
+   "directory": "scripts/interferometer"
+  }
+ ]
+}

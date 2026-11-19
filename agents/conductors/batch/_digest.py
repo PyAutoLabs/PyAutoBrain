@@ -763,6 +763,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines += cap_lines(counters)
         lines += ["", WORKERS_HEADING] + (worker_lines(counters, links) or [NO_PICKS])
         lines += ["", REFUSALS_HEADING] + (refusal_lines(counters) or [NO_PICKS])
+        lines += sweep_lines(counters)
     lines += report_lines(slot)
     lines += identity_lines(counters)
     # The readiness pass's count is the digest's last line (M3.3, #671).
@@ -774,6 +775,73 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
             lines += ["", f"Readiness pass failed: the digest could not read it "
                           f"({type(e).__name__}: {e})"[:240]]
     return "\n".join(lines) + "\n"
+
+
+SWEEP_HEADING = "### Workspace sweep"
+#: The prefix of the close-out refusal a sweep block gives (M3.7e): red, or unknown.
+SWEEP_RED_WHY = "workspace sweep "
+
+
+def _sweep_own(sweep: dict, at: str) -> dict | None:
+    """The run the shift's own dispatch started (`_sweep.own_run`)."""
+    import _sweep  # noqa: E402 — deferred: the digest builds without it
+    return _sweep.own_run({"runs": sweep.get("runs") or []}, at)
+
+
+def sweep_lines(counters: dict) -> list[str]:
+    """The shift-end cloud sweep (M3.7e, PyAutoBrain#692): the shift's own
+    dispatch and its run, what the latest green sweep verified per library,
+    and a red sweep's block, refusals and bug draft. The digest is never held
+    for the sweep. Nothing when the sweep is off."""
+    sweep, disp = counters.get("sweep") or {}, counters.get("sweep_dispatch") or {}
+    if not sweep and not disp:
+        return []
+    out = []
+    if disp:
+        if not disp.get("ok"):
+            out.append(f"- sweep not dispatched ({disp.get('error') or '?'}) — run it from chat")
+        else:
+            own = _sweep_own(sweep, disp.get("at", ""))
+            if own is None:
+                out.append(f"- sweep dispatched at {disp.get('at', '?')}, not yet listed")
+            elif own.get("status") != "completed":
+                out.append(f"- sweep running: {own.get('url')}")
+            else:
+                out.append(f"- this shift's sweep finished: {own.get('conclusion') or '?'} — "
+                           f"{own.get('url')}")
+    read = sweep.get("read") or {}
+    if read.get("at") and not read.get("ok"):
+        out.append(f"- sweep runs unreadable at {read['at']} ({read.get('error') or '?'}); "
+                   "the last known state is below")
+    if sweep.get("error"):
+        out.append(f"- sweep state could not be worked out: {sweep['error']}")
+    green = sweep.get("green") or {}
+    run = green.get("full_sweep_run_id") or green.get("id") or "?"
+    for lib, sha in (green.get("verified") or {}).items():
+        out.append(f"- {lib}: workspaces verified through `{sha}` (run {run})")
+    blk = sweep.get("block")
+    if blk:
+        repos = ", ".join((["every library, chain and workspace repo"]
+                           if blk.get("everything") else [])
+                          + list(blk.get("repos") or [])) or "?"
+        refused = [pr_ref(pr) for pr, co in (counters.get("closeouts") or {}).items()
+                   if str(co.get("why") or "").startswith(SWEEP_RED_WHY)]
+        draft = f"`{blk['draft']}`" if blk.get("draft") else "not filed yet"
+        if blk.get("kind") == "unknown":
+            held = [pr_ref(pr) for pr in sorted(counters.get("sweep_waits") or {})]
+            out.append(f"- {blk.get('why')} — blocked: {repos}; PRs waiting: "
+                       f"{', '.join(held) or 'none'}; PRs refused: "
+                       f"{', '.join(refused) or 'none'}")
+        else:
+            out.append(f"- {blk.get('why')} — blocked: {repos}; PRs refused: "
+                       f"{', '.join(refused) or 'none'}; bug draft: {draft}")
+    cleared = sweep.get("cleared")
+    if cleared:
+        out.append(f"- red sweep {cleared.get('url')} cleared by /clear-sweep "
+                   f"({cleared.get('by', '?')}, {cleared.get('at', '?')})")
+    if not out:
+        out.append("- no sweep run known yet")
+    return ["", SWEEP_HEADING] + out
 
 
 _REPORT_WORDS = {
