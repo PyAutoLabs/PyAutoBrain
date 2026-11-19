@@ -342,7 +342,8 @@ never an assumption:
      speed — 2026-11-19" below; M3.7b, PyAutoBrain#688). The pre-merge smoke
      is the worker's targeted smoke, and PR CI must be green. The full sweep
      runs in the cloud after the merge: the Workspace Smoke workflow, nightly
-     (M3.7d) and at shift end (M3.7e). Until S2 the close-out ran
+     (M3.7d), and at the close of every shift that merged a library or
+     workspace PR (M3.7e, live; S4 below). Until S2 the close-out ran
      `pyauto-heart smoke --affected-by <the PR's repo> --jobs 3` on the PR
      head; S2's revert condition brings that back.
    - *PRs bound for the human's `/prm`* (`decision-taken`, `judge`, a
@@ -569,7 +570,34 @@ Watcher latency (M3.7c, the human's plan decisions of 2026-11-19):
   close resumes it in a later shift. A shift that never started anything,
   or a shadow shift, stays open to `review-at:`.
 
-A later ruling from the same review (S4) is added to this section.
+- **S4, the shift-end sweep** (M3.7e, PyAutoBrain#692). A shift that
+  merged at least one library or workspace PR dispatches the Workspace
+  Smoke workflow once at its close: after the last merge, before the digest.
+  The dispatch has no inputs, so the workflow's own SHA gate decides whether
+  to sweep; it is never forced. A shift with no such merge, or a shadow
+  shift, dispatches nothing. A failed dispatch is not retried: the digest
+  says "sweep not dispatched", and the human runs it from chat. The sweep
+  takes about 30 minutes. The digest is not held for it: it says "sweep
+  running" or "not yet listed", and the next shift's ticks read the result.
+  Each tick of a shift reads the workflow's latest runs on `main`. The
+  digest names, per library, the SHA the latest green sweep verified.
+- **Red handling** (M3.7e). When the latest completed sweep on `main` is red
+  (failure, cancelled or timed out), no unattended close-out starts on a
+  repo in a failing workspace's install chain (Heart `config/repos.yaml`
+  `smoke:`) or on that workspace's own repo. The PR is refused for `/prm`
+  as `workspace sweep red: <run url>`. PRs on other repos still close out.
+  A failing workspace the watcher cannot map, or a report it cannot read,
+  blocks every library repo. A close-out already running on a blocked repo
+  finds a `.sweep-red` marker and refuses before it merges. The block holds
+  in this shift and the next, until a later sweep on `main` is green or the
+  human posts `/clear-sweep` on the shift issue. `/clear-sweep` clears the
+  latest red run only; a newer red run blocks again. The red run files one
+  bug draft through the one Mind writer, naming the failing scripts, the
+  blocked repos and the suspect PRs (merged between the last green sweep's
+  SHAs and the red one's). Reverts are draft PRs opened for the human;
+  nothing is reverted unattended. Bisection is dispatched from a chat
+  session (`workspace-smoke-pinned.yml` with `commit_shas`), never by the
+  watcher.
 
 ## Merge authority follows Consequence — 2026-10-02
 
@@ -1279,6 +1307,34 @@ view` it already makes for its own workers' PRs: kept once read, once per PR
 per shift. When GitHub cannot say it reads again, at most once a tick; after
 3 misses over 15 minutes from first seeing the PR, the PR goes to `/prm`. The
 kick file that starts a tick early is local and adds no network act.
+
+**Amendment — 2026-11-19 (M3.7e, PyAutoBrain#692), approved by the human
+(ruling S4; decision b).** For the shift-end sweep ("Shift speed —
+2026-11-19", S4 and red handling) the watcher's surface gains:
+
+- **one `gh workflow run`** of the Workspace Smoke workflow per shift, at
+  its close, with no inputs. Its marker is claimed exclusively before the
+  call, and a failed dispatch is never retried. This is the one watcher
+  write not made under the App token: it runs under the human's own `gh`
+  login (decision b);
+- **one `gh run list`** of that workflow's runs on `main` a tick, while a
+  shift's tick runs;
+- **`gh run download`** of a run's two artifacts (`workspace-smoke-shas`,
+  and `workspace-validation-report` for a run that did not succeed), once
+  per run id, at most 3 tries ever, cached in the watcher's home;
+- **one `compare` read** (`gh api repos/<owner>/<repo>/compare/…`) per
+  affected repo per red run, cached, for the suspect PRs;
+- **the bug draft** for a red run, one per run id, through the one Mind
+  writer (no new network act);
+- **`/clear-sweep`** joins the command set, under the same rules as the
+  others (the configured login, the first line, after `dispatched:`, once by
+  id). It clears the block for the latest red run only and is acknowledged
+  in the status comment.
+
+These reads use the human's `gh` login too. The run list, downloads and
+compares make no writes. *Revert condition:* a second dispatch in one
+shift, more than one run list a tick, or a download or compare for the same
+run id beyond its tries retires the watcher to fake mode.
 
 **Login probe — 2026-11-17.** The watcher runs `claude auth status --json` (local, no model call) on a shift's first tick and when a worker shows as blocked. `loggedIn: false`, or a `loginExpiresAt` already passed, is a `login-expired` event, never "blocked on a person", and no worker starts until it passes.
 

@@ -250,7 +250,7 @@ def render(snap: dict) -> str:
 
 COMMAND_HELP = ("Steer it with a comment from the human's login, its first line one of: "
                 "`/pause`, `/resume`, `/drop <task>`, `/stop`, `/add <prompt>`, "
-                "`/cap merges|workers|sessions|tokens <n>`, `/kill <task>`.")
+                "`/cap merges|workers|sessions|tokens <n>`, `/kill <task>`, `/clear-sweep`.")
 
 
 def render_status(snap: dict) -> str:

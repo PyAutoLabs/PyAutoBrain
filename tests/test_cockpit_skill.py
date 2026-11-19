@@ -185,7 +185,7 @@ def test_the_steering_table_covers_exactly_the_watchers_verbs():
     # A comment cell starts with the command; "not a comment: the `/prm` …"
     # rows route elsewhere and post nothing.
     comments = [cell for cell in cells if cell.startswith("`/")]
-    named = set(re.findall(r"`/([a-z]+)\b", " ".join(comments)))
+    named = set(re.findall(r"`/([a-z]+(?:-[a-z]+)?)\b", " ".join(comments)))   # /clear-sweep
     assert named == set(_watcher_verbs()), named
     # The rest route elsewhere ("not a comment: …") or ask first ("nothing yet: ask").
     assert all(cell.startswith(("not ", "nothing yet: ask")) for cell in cells
