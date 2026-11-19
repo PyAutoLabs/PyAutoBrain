@@ -460,8 +460,8 @@ the prompt, its tier and **why the brief admitted it** (`_brief.pick_reason`:
 `named task`, `scoped epic|tag|tier <x>`, or `backlog: fill-idle`) — at
 dispatch, because by `review-at:` the prompt may have moved to `complete/`.
 The reap keeps what the worker left before deleting its marker: the `.done`
-lines go to `outcomes` (`<url>`, or `merged <url>` for an in-turn tiered
-merge), and `<task>.proof.md` moves to `<slot>/proofs/`. The first tick after
+lines go to `outcomes` (`<url>`; a `merged <url>` line, which no shift
+worker writes since 2026-11-19, is still recorded as an in-turn merge), and `<task>.proof.md` moves to `<slot>/proofs/`. The first tick after
 `review-at:` runs `finish_shift` once: `_digest.build` writes the `## Digest`
 (`PyAutoMind/batches/AGENTS.md` format — brief work, backlog picks each with
 its `why:`, one proof packet per started task or a stub that says none was
@@ -526,7 +526,9 @@ ends at PR-open (`worker_template.md`). Each tick, `_closeouts` first reaps
 running close-outs — `<task>.closeout` (`merged` | `refused`, `why`, `gate`,
 `model`), or a session gone without one, which is recorded refused — then, for
 each PR a worker named, judges the guards it can see with its own reads: the
-recorded tier is `glance` or `notify` (ruling R3, 2026-11-17), `gh pr checks` is green — at least one completed
+recorded tier is `glance` or `notify` (ruling R3, 2026-11-17; since 2026-11-19
+every `notify` PR comes here, its worker having ended at PR-open — ruling "ii",
+PyAutoHeart#352), `gh pr checks` is green — at least one completed
 check, all green (pending waits a tick; red, none or unknown is refused), the
 shift is not shadow, `review-at:` is more than 20 minutes away, spend is
 under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"),
@@ -534,8 +536,9 @@ and — last — a merge slot is free under `merge-cap:` (`_merge_slots.py`; a
 worker's in-turn merge takes from the same count). Then it starts **one** close-out session
 (`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus --effort medium`).
 That session is the independent leg: it runs the `Witness:` itself, reviews the
-diff adversarially, checks the `decision-taken` label and Heart, and only then
-runs the `/prm` close-out — or refuses. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`
+diff adversarially, checks the `decision-taken` label and Heart, runs the full
+affected smoke on the PR head (`pyauto-heart smoke --affected-by <repo> --jobs 3`,
+PyAutoHeart#352), and only then runs the `/prm` close-out — or refuses. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`
 and queues a `table-append` op that lands one row in
 `autonomy_log.md` "Unattended `glance` sub-window (stage 2)" through the one Mind
 writer. Every refusal is final for the shift and named in the digest
@@ -566,11 +569,10 @@ merged one is in the branch. A PR needing a third update refuses (`main kept
 moving`, `UPDATE_LIMIT` 2). A waiting or updated PR at `review-at:` is not
 refused; the next shift carries it with what it waited behind. The digest says
 `waits behind <A> (<A's state>) — merge <A> first` and lists a per-library
-"Merge order" block, ▶ on the PR that needs your /prm now. The in-turn path
-keeps the same order: `merge-slot take` (`bin/merge_slot.py`) refuses a
-`notify` worker's in-turn merge while an earlier shift PR on the same library
-is open (`in_turn_merge_blockers`, the close-out's rule), so that PR ends at
-PR-open and merges through the wait above. An `updated` PR's CI is read only
+"Merge order" block, ▶ on the PR that needs your /prm now. Shift workers no
+longer merge in-turn (2026-11-19, ruling "ii"); as a backstop `merge-slot take`
+(`bin/merge_slot.py`) still refuses an in-turn merge while an earlier shift PR
+on the same library is open (`in_turn_merge_blockers`, the close-out's rule). An `updated` PR's CI is read only
 once GitHub shows the head the update made; a head that moved since refuses.
 The spawn loop also refuses a task whose library a live, parked or
 re-dispatch-pending task holds, whatever the plan's order made of it.

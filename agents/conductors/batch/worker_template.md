@@ -45,21 +45,24 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   It is the check the organ's PR CI runs. PyAutoHeart#347 failed CI on a
   hard-coded repo name it would have caught. A finding outside your diff is
   not yours: name it in your proof packet. Other repos skip this step.
-- If the task is `Consequence: glance`, end at PR-open: do not wait for CI
-  and do not merge. Once CI lands, the watcher starts an independent close-out
-  session that runs the witness and merges, or refuses (AUTONOMY.md
-  "Unattended `glance` merges"). A `notify` task merges in-turn only after
-  `{brain_cli} merge-slot take <pr-url> --task {task}` exits 0, run as its own
-  bare call just
-  before a bare `gh pr merge` (ruling R3, AUTONOMY.md "`notify` merges under
-  `--auto` and inside a shift — 2026-11-17"). If it refuses, do not merge:
-  list the PR in your `.done` without `merged`, and it is left for `/prm`.
-  A refusal naming an earlier open sibling PR of this shift means end at
-  PR-open: the close-out merges yours after it, in order (M3.6j).
-  If the take succeeded but `gh pr merge` then fails, free the slot with
-  `{brain_cli} merge-slot release <pr-url> --task {task} --why "merge failed"`
-  and list the PR
-  without `merged`.
+- Smoke is **targeted** in a shift (AUTONOMY.md leg 2, split 2026-11-19,
+  PyAutoHeart#352). At the ship step run the changed repo's unit tests, the
+  task's `Witness:`, and only this smoke, never the full workspace sweep
+  (not a bare `/smoke_test`), from your task root with `activate.sh` sourced:
+
+      cd <task root> && source activate.sh && pyauto-heart smoke --root "$PWD" --targeted --changed-files $(git -C <repo> diff --name-only origin/main...HEAD | sed 's|^|<repo>/|')
+
+  It runs the curated scripts that reference your change, or one cheap
+  import-check script when none do. Say in the PR body which smoke ran (the
+  scripts it picked, or the import check) and that the full affected smoke
+  runs in the close-out before an unattended merge. A failure is yours to fix like a test.
+- If the task is `Consequence: glance` or `notify`, end at PR-open: do not
+  wait for CI and do not merge. Once CI lands, the watcher starts an
+  independent close-out session that runs the witness and the full affected
+  smoke and merges, or refuses (AUTONOMY.md "Unattended `glance` merges";
+  `notify` workers stopped merging in-turn on 2026-11-19, the human's ruling
+  "ii", PyAutoHeart#352). Never run `merge-slot take` or `gh pr merge`
+  yourself.
 - Never commit to PyAutoMind yourself — a hook refuses it. Queue each Mind
   change with `{shift_ledger} --task {task} append|write|edit|move|remove|drop-section ...`
   (ops land in {ledger_dir}/) and the orchestrator commits them. This covers
@@ -86,7 +89,7 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   decide it. It goes into the shift digest verbatim; leave it out and the
   digest says you wrote none.
 - Then write {lease_dir}/{task}.done containing the URLs of the PRs you opened,
-  one per line — `merged <url>` for a PR you merged in-turn under its tier. An
+  one per line (a shift worker merges none; the close-out does). An
   issue is marked by why you ended there: `question: <url>` when you parked
   with a question the human must answer, or `verdict: <url>` when you posted
   a verdict, your deliverable (the digest lists it). Nobody is @-mentioned

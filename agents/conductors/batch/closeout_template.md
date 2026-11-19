@@ -49,11 +49,29 @@ outcome — the human merges by `/prm` at check-in.
    reason line (`CI PENDING: …` / `CI RED: …`): no waiting, no re-run. A
    `GREEN` that names a skipped **test** leg refuses too (a tiered merge
    stops on a skipped test leg, `skills/prm/reference.md` "Tiered merge").
-{after_step}5. Immediately before you merge — after every check above, and again right
+{after_step}5. Run the full affected smoke on the PR's head (AUTONOMY.md leg 2, split
+   2026-11-19, PyAutoHeart#352). The worker ran only a targeted smoke; this
+   is the sweep, and it runs only here, before an unattended merge. Use the
+   task root the worker shipped from (the folder holding `.pyauto-root` and
+   its `{pr_repos}` worktree on the PR's branch, the one you clean up in
+   step 8): bring that worktree to the PR's head with `git fetch origin
+   <branch>` and `git merge --ff-only FETCH_HEAD`, and check `git rev-parse
+   HEAD` equals `gh pr view {pr_url} --json headRefOid`. No task root, a
+   dirty tree, or a head that will not match: refuse with why
+   `cannot smoke the PR head locally → /prm`. Then, from the task root with
+   its `activate.sh` sourced:
+
+       {smoke_cmd}
+
+   It runs every workspace whose install chain has the repo, three at a
+   time, and prints a per-workspace summary. Exit 0 passes ("nothing to run"
+   for a repo no workspace installs passes too). Any other exit refuses with
+   why `smoke FAILED: <the failing workspaces> → /prm`: no re-run, no fix.
+6. Immediately before you merge — after every check above, and again right
    before the merge command itself — look for {lease_dir}/{task}.dropped. If
    it exists, the human dropped this task with `/drop` mid-shift: do not merge;
    refuse with why `dropped by /drop`.
-6. If everything passed, use the prm skill on {pr_url}: the full close-out,
+7. If everything passed, use the prm skill on {pr_url}: the full close-out,
    judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with
    `{shift_ledger} --task {task} append|write|edit|move|remove|drop-section ...`
@@ -74,20 +92,20 @@ outcome — the human merges by `/prm` at check-in.
    The `/prm` merge slot take (reference.md "Tiered merge") is
    `pyauto-brain merge-slot take {pr_url} --task {task}`; it succeeds for
    this PR and task: the watcher took its slot before starting you.
-7. After a merge, remove the task's worktree and local branch as `/prm` does
+8. After a merge, remove the task's worktree and local branch as `/prm` does
    (`skills/prm/closeout.md` steps 5–6): `worktree_remove <slug>` once your
    `drop-section active.md <slug>` is queued — the stale-claim guard counts a
    claim release queued in {ledger_dir}/ — then `git -C <repo> branch -d
    feature/<slug>` for a local branch left in a canonical checkout. Never
    `PYAUTO_WT_FORCE=1`, never `rm -rf`: a dirty tree or any other refusal
    stays, and you say why in the verdict's `cleanup` field.
-8. End at your deliverable. Never arm anything that outlives your turn.
+9. End at your deliverable. Never arm anything that outlives your turn.
 
 Last, write {lease_dir}/{task}.closeout as one JSON object:
 
     {{"result": "merged" | "refused", "pr": "{pr_url}",
       "why": "<one line — required when refused>",
-      "gate": "tests …/witness …/review …/heart …",
+      "gate": "tests …/witness …/review …/heart …/smoke …",
       "model": "<your model id>",
       "cleanup": "<after a merge: `worktree and branch removed`, or why not>"}}
 

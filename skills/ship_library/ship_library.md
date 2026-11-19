@@ -122,7 +122,8 @@ Analyse downstream workspace impact and present data-driven options — see
 - **(i)** new demos / **(ii)** API migration → `/start_workspace` next; post a
   "Library PR Created" progress comment, set `active.md` to
   `library-shipped, workspace-pending`, add `library-pr:`, push Mind.
-- **(iii)** no workspace impact → run `/smoke_test` (with `activate.sh` sourced).
+- **(iii)** no workspace impact → run `/smoke_test` (with `activate.sh` sourced;
+  a shift or `--auto` worker runs the targeted form, AUTONOMY.md leg 2).
   On pass — unless step 6's tiered merge applies, whose `/prm` close-out does
   all of this itself — offer to merge the library PR, post a "Shipped" comment, write the
   dated completion record (`lifecycle.py record` — also refreshes the index
