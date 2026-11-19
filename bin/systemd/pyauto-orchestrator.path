@@ -4,7 +4,9 @@
 # the watcher sets to this file (M3.7c, PyAutoBrain#690). Best effort: a kick
 # that never comes changes nothing, and the 60-second timer is the backstop.
 # %S is $XDG_STATE_HOME, or ~/.local/state, for a user unit, so this unit
-# carries no workspace path. The tick lock makes a kick during a tick harmless.
+# carries no workspace path. PathChanged is edge-triggered: a kick that lands
+# while a tick runs does not queue a second tick, so it is dropped, and the
+# 60-second timer picks the change up on its next firing.
 [Unit]
 Description=PyAuto shift watcher — tick when a session kicks it
 
@@ -12,6 +14,13 @@ Description=PyAuto shift watcher — tick when a session kicks it
 PathChanged=%S/pyauto/orchestrator.kick
 MakeDirectory=yes
 Unit=pyauto-orchestrator.service
+# At most 20 triggers in 10 s; past that the path unit stops
+# (trigger-limit-hit) rather than start the tick in a loop, and the 60-second
+# timer carries on. Kicks come one per session verdict,
+# so a shift never gets near it. Needs systemd 250 or later; older versions
+# log "unknown key" and ignore these two lines.
+TriggerLimitIntervalSec=10s
+TriggerLimitBurst=20
 
 [Install]
 WantedBy=paths.target

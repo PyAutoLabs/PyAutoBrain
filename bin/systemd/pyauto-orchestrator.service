@@ -3,6 +3,12 @@
 # never from this unit, so the template carries no workspace path.
 [Unit]
 Description=PyAuto shift watcher — one tick (deterministic, no LLM)
+# No start limit (M3.7c review, PyAutoBrain#690): the 60-second timer plus
+# bursts of kicks from pyauto-orchestrator.path start this unit often. The
+# default limit (5 starts in 10 s) could put it into unit-start-limit-hit,
+# which can leave the timer and the path unit failed with it. Each tick
+# is short and the tick lock keeps two from overlapping.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

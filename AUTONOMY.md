@@ -543,7 +543,8 @@ Outside a shift (an `--auto` chat) nothing changes.
   watcher refuses a `decision-taken` PR when it first sees it, from the
   label alone. No close-out session starts, no merge slot is taken and CI
   is not read. It reads the label once per PR per shift; a label it cannot
-  read is asked again next tick, never taken as absent. The PR keeps its
+  read is asked again next tick, never taken as absent, and after 3 failed
+  reads the PR goes to the human's `/prm` and the digest counts it. The PR keeps its
   place as an earlier PR in the merge order (M3.6j ruling c, unchanged), so
   later unattended merges on that library wait for the human's `/prm`. The
   digest names the PRs that waited behind a `/prm`-bound PR, one line per
@@ -555,10 +556,12 @@ Watcher latency (M3.7c, the human's plan decisions of 2026-11-19):
   close-out or branch update its `.closeout`, then appends a line to the
   kick file (`$PYAUTO_SHIFT_KICK`, `~/.local/state/pyauto/orchestrator.kick`).
   A systemd path unit starts a tick when it changes. The kick is best
-  effort; the timer is the backstop.
+  effort. A kick that lands while a tick runs is dropped (the path unit is
+  edge-triggered), and the timer picks it up within 60 seconds.
 - **Early close.** A shift posts its digest on the tick that leaves nothing
   to do: no worker live, no re-dispatch owed, no close-out or branch update
-  running, every PR judged, and no task that could still start. A PR waiting
+  running, every PR judged, no task that could still start, and nothing
+  this tick could not read (the steering comments, Mind `origin/main`). A PR waiting
   behind a `/prm`-bound PR does not hold the shift open. The digest says
   "closed early at <time>; review-at was <time>", and merges count up to the
   close. A paused shift never closes early (decision 2). A task parked on a
@@ -1272,7 +1275,8 @@ condition.
 
 **Amendment — 2026-11-19 (M3.7c, PyAutoBrain#690), approved by the human.**
 For ruling S7 the watcher reads `labels` as one more field of the `gh pr
-view` it already makes for its own workers' PRs, once per PR per shift. The
+view` it already makes for its own workers' PRs: once per PR per shift, with
+at most 3 tries when GitHub cannot say (then the PR goes to `/prm`). The
 kick file that starts a tick early is local and adds no network act.
 
 **Login probe — 2026-11-17.** The watcher runs `claude auth status --json` (local, no model call) on a shift's first tick and when a worker shows as blocked. `loggedIn: false`, or a `loginExpiresAt` already passed, is a `login-expired` event, never "blocked on a person", and no worker starts until it passes.

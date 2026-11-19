@@ -365,12 +365,17 @@ ticks every 60 seconds. `worker_env` sets `PYAUTO_SHIFT_KICK` to the kick file
 `~/.local/state/pyauto/orchestrator.kick`, systemd's `%S`). A worker appends a
 line to it after its `.done`, and a close-out or branch update after its
 `.closeout`, best effort. `bin/systemd/pyauto-orchestrator.path` starts a tick
-when the file changes; the tick lock makes a kick during a tick harmless. The
+when the file changes. `PathChanged` is edge-triggered: a kick that lands
+while a tick runs is dropped, not queued, and the timer picks it up within 60
+seconds. The service has no start limit (`StartLimitIntervalSec=0`) and the
+path unit allows 20 triggers in 10 s. The
 shift closes early on the tick that leaves nothing to do (`early_close_ready`):
 not paused, not shadow, something started, no live lease, no re-dispatch owed,
 no close-out or update running or waiting on its new head, every PR judged
 (refused, merged, or waiting in merge order), and no task that could still
-start (`startable`: a failed launch, an unreadable spend, an expired login). A
+start (`startable`: a failed launch, an unreadable spend, an expired login).
+Nothing this tick could not read: the steering comments (`commands_unread`)
+or Mind `origin/main` (a draft held as `fail closed`) keeps it open. A
 task held by a library, `max-sessions` or the token budget cannot start, and a
 task parked on a question does not hold the shift open. `close_early` records
 `counters["closed_early"]` and runs `finish_shift` with that time as the end.
@@ -380,7 +385,9 @@ they read no steering, so an `/add` after the close does nothing.
 
 **S7: `decision-taken` at PR-open (M3.7c).** `_start_closeouts` reads a new
 PR's labels right after the tier check (`labels` in `gh_pr_state`, kept in
-`counters["pr_labels"]`, once per PR per shift; unreadable means wait). A
+`counters["pr_labels"]`, once per PR per shift, after the carried-PR check;
+unreadable means wait, and after 3 failed reads the PR goes to `/prm` as
+`labels unreadable after 3 reads`, counted in the digest). A
 `decision-taken` PR is refused (`decision-taken — the human's /prm`) with no
 close-out, no merge slot and no CI read. It stays an earlier PR in the merge
 order, so later PRs on its library wait until GitHub says MERGED or CLOSED.

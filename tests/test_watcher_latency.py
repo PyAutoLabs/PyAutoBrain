@@ -36,6 +36,13 @@ NOW = t.NOW
 SYSTEMD = BRAIN / "bin" / "systemd"
 
 
+@pytest.fixture(autouse=True)
+def _steering_read(monkeypatch):
+    """The shift issue reads as no comments: offline, `gh_issue_comments` says
+    it cannot read them, which holds the shift open (review round 1)."""
+    monkeypatch.setattr(orch, "gh_issue_comments", lambda *a, **k: [])
+
+
 def _at(minutes):
     return NOW + _dt.timedelta(minutes=minutes)
 
@@ -55,6 +62,18 @@ def test_the_path_unit_starts_the_tick_when_the_kick_file_changes():
     assert "MakeDirectory=yes" in unit
     assert "WantedBy=paths.target" in unit
     assert "/home/" not in unit and "Workspace" not in unit      # a template, no path
+    # Review round 1, finding 2: kicks are rate-limited, and the comment says
+    # a kick during a tick is dropped (PathChanged is edge-triggered).
+    assert "TriggerLimitIntervalSec=10s" in unit and "TriggerLimitBurst=20" in unit
+    assert "dropped" in unit and "harmless" not in unit
+
+
+def test_the_service_never_hits_the_start_limit():
+    """Review round 1, finding 2: bursts of kicks plus 60 s ticks must never
+    put the service into `unit-start-limit-hit`."""
+    service = (SYSTEMD / "pyauto-orchestrator.service").read_text()
+    unit = service.split("[Service]", 1)[0]
+    assert "StartLimitIntervalSec=0" in unit
 
 
 def test_kick_path_matches_systemds_state_directory(monkeypatch, tmp_path):
@@ -115,9 +134,11 @@ class _Health:
         return self.word
 
 
-def _ltick(brief, mind, home, sp, minutes, states=None, health=None, poster=None):
+def _ltick(brief, mind, home, sp, minutes, states=None, health=None, poster=None,
+           labels=None):
     return orch.tick(brief, mind, home=home, now=_at(minutes), spawner=sp, agents=Agents(),
-                     health=health or _Health(), pr_state=_labelled(states), poster=poster)
+                     health=health or _Health(), pr_state=_labelled(states, labels),
+                     poster=poster)
 
 
 def _keeper(brief, home):
@@ -332,3 +353,124 @@ def test_a_second_tick_while_the_lock_is_held_does_nothing(tmp_path):
     assert r == {"action": "busy", "reason": "another tick holds the lock"}
     assert run["poster"].calls == [] and len(run["sp"].closeouts) == spawned
     assert not (slot / orch.DIGEST_MARKER).exists()
+
+
+# --- review round 1 (M3.7c) -----------------------------------------------------------
+
+def test_r1_an_unread_steering_read_keeps_the_shift_open(tmp_path, monkeypatch):
+    """Finding 1a: a /add or /resume may sit unread on the shift issue."""
+    monkeypatch.setenv(orch.MENTION_ENV, "a-human")
+    monkeypatch.setattr(orch, "gh_issue_comments", lambda *a, **k: None)
+    run = _early(tmp_path, PRS)
+    r = run["tick"](1)
+    c = orch.read_counters(orch.slot_dir(run["brief"], run["home"]))
+    assert c.get("commands_unread")
+    assert "closed_early" not in r and run["poster"].calls == []
+    monkeypatch.setattr(orch, "gh_issue_comments", lambda *a, **k: [])
+    assert run["tick"](2)["closed_early"] == "2026-11-04T09:02:00Z"
+
+
+def test_r1_a_plan_that_failed_closed_on_mind_keeps_the_shift_open(tmp_path, monkeypatch):
+    """Finding 1b: drafts dropped because Mind origin/main could not be read."""
+    run = _early(tmp_path, PRS)
+    monkeypatch.setattr(orch, "origin_claims",
+                        lambda *a, **k: {"error": "origin/main unreadable"})
+    r = run["tick"](1)
+    c = orch.read_counters(orch.slot_dir(run["brief"], run["home"]))
+    assert any(w.endswith("fail closed") for w in c["backlog_gates"]["origin"].values())
+    assert "closed_early" not in r and run["poster"].calls == []
+
+
+def test_r1_labels_unreadable_three_times_go_to_the_humans_prm(tmp_path):
+    """Finding 3: at most 3 label reads per PR per shift, then /prm."""
+    mind, brief, home, sp = tc._order_shift(tmp_path)
+    proc = _keeper(brief, home)
+    reads = []
+    base = _labelled({GA7: None})
+
+    def pr_state(url):
+        reads.append(url)
+        return base(url)
+    try:
+        for minute in (1, 2, 3, 4):
+            orch.tick(brief, mind, home=home, now=_at(minute), spawner=sp, agents=Agents(),
+                      health=_Health(), pr_state=pr_state)
+            if minute == 2:
+                c = orch.read_counters(orch.slot_dir(brief, home))
+                assert GA7 not in c["closeouts"]                    # still waiting
+        c = orch.read_counters(orch.slot_dir(brief, home))
+        assert c["closeouts"][GA7]["state"] == "refused"
+        assert c["closeouts"][GA7]["why"] == "labels unreadable after 3 reads → your /prm"
+        assert c["pr_label_misses"][GA7] == 3            # tick 4 read no labels
+        assert sp.closeouts == []
+    finally:
+        proc.kill()
+        proc.wait()
+    # The keeper is gone (not crashed): nothing is left, so the shift closes.
+    (orch.slot_dir(brief, home) / "leases" / "keeper.json").unlink()
+    poster = t.Poster()
+    orch.tick(brief, mind, home=home, now=_at(5), spawner=sp, agents=Agents(),
+              health=_Health(), pr_state=pr_state, poster=poster)
+    d = (orch.slot_dir(brief, home) / orch.DIGEST_FILE).read_text()
+    assert "- 1 PR(s) refused: labels unreadable after 3 reads" in d
+
+
+def test_r1_a_carried_pr_the_human_merged_is_reported_by_its_github_state(tmp_path):
+    """Finding 4: the carried check runs before the label read."""
+    ga6 = "https://github.com/example-org/autogalaxy/pull/6"
+    mind, brief, home, sp = tc._order_shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    c["outcomes"]["old"] = {"prs": [ga6], "merged": [], "issues": [],
+                            "carried_from": "2026-11-03-pm"}
+    c["picks"]["old"] = {"tier": "glance", "prompt": ""}
+    orch._write_counters(slot, c)
+    _ltick(brief, mind, home, sp, 1, states={ga6: ("MERGED", "2026-11-04T08:00:00Z")},
+           labels={ga6: ["decision-taken"]})
+    c = orch.read_counters(slot)
+    assert c["closeouts"][ga6]["why"].startswith("carried over from 2026-11-03-pm")
+    assert "decision-taken" not in c["closeouts"][ga6]["why"]
+    from test_orchestrator_digest import _digest
+    assert "#6" not in "\n".join(_digest.waited_lines(c))     # never a /prm-bound blocker
+
+
+def _ready(tmp_path, counters, result=None):
+    slot = tmp_path / "slot"
+    (slot / "leases").mkdir(parents=True, exist_ok=True)
+    base = {"sessions": 1, "outcomes": {}, "closeouts": {}, "merge_waits": {}}
+    return slot, orch.early_close_ready(slot, {**base, **counters},
+                                        result or {"action": "ticked"})
+
+
+def test_r1_guards_nothing_left_is_ready(tmp_path):
+    assert _ready(tmp_path, {})[1] is True
+
+
+def test_r1_guard_an_updated_pr_waiting_for_ci_on_its_new_head(tmp_path):
+    co = {GA8: {"task": "picked", "state": "updated", "head": "abc123"}}
+    out = {"picked": {"prs": [GA8], "merged": []}}
+    assert _ready(tmp_path, {"closeouts": co, "outcomes": out})[1] is False
+
+
+def test_r1_guard_a_lease_inside_its_grace_with_a_stale_heartbeat(tmp_path):
+    slot = tmp_path / "slot"
+    (slot / "leases").mkdir(parents=True)
+    (slot / "leases" / "t1.json").write_text(json.dumps({
+        "task": "t1", "started": "2026-11-04T08:00:00Z", "heartbeat": "2026-11-04T08:01:00Z",
+        "expires": "2026-11-04T09:07:00Z", "pid": 0}))
+    assert _ready(tmp_path, {})[1] is False
+
+
+def test_r1_guard_an_unreadable_carried_pr(tmp_path):
+    out = {"named": {"prs": [GA7], "merged": [], "carried_from": "2026-11-03-pm"}}
+    assert _ready(tmp_path, {"outcomes": out})[1] is False
+
+
+def test_r1_guard_a_pending_redispatch_no_cap_refused(tmp_path):
+    run = _early(tmp_path, PRS)
+    slot = orch.slot_dir(run["brief"], run["home"])
+    c = orch.read_counters(slot)
+    c["pending_redispatch"] = ["named"]
+    orch._write_counters(slot, c)
+    r = run["tick"](1)
+    assert "named" in r.get("startable", []) and "closed_early" not in r

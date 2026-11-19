@@ -3641,7 +3641,8 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
 def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
     """Whether a live tick leaves the shift with nothing to do before
     `review-at:` (M3.7c, decisions 2 and 3). All must hold: the tick ran
-    (not shadow, not stopped) and the shift is not paused; the shift has
+    (not shadow, not stopped) and the shift is not paused; nothing this
+    tick read failed (the steering comments, Mind origin/main); the shift has
     started something (a worker or a carried PR), so a plan that could not be
     read never closes it; no worker holds a lease (a parked one does not
     count); no pick could still start (`startable`: a failed launch, an
@@ -3653,6 +3654,14 @@ def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
     if result.get("action") != "ticked" or result.get("paused") or counters.get("paused"):
         return False
     if result.get("spawned") or result.get("startable"):
+        return False
+    # Review round 1, finding 1: an input this tick could not read is never
+    # "nothing to do" — an unread `/add` or `/resume` on the shift issue, or
+    # drafts the plan dropped because Mind origin/main failed closed.
+    if counters.get("commands_unread"):
+        return False
+    origin = (counters.get("backlog_gates") or {}).get("origin") or {}
+    if any(str(w).endswith("fail closed") for w in origin.values()):
         return False
     outcomes = counters.get("outcomes") or {}
     if not (counters.get("sessions") or outcomes):
@@ -4280,6 +4289,10 @@ def _pr_files_once(counters: dict, pr_files, url: str) -> list[str] | None:
 DECISION_TAKEN = "decision-taken"
 #: Why a `decision-taken` PR is refused at PR-open (S7, M3.7c, #690).
 DECISION_TAKEN_WHY = "decision-taken — the human's /prm"
+#: Label reads one PR may fail in a shift before it goes to the human's /prm
+#: (review round 1, M3.7c): never read without bound, never assumed clean.
+LABEL_READS = 3
+LABELS_UNREADABLE_WHY = f"labels unreadable after {LABEL_READS} reads → your /prm"
 
 
 def _pr_labels_once(counters: dict, pr_state, cache: dict, url: str) -> list[str] | None:
@@ -4287,7 +4300,8 @@ def _pr_labels_once(counters: dict, pr_state, cache: dict, url: str) -> list[str
     `counters["pr_labels"]` (S7, M3.7c; AUTONOMY.md "The watcher's network
     surface", amendment 2026-11-19): the `labels` field of the `gh pr view`
     the tick already makes (`_gh_once`). None when GitHub cannot say: not
-    kept, asked again next tick, never assumed clean. No reader at all (a
+    kept, asked again next tick (each miss counted in
+    `counters["pr_label_misses"]`), never assumed clean. No reader at all (a
     test spawner) reads as no labels, uncached: the close-out's own label
     check stays the second layer."""
     kept = counters.setdefault("pr_labels", {})
@@ -4297,6 +4311,8 @@ def _pr_labels_once(counters: dict, pr_state, cache: dict, url: str) -> list[str
         return []
     gh = _gh_once(pr_state, cache, url)
     if not gh:
+        misses = counters.setdefault("pr_label_misses", {})
+        misses[url] = int(misses.get(url) or 0) + 1
         return None
     labels = gh.get("labels")
     kept[url] = [str(x) for x in labels] if isinstance(labels, list) else []
@@ -4390,16 +4406,6 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             # open is closed out on the same terms as a `glance` one.
             refuse(pr, task, f"tier {tier} — never merged unattended → your /prm", held=again)
             continue
-        # S7 (M3.7c, #690): a `decision-taken` PR is the human's /prm, from
-        # its label alone: no close-out session, no merge slot, no CI read.
-        # It stays among the shift's known PRs, so a later PR on its library
-        # still waits behind it (ruling c). Unreadable: asked again next tick.
-        labels = _pr_labels_once(counters, pr_state, cache, pr)
-        if labels is None:
-            continue
-        if DECISION_TAKEN in labels:
-            refuse(pr, task, DECISION_TAKEN_WHY, held=again)
-            continue
         if out.get("carried_from"):
             # A carried PR (M3.6c) may have been merged or closed by the
             # human since its shift: only an OPEN one is closed out, so a
@@ -4412,6 +4418,21 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                 refuse(pr, task, f"carried over from {out['carried_from']}, but GitHub reads "
                                  f"it {state or '?'} — not closed out", held=again)
                 continue
+        # S7 (M3.7c, #690): a `decision-taken` PR is the human's /prm, from
+        # its label alone: no close-out session, no merge slot, no CI read.
+        # It stays among the shift's known PRs, so a later PR on its library
+        # still waits behind it (ruling c). After the carried check (review
+        # round 1): a carried PR the human merged or closed is reported by
+        # its GitHub state. Unreadable: asked again next tick, at most
+        # LABEL_READS times, then the human's /prm.
+        labels = _pr_labels_once(counters, pr_state, cache, pr)
+        if labels is None:
+            if int((counters.get("pr_label_misses") or {}).get(pr) or 0) >= LABEL_READS:
+                refuse(pr, task, LABELS_UNREADABLE_WHY, held=again)
+            continue
+        if DECISION_TAKEN in labels:
+            refuse(pr, task, DECISION_TAKEN_WHY, held=again)
+            continue
         # Merge order (M3.6j): an earlier library PR of this shift still open
         # holds this one back. Waiting is not a refusal and takes no slot. An
         # earlier PR whose close-out is running (waiting in-turn on its CI,

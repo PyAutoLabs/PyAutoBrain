@@ -378,7 +378,8 @@ def waited_lines(counters: dict) -> list[str]:
     human's /prm (S7, M3.7c, PyAutoBrain#690): one line per library repo and
     set of blockers, from `merge_waits` at close and the refused close-outs —
     `autogalaxy: #8, #9 waited behind #7 (/prm-bound: decision-taken)` — after
-    a count. Empty when nothing waited behind a refused PR."""
+    a count; and how many PRs were refused because their labels could not be
+    read (S7). Empty when there is neither."""
     cos = counters.get("closeouts") or {}
     refused = {u: co for u, co in cos.items() if co.get("state") == "refused"}
     groups: dict[tuple, list[str]] = {}
@@ -389,14 +390,19 @@ def waited_lines(counters: dict) -> list[str]:
         m = _PR_REF_RE.match(url)
         repo = m.group(1) if m else "?"
         groups.setdefault((repo, tuple(bound)), []).append(url)
-    if not groups:
+    unread = [u for u, co in refused.items()
+              if str(co.get("why") or "").startswith("labels unreadable")]
+    if not groups and not unread:
         return []
 
     def num(u):
         m = _PR_REF_RE.match(u)
         return int(m.group(2)) if m else 0
     n = sum(len(v) for v in groups.values())
-    out = ["", WAITED_HEADING, f"- {n} PR(s) waited behind a /prm-bound PR"]
+    out = ["", WAITED_HEADING] + ([f"- {n} PR(s) waited behind a /prm-bound PR"] if n else [])
+    if unread:   # review round 1: label reads that never succeeded (S7)
+        out.append(f"- {len(unread)} PR(s) refused: labels unreadable after 3 reads — "
+                   + ", ".join(pr_ref(u) for u in unread))
     for (repo, bound), urls in groups.items():
         whys = "; ".join(dict.fromkeys(str(refused[b].get("why") or "?").split(" — ", 1)[0]
                                        for b in bound))
