@@ -2174,6 +2174,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             recs = recs + [a["record"] for a in (counters.get("added") or {}).values()
                            if isinstance(a.get("record"), dict)
                            and a["record"].get("path") not in have]
+            surveyed = list(recs)
             # Parked on a question by an earlier shift (#637, item 3): not
             # startable until answered. A brief that names it again is the
             # human's word that it is; a task this shift picked stays. Read
@@ -2220,8 +2221,16 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # Unattended by construction: an absent Lane is excluded and an
             # empty queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2
             # rulings — 2026-11-12"). Recorded each tick so the digest can say so.
+            # Kept out above, with why: read only by the queued-epic lines (#696).
+            kept = {r["path"] for r in recs}
+            why_out = {**planned["parked"], **(claimed or {})}
+            withheld = [(r, why_out.get(r["path"], "kept out before planning "
+                                                   "(carried or resumed elsewhere)"))
+                        for r in surveyed if r["path"] not in kept]
             planned["d"] = _batch.plan(recs, session_lane="local-dev", brief=brief,
-                                       queue=_batch.read_queue(mind), released=freed)
+                                       queue=_batch.read_queue(mind), released=freed,
+                                       epic_ledgers=_batch.read_epic_ledgers(mind),
+                                       withheld=withheld)
         return planned["d"]
 
     def known(task: str) -> bool:
@@ -2291,7 +2300,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                  # digest's "Not started" reason), and the backlog
                                  # drafts kept out for want of a `Witness:`.
                                  "named": _named_reasons(brief, d, planned),
-                                 "witness_absent": sorted(d.get("witness_absent") or [])}
+                                 "witness_absent": sorted(d.get("witness_absent") or []),
+                                 # #696: one line per queued epic ledger.
+                                 "queued_epics": _batch.queued_epic_lines(d)}
     paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):
         proposed = [] if paused else _propose(

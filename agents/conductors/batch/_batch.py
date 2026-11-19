@@ -246,6 +246,7 @@ def survey(mind: Path) -> list[dict]:
         g["phase"] = _phase_of(text)
         g["phase_declared"] = _phase_declared(text)
         g["done"] = _is_done(text)
+        g["ledger"] = is_ledger_text(text)
         g["themes"] = _themes_of(text)
         g["title"] = _title_of(text)
         out.append(g)
@@ -263,6 +264,7 @@ def grade_text(text: str, rel: str, mind: Path) -> dict:
     g["phase"] = _phase_of(text)
     g["phase_declared"] = _phase_declared(text)
     g["done"] = _is_done(text)
+    g["ledger"] = is_ledger_text(text)
     g["themes"] = _themes_of(text)
     g["title"] = _title_of(text)
     return g
@@ -297,6 +299,76 @@ def queue_rank(r: dict, queue: list[str]) -> int:
             if Path(q).name == name:
                 return i
     return len(queue)
+
+
+def is_ledger_text(text: str) -> bool:
+    """An epic ledger: `Status: campaign map` with `Epic:` and no `Phase:`
+    (as intake's `_shipped` reads a map). A side task of an epic (`Epic:`, no
+    `Phase:`, any other status) is an ordinary prompt."""
+    return bool(_epic_of(text)) and not _phase_declared(text) \
+        and _header_of(text, "status").lower().startswith("campaign map")
+
+
+def read_epic_ledgers(mind: Path) -> dict[str, str]:
+    """{ledger path: epic slug} from Mind `epics.md` (`## <slug>` sections,
+    each with a `- ledger:` line). The fallback that maps a queued ledger to
+    its epic when the ledger's own `Epic:` header is missing or sits below
+    the lines `_header_of` reads."""
+    try:
+        text = (Path(mind) / "epics.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    out: dict[str, str] = {}
+    slug = ""
+    for line in text.splitlines():
+        h = re.match(r"^##\s+(\S+)", line)
+        if h:
+            slug = h.group(1)
+        elif slug and line.startswith("- ledger:"):
+            ledger = line.split(":", 1)[1].strip().strip("`")
+            if ledger and not ledger.startswith("http"):
+                out.setdefault(ledger, slug)
+            slug = ""
+    return out
+
+
+def queued_epics(queue: list[str], records: list[dict],
+                 epic_ledgers: dict[str, str] | None = None) -> dict[str, int]:
+    """{epic slug: queue index} for every queue entry that names an epic
+    ledger (PyAutoBrain#696). An entry is an epic when the prompt it names is
+    a ledger (`ledger` in its survey record: `Epic:`, no `Phase:`, `Status:
+    campaign map`), or when `epics.md` lists it as an epic's `- ledger:`.
+    A queued phase or side task queues only itself. The first entry wins."""
+    by_path = {r.get("path") or "": r for r in records}
+    by_name: dict[str, dict] = {}
+    for r in records:
+        by_name.setdefault(Path(r.get("path") or "").name, r)
+    ledgers = epic_ledgers or {}
+    ledger_names = {Path(p).name: s for p, s in ledgers.items()}
+    out: dict[str, int] = {}
+    for i, q in enumerate(queue):
+        r = by_path.get(q) or by_name.get(Path(q).name)
+        slug = r["epic"] if r and r.get("ledger") and r.get("epic") else ""
+        slug = slug or ledgers.get(q) or ledger_names.get(Path(q).name, "")
+        if slug:
+            out.setdefault(slug, i)
+    return out
+
+
+def queue_standing(r: dict, queue: list[str],
+                   epic_ranks: dict[str, int] | None = None) -> tuple[int, str]:
+    """(rank, epic it is queued through or "") — the ONE answer to "is this
+    record queued?" (PyAutoBrain#696). Queued directly (`queue_rank`), or as
+    a member of a queued epic ledger, at the ledger's rank, whichever is
+    higher in the file. `rank == len(queue)` is unqueued. Only the queue
+    standing changes: every gate of `pool_gate` (phase order, autonomy,
+    Unattended, Blocked-by) still applies to the member."""
+    direct = queue_rank(r, queue)
+    epic = r.get("epic") or ""
+    via = (epic_ranks or {}).get(epic) if epic and not r.get("ledger") else None
+    if via is not None and via < direct:
+        return via, epic
+    return direct, ""
 
 
 def next_phases(records: list[dict]) -> dict[str, float]:
@@ -385,6 +457,69 @@ def scoped_reach_why(r: dict) -> str:
             "bigger work (ruling 2026-11-16)")
 
 
+#: The idle line for a queued epic with no draft prompt at its next phase.
+NO_NEXT_PHASE_DRAFT = ("no draft prompt for {phase} — run the epic's Continue prompt "
+                       "in an attended chat to file it")
+#: How many next-phase members an idle line names before `+n more`.
+EPIC_LINE_MEMBERS = 4
+
+
+def queued_epic_summary(records: list[dict], epic_ranks: dict[str, int],
+                        members: list[dict], rejected: list[tuple[str, str]],
+                        queue: list[str]) -> list[dict]:
+    """One entry per queued epic, in queue order (PyAutoBrain#696): what it
+    contributes to this plan, or why nothing — its next phase, and each
+    next-phase member with the planner's reason for leaving it out; or no
+    draft prompt at all for its next phase. Each entry carries its `line`."""
+    why_of: dict[str, str] = {}
+    for p, w in rejected:
+        why_of.setdefault(p, w)
+    out = []
+    for slug, rank in sorted(epic_ranks.items(), key=lambda kv: kv[1]):
+        tag = f"{slug} (q{rank + 1})"
+        taken = [m["path"] for m in members if m.get("epic") == slug]
+        open_ = [r for r in records if r.get("epic") == slug and not r.get("ledger")
+                 and not r.get("done")]
+        phased = [r for r in open_ if has_phase(r)]
+        nxt = min((r["phase"] for r in phased), default=None)
+        e = {"epic": slug, "rank": rank + 1, "ledger": queue[rank] if rank < len(queue) else "",
+             "taken": taken, "next_phase": None, "members": []}
+        if nxt is not None:
+            e["next_phase"] = f"{nxt:g}" if nxt != float("inf") else "(unnumbered)"
+            e["members"] = [{"path": r["path"],
+                             "why": why_of.get(r["path"], "not planned this tick")}
+                            for r in sorted(phased, key=lambda r: r["path"])
+                            if r["phase"] == nxt]
+        if taken:
+            e["line"] = f"{tag}: takes " + ", ".join(Path(p).stem for p in taken)
+        elif nxt is None:
+            e["line"] = f"{tag}: nothing — " + NO_NEXT_PHASE_DRAFT.format(
+                phase="its next phase")
+        else:
+            shown = e["members"][:EPIC_LINE_MEMBERS]
+            more = len(e["members"]) - len(shown)
+            e["line"] = (f"{tag}: nothing — next phase {e['next_phase']}: "
+                         + "; ".join(f"{Path(m['path']).stem} ({_gate_word(m['why'])})"
+                                     for m in shown)
+                         + (f"; +{more} more" if more > 0 else ""))
+        out.append(e)
+    return out
+
+
+def _gate_word(why: str) -> str:
+    """A rejection reason cut to its gate words for a one-line epic summary:
+    the clause before ` — `, prompt paths as their stems, asides dropped. The
+    full reason stays in the entry's `members`."""
+    w = why.split(" — ")[0]
+    w = re.sub(r"(?:draft|active)/\S*?([\w-]+)\.md", r"\1", w)
+    return re.sub(r"\s*\([^()]*\)", "", w).strip()
+
+
+def queued_epic_lines(d: dict) -> list[str]:
+    """The one-line-per-queued-epic text of a plan (`plan()["queued_epics"]`)."""
+    return [e["line"] for e in d.get("queued_epics") or []]
+
+
 def planner_pool(records: list[dict]) -> list[dict]:
     """The records every session's planner would consider, before its lane
     filters them — what a Lane backfill must cover."""
@@ -397,7 +532,9 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          cap: int = DEFAULT_BACKPRESSURE_CAP, queue: list[str] | None = None,
          awaiting_source: str = "given", carried: list[str] | None = None,
          carried_from: str = "", brief: dict | None = None,
-         attended: bool = False, released: set[str] | None = None) -> dict:
+         attended: bool = False, released: set[str] | None = None,
+         epic_ledgers: dict[str, str] | None = None,
+         withheld: list[tuple[dict, str]] | None = None) -> dict:
     """Compose the next batch — a BatchDecision.
 
     Every constraint states itself in `rejected`, because a planner that
@@ -424,6 +561,14 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     With `attended=True` (`batch plan --attended`, a human at the keyboard
     picking for this session) an absent Lane reads as `any` and an empty queue
     falls back to the backlog order, as before.
+
+    A queue entry naming an epic ledger queues the epic's members at the
+    ledger's rank (`queue_standing`, PyAutoBrain#696); `epic_ledgers` is
+    `read_epic_ledgers(mind)`, the `epics.md` fallback for a ledger whose
+    `Epic:` header the survey did not read. `queued_epics` in the result says,
+    per queued epic, what it contributes or why nothing; `withheld` is the
+    (record, why) pairs the caller kept out before planning (claimed on Mind
+    origin/main, parked), read only for that summary.
     """
     rejected: list[tuple[str, str]] = []
     queue_given = queue is not None
@@ -457,11 +602,19 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     else:
         effective_budget, pressure = budget, "clear"
 
+    # A queued epic ledger queues its members at its rank (#696). Read from
+    # every record, before the brief's scope drops any, so a ledger outside
+    # the brief's scope still lends its rank.
+    epic_ranks = queued_epics(queue, all_records, epic_ledgers)
+
     # An epic's members are worked IN ORDER, so only its lowest un-shipped
     # phase is startable. Without this the planner can propose phase 6 while
     # phase 3 is still open — the one-slice-per-epic rule below caps how many
-    # run, not which.
-    next_phase = next_phases(records)
+    # run, not which. Read over every record, the ones the brief's scope or
+    # the caller kept out included (#696): a phase held by a claim, parked, or
+    # outside the brief is still open, so the phase after it is not next.
+    held_out = [w for w, _ in withheld or []]
+    next_phase = next_phases(all_records + held_out)
 
     shift_dip = brief is not None and not attended
     scoped_dip = shift_dip and brief.get("backlog", {}).get("value") == "scoped"
@@ -491,7 +644,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
             rejected.append((r["path"], "no Witness — a shift dips only witnessed "
                                         "drafts (declare one to make it pickable)"))
             witness_absent.append(r["path"])
-        elif scoped_dip and backlog and queue_rank(r, queue) >= len(queue) \
+        elif scoped_dip and backlog \
+                and queue_standing(r, queue, epic_ranks)[0] >= len(queue) \
                 and scoped_reach_why(r):
             rejected.append((r["path"], scoped_reach_why(r)))
             reach.append(r["path"])
@@ -506,8 +660,10 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     # the cheapest review win and broke ties by filename, which picked work the
     # human did not want. Cheapest first still decides within a priority.
     for r in pool:
-        r["queue_rank"] = queue_rank(r, queue)
+        r["queue_rank"], via = queue_standing(r, queue, epic_ranks)
         r["queued"] = r["queue_rank"] < len(queue)
+        if via:
+            r["queued_via"] = via
     pool.sort(key=lambda r: (r["queue_rank"], priority_rank(r),
                              r["review_minutes"], r["path"]))
 
@@ -586,6 +742,12 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         "scoped_reach": reach,
         # Backlog drafts with no `Witness:`, kept out of a shift's dip (M3.6b).
         "witness_absent": witness_absent,
+        # Per queued epic ledger, what it gives this plan or why nothing (#696).
+        "queued_epics": queued_epic_summary(
+            all_records + [w for w in held_out
+                           if w.get("path") not in {r.get("path") for r in all_records}],
+            epic_ranks, members, rejected + [(w.get("path"), why) for w, why in withheld or []],
+            queue),
     }
 
 
@@ -646,6 +808,13 @@ def emit(d: dict) -> None:
         print(f"Carried in:        {', '.join(d['carried'])} "
               f"(from {d.get('carried_from') or 'the previous slot'}) — still "
               f"in flight, and yours to review before anything new")
+    lines = queued_epic_lines(d)
+    if lines:
+        # One line per queued epic ledger (#696): what it gives this batch, or
+        # why nothing — read before the long tally of rejections below.
+        print("Queued epics:")
+        for line in lines:
+            print(f"  {line}")
     print()
     if d["members"]:
         queued = len(d.get("queue") or [])
@@ -3389,9 +3558,14 @@ def _main_watch(a) -> int:
 SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(am|pm)$")
 #: Defaults `brief --new` writes for the keys the human usually leaves alone.
 #: `merge-cap: 0` is the safe one: nothing merges unattended until raised.
+#: RAL is in `lanes:` by default (PyAutoBrain#696): a shift that left it out
+#: rejected every `Lane: ral` phase the human had queued.
 NEW_BRIEF_DEFAULTS = {"review-minutes": str(DEFAULT_REVIEW_BUDGET),
-                      "lanes": "any", "merge-cap": "0",
+                      "lanes": "any local-dev ral", "merge-cap": "0",
                       "token-budget": "5000000"}
+#: The `ral-allowance:` `brief --new` writes beside `ral` in `lanes:` — the
+#: block `brief --check` requires then. Edit it per shift.
+NEW_BRIEF_RAL_ALLOWANCE = {"packets": "2", "partition": "ral", "cpu-hours": "64"}
 
 
 def _last_brief_goals(mind: Path) -> tuple[str, list[str]] | None:
@@ -3462,6 +3636,11 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
     for g in goals:
         epics += [e for e in g["epics"] if e not in epics]
         tags += [t for t in g["tags"] if t not in tags]
+    # A queued epic ledger queues its phases (#696), so its epic is in scope:
+    # without it a `scoped` brief would keep out the work the queue asks for.
+    goal_scoped = bool(epics or tags)
+    queued = [e for e in queued_epics(read_queue(mind), survey(mind),
+                                      read_epic_ledgers(mind)) if e not in epics]
     shift = {"am": "morning", "pm": "afternoon"}.get(slot.rsplit("-", 1)[-1], slot)
     L = [f"# Batch {slot.rsplit('-', 1)[0]} {slot.rsplit('-', 1)[-1]}",
          f"- dispatched: {now.strftime('%Y-%m-%dT%H:%MZ')}",
@@ -3480,11 +3659,15 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
                  "fixable Heart reasons the lane picked (see ## Heart)")
         L.append("  - tasks:                          # the heart-green lane's picks")
         L += [f"    - {t}" for t in picks]
-    if epics or tags:
+    every = epics + queued
+    epics_line = (f"    - epics: {', '.join(every)}"
+                  + ("                 # queue.md's queued epics" if queued and not epics
+                     else "   # goals' epics, then queue.md's" if queued else ""))
+    if goal_scoped:
         L += ["  - backlog: scoped                 # the goals' epics and tags",
               "  - scoped:"]
-        if epics:
-            L.append(f"    - epics: {', '.join(epics)}")
+        if every:
+            L.append(epics_line)
         if tags:
             L.append(f"    - tags: {', '.join(tags)}")
     else:
@@ -3496,11 +3679,16 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
               "queue.md small single-repo only (ruling 2026-11-16)",
               "  - scoped:",
               f"    - tiers: {', '.join(NEW_BRIEF_SCOPED_TIERS)}"]
+        if queued:
+            L.append(epics_line)
     L += [f"  - review-minutes: {NEW_BRIEF_DEFAULTS['review-minutes']}",
           f"  - lanes: {NEW_BRIEF_DEFAULTS['lanes']}",
           f"  - merge-cap: {NEW_BRIEF_DEFAULTS['merge-cap']}"
           "                     # unattended glance merges: raise deliberately",
           f"  - token-budget: {NEW_BRIEF_DEFAULTS['token-budget']}"]
+    if "ral" in NEW_BRIEF_DEFAULTS["lanes"].split():
+        L += ["  - ral-allowance:                   # what the shift may spend on RAL; edit per shift"]
+        L += [f"    - {k}: {v}" for k, v in NEW_BRIEF_RAL_ALLOWANCE.items()]
     text = "\n".join(L) + "\n"
     return text + "\n" + _green.section(heart) if heart else text
 
@@ -3510,27 +3698,42 @@ NAMED_IN_ACTIVE = ("its prompt is in active/ — already issued: a shift starts 
                    "as a resume after an answered question (or it has started)")
 
 
-def named_skips(brief: dict, mind: Path) -> tuple[dict[str, str], str]:
+def check_plan(brief: dict, mind: Path) -> tuple[dict, dict[str, str], str]:
+    """(plan, {path: why held}, note) — the watcher's plan under `brief`, as
+    `brief --check` runs it (M3.6b): the claim gate against Mind's local
+    `origin/main` (never a fetch), then `plan` unattended on the watcher's
+    lane. `note` says when the claims could not be read."""
+    import _orchestrator as orch  # noqa: E402 — deferred: it imports this module
+    recs = survey(mind)
+    note = ""
+    claims = orch.origin_claims(mind)
+    held: dict[str, str] = {}
+    withheld: list[tuple[dict, str]] = []
+    if claims is not None and "error" in claims:
+        note = (f"brief.tasks: claims on Mind origin/main not read ({claims['error']}) — "
+                "the watcher fails closed on that; repo claims not checked here")
+    elif claims is not None:
+        kept, held = orch.on_origin(recs, mind, own=set())
+        withheld = [(r, held[r["path"]]) for r in recs if r["path"] in held]
+        recs = kept
+    d = plan(recs, session_lane="local-dev", brief=brief, queue=read_queue(mind),
+             epic_ledgers=read_epic_ledgers(mind), withheld=withheld)
+    return d, held, note
+
+
+def named_skips(brief: dict, mind: Path,
+                planned: tuple[dict, dict[str, str], str] | None = None
+                ) -> tuple[dict[str, str], str]:
     """({named task: why it will not start}, a note when the claims on Mind
     origin/main could not be read) — the watcher's own gates, run at
     `brief --check` (M3.6b, ruling R5): the claim gate against Mind's local
     `origin/main` (never a fetch), then `plan` under this brief, unattended,
     on the watcher's lane. A task the planner keeps is not listed; one that
     resolves to no prompt is `_brief.check`'s warning already."""
-    import _orchestrator as orch  # noqa: E402 — deferred: it imports this module
     named = _brief.tasks_of(brief)
     if not named:
         return {}, ""
-    recs = survey(mind)
-    note = ""
-    claims = orch.origin_claims(mind)
-    held: dict[str, str] = {}
-    if claims is not None and "error" in claims:
-        note = (f"brief.tasks: claims on Mind origin/main not read ({claims['error']}) — "
-                "the watcher fails closed on that; repo claims not checked here")
-    elif claims is not None:
-        recs, held = orch.on_origin(recs, mind, own=set())
-    d = plan(recs, session_lane="local-dev", brief=brief, queue=read_queue(mind))
+    d, held, note = planned or check_plan(brief, mind)
     rejected = {Path(p).name: w for p, w in d["rejected"]}
     rejected.update({Path(p).name: w for p, w in held.items()})
     members = {Path(m["path"]).name for m in d["members"]}
@@ -3727,11 +3930,18 @@ def _main_brief(mind: Path, a) -> int:
     # reason, and the organ rule for each one, before the shift opens.
     res["notes"] = []
     if rec is not None and rec["brief"] is not None:
-        why_not, claim_note = named_skips(rec["brief"], mind)
+        planned = check_plan(rec["brief"], mind)
+        why_not, claim_note = named_skips(rec["brief"], mind, planned)
         res["warnings"] += [f"brief.tasks: {Path(t).stem} will not start — {w}"
                             for t, w in why_not.items()]
         if claim_note:
             res["warnings"].append(claim_note)
+        # #696: each queued epic ledger, and why it gives this shift nothing.
+        res["queued_epics"] = planned[0]["queued_epics"]
+        res["warnings"] += [f"queued epic {e['line']}" for e in res["queued_epics"]
+                            if not e["taken"]]
+        res["notes"] += [f"queued epic {e['line']}" for e in res["queued_epics"]
+                         if e["taken"]]
         for t in _brief.tasks_of(rec["brief"]):
             f = _brief._resolve(mind, t)
             if f is not None:
@@ -3868,7 +4078,7 @@ def _main_plan(mind: Path, a, lane: str) -> int:
     d = plan(survey(mind), budget=a.budget, session_lane=lane,
              awaiting_review=awaiting, cap=a.cap, queue=read_queue(mind),
              awaiting_source=source, carried=carried, carried_from=carried_from,
-             brief=brief, attended=a.attended)
+             brief=brief, attended=a.attended, epic_ledgers=read_epic_ledgers(mind))
     if a.as_json:
         print(json.dumps(d, indent=2))
         return RC_OK

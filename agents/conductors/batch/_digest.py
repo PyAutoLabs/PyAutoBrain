@@ -976,6 +976,13 @@ def backlog_gate_lines(counters: dict) -> list[str]:
     if reach:
         out.append(f"Backlog reach (ruling 2026-11-16): {len(reach)} unqueued draft(s) not "
                    "dipped — beyond queue.md only small single-repo tasks: " + names(reach))
+    # One line per queued epic ledger (#696): what it gave the shift, or why
+    # nothing. `· ` rather than an indent: an indented line would read as the
+    # continuation of the pick above it.
+    epics = gates.get("queued_epics") or []
+    if epics:
+        out.append("Queued epics:")
+        out += [f"· {line}" for line in epics]
     absent = gates.get("lane_absent") or []
     if absent:
         out.append(f"Lane absent: {len(absent)} draft(s) excluded — no valid `Lane:`, "

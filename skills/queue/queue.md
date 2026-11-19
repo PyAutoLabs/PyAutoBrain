@@ -35,6 +35,10 @@ in one line and ask for the path. Never work around it by editing the file.
 `remove` moves the entry to `## Retired` with `shelved-as:` and keeps its
 note. The prompt itself stays in `draft/`.
 
+Adding an epic's ledger queues the whole epic (PyAutoBrain#696): a shift then
+takes its next phase at the ledger's rank, under every other gate. Adding one
+phase prompt queues only that phase.
+
 `show` writes nothing: run it in a fresh worktree (steps 1, 2 and 5 below)
 and skip the commit, so it reads `origin/main`, not a stale checkout.
 

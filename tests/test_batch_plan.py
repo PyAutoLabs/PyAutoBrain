@@ -329,3 +329,131 @@ def test_carried_members_are_reported_to_the_next_plan():
                     carried_from="2026-09-03-pm")
     assert d["carried"] == ["subhalo-wave"]
     assert d["carried_from"] == "2026-09-03-pm"
+
+
+# ------------------------------------- a queued epic queues its phases (#696) --
+EPIC_BRIEF = """# Batch 2026-11-20 am
+- dispatched: 2026-11-20T08:00Z
+- review-at: 2026-11-20T12:00Z
+- brief:
+  - goals:
+    - 1. drive the queued epics
+  - backlog: scoped
+  - scoped:
+    - epics: lib
+    - tiers: notify, glance
+  - review-minutes: 200
+  - lanes: any local-dev ral
+  - merge-cap: 0
+  - token-budget: 5000000
+"""
+LEDGER = "draft/feature/lib/lib_epic.md"
+
+
+def _brief_of(text=EPIC_BRIEF):
+    return _batch._brief.parse(text)["brief"]
+
+
+def ledger(path=LEDGER, epic="lib"):
+    r = rec(path, epic=epic, autonomy="human-required")
+    r.update(ledger=bool(epic), phase_declared=False, witness="the map")
+    return r
+
+
+def member(path, phase, *, epic="lib", repos=("autofit", "autolens"), **kw):
+    r = rec(path, epic=epic, phase=phase, repos=repos, **kw)
+    r.update(phase_declared=True, witness="a fixture passes")
+    return r
+
+
+def test_a_queued_epic_ledger_queues_its_medium_multi_repo_phase():
+    """Ruling 2026-11-16 narrowed (#696): the human queuing an epic ledger is
+    the human queuing its phases. The medium 2-repo next phase is taken at the
+    ledger's rank, with no scoped-reach rejection."""
+    other = rec("draft/x/queued_first.md", repos=["autoarray"])
+    other["witness"] = "w"
+    d = _batch.plan([ledger(), member("draft/feature/lib/p5c.md", 5), other],
+                    budget=200, session_lane="local-dev", brief=_brief_of(),
+                    queue=["draft/x/queued_first.md", LEDGER])
+    assert "draft/feature/lib/p5c.md" in paths(d)
+    m = next(m for m in d["members"] if m["path"] == "draft/feature/lib/p5c.md")
+    assert m["queue_rank"] == 1 and m["queued"] and m["queued_via"] == "lib"
+    assert d["scoped_reach"] == []
+    assert "via epic lib" in _batch._brief.rank_note(m)
+    assert [e["line"] for e in d["queued_epics"]] == ["lib (q2): takes p5c"]
+
+
+def test_an_unqueued_epic_member_is_still_held_to_the_reach_ruling():
+    d = _batch.plan([ledger(), member("draft/feature/lib/p5c.md", 5)],
+                    budget=200, session_lane="local-dev", brief=_brief_of(), queue=["x.md"])
+    assert "ruling 2026-11-16" in why(d, "draft/feature/lib/p5c.md")
+
+
+def test_a_queued_epic_still_offers_only_its_next_phase():
+    d = _batch.plan([ledger(), member("draft/feature/lib/p5.md", 5),
+                     member("draft/feature/lib/p6.md", 6)],
+                    budget=200, session_lane="local-dev", brief=_brief_of(), queue=[LEDGER])
+    assert paths(d) == ["draft/feature/lib/p5.md"]
+    assert why(d, "draft/feature/lib/p6.md") == "epic lib phase 6 is not next"
+    # The ledger itself is never a member: it is human-required.
+    assert "human-required" in why(d, LEDGER)
+
+
+def test_epics_md_maps_a_ledger_whose_epic_header_was_not_read(tmp_path):
+    (tmp_path / "epics.md").write_text(
+        "# Epics\n\n## lib\n- title: L\n- ledger: draft/feature/lib/lib_epic.md\n"
+        "## web\n- ledger: https://example.invalid/x.md\n", encoding="utf-8")
+    ledgers = _batch.read_epic_ledgers(tmp_path)
+    assert ledgers == {LEDGER: "lib"}
+    plain = ledger(epic="")
+    assert _batch.queued_epics([LEDGER], [plain], ledgers) == {"lib": 0}
+    assert _batch.queued_epics([LEDGER], [plain]) == {}
+    # A queued phase prompt queues only itself, not its epic.
+    assert _batch.queued_epics(["draft/feature/lib/p5.md"],
+                               [member("draft/feature/lib/p5.md", 5)]) == {}
+
+
+def test_a_queued_epic_with_no_draft_phase_says_to_file_one():
+    d = _batch.plan([ledger()], budget=200, session_lane="local-dev",
+                    brief=_brief_of(), queue=[LEDGER])
+    (line,) = _batch.queued_epic_lines(d)
+    assert line.startswith("lib (q1): nothing — no draft prompt for its next phase")
+    assert "Continue prompt in an attended chat" in line
+
+
+def test_a_queued_epic_whose_next_phase_is_human_required_names_the_gate():
+    d = _batch.plan([ledger(),
+                     member("draft/feature/lib/p2a.md", 2, autonomy="human-required"),
+                     member("draft/feature/lib/p2b.md", 2, autonomy="human-required"),
+                     member("draft/feature/lib/p3.md", 3)],
+                    budget=200, session_lane="local-dev", brief=_brief_of(), queue=[LEDGER])
+    assert paths(d) == []
+    (e,) = d["queued_epics"]
+    assert e["next_phase"] == "2" and not e["taken"]
+    assert e["line"] == ("lib (q1): nothing — next phase 2: "
+                         "p2a (autonomy human-required); p2b (autonomy human-required)")
+    assert e["members"][0]["why"] == "autonomy human-required — would park at ship"
+
+
+def test_a_held_lower_phase_still_blocks_the_next_one():
+    """A phase the caller kept out before planning (claimed on Mind
+    origin/main, parked) is still open: the phase after it is not next."""
+    p4 = member("draft/feature/lib/p4.md", 4)
+    d = _batch.plan([ledger(), member("draft/feature/lib/p5.md", 5)], budget=200,
+                    session_lane="local-dev", brief=_brief_of(), queue=[LEDGER],
+                    withheld=[(p4, "repo autofit claimed by `x` in active.md")])
+    assert paths(d) == []
+    assert why(d, "draft/feature/lib/p5.md") == "epic lib phase 5 is not next"
+    (line,) = _batch.queued_epic_lines(d)
+    assert line == "lib (q1): nothing — next phase 4: p4 (repo autofit claimed by `x` in active.md)"
+
+
+def test_the_plan_text_and_json_carry_the_queued_epics(capsys):
+    d = _batch.plan([ledger()], budget=200, session_lane="local-dev",
+                    brief=_brief_of(), queue=[LEDGER])
+    _batch.emit(d)
+    out = capsys.readouterr().out
+    assert "Queued epics:\n  lib (q1): nothing" in out
+    assert out.index("Queued epics:") < out.index("Not selected:")
+    import json
+    assert json.loads(json.dumps(d))["queued_epics"][0]["epic"] == "lib"

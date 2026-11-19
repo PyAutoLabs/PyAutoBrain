@@ -110,9 +110,9 @@ def epic_members(mind: Path, epic: str) -> list[dict]:
 def is_ledger(text: str) -> bool:
     """An epic ledger: `Status: campaign map` with `Epic:` and no `Phase:`
     (as intake's `_shipped` reads a map). A side task of an epic (`Epic:`, no
-    `Phase:`, any other status) is an ordinary prompt."""
-    return bool(_batch._epic_of(text)) and not _batch._phase_declared(text) \
-        and _batch._header_of(text, "status").lower().startswith("campaign map")
+    `Phase:`, any other status) is an ordinary prompt. The planner's own
+    test (`_batch.is_ledger_text`), so both read a ledger alike."""
+    return _batch.is_ledger_text(text)
 
 
 def origin_epic_members(mind: Path, epic: str, ref: str = "origin/main") -> list[dict] | None:
