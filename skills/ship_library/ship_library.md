@@ -83,7 +83,8 @@ rules rather than weakening the gate:
 Under `--auto`, this step is the four-leg **autonomous-ship gate** — tests
 (+ downstream dependents on public-API changes), smoke, review-faculty CLEAN,
 Heart — per `AUTONOMY.md` "The autonomous-ship gate"; do not restate it here.
-A same-conversation reread is not an independent review.
+A same-conversation reread is not an independent review. Shift worker tests:
+ruling S1, see [`reference.md`](reference.md) → "Execution contract" step 1.
 
 ### 4. Execute the ship (feature-dev)
 
@@ -103,7 +104,8 @@ its cross-environment handoff rather than by provider-name conditionals. If any
 step or evidence leg fails, stop and report — do not proceed.
 
 **Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
-3 note); then ship **without interactive sign-off** — the PR body additionally
+3 note); a shift worker runs no adversary pass (ruling S3, `AUTONOMY.md` "Shift
+speed — 2026-11-19"). Then ship **without interactive sign-off** — the PR body additionally
 carries the `## Validation checklist` section
 ([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run
 **stops at PR-open** unless step 6's declared tier merges it, a calibration row is

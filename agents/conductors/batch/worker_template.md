@@ -45,9 +45,29 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   It is the check the organ's PR CI runs. PyAutoHeart#347 failed CI on a
   hard-coded repo name it would have caught. A finding outside your diff is
   not yours: name it in your proof packet. Other repos skip this step.
+- At the ship step you run the loop a chat build runs (AUTONOMY.md "Shift
+  speed — 2026-11-19", rulings S1 and S3). Only legs 1 (tests) and 5
+  (adversary) of the autonomous-ship gate change in a shift. The review
+  (leg 3), the targeted smoke (leg 2) and the Heart verdict (leg 4) apply as
+  before:
+  - **Tests (S1).** Run the test modules your diff changes or that cover the
+    changed code, plus the task's `Witness:`, not the full suite. PR CI is the
+    full-suite verdict for the repo you ship. When the review surface flags a
+    public API change (removed, renamed or changed-signature entries), still
+    run the dependants' full suites locally, because they are not in your
+    PR's CI. Cap any pytest you run at `-n 4`
+    (`python -m pytest -q -n 4 <modules>`).
+  - **Review (S3).** Start one independent review (AUTONOMY.md leg 3) beside
+    the tests and the targeted smoke, not after them. It must return verdict
+    CLEAN.
+  - **PR.** Open the PR as soon as the tests, the `Witness:`, the targeted
+    smoke and the review pass. Run no adversary pass: the close-out session
+    is the adversary for an unattended merge, and the human at `/prm` for
+    everything else.
+  - A red CI after you have ended sends the PR to `/prm`, as before.
 - Smoke is **targeted** in a shift (AUTONOMY.md leg 2, split 2026-11-19,
-  PyAutoHeart#352). At the ship step run the changed repo's unit tests, the
-  task's `Witness:`, and only this smoke, never the full workspace sweep
+  PyAutoHeart#352). At the ship step run only this smoke, beside the tests
+  and the review above, never the full workspace sweep
   (not a bare `/smoke_test`), from your task root with `activate.sh` sourced:
 
       cd <task root> && source activate.sh && pyauto-heart smoke --root "$PWD" --targeted --changed-files $(git -C <repo> diff --name-only origin/main...HEAD | sed 's|^|<repo>/|')
