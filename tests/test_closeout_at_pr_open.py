@@ -200,6 +200,7 @@ def _merged_ahead(tmp_path, files, mergeable=""):
     return mind, brief, home, sp, r
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_s6_a_pr_disjoint_from_every_pr_merged_ahead_is_closed_out_without_update(tmp_path):
     files = {GA7: ["autogalaxy/a.py"], GA8: ["autogalaxy/b.py", "test_autogalaxy/test_b.py"]}
     mind, brief, home, sp, r = _merged_ahead(tmp_path, files)
@@ -213,18 +214,21 @@ def test_s6_a_pr_disjoint_from_every_pr_merged_ahead_is_closed_out_without_updat
     assert sorted(set(sp.reads)) == sorted(sp.reads) == sorted([GA7, GA8])   # once each
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_s6_one_shared_file_still_gets_the_branch_update(tmp_path):
     files = {GA7: ["autogalaxy/a.py", "autogalaxy/shared.py"], GA8: ["autogalaxy/shared.py"]}
     mind, brief, home, sp, r = _merged_ahead(tmp_path, files)
     assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_s6_a_conflicting_pr_gets_the_update_even_with_disjoint_files(tmp_path):
     files = {GA7: ["autogalaxy/a.py"], GA8: ["autogalaxy/b.py"]}
     mind, brief, home, sp, r = _merged_ahead(tmp_path, files, mergeable="CONFLICTING")
     assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_s6_an_unreadable_file_list_fails_toward_the_update(tmp_path):
     mind, brief, home, sp, r = _merged_ahead(tmp_path, {GA7: ["autogalaxy/a.py"]})
     assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})

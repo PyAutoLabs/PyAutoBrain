@@ -366,13 +366,15 @@ def test_gh_pr_state_reads_state_merged_at_and_by():
         seen.append(argv)
         return SimpleNamespace(returncode=0, stdout=json.dumps(
             {"state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z",
-             "mergedBy": {"login": "someone"}, "headRefOid": "abc123"}))
+             "mergedBy": {"login": "someone"}, "headRefOid": "abc123",
+             "labels": [{"name": "decision-taken"}]}))
     assert orch.gh_pr_state(PR1, run=run) == {
         "state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z", "mergedBy": "someone",
-        "head": "abc123", "mergeable": ""}
-    # `mergeable` is a field of the same call (S6, M3.7b), not a second read.
+        "head": "abc123", "mergeable": "", "labels": ["decision-taken"]}
+    # `mergeable` (S6, M3.7b) and `labels` (S7, M3.7c) are fields of the same
+    # call, not further reads.
     assert seen == [["gh", "pr", "view", PR1, "--json",
-                     "state,mergedAt,mergedBy,headRefOid,mergeable"]]
+                     "state,mergedAt,mergedBy,headRefOid,mergeable,labels"]]
     assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
         returncode=1, stdout="")) is None
     assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
@@ -631,6 +633,7 @@ def _waiting(tmp_path):
     return mind, brief, home, sp, r
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_683_a_later_pr_waits_behind_an_earlier_refused_one_no_slot_no_refusal(tmp_path):
     mind, brief, home, sp, r = _waiting(tmp_path)
     assert r["closeouts"]["refused"] == [GA7]
@@ -664,8 +667,12 @@ def test_683_no_wait_on_another_repo_or_behind_a_merged_or_closed_pr(tmp_path, p
 def test_683_an_earlier_pr_github_cannot_read_blocks(tmp_path):
     mind, brief, home, sp = _order_shift(tmp_path)
     _otick(brief, mind, home, sp, 1, {GA7: None})
-    assert [pr for _, pr, _ in sp.closeouts] == [GA7]
-    assert orch.read_counters(orch.slot_dir(brief, home))["merge_waits"][GA8]["behind"] == [GA7]
+    # M3.7c: #7's labels cannot be read either, so it waits for its label
+    # read (S7) — no close-out, not refused — and #8 still waits behind it.
+    assert sp.closeouts == []
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert GA7 not in c["closeouts"]
+    assert c["merge_waits"][GA8]["behind"] == [GA7]
 
 
 def _merged_then_update(tmp_path):
@@ -676,6 +683,7 @@ def _merged_then_update(tmp_path):
     return mind, brief, home, sp, r, states
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_683_once_the_earlier_pr_merged_after_it_began_the_branch_is_updated(tmp_path):
     mind, brief, home, sp, r, _ = _merged_then_update(tmp_path)
     assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
@@ -698,6 +706,7 @@ def _updated(tmp_path):
     return mind, brief, home, sp, r, states
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_683_an_updated_branch_holds_its_slot_and_waits_for_ci_on_the_new_head(tmp_path):
     mind, brief, home, sp, r, states = _updated(tmp_path)
     c = orch.read_counters(orch.slot_dir(brief, home))
@@ -725,6 +734,7 @@ def test_683_an_updated_branch_holds_its_slot_and_waits_for_ci_on_the_new_head(t
     assert "4b. Merge order" not in orch.closeout_prompt("picked", GA8, "p.md", brief, home)
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_683_red_ci_on_the_updated_head_is_refused_and_frees_the_slot(tmp_path):
     mind, brief, home, sp, r, states = _updated(tmp_path)
     r = _otick(brief, mind, home, sp, 33, states, health=_health({GA8: "FAILED"}))
@@ -734,6 +744,7 @@ def test_683_red_ci_on_the_updated_head_is_refused_and_frees_the_slot(tmp_path):
     assert orch._merge_slots.pr_key(GA8) not in _slots(brief, home)
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_683_a_conflicting_update_is_refused_and_never_retried(tmp_path):
     mind, brief, home, sp, r, states = _merged_then_update(tmp_path)
     _verdict(home, brief, "picked", result="refused", pr=GA8,
@@ -751,6 +762,7 @@ def test_683_a_conflicting_update_is_refused_and_never_retried(tmp_path):
     assert "conflicts with main after" in d
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_683_a_third_update_is_refused_main_kept_moving(tmp_path):
     mind, brief, home, sp, r, states = _updated(tmp_path)
     slot = orch.slot_dir(brief, home)
@@ -815,6 +827,7 @@ def test_683_carry_in_carries_an_updated_or_waiting_pr_with_what_it_waited_behin
 
 # --- M3.6j review fixes ----------------------------------------------------------------
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_683_f5_ci_is_judged_only_on_the_head_the_update_made(tmp_path):
     """An `updated` PR's CI is read only once GitHub shows the update's head;
     a head GitHub cannot give waits, and a head that moved since refuses."""

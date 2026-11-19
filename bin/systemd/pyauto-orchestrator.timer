@@ -1,12 +1,14 @@
 # Template — see pyauto-orchestrator.service. The timer keeps time so no
 # Claude session has to (PyAutoMind/policy/shift_watcher.md). A `STOP` file in
 # the slot directory turns every tick into a no-op without touching this unit.
+# 60 seconds since M3.7c (PyAutoBrain#690); pyauto-orchestrator.path also
+# starts a tick as soon as a session writes its verdict file.
 [Unit]
-Description=PyAuto shift watcher — tick every 2 minutes
+Description=PyAuto shift watcher — tick every 60 seconds
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=2min
+OnBootSec=1min
+OnUnitActiveSec=1min
 Unit=pyauto-orchestrator.service
 
 [Install]

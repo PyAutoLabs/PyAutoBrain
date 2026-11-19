@@ -3,7 +3,7 @@
 The shift watcher (a timer, not a session) writes each event to the shift's
 `events.jsonl`; `pyauto-brain batch watch --stream` prints them (#644). This
 chat reads that stream and steers only by comments on the shift issue, which
-the watcher reads each tick (about 3 min); closing the chat changes nothing.
+the watcher reads each tick (about 1 min); closing the chat changes nothing.
 The watch is the one carve-out from "sessions end at their deliverable"
 (PyAutoMind `policy/shift_cockpit_watch.md`); the hook lets through only the
 canonical command below, inside the window. If it refuses a Monitor, relay
@@ -100,9 +100,9 @@ gh issue comment <issue-url> --body-file - <<'STEER'
 STEER
 ```
 
-Then say "posted; the watcher acknowledges on its next tick (about 3 min)". The
+Then say "posted; the watcher acknowledges on its next tick (about 1 min)". The
 `steer` event arrives through the stream. If no `steer` event for it arrives
-within 2 ticks (about 6 min), or `steer-unread` arrives, say so once.
+within 3 ticks (about 3 min), or `steer-unread` arrives, say so once.
 
 | The human says (examples) | Comment | Confirm first? |
 |---|---|---|

@@ -102,6 +102,7 @@ def _park(brief, mind, home, slot, claude, gh):
     return _tick(brief, mind, home, PAST_GRACE, claude, gh, blocked())
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_parked_worker_makes_exactly_one_mention_and_a_second_tick_none(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGh()
@@ -124,6 +125,7 @@ def test_a_parked_worker_makes_exactly_one_mention_and_a_second_tick_none(tmp_pa
     assert "mentioned (parked)" in text
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_failed_mention_is_retried_on_the_next_tick(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGh(fail=1)
@@ -166,6 +168,7 @@ def _question_ops(slot):
 
 
 @pytest.mark.real_triggers
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_worker_parked_on_its_issue_is_filed_in_the_inbox_not_mentioned(tmp_path,
                                                                           monkeypatch):
     """M3.5 (#645): the question lands in questions.md; nobody is @-mentioned."""
@@ -180,6 +183,7 @@ def test_a_worker_parked_on_its_issue_is_filed_in_the_inbox_not_mentioned(tmp_pa
     assert (entry["issue"], entry["kind"]) == ("https://github.com/o/r/issues/77", "question")
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_only_an_explicit_verdict_is_not_a_push(tmp_path, monkeypatch):
     """PyAutoBrain#632 (F2, review): a research worker's posted `verdict:` is
     its deliverable and waits for the digest — in any case, colon or not."""
@@ -202,6 +206,7 @@ def test_only_an_explicit_verdict_is_not_a_push(tmp_path, monkeypatch):
                                   "verdikt: https://github.com/o/r/issues/77\n",
                                   "blocked: https://github.com/o/r/issues/77\n"])
 @pytest.mark.real_triggers
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_any_issue_not_marked_verdict_is_filed_in_the_inbox(tmp_path, monkeypatch, done):
     """PyAutoBrain#632 review: the test fails toward the human — a bare URL, a
     mis-cased or colon-less `question`, or an unknown marker is a question.
@@ -238,6 +243,7 @@ def test_the_login_comes_from_the_environment_or_config_never_the_code(tmp_path,
 
 # --- #611 review -------------------------------------------------------------------
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_tick_that_died_after_parking_still_mentions_on_the_next(tmp_path, monkeypatch):
     """Review item 1: the trigger is durable state, not the parking tick's events."""
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
@@ -260,6 +266,7 @@ def test_a_tick_that_died_after_parking_still_mentions_on_the_next(tmp_path, mon
     assert len(gh.calls) == 1 and "needs you — parked." in gh.calls[0][1]
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_failed_mention_is_retried_in_the_late_sweep(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGh(fail=1)
@@ -280,6 +287,7 @@ def test_a_failed_mention_is_retried_in_the_late_sweep(tmp_path, monkeypatch):
     assert len(mention_calls) == 2 and orch.read_counters(slot)["pushes"] == 1
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_separate_token_posts_and_a_self_mention_is_warned(tmp_path, monkeypatch):
     """Review item 4: PYAUTO_SHIFT_GH_TOKEN is given to the watcher's `gh` as
     GH_TOKEN; mentioning the posting account itself is a digest warning."""

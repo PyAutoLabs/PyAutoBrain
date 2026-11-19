@@ -539,7 +539,34 @@ tests and the targeted smoke (leg 2), and opens the PR as soon as they pass
 
 Outside a shift (an `--auto` chat) nothing changes.
 
-Later rulings from the same review (S4, S7) are added to this section.
+- **S7, `decision-taken` at PR-open** (M3.7c, PyAutoBrain#690). The
+  watcher refuses a `decision-taken` PR when it first sees it, from the
+  label alone. No close-out session starts, no merge slot is taken and CI
+  is not read. It reads the label once per PR per shift; a label it cannot
+  read is asked again next tick, never taken as absent. The PR keeps its
+  place as an earlier PR in the merge order (M3.6j ruling c, unchanged), so
+  later unattended merges on that library wait for the human's `/prm`. The
+  digest names the PRs that waited behind a `/prm`-bound PR, one line per
+  library. The close-out's own label check stays as a second layer.
+
+Watcher latency (M3.7c, the human's plan decisions of 2026-11-19):
+
+- The watcher ticks every 60 seconds. A worker writes its `.done`, and a
+  close-out or branch update its `.closeout`, then appends a line to the
+  kick file (`$PYAUTO_SHIFT_KICK`, `~/.local/state/pyauto/orchestrator.kick`).
+  A systemd path unit starts a tick when it changes. The kick is best
+  effort; the timer is the backstop.
+- **Early close.** A shift posts its digest on the tick that leaves nothing
+  to do: no worker live, no re-dispatch owed, no close-out or branch update
+  running, every PR judged, and no task that could still start. A PR waiting
+  behind a `/prm`-bound PR does not hold the shift open. The digest says
+  "closed early at <time>; review-at was <time>", and merges count up to the
+  close. A paused shift never closes early (decision 2). A task parked on a
+  question does not hold the shift open (decision 3); an answer after the
+  close resumes it in a later shift. A shift that never started anything,
+  or a shadow shift, stays open to `review-at:`.
+
+A later ruling from the same review (S4) is added to this section.
 
 ## Merge authority follows Consequence — 2026-10-02
 
@@ -941,7 +968,10 @@ passed and whose `review-at:` has not. Two open briefs grant nothing: the
 watcher idles and says so. `PYAUTO_SHIFT_BRIEF` (or `--brief`) is only an
 override, honoured inside that brief's own window. **The watcher's part in a
 shift ends at `review-at:` + 45 min:** once the digest is posted and that late
-window has closed, it stops ticking the slot and renews no lease.
+window has closed, it stops ticking the slot and renews no lease. A shift
+with nothing left to do posts its digest early (M3.7c, "Shift speed —
+2026-11-19"); from then on it is treated as after `review-at:`: no spawn, no
+close-out, no second digest, and the late sweep only while something is owed.
 
 *Revert condition:* one dispatch found outside a brief's scope returns batching
 to per-task `--auto` until the cause is found.
@@ -1239,6 +1269,11 @@ that library. It reads each PR's list at most once per shift and keeps it.
 `mergeable` is a field of the `gh pr view` it already makes, not a new call.
 A repeat read for the same PR in one shift falls under the existing revert
 condition.
+
+**Amendment — 2026-11-19 (M3.7c, PyAutoBrain#690), approved by the human.**
+For ruling S7 the watcher reads `labels` as one more field of the `gh pr
+view` it already makes for its own workers' PRs, once per PR per shift. The
+kick file that starts a tick early is local and adds no network act.
 
 **Login probe — 2026-11-17.** The watcher runs `claude auth status --json` (local, no model call) on a shift's first tick and when a worker shows as blocked. `loggedIn: false`, or a `loginExpiresAt` already passed, is a `login-expired` event, never "blocked on a person", and no worker starts until it passes.
 

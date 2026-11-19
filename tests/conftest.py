@@ -84,3 +84,17 @@ def _no_real_github(monkeypatch):
         real_health = digest.pr_health
         monkeypatch.setattr(digest, "pr_health", lambda url, run=None:
                             real_health(url, run=run) if run else "UNKNOWN")
+
+
+@pytest.fixture
+def shift_held_open(monkeypatch):
+    """Keep a shift open to `review-at:` (M3.7c, PyAutoBrain#690): for a test of
+    mechanics across ticks after the shift has nothing left that would start
+    or run — a PR waiting behind a refused one, a parked worker, an answered
+    question. Without it the watcher closes the shift early on that tick
+    (tests/test_watcher_latency.py)."""
+    import sys
+
+    orch = sys.modules.get("_orchestrator")
+    if orch is not None:
+        monkeypatch.setattr(orch, "early_close_ready", lambda *a, **k: False)

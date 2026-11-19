@@ -1,0 +1,17 @@
+# Template — see pyauto-orchestrator.service. Starts the same tick as soon as
+# a shift worker writes its `.done`, or a close-out or branch update writes its
+# `.closeout`: each session then appends a line to $PYAUTO_SHIFT_KICK, which
+# the watcher sets to this file (M3.7c, PyAutoBrain#690). Best effort: a kick
+# that never comes changes nothing, and the 60-second timer is the backstop.
+# %S is $XDG_STATE_HOME, or ~/.local/state, for a user unit, so this unit
+# carries no workspace path. The tick lock makes a kick during a tick harmless.
+[Unit]
+Description=PyAuto shift watcher — tick when a session kicks it
+
+[Path]
+PathChanged=%S/pyauto/orchestrator.kick
+MakeDirectory=yes
+Unit=pyauto-orchestrator.service
+
+[Install]
+WantedBy=paths.target

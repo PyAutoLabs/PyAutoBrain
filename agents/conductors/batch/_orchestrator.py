@@ -276,7 +276,7 @@ class FakeSpawner:
 
     def pr_state(self, url: str) -> dict:
         """A dry shift merges nothing, so GitHub is never asked."""
-        return {"state": "OPEN", "mergedAt": "", "mergedBy": ""}
+        return {"state": "OPEN", "mergedAt": "", "mergedBy": "", "labels": []}
 
     def pr_files(self, url: str) -> None:
         """Never asked in a dry shift: nothing merges ahead of anything."""
@@ -477,6 +477,34 @@ def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                             disjoint, ci_until)]
 
 
+#: The variable that names the kick file to every session (M3.7c, #690).
+KICK_ENV = "PYAUTO_SHIFT_KICK"
+
+
+def kick_path(env: dict | None = None) -> Path:
+    """The kick file `pyauto-orchestrator.path` watches: systemd's `%S` for a
+    user unit — `$XDG_STATE_HOME`, else `~/.local/state` — then
+    `pyauto/orchestrator.kick` (M3.7c, PyAutoBrain#690). A session appends a
+    line to it after its verdict file, so the next tick starts at once; the
+    60-second timer is the backstop. Local only: no network act."""
+    env = os.environ if env is None else env
+    state = str(env.get("XDG_STATE_HOME") or "").strip()
+    if not state or not os.path.isabs(state):
+        home = str(env.get("HOME") or "").strip() or str(Path.home())
+        state = os.path.join(home, ".local", "state")
+    return Path(state) / "pyauto" / "orchestrator.kick"
+
+
+def _ensure_kick_dir(env: dict) -> None:
+    """Create the kick file's folder, best effort: the path unit's
+    `MakeDirectory=yes` makes it too, and a session's failed kick changes
+    nothing."""
+    try:
+        Path(env[KICK_ENV]).parent.mkdir(parents=True, exist_ok=True)
+    except (KeyError, OSError):
+        pass
+
+
 def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
     """The environment a worker runs in: marked as a shift worker, pointed at
     the shift's ledger, and with git's hooks path overridden so a commit in
@@ -485,7 +513,8 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
     (`PYAUTO_SHIFT_GH_TOKEN`), not its App settings (`PYAUTO_SHIFT_APP_*`,
     the key's path among them, PyAutoBrain#630), and no variable carrying
     either token or an App installation token it minted; the human's own gh
-    auth stays (#611 re-review)."""
+    auth stays (#611 re-review). `PYAUTO_SHIFT_KICK` names the kick file
+    (`kick_path`, M3.7c)."""
     env = dict(os.environ if base is None else base)
     secrets = {env.pop(GH_TOKEN_ENV, "").strip()} | _auth().secrets()
     for key in _app_token.APP_ENVS:
@@ -498,7 +527,8 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
                 "PYAUTO_SHIFT_LEDGER_DIR": str(Path(lease_dir).parent / _mind_writer.LEDGER_DIR),
                 "GIT_CONFIG_COUNT": str(n + 1),
                 f"GIT_CONFIG_KEY_{n}": "core.hooksPath",
-                f"GIT_CONFIG_VALUE_{n}": str(WORKER_HOOKS)})
+                f"GIT_CONFIG_VALUE_{n}": str(WORKER_HOOKS),
+                KICK_ENV: str(kick_path(env))})
     return env
 
 
@@ -614,8 +644,10 @@ class RealSpawner:
               siblings: list[str] | None = None) -> dict:
         argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode,
                                redispatch, resume, siblings)
+        env = worker_env(lease_dir)
+        _ensure_kick_dir(env)
         res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
-                         timeout=120, env=worker_env(lease_dir))
+                         timeout=120, env=env)
         # An untrusted folder is refused here, fast ("Workspace not trusted") —
         # never a silent stall. Workers start from a folder the human trusted.
         if res.returncode != 0:
@@ -645,8 +677,10 @@ class RealSpawner:
                                 before=before, disjoint=disjoint, ci_until=ci_until)
         # The same scoped route as a worker (#634): a close-out may be the
         # session that starts the daemon.
+        env = worker_env(lease_dir)
+        _ensure_kick_dir(env)
         res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
-                         timeout=120, env=worker_env(lease_dir))
+                         timeout=120, env=env)
         if res.returncode != 0:
             raise OrchestratorError(f"claude --bg close-out failed for {task}: "
                                     + (res.stderr or res.stdout).strip()[:300])
@@ -729,11 +763,13 @@ def gh_pr_state(url: str, run=None) -> dict | None:
     mergeable} as GitHub has it, or None when GitHub could not say (#603: the
     merge truth). `head` (the head sha) tells an updated branch's CI from an
     older head's (M3.6j); `mergeable` (`MERGEABLE`, `CONFLICTING` or
-    `UNKNOWN`) sends a conflicting PR to its branch update (S6, M3.7b)."""
+    `UNKNOWN`) sends a conflicting PR to its branch update (S6, M3.7b);
+    `labels` (their names) refuses a `decision-taken` PR at PR-open (S7,
+    M3.7c) — one more field of the same read."""
     run = run or subprocess.run
     try:
         res = run(["gh", "pr", "view", url, "--json",
-                   "state,mergedAt,mergedBy,headRefOid,mergeable"],
+                   "state,mergedAt,mergedBy,headRefOid,mergeable,labels"],
                   capture_output=True, text=True, timeout=60)
         if res.returncode != 0:
             return None
@@ -746,7 +782,9 @@ def gh_pr_state(url: str, run=None) -> dict | None:
     return {"state": str(data["state"]).upper(), "mergedAt": data.get("mergedAt") or "",
             "mergedBy": by.get("login", "") if isinstance(by, dict) else str(by),
             "head": str(data.get("headRefOid") or ""),
-            "mergeable": str(data.get("mergeable") or "").upper()}
+            "mergeable": str(data.get("mergeable") or "").upper(),
+            "labels": [str(lb.get("name") if isinstance(lb, dict) else lb)
+                       for lb in data.get("labels") or []]}
 
 
 #: `gh pr view --json files` lists at most this many files; a list this long
@@ -1413,6 +1451,13 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
             return result
         return {"action": "idle", "reason": why}
 
+    if (slot / DIGEST_MARKER).exists():
+        # Closed early (M3.7c, #690): the digest is out before `review-at:`.
+        # As after `review-at:`, the late sweep runs while something is
+        # still owed; nothing is spawned, closed out or posted again.
+        return _after_early_close(brief_path, mind, slot, now, spawner=spawner,
+                                  grace_s=grace_s, agents=agents, tokens=tokens,
+                                  poster=poster, pr_state=pr_state)
     top = _brief.parse(brief_path.read_text(encoding="utf-8"))["top"]
     shift = {"issue": (top.get("issue") or {}).get("value", ""),
              "review_at": (top.get("review-at") or {}).get("value", ""),
@@ -1422,12 +1467,20 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
     if not _take_lock(slot, now):
         return {"action": "busy", "reason": "another tick holds the lock"}
     try:
-        result = _tick_locked(slot, brief, mind, now,
-                              spawner or default_spawner(brief_path, brief),
+        spawner = spawner or default_spawner(brief_path, brief)
+        result = _tick_locked(slot, brief, mind, now, spawner,
                               grace_s, records, agents, tokens, health, pr_state,
                               poster=poster, shift=shift, token_reserve=token_reserve,
                               whoami=whoami, github=github, pr_files=pr_files)
         _record_events(slot, now, result, brief_path, poster)
+        if early_close_ready(slot, read_counters(slot), result):
+            closed = close_early(brief_path, mind, slot, now, shift, poster=poster,
+                                 health=health, agents=agents, tokens=tokens,
+                                 grace_s=grace_s, github=github,
+                                 pr_state=(pr_state or getattr(spawner, "pr_state", None)
+                                           or _default_pr_state()))
+            result["closed_early"] = _iso(now)
+            result["digest"] = {k: closed.get(k) for k in ("post", "ledger", "packet")}
     finally:
         _drop_lock(slot)
     _log(slot, now, result)
@@ -2268,12 +2321,26 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
     # own event — never a worker "blocked on a person".
     login = _login_hold(counters, spawner, [] if paused else members, live, now)
     hold = paused or (login or {}).get("state") == "expired"
+
+    def settled(task: str, member: dict) -> bool:
+        """Not this tick's to start: live, done, abandoned, parked or dropped."""
+        released = member.get("resume") and task in (counters.get("inshift_pending") or {})
+        return bool(task in live or (task in counters["done"] and not released)
+                    or task in counters["abandoned"]
+                    or task in counters["parked"] or task in counters["dropped"])
+    # What could still start on a later tick (M3.7c early close): a launch
+    # that failed, a spend that could not be read, a login to renew. A task
+    # held by a library, `max-workers` with nobody live, `max-sessions` or
+    # the token budget cannot; neither can a parked or dropped one.
+    startable: list[str] = []
+    final: set[str] = set()
+    if hold and not paused:
+        startable = [task_id(m["path"]) for m in members
+                     if not settled(task_id(m["path"]), m)]
     for member in [] if hold else members:
         task = task_id(member["path"])
         released = member.get("resume") and task in (counters.get("inshift_pending") or {})
-        if task in live or (task in counters["done"] and not released) \
-                or task in counters["abandoned"] \
-                or task in counters["parked"] or task in counters["dropped"]:
+        if settled(task, member):
             continue
         # Never two workers on one library (M3.6j review F2): a live, parked
         # or re-dispatch-pending task holds its library repos whatever the
@@ -2282,9 +2349,11 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         if holder:
             refused.append({"task": task, "why": f"{holder[0]} held by {holder[1]} "
                                                  "while its worker runs"})
+            final.add(task)
             continue
         if len(live) >= max_workers:
             refused.append({"task": task, "why": f"max-workers {max_workers} reached"})
+            final.add(task)
             continue
         # A re-dispatch may pass `max-sessions` by REDISPATCH_SESSIONS (#637,
         # item 1): after early dips used every session, a killed worker
@@ -2294,21 +2363,25 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         if counters["sessions"] >= limit:
             refused.append({"task": task, "why": f"max-sessions {max_sessions} reached"
                             + (f" (+{REDISPATCH_SESSIONS} for a re-dispatch)" if redo else "")})
+            final.add(task)
             continue
         if counters["usage_unavailable"]:
             # Never counted as 0: a spend the watcher cannot read could be
             # anything, so nothing more starts until it can be read.
             refused.append({"task": task, "why": "token usage unavailable ("
                             + ", ".join(counters["usage_unavailable"]) + ")"})
+            startable.append(task)
             continue
         if budget is not None and counters["tokens"] >= budget:
             refused.append({"task": task, "why": f"token-budget {budget} spent "
                                                 f"({counters['tokens']})"})
+            final.add(task)
             continue
         committed = _committed_tokens(counters)
         if budget is not None and committed + reserve > budget:
             refused.append({"task": task, "why": f"token-budget {budget}: {committed} "
                                                 f"committed + {reserve} reserved per worker"})
+            final.add(task)
             continue
         lease = {"task": task, "prompt": member["path"], "started": _iso(now),
                  "heartbeat": _iso(now),
@@ -2335,6 +2408,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             # what this tick already reaped stays written, the rest carry on.
             lease_path.unlink(missing_ok=True)
             refused.append({"task": task, "why": f"spawn failed: {str(e)[:300]}"})
+            startable.append(task)
             # One record per task however often the launch is retried: a
             # failed launch is a crashed worker in the digest (#610).
             rec = worker_record(counters, f"launch-{task}", task, _iso(now))
@@ -2360,9 +2434,14 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         spawned.append({"task": task, "pid": lease["pid"]})
     _digest.note_refusals(counters, refused, _iso(now))
     _write_counters(slot, counters)
+    # A re-dispatch still owed holds the shift open unless a cap refused it.
+    startable += [t for t in counters["pending_redispatch"]
+                  if t not in final and t not in live and t not in startable]
     out = {"action": "ticked", "reaped": reaped, "spawned": spawned,
            "refused": refused, "live": sorted(live), "ledger": ledger,
            "closeouts": closeouts}
+    if startable:
+        out["startable"] = sorted(set(startable))
     if mentions:
         out["mentions"] = mentions
     if login:
@@ -3557,6 +3636,83 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     return out
 
 
+# --- early close (M3.7c, PyAutoBrain#690) -----------------------------------------
+
+def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
+    """Whether a live tick leaves the shift with nothing to do before
+    `review-at:` (M3.7c, decisions 2 and 3). All must hold: the tick ran
+    (not shadow, not stopped) and the shift is not paused; the shift has
+    started something (a worker or a carried PR), so a plan that could not be
+    read never closes it; no worker holds a lease (a parked one does not
+    count); no pick could still start (`startable`: a failed launch, an
+    unreadable spend, an expired login, a re-dispatch no cap refused); no
+    close-out or branch update is running or waiting on the updated head's
+    CI; and every open PR of the shift is judged — refused, merged, or
+    waiting in merge order behind an earlier PR (a wait behind a /prm-bound
+    PR does not hold the shift open)."""
+    if result.get("action") != "ticked" or result.get("paused") or counters.get("paused"):
+        return False
+    if result.get("spawned") or result.get("startable"):
+        return False
+    outcomes = counters.get("outcomes") or {}
+    if not (counters.get("sessions") or outcomes):
+        return False
+    if active_leases(slot):
+        return False
+    cos = counters.get("closeouts") or {}
+    if any(co.get("state") in ("running", *ORDER_STATES) for co in cos.values()):
+        return False
+    waits = counters.get("merge_waits") or {}
+    for o in outcomes.values():
+        if not isinstance(o, dict):
+            continue
+        for pr in o.get("prs") or []:
+            if "/pull/" in pr and pr not in (o.get("merged") or []) \
+                    and pr not in cos and pr not in waits:
+                return False      # not judged yet: CI grace, an unread label, …
+    return True
+
+
+def close_early(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, shift: dict, *,
+                poster=None, health=None, agents=None, tokens=transcript_usage,
+                grace_s: float = LEASE_GRACE_S, github=None, pr_state=None) -> dict:
+    """Close the shift on this tick (M3.7c): record when, then the digest as
+    at `review-at:`, with this tick's time as the shift's end — merges are
+    counted up to it. Called inside the tick lock."""
+    counters = read_counters(slot)
+    counters["closed_early"] = _iso(now)
+    counters["review_at"] = (shift or {}).get("review_at", "")
+    _write_counters(slot, counters)
+    result = finish_shift(brief_path, mind, slot, now, poster=poster, health=health,
+                          agents=agents, tokens=tokens, grace_s=grace_s, pr_state=pr_state,
+                          github=github, closed_at=now)
+    _record_events(slot, now, result, brief_path, poster)
+    return result
+
+
+def _after_early_close(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
+                       spawner=None, grace_s: float = LEASE_GRACE_S, agents=None,
+                       tokens=transcript_usage, poster=None, pr_state=None) -> dict:
+    """A tick inside the window of a shift that closed early: the late sweep
+    while something is owed, else idle. Steering is not read: the shift is
+    over, as after `review-at:`."""
+    if not shift_quiet(slot):
+        if not _take_lock(slot, now):
+            return {"action": "busy", "reason": "another tick holds the lock"}
+        try:
+            result = late_sweep(brief_path, mind, slot, now, grace_s=grace_s, agents=agents,
+                                tokens=tokens, poster=poster,
+                                pr_state=(pr_state or getattr(spawner, "pr_state", None)
+                                          or _default_pr_state()))
+            _record_events(slot, now, result, brief_path, poster)
+        finally:
+            _drop_lock(slot)
+        _log(slot, now, result)
+        return result
+    at = (_safe_counters(slot) or {}).get("closed_early") or "?"
+    return {"action": "idle", "reason": f"closed early at {at}; the digest is posted"}
+
+
 def _github_merges(counters: dict, review_at, pr_state) -> None:
     """GitHub's merge state for every PR the shift's workers named, read once
     at `review-at:` — `in_window` when merged at or before it (#610). A PR
@@ -3579,8 +3735,12 @@ def _github_merges(counters: dict, review_at, pr_state) -> None:
 
 def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                  poster=None, health=None, agents=None, tokens=transcript_usage,
-                 grace_s: float = LEASE_GRACE_S, pr_state=None, github=None) -> dict:
+                 grace_s: float = LEASE_GRACE_S, pr_state=None, github=None,
+                 closed_at: _dt.datetime | None = None) -> dict:
     """Reap, then write the digest into the record and post it on the brief's issue.
+
+    `closed_at` is an early close's time (M3.7c): the shift's end in place of
+    `review-at:`, so merges are counted up to it.
 
     Reaping first (#610) puts a `.done` written after the last live tick into
     the digest. The marker is created **before** the post, exclusively: a
@@ -3605,8 +3765,8 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     reap_closeouts(slot, counters, now, agents, pr_state, tokens)
     counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
     if not _brief.is_shadow(brief):
-        _github_merges(counters, _brief._iso((top.get("review-at") or {}).get("value", "")),
-                       pr_state)
+        _github_merges(counters, closed_at or _brief._iso(
+            (top.get("review-at") or {}).get("value", "")), pr_state)
     issue = (top.get("issue") or {}).get("value", "")
     if issue.startswith("http"):
         # The digest is about to be posted: an App identity that cannot be had
@@ -3636,7 +3796,8 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
             # The dashboard's live line ends with the shift (#622).
             _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
                 "op": "record-key", "path": rel, "key": "live",
-                "value": "closed at review-at — the digest is below"
+                "value": (f"closed early at {_iso(closed_at)}" if closed_at
+                          else "closed at review-at") + " — the digest is below"
                          + (f" — status: {status_url(slot)}" if status_url(slot) else "")})
         try:
             result["ledger"] = _mind_writer.commit_ledger(
@@ -4115,6 +4276,33 @@ def _pr_files_once(counters: dict, pr_files, url: str) -> list[str] | None:
     return cache[url]
 
 
+#: The label a worker puts on a PR whose decision the human must take (S7).
+DECISION_TAKEN = "decision-taken"
+#: Why a `decision-taken` PR is refused at PR-open (S7, M3.7c, #690).
+DECISION_TAKEN_WHY = "decision-taken — the human's /prm"
+
+
+def _pr_labels_once(counters: dict, pr_state, cache: dict, url: str) -> list[str] | None:
+    """A PR's label names, read once per PR per shift and kept in
+    `counters["pr_labels"]` (S7, M3.7c; AUTONOMY.md "The watcher's network
+    surface", amendment 2026-11-19): the `labels` field of the `gh pr view`
+    the tick already makes (`_gh_once`). None when GitHub cannot say: not
+    kept, asked again next tick, never assumed clean. No reader at all (a
+    test spawner) reads as no labels, uncached: the close-out's own label
+    check stays the second layer."""
+    kept = counters.setdefault("pr_labels", {})
+    if url in kept:
+        return kept[url]
+    if pr_state is None:
+        return []
+    gh = _gh_once(pr_state, cache, url)
+    if not gh:
+        return None
+    labels = gh.get("labels")
+    kept[url] = [str(x) for x in labels] if isinstance(labels, list) else []
+    return kept[url]
+
+
 def _overlap(counters: dict, pr: str, merged_ahead: list[str], pr_state, pr_files,
              cache: dict) -> tuple[list[str], list[str]]:
     """(need, disjoint): which PRs merged ahead of `pr` its branch must be
@@ -4201,6 +4389,16 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             # Ruling R3 (2026-11-17, #661): a `notify` PR a worker left
             # open is closed out on the same terms as a `glance` one.
             refuse(pr, task, f"tier {tier} — never merged unattended → your /prm", held=again)
+            continue
+        # S7 (M3.7c, #690): a `decision-taken` PR is the human's /prm, from
+        # its label alone: no close-out session, no merge slot, no CI read.
+        # It stays among the shift's known PRs, so a later PR on its library
+        # still waits behind it (ruling c). Unreadable: asked again next tick.
+        labels = _pr_labels_once(counters, pr_state, cache, pr)
+        if labels is None:
+            continue
+        if DECISION_TAKEN in labels:
+            refuse(pr, task, DECISION_TAKEN_WHY, held=again)
             continue
         if out.get("carried_from"):
             # A carried PR (M3.6c) may have been merged or closed by the

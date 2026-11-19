@@ -94,7 +94,8 @@ already has one keeps it. Dispatch is the watcher's (`batch.md`, "The watcher"),
 it finds the one open brief on Mind `origin/main` (only a pushed brief opens;
 two open briefs tick neither) and ends at `review-at:` + 45 min. `batch digest
 --record <file>` prints a shift's digest and writes nothing; the record append
-and the one issue comment are the watcher's, at `review-at:`.
+and the one issue comment are the watcher's, at `review-at:`, or earlier on
+the tick a shift has nothing left to do (early close, M3.7c).
 
 ## Launching a shift brief
 

@@ -102,7 +102,7 @@ In order:
 ## The watcher (phases 3a–3d)
 
 One deterministic tick per timer firing; the timer is installed by the human, never a session.
-After `review-at:` its one remaining act is the digest: written into the record
+After `review-at:` (or an early close, once nothing is left to do) its one remaining act is the digest: written into the record
 and posted once on the brief's `issue:`. A `shadow: yes` brief plans and digests
 but spawns nothing — the pilot's baseline; every shift keeps one line in `PyAutoMind/batches/pilot/pilot.jsonl`, rendered
 to `pilot.md` (`?` cells the human's at check-in). A parked worker's question is filed in the questions inbox (Mind `questions.md`, cleared with `/questions`) and the digest says how many, with no @mention mid-shift. `batch ready` (the readiness pass) runs at shift end and on request: it files each gate on the queue's next units as a `ruling` in the inbox, and the digest ends "The next shift needs N rulings from you" (dry run by default; `--queue <slot>`, `--apply` on a session branch). Once a worker's `glance` PR is green, the
