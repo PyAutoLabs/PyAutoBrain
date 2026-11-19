@@ -82,10 +82,14 @@ def test_s5_a_glance_and_a_notify_pr_with_ci_running_start_their_closeouts(tmp_p
     assert len(sp.closeouts) == 2                              # never twice
 
 
-def test_s5_the_ci_deadline_is_review_at_when_that_is_sooner(tmp_path):
+def test_s5_the_ci_deadline_leaves_the_merge_margin_before_review_at(tmp_path):
+    """Review round 1, finding 1: a close-out started 21 min before review-at
+    must not wait until review-at and merge after it (#632 F1): the deadline
+    is review-at minus CLOSEOUT_MERGE_MARGIN_S (the /prm run after GREEN)."""
     mind, brief, home, sp = _shift(tmp_path)
-    tc._tick(brief, mind, home, sp, 125, health=tc._health({PR1: "RUNNING"}))  # 11:05
-    assert sp.kws and all(kw["ci_until"] == "2026-11-04T11:30:00Z" for kw in sp.kws)
+    tc._tick(brief, mind, home, sp, 129, health=tc._health({PR1: "RUNNING"}))  # 11:09
+    assert orch.CLOSEOUT_MERGE_MARGIN_S == 300
+    assert sp.kws and all(kw["ci_until"] == "2026-11-04T11:25:00Z" for kw in sp.kws)
 
 
 def test_s5_red_or_unknown_ci_still_refuses_with_no_session(tmp_path):
@@ -132,6 +136,24 @@ def test_s2_s5_the_prompt_runs_no_smoke_and_waits_for_ci_after_the_witness(tmp_p
     assert wait < take < text.index("use the prm skill")
     assert "took its slot before starting you" not in text
     assert "/smoke" not in text.split("Last, write", 1)[1]    # the verdict's gate
+
+
+def test_r1_the_merge_slot_take_must_say_taken():
+    """Review round 1, finding 3: `merge-slot take` exits 0 with "not in a
+    shift" when the shift env is missing; only a `taken: ` line goes on."""
+    text = _prompt()
+    step = text.split("\n8. ", 1)[1].split("\n9. ", 1)[0]
+    assert "`taken: `" in step and "not in a shift" in step
+    assert "merge slot not taken: <first line> → /prm" in step
+
+
+def test_r1_the_ci_wait_runs_under_a_long_bash_timeout_and_the_merge_is_pinned():
+    """Review round 1, findings 4 and 5."""
+    text = _prompt()
+    wait = text.split("\n5. ", 1)[1].split("\n6. ", 1)[0]
+    assert "600000" in wait
+    step = text.split("\n8. ", 1)[1].split("\n9. ", 1)[0]
+    assert "gh pr merge" in step and "--match-head-commit <the step-1 headRefOid>" in step
 
 
 def test_s6_disjoint_merged_ahead_prs_are_named_not_compared():
@@ -206,7 +228,30 @@ def test_s6_a_conflicting_pr_gets_the_update_even_with_disjoint_files(tmp_path):
 def test_s6_an_unreadable_file_list_fails_toward_the_update(tmp_path):
     mind, brief, home, sp, r = _merged_ahead(tmp_path, {GA7: ["autogalaxy/a.py"]})
     assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
-    assert GA8 not in orch.read_counters(orch.slot_dir(brief, home)).get("pr_files", {})
+    # Kept as unreadable (None), never read again (review round 1, finding 2).
+    assert orch.read_counters(orch.slot_dir(brief, home))["pr_files"][GA8] is None
+
+
+@pytest.mark.parametrize("bad", ["none", "raise"])
+def test_s6_an_unreadable_file_list_is_read_once_a_shift(bad):
+    """Review round 1, finding 2: an earlier PR whose files cannot be read is
+    cached as unreadable (an overlap) and never read again for a later PR."""
+    calls = []
+
+    def reader(url):
+        calls.append(url)
+        if url == GA7:
+            if bad == "raise":
+                raise RuntimeError("gh down")
+            return None
+        return ["autogalaxy/x.py"]
+    counters = {}
+    ga9 = GA8.replace("/8", "/9")
+    for later in (GA8, ga9):
+        need, disjoint = orch._overlap(counters, later, [GA7], None, reader, {})
+        assert need == [GA7] and disjoint == []
+    assert calls.count(GA7) == 1, calls
+    assert calls.count(GA8) == 1 and calls.count(ga9) == 1
 
 
 def test_gh_pr_files_and_mergeable_reads():
@@ -332,7 +377,8 @@ def test_until_pending_through_the_deadline_exits_2(monkeypatch):
     clock = Clock(NOW)
     rc = ci_verdict.main([PR1, "--until", "2026-11-04T09:01:00Z"], sleep=clock.sleep,
                          now=clock.now)
-    assert rc == 2 and clock.slept == [30, 30] and len(calls) == 3
+    # The deadline is re-checked after each sleep (review round 1, finding 4).
+    assert rc == 2 and clock.slept == [30, 30] and len(calls) == 2
 
 
 def test_until_one_call_polls_at_most_540_seconds(monkeypatch):
@@ -341,6 +387,22 @@ def test_until_one_call_polls_at_most_540_seconds(monkeypatch):
     rc = ci_verdict.main([PR1, "--until", "2026-11-04T10:00:00Z"], sleep=clock.sleep,
                          now=clock.now)
     assert rc == 2 and sum(clock.slept) <= 540 and sum(clock.slept) >= 510
+
+
+def test_until_one_call_stays_within_540_seconds_when_reads_take_time(monkeypatch):
+    """Review round 1, finding 4: the bound is wall time from the call's
+    start, gh reads included, not the sum of the sleeps."""
+    clock = Clock(NOW)
+
+    def slow(ref, run=None, sleep=None):
+        clock.t += _dt.timedelta(seconds=20)          # each read takes 20 s
+        return {"pr": "o/r#1", "sha": "abc", "verdict": "PENDING", "reasons": [],
+                "counts": {}, "skipped": [], "mergeable_state": "clean", "note": None}
+    monkeypatch.setattr(ci_verdict, "verdict_for", slow)
+    start = clock.t
+    rc = ci_verdict.main([PR1, "--until", "2026-11-04T10:00:00Z"], sleep=clock.sleep,
+                         now=clock.now)
+    assert rc == 2 and (clock.t - start).total_seconds() <= 540
 
 
 def test_until_red_returns_at_once_and_a_bad_timestamp_is_usage(monkeypatch):

@@ -512,7 +512,10 @@ human (`/prm`) already reads the PR a second time.
   CI still runs. It runs the `Witness:`, reads the diff adversarially and
   checks the label, public names and Heart first. Then it waits in-turn for
   CI and merges only on a green `ci-verdict`. The wait has a limit: 30
-  minutes from the start, and never past `review-at:`. A CI that has not
+  minutes from the start, and never later than 5 minutes before
+  `review-at:` (`CLOSEOUT_MERGE_MARGIN_S`, room for the `/prm` run after
+  green, so no close-out merges after `review-at:`). The merge is pinned to
+  the witnessed head (`gh pr merge --match-head-commit`). A CI that has not
   finished by then refuses to `/prm`. Every other guard of "Unattended
   `glance` merges — 2026-11-03" applies unchanged. The merge slot is taken
   immediately before the merge, by the close-out session itself

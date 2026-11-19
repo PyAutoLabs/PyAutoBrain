@@ -60,7 +60,8 @@ targeted smoke, and the full sweep runs in the cloud after the merge.
    It reads every check-run, workflow run and job on the REST head sha, and
    mergeability, and prints `GREEN`, `PENDING` or `RED` with reasons (exit 0,
    2, 1). While CI is pending it re-judges every 30 s for up to 9 minutes,
-   then exits 2. Run it again, as a bare call, while it exits 2 and the
+   then exits 2. Run it with a Bash timeout of 600000 ms (the default 120 s
+   would kill it), and again, as a bare call, while it exits 2 and the
    deadline has not passed. `PENDING` at the deadline refuses with why
    `CI not finished by {ci_until} → /prm`. `RED` refuses with its first
    reason line (`CI RED: …`): no re-run. Only `GREEN` passes. A `GREEN` that
@@ -78,11 +79,22 @@ targeted smoke, and the full sweep runs in the cloud after the merge.
 
        pyauto-brain merge-slot take {pr_url} --task {task}
 
-   Exit 0 goes on. Any other exit refuses with its output line as the `why`
+   Go on only when it exits 0 **and** its first line starts with `taken: `
+   — `taken: merge slot <n> of merge-cap <cap> taken for <pr>` or
+   `taken: <pr> already holds a merge slot for task {task} (taken by …)`.
+   Anything else refuses with why
+   `merge slot not taken: <first line> → /prm`: a `refused: …` line
    (`merge-cap … reached`, the shift is paused, or an earlier PR on this
-   library is still open) → `/prm`. Then use the prm skill on {pr_url}: the
-   full close-out, judged exactly as a human-typed `/prm`. Its own merge slot
-   take (reference.md "Tiered merge") succeeds again for this PR and task.
+   library is still open), a `cannot tell: …` line, and also exit 0 with
+   `not in a shift …` (your shift environment is missing, so the merge would
+   not be counted). Then use the prm skill on {pr_url}: the full close-out,
+   judged exactly as a human-typed `/prm`. Its own merge slot take
+   (reference.md "Tiered merge") succeeds again for this PR and task. Pin
+   its merge call to the head you witnessed:
+   `gh pr merge <n> --merge --match-head-commit <the step-1 headRefOid>`,
+   still one bare call, so a push after step 6 cannot merge an unwitnessed
+   head (GitHub refuses the merge; refuse with why
+   `head moved after the witness → /prm`).
    Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with
    `{shift_ledger} --task {task} append|write|edit|move|remove|drop-section ...`

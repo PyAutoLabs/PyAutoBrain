@@ -541,12 +541,13 @@ for a merge close-out (decision A): the session takes it itself with
 frees it when the close-out refuses, whoever holds it for that task. Then the
 watcher starts **one** close-out session
 (`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus --effort medium`),
-with a CI deadline: `CLOSEOUT_CI_WAIT_S` (30 minutes) from now, never past
-`review-at:`. That session is the independent leg: it runs the `Witness:`
+with a CI deadline: `CLOSEOUT_CI_WAIT_S` (30 minutes) from now, never later
+than `review-at:` minus `CLOSEOUT_MERGE_MARGIN_S` (5 minutes). That session is the independent leg: it runs the `Witness:`
 itself on the PR head and records that head, reviews the diff adversarially,
 checks the `decision-taken` label and Heart, then waits in-turn for CI
 (`pyauto-brain ci-verdict <pr> --until <deadline>`, repeated while PENDING),
-checks the head did not move, takes its slot and runs the `/prm` close-out —
+checks the head did not move, takes its slot (its output must say `taken: `)
+and runs the `/prm` close-out, its merge pinned with `--match-head-commit` —
 or refuses. It runs no full affected smoke (ruling S2); the cloud sweep runs
 after the merge. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`
 and queues a `table-append` op that lands one row in
@@ -569,7 +570,8 @@ worker started; for a carried PR, any merged earlier PR) gets a branch update
 only when the two PRs' changed files overlap, a file list cannot be read, or
 GitHub reports this PR `CONFLICTING` (ruling S6, M3.7b). The watcher reads
 each PR's files once a shift (`gh pr view --json files`, kept in
-`counters["pr_files"]`) and `mergeable` from its usual `gh pr view`. A
+`counters["pr_files"]`; an unreadable list is kept as unreadable, counts as
+an overlap and is not read again) and `mergeable` from its usual `gh pr view`. A
 disjoint earlier PR is not updated for: the close-out's step 4b names it
 `merged ahead, disjoint files, not updated (S6)` and does not compare it. A
 PR that needs the update has the watcher take its merge slot and gets one

@@ -40,8 +40,10 @@ Exit status: 0 GREEN, 1 RED, 2 PENDING, 64 usage. `--json` prints one object.
 
 `--until <iso8601>` is the close-out's in-turn CI wait (ruling S5, M3.7b,
 PyAutoBrain#688): while the verdict is PENDING and the deadline has not
-passed, sleep 30 s and judge again. One call polls for at most 540 s, so a
-single Bash call never meets a 10-minute tool timeout; the caller repeats it
+passed, sleep 30 s and judge again. One call runs for at most about 540 s of
+wall time from its start, gh reads included (it reads again only while
+the next sleep plus its longest read so far still fits), so a single Bash
+call run with a 600000 ms timeout never meets it; the caller repeats it
 while it exits 2 and the deadline has not passed. Output and exit codes are
 unchanged. A timestamp that does not parse is a usage error (64); one with no
 zone is read as UTC.
@@ -371,13 +373,22 @@ def main(argv=None, run=None, sleep=time.sleep, now=_utcnow) -> int:
     a = p.parse_args(argv)
     try:
         until = parse_until(a.until) if a.until else None
+        start = now()
         v = verdict_for(a.pr, run=run, sleep=sleep)
-        polled = 0
+        read_s = (now() - start).total_seconds()   # the longest gh read so far
+
+        def spent() -> float:   # wall time of this call, gh reads included
+            return (now() - start).total_seconds()
+        # Sleep and read again only while both fit inside UNTIL_MAX_S of wall
+        # time; the deadline is re-checked after each sleep.
         while until is not None and v["verdict"] == PENDING and now() < until \
-                and polled + UNTIL_POLL_S <= UNTIL_MAX_S:
+                and spent() + UNTIL_POLL_S + read_s <= UNTIL_MAX_S:
             sleep(UNTIL_POLL_S)
-            polled += UNTIL_POLL_S
+            if now() >= until:
+                break
+            t0 = now()
             v = verdict_for(a.pr, run=run, sleep=sleep)
+            read_s = max(read_s, (now() - t0).total_seconds())
     except UsageError as e:
         print(f"ci-verdict: {e}", file=sys.stderr)
         return EXIT_USAGE

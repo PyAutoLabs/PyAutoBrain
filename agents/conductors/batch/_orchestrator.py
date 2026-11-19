@@ -422,6 +422,9 @@ def update_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
 #: refuses (`CI not finished by <deadline> → /prm`; ruling S5, M3.7b). The
 #: deadline is never later than `review-at:`.
 CLOSEOUT_CI_WAIT_S = 1800
+#: The CI deadline ends this long before `review-at:`, leaving room for the
+#: `/prm` run after GREEN, so no close-out merges after `review-at:` (#632 F1).
+CLOSEOUT_MERGE_MARGIN_S = 300
 
 
 def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
@@ -4093,11 +4096,12 @@ def _merged_after_start(counters: dict, task: str, pr: str, pr_state, cache: dic
 
 
 def _pr_files_once(counters: dict, pr_files, url: str) -> list[str] | None:
-    """A PR's changed files, read at most once per PR per shift: a successful
-    read is kept in `counters["pr_files"]` (S6, M3.7b; AUTONOMY.md "The
-    watcher's network surface", amendment 2026-11-19). None when it cannot be
-    read, or there is no reader (a test spawner): that fails toward the
-    branch update, as before S6."""
+    """A PR's changed files, read at most once per PR per shift and kept in
+    `counters["pr_files"]` (S6, M3.7b; AUTONOMY.md "The watcher's network
+    surface", amendment 2026-11-19). A read that fails, raises or may be
+    truncated is kept as None — unreadable, an overlap — and never read
+    again. None, uncached, when there is no reader (a test spawner): that
+    fails toward the branch update, as before S6."""
     cache = counters.setdefault("pr_files", {})
     if url in cache:
         return cache[url]
@@ -4107,10 +4111,8 @@ def _pr_files_once(counters: dict, pr_files, url: str) -> list[str] | None:
         files = pr_files(url)
     except Exception:   # unreadable: update, never assume disjoint
         files = None
-    if isinstance(files, list):
-        cache[url] = list(files)
-        return cache[url]
-    return None
+    cache[url] = list(files) if isinstance(files, list) else None
+    return cache[url]
 
 
 def _overlap(counters: dict, pr: str, merged_ahead: list[str], pr_state, pr_files,
@@ -4326,7 +4328,8 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             before = _earlier_prs(counters, pr)
             until = now + _dt.timedelta(seconds=CLOSEOUT_CI_WAIT_S)
             if review_at is not None:
-                until = min(until, review_at)
+                until = min(until, review_at
+                            - _dt.timedelta(seconds=CLOSEOUT_MERGE_MARGIN_S))
             kw = {k: v for k, v in (("after", after), ("before", before),
                                     ("disjoint", disjoint)) if v}
             kw["ci_until"] = _iso(until)
