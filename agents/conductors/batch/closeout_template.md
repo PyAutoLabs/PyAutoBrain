@@ -91,7 +91,7 @@ targeted smoke, and the full sweep runs in the cloud after the merge.
    judged exactly as a human-typed `/prm`. Its own merge slot take
    (reference.md "Tiered merge") succeeds again for this PR and task. Pin
    its merge call to the head you witnessed:
-   `gh pr merge <n> --merge --match-head-commit <the step-1 headRefOid>`,
+   `gh pr merge {pr_url} --merge --match-head-commit <the step-1 headRefOid>`,
    still one bare call, so a push after step 6 cannot merge an unwitnessed
    head (GitHub refuses the merge; refuse with why
    `head moved after the witness → /prm`).
