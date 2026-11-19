@@ -592,8 +592,9 @@ Watcher latency (M3.7c, the human's plan decisions of 2026-11-19):
   failing workspace the watcher cannot map, or a report it cannot read,
   blocks every library, chain and workspace repo. A run list that has
   failed on every read for 30 minutes (from the first failure; any good
-  read resets it) holds those repos' PRs instead: a wait, not a refusal,
-  as `workspace sweep unknown: run list unreadable since <time>`. No
+  read resets it, and so does a gap of over 10 minutes since the previous
+  read, as between shifts) holds those repos' PRs instead: a wait, not a
+  refusal, as `workspace sweep unknown: run list unreadable since <time>`. No
   session starts and no slot is taken; the next good read releases them,
   and the shift does not close early meanwhile. A close-out already
   running on a blocked repo finds a `.sweep-red` marker (red or unknown)
