@@ -29,7 +29,7 @@ Where the dev workflow stops for a human today:
 | Checkpoint | `safe` | `supervised` | `human-required` |
 |------------|--------|--------------|------------------|
 | Plan approval | write plan to the issue, proceed | write plan to the issue, proceed | present + wait |
-| Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere — except under an explicit `--auto` launch, where it resolves to decide-and-flag (below; 2026-09-07) (a `notify` task merges in-turn under R3, "`notify` merges under `--auto` and inside a shift — 2026-11-17") | present + wait |
+| Ship PR sign-off | proceed through the autonomous-ship gate; end at PR-open | park (`awaiting-input`), question to the issue, continue elsewhere — except under an explicit `--auto` launch, where it resolves to decide-and-flag (below; 2026-09-07) (a `notify` task merges in-turn under R3, "`notify` merges under `--auto` and inside a shift — 2026-11-17"; inside a shift it ends at PR-open and the close-out merges, 2026-11-19) | present + wait |
 | Heart YELLOW | park, unless the reason set was human-acknowledged at launch (see the autonomous-ship gate) | same as `safe` | present + wait |
 | Heart RED | stop, report | stop, report | stop, report — a live human may separately invoke the development override or corrective-PR exception below; neither is an autonomy level |
 | Merge / close | by declared `Consequence:` (2026-10-02 section) | by declared `Consequence:` | by declared `Consequence:` |
@@ -258,7 +258,7 @@ checkpoint of an effective-`supervised` run.** The human's direction
 (2026-08-31): *"I dont really want these parked at ship judgements, ideally we
 send off a batch and then dont think about it again, the parked thing is an
 annoying middle ground which requires human time."* The argument: every
-autonomous run already ends at PR-open with merge left to the human (a `notify` task merges in-turn under R3, "`notify` merges under `--auto` and inside a shift — 2026-11-17"), so **the PR
+autonomous run already ends at PR-open with merge left to the human (a `notify` task merges in-turn under R3, "`notify` merges under `--auto` and inside a shift — 2026-11-17"; inside a shift the close-out merges it since 2026-11-19), so **the PR
 review IS the approval the `supervised` level exists to provide**. A mid-run park
 at ship sign-off is a redundant *second* checkpoint — it costs a GitHub-issue
 round-trip before a PR even exists, and then asks the human for the same
@@ -339,9 +339,10 @@ never an assumption:
      head: `pyauto-heart smoke --affected-by <the PR's repo> --jobs 3` (every
      workspace whose install chain has the repo, three at a time,
      thread-capped). The close-out runs it for a `glance` PR or a `notify` PR
-     the worker left open (`agents/conductors/batch/closeout_template.md`);
-     a `notify` worker that merges in-turn (R3) runs it itself first. Any
-     failure refuses the merge → `/prm`.
+     (every `notify` PR in a shift, since its worker now ends at PR-open —
+     "Shift `notify` workers end at PR-open — 2026-11-19" below;
+     `agents/conductors/batch/closeout_template.md`). Any failure refuses the
+     merge → `/prm`.
    - *PRs bound for the human's `/prm`* (`decision-taken`, `judge`, a
      public-name hit, a refusal) — no automatic full sweep: the worker's
      targeted smoke plus PR CI; the human runs `/smoke_test` if they want it.
@@ -567,6 +568,21 @@ The human's ruling R3, 2026-11-17, from the review of shift 2026-11-16-pm. Two w
 - Outside a shift, nothing changes.
 
 *Revert condition:* one in-shift merge past `merge-cap:` after this is built returns every in-shift `notify` merge to `/prm`.
+
+### Shift `notify` workers end at PR-open — 2026-11-19
+
+The human's ruling, 2026-11-19 (option "ii", PyAutoHeart#352), with the smoke
+split of leg 2: **notify workers no longer merge in-turn; they end at PR-open
+and the close-out merges after the affected smoke.** This replaces R3's
+in-turn path inside a shift (its first two bullets): a shift worker never runs
+`merge-slot take` or `gh pr merge`, whatever its tier. The watcher closes out
+a green `notify` PR exactly as a `glance` one (R3's third bullet, unchanged),
+and that close-out runs the witness and the full affected smoke
+(`pyauto-heart smoke --affected-by <repo> --jobs 3`) before it merges. R3's
+fourth bullet stands: these are `notify` merges, not stage-2 rows. Outside a
+shift (an `--auto` chat, no close-out), R3's in-turn merge is unchanged.
+`merge-slot take` keeps refusing an out-of-order in-turn merge as a backstop,
+and the digest still flags any in-turn merge a worker makes.
 
 ## The `glance` Shadow-window ruling — 2026-11-04
 

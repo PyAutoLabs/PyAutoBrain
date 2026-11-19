@@ -320,8 +320,8 @@ touch the same lines, keep the change minimal and say so in the PR body and
 your proof packet: after a sibling merges, the close-out updates your branch
 from main and refuses (leaving it for the human's /prm) on a conflict. A
 `worktree_check_conflict` hit that names only a listed sibling's branch slug
-is not a conflict (ruling e, 2026-11-19): go on. Never merge in-turn ahead
-of a sibling: `merge-slot take` refuses while one is open, so end at PR-open.
+is not a conflict (ruling e, 2026-11-19): go on. End at PR-open, as every
+shift worker does.
 
 """
 

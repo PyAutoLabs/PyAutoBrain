@@ -36,10 +36,36 @@ def test_the_worker_runs_a_targeted_smoke_and_says_so_in_the_pr_body():
     assert "PyAutoHeart#352" in prompt
 
 
-def test_a_notify_worker_runs_the_affected_smoke_before_an_in_turn_merge():
+def test_a_notify_worker_ends_at_pr_open_and_never_merges_in_turn():
+    """Ruling "ii" (2026-11-19, PyAutoHeart#352): a shift `notify` worker ends
+    at PR-open like `glance`; the close-out merges after the affected smoke.
+    The watcher side is unchanged: test_orchestrator_closeout.py
+    test_a_notify_pr_left_open_is_closed_out_like_glance."""
     prompt = orch.worker_prompt("t1", "draft/x/t1.md", Path("b.md"), Path("leases"))
-    merge = prompt.split("merge-slot take", 1)[1].split("If it refuses", 1)[0]
-    assert "--affected-by <repo> --jobs 3" in merge
+    assert "`Consequence: glance` or `notify`, end at PR-open" in prompt
+    # No in-turn merge commands are handed to the worker any more.
+    assert "merge-slot take <pr-url>" not in prompt
+    assert "merge-slot release" not in prompt
+    assert "a bare `gh pr merge`" not in prompt
+    assert "merged in-turn under its tier" not in prompt
+    sib = orch.worker_prompt("t1", "draft/x/t1.md", Path("b.md"), Path("leases"),
+                             siblings=["https://github.com/o/r/pull/1"])
+    assert "Never merge in-turn ahead" not in sib and "End at PR-open" in sib
+
+
+def test_the_watcher_still_closes_out_both_unattended_tiers():
+    src = (BATCH / "_orchestrator.py").read_text()
+    gate = src.split("def _start_closeouts", 1)[1]
+    assert 'if tier not in ("glance", "notify"):' in gate
+
+
+def test_autonomy_records_the_notify_ruling():
+    text = (BRAIN / "AUTONOMY.md").read_text()
+    sec = text.split("### Shift `notify` workers end at PR-open — 2026-11-19", 1)[1].split("\n## ", 1)[0]
+    assert "notify workers no longer merge in-turn" in sec
+    assert '"ii"' in sec and "PyAutoHeart#352" in sec
+    agents = (BATCH / "AGENTS.md").read_text()
+    assert "Shift workers no\nlonger merge in-turn" in agents
 
 
 def test_the_closeout_runs_the_affected_parallel_smoke_before_the_merge():

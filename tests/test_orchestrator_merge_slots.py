@@ -208,7 +208,10 @@ def test_a_notify_closeout_refuses_without_a_witness():
     assert "merge-slot take " + PR + " --task t1" in text
 
 
-def test_the_worker_names_its_task_on_every_merge_slot_call():
+def test_the_worker_makes_no_merge_slot_call_in_a_shift():
+    """Ruling "ii" (2026-11-19, PyAutoHeart#352) replaced R3's in-turn path in
+    a shift: the worker ends at PR-open and only the close-out takes a slot."""
     text = orch.worker_prompt("t1", "draft/bug/x/t1.md", Path("b.md"), Path("leases"))
-    assert "merge-slot take <pr-url> --task t1" in text
-    assert "merge-slot release <pr-url> --task t1" in text
+    assert "merge-slot take <pr-url>" not in text
+    assert "merge-slot release <pr-url>" not in text
+    assert "Never run `merge-slot take` or `gh pr merge`" in text
