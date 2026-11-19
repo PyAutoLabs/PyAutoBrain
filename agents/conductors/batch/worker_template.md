@@ -10,7 +10,8 @@ First, before anything else, check the task's premise on a fresh main
   nothing. Write {lease_dir}/{task}.proof.md headed
   `#### {task} — obsolete (premise check)` with the check's evidence lines,
   then {lease_dir}/{task}.done containing one line: `obsolete <its first
-  why: line>`. That is your deliverable; the human retires the draft.
+  why: line>`, then wake the watcher: `echo kick >> "$PYAUTO_SHIFT_KICK" 2>/dev/null || true`.
+  That is your deliverable; the human retires the draft.
 - `ok`: go on (it queued its `Verified:` stamp through the ledger).
 - `unknown` (exit 0, including `check failed: …`): go on, and say in your
   proof packet that the premise check was unknown and why.
@@ -118,6 +119,8 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   questions inbox, which they clear in bulk after the shift; their answer is
   added to your prompt and the next shift resumes the task. Without that file
   the watcher counts your session as crashed.
+- Right after writing `.done`, whatever it says, wake the watcher (best
+  effort; a failed write changes nothing): `echo kick >> "$PYAUTO_SHIFT_KICK" 2>/dev/null || true`
 - When you park with `question: <url>`, first write
   {lease_dir}/{task}.question.json, the line the human reads in the inbox:
   `{{"issue": "<url>", "ask": "<one line, at most 200 characters>",

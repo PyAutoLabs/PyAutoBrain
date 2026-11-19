@@ -103,8 +103,14 @@ def _shift(tmp_path, monkeypatch, names=("t1",), extra=""):
     return mind, brief, home, orch.slot_dir(brief, home)
 
 
+def _unlabelled(url):
+    """`gh pr view` offline: OPEN, no labels. The label read (S7, M3.7c) waits
+    on a PR GitHub cannot say about, so a close-out needs a readable PR."""
+    return {"state": "OPEN", "mergedAt": "", "mergedBy": "", "labels": []}
+
+
 def _tick(brief, mind, home, minutes, claude, gh, states=None, *, agents=None,
-          health="RUNNING", pr_state=None):
+          health="RUNNING", pr_state=_unlabelled):
     slot = orch.slot_dir(brief, home)
     if agents is None:
         agents = d._agents(states, slot) if states else orch.AgentsView([])
@@ -127,6 +133,7 @@ def _spawned(claude) -> list[str]:
 
 # --- the status comment ---------------------------------------------------------
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_the_status_comment_is_created_once_and_then_only_edited(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGitHub()
@@ -186,6 +193,7 @@ def test_a_tick_that_died_after_its_claim_never_makes_a_second_comment(tmp_path,
     assert gh.calls.count("edit") >= 1
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_failed_status_edit_is_retried_next_tick(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGitHub()
@@ -233,6 +241,7 @@ def test_pause_holds_new_spawns_until_resume(tmp_path, monkeypatch):
     assert "PAUSED" not in gh.status()[0]["body"]
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_drop_removes_a_pick_not_yet_spawned(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch, names=("t1", "t2"),
                                      extra="  - max-workers: 1\n")
@@ -248,6 +257,7 @@ def test_drop_removes_a_pick_not_yet_spawned(tmp_path, monkeypatch):
     assert "`t2`" in body and "dropped by /drop — not started" in body
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_drop_of_a_running_worker_leaves_it_running_and_never_merges_it(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGitHub()
@@ -368,6 +378,7 @@ def test_record_key_upserts_the_live_line_and_the_box_shows_it():
     assert f'<a href="{url}">' in html
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_the_live_line_is_rewritten_only_when_the_shift_changes(tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
     queued = []
@@ -420,6 +431,7 @@ def test_drop_of_a_task_not_in_the_shift_is_refused(tmp_path, monkeypatch):
     assert not (slot / "leases" / "t11.dropped").exists()
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_drop_tells_a_running_closeout_to_refuse_and_a_merge_anyway_is_outside(
         tmp_path, monkeypatch):
     mind, brief, home, slot = _shift(tmp_path, monkeypatch)
@@ -559,6 +571,7 @@ def test_cap_ignored_and_refused_acks_change_nothing(tmp_path, monkeypatch, comm
     assert "caps" not in orch.read_counters(slot) and _spawned(claude) == ["shift:t1"]
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_cap_merges_binds_the_close_out_gate_on_the_tick_that_reads_it(tmp_path, monkeypatch):
     mind, brief, home, slot = _cap_shift(tmp_path, monkeypatch)
     claude, gh = d.FakeClaude(), FakeGitHub()
@@ -867,6 +880,7 @@ def test_kill_a_second_time_is_ignored(tmp_path, monkeypatch):
     assert log.read_text() == "stop 00000001\n"
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_cap_tokens_zero_stops_close_outs_as_its_ack_says(tmp_path, monkeypatch):
     """Review of #644: the close-out gates read `budget is not None`, so a
     `/cap tokens 0` means zero, never "no budget"."""

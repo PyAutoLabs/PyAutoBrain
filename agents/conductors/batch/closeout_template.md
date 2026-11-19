@@ -131,4 +131,5 @@ Last, write {lease_dir}/{task}.closeout as one JSON object:
       "cleanup": "<after a merge: `worktree and branch removed`, or why not>"}}
 
 Without that file the watcher records the close-out as ended without a
-verdict and never retries it.
+verdict and never retries it. Then wake the watcher (best effort):
+`echo kick >> "$PYAUTO_SHIFT_KICK" 2>/dev/null || true`

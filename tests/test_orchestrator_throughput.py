@@ -134,6 +134,7 @@ def _parked_shift(tmp_path, monkeypatch, answered: bool = True):
 
 
 @pytest.mark.parametrize("left,restarts", [(31, True), (29, False)])
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_2_an_answer_with_more_than_30_minutes_left_restarts_the_task(tmp_path, monkeypatch,
                                                                      left, restarts):
     mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
@@ -151,6 +152,7 @@ def test_2_an_answer_with_more_than_30_minutes_left_restarts_the_task(tmp_path, 
         assert r["spawned"] == []
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_2_an_open_question_restarts_nothing(tmp_path, monkeypatch):
     mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch, answered=False)
     r = d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=30), claude)
@@ -324,6 +326,7 @@ def test_review_the_first_tick_restarts_a_task_answered_since_the_last_shift(tmp
     assert "parked on a question" in prompt and "Q3" in prompt
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_review_a_release_refused_one_tick_still_resumes_the_next(tmp_path, monkeypatch):
     mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
     (mind / "draft" / "feature" / "pyautobrain" / "t2.md").write_text(d.PROMPT.format(name="t2"))
@@ -379,6 +382,7 @@ def test_review_first_glance_reorders_but_selects_the_same_tasks():
     assert [m["path"] for m in a["members"]] == [m["path"] for m in b["members"]]
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_review_once_per_answer_a_new_answered_question_restarts_again(tmp_path, monkeypatch):
     mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
     r = d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=20), claude)
@@ -402,6 +406,7 @@ def test_review2_a_dropped_tasks_late_pr_is_not_carried(tmp_path):
     assert LATE not in c["carried_in"]["prs"] and LATE not in r["closeouts"]["started"]
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_review2_a_pending_release_clears_at_30_minutes_and_the_park_stays(tmp_path,
                                                                          monkeypatch):
     mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
@@ -419,6 +424,7 @@ def test_review2_a_pending_release_clears_at_30_minutes_and_the_park_stays(tmp_p
     assert c["outcomes"]["t1"]["questions"] and "t1" in c["done"]
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_review2_the_digest_names_an_in_shift_restart(tmp_path, monkeypatch):
     mind, brief, home, slot, claude = _parked_shift(tmp_path, monkeypatch)
     d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=20), claude)

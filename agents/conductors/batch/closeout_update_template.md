@@ -40,4 +40,5 @@ Last, write {lease_dir}/{task}.closeout as one JSON object:
       "model": "<your model id>"}}
 
 Without that file the watcher records the update as ended without a verdict,
-and the PR waits for the human's /prm.
+and the PR waits for the human's /prm. Then wake the watcher (best effort):
+`echo kick >> "$PYAUTO_SHIFT_KICK" 2>/dev/null || true`

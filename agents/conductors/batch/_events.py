@@ -439,11 +439,13 @@ def _digest_event(b: _Batch, result: dict, counters: dict) -> None:
             if filed else
             f" {len(parked)} task{'s' if len(parked) != 1 else ''} parked on a question."
             if parked else "")
+    # An early close (M3.7c, #690) says so: the shift ended before review-at.
+    closed = "Shift closed early." if counters.get("closed_early") else "Shift closed."
     if post.get("url"):
-        b.add("digest", "digest", f"Shift closed. Digest: {post['url']}.{tail}", url=post["url"])
+        b.add("digest", "digest", f"{closed} Digest: {post['url']}.{tail}", url=post["url"])
     else:
         why = post.get("error") or "not posted"
-        b.add("digest", "digest", f"Shift closed. Digest written to the record; its post: "
+        b.add("digest", "digest", f"{closed} Digest written to the record; its post: "
                                   f"{why}.{tail}")
 
 

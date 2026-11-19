@@ -186,6 +186,7 @@ def test_a_running_worker_keeps_its_lease(tmp_path):
     assert orch.leases(slot)["t1"]["heartbeat"] == orch._iso(later)
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_blocked_worker_is_parked_after_the_grace_and_never_redispatched(tmp_path):
     mind, brief, home = _shift(tmp_path)
     slot = orch.slot_dir(brief, home)
@@ -827,6 +828,7 @@ def test_a_parked_worker_that_finishes_after_review_at_is_a_late_arrival(tmp_pat
     assert len(claude.calls) == 1                     # never re-dispatched
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_parked_worker_that_finishes_inside_the_shift_is_done(tmp_path):
     mind, brief, home, slot, claude, past = _park(tmp_path)
     (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/8\n")
@@ -838,6 +840,7 @@ def test_a_parked_worker_that_finishes_inside_the_shift_is_done(tmp_path):
     assert r["spawned"] == [] and len(claude.calls) == 1
 
 
+@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
 def test_a_parked_worker_that_ends_without_a_done_is_released_not_a_crash(tmp_path):
     mind, brief, home, slot, claude, past = _park(tmp_path)
     r = _tick(brief, mind, home, past + _dt.timedelta(minutes=3), claude,

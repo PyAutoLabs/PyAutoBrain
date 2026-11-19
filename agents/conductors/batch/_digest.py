@@ -30,6 +30,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
 import ci_verdict  # noqa: E402
 
 DIGEST_HEADING = "## Digest"
+#: The tail of a watcher plan reason for a draft held because Mind
+#: origin/main could not be read (`_orchestrator.on_origin`).
+FAIL_CLOSED = "fail closed"
 SECTIONS = ("### Brief work", "### Backlog picks", "### Proof packets", "### Counters")
 #: Every counter, always printed — a zero is a fact, an absent line is a finding.
 COUNTERS = ("merges", "glance-auto-merges", "reverts", "pushes", "drafts-filed",
@@ -354,6 +357,65 @@ def merge_order_lines(counters: dict) -> list[str]:
     return out
 
 
+#: The heading of the PRs that waited behind a /prm-bound PR (S7, M3.7c).
+WAITED_HEADING = "### Waited behind your /prm"
+
+
+def _hhmm(iso: str) -> str:
+    """`2026-11-04T09:01Z` from an ISO time; the text itself otherwise."""
+    iso = str(iso or "")
+    return iso[:16] + "Z" if len(iso) >= 16 and iso[10:11] == "T" else (iso or "?")
+
+
+def closed_early_lines(counters: dict) -> list[str]:
+    """One line when the shift closed before `review-at:` (M3.7c, #690)."""
+    at = counters.get("closed_early")
+    if not at:
+        return []
+    return [f"Closed early at {_hhmm(at)}; review-at was {_hhmm(counters.get('review_at'))} "
+            "— nothing was left to run, start or judge.", ""]
+
+
+def waited_lines(counters: dict) -> list[str]:
+    """The PRs that waited in merge order behind an earlier PR bound for the
+    human's /prm (S7, M3.7c, PyAutoBrain#690): one line per library repo and
+    set of blockers, from `merge_waits` at close and the refused close-outs —
+    `autogalaxy: #8, #9 waited behind #7 (/prm-bound: decision-taken)` — after
+    a count; and how many PRs were refused because their labels could not be
+    read (S7). Empty when there is neither."""
+    cos = counters.get("closeouts") or {}
+    refused = {u: co for u, co in cos.items() if co.get("state") == "refused"}
+    groups: dict[tuple, list[str]] = {}
+    for url, info in (counters.get("merge_waits") or {}).items():
+        bound = [b for b in info.get("behind") or [] if b in refused]
+        if not bound:
+            continue
+        m = _PR_REF_RE.match(url)
+        repo = m.group(1) if m else "?"
+        groups.setdefault((repo, tuple(bound)), []).append(url)
+    unread = [u for u, co in refused.items()
+              if str(co.get("why") or "").startswith("labels unreadable")]
+    if not groups and not unread:
+        return []
+
+    def num(u):
+        m = _PR_REF_RE.match(u)
+        return int(m.group(2)) if m else 0
+    n = sum(len(v) for v in groups.values())
+    out = ["", WAITED_HEADING] + ([f"- {n} PR(s) waited behind a /prm-bound PR"] if n else [])
+    if unread:   # review round 1: label reads that never succeeded (S7)
+        out.append(f"- {len(unread)} PR(s) refused: labels unreadable (at most one read a "
+                   "tick, refused after 3 misses over 15 minutes) — "
+                   + ", ".join(pr_ref(u) for u in unread))
+    for (repo, bound), urls in groups.items():
+        whys = "; ".join(dict.fromkeys(str(refused[b].get("why") or "?").split(" — ", 1)[0]
+                                       for b in bound))
+        out.append(f"- {repo}: " + ", ".join(f"#{num(u)}" for u in sorted(urls, key=num))
+                   + " waited behind " + ", ".join(f"#{num(b)}" for b in bound)
+                   + f" (/prm-bound: {whys})")
+    return out
+
+
 def has_slot(counters: dict, task: str, url: str) -> bool:
     """Whether the shift's merge-slot file (as last synced into `counters`
     as `slot_holders`) shows a slot for this PR held for this task."""
@@ -664,6 +726,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     backlog = [t for t in picks if t not in named]
 
     lines = [DIGEST_HEADING, ""]
+    lines += closed_early_lines(counters)
     # The one notice of the shift's parked questions (M3.5, #645, Decision
     # H7 a): no @mention mid-shift, one line here; the asks live in the inbox.
     inbox = [x for x in [_questions.inbox_line(counters, Path(slot).name, mind)]
@@ -681,6 +744,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
               for t in backlog] or [NO_PICKS]
     lines += backlog_gate_lines(counters)
     lines += merge_order_lines(counters)
+    lines += waited_lines(counters)
 
     started = [t for t in named + backlog
                if t in counters.get("outcomes", {}) or t in counters.get("parked", [])
@@ -776,7 +840,7 @@ def backlog_gate_lines(counters: dict) -> list[str]:
         out.append("Backlog dip stopped: queue.md is empty, so the shift took the "
                    "brief's named tasks only.")
     origin = gates.get("origin") or {}
-    closed = {p: w for p, w in origin.items() if w.endswith("fail closed")}
+    closed = {p: w for p, w in origin.items() if w.endswith(FAIL_CLOSED)}
     repo_held = {p: w for p, w in origin.items() if w.startswith("repo ") and p not in closed}
     claimed = sorted(p for p in origin if p not in closed and p not in repo_held)
 
