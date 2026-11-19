@@ -528,17 +528,27 @@ running close-outs — `<task>.closeout` (`merged` | `refused`, `why`, `gate`,
 each PR a worker named, judges the guards it can see with its own reads: the
 recorded tier is `glance` or `notify` (ruling R3, 2026-11-17; since 2026-11-19
 every `notify` PR comes here, its worker having ended at PR-open — ruling "ii",
-PyAutoHeart#352), `gh pr checks` is green — at least one completed
-check, all green (pending waits a tick; red, none or unknown is refused), the
-shift is not shadow, `review-at:` is more than 20 minutes away, spend is
-under 1.5× `token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"),
-and — last — a merge slot is free under `merge-cap:` (`_merge_slots.py`; a
-worker's in-turn merge takes from the same count). Then it starts **one** close-out session
-(`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus --effort medium`).
-That session is the independent leg: it runs the `Witness:` itself, reviews the
-diff adversarially, checks the `decision-taken` label and Heart, runs the full
-affected smoke on the PR head (`pyauto-heart smoke --affected-by <repo> --jobs 3`,
-PyAutoHeart#352), and only then runs the `/prm` close-out — or refuses. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`
+PyAutoHeart#352), `gh pr checks` is running or green (ruling S5, M3.7b:
+the close-out starts at PR-open; red or unknown is refused; none at all waits
+`UPDATE_CHECKS_GRACE_S`, 600 s, from when the watcher first saw the PR in
+`counters["pr_seen"]`, then is refused), the shift is not shadow,
+`review-at:` is more than 20 minutes away, spend is under 1.5×
+`token-budget:` (#632; AUTONOMY.md "Close-out budget — 2026-11-14"), and —
+last — a merge slot is free under `merge-cap:` (`_merge_slots.room`, counting
+the merge close-outs already running without one). The watcher takes no slot
+for a merge close-out (decision A): the session takes it itself with
+`pyauto-brain merge-slot take` immediately before the merge, and the reaper
+frees it when the close-out refuses, whoever holds it for that task. Then the
+watcher starts **one** close-out session
+(`closeout_template.md`; `claude --bg --name shift-close:<task> --model opus --effort medium`),
+with a CI deadline: `CLOSEOUT_CI_WAIT_S` (30 minutes) from now, never past
+`review-at:`. That session is the independent leg: it runs the `Witness:`
+itself on the PR head and records that head, reviews the diff adversarially,
+checks the `decision-taken` label and Heart, then waits in-turn for CI
+(`pyauto-brain ci-verdict <pr> --until <deadline>`, repeated while PENDING),
+checks the head did not move, takes its slot and runs the `/prm` close-out —
+or refuses. It runs no full affected smoke (ruling S2); the cloud sweep runs
+after the merge. A merge marks the PR merged; a `glance` one also bumps `glance_auto_merges`
 and queues a `table-append` op that lands one row in
 `autonomy_log.md` "Unattended `glance` sub-window (stage 2)" through the one Mind
 writer. Every refusal is final for the shift and named in the digest
@@ -555,17 +565,25 @@ tick, one `gh pr view` per blocking PR per tick, ruling b) and a `waiting`
 event when what it waits behind changes. A workspace PR waits while its own
 task's library PR waits or is being closed out. Once nothing is ahead, a PR
 whose branch was cut before an earlier PR merged (merged after its task's first
-worker started; for a carried PR, any merged earlier PR) takes its merge slot
-and gets one **branch-update session** (`closeout_update_template.md`, `claude
+worker started; for a carried PR, any merged earlier PR) gets a branch update
+only when the two PRs' changed files overlap, a file list cannot be read, or
+GitHub reports this PR `CONFLICTING` (ruling S6, M3.7b). The watcher reads
+each PR's files once a shift (`gh pr view --json files`, kept in
+`counters["pr_files"]`) and `mergeable` from its usual `gh pr view`. A
+disjoint earlier PR is not updated for: the close-out's step 4b names it
+`merged ahead, disjoint files, not updated (S6)` and does not compare it. A
+PR that needs the update has the watcher take its merge slot and gets one
+**branch-update session** (`closeout_update_template.md`, `claude
 --bg --name shift-update:<task>`), after the public-name gate: it runs `gh pr
 update-branch` (a merge commit from `main`; never a rebase or force-push,
 ruling a), writes `updated` (new head), `current` or `refused` (`conflicts with
 main after <A> merged → your /prm`) and ends. An `updated` or `current` PR
-keeps its slot and is looked at again each tick: CI running, or NO-CHECKS
-within `UPDATE_CHECKS_GRACE_S` (600 s), waits; red refuses (`CI <verdict> on
-the updated head → your /prm`) and frees the slot; green starts the merge
-close-out, whose step 4b checks every earlier PR is no longer OPEN and each
-merged one is in the branch. A PR needing a third update refuses (`main kept
+keeps its slot and is looked at again each tick: NO-CHECKS within
+`UPDATE_CHECKS_GRACE_S` (600 s) waits; red refuses (`CI <verdict> on the
+updated head → your /prm`) and frees the slot; running or green on the head
+the update made starts the merge close-out (S5), which waits in-turn for CI
+and whose step 4b checks every earlier PR is no longer OPEN and each merged
+one it was updated for is in the branch. A PR needing a third update refuses (`main kept
 moving`, `UPDATE_LIMIT` 2). A waiting or updated PR at `review-at:` is not
 refused; the next shift carries it with what it waited behind. The digest says
 `waits behind <A> (<A's state>) — merge <A> first` and lists a per-library

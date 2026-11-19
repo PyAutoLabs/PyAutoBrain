@@ -574,7 +574,7 @@ def test_the_watcher_refuses_a_public_name_pr_before_any_closeout_session(tmp_pa
                                public_names=lambda url: why if url == tc.PR1 else "")
 
     class Gated(tc.Spawner):
-        def spawn_closeout(self, task, pr_url, prompt_path, lease_dir):
+        def spawn_closeout(self, task, pr_url, prompt_path, lease_dir, **_kw):
             self.closeouts.append((task, pr_url))
             if pr_url != tc.PR1:
                 return super().spawn_closeout(task, pr_url, prompt_path, lease_dir)

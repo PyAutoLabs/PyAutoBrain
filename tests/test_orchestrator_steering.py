@@ -147,7 +147,11 @@ def test_the_status_comment_is_created_once_and_then_only_edited(tmp_path, monke
     (slot / "leases" / "t1.done").write_text("https://github.com/o/r/pull/9\n")
     r = _tick(brief, mind, home, 4, claude, gh, {"t1": "done"})          # a state change
     assert r["status"]["status"] == "edited"
-    assert "- **CI running** — [t1](https://github.com/o/r/pull/9)" in gh.status()[0]["body"]
+    # M3.7b (S5): a PR with CI running is judged for its close-out at once;
+    # this shift's merge-cap 0 refuses it (before S5 it showed "CI running").
+    assert ("- **Needs you — not merged unattended** — [t1](https://github.com/o/r/pull/9)"
+            in gh.status()[0]["body"])
+    assert "merge-cap 0 reached this shift" in gh.status()[0]["body"]
     r = _tick(brief, mind, home, 20, claude, gh)                          # the 10-minute refresh
     assert r["status"]["status"] == "edited" and "2h 10m left" in gh.status()[0]["body"]
 

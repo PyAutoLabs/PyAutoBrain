@@ -36,7 +36,7 @@ class Spawner(t.FilesSpawner):
         super().__init__(done={"named": PR1 + "\n", "picked": PR2 + "\n"}, proofs={})
         self.closeouts = []
 
-    def spawn_closeout(self, task, pr_url, prompt_path, lease_dir):
+    def spawn_closeout(self, task, pr_url, prompt_path, lease_dir, **_kw):
         self.closeouts.append((task, pr_url))
         return {"pid": 0, "agent_id": f"co{len(self.closeouts):06d}"}
 
@@ -163,6 +163,11 @@ def test_witness_343_a_pr_with_zero_completed_checks_is_refused_at_merge(tmp_pat
               PR2: lambda u: _digest.pr_health(u, run=skipped_only)}
     mind, brief, home, sp = _shift(tmp_path, cap=2)
     _tick(brief, mind, home, sp, 1, health=lambda u: health[u](u))
+    # M3.7b (S5): NO-CHECKS first waits UPDATE_CHECKS_GRACE_S from when the
+    # watcher first saw the PR — CI may not have registered yet.
+    assert sp.closeouts == []
+    assert orch.read_counters(orch.slot_dir(brief, home))["closeouts"] == {}
+    _tick(brief, mind, home, sp, 12, health=lambda u: health[u](u))
     assert sp.closeouts == []
     c = orch.read_counters(orch.slot_dir(brief, home))
     assert c["closeouts"][PR1]["state"] == "refused"
@@ -170,14 +175,15 @@ def test_witness_343_a_pr_with_zero_completed_checks_is_refused_at_merge(tmp_pat
     assert c["closeouts"][PR2]["why"] == "CI NO-CHECKS — never merged unattended"
 
 
-def test_red_ci_is_refused_and_pending_ci_waits(tmp_path):
+def test_red_ci_is_refused_and_pending_ci_starts_at_pr_open(tmp_path):
+    """M3.7b (ruling S5): running CI no longer waits for the watcher — the
+    close-out starts at PR-open and waits for CI in its own turn."""
     mind, brief, home, sp = _shift(tmp_path, cap=2)
     h = _health({PR1: "FAILED", PR2: "RUNNING"})
     _tick(brief, mind, home, sp, 1, health=h)
-    assert sp.closeouts == []
+    assert sp.closeouts == [("picked", PR2)]                  # started on RUNNING
     c = orch.read_counters(orch.slot_dir(brief, home))
     assert c["closeouts"][PR1]["why"] == "CI FAILED — never merged unattended"
-    assert PR2 not in c["closeouts"]                          # waiting, not refused
     _tick(brief, mind, home, sp, 2, health=_health({PR1: "HEALTHY"}))
     assert sp.closeouts == [("picked", PR2)]                  # PR1's refusal is final
 
@@ -363,8 +369,10 @@ def test_gh_pr_state_reads_state_merged_at_and_by():
              "mergedBy": {"login": "someone"}, "headRefOid": "abc123"}))
     assert orch.gh_pr_state(PR1, run=run) == {
         "state": "MERGED", "mergedAt": "2026-11-04T09:00:00Z", "mergedBy": "someone",
-        "head": "abc123"}
-    assert seen == [["gh", "pr", "view", PR1, "--json", "state,mergedAt,mergedBy,headRefOid"]]
+        "head": "abc123", "mergeable": ""}
+    # `mergeable` is a field of the same call (S6, M3.7b), not a second read.
+    assert seen == [["gh", "pr", "view", PR1, "--json",
+                     "state,mergedAt,mergedBy,headRefOid,mergeable"]]
     assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
         returncode=1, stdout="")) is None
     assert orch.gh_pr_state(PR1, run=lambda a, **k: SimpleNamespace(
@@ -535,7 +543,8 @@ def test_the_closeout_ceiling_counts_reservations_and_holds_on_unread_usage(tmp_
     assert "1600 (committed) reached 1.5×" in orch.read_counters(slot)["closeouts"][PR1]["why"]
 
     mind, brief, home, sp = _shift(tmp_path / "unread", cap=2)
-    r = _tick(brief, mind, home, sp, 1, health=_health({PR2: "RUNNING"}))
+    # NO-CHECKS inside its grace waits (M3.7b: RUNNING would start it now).
+    r = _tick(brief, mind, home, sp, 1, health=_health({PR2: "NO-CHECKS"}))
     assert r["closeouts"]["started"] == [PR1]
     # PR1's close-out usage cannot be read (no session id): PR2 waits a tick.
     r = _tick(brief, mind, home, sp, 2)
@@ -636,10 +645,13 @@ def test_683_a_later_pr_waits_behind_an_earlier_refused_one_no_slot_no_refusal(t
     assert "waiting" not in r["closeouts"]                 # an event only when it changes
 
 
+UNTIL1 = {"ci_until": "2026-11-04T09:31:00Z"}   # M3.7b: a tick-1 close-out's CI deadline
+
+
 @pytest.mark.parametrize("picked, states, kw", [
-    (FIT8, {}, {}),                                                 # another repo
-    (GA8, {GA7: "CLOSED"}, {"before": [GA7]}),                      # closed unmerged
-    (GA8, {GA7: ("MERGED", "2026-11-04T08:00:00Z")}, {"before": [GA7]}),  # before #8 began
+    (FIT8, {}, UNTIL1),                                             # another repo
+    (GA8, {GA7: "CLOSED"}, {"before": [GA7], **UNTIL1}),            # closed unmerged
+    (GA8, {GA7: ("MERGED", "2026-11-04T08:00:00Z")}, {"before": [GA7], **UNTIL1}),  # before #8 began
 ])
 def test_683_no_wait_on_another_repo_or_behind_a_merged_or_closed_pr(tmp_path, picked,
                                                                       states, kw):
@@ -680,7 +692,9 @@ def test_683_once_the_earlier_pr_merged_after_it_began_the_branch_is_updated(tmp
 def _updated(tmp_path):
     mind, brief, home, sp, r, states = _merged_then_update(tmp_path)
     _verdict(home, brief, "picked", result="updated", pr=GA8, head="abc123")
-    r = _otick(brief, mind, home, sp, 32, states, health=_health({GA8: "RUNNING"}))
+    # CI has not registered on the new head yet (M3.7b: RUNNING would start
+    # the merge close-out at once, S5).
+    r = _otick(brief, mind, home, sp, 32, states, health=_health({GA8: "NO-CHECKS"}))
     return mind, brief, home, sp, r, states
 
 
@@ -692,13 +706,18 @@ def test_683_an_updated_branch_holds_its_slot_and_waits_for_ci_on_the_new_head(t
     assert r["closeouts"]["merged"] == [] and r["closeouts"]["refused"] == []
     assert orch._merge_slots.pr_key(GA8) in _slots(brief, home)
     n = len(sp.closeouts)
-    _otick(brief, mind, home, sp, 33, states, health=_health({GA8: "RUNNING"}))
+    _otick(brief, mind, home, sp, 33, states, health=_health({GA8: "NO-CHECKS"}))
     _otick(brief, mind, home, sp, 34, states, health=_health({GA8: "NO-CHECKS"}))  # in grace
     assert len(sp.closeouts) == n
     assert orch.read_counters(orch.slot_dir(brief, home))["closeouts"][GA8]["state"] == "updated"
-    r = _otick(brief, mind, home, sp, 35, states)                                  # green
+    # M3.7b (S5): CI running on the verified new head starts the merge
+    # close-out, which waits in-turn for a green `ci-verdict` on that head.
+    r = _otick(brief, mind, home, sp, 35, states, health=_health({GA8: "RUNNING"}))
     assert r["closeouts"]["started"] == [GA8]
-    assert sp.closeouts[-1] == ("picked", GA8, {"after": [GA7], "before": [GA7]})
+    assert sp.closeouts[-1] == ("picked", GA8, {"after": [GA7], "before": [GA7],
+                                                "ci_until": "2026-11-04T10:05:00Z"})
+    # The updated PR keeps the slot the watcher took before its update.
+    assert orch._merge_slots.pr_key(GA8) in _slots(brief, home)
     prompt = orch.closeout_prompt("picked", GA8, "p.md", brief, home, after=[GA7],
                                   before=[GA7])
     assert "4b. Merge order" in prompt and "branch not updated after <url>" in prompt

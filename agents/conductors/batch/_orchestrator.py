@@ -171,6 +171,10 @@ def read_counters(slot: Path) -> dict:
     c.setdefault("closeouts", {})  # PR url → {task, state, why, …} (4b)
     # PR url → {task, behind, since}: waiting in merge order (M3.6j, #683)
     c.setdefault("merge_waits", {})
+    # M3.7b (#688): when the watcher first saw each PR (the NO-CHECKS grace),
+    # and each PR's changed files, read once per shift (the S6 overlap rule).
+    c.setdefault("pr_seen", {})
+    c.setdefault("pr_files", {})
     c.setdefault("glance_auto_merges", 0)
     # PyAutoBrain#610: tokens per session (replaced each read, never added),
     # the sessions whose usage could not be read this tick, one exit record
@@ -274,6 +278,10 @@ class FakeSpawner:
         """A dry shift merges nothing, so GitHub is never asked."""
         return {"state": "OPEN", "mergedAt": "", "mergedBy": ""}
 
+    def pr_files(self, url: str) -> None:
+        """Never asked in a dry shift: nothing merges ahead of anything."""
+        return None
+
 
 #: Prepended to a re-dispatched worker's prompt (PyAutoBrain#632, B1): the
 #: crashed worker may already have claimed the task through the ledger.
@@ -368,12 +376,15 @@ def pr_repos(pr_url: str) -> str:
     return m.group(1) if m else ""
 
 
-def after_step(after: list[str] | None = None, before: list[str] | None = None) -> str:
+def after_step(after: list[str] | None = None, before: list[str] | None = None,
+               disjoint: list[str] | None = None) -> str:
     """The close-out's merge-order step (M3.6j, PyAutoBrain#683), or "" when
     no earlier PR of the shift shares this PR's library: every earlier PR
     must no longer be OPEN, and every one merged after this branch was cut
-    must be in it (the update session merged `main` in)."""
-    if not (after or before):
+    must be in it (the update session merged `main` in) — except those whose
+    changed files are disjoint from this PR's (S6, M3.7b), which are named
+    and not checked."""
+    if not (after or before or disjoint):
         return ""
     out = ["4b. Merge order (M3.6j, PyAutoBrain#683): this shift's earlier PRs on this\n"
            "   library merge before this one.\n"]
@@ -389,6 +400,13 @@ def after_step(after: list[str] | None = None, before: list[str] | None = None) 
                    "   only `ahead` or `identical` passes; anything else refuses with why\n"
                    "   `branch not updated after <url> → your /prm`:\n"
                    + "".join(f"   - {u}\n" for u in after))
+    if disjoint:
+        out.append("   These merged ahead after this branch was cut, but their changed files\n"
+                   "   are disjoint from this PR's and GitHub reported no conflict, so the\n"
+                   "   branch was not updated for them. Do not compare them; PR CI on this\n"
+                   "   head is the verdict (AUTONOMY.md \"Shift speed\", ruling S6):\n"
+                   + "".join(f"   - {u} — merged ahead, disjoint files, not updated (S6)\n"
+                             for u in disjoint))
     return "".join(out)
 
 
@@ -400,31 +418,26 @@ def update_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
         lease_dir=lease_dir, after="\n".join(f"- {u}" for u in after))
 
 
-#: Workspaces a close-out smokes at once (PyAutoHeart#352): laptop-safe, and
-#: Heart caps each one's thread pools so the three share the cores.
-CLOSEOUT_SMOKE_JOBS = 3
-
-
-def smoke_command(repos: str) -> str:
-    """The close-out's full affected smoke (AUTONOMY.md leg 2, split
-    2026-11-19, PyAutoHeart#352): every smoke workspace whose install chain
-    has the PR's repo, CLOSEOUT_SMOKE_JOBS at a time, against the task root
-    the close-out brought to the PR's head. Empty when the repo is unknown."""
-    if not repos:
-        return ""
-    return (f"bash -c 'source \"{COMMON_SH}\"; \"$(resolve_heart)\" smoke "
-            f"--root \"$PWD\" --affected-by {repos} --jobs {CLOSEOUT_SMOKE_JOBS}'")
+#: How long a close-out started at PR-open waits in-turn for CI before it
+#: refuses (`CI not finished by <deadline> → /prm`; ruling S5, M3.7b). The
+#: deadline is never later than `review-at:`.
+CLOSEOUT_CI_WAIT_S = 1800
 
 
 def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                     lease_dir: Path, after: list[str] | None = None,
-                    before: list[str] | None = None) -> str:
+                    before: list[str] | None = None, disjoint: list[str] | None = None,
+                    ci_until: str = "") -> str:
     """The close-out session template filled in for one PR (phase 4b). Its
     Heart check is the scoped development-ship gate for the PR's repo (leg 4,
     PyAutoHeart#340): only `green` merges. Its CI check is `pyauto-brain
-    ci-verdict` on the PR (PyAutoBrain#628): only `GREEN` merges. Its
-    public-name check is `pyauto-brain public-names` (PyAutoBrain#641): an
-    added or renamed public library name, or a diff it cannot read, refuses."""
+    ci-verdict --until <ci_until>` on the PR (PyAutoBrain#628; the in-turn
+    wait of ruling S5, M3.7b): only `GREEN` merges. Its public-name check is
+    `pyauto-brain public-names` (PyAutoBrain#641): an added or renamed public
+    library name, or a diff it cannot read, refuses. It runs no full affected
+    smoke (ruling S2). `ci_until` is the watcher's deadline; without one it is
+    CLOSEOUT_CI_WAIT_S from now."""
+    ci_until = ci_until or _iso(_now() + _dt.timedelta(seconds=CLOSEOUT_CI_WAIT_S))
     repos = pr_repos(pr_url)
     heart_cmd = (f"bash -c 'source \"{COMMON_SH}\"; consult_vitals_verdict --repos {repos}'"
                  if repos else "")
@@ -433,18 +446,18 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
         lease_dir=lease_dir, ledger_dir=Path(lease_dir).parent / _mind_writer.LEDGER_DIR,
         shift_ledger=SHIFT_LEDGER, pr_repos=repos or "(none — not a GitHub PR URL)",
         heart_cmd=heart_cmd or "(cannot be scoped — refuse)",
-        ci_verdict_cmd=f"{BRAIN_CLI} ci-verdict {pr_url}" if repos
-        else "(not a GitHub PR URL — refuse)",
+        ci_verdict_cmd=f"{BRAIN_CLI} ci-verdict {pr_url} --until {ci_until}" if repos
+        else "(not a GitHub PR URL — refuse)", ci_until=ci_until,
         public_names_cmd=f"{BRAIN_CLI} public-names {pr_url}" if repos
         else "(not a GitHub PR URL — refuse)",
-        smoke_cmd=smoke_command(repos) or "(not a GitHub PR URL — refuse)",
-        after_step=after_step(after, before))
+        after_step=after_step(after, before, disjoint))
 
 
 def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                      lease_dir: Path, mode: str, *, update_after: list[str] | None = None,
                      after: list[str] | None = None,
-                     before: list[str] | None = None) -> list[str]:
+                     before: list[str] | None = None, disjoint: list[str] | None = None,
+                     ci_until: str = "") -> list[str]:
     """The argv that starts one close-out session: its own name, the close-out
     model at the workers' effort, the brief's worker mode. The prompt is last.
     With `update_after` it is the branch-update session instead (M3.6j)."""
@@ -457,7 +470,8 @@ def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                 update_prompt(task, pr_url, prompt_path, brief_path, lease_dir, update_after)]
     return ["claude", "--bg", "--name", f"shift-close:{task}", "--model", CLOSEOUT_MODEL,
             "--effort", WORKER_EFFORT, "--permission-mode", mode,
-            closeout_prompt(task, pr_url, prompt_path, brief_path, lease_dir, after, before)]
+            closeout_prompt(task, pr_url, prompt_path, brief_path, lease_dir, after, before,
+                            disjoint, ci_until)]
 
 
 def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
@@ -577,15 +591,20 @@ class RealSpawner:
     real = True
 
     def __init__(self, brief_path: Path, mode: str, cwd: Path | None = None, run=None,
-                 gh=None, public_names=None):
+                 gh=None, public_names=None, files=None):
         self.brief_path, self.mode, self.cwd = Path(brief_path), mode, cwd
         self.run = run or subprocess.run
         self.gh = gh or gh_pr_state
+        self.files = files or gh_pr_files
         self.public_names = public_names or public_names_gate
 
     def pr_state(self, url: str) -> dict | None:
         """GitHub's word on a PR — the merge truth for a close-out (#603)."""
         return self.gh(url)
+
+    def pr_files(self, url: str) -> list[str] | None:
+        """A PR's changed files — the branch-update decision (S6, M3.7b)."""
+        return self.files(url)
 
     def spawn(self, task: str, prompt_path: str, lease_dir: Path,
               redispatch: bool = False, resume: dict | None = None,
@@ -607,7 +626,8 @@ class RealSpawner:
 
     def spawn_closeout(self, task: str, pr_url: str, prompt_path: str, lease_dir: Path,
                        update_after: list[str] | None = None, after: list[str] | None = None,
-                       before: list[str] | None = None) -> dict:
+                       before: list[str] | None = None, disjoint: list[str] | None = None,
+                       ci_until: str = "") -> dict:
         # The public-name check runs here, deterministically, before any
         # session (#641): a hit or a cannot-tell is this PR's refusal, written
         # as the verdict a close-out would write, and nothing is spawned.
@@ -619,7 +639,7 @@ class RealSpawner:
             return {"pid": 0, "agent_id": None}
         argv = closeout_command(task, pr_url, prompt_path, self.brief_path, lease_dir,
                                 self.mode, update_after=update_after, after=after,
-                                before=before)
+                                before=before, disjoint=disjoint, ci_until=ci_until)
         # The same scoped route as a worker (#634): a close-out may be the
         # session that starts the daemon.
         res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
@@ -702,12 +722,15 @@ def _liveness_known(agents) -> bool:
 
 
 def gh_pr_state(url: str, run=None) -> dict | None:
-    """One read-only `gh pr view`: {state, mergedAt, mergedBy, head} as GitHub
-    has it, or None when GitHub could not say (#603: the merge truth). `head`
-    (the head sha) tells an updated branch's CI from an older head's (M3.6j)."""
+    """One read-only `gh pr view`: {state, mergedAt, mergedBy, head,
+    mergeable} as GitHub has it, or None when GitHub could not say (#603: the
+    merge truth). `head` (the head sha) tells an updated branch's CI from an
+    older head's (M3.6j); `mergeable` (`MERGEABLE`, `CONFLICTING` or
+    `UNKNOWN`) sends a conflicting PR to its branch update (S6, M3.7b)."""
     run = run or subprocess.run
     try:
-        res = run(["gh", "pr", "view", url, "--json", "state,mergedAt,mergedBy,headRefOid"],
+        res = run(["gh", "pr", "view", url, "--json",
+                   "state,mergedAt,mergedBy,headRefOid,mergeable"],
                   capture_output=True, text=True, timeout=60)
         if res.returncode != 0:
             return None
@@ -719,7 +742,36 @@ def gh_pr_state(url: str, run=None) -> dict | None:
     by = data.get("mergedBy") or {}
     return {"state": str(data["state"]).upper(), "mergedAt": data.get("mergedAt") or "",
             "mergedBy": by.get("login", "") if isinstance(by, dict) else str(by),
-            "head": str(data.get("headRefOid") or "")}
+            "head": str(data.get("headRefOid") or ""),
+            "mergeable": str(data.get("mergeable") or "").upper()}
+
+
+#: `gh pr view --json files` lists at most this many files; a list this long
+#: may be cut short, so it is read as unknown (and the branch is updated).
+PR_FILES_LIMIT = 100
+
+
+def gh_pr_files(url: str, run=None) -> list[str] | None:
+    """One read-only `gh pr view --json files`: the PR's changed paths, or
+    None when GitHub could not say or the list may be truncated (S6, M3.7b:
+    the branch-update decision; AUTONOMY.md "The watcher's network surface",
+    amendment 2026-11-19). The watcher reads it at most once per PR per shift."""
+    run = run or subprocess.run
+    try:
+        res = run(["gh", "pr", "view", url, "--json", "files"],
+                  capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            return None
+        data = json.loads(res.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    files = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(files, list) or len(files) >= PR_FILES_LIMIT:
+        return None
+    paths = [f.get("path") for f in files if isinstance(f, dict)]
+    if not all(isinstance(p, str) and p for p in paths):
+        return None
+    return paths
 
 
 _USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
@@ -1291,8 +1343,13 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          grace_s: float = LEASE_GRACE_S, records: list[dict] | None = None,
          agents: AgentsView | None = None, tokens=transcript_usage,
          poster=None, health=None, pr_state=None,
-         token_reserve: int | None = None, whoami=None, github=None) -> dict:
+         token_reserve: int | None = None, whoami=None, github=None,
+         pr_files=None) -> dict:
     """One watcher tick. Returns what it did; also appended to `tick.log`.
+
+    `pr_state` and `pr_files` are the `gh pr view` seams (a PR's state, and
+    its changed files for the branch-update decision, S6); unset, the
+    spawner's.
 
     `github` is the `run` seam for the live status comment and the steering
     read (PyAutoBrain#622) — a test's fake `gh`; unset, the real one.
@@ -1366,7 +1423,7 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
                               spawner or default_spawner(brief_path, brief),
                               grace_s, records, agents, tokens, health, pr_state,
                               poster=poster, shift=shift, token_reserve=token_reserve,
-                              whoami=whoami, github=github)
+                              whoami=whoami, github=github, pr_files=pr_files)
         _record_events(slot, now, result, brief_path, poster)
     finally:
         _drop_lock(slot)
@@ -2000,7 +2057,7 @@ def active_leases(slot: Path) -> dict[str, dict]:
 
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                  tokens, health=None, pr_state=None, *, poster=None, shift=None,
-                 token_reserve=None, whoami=None, github=None) -> dict:
+                 token_reserve=None, whoami=None, github=None, pr_files=None) -> dict:
     """The tick under its lock, then the live status (PyAutoBrain#622): one
     `claude agents` view and one set of `gh pr checks` reads serve both."""
     shift = shift or {}
@@ -2008,7 +2065,8 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     health = _TickHealth(health)
     out = _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents, tokens,
                      health, pr_state, poster=poster, shift=shift,
-                     token_reserve=token_reserve, whoami=whoami, github=github)
+                     token_reserve=token_reserve, whoami=whoami, github=github,
+                     pr_files=pr_files)
     status = _live_status(slot, mind, shift, now, agents, health.cached, github,
                           stopped=out.get("action") == "stopped")
     if status:
@@ -2041,7 +2099,7 @@ def _named_reasons(brief: dict, d: dict, planned: dict) -> dict[str, str]:
 
 def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                tokens, health=None, pr_state=None, *, poster=None, shift=None,
-               token_reserve=None, whoami=None, github=None) -> dict:
+               token_reserve=None, whoami=None, github=None, pr_files=None) -> dict:
     counters = read_counters(slot)
     counters["usage_unavailable"] = []   # this tick's reads decide
     reaped = _reap(slot, counters, now, grace_s, agents, tokens)
@@ -2143,7 +2201,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         carry_in(slot, counters, now)       # the shift's first tick (M3.6c)
         _write_counters(slot, counters)
     closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state,
-                           tokens=tokens,
+                           tokens=tokens, pr_files=pr_files,
                            review_at=_brief._iso((shift or {}).get("review_at") or ""))
     if _mind_writer.pending_ops(slot):  # a stage-2 row queued by a merged close-out
         try:
@@ -3674,15 +3732,18 @@ def closeouts_running(slot: Path) -> bool:
 
 def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
                agents: AgentsView | None, health, pr_state=None,
-               tokens=transcript_usage, review_at: _dt.datetime | None = None) -> dict:
-    """Reap finished close-out sessions, then start one per newly green PR.
+               tokens=transcript_usage, review_at: _dt.datetime | None = None,
+               pr_files=None) -> dict:
+    """Reap finished close-out sessions, then start one per newly open PR.
 
     The watcher's guards are the ones it can judge from its own reads (AUTONOMY
-    "Unattended `glance` merges"): the recorded tier, green CI by `gh pr checks`
-    (at least one completed check, all green — a PR with none is refused,
-    PyAutoHeart#343), the brief's `merge-cap:`, and never in a shadow shift. The label, Heart and
-    the witness are the close-out session's to check — it is the independent
-    session, and it refuses rather than merges when one fails.
+    "Unattended `glance` merges"): the recorded tier, CI by `gh pr checks` not
+    red — running or green starts the close-out at PR-open (ruling S5,
+    M3.7b), which waits in-turn for a green `ci-verdict`; none at all is
+    refused after a grace (PyAutoHeart#343) — a free slot under the brief's
+    `merge-cap:`, and never in a shadow shift. The label, Heart, the witness,
+    the CI wait and the merge slot's take are the close-out session's — it is
+    the independent session, and it refuses rather than merges when one fails.
 
     GitHub is the merge truth (#603): before a finished close-out is counted
     merged or refused — which frees its `merge-cap:` slot — the PR's state is
@@ -3700,6 +3761,7 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     `token-budget:`.
     """
     pr_state = pr_state or getattr(spawner, "pr_state", None)
+    pr_files = pr_files or getattr(spawner, "pr_files", None)
     events = reap_closeouts(slot, counters, now, agents, pr_state, tokens)
     events.setdefault("started", [])
     # The cap every in-shift merge takes a slot against, worker or close-out
@@ -3714,9 +3776,9 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     except (_merge_slots.MergeSlotError, OSError) as e:
         events["slots_error"] = str(e)[:300]   # a take reads what is there, or cannot tell
     if _brief.is_shadow(brief) or counters.get("paused"):
-        return events   # paused (#622): a green PR waits; it is not refused
+        return events   # paused (#622): an open PR waits; it is not refused
     return _start_closeouts(slot, brief, counters, spawner, now, health, events,
-                            review_at, pr_state=pr_state)
+                            review_at, pr_state=pr_state, pr_files=pr_files)
 
 
 def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime,
@@ -3798,7 +3860,7 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
             # A branch-update session's word (M3.6j, #683): the branch now has
             # main in it (`updated`) or already had (`current`). Neither is a
             # merge nor a refusal: the slot stays held, and a later tick
-            # starts the merge close-out on CI green at the new head.
+            # starts the merge close-out once CI on the new head is not red (S5).
             co.update(state=result, updated=_iso(now))
             if result == "updated":
                 co.update(head=str(verdict.get("head") or "")[:64],
@@ -3883,12 +3945,18 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
             co.update(state="refused", why=why)
             events["refused"].append(pr)
         if co["state"] == "refused":
-            # A refused close-out frees the merge slot the watcher took for it
-            # (R3, #661); a merge made outside the close-out is not the shift's.
-            try:
-                _merge_slots.release(slot, pr, _merge_slots.WATCHER, co.get("why") or "refused")
-            except (_merge_slots.MergeSlotError, OSError):
-                pass   # the slot stays held: fails toward fewer merges
+            # A refused close-out frees its PR's merge slot (R3, #661) whoever
+            # holds it for this task: the watcher (taken before a branch
+            # update) or the close-out session itself (its own `merge-slot
+            # take` just before the merge, M3.7b decision A). A merge made
+            # outside the close-out is not the shift's. A merged one keeps it.
+            for by, of_task in ((_merge_slots.WATCHER, None),
+                                (_merge_slots.SESSION, co["task"])):
+                try:
+                    _merge_slots.release(slot, pr, by, co.get("why") or "refused",
+                                         task=of_task)
+                except (_merge_slots.MergeSlotError, OSError):
+                    pass   # the slot stays held: fails toward fewer merges
         if late:
             co["late"] = _iso(now)
         if co.get("agent_id") in counters["usage"]:
@@ -4024,10 +4092,62 @@ def _merged_after_start(counters: dict, task: str, pr: str, pr_state, cache: dic
     return out
 
 
+def _pr_files_once(counters: dict, pr_files, url: str) -> list[str] | None:
+    """A PR's changed files, read at most once per PR per shift: a successful
+    read is kept in `counters["pr_files"]` (S6, M3.7b; AUTONOMY.md "The
+    watcher's network surface", amendment 2026-11-19). None when it cannot be
+    read, or there is no reader (a test spawner): that fails toward the
+    branch update, as before S6."""
+    cache = counters.setdefault("pr_files", {})
+    if url in cache:
+        return cache[url]
+    if pr_files is None:
+        return None
+    try:
+        files = pr_files(url)
+    except Exception:   # unreadable: update, never assume disjoint
+        files = None
+    if isinstance(files, list):
+        cache[url] = list(files)
+        return cache[url]
+    return None
+
+
+def _overlap(counters: dict, pr: str, merged_ahead: list[str], pr_state, pr_files,
+             cache: dict) -> tuple[list[str], list[str]]:
+    """(need, disjoint): which PRs merged ahead of `pr` its branch must be
+    updated for (ruling S6, M3.7b). Every one when GitHub reports `pr`
+    CONFLICTING or `pr`'s own files cannot be read; otherwise each one whose
+    changed files intersect `pr`'s, or cannot be read. The rest are disjoint."""
+    if not merged_ahead:
+        return [], []
+    if (_gh_once(pr_state, cache, pr) or {}).get("mergeable") == "CONFLICTING":
+        return list(merged_ahead), []
+    mine = _pr_files_once(counters, pr_files, pr)
+    if mine is None:
+        return list(merged_ahead), []
+    need, disjoint = [], []
+    for u in merged_ahead:
+        theirs = _pr_files_once(counters, pr_files, u)
+        (need if theirs is None or set(theirs) & set(mine) else disjoint).append(u)
+    return need, disjoint
+
+
 def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.datetime,
                      health, events: dict, review_at: _dt.datetime | None,
-                     pr_state=None) -> dict:
-    """Start one close-out per newly green PR, under the watcher's guards.
+                     pr_state=None, pr_files=None) -> dict:
+    """Start one close-out per newly open PR, under the watcher's guards.
+
+    Ruling S5 (M3.7b, PyAutoBrain#688): a PR whose CI reads RUNNING or
+    HEALTHY starts its close-out at once; the session runs the witness and
+    reads the diff while CI runs, then waits in-turn (`ci-verdict --until`,
+    at most CLOSEOUT_CI_WAIT_S and never past `review-at:`) and merges only on
+    GREEN. FAILED or UNKNOWN refuses with no session; NO-CHECKS waits
+    UPDATE_CHECKS_GRACE_S from when the watcher first saw the PR, then refuses.
+    Decision A: the watcher takes no merge slot for a merge close-out; it
+    refuses one when the cap has no room (`_merge_slots.room`, counting the
+    close-outs already running without a slot). The session takes its slot
+    itself, immediately before the merge.
 
     Merge order (M3.6j, PyAutoBrain#683): a library PR whose earlier PR of
     this shift on the same library is still open waits — no close-out, no
@@ -4035,8 +4155,10 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
     a workspace PR waits while its own task's library PR waits or is being
     closed out. Once nothing is ahead of it, a PR whose branch was cut before
     an earlier PR merged gets a branch-update session first (`gh pr
-    update-branch`, ruling a) under its merge slot, and its merge close-out
-    starts on a later tick, only on CI green at the new head."""
+    update-branch`, ruling a) under a merge slot the watcher takes — only when
+    their changed files overlap, a file list cannot be read, or GitHub reports
+    this PR CONFLICTING (ruling S6). Its merge close-out starts on a later
+    tick, once GitHub shows the update's head and CI there is not red."""
     lease_dir = slot / "leases"
     health = health or _digest.pr_health
     budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
@@ -4044,6 +4166,7 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
     before_waits = counters.get("merge_waits") or {}
     waits: dict = {}
     counters["merge_waits"] = waits
+    seen = counters.setdefault("pr_seen", {})   # when the watcher first saw each PR
 
     def refuse(pr: str, task: str, why: str, held: bool = False) -> None:
         prev = counters["closeouts"].get(pr) or {}
@@ -4067,6 +4190,7 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
         again = co is not None
         if again and co.get("state") not in ORDER_STATES:
             continue
+        seen.setdefault(pr, _iso(now))
         tier = counters["picks"].get(task, {}).get("tier", "?")
         if task in counters["dropped"]:
             refuse(pr, task, "dropped by /drop — the human's /prm", held=again)
@@ -4089,7 +4213,9 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                                  f"it {state or '?'} — not closed out", held=again)
                 continue
         # Merge order (M3.6j): an earlier library PR of this shift still open
-        # holds this one back. Waiting is not a refusal and takes no slot.
+        # holds this one back. Waiting is not a refusal and takes no slot. An
+        # earlier PR whose close-out is running (waiting in-turn on its CI,
+        # S5) is still open, so this one gets no session until it merges.
         behind = _merge_blockers(counters, pr, pr_state, cache)
         if not behind and not _library_key(pr):
             behind = [u for u in out["prs"] if u != pr and _library_key(u)
@@ -4114,13 +4240,14 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                                  f"{head[:12]}) → your /prm", held=True)
                 continue
         verdict = health(pr)
-        if verdict == "RUNNING":
-            continue  # CI has not landed yet; look again next tick
-        if again and verdict == "NO-CHECKS" and co.get("state") == "updated":
-            since = _iso_or_none(co.get("updated") or "")
+        if verdict == "NO-CHECKS":
+            # CI may not have registered yet — on a new PR or on the head a
+            # branch update made: wait out the grace, then it is the verdict.
+            since = _iso_or_none((co.get("updated") if again and co.get("state") == "updated"
+                                  else seen.get(pr)) or "")
             if since is None or (now - since).total_seconds() < UPDATE_CHECKS_GRACE_S:
-                continue  # CI has not registered on the new head yet
-        if verdict != "HEALTHY":
+                continue
+        if verdict not in ("RUNNING", "HEALTHY"):
             refuse(pr, task, f"CI {verdict} on the updated head → your /prm" if again
                    else f"CI {verdict} — never merged unattended", held=again)
             continue
@@ -4130,9 +4257,9 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                 # An updated PR at review-at is not refused: it keeps its
                 # state, the digest reports it, and the next shift carries it.
                 continue
-            # A close-out runs ~10-20 min; one still out at review-at
+            # A close-out runs ~10-30 min; one still out at review-at
             # merged outside the digest (#632, F1). Final, like the others.
-            refuse(pr, task, f"green within {CLOSEOUT_CUTOFF_S // 60} min of review-at — "
+            refuse(pr, task, f"open within {CLOSEOUT_CUTOFF_S // 60} min of review-at — "
                              "no close-out starts this late")
             continue
         if budget is not None and counters["usage_unavailable"]:
@@ -4152,28 +4279,41 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                              f"{CLOSEOUT_BUDGET_FACTOR}× token-budget {budget}", held=again)
             continue
         # Branch update (M3.6j): an earlier PR merged after this branch was
-        # cut, and this PR's branch does not have it yet.
+        # cut, and this PR's branch does not have it yet — needed only when
+        # their changed files overlap or GitHub reports a conflict (S6).
         after = list((co or {}).get("after") or [])
-        need = [u for u in _merged_after_start(counters, task, pr, pr_state, cache,
-                                               bool(out.get("carried_from")))
-                if u not in after]
+        ahead = [u for u in _merged_after_start(counters, task, pr, pr_state, cache,
+                                                bool(out.get("carried_from")))
+                 if u not in after]
+        need, disjoint = _overlap(counters, pr, ahead, pr_state, pr_files, cache)
         updates = int((co or {}).get("updates") or 0)
         if need and updates >= UPDATE_LIMIT:
             refuse(pr, task, f"main kept moving ({updates} branch updates this shift) "
                              "→ your /prm", held=again)
             continue
-        # One merge-slot count for the shift (R3, #661): a worker's in-turn
-        # merge and a close-out take from it alike. Taken last, just
-        # before the spawn, so no other refusal holds a slot. Idempotent:
-        # an updated PR already holds its slot.
-        try:
-            taken, why = _merge_slots.take(slot, pr, _merge_slots.WATCHER, task)
-        except (_merge_slots.MergeSlotError, OSError) as e:
-            taken, why = False, f"merge slot cannot tell ({str(e)[:200]}) — left for your /prm"
+        if need:
+            # One merge-slot count for the shift (R3, #661). The watcher
+            # takes it before a branch-update session, last, so no other
+            # refusal holds a slot. Idempotent: an updated PR holds its slot.
+            try:
+                taken, why = _merge_slots.take(slot, pr, _merge_slots.WATCHER, task)
+            except (_merge_slots.MergeSlotError, OSError) as e:
+                taken, why = False, f"merge slot cannot tell ({str(e)[:200]}) — left for your /prm"
+        else:
+            # Decision A (M3.7b): the merge close-out takes its own slot just
+            # before the merge. The watcher only reads that one would be free,
+            # counting the close-outs already running without one.
+            pending = sum(1 for u, c in counters["closeouts"].items()
+                          if c.get("state") == "running" and c.get("kind") != "update"
+                          and _merge_slots.pr_key(u) not in counters.get("slot_holders", {}))
+            try:
+                taken, why = _merge_slots.room(slot, pr, task, pending)
+            except (_merge_slots.MergeSlotError, OSError) as e:
+                taken, why = False, f"merge slot cannot tell ({str(e)[:200]}) — left for your /prm"
         if not taken:
             # Final for this shift, like every refusal: the PR waits for a
             # human `/prm`, and the digest says why.
-            refuse(pr, task, why)
+            refuse(pr, task, why, held=again)
             continue
         prompt = counters["picks"].get(task, {}).get("prompt", "")
         new = {"task": task, "state": "running", "started": _iso(now), "tier": tier}
@@ -4184,8 +4324,14 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             # Only a PR with earlier PRs of the shift on its library is
             # told about them, so every other close-out starts as before.
             before = _earlier_prs(counters, pr)
-            kw = {k: v for k, v in (("after", after), ("before", before)) if v}
-            new.update({k: v for k, v in (("after", after), ("updates", updates)) if v})
+            until = now + _dt.timedelta(seconds=CLOSEOUT_CI_WAIT_S)
+            if review_at is not None:
+                until = min(until, review_at)
+            kw = {k: v for k, v in (("after", after), ("before", before),
+                                    ("disjoint", disjoint)) if v}
+            kw["ci_until"] = _iso(until)
+            new.update({k: v for k, v in (("after", after), ("updates", updates),
+                                          ("disjoint", disjoint)) if v})
         try:
             new.update(spawner.spawn_closeout(task, pr, prompt, lease_dir, **kw))
         except Exception as e:

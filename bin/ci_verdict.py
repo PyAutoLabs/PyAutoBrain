@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """bin/ci_verdict.py — one CI verdict for one pull request (PyAutoBrain#628).
 
-    pyauto-brain ci-verdict <owner/repo>#<n> [--json]
+    pyauto-brain ci-verdict <owner/repo>#<n> [--json] [--until <iso8601>]
 
 WHY. The CI judgement for a merge lived in three places that disagreed: `/prm`
 prose, the shift watcher's `pr_health` (`batch/_digest.py`) and the close-out
@@ -37,6 +37,14 @@ watcher's network surface — 2026-11-03"), so `pr_health` keeps that read and
 hands its rows to `judge` with mergeability not read (`from_pr_checks`).
 
 Exit status: 0 GREEN, 1 RED, 2 PENDING, 64 usage. `--json` prints one object.
+
+`--until <iso8601>` is the close-out's in-turn CI wait (ruling S5, M3.7b,
+PyAutoBrain#688): while the verdict is PENDING and the deadline has not
+passed, sleep 30 s and judge again. One call polls for at most 540 s, so a
+single Bash call never meets a 10-minute tool timeout; the caller repeats it
+while it exits 2 and the deadline has not passed. Output and exit codes are
+unchanged. A timestamp that does not parse is a usage error (64); one with no
+zone is read as UTC.
 `gh` is behind the `run` seam (a `subprocess.run`-shaped callable) so the
 tests are offline.
 """
@@ -44,6 +52,7 @@ tests are offline.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
 import re
 import subprocess
@@ -53,6 +62,9 @@ import time
 GREEN, PENDING, RED = "GREEN", "PENDING", "RED"
 EXIT = {GREEN: 0, RED: 1, PENDING: 2}
 EXIT_USAGE = 64
+#: `--until`: seconds between judgements, and the most one call polls for.
+UNTIL_POLL_S = 30
+UNTIL_MAX_S = 540
 
 #: Completed conclusions that are green.
 SUCCESS = frozenset({"success"})
@@ -334,15 +346,38 @@ class _Parser(argparse.ArgumentParser):
         raise SystemExit(EXIT_USAGE)
 
 
-def main(argv=None, run=None, sleep=time.sleep) -> int:
+def parse_until(text: str) -> _dt.datetime:
+    """An ISO 8601 deadline (`Z` allowed; no zone means UTC)."""
+    try:
+        t = _dt.datetime.fromisoformat(str(text).strip().replace("Z", "+00:00"))
+    except ValueError as e:
+        raise UsageError(f"--until is not an ISO 8601 time: {text!r}") from e
+    return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
+
+
+def _utcnow() -> _dt.datetime:
+    return _dt.datetime.now(_dt.timezone.utc)
+
+
+def main(argv=None, run=None, sleep=time.sleep, now=_utcnow) -> int:
     p = _Parser(prog="pyauto-brain ci-verdict",
                 description="Judge one PR's CI: GREEN, PENDING or RED, with reasons. "
                             "Exit 0 GREEN, 1 RED, 2 PENDING.")
     p.add_argument("pr", help="owner/repo#N, owner/repo/pull/N or the PR URL")
     p.add_argument("--json", action="store_true", help="print one JSON object")
+    p.add_argument("--until", metavar="ISO8601",
+                   help="while PENDING and before this time, re-judge every 30 s "
+                        f"(at most {UNTIL_MAX_S} s per call)")
     a = p.parse_args(argv)
     try:
+        until = parse_until(a.until) if a.until else None
         v = verdict_for(a.pr, run=run, sleep=sleep)
+        polled = 0
+        while until is not None and v["verdict"] == PENDING and now() < until \
+                and polled + UNTIL_POLL_S <= UNTIL_MAX_S:
+            sleep(UNTIL_POLL_S)
+            polled += UNTIL_POLL_S
+            v = verdict_for(a.pr, run=run, sleep=sleep)
     except UsageError as e:
         print(f"ci-verdict: {e}", file=sys.stderr)
         return EXIT_USAGE

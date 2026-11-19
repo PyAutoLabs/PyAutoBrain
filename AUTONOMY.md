@@ -338,14 +338,13 @@ never an assumption:
      import path, or a public name the diff touches); none match → the
      cheapest script of the changed repo's own workspace, as an import check.
      The PR body says which smoke ran.
-   - *Before any unattended merge* — the **full affected** smoke on the PR
-     head: `pyauto-heart smoke --affected-by <the PR's repo> --jobs 3` (every
-     workspace whose install chain has the repo, three at a time,
-     thread-capped). The close-out runs it for a `glance` PR or a `notify` PR
-     (every `notify` PR in a shift, since its worker now ends at PR-open —
-     "Shift `notify` workers end at PR-open — 2026-11-19" below;
-     `agents/conductors/batch/closeout_template.md`). Any failure refuses the
-     merge → `/prm`.
+   - *Before any unattended merge* — no full smoke since ruling S2 ("Shift
+     speed — 2026-11-19" below; M3.7b, PyAutoBrain#688). The pre-merge smoke
+     is the worker's targeted smoke, and PR CI must be green. The full sweep
+     runs in the cloud after the merge: the Workspace Smoke workflow, nightly
+     (M3.7d) and at shift end (M3.7e). Until S2 the close-out ran
+     `pyauto-heart smoke --affected-by <the PR's repo> --jobs 3` on the PR
+     head; S2's revert condition brings that back.
    - *PRs bound for the human's `/prm`* (`decision-taken`, `judge`, a
      public-name hit, a refusal) — no automatic full sweep: the worker's
      targeted smoke plus PR CI; the human runs `/smoke_test` if they want it.
@@ -504,13 +503,40 @@ human (`/prm`) already reads the PR a second time.
   unattended merge ("Stage-2 adversary amendment — 2026-11-04") and the
   human at `/prm` for everything else.
 
+- **S2, leg 2 before an unattended merge** (M3.7b, PyAutoBrain#688). The
+  pre-merge smoke is the worker's targeted smoke. The close-out runs no full
+  affected smoke. The full sweep runs in the cloud after the merge (nightly,
+  M3.7d; at shift end, M3.7e). *Revert condition:* one red sweep traced to
+  an unattended merge restores the close-out's full affected smoke.
+- **S5, close-out timing** (M3.7b). A close-out may start at PR-open, while
+  CI still runs. It runs the `Witness:`, reads the diff adversarially and
+  checks the label, public names and Heart first. Then it waits in-turn for
+  CI and merges only on a green `ci-verdict`. The wait has a limit: 30
+  minutes from the start, and never past `review-at:`. A CI that has not
+  finished by then refuses to `/prm`. Every other guard of "Unattended
+  `glance` merges — 2026-11-03" applies unchanged. The merge slot is taken
+  immediately before the merge, by the close-out session itself
+  (`pyauto-brain merge-slot take`, the human's decision A). The watcher only
+  checks that one is free before it starts the session. A close-out that
+  sees red CI after it started has spent its tokens; the digest counts them
+  as before.
+- **S6, M3.6j ruling (a) amended** (M3.7b). The branch update and the CI
+  rerun on the new head are needed only when the PR's changed files overlap
+  those of a PR of this shift merged ahead of it on that library, or when
+  GitHub reports the branch as conflicting. A file list that cannot be read
+  counts as an overlap. Otherwise the PR merges on its own green CI. Merge
+  order (rulings b, c, f) is unchanged. Two disjoint PRs that are each green
+  can still break `main` together; `main` CI and the shift-end sweep find
+  that after the merge. *Revert condition:* one red `main` CI traced to two
+  disjoint shift PRs merged this way restores the unconditional update.
+
 A worker caps any pytest it runs at `-n 4`. It starts the review beside the
 tests and the targeted smoke (leg 2), and opens the PR as soon as they pass
 (`agents/conductors/batch/worker_template.md`).
 
 Outside a shift (an `--auto` chat) nothing changes.
 
-Later rulings from the same review (S2, S4 to S7) are added to this section.
+Later rulings from the same review (S4, S7) are added to this section.
 
 ## Merge authority follows Consequence — 2026-10-02
 
@@ -615,8 +641,8 @@ and the close-out merges after the affected smoke.** This replaces R3's
 in-turn path inside a shift (its first two bullets): a shift worker never runs
 `merge-slot take` or `gh pr merge`, whatever its tier. The watcher closes out
 a green `notify` PR exactly as a `glance` one (R3's third bullet, unchanged),
-and that close-out runs the witness and the full affected smoke
-(`pyauto-heart smoke --affected-by <repo> --jobs 3`) before it merges. R3's
+and that close-out runs the witness before it merges (it ran the full
+affected smoke too, until ruling S2 of "Shift speed — 2026-11-19"). R3's
 fourth bullet stands: these are `notify` merges, not stage-2 rows. Outside a
 shift (an `--auto` chat, no close-out), R3's in-turn merge is unchanged.
 `merge-slot take` keeps refusing an out-of-order in-turn merge as a backstop,
@@ -706,7 +732,7 @@ section is that dated doctrine edit.
 the author** — Opus 5.5 for both, on cost: the alternatives were a more
 expensive model (Fable) or a weaker one (Sonnet). What makes it the leg is
 **independence, not the model**: a **fresh close-out session** the watcher
-starts after CI lands, which did not write the PR, shares none of the worker's
+starts after CI lands (at PR-open since ruling S5, 2026-11-19), which did not write the PR, shares none of the worker's
 context, **runs the `Witness:` itself** and reviews the diff adversarially
 before it merges or refuses (`agents/conductors/batch/closeout_template.md`).
 It applies to the first 10 rows of the stage-2 sub-window exactly as the ruling
@@ -920,8 +946,9 @@ to per-task `--auto` until the cause is found.
 ### Unattended `glance` merges — 2026-11-03
 
 This extends the 2026-10-02 table. For a declared `glance` task under an open
-brief, **the in-turn wait may be replaced by a watcher-started close-out after
-CI lands**, only when every one of these holds:
+brief, **the in-turn wait may be replaced by a watcher-started close-out**,
+only when every one of these holds. Since ruling S5 ("Shift speed —
+2026-11-19") the close-out starts at PR-open and merges only on green CI:
 
 1. an **independent session** ran the `Witness:` — not the author; a different
    model where one is available, as leg 5 already requires of the adversary;
@@ -955,7 +982,9 @@ while an earlier PR of the shift on it is open. Six rulings:
 - **(a)** an unattended branch-update session may push a merge from `main` to a
   shift PR's branch (`gh pr update-branch`, never a rebase or force-push), then
   must end; a later close-out merges only on CI green at the new head. The
-  watcher itself still pushes nothing;
+  watcher itself still pushes nothing. Since ruling S6 (2026-11-19, M3.7b)
+  this applies only when the PR's changed files overlap a PR merged ahead of
+  it, or GitHub reports a conflict;
 - **(b)** the watcher may `gh pr view` the PRs a waiting PR waits behind every
   tick, carried ones included;
 - **(c)** an earlier PR blocks until GitHub says MERGED or CLOSED, whatever its
@@ -1198,6 +1227,15 @@ The questions inbox (M3.5, PyAutoBrain#645) changes the watcher's surface by:
 The revert condition also covers these: an @mention for a parked question,
 or any read of `questions.md` other than that local one, retires the watcher
 to fake mode.
+
+**Amendment — 2026-11-19 (M3.7b, PyAutoBrain#688), approved by the human
+(decision B).** For ruling S6 ("Shift speed — 2026-11-19") the watcher may
+read, read-only, the changed-file list (`gh pr view --json files`) of a
+waiting library PR and of the earlier PRs of the shift merged ahead of it on
+that library. It reads each PR's list at most once per shift and keeps it.
+`mergeable` is a field of the `gh pr view` it already makes, not a new call.
+A repeat read for the same PR in one shift falls under the existing revert
+condition.
 
 **Login probe — 2026-11-17.** The watcher runs `claude auth status --json` (local, no model call) on a shift's first tick and when a worker shows as blocked. `loggedIn: false`, or a `loginExpiresAt` already passed, is a `login-expired` event, never "blocked on a person", and no worker starts until it passes.
 
