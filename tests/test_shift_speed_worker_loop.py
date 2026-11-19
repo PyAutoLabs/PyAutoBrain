@@ -42,6 +42,10 @@ def test_the_worker_runs_the_changed_test_modules_and_the_witness_not_the_full_s
     assert "not the full suite" in prompt
     assert "PR CI is the full-suite verdict" in prompt
     assert "-n 4" in prompt
+    # Only legs 1 and 5 change; the Heart leg is unchanged.
+    assert "Only legs 1 (tests) and 5 (adversary) of the autonomous-ship gate change in a shift" in prompt
+    assert "the Heart verdict (leg 4) apply as before" in prompt
+    assert "not the full gate" not in prompt
     assert "S1" in prompt and "Shift speed — 2026-11-19" in prompt
 
 
@@ -86,8 +90,10 @@ def test_autonomy_records_s1_and_s3_and_legs_1_and_5_point_to_them():
 
 def test_ship_library_follows_the_shift_rule():
     skill = _flat((BRAIN / "skills" / "ship_library" / "ship_library.md").read_text(encoding="utf-8"))
-    assert "five under a batch launch" not in skill
-    assert "Shift speed — 2026-11-19" in skill
+    # Outside a shift a batch launch still needs leg 5; the shift worker is the exception.
+    assert "five under a batch launch" in skill
+    assert "The exception is a shift worker, which runs no adversary pass" in skill
+    assert "ruling S3" in skill and "Shift speed — 2026-11-19" in skill
     ref = (BRAIN / "skills" / "ship_library" / "reference.md").read_text(encoding="utf-8")
     step1 = _flat(ref.split("## Execution contract", 1)[1].split("\n2. ", 1)[0])
     assert "shift worker" in step1 and "-n 4" in step1

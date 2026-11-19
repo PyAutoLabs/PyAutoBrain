@@ -105,10 +105,10 @@ delegation still follows MODEL_DELEGATION.md; capability absence is handled by
 its cross-environment handoff rather than by provider-name conditionals. If any
 step or evidence leg fails, stop and report — do not proceed.
 
-**Under `--auto`:** all four legs of the autonomous-ship gate must pass (step
-3 note). A shift worker runs no adversary pass (`AUTONOMY.md` leg 5): the
+**Under `--auto`:** all four legs of the autonomous-ship gate must pass — **five under a batch launch**, which adds the independent-adversary leg (`AUTONOMY.md` leg 5) — (step
+3 note). The exception is a shift worker, which runs no adversary pass: the
 close-out session or the human at `/prm` is the adversary, ruling S3 in
-"Shift speed — 2026-11-19". It starts its one independent review beside the
+`AUTONOMY.md` "Shift speed — 2026-11-19". It starts its one independent review beside the
 tests and the targeted smoke, and opens the PR as soon as they pass. Then
 ship **without interactive sign-off**: the PR body additionally carries the `## Validation checklist` section
 ([`reference.md`](reference.md) → "Validation checklist (--auto)"), the run

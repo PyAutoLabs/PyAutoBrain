@@ -46,7 +46,10 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   hard-coded repo name it would have caught. A finding outside your diff is
   not yours: name it in your proof packet. Other repos skip this step.
 - At the ship step you run the loop a chat build runs (AUTONOMY.md "Shift
-  speed — 2026-11-19", rulings S1 and S3), not the full gate:
+  speed — 2026-11-19", rulings S1 and S3). Only legs 1 (tests) and 5
+  (adversary) of the autonomous-ship gate change in a shift. The review
+  (leg 3), the targeted smoke (leg 2) and the Heart verdict (leg 4) apply as
+  before:
   - **Tests (S1).** Run the test modules your diff changes or that cover the
     changed code, plus the task's `Witness:`, not the full suite. PR CI is the
     full-suite verdict for the repo you ship. When the review surface flags a
