@@ -382,37 +382,42 @@ def test_r1_a_plan_that_failed_closed_on_mind_keeps_the_shift_open(tmp_path, mon
 
 
 def test_r1_labels_unreadable_three_times_go_to_the_humans_prm(tmp_path):
-    """Finding 3: at most 3 label reads per PR per shift, then /prm."""
+    """Finding 3, amended in round 2: at most one label read a tick; the PR
+    goes to /prm only after 3 misses AND LABEL_READ_GRACE_S (15 min) since the
+    watcher first saw it, so a short gh outage refuses nothing."""
     mind, brief, home, sp = tc._order_shift(tmp_path)
     proc = _keeper(brief, home)
-    reads = []
-    base = _labelled({GA7: None})
+    pr_state = _labelled({GA7: None})
+    slot = orch.slot_dir(brief, home)
 
-    def pr_state(url):
-        reads.append(url)
-        return base(url)
+    def tick(minute, poster=None):
+        orch.tick(brief, mind, home=home, now=_at(minute), spawner=sp, agents=Agents(),
+                  health=_Health(), pr_state=pr_state, poster=poster)
+        return orch.read_counters(slot)
     try:
-        for minute in (1, 2, 3, 4):
-            orch.tick(brief, mind, home=home, now=_at(minute), spawner=sp, agents=Agents(),
-                      health=_Health(), pr_state=pr_state)
-            if minute == 2:
-                c = orch.read_counters(orch.slot_dir(brief, home))
-                assert GA7 not in c["closeouts"]                    # still waiting
-        c = orch.read_counters(orch.slot_dir(brief, home))
+        for minute in (1, 2, 3):                 # three misses within 2 minutes
+            c = tick(minute)
+        assert c["pr_label_misses"][GA7] == 3
+        assert GA7 not in c["closeouts"]                         # still waiting
+        c = tick(15)                             # 14 min after first seen
+        assert GA7 not in c["closeouts"]
+        c = tick(16)                             # 15 min after first seen
         assert c["closeouts"][GA7]["state"] == "refused"
-        assert c["closeouts"][GA7]["why"] == "labels unreadable after 3 reads → your /prm"
-        assert c["pr_label_misses"][GA7] == 3            # tick 4 read no labels
+        assert c["closeouts"][GA7]["why"] == orch.LABELS_UNREADABLE_WHY
+        assert "3 misses over 15 min" in orch.LABELS_UNREADABLE_WHY
+        misses = c["pr_label_misses"][GA7]
+        c = tick(17)
+        assert c["pr_label_misses"][GA7] == misses       # refused: not read again
         assert sp.closeouts == []
     finally:
         proc.kill()
         proc.wait()
     # The keeper is gone (not crashed): nothing is left, so the shift closes.
-    (orch.slot_dir(brief, home) / "leases" / "keeper.json").unlink()
-    poster = t.Poster()
-    orch.tick(brief, mind, home=home, now=_at(5), spawner=sp, agents=Agents(),
-              health=_Health(), pr_state=pr_state, poster=poster)
-    d = (orch.slot_dir(brief, home) / orch.DIGEST_FILE).read_text()
-    assert "- 1 PR(s) refused: labels unreadable after 3 reads" in d
+    (slot / "leases" / "keeper.json").unlink()
+    tick(18, poster=t.Poster())
+    d = (slot / orch.DIGEST_FILE).read_text()
+    assert ("- 1 PR(s) refused: labels unreadable (at most one read a tick, "
+            "refused after 3 misses over 15 minutes)") in d
 
 
 def test_r1_a_carried_pr_the_human_merged_is_reported_by_its_github_state(tmp_path):

@@ -386,8 +386,9 @@ they read no steering, so an `/add` after the close does nothing.
 **S7: `decision-taken` at PR-open (M3.7c).** `_start_closeouts` reads a new
 PR's labels right after the tier check (`labels` in `gh_pr_state`, kept in
 `counters["pr_labels"]`, once per PR per shift, after the carried-PR check;
-unreadable means wait, and after 3 failed reads the PR goes to `/prm` as
-`labels unreadable after 3 reads`, counted in the digest). A
+unreadable means wait, at most one read a tick; after 3 misses over 15
+minutes from first seen (`LABEL_READ_GRACE_S`) the PR goes to `/prm` as
+`labels unreadable`, counted in the digest). A
 `decision-taken` PR is refused (`decision-taken — the human's /prm`) with no
 close-out, no merge slot and no CI read. It stays an earlier PR in the merge
 order, so later PRs on its library wait until GitHub says MERGED or CLOSED.
@@ -399,6 +400,10 @@ The digest's `### Waited behind your /prm` names them, one line per library.
     systemctl --user daemon-reload
     systemctl --user restart pyauto-orchestrator.timer
     systemctl --user enable --now pyauto-orchestrator.path
+
+If the path unit ever shows failed (trigger limit hit, systemd 250 or later),
+run `systemctl --user restart pyauto-orchestrator.path`. On systemd 249 the
+`TriggerLimit` keys are ignored with a warning.
 
 **The login hold.** A real spawner probes the CLI login (`_login.probe`) when a
 member waits to start and the last probe was not `ok` (the shift's first

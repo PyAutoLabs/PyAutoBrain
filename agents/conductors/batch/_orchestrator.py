@@ -1918,7 +1918,7 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
         if task in own:
             kept.append(r)
         elif "error" in claims:
-            out[r["path"]] = f"Mind {claims['error']} — fail closed"
+            out[r["path"]] = f"Mind {claims['error']} — {FAIL_CLOSED}"
         elif claim is not None:
             slug, sec = claim
             mine = {_repo_key(x) for x in r.get("declared_repos") or r.get("repos") or []}
@@ -3661,7 +3661,7 @@ def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
     if counters.get("commands_unread"):
         return False
     origin = (counters.get("backlog_gates") or {}).get("origin") or {}
-    if any(str(w).endswith("fail closed") for w in origin.values()):
+    if any(str(w).endswith(FAIL_CLOSED) for w in origin.values()):
         return False
     outcomes = counters.get("outcomes") or {}
     if not (counters.get("sessions") or outcomes):
@@ -4290,9 +4290,17 @@ DECISION_TAKEN = "decision-taken"
 #: Why a `decision-taken` PR is refused at PR-open (S7, M3.7c, #690).
 DECISION_TAKEN_WHY = "decision-taken — the human's /prm"
 #: Label reads one PR may fail in a shift before it goes to the human's /prm
-#: (review round 1, M3.7c): never read without bound, never assumed clean.
+#: (review round 1, M3.7c): never assumed clean. At most one read a tick, and
+#: never refused sooner than LABEL_READ_GRACE_S after the watcher first saw
+#: the PR (round 2): with 60 s ticks and kicks, 3 misses take 2 minutes, so a
+#: short `gh` outage must not refuse every new PR of the shift.
 LABEL_READS = 3
-LABELS_UNREADABLE_WHY = f"labels unreadable after {LABEL_READS} reads → your /prm"
+LABEL_READ_GRACE_S = 900
+LABELS_UNREADABLE_WHY = (f"labels unreadable ({LABEL_READS} misses over "
+                         f"{LABEL_READ_GRACE_S // 60} min) → your /prm")
+#: The tail of a plan reason for a draft held because Mind origin/main could
+#: not be read (`on_origin`); `early_close_ready` and the digest match it.
+FAIL_CLOSED = _digest.FAIL_CLOSED
 
 
 def _pr_labels_once(counters: dict, pr_state, cache: dict, url: str) -> list[str] | None:
@@ -4423,11 +4431,14 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
         # It stays among the shift's known PRs, so a later PR on its library
         # still waits behind it (ruling c). After the carried check (review
         # round 1): a carried PR the human merged or closed is reported by
-        # its GitHub state. Unreadable: asked again next tick, at most
-        # LABEL_READS times, then the human's /prm.
+        # its GitHub state. Unreadable: asked again next tick, then the
+        # human's /prm after LABEL_READS misses over LABEL_READ_GRACE_S.
         labels = _pr_labels_once(counters, pr_state, cache, pr)
         if labels is None:
-            if int((counters.get("pr_label_misses") or {}).get(pr) or 0) >= LABEL_READS:
+            first = _iso_or_none(seen.get(pr) or "")
+            if int((counters.get("pr_label_misses") or {}).get(pr) or 0) >= LABEL_READS \
+                    and first is not None \
+                    and (now - first).total_seconds() >= LABEL_READ_GRACE_S:
                 refuse(pr, task, LABELS_UNREADABLE_WHY, held=again)
             continue
         if DECISION_TAKEN in labels:

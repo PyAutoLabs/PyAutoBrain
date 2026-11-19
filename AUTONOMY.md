@@ -543,8 +543,8 @@ Outside a shift (an `--auto` chat) nothing changes.
   watcher refuses a `decision-taken` PR when it first sees it, from the
   label alone. No close-out session starts, no merge slot is taken and CI
   is not read. It reads the label once per PR per shift; a label it cannot
-  read is asked again next tick, never taken as absent, and after 3 failed
-  reads the PR goes to the human's `/prm` and the digest counts it. The PR keeps its
+  read is asked again next tick, never taken as absent, and after 3 misses
+  over 15 minutes the PR goes to the human's `/prm` and the digest counts it. The PR keeps its
   place as an earlier PR in the merge order (M3.6j ruling c, unchanged), so
   later unattended merges on that library wait for the human's `/prm`. The
   digest names the PRs that waited behind a `/prm`-bound PR, one line per
@@ -1275,8 +1275,9 @@ condition.
 
 **Amendment — 2026-11-19 (M3.7c, PyAutoBrain#690), approved by the human.**
 For ruling S7 the watcher reads `labels` as one more field of the `gh pr
-view` it already makes for its own workers' PRs: once per PR per shift, with
-at most 3 tries when GitHub cannot say (then the PR goes to `/prm`). The
+view` it already makes for its own workers' PRs: kept once read, once per PR
+per shift. When GitHub cannot say it reads again, at most once a tick; after
+3 misses over 15 minutes from first seeing the PR, the PR goes to `/prm`. The
 kick file that starts a tick early is local and adds no network act.
 
 **Login probe — 2026-11-17.** The watcher runs `claude auth status --json` (local, no model call) on a shift's first tick and when a worker shows as blocked. `loggedIn: false`, or a `loginExpiresAt` already passed, is a `login-expired` event, never "blocked on a person", and no worker starts until it passes.

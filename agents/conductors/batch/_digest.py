@@ -30,6 +30,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
 import ci_verdict  # noqa: E402
 
 DIGEST_HEADING = "## Digest"
+#: The tail of a watcher plan reason for a draft held because Mind
+#: origin/main could not be read (`_orchestrator.on_origin`).
+FAIL_CLOSED = "fail closed"
 SECTIONS = ("### Brief work", "### Backlog picks", "### Proof packets", "### Counters")
 #: Every counter, always printed — a zero is a fact, an absent line is a finding.
 COUNTERS = ("merges", "glance-auto-merges", "reverts", "pushes", "drafts-filed",
@@ -401,7 +404,8 @@ def waited_lines(counters: dict) -> list[str]:
     n = sum(len(v) for v in groups.values())
     out = ["", WAITED_HEADING] + ([f"- {n} PR(s) waited behind a /prm-bound PR"] if n else [])
     if unread:   # review round 1: label reads that never succeeded (S7)
-        out.append(f"- {len(unread)} PR(s) refused: labels unreadable after 3 reads — "
+        out.append(f"- {len(unread)} PR(s) refused: labels unreadable (at most one read a "
+                   "tick, refused after 3 misses over 15 minutes) — "
                    + ", ".join(pr_ref(u) for u in unread))
     for (repo, bound), urls in groups.items():
         whys = "; ".join(dict.fromkeys(str(refused[b].get("why") or "?").split(" — ", 1)[0]
@@ -836,7 +840,7 @@ def backlog_gate_lines(counters: dict) -> list[str]:
         out.append("Backlog dip stopped: queue.md is empty, so the shift took the "
                    "brief's named tasks only.")
     origin = gates.get("origin") or {}
-    closed = {p: w for p, w in origin.items() if w.endswith("fail closed")}
+    closed = {p: w for p, w in origin.items() if w.endswith(FAIL_CLOSED)}
     repo_held = {p: w for p, w in origin.items() if w.startswith("repo ") and p not in closed}
     claimed = sorted(p for p in origin if p not in closed and p not in repo_held)
 
