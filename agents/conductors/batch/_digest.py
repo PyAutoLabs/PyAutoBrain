@@ -827,9 +827,14 @@ def sweep_lines(counters: dict) -> list[str]:
         refused = [pr_ref(pr) for pr, co in (counters.get("closeouts") or {}).items()
                    if str(co.get("why") or "").startswith(SWEEP_RED_WHY)]
         draft = f"`{blk['draft']}`" if blk.get("draft") else "not filed yet"
-        tail = f"; bug draft: {draft}" if blk.get("kind") != "unknown" else ""
-        out.append(f"- {blk.get('why')} — blocked: {repos}; PRs refused: "
-                   f"{', '.join(refused) or 'none'}{tail}")
+        if blk.get("kind") == "unknown":
+            held = [pr_ref(pr) for pr in sorted(counters.get("sweep_waits") or {})]
+            out.append(f"- {blk.get('why')} — blocked: {repos}; PRs waiting: "
+                       f"{', '.join(held) or 'none'}; PRs refused: "
+                       f"{', '.join(refused) or 'none'}")
+        else:
+            out.append(f"- {blk.get('why')} — blocked: {repos}; PRs refused: "
+                       f"{', '.join(refused) or 'none'}; bug draft: {draft}")
     cleared = sweep.get("cleared")
     if cleared:
         out.append(f"- red sweep {cleared.get('url')} cleared by /clear-sweep "

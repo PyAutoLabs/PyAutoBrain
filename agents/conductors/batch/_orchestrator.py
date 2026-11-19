@@ -3443,7 +3443,7 @@ def _sweep_red_markers(slot: Path, counters: dict) -> None:
             marker.unlink(missing_ok=True)
     if not blk:
         return
-    text = (blk.get("url") or blk.get("why") or "?") + "\n"
+    text = (blk.get("why") or "workspace sweep red") + "\n"   # a complete reason line
     for pr, co in (counters.get("closeouts") or {}).items():
         if co.get("state") != "running" or not co.get("task") or not _sweep_blocks(blk, pr):
             continue
@@ -3847,6 +3847,10 @@ def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
     # "nothing to do" — an unread `/add` or `/resume` on the shift issue, or
     # drafts the plan dropped because Mind origin/main failed closed.
     if counters.get("commands_unread"):
+        return False
+    # The sweep's run list unreadable (M3.7e review round 2): an unread input.
+    if (((counters.get("sweep") or {}).get("block") or {}).get("kind") == "unknown"
+            or counters.get("sweep_waits")):
         return False
     origin = (counters.get("backlog_gates") or {}).get("origin") or {}
     if any(str(w).endswith(FAIL_CLOSED) for w in origin.values()):
@@ -4574,6 +4578,10 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
     before_waits = counters.get("merge_waits") or {}
     waits: dict = {}
     counters["merge_waits"] = waits
+    # PRs held while the sweep is unknown (M3.7e), rebuilt each tick.
+    before_sweep = counters.get("sweep_waits") or {}
+    sweep_waits: dict = {}
+    counters["sweep_waits"] = sweep_waits
     seen = counters.setdefault("pr_seen", {})   # when the watcher first saw each PR
 
     def refuse(pr: str, task: str, why: str, held: bool = False) -> None:
@@ -4642,6 +4650,14 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
         # is the human's /prm until a later sweep is green or /clear-sweep.
         blk = (counters.get("sweep") or {}).get("block")
         if _sweep_blocks(blk, pr):
+            if blk.get("kind") == "unknown":
+                # The run list is unreadable (M3.7e review round 2): a wait,
+                # like the merge order's — no session, no slot, no refusal;
+                # judged again next tick.
+                prev = before_sweep.get(pr) or {}
+                sweep_waits[pr] = {"task": task, "why": blk["why"],
+                                   "since": prev.get("since") or _iso(now)}
+                continue
             refuse(pr, task, blk["why"], held=again)
             continue
         # Merge order (M3.6j): an earlier library PR of this shift still open

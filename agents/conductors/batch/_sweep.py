@@ -52,10 +52,11 @@ RED = ("failure", "timed_out", "startup_failure")
 #: Conclusions that are no verdict at all: the run before them on `main` is
 #: the latest one read (review round 1).
 NO_VERDICT = ("cancelled",)
-#: A run list not read successfully for this long (or never) blocks every
-#: repo a merge could break, as an unknown workspace does (fail closed).
+#: A run list failing for this long without a successful read in between
+#: (measured from the streak's first failure) holds every PR a merge could
+#: break: a wait, not a refusal (review round 2).
 UNKNOWN_AFTER_S = 1800
-UNKNOWN_WHY = "workspace sweep unknown: run list unreadable since {since} → /prm"
+UNKNOWN_WHY = "workspace sweep unknown: run list unreadable since {since}"
 SWEEP_DIR = "sweep"
 STATE_FILE = "state.json"
 CLEARED_FILE = "cleared.json"
@@ -395,12 +396,14 @@ def red_run(home: Path, state: dict | None = None) -> dict | None:
 
 
 def unknown_since(state: dict, now: _dt.datetime) -> str | None:
-    """When the run list became unreadable, if it has never been read
-    successfully or not for UNKNOWN_AFTER_S; else None."""
-    ok_at = _parse(state.get("ok_at") or "")
-    if ok_at is not None and (now - ok_at).total_seconds() < UNKNOWN_AFTER_S:
+    """The first failure of the current failing streak (`fail_since`, reset
+    by any successful read) when it is UNKNOWN_AFTER_S old or more; else
+    None. One failure after a long gap is no unknown state."""
+    since = state.get("fail_since") or ""
+    at = _parse(since) if since else None
+    if at is None or (now - at).total_seconds() < UNKNOWN_AFTER_S:
         return None
-    return state.get("fail_since") or state.get("read_at") or _iso(now)
+    return since
 
 
 def _repos_for(project: str, hmap: dict, cfg: dict) -> list[str] | None:

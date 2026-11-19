@@ -405,11 +405,11 @@ def test_a_running_closeout_on_a_blocked_repo_gets_the_sweep_red_marker(tmp_path
     _red(sweep, "autofit")
     _ltick(mind, brief, home, sp, 2)
     marker = slot / "leases" / "named.sweep-red"
-    assert marker.read_text().strip() == RUN.format(200)
+    assert marker.read_text().strip() == f"workspace sweep red: {RUN.format(200)}"
     assert not (slot / "leases" / "picked.sweep-red").exists()
     template = orch.closeout_prompt("named", FIT8, "x.md", brief, slot / "leases")
     assert f"{slot / 'leases'}/named.sweep-red" in template
-    assert "workspace sweep red: <the URL in that file> → /prm" in template
+    assert "`<the text in that file> → /prm`" in template     # verbatim: one reason line
     # A later green run lifts the block, and the marker with it.
     sweep.runs = [_run(201, minutes=2)] + sweep.runs
     sweep.artifacts[("201", "workspace-smoke-shas")] = {"shas.json": _shas(201, fit="d")}
@@ -598,21 +598,28 @@ def test_r1_1_the_fallback_blocks_every_chain_and_workspace_repo(tmp_path, sweep
     assert sp.closeouts == []
 
 
-def test_r1_2_a_run_list_never_read_fails_closed(tmp_path, sweep):
+UNKNOWN = "workspace sweep unknown: run list unreadable since {}"
+
+
+def test_r1_2_a_run_list_never_read_fails_closed_after_30_minutes(tmp_path, sweep):
+    """Updated in review round 2: 30 minutes of failing, then a wait (not a
+    refusal), named in the digest."""
     sweep.runs = None
     mind, brief, home, sp = _libs_shift(tmp_path)
     _ltick(mind, brief, home, sp, 0)
-    _ltick(mind, brief, home, sp, 1)
+    _ltick(mind, brief, home, sp, 31)
     slot = orch.slot_dir(brief, home)
     c = orch.read_counters(slot)
-    why = "workspace sweep unknown: run list unreadable since 2026-11-04T09:00:00Z → /prm"
-    assert c["closeouts"][FIT8]["why"] == why and c["closeouts"][GA7]["why"] == why
-    assert sp.closeouts == []
+    why = UNKNOWN.format("2026-11-04T09:00:00Z")
+    assert c["sweep_waits"][FIT8]["why"] == why and c["sweep_waits"][GA7]["why"] == why
+    assert FIT8 not in c["closeouts"] and sp.closeouts == []
     d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
-    assert f"- {why} — blocked:" in d
+    assert f"- {why} — blocked:" in d and "PRs waiting: autofit#8, autogalaxy#7" in d
 
 
-def test_r1_2_a_run_list_unread_for_30_minutes_fails_closed(tmp_path, sweep):
+def test_r1_2_a_run_list_failing_for_30_minutes_fails_closed(tmp_path, sweep):
+    """Updated in review round 2: measured from the first failure of the
+    current streak, not from the last success."""
     sweep.runs = [_run(100)]
     sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
     mind, brief, home, sp = _libs_shift(tmp_path)
@@ -620,12 +627,70 @@ def test_r1_2_a_run_list_unread_for_30_minutes_fails_closed(tmp_path, sweep):
     sweep.runs = None
     slot = orch.slot_dir(brief, home)
     _ltick(mind, brief, home, sp, 29)
+    _ltick(mind, brief, home, sp, 58)
     assert not orch.read_counters(slot)["sweep"].get("block")
-    _ltick(mind, brief, home, sp, 30)
+    _ltick(mind, brief, home, sp, 59)
     blk = orch.read_counters(slot)["sweep"]["block"]
-    assert blk["why"] == ("workspace sweep unknown: run list unreadable since "
-                          "2026-11-04T09:29:00Z → /prm")
+    assert blk["why"] == UNKNOWN.format("2026-11-04T09:29:00Z")
     assert blk["everything"] is True
+
+
+# --- review round 2 (M3.7e) ---------------------------------------------------------
+
+def test_r2_1_one_failure_after_a_long_gap_blocks_nothing(tmp_path, sweep):
+    sweep.runs = [_run(100)]
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    sweep.runs = None
+    _ltick(mind, brief, home, sp, 120)
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert not c["sweep"].get("block")
+    assert sorted(pr for _, pr in sp.closeouts) == sorted([FIT8, GA7])
+
+
+def test_r2_1_an_unknown_sweep_holds_prs_then_a_good_read_releases_them(tmp_path, sweep):
+    sweep.runs = None
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    r = _ltick(mind, brief, home, sp, 31)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    assert set(c["sweep_waits"]) == {FIT8, GA7}
+    assert c["closeouts"] == {} and sp.closeouts == [] and tc._slots(brief, home) == {}
+    assert "closed_early" not in r and not (slot / orch.DIGEST_MARKER).exists()
+    r = _ltick(mind, brief, home, sp, 32)                 # still unknown: still held open
+    assert "closed_early" not in r
+    sweep.runs = [_run(100)]
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
+    _ltick(mind, brief, home, sp, 33)
+    c = orch.read_counters(slot)
+    assert c["sweep_waits"] == {}
+    assert sorted(pr for _, pr in sp.closeouts) == sorted([FIT8, GA7])
+
+
+@pytest.mark.usefixtures("shift_held_open")
+def test_r2_1_a_running_closeout_under_an_unknown_sweep_gets_the_marker(tmp_path, sweep):
+    sweep.runs = [_run(100)]
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    _ltick(mind, brief, home, sp, 1)
+    sweep.runs = None
+    _ltick(mind, brief, home, sp, 2)
+    _ltick(mind, brief, home, sp, 32)
+    marker = orch.slot_dir(brief, home) / "leases" / "named.sweep-red"
+    assert marker.read_text().strip() == UNKNOWN.format("2026-11-04T09:02:00Z")
+
+
+def test_r2_3_the_real_policy_turns_the_sweep_on_and_fake_mode_off(monkeypatch):
+    monkeypatch.undo()                                  # the real `_sweep_cfg`
+    monkeypatch.delenv(orch.FAKE_ENV, raising=False)
+    cfg = orch._sweep_cfg()
+    assert set(cfg) == {"repo", "workflow", "siblings"}
+    assert cfg["workflow"] == WORKFLOW and "/" in cfg["repo"] and cfg["siblings"]
+    monkeypatch.setenv(orch.FAKE_ENV, "1")
+    assert orch._sweep_cfg() == {}
 
 
 def test_r1_3_a_shift_whose_only_merge_is_a_chain_repo_dispatches(tmp_path, sweep):
@@ -720,7 +785,8 @@ def test_r1_7_a_marker_the_current_block_does_not_cover_is_removed(tmp_path, swe
     _ltick(mind, brief, home, sp, 3)
     assert orch.read_counters(slot)["sweep"]["block"]["run_id"] == "300"
     assert not named.exists()
-    assert (slot / "leases" / "picked.sweep-red").read_text().strip() == RUN.format(300)
+    assert (slot / "leases" / "picked.sweep-red").read_text().strip() == \
+        f"workspace sweep red: {RUN.format(300)}"
 
 
 def test_r1_8_a_clear_before_the_artifacts_are_read_still_files_the_draft(tmp_path, sweep):

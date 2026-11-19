@@ -590,11 +590,15 @@ Watcher latency (M3.7c, the human's plan decisions of 2026-11-19):
   as `workspace sweep red: <run url>`. PRs on other repos still close out.
   A cancelled run is no verdict: the run before it on `main` counts. A
   failing workspace the watcher cannot map, or a report it cannot read,
-  blocks every library, chain and workspace repo. So does a run list
-  unreadable for 30 minutes, or never read: the PR is refused as
-  `workspace sweep unknown: run list unreadable since <time> → /prm`. A close-out already running on a blocked repo
-  finds a `.sweep-red` marker and refuses before it merges. The block holds
-  in this shift and the next, until a later sweep on `main` is green or the
+  blocks every library, chain and workspace repo. A run list that has
+  failed on every read for 30 minutes (from the first failure; any good
+  read resets it) holds those repos' PRs instead: a wait, not a refusal,
+  as `workspace sweep unknown: run list unreadable since <time>`. No
+  session starts and no slot is taken; the next good read releases them,
+  and the shift does not close early meanwhile. A close-out already
+  running on a blocked repo finds a `.sweep-red` marker (red or unknown)
+  and refuses with its line before it merges. The red block holds in this
+  shift and the next, until a later sweep on `main` is green or the
   human posts `/clear-sweep` on the shift issue. `/clear-sweep` clears the
   latest red run only; a newer red run blocks again. The red run files one
   bug draft through the one Mind writer, naming the failing scripts, the

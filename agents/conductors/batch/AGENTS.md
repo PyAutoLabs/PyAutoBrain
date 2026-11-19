@@ -408,9 +408,11 @@ artifacts are downloaded once per run id, at most 3 tries, into
 cancelled one is skipped) is red and not cleared, `_start_closeouts` refuses a PR on a failing
 workspace's chain (Heart `config/repos.yaml` `smoke:`, read locally, plus
 the workspace repo from Heart's validation workflow) as `workspace sweep
-red: <url>`, right after the S7 check. An unmapped workspace, an
-unreadable report, or a run list unread for 30 minutes (or never read)
-blocks every library, chain and workspace repo. A running close-out on a
+red: <url>`, right after the S7 check. An unmapped workspace or an
+unreadable report blocks every library, chain and workspace repo. A run
+list failing for 30 minutes from the streak's first failure holds those
+PRs in `counters["sweep_waits"]` instead (a wait, re-judged each tick, no
+refusal), and `early_close_ready` keeps the shift open. A running close-out on a
 blocked repo gets `leases/<task>.sweep-red` and refuses before it merges;
 a marker the current block does not cover is removed.
 A later green run clears the block, as does `/clear-sweep`. The latest
