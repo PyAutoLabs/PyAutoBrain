@@ -875,6 +875,29 @@ close-out may take the shift past its `token-budget:`, but its tokens count
 against that budget and the digest shows them, and no new close-out starts
 once the shift's spend reaches 1.5× the budget.
 
+**Merge order and the branch update — 2026-11-19 (M3.6j, PyAutoBrain#683),
+the human's rulings ("approved, all six yes").** A shift holds a library repo
+for *starting* only while a worker on it is live; it holds it for *merging*
+while an earlier PR of the shift on it is open. Six rulings:
+
+- **(a)** an unattended branch-update session may push a merge from `main` to a
+  shift PR's branch (`gh pr update-branch`, never a rebase or force-push), then
+  must end; a later close-out merges only on CI green at the new head. The
+  watcher itself still pushes nothing;
+- **(b)** the watcher may `gh pr view` the PRs a waiting PR waits behind every
+  tick, carried ones included;
+- **(c)** an earlier PR blocks until GitHub says MERGED or CLOSED, whatever its
+  state in the shift (dropped, red, refused, abandoned);
+- **(d)** a park on a question keeps holding its library's start;
+- **(e)** a worker may proceed past a `worktree_check_conflict` hit that names
+  only a listed sibling PR's slug;
+- **(f)** library repos only, and only PRs this shift knows (its outcomes and a
+  carried PR's `behind`).
+
+A waiting PR is never refused for waiting and takes no merge slot; a conflict
+on update, red CI on the new head or a third update refuses it for `/prm`.
+Every guard of this section still applies to the merge close-out.
+
 ### One Mind writer per shift — 2026-11-03
 
 During a shift, **only the orchestrator commits to PyAutoMind**, from its own
@@ -971,6 +994,10 @@ later tick, at most three tries in all; one that timed out may have landed and
 is never retried. The watcher also reads `gh pr view --json
 state,mergedAt,mergedBy` for the PRs its own workers named — the close-out's
 merge truth (#603) and, once at `review-at:`, the digest's `merges` (#610).
+Since 2026-11-19 (M3.6j, PyAutoBrain#683, ruling b) it also reads that state
+every tick for each earlier PR a waiting PR of the shift waits behind, carried
+ones included. The branch-update session it starts pushes a merge from `main`
+(ruling a); the watcher itself still makes no write to a repository.
 It also makes one read-only `gh api user` per shift, under the posting token,
 to warn when it equals the mention login (#611) — as the App, one `GET /app`
 with its JWT instead, naming it `<slug>[bot]` (#630).

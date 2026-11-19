@@ -556,7 +556,7 @@ def test_the_digest_names_closeout_tokens_and_an_overrun():
 
 GA7 = "https://github.com/example-org/autogalaxy/pull/7"
 GA8 = "https://github.com/example-org/autogalaxy/pull/8"
-GW9 = "https://github.com/example-org/autogalaxy_workspace/pull/9"
+GW9 = "https://github.com/example-org/example-docs/pull/9"
 FIT8 = "https://github.com/example-org/autofit/pull/8"
 SPAWNED = "2026-11-04T09:00:00Z"          # both workers start at the first tick
 
