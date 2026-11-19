@@ -26,6 +26,7 @@ from __future__ import annotations
 import ast
 import datetime as _dt
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -321,7 +322,7 @@ def test_a_red_sweep_refuses_a_chain_repo_pr_and_closes_out_the_others(tmp_path,
     assert orch._merge_slots.pr_key(FIT8) not in tc._slots(brief, home)
     blk = c["sweep"]["block"]
     assert blk["repos"] == ["autonerves", "autofit", "example_fit_ws"]
-    assert blk["all_libraries"] is False
+    assert blk["everything"] is False
 
 
 def test_a_sibling_project_maps_to_its_siblings_chain(tmp_path, sweep):
@@ -341,7 +342,7 @@ def test_an_unknown_workspace_blocks_every_library_repo(tmp_path, sweep):
     assert c["closeouts"][FIT8]["state"] == "refused"
     assert c["closeouts"][GA7]["state"] == "refused"
     assert sp.closeouts == []
-    assert c["sweep"]["block"]["all_libraries"] is True
+    assert c["sweep"]["block"]["everything"] is True
 
 
 def test_a_later_green_run_clears_the_block(tmp_path, sweep):
@@ -484,7 +485,7 @@ def test_an_unreadable_report_is_tried_three_times_then_blocks_every_library(tmp
              if c[3] == "200" and "workspace-validation-report" in c]
     assert len(tries) == 3
     c = orch.read_counters(orch.slot_dir(brief, home))
-    assert c["sweep"]["block"]["all_libraries"] is True
+    assert c["sweep"]["block"]["everything"] is True
     ops = _draft_ops(orch.slot_dir(brief, home))
     assert len(ops) == 1 and "could not be read" in ops[0]["text"]
 
@@ -554,6 +555,11 @@ def test_autonomy_records_s4_the_network_amendment_and_clear_sweep():
     assert "**S4, the shift-end sweep**" in speed
     assert "/clear-sweep" in speed
     assert "S4) is added to this section" not in speed
+    # Review round 1: the late window can dispatch; cancelled is no verdict;
+    # an unreadable run list and the fallback block every repo a merge breaks.
+    for needle in ("late window", "cancelled run is no verdict", "run list unreadable",
+                   "every library, chain and workspace repo"):
+        assert needle in speed, needle
     net = text.split("## The watcher's network surface — 2026-11-03", 1)[1].split("\n## ", 1)[0]
     amend = net.split("**Amendment — 2026-11-19 (M3.7e, PyAutoBrain#692)", 1)[1]
     for needle in ("gh workflow run", "gh run list", "gh run download", "compare",
@@ -563,3 +569,169 @@ def test_autonomy_records_s4_the_network_amendment_and_clear_sweep():
     assert "/clear-sweep" in agents and "M3.7e" in agents
     cockpit = (BRAIN / "skills" / "cockpit" / "cockpit.md").read_text()
     assert "/clear-sweep" in cockpit
+
+
+# --- review round 1 (M3.7e) ---------------------------------------------------------
+
+class Libs(tc.Spawner):
+    """Workers that finished at once with the PRs the test names."""
+
+    def __init__(self, named, picked=""):
+        t.FilesSpawner.__init__(self, done={"named": named + "\n", "picked": picked + "\n"},
+                                proofs={})
+        self.closeouts = []
+
+
+WS3 = "https://github.com/example-org/example_fit_ws/pull/3"
+NERVES4 = "https://github.com/example-org/autonerves/pull/4"
+
+
+def test_r1_1_the_fallback_blocks_every_chain_and_workspace_repo(tmp_path, sweep):
+    _red(sweep, "mystery")
+    mind, brief, home, _ = _libs_shift(tmp_path)
+    sp = Libs(WS3, NERVES4)
+    _ltick(mind, brief, home, sp, 0)
+    _ltick(mind, brief, home, sp, 1)
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["closeouts"][WS3]["state"] == "refused"
+    assert c["closeouts"][NERVES4]["state"] == "refused"
+    assert sp.closeouts == []
+
+
+def test_r1_2_a_run_list_never_read_fails_closed(tmp_path, sweep):
+    sweep.runs = None
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    _ltick(mind, brief, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    why = "workspace sweep unknown: run list unreadable since 2026-11-04T09:00:00Z → /prm"
+    assert c["closeouts"][FIT8]["why"] == why and c["closeouts"][GA7]["why"] == why
+    assert sp.closeouts == []
+    d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
+    assert f"- {why} — blocked:" in d
+
+
+def test_r1_2_a_run_list_unread_for_30_minutes_fails_closed(tmp_path, sweep):
+    sweep.runs = [_run(100)]
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    sweep.runs = None
+    slot = orch.slot_dir(brief, home)
+    _ltick(mind, brief, home, sp, 29)
+    assert not orch.read_counters(slot)["sweep"].get("block")
+    _ltick(mind, brief, home, sp, 30)
+    blk = orch.read_counters(slot)["sweep"]["block"]
+    assert blk["why"] == ("workspace sweep unknown: run list unreadable since "
+                          "2026-11-04T09:29:00Z → /prm")
+    assert blk["everything"] is True
+
+
+def test_r1_3_a_shift_whose_only_merge_is_a_chain_repo_dispatches(tmp_path, sweep):
+    mind, brief, home, sp = _merged_shift(tmp_path, {"named": "merged " + NERVES4 + "\n",
+                                                     "picked": ""})
+    _close(mind, brief, home, sp, {NERVES4: ("MERGED", "2026-11-04T09:00:30Z")})
+    assert sweep.of("gh", "workflow", "run") == [DISPATCH]
+
+
+def test_r1_3_a_chain_repo_gets_a_verified_through_line(tmp_path, sweep):
+    sweep.runs = [_run(100)]
+    shas = _shas(100)
+    shas["commit_shas"]["autonerves"] = _sha("e")
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": shas}}
+    mind, brief, home, sp = _merged_shift(tmp_path, {"named": GA7 + "\n", "picked": ""})
+    slot = _close(mind, brief, home, sp)
+    assert "- autonerves: workspaces verified through `eeeeeeeeeeee` (run 100)" in \
+        (slot / orch.DIGEST_FILE).read_text()
+
+
+def test_r1_4_scripts_are_named_from_the_real_reports_paths():
+    data = json.loads((BRAIN / "tests" / "fixtures" / "sweep_report_red.json").read_text())
+    rep = orch._sweep._report_of(data)
+    assert rep["projects"] == ["autolens_test"]
+    assert rep["failing"][0] == {"project": "autolens_test", "status": "failed",
+                                 "script": "scripts/imaging/jax_likelihood/delaunay.py"}
+    assert {f["script"] for f in rep["failing"]} >= {
+        "scripts/interferometer/datacube/rectangular.py"}
+    odd = orch._sweep._report_of({"failures": [
+        {"project": "p", "directory": "elsewhere", "file": "/r/x/workspace/scripts/a/b.py"}]})
+    assert odd["failing"][0]["script"] == "scripts/a/b.py"
+
+
+def test_r1_5_a_cancelled_run_is_not_a_verdict(tmp_path, sweep):
+    sweep.runs = [_run(201, "cancelled", minutes=-30), _run(100)]
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    assert not c["sweep"].get("block") and c["sweep"]["latest"]["id"] == "100"
+    assert _draft_ops(slot) == []
+    # Behind a cancelled run, a red one still blocks.
+    _red(sweep, "autofit")
+    sweep.runs = [_run(201, "cancelled", minutes=-30)] + sweep.runs
+    _ltick(mind, brief, home, sp, 1)
+    assert orch.read_counters(slot)["sweep"]["block"]["run_id"] == "200"
+
+
+def test_r1_6_a_merge_after_close_dispatches_once_from_the_late_sweep(tmp_path, sweep):
+    sweep.runs = [_run(100)]
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    _ltick(mind, brief, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    assert orch.read_counters(slot)["closeouts"][FIT8]["state"] == "running"
+    orch.tick(brief, mind, home=home, now=_at(181), spawner=sp, agents=Agents(),
+              health=lambda u: "HEALTHY", pr_state=tc._gh_states({}), poster=t.Poster())
+    assert (slot / orch.DIGEST_MARKER).exists()
+    assert sweep.of("gh", "workflow", "run") == []
+    tc._verdict(home, brief, "named", result="merged", pr=FIT8, gate="g", model="m")
+    merged = tc._gh_states({FIT8: ("MERGED", "2026-11-04T11:35:00Z")})
+    for minutes in (186, 187):
+        orch.tick(brief, mind, home=home, now=_at(minutes), spawner=sp, agents=Agents(),
+                  health=lambda u: "HEALTHY", pr_state=merged, poster=t.Poster())
+    assert sweep.of("gh", "workflow", "run") == [DISPATCH]
+    assert orch.read_counters(slot)["sweep_dispatch"]["ok"] is True
+
+
+@pytest.mark.usefixtures("shift_held_open")
+def test_r1_7_a_marker_the_current_block_does_not_cover_is_removed(tmp_path, sweep):
+    sweep.runs = [_run(100)]
+    sweep.artifacts = {("100", "workspace-smoke-shas"): {"shas.json": _shas(100)}}
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)
+    _ltick(mind, brief, home, sp, 1)
+    slot = orch.slot_dir(brief, home)
+    _red(sweep, "autofit")                       # red A on autofit (named's repo)
+    _ltick(mind, brief, home, sp, 2)
+    named = slot / "leases" / "named.sweep-red"
+    assert named.exists()
+    orch._sweep.clear(home, LOGIN, "2026-11-04T09:02:30Z")
+    # Red B (newer) fails a workspace whose chain is autogalaxy alone: not autofit.
+    heart = Path(os.environ["PYAUTO_HEART"]) / "config" / "repos.yaml"
+    heart.write_text(REPOS_YAML + "    galaxy_only:\n      directory: example_galaxy_ws\n"
+                                  "      chain: [autogalaxy]\n")
+    sweep.runs = [_run(300, "failure", minutes=2)] + sweep.runs
+    sweep.artifacts[("300", "workspace-smoke-shas")] = {"shas.json": _shas(300)}
+    sweep.artifacts[("300", "workspace-validation-report")] = {
+        "report.json": _report(("galaxy_only", "x.py"))}
+    _ltick(mind, brief, home, sp, 3)
+    assert orch.read_counters(slot)["sweep"]["block"]["run_id"] == "300"
+    assert not named.exists()
+    assert (slot / "leases" / "picked.sweep-red").read_text().strip() == RUN.format(300)
+
+
+def test_r1_8_a_clear_before_the_artifacts_are_read_still_files_the_draft(tmp_path, sweep):
+    _red(sweep, "autofit")
+    del sweep.artifacts[("200", "workspace-validation-report")]
+    mind, brief, home, sp = _libs_shift(tmp_path)
+    _ltick(mind, brief, home, sp, 0)               # report try 1 of 3: not settled
+    slot = orch.slot_dir(brief, home)
+    assert _draft_ops(slot) == []
+    orch._sweep.clear(home, LOGIN, "2026-11-04T09:00:30Z")
+    for minutes in (1, 2, 3):
+        _ltick(mind, brief, home, sp, minutes)
+    assert [o["path"].rsplit("/", 1)[1] for o in _draft_ops(slot)] == \
+        ["workspace_sweep_red_200.md"]

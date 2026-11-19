@@ -48,7 +48,14 @@ DOWNLOAD_TRIES = 3
 RUN_LIST_LIMIT = 10
 #: Conclusions that make a run red. A gate run that skipped the sweep ends
 #: `success` and is green.
-RED = ("failure", "cancelled", "timed_out", "startup_failure")
+RED = ("failure", "timed_out", "startup_failure")
+#: Conclusions that are no verdict at all: the run before them on `main` is
+#: the latest one read (review round 1).
+NO_VERDICT = ("cancelled",)
+#: A run list not read successfully for this long (or never) blocks every
+#: repo a merge could break, as an unknown workspace does (fail closed).
+UNKNOWN_AFTER_S = 1800
+UNKNOWN_WHY = "workspace sweep unknown: run list unreadable since {since} → /prm"
 SWEEP_DIR = "sweep"
 STATE_FILE = "state.json"
 CLEARED_FILE = "cleared.json"
@@ -61,7 +68,7 @@ RED_WHY = "workspace sweep red: {url}"
 #: A dispatched run is matched by `createdAt` at most this long before the
 #: recorded dispatch time (the two clocks differ).
 DISPATCH_SLACK_S = 120
-ALL_LIBRARIES = "every library repo"
+EVERYTHING = "every library, chain and workspace repo"
 _MERGE_RE = re.compile(r"^Merge pull request #(\d+)\b")
 _SQUASH_RE = re.compile(r"\(#(\d+)\)\s*$")
 _WS_MAP_RE = re.compile(r"declare -A WS=\((.*?)\)\n", re.S)
@@ -277,12 +284,10 @@ def _report_of(data: dict) -> dict:
     for e in data.get("failures") or []:
         if not isinstance(e, dict):
             continue
-        path = str(e.get("file") or "")
-        directory = str(e.get("directory") or "").strip("/")
-        name = path.rsplit("/", 1)[-1]
         proj = str(e.get("project") or "")
         failing.append({"project": proj, "status": str(e.get("status") or ""),
-                        "script": f"{directory}/{name}" if directory else path.lstrip("/")})
+                        "script": _script_name(str(e.get("file") or ""),
+                                               str(e.get("directory") or "").strip("/"))})
         if proj and proj not in projects:
             projects.append(proj)
     per = data.get("per_project") or {}
@@ -292,6 +297,18 @@ def _report_of(data: dict) -> dict:
                     and proj not in projects:
                 projects.append(str(proj))
     return {"failing": failing, "projects": projects, "ready": data.get("ready")}
+
+
+def _script_name(path: str, directory: str) -> str:
+    """A failing script as the workspace names it: `file` from `/<directory>/`
+    on (`scripts/imaging/jax_likelihood/delaunay.py`), else from after
+    `/workspace/`, else `<directory>/<file name>`."""
+    if directory and f"/{directory}/" in path:
+        return directory + "/" + path.split(f"/{directory}/", 1)[1]
+    if "/workspace/" in path:
+        return path.split("/workspace/", 1)[1]
+    name = path.rsplit("/", 1)[-1]
+    return f"{directory}/{name}" if directory else path.lstrip("/")
 
 
 def _fetch(home: Path, cfg: dict, run: dict, red: bool) -> dict:
@@ -335,11 +352,12 @@ def observe(home: Path, cfg: dict, now: _dt.datetime) -> dict:
     state["read_at"] = _iso(now)
     runs, why = list_runs(cfg)
     if runs is None:
-        state.update(ok=False, error=why)
+        state.update(ok=False, error=why, fail_since=state.get("fail_since") or _iso(now))
         _write(sweep_dir(home) / STATE_FILE, state)
         return state
-    state.update(ok=True, error="", runs=runs)
-    done = [r for r in runs if r["status"] == "completed"]
+    state.update(ok=True, error="", runs=runs, ok_at=_iso(now), fail_since="")
+    done = [r for r in runs if r["status"] == "completed"
+            and r["conclusion"] not in NO_VERDICT]
     state["latest"] = done[0] if done else state.get("latest")
     state["running"] = [r for r in runs if r["status"] != "completed"]
     greens = [r for r in done if r["conclusion"] == "success"]
@@ -362,12 +380,27 @@ def cleared(home: Path) -> dict:
     return _read(sweep_dir(home) / CLEARED_FILE)
 
 
+def latest_red(state: dict) -> dict | None:
+    """The latest completed run, when it is red, cleared or not."""
+    latest = state.get("latest")
+    return latest if is_red(latest) else None
+
+
 def red_run(home: Path, state: dict | None = None) -> dict | None:
     """The latest completed run, when it is red and not cleared."""
-    latest = (state if state is not None else load_state(home)).get("latest")
-    if not is_red(latest) or latest["id"] in cleared(home):
+    latest = latest_red(state if state is not None else load_state(home))
+    if latest is None or latest["id"] in cleared(home):
         return None
     return latest
+
+
+def unknown_since(state: dict, now: _dt.datetime) -> str | None:
+    """When the run list became unreadable, if it has never been read
+    successfully or not for UNKNOWN_AFTER_S; else None."""
+    ok_at = _parse(state.get("ok_at") or "")
+    if ok_at is not None and (now - ok_at).total_seconds() < UNKNOWN_AFTER_S:
+        return None
+    return state.get("fail_since") or state.get("read_at") or _iso(now)
 
 
 def _repos_for(project: str, hmap: dict, cfg: dict) -> list[str] | None:
@@ -383,14 +416,25 @@ def _repos_for(project: str, hmap: dict, cfg: dict) -> list[str] | None:
     return None
 
 
-def block(home: Path, cfg: dict, hmap: dict, key, state: dict | None = None) -> dict | None:
-    """The red block, or None: {run_id, url, repos (as Heart writes them),
-    keys (canonical keys, `key`), all_libraries, projects}. A failing project
-    that cannot be mapped, or a report that cannot be read, blocks every
-    library repo (fail closed)."""
+def block(home: Path, cfg: dict, hmap: dict, key, state: dict, now: _dt.datetime,
+          everything: set) -> dict | None:
+    """The block this tick, or None. A run list unreadable (never, or not for
+    UNKNOWN_AFTER_S) blocks `everything`; else the latest red run not
+    cleared (`block_for`)."""
+    since = unknown_since(state, now)
+    if since is not None:
+        return {"run_id": "", "url": "", "repos": [], "projects": [], "kind": "unknown",
+                "keys": sorted(everything), "everything": True,
+                "why": UNKNOWN_WHY.format(since=since)}
     run = red_run(home, state)
-    if run is None:
-        return None
+    return None if run is None else block_for(home, cfg, hmap, key, run, everything)
+
+
+def block_for(home: Path, cfg: dict, hmap: dict, key, run: dict, everything: set) -> dict:
+    """A red run's block: {run_id, url, repos (as Heart writes them), keys
+    (canonical, `key`), everything, projects, why}. A failing project that
+    cannot be mapped, or a report that cannot be read, blocks `everything`
+    — every library, chain and workspace repo (fail closed)."""
     rec = run_record(home, run["id"])
     report = rec.get("report")
     projects = list((report or {}).get("projects") or [])
@@ -402,17 +446,16 @@ def block(home: Path, cfg: dict, hmap: dict, key, state: dict | None = None) -> 
             unknown = True
             continue
         repos += [r for r in got if r not in repos]
-    return {"run_id": run["id"], "url": run["url"], "repos": repos,
-            "keys": sorted({key(r) for r in repos}), "all_libraries": unknown,
+    keys = {key(r) for r in repos} | (set(everything) if unknown else set())
+    return {"run_id": run["id"], "url": run["url"], "repos": repos, "kind": "red",
+            "keys": sorted(keys), "everything": unknown,
             "projects": projects, "why": RED_WHY.format(url=run["url"])}
 
 
-def blocks(blk: dict | None, repo: str, key, is_library) -> bool:
+def blocks(blk: dict | None, repo: str, key) -> bool:
     """Whether a PR on `repo` (its GitHub name) is blocked by `blk`."""
     if not blk or not repo:
         return False
-    if blk.get("all_libraries") and is_library(repo):
-        return True
     return key(repo) in set(blk.get("keys") or [])
 
 
@@ -451,7 +494,7 @@ def suspects(home: Path, cfg: dict, blk: dict, base: dict, head: dict) -> dict:
     cache = _read(path)
     moved = sorted(r for r in head if base.get(r) and head.get(r) and base[r] != head[r])
     wanted = set(blk.get("repos") or [])
-    affected = [r for r in moved if blk.get("all_libraries") or r in wanted]
+    affected = [r for r in moved if blk.get("everything") or r in wanted]
     for r in affected:
         if r in cache:
             continue
@@ -484,7 +527,7 @@ def draft_text(cfg: dict, blk: dict, rec: dict, green: dict | None, prs: dict | 
                   for f in report.get("failing") or []] or ["- none named in the report"]
         lines += [""]
     lines += ["Unattended merges are blocked on: "
-              + (ALL_LIBRARIES if blk["all_libraries"] else ", ".join(blk["repos"]))
+              + (EVERYTHING if blk["everything"] else ", ".join(blk["repos"]))
               + ". A later green sweep on `main` clears the block, or `/clear-sweep` "
                 "on a shift issue.", "", "## Suspect PRs", ""]
     if not green:

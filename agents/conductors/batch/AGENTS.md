@@ -399,19 +399,22 @@ The digest's `### Waited behind your /prm` names them, one line per library.
 names the workflow (`sweep_repo`, `sweep_workflow`, `sweep_siblings`). At
 close, `finish_shift` dispatches the Workspace Smoke workflow once
 (`gh workflow run`, no inputs, marker `sweep.dispatched`) when GitHub
-confirmed a library or workspace PR merged this shift. A shadow shift
-never does, and a failed dispatch is not retried. Each shift tick makes one
+confirmed a merge this shift on a library, workspace or Heart chain repo.
+`late_sweep` makes it instead when a close-out merged after the close. A
+shadow shift never dispatches, and a failed dispatch is not retried. Each shift tick makes one
 `gh run list` of the workflow on `main`, before steering. Each run's
 artifacts are downloaded once per run id, at most 3 tries, into
-`<home>/sweep/`, which every shift shares. When the latest completed run is
-red and not cleared, `_start_closeouts` refuses a PR on a failing
+`<home>/sweep/`, which every shift shares. When the latest completed run (a
+cancelled one is skipped) is red and not cleared, `_start_closeouts` refuses a PR on a failing
 workspace's chain (Heart `config/repos.yaml` `smoke:`, read locally, plus
 the workspace repo from Heart's validation workflow) as `workspace sweep
-red: <url>`, right after the S7 check. An unmapped workspace or an
-unreadable report blocks every library repo. A running close-out on a
-blocked repo gets `leases/<task>.sweep-red` and refuses before it merges.
-A later green run clears the block, as does `/clear-sweep`. The red run
-files one bug draft (`draft/bug/<most upstream suspect library>/
+red: <url>`, right after the S7 check. An unmapped workspace, an
+unreadable report, or a run list unread for 30 minutes (or never read)
+blocks every library, chain and workspace repo. A running close-out on a
+blocked repo gets `leases/<task>.sweep-red` and refuses before it merges;
+a marker the current block does not cover is removed.
+A later green run clears the block, as does `/clear-sweep`. The latest
+red run, cleared or not, files one bug draft (`draft/bug/<most upstream suspect library>/
 workspace_sweep_red_<id>.md`, marker `sweep/drafted/<id>`) through the one
 Mind writer, with suspect PRs from one compare read per affected repo. All
 these calls use the human's own `gh` login (decision b). The digest's

@@ -778,8 +778,8 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
 
 
 SWEEP_HEADING = "### Workspace sweep"
-#: The prefix of the close-out refusal a red sweep gives (M3.7e).
-SWEEP_RED_WHY = "workspace sweep red: "
+#: The prefix of the close-out refusal a sweep block gives (M3.7e): red, or unknown.
+SWEEP_RED_WHY = "workspace sweep "
 
 
 def _sweep_own(sweep: dict, at: str) -> dict | None:
@@ -821,13 +821,15 @@ def sweep_lines(counters: dict) -> list[str]:
         out.append(f"- {lib}: workspaces verified through `{sha}` (run {run})")
     blk = sweep.get("block")
     if blk:
-        repos = ", ".join((["every library repo"] if blk.get("all_libraries") else [])
+        repos = ", ".join((["every library, chain and workspace repo"]
+                           if blk.get("everything") else [])
                           + list(blk.get("repos") or [])) or "?"
         refused = [pr_ref(pr) for pr, co in (counters.get("closeouts") or {}).items()
                    if str(co.get("why") or "").startswith(SWEEP_RED_WHY)]
         draft = f"`{blk['draft']}`" if blk.get("draft") else "not filed yet"
-        out.append(f"- workspace sweep red: {blk.get('url')} — blocked: {repos}; PRs refused: "
-                   f"{', '.join(refused) or 'none'}; bug draft: {draft}")
+        tail = f"; bug draft: {draft}" if blk.get("kind") != "unknown" else ""
+        out.append(f"- {blk.get('why')} — blocked: {repos}; PRs refused: "
+                   f"{', '.join(refused) or 'none'}{tail}")
     cleared = sweep.get("cleared")
     if cleared:
         out.append(f"- red sweep {cleared.get('url')} cleared by /clear-sweep "

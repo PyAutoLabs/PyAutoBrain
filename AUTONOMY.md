@@ -575,19 +575,24 @@ Watcher latency (M3.7c, the human's plan decisions of 2026-11-19):
   Smoke workflow once at its close: after the last merge, before the digest.
   The dispatch has no inputs, so the workflow's own SHA gate decides whether
   to sweep; it is never forced. A shift with no such merge, or a shadow
-  shift, dispatches nothing. A failed dispatch is not retried: the digest
-  says "sweep not dispatched", and the human runs it from chat. The sweep
+  shift, dispatches nothing. A close-out that merges after the close, in
+  the late window, makes the shift's one dispatch if none was made. A
+  failed dispatch is not retried: the digest says "sweep not dispatched",
+  and the human runs it from chat. The sweep
   takes about 30 minutes. The digest is not held for it: it says "sweep
   running" or "not yet listed", and the next shift's ticks read the result.
   Each tick of a shift reads the workflow's latest runs on `main`. The
   digest names, per library, the SHA the latest green sweep verified.
 - **Red handling** (M3.7e). When the latest completed sweep on `main` is red
-  (failure, cancelled or timed out), no unattended close-out starts on a
+  (failure or timed out), no unattended close-out starts on a
   repo in a failing workspace's install chain (Heart `config/repos.yaml`
   `smoke:`) or on that workspace's own repo. The PR is refused for `/prm`
   as `workspace sweep red: <run url>`. PRs on other repos still close out.
-  A failing workspace the watcher cannot map, or a report it cannot read,
-  blocks every library repo. A close-out already running on a blocked repo
+  A cancelled run is no verdict: the run before it on `main` counts. A
+  failing workspace the watcher cannot map, or a report it cannot read,
+  blocks every library, chain and workspace repo. So does a run list
+  unreadable for 30 minutes, or never read: the PR is refused as
+  `workspace sweep unknown: run list unreadable since <time> → /prm`. A close-out already running on a blocked repo
   finds a `.sweep-red` marker and refuses before it merges. The block holds
   in this shift and the next, until a later sweep on `main` is green or the
   human posts `/clear-sweep` on the shift issue. `/clear-sweep` clears the
@@ -1313,7 +1318,8 @@ kick file that starts a tick early is local and adds no network act.
 2026-11-19", S4 and red handling) the watcher's surface gains:
 
 - **one `gh workflow run`** of the Workspace Smoke workflow per shift, at
-  its close, with no inputs. Its marker is claimed exclusively before the
+  its close (or in the late window, when a close-out merged after the close
+  and none was made), with no inputs. Its marker is claimed exclusively before the
   call, and a failed dispatch is never retried. This is the one watcher
   write not made under the App token: it runs under the human's own `gh`
   login (decision b);

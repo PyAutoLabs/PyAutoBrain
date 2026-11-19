@@ -88,6 +88,10 @@ def _no_real_github(monkeypatch):
 
         monkeypatch.setattr(sweep, "run_gh", lambda argv, timeout=120:
                             subprocess.CompletedProcess(argv, 1, "", "offline (tests)"))
+        # Off unless a test configures it: an unreadable run list fails
+        # closed (it blocks every close-out), so offline it must not be on.
+        if orch is not None:
+            monkeypatch.setattr(orch, "_sweep_cfg", lambda: {})
     if digest is not None:
         real_health = digest.pr_health
         monkeypatch.setattr(digest, "pr_health", lambda url, run=None:

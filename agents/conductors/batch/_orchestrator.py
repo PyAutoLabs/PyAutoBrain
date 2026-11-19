@@ -3311,65 +3311,103 @@ def _is_library(repo: str) -> bool:
     return _repo_key(repo) in LIBRARY_REPOS if repo else False
 
 
-def _is_flow_repo(repo: str) -> bool:
-    """A library or workspace repo: a merge there is one the sweep covers."""
+def _flow_keys(hmap: dict | None = None) -> set[str]:
+    """Every repo a merge could break, as canonical keys: the library and
+    workspace repos, plus every repo in Heart's install chains and workspace
+    map (the Nerves package is in every chain)."""
     from _sizing import LIBRARY_REPOS, WORKSPACE_REPOS  # noqa: E402
-    return _repo_key(repo) in (LIBRARY_REPOS | WORKSPACE_REPOS) if repo else False
+    hmap = _sweep.heart_map() if hmap is None else hmap
+    names = set(LIBRARY_REPOS) | set(WORKSPACE_REPOS)
+    for chain in (hmap.get("chains") or {}).values():
+        names |= set(chain)
+    names |= set((hmap.get("dirs") or {}).values()) | set((hmap.get("projects") or {}).values())
+    return {_repo_key(n) for n in names if n}
+
+
+def _chain_library(hmap: dict):
+    """A library repo, or one in any of Heart's install chains: what the
+    verified-through line and the bug draft's target name."""
+    chained = {_repo_key(r) for chain in (hmap.get("chains") or {}).values() for r in chain}
+    return lambda repo: _is_library(repo) or _repo_key(repo) in chained
+
+
+def _is_flow_repo(repo: str, hmap: dict | None = None) -> bool:
+    """A repo the sweep covers: a merge there makes the shift dispatch it."""
+    return bool(repo) and _repo_key(repo) in _flow_keys(hmap)
 
 
 def _sweep_blocks(blk: dict | None, pr: str) -> bool:
-    """Whether the red sweep `blk` blocks an unattended merge of `pr`."""
-    return _sweep.blocks(blk, pr_repos(pr), _repo_key, _is_library)
+    """Whether the sweep block `blk` blocks an unattended merge of `pr`."""
+    return _sweep.blocks(blk, pr_repos(pr), _repo_key)
 
 
-def _sweep_dispatch(slot: Path, counters: dict, now: _dt.datetime,
-                    start: _dt.datetime | None = None) -> None:
-    """The one `gh workflow run` of the sweep at shift close (S4), under the
-    human's own `gh` login (decision b): only when GitHub confirmed at least
-    one library or workspace PR merged this shift (`counters["github"]`,
-    read just before). `sweep.dispatched` is claimed exclusively first, so a
-    retried close never dispatches twice; a failed dispatch is recorded for
-    the digest and never retried."""
-    cfg = _sweep_cfg()
-    if not cfg:
-        return
-    merged = []
+def _shift_merges(counters: dict, start: _dt.datetime | None) -> list[str]:
+    """The shift's GitHub-confirmed merges: in the window at `review-at:` (or
+    the early close), and every close-out GitHub showed MERGED — a late one
+    reaped after the close included. A carried PR merged before the shift
+    began does not count."""
+    out = []
     for url, gh in (counters.get("github") or {}).items():
-        if not (isinstance(gh, dict) and gh.get("in_window")) or not _is_flow_repo(pr_repos(url)):
+        if not (isinstance(gh, dict) and gh.get("in_window")):
             continue
         at = _iso_or_none(gh.get("mergedAt") or "")
         if start is not None and at is not None and at < start:
-            continue          # a carried PR merged before this shift began
-        merged.append(url)
+            continue
+        out.append(url)
+    out += [pr for pr, co in (counters.get("closeouts") or {}).items()
+            if co.get("state") == "merged" and pr not in out]
+    return out
+
+
+def _sweep_dispatch(slot: Path, counters: dict, now: _dt.datetime,
+                    start: _dt.datetime | None = None) -> bool:
+    """The one `gh workflow run` of the sweep per shift (S4), under the
+    human's own `gh` login (decision b): at the close, or from the late sweep
+    when a close-out merged after it — only when GitHub confirmed at least
+    one merge on a repo the sweep covers. `sweep.dispatched` is claimed
+    exclusively first, so a shift never dispatches twice; a failed dispatch
+    is recorded for the digest and never retried. True when this call
+    dispatched (or tried to)."""
+    cfg = _sweep_cfg()
+    if not cfg or (slot / _sweep.DISPATCH_MARKER).exists():
+        return False
+    hmap = _sweep.heart_map()
+    merged = [u for u in _shift_merges(counters, start) if _is_flow_repo(pr_repos(u), hmap)]
     if not merged:
-        return
+        return False
     if not _create_exclusive(slot / _sweep.DISPATCH_MARKER, {"at": _iso(now), "prs": merged}):
-        return
+        return False
     try:
         res = _sweep.dispatch(cfg)
     except Exception as e:  # noqa: BLE001 — a failed dispatch is the digest's line
         res = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
     counters["sweep_dispatch"] = {"at": _iso(now), "prs": merged, **res}
+    return True
 
 
 def _sweep_tick(slot: Path, counters: dict, now: _dt.datetime) -> None:
     """The sweep this tick: the one run-list read (skipped when this tick has
-    made it), the red block, the red run's one bug draft (queued for the one
-    Mind writer) and the snapshot the close-outs and the digest read
-    (`counters["sweep"]`). A failure keeps the last known block."""
+    made it), the block (an unreadable run list, or the latest red run not
+    cleared), the latest red run's one bug draft — cleared or not — queued
+    for the one Mind writer, and the snapshot the close-outs and the digest
+    read (`counters["sweep"]`). A failure keeps the last known block."""
     cfg = _sweep_cfg()
     if not cfg:
         return
     home = slot.parent
     try:
         state = _sweep.observe(home, cfg, now)
-        # Heart's maps are read (locally) only when a red run needs them.
-        hmap = _sweep.heart_map() if _sweep.red_run(home, state) else {}
-        blk = _sweep.block(home, cfg, hmap, _repo_key, state)
-        if blk:
-            _sweep.file_draft(home, cfg, hmap, blk, slot / _mind_writer.LEDGER_DIR, now,
-                              _repo_key, _is_library, _mind_writer.queue_op)
-        counters["sweep"] = _sweep.snapshot(home, cfg, state, blk, _repo_key, _is_library)
+        hmap = _sweep.heart_map()        # local reads of the Heart checkout
+        everything = _flow_keys(hmap)
+        blk = _sweep.block(home, cfg, hmap, _repo_key, state, now, everything)
+        chain_lib = _chain_library(hmap)
+        red = _sweep.latest_red(state)
+        if red:
+            _sweep.file_draft(home, cfg, hmap,
+                              _sweep.block_for(home, cfg, hmap, _repo_key, red, everything),
+                              slot / _mind_writer.LEDGER_DIR, now, _repo_key, chain_lib,
+                              _mind_writer.queue_op)
+        counters["sweep"] = _sweep.snapshot(home, cfg, state, blk, _repo_key, chain_lib)
     except Exception as e:  # noqa: BLE001 — never the tick's failure
         counters["sweep"] = {**(counters.get("sweep") or {}),
                              "error": f"{type(e).__name__}: {e}"[:200]}
@@ -3393,17 +3431,26 @@ def _sweep_red_markers(slot: Path, counters: dict) -> None:
     (closeout_template.md step 7). Once the block is gone (a green run,
     `/clear-sweep`) the markers are removed."""
     blk = (counters.get("sweep") or {}).get("block")
-    if not blk:
-        for marker in (slot / "leases").glob(f"*{_sweep.SWEEP_RED_SUFFIX}"):
+    tasks: dict[str, list[str]] = {}
+    for pr, co in (counters.get("closeouts") or {}).items():
+        if co.get("task"):
+            tasks.setdefault(co["task"], []).append(pr)
+    # A marker the current block does not cover goes: no block at all, or a
+    # newer block on other repos (review round 1).
+    for marker in (slot / "leases").glob(f"*{_sweep.SWEEP_RED_SUFFIX}"):
+        task = marker.name[:-len(_sweep.SWEEP_RED_SUFFIX)]
+        if not blk or not any(_sweep_blocks(blk, pr) for pr in tasks.get(task, [])):
             marker.unlink(missing_ok=True)
+    if not blk:
         return
+    text = (blk.get("url") or blk.get("why") or "?") + "\n"
     for pr, co in (counters.get("closeouts") or {}).items():
         if co.get("state") != "running" or not co.get("task") or not _sweep_blocks(blk, pr):
             continue
         marker = slot / "leases" / f"{co['task']}{_sweep.SWEEP_RED_SUFFIX}"
-        if not marker.exists():
+        if not marker.exists() or marker.read_text(encoding="utf-8") != text:
             marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.write_text(blk["url"] + "\n", encoding="utf-8")
+            marker.write_text(text, encoding="utf-8")
 
 
 def _cmd_clear_sweep(slot: Path, counters: dict, arg: str, who: str, at: str,
@@ -3719,6 +3766,14 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                 if co["state"] == "merged" else f"close-out on {pr} ended: {co.get('why', '?')}")
         lines.append(f"- late: {co['task']} — {what} (after review-at, {_iso(now)})")
         counters["late"].append(co["task"])
+    # A close-out that merged after the close, with no sweep dispatched yet:
+    # the shift's one dispatch is made here (M3.7e review round 1).
+    if not _brief.is_shadow(brief) and _sweep_dispatch(
+            slot, counters, now, _brief._iso((top.get("dispatched") or {}).get("value", ""))):
+        disp = counters.get("sweep_dispatch") or {}
+        what = ("workspace sweep dispatched" if disp.get("ok") else
+                f"workspace sweep not dispatched ({disp.get('error') or '?'}) — run it from chat")
+        lines.append(f"- late: {what} (after review-at, {_iso(now)})")
     # A Mind op set aside, in conflict or held after the digest was built
     # reaches the human here: a late line, the record and the correction.
     for e in ledger_unreported(slot):
