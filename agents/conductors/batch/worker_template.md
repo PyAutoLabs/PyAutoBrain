@@ -74,12 +74,13 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
 
   It runs the curated scripts that reference your change, or one cheap
   import-check script when none do. Say in the PR body which smoke ran (the
-  scripts it picked, or the import check) and that the full affected smoke
-  runs in the close-out before an unattended merge. A failure is yours to fix like a test.
+  scripts it picked, or the import check). It is the only smoke before an
+  unattended merge; the full sweep runs in the cloud after the merge
+  (AUTONOMY.md "Shift speed", ruling S2). A failure is yours to fix like a test.
 - If the task is `Consequence: glance` or `notify`, end at PR-open: do not
-  wait for CI and do not merge. Once CI lands, the watcher starts an
-  independent close-out session that runs the witness and the full affected
-  smoke and merges, or refuses (AUTONOMY.md "Unattended `glance` merges";
+  wait for CI and do not merge. The watcher then starts an
+  independent close-out session that runs the witness, waits for CI and
+  merges on green, or refuses (AUTONOMY.md "Unattended `glance` merges";
   `notify` workers stopped merging in-turn on 2026-11-19, the human's ruling
   "ii", PyAutoHeart#352). Never run `merge-slot take` or `gh pr merge`
   yourself.

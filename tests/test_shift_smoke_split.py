@@ -1,9 +1,8 @@
 """The shift's smoke split (AUTONOMY.md leg 2, 2026-11-19, PyAutoHeart#352).
 
-A shift worker runs a targeted smoke only; the full affected smoke, three
-workspaces at a time, runs in the close-out before an unattended merge, and
-not at all for a PR bound for the human's /prm (the close-out refuses those
-before it reaches the smoke step).
+A shift worker runs a targeted smoke only. Until ruling S2 (2026-11-19,
+M3.7b) the full affected smoke ran in the close-out before an unattended
+merge; it now runs nowhere before a merge, and the cloud sweep runs after.
 """
 
 from __future__ import annotations
@@ -68,23 +67,21 @@ def test_autonomy_records_the_notify_ruling():
     assert "Shift workers no\nlonger merge in-turn" in agents
 
 
-def test_the_closeout_runs_the_affected_parallel_smoke_before_the_merge():
+def test_the_closeout_runs_no_full_smoke_since_s2():
+    """Ruling S2 (2026-11-19, M3.7b): the close-out no longer runs the full
+    affected smoke; the worker's targeted smoke is the pre-merge smoke and
+    the full sweep runs in the cloud after the merge. The witness step now
+    brings the task root to the PR head instead."""
     text = _closeout()
-    smoke = _step(text, 5)
-    assert "--affected-by WidgetLib --jobs 3" in smoke
-    assert "resolve_heart" in smoke and '--root "$PWD"' in smoke
-    assert "headRefOid" in smoke and "--ff-only" in smoke
-    assert "smoke FAILED" in smoke and "/prm" in smoke
-    # The smoke comes after the refusal steps (tier, decision-taken, Heart, CI),
-    # so a PR bound for the human's /prm never reaches a full sweep...
-    assert text.index("decision-taken") < text.index("full affected smoke")
-    # ...and before the merge itself.
-    assert text.index("full affected smoke") < text.index("use the prm skill")
-    assert "/smoke …" in text  # the verdict's gate field names it
+    assert "--affected-by" not in text and "smoke FAILED" not in text
+    witness = _step(text, 1)
+    assert "headRefOid" in witness and "--ff-only" in witness
+    assert "no full affected smoke here (ruling S2)" in text
+    assert "/smoke" not in text.split("Last, write", 1)[1]  # the verdict's gate field
+    assert not hasattr(orch, "smoke_command") and not hasattr(orch, "CLOSEOUT_SMOKE_JOBS")
 
 
-def test_the_closeout_smoke_cannot_be_scoped_without_a_pr_repo():
-    assert orch.smoke_command("") == ""
+def test_the_closeout_ci_wait_cannot_be_scoped_without_a_pr_repo():
     assert "not a GitHub PR URL — refuse" in _step(_closeout("not-a-pr"), 5)
 
 

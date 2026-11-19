@@ -11,10 +11,22 @@ it out on the same terms): you did not write this PR, and you trust nothing its 
 Merge only if every check below passes; otherwise refuse. A refusal is a good
 outcome — the human merges by `/prm` at check-in.
 
+You may have started while the PR's CI is still running (AUTONOMY.md "Shift
+speed — 2026-11-19", ruling S5). Do steps 1 to 4 first, then wait for CI in
+step 5. There is no full affected smoke here (ruling S2): the worker ran the
+targeted smoke, and the full sweep runs in the cloud after the merge.
+
 1. Read the task's `Witness:` header and **run it yourself** against the PR's
-   head. Record what decided it. A `notify` task that declares no `Witness:`
-   is refused, with why `notify with no Witness: → human /prm` (ruling R3:
-   the close-out session runs the witness).
+   head. Use the task root the worker shipped from (the folder holding
+   `.pyauto-root` and its `{pr_repos}` worktree on the PR's branch, the one
+   you clean up in step 9): bring that worktree to the PR's head with `git
+   fetch origin <branch>` and `git merge --ff-only FETCH_HEAD`, and record
+   `gh pr view {pr_url} --json headRefOid`; `git rev-parse HEAD` must equal
+   it. No task root, a dirty tree, or a head that will not match: refuse with
+   why `cannot run the witness on the PR head → /prm`. Record what decided the
+   witness. A `notify` task that declares no `Witness:` is refused, with why
+   `notify with no Witness: → human /prm` (ruling R3: the close-out session
+   runs the witness).
 2. Review the diff adversarially: look for a changed default, a user-visible
    error message, a removed or weakened test, a renamed public thing, or a
    wrong docs claim. Any one of them → refuse. Added or renamed public
@@ -27,52 +39,63 @@ outcome — the human merges by `/prm` at check-in.
    Exit 0 passes (a repo the ruling does not cover prints CLEAN). Exit 1 (a
    public name added or renamed) or 2 (it cannot tell) refuses, with its first
    output line as the `why`: `public name added/renamed: <names> → human /prm`.
-3. Refuse if the PR carries the `decision-taken` label, if its tier is not
-   `glance` or `notify`, or unless Heart's **scoped development-ship verdict** for the
-   PR's repo ({pr_repos}) is `green` (AUTONOMY.md leg 4, PyAutoHeart#340):
+3. Refuse if the PR carries the `decision-taken` label, or if its tier is not
+   `glance` or `notify`.
+4. Refuse unless Heart's **scoped development-ship verdict** for the PR's
+   repo ({pr_repos}) is `green` (AUTONOMY.md leg 4, PyAutoHeart#340):
 
        {heart_cmd}
 
    It prints `green`, `red`, `stale` or `unknown`. Only `green` passes: `stale`
    never does, and `unknown` (a reply that is not Heart's dev-ship gate, or no
    Heart here) parks — refuse with the word it printed. A repo Heart does not
-   gate reads `green` with a "gate-deferred" note: its PR checks (step 4)
+   gate reads `green` with a "gate-deferred" note: its PR checks (step 5)
    decide (PyAutoHeart#343).
-4. Judge the PR's CI with the one CI-verdict script (PyAutoBrain#628), for
-   every repo — never by reading `gh pr checks` yourself:
+{after_step}5. Wait for CI in your turn, then judge it with the one CI-verdict script
+   (PyAutoBrain#628), for every repo — never by reading `gh pr checks`
+   yourself. The deadline is {ci_until}:
 
        {ci_verdict_cmd}
 
    It reads every check-run, workflow run and job on the REST head sha, and
    mergeability, and prints `GREEN`, `PENDING` or `RED` with reasons (exit 0,
-   2, 1). Only `GREEN` passes. `PENDING` or `RED` refuses with its first
-   reason line (`CI PENDING: …` / `CI RED: …`): no waiting, no re-run. A
-   `GREEN` that names a skipped **test** leg refuses too (a tiered merge
-   stops on a skipped test leg, `skills/prm/reference.md` "Tiered merge").
-{after_step}5. Run the full affected smoke on the PR's head (AUTONOMY.md leg 2, split
-   2026-11-19, PyAutoHeart#352). The worker ran only a targeted smoke; this
-   is the sweep, and it runs only here, before an unattended merge. Use the
-   task root the worker shipped from (the folder holding `.pyauto-root` and
-   its `{pr_repos}` worktree on the PR's branch, the one you clean up in
-   step 8): bring that worktree to the PR's head with `git fetch origin
-   <branch>` and `git merge --ff-only FETCH_HEAD`, and check `git rev-parse
-   HEAD` equals `gh pr view {pr_url} --json headRefOid`. No task root, a
-   dirty tree, or a head that will not match: refuse with why
-   `cannot smoke the PR head locally → /prm`. Then, from the task root with
-   its `activate.sh` sourced:
-
-       {smoke_cmd}
-
-   It runs every workspace whose install chain has the repo, three at a
-   time, and prints a per-workspace summary. Exit 0 passes ("nothing to run"
-   for a repo no workspace installs passes too). Any other exit refuses with
-   why `smoke FAILED: <the failing workspaces> → /prm`: no re-run, no fix.
-6. Immediately before you merge — after every check above, and again right
+   2, 1). While CI is pending it re-judges every 30 s for up to 9 minutes,
+   then exits 2. Run it with a Bash timeout of 600000 ms (the default 120 s
+   would kill it), and again, as a bare call, while it exits 2 and the
+   deadline has not passed. `PENDING` at the deadline refuses with why
+   `CI not finished by {ci_until} → /prm`. `RED` refuses with its first
+   reason line (`CI RED: …`): no re-run. Only `GREEN` passes. A `GREEN` that
+   names a skipped **test** leg refuses too (a tiered merge stops on a
+   skipped test leg, `skills/prm/reference.md` "Tiered merge").
+6. Read `gh pr view {pr_url} --json headRefOid` again. If it is not the head
+   you recorded in step 1, refuse with why
+   `head moved after the witness → /prm`.
+7. Immediately before you merge — after every check above, and again right
    before the merge command itself — look for {lease_dir}/{task}.dropped. If
    it exists, the human dropped this task with `/drop` mid-shift: do not merge;
    refuse with why `dropped by /drop`.
-7. If everything passed, use the prm skill on {pr_url}: the full close-out,
-   judged exactly as a human-typed `/prm`. Never commit to PyAutoMind yourself
+8. Take the merge slot yourself, as a bare call, immediately before the merge
+   (AUTONOMY.md "Shift speed", decision A of M3.7b):
+
+       pyauto-brain merge-slot take {pr_url} --task {task}
+
+   Go on only when it exits 0 **and** its first line starts with `taken: `
+   — `taken: merge slot <n> of merge-cap <cap> taken for <pr>` or
+   `taken: <pr> already holds a merge slot for task {task} (taken by …)`.
+   Anything else refuses with why
+   `merge slot not taken: <first line> → /prm`: a `refused: …` line
+   (`merge-cap … reached`, the shift is paused, or an earlier PR on this
+   library is still open), a `cannot tell: …` line, and also exit 0 with
+   `not in a shift …` (your shift environment is missing, so the merge would
+   not be counted). Then use the prm skill on {pr_url}: the full close-out,
+   judged exactly as a human-typed `/prm`. Its own merge slot take
+   (reference.md "Tiered merge") succeeds again for this PR and task. Pin
+   its merge call to the head you witnessed:
+   `gh pr merge {pr_url} --merge --match-head-commit <the step-1 headRefOid>`,
+   still one bare call, so a push after step 6 cannot merge an unwitnessed
+   head (GitHub refuses the merge; refuse with why
+   `head moved after the witness → /prm`).
+   Never commit to PyAutoMind yourself
    — a hook refuses it; queue each Mind change with
    `{shift_ledger} --task {task} append|write|edit|move|remove|drop-section ...`
    (ops land in {ledger_dir}/) and the orchestrator commits them. `write`
@@ -89,23 +112,21 @@ outcome — the human merges by `/prm` at check-in.
 
    Do **not** append the Shadow-window row: the watcher writes the stage-2
    row from your verdict for a `glance` PR, and none for a `notify` one.
-   The `/prm` merge slot take (reference.md "Tiered merge") is
-   `pyauto-brain merge-slot take {pr_url} --task {task}`; it succeeds for
-   this PR and task: the watcher took its slot before starting you.
-8. After a merge, remove the task's worktree and local branch as `/prm` does
+9. After a merge, remove the task's worktree and local branch as `/prm` does
    (`skills/prm/closeout.md` steps 5–6): `worktree_remove <slug>` once your
    `drop-section active.md <slug>` is queued — the stale-claim guard counts a
    claim release queued in {ledger_dir}/ — then `git -C <repo> branch -d
    feature/<slug>` for a local branch left in a canonical checkout. Never
    `PYAUTO_WT_FORCE=1`, never `rm -rf`: a dirty tree or any other refusal
    stays, and you say why in the verdict's `cleanup` field.
-9. End at your deliverable. Never arm anything that outlives your turn.
+10. End at your deliverable. Never arm anything that outlives your turn: the
+    CI wait of step 5 is in your turn, never a schedule.
 
 Last, write {lease_dir}/{task}.closeout as one JSON object:
 
     {{"result": "merged" | "refused", "pr": "{pr_url}",
       "why": "<one line — required when refused>",
-      "gate": "tests …/witness …/review …/heart …/smoke …",
+      "gate": "witness …/review …/heart …/ci …",
       "model": "<your model id>",
       "cleanup": "<after a merge: `worktree and branch removed`, or why not>"}}
 

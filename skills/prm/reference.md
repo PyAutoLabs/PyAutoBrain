@@ -162,8 +162,8 @@ differences:
   (no slot left under `merge-cap:`, the shift is paused, or the slot is
   another task's) or 2 (it cannot tell) → do not merge: report its line and
   stop, leaving the PR for `/prm`. Never wrap the merge in it. A close-out
-  session's take for its own PR and task succeeds: the watcher took that
-  slot.
+  session takes its own slot as a bare call just before it starts this skill
+  (M3.7b, decision A), so the take for the same PR and task succeeds again.
   If the take succeeded and the merge call then fails, run
   `pyauto-brain merge-slot release <pr-url> --task <slug> --why "merge failed"` so the
   slot returns to the shift, then stop as above.

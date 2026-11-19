@@ -136,19 +136,22 @@ def test_take_is_atomic_across_processes(tmp_path):
 
 
 def test_watcher_closeout_and_worker_share_slots(tmp_path):
-    # A `glance` shift with merge-cap 1: the watcher starts a close-out on PR1,
-    # which takes the one slot; a worker's in-turn take of PR2 is refused.
+    # A `glance` shift with merge-cap 1: the watcher starts a close-out on PR1
+    # without taking a slot (M3.7b, decision A); the session takes the one
+    # slot itself just before its merge, and a second take of PR2 is refused.
     mind, brief, home, sp = tc._shift(tmp_path, cap=1)
     slot = orch.slot_dir(brief, home)
     r = tc._tick(brief, mind, home, sp, 1)
     assert r["closeouts"]["started"] == [PR1], r["closeouts"]
-    assert _slot_cli(slot, "take", PR2, "--task", "picked").returncode == 1
-    # The close-out session's own /prm take for its PR is the watcher's slot.
+    assert "0 of merge-cap 1" in _slot_cli(slot, "status").stdout   # the watcher took none
     assert _slot_cli(slot, "take", PR1, "--task", "named").returncode == 0
-    # A worker cannot free the watcher's slot.
-    _slot_cli(slot, "release", PR1, "--task", "named")
+    assert _slot_cli(slot, "take", PR1, "--task", "named").returncode == 0   # idempotent
     assert _slot_cli(slot, "take", PR2, "--task", "picked").returncode == 1
-    # The close-out refuses: the watcher frees its slot, and the worker gets it.
+    # Another task's release cannot free the close-out session's slot.
+    assert _slot_cli(slot, "release", PR1, "--task", "picked").returncode == 1
+    assert _slot_cli(slot, "take", PR2, "--task", "picked").returncode == 1
+    # The close-out refuses: the watcher frees the slot its session took, and
+    # PR2's take gets it.
     tc._verdict(home, brief, "named", result="refused", pr=PR1, why="witness failed")
     tc._tick(brief, mind, home, sp, 2)
     assert orch.read_counters(slot)["closeouts"][PR1]["state"] == "refused"

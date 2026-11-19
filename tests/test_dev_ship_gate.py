@@ -181,7 +181,8 @@ def _closeout_heart_cmd(pr_url, tmp_path):
     import _orchestrator  # noqa: PLC0415
     text = _orchestrator.closeout_prompt("t", pr_url, "draft/x/t.md",
                                          tmp_path / "brief.md", tmp_path / "leases")
-    step = text.split("\n3. ", 1)[1].split("\n4. ", 1)[0]
+    # Heart is step 4 since M3.7b split label/tier (3) from Heart (4).
+    step = text.split("\n4. ", 1)[1].split("\n5. ", 1)[0]
     cmd = next((l.strip() for l in step.splitlines() if l.strip().startswith("bash -c")), "")
     return step, cmd
 

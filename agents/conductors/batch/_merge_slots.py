@@ -4,8 +4,10 @@ Inside a shift every merge counts against the brief's `merge-cap:`: a worker's
 in-turn `notify` merge and the watcher's close-outs alike. Shift 2026-11-16-pm
 read "2 merged of merge-cap 1" because the workers never asked. A worker runs
 `pyauto-brain merge-slot take <pr>` (`bin/merge_slot.py`) as its own bare call
-before its bare `gh pr merge`; the watcher takes a slot just before it spawns a
-close-out. Both write the same file.
+before its bare `gh pr merge`; so does a merge close-out session, immediately
+before its merge (M3.7b, PyAutoBrain#688, decision A). The watcher takes a slot
+only before it spawns a branch-update session; before a merge close-out it only
+reads whether one is free (`room`). All write the same file.
 
 The file is `merge_slots.json` in the shift's slot directory, read and written
 under an exclusive `fcntl.flock` on `merge_slots.lock` beside it, and written
@@ -36,6 +38,9 @@ SLOTS_FILE = "merge_slots.json"
 LOCK_FILE = "merge_slots.lock"
 #: Who the watcher is, as a slot holder.
 WATCHER = "watcher"
+#: Who every worker and close-out session is, as a slot holder (one class:
+#: `bin/merge_slot.py` takes as this).
+SESSION = "worker"
 
 
 #: A GitHub PR URL, with anything after the number (`/files`, `/`, `#…`, `?…`).
@@ -120,6 +125,27 @@ def publish(slot: Path, cap: int, paused: bool) -> None:
             data["published"] = _now()
 
 
+def _judge(data: dict, key: str, task: str, pending: int = 0) -> tuple[bool | None, str]:
+    """(True, why) when `key` already holds a slot for `task`; (None, "") when
+    a slot is free for it; (False, why) when it is refused. `pending` counts
+    slots promised but not yet taken (`room`)."""
+    held = data["slots"].get(key)
+    cap, used = data.get("cap"), len(data["slots"])
+    if held and task and held.get("task") == task:
+        return True, (f"{key} already holds a merge slot for task {task} "
+                      f"(taken by {held.get('by', '?')})")
+    if held:
+        return False, (f"{key} holds a merge slot for task {held.get('task') or '?'}, "
+                       f"not {task or '(no task)'} — left for your /prm")
+    if cap is None:
+        return False, "no merge-cap published by the watcher — left for your /prm"
+    if data.get("paused"):
+        return False, "the shift is paused — left for your /prm"
+    if used + pending >= int(cap):
+        return False, f"merge-cap {cap} reached this shift — left for your /prm"
+    return None, ""
+
+
 def take(slot: Path, pr: str, by: str, task: str = "") -> tuple[bool, str]:
     """(taken, why). Idempotent per PR and task; every refusal is recorded."""
     key = pr_key(pr)
@@ -127,25 +153,29 @@ def take(slot: Path, pr: str, by: str, task: str = "") -> tuple[bool, str]:
         return False, (f"{pr!r} is not a https://github.com/<owner>/<repo>/pull/<n> URL "
                        "— left for your /prm")
     with _locked(slot) as data:
-        held = data["slots"].get(key)
-        cap, used = data.get("cap"), len(data["slots"])
-        if held and task and held.get("task") == task:
-            return True, (f"{key} already holds a merge slot for task {task} "
-                          f"(taken by {held.get('by', '?')})")
-        if held:
-            why = (f"{key} holds a merge slot for task {held.get('task') or '?'}, "
-                   f"not {task or '(no task)'} — left for your /prm")
-        elif cap is None:
-            why = "no merge-cap published by the watcher — left for your /prm"
-        elif data.get("paused"):
-            why = "the shift is paused — left for your /prm"
-        elif used >= int(cap):
-            why = f"merge-cap {cap} reached this shift — left for your /prm"
-        else:
+        ok, why = _judge(data, key, task)
+        if ok:
+            return True, why
+        if ok is None:
+            used, cap = len(data["slots"]), data.get("cap")
             data["slots"][key] = {"by": by, "task": task, "at": _now()}
             return True, f"merge slot {used + 1} of merge-cap {cap} taken for {key}"
         data["refusals"].append({"pr": key, "by": by, "task": task, "why": why, "at": _now()})
         return False, why
+
+
+def room(slot: Path, pr: str, task: str, pending: int = 0) -> tuple[bool, str]:
+    """(free, why) — whether `take(pr, task)` would succeed now, read only:
+    nothing is taken and no refusal recorded (M3.7b, decision A: the watcher
+    reads this before a merge close-out; the session takes its slot itself,
+    immediately before the merge). `pending` is the slots already promised to
+    close-outs still running without one, so the cap is never oversold."""
+    key = pr_key(pr)
+    if key is None:
+        return False, (f"{pr!r} is not a https://github.com/<owner>/<repo>/pull/<n> URL "
+                       "— left for your /prm")
+    ok, why = _judge(state(slot), key, task, pending)
+    return ok is not False, why
 
 
 def release(slot: Path, pr: str, by: str, why: str = "", *, task: str | None = None) -> bool:

@@ -10,7 +10,9 @@
 repo's PR of the same number and exits 2. `--task` (or `PYAUTO_SHIFT_TASK`) is
 required for a take in a shift: a held slot answers yes again only to the same
 task — the worker that took it, or the close-out session of the task the
-watcher took it for.
+watcher took it for (before a branch update). A merge close-out session takes
+its own slot here as a bare call immediately before its merge (M3.7b,
+PyAutoBrain#688, decision A).
 
 WHY. AUTONOMY.md "`notify` merges under `--auto` and inside a shift —
 2026-11-17" (ruling R3): inside a shift every merge counts against the brief's
@@ -59,8 +61,10 @@ def _order_blockers(slot: Path, pr: str) -> list[str]:
     return _orchestrator.in_turn_merge_blockers(slot, pr)
 
 #: Every worker and close-out session takes as one holder class; the watcher
-#: takes as `_merge_slots.WATCHER`, so no session can free a close-out's slot.
-WORKER = "worker"
+#: takes as `_merge_slots.WATCHER` (before a branch-update session), so no
+#: session can free a slot the watcher holds. A merge close-out takes its own
+#: slot here, immediately before its merge (M3.7b, decision A).
+WORKER = _merge_slots.SESSION
 
 
 def _slot() -> Path | None:

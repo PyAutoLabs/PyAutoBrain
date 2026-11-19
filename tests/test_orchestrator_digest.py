@@ -102,7 +102,7 @@ class FilesSpawner:
         (Path(lease_dir) / f"{task}.done").write_text(self.done.get(task, ""))
         return {"pid": 0, "session_id": None, "worktree": None}
 
-    def spawn_closeout(self, task, pr_url, prompt_path, lease_dir):
+    def spawn_closeout(self, task, pr_url, prompt_path, lease_dir, **_kw):
         # Phase 4b: a green glance PR gets a close-out; this one never reports.
         return {"pid": 0, "agent_id": "c0ffee00"}
 
