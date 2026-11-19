@@ -511,10 +511,12 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     pool.sort(key=lambda r: (r["queue_rank"], priority_rank(r),
                              r["review_minutes"], r["path"]))
 
-    # `released` (PyAutoBrain#679): the watcher's own picks whose PRs have all
-    # merged, or that ended with no PR and no open question. They stay members
-    # (known, counted, never re-dispatched) but hold no library: a merged PR
-    # collides with nothing, so the next task on that library may start.
+    # `released` (M3.6j, PyAutoBrain#683; first #679): the watcher's own
+    # picks whose worker has ended (PR open or not) and that wait on no
+    # question, re-dispatch or restart. They stay members (known, counted,
+    # never re-dispatched) but hold no library: merges collide, starts do
+    # not, and the close-out merges a library's shift PRs in PR order (the
+    # merge-order wait), so the next task on that library may start.
     released = released or set()
     members, spent, seen_epics, libs = [], 0, set(), {}
     for r in pool:
@@ -529,14 +531,16 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         # invalidates the others' test and smoke evidence. Only LIBRARY repos
         # claim a shift: they are what the library-first gate serialises and
         # what downstream suites are re-run against. Workspace, docs and organ
-        # repos are exempt — two docs changes in one shift cost nothing.
+        # repos are exempt — two docs changes in one shift cost nothing. A
+        # library is held while its worker runs, so two workers never share
+        # one; its PRs then merge in PR order at the close-out (M3.6j).
         clash = next((x for x in r["repos"] if x in LIBRARY_REPOS and x in libs), None)
         if clash:
             holder = libs[clash]
-            rejected.append((r["path"], f"{clash} held by {holder} — will start after "
-                                        f"{holder}'s PR merges"
+            rejected.append((r["path"], f"{clash} held by {holder} — will start once "
+                                        f"{holder}'s worker ends"
                              if Path(r["path"]).name in named_names
-                             else f"{clash} held by {holder} until its PR merges"))
+                             else f"{clash} held by {holder} while its worker runs"))
             continue
         cost = 0 if r["consequence"] in CHEAP_TIERS else r["review_minutes"]
         if spent + cost > effective_budget:

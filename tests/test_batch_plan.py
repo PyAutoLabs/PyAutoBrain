@@ -60,11 +60,12 @@ def test_notify_tier_work_costs_the_human_nothing():
 
 def test_one_member_per_library_repo_per_shift():
     """They do not collide at dispatch — separate worktrees — they collide at
-    merge, when the first /prm moves main and invalidates the rest."""
+    merge, when the first /prm moves main and invalidates the rest. A library
+    is held only while its worker runs (M3.6j, #683); merges wait in order."""
     d = _batch.plan([rec("a.md", repos=["autoarray"]),
                      rec("b.md", repos=["autoarray"])], budget=100)
     assert paths(d) == ["a.md"]
-    assert "autoarray held by a until its PR merges" in why(d, "b.md")
+    assert "autoarray held by a while its worker runs" in why(d, "b.md")
 
 
 def test_a_released_member_holds_no_library():

@@ -49,7 +49,7 @@ UNREAD_TICKS = 3
 KINDS = ("shift-open", "spawned", "redispatched", "crashed", "pr-opened", "finished",
          "question", "parked", "ci", "closeout-started", "merged", "merged-outside",
          "refused", "cap", "steer", "steer-unread", "impaired", "late", "digest",
-         "stopped", "shift-end", "login-expired")
+         "stopped", "shift-end", "login-expired", "waiting")
 #: The kinds after which the stream has nothing more to follow.
 FINAL_KINDS = ("shift-end", "stopped")
 
@@ -342,11 +342,28 @@ def _closeouts(b: _Batch, result: dict, counters: dict, info: dict) -> None:
                   f"{cls.removesuffix(' this shift')}: later green PRs wait for /prm.",
                   cls=cls)
             continue
-        b.add("refused", f"refused:{pr}", f"Not merging {ref(pr)}: {cls}. Left for your /prm.",
+        # Merge order (M3.6j, #683): later PRs of the shift wait behind it.
+        later = sum(1 for w in (counters.get("merge_waits") or {}).values()
+                    if pr in (w.get("behind") or []))
+        tail = f"; {later} later PR(s) wait behind it" if later else ""
+        b.add("refused", f"refused:{pr}",
+              f"Not merging {ref(pr)}: {cls}. Left for your /prm{tail}.",
               task=co.get("task"), pr=pr, cls=cls)
+    for pr in events.get("waiting") or []:
+        w = (counters.get("merge_waits") or {}).get(pr) or {}
+        behind = w.get("behind") or []
+        b.add("waiting", f"waiting:{pr}:{','.join(behind)}",
+              f"{ref(pr)} waits behind {', '.join(map(ref, behind)) or '?'}: "
+              f"merge {ref(behind[0]) if behind else '?'} first.",
+              task=w.get("task"), pr=pr)
     for pr in events.get("started") or []:
         co = co_all.get(pr) or {}
-        b.add("closeout-started", f"closeout-started:{pr}", f"Close-out started on {ref(pr)}.",
+        if co.get("kind") == "update":
+            line = (f"Branch update started on {ref(pr)} (after "
+                    f"{', '.join(map(ref, co.get('after') or [])) or '?'} merged).")
+        else:
+            line = f"Close-out started on {ref(pr)}."
+        b.add("closeout-started", f"closeout-started:{pr}:{co.get('started', '')}", line,
               task=co.get("task"), pr=pr)
 
 

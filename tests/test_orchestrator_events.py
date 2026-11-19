@@ -162,7 +162,10 @@ def _every_kind_results():
                                                      "why": "CI FAILED — never merged unattended"},
                    "https://github.com/o/r/pull/4": {"task": "t7", "state": "refused",
                                                      "why": "merge-cap 2 reached this shift"}},
-        dropped={"t5": {"by": "h", "at": "x"}}, commands_unread="2026-11-04T09:00:00Z")
+        dropped={"t5": {"by": "h", "at": "x"}}, commands_unread="2026-11-04T09:00:00Z",
+        # M3.6j (#683): a later PR waits behind the refused r#3 in merge order.
+        merge_waits={"https://github.com/o/r/pull/5": {
+            "task": "t1", "behind": ["https://github.com/o/r/pull/3"]}})
     return [
         (0, {"action": "ticked", "spawned": [{"task": "t1"}, {"task": "t2"}, {"task": "t3"}],
              "refused": [{"task": "t7", "why": "max-workers 2 reached"},
@@ -183,7 +186,8 @@ def _every_kind_results():
              "closeouts": {"started": [], "merged": [PR], "refused": [PR2, "https://github.com/o/r/pull/4"],
                            "merged_outside": [PR2]}}, c),
         (9, {"action": "ticked", "login": {"state": "expired", "since": "2026-11-04T09:09:00Z",
-                                           "detail": "loggedIn: false"}}, c),
+                                           "detail": "loggedIn: false"},
+             "closeouts": {"waiting": ["https://github.com/o/r/pull/5"]}}, c),
         (12, {"action": "stopped", "reason": "STOP written by /stop"}, c),
         (180, {"action": "digest", "post": {"posted": True, "url": "https://github.com/o/m/issues/1#issuecomment-5"}}, c),
         (183, {"action": "late", "late": ["- late: t8 — https://github.com/o/r/pull/7 (after review-at, 2026-11-04T12:33:00Z)"]}, c),
@@ -211,6 +215,10 @@ def test_every_kind_is_written(tmp_path):
     assert by["cap"]["line"] == "max-workers 2 reached: 1 task wait."
     assert any(e["line"] == "merge-cap 2 reached: later green PRs wait for /prm." for e in events)
     assert by["refused"]["line"] == "t9 not started: spawn failed."
+    assert ("Not merging r#3: CI FAILED — never merged unattended. Left for your /prm; "
+            "1 later PR(s) wait behind it.") in [e["line"] for e in events]
+    assert by["waiting"]["line"] == "r#5 waits behind r#3: merge r#3 first."
+    assert not by["waiting"]["needs_you"]
     assert by["steer-unread"]["needs_you"] and by["impaired"]["needs_you"]
     assert by["steer"]["needs_you"]                   # an `ignored:` ack
     assert by["late"]["line"] == "Late arrival: t8 — https://github.com/o/r/pull/7 after review-at."

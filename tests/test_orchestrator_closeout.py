@@ -547,3 +547,244 @@ def test_the_digest_names_closeout_tokens_and_an_overrun():
                    "co": {"kind": "closeout", "total": 400}}}
     v = _digest.counter_values({"token-budget": {"value": "1200"}}, c)
     assert v["tokens"] == "1400 of 1200 (close-outs 400; over budget by 200)"
+
+
+# --- M3.6j (PyAutoBrain#683): a library's shift PRs merge in PR order ---------------------
+# Two tasks of one shift on one library: `named` opened #7, `picked` #8. #8's
+# close-out waits (no session, no slot, no refusal) while #7 is open; once #7
+# merges, #8's branch is updated from main and merges only on CI green there.
+
+GA7 = "https://github.com/example-org/autogalaxy/pull/7"
+GA8 = "https://github.com/example-org/autogalaxy/pull/8"
+GW9 = "https://github.com/example-org/autogalaxy_workspace/pull/9"
+FIT8 = "https://github.com/example-org/autofit/pull/8"
+SPAWNED = "2026-11-04T09:00:00Z"          # both workers start at the first tick
+
+
+class OrderSpawner(t.FilesSpawner):
+    """Workers that finished at once with library PRs open; every close-out
+    or update session recorded with what it was told, verdicts by the test."""
+
+    def __init__(self, picked=GA8):
+        super().__init__(done={"named": GA7 + "\n", "picked": picked + "\n"}, proofs={})
+        self.closeouts = []
+
+    def spawn_closeout(self, task, pr_url, prompt_path, lease_dir, **kw):
+        self.closeouts.append((task, pr_url, kw))
+        return {"pid": 0, "agent_id": f"co{len(self.closeouts):06d}"}
+
+
+def _gh_states(states):
+    """`gh pr view`: OPEN unless named; a name may map to None (unreadable)."""
+    def read(url):
+        if url in states and states[url] is None:
+            return None
+        st = states.get(url, "OPEN")
+        st, at = st if isinstance(st, tuple) else (st, "")
+        return {"state": st, "mergedAt": at, "mergedBy": "a-maintainer" if at else ""}
+    return read
+
+
+def _order_shift(tmp_path, picked=GA8, cap=2):
+    mind = t._mind(tmp_path / "mind")
+    brief = tmp_path / "shift.md"
+    brief.write_text(t.BRIEF.format(issue=t.ISSUE, packet="")
+                     .replace("merge-cap: 1", f"merge-cap: {cap}"))
+    home = tmp_path / "home"
+    sp = OrderSpawner(picked)
+    orch.tick(brief, mind, home=home, now=t.NOW, spawner=sp, agents=Agents(),
+              health=_health({}))
+    return mind, brief, home, sp
+
+
+def _otick(brief, mind, home, sp, minutes, states=None, health=None, agents=None):
+    return orch.tick(brief, mind, home=home, now=t.NOW + _dt.timedelta(minutes=minutes),
+                     spawner=sp, agents=agents or Agents(), health=health or _health({}),
+                     pr_state=_gh_states(states or {}))
+
+
+def _slots(brief, home):
+    return orch._merge_slots.holders(orch.slot_dir(brief, home))
+
+
+def _waiting(tmp_path):
+    """#7's close-out refused (decision-taken), #7 still OPEN, #8 green."""
+    mind, brief, home, sp = _order_shift(tmp_path)
+    _otick(brief, mind, home, sp, 1)
+    assert [(task, pr) for task, pr, _ in sp.closeouts] == [("named", GA7)]
+    _verdict(home, brief, "named", result="refused", pr=GA7,
+             why="decision-taken label → human /prm")
+    r = _otick(brief, mind, home, sp, 2)
+    return mind, brief, home, sp, r
+
+
+def test_683_a_later_pr_waits_behind_an_earlier_refused_one_no_slot_no_refusal(tmp_path):
+    mind, brief, home, sp, r = _waiting(tmp_path)
+    assert r["closeouts"]["refused"] == [GA7]
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert GA8 not in c["closeouts"]                       # no close-out, not refused
+    assert c["merge_waits"][GA8]["behind"] == [GA7]
+    assert c["merge_waits"][GA8]["task"] == "picked"
+    assert orch._merge_slots.pr_key(GA8) not in _slots(brief, home)
+    assert [pr for _, pr, _ in sp.closeouts] == [GA7]
+    r = _otick(brief, mind, home, sp, 3)                   # still waiting, still quiet
+    assert r["closeouts"]["started"] == [] and r["closeouts"]["refused"] == []
+    assert "waiting" not in r["closeouts"]                 # an event only when it changes
+
+
+@pytest.mark.parametrize("picked, states, kw", [
+    (FIT8, {}, {}),                                                 # another repo
+    (GA8, {GA7: "CLOSED"}, {"before": [GA7]}),                      # closed unmerged
+    (GA8, {GA7: ("MERGED", "2026-11-04T08:00:00Z")}, {"before": [GA7]}),  # before #8 began
+])
+def test_683_no_wait_on_another_repo_or_behind_a_merged_or_closed_pr(tmp_path, picked,
+                                                                      states, kw):
+    mind, brief, home, sp = _order_shift(tmp_path, picked)
+    _otick(brief, mind, home, sp, 1, states)
+    assert ("picked", picked, kw) in sp.closeouts, sp.closeouts
+    assert picked not in orch.read_counters(orch.slot_dir(brief, home))["merge_waits"]
+
+
+def test_683_an_earlier_pr_github_cannot_read_blocks(tmp_path):
+    mind, brief, home, sp = _order_shift(tmp_path)
+    _otick(brief, mind, home, sp, 1, {GA7: None})
+    assert [pr for _, pr, _ in sp.closeouts] == [GA7]
+    assert orch.read_counters(orch.slot_dir(brief, home))["merge_waits"][GA8]["behind"] == [GA7]
+
+
+def _merged_then_update(tmp_path):
+    """#7 merges after #8's worker began: #8 gets one branch-update session."""
+    mind, brief, home, sp, _ = _waiting(tmp_path)
+    states = {GA7: ("MERGED", "2026-11-04T09:30:00Z")}
+    r = _otick(brief, mind, home, sp, 31, states)
+    return mind, brief, home, sp, r, states
+
+
+def test_683_once_the_earlier_pr_merged_after_it_began_the_branch_is_updated(tmp_path):
+    mind, brief, home, sp, r, _ = _merged_then_update(tmp_path)
+    assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["closeouts"][GA8]["kind"] == "update" and c["merge_waits"] == {}
+    assert orch._merge_slots.pr_key(GA8) in _slots(brief, home)   # taken before the update
+    argv = orch.closeout_command("picked", GA8, "p.md", brief, home, "auto",
+                                 update_after=[GA7])
+    assert argv[argv.index("--name") + 1] == "shift-update:picked"
+    assert f"gh pr update-branch {GA8}" in argv[-1] and GA7 in argv[-1]
+    assert "Never `--rebase`, never a force-push" in argv[-1]
+
+
+def _updated(tmp_path):
+    mind, brief, home, sp, r, states = _merged_then_update(tmp_path)
+    _verdict(home, brief, "picked", result="updated", pr=GA8, head="abc123")
+    r = _otick(brief, mind, home, sp, 32, states, health=_health({GA8: "RUNNING"}))
+    return mind, brief, home, sp, r, states
+
+
+def test_683_an_updated_branch_holds_its_slot_and_waits_for_ci_on_the_new_head(tmp_path):
+    mind, brief, home, sp, r, states = _updated(tmp_path)
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    co = c["closeouts"][GA8]
+    assert (co["state"], co["head"], co["updates"], co["after"]) == ("updated", "abc123", 1, [GA7])
+    assert r["closeouts"]["merged"] == [] and r["closeouts"]["refused"] == []
+    assert orch._merge_slots.pr_key(GA8) in _slots(brief, home)
+    n = len(sp.closeouts)
+    _otick(brief, mind, home, sp, 33, states, health=_health({GA8: "RUNNING"}))
+    _otick(brief, mind, home, sp, 34, states, health=_health({GA8: "NO-CHECKS"}))  # in grace
+    assert len(sp.closeouts) == n
+    assert orch.read_counters(orch.slot_dir(brief, home))["closeouts"][GA8]["state"] == "updated"
+    r = _otick(brief, mind, home, sp, 35, states)                                  # green
+    assert r["closeouts"]["started"] == [GA8]
+    assert sp.closeouts[-1] == ("picked", GA8, {"after": [GA7], "before": [GA7]})
+    prompt = orch.closeout_prompt("picked", GA8, "p.md", brief, home, after=[GA7],
+                                  before=[GA7])
+    assert "4b. Merge order" in prompt and "branch not updated after <url>" in prompt
+    assert f"   - {GA7}\n" in prompt and "still open → merge it first" in prompt
+    assert "4b. Merge order" not in orch.closeout_prompt("picked", GA8, "p.md", brief, home)
+
+
+def test_683_red_ci_on_the_updated_head_is_refused_and_frees_the_slot(tmp_path):
+    mind, brief, home, sp, r, states = _updated(tmp_path)
+    r = _otick(brief, mind, home, sp, 33, states, health=_health({GA8: "FAILED"}))
+    assert r["closeouts"]["refused"] == [GA8]
+    co = orch.read_counters(orch.slot_dir(brief, home))["closeouts"][GA8]
+    assert co["why"] == "CI FAILED on the updated head → your /prm"
+    assert orch._merge_slots.pr_key(GA8) not in _slots(brief, home)
+
+
+def test_683_a_conflicting_update_is_refused_and_never_retried(tmp_path):
+    mind, brief, home, sp, r, states = _merged_then_update(tmp_path)
+    _verdict(home, brief, "picked", result="refused", pr=GA8,
+             why=f"conflicts with main after {GA7} merged → your /prm")
+    r = _otick(brief, mind, home, sp, 32, states)
+    assert r["closeouts"]["refused"] == [GA8]
+    assert orch._merge_slots.pr_key(GA8) not in _slots(brief, home)
+    n = len(sp.closeouts)
+    _otick(brief, mind, home, sp, 33, states)
+    _otick(brief, mind, home, sp, 34, states)
+    assert len(sp.closeouts) == n
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
+    assert "conflicts with main after" in d
+
+
+def test_683_a_third_update_is_refused_main_kept_moving(tmp_path):
+    mind, brief, home, sp, r, states = _updated(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    c["closeouts"][GA8].update(updates=orch.UPDATE_LIMIT, after=[])   # two updates used
+    orch._write_counters(slot, c)
+    n = len(sp.closeouts)
+    r = _otick(brief, mind, home, sp, 33, states)
+    assert r["closeouts"]["refused"] == [GA8] and len(sp.closeouts) == n
+    co = orch.read_counters(slot)["closeouts"][GA8]
+    assert co["why"].startswith("main kept moving") and co["why"].endswith("→ your /prm")
+    assert orch._merge_slots.pr_key(GA8) not in _slots(brief, home)
+
+
+def test_683_a_workspace_pr_waits_behind_its_own_tasks_waiting_library_pr(tmp_path):
+    mind, brief, home, sp = _order_shift(tmp_path, picked=GA8 + "\n" + GW9)
+    _otick(brief, mind, home, sp, 1)
+    c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["merge_waits"][GA8]["behind"] == [GA7]
+    assert c["merge_waits"][GW9]["behind"] == [GA8]
+    assert GW9 not in c["closeouts"] and [pr for _, pr, _ in sp.closeouts] == [GA7]
+
+
+def test_683_a_wait_at_review_at_is_not_refused_and_the_digest_says_so(tmp_path):
+    mind, brief, home, sp = _order_shift(tmp_path)
+    r = _otick(brief, mind, home, sp, 140)                  # 11:20, review-at 11:30
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    assert GA8 not in c["closeouts"] and GA8 in c["merge_waits"]
+    assert GA8 not in r["closeouts"]["refused"]
+    d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=t._health)
+    assert f"{GA8} — waits behind autogalaxy#7" in d or "waits behind autogalaxy#7" in d
+    assert "merge autogalaxy#7 first" in d
+
+
+def test_683_carry_in_carries_an_updated_or_waiting_pr_with_what_it_waited_behind(tmp_path):
+    home = tmp_path / "home"
+    prev = home / "2026-11-03-pm"
+    prev.mkdir(parents=True)
+    pick = {"prompt": "draft/feature/x/{}.md", "why": "named task", "tier": "glance"}
+    (prev / orch.COUNTERS_FILE).write_text(json.dumps({
+        "picks": {k: dict(pick, prompt=pick["prompt"].format(k)) for k in "abc"},
+        "outcomes": {"a": {"prs": [GA7], "merged": [], "issues": []},
+                     "b": {"prs": [GA8], "merged": [], "issues": []},
+                     "c": {"prs": [FIT8], "merged": [], "issues": []}},
+        "closeouts": {GA7: {"task": "a", "state": "refused",
+                            "why": "decision-taken label → human /prm"},
+                      FIT8: {"task": "c", "state": "updated", "after": [], "updates": 1}},
+        "merge_waits": {GA8: {"task": "b", "behind": [GA7], "since": SPAWNED}},
+        "parked": [], "done": ["a", "b", "c"]}))
+    slot = home / "2026-11-04-am"
+    slot.mkdir()
+    c = {"outcomes": {}, "picks": {}, "done": []}
+    rec = orch.carry_in(slot, c, t.NOW)
+    assert sorted(rec["prs"]) == sorted([GA8, FIT8])        # never the refused #7
+    assert c["outcomes"]["b"]["behind"] == [GA7]
+    assert "behind" not in c["outcomes"]["c"]
+    # In the new shift the carried #8 still waits behind the uncarried #7.
+    c.update(closeouts={}, dropped={}, merge_waits={})
+    assert orch._merge_blockers(c, GA8, _gh_states({}), {}) == [GA7]

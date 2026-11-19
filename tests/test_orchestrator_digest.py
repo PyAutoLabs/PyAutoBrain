@@ -478,3 +478,37 @@ def test_batch_digest_verb_prints_and_writes_nothing(tmp_path):
     assert res.stdout.startswith("## Digest") and "- merges: 1" in res.stdout
     assert sorted(p.name for p in slot.rglob("*")) == before
     assert not (slot / orch.DIGEST_MARKER).exists()
+
+
+# --- M3.6j (PyAutoBrain#683): the digest's merge order -------------------------------
+
+def test_683_the_digest_lists_each_librarys_merge_order_and_marks_the_next_prm(tmp_path):
+    """A library's shift PRs merge in PR order: the digest names, per library,
+    the PRs in order, ▶ on the one that needs the human's /prm now, and says
+    of each later PR what it waits behind — and still validates."""
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    g7, g8, g9 = (f"https://github.com/example-org/autogalaxy/pull/{n}" for n in (7, 8, 9))
+    c["outcomes"] = {"named": {"prs": [g7], "merged": [], "issues": []},
+                     "picked": {"prs": [g9, g8], "merged": [], "issues": []}}
+    c["closeouts"] = {g7: {"task": "named", "state": "refused",
+                           "why": "decision-taken label → human /prm"}}
+    c["merge_waits"] = {g8: {"task": "picked", "behind": [g7]},
+                        g9: {"task": "picked", "behind": [g7, g8]}}
+    d = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c, health=_health,
+                      issue=ISSUE)
+    block = d.split("### Merge order")[1].split("### Proof packets")[0]
+    lines = [ln.strip() for ln in block.strip().splitlines()]
+    assert lines[0] == "- **autogalaxy**, merged in this order:"
+    assert lines[1] == (f"- ▶ {g7} — needs your /prm: decision-taken label → human /prm")
+    assert lines[2] == (f"- {g8} — waits behind autogalaxy#7 (needs your /prm: "
+                        "decision-taken label → human /prm) — merge autogalaxy#7 first")
+    assert lines[3].startswith(f"- {g9} — waits behind autogalaxy#7") \
+        and "autogalaxy#8 (itself waiting)" in lines[3]
+    assert "Waiting — merges after an earlier PR (your /prm first)" in d
+    assert _digest.validate(d) == []
+    # Nothing waits: no block.
+    c["merge_waits"] = {}
+    assert "### Merge order" not in _digest.build(
+        _brief.parse(brief.read_text())["brief"], slot, c, health=_health, issue=ISSUE)

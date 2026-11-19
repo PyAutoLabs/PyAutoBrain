@@ -423,24 +423,26 @@ def test_review4_the_batch_conductor_is_refused_whatever_the_task_declares(tmp_p
 
 
 # --- PyAutoBrain#679: a shift's library slot frees once its task's PR has merged ------
+# --- M3.6j (#683): ... once its task's worker has ended; merges wait in PR order ------
 
 PR1 = "https://github.com/example-org/autogalaxy/pull/7"
 GALAXY = ("ag_bug_one", "ag_bug_two")
 
 
-def _galaxy_shift(tmp_path: Path) -> tuple[Path, Path, Path]:
-    """A brief naming two glance tasks on one library, first tick already run."""
+def _galaxy_shift(tmp_path: Path, names=GALAXY, *, first=True) -> tuple[Path, Path, Path]:
+    """A brief naming glance tasks on one library, first tick already run."""
     mind, brief, home = _shift(tmp_path)
     rels = []
-    for name in GALAXY:
+    for name in names:
         rel = _write(mind, name, target="autogalaxy")
         f = mind / rel
         f.write_text(f.read_text().replace("Consequence: notify", "Consequence: glance"))
         rels.append(rel)
     brief.write_text(brief.read_text().replace(
         "    - draft/feature/x/none.md", "\n".join(f"    - {r}" for r in rels)))
-    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
-    assert [s["task"] for s in r["spawned"]] == ["ag_bug_one"], r
+    if first:
+        r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+        assert [s["task"] for s in r["spawned"]] == ["ag_bug_one"], r
     return mind, brief, home
 
 
@@ -464,8 +466,8 @@ def test_679_1_the_second_task_on_a_library_waits_while_the_first_is_live(tmp_pa
     assert r["spawned"] == [], r
     named = orch.read_counters(orch.slot_dir(brief, home))["backlog_gates"]["named"]
     assert named == {"draft/feature/x/ag_bug_two.md":
-                     "autogalaxy held by ag_bug_one — will start after ag_bug_one's PR "
-                     "merges"}, named
+                     "autogalaxy held by ag_bug_one — will start once ag_bug_one's worker "
+                     "ends"}, named
 
 
 def test_679_2_the_second_task_starts_once_every_pr_of_the_first_has_merged(tmp_path):
@@ -475,16 +477,10 @@ def test_679_2_the_second_task_starts_once_every_pr_of_the_first_has_merged(tmp_
     assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
 
 
-@pytest.mark.parametrize("outcome, extra", [
-    ({"prs": [PR1], "merged": [], "issues": []}, {}),                     # PR open
-    ({"prs": [PR1], "merged": [], "issues": []},                          # refused
-     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused", "why": "red"}}}),
-    ({"prs": [], "merged": [], "issues": [ISSUE], "questions": [ISSUE]}, {}),  # question
-    ({"prs": [PR1, PR1 + "0"], "merged": [PR1], "issues": []}, {}),       # one of two
-])
-def test_679_3_an_open_or_refused_pr_or_a_question_still_holds(tmp_path, outcome, extra):
+def test_679_3_a_question_still_holds(tmp_path):
     mind, brief, home = _galaxy_shift(tmp_path)
-    _end(brief, home, "ag_bug_one", outcome, **extra)
+    _end(brief, home, "ag_bug_one",
+         {"prs": [], "merged": [], "issues": [ISSUE], "questions": [ISSUE]})
     r = d._tick(brief, mind, home, NOW, d.FakeClaude())
     assert r["spawned"] == [], r
 
@@ -539,3 +535,117 @@ def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
     claim("desktop session, human")
     assert orch.on_origin(records, mind, own={"ag_bug_one"}, released={"ag_bug_one"},
                           slot_name="2026-11-18-pm") == ([], held)
+
+
+# --- M3.6j (PyAutoBrain#683): starts wait for a live worker only -----------------------
+
+@pytest.mark.parametrize("outcome, extra", [
+    ({"prs": [PR1], "merged": [], "issues": []}, {}),                     # PR open
+    ({"prs": [PR1], "merged": [], "issues": []},                          # decision-taken
+     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused",
+                          "why": "decision-taken label → human /prm"}}}),
+    ({"prs": [PR1], "merged": [], "issues": []},                          # public name
+     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused",
+                          "why": "public name added/renamed: Thing → human /prm"}}}),
+    ({"prs": [PR1], "merged": [], "issues": []},                          # judge
+     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused",
+                          "why": "tier judge — never merged unattended → your /prm"}}}),
+    ({"prs": [PR1, PR1 + "0"], "merged": [PR1], "issues": []}, {}),       # one of two
+])
+def test_683_1_the_second_task_starts_once_the_first_worker_ended_pr_open(
+        tmp_path, outcome, extra):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    _end(brief, home, "ag_bug_one", outcome, **extra)
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
+
+
+@pytest.mark.parametrize("how, outcome, extra", [
+    ("done", {"prs": [], "merged": [], "issues": [ISSUE], "questions": [ISSUE]}, {}),
+    ("parked", None, {}),                                         # ruling d
+    ("done", {"prs": [PR1], "merged": [], "issues": []},          # /kill: re-dispatch
+     {"pending_redispatch": ["ag_bug_one"]}),
+    ("done", {"prs": [PR1], "merged": [], "issues": []},          # answered, to restart
+     {"inshift_pending": {"ag_bug_one": {"ids": ["Q1"]}}}),
+])
+def test_683_2_a_question_park_redispatch_or_restart_still_holds(tmp_path, how, outcome,
+                                                                 extra):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    _end(brief, home, "ag_bug_one", outcome, how=how, **extra)
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert "ag_bug_two" not in [s["task"] for s in r["spawned"]], r
+
+
+def test_683_3_never_two_workers_on_one_library_the_reason_names_the_live_one(tmp_path):
+    names = ("ag_bug_one", "ag_bug_two", "ag_bug_three")
+    mind, brief, home = _galaxy_shift(tmp_path, names)
+    _end(brief, home, "ag_bug_one", {"prs": [PR1], "merged": [], "issues": []})
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert r["spawned"] == [], r
+    named = orch.read_counters(orch.slot_dir(brief, home))["backlog_gates"]["named"]
+    assert named == {"draft/feature/x/ag_bug_three.md":
+                     "autogalaxy held by ag_bug_two — will start once ag_bug_two's worker "
+                     "ends"}, named
+
+
+def test_683_4_a_dropped_task_that_never_started_frees_its_library(tmp_path):
+    mind, brief, home = _galaxy_shift(tmp_path, first=False)
+    slot = orch.slot_dir(brief, home)
+    slot.mkdir(parents=True, exist_ok=True)
+    c = orch.read_counters(slot)
+    c["dropped"]["ag_bug_one"] = {"by": "example-human", "at": "2026-11-04T08:40:00Z"}
+    orch._write_counters(slot, c)
+    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
+    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
+
+
+def test_683_5_released_picks_counts_a_finished_pick_with_its_pr_open():
+    c = {"done": ["a", "q"], "abandoned": [], "parked": [], "pending_redispatch": [],
+         "inshift_pending": {}, "picks": {"a": {}, "q": {}, "live": {}, "gone": {}},
+         "outcomes": {"a": {"prs": [PR1], "merged": [], "issues": []},
+                      "q": {"prs": [], "merged": [], "questions": [ISSUE]}},
+         "dropped": {"live": {}, "gone": {}}}
+    assert orch.released_picks(c, live={"live"}) == {"a", "gone"}
+
+
+def test_683_6_a_worker_on_a_library_with_an_open_sibling_pr_is_told_not_to_stack(tmp_path):
+    mind, brief, home = _galaxy_shift(tmp_path)
+    _end(brief, home, "ag_bug_one", {"prs": [PR1], "merged": [], "issues": []})
+    claude = d.FakeClaude()
+    r = d._tick(brief, mind, home, NOW, claude)
+    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
+    prompt = claude.calls[-1][0][-1]
+    assert prompt.startswith("Open sibling PRs:"), prompt[:200]
+    assert f"- {PR1}\n" in prompt and "never from a sibling's branch" in prompt
+    assert "obsolete" in prompt and "worktree_check_conflict" in prompt
+    # No sibling, no note: the first worker's prompt starts as before.
+    assert not orch.worker_prompt("t", "p.md", brief, tmp_path).startswith("Open sibling")
+
+
+def test_683_7_a_finished_picks_leftover_claim_does_not_hold_with_its_pr_open(tmp_path):
+    """test_679_5 with the first task's PR still open: `released_picks` now
+    counts it, so its own shift worker's leftover claim holds nothing."""
+    if shutil.which("git") is None:
+        pytest.skip("needs git")
+    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
+    _git(tmp_path, "clone", "-q", str(bare), str(mind))
+    first = _write(mind, "ag_bug_one", target="autogalaxy")
+    second = _write(mind, "ag_bug_two", target="autogalaxy")
+    (mind / "active.md").write_text(
+        f"# Active\n\n## ag-bug-one\n- prompt: {first}\n"
+        "- session: shift worker 2026-11-18-pm (abc123)\n"
+        "- repos:\n  - autogalaxy: feature/ag-bug-one\n")
+    _git(mind, "add", "-A")
+    _git(mind, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit",
+         "-q", "-m", "claim")
+    _git(mind, "push", "-q", "origin", "HEAD:main")
+    _git(mind, "fetch", "-q", "origin")
+    records = [_batch.grade(mind / second, mind)]
+    c = {"done": ["ag_bug_one"], "picks": {"ag_bug_one": {}},
+         "outcomes": {"ag_bug_one": {"prs": [PR1], "merged": [], "issues": []}}}
+    kept, out = orch.on_origin(records, mind, own={"ag_bug_one"},
+                               released=orch.released_picks(c), slot_name="2026-11-18-pm")
+    assert (kept, out) == (records, {})
