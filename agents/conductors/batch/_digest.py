@@ -261,14 +261,97 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
                 state = IN_TURN_MERGED if has_slot(counters, task, url) else IN_TURN_NO_SLOT
             if co.get("state") == "merged" and co.get("cleanup"):
                 state += f" — worktree: {co['cleanup']}"
+        elif url in (counters.get("merge_waits") or {}):
+            state = wait_state(url, counters)          # merge order (M3.6j, #683)
         elif co.get("state") == "refused":
             state = f"awaiting /prm — close-out refused: {co.get('why', '?')}"
         elif co.get("state") == "running":
-            state = "close-out running"
+            state = UPDATING if co.get("kind") == "update" else "close-out running"
+        elif co.get("state") == "updated":
+            state = (f"{UPDATED} after {', '.join(map(pr_ref, co.get('after') or []))}, "
+                     f"CI on new head {health(url)}")
+        elif co.get("state") == "current":
+            state = f"{CURRENT}, CI {health(url)}"
         else:
             state = health(url)
         parts.append(f"{url} — {state}")
     return "; ".join(parts), True
+
+
+#: A PR's states in the merge order (M3.6j, PyAutoBrain#683).
+UPDATING = "close-out updating the branch from main"
+UPDATED = "branch updated from main"
+CURRENT = "branch already up to date with main"
+MERGE_ORDER_HEADING = "### Merge order"
+_PR_REF_RE = re.compile(r"^https://github\.com/[^/\s]+/([^/\s]+)/pull/(\d+)")
+
+
+def pr_ref(url: str) -> str:
+    """`repo#n` for a GitHub PR URL; the URL itself otherwise."""
+    m = _PR_REF_RE.match(url or "")
+    return f"{m.group(1)}#{m.group(2)}" if m else (url or "?")
+
+
+def _order_word(url: str, counters: dict) -> str:
+    """What an earlier PR in the merge order is doing, in a few words."""
+    co = (counters.get("closeouts") or {}).get(url) or {}
+    if url in (counters.get("merge_waits") or {}):
+        return "itself waiting"
+    if co.get("state") == "refused":
+        return f"needs your /prm: {refusal_class(co.get('why') or '?')}"
+    if co.get("state") == "running":
+        return "close-out running"
+    if co.get("state") in ("updated", "current"):
+        return "branch updated, CI re-running"
+    return "open"
+
+
+def wait_state(url: str, counters: dict) -> str:
+    """A PR waiting in merge order: behind which PRs, what they are doing, and
+    which one to merge first (M3.6j, PyAutoBrain#683)."""
+    behind = ((counters.get("merge_waits") or {}).get(url) or {}).get("behind") or []
+    return ("waits behind " + ", ".join(f"{pr_ref(b)} ({_order_word(b, counters)})"
+                                        for b in behind)
+            + f" — merge {pr_ref(behind[0]) if behind else '?'} first")
+
+
+def merge_order_lines(counters: dict) -> list[str]:
+    """The `### Merge order` block (M3.6j, PyAutoBrain#683): for each library
+    repo where a PR of this shift waits behind an earlier one, its open PRs
+    in PR-number order, ▶ on the one that needs your /prm now; and how many
+    branch updates conflicted with main. Empty when nothing waits."""
+    waits = counters.get("merge_waits") or {}
+    if not waits:
+        return []
+    merged = {u for o in (counters.get("outcomes") or {}).values() if isinstance(o, dict)
+              for u in o.get("merged") or []}
+    known = list(dict.fromkeys(
+        u for o in (counters.get("outcomes") or {}).values() if isinstance(o, dict)
+        for u in [*(o.get("prs") or []), *(o.get("behind") or [])]))
+
+    def repo(u):
+        key = _merge_slots.pr_key(u)
+        return key.rsplit("/pull/", 1)[0] if key else ""
+
+    def number(u):
+        key = _merge_slots.pr_key(u)
+        return int(key.rsplit("/", 1)[1]) if key else 0
+    repos = list(dict.fromkeys(repo(w) for w, info in waits.items()
+                               if any(repo(b) == repo(w) for b in info.get("behind") or [])))
+    out = ["", MERGE_ORDER_HEADING]
+    for r in repos:
+        prs = sorted((u for u in known if repo(u) == r and u not in merged), key=number)
+        out.append(f"- **{r.rsplit('/', 1)[-1]}**, merged in this order:")
+        now = next((u for u in prs if u not in waits), None)
+        for u in prs:
+            word = wait_state(u, counters) if u in waits else _order_word(u, counters)
+            out.append(f"  - {'▶ ' if u == now else ''}{u} — {word}")
+    conflicts = [u for u, co in (counters.get("closeouts") or {}).items()
+                 if str(co.get("why") or "").startswith("conflicts with main")]
+    if conflicts:
+        out.append(f"- {len(conflicts)} branch update(s) conflicted with main — your /prm: "
+                   + ", ".join(map(pr_ref, conflicts)))
+    return out
 
 
 def has_slot(counters: dict, task: str, url: str) -> bool:
@@ -468,6 +551,10 @@ _PLAIN = (
     ("awaiting /prm — close-out refused: CI RED", "CI failed — needs you"),
     ("awaiting /prm", "Needs you — not merged unattended"),
     ("close-out running", "Still running — close-out checking it"),
+    (UPDATING, "Still running — close-out updating the branch from main"),
+    ("waits behind", "Waiting — merges after an earlier PR (your /prm first)"),
+    (UPDATED, "Branch updated from main — CI re-running"),
+    (CURRENT, "Branch up to date — awaiting its merge close-out"),
     (STILL_OUT, "Still running at review time"),
     ("verdict posted", "Verdict posted"),
     ("PARKED-ON-ISSUE", "Needs you — question on the issue"),
@@ -593,6 +680,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
                     why=picks[t].get("why") or "NOT RECORDED", lease=held.get(t))
               for t in backlog] or [NO_PICKS]
     lines += backlog_gate_lines(counters)
+    lines += merge_order_lines(counters)
 
     started = [t for t in named + backlog
                if t in counters.get("outcomes", {}) or t in counters.get("parked", [])

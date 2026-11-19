@@ -49,7 +49,7 @@ outcome — the human merges by `/prm` at check-in.
    reason line (`CI PENDING: …` / `CI RED: …`): no waiting, no re-run. A
    `GREEN` that names a skipped **test** leg refuses too (a tiered merge
    stops on a skipped test leg, `skills/prm/reference.md` "Tiered merge").
-5. Immediately before you merge — after every check above, and again right
+{after_step}5. Immediately before you merge — after every check above, and again right
    before the merge command itself — look for {lease_dir}/{task}.dropped. If
    it exists, the human dropped this task with `/drop` mid-shift: do not merge;
    refuse with why `dropped by /drop`.

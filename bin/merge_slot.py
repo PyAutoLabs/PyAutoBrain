@@ -25,8 +25,9 @@ directory is that ledger directory's parent, and the counter is its
 
 EXIT. 0 = the slot is taken (or already held for this PR and task), or this
 is not a shift, so nothing is counted; 1 = refused (no slot left, the shift is
-paused, no cap published, or the PR's slot is another task's) — do not merge,
-leave the PR for `/prm`; 2 = cannot tell (not a PR URL, no task named, or the
+paused, no cap published, the PR's slot is another task's, or an earlier PR of
+the shift on the same library is still open: M3.6j merge order) — do not merge,
+leave the PR for `/prm` or the close-out; 2 = cannot tell (not a PR URL, no task named, or the
 slot directory or its file cannot be read) — do not merge either.
 `release` (task required, as for `take`) exits 0 when it freed this task's
 slot, 1 when there was none to free (the holder is named). `status` prints the
@@ -43,6 +44,19 @@ from pathlib import Path
 BATCH = Path(__file__).resolve().parents[1] / "agents" / "conductors" / "batch"
 sys.path.insert(0, str(BATCH))
 import _merge_slots  # noqa: E402
+
+#: The take's message when an earlier PR of the shift must merge first (M3.6j).
+ORDER_REFUSAL = ("{blockers} of this shift on the same library is still open and merges "
+                 "first — do not merge; end at PR-open (list the PR without `merged`): the "
+                 "close-out updates it from main and merges it in order")
+
+
+def _order_blockers(slot: Path, pr: str) -> list[str]:
+    """The earlier shift PRs this in-turn merge would jump (M3.6j review F1)."""
+    brain = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(brain / "agents" / "faculties" / "sizing"))
+    import _orchestrator  # noqa: E402 — deferred: only a take reads the order
+    return _orchestrator.in_turn_merge_blockers(slot, pr)
 
 #: Every worker and close-out session takes as one holder class; the watcher
 #: takes as `_merge_slots.WATCHER`, so no session can free a close-out's slot.
@@ -88,6 +102,16 @@ def main(argv=None) -> int:
         return 2
     try:
         if args.action == "take":
+            # Merge order (M3.6j): an earlier PR of this shift on the same
+            # library merges first, whatever path this PR would merge by.
+            try:
+                blockers = _order_blockers(slot, args.pr)
+            except (OSError, ValueError) as e:
+                print(f"cannot tell the merge order: {e} — do not merge; leave the PR for /prm")
+                return 2
+            if blockers:
+                print("refused: " + ORDER_REFUSAL.format(blockers=", ".join(blockers)))
+                return 1
             ok, why = _merge_slots.take(slot, args.pr, WORKER, task)
             print(("taken: " if ok else "refused: ") + why)
             return 0 if ok else 1

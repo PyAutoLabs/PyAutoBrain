@@ -54,6 +54,8 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   before a bare `gh pr merge` (ruling R3, AUTONOMY.md "`notify` merges under
   `--auto` and inside a shift — 2026-11-17"). If it refuses, do not merge:
   list the PR in your `.done` without `merged`, and it is left for `/prm`.
+  A refusal naming an earlier open sibling PR of this shift means end at
+  PR-open: the close-out merges yours after it, in order (M3.6j).
   If the take succeeded but `gh pr merge` then fails, free the slot with
   `{brain_cli} merge-slot release <pr-url> --task {task} --why "merge failed"`
   and list the PR

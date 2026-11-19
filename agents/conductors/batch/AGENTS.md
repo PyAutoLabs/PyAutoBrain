@@ -306,14 +306,23 @@ Until phase 3b it spawns only stub workers (`PYAUTO_ORCHESTRATOR_FAKE=1`); a rea
 dispatch is refused. Doctrine: `AUTONOMY.md` "The watcher's network surface —
 2026-11-03"; the exemption it runs under, `PyAutoMind/policy/shift_watcher.md`.
 
-**A library slot frees at merge (2026-11-18, PyAutoBrain#679).** The plan
-admits one task per library repo, because concurrent library PRs collide at
-merge. A task this shift picked holds its library while it runs, while its PR
-is open or refused, and while it is parked. Once it is done and every PR it
-opened has merged (or it ended with no PR and no open question), the next tick
-may start the next task on that library. The finished task stays in the plan,
-so it is never re-dispatched. A claim it left in `active.md`, written by this
-shift's own worker, no longer holds the repo either.
+**A library is held while its worker runs; merges wait in PR order (M3.6j,
+2026-11-19, PyAutoBrain#683).** The plan admits one *live* task per library
+repo, so two workers never share one. Work does not collide; merges do. A task
+this shift picked holds its library while its worker runs, while it is parked
+(on a question or a person: ruling d), while a re-dispatch or an answered
+restart is pending, and while its outcome carries an open question. Once its
+worker has ended, the next tick may start the next task on that library, its
+PR open, refused or merged alike (`released_picks`; first PyAutoBrain#679 freed
+it only at merge, and one `/prm`-bound PR stalled the shift). A `/drop`ped task
+with no live worker holds nothing. The finished task stays in the plan, so it
+is never re-dispatched, and a claim its own shift worker left in `active.md`
+holds nothing either. The next worker's prompt starts with `SIBLING_NOTE`,
+naming this shift's open PRs on that library: branch from `main`, never stack;
+end `obsolete` if a sibling already does the task; a `worktree_check_conflict`
+hit naming only a listed sibling's slug is not a conflict (ruling e). The plan's
+reason for a held task is `<repo> held by <task> — will start once <task>'s
+worker ends` (named) or `<repo> held by <task> while its worker runs`.
 
 **The open-brief gate is a window: `dispatched:` → `review-at:`.** A brief
 that passes `batch brief --check` is open only from its `dispatched:` until its
@@ -532,6 +541,39 @@ and queues a `table-append` op that lands one row in
 writer. Every refusal is final for the shift and named in the digest
 (`awaiting /prm — close-out refused: <why>`). Same-model close-out: AUTONOMY
 "Stage-2 adversary amendment — 2026-11-04".
+
+**Merge order and the branch update (M3.6j, PyAutoBrain#683).** Before CI is
+read, a library PR waits behind every earlier PR this shift knows on the same
+GitHub repo (its outcomes and a carried outcome's `behind`; library repos only,
+ruling f) until GitHub says that PR is MERGED or CLOSED, whatever this shift
+made of it (ruling c); an unreadable one blocks. Waiting is not a refusal: no
+close-out, no merge slot, an entry in `counters["merge_waits"]` (rebuilt each
+tick, one `gh pr view` per blocking PR per tick, ruling b) and a `waiting`
+event when what it waits behind changes. A workspace PR waits while its own
+task's library PR waits or is being closed out. Once nothing is ahead, a PR
+whose branch was cut before an earlier PR merged (merged after its task's first
+worker started; for a carried PR, any merged earlier PR) takes its merge slot
+and gets one **branch-update session** (`closeout_update_template.md`, `claude
+--bg --name shift-update:<task>`), after the public-name gate: it runs `gh pr
+update-branch` (a merge commit from `main`; never a rebase or force-push,
+ruling a), writes `updated` (new head), `current` or `refused` (`conflicts with
+main after <A> merged → your /prm`) and ends. An `updated` or `current` PR
+keeps its slot and is looked at again each tick: CI running, or NO-CHECKS
+within `UPDATE_CHECKS_GRACE_S` (600 s), waits; red refuses (`CI <verdict> on
+the updated head → your /prm`) and frees the slot; green starts the merge
+close-out, whose step 4b checks every earlier PR is no longer OPEN and each
+merged one is in the branch. A PR needing a third update refuses (`main kept
+moving`, `UPDATE_LIMIT` 2). A waiting or updated PR at `review-at:` is not
+refused; the next shift carries it with what it waited behind. The digest says
+`waits behind <A> (<A's state>) — merge <A> first` and lists a per-library
+"Merge order" block, ▶ on the PR that needs your /prm now. The in-turn path
+keeps the same order: `merge-slot take` (`bin/merge_slot.py`) refuses a
+`notify` worker's in-turn merge while an earlier shift PR on the same library
+is open (`in_turn_merge_blockers`, the close-out's rule), so that PR ends at
+PR-open and merges through the wait above. An `updated` PR's CI is read only
+once GitHub shows the head the update made; a head that moved since refuses.
+The spawn loop also refuses a task whose library a live, parked or
+re-dispatch-pending task holds, whatever the plan's order made of it.
 
 **Watching a shift live (`batch watch`, PyAutoBrain#575).** `batch watch
 --record <brief> [--once] [--interval N]` (`_watch.py`) draws a running shift
