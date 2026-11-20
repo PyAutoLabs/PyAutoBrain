@@ -220,7 +220,7 @@ def test_an_empty_section_says_so_and_planned_gets_its_own_table(tmp_skeleton):
     projects = page.split("## Projects")[1]
     assert "### Dormant\n\n_(no dormant project with a ledger)_" in projects
     html = _cortex.render_dashboard_html(c)
-    assert '<h3 class="status-section" id="planned">Planned</h3>' in html
+    assert '<h4 class="status-section" id="planned">Planned</h4>' in html
     assert "(no dormant project)" in html
 
 
@@ -451,7 +451,7 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     assert '<details class="project" id="project-example" open' not in html
     assert "retired</summary>" not in html
     for section in ("active", "dormant", "retired"):
-        assert f'<h3 class="status-section" id="{section}">{section.title()}</h3>' in html
+        assert f'<h4 class="status-section" id="{section}">{section.title()}</h4>' in html
     projects = html.split('<a id="projects"></a>')[1]
     assert (projects.index('id="active"') < projects.index('id="project-example"')
             < projects.index('id="dormant"') < projects.index('id="retired"')
@@ -460,9 +460,9 @@ def test_the_html_twin_wears_the_theme_with_real_copy_buttons(skeleton):
     assert ('<ul class="retired"><li><a href="projects/wound_down.md"><b>wound_down</b></a>'
             " — A project that finished and was retired — retired 2026-09-01: done") \
         in retired.replace("\n", "")
-    summary = html.split("<h2>Summary</h2>")[1].split('<a id="projects">')[0]
-    assert (summary.index("<h3>Active</h3>") < summary.index("<h3>Dormant</h3>")
-            < summary.index("<h3>Retired</h3>"))
+    summary = html.split("<h3>Summary</h3>")[1].split('<a id="projects">')[0]
+    assert (summary.index("<h4>Active</h4>") < summary.index("<h4>Dormant</h4>")
+            < summary.index("<h4>Retired</h4>"))
     assert "<tr><td><b>sleeping</b></td><td>0</td><td>0</td><td>-</td></tr>" in summary
     assert ("<tr><th>Project</th><th>Note</th><th>Last update</th></tr>\n"
             "<tr><td><b>wound_down</b></td><td>retired 2026-09-01: done</td>"
@@ -618,7 +618,7 @@ def _state_census(projects, ledgers=(), checkin="2026-09-02T09:00Z", home=""):
 
 
 def _sections(text):
-    return re.findall(r"^## (\w+) \((\d+)\)$", text, re.M)
+    return re.findall(r"^### (\w+) \((\d+)\)$", text, re.M)
 
 
 def test_state_md_is_tables_in_status_order_with_counts(skeleton):
@@ -631,7 +631,8 @@ def test_state_md_is_tables_in_status_order_with_counts(skeleton):
     assert "<details>" not in text and "📋" not in text
     assert _cortex.CHECKIN_LABEL not in text and "Recent log" not in text
     assert [line for line in text.splitlines()[4:]
-            if line and not line.startswith(("## ", "|"))] == []
+            if line and not line.startswith(("## ", "### ", "|"))
+            and " running · " not in line] == []
     assert "| Project | Where | Now | Runs | Last update |" in text
     assert "| Project | Where | Note | Last update |" in text
     # a run count where there are runs, `-` where there are none
@@ -1654,3 +1655,94 @@ def test_an_over_long_summary_is_refused_in_the_dry_run(tmp_skeleton, tmp_path):
               "--summary", " ".join(["word"] * 30), "--science-root", str(root),
               "--cortex", str(tmp_skeleton)])
     assert r.returncode == 2 and "--summary is 30 words" in r.stdout
+
+
+# --- science vs development (schema decision 63) --------------------------
+@pytest.mark.parametrize("path, category", [
+    ("/w/Science/active/p", "active"),
+    ("/w/Science/development/q", "development"),
+    ("/w/Science/development/q/", "development"),
+    ("/w/Science/complete/r", "complete"),
+    ("/w/Science/archive/s", "archive"),
+    ("/home/u/Code/some_repo", ""),
+    ("", ""),
+])
+def test_the_category_is_read_from_the_local_path_string(path, category):
+    row = {"local_path": path}
+    assert _cortex.category_of(row) == category
+    assert _cortex.kind_of(row) == ("development" if category == "development"
+                                    else "science")
+
+
+def test_the_category_never_touches_the_filesystem(tmp_path):
+    # no such folder exists: the string alone decides
+    row = {"local_path": str(tmp_path / "nowhere" / "development" / "x")}
+    assert _cortex.category_of(row) == "development"
+
+
+def _with_development(tmp_skeleton):
+    """`single` moves (on paper) into development/, the rest into active/."""
+    yaml = tmp_skeleton / "projects.yaml"
+    text = yaml.read_text(encoding="utf-8")
+    text = text.replace("local_path: /tmp/single", "local_path: /w/Science/development/single")
+    for key in ("example", "sleeping"):
+        text = text.replace(f"local_path: /tmp/{key}", f"local_path: /w/Science/active/{key}")
+    text = text.replace("local_path: /tmp/wound_down", "local_path: /w/Science/complete/wound_down")
+    yaml.write_text(text, encoding="utf-8")
+    return _cortex.census(tmp_skeleton)
+
+
+def test_the_census_carries_a_category_and_per_kind_counts(tmp_skeleton):
+    c = _with_development(tmp_skeleton)
+    got = {d["key"]: d["category"] for d in c["ledgers"]}
+    assert got == {"example": "active", "single": "development",
+                   "wound_down": "complete"}
+    assert c["sections"]["development"] == {"running": 0, "open": 0, "projects": 1}
+    # sleeping counts (dormant), wound_down does not (retired)
+    assert c["sections"]["science"] == {"running": 1, "open": 1, "projects": 2}
+    # the overall counts are untouched
+    assert set(c["counts"]) == {"running", "open", "active", "dormant", "retired"}
+    assert json.loads(json.dumps(c))["ledgers"][0]["category"] == "active"
+
+
+def test_the_board_has_a_science_and_a_development_section(tmp_skeleton):
+    c = _with_development(tmp_skeleton)
+    page = _cortex.render_dashboard(c)
+    head, rest = page.split("## Science", 1)
+    # the overall table stays exactly as it was
+    for row in ("| [Running](#projects) | 1 |", "| [Open](#projects) | 1 |",
+                "| [Active](#active) | 2 |", "| [Dormant](#dormant) | 1 |",
+                "| [Retired](#retired) | 1 |"):
+        assert row in head
+    science, development = rest.split("## Development", 1)
+    assert "| Running | 1 |\n| Open | 1 |\n| Projects | 2 |" in science
+    assert "| Running | 0 |\n| Open | 0 |\n| Projects | 1 |" in development
+    assert 'id="project-example"' in science and 'id="project-single"' not in science
+    assert 'id="project-single"' in development and 'id="project-example"' not in development
+    assert "| sleeping |" in science and "| sleeping |" not in development
+    html = _cortex.render_dashboard_html(c)
+    sci, dev = html.split('<h2 class="kind" id="development">', 1)
+    assert '<h2 class="kind" id="science">' in sci
+    assert 'id="project-example"' in sci and 'id="project-single"' in dev
+    assert 'id="development-active"' in dev and 'id="active"' in sci
+    state = _cortex.render_science_state(c)
+    s_sci, s_dev = state.split("## Development", 1)
+    assert "## Science" in s_sci and "| example |" in s_sci and "| single |" in s_dev
+    assert "0 running · 0 open · 1 projects." in s_dev
+
+
+def test_no_development_row_means_no_development_section(skeleton):
+    c = _cortex.census(skeleton)
+    for page in (_cortex.render_dashboard(c), _cortex.render_science_state(c)):
+        assert "## Science" in page and "## Development" not in page
+
+
+def test_the_category_filter_narrows_the_pull_and_the_checkin(tmp_skeleton):
+    c = _with_development(tmp_skeleton)
+    mod = _cortex.load_cortex(tmp_skeleton)
+    ledgers, _ = mod.load_ledgers(tmp_skeleton)
+    keys, _ = _cortex.checkin_keys(c["projects"], ledgers, [])
+    assert keys == ["example", "single"]
+    assert _cortex.checkin_keys(c["projects"], ledgers, [], "development")[0] == ["single"]
+    assert _cortex.checkin_keys(c["projects"], ledgers, [], "active")[0] == ["example"]
+    assert _cortex.checkin_keys(c["projects"], ledgers, ["example"], "development")[0] == []
