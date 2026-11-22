@@ -25,16 +25,15 @@ from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
+from _shift_fixtures import BATCH, BRAIN, git, tick_posting as _tick
+import _shift_fixtures as sf
+
 MIND_SRC = BRAIN.parent / "PyAutoMind"
 if not (MIND_SRC / "scripts" / "questions_edit.py").is_file():
     MIND_SRC = Path(os.environ.get("PYAUTO_MIND", "/nonexistent"))
 HAVE_MIND = (MIND_SRC / "scripts" / "questions_edit.py").is_file() and shutil.which("git")
 needs_mind = pytest.mark.skipif(not HAVE_MIND, reason="needs git and a PyAutoMind checkout "
                                                       "with scripts/questions_edit.py")
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
 import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _mind_writer as mw  # noqa: E402
@@ -42,8 +41,6 @@ import _orchestrator as orch  # noqa: E402
 import _questions  # noqa: E402
 import _watch  # noqa: E402
 import test_orchestrator_dispatch as d  # noqa: E402
-import _shift_fixtures as sf  # noqa: E402
-from _shift_fixtures import git, tick_posting as _tick  # noqa: E402
 
 NOW = d.NOW
 ISSUE = "https://github.com/example-org/example-mind/issues/4242"
