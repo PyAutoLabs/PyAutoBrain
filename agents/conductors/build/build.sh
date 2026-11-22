@@ -94,7 +94,7 @@ while [[ $# -gt 0 ]]; do
     --rehearsal-run-id=*) rehearsal_run_id="${1#*=}"; shift ;;
     --dry-run) dry_run=1; shift ;;
     --json) json_only=1; shift ;;
-    -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     --) shift; forward=("$@"); break ;;
     -*) echo "build agent: unknown flag '$1'" >&2; exit 5 ;;
     *) if [[ -z "$action" ]]; then action="$1"; else forward+=("$1"); fi; shift ;;
