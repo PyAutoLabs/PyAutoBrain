@@ -48,6 +48,7 @@ from pathlib import Path
 
 import _app_token  # noqa: E402 — the batch conductor puts this directory on sys.path
 import _brief  # noqa: E402
+import _codex  # noqa: E402
 import _digest  # noqa: E402
 import _events  # noqa: E402
 import _login  # noqa: E402 — the CLI login probe
@@ -682,6 +683,59 @@ class RealSpawner:
         return {"pid": 0, "agent_id": m.group(1)}
 
 
+class CodexSpawner(RealSpawner):
+    """Codex execution workers; independent close-outs still use Claude Opus."""
+
+    backend = "codex"
+
+    def __init__(self, brief_path: Path, brief: dict, cwd: Path | None = None, **kw):
+        super().__init__(brief_path, _brief.worker_mode_of(brief), cwd=cwd, **kw)
+        self.model = brief["codex-model"]["value"]
+        self.effort = brief.get("codex-effort", {}).get("value", "medium")
+
+    def login_probe(self):
+        result = _codex.probe()
+        if result["state"] == "ok":
+            review_login = _login.probe()
+            if review_login["state"] not in {"ok", "skipped"}:
+                return {"state": "expired", "backend": "codex", "expires_at": "",
+                        "detail": "Claude login required for independent Opus pre-ship review"}
+        return result
+
+    def spawn(self, task: str, prompt_path: str, lease_dir: Path,
+              redispatch: bool = False, resume: dict | None = None,
+              siblings: list[str] | None = None) -> dict:
+        if self.cwd is None:
+            raise OrchestratorError("Codex requires a resolved workspace root")
+        login = self.login_probe()
+        if login["state"] != "ok":
+            raise OrchestratorError(login["detail"])
+        prompt = worker_prompt(task, prompt_path, self.brief_path, lease_dir,
+                               redispatch, resume, siblings)
+        reviewer = Path(__file__).with_name("_codex_review.py")
+        prompt += ("\nCodex execution worker: use repository skills directly; slash "
+                   "commands name their canonical instruction files. For the required "
+                   "independent pre-ship review (leg 3), run: python3 "
+                   f"{reviewer} --task {task} --repo <each affected task checkout> "
+                   "(repeat --repo for multiple repositories). This starts a fresh "
+                   "Opus reviewer and accounts its usage to this worker. Require "
+                   "CLEAN on the final diff; findings require fixes and a fresh review. "
+                   "Do not use other model calls or subagents; the watcher owns "
+                   "parallelism and the later independent Opus close-out. "
+                   "If permissions or review block completion, queue the question "
+                   "and write the documented question sidecar and .done marker, then stop.\n")
+        env = worker_env(lease_dir)
+        _ensure_kick_dir(env)
+        home = Path(lease_dir).parent.parent
+        # The existing worktree root is writable alongside the workspace root.
+        from _pyauto_root import pyauto_wt_root
+        return _codex.launch(prompt, home=home, cwd=self.cwd,
+                             write_root=pyauto_wt_root(), model=self.model,
+                             effort=self.effort, mode=self.mode, env=env,
+                             scope=lambda argv: scope_command(argv, task, env),
+                             lease_path=Path(lease_dir) / f"{task}.json")
+
+
 def default_spawner(brief_path: Path, brief: dict):
     if os.environ.get(FAKE_ENV) == "1":
         return FakeSpawner()
@@ -692,6 +746,8 @@ def default_spawner(brief_path: Path, brief: dict):
         cwd = pyauto_root()
     except Exception:
         cwd = None
+    if _brief.backend_of(brief) == "codex":
+        return CodexSpawner(brief_path, brief, cwd=cwd)
     return RealSpawner(brief_path, _brief.worker_mode_of(brief), cwd=cwd)
 
 
@@ -705,7 +761,8 @@ class AgentsView:
     *unknown* (`known()` is False) — never an empty list, which would declare
     every worker gone."""
 
-    def __init__(self, sessions: list[dict] | None = None, run=None):
+    def __init__(self, sessions: list[dict] | None = None, run=None, home: Path | None = None):
+        self.home = home or orchestrator_home()
         self._sessions, self._run = sessions, run or subprocess.run
         self._failed = False
 
@@ -728,6 +785,11 @@ class AgentsView:
         """Whether this tick's read says anything at all about the workers."""
         return self._load() is not None
 
+    def known_for(self, agent_id: str) -> bool:
+        if agent_id.startswith(_codex.PREFIX):
+            return _codex.state(agent_id, self.home) is not None
+        return self.known()
+
     def _find(self, agent_id: str) -> dict | None:
         return next((s for s in self._load() or [] if s.get("id") == agent_id), None)
 
@@ -735,11 +797,15 @@ class AgentsView:
         """The CLI's state word — `working` while it runs, `blocked` waiting on
         a person, `done` — or None if unlisted. Anything but `blocked` / `done`
         / None is read as alive."""
+        if agent_id.startswith(_codex.PREFIX):
+            return _codex.state(agent_id, self.home)
         s = self._find(agent_id)
         return None if s is None else (s.get("state") or "running")
 
     def session_of(self, agent_id: str) -> str | None:
         """The full session id — what the transcript file is named by."""
+        if agent_id.startswith(_codex.PREFIX):
+            return agent_id
         s = self._find(agent_id)
         return s.get("sessionId") if s else None
 
@@ -840,6 +906,8 @@ def transcript_usage(session_id: str, root: Path | None = None) -> dict | None:
     `<sid>/subagents/agent-*.jsonl`; they are included, deduped the same way,
     and `subagents` reports their share of `total`. None when there is no
     transcript or one cannot be read — never 0."""
+    if session_id.startswith(_codex.PREFIX):
+        return _codex.usage(session_id, root or orchestrator_home())
     root = root or Path.home() / ".claude" / "projects"
     main = list(root.glob(f"*/{session_id}.jsonl"))
     subs = list(root.glob(f"*/{session_id}/subagents/agent-*.jsonl"))
@@ -1114,13 +1182,32 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
     """
     events = []
     lease_dir = slot / "leases"
-    agents = agents or AgentsView()
+    agents = agents or AgentsView(home=slot.parent)
     known = None  # read lazily: a slot of fake workers never calls `claude agents`
+    unknown_reported = set()
     for task, lease in leases(slot).items():
         done_marker = lease_dir / f"{task}.done"
         path = lease_dir / f"{task}.json"
         real = bool(lease.get("agent_id")) and not lease.get("pid")
         parked = lease.get("state") == "parked"
+        if lease.get("backend") == "codex" and lease.get("agent_id") not in counters["usage"]:
+            # Recover a watcher killed after the pre-spawn identity write but
+            # before its post-spawn counters commit. The usage key is the
+            # idempotency key for all attempt accounting, including late reap.
+            launch = lease.get("launch") or {}
+            key = lease["agent_id"]
+            counters["usage"][key] = {"kind": "worker", "task": task, "total": None,
+                                       "reserve": launch.get("reserve", 0)}
+            counters["sessions"] += 1
+            if launch.get("pick"):
+                counters["picks"][task] = launch["pick"]
+            if launch.get("redispatch"):
+                if task in counters["pending_redispatch"]:
+                    counters["pending_redispatch"].remove(task)
+                counters["redispatched"][task] = counters["redispatched"].get(task, 0) + 1
+            if launch.get("released"):
+                _spawned_release(counters, task, now)
+            _write_counters(slot, counters)
         rec = worker_record(counters, _worker_key(lease, task), task, lease.get("started"))
 
         def mark(word, rec=rec):
@@ -1129,13 +1216,19 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             _exit(rec, word)
         state = None
         if real:
-            if known is None:
+            known_for = getattr(agents, "known_for", None)
+            if known_for is not None:
+                known = known_for(lease["agent_id"])
+            elif known is None:
                 known = _liveness_known(agents)
-                if not known:
-                    events.append({"event": "liveness-unknown",
-                                   "why": "the `claude agents` read failed — "
-                                          "no liveness decision this tick"})
             if not known:
+                backend = "codex" if lease["agent_id"].startswith(_codex.PREFIX) else "claude"
+                if backend not in unknown_reported:
+                    events.append({"event": "liveness-unknown",
+                                   "why": ("the Codex session state read failed — "
+                                           if backend == "codex" else "the `claude agents` read failed — ")
+                                          + "no liveness decision this tick"})
+                    unknown_reported.add(backend)
                 # No liveness decision, but the usage still counts: a known
                 # transcript is read; without one the session is unavailable.
                 _measure(counters, lease["agent_id"], lease.get("session_id"), tokens,
@@ -1393,6 +1486,9 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
     now = now or _now()
     brief_path = Path(brief_path)
     slot = slot_dir(brief_path, home)
+    if tokens is transcript_usage:
+        tokens = lambda sid: (transcript_usage(sid, root=slot.parent)
+                              if sid.startswith(_codex.PREFIX) else transcript_usage(sid))
 
     # The kill switch is the FIRST read: nothing else is touched while it exists.
     if (slot / STOP_FILE).exists():
@@ -2101,7 +2197,7 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     """The tick under its lock, then the live status: one `claude agents` view
     and one set of `gh pr checks` reads serve both."""
     shift = shift or {}
-    agents = agents or AgentsView()
+    agents = agents or AgentsView(home=slot.parent)
     health = _TickHealth(health)
     out = _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents, tokens,
                      health, pr_state, poster=poster, shift=shift,
@@ -2389,6 +2485,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                  "heartbeat": _iso(now),
                  "expires": _iso(now + _dt.timedelta(seconds=grace_s)),
                  "pid": 0, "session_id": None, "worktree": None}
+        if getattr(spawner, "backend", None) == "codex":
+            lease["launch"] = {"reserve": reserve, "pick": pick_record(member, brief),
+                               "redispatch": redo, "released": bool(released)}
         if (shift or {}).get("issue"):
             # Where a worker blocked past the grace is filed in the inbox.
             lease["shift_issue"] = shift["issue"]
@@ -2472,7 +2571,7 @@ def _login_hold(counters: dict, spawner, members: list[dict], live: dict,
     wanted = any(task_id(m["path"]) not in held for m in members)
     if not (blocked or (wanted and last.get("state") != "ok")):
         return last if last.get("state") == "expired" else None
-    res = (probe or _login.probe)()
+    res = (probe or getattr(spawner, "login_probe", None) or _login.probe)()
     if res.get("state") == "skipped":
         return None
     rec = {**res, "at": _iso(now)}
@@ -3171,8 +3270,13 @@ def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict
         return f"ignored: {task}'s worker {key} is already stopping (/kill at {old.get('at')})"
     # A crash between this stop and the counters write leaves the comment
     # unseen: the next tick stops the same agent id again, at most — never another session.
-    ok, why = (ctx.get("stop") or claude_stop)(agent)
+    codex = agent.startswith(_codex.PREFIX)
+    stop = ctx.get("stop") or ((lambda sid: _codex.stop(sid, slot.parent))
+                               if codex else claude_stop)
+    ok, why = stop(agent)
     if not ok:
+        if codex:
+            return f"refused: Codex stop failed: {why[:160]}"
         return (f"refused: claude stop failed: {why[:160]}. Stop it by hand: "
                 f"claude stop {agent}")
     counters.setdefault("killed", {})[task] = {"by": who, "at": at, "key": key}
@@ -3184,7 +3288,7 @@ def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict
         tail = "It is not restarted: its one retry is spent."
     else:
         tail = f"It is restarted once, unless you /drop {task}."
-    return f"stopping {task}'s worker {key} (claude stop). {tail}"
+    return f"stopping {task}'s worker {key} ({'Codex supervisor' if codex else 'claude stop'}). {tail}"
 
 
 # --- the shift-end cloud sweep --------------------------------------------------------
@@ -3613,7 +3717,7 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     runs while one is out."""
     counters = read_counters(slot)
     counters["usage_unavailable"] = []
-    agents = agents or AgentsView()
+    agents = agents or AgentsView(home=slot.parent)
     reaped = _reap(slot, counters, now, grace_s, agents, tokens, late=True)
     closed = reap_closeouts(slot, counters, now, agents, pr_state, tokens, late=True)
     counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
@@ -3848,7 +3952,7 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     brief, top = rec["brief"] or {}, rec["top"]
     counters = read_counters(slot)
     counters["usage_unavailable"] = []
-    agents = agents or AgentsView()   # one `claude agents` read serves the closing status
+    agents = agents or AgentsView(home=slot.parent)   # one `claude agents` read serves the closing status
     _reap(slot, counters, now, grace_s, agents, tokens)
     # A close-out that ended since the last tick lands in this digest; one
     # still out is reaped by the late sweep.
@@ -4078,7 +4182,7 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
     stage-2 row. `late` marks the events as after `review-at:`."""
     events = {"merged": [], "refused": []}
     lease_dir = slot / "leases"
-    agents = agents or AgentsView()
+    agents = agents or AgentsView(home=slot.parent)
     known = None
 
     for pr, co in counters["closeouts"].items():

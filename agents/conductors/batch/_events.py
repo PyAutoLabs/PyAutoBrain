@@ -419,7 +419,8 @@ def _login_expired(b: _Batch, result: dict) -> None:
         return
     since = login.get("since") or login.get("at") or b.now.isoformat()
     b.add("login-expired", f"login-expired:{since}",
-          _login.EXPIRED_LINE + ". No worker starts until it passes.", needs_you=True)
+          (login.get("detail", "Codex login required") if login.get("backend") == "codex"
+           else _login.EXPIRED_LINE) + ". No worker starts until it passes.", needs_you=True)
 
 
 def _late(b: _Batch, result: dict) -> None:

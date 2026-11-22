@@ -1575,10 +1575,20 @@ def login_findings(top: dict, brief: dict | None) -> tuple[dict, list[str], list
     shadow brief starts no worker and is not probed."""
     if brief is None or _brief.is_shadow(brief):
         return {"state": "skipped", "detail": "shadow shift", "expires_at": ""}, [], []
-    login = _login.probe()
+    if _brief.backend_of(brief) == "codex":
+        import _codex
+        login = _codex.probe()
+        # Even merge-cap: 0 requires the independent Opus pre-ship review.
+        if login["state"] == "ok":
+            review_login = _login.probe()
+            if review_login["state"] not in {"ok", "skipped"}:
+                return login, ["review login: independent Opus pre-ship review requires a verified Claude login"], []
+    else:
+        login = _login.probe()
     errors, warnings = [], []
     if login["state"] == "expired":
-        errors.append(f"login: {_login.EXPIRED_LINE} ({login['detail']})")
+        errors.append(f"login: {login['detail']}" if _brief.backend_of(brief) == "codex"
+                      else f"login: {_login.EXPIRED_LINE} ({login['detail']})")
     elif login["state"] == "unknown":
         warnings.append(f"login: could not tell whether the CLI login holds "
                         f"({login['detail']})")

@@ -88,6 +88,7 @@ example
 
 agent_failure_modes
 codex_usage
+codex_orchestrator
 agent_reference
 context_efficiency
 agent_harness_smoke
