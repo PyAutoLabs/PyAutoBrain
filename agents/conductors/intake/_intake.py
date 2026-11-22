@@ -53,7 +53,7 @@ from _sizing import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "faculties" / "memory"))
 import _memory  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _repo_paths import repo_path  # noqa: E402
+from _repo_paths import manifest_field, repo_path  # noqa: E402
 
 # The shared board theme: the one place that answers "what does a one-tap board
 # look like". Presentation only — the stylesheet, the hero, the pills — so this
@@ -1862,12 +1862,10 @@ def _mind_home(mind: Path) -> str:
     f = mind / "repos.yaml"
     if not f.is_file():
         return ""
-    # `github:` may follow other keys of the entry (`path:`) — scan the whole
-    # indented block, not just line one.
-    m = re.search(r"^\s{2}PyAutoMind:[ \t]*\n(?:[ \t]{4,}.*\n)*?[ \t]{4,}github:"
-                  r"[ \t]*([^\s#]+)",
-                  f.read_text(encoding="utf-8", errors="replace"), re.M)
-    return f"https://github.com/{m.group(1)}" if m else ""
+    raw = manifest_field(f.read_text(encoding="utf-8", errors="replace"),
+                         "github").get("PyAutoMind", "")
+    m = re.match(r"[^\s#]+", raw)
+    return f"https://github.com/{m.group(0)}" if m else ""
 
 
 # The dev batch record's member grammar — duplicated from

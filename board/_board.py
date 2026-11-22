@@ -40,7 +40,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 # looked in the wrong tree.
 sys.path.insert(0, str(BRAIN_HOME / "agents"))
 import _pyauto_root  # noqa: E402
-from _repo_paths import repo_path  # noqa: E402
+from _repo_paths import majority_owner, manifest_homes, repo_path  # noqa: E402
 
 PYAUTO_ROOT, ROOT_REASON = _pyauto_root.workspace_root_reason()
 GH = os.environ.get("BOARD_GH", "gh")
@@ -77,17 +77,15 @@ def repo_homes():
     body_map = repo_path(PYAUTO_ROOT, "PyAutoMind") / "repos.yaml"
     if not body_map.is_file():
         return []
-    return re.findall(
-        r"^\s+github:\s*(\S+)\s*$", body_map.read_text(encoding="utf-8"), re.M
-    )
+    return manifest_homes(body_map.read_text(encoding="utf-8"))
 
 
 def derive_org(homes):
     """The organism's GitHub org = the most common owner in the body map;
     falls back to the Brain checkout's own remote when the Mind is absent."""
-    owners = [h.split("/")[0] for h in homes if "/" in h]
-    if owners:
-        return max(set(owners), key=owners.count)
+    owner = majority_owner(homes)
+    if owner:
+        return owner
     try:
         r = subprocess.run(
             ["git", "-C", str(BRAIN_HOME), "remote", "get-url", "origin"],

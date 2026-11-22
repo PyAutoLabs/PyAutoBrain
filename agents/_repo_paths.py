@@ -33,6 +33,74 @@ def _placement(name: str, value: str) -> Path:
     return Path(*path.parts)
 
 
+_REPOS_KEY = re.compile(r'repos:\s*(?:#.*)?')
+_REPO_KEY = re.compile(r'  ([A-Za-z0-9_.-]+):\s*(?:#.*)?')
+_FIELD = re.compile(r'    ([A-Za-z0-9_]+)\s*:(.*)')
+
+
+def manifest_entries(text: str):
+    """Walk the body map's `repos:` block: yield `(repo, None, None)` for each
+    two-space repo key and `(repo, field, raw)` for each four-space field.
+
+    The one stdlib reader of `repos.yaml`, so it works before PyYAML is
+    installed. Blank and comment lines are skipped; the next top-level key
+    ends the block. `raw` is the text after the field's colon, stripped and
+    otherwise verbatim (quotes and any trailing comment included): each
+    caller decides what a value means.
+    """
+    active = False
+    current = None
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        if not line.startswith(' '):
+            if active:
+                return
+            active = bool(_REPOS_KEY.fullmatch(line))
+            continue
+        if not active:
+            continue
+        match = _REPO_KEY.fullmatch(line)
+        if match:
+            current = match[1]
+            yield current, None, None
+            continue
+        match = _FIELD.fullmatch(line)
+        if current and match:
+            yield current, match[1], match[2].strip()
+
+
+def manifest_repos(text: str) -> list[str]:
+    """Every repo key of the `repos:` block, in file order (repeats kept)."""
+    return [repo for repo, field, _raw in manifest_entries(text) if field is None]
+
+
+def manifest_field(text: str, key: str) -> dict[str, str]:
+    """`{repo: raw value}` of one four-space field, in file order; a repo
+    without the field is absent."""
+    return {repo: raw for repo, field, raw in manifest_entries(text) if field == key}
+
+
+def manifest_homes(text: str) -> list[str]:
+    """Every repo's `github:` home (`owner/name`), in file order; a value with
+    a space in it (a trailing comment) is not a home."""
+    return [raw for raw in manifest_field(text, 'github').values()
+            if re.fullmatch(r'\S+', raw)]
+
+
+def majority_owner(homes: list[str]) -> str | None:
+    """The GitHub owner most homes share — the organism's org — or None."""
+    owners = [h.split('/')[0] for h in homes if '/' in h]
+    return max(set(owners), key=owners.count) if owners else None
+
+
+def manifest_text(root: Path) -> str:
+    """The body map's text from the PyAutoMind checkout under `root`, `''`
+    when it is not on disk."""
+    manifest = bootstrap_repo_path(Path(root), 'PyAutoMind') / 'repos.yaml'
+    return manifest.read_text() if manifest.is_file() else ''
+
+
 def manifest_paths(root: Path) -> dict[str, Path]:
     """Read only identity and placement from the body's simple YAML mapping.
 
@@ -40,29 +108,14 @@ def manifest_paths(root: Path) -> dict[str, Path]:
     two/four-space mapping grammar, including quoted path scalars, and validate
     every explicit placement. Other metadata is deliberately not interpreted.
     """
-    manifest = bootstrap_repo_path(Path(root), 'PyAutoMind') / 'repos.yaml'
-    if not manifest.is_file():
-        return {}
     paths: dict[str, Path] = {}
-    active = False
-    current = None
-    for line in manifest.read_text().splitlines():
-        if line.strip() == 'repos:':
-            active = True
-            continue
-        if not active or not line.strip() or line.lstrip().startswith('#'):
-            continue
-        if not line.startswith(' '):
-            break
-        match = re.fullmatch(r'  ([A-Za-z0-9_.-]+):\s*(?:#.*)?', line)
-        if match:
-            current = _name(match[1])
+    for current, field, raw in manifest_entries(manifest_text(root)):
+        if field is None:
+            current = _name(current)
             if current in paths:
                 raise ValueError(f'duplicate repository identity: {current}')
             paths[current] = Path(current)
-            continue
-        if current and re.match(r'    path\s*:', line):
-            raw = line.split(':', 1)[1].strip()
+        elif field == 'path':
             if raw.startswith(('"', "'")):
                 quote = raw[0]
                 end = raw.find(quote, 1)
@@ -174,25 +227,8 @@ def package_paths(root: Path) -> list[Path]:
     """Import roots for packages declared by the body map, in manifest order."""
     root = Path(root)
     declared = manifest_paths(root)
-    manifest = bootstrap_repo_path(root, 'PyAutoMind') / 'repos.yaml'
-    if not manifest.is_file():
-        return []
-    names = []
-    current = None
-    active = False
-    for line in manifest.read_text().splitlines():
-        if line.strip() == 'repos:':
-            active = True
-            continue
-        if not active or not line.strip() or line.lstrip().startswith('#'):
-            continue
-        if not line.startswith(' '):
-            break
-        match = re.fullmatch(r'  ([A-Za-z0-9_.-]+):\s*(?:#.*)?', line)
-        if match:
-            current = match[1]
-        elif current in declared and re.match(r'    package:\s*\S+', line):
-            names.append(current)
+    names = [name for name, raw in manifest_field(manifest_text(root), 'package').items()
+             if name in declared and raw]
     return [repo_path(root, name) for name in names]
 
 
