@@ -46,7 +46,7 @@ as_json=0
 forward=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     --check-health) check_health=1; shift ;;
     --json) as_json=1; shift ;;
     *) forward+=("$1"); shift ;;
