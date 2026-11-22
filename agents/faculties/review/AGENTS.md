@@ -40,7 +40,7 @@ produced by the reviewing agent (the session or subagent consulting this
 faculty) following the procedure below — mirroring how vitals' script reads
 Heart and the agent reasons over the verdict.
 
-1. `review.sh` (→ `_review.py`, stdlib-only) resolves the task worktree —
+1. `_review.py` (stdlib-only; `pyauto-brain review` runs it) resolves the task worktree —
    or, for an in-place task with no worktree, the checkouts its `active.md`
    `- repos:` block claims — or explicit repo paths and emits, per repo: merge-base against `origin/main`, commits
    ahead, diff stat, changed files, and risk flags (public-API-shaped paths,
