@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""bin/merge_mode.py — one prompt's effective level and merge mode, one line
-(PyAutoBrain#661).
+"""bin/merge_mode.py — one prompt's effective level and merge mode, one line.
 
     pyauto-brain merge-mode <prompt> [--auto] [--in-shift] [--mind <root>]
 
@@ -8,13 +7,13 @@ prints exactly
 
     effective level: <level>; merge mode: <mode>
 
-WHY. Shift 2026-11-16-pm: two workers on the same `bug · safe · notify`
-header did opposite things — one stopped at decide-and-flag because the `bug`
-cap lowered it to `supervised`, the other merged in-turn. `start_dev` step 3
-prints this line before work starts, so a worker and a reader see the same
-answer. The level is `_sizing.effective_autonomy` (`min(header, cap)`); the
-mode is `_sizing.merge_mode` (AUTONOMY.md "Merge authority follows
-Consequence — 2026-10-02" and ruling R3 of 2026-11-17). Read-only.
+WHY. Two workers reading the same `bug · safe · notify` header can do opposite
+things — one stopping at decide-and-flag because the `bug` cap lowers it to
+`supervised`, the other merging in-turn. `start_dev` step 3 prints this line
+before work starts, so a worker and a reader see the same answer. The level is
+`_sizing.effective_autonomy` (`min(header, cap)`); the mode is
+`_sizing.merge_mode` (AUTONOMY.md "Merge authority follows Consequence").
+Read-only.
 
 `--auto` is an explicit `--auto` launch; `--in-shift` a shift worker (a shift
 is an `--auto` launch, and its merges first take a merge slot).

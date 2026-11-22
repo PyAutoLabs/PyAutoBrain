@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """Which repos the org-wide branch sweep may touch — derived, never listed.
 
-The obvious implementation is a file listing the repos. It was written that
-way first, and the tenant firewall rejected it: the framework organs must stay
-adoptable as a config-diff fork, so instance facts (repo names, GitHub owners)
-may not appear in Brain code outside the declared config surfaces. A hardcoded
-list of `<owner>/<repo>` slugs is precisely that leak — and because the
-firewall only scans `.py` and `.sh`, putting the list in a `.txt` did not make
-it clean, it only made it invisible. (Nor is prose exempt: the firewall reads
-comments too, and rightly — a docstring naming satellite repos is still
-something an adopting fork has to rewrite.)
+A file listing the repos would be the obvious implementation, and the tenant
+firewall forbids it: the framework organs must stay adoptable as a config-diff
+fork, so instance facts (repo names, GitHub owners) may not appear in Brain
+code outside the declared config surfaces — comments and docstrings included,
+and a `.txt` list would only hide the leak from the scanner.
 
-The hygiene conductor already had the answer, recorded in the firewall
-allowlist next to the entry it deleted: *"derives its repo sets from the body
-map, so it names no instance fact at all."* Same here. Policy is expressed as
-**categories**, which every organism has; the repos filling them are whatever
-that organism's body map says.
+So policy is expressed as **categories**, which every organism has; the repos
+filling them are whatever that organism's body map says.
 
 The two exclusions fall out of the categories rather than needing names:
 
@@ -34,12 +27,11 @@ naming them here is not an instance fact.
 
 ## The second consumer reads the body map for its *complement*
 
-`repo_settings.yml` turns on "delete the head branch on merge". It used to take
-a widened version of the set above, and that was wrong in a way the category
-boundary cannot fix: a repo is created *before* anyone registers it in the body
-map, so a body-map-derived sweep is structurally blind to exactly the repos
-that most need the setting. It now enumerates the organisation from the GitHub
-API instead, where a new repo appears the moment it exists.
+`repo_settings.yml` turns on "delete the head branch on merge". A repo is
+created *before* anyone registers it in the body map, so a body-map-derived
+set is structurally blind to exactly the repos that most need the setting. It
+therefore enumerates the organisation from the GitHub API, where a new repo
+appears the moment it exists.
 
 What that enumeration *cannot* see is a body-map repo under some other owner.
 `--outside-owner <owner>` yields those, and only those — the complement of the

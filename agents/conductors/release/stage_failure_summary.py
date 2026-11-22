@@ -6,8 +6,7 @@ names the failures, so this reads the stage report the run produced and prints a
 single line; printing nothing (exit 0) means "no report, or nothing nameable" and
 the caller pages without detail.
 
-The report separates two kinds of failure, and conflating them is what made the
-old inline version misread:
+The report separates two kinds of failure, which must not be conflated:
 
 * ``summary`` counts SCRIPTS — ``{"failed": 1, "passed": 654, "timeout": 0, …}``.
 * ``failures`` lists script failures (each with a ``project``) AND non-script
@@ -15,10 +14,9 @@ old inline version misread:
   ``{"project": null, "script": "verify_install", "reason": "verify_install FAILED"}``.
 
 A non-script leg is NOT in ``summary.failed``, so listing it beside the scripts
-produced "1 failed: <two things>" — a count that reads as a bug in the reporter
-— and ``f"{f['project']} …"`` stringified the null as a literal "None"
-("None verify_install", 2026-08-04). Both kinds are worth paging, so neither is
-dropped; they are reported as separate segments instead.
+would print a count that disagrees with its own list, and its null project
+would stringify as "None". Both kinds are worth paging, so neither is dropped;
+they are reported as separate segments.
 
 Usage: stage_failure_summary.py <stage_report.json>
 """

@@ -248,7 +248,7 @@ def re_home_check(p: dict) -> str | None:
     author already answered this question, and prose is the weaker signal (a bug
     report legitimately says "refactor", "documentation" or "design decision"
     while describing a defect). Same family as the difficulty leg — derive from
-    prose, but never over a declared header key (PyAutoBrain#217, #274).
+    prose, but never over a declared header key.
     """
     wt = p["work_type"]
     if wt != "bug":

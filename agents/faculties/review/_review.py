@@ -33,8 +33,8 @@ from _repo_paths import iter_checkouts, repo_path  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
 
-# The one public-name check (PyAutoBrain#641), shared with the close-out and
-# the tiered merge; it lives beside ci_verdict.py in bin/.
+# The one public-name check, shared with the close-out and the tiered merge;
+# it lives beside ci_verdict.py in bin/.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
 import public_names  # noqa: E402
 
@@ -140,9 +140,8 @@ def repo_surface(repo: Path) -> dict | None:
 
 def public_name_delta(repo: Path, base: str) -> dict | None:
     """The public-name delta of a library repo's branch (AUTONOMY.md
-    "Public-name narrowing of `glance` — 2026-11-16"): added and renamed
-    names send the merge to a human `/prm`. None for a repo the ruling does
-    not cover."""
+    "Public-name narrowing of `glance`"): added and renamed names send the
+    merge to a human `/prm`. None for a repo the ruling does not cover."""
     v = public_names.for_range(repo, f"{base}..HEAD")
     if v.get("not_library"):
         return None

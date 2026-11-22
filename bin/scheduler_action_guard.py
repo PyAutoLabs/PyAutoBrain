@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash) gate: no raw scheduler mutations outside a project's `hpc/sync`.
 
-Motivation (hpc-campaign phase 5c, ruling F12): an agent that types
-``ssh ral "scancel 413011"`` or ``sbatch --array=0-99 job.sh`` changes a shared
-cluster queue with no record of who asked, why, or what came of it — and one
-CPU array on the wrong partition has already idled all eight RAL A100s
-(2026-09-30). A project's own ``hpc/sync`` is the one place the queue is
-changed, and it writes the record:
+Motivation: an agent that types ``ssh ral "scancel 413011"`` or
+``sbatch --array=0-99 job.sh`` changes a shared cluster queue with no record
+of who asked, why, or what came of it — and one CPU array on the wrong
+partition can idle every GPU on the cluster. A project's own ``hpc/sync`` is
+the one place the queue is changed, and it writes the record:
 
   - ``hpc/sync act <submit|resubmit|hold|release|throttle|update-pending|cancel>
     <campaign> …`` is the only way a campaign's jobs start or change, a pilot
@@ -51,7 +50,7 @@ import re
 import shlex
 import sys
 
-#: `srun`/`salloc` start work too: a job step, or an allocation (human ruling 2026-10-31).
+#: `srun`/`salloc` start work too: a job step, or an allocation.
 #: Only the command an agent types is judged, so `srun` inside a batch script is untouched.
 MUTATING = frozenset({"sbatch", "scancel", "srun", "salloc"})
 #: Options with which a MUTATING word only reads: help, usage, version, and

@@ -17,8 +17,7 @@ whose fetch FAILED — the driver must never disguise an error as an empty
 list); prints a verdict JSON ``{"active": bool, "counts": {repo: n},
 "excluded": n, "fetched": n, "fetch_errors": n, "all_failed": bool,
 "summary": str}``. A fetch error is not a quiet repo: ``all_failed`` tells the
-driver it could not see GitHub at all (page, never skip — the 2026-07-10
-incidents on PyAutoBrain#67).
+driver it could not see GitHub at all (page, never skip).
 """
 
 from __future__ import annotations
@@ -43,8 +42,7 @@ RELEASE_RELEVANT_REPOS: tuple[str, ...] = tuple(_release_policy()["relevant_repo
 
 
 # Pipeline self-commit contract (design §4) — a release must never count as
-# the next night's activity. Post-#118/#120 the pipeline no longer stamps
-# versions into the libraries, so its only main commits are notebook
+# the next night's activity. The pipeline's only main commits are notebook
 # regeneration / Colab URL bumps / the assistant API baseline, all made with
 # the git identity release.yml configures and messaged "Release <version>: …".
 # Both signals are pipeline-controlled; tests pin them so drift is caught.
@@ -55,7 +53,7 @@ RELEASE_MESSAGE_RE = re.compile(r"^Release \d{4}\.")
 # The activity-window anchor format (the NIGHTLY_LAST_WINDOW_END variable and
 # the `since=` parameter of the commits API). Anything else — an API error
 # body, an empty read, trailing garbage — must stop the night as a driver
-# error instead of poisoning the fetch (PyAutoBrain#67, hole 2).
+# error instead of poisoning the fetch.
 ANCHOR_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 

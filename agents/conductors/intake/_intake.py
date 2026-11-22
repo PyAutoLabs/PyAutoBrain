@@ -2065,16 +2065,13 @@ def _task_row(summary: str, payload: str) -> str:
     """One task as a single collapsed row: `▸ 📋 <task text>`.
 
     The page is read on GitHub (often a phone), where the only clipboard
-    affordance static markdown can offer is the copy button GitHub renders on
-    fenced code blocks. So every task row is a `<details>` whose summary IS
-    the task line — the 📋 toggle sits at the left of the text, costing no
-    extra line and no repeated label — and whose hidden body is the fenced
-    message that routes the assistant to the task: tap the row, tap copy, paste into
-    an AI assistant chat. The blank lines around the fence and after
-    `</details>` are what make GitHub's renderer treat the fence as markdown
-    and the next row as a new element rather than raw HTML — do not remove
-    them. The summary is HTML (see `_summary_label`); markdown would not
-    render there.
+    affordance static markdown offers is the copy button on fenced code
+    blocks. So every task row is a `<details>` whose summary IS the task line
+    and whose hidden body is the fenced message that routes the assistant to
+    the task. The blank lines around the fence and after `</details>` are
+    what make GitHub's renderer treat the fence as markdown and the next row
+    as a new element rather than raw HTML — do not remove them. The summary
+    is HTML (see `_summary_label`); markdown would not render there.
     """
     return "\n".join([f"<details><summary>📋 {summary}</summary>",
                       "",
@@ -2254,13 +2251,10 @@ def render_dashboard(c: dict) -> str:
 
     Tasks only, by design: no readiness verdicts, no test state — that is the
     Heart's dashboard (`/health`). Two rules shape the layout: it must be
-    *pickable* (the top of the page answers "what should I do now?", not "how
-    many prompts are there?"), and it must read on a phone (rows over wide
-    tables, long sections behind `<details>`, and every task a single
-    collapsed row whose 📋 toggle hides its copy block, so picking one from a
-    phone is copy → paste into an AI assistant chat, not retyping a path — see
-    `_task_row`). Links are repo-root-relative so they resolve from the
-    page's GitHub blob URL.
+    *pickable* (the top of the page answers "what should I do now?"), and it
+    must read on a phone (rows over wide tables, long sections behind
+    `<details>`, every task one collapsed copy row — see `_task_row`). Links
+    are repo-root-relative so they resolve from the page's GitHub blob URL.
     """
     records = sorted(c["records"], key=_pick_key)
     L = [
@@ -2722,12 +2716,11 @@ def _question_row(c: dict, e: dict, link) -> str:
 def _autopilot_html(c: dict, link, h2) -> list:
     """The read-only Autopilot block, straight above Start here.
 
-    One plain `<h2>` section, so the shared `section_layout` folds it into the
-    same closed `details.board-section` as every other section, with one badge
-    (`_autopilot_reading`, passed as its summary; the nav card shows the same
-    reading's count, and opens it as every card opens its section). Inside,
-    four sub-parts in Start here's conventions — an `<h3>` with a `facets` note, ordinary `.task` rows
-    with their 📋, a muted parenthesised line when empty:
+    One plain `<h2>` section, so the shared `section_layout` folds it like
+    every other section, with one badge (`_autopilot_reading`, passed as its
+    summary; the nav card shows the same reading's count). Inside, four
+    sub-parts in Start here's conventions — an `<h3>` with a `facets` note,
+    ordinary `.task` rows with their 📋, a muted parenthesised line when empty:
 
     - Goals, from `goals.md`, as a plain list (goals carry no action);
     - Queue, from `queue.md` via the planner's `read_queue`, each row with its
@@ -2799,12 +2792,11 @@ def render_dashboard_html(c: dict) -> str:
     Same content as `render_dashboard`, different constraint: this page is
     served by GitHub Pages (see PyAutoMind's `pages_dashboard.yml`), so it may
     carry the JavaScript that GitHub's markdown rendering strips — a real
-    copy-to-clipboard button per task, which the markdown page cannot have (in
-    the GitHub mobile app fenced blocks offer no copy affordance at all). Links
-    are absolute (from the census `home`) because Pages serves this file away
-    from the repo blobs; with no home they fall back to relative paths. The
-    Hygiene section stays markdown-only — this page exists to pick from, not
-    to audit. Self-contained by design: inline CSS/JS, no external assets.
+    copy-to-clipboard button per task. Links are absolute (from the census
+    `home`) because Pages serves this file away from the repo blobs; with no
+    home they fall back to relative paths. The Hygiene section stays
+    markdown-only — this page exists to pick from, not to audit.
+    Self-contained by design: inline CSS/JS, no external assets.
     """
     records = sorted(c["records"], key=_pick_key)
     home = c.get("home", "")
@@ -4127,11 +4119,9 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
         #    ALREADY PRESENT in the target repo's source. This is the only leg
         #    that can see a prompt with no Mind-side trace at all.
         #
-        #    It deliberately does NOT add to `score`. Presence of a name is not
-        #    presence of the fix, and letting upstream hits feed `score` would
-        #    carry an unshipped prompt into the `high` band. So upstream
-        #    evidence gets its own weaker band and its own ordering key, and
-        #    can never inflate a Mind-local verdict.
+        #    It deliberately does NOT add to `score` (presence of a name is
+        #    not presence of the fix): upstream evidence gets its own weaker
+        #    band and ordering key, and can never inflate a Mind-local verdict.
         upstream_score = 0.0
         if source_reader is not None:
             all_ids = {i for i in _idents(prompt_text)

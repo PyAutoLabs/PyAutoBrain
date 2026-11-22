@@ -10,8 +10,7 @@ The Heart already measures CI cost and publishes it, machine-readable, as the
 * ``unit.tests``  — the slowest unit tests per library, from the test gates;
 * ``gates``       — every workflow's wall-clock distribution (median / max).
 
-Until now the only consumer was a human reading the ⏱ section. This helper is
-the conductor's read of the same surface: it fetches the board once, ranks the
+This helper is the conductor's read of that surface: it fetches the board once, ranks the
 three lanes, folds the python legs of a script into ONE candidate (the slowest
 leg is the cost the gate pays; both legs run in parallel so the gate waits for
 the slower), and emits a ranked worklist — each item carrying the evidence a

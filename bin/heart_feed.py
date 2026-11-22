@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """bin/heart_feed.py — the Heart at the door (read-only, fast).
 
-WHY. The Heart gate used to be consulted only at ship time, so a session could
-plan and build a whole branch on top of a RED organism and only learn it at the
-end. The human's rule is "fix Heart before development"; this helper is what
-`start_dev` / `route` run FIRST (step 0a "Heart at the door")
-so the verdict is on screen before any plan is made.
+WHY. Consulted only at ship time, the Heart gate lets a session plan and build
+a whole branch on top of a RED organism. The rule is "fix Heart before
+development"; this helper is what `start_dev` / `route` run FIRST (step 0a
+"Heart at the door") so the verdict is on screen before any plan is made.
 
 WHAT IT READS. The Heart's published organ-cockpit feed — `state.json`, the v1
 contract in `board/_state.py` — at `<pages base>/<heart board>/state.json`. The
@@ -23,7 +22,7 @@ WHAT IT IS NOT. It never runs a Heart tick and never refreshes anything: a
 reader at the door must be fast and must not mutate state. The vitals faculty
 remains the live, authoritative read at ship time.
 
-MAXIMUM AGE (PyAutoHeart#340, AUTONOMY.md "M2 rulings — 2026-11-12"). A feed
+MAXIMUM AGE (AUTONOMY.md "M2 rulings"). A feed
 older than 6 h, or of unknown age, is never GREEN: it reads STALE (a YELLOW or
 RED feed keeps its worse colour) with an age row, and `pass` is true only for
 GREEN. STALE never passes.
@@ -185,7 +184,7 @@ def from_readiness(r):
 def local_readiness(timeout=FALLBACK_TIMEOUT, repos=None):
     """(verdict, why) — the local Heart CLI's raw `readiness --json` (no tick),
     with its `repository_reasons`; with `repos`, the scoped dev-ship verdict.
-    The keep-Heart-green lane reads this raw form (PyAutoBrain#625)."""
+    The keep-Heart-green lane reads this raw form."""
     cli = resolve_heart_cli()
     if cli is None:
         return None, "no pyauto-heart on PATH or in the sibling checkout"

@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash) gate: refuse unsafe commits in the shared PyAutoMind checkout.
 
-Motivation (docs/agent_failure_modes.md, mitigation 2 — the highest-frequency
-error in the catalogue): the canonical PyAutoMind checkout is shared by every
-concurrent session, and they stage into the SAME index. Four incidents in two
-days (E1 + F1 x3, in both directions) came from commits that took more than
-their own files: a bare ``git commit`` takes the whole index, and a
-*directory* pathspec sweeps whatever a concurrent session staged under it. A
-memory note about this trap, written the same morning, did not prevent three
-of the four — this guard is that note, converted into a refusal.
+Motivation (docs/agent_failure_modes.md, mitigation 2): the canonical
+PyAutoMind checkout is shared by every concurrent session, and they stage into
+the SAME index. A bare ``git commit`` takes the whole index, and a *directory*
+pathspec sweeps whatever a concurrent session staged under it — so a commit
+can take more than its own files.
 
 Rule: a ``git commit`` that targets the PyAutoMind checkout must name explicit
 **file** pathspecs after ``--``. Denied otherwise:
@@ -22,29 +19,17 @@ Detection is textual + cheap filesystem checks; anything ambiguous is allowed
 ``PYAUTO_SKIP_MIND_GUARD=1`` in the environment or as a prefix in the command
 text (for the deliberate exceptional case, e.g. a bulk migration).
 
-v1.3 — fail open on shell this parser cannot attribute
-------------------------------------------------------
-Every live firing of this guard so far has been a false positive **on its own
-author**, and each came from the same root cause: it attributes a commit to a
-repo by parsing arbitrary shell, and the parser's model is ``cd X && git
-commit`` / ``git -C X commit``.
-
-  - v1.0 — regex clause split cut inside a quoted ``gh`` comment body.
-  - v1.1 — a ``cd`` away from Mind before committing was ignored (fixed v1.2).
-  - v1.2 — a ``cd`` inside a ``for``-loop *body* is not a clause-leading token,
-    so ``_cd_target`` never tracked it and the commit resolved to the ambient
-    Mind cwd.
-
-Three false positives, zero confirmed catches of a real bad Mind commit — the
-``-- <files>`` habit has done the actual work. Per
-``docs/agent_failure_modes.md`` §4 a noisy refusal trains bypass-by-default, so
-the guard is narrowed rather than patched again: **it may only DENY when it is
-confident**. When the command contains a construct the clause walk cannot
-follow — a ``for``/``while``/``until``/``case`` compound, a subshell or brace
-group, a function body, or a ``cd`` that is not a clause-leading token — the
-guard allows (see ``_unattributable``). The two high-confidence denials are
-unchanged: a ``git commit`` that unambiguously resolves to a Mind checkout with
-no ``--`` section, and a directory pathspec after ``--``.
+Deny only when confident
+------------------------
+The guard attributes a commit to a repo by parsing arbitrary shell, and its
+model is ``cd X && git commit`` / ``git -C X commit``. A noisy refusal trains
+bypass-by-default (``docs/agent_failure_modes.md`` §4), so when the command
+contains a construct the clause walk cannot follow — a
+``for``/``while``/``until``/``case`` compound, a subshell or brace group, a
+function body, or a ``cd`` that is not a clause-leading token — the guard
+allows (see ``_unattributable``). The two high-confidence denials are a
+``git commit`` that unambiguously resolves to a Mind checkout with no ``--``
+section, and a directory pathspec after ``--``.
 """
 
 from __future__ import annotations
@@ -78,14 +63,12 @@ def _deny(reason: str) -> None:
 
 
 def _clauses(command: str):
-    """Token-level clause split that respects quoting (v1.1).
+    """Token-level clause split that respects quoting.
 
-    v1.0 split clauses with a regex over the raw text, which cut inside
-    quoted commit messages and heredoc bodies — its first live firing was a
-    false positive on its own author's closeout command, minutes after
-    deployment. shlex with punctuation_chars keeps `&&`/`;`/`|` as tokens
-    while quoted strings (commit messages, gh comment bodies) stay single
-    tokens that cannot leak trigger words or swallow the `--`.
+    A regex split over the raw text would cut inside quoted commit messages
+    and heredoc bodies. shlex with punctuation_chars keeps `&&`/`;`/`|` as
+    tokens while quoted strings (commit messages, gh comment bodies) stay
+    single tokens that cannot leak trigger words or swallow the `--`.
     """
     lex = shlex.shlex(command, posix=True, punctuation_chars=";&|")
     lex.whitespace_split = True
@@ -154,9 +137,9 @@ def _under_mind(path: Path) -> Path | None:
 def _cd_target(tokens: list[str], cur: Path | None) -> Path | None:
     """New effective cwd after a ``cd`` clause, or ``cur`` if not a plain cd.
 
-    Honouring a leading ``cd`` is what fixes the v1.1 false positive: a command
-    that ``cd``s into PyAutoHands before committing is NOT a Mind commit, even
-    when the session's ambient cwd (what the hook is handed) is PyAutoMind.
+    A command that ``cd``s into PyAutoHands before committing is NOT a Mind
+    commit, even when the session's ambient cwd (what the hook is handed) is
+    PyAutoMind.
     """
     if not tokens or tokens[0] != "cd":
         return cur
@@ -179,9 +162,8 @@ def check_command(command: str, cwd: str = "") -> str | None:
     # (a `cd`/`git -C` path) or in the ambient cwd. If neither, nothing to do.
     if MIND_MARKER not in command and MIND_MARKER not in (cwd or ""):
         return None
-    # Only deny when confident (v1.3): shell the clause walk cannot attribute
-    # is allowed rather than guessed at — every historical false positive was a
-    # guess of this kind.
+    # Only deny when confident: shell the clause walk cannot attribute is
+    # allowed rather than guessed at.
     if _unattributable(command):
         return None
 

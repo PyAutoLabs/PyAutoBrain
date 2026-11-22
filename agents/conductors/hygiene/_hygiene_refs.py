@@ -7,8 +7,7 @@ Two directions of the same defect, scanned together:
 * **undocumented folders** — a folder exists that its own parent README never
   names (see ``documented_directories``).
 
-The rest of this docstring describes the dead-reference direction, which is the
-older and more intricate of the two.
+The rest of this docstring describes the dead-reference direction.
 
 Workspace/HowTo scripts document themselves by pointing at their siblings —
 "see the ``modeling/start_here.ipynb`` example", "checkout
@@ -30,8 +29,7 @@ out by the reference patterns below far more cheaply than by tokenizing.
 
 The nested READMEs matter because each package documents its own contents there,
 so a restructure leaves a folder list describing the *old* shape while every
-script still runs — the exact blind spot that let ``autolens_workspace``'s root
-README advertise a ``slam_pipeline/`` directory long after it was gone.
+script still runs.
 
 What counts as a reference
 --------------------------
@@ -83,8 +81,8 @@ never reports what it could not check.
 
 Suppressions (precision tuning)
 -------------------------------
-Measured against the real repos, these classes were almost entirely false
-positives and are dropped before resolution:
+These classes are almost entirely false positives in the real repos and are
+dropped before resolution:
 
 * **Bare ``name.py``** with no path — dominated by module/library names in prose
   (``corner.py``, ``GetDist.py``, ``visualizer.py``, ``profiles.py``) rather
@@ -166,7 +164,7 @@ RUNTIME_DIRECTORIES = frozenset({
     "output", "outputs", "dataset", "datasets",
     # A fit's own output subfolder (`files/search_internal`) and the run caches
     # and scratch areas a reduction writes (`cache/`, `cache_root/crds/`,
-    # `work/injected/`) — PyAutoBrain#583.
+    # `work/injected/`).
     "files", "cache", "cache_root", "work",
 })
 # Directories some workspaces commit and others only generate at release time
@@ -271,7 +269,7 @@ def is_reference(text: str) -> bool:
         return False
     if text.endswith("/"):
         # Multi-segment only: a lone `image/` names output structure, not a repo
-        # directory (measured: that class is entirely false positives).
+        # directory.
         return "/" in text.rstrip("/")
     name = text.rsplit("/", 1)[-1]
     if not FILE_NAME.match(name):
@@ -424,8 +422,7 @@ class Resolver:
             # Re-check runtime roots AFTER a repo prefix strip: a sibling-
             # qualified `autolens_workspace/dataset/...` is just as
             # unresolvable-by-absence as a bare `dataset/...` (the folder is
-            # written at runtime), and checking only the pre-strip head let
-            # these through as false positives.
+            # written at runtime).
             if path.split("/", 1)[0] in RUNTIME_DIRECTORIES:
                 return None
         if path.endswith("/"):
@@ -599,9 +596,7 @@ def documented_directories(repository: Path) -> list[Finding]:
     two ends — a folder list that has drifted from the tree — but they fail
     apart. A package added without touching its parent README leaves every
     reference resolving perfectly while the folder is invisible to a reader
-    browsing the list. ``interferometer/features/datacube`` sat unlisted that
-    way for three months (autolens_workspace#482), and the audit that found it
-    turned up thirteen more in the same repo.
+    browsing the list.
 
     Precision comes from the direction of travel: the candidates are real
     directories read off the filesystem, so the "is this token a path or a

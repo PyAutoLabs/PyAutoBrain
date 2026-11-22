@@ -12,8 +12,7 @@ signals over the workspace config tree, folded into one `count|summary` line.
    **no library counterpart** at the same relative path. This is the signal the
    key-mirror diff is structurally blind to — it skips any file lacking a
    workspace *or* library counterpart, so a workspace file the libraries never
-   shipped is invisible. That blind spot let a dead `config/grids.yaml` survive
-   in 10 repos for ~a year (autolens_workspace#317).
+   shipped is invisible to it.
 
    The honest test of a config file is **reachability** — does anything read it
    — not filename similarity. A pure filename check is far too noisy (~120 hits,
