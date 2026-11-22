@@ -823,3 +823,32 @@ def test_the_inbox_section_shows_a_ruling_by_its_gate_and_counts_it_apart(tmp_pa
     sec = md[md.index("**Questions**"):md.index("**Shift**")]
     assert sec.startswith("**Questions** (1 open, 1 deferred, 1 ruling")
     assert "- Q19 — Repo claimed: wait, coordinate or drop? (ruling claimed" in sec
+
+
+# --- a question sidecar is never a lease (2026-11-20-am) ---------------------------
+
+def test_a_question_sidecar_is_not_a_lease_and_holds_no_worker_slot(tmp_path):
+    """Each parked worker's `{task}.question.json` was read as a lease with no
+    pid, `_alive(0)` called it running, and it held a worker slot until
+    `review-at:`: four of them filled `max-workers 4` and 11 tasks waited."""
+    mind, brief, home, slot = _shift(tmp_path)
+    claude, gh = d.FakeClaude(), FakeGh()
+    _tick(brief, mind, home, NOW, claude, gh)
+    leases = slot / "leases"
+    for task, q in (("t1", Q1), ("t2", Q2)):
+        (leases / f"{task}.done").write_text(f"question: {q}\n")
+        (leases / f"{task}.question.json").write_text(json.dumps(
+            {"issue": q, "ask": "Brass or steel?", "options": ["brass", "steel"]}))
+    later = NOW + _dt.timedelta(minutes=5)
+    _tick(brief, mind, home, later, claude, gh, d._agents({"t1": "done", "t2": "done"}, slot))
+    # The sidecars outlive the reap, and none of them is a lease.
+    assert sorted(f.name for f in leases.glob("*.question.json")) == [
+        "t1.question.json", "t2.question.json"]
+    assert orch.leases(slot) == {} and _digest.held_leases(slot) == {}
+    c = orch.read_counters(slot)
+    assert not [w for w in c["workers"] if w["task"].endswith(".question")]
+    # A later tick refuses nothing on `max-workers` and adds no phantom worker.
+    r = _tick(brief, mind, home, later + _dt.timedelta(minutes=2), claude, gh)
+    assert not [x for x in r.get("refused") or [] if "max-workers" in str(x.get("why"))]
+    c = orch.read_counters(slot)
+    assert not [w for w in c["workers"] if w["task"].endswith(".question")]

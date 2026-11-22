@@ -89,6 +89,11 @@ missing phase.
   close-outs) run Opus at medium effort unless the human asks otherwise,
   whatever the session's own effort. An independent reviewer on another model
   leaves effort unset.
+- An independent review or adversary pass the orchestrator starts runs on
+  Opus by default, as a fresh session or sub-agent that did not write the
+  branch — also when the session that starts it is Fable. Fable reads a
+  branch as the adversary only when the human asks for it (`AUTONOMY.md`
+  "Adversary model default — 2026-11-22").
 - Do not rerun an unchanged successful check unless inputs or its gate changed.
 - Prefer native completion events. Do not repeatedly poll unchanged pending
   state or agent lists; use bounded waits only when needed, and never arm a

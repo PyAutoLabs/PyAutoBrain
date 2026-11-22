@@ -433,7 +433,8 @@ def test_r1_a_carried_pr_the_human_merged_is_reported_by_its_github_state(tmp_pa
     _ltick(brief, mind, home, sp, 1, states={ga6: ("MERGED", "2026-11-04T08:00:00Z")},
            labels={ga6: ["decision-taken"]})
     c = orch.read_counters(slot)
-    assert c["closeouts"][ga6]["why"].startswith("carried over from 2026-11-03-pm")
+    assert c["closeouts"][ga6]["why"].startswith("already merged since 2026-11-03-pm")
+    assert c["closeouts"][ga6]["settled"] == "merged"
     assert "decision-taken" not in c["closeouts"][ga6]["why"]
     from test_orchestrator_digest import _digest
     assert "#6" not in "\n".join(_digest.waited_lines(c))     # never a /prm-bound blocker

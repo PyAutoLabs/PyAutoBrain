@@ -1516,13 +1516,17 @@ def leg_adversary(ev) -> tuple:
     if not isinstance(row, dict) or not row.get("ran"):
         return UNOBSERVABLE, "no adversary leg recorded"
     model, author = (row.get("model") or ""), (row.get("author_model") or "")
-    if not model or not author or model == author:
-        # AUTONOMY.md leg 5, verbatim in intent: the leg is a reading by a
-        # DIFFERENT model from the one that wrote the diff.
+    # AUTONOMY.md leg 5: the leg is a reading independent of the author. A
+    # different model is one; so is the same model in a session that did not
+    # write the branch ("Adversary model default — 2026-11-22": Opus reads
+    # Opus by default), which the row must say — it is never assumed.
+    independent = row.get("independent_session") is True
+    if not model or not author or (model == author and not independent):
         return FAIL, ("a self-run adversary leg is an absent leg, not a weak "
                       "one (AUTONOMY.md leg 5)"
                       + (f" — model {model}" if model else " — no model named"))
-    return PASS, f"{model} vs author {author}: {row.get('verdict') or 'read'}"
+    how = "independent session" if model == author else f"vs author {author}"
+    return PASS, f"{model} {how}: {row.get('verdict') or 'read'}"
 
 
 #: Health, in the order the packet shows members in: what failed, what did not

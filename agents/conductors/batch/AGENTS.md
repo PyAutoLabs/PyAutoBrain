@@ -706,7 +706,10 @@ interval.
 tick takes the newest earlier slot's late `glance`/`notify` PRs (never closed
 out, or refused only for going green too near `review-at:`) into its own
 close-out path under its own grant, and the digest names them ("Carried over
-from …"). A task this shift parked on a question restarts this shift when the
+from …"). A carried PR the human merged between the shifts is settled: no
+close-out, no entry, no proof packet, one line ("… PR(s) you had already
+merged — nothing to do"), and it drops out of the merge order with any earlier
+PR GitHub reads MERGED or CLOSED (2026-11-22). A task this shift parked on a question restarts this shift when the
 inbox answers it with more than 30 minutes left (once per answer; a release
 waits for its spawn, else the park stays for the next shift); the writer's
 fetch repeats for that only while such a park is open, at most every 10 minutes.
@@ -748,7 +751,8 @@ stays for other triggers). The reap queues one `question-add` op per issue
 (`land_question`): the task's prompt, the issue, `kind: question` (or
 `blocked`, filed on the shift issue), the ask and options from the worker's
 `{task}.question.json` sidecar (sanitised; `see the question on the issue`
-without one), the shift, the time and the worker. The one Mind writer lands
+without one; it sits in `leases/` and is never read as a lease — until
+2026-11-22 each one held a worker slot to `review-at:`), the shift, the time and the worker. The one Mind writer lands
 it in PyAutoMind `questions.md` through Mind's own `questions_edit.add_text`.
 The digest gets one line under its heading (`Inbox: N questions added to your
 inbox this shift (Q17, Q18), M open in all — <dashboard #inbox>`), and the
@@ -1020,8 +1024,10 @@ adversary (`AUTONOMY.md` leg 5). Run it before reading a PR:
 pyauto-brain review --task <name> --witness "<the prompt's Witness:>" --adversary
 ```
 
-in a session **using a different model from the one that wrote the branch**. A
-self-run adversary leg is an absent leg, not a weak one. `collect` cannot run
+in a session **that did not write the branch — by default a fresh Opus
+session or sub-agent, even when your own chat is on Fable**; a more expensive
+model reads only when the human asks (`AUTONOMY.md` "Adversary model default —
+2026-11-22"). A self-run adversary leg is an absent leg, not a weak one. `collect` cannot run
 it for you and does not pretend to: with no `adversary` block in the evidence
 the leg is UNOBSERVABLE and the member reaches the human as SUSPECT — the
 honest state, rather than a gap that closes itself. The shift worker does not
@@ -1059,10 +1065,13 @@ is unobservable and its member reaches the human as SUSPECT. Inventing PASS
 would be inventing evidence and FAIL would condemn healthy work — the same
 choice the Cortex conductor makes for the `delivered:` legs it cannot see.
 
-`adversary` is the leg with a rule of its own: it passes only when the read ran
-under a model that is not the branch's author. **A self-run adversary leg is an
-absent leg, not a weak one** (`AUTONOMY.md` leg 5), so an equal or missing
-`author_model` is FAIL, not PASS.
+`adversary` is the leg with a rule of its own: it passes only when the read was
+independent of the branch's author. **A self-run adversary leg is an absent
+leg, not a weak one** (`AUTONOMY.md` leg 5), so a missing `model` or
+`author_model` is FAIL, and so is an equal one unless the row carries
+`"independent_session": true` — the default Opus reader of an Opus branch, in
+a session that did not write it (`AUTONOMY.md` "Adversary model default —
+2026-11-22").
 
 ### Six health words, in the order the human reads them
 

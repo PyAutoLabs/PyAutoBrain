@@ -1068,13 +1068,24 @@ def task_id(prompt_path: str) -> str:
     return Path(prompt_path).stem
 
 
+def lease_files(slot: Path) -> list[Path]:
+    """The lease files of a slot. A parked worker's `{task}.question.json`
+    sidecar shares the folder and is not a lease: read as one it had no pid,
+    `_alive(0)` called it running, and it held a worker slot to `review-at:`
+    (2026-11-20-am: four sidecars filled `max-workers 4`, 11 tasks waited)."""
+    return [f for f in sorted((Path(slot) / "leases").glob("*.json"))
+            if not f.name.endswith(_questions.SIDECAR_SUFFIX)]
+
+
 def leases(slot: Path) -> dict[str, dict]:
     out = {}
-    for f in sorted((slot / "leases").glob("*.json")):
+    for f in lease_files(slot):
         try:
-            out[f.stem] = json.loads(f.read_text())
+            lease = json.loads(f.read_text())
         except (OSError, ValueError):
             continue
+        if isinstance(lease, dict):
+            out[f.stem] = lease
     return out
 
 
@@ -4416,6 +4427,10 @@ def _merge_blockers(counters: dict, pr: str, pr_state, cache: dict) -> list[str]
             continue
         gh = _gh_once(pr_state, cache, u)
         if (gh or {}).get("state") in ("MERGED", "CLOSED"):
+            # Remembered for the digest's merge order: an earlier PR the
+            # human merged or closed is no longer one to merge first
+            # (2026-11-19-pm2 listed PyAutoLens#868 as "open" after its merge).
+            counters.setdefault("pr_gone", {})[u] = gh["state"]
             continue
         out.append(u)
     return out
@@ -4635,6 +4650,17 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             if not gh:
                 continue      # GitHub unreadable: asked again next tick, never assumed
             state = gh.get("state")
+            if state == "MERGED":
+                # Merged by the human since its shift: settled, nothing left
+                # for anyone. Final like a refusal (no close-out, no count as
+                # an unattended merge), but the digest never lists it as
+                # needing the human (2026-11-19-pm2 and 2026-11-20-am did).
+                refuse(pr, task, f"{_digest.SETTLED} since {out['carried_from']}"
+                                 + (f" (by {gh['mergedBy']})" if gh.get("mergedBy") else ""),
+                       held=again)
+                counters["closeouts"][pr].update(settled="merged", github=gh)
+                events.setdefault("merged_outside", []).append(pr)
+                continue
             if state != "OPEN":
                 refuse(pr, task, f"carried over from {out['carried_from']}, but GitHub reads "
                                  f"it {state or '?'} — not closed out", held=again)
@@ -4928,7 +4954,7 @@ def _owes(slot: Path) -> str:
     ops = len(_mind_writer.pending_ops(slot))
     if ops:
         bits.append(f"{ops} queued Mind op{'s' if ops != 1 else ''}")
-    n = len(list((slot / "leases").glob("*.json")))
+    n = len(lease_files(slot))
     bits.append(f"{n} lease{'s' if n != 1 else ''}")
     return "; ".join(bits)
 

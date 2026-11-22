@@ -383,7 +383,9 @@ never an assumption:
 5. **Independent adversary** — **added 2026-08-30, required for a BATCH
    launch** (below) and for any run counting toward the multi-repo autonomy
    experiment; optional elsewhere. A second reading of the same diff by a
-   **different model from the one that wrote it**, whose job is not to review
+   **different model from the one that wrote it** (since 2026-11-22 an
+   independent Opus session by default: "Adversary model default —
+   2026-11-22" below), whose job is not to review
    the change but to **falsify its claims — the `Witness:` first**. Run it as
    `pyauto-brain review --task <name> --witness "<the prompt's Witness:>"
    --adversary`.
@@ -818,6 +820,45 @@ ignored Heart state. The stage-2 window is how this is checked.
 *Revert condition:* any stage-2 row `reverted`, or amended to
 `merged-after-substantive-change`, restores the different-model requirement for
 unattended merges at once, by dated doctrine edit citing the row.
+
+## Adversary model default — 2026-11-22
+
+Amends leg 5 of "The autonomous-ship gate" and extends the "Stage-2 adversary
+amendment — 2026-11-04" above from the unattended close-out to every
+adversary and independent-review pass the orchestrator starts. Ruled by the
+human 2026-11-22, in the review of shifts 2026-11-19-pm, -pm2 and
+2026-11-20-am: "I dont think I want fable used by orchestrator as default as
+fable eats more usage. Opus review default is fine". This section is that
+dated doctrine edit.
+
+**The default reader is Opus.** The independent review (leg 3) and the
+adversary (leg 5) of shift work run on **Opus, in a fresh session or
+sub-agent that did not write the branch** and shares none of the author's
+context. That covers the worker's own review, the close-out session, and the
+adversary pass a cockpit or review chat runs before the human's `/prm`. A
+chat whose own model is Fable still starts the pass as an Opus sub-agent; it
+does not read the diff adversarially itself.
+
+**Fable only when asked.** A more expensive model reads a branch as the
+adversary only when the human asks for it, for that pass. Nothing in a brief,
+a skill or a record makes it the default.
+
+**What keeps it the leg.** Independence of session, as in the 2026-11-04
+amendment: the reader did not write the PR, runs the `Witness:` itself and
+tries to falsify the claims. **A self-run adversary leg is still an absent
+leg**: the author's own session re-reading its diff is not this pass,
+whatever model it is on. `batch collect` reads it so: an adversary row whose
+`model` equals its `author_model` passes only with `independent_session:
+true`.
+
+**What is given up** is what the 2026-11-04 amendment names: two runs of one
+model share blind spots. Its revert condition stands for unattended merges and
+is not widened here.
+
+*Revert condition:* a defect that reaches `main` through a PR whose only
+adversary was a same-model session, and that the human judges a different
+model would have caught, reopens this default by dated doctrine edit citing
+the PR.
 
 ## Merge actor and random audit — 2026-11-12
 
@@ -1644,6 +1685,9 @@ Codex hook list.
   need the adversary leg.
 - `batch` (the close-out session) — "Stage-2 adversary amendment" (2026-11-04):
   the independent close-out session is the adversary leg, same model allowed.
+- `batch`, `cockpit`, `review`, `MODEL_DELEGATION.md` — "Adversary model
+  default" (2026-11-22): every review and adversary pass the orchestrator
+  starts is an independent Opus session; Fable only when the human asks.
 - `batch` (the watcher) — "The watcher's network surface" (2026-11-03): what
   the watcher may reach, and that it is opt-in, laptop-only and never writes;
   amended 2026-11-12 (mentions, #611) and 2026-11-13 (the live status comment

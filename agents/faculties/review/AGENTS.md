@@ -87,7 +87,10 @@ Heart and the agent reasons over the verdict.
    of the claims surface and falsified **first**: if the witness does not hold,
    the work did not do what it promised and nothing else on the surface matters.
    Second, the reader must be a **different model from the one that wrote the
-   branch**.
+   branch** — or, since 2026-11-22, the default: **Opus in a fresh session or
+   sub-agent that did not write the branch** (`AUTONOMY.md` "Adversary model
+   default — 2026-11-22"). A more expensive model (Fable) reads only when the
+   human asks for it.
 
    That second rule is the whole leg. Step 2a is already adversarial in
    *procedure*, and it was still run, in practice, by the branch's own author —

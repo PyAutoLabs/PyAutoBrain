@@ -62,7 +62,7 @@ def test_adversary_mode_states_who_may_not_run_it(capsys):
     """The independence rule is the leg. A surface that omits it invites the
     exact failure the leg exists to close."""
     out = _emit(capsys, adversary=True)
-    assert "NOT the session or model that wrote the branch" in out
+    assert "NOT the session that wrote the branch" in out
     assert "A self-run adversary leg is not a weaker version" in out
 
 

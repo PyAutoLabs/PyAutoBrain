@@ -240,7 +240,17 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
                 return f"{word} — awaiting re-dispatch", True
             return f"{NOT_REDISPATCHED}: {redispatch_why(task, counters)}", False
         skipped = gate_why(task, counters)
-        return ("not started — skipped: " + skipped if skipped else "not started"), False
+        if skipped:
+            return "not started — skipped: " + skipped, False
+        # Neither claimed nor rejected, yet never started: the spawn gate
+        # refused it (2026-11-20-am: a named task waited on `max-workers`
+        # all shift and its entry said only "not started").
+        last = max((r for r in counters.get("refusals", []) if r.get("task") == task),
+                   key=lambda r: r.get("last") or r.get("at") or "", default=None)
+        if last:
+            return (f"not started — refused: {last.get('why') or last.get('class') or '?'} "
+                    f"(last {last.get('last') or last.get('at') or '?'})"), False
+        return "not started", False
     urls = urls_of(out)
     if not urls and "obsolete" in out:
         return ("obsolete (premise check): "
@@ -268,6 +278,8 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
             state = wait_state(url, counters)          # merge order (M3.6j, #683)
         elif url in (counters.get("sweep_waits") or {}):
             state = sweep_wait_state(url, counters)    # unknown sweep (M3.7e, #694)
+        elif co.get("settled"):
+            state = co.get("why") or SETTLED
         elif co.get("state") == "refused":
             state = f"awaiting /prm — close-out refused: {co.get('why', '?')}"
         elif co.get("state") == "running":
@@ -281,6 +293,26 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
             state = health(url)
         parts.append(f"{url} — {state}")
     return "; ".join(parts), True
+
+
+#: A carried-over PR the human merged between shifts: nothing is left to do.
+SETTLED = "already merged"
+
+
+def settled_prs(counters: dict) -> set[str]:
+    """The carried-over PRs GitHub read MERGED when this shift first looked."""
+    return {u for u, co in (counters.get("closeouts") or {}).items()
+            if isinstance(co, dict) and co.get("settled")}
+
+
+def is_settled(task: str, counters: dict) -> bool:
+    """Whether a carried-over task has nothing left for anyone: every PR it
+    carried was already merged by the human. Such a task is named once, in
+    the carry-over line, and has no entry and no proof packet (its packet is
+    in the digest of the shift that ran it)."""
+    out = (counters.get("outcomes") or {}).get(task) or {}
+    urls = urls_of(out)
+    return bool(out.get("carried_from") and urls) and set(urls) <= settled_prs(counters)
 
 
 #: A PR's states in the merge order (M3.6j, PyAutoBrain#683).
@@ -302,6 +334,8 @@ def _order_word(url: str, counters: dict) -> str:
     co = (counters.get("closeouts") or {}).get(url) or {}
     if url in (counters.get("merge_waits") or {}):
         return "itself waiting"
+    if co.get("settled"):
+        return SETTLED
     if co.get("state") == "refused":
         return f"needs your /prm: {refusal_class(co.get('why') or '?')}"
     if co.get("state") == "running":
@@ -339,6 +373,9 @@ def merge_order_lines(counters: dict) -> list[str]:
         return []
     merged = {u for o in (counters.get("outcomes") or {}).values() if isinstance(o, dict)
               for u in o.get("merged") or []}
+    # A PR GitHub read MERGED or CLOSED is no longer in the order: one the
+    # human merged between shifts, or an earlier PR a carried one waited on.
+    merged |= settled_prs(counters) | set(counters.get("pr_gone") or {})
     known = list(dict.fromkeys(
         u for o in (counters.get("outcomes") or {}).values() if isinstance(o, dict)
         for u in [*(o.get("prs") or []), *(o.get("behind") or [])]))
@@ -395,7 +432,8 @@ def waited_lines(counters: dict) -> list[str]:
     a count; and how many PRs were refused because their labels could not be
     read (S7). Empty when there is neither."""
     cos = counters.get("closeouts") or {}
-    refused = {u: co for u, co in cos.items() if co.get("state") == "refused"}
+    refused = {u: co for u, co in cos.items()
+               if co.get("state") == "refused" and not co.get("settled")}
     groups: dict[tuple, list[str]] = {}
     for url, info in (counters.get("merge_waits") or {}).items():
         bound = [b for b in info.get("behind") or [] if b in refused]
@@ -620,6 +658,7 @@ def label(task: str, pick: dict | None, url: str = "") -> str:
 _PLAIN = (
     (IN_TURN_NO_SLOT, "Merged with NO merge slot — needs you"),
     ("merged", "Merged"),
+    (SETTLED, "Already merged — nothing to do"),
     ("awaiting /prm — close-out refused: CI FAILED", "CI failed — needs you"),
     ("awaiting /prm — close-out refused: CI RED", "CI failed — needs you"),
     ("awaiting /prm", "Needs you — not merged unattended"),
@@ -693,10 +732,14 @@ def held_leases(slot: Path) -> dict[str, dict]:
     because this module must not import the orchestrator."""
     out = {}
     for f in sorted((Path(slot) / "leases").glob("*.json")):
+        if f.name.endswith(_questions.SIDECAR_SUFFIX):
+            continue   # a parked worker's question sidecar, never a lease
         try:
-            out[f.stem] = json.loads(f.read_text())
+            lease = json.loads(f.read_text())
         except (OSError, ValueError):
             continue
+        if isinstance(lease, dict):
+            out[f.stem] = lease
     return out
 
 
@@ -735,7 +778,9 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         pass
     picks = counters.get("picks", {})
     named = [Path(p).stem for p in _brief.tasks_of(brief)]
-    backlog = [t for t in picks if t not in named]
+    # A carried-over task the human already merged is named once, in the
+    # carry-over line, never as an entry or an empty proof packet.
+    backlog = [t for t in picks if t not in named and not is_settled(t, counters)]
 
     lines = [DIGEST_HEADING, ""]
     lines += closed_early_lines(counters)
@@ -957,11 +1002,18 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                        f"`{t}` ({', '.join(v.get('ids') or [])} answered)"
                        for t, v in sorted(resumed.items())[:SUMMARY_NAMES]))
     carried = counters.get("carried_in") or {}
-    if carried.get("prs"):
-        out.append(f"Carried over from {carried['from']}: {len(carried['prs'])} late PR(s) "
-                   "closed out under this shift's grant — " + ", ".join(carried["prs"][:SUMMARY_NAMES])
-                   + (f" +{len(carried['prs']) - SUMMARY_NAMES} more"
-                      if len(carried["prs"]) > SUMMARY_NAMES else ""))
+    done = [u for u in carried.get("prs") or [] if u in settled_prs(counters)]
+    left = [u for u in carried.get("prs") or [] if u not in done]
+
+    def names(urls):
+        return ", ".join(urls[:SUMMARY_NAMES]) + (
+            f" +{len(urls) - SUMMARY_NAMES} more" if len(urls) > SUMMARY_NAMES else "")
+    if left:
+        out.append(f"Carried over from {carried['from']}: {len(left)} late PR(s) "
+                   "closed out under this shift's grant — " + names(left))
+    if done:
+        out.append(f"Carried over from {carried['from']}: {len(done)} PR(s) you had already "
+                   "merged — nothing to do — " + names(done))
     again = counters.get("inshift_released") or {}
     if again:
         out.append(f"Restarted in-shift after an answer: {len(again)} task(s) — "

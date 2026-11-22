@@ -139,6 +139,12 @@ within 3 ticks (about 3 min), or `steer-unread` arrives, say so once.
 - **Unclear wording: ask.** Never guess a verb, a task or a number. One short
   question, then post on the answer; the watcher ignores any other first line.
 
+**An adversary pass before `/prm`** (only when the human asks for one) is an
+Opus sub-agent that did not write the branch, never this chat's own model and
+never Fable unless they ask (`AUTONOMY.md` "Adversary model default —
+2026-11-22"). A finding that touches only the PR description is a note for the
+human; it does not hold the `/prm` and nobody polishes the description first.
+
 ## Stop watching
 
 On "stop watching" or "close the cockpit", stop the Monitor with `TaskStop`
