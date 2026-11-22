@@ -1186,14 +1186,16 @@ def test_in_flight_batch_reads_as_in_progress_with_no_button(tmp_path):
     assert '<a class="go"' not in html
 
 
-def test_button_appears_once_collected_is_stamped(tmp_path):
+def test_an_old_collected_record_renders_with_no_button(tmp_path):
+    """`collected:` was stamped by the retired `batch collect`; a record that
+    still carries it renders its members, offers no review button or packet
+    link, and the Autopilot badge still reads what is to review."""
     mind = _mind(tmp_path, batches={"2026-09-03-pm.md": DEV_RECORD_COLLECTED},
                 registries={"repos.yaml": REPOS_YAML})
     page, html = _page(mind), _html(mind)
-    url = "https://exampleorg.github.io/PyAutoMind/packets/2026-09-03-pm.html"
-    assert f"[Review this batch →]({url})" in page
-    assert f'<a class="go" href="{url}">Review this batch →</a>' in html
-    # After the shift, the Autopilot badge and nav card read what is to review.
+    assert "Review this batch" not in page and "Review this batch" not in html
+    assert "packets/2026-09-03-pm.html" not in page + html
+    assert '<a class="go"' not in html
     n = re.search(r'<span class="section-badge">(\d+) to review</span>', html)
     assert n and int(n.group(1)) >= 1
     assert (f'board-nav-count">{n.group(1)}</span><span class="board-nav-label">'
@@ -1222,14 +1224,12 @@ def test_empty_mind_omits_batch_placeholder(tmp_path):
     assert "No batch in flight." not in _html(mind)
 
 
-def test_batch_box_md_and_html_agree_on_slugs_and_the_review_url(tmp_path):
+def test_batch_box_md_and_html_agree_on_slugs(tmp_path):
     mind = _mind(tmp_path, batches={"2026-09-03-pm.md": DEV_RECORD_COLLECTED},
                 registries={"repos.yaml": REPOS_YAML})
     page, html = _page(mind), _html(mind)
-    url = "https://exampleorg.github.io/PyAutoMind/packets/2026-09-03-pm.html"
     for slug in ("autofit-resampling-info", "autonerves-colab-silence"):
         assert slug in page and slug in html
-    assert url in page and url in html
 
 
 # --------------------------------------------------------------------------- #

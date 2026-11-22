@@ -1900,13 +1900,11 @@ def _batch_status(mind: Path) -> dict | None:
     Records live at `<mind>/batches/*.md`; a slot closes once it has been
     reviewed — `reviewed-at:` stamped in the record, or a
     `<mind>/batches/reviews/<slot>.md` file on disk (`dev_status` checks
-    both). The review button appears once `collect` has stamped `collected:`
-    — that is when `batches/packets/<slot>.html` exists to press it on.
+    both).
     """
     batches = mind / "batches"
     if not batches.is_dir():
         return None
-    pages = _pages_url(_mind_home(mind))
     readings = []
     for path in sorted(batches.glob("*.md")):
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -1917,7 +1915,7 @@ def _batch_status(mind: Path) -> dict | None:
             members.append({**row, **parsed} if parsed else row)
         review_exists = (batches / "reviews" / f"{path.stem}.md").is_file()
         readings.append(dev_status(path.stem, rec["keys"], members,
-                                   review_exists, pages))
+                                   review_exists))
     return pick_slot(readings)
 
 

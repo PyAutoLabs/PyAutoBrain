@@ -516,8 +516,7 @@ def planner_pool(records: list[dict]) -> list[dict]:
 def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          session_lane: str = "web-github", awaiting_review: int = 0,
          cap: int = DEFAULT_BACKPRESSURE_CAP, queue: list[str] | None = None,
-         awaiting_source: str = "given", carried: list[str] | None = None,
-         carried_from: str = "", brief: dict | None = None,
+         awaiting_source: str = "given", brief: dict | None = None,
          attended: bool = False, released: set[str] | None = None,
          epic_ledgers: dict[str, str] | None = None,
          withheld: list[tuple[dict, str]] | None = None) -> dict:
@@ -703,8 +702,6 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         "backpressure": {"awaiting_review": awaiting_review, "cap": cap,
                          "state": pressure, "source": awaiting_source},
         "queue": queue,
-        "carried": carried or [],
-        "carried_from": carried_from,
         "review_minutes_planned": spent,
         "members": members,
         "rejected": rejected,
@@ -782,13 +779,6 @@ def emit(d: dict) -> None:
         n = len(d["lane_absent"])
         print(f"Lane absent:       {n} draft(s) excluded — no valid `Lane:`, and an "
               "unattended pick fails closed (declare one; bin/lane_backfill.py)")
-    if d.get("carried"):
-        # Read first, because a carried member is work the human is already
-        # holding: it costs review-minutes in THIS slot that no new member
-        # accounted for.
-        print(f"Carried in:        {', '.join(d['carried'])} "
-              f"(from {d.get('carried_from') or 'the previous slot'}) — still "
-              f"in flight, and yours to review before anything new")
     lines = queued_epic_lines(d)
     if lines:
         # One line per queued epic ledger: what it gives this batch, or why
@@ -860,20 +850,6 @@ ISSUE_URL_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 
 class BatchUsageError(Exception):
     """Bad input from the human — reported on stderr, exit 2, nothing written."""
-
-
-def batch_records(mind: Path) -> list[Path]:
-    return sorted(p for p in (mind / "batches").glob("*.md")
-                  if p.name != "AGENTS.md")
-
-
-def newest_slot(mind: Path) -> str:
-    """The last record by NAME, which is lexical: `-night` sorts before `-pm`
-    on the same date, so a night slot collected after a pm one is not the
-    newest by this reckoning. `--slot` is the escape, and the reason it exists.
-    """
-    records = batch_records(mind)
-    return records[-1].stem if records else ""
 
 
 def find_prompt(mind: Path, path: str) -> Path | None:
@@ -974,47 +950,6 @@ def derive_awaiting_review(mind: Path) -> int:
         if keyed or spoken:
             n += 1
     return n
-
-
-def read_outcomes(text: str) -> dict:
-    """The record's `- outcomes:` block as `{slug: outcome}`.
-
-    `read_record` deliberately does not see the body of a non-`members:` block
-    (it keeps only key VALUES), so this reads the lines itself — the same way
-    `- notes:` is left alone."""
-    out: dict[str, str] = {}
-    inside = False
-    for raw in text.split("\n"):
-        if raw.startswith("- outcomes:"):
-            inside = True
-            continue
-        if not inside:
-            continue
-        if raw.startswith("  - "):
-            slug, _, value = raw[4:].partition(":")
-            if value.strip():
-                out[slug.strip()] = value.strip().split()[0]
-            continue
-        if raw.strip():
-            inside = False
-    return out
-
-
-def previous_carried(mind: Path) -> tuple:
-    """`(slot, [slug…])` — what the last collected slot handed forward.
-
-    The next plan reads these FIRST: a carried member is already costing the
-    human review-minutes in the slot being planned, and a batch composed as
-    though it were not is over-sold by exactly that much."""
-    slot = newest_slot(mind)
-    if not slot:
-        return "", []
-    try:
-        text = (mind / "batches" / f"{slot}.md").read_text(
-            encoding="utf-8", errors="replace")
-    except OSError:
-        return "", []
-    return slot, [s for s, o in read_outcomes(text).items() if o == "carried"]
 
 
 # -------------------------------------------------------------------- cli ---
@@ -1903,7 +1838,6 @@ def _main_plan(mind: Path, a, lane: str) -> int:
         awaiting, source = derive_awaiting_review(mind), "derived from active.md"
     else:
         awaiting, source = a.awaiting_review, "--awaiting-review"
-    carried_from, carried = previous_carried(mind)
     brief = None
     if a.brief:
         res = _brief.check(Path(a.brief), mind)
@@ -1914,8 +1848,7 @@ def _main_plan(mind: Path, a, lane: str) -> int:
         brief = _brief.parse(Path(a.brief).read_text(encoding="utf-8"))["brief"]
     d = plan(survey(mind), budget=a.budget, session_lane=lane,
              awaiting_review=awaiting, cap=a.cap, queue=read_queue(mind),
-             awaiting_source=source, carried=carried, carried_from=carried_from,
-             brief=brief, attended=a.attended, epic_ledgers=read_epic_ledgers(mind))
+             awaiting_source=source, brief=brief, attended=a.attended, epic_ledgers=read_epic_ledgers(mind))
     if a.as_json:
         print(json.dumps(d, indent=2))
         return RC_OK

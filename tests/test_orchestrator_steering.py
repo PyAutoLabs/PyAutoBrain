@@ -363,7 +363,7 @@ def test_record_key_upserts_the_live_line_and_the_box_shows_it():
     assert _mind_writer.validate_op({"op": "record-key", "path": "batches/x.md", "key": "live",
                                      "value": "two\nlines"}, lm)
     keys = _status.read_record(twice)["keys"]
-    st = _status.dev_status("x", keys, [], False, "")
+    st = _status.dev_status("x", keys, [], False)
     assert st["live"] == "LIVE · 1 finished"
     assert "Live: LIVE · 1 finished" in _status.render_md(st)
     url = "https://github.com/o/r/issues/1#issuecomment-2"

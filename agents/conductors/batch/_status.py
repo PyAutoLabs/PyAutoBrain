@@ -2,9 +2,9 @@
 """agents/conductors/batch/_status.py — one reading of "is a batch in flight?".
 
 The Mind's dashboard shows this as the Shift part of its Autopilot block: the
-slot that is in flight, every member on one line, and — once there is
-something to review — the button to its packet. The *reading* lives here and
-the dashboard only supplies its facts.
+slot that is in flight, its watcher's `- live:` line and shift issue, and any
+member rows the record lists. The *reading* lives here and the dashboard only
+supplies its facts.
 
 Two constraints shape this module, and they are why it is a module at all:
 
@@ -102,13 +102,13 @@ def _head(text: str, limit: int = 72) -> str:
     return head if len(head) <= limit else head[:limit - 1].rstrip() + "…"
 
 
-def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
-               pages: str) -> dict | None:
+def dev_status(slot: str, keys: dict, members: list,
+               review_exists: bool) -> dict | None:
     """The Mind's (development) reading.
 
-    A dev batch is dispatched at once and reviewed at once: it is open until
-    it has been reviewed, and the review button appears when `collect` has
-    stamped `collected:` — that is when a packet exists to press it on.
+    A shift is open until it has been reviewed: `reviewed-at:` stamped in the
+    record, or a review file on disk. A record that still carries the retired
+    `collected:` key reads like any other.
     """
     if _one(keys, "reviewed-at") or review_exists:
         return None
@@ -125,12 +125,10 @@ def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
             state, detail = AWAITING, _head(outcome)
         rows.append({"slug": m.get("slug", ""), "state": state,
                      "detail": detail})
-    return _status(slot, "dev", keys, rows,
-                   reviewable=bool(_one(keys, "collected")), pages=pages)
+    return _status(slot, "dev", keys, rows)
 
 
-def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
-            pages: str) -> dict:
+def _status(slot: str, kind: str, keys: dict, rows: list) -> dict:
     return {
         "slot": slot,
         "kind": kind,
@@ -138,9 +136,6 @@ def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
         "members": rows,
         "in_progress": sum(1 for r in rows if r["state"] == IN_PROGRESS),
         "awaiting": sum(1 for r in rows if r["state"] == AWAITING),
-        "reviewable": reviewable,
-        "url": review_url(pages, slot) if reviewable else "",
-        "packet": f"batches/packets/{slot}.html",
         # A running shift's status, as its watcher last wrote it into the
         # record (`- live:`) — a record line, not a clock.
         "live": _one(keys, "live"),
@@ -180,11 +175,6 @@ def pick_slot(rows: list) -> dict | None:
     return max(live, key=lambda r: (r["dispatched"], r["slot"]))
 
 
-def review_url(pages: str, slot: str) -> str:
-    """The packet's Pages URL, `''` when the site URL is underivable."""
-    return f"{pages}packets/{slot}.html" if pages else ""
-
-
 # ------------------------------------------------------------ the renders ---
 #: The Shift sub-part's anchor on the dashboard.
 ANCHOR = "shift"
@@ -212,13 +202,13 @@ def to_review(st: dict | None) -> int:
     """Members a human still has to review once the shift has ended."""
     if not st:
         return 0
-    return st["awaiting"] or (len(st["members"]) if st["reviewable"] else 0)
+    return st["awaiting"]
 
 
 def active(st: dict | None) -> bool:
     """Running, or ended with something to review: the Shift part shows the
     detail. Otherwise it is one quiet line."""
-    return bool(st) and (is_live(st) or bool(to_review(st)) or st["reviewable"])
+    return bool(st) and (is_live(st) or bool(to_review(st)))
 
 
 def badge(st: dict | None) -> str:
@@ -227,7 +217,7 @@ def badge(st: dict | None) -> str:
     if is_live(st):
         return f"{_mode(st) or 'LIVE'} · {st['in_progress']} in progress"
     n = to_review(st)
-    if n or (st and st["reviewable"]):
+    if n:
         return f"{n} to review"
     return ""
 
@@ -287,16 +277,7 @@ def render_html(st: dict | None, last: dict | None = None) -> str:
                 line += f'<span class="facets"> — {esc(r["detail"])}</span>'
             items.append(f"<li>{line}</li>")
         H.append("<ul>" + "".join(items) + "</ul>")
-    if st["url"]:
-        H.append(f'<p><a class="go" href="{esc(st["url"])}">Review this batch '
-                 "→</a></p>")
-    elif st["reviewable"]:
-        # Reviewable, but no Pages site to link into: name the packet by path
-        # rather than render a button that goes nowhere.
-        H.append(f'<p class="muted">Review packet: <code>'
-                 f'{esc(st["packet"])}</code></p>')
-    else:
-        H.append('<p class="muted">(nothing to review yet)</p>')
+    H.append('<p class="muted">(nothing to review yet)</p>')
     return "\n".join(H)
 
 
@@ -321,10 +302,5 @@ def render_md(st: dict | None, last: dict | None = None) -> str:
         L.append(line)
     if st["members"]:
         L.append("")
-    if st["url"]:
-        L.append(f"[Review this batch →]({st['url']})")
-    elif st["reviewable"]:
-        L.append(f"Review packet: `{st['packet']}`")
-    else:
-        L.append("_(nothing to review yet)_")
+    L.append("_(nothing to review yet)_")
     return "\n".join(L)
