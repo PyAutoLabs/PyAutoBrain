@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """agents/conductors/batch/_status.py — one reading of "is a batch in flight?".
 
-The Mind's dashboard shows this as the Shift part of its Autopilot block
-(PyAutoBrain#650): the slot that is in flight, every member on one line, and —
-once there is something to review — the button to its packet. The *reading* lives here and the dashboard only supplies its facts.
+The Mind's dashboard shows this as the Shift part of its Autopilot block: the
+slot that is in flight, every member on one line, and — once there is
+something to review — the button to its packet. The *reading* lives here and
+the dashboard only supplies its facts.
 
 Two constraints shape this module, and they are why it is a module at all:
 
@@ -17,10 +18,6 @@ Two constraints shape this module, and they are why it is a module at all:
 The vocabulary (`RECORD_KEY`, `PENDING_RE`) lives here and
 `_batch.py` imports it back, so the words the record is written in have one
 definition.
-
-It rendered a second box for the Cortex until 2026-09-03, when the science
-review slot was retired (PyAutoCortex#9); checking in on the science is
-`pyauto-brain cortex checkin` now, and that surface has no board of its own.
 """
 
 from __future__ import annotations
@@ -107,7 +104,7 @@ def _head(text: str, limit: int = 72) -> str:
 
 def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
                pages: str) -> dict | None:
-    """The Mind's (development) reading — today's behaviour, unchanged.
+    """The Mind's (development) reading.
 
     A dev batch is dispatched at once and reviewed at once: it is open until
     it has been reviewed, and the review button appears when `collect` has
@@ -145,7 +142,7 @@ def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
         "url": review_url(pages, slot) if reviewable else "",
         "packet": f"batches/packets/{slot}.html",
         # A running shift's status, as its watcher last wrote it into the
-        # record (`- live:`, PyAutoBrain#622) — a record line, not a clock.
+        # record (`- live:`) — a record line, not a clock.
         "live": _one(keys, "live"),
         "issue": issue_url(keys),
     }

@@ -13,26 +13,26 @@ end at their deliverable") and `AUTONOMY.md` "Shift briefs and unattended
 5. ask the planner what the brief admits (`plan(..., brief=...)`);
 6. for each candidate: the caps, then an exclusive-create lease, then spawn.
 
-Workers are fake stubs (`PYAUTO_ORCHESTRATOR_FAKE=1`, phase 3a) or real
-`claude --bg` sessions from one session template (phase 3b). A real worker's
-liveness is its `claude agents --json` state; one left `blocked` past a grace
-is parked for a human — never killed, never re-dispatched. Workers never
-commit to PyAutoMind (phase 3c): they queue ledger ops (`bin/shift_ledger.py`)
-and each tick commits them from a temporary worktree (`_mind_writer.py`); a
-git hook injected through the worker's environment refuses a direct commit.
-Nothing here commits, merges or arms a timer: the systemd timer that calls
-`bin/orchestrator_watch.py` is installed by the human. Its only GitHub writes
-are the comments AUTONOMY.md "The watcher's network surface" lists — the
-digest, one correction for a late arrival (#610) and one live status
-comment, then only edited (#622) — each claimed by marker first. A parked
-worker's question no longer @-mentions the human (M3.5, #645): it lands in
-PyAutoMind `questions.md` through the one Mind writer, and the digest counts
-it. Each open tick also reads the
-shift issue's comments once, for the human's `/pause` `/resume` `/drop`
-`/stop` (#622), `/add` `/cap` `/kill` (#644) and `/clear-sweep` (M3.7e). Every
-tick that does work appends what it did to the slot's `events.jsonl` (`_events`, #644), which
-`batch watch --stream` prints; a needs-you event is also one short comment on
-the shift issue, at most `EVENT_COMMENTS_MAX` a shift.
+Workers are fake stubs (`PYAUTO_ORCHESTRATOR_FAKE=1`) or real `claude --bg`
+sessions from one session template. A real worker's liveness is its
+`claude agents --json` state; one left `blocked` past a grace is parked for a
+human — never killed, never re-dispatched. Workers never commit to PyAutoMind:
+they queue ledger ops (`bin/shift_ledger.py`) and each tick commits them from
+a temporary worktree (`_mind_writer.py`); a git hook injected through the
+worker's environment refuses a direct commit. Nothing here commits, merges or
+arms a timer: the systemd timer that calls `bin/orchestrator_watch.py` is
+installed by the human.
+
+Its only GitHub writes are the comments AUTONOMY.md "The watcher's network
+surface" lists — the digest, one correction for a late arrival and one live
+status comment, then only edited — each claimed by marker first. A parked
+worker's question does not @-mention the human: it lands in PyAutoMind
+`questions.md` through the one Mind writer, and the digest counts it. Each
+open tick also reads the shift issue's comments once, for the human's steering
+commands (`COMMANDS`). Every tick that does work appends what it did to the
+slot's `events.jsonl` (`_events`), which `batch watch --stream` prints; a
+needs-you event is also one short comment on the shift issue, at most
+`EVENT_COMMENTS_MAX` a shift.
 """
 
 from __future__ import annotations
@@ -50,11 +50,11 @@ import _app_token  # noqa: E402 — the batch conductor puts this directory on s
 import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _events  # noqa: E402
-import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
-import _merge_slots  # noqa: E402 — one merge-cap count per shift (R3, #661)
+import _login  # noqa: E402 — the CLI login probe
+import _merge_slots  # noqa: E402 — one merge-cap count per shift
 import _mind_writer  # noqa: E402
 import _questions  # noqa: E402
-import _sweep  # noqa: E402 — the shift-end cloud sweep (M3.7e, PyAutoBrain#692)
+import _sweep  # noqa: E402 — the shift-end cloud sweep
 
 STOP_FILE = "STOP"
 LOCK_FILE = "tick.lock"
@@ -67,40 +67,38 @@ DIGEST_MARKER = "digest.posted"
 LOCK_TTL_S = 600
 #: A worker whose process is gone keeps its lease this long before it is
 #: declared dead — room for a worker that writes its `.done` marker late. At
-#: least two measured tick intervals (median 184 s over 566 ticks to
-#: 2026-11-09; PyAutoBrain#603), so one slow tick never outlives a lease.
+#: least two tick intervals, so one slow tick never outlives a lease.
 LEASE_GRACE_S = 420
 #: A real worker missing from `claude agents` is a crash only after this many
 #: consecutive unlisted reads (and the grace) — or a positive ended state.
 UNLISTED_READS_FOR_CRASH = 2
 #: A task's lease may be re-dispatched after a crash this many times a shift.
 REDISPATCH_LIMIT = 1
-#: Sessions a re-dispatch may start beyond the brief's `max-sessions:`
-#: (PyAutoBrain#637, item 1) — so a backlog dip can never use up the session
-#: a killed worker's task needs. The shift's sessions stay under max + this.
+#: Sessions a re-dispatch may start beyond the brief's `max-sessions:` — so
+#: a backlog dip can never use up the session a killed worker's task needs.
+#: The shift's sessions stay under max + this.
 REDISPATCH_SESSIONS = 1
 #: A real worker `blocked` (waiting on a human) this long is parked: its lease
 #: stays (state `parked`, holding no worker slot) so a late `.done` is still
 #: read, the task is not re-dispatched, and the digest names it.
 STALL_GRACE_S = 900
-#: Sessions that ended without succeeding — reaped as crashes (`_digest`, #592).
+#: Sessions that ended without succeeding — reaped as crashes (`_digest`).
 ENDED_STATES = _digest.ENDED_STATES
 #: The worker prompt every real worker starts from (never a bare session).
 WORKER_TEMPLATE = Path(__file__).with_name("worker_template.md")
 CLOSEOUT_TEMPLATE = Path(__file__).with_name("closeout_template.md")
-#: The branch-update session's prompt (M3.6j, PyAutoBrain#683): one
-#: `gh pr update-branch` after an earlier PR of the shift on the same library
-#: merged, then end — never a merge, never a wait.
+#: The branch-update session's prompt: one `gh pr update-branch` after an
+#: earlier PR of the shift on the same library merged, then end — never a
+#: merge, never a wait.
 UPDATE_TEMPLATE = Path(__file__).with_name("closeout_update_template.md")
-#: The model and effort every spawned worker starts on — the human's ruling of
-#: 2026-11-18 (PyAutoBrain#672): Opus at medium effort, whatever the effort of
-#: the session that composed the shift.
+#: The model and effort every spawned worker starts on, whatever the effort
+#: of the session that composed the shift.
 WORKER_MODEL = "opus"
 WORKER_EFFORT = "medium"
-#: The close-out session's model (phase 4b). The same model as the workers —
-#: the human's call 2026-11-04 (AUTONOMY.md "Stage-2 adversary amendment"): a
-#: fresh, independent session that runs the witness itself is the leg. Its
-#: effort follows the workers too (2026-11-18). Stage-2 rows record this name.
+#: The close-out session's model. The same model as the workers (AUTONOMY.md
+#: "Stage-2 adversary amendment"): a fresh, independent session that runs the
+#: witness itself is the leg. Its effort follows the workers too. Stage-2
+#: rows record this name.
 CLOSEOUT_MODEL = WORKER_MODEL
 STAGE2_HEADING = "## Unattended `glance` sub-window (stage 2)"
 #: A merged close-out that did not say what became of the task's worktree.
@@ -170,23 +168,23 @@ def read_counters(slot: Path) -> dict:
     c.setdefault("picks", {})      # task → {prompt, why, tier}, at dispatch (3d)
     c.setdefault("outcomes", {})   # task → {prs, merged}, from its `.done` (3d)
     c.setdefault("closeouts", {})  # PR url → {task, state, why, …} (4b)
-    # PR url → {task, behind, since}: waiting in merge order (M3.6j, #683)
+    # PR url → {task, behind, since}: waiting in merge order
     c.setdefault("merge_waits", {})
-    # M3.7b (#688): when the watcher first saw each PR (the NO-CHECKS grace),
-    # and each PR's changed files, read once per shift (the S6 overlap rule).
+    # When the watcher first saw each PR (the NO-CHECKS grace), and each
+    # PR's changed files, read once per shift (the file-overlap rule).
     c.setdefault("pr_seen", {})
     c.setdefault("pr_files", {})
     c.setdefault("glance_auto_merges", 0)
-    # PyAutoBrain#610: tokens per session (replaced each read, never added),
-    # the sessions whose usage could not be read this tick, one exit record
-    # per worker, and GitHub's merge state per PR at `review-at:`.
+    # Tokens per session (replaced each read, never added), the sessions
+    # whose usage could not be read this tick, one exit record per worker,
+    # and GitHub's merge state per PR at `review-at:`.
     c.setdefault("usage", {})
     c.setdefault("usage_unavailable", [])
     c.setdefault("workers", [])
     c.setdefault("github", {})
-    c.setdefault("pushes", 0)        # @mentions sent (PyAutoBrain#611)
-    # PyAutoBrain#622: tasks the human dropped, and every steering command
-    # enacted with its acknowledgement (`paused` is present only while paused).
+    c.setdefault("pushes", 0)        # @mentions sent
+    # Tasks the human dropped, and every steering command enacted with its
+    # acknowledgement (`paused` is present only while paused).
     c.setdefault("dropped", {})
     c.setdefault("commands", [])
     return c
@@ -284,8 +282,8 @@ class FakeSpawner:
         return None
 
 
-#: Prepended to a re-dispatched worker's prompt (PyAutoBrain#632, B1): the
-#: crashed worker may already have claimed the task through the ledger.
+#: Prepended to a re-dispatched worker's prompt: the crashed worker may
+#: already have claimed the task through the ledger.
 REDISPATCH_NOTE = """\
 This is a RE-DISPATCH: an earlier worker on this task crashed. Its claim may
 already be on PyAutoMind main — the `{task_path}` → `active/` move and the
@@ -299,7 +297,7 @@ repeated claim op is skipped by the orchestrator's Mind writer anyway.
 
 
 #: Prepended to the prompt of a task resumed after the human answered the
-#: question an earlier shift parked it on (M3.5, PyAutoBrain#645, Decision H11).
+#: question an earlier shift parked it on.
 RESUME_NOTE = """\
 This task parked on a question in shift `{shift}` and the human has answered
 it ({ids}): see "## Answers from the human" in your prompt{comments}. The
@@ -315,8 +313,8 @@ again.
 
 
 #: Prepended to the prompt of a worker whose library already has open PRs
-#: from this shift (M3.6j, PyAutoBrain#683): its start no longer waits for
-#: them to merge, so it must not build on them, and its merge waits for them.
+#: from this shift: its start does not wait for them to merge, so it must
+#: not build on them, and its merge waits for them.
 SIBLING_NOTE = """\
 Open sibling PRs: this shift already has these PRs OPEN on the same library
 repo, and they merge BEFORE yours (the close-out merges a library's shift PRs
@@ -353,9 +351,9 @@ def worker_prompt(task: str, prompt_path: str, brief_path: Path, lease_dir: Path
                   redispatch: bool = False, resume: dict | None = None,
                   siblings: list[str] | None = None) -> str:
     """The session template filled in for one task; a re-dispatch is told
-    that its predecessor's claim may already exist (#632), a resumed task
-    that the human answered its question (M3.5, #645), and a task whose
-    library has open PRs from this shift which merge first (M3.6j, #683)."""
+    that its predecessor's claim may already exist, a resumed task that the
+    human answered its question, and a task whose library has open PRs from
+    this shift that they merge first."""
     head = REDISPATCH_NOTE.format(task=task, task_path=prompt_path) if redispatch else ""
     head += resume_note(resume) if resume else ""
     head += sibling_note(siblings) if siblings else ""
@@ -379,12 +377,11 @@ def pr_repos(pr_url: str) -> str:
 
 def after_step(after: list[str] | None = None, before: list[str] | None = None,
                disjoint: list[str] | None = None) -> str:
-    """The close-out's merge-order step (M3.6j, PyAutoBrain#683), or "" when
-    no earlier PR of the shift shares this PR's library: every earlier PR
-    must no longer be OPEN, and every one merged after this branch was cut
-    must be in it (the update session merged `main` in) — except those whose
-    changed files are disjoint from this PR's (S6, M3.7b), which are named
-    and not checked."""
+    """The close-out's merge-order step, or "" when no earlier PR of the shift
+    shares this PR's library: every earlier PR must no longer be OPEN, and
+    every one merged after this branch was cut must be in it (the update
+    session merged `main` in) — except those whose changed files are disjoint
+    from this PR's, which are named and not checked."""
     if not (after or before or disjoint):
         return ""
     out = ["4b. Merge order (M3.6j, PyAutoBrain#683): this shift's earlier PRs on this\n"
@@ -413,18 +410,18 @@ def after_step(after: list[str] | None = None, before: list[str] | None = None,
 
 def update_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                   lease_dir: Path, after: list[str]) -> str:
-    """The branch-update session's template filled in (M3.6j, #683)."""
+    """The branch-update session's template filled in."""
     return UPDATE_TEMPLATE.read_text(encoding="utf-8").format(
         task=task, pr_url=pr_url, task_path=prompt_path, brief_path=brief_path,
         lease_dir=lease_dir, after="\n".join(f"- {u}" for u in after))
 
 
 #: How long a close-out started at PR-open waits in-turn for CI before it
-#: refuses (`CI not finished by <deadline> → /prm`; ruling S5, M3.7b). The
-#: deadline is never later than `review-at:`.
+#: refuses (`CI not finished by <deadline> → /prm`). The deadline is never
+#: later than `review-at:`.
 CLOSEOUT_CI_WAIT_S = 1800
 #: The CI deadline ends this long before `review-at:`, leaving room for the
-#: `/prm` run after GREEN, so no close-out merges after `review-at:` (#632 F1).
+#: `/prm` run after GREEN, so no close-out merges after `review-at:`.
 CLOSEOUT_MERGE_MARGIN_S = 300
 
 
@@ -432,15 +429,13 @@ def closeout_prompt(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                     lease_dir: Path, after: list[str] | None = None,
                     before: list[str] | None = None, disjoint: list[str] | None = None,
                     ci_until: str = "") -> str:
-    """The close-out session template filled in for one PR (phase 4b). Its
-    Heart check is the scoped development-ship gate for the PR's repo (leg 4,
-    PyAutoHeart#340): only `green` merges. Its CI check is `pyauto-brain
-    ci-verdict --until <ci_until>` on the PR (PyAutoBrain#628; the in-turn
-    wait of ruling S5, M3.7b): only `GREEN` merges. Its public-name check is
-    `pyauto-brain public-names` (PyAutoBrain#641): an added or renamed public
-    library name, or a diff it cannot read, refuses. It runs no full affected
-    smoke (ruling S2). `ci_until` is the watcher's deadline; without one it is
-    CLOSEOUT_CI_WAIT_S from now."""
+    """The close-out session template filled in for one PR. Its Heart check is
+    the scoped development-ship gate for the PR's repo: only `green` merges.
+    Its CI check is `pyauto-brain ci-verdict --until <ci_until>` on the PR:
+    only `GREEN` merges. Its public-name check is `pyauto-brain public-names`:
+    an added or renamed public library name, or a diff it cannot read,
+    refuses. It runs no full affected smoke. `ci_until` is the watcher's
+    deadline; without one it is CLOSEOUT_CI_WAIT_S from now."""
     ci_until = ci_until or _iso(_now() + _dt.timedelta(seconds=CLOSEOUT_CI_WAIT_S))
     repos = pr_repos(pr_url)
     heart_cmd = (f"bash -c 'source \"{COMMON_SH}\"; consult_vitals_verdict --repos {repos}'"
@@ -464,7 +459,7 @@ def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                      ci_until: str = "") -> list[str]:
     """The argv that starts one close-out session: its own name, the close-out
     model at the workers' effort, the brief's worker mode. The prompt is last.
-    With `update_after` it is the branch-update session instead (M3.6j)."""
+    With `update_after` it is the branch-update session instead."""
     if mode not in _brief.WORKER_MODES:
         raise OrchestratorError(f"worker mode {mode!r} is not one of "
                                 + ", ".join(_brief.WORKER_MODES))
@@ -478,16 +473,16 @@ def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
                             disjoint, ci_until)]
 
 
-#: The variable that names the kick file to every session (M3.7c, #690).
+#: The variable that names the kick file to every session.
 KICK_ENV = "PYAUTO_SHIFT_KICK"
 
 
 def kick_path(env: dict | None = None) -> Path:
     """The kick file `pyauto-orchestrator.path` watches: systemd's `%S` for a
     user unit — `$XDG_STATE_HOME`, else `~/.local/state` — then
-    `pyauto/orchestrator.kick` (M3.7c, PyAutoBrain#690). A session appends a
-    line to it after its verdict file, so the next tick starts at once; the
-    60-second timer is the backstop. Local only: no network act."""
+    `pyauto/orchestrator.kick`. A session appends a line to it after its
+    verdict file, so the next tick starts at once; the 60-second timer is the
+    backstop. Local only: no network act."""
     env = os.environ if env is None else env
     state = str(env.get("XDG_STATE_HOME") or "").strip()
     if not state or not os.path.isabs(state):
@@ -512,10 +507,9 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
     PyAutoMind is refused whatever tool makes it. The watcher's own GitHub
     identity never reaches a worker or close-out: not its static token
     (`PYAUTO_SHIFT_GH_TOKEN`), not its App settings (`PYAUTO_SHIFT_APP_*`,
-    the key's path among them, PyAutoBrain#630), and no variable carrying
-    either token or an App installation token it minted; the human's own gh
-    auth stays (#611 re-review). `PYAUTO_SHIFT_KICK` names the kick file
-    (`kick_path`, M3.7c)."""
+    the key's path among them), and no variable carrying either token or an
+    App installation token it minted; the human's own gh auth stays.
+    `PYAUTO_SHIFT_KICK` names the kick file (`kick_path`)."""
     env = dict(os.environ if base is None else base)
     secrets = {env.pop(GH_TOKEN_ENV, "").strip()} | _auth().secrets()
     for key in _app_token.APP_ENVS:
@@ -540,7 +534,7 @@ def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Pa
     """The exact argv that starts one worker — named, on `WORKER_MODEL` at
     `WORKER_EFFORT`, moded, templated; the prompt is the last element.
 
-    No `--session-id`: `claude --bg` (2.1.316) assigns its own, so the worker is
+    No `--session-id`: `claude --bg` assigns its own, so the worker is
     tracked by the short id the launch prints."""
     if mode not in _brief.WORKER_MODES:
         raise OrchestratorError(f"worker mode {mode!r} is not one of "
@@ -563,24 +557,22 @@ _SCOPE_FAILED_RE = re.compile(r"Failed to (start transient scope unit|connect to
 def scope_command(argv: list[str], task: str, env: dict | None = None,
                   which=shutil.which) -> list[str]:
     """`argv` wrapped in its own transient systemd user scope, when the watcher
-    runs inside a systemd unit and `systemd-run` is on PATH (PyAutoBrain#634).
+    runs inside a systemd unit and `systemd-run` is on PATH.
 
     The first `claude --bg` starts the per-user background-session daemon
-    (`claude daemon run`, `origin=transient`) and its `bg-pty-host` spares.
-    They inherit the cgroup of whoever launched them. Launched from the
-    watcher's oneshot `pyauto-orchestrator.service`, they lived in that
-    unit's cgroup, outlived each tick, and systemd logged "Found left-over
-    process" on every tick of the first live shift (211 lines). In a scope
-    of their own (`app.slice/run-*.scope`) they never share the unit's
-    cgroup, and the scope goes away when its last process exits: the daemon
-    already quits on its own 5 s after its last client. A daemon some other
+    (`claude daemon run`) and its `bg-pty-host` spares, which inherit the
+    cgroup of whoever launched them. Launched from the watcher's oneshot
+    `pyauto-orchestrator.service` they would outlive each tick inside that
+    unit's cgroup ("Found left-over process" on every tick). In a scope of
+    their own (`app.slice/run-*.scope`) they never share the unit's cgroup,
+    and the scope goes away when its last process exits. A daemon some other
     session already runs is only connected to; the scope then holds the
     short-lived client and closes at once. Nothing here stops anything.
 
     `--scope` runs the command as systemd-run's own child, so the worker's
     environment and working folder pass through unchanged. Outside a unit
     (no `INVOCATION_ID`: a hand-run tick, CI, macOS) or without
-    `systemd-run`, the argv comes back unchanged — spawned as before."""
+    `systemd-run`, the argv comes back unchanged."""
     env = os.environ if env is None else env
     if not env.get("INVOCATION_ID") or not which("systemd-run"):
         return list(argv)
@@ -590,7 +582,7 @@ def scope_command(argv: list[str], task: str, env: dict | None = None,
 
 def run_scoped(run, argv: list[str], task: str, **kw):
     """Run `argv` through `scope_command`; if systemd-run itself could not
-    make the scope (no user bus), run it plain, exactly as before #634."""
+    make the scope (no user bus), run it plain."""
     wrapped = scope_command(argv, task, kw.get("env"))
     res = run(wrapped, **kw)
     if wrapped != argv and res.returncode != 0 and _SCOPE_FAILED_RE.search(res.stderr or ""):
@@ -605,10 +597,9 @@ PRESPAWN_MODEL = "none — no close-out session started"
 
 def public_names_gate(pr_url: str, check=None) -> str:
     """The deterministic public-name check (AUTONOMY.md "Public-name
-    narrowing of `glance` — 2026-11-16", PyAutoBrain#641) on one PR, run by
-    the watcher before a close-out session spawns: '' to go on, else the
-    refusal's `why`. A repo outside the ruled libraries goes on; a hit or a
-    check that cannot tell refuses."""
+    narrowing of `glance`") on one PR, run by the watcher before a close-out
+    session spawns: '' to go on, else the refusal's `why`. A repo outside the
+    ruled libraries goes on; a hit or a check that cannot tell refuses."""
     try:
         if check is None:
             sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
@@ -620,7 +611,7 @@ def public_names_gate(pr_url: str, check=None) -> str:
 
 
 class RealSpawner:
-    """`claude --bg` workers from the session template (phase 3b)."""
+    """`claude --bg` workers from the session template."""
 
     real = True
 
@@ -633,11 +624,11 @@ class RealSpawner:
         self.public_names = public_names or public_names_gate
 
     def pr_state(self, url: str) -> dict | None:
-        """GitHub's word on a PR — the merge truth for a close-out (#603)."""
+        """GitHub's word on a PR — the merge truth for a close-out."""
         return self.gh(url)
 
     def pr_files(self, url: str) -> list[str] | None:
-        """A PR's changed files — the branch-update decision (S6, M3.7b)."""
+        """A PR's changed files — the branch-update decision."""
         return self.files(url)
 
     def spawn(self, task: str, prompt_path: str, lease_dir: Path,
@@ -665,8 +656,8 @@ class RealSpawner:
                        before: list[str] | None = None, disjoint: list[str] | None = None,
                        ci_until: str = "") -> dict:
         # The public-name check runs here, deterministically, before any
-        # session (#641): a hit or a cannot-tell is this PR's refusal, written
-        # as the verdict a close-out would write, and nothing is spawned.
+        # session: a hit or a cannot-tell is this PR's refusal, written as
+        # the verdict a close-out would write, and nothing is spawned.
         why = self.public_names(pr_url)
         if why:
             verdict = {"result": "refused", "pr": pr_url, "why": why,
@@ -676,8 +667,8 @@ class RealSpawner:
         argv = closeout_command(task, pr_url, prompt_path, self.brief_path, lease_dir,
                                 self.mode, update_after=update_after, after=after,
                                 before=before, disjoint=disjoint, ci_until=ci_until)
-        # The same scoped route as a worker (#634): a close-out may be the
-        # session that starts the daemon.
+        # The same scoped route as a worker: a close-out may be the session
+        # that starts the daemon.
         env = worker_env(lease_dir)
         _ensure_kick_dir(env)
         res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
@@ -712,7 +703,7 @@ class AgentsView:
 
     A read that fails, times out or prints something other than a JSON list is
     *unknown* (`known()` is False) — never an empty list, which would declare
-    every worker gone (PyAutoBrain#603)."""
+    every worker gone."""
 
     def __init__(self, sessions: list[dict] | None = None, run=None):
         self._sessions, self._run = sessions, run or subprocess.run
@@ -741,9 +732,9 @@ class AgentsView:
         return next((s for s in self._load() or [] if s.get("id") == agent_id), None)
 
     def state(self, agent_id: str) -> str | None:
-        """The CLI's state word — `working` while it runs (2.1.316), `blocked`
-        waiting on a person, `done` — or None if unlisted. Anything but
-        `blocked` / `done` / None is read as alive."""
+        """The CLI's state word — `working` while it runs, `blocked` waiting on
+        a person, `done` — or None if unlisted. Anything but `blocked` / `done`
+        / None is read as alive."""
         s = self._find(agent_id)
         return None if s is None else (s.get("state") or "running")
 
@@ -761,12 +752,11 @@ def _liveness_known(agents) -> bool:
 
 def gh_pr_state(url: str, run=None) -> dict | None:
     """One read-only `gh pr view`: {state, mergedAt, mergedBy, head,
-    mergeable} as GitHub has it, or None when GitHub could not say (#603: the
-    merge truth). `head` (the head sha) tells an updated branch's CI from an
-    older head's (M3.6j); `mergeable` (`MERGEABLE`, `CONFLICTING` or
-    `UNKNOWN`) sends a conflicting PR to its branch update (S6, M3.7b);
-    `labels` (their names) refuses a `decision-taken` PR at PR-open (S7,
-    M3.7c) — one more field of the same read."""
+    mergeable, labels} as GitHub has it, or None when GitHub could not say.
+    `head` (the head sha) tells an updated branch's CI from an older head's;
+    `mergeable` (`MERGEABLE`, `CONFLICTING` or `UNKNOWN`) sends a conflicting
+    PR to its branch update; `labels` (their names) refuses a
+    `decision-taken` PR at PR-open."""
     run = run or subprocess.run
     try:
         res = run(["gh", "pr", "view", url, "--json",
@@ -795,9 +785,9 @@ PR_FILES_LIMIT = 100
 
 def gh_pr_files(url: str, run=None) -> list[str] | None:
     """One read-only `gh pr view --json files`: the PR's changed paths, or
-    None when GitHub could not say or the list may be truncated (S6, M3.7b:
-    the branch-update decision; AUTONOMY.md "The watcher's network surface",
-    amendment 2026-11-19). The watcher reads it at most once per PR per shift."""
+    None when GitHub could not say or the list may be truncated (the
+    branch-update decision; AUTONOMY.md "The watcher's network surface").
+    The watcher reads it at most once per PR per shift."""
     run = run or subprocess.run
     try:
         res = run(["gh", "pr", "view", url, "--json", "files"],
@@ -821,7 +811,7 @@ _USAGE_FIELDS = (("input", "input_tokens"), ("output", "output_tokens"),
                  ("cache_read", "cache_read_input_tokens"))
 _USAGE_KEYS = ("total", "input", "output", "cache_creation", "cache_read", "subagents")
 #: Consecutive unreadable reads after which one session stops refusing every
-#: spawn: its reservation stands in for its usage and it is `unmeasured` (#610).
+#: spawn: its reservation stands in for its usage and it is `unmeasured`.
 UNREADABLE_READS = 3
 
 
@@ -845,11 +835,11 @@ def transcript_usage(session_id: str, root: Path | None = None) -> dict | None:
     reads — no network): input, output, cache creation and cache read, with
     `total` = input + output + cache creation (cache reads are reported, not
     counted). A transcript repeats one assistant message on several lines with
-    the same usage, so usage is taken once per message id (PyAutoBrain#610:
-    summing every line read about 1.6× high). The session's subagents write
-    their own transcripts under `<sid>/subagents/agent-*.jsonl`; they are
-    included, deduped the same way, and `subagents` reports their share of
-    `total`. None when there is no transcript or one cannot be read — never 0."""
+    the same usage, so usage is taken once per message id. The session's
+    subagents write their own transcripts under
+    `<sid>/subagents/agent-*.jsonl`; they are included, deduped the same way,
+    and `subagents` reports their share of `total`. None when there is no
+    transcript or one cannot be read — never 0."""
     root = root or Path.home() / ".claude" / "projects"
     main = list(root.glob(f"*/{session_id}.jsonl"))
     subs = list(root.glob(f"*/{session_id}/subagents/agent-*.jsonl"))
@@ -892,12 +882,12 @@ def _as_usage(raw) -> dict | None:
 
 def _measure(counters: dict, key: str, sid: str | None, tokens, *, kind: str,
              task: str, final: bool = False) -> None:
-    """Read one session's usage and store it **replacing** the last read
-    (PyAutoBrain#610) — so a re-read never adds twice. An unreadable usage
-    keeps the last value and marks the session unavailable for this tick,
-    which refuses the next spawn; it is never stored as 0. After
-    `UNREADABLE_READS` unreadable reads in a row the session is `unmeasured`:
-    it stops refusing spawns, and its reservation counts as its usage."""
+    """Read one session's usage and store it **replacing** the last read — so
+    a re-read never adds twice. An unreadable usage keeps the last value and
+    marks the session unavailable for this tick, which refuses the next
+    spawn; it is never stored as 0. After `UNREADABLE_READS` unreadable reads
+    in a row the session is `unmeasured`: it stops refusing spawns, and its
+    reservation counts as its usage."""
     entry = counters["usage"].setdefault(key, {"kind": kind, "task": task, "total": None})
     usage = _as_usage(tokens(sid)) if sid else None
     if usage is None:
@@ -938,19 +928,17 @@ def default_token_reserve(budget: int | None, max_sessions: int,
                           estimate: int | None = None) -> int:
     """The per-worker estimate held at spawn until real usage passes it: an
     even share of the budget among the sessions the shift may start, or the
-    measured spend of a finished worker when that is larger (#637, item 8).
+    measured spend of a finished worker when that is larger.
 
     An even share alone never refuses a spawn before `max-sessions` does: N
-    reservations of budget/N fit the budget exactly. Shift B (400k, 4
-    sessions) reserved 100k a worker while its workers spent ~125k, so the
-    session cap bound and the shift ended at 498k. With the measured figure
-    held instead, a budget sized below the sessions' real cost refuses the
-    spawn that would pass it."""
+    reservations of budget/N fit the budget exactly, whatever the workers
+    really spend. With the measured figure held instead, a budget sized below
+    the sessions' real cost refuses the spawn that would pass it."""
     if not budget:
         return 0
     share = budget // max(max_sessions, 1)
-    # Never above half the budget: one outlier worker (450k in a 400k shift)
-    # must not refuse the first spawn (#637 review). Never below the share.
+    # Never above half the budget: one outlier worker must not refuse the
+    # first spawn. Never below the share.
     return max(share, min(int(estimate or 0), budget // 2))
 
 
@@ -990,8 +978,8 @@ def worker_token_estimate(slot: Path, counters: dict, budget: int | None = None,
 
 
 def slot_budget(slot: Path, mind: Path | None = None) -> int | None:
-    """An earlier shift's `token-budget:` — recorded in its `counters.json`
-    (from #637), else read from its brief record in Mind's working tree."""
+    """An earlier shift's `token-budget:` — recorded in its `counters.json`,
+    else read from its brief record in Mind's working tree."""
     c = _safe_counters(slot)
     b = c.get("token_budget") if isinstance(c, dict) else None
     if isinstance(b, int) and b > 0:
@@ -1008,7 +996,7 @@ def slot_budget(slot: Path, mind: Path | None = None) -> int | None:
 
 def _safe_counters(slot: Path) -> dict:
     """Another slot's counters, or {} when its file has the wrong shape — a
-    note on stderr, never a planner crash (#637 review)."""
+    note on stderr, never a planner crash."""
     try:
         c = read_counters(slot)
         for key in ("outcomes", "usage"):
@@ -1070,9 +1058,8 @@ def task_id(prompt_path: str) -> str:
 
 def lease_files(slot: Path) -> list[Path]:
     """The lease files of a slot. A parked worker's `{task}.question.json`
-    sidecar shares the folder and is not a lease: read as one it had no pid,
-    `_alive(0)` called it running, and it held a worker slot to `review-at:`
-    (2026-11-20-am: four sidecars filled `max-workers 4`, 11 tasks waited)."""
+    sidecar shares the folder and is not a lease: read as one it would have
+    no pid, count as running, and hold a worker slot to `review-at:`."""
     return [f for f in sorted((Path(slot) / "leases").glob("*.json"))
             if not f.name.endswith(_questions.SIDECAR_SUFFIX)]
 
@@ -1117,13 +1104,13 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
 
     Every transition is written to `counters.json` as it happens, and a lease
     or `.done` marker is deleted only after that write — a tick that fails
-    later never forgets a reap (PyAutoBrain#603). A parked worker keeps its
-    lease (`state: parked`), so its late `.done` is still read here.
+    later never forgets a reap. A parked worker keeps its lease
+    (`state: parked`), so its late `.done` is still read here.
 
     Every real session's usage is read on every tick, live, parked or
-    finishing, and stored per session (PyAutoBrain#610). Each transition is
-    also written to the worker's exit record (`spawned/…`); `late` (the late
-    sweep) marks what arrives after `review-at:`.
+    finishing, and stored per session. Each transition is also written to the
+    worker's exit record (`spawned/…`); `late` (the late sweep) marks what
+    arrives after `review-at:`.
     """
     events = []
     lease_dir = slot / "leases"
@@ -1182,9 +1169,9 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             # The digest reads these at review-at, long after the marker is gone.
             counters["outcomes"][task] = _digest.parse_done(
                 done_marker.read_text(encoding="utf-8", errors="replace"))
-            # Each question lands in the inbox (M3.5, #645): one Mind writer
-            # op per issue, queued before the counters write; a replay after a
-            # crash is a silent repeat in `questions_edit.add_text`.
+            # Each question lands in the inbox: one Mind writer op per issue,
+            # queued before the counters write; a replay after a crash is a
+            # silent repeat in `questions_edit.add_text`.
             done = counters["outcomes"][task]
             if done.get("questions") and "obsolete" not in done and not done.get("merged"):
                 for url in done["questions"]:
@@ -1197,15 +1184,15 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 counters["parked"].remove(task)
             mark("finished")
             # A worker that merged in-turn (`notify`) ran no close-out here:
-            # retire its live queue.md entry as an unattended merge does
-            # (#637, item 11). Queued before the counters write, and a second
-            # retire of the same entry finds none live and is silent.
+            # retire its live queue.md entry as an unattended merge does.
+            # Queued before the counters write, and a second retire of the
+            # same entry finds none live and is silent.
             for pr in counters["outcomes"][task].get("merged") or []:
                 retire = queue_retire_op(counters, task, pr, now, by="the shift worker, in-turn")
                 if retire:
                     _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
-                    # Its inbox questions are moot once merged (#645 review):
-                    # answered as `(task completed)`, as `lifecycle.py close` would.
+                    # Its inbox questions are moot once merged: answered as
+                    # `(task completed)`, as `lifecycle.py close` would.
                     _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
                                           question_retire_op(counters, task, now,
                                                              by="the shift worker, in-turn"))
@@ -1267,7 +1254,7 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             if real:
                 path.write_text(json.dumps(lease, sort_keys=True))  # the unlisted count
             continue  # gone, but inside the grace for a late `.done`
-        # A worker the human stopped by `/kill` (#644) ends as `killed`, not
+        # A worker the human stopped by `/kill` ends as `killed`, not
         # `crashed`: it counts for the re-dispatch rule, not as a crash.
         killed = (counters.get("killed") or {}).get(task) or {}
         by_kill = bool(killed) and killed.get("key") == rec.get("key")
@@ -1290,18 +1277,18 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
 def land_question(slot: Path, counters: dict, lease: dict, task: str, issue: str,
                   kind: str, ask: str, options: list, worker: str,
                   now: _dt.datetime) -> bool:
-    """Queue one `question-add` op for the Mind writer (M3.5, #645) and note
-    it in `counters["inbox"]`. Nothing without the task's prompt or an issue
-    (a lease from before M3.5 carries no shift issue: held as before). The
-    watcher never reads the issue: the ask is the worker's sidecar, else
-    `see the question on the issue`. True when it was queued."""
+    """Queue one `question-add` op for the Mind writer and note it in
+    `counters["inbox"]`. Nothing without the task's prompt or an issue (a
+    lease that carries no shift issue: held). The watcher never reads the
+    issue: the ask is the worker's sidecar, else `see the question on the
+    issue`. True when it was queued."""
     prompt = lease.get("prompt") or (counters["picks"].get(task) or {}).get("prompt") or ""
     why = ("no prompt recorded for the task" if not prompt
            else "no shift issue on its lease (spawned before M3.5)" if not issue
            else f"issue `{str(issue)[:80]}` is not an https URL"
            if not str(issue).startswith("https://") else "")
     if why:
-        # Never silent (#645 review): the digest names what was not filed.
+        # Never silent: the digest names what was not filed.
         unfiled = counters.setdefault("inbox_unfiled", [])
         if not any(u.get("task") == task and u.get("kind") == kind for u in unfiled):
             unfiled.append({"task": task, "kind": kind, "why": why})
@@ -1332,8 +1319,7 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
     if now >= at:
         return False, f"review-at {rec['top']['review-at']['value']} has passed", None
     # The shift is `dispatched:` → `review-at:`. Landing the brief early is
-    # allowed; it grants nothing until its start (PyAutoBrain#589 — shadow
-    # shift 1 opened on landing, a day early).
+    # allowed; it grants nothing until its start.
     start = _brief._iso(rec["top"]["dispatched"]["value"])
     if now < start:
         return False, f"not yet open: opens at dispatched {rec['top']['dispatched']['value']}", None
@@ -1341,9 +1327,9 @@ def brief_open(brief_path: Path, mind: Path, now: _dt.datetime) -> tuple[bool, s
 
 
 def late_owed(slot: Path) -> bool:
-    """What the watcher still owes a shift once its late window has closed
-    (M3.6a review): the digest not yet claimed, a digest or correction post
-    that failed with tries left, or a queued Mind op. Local reads only."""
+    """What the watcher still owes a shift once its late window has closed:
+    the digest not yet claimed, a digest or correction post that failed with
+    tries left, or a queued Mind op. Local reads only."""
     slot = Path(slot)
     return (not (slot / DIGEST_MARKER).exists() or post_due(slot / DIGEST_MARKER)
             or post_due(slot / CORRECTION_MARKER) or bool(_mind_writer.pending_ops(slot)))
@@ -1351,7 +1337,7 @@ def late_owed(slot: Path) -> bool:
 
 def _late_closed(brief_path: Path, now: _dt.datetime) -> str:
     """When the late window closed (`review-at:` + `_brief.LATE_WINDOW_S`) as
-    ISO, if it has; else "" (M3.6a, PyAutoBrain#659). Local reads only."""
+    ISO, if it has; else "". Local reads only."""
     try:
         top = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))["top"]
     except (OSError, _brief.BriefError):
@@ -1371,10 +1357,10 @@ def _default_pr_state():
 def tick(brief_path: Path, mind: Path, *, home: Path | None = None,
          now: _dt.datetime | None = None, auth=None, **kw) -> dict:
     """One watcher tick, with its GitHub identity bound for the tick's own
-    `gh` calls (PyAutoBrain#630): a `_app_token.WatcherAuth` over the state
-    directory — the App's installation token, minted when the tick's first
-    watcher GitHub call needs it and held in memory for this tick only —
-    unless a test passes its own `auth`."""
+    `gh` calls: a `_app_token.WatcherAuth` over the state directory — the
+    App's installation token, minted when the tick's first watcher GitHub
+    call needs it and held in memory for this tick only — unless a test
+    passes its own `auth`."""
     global _AUTH
     now = now or _now()
     prev = _AUTH
@@ -1396,15 +1382,14 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
     """One watcher tick. Returns what it did; also appended to `tick.log`.
 
     `pr_state` and `pr_files` are the `gh pr view` seams (a PR's state, and
-    its changed files for the branch-update decision, S6); unset, the
-    spawner's.
+    its changed files for the branch-update decision); unset, the spawner's.
 
     `github` is the `run` seam for the live status comment and the steering
-    read (PyAutoBrain#622) — a test's fake `gh`; unset, the real one.
+    read — a test's fake `gh`; unset, the real one.
 
-    After `review-at:` the one remaining act is the digest (phase 3d), once —
-    then the late sweep, while a worker is still out, an op is queued or a
-    failed post is due its retry."""
+    After `review-at:` the one remaining act is the digest, once — then the
+    late sweep, while a worker is still out, an op is queued or a failed post
+    is due its retry."""
     now = now or _now()
     brief_path = Path(brief_path)
     slot = slot_dir(brief_path, home)
@@ -1415,11 +1400,11 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 
     is_open, why, brief = brief_open(brief_path, mind, now)
     if not is_open:
-        # The late window has closed and nothing is owed (M3.6a,
-        # PyAutoBrain#659): the digest is out with no retry due and no Mind op
-        # is queued. The shift is over for the watcher: no lock, no reap, no
-        # lease renewed, no log line — a worker still out is the human's, by
-        # the digest. Anything still owed is caught up first, below.
+        # The late window has closed and nothing is owed: the digest is out
+        # with no retry due and no Mind op is queued. The shift is over for the
+        # watcher: no lock, no reap, no lease renewed, no log line — a worker
+        # still out is the human's, by the digest. Anything still owed is
+        # caught up first, below.
         closed = _late_closed(brief_path, now)
         if closed and not late_owed(slot):
             return {"action": "idle", "reason": f"late window closed at {closed} "
@@ -1459,9 +1444,9 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
         return {"action": "idle", "reason": why}
 
     if (slot / DIGEST_MARKER).exists():
-        # Closed early (M3.7c, #690): the digest is out before `review-at:`.
-        # As after `review-at:`, the late sweep runs while something is
-        # still owed; nothing is spawned, closed out or posted again.
+        # Closed early: the digest is out before `review-at:`. As after
+        # `review-at:`, the late sweep runs while something is still owed;
+        # nothing is spawned, closed out or posted again.
         return _after_early_close(brief_path, mind, slot, now, spawner=spawner,
                                   grace_s=grace_s, agents=agents, tokens=tokens,
                                   poster=poster, pr_state=pr_state)
@@ -1496,8 +1481,8 @@ def _tick(brief_path: Path, mind: Path, *, home: Path | None = None,
 
 def _fetch_once(mind: Path, counters: dict, now: _dt.datetime) -> None:
     """One `git fetch` of Mind per shift, before its first plan, through the
-    one Mind writer's own fetch (#632 review; AUTONOMY.md "The watcher's
-    network surface"). A failed fetch is recorded and the local ref read."""
+    one Mind writer's own fetch (AUTONOMY.md "The watcher's network
+    surface"). A failed fetch is recorded and the local ref read."""
     if counters.get("origin_fetch"):
         return
     try:
@@ -1508,9 +1493,9 @@ def _fetch_once(mind: Path, counters: dict, now: _dt.datetime) -> None:
 
 
 _DATED_SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
-#: An answer restarts its task this shift only with more than this left (M3.6c).
+#: An answer restarts its task this shift only with more than this left.
 INSHIFT_RESTART_S = 30 * 60
-#: The bounded re-fetch for an in-shift answer: at most this often (M3.6c).
+#: The bounded re-fetch for an in-shift answer: at most this often.
 ANSWER_FETCH_EVERY_S = 10 * 60
 
 
@@ -1525,12 +1510,12 @@ def _open_parks(counters: dict) -> list[str]:
 
 def _fetch_for_answers(mind: Path, counters: dict, now: _dt.datetime,
                        review_at: _dt.datetime | None) -> None:
-    """The shift's one fetch (`_fetch_once`), then — M3.6c, human-approved
-    2026-11-17 (AUTONOMY.md "The watcher's network surface") — the same
-    writer's fetch again, only while a task of this shift is parked on a
-    question, more than `INSHIFT_RESTART_S` remain before `review-at:`, and at
-    most every `ANSWER_FETCH_EVERY_S`: an answer from the phone moves only
-    the remote, and the inbox is read from the local `origin/main`."""
+    """The shift's one fetch (`_fetch_once`), then (AUTONOMY.md "The watcher's
+    network surface") the same writer's fetch again, only while a task of
+    this shift is parked on a question, more than `INSHIFT_RESTART_S` remain
+    before `review-at:`, and at most every `ANSWER_FETCH_EVERY_S`: an answer
+    from the phone moves only the remote, and the inbox is read from the
+    local `origin/main`."""
     last = counters.get("origin_fetch")
     if not last:
         _fetch_once(mind, counters, now)
@@ -1552,16 +1537,16 @@ def _fetch_for_answers(mind: Path, counters: dict, now: _dt.datetime,
 def released_here(slot: Path, counters: dict, inbox: dict | None, now: _dt.datetime,
                   review_at: _dt.datetime | None) -> dict[str, dict]:
     """{task: release} for each task THIS shift parked on a question that the
-    inbox has answered, while more than `INSHIFT_RESTART_S` remain (M3.6c):
-    the task restarts this shift instead of the next.
+    inbox has answered, while more than `INSHIFT_RESTART_S` remain: the task
+    restarts this shift instead of the next.
 
-    Idempotent and durable (M3.6c review): the release is held in
-    `inshift_pending` and returned on every tick until the task actually
-    spawns (`_spawned_release` then uses it up); the parked outcome stays put
-    meanwhile, so a release that never spawns — a full cap, a pause, the
-    clock — still leaves the park for the next shift's `parked_elsewhere`.
-    Once per answer: ids already used to restart the task never release it
-    again; a new question answered later does."""
+    Idempotent and durable: the release is held in `inshift_pending` and
+    returned on every tick until the task actually spawns (`_spawned_release`
+    then uses it up); the parked outcome stays put meanwhile, so a release
+    that never spawns — a full cap, a pause, the clock — still leaves the
+    park for the next shift's `parked_elsewhere`. Once per answer: ids
+    already used to restart the task never release it again; a new question
+    answered later does."""
     pending = counters.setdefault("inshift_pending", {})
     if review_at is None or (review_at - now).total_seconds() <= INSHIFT_RESTART_S:
         pending.clear()
@@ -1598,12 +1583,12 @@ def _spawned_release(counters: dict, task: str, now: _dt.datetime) -> None:
 
 
 def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
-    """Carry-over at a shift's first tick (M3.6c): the newest earlier slot's
-    late `glance`/`notify` PRs — never closed out (a merge-order wait among
-    them), updated from main but not yet closed out (M3.6j), or refused only
-    because they went green too close to `review-at:` — enter this shift's outcomes,
-    so its close-out path takes them under this shift's grant (`merge-cap:`,
-    CI green, the close-out session's own checks). A PR refused for its tier,
+    """Carry-over at a shift's first tick: the newest earlier slot's late
+    `glance`/`notify` PRs — never closed out (a merge-order wait among them),
+    updated from main but not yet closed out, or refused only because they
+    went green too close to `review-at:` — enter this shift's outcomes, so
+    its close-out path takes them under this shift's grant (`merge-cap:`, CI
+    green, the close-out session's own checks). A PR refused for its tier,
     its CI or a `/drop` stays the human's. Recorded once, as `carried_in`."""
     home, here = Path(slot).parent, Path(slot).name
     try:
@@ -1625,13 +1610,13 @@ def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
             if pick.get("tier") not in ("glance", "notify") or task in counters["outcomes"] \
                     or o.get("questions") or task in (prev.get("dropped") or {}):
                 # A `/drop`ped task's PR is the human's, whatever its shift
-                # recorded for it (M3.6c review: a late or paused one has no
-                # close-out refusal to read).
-                # A task parked on a question stays parked: its PR waits on
-                # the answer, and `parked_elsewhere` keeps its hold (review).
+                # recorded for it (a late or paused one has no close-out
+                # refusal to read). A task parked on a question stays
+                # parked: its PR waits on the answer, and `parked_elsewhere`
+                # keeps its hold.
                 continue
             # A PR still waiting in merge order, or whose branch was updated
-            # but not yet closed out (M3.6j), carries too.
+            # but not yet closed out, carries too.
             prs = [u for u in o.get("prs") or [] if "/pull/" in u
                    and u not in (o.get("merged") or [])
                    and ((prev.get("closeouts") or {}).get(u) is None
@@ -1644,7 +1629,7 @@ def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
             counters["outcomes"][task] = {"prs": prs, "merged": [], "issues": [],
                                           "carried_from": rec["from"]}
             # What each waited behind comes along, so a carried PR never
-            # merges ahead of an earlier one that was not carried (M3.6j).
+            # merges ahead of an earlier one that was not carried.
             behind = [b for u in prs
                       for b in ((prev.get("merge_waits") or {}).get(u) or {}).get("behind") or []]
             if behind:
@@ -1662,16 +1647,16 @@ def carry_in(slot: Path, counters: dict, now: _dt.datetime) -> dict:
 
 
 def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | None:
-    """What Mind `origin/main` holds, read locally and read-only (#632, F4):
-    its `draft/` paths and the `## slug` sections of its `active.md`.
+    """What Mind `origin/main` holds, read locally and read-only: its `draft/`
+    paths and the `## slug` sections of its `active.md`.
 
     Never a pull. `fetch` (the writer's own `git fetch`, once per shift) runs
     first; after it, the one Mind writer fetches and pushes through this
     checkout on every commit, so the local `origin/main` ref holds every
     claim this watcher committed — the claims a stale canonical `draft/`
-    hides. None when `mind` is not a git
-    checkout (a scratch Mind: nothing to read); `{"error": …}` when it is one
-    and the ref cannot be read — the caller then fails closed."""
+    hides. None when `mind` is not a git checkout (a scratch Mind: nothing to
+    read); `{"error": …}` when it is one and the ref cannot be read — the
+    caller then fails closed."""
     def git(*args):
         return subprocess.run(["git", "-C", str(mind), *args], capture_output=True,
                               text=True, timeout=60)
@@ -1688,9 +1673,9 @@ def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | No
     except (OSError, subprocess.SubprocessError) as e:
         return {"error": f"git could not run: {e}"[:200]}
     if active.returncode != 0:
-        # No claims read is not "no claims" (#637 review): fail closed, as an
-        # unreadable `draft/` tree does — unless the ref truly has no
-        # active.md (a Mind with no registry claims nothing).
+        # No claims read is not "no claims": fail closed, as an unreadable
+        # `draft/` tree does — unless the ref truly has no active.md (a Mind
+        # with no registry claims nothing).
         listed = git("ls-tree", "--name-only", ref, "--", "active.md")
         if listed.returncode != 0 or listed.stdout.strip():
             return {"error": f"{ref}:active.md unreadable: "
@@ -1700,7 +1685,7 @@ def origin_claims(mind: Path, ref: str = "origin/main", fetch=None) -> dict | No
             "repos": claimed_repos(sections), "sections": sections}
 
 
-#: A claim that records human-authorized sharing of its repos (#637, item 4).
+#: A claim that records human-authorized sharing of its repos.
 _COORDINATION_RE = re.compile(r"^- (coordination|conflict-override):\s*\S", re.M)
 _CLAIM_REPO_RE = re.compile(r"^\s+- ([A-Za-z0-9_.-]+)")
 _COORDINATION_LINE_RE = re.compile(r"(?m)^- (?:coordination|conflict-override):(.*)$")
@@ -1712,11 +1697,9 @@ def _slug_form(text: str) -> str:
 
 def coordinated_for(sec: dict, task: str) -> bool:
     """Whether a claim's `coordination:` / `conflict-override:` line frees its
-    repos for `task` (ruling R2, 2026-11-17): only when it names the task, by
-    its slug or prompt stem (`-` and `_` alike). Such a line records sharing
-    the human approved with one named task — in shift 2026-11-16-pm a task was
-    dispatched onto a claim whose override named another task — never a free
-    pass for any."""
+    repos for `task`: only when it names the task, by its slug or prompt stem
+    (`-` and `_` alike). Such a line records sharing the human approved with
+    one named task — never a free pass for any other."""
     text = _slug_form(sec.get("coordination") or "")
     name = _slug_form(task or "")
     return bool(name) and bool(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text))
@@ -1771,8 +1754,7 @@ def _repo_key(name: str) -> str:
 
 def _library_key(pr_url: str) -> str:
     """The library repo key a PR URL belongs to (`_repo_key` of its repo),
-    or "" when its repo is not a library — only library PRs merge in order
-    (ruling f, 2026-11-19)."""
+    or "" when its repo is not a library — only library PRs merge in order."""
     from _sizing import LIBRARY_REPOS  # noqa: E402 — the batch conductor's path
     repo = pr_repos(pr_url)
     key = _repo_key(repo) if repo else ""
@@ -1780,9 +1762,9 @@ def _library_key(pr_url: str) -> str:
 
 
 def sibling_prs(counters: dict, repos) -> list[str]:
-    """This shift's PRs not yet merged on one of `repos`' library repos
-    (M3.6j, #683), in PR-number order: the PRs a new worker on that library
-    must not stack on, and whose merges come before its own."""
+    """This shift's PRs not yet merged on one of `repos`' library repos, in
+    PR-number order: the PRs a new worker on that library must not stack on,
+    and whose merges come before its own."""
     libs = {_repo_key(r) for r in repos}
     out = []
     for o in (counters.get("outcomes") or {}).values():
@@ -1835,7 +1817,7 @@ def claimed_repos(sections: dict[str, dict]) -> dict[str, tuple[str, str]]:
 #: A claim's `- session:` that names a shift worker, in exactly the wording
 #: `worker_template.md` pins: `shift worker <slot> (<session id>)`. Anything
 #: else (a desktop session, a human who took the task over and rewrote the
-#: line, the free wording of the first shifts) is not resumed unattended.
+#: line, free wording) is not resumed unattended.
 SHIFT_WORKER_SESSION_RE = _mind_writer.SHIFT_WORKER_SESSION_RE
 
 
@@ -1857,13 +1839,12 @@ def claim_of(sections: dict[str, dict], task: str) -> tuple[str, dict] | None:
 
 def released_picks(counters: dict, live: set[str] | None = None) -> set[str]:
     """This shift's own picks that no longer hold their library repos for a
-    START (M3.6j, PyAutoBrain#683; first PyAutoBrain#679): a library is held
-    only while a worker on it is live. A pick that finished (done or
-    abandoned) releases it, PR open or not: work does not collide, merges do,
-    and the close-out serialises merges in PR order (`_merge_blockers`).
-    Still holding: a live lease, a park on a question or a person (ruling d),
-    an outcome with an open question, a pending re-dispatch (`/kill` or a
-    crash: the re-dispatch reuses its PR) or an answered park waiting to
+    START: a library is held only while a worker on it is live. A pick that
+    finished (done or abandoned) releases it, PR open or not: work does not
+    collide, merges do, and the close-out serialises merges in PR order
+    (`_merge_blockers`). Still holding: a live lease, a park on a question or
+    a person, an outcome with an open question, a pending re-dispatch (`/kill`
+    or a crash: the re-dispatch reuses its PR) or an answered park waiting to
     restart. A task the human `/drop`ped holds nothing once no worker of it
     is live (`live`, the tick's active leases), started or not."""
     hold = {*(counters.get("parked") or []), *(counters.get("pending_redispatch") or []),
@@ -1890,23 +1871,21 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
     `## <task>` section in its `active.md`. A task this shift already picked
     stays (its own re-dispatch). A task whose repo a claim in that
     `active.md` holds is out too, unless the claim records human-authorized
-    coordination (PyAutoBrain#637, item 4: a named task started twice, then
-    parked on a repo an earlier shift's pick held). Returns (kept, {path: why}).
+    coordination. Returns (kept, {path: why}).
 
-    `resumes` are the tasks an answer released (M3.5, #645, Decision H11): a
-    resume task already claimed is kept, at its `active/` path, but only when
-    its claim's `- session:` is `shift worker <slot> (<id>)` for a slot of
-    this home that picked it — a claim an interactive session owns, or one a
-    human took over, is the human's work and is left alone. Its own claim
-    never counts against its repos; every other claim on them does.
+    `resumes` are the tasks an answer released: a resume task already claimed
+    is kept, at its `active/` path, but only when its claim's `- session:` is
+    `shift worker <slot> (<id>)` for a slot of this home that picked it — a
+    claim an interactive session owns, or one a human took over, is the
+    human's work and is left alone. Its own claim never counts against its
+    repos; every other claim on them does.
 
-    `released` (PyAutoBrain#679) are this shift's own picks that hold no
-    library start any more (`released_picks`: finished, PR may still be
-    open). A claim one of them left behind — the close-out drops it only
-    after the merge, and a set-aside op, a failed push or a close-out that
-    skipped it leaves the section — holds nothing, when
-    its `- session:` is this shift's own worker (`slot_name`). Any other
-    claim still holds."""
+    `released` are this shift's own picks that hold no library start any more
+    (`released_picks`: finished, PR may still be open). A claim one of them
+    left behind — the close-out drops it only after the merge, and a
+    set-aside op, a failed push or a close-out that skipped it leaves the
+    section — holds nothing, when its `- session:` is this shift's own worker
+    (`slot_name`). Any other claim still holds."""
     claims = origin_claims(mind, fetch=fetch)
     if claims is None:
         return records, {}
@@ -1965,8 +1944,8 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
 def _held_for(sections: dict[str, dict], task: str, repos,
               ignore=frozenset()) -> tuple[str, str] | None:
     """(repo as written, claiming slug) of the first claim on one of `repos`
-    that does not free it for `task` (R2: a coordination line frees a repo
-    only for the task it names), or None. A slug in `ignore` holds nothing."""
+    that does not free it for `task` (a coordination line frees a repo only
+    for the task it names), or None. A slug in `ignore` holds nothing."""
     mine = {_repo_key(x) for x in repos}
     return next(((repo, slug) for slug, sec in sections.items()
                  if slug not in ignore and not coordinated_for(sec, task)
@@ -1977,23 +1956,21 @@ def parked_elsewhere(slot: Path, inbox: dict | None = None,
                      resumes: dict | None = None) -> dict[str, str]:
     """{task: why} for every task an earlier shift in this watcher's home left
     parked on a question — a `question:` (or other push) issue in its `.done`,
-    or blocked on a person past the grace — and that no later shift finished
-    (PyAutoBrain#637, item 3: a prompt still in `draft/` with no claim was
-    picked again by the next shift). Read from the slots' own `counters.json`:
-    local files, no network.
+    or blocked on a person past the grace — and that no later shift finished:
+    a prompt still in `draft/` with no claim must not be picked again. Read
+    from the slots' own `counters.json`: local files, no network.
 
-    `inbox` is `questions.md` on Mind origin/main (`_questions.read_origin`,
-    M3.5 #645). Per task parked in shift `d`: every inbox entry for it from
-    `d` answered → released, and recorded in `resumes` (`{task: {shift, ids,
-    comments}}`); one dropped → held, shelved (Decision H9 a); one open or
-    deferred → held, waiting on it; none (a park from before M3.5), or an
-    unreadable inbox (None) → held as before (fail closed).
+    `inbox` is `questions.md` on Mind origin/main (`_questions.read_origin`).
+    Per task parked in shift `d`: every inbox entry for it from `d` answered →
+    released, and recorded in `resumes` (`{task: {shift, ids, comments}}`);
+    one dropped → held, shelved; one open or deferred → held, waiting on it;
+    none, or an unreadable inbox (None) → held (fail closed).
 
     A release is used up by the first later shift that picks the task: if
     that worker is still out at its review-at, crashes or is abandoned, the
     task is held again, never resumed twice on one claim. Only an answer
     given after that pick (a re-answer, or a new question answered) releases
-    it again; a brief that names it is the human's word, as before."""
+    it again; a brief that names it is the human's word."""
     out: dict[str, str] = {}
     released: dict[str, dict] = {}
     picked_in: dict[str, list[str]] = {}
@@ -2058,7 +2035,7 @@ def parked_elsewhere(slot: Path, inbox: dict | None = None,
                                   "not resumed again until a new answer (or name it in a "
                                   "brief)")
         except (AttributeError, TypeError, ValueError) as e:
-            # One malformed file holds nothing and releases nothing (#637 review).
+            # One malformed file holds nothing and releases nothing.
             print(f"orchestrator: {d.name}/{COUNTERS_FILE} has the wrong shape ({e}) — "
                   "read as no hold", file=sys.stderr)
             continue
@@ -2079,9 +2056,9 @@ def parked_elsewhere(slot: Path, inbox: dict | None = None,
 def resume_records(records: list[dict], mind: Path, resumes: dict,
                    ref: str = "origin/main") -> list[dict]:
     """`records` with each released task that a shift already claimed graded
-    from its `active/<task>.md` on Mind origin/main (M3.5, #645): `survey`
-    reads only `draft/`, and the canonical checkout nobody pulls mid-shift may
-    still show the stale draft, which `on_origin` would drop. A task still in
+    from its `active/<task>.md` on Mind origin/main: `survey` reads only
+    `draft/`, and the canonical checkout nobody pulls mid-shift may still
+    show the stale draft, which `on_origin` would drop. A task still in
     `draft/` on origin keeps its draft record. Each resume record carries
     `resume` (its ids) for the pick's `why:`. Local git only."""
     import _batch  # noqa: E402 — deferred, as in `_tick_body`
@@ -2121,8 +2098,8 @@ def active_leases(slot: Path) -> dict[str, dict]:
 def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
                  tokens, health=None, pr_state=None, *, poster=None, shift=None,
                  token_reserve=None, whoami=None, github=None, pr_files=None) -> dict:
-    """The tick under its lock, then the live status (PyAutoBrain#622): one
-    `claude agents` view and one set of `gh pr checks` reads serve both."""
+    """The tick under its lock, then the live status: one `claude agents` view
+    and one set of `gh pr checks` reads serve both."""
     shift = shift or {}
     agents = agents or AgentsView()
     health = _TickHealth(health)
@@ -2135,8 +2112,8 @@ def _tick_locked(slot, brief, mind, now, spawner, grace_s, records, agents,
     if status:
         out["status"] = status
     if health.seen:
-        # Every CI verdict this tick read, for the event stream's `ci` line
-        # (#644): no read of its own — the close-outs made these.
+        # Every CI verdict this tick read, for the event stream's `ci` line:
+        # no read of its own — the close-outs made these.
         out["health"] = dict(health.seen)
     _note_auth_file(slot, now)
     return out
@@ -2147,7 +2124,7 @@ NAMED_NO_DRAFT = "no draft prompt for it (already issued to active/, retired or 
 
 
 def _named_reasons(brief: dict, d: dict, planned: dict) -> dict[str, str]:
-    """{named task: why it did not start} for the digest (M3.6b): the plan's
+    """{named task: why it did not start} for the digest: the plan's
     rejection, or — for a named task neither picked, rejected, held by a claim
     nor parked — that it has no draft prompt to start."""
     named = _brief.tasks_of(brief)
@@ -2173,27 +2150,27 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         """The plan inside the brief, made once a tick when first needed."""
         if "d" not in planned:
             recs = records if records is not None else _batch.survey(mind)
-            # A task the human added by `/add` (#644) is graded from Mind
-            # origin/main when it is added: a prompt filed mid-shift is in no
-            # survey of the canonical checkout, which nobody pulls mid-shift.
+            # A task the human added by `/add` is graded from Mind origin/main
+            # when it is added: a prompt filed mid-shift is in no survey of the
+            # canonical checkout, which nobody pulls mid-shift.
             have = {r["path"] for r in recs}
             recs = recs + [a["record"] for a in (counters.get("added") or {}).values()
                            if isinstance(a.get("record"), dict)
                            and a["record"].get("path") not in have]
             surveyed = list(recs)
-            # Parked on a question by an earlier shift (#637, item 3): not
-            # startable until answered. A brief that names it again is the
-            # human's word that it is; a task this shift picked stays. Read
-            # first, so the digest gives the park as the reason.
+            # Parked on a question by an earlier shift: not startable until
+            # answered. A brief that names it again is the human's word that
+            # it is; a task this shift picked stays. Read first, so the
+            # digest gives the park as the reason.
             named = {Path(t).name for t in _brief.tasks_of(brief)}
-            # The inbox releases a hold once its questions are answered (M3.5,
-            # #645): read from Mind origin/main after the shift's one fetch.
+            # The inbox releases a hold once its questions are answered: read
+            # from Mind origin/main after the shift's one fetch.
             resumes: dict = {}
             review_at = _brief._iso((shift or {}).get("review_at") or "")
             inbox = _questions.read_origin(
                 mind, fetch=lambda: _fetch_for_answers(mind, counters, now, review_at))
             parked = parked_elsewhere(slot, inbox, resumes)
-            # This shift's own parks an answer released with time left (M3.6c).
+            # This shift's own parks an answer released with time left.
             here = released_here(slot, counters, inbox, now, review_at)
             resumes.update(here)
             _write_counters(slot, counters)
@@ -2203,20 +2180,20 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                  and Path(r["path"]).name not in named}
             recs = [r for r in recs if r["path"] not in planned["parked"]]
             # A task this shift picked is never resumed from an earlier park —
-            # except one this shift's own answer just released (M3.6c).
+            # except one this shift's own answer just released.
             resumes = {t: v for t, v in resumes.items()
                        if t not in counters["picks"] or t in here}
             recs = resume_records(recs, mind, resumes)
             # Against Mind origin/main, not the canonical checkout nobody
-            # pulls mid-shift (#632, F4): a draft another shift already
-            # claimed is never picked again, nor one whose repo a claim holds.
-            # A carried task (M3.6c) is closed out, never planned: not this
-            # shift's own pick for the claim gate, and out of the plan.
+            # pulls mid-shift: a draft another shift already claimed is never
+            # picked again, nor one whose repo a claim holds. A carried task
+            # is closed out, never planned: not this shift's own pick for the
+            # claim gate, and out of the plan.
             carried = {t for t, o in (counters.get("outcomes") or {}).items()
                        if isinstance(o, dict) and o.get("carried_from")}
             recs = [r for r in recs if task_id(r["path"]) not in carried]
-            # A pick whose worker has ended frees its library for a start
-            # (M3.6j, #683); its PR's merge waits in order at the close-out.
+            # A pick whose worker has ended frees its library for a start;
+            # its PR's merge waits in order at the close-out.
             freed = released_picks(counters, live=set(active_leases(slot))) - carried
             recs, claimed = on_origin(recs, mind, set(counters["picks"]) - carried,
                                       fetch=lambda: _fetch_once(mind, counters, now),
@@ -2225,9 +2202,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             planned["resume"] = {t: v for t, v in resumes.items()
                                  if any(task_id(r["path"]) == t for r in recs)}
             # Unattended by construction: an absent Lane is excluded and an
-            # empty queue.md stops the backlog dip (M2.3, AUTONOMY.md "M2
-            # rulings — 2026-11-12"). Recorded each tick so the digest can say so.
-            # Kept out above, with why: read only by the queued-epic lines (#696).
+            # empty queue.md stops the backlog dip (AUTONOMY.md "M2 rulings").
+            # Recorded each tick so the digest can say so. Kept out above, with
+            # why: read only by the queued-epic lines.
             kept = {r["path"] for r in recs}
             why_out = {**planned["parked"], **(claimed or {})}
             withheld = [(r, why_out.get(r["path"], "kept out before planning "
@@ -2243,20 +2220,20 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         named = {task_id(p) for p in _brief.tasks_of(brief)}
         return task in named or task in {task_id(m["path"]) for m in plan()["members"]}
 
-    # The cloud sweep (M3.7e): one run-list read a tick, before steering, so a
+    # The cloud sweep: one run-list read a tick, before steering, so a
     # `/clear-sweep` this tick clears the red run this tick reads.
     if not _brief.is_shadow(brief):
         _sweep_read(slot, counters, now)
-    # The human steers from the shift issue (#622): read once, before anything
-    # this tick starts, so a /pause or /drop binds on the tick that reads it.
+    # The human steers from the shift issue: read once, before anything this
+    # tick starts, so a /pause or /drop binds on the tick that reads it.
     ctx = {"brief": brief, "now": now, "mind": mind,
            "review_at": _brief._iso((shift or {}).get("review_at") or "")}
     commands = _steer(slot, counters, shift or {}, now, github, whoami, known, ctx=ctx)
     _write_counters(slot, counters)
     if any(c["command"] in ("add", "cap") for c in commands):
         planned.clear()   # an /add or /cap changes what this tick's plan admits
-    # `/cap` overrides and `/add`ed tasks (#644), from here on in this tick:
-    # every later reader (the spawn gates, the close-out gates) sees them.
+    # `/cap` overrides and `/add`ed tasks, from here on in this tick: every
+    # later reader (the spawn gates, the close-out gates) sees them.
     written = brief
     brief = _brief.effective(brief, counters)
     if (slot / STOP_FILE).exists():
@@ -2277,7 +2254,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
     if "carried_in" not in counters and not _brief.is_shadow(brief):
-        carry_in(slot, counters, now)       # the shift's first tick (M3.6c)
+        carry_in(slot, counters, now)       # the shift's first tick
         _write_counters(slot, counters)
     closeouts = _closeouts(slot, brief, counters, spawner, now, agents, health, pr_state,
                            tokens=tokens, pr_files=pr_files,
@@ -2302,12 +2279,12 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                  "parked": planned.get("parked") or {},
                                  "resumed": planned.get("resume") or {},
                                  "scoped_reach": sorted(d.get("scoped_reach") or []),
-                                 # M3.6b: why each named task did not start (the
-                                 # digest's "Not started" reason), and the backlog
-                                 # drafts kept out for want of a `Witness:`.
+                                 # Why each named task did not start (the digest's
+                                 # "Not started" reason), and the backlog drafts
+                                 # kept out for want of a `Witness:`.
                                  "named": _named_reasons(brief, d, planned),
                                  "witness_absent": sorted(d.get("witness_absent") or []),
-                                 # #696: one line per queued epic ledger.
+                                 # One line per queued epic ledger.
                                  "queued_epics": _batch.queued_epic_lines(d)}
     paused = bool(counters.get("paused"))
     if _brief.is_shadow(brief):
@@ -2326,7 +2303,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         # a `/cap tokens` lowered for this shift.
         counters["token_budget"] = written_budget
     # A real worker holds a reservation from its spawn until its measured
-    # usage passes it, so the budget binds on the first tick (#610). A fake
+    # usage passes it, so the budget binds on the first tick. A fake
     # (dry-shift) worker spends nothing.
     reserve = 0
     if getattr(spawner, "real", False):
@@ -2334,16 +2311,16 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             else default_token_reserve(budget, max_sessions,
                                        worker_token_estimate(slot, counters, budget, mind))
     spawned, refused = [], []
-    # A re-dispatch goes first (#637, item 1): a backlog dip never takes the
-    # worker slot a killed task is waiting for.
+    # A re-dispatch goes first: a backlog dip never takes the worker slot a
+    # killed task is waiting for.
     first_glance = (brief.get("first") or {}).get("value") == "glance"
     members = sorted(d["members"],
                      key=lambda m: (task_id(m["path"]) not in counters["pending_redispatch"],
-                                    # `first: glance` (M3.6c): spawn order only —
-                                    # the plan's selection is unchanged.
+                                    # `first: glance`: spawn order only — the plan's
+                                    # selection is unchanged.
                                     not (first_glance and m.get("consequence") == "glance")))
-    # The CLI login (M3.6a, #659): an expired one holds every spawn, as its
-    # own event — never a worker "blocked on a person".
+    # The CLI login: an expired one holds every spawn, as its own event —
+    # never a worker "blocked on a person".
     login = _login_hold(counters, spawner, [] if paused else members, live, now)
     hold = paused or (login or {}).get("state") == "expired"
 
@@ -2353,7 +2330,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         return bool(task in live or (task in counters["done"] and not released)
                     or task in counters["abandoned"]
                     or task in counters["parked"] or task in counters["dropped"])
-    # What could still start on a later tick (M3.7c early close): a launch
+    # What could still start on a later tick (for the early close): a launch
     # that failed, a spend that could not be read, a login to renew. A task
     # held by a library, `max-workers` with nobody live, `max-sessions` or
     # the token budget cannot; neither can a parked or dropped one.
@@ -2367,8 +2344,8 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         released = member.get("resume") and task in (counters.get("inshift_pending") or {})
         if settled(task, member):
             continue
-        # Never two workers on one library (M3.6j review F2): a live, parked
-        # or re-dispatch-pending task holds its library repos whatever the
+        # Never two workers on one library: a live, parked or
+        # re-dispatch-pending task holds its library repos whatever the
         # plan's rank order made of it this tick.
         holder = _library_holder(counters, live, task, member.get("repos") or [])
         if holder:
@@ -2380,9 +2357,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             refused.append({"task": task, "why": f"max-workers {max_workers} reached"})
             final.add(task)
             continue
-        # A re-dispatch may pass `max-sessions` by REDISPATCH_SESSIONS (#637,
-        # item 1): after early dips used every session, a killed worker
-        # stayed "awaiting re-dispatch" to the end of shift A.
+        # A re-dispatch may pass `max-sessions` by REDISPATCH_SESSIONS, so a
+        # killed worker is not left "awaiting re-dispatch" once early dips
+        # have used every session.
         redo = task in counters["pending_redispatch"]
         limit = max_sessions + (REDISPATCH_SESSIONS if redo else 0)
         if counters["sessions"] >= limit:
@@ -2413,20 +2390,20 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                  "expires": _iso(now + _dt.timedelta(seconds=grace_s)),
                  "pid": 0, "session_id": None, "worktree": None}
         if (shift or {}).get("issue"):
-            # Where a worker blocked past the grace is filed in the inbox (#645).
+            # Where a worker blocked past the grace is filed in the inbox.
             lease["shift_issue"] = shift["issue"]
         lease_path = slot / "leases" / f"{task}.json"
         if not _create_exclusive(lease_path, lease):
             continue  # a lease appeared since we read them: never a second worker
         try:
             # Only a re-dispatch passes the flag, so a spawner without it
-            # (a test's) is called exactly as before.
+            # (a test's) is called without the keyword.
             again = {"redispatch": True} if task in counters["pending_redispatch"] else {}
             if member.get("resume"):
-                again["resume"] = member["resume"]   # answered: RESUME_NOTE (#645)
+                again["resume"] = member["resume"]   # answered: RESUME_NOTE
             siblings = sibling_prs(counters, member.get("repos") or [])
             if siblings:
-                again["siblings"] = siblings         # open on its library (M3.6j)
+                again["siblings"] = siblings         # open on its library
             lease.update(spawner.spawn(task, member["path"], slot / "leases", **again))
         except Exception as e:
             # One task's failed launch is that task's refusal, not the tick's:
@@ -2435,7 +2412,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             refused.append({"task": task, "why": f"spawn failed: {str(e)[:300]}"})
             startable.append(task)
             # One record per task however often the launch is retried: a
-            # failed launch is a crashed worker in the digest (#610).
+            # failed launch is a crashed worker in the digest.
             rec = worker_record(counters, f"launch-{task}", task, _iso(now))
             rec["exits"] = ["launch-failed"]
             rec["attempts"] = int(rec.get("attempts") or 0) + 1
@@ -2476,7 +2453,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
 
 def _login_hold(counters: dict, spawner, members: list[dict], live: dict,
                 now: _dt.datetime, probe=None) -> dict | None:
-    """The CLI login as this tick sees it (M3.6a, PyAutoBrain#659), or None.
+    """The CLI login as this tick sees it, or None.
 
     Probed (`claude auth status --json`, local, no model call) only for a
     real spawner, and only when a member is waiting to start while the last
@@ -2515,20 +2492,20 @@ def _steered(out: dict, commands: list, paused: bool) -> dict:
     return out
 
 
-# --- posting: marker before post, a failed post retried (#610, #611) -----------------
+# --- posting: marker before post, a failed post retried ------------------------------
 
 #: Attempts per comment, the first included. Only a post `gh` says failed is
 #: retried; a timeout may have landed, so it never is.
 POST_TRIES = 3
-#: The one correction comment a late arrival may add after the digest (#610).
+#: The one correction comment a late arrival may add after the digest.
 CORRECTION_MARKER = "correction.posted"
 CORRECTION_FILE = "correction.md"
 
 
 #: The watcher's own GitHub identity, for its own `gh` calls and nothing else
-#: (then the human's account is the one an @mention notifies, #611 review):
-#: its minimal GitHub App (`PYAUTO_SHIFT_APP_*`, PyAutoBrain#630), else this
-#: static token as the fallback, else `gh`'s own auth. See `_app_token`.
+#: (so the human's account is the one an @mention notifies): its minimal
+#: GitHub App (`PYAUTO_SHIFT_APP_*`), else this static token as the fallback,
+#: else `gh`'s own auth. See `_app_token`.
 GH_TOKEN_ENV = _app_token.GH_TOKEN_ENV
 #: The identity bound for the current tick (`tick`); outside one, a fresh one.
 _AUTH = None
@@ -2648,7 +2625,7 @@ def post_once(marker: Path, issue: str, body_file: Path, poster, now: _dt.dateti
 
 def post_due(marker: Path) -> bool:
     """Whether a marker's post failed outright and has tries left. A marker
-    written before retries existed (no `state`) is never retried."""
+    with no `state` is never retried."""
     try:
         rec = json.loads(Path(marker).read_text())
     except (OSError, ValueError):
@@ -2710,11 +2687,11 @@ def _retry_mentions(slot: Path, counters: dict, poster, now: _dt.datetime) -> li
     return out
 
 
-# --- the live shift view you can steer (PyAutoBrain#622) ----------------------------
+# --- the live shift view you can steer ----------------------------------------------
 
 #: The one live status comment of a shift: claimed by this marker before its
-#: create, then only edited — never a second (AUTONOMY.md watcher network
-#: surface, amendment 2026-11-13).
+#: create, then only edited — never a second (AUTONOMY.md "The watcher's
+#: network surface").
 STATUS_MARKER = "status.json"
 STATUS_FILE = "status.md"
 #: An unchanged status is re-edited this often (time left, tokens); any change
@@ -2727,19 +2704,17 @@ STATUS_TAG_PREFIX = "<!-- pyauto-shift-status "
 #: The dashboard's copy of the status: one `- live:` line in the brief record,
 #: rewritten through the one Mind writer when the shift's state changes.
 LIVE_KEY_FILE = "live.key"
-#: The steering commands, read from the human's comments on the shift issue
-#: (#622; `/add`, `/cap` and `/kill` from #644; `/clear-sweep` from M3.7e, #692).
+#: The steering commands, read from the human's comments on the shift issue.
 COMMANDS = ("pause", "resume", "drop", "stop", "add", "cap", "kill", "clear-sweep")
 _COMMAND_RE = re.compile(
     r"^/(pause|resume|drop|stop|add|cap|kill|clear-sweep)\b[ \t]*(\S+)?(?:[ \t]+(\S+))?[ \t]*$")
 #: The one verb that takes two arguments (`/cap <what> <n>`).
 _TWO_ARGS = ("cap",)
 _TASK_ARG_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
-#: `/add` is refused this close to `review-at:` — a worker needs longer
-#: (human ruling H8, 2026-11-16).
+#: `/add` is refused this close to `review-at:` — a worker needs longer.
 ADD_CUTOFF_S = 1800
-#: `/cap <what>` → the brief key it lowers (human ruling H6: never above the
-#: brief's own value).
+#: `/cap <what>` → the brief key it lowers (never above the brief's own
+#: value).
 CAP_KEYS = {"merges": "merge-cap", "workers": "max-workers", "sessions": "max-sessions",
             "tokens": "token-budget"}
 #: `/kill`'s one local act, `claude stop <id>` — not a network call.
@@ -2835,7 +2810,7 @@ def _parse_command(body: str) -> tuple[str, str] | None:
     """(command, argument) when a comment's first non-empty line is a
     steering command and nothing else; None otherwise. `/cap`'s two
     arguments come back as one, space-separated; every other verb takes one
-    at most, as before #644."""
+    at most."""
     first = next((ln.strip() for ln in (body or "").splitlines() if ln.strip()), "")
     m = _COMMAND_RE.match(first)
     if not m:
@@ -2977,7 +2952,7 @@ def _steer(slot: Path, counters: dict, shift: dict, now: _dt.datetime, github=No
     return out
 
 
-# --- `/cap`, `/add`, `/kill` (#644; human rulings H5, H6, H8 of 2026-11-16) -------------
+# --- `/cap`, `/add`, `/kill` ----------------------------------------------------------
 
 def _cap_ceiling(brief: dict, key: str) -> int | None:
     """A cap as `brief` states it: the spawn caps with their defaults, the
@@ -3021,8 +2996,8 @@ def _cmd_cap(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
     of = f"{ceiling}" if ceiling is not None else "none"
     if key == "merge-cap":
         # Every slot taken this shift — in-turn merges, close-outs merged and
-        # close-outs still running alike (R3, #661).
-        # An in-turn merge made with no slot is counted too (#661 review).
+        # close-outs still running alike. An in-turn merge made with no slot
+        # is counted too.
         try:
             taken = _merge_slots.used(slot)
             unslotted = len(_digest.no_slot_merges(
@@ -3100,7 +3075,7 @@ def _cmd_add(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
     """`/add <prompt>`: make a draft a brief-named task for the rest of this
     shift. The planner's own gates judge it as they judge a named task; it
     overrides the brief's `exclude:` and an earlier shift's parked hold (the
-    human's newer word), never the organ rule (human ruling H8)."""
+    human's newer word), never the organ rule."""
     if not arg or not _TASK_ARG_RE.match(arg):
         return "ignored: /add needs a prompt (draft/…/x.md, x.md or x)"
     now, review_at = ctx.get("now") or _now(), ctx.get("review_at")
@@ -3112,8 +3087,8 @@ def _cmd_add(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
         return "refused: shadow shift: nothing is dispatched."
     mind = Path(ctx["mind"])
     try:
-        # One fetch per `/add` (AUTONOMY.md amendment 2026-11-16, #644): a
-        # prompt filed mid-shift is newer than the once-per-shift fetch.
+        # One fetch per `/add` (AUTONOMY.md "The watcher's network surface"):
+        # a prompt filed mid-shift is newer than the once-per-shift fetch.
         _mind_writer.fetch(mind)
     except _mind_writer.MindWriteError as e:
         counters.setdefault("add_fetch_errors", []).append(str(e)[:200])
@@ -3147,7 +3122,7 @@ def _cmd_add(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
     kept, claimed = on_origin([rec], mind, set())
     if not kept:
         return f"refused: {task}: {claimed.get(rel) or 'claimed on Mind origin/main'}"
-    # The inbox's word on earlier parks (#645): an answered park is not "was parked".
+    # The inbox's word on earlier parks: an answered park is not "was parked".
     was_parked = task in parked_elsewhere(slot, _questions.read_origin(mind))
     counters.setdefault("added", {})[task] = {"prompt": rel, "by": who, "at": at, "record": rec}
     notes = "".join([" (was excluded in the brief)" if excluded else "",
@@ -3176,10 +3151,10 @@ def claude_stop(agent_id: str, run=None) -> tuple[bool, str]:
 
 
 def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict) -> str:
-    """`/kill <task>` (human ruling H5): stop that task's running worker with
-    `claude stop`. The next reap sees it ended: it is `killed` (not a crash)
-    and re-dispatched once by the usual rule, unless the task was dropped.
-    A close-out is not killable here."""
+    """`/kill <task>`: stop that task's running worker with `claude stop`. The
+    next reap sees it ended: it is `killed` (not a crash) and re-dispatched
+    once by the usual rule, unless the task was dropped. A close-out is not
+    killable here."""
     if not arg or not _TASK_ARG_RE.match(arg):
         return "ignored: /kill needs a task name"
     task = Path(arg).stem
@@ -3212,7 +3187,7 @@ def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict
     return f"stopping {task}'s worker {key} (claude stop). {tail}"
 
 
-# --- the shift-end cloud sweep (M3.7e, PyAutoBrain#692; ruling S4) -------------------
+# --- the shift-end cloud sweep --------------------------------------------------------
 
 def _sweep_cfg() -> dict:
     """The sweep's repo and workflow (`config/policy.yaml` `shift_watcher:`
@@ -3278,13 +3253,12 @@ def _shift_merges(counters: dict, start: _dt.datetime | None) -> list[str]:
 
 def _sweep_dispatch(slot: Path, counters: dict, now: _dt.datetime,
                     start: _dt.datetime | None = None) -> bool:
-    """The one `gh workflow run` of the sweep per shift (S4), under the
-    human's own `gh` login (decision b): at the close, or from the late sweep
-    when a close-out merged after it — only when GitHub confirmed at least
-    one merge on a repo the sweep covers. `sweep.dispatched` is claimed
-    exclusively first, so a shift never dispatches twice; a failed dispatch
-    is recorded for the digest and never retried. True when this call
-    dispatched (or tried to)."""
+    """The one `gh workflow run` of the sweep per shift, under the human's own
+    `gh` login: at the close, or from the late sweep when a close-out merged
+    after it — only when GitHub confirmed at least one merge on a repo the
+    sweep covers. `sweep.dispatched` is claimed exclusively first, so a shift
+    never dispatches twice; a failed dispatch is recorded for the digest and
+    never retried. True when this call dispatched (or tried to)."""
     cfg = _sweep_cfg()
     if not cfg or (slot / _sweep.DISPATCH_MARKER).exists():
         return False
@@ -3353,7 +3327,7 @@ def _sweep_red_markers(slot: Path, counters: dict) -> None:
         if co.get("task"):
             tasks.setdefault(co["task"], []).append(pr)
     # A marker the current block does not cover goes: no block at all, or a
-    # newer block on other repos (review round 1).
+    # newer block on other repos.
     for marker in (slot / "leases").glob(f"*{_sweep.SWEEP_RED_SUFFIX}"):
         task = marker.name[:-len(_sweep.SWEEP_RED_SUFFIX)]
         if not blk or not any(_sweep_blocks(blk, pr) for pr in tasks.get(task, [])):
@@ -3383,10 +3357,10 @@ def _cmd_clear_sweep(slot: Path, counters: dict, arg: str, who: str, at: str,
     return _sweep.clear(slot.parent, who, at)
 
 
-# --- the event stream's watcher side (#644) --------------------------------------------
+# --- the event stream's watcher side ---------------------------------------------------
 
-#: Needs-you event comments a shift may post (human ruling H4b), then one
-#: last one saying the rest are in the status comment.
+#: Needs-you event comments a shift may post, then one last one saying the
+#: rest are in the status comment.
 EVENT_COMMENTS_MAX = 5
 EVENT_OVERFLOW = "event.overflow"
 
@@ -3448,11 +3422,11 @@ def event_comment_body(slot_name: str, event: dict) -> str:
 
 def _event_comments(slot: Path, events: list[dict], issue: str, poster,
                     now: _dt.datetime) -> list[dict]:
-    """One comment per needs-you event on the shift issue (human ruling H4b),
-    at most `EVENT_COMMENTS_MAX` a shift and then one overflow comment, each
-    claimed by its marker before the post (`mentions/event.<seq>`); a post
-    `gh` said failed is retried with the mentions. Each counts in
-    `event_comments`, apart from the per-worker `pushes`."""
+    """One comment per needs-you event on the shift issue, at most
+    `EVENT_COMMENTS_MAX` a shift and then one overflow comment, each claimed
+    by its marker before the post (`mentions/event.<seq>`); a post `gh` said
+    failed is retried with the mentions. Each counts in `event_comments`,
+    apart from the per-worker `pushes`."""
     todo = [e for e in events if e.get("needs_you")]
     if not todo or not issue.startswith("http") or (slot / STOP_FILE).exists():
         return []
@@ -3559,7 +3533,7 @@ def _live_status(slot: Path, mind: Path, shift: dict, now: _dt.datetime, agents,
     """The end of every open tick: the status comment (create once, then edit)
     and the dashboard's `- live:` line. Built from the same snapshot as
     `batch watch`, from what this tick already read — no network read of its
-    own (the work-issue links are a local git read of Mind, #634).
+    own (the work-issue links are a local git read of Mind).
     On the `/stop` tick only the status write runs, as the acknowledgement:
     nothing is queued or committed to Mind, exactly as under `STOP`."""
     brief_path = shift.get("brief_path")
@@ -3594,7 +3568,7 @@ def _live_status(slot: Path, mind: Path, shift: dict, now: _dt.datetime, agents,
     return out or None
 
 
-# --- the digest (phase 3d) ----------------------------------------------------------
+# --- the digest ---------------------------------------------------------------------
 
 def _record_rel(brief_path: Path, mind: Path) -> str | None:
     """The record's path inside Mind, for the one-Mind-writer append; None when
@@ -3624,20 +3598,19 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                grace_s: float = LEASE_GRACE_S, agents=None,
                tokens=transcript_usage, poster=None, pr_state=None) -> dict:
     """A closed shift whose digest is posted, with a worker still out, Mind
-    ops still queued (PyAutoBrain#594: a worker finished 12 minutes after
-    `review-at:` and its `.done` and ledger ops were stranded) or a failed
-    post due its retry.
+    ops still queued or a failed post due its retry: a `.done` or a ledger op
+    that arrives after `review-at:` must not be stranded.
 
     Reaps as a live tick does and commits the queued ops through the one Mind
     writer, then names each late arrival in the record under `### Late
     arrivals`, amends the shift's pilot row in place (`amended: true`) and
-    posts one correction comment for the shift (#610). Never a spawn, a
-    re-dispatch or a close-out: the grant ended at `review-at:`, so what
-    arrives late waits for `/prm`.
+    posts one correction comment for the shift. Never a spawn, a re-dispatch
+    or a close-out: the grant ended at `review-at:`, so what arrives late
+    waits for `/prm`.
 
-    A close-out still out at `review-at:` is reaped here too (#632, F1): its
-    merge is counted, its stage-2 row queued and the pilot row amended, and
-    the sweep runs while one is out."""
+    A close-out still out at `review-at:` is reaped here too: its merge is
+    counted, its stage-2 row queued and the pilot row amended, and the sweep
+    runs while one is out."""
     counters = read_counters(slot)
     counters["usage_unavailable"] = []
     agents = agents or AgentsView()
@@ -3684,7 +3657,7 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         lines.append(f"- late: {co['task']} — {what} (after review-at, {_iso(now)})")
         counters["late"].append(co["task"])
     # A close-out that merged after the close, with no sweep dispatched yet:
-    # the shift's one dispatch is made here (M3.7e review round 1).
+    # the shift's one dispatch is made here.
     if not _brief.is_shadow(brief) and _sweep_dispatch(
             slot, counters, now, _brief._iso((top.get("dispatched") or {}).get("value", ""))):
         disp = counters.get("sweep_dispatch") or {}
@@ -3741,31 +3714,30 @@ def late_sweep(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     return out
 
 
-# --- early close (M3.7c, PyAutoBrain#690) -----------------------------------------
+# --- early close -------------------------------------------------------------------
 
 def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
     """Whether a live tick leaves the shift with nothing to do before
-    `review-at:` (M3.7c, decisions 2 and 3). All must hold: the tick ran
-    (not shadow, not stopped) and the shift is not paused; nothing this
-    tick read failed (the steering comments, Mind origin/main); the shift has
-    started something (a worker or a carried PR), so a plan that could not be
-    read never closes it; no worker holds a lease (a parked one does not
-    count); no pick could still start (`startable`: a failed launch, an
-    unreadable spend, an expired login, a re-dispatch no cap refused); no
-    close-out or branch update is running or waiting on the updated head's
-    CI; and every open PR of the shift is judged — refused, merged, or
-    waiting in merge order behind an earlier PR (a wait behind a /prm-bound
-    PR does not hold the shift open)."""
+    `review-at:`. All must hold: the tick ran (not shadow, not stopped) and
+    the shift is not paused; nothing this tick read failed (the steering
+    comments, Mind origin/main); the shift has started something (a worker or
+    a carried PR), so a plan that could not be read never closes it; no
+    worker holds a lease (a parked one does not count); no pick could still
+    start (`startable`: a failed launch, an unreadable spend, an expired
+    login, a re-dispatch no cap refused); no close-out or branch update is
+    running or waiting on the updated head's CI; and every open PR of the
+    shift is judged — refused, merged, or waiting in merge order behind an
+    earlier PR (a wait behind a /prm-bound PR does not hold the shift open)."""
     if result.get("action") != "ticked" or result.get("paused") or counters.get("paused"):
         return False
     if result.get("spawned") or result.get("startable"):
         return False
-    # Review round 1, finding 1: an input this tick could not read is never
-    # "nothing to do" — an unread `/add` or `/resume` on the shift issue, or
-    # drafts the plan dropped because Mind origin/main failed closed.
+    # An input this tick could not read is never "nothing to do" — an unread
+    # `/add` or `/resume` on the shift issue, or drafts the plan dropped
+    # because Mind origin/main failed closed.
     if counters.get("commands_unread"):
         return False
-    # The sweep's run list unreadable (M3.7e review round 2): an unread input.
+    # The sweep's run list unreadable: an unread input.
     if (((counters.get("sweep") or {}).get("block") or {}).get("kind") == "unknown"
             or counters.get("sweep_waits")):
         return False
@@ -3794,8 +3766,8 @@ def early_close_ready(slot: Path, counters: dict, result: dict) -> bool:
 def close_early(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, shift: dict, *,
                 poster=None, health=None, agents=None, tokens=transcript_usage,
                 grace_s: float = LEASE_GRACE_S, github=None, pr_state=None) -> dict:
-    """Close the shift on this tick (M3.7c): record when, then the digest as
-    at `review-at:`, with this tick's time as the shift's end — merges are
+    """Close the shift on this tick: record when, then the digest as at
+    `review-at:`, with this tick's time as the shift's end — merges are
     counted up to it. Called inside the tick lock."""
     counters = read_counters(slot)
     counters["closed_early"] = _iso(now)
@@ -3833,8 +3805,8 @@ def _after_early_close(brief_path: Path, mind: Path, slot: Path, now: _dt.dateti
 
 def _github_merges(counters: dict, review_at, pr_state) -> None:
     """GitHub's merge state for every PR the shift's workers named, read once
-    at `review-at:` — `in_window` when merged at or before it (#610). A PR
-    GitHub cannot say about is left to what the watcher recorded."""
+    at `review-at:` — `in_window` when merged at or before it. A PR GitHub
+    cannot say about is left to what the watcher recorded."""
     for o in counters["outcomes"].values():
         for url in o.get("prs") or []:
             if "/pull/" not in url:
@@ -3857,12 +3829,12 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
                  closed_at: _dt.datetime | None = None) -> dict:
     """Reap, then write the digest into the record and post it on the brief's issue.
 
-    `closed_at` is an early close's time (M3.7c): the shift's end in place of
+    `closed_at` is an early close's time: the shift's end in place of
     `review-at:`, so merges are counted up to it.
 
-    Reaping first (#610) puts a `.done` written after the last live tick into
-    the digest. The marker is created **before** the post, exclusively: a
-    crash between the two leaves a shift with no comment, never one with two
+    Reaping first puts a `.done` written after the last live tick into the
+    digest. The marker is created **before** the post, exclusively: a crash
+    between the two leaves a shift with no comment, never one with two
     (AUTONOMY.md "The watcher's network surface"); a post `gh` said failed is
     retried by the late sweep, up to `POST_TRIES`. Nothing is read back from
     GitHub to check.
@@ -3878,15 +3850,15 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     counters["usage_unavailable"] = []
     agents = agents or AgentsView()   # one `claude agents` read serves the closing status
     _reap(slot, counters, now, grace_s, agents, tokens)
-    # A close-out that ended since the last tick lands in this digest (#632,
-    # F1); one still out is reaped by the late sweep.
+    # A close-out that ended since the last tick lands in this digest; one
+    # still out is reaped by the late sweep.
     reap_closeouts(slot, counters, now, agents, pr_state, tokens)
     counters["pending_redispatch"] = []      # the grant has ended: never re-dispatched
     if not _brief.is_shadow(brief):
         _github_merges(counters, closed_at or _brief._iso(
             (top.get("review-at") or {}).get("value", "")), pr_state)
-        # S4 (M3.7e): the one sweep dispatch, after the last merge and before
-        # the digest; then this tick's one read of the sweep, if not made yet.
+        # The one sweep dispatch, after the last merge and before the digest;
+        # then this tick's one read of the sweep, if not made yet.
         _sweep_dispatch(slot, counters, now,
                         _brief._iso((top.get("dispatched") or {}).get("value", "")))
         _sweep_tick(slot, counters, now)
@@ -3896,11 +3868,11 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
         # is named in the digest itself, which still reaches the record.
         _auth().failed()
         _note_auth(counters, now)
-    # The readiness pass (M3.3, PyAutoBrain#671): every gate on the next
-    # shift's queue becomes a ruling, queued for this shift's one Mind writer.
+    # The readiness pass: every gate on the next shift's queue becomes a
+    # ruling, queued for this shift's one Mind writer.
     readiness_pass(slot, counters, mind, now)
     # Everything the Mind writer reported so far is in this digest; what it
-    # reports from here on reaches the human through the late sweep (#632).
+    # reports from here on reaches the human through the late sweep.
     counters["ledger_reported"] = len(_mind_writer.report(slot))
     _write_counters(slot, counters)
     digest = _digest.build(_brief.effective(brief, counters), slot, counters, health=health,
@@ -3912,11 +3884,11 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
     if rel is not None:
         _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
                               {"op": "append", "path": rel, "text": "\n" + digest})
-        # The pilot ledger (phase 4a; jsonl #610): one row per shift, in the
-        # same commit, upserted by slot so a rerun never writes a second.
+        # The pilot ledger: one row per shift, in the same commit, upserted by
+        # slot so a rerun never writes a second.
         _queue_pilot(slot, brief, counters, amended=False)
         if (slot / LIVE_KEY_FILE).exists():
-            # The dashboard's live line ends with the shift (#622).
+            # The dashboard's live line ends with the shift.
             _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
                 "op": "record-key", "path": rel, "key": "live",
                 "value": (f"closed early at {_iso(closed_at)}" if closed_at
@@ -3944,12 +3916,12 @@ def finish_shift(brief_path: Path, mind: Path, slot: Path, now: _dt.datetime, *,
 
 
 def readiness_pass(slot: Path, counters: dict, mind: Path, now: _dt.datetime) -> None:
-    """Run `batch ready` at shift end (M3.3, PyAutoBrain#671): offline (the
-    premise check never fetches, no gh), against the watcher's Mind, each new
-    ruling queued as a `question-add` op in this shift's own ledger and noted
-    in `counters["rulings"]`. A shadow shift runs it too: its digest is
-    written through the same writer. A failure never breaks the close: its
-    reason is recorded and the digest says so."""
+    """Run `batch ready` at shift end: offline (the premise check never
+    fetches, no gh), against the watcher's Mind, each new ruling queued as a
+    `question-add` op in this shift's own ledger and noted in
+    `counters["rulings"]`. A shadow shift runs it too: its digest is written
+    through the same writer. A failure never breaks the close: its reason is
+    recorded and the digest says so."""
     try:
         import _ready  # noqa: E402 — inside the try: an import failure is a failed pass
         res = _ready.run(mind, fetch=False, shift=Path(slot).name, now=now)
@@ -3963,7 +3935,7 @@ def readiness_pass(slot: Path, counters: dict, mind: Path, now: _dt.datetime) ->
 def _close_status(brief_path: Path, slot: Path, issue: str, now: _dt.datetime,
                   agents, github=None, *, mind=None) -> dict | None:
     """One last edit of the status comment at `review-at:`, saying the shift
-    is closed (#622); never retried — the digest is the record from here."""
+    is closed; never retried — the digest is the record from here."""
     rec = _read_json(slot / STATUS_MARKER)
     if not rec or rec.get("state") != "posted":
         return None
@@ -3990,20 +3962,20 @@ def _write_packet(slot: Path, digest: str) -> Path:
     return out
 
 
-# --- unattended `glance` close-out (phase 4b) ------------------------------------
+# --- unattended `glance` close-out ------------------------------------------------
 
-#: No close-out starts this close to `review-at:` (PyAutoBrain#632, F1): one
-#: that ran past it merged outside the digest. The PR waits for `/prm`.
+#: No close-out starts this close to `review-at:`: one that ran past it
+#: would merge outside the digest. The PR waits for `/prm`.
 CLOSEOUT_CUTOFF_S = 1200
 #: No close-out starts once the shift's spend reaches this multiple of its
-#: `token-budget:` (AUTONOMY.md, ruling 2026-11-14, #632 F5). Below it a
-#: close-out may pass the budget: it counts against it and the digest shows it.
+#: `token-budget:` (AUTONOMY.md). Below it a close-out may pass the budget:
+#: it counts against it and the digest shows it.
 CLOSEOUT_BUDGET_FACTOR = 1.5
 
 
 def ledger_unreported(slot: Path) -> list[dict]:
     """What the Mind writer reported (set aside, conflict, held) after the
-    digest was built — the late sweep's to tell the human (#632 review)."""
+    digest was built — the late sweep's to tell the human."""
     if not (slot / COUNTERS_FILE).exists():
         return []
     done = int(read_counters(slot).get("ledger_reported") or 0)
@@ -4025,16 +3997,16 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
 
     The watcher's guards are the ones it can judge from its own reads (AUTONOMY
     "Unattended `glance` merges"): the recorded tier, CI by `gh pr checks` not
-    red — running or green starts the close-out at PR-open (ruling S5,
-    M3.7b), which waits in-turn for a green `ci-verdict`; none at all is
-    refused after a grace (PyAutoHeart#343) — a free slot under the brief's
-    `merge-cap:`, and never in a shadow shift. The label, Heart, the witness,
-    the CI wait and the merge slot's take are the close-out session's — it is
-    the independent session, and it refuses rather than merges when one fails.
+    red — running or green starts the close-out at PR-open, which waits
+    in-turn for a green `ci-verdict`; none at all is refused after a grace —
+    a free slot under the brief's `merge-cap:`, and never in a shadow shift.
+    The label, Heart, the witness, the CI wait and the merge slot's take are
+    the close-out session's — it is the independent session, and it refuses
+    rather than merges when one fails.
 
-    GitHub is the merge truth (#603): before a finished close-out is counted
-    merged or refused — which frees its `merge-cap:` slot — the PR's state is
-    read (`pr_state`, else the spawner's, `gh pr view`). Only a GitHub MERGED
+    GitHub is the merge truth: before a finished close-out is counted merged
+    or refused — which frees its `merge-cap:` slot — the PR's state is read
+    (`pr_state`, else the spawner's, `gh pr view`). Only a GitHub MERGED
     counts: with a `merged` verdict or no file at all. A `merged` verdict on a
     PR still OPEN holds its slot and is asked again each tick; one GitHub shows
     CLOSED is refused. A non-merged verdict on a PR GitHub shows MERGED was
@@ -4043,17 +4015,17 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
     Every transition is written as it happens; a `.closeout` file is deleted
     only after that write.
 
-    Two more refusals (#632): no close-out starts within `CLOSEOUT_CUTOFF_S`
-    of `review-at:`, nor once the spend reaches `CLOSEOUT_BUDGET_FACTOR` × the
+    Two more refusals: no close-out starts within `CLOSEOUT_CUTOFF_S` of
+    `review-at:`, nor once the spend reaches `CLOSEOUT_BUDGET_FACTOR` × the
     `token-budget:`.
     """
     pr_state = pr_state or getattr(spawner, "pr_state", None)
     pr_files = pr_files or getattr(spawner, "pr_files", None)
     events = reap_closeouts(slot, counters, now, agents, pr_state, tokens)
     events.setdefault("started", [])
-    # The cap every in-shift merge takes a slot against, worker or close-out
-    # (ruling R3, #661). A shadow or paused shift publishes a pause: a
-    # worker's take is refused and the PR waits for /prm.
+    # The cap every in-shift merge takes a slot against, worker or
+    # close-out. A shadow or paused shift publishes a pause: a worker's take
+    # is refused and the PR waits for /prm.
     try:
         _merge_slots.publish(slot, _brief._nonneg_int(brief.get("merge-cap", {}).get("value", ""))
                              or 0, _brief.is_shadow(brief) or bool(counters.get("paused")))
@@ -4064,7 +4036,7 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
         events["slots_error"] = str(e)[:300]   # a take reads what is there, or cannot tell
     _sweep_red_markers(slot, counters)
     if _brief.is_shadow(brief) or counters.get("paused"):
-        return events   # paused (#622): an open PR waits; it is not refused
+        return events   # paused: an open PR waits; it is not refused
     return _start_closeouts(slot, brief, counters, spawner, now, health, events,
                             review_at, pr_state=pr_state, pr_files=pr_files)
 
@@ -4072,9 +4044,8 @@ def _closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.dateti
 def queue_retire_op(counters: dict, task: str, pr: str, now: _dt.datetime,
                     by: str = "the unattended close-out") -> dict | None:
     """The ledger op that retires a merged task's live `queue.md` entry —
-    what `lifecycle.py close` does and an unattended close-out skipped once
-    (PyAutoBrain#634), as did an in-turn merge (#637). None when the pick
-    recorded no prompt."""
+    what `lifecycle.py close` does, and neither an unattended close-out nor
+    an in-turn merge runs. None when the pick recorded no prompt."""
     prompt = (counters.get("picks", {}).get(task) or {}).get("prompt") or ""
     if not prompt:
         return None
@@ -4097,7 +4068,7 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
     """Reap every finished close-out session (the first half of `_closeouts`):
     a live tick, `finish_shift` at `review-at:` and the late sweep all call it,
     so a close-out that ends after `review-at:` still lands its merge count and
-    stage-2 row (#632, F1). `late` marks the events as after `review-at:`."""
+    stage-2 row. `late` marks the events as after `review-at:`."""
     events = {"merged": [], "refused": []}
     lease_dir = slot / "leases"
     agents = agents or AgentsView()
@@ -4107,7 +4078,7 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
         if co["state"] != "running":
             continue
         if co.get("agent_id"):
-            # A close-out session spends tokens too: read every tick (#610).
+            # A close-out session spends tokens too: read every tick.
             if known is None:
                 known = _liveness_known(agents)
             sid = (agents.session_of(co["agent_id"]) if known else None) or co.get("session_id")
@@ -4145,10 +4116,10 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
         merged = gh_state == "MERGED" if gh else said_merged
         result = (verdict or {}).get("result")
         if result in ORDER_STATES and not merged:
-            # A branch-update session's word (M3.6j, #683): the branch now has
-            # main in it (`updated`) or already had (`current`). Neither is a
-            # merge nor a refusal: the slot stays held, and a later tick
-            # starts the merge close-out once CI on the new head is not red (S5).
+            # A branch-update session's word: the branch now has main in it
+            # (`updated`) or already had (`current`). Neither is a merge nor
+            # a refusal: the slot stays held, and a later tick starts the
+            # merge close-out once CI on the new head is not red.
             co.update(state=result, updated=_iso(now))
             if result == "updated":
                 co.update(head=str(verdict.get("head") or "")[:64],
@@ -4165,8 +4136,8 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
             _write_counters(slot, counters)
             continue  # e.g. `--auto` pending: not counted, the cap slot stays held
         if merged and co["task"] in counters["dropped"]:
-            # Dropped by the human (#622): a merge that landed anyway is never
-            # an unattended merge — no count, no stage-2 row.
+            # Dropped by the human: a merge that landed anyway is never an
+            # unattended merge — no count, no stage-2 row.
             co.update(state="refused",
                       why="merged outside the close-out after /drop "
                           f"(mergedBy={(gh or {}).get('mergedBy') or '?'})")
@@ -4190,8 +4161,8 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
                 model = CLOSEOUT_MODEL
             co.update(state="merged", gate=gate, model=model)
             co.pop("why", None)
-            # What became of the task's worktree and local branch (#637, item
-            # 10): the close-out removes them as /prm does, or says why not.
+            # What became of the task's worktree and local branch: the
+            # close-out removes them as /prm does, or says why not.
             co["cleanup"] = str((verdict or {}).get("cleanup") or "").strip()[:300] \
                 or CLEANUP_UNREPORTED
             out = counters["outcomes"].setdefault(co["task"], {"prs": [pr], "merged": []})
@@ -4200,24 +4171,24 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
             tier = co.get("tier") or counters["picks"].get(co["task"], {}).get("tier", "?")
             if tier == "glance":
                 # Only a `glance` close-out is a stage-2 row and an unattended
-                # `glance` merge; a `notify` one (ruling R3, #661) is neither.
+                # `glance` merge; a `notify` one is neither.
                 counters["glance_auto_merges"] += 1
                 _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, {
                     "op": "table-append", "path": STAGE2_LOG, "heading": STAGE2_HEADING,
                     # One row per PR and shift, even if a crash between this queue
-                    # and the counters write below reaps the close-out twice (#632).
+                    # and the counters write below reaps the close-out twice.
                     "unique": f"| {co['task']} ({pr}) | {slot.name} |",
                     "row": stage2_row(now, co["task"], pr, slot.name, co["gate"], co["model"],
                                       merged_by=(gh or {}).get("mergedBy") or "")})
             retire = queue_retire_op(counters, co["task"], pr, now)
             if retire:
                 # The close-out queues this with its complete record; this is
-                # the safety net when it did not (#634). A second retire of
-                # the same entry finds none live and is silent.
+                # the safety net when it did not. A second retire of the same
+                # entry finds none live and is silent.
                 _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR, retire)
                 # An unattended close-out never runs `lifecycle.py close`, so
                 # the task's Open questions (a `blocked` one whose late `.done`
-                # merged) are answered here, or `check` would drift (#645).
+                # merged) are answered here, or `check` would drift.
                 _mind_writer.queue_op(slot / _mind_writer.LEDGER_DIR,
                                       question_retire_op(counters, co["task"], now))
             events["merged"].append(pr)
@@ -4233,11 +4204,11 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
             co.update(state="refused", why=why)
             events["refused"].append(pr)
         if co["state"] == "refused":
-            # A refused close-out frees its PR's merge slot (R3, #661) whoever
-            # holds it for this task: the watcher (taken before a branch
-            # update) or the close-out session itself (its own `merge-slot
-            # take` just before the merge, M3.7b decision A). A merge made
-            # outside the close-out is not the shift's. A merged one keeps it.
+            # A refused close-out frees its PR's merge slot whoever holds it
+            # for this task: the watcher (taken before a branch update) or
+            # the close-out session itself (its own `merge-slot take` just
+            # before the merge). A merge made outside the close-out is not
+            # the shift's. A merged one keeps it.
             for by, of_task in ((_merge_slots.WATCHER, None),
                                 (_merge_slots.SESSION, co["task"])):
                 try:
@@ -4256,14 +4227,14 @@ def reap_closeouts(slot: Path, counters: dict, now: _dt.datetime, agents, pr_sta
 
 #: How long an `updated` PR (its branch just merged `main` in) may read
 #: NO-CHECKS before that is its CI verdict: room for CI to register on the new
-#: head (M3.6j, PyAutoBrain#683).
+#: head.
 UPDATE_CHECKS_GRACE_S = 600
 #: Branch updates one PR may have in a shift; the next one it would need
-#: refuses it, `main kept moving → your /prm` (M3.6j).
+#: refuses it, `main kept moving → your /prm`.
 UPDATE_LIMIT = 2
-#: Close-out states the watcher looks at again on later ticks (M3.6j): the
-#: branch was brought up to date with `main` (or already was), its slot is
-#: held, and its merge close-out has not started yet.
+#: Close-out states the watcher looks at again on later ticks: the branch
+#: was brought up to date with `main` (or already was), its slot is held,
+#: and its merge close-out has not started yet.
 ORDER_STATES = ("updated", "current")
 
 
@@ -4275,8 +4246,8 @@ def _iso_or_none(text: str) -> _dt.datetime | None:
 
 
 def _known_prs(counters: dict) -> dict[str, str]:
-    """{canonical PR key: URL} for every PR this shift knows (ruling f): its
-    outcomes' PRs, carried ones included, and a carried outcome's `behind`."""
+    """{canonical PR key: URL} for every PR this shift knows: its outcomes'
+    PRs, carried ones included, and a carried outcome's `behind`."""
     out: dict[str, str] = {}
     for o in (counters.get("outcomes") or {}).values():
         if not isinstance(o, dict):
@@ -4290,7 +4261,7 @@ def _known_prs(counters: dict) -> dict[str, str]:
 
 def _earlier_prs(counters: dict, pr: str) -> list[str]:
     """This shift's known PRs that merge before `pr`, in PR order: the same
-    GitHub repo, a lower number, and only on a library repo (ruling f)."""
+    GitHub repo, a lower number, and only on a library repo."""
     key = _merge_slots.pr_key(pr)
     if not key or not _library_key(pr):
         return []
@@ -4310,11 +4281,10 @@ def _recorded_merged(counters: dict) -> set[str]:
 
 
 def _merge_blockers(counters: dict, pr: str, pr_state, cache: dict) -> list[str]:
-    """The earlier PRs (`_earlier_prs`) `pr` must wait behind (M3.6j,
-    PyAutoBrain#683): every one not recorded merged and not MERGED or CLOSED
-    on GitHub, whatever this shift made of it — refused, dropped, red
-    (ruling c). One GitHub read per PR per tick (`cache`, ruling b); a PR
-    GitHub cannot say about blocks."""
+    """The earlier PRs (`_earlier_prs`) `pr` must wait behind: every one not
+    recorded merged and not MERGED or CLOSED on GitHub, whatever this shift
+    made of it — refused, dropped, red. One GitHub read per PR per tick
+    (`cache`); a PR GitHub cannot say about blocks."""
     merged = _recorded_merged(counters)
     out = []
     for u in _earlier_prs(counters, pr):
@@ -4323,8 +4293,7 @@ def _merge_blockers(counters: dict, pr: str, pr_state, cache: dict) -> list[str]
         gh = _gh_once(pr_state, cache, u)
         if (gh or {}).get("state") in ("MERGED", "CLOSED"):
             # Remembered for the digest's merge order: an earlier PR the
-            # human merged or closed is no longer one to merge first
-            # (2026-11-19-pm2 listed one as "open" twenty minutes after its merge).
+            # human merged or closed is no longer one to merge first.
             counters.setdefault("pr_gone", {})[u] = gh["state"]
             continue
         out.append(u)
@@ -4333,11 +4302,11 @@ def _merge_blockers(counters: dict, pr: str, pr_state, cache: dict) -> list[str]
 
 def in_turn_merge_blockers(slot: Path, pr: str, pr_state=None) -> list[str]:
     """The earlier PRs of this shift a worker's in-turn merge of `pr` would
-    jump (M3.6j review F1): the same rule as the close-out's wait
-    (`_merge_blockers`), read from the slot's `counters.json`. `merge-slot
-    take` refuses while any is open, so the PR ends at PR-open and the
-    watcher's close-out merges it in order. A missing counters file (no shift
-    state yet) blocks nothing; an unreadable one raises `OSError`/`ValueError`."""
+    jump: the same rule as the close-out's wait (`_merge_blockers`), read from
+    the slot's `counters.json`. `merge-slot take` refuses while any is open,
+    so the PR ends at PR-open and the watcher's close-out merges it in order.
+    A missing counters file (no shift state yet) blocks nothing; an
+    unreadable one raises `OSError`/`ValueError`."""
     path = Path(slot) / COUNTERS_FILE
     if not path.exists():
         return []
@@ -4361,8 +4330,8 @@ def _gh_once(pr_state, cache: dict, url: str) -> dict | None:
 
 def _merged_after_start(counters: dict, task: str, pr: str, pr_state, cache: dict,
                         carried: bool) -> list[str]:
-    """The earlier PRs that merged after `task`'s first worker started (M3.6j):
-    its branch was cut from a `main` without them, so it is updated before it
+    """The earlier PRs that merged after `task`'s first worker started: its
+    branch was cut from a `main` without them, so it is updated before it
     merges. A carried PR's every merged earlier PR counts; so does one whose
     merge time cannot be read."""
     first = None if carried else min(
@@ -4386,11 +4355,10 @@ def _merged_after_start(counters: dict, task: str, pr: str, pr_state, cache: dic
 
 def _pr_files_once(counters: dict, pr_files, url: str) -> list[str] | None:
     """A PR's changed files, read at most once per PR per shift and kept in
-    `counters["pr_files"]` (S6, M3.7b; AUTONOMY.md "The watcher's network
-    surface", amendment 2026-11-19). A read that fails, raises or may be
-    truncated is kept as None — unreadable, an overlap — and never read
-    again. None, uncached, when there is no reader (a test spawner): that
-    fails toward the branch update, as before S6."""
+    `counters["pr_files"]` (AUTONOMY.md "The watcher's network surface"). A
+    read that fails, raises or may be truncated is kept as None — unreadable,
+    an overlap — and never read again. None, uncached, when there is no
+    reader (a test spawner): that fails toward the branch update."""
     cache = counters.setdefault("pr_files", {})
     if url in cache:
         return cache[url]
@@ -4404,15 +4372,15 @@ def _pr_files_once(counters: dict, pr_files, url: str) -> list[str] | None:
     return cache[url]
 
 
-#: The label a worker puts on a PR whose decision the human must take (S7).
+#: The label a worker puts on a PR whose decision the human must take.
 DECISION_TAKEN = "decision-taken"
-#: Why a `decision-taken` PR is refused at PR-open (S7, M3.7c, #690).
+#: Why a `decision-taken` PR is refused at PR-open.
 DECISION_TAKEN_WHY = "decision-taken — the human's /prm"
-#: Label reads one PR may fail in a shift before it goes to the human's /prm
-#: (review round 1, M3.7c): never assumed clean. At most one read a tick, and
-#: never refused sooner than LABEL_READ_GRACE_S after the watcher first saw
-#: the PR (round 2): with 60 s ticks and kicks, 3 misses take 2 minutes, so a
-#: short `gh` outage must not refuse every new PR of the shift.
+#: Label reads one PR may fail in a shift before it goes to the human's /prm:
+#: never assumed clean. At most one read a tick, and never refused sooner
+#: than LABEL_READ_GRACE_S after the watcher first saw the PR: with 60 s
+#: ticks and kicks, 3 misses take 2 minutes, so a short `gh` outage must
+#: not refuse every new PR of the shift.
 LABEL_READS = 3
 LABEL_READ_GRACE_S = 900
 LABELS_UNREADABLE_WHY = (f"labels unreadable ({LABEL_READS} misses over "
@@ -4424,13 +4392,12 @@ FAIL_CLOSED = _digest.FAIL_CLOSED
 
 def _pr_labels_once(counters: dict, pr_state, cache: dict, url: str) -> list[str] | None:
     """A PR's label names, read once per PR per shift and kept in
-    `counters["pr_labels"]` (S7, M3.7c; AUTONOMY.md "The watcher's network
-    surface", amendment 2026-11-19): the `labels` field of the `gh pr view`
-    the tick already makes (`_gh_once`). None when GitHub cannot say: not
-    kept, asked again next tick (each miss counted in
-    `counters["pr_label_misses"]`), never assumed clean. No reader at all (a
-    test spawner) reads as no labels, uncached: the close-out's own label
-    check stays the second layer."""
+    `counters["pr_labels"]` (AUTONOMY.md "The watcher's network surface"):
+    the `labels` field of the `gh pr view` the tick already makes
+    (`_gh_once`). None when GitHub cannot say: not kept, asked again next
+    tick (each miss counted in `counters["pr_label_misses"]`), never assumed
+    clean. No reader at all (a test spawner) reads as no labels, uncached:
+    the close-out's own label check stays the second layer."""
     kept = counters.setdefault("pr_labels", {})
     if url in kept:
         return kept[url]
@@ -4449,9 +4416,9 @@ def _pr_labels_once(counters: dict, pr_state, cache: dict, url: str) -> list[str
 def _overlap(counters: dict, pr: str, merged_ahead: list[str], pr_state, pr_files,
              cache: dict) -> tuple[list[str], list[str]]:
     """(need, disjoint): which PRs merged ahead of `pr` its branch must be
-    updated for (ruling S6, M3.7b). Every one when GitHub reports `pr`
-    CONFLICTING or `pr`'s own files cannot be read; otherwise each one whose
-    changed files intersect `pr`'s, or cannot be read. The rest are disjoint."""
+    updated for. Every one when GitHub reports `pr` CONFLICTING or `pr`'s own
+    files cannot be read; otherwise each one whose changed files intersect
+    `pr`'s, or cannot be read. The rest are disjoint."""
     if not merged_ahead:
         return [], []
     if (_gh_once(pr_state, cache, pr) or {}).get("mergeable") == "CONFLICTING":
@@ -4471,35 +4438,34 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                      pr_state=None, pr_files=None) -> dict:
     """Start one close-out per newly open PR, under the watcher's guards.
 
-    Ruling S5 (M3.7b, PyAutoBrain#688): a PR whose CI reads RUNNING or
-    HEALTHY starts its close-out at once; the session runs the witness and
-    reads the diff while CI runs, then waits in-turn (`ci-verdict --until`,
-    at most CLOSEOUT_CI_WAIT_S and never past `review-at:`) and merges only on
-    GREEN. FAILED or UNKNOWN refuses with no session; NO-CHECKS waits
-    UPDATE_CHECKS_GRACE_S from when the watcher first saw the PR, then refuses.
-    Decision A: the watcher takes no merge slot for a merge close-out; it
-    refuses one when the cap has no room (`_merge_slots.room`, counting the
-    close-outs already running without a slot). The session takes its slot
-    itself, immediately before the merge.
+    A PR whose CI reads RUNNING or HEALTHY starts its close-out at once; the
+    session runs the witness and reads the diff while CI runs, then waits
+    in-turn (`ci-verdict --until`, at most CLOSEOUT_CI_WAIT_S and never past
+    `review-at:`) and merges only on GREEN. FAILED or UNKNOWN refuses with no
+    session; NO-CHECKS waits UPDATE_CHECKS_GRACE_S from when the watcher
+    first saw the PR, then refuses. The watcher takes no merge slot for a
+    merge close-out; it refuses one when the cap has no room
+    (`_merge_slots.room`, counting the close-outs already running without a
+    slot). The session takes its slot itself, immediately before the merge.
 
-    Merge order (M3.6j, PyAutoBrain#683): a library PR whose earlier PR of
-    this shift on the same library is still open waits — no close-out, no
-    merge slot, no refusal — in `counters["merge_waits"]`, rebuilt each tick;
-    a workspace PR waits while its own task's library PR waits or is being
-    closed out. Once nothing is ahead of it, a PR whose branch was cut before
-    an earlier PR merged gets a branch-update session first (`gh pr
-    update-branch`, ruling a) under a merge slot the watcher takes — only when
-    their changed files overlap, a file list cannot be read, or GitHub reports
-    this PR CONFLICTING (ruling S6). Its merge close-out starts on a later
-    tick, once GitHub shows the update's head and CI there is not red."""
+    Merge order: a library PR whose earlier PR of this shift on the same
+    library is still open waits — no close-out, no merge slot, no refusal —
+    in `counters["merge_waits"]`, rebuilt each tick; a workspace PR waits
+    while its own task's library PR waits or is being closed out. Once
+    nothing is ahead of it, a PR whose branch was cut before an earlier PR
+    merged gets a branch-update session first (`gh pr update-branch`) under a
+    merge slot the watcher takes — only when their changed files overlap, a
+    file list cannot be read, or GitHub reports this PR CONFLICTING. Its
+    merge close-out starts on a later tick, once GitHub shows the update's
+    head and CI there is not red."""
     lease_dir = slot / "leases"
     health = health or _digest.pr_health
     budget = _brief._nonneg_int(brief.get("token-budget", {}).get("value", ""))
-    cache: dict = {}   # GitHub's word on a PR, read once this tick (ruling b)
+    cache: dict = {}   # GitHub's word on a PR, read once this tick
     before_waits = counters.get("merge_waits") or {}
     waits: dict = {}
     counters["merge_waits"] = waits
-    # PRs held while the sweep is unknown (M3.7e), rebuilt each tick.
+    # PRs held while the sweep is unknown, rebuilt each tick.
     before_sweep = counters.get("sweep_waits") or {}
     sweep_waits: dict = {}
     counters["sweep_waits"] = sweep_waits
@@ -4533,13 +4499,13 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             refuse(pr, task, "dropped by /drop — the human's /prm", held=again)
             continue
         if tier not in ("glance", "notify"):
-            # Ruling R3 (2026-11-17, #661): a `notify` PR a worker left
-            # open is closed out on the same terms as a `glance` one.
+            # A `notify` PR a worker left open is closed out on the same
+            # terms as a `glance` one.
             refuse(pr, task, f"tier {tier} — never merged unattended → your /prm", held=again)
             continue
         if out.get("carried_from"):
-            # A carried PR (M3.6c) may have been merged or closed by the
-            # human since its shift: only an OPEN one is closed out, so a
+            # A carried PR may have been merged or closed by the human
+            # since its shift: only an OPEN one is closed out, so a
             # human's merge is never counted as an unattended one.
             gh = _gh_once(pr_state, cache, pr)
             if not gh:
@@ -4549,7 +4515,7 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                 # Merged by the human since its shift: settled, nothing left
                 # for anyone. Final like a refusal (no close-out, no count as
                 # an unattended merge), but the digest never lists it as
-                # needing the human (2026-11-19-pm2 and 2026-11-20-am did).
+                # needing the human.
                 refuse(pr, task, f"{_digest.SETTLED} since {out['carried_from']}"
                                  + (f" (by {gh['mergedBy']})" if gh.get("mergedBy") else ""),
                        held=again)
@@ -4560,13 +4526,13 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                 refuse(pr, task, f"carried over from {out['carried_from']}, but GitHub reads "
                                  f"it {state or '?'} — not closed out", held=again)
                 continue
-        # S7 (M3.7c, #690): a `decision-taken` PR is the human's /prm, from
-        # its label alone: no close-out session, no merge slot, no CI read.
-        # It stays among the shift's known PRs, so a later PR on its library
-        # still waits behind it (ruling c). After the carried check (review
-        # round 1): a carried PR the human merged or closed is reported by
-        # its GitHub state. Unreadable: asked again next tick, then the
-        # human's /prm after LABEL_READS misses over LABEL_READ_GRACE_S.
+        # A `decision-taken` PR is the human's /prm, from its label alone: no
+        # close-out session, no merge slot, no CI read. It stays among the
+        # shift's known PRs, so a later PR on its library still waits behind
+        # it. After the carried check: a carried PR the human merged or closed
+        # is reported by its GitHub state. Unreadable: asked again next tick,
+        # then the human's /prm after LABEL_READS misses over
+        # LABEL_READ_GRACE_S.
         labels = _pr_labels_once(counters, pr_state, cache, pr)
         if labels is None:
             first = _iso_or_none(seen.get(pr) or "")
@@ -4578,24 +4544,23 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
         if DECISION_TAKEN in labels:
             refuse(pr, task, DECISION_TAKEN_WHY, held=again)
             continue
-        # The red sweep (M3.7e): a PR on a failing workspace's install chain
-        # is the human's /prm until a later sweep is green or /clear-sweep.
+        # The red sweep: a PR on a failing workspace's install chain is the
+        # human's /prm until a later sweep is green or /clear-sweep.
         blk = (counters.get("sweep") or {}).get("block")
         if _sweep_blocks(blk, pr):
             if blk.get("kind") == "unknown":
-                # The run list is unreadable (M3.7e review round 2): a wait,
-                # like the merge order's — no session, no slot, no refusal;
-                # judged again next tick.
+                # The run list is unreadable: a wait, like the merge order's —
+                # no session, no slot, no refusal; judged again next tick.
                 prev = before_sweep.get(pr) or {}
                 sweep_waits[pr] = {"task": task, "why": blk["why"],
                                    "since": prev.get("since") or _iso(now)}
                 continue
             refuse(pr, task, blk["why"], held=again)
             continue
-        # Merge order (M3.6j): an earlier library PR of this shift still open
-        # holds this one back. Waiting is not a refusal and takes no slot. An
-        # earlier PR whose close-out is running (waiting in-turn on its CI,
-        # S5) is still open, so this one gets no session until it merges.
+        # Merge order: an earlier library PR of this shift still open holds
+        # this one back. Waiting is not a refusal and takes no slot. An
+        # earlier PR whose close-out is running (waiting in-turn on its CI)
+        # is still open, so this one gets no session until it merges.
         behind = _merge_blockers(counters, pr, pr_state, cache)
         if not behind and not _library_key(pr):
             behind = [u for u in out["prs"] if u != pr and _library_key(u)
@@ -4610,8 +4575,8 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                 events.setdefault("waiting", []).append(pr)
             continue
         if again and co.get("state") == "updated" and co.get("head"):
-            # CI is judged on the head the update made (review F5): until
-            # GitHub shows that head, a check read may be an older head's.
+            # CI is judged on the head the update made: until GitHub shows
+            # that head, a check read may be an older head's.
             head = (_gh_once(pr_state, cache, pr) or {}).get("head") or ""
             if not head:
                 continue      # GitHub cannot say yet: asked again next tick
@@ -4637,8 +4602,8 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                 # An updated PR at review-at is not refused: it keeps its
                 # state, the digest reports it, and the next shift carries it.
                 continue
-            # A close-out runs ~10-30 min; one still out at review-at
-            # merged outside the digest (#632, F1). Final, like the others.
+            # A close-out runs ~10-30 min; one still out at review-at would
+            # merge outside the digest. Final, like the others.
             refuse(pr, task, f"open within {CLOSEOUT_CUTOFF_S // 60} min of review-at — "
                              "no close-out starts this late")
             continue
@@ -4650,17 +4615,17 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                  + ", ".join(counters["usage_unavailable"]) + ")"})
             continue
         spent = _committed_tokens(counters)
-        # `is not None`: a `/cap tokens 0` (#644) means zero, not "no budget".
+        # `is not None`: a `/cap tokens 0` means zero, not "no budget".
         if budget is not None and spent >= CLOSEOUT_BUDGET_FACTOR * budget:
-            # The human's ruling 2026-11-14 (#632, F5): a close-out may pass
-            # the budget, but none starts once spend reaches 1.5x it —
-            # spend as the spawn gate counts it, reservations included.
+            # A close-out may pass the budget, but none starts once spend
+            # reaches CLOSEOUT_BUDGET_FACTOR × it — spend as the spawn gate
+            # counts it, reservations included.
             refuse(pr, task, f"token spend {spent} (committed) reached "
                              f"{CLOSEOUT_BUDGET_FACTOR}× token-budget {budget}", held=again)
             continue
-        # Branch update (M3.6j): an earlier PR merged after this branch was
-        # cut, and this PR's branch does not have it yet — needed only when
-        # their changed files overlap or GitHub reports a conflict (S6).
+        # Branch update: an earlier PR merged after this branch was cut, and
+        # this PR's branch does not have it yet — needed only when their
+        # changed files overlap or GitHub reports a conflict.
         after = list((co or {}).get("after") or [])
         ahead = [u for u in _merged_after_start(counters, task, pr, pr_state, cache,
                                                 bool(out.get("carried_from")))
@@ -4672,17 +4637,17 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
                              "→ your /prm", held=again)
             continue
         if need:
-            # One merge-slot count for the shift (R3, #661). The watcher
-            # takes it before a branch-update session, last, so no other
-            # refusal holds a slot. Idempotent: an updated PR holds its slot.
+            # One merge-slot count for the shift. The watcher takes it
+            # before a branch-update session, last, so no other refusal
+            # holds a slot. Idempotent: an updated PR holds its slot.
             try:
                 taken, why = _merge_slots.take(slot, pr, _merge_slots.WATCHER, task)
             except (_merge_slots.MergeSlotError, OSError) as e:
                 taken, why = False, f"merge slot cannot tell ({str(e)[:200]}) — left for your /prm"
         else:
-            # Decision A (M3.7b): the merge close-out takes its own slot just
-            # before the merge. The watcher only reads that one would be free,
-            # counting the close-outs already running without one.
+            # The merge close-out takes its own slot just before the merge.
+            # The watcher only reads that one would be free, counting the
+            # close-outs already running without one.
             pending = sum(1 for u, c in counters["closeouts"].items()
                           if c.get("state") == "running" and c.get("kind") != "update"
                           and _merge_slots.pr_key(u) not in counters.get("slot_holders", {}))
@@ -4702,7 +4667,7 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
             new.update(kind="update", after=after + need, updates=updates)
         else:
             # Only a PR with earlier PRs of the shift on its library is
-            # told about them, so every other close-out starts as before.
+            # told about them; every other close-out gets no merge-order step.
             before = _earlier_prs(counters, pr)
             until = now + _dt.timedelta(seconds=CLOSEOUT_CI_WAIT_S)
             if review_at is not None:
@@ -4730,8 +4695,8 @@ def _start_closeouts(slot: Path, brief: dict, counters: dict, spawner, now: _dt.
 
 
 #: The merge-actor class the watcher writes on every stage-2 row (AUTONOMY.md
-#: "Merge actor and random audit — 2026-11-12"); the Mind's lifecycle.py holds
-#: the full set.
+#: "Merge actor and random audit"); the Mind's lifecycle.py holds the full
+#: set.
 STAGE2_ACTOR = "unattended-watcher"
 
 
@@ -4754,8 +4719,8 @@ def pick_record(member: dict, brief: dict, *, proposed: bool = False) -> dict:
     `batch watch` to show it by title, size and repo, not by file name."""
     why = _brief.pick_reason(member, brief)
     if member.get("resume"):
-        # An answer is not a new priority (Decision H11 a): the pick names
-        # the answer, then the standing it re-entered at.
+        # An answer is not a new priority: the pick names the answer, then
+        # the standing it re-entered at.
         why = (f"resumed after {', '.join(member['resume'].get('ids') or ['?'])} was "
                f"answered · {why}")
     rec = {"prompt": member["path"], "why": why,
@@ -4768,8 +4733,8 @@ def pick_record(member: dict, brief: dict, *, proposed: bool = False) -> dict:
 
 
 def _propose(members: list[dict], brief: dict, counters: dict, max_sessions: int) -> list[str]:
-    """A shadow shift's tick (phase 4a): record what a live shift would have
-    dispatched — no lease, no worker — up to the brief's `max-sessions:`."""
+    """A shadow shift's tick: record what a live shift would have dispatched —
+    no lease, no worker — up to the brief's `max-sessions:`."""
     out = []
     for member in members:
         task = task_id(member["path"])
@@ -4782,9 +4747,9 @@ def _propose(members: list[dict], brief: dict, counters: dict, max_sessions: int
     return out
 
 
-# --- which brief: the one open on Mind origin/main (M3.6a, PyAutoBrain#659) -------
+# --- which brief: the one open on Mind origin/main --------------------------------
 
-#: The env file's brief: now only an override, honoured inside its own window.
+#: The env file's brief: only an override, honoured inside its own window.
 SHIFT_BRIEF_ENV = "PYAUTO_SHIFT_BRIEF"
 ORIGIN_REF = "origin/main"
 
@@ -4884,8 +4849,8 @@ def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
     working tree; one pushed but missing there is named, not ticked.
 
     An override takes the open brief's place only while it is open itself;
-    in its late window it is one more late brief, ticked beside the open one
-    (M3.6a review: a stale env file must never displace the next shift)."""
+    in its late window it is one more late brief, ticked beside the open one:
+    a stale env file must never displace the next shift."""
     state = _override_state(override, now) if override is not None else ""
     briefs = shift_briefs(mind, ref)
     if briefs is None:
@@ -4902,7 +4867,7 @@ def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
             and (Path(home) / b["name"] / "leases").is_dir()
             and late_owed(Path(home) / b["name"])]
     # Past the catch-up with something still owed: never ticked again, so the
-    # human is told once which slot was left and what it owes (M3.6a review).
+    # human is told once which slot was left and what it owes.
     abandoned = []
     for b in briefs:
         slot = Path(home) / b["name"]
@@ -4945,10 +4910,10 @@ def find_briefs(mind: Path, now: _dt.datetime, *, override: Path | None = None,
 
 def watch(mind: Path, *, home: Path | None = None, now: _dt.datetime | None = None,
           override: Path | None = None, **kw) -> dict:
-    """One timer firing (M3.6a, PyAutoBrain#659): find the brief(s) on Mind
-    `origin/main` and tick each. {"action": "idle", "reason"} when there is
-    none; else {"action": "watch", "ticked": {slot: tick result}} plus a
-    `reason` for what was left out."""
+    """One timer firing: find the brief(s) on Mind `origin/main` and tick
+    each. {"action": "idle", "reason"} when there is none; else
+    {"action": "watch", "ticked": {slot: tick result}} plus a `reason` for
+    what was left out."""
     now = now or _now()
     paths, why = find_briefs(mind, now, override=override, home=home)
     out: dict = {"action": "watch", "ticked": {}}

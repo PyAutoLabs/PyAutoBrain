@@ -1,11 +1,11 @@
-"""The shift digest (phase 3d) — what the human reads at `review-at:`.
+"""The shift digest — what the human reads at `review-at:`.
 
 The format is `PyAutoMind/batches/AGENTS.md` "Digest" and "Proof packet". The
 digest is built from what the watcher itself recorded during the shift — the
 brief, `counters.json` (dispatch picks and their reasons, outcomes, crashes,
 tokens) and the proof packets the workers wrote — plus one read-only
 `gh pr checks` per PR, the only GitHub read the watcher's network surface
-allows (AUTONOMY.md "The watcher's network surface — 2026-11-03"). It never
+allows (AUTONOMY.md "The watcher's network surface"). It never
 reads a session's own account of itself beyond the `.done` and proof files the
 worker contract asks for, and it invents nothing: a task with no proof packet
 gets a stub that says so.
@@ -22,10 +22,10 @@ import sys
 from pathlib import Path
 
 import _brief  # noqa: E402
-import _merge_slots  # noqa: E402 — slot evidence for an in-turn merge (R3, #661)
-import _questions  # noqa: E402 — the inbox line (M3.5, #645)
+import _merge_slots  # noqa: E402 — slot evidence for an in-turn merge
+import _questions  # noqa: E402 — the inbox line
 
-# The one CI judgement (PyAutoBrain#628) lives in bin/, beside its CLI.
+# The one CI judgement lives in bin/, beside its CLI.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "bin"))
 import ci_verdict  # noqa: E402
 
@@ -37,27 +37,27 @@ SECTIONS = ("### Brief work", "### Backlog picks", "### Proof packets", "### Cou
 #: Every counter, always printed — a zero is a fact, an absent line is a finding.
 COUNTERS = ("merges", "glance-auto-merges", "reverts", "pushes", "drafts-filed",
             "packets-sent", "workers-crashed", "tokens", "review-minutes-planned")
-#: Counters only phase 4 (unattended merges) and phase 5 (RAL packets) move;
-#: they read from `counters.json` and are 0 until then (human, 2026-11-04).
+#: Counters only unattended merges and RAL packets move; they read from
+#: `counters.json` and are 0 until then.
 LATER_COUNTERS = {"glance-auto-merges": "glance_auto_merges", "reverts": "reverts",
                   "pushes": "pushes", "drafts-filed": "drafts_filed",
                   "packets-sent": "packets_sent"}
 PROOFS_DIR = "proofs"
 NO_PICKS = "- none"
-#: What a shadow shift's line and packet section say instead of work (phase 4a).
+#: What a shadow shift's line and packet section say instead of work.
 PROPOSED = "proposed (shadow)"
-#: A worker whose lease is still held when the digest is built (#634, N1): it
-#: was dispatched and is not done; the late sweep reports how it ends.
+#: A worker whose lease is still held when the digest is built: it was
+#: dispatched and is not done; the late sweep reports how it ends.
 STILL_OUT = "still running at review time — the late sweep will report it"
 #: A PR the worker merged in-turn — after taking a merge slot against the
-#: shift's `merge-cap:` (AUTONOMY.md ruling R3, 2026-11-17, PyAutoBrain#661).
+#: shift's `merge-cap:` (AUTONOMY.md).
 IN_TURN_MERGED = "merged in-turn by the worker (merge slot)"
 #: A PR the worker reported merged in-turn with no merge slot held for its
-#: task: past the shift's `merge-cap:` count, and the evidence ruling R3's
-#: revert condition reads.
+#: task: past the shift's `merge-cap:` count, and the evidence the revert
+#: condition reads.
 IN_TURN_NO_SLOT = "merged in-turn with NO merge slot — R3 revert-condition evidence"
-#: A killed worker whose re-dispatch never started (PyAutoBrain#637, item 2):
-#: never "not started" — its first worker ran.
+#: A killed worker whose re-dispatch never started: never "not started" —
+#: its first worker ran.
 NOT_REDISPATCHED = "crashed — not re-dispatched"
 NO_PACKETS_SHADOW = "- none — shadow shift: nothing was dispatched"
 #: A shadow digest's counters, in one line: every one is 0 by construction.
@@ -68,8 +68,8 @@ _ISSUE_RE = re.compile(r"^(https://github\.com/[^/]+/[^/]+)/issues/\d+")
 #: An issue URL on a `.done` line, wherever it is hosted.
 _ISSUE_URL_RE = re.compile(r"/issues/\d+")
 
-#: The pilot ledger (phase 4a). A subfolder, because every `batches/*.md` is
-#: read as a batch record (lifecycle.py, `_batch.records`, the calibration rule).
+#: The pilot ledger. A subfolder, because every `batches/*.md` is read as a
+#: batch record (lifecycle.py, `_batch.records`, the calibration rule).
 PILOT_PATH = "batches/pilot/pilot.md"
 PILOT_COLUMNS = ("slot", "mode", "review-minutes-planned", "review-minutes-actual",
                  "merges", "glance-auto-merges", "reverts", "overrules", "pushes",
@@ -77,8 +77,8 @@ PILOT_COLUMNS = ("slot", "mode", "review-minutes-planned", "review-minutes-actua
 #: Cells only the human can fill, at check-in.
 PILOT_HUMAN = ("review-minutes-actual", "overrules")
 #: In a shadow shift the orchestrator merges nothing, so `merges` is the human's
-#: own in the window — the baseline the live shifts are measured against
-#: (epic: "the human works as today, minutes are logged"), counted at check-in.
+#: own in the window — the baseline the live shifts are measured against —
+#: counted at check-in.
 PILOT_HUMAN_SHADOW = ("merges",)
 PILOT_HEADER = ("| " + " | ".join(PILOT_COLUMNS) + " |\n"
                 + "|" + "|".join("---" for _ in PILOT_COLUMNS) + "|\n")
@@ -88,10 +88,10 @@ _BULLET_RE = re.compile(r"^- (\S+)")
 
 # --- outcomes ------------------------------------------------------------------
 
-#: The `.done` words that say why a worker ended on an issue (#632, F2). Only
-#: an explicit `verdict:` (its deliverable) keeps the human un-mentioned; a
+#: The `.done` words that say why a worker ended on an issue. Only an
+#: explicit `verdict:` (its deliverable) keeps the human un-mentioned; a
 #: `question:`, a bare issue URL or any other marker is a push — the push
-#: test fails toward the human, never toward silence (#632 review).
+#: test fails toward the human, never toward silence.
 DONE_VERDICT = "verdict"
 _URL_RE = re.compile(r"https?://\S+")
 _MARKER_RE = re.compile(r"^\s*([A-Za-z-]*)\s*:?\s*$")
@@ -104,8 +104,8 @@ def parse_done(text: str) -> dict:
     `obsolete <why>` when its premise check stopped it. Markers are read in
     any case, with or without the colon or the space after it. An issue URL
     goes in `issues`, never in `prs`: `prs` is what CI, a close-out and the
-    merge count read (PyAutoBrain#610). `verdicts` holds only the URLs an
-    explicit `verdict:` marked — every other issue URL is a push (#632)."""
+    merge count read. `verdicts` holds only the URLs an explicit `verdict:`
+    marked — every other issue URL is a push."""
     prs, merged, issues, obsolete = [], [], [], None
     questions, verdicts = [], []
     for line in text.splitlines():
@@ -150,20 +150,20 @@ def urls_of(outcome: dict | None) -> list[str]:
 
 
 def pr_health(url: str, run=None) -> str:
-    """One read-only `gh pr checks --json`, judged by `bin/ci_verdict.py`
-    (PyAutoBrain#628) — the one CI judgement `/prm` and the close-out run too.
+    """One read-only `gh pr checks --json`, judged by `bin/ci_verdict.py` — the
+    one CI judgement `/prm` and the close-out run too.
 
     The watcher's network surface is `gh pr checks` only (AUTONOMY.md "The
     watcher's network surface"), so this keeps that read and hands its rows to
     `ci_verdict.judge` with mergeability not read; the close-out session runs
     the full `pyauto-brain ci-verdict`, which reads it. The words map from the
     verdict: GREEN is HEALTHY (at least one completed check, every completed
-    check green — PyAutoHeart#343); a failed, cancelled or timed-out check is
-    FAILED (`gh pr checks`' exit code counts a cancelled check as skipped, so
-    the exit code alone is not the verdict); a bucket the judge does not know
-    is UNKNOWN (fail closed); a pending check is RUNNING; no checks, or only
-    skipped ones, is NO-CHECKS, which the close-out refuses — that PR is the
-    human's merge."""
+    check green); a failed, cancelled or timed-out check is FAILED (`gh pr
+    checks`' exit code counts a cancelled check as skipped, so the exit code
+    alone is not the verdict); a bucket the judge does not know is UNKNOWN
+    (fail closed); a pending check is RUNNING; no checks, or only skipped
+    ones, is NO-CHECKS, which the close-out refuses — that PR is the human's
+    merge."""
     if "/pull/" not in url:
         return "PARKED-ON-ISSUE"
     run = run or subprocess.run
@@ -206,9 +206,9 @@ def task_state(task: str, counters: dict, health, *, live: bool = False,
     digest and `batch watch` share, so the live view and the digest never
     disagree. Only the live view passes `live=True` (with the task's `lease`
     and the `agents` view). The digest passes a lease only for a worker still
-    out at `review-at:`, which reads `STILL_OUT`, never "not started"
-    (PyAutoBrain#634, N1); the late sweep reports how it ends. A task the
-    human dropped by `/drop` (PyAutoBrain#622) says so first."""
+    out at `review-at:`, which reads `STILL_OUT`, never "not started"; the
+    late sweep reports how it ends. A task the human dropped by `/drop` says
+    so first."""
     state, tiered = _task_state(task, counters, health, live=live, lease=lease,
                                 agents=agents)
     if task not in (counters.get("dropped") or {}):
@@ -243,8 +243,7 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
         if skipped:
             return "not started — skipped: " + skipped, False
         # Neither claimed nor rejected, yet never started: the spawn gate
-        # refused it (2026-11-20-am: a named task waited on `max-workers`
-        # all shift and its entry said only "not started").
+        # refused it, and the entry says why rather than "not started".
         last = max((r for r in counters.get("refusals", []) if r.get("task") == task),
                    key=lambda r: r.get("last") or r.get("at") or "", default=None)
         if last:
@@ -266,8 +265,8 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
         elif url in out.get("issues", []):
             state = "PARKED-ON-ISSUE"
         elif url in out["merged"]:
-            # Which path each merge took (R3, #661): a close-out, or the
-            # worker in-turn after taking a merge slot.
+            # Which path each merge took: a close-out, or the worker
+            # in-turn after taking a merge slot.
             if co.get("state") == "merged":
                 state = "merged unattended (close-out, " + co.get("model", "?") + ")"
             else:
@@ -275,9 +274,9 @@ def _task_state(task: str, counters: dict, health, *, live: bool = False,
             if co.get("state") == "merged" and co.get("cleanup"):
                 state += f" — worktree: {co['cleanup']}"
         elif url in (counters.get("merge_waits") or {}):
-            state = wait_state(url, counters)          # merge order (M3.6j, #683)
+            state = wait_state(url, counters)          # merge order
         elif url in (counters.get("sweep_waits") or {}):
-            state = sweep_wait_state(url, counters)    # unknown sweep (M3.7e, #694)
+            state = sweep_wait_state(url, counters)    # unknown sweep
         elif co.get("settled"):
             state = co.get("why") or SETTLED
         elif co.get("state") == "refused":
@@ -315,7 +314,7 @@ def is_settled(task: str, counters: dict) -> bool:
     return bool(out.get("carried_from") and urls) and set(urls) <= settled_prs(counters)
 
 
-#: A PR's states in the merge order (M3.6j, PyAutoBrain#683).
+#: A PR's states in the merge order.
 UPDATING = "close-out updating the branch from main"
 UPDATED = "branch updated from main"
 CURRENT = "branch already up to date with main"
@@ -346,8 +345,8 @@ def _order_word(url: str, counters: dict) -> str:
 
 
 def sweep_wait_state(url: str, counters: dict) -> str:
-    """A PR held while the sweep's run list is unreadable (M3.7e, #694): since
-    when the sweep is unknown, from the wait's `why`."""
+    """A PR held while the sweep's run list is unreadable: since when the
+    sweep is unknown, from the wait's `why`."""
     wait = (counters.get("sweep_waits") or {}).get(url) or {}
     _, sep, since = str(wait.get("why") or "").partition(" since ")
     since = (since if sep else "") or wait.get("since") or "?"
@@ -356,7 +355,7 @@ def sweep_wait_state(url: str, counters: dict) -> str:
 
 def wait_state(url: str, counters: dict) -> str:
     """A PR waiting in merge order: behind which PRs, what they are doing, and
-    which one to merge first (M3.6j, PyAutoBrain#683)."""
+    which one to merge first."""
     behind = ((counters.get("merge_waits") or {}).get(url) or {}).get("behind") or []
     return ("waits behind " + ", ".join(f"{pr_ref(b)} ({_order_word(b, counters)})"
                                         for b in behind)
@@ -364,10 +363,10 @@ def wait_state(url: str, counters: dict) -> str:
 
 
 def merge_order_lines(counters: dict) -> list[str]:
-    """The `### Merge order` block (M3.6j, PyAutoBrain#683): for each library
-    repo where a PR of this shift waits behind an earlier one, its open PRs
-    in PR-number order, ▶ on the one that needs your /prm now; and how many
-    branch updates conflicted with main. Empty when nothing waits."""
+    """The `### Merge order` block: for each library repo where a PR of this
+    shift waits behind an earlier one, its open PRs in PR-number order, ▶ on
+    the one that needs your /prm now; and how many branch updates conflicted
+    with main. Empty when nothing waits."""
     waits = counters.get("merge_waits") or {}
     if not waits:
         return []
@@ -405,7 +404,7 @@ def merge_order_lines(counters: dict) -> list[str]:
     return out
 
 
-#: The heading of the PRs that waited behind a /prm-bound PR (S7, M3.7c).
+#: The heading of the PRs that waited behind a /prm-bound PR.
 WAITED_HEADING = "### Waited behind your /prm"
 
 
@@ -416,7 +415,7 @@ def _hhmm(iso: str) -> str:
 
 
 def closed_early_lines(counters: dict) -> list[str]:
-    """One line when the shift closed before `review-at:` (M3.7c, #690)."""
+    """One line when the shift closed before `review-at:`."""
     at = counters.get("closed_early")
     if not at:
         return []
@@ -426,11 +425,11 @@ def closed_early_lines(counters: dict) -> list[str]:
 
 def waited_lines(counters: dict) -> list[str]:
     """The PRs that waited in merge order behind an earlier PR bound for the
-    human's /prm (S7, M3.7c, PyAutoBrain#690): one line per library repo and
-    set of blockers, from `merge_waits` at close and the refused close-outs —
+    human's /prm: one line per library repo and set of blockers, from
+    `merge_waits` at close and the refused close-outs —
     `autogalaxy: #8, #9 waited behind #7 (/prm-bound: decision-taken)` — after
     a count; and how many PRs were refused because their labels could not be
-    read (S7). Empty when there is neither."""
+    read. Empty when there is neither."""
     cos = counters.get("closeouts") or {}
     refused = {u: co for u, co in cos.items()
                if co.get("state") == "refused" and not co.get("settled")}
@@ -452,7 +451,7 @@ def waited_lines(counters: dict) -> list[str]:
         return int(m.group(2)) if m else 0
     n = sum(len(v) for v in groups.values())
     out = ["", WAITED_HEADING] + ([f"- {n} PR(s) waited behind a /prm-bound PR"] if n else [])
-    if unread:   # review round 1: label reads that never succeeded (S7)
+    if unread:   # label reads that never succeeded
         out.append(f"- {len(unread)} PR(s) refused: labels unreadable (at most one read a "
                    "tick, refused after 3 misses over 15 minutes) — "
                    + ", ".join(pr_ref(u) for u in unread))
@@ -474,7 +473,7 @@ def has_slot(counters: dict, task: str, url: str) -> bool:
 
 def no_slot_merges(counters: dict) -> list[str]:
     """In-turn merges a worker reported with no merge slot for its task —
-    each one a merge `merge-cap:` did not count (R3, #661)."""
+    each one a merge `merge-cap:` did not count."""
     closeouts = counters.get("closeouts", {})
     return [url for task, o in counters.get("outcomes", {}).items()
             for url in o.get("merged") or []
@@ -484,9 +483,8 @@ def no_slot_merges(counters: dict) -> list[str]:
 
 def gate_why(task: str, counters: dict) -> str:
     """Why the watcher's last plan kept this task out — a claim or a held
-    repo on Mind origin/main, a park in an earlier shift (#637), or the
-    planner's own reason for a named task (M3.6b: epic, budget, Blocked-by) —
-    or ""."""
+    repo on Mind origin/main, a park in an earlier shift, or the planner's
+    own reason for a named task (epic, budget, Blocked-by) — or ""."""
     gates = counters.get("backlog_gates") or {}
     for key in ("origin", "parked", "named"):
         for path, why in (gates.get(key) or {}).items():
@@ -507,9 +505,9 @@ def redispatch_why(task: str, counters: dict) -> str:
 
 #: `claude agents` states for a session that has ended without succeeding. A
 #: real worker in one of these with no `.done` is a crash at once — it can never
-#: write one late, so it gets no grace (PyAutoBrain#592: three `failed` workers
-#: held their leases for 40 minutes, read as alive). An unknown word is still
-#: read as alive; add it here once seen. `_orchestrator` reaps by this set.
+#: write one late, so it gets no grace and must not hold its lease as if
+#: alive. An unknown word is still read as alive. `_orchestrator` reaps by
+#: this set.
 ENDED_STATES = frozenset({"failed", "error", "errored", "killed", "stopped",
                           "crashed", "cancelled", "canceled", "exited"})
 
@@ -532,7 +530,7 @@ def _lease_state(lease: dict, agents) -> str:
     return f"running (agent {agent}, {state}, since {since})"
 
 
-# --- links and the two-line task entry (PyAutoBrain#634) ---------------------------
+# --- links and the two-line task entry ---------------------------------------------
 
 #: A prompt moves at most draft/ → active/ → complete/YYYY/MM/ in a shift;
 #: a few more hops are tolerated, never an unbounded walk.
@@ -544,13 +542,13 @@ class MindLinks:
     """Where a task's Mind prompt and its work issue are, read at render time
     from the watcher's own Mind checkout: local git on its `origin/main` ref,
     which the watcher's one fetch and the Mind writer's pushes keep current.
-    It makes no network call of its own (PyAutoBrain#634).
+    It makes no network call of its own.
 
     A prompt moves draft/ → active/ → complete/YYYY/MM/ during a shift, often
-    renamed, so the `blob/main/draft/...` link the first live shift wrote was
-    dead by the time the digest was read. The prompt link here follows the
-    moves and is pinned to a commit sha, so it does not go dead later. When it
-    cannot read something it returns "", and the caller drops the link."""
+    renamed, so a `blob/main/draft/...` link would be dead by the time the
+    digest is read. The prompt link here follows the moves and is pinned to a
+    commit sha, so it does not go dead later. When it cannot read something
+    it returns "", and the caller drops the link."""
 
     def __init__(self, mind=None, issue: str = "", ref: str = "origin/main", run=None):
         m = _ISSUE_RE.match(issue or "")
@@ -629,7 +627,7 @@ class MindLinks:
 def work_link(task: str, counters: dict, links: MindLinks | None = None) -> str:
     """What a task's title links to: its PR, else the work repo's issue
     (the one its `.done` named, else the one its claim in `active.md` names),
-    else "" — the title is then plain text. Never a Mind path (#634)."""
+    else "" — the title is then plain text. Never a Mind path."""
     out = counters.get("outcomes", {}).get(task) or {}
     urls = urls_of(out)
     if urls:
@@ -641,8 +639,8 @@ def work_link(task: str, counters: dict, links: MindLinks | None = None) -> str:
 def label(task: str, pick: dict | None, url: str = "") -> str:
     """How a pick is named in a technical list: its title (linked to `url`,
     the work itself, when there is one), the task slug in backticks, then
-    size and repos. A pick recorded before titles were (or with none) falls
-    back to the bare slug."""
+    size and repos. A pick with no recorded title falls back to the bare
+    slug."""
     pick = pick or {}
     title = pick.get("title")
     if not title:
@@ -652,9 +650,9 @@ def label(task: str, pick: dict | None, url: str = "") -> str:
     return f"{head} (`{task}`" + (f"; {details}" if details else "") + ")"
 
 
-#: A task's outcome in plain words (PyAutoBrain#634), read from one part of
-#: its `task_state`; the first match wins. The exact state stays on the
-#: entry's second line, so nothing is lost by the short form.
+#: A task's outcome in plain words, read from one part of its `task_state`;
+#: the first match wins. The exact state stays on the entry's second line, so
+#: nothing is lost by the short form.
 _PLAIN = (
     (IN_TURN_NO_SLOT, "Merged with NO merge slot — needs you"),
     ("merged", "Merged"),
@@ -712,10 +710,10 @@ def plain_outcome(state: str) -> str:
 
 def entry_lines(task: str, pick: dict | None, state: str, tiered: bool, tier: str,
                 link: str = "", *, why: str = "", extra=(), mind_url: str = "") -> list[str]:
-    """One task as the human reads it (PyAutoBrain#634): the outcome in plain
-    words and the title, linked to the work itself; then a second, smaller
-    line with the slug, tier, size, repos, the exact state, any `extra`, the
-    Mind prompt and, last, the `why:` (`validate` reads it from the end)."""
+    """One task as the human reads it: the outcome in plain words and the
+    title, linked to the work itself; then a second, smaller line with the
+    slug, tier, size, repos, the exact state, any `extra`, the Mind prompt
+    and, last, the `why:` (`validate` reads it from the end)."""
     pick = pick or {}
     title = pick.get("title") or task
     head = f"- **{plain_outcome(state)}** — " + (f"[{title}]({link})" if link else title)
@@ -769,7 +767,7 @@ def _packet(task: str, slot: Path, counters: dict) -> str:
 def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
           health=None, issue: str = "", mind=None) -> str:
     """The `## Digest` block for one shift, as Markdown. `mind` is the
-    watcher's Mind checkout, read locally for the prompt links (#634)."""
+    watcher's Mind checkout, read locally for the prompt links."""
     tiers = tiers or {}
     health = health or pr_health
     try:   # the slot file is the merge evidence; fresh at build time
@@ -784,14 +782,14 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
 
     lines = [DIGEST_HEADING, ""]
     lines += closed_early_lines(counters)
-    # The one notice of the shift's parked questions (M3.5, #645, Decision
-    # H7 a): no @mention mid-shift, one line here; the asks live in the inbox.
+    # The one notice of the shift's parked questions: no @mention mid-shift,
+    # one line here; the asks live in the inbox.
     inbox = [x for x in [_questions.inbox_line(counters, Path(slot).name, mind)]
              + _questions.unfiled_lines(counters) if x]
     lines += inbox + [""] if inbox else []
     lines += ["### Brief work"]
     links = MindLinks(mind, issue)
-    # A worker still out at review-at keeps its lease (#634, N1).
+    # A worker still out at review-at keeps its lease.
     held = {t: l for t, l in held_leases(slot).items() if l.get("state") != "parked"}
     lines += [_line(t, counters, tiers.get(t, picks.get(t, {}).get("tier", "?")), health, links,
                     lease=held.get(t)) for t in named] or [NO_PICKS]
@@ -823,7 +821,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
         lines += sweep_lines(counters)
     lines += report_lines(slot)
     lines += identity_lines(counters)
-    # The readiness pass's count is the digest's last line (M3.3, #671).
+    # The readiness pass's count is the digest's last line.
     try:
         import _ready  # noqa: E402 — deferred: it imports the batch conductor
         lines += _ready.digest_lines(counters)
@@ -835,7 +833,7 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
 
 
 SWEEP_HEADING = "### Workspace sweep"
-#: The prefix of the close-out refusal a sweep block gives (M3.7e): red, or unknown.
+#: The prefix of the close-out refusal a sweep block gives: red, or unknown.
 SWEEP_RED_WHY = "workspace sweep "
 
 
@@ -846,10 +844,10 @@ def _sweep_own(sweep: dict, at: str) -> dict | None:
 
 
 def sweep_lines(counters: dict) -> list[str]:
-    """The shift-end cloud sweep (M3.7e, PyAutoBrain#692): the shift's own
-    dispatch and its run, what the latest green sweep verified per library,
-    and a red sweep's block, refusals and bug draft. The digest is never held
-    for the sweep. Nothing when the sweep is off."""
+    """The shift-end cloud sweep: the shift's own dispatch and its run, what
+    the latest green sweep verified per library, and a red sweep's block,
+    refusals and bug draft. The digest is never held for the sweep. Nothing
+    when the sweep is off."""
     sweep, disp = counters.get("sweep") or {}, counters.get("sweep_dispatch") or {}
     if not sweep and not disp:
         return []
@@ -907,7 +905,7 @@ _REPORT_WORDS = {
     "conflict": "warning: CONFLICT — Mind ledger op set aside, not committed",
     "held": "warning: Mind ledger op held pending, retried every tick",
     "withheld": "warning: Mind ledger op withheld with its task, not committed",
-    # A set-aside whose `needs` is mechanical (#660): already true on main.
+    # A set-aside whose `needs` is mechanical: already true on main.
     "mechanical": "note: Mind ledger op set aside (mechanical — already true on main, "
                   "no action)",
 }
@@ -927,9 +925,9 @@ def report_line(e: dict) -> str:
 
 
 def report_lines(slot: Path) -> list[str]:
-    """PyAutoBrain#632: every note, set-aside, conflict and held op the one
-    Mind writer reported this shift (`ledger/report.jsonl`) — never only in
-    tick.log. Nothing when there is none."""
+    """Every note, set-aside, conflict and held op the one Mind writer reported
+    this shift (`ledger/report.jsonl`) — never only in tick.log. Nothing when
+    there is none."""
     f = Path(slot) / "ledger" / "report.jsonl"
     out = []
     for line in (f.read_text(encoding="utf-8").splitlines() if f.is_file() else ()):
@@ -941,8 +939,8 @@ def report_lines(slot: Path) -> list[str]:
 
 
 def identity_lines(counters: dict) -> list[str]:
-    """PyAutoBrain#630: the watcher's App identity failed, so its GitHub writes
-    were held — never made under the human's own gh auth instead."""
+    """The watcher's App identity failed, so its GitHub writes were held —
+    never made under the human's own gh auth instead."""
     auth = counters.get("github_auth") or {}
     if not auth.get("error"):
         return []
@@ -956,9 +954,9 @@ _QID_RE = re.compile(r"\bQ\d+\b")
 
 
 def backlog_gate_lines(counters: dict) -> list[str]:
-    """What the M2.3 gates kept out of the backlog dip (AUTONOMY.md "M2
-    rulings — 2026-11-12"), as of the watcher's last tick. Not bullets: a
-    `- ` line in this section is read as a pick and must carry a `why:`."""
+    """What the planner's gates kept out of the backlog dip (AUTONOMY.md "M2
+    rulings"), as of the watcher's last tick. Not bullets: a `- ` line in
+    this section is read as a pick and must carry a `why:`."""
     gates = counters.get("backlog_gates") or {}
     out = []
     if gates.get("queue_stop"):
@@ -986,8 +984,8 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                                for p, w in sorted(repo_held.items())[:SUMMARY_NAMES]))
     parked = gates.get("parked") or {}
     if parked:
-        # The inbox's word on each, by Q-id (M3.5, #645), so "why wasn't X
-        # picked" answers itself; a park from before the inbox names none.
+        # The inbox's word on each, by Q-id, so "why wasn't X picked" answers
+        # itself; a park with no inbox entry names none.
         inboxed = {p: w for p, w in parked.items() if _QID_RE.search(w)}
         out.append(f"Parked on a question by an earlier shift: {len(parked)} draft(s) not "
                    "startable until answered (name one in a brief to start it again): "
@@ -1028,7 +1026,7 @@ def backlog_gate_lines(counters: dict) -> list[str]:
     if reach:
         out.append(f"Backlog reach (ruling 2026-11-16): {len(reach)} unqueued draft(s) not "
                    "dipped — beyond queue.md only small single-repo tasks: " + names(reach))
-    # One line per queued epic ledger (#696): what it gave the shift, or why
+    # One line per queued epic ledger: what it gave the shift, or why
     # nothing. `· ` rather than an indent: an indented line would read as the
     # continuation of the pick above it.
     epics = gates.get("queued_epics") or []
@@ -1043,13 +1041,13 @@ def backlog_gate_lines(counters: dict) -> list[str]:
     return [""] + out if out else []
 
 
-# --- per-worker exits, GitHub merges, tokens (PyAutoBrain#610) -----------------
+# --- per-worker exits, GitHub merges, tokens ------------------------------------
 
 WORKERS_HEADING = "### Workers"
 #: A worker's exit path is words joined by `/` — `spawned/crashed`,
 #: `spawned/parked/late/finished`. `launch-failed` stands alone: no session
 #: started. `ended` is a parked worker that ended without a `.done`.
-#: `killed` is a worker the human stopped by `/kill` (#644): it is re-dispatched
+#: `killed` is a worker the human stopped by `/kill`: it is re-dispatched
 #: as a crash is, but it is not a crash, so it is not in `CRASH_WORDS`.
 CRASH_WORDS = ("crashed", "launch-failed")
 
@@ -1067,23 +1065,23 @@ def worker_lines(counters: dict, links: MindLinks | None = None) -> list[str]:
         out.append(line)
     events = int(counters.get("event_comments") or 0)
     if events:
-        # Needs-you event comments (#644) have their own cap, 5 + 1 a shift,
-        # and are not pushes for the finding above.
+        # Needs-you event comments have their own cap, 5 + 1 a shift, and
+        # are not pushes for the finding above.
         out.append(f"- needs-you event comments: {events} (at most 5 + 1 a shift)")
     return out
 
 
 REFUSALS_HEADING = "### Refusals"
 #: Refusal reasons that carry a running figure, keyed by their class so one
-#: refusal is one entry however the figure moves (PyAutoBrain#632, F3).
+#: refusal is one entry however the figure moves.
 _REFUSAL_CLASSES = (
     (re.compile(r"^(token-budget \d+) spent\b"), r"\1 spent"),
     (re.compile(r"^(token-budget \d+): \d+ committed \+ (\d+) reserved per worker"),
      r"\1: committed + \2 reserved per worker would pass it"),
     (re.compile(r"^token usage unavailable\b"), "token usage unavailable"),
     (re.compile(r"^spawn failed\b"), "spawn failed"),
-    # Close-out refusals, so the event stream's `cls` is stable (#644). The
-    # public-name check's wording is #641's (`bin/public_names.py` `reason`).
+    # Close-out refusals, so the event stream's `cls` is stable. The
+    # public-name check's wording is `bin/public_names.py` `reason`'s.
     (re.compile(r"^public name added/renamed\b"), "public name added or renamed: a human /prm"),
     (re.compile(r"^public-name check could not tell\b"),
      "public-name check could not tell: a human /prm"),
@@ -1092,7 +1090,7 @@ _REFUSAL_CLASSES = (
      r"token spend reached \1"),
 )
 #: Refusals whose reason is the shift's, not the task's — summarised in one
-#: line for every task they held back (#632, F3 and review).
+#: line for every task they held back.
 SHIFT_WIDE_RE = re.compile(r"^(max-workers \d+ reached|max-sessions \d+ reached"
                            r"|token-budget \d+|token usage unavailable)")
 #: Tasks a summary line names before `+N more`.
@@ -1111,7 +1109,7 @@ def refusal_class(why: str) -> str:
 
 def note_refusals(counters: dict, refused: list[dict], at: str) -> None:
     """Record one tick's refusals: one entry per (task, reason class), with
-    its count, first and last time and the latest full reason (#632, F3)."""
+    its count, first and last time and the latest full reason."""
     index = {(r.get("task"), r.get("class") or refusal_class(r.get("why", ""))): r
              for r in counters.setdefault("refusals", [])}
     for r in refused:
@@ -1121,18 +1119,16 @@ def note_refusals(counters: dict, refused: list[dict], at: str) -> None:
             old = {"task": r.get("task"), "class": cls, "count": 0, "at": at}
             counters["refusals"].append(old)
             index[(r.get("task"), cls)] = old
-        # An entry from before #632 (no `count`) stood for one refusal.
+        # An entry with no `count` stands for one refusal.
         old.update(why=r.get("why", ""), last=at, count=int(old.get("count", 1)) + 1)
 
 
 def refusal_lines(counters: dict) -> list[str]:
     """Every spawn the watcher refused: one line per task and reason class,
     with how many ticks refused it, from when to when, and the latest figure
-    where the reason carries one; every `max-workers` refusal in one line
-    (#610 review, #632 F3); every shift-wide reason (`max-workers`,
+    where the reason carries one; every shift-wide reason (`max-workers`,
     `max-sessions`, a token reason) is one line for all the tasks it held
-    back. A refusal recorded one entry per tick (before
-    #632) folds into the same lines."""
+    back. Entries recorded one per tick fold into the same lines."""
     seen: dict[tuple[str, str], dict] = {}
     for r in counters.get("refusals", []):
         cls = r.get("class") or refusal_class(r.get("why", "?"))
@@ -1169,9 +1165,9 @@ def refusal_lines(counters: dict) -> list[str]:
 
 
 def cap_lines(counters: dict) -> list[str]:
-    """A cap the human lowered (or raised back) by `/cap` this shift (#644),
-    one line each: `merge-cap 2 → 1 (/cap by <login> at 18:02Z)`. Not a
-    counter column, so the pilot rows keep their shape."""
+    """A cap the human lowered (or raised back) by `/cap` this shift, one line
+    each: `merge-cap 2 → 1 (/cap by <login> at 18:02Z)`. Not a counter
+    column, so the pilot rows keep their shape."""
     out = []
     for key, ov in sorted((counters.get("caps") or {}).items()):
         if not isinstance(ov, dict):
@@ -1184,7 +1180,7 @@ def cap_lines(counters: dict) -> list[str]:
 
 def workers_crashed(counters: dict) -> int:
     """Workers whose exit path holds a crash (or whose launch failed); a slot
-    recorded before per-worker exits falls back to its crash tally."""
+    with no per-worker exits recorded falls back to its crash tally."""
     workers = counters.get("workers") or []
     if not workers:
         return counters.get("crashes", 0)
@@ -1241,8 +1237,8 @@ def counter_values(brief: dict, counters: dict) -> dict:
     budget = brief.get("token-budget", {}).get("value", "?")
     parts = token_parts(counters)
     tokens = f"{parts['measured']} of {budget}"
-    # Close-outs may pass the budget but count against it (AUTONOMY.md, ruling
-    # 2026-11-14, #632 F5): their share is named, and so is an overrun.
+    # Close-outs may pass the budget but count against it (AUTONOMY.md):
+    # their share is named, and so is an overrun.
     over = str(budget).isdigit() and parts["measured"] > int(budget)
     extra = ([f"close-outs {parts['closeouts']}"] if parts["closeouts"] else []) \
         + ([f"over budget by {parts['measured'] - int(budget)}"] if over else []) \
@@ -1321,7 +1317,7 @@ def _sections(text: str) -> dict[str, list[str]]:
 
 def _items(lines: list[str]) -> list[str]:
     """A section's bullets, each joined with its indented continuation lines
-    (the second line of a #634 entry)."""
+    (the second line of a two-line entry)."""
     items: list[str] = []
     for line in lines:
         if line.startswith("- "):
@@ -1331,13 +1327,13 @@ def _items(lines: list[str]) -> list[str]:
     return items
 
 
-#: A #634 entry names its task first on its second line.
+#: A two-line entry names its task first on its second line.
 _SUB_SLUG_RE = re.compile(r"(?m)^\s+<sub>`([^`]+)`")
 _WHY_RE = re.compile(r"(?m)(?: — | · )why: (.*?)\s*(?:</sub>)?\s*$")
 
 
 def _slug(item: str) -> str:
-    """The task a digest bullet is about: the slug on a #634 entry's second
+    """The task a digest bullet is about: the slug on a two-line entry's second
     line, else the backticked slug a titled pick carries on its one line,
     else the bullet's first word (a pick recorded without a title)."""
     m = _BULLET_RE.match(item)
@@ -1352,7 +1348,7 @@ def _slug(item: str) -> str:
 
 def validate(text: str) -> list[str]:
     """Errors in a record's `## Digest`; empty when there is none, or it is whole.
-    Reads both the one-line entries of shifts before #634 and the two-line ones."""
+    Reads both one-line entries and two-line ones (`entry_lines`)."""
     if DIGEST_HEADING not in text:
         return []
     errs = []

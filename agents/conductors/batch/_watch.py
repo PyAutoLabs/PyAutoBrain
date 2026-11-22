@@ -1,4 +1,4 @@
-"""`batch watch` — a live terminal view of a running shift (PyAutoBrain#575).
+"""`batch watch` — a live terminal view of a running shift.
 
 The shift watcher (`_orchestrator`) keeps a shift's state in its slot directory
 — `counters.json`, the lease files, `tick.log` — and says nothing until the
@@ -9,20 +9,20 @@ last few ticks.
 It is strictly **read-only**: it writes nothing to the slot, to Mind or to
 GitHub, takes no lock and leaves no comment, so it is safe beside the ticking
 timer. Its only reads beyond local files are the two the watcher itself is
-allowed (AUTONOMY.md "The watcher's network surface — 2026-11-03"): one
+allowed (AUTONOMY.md "The watcher's network surface"): one
 `claude agents --json` per refresh, only on a live shift holding real worker
 leases, and `gh pr checks` for PRs not yet merged, cached for the interval.
 
 Task wording comes from `_digest.task_state`, the digest's own, so the live
 view and the digest never disagree.
 
-`--stream` (`stream`, PyAutoBrain#644) prints the shift's event stream instead
-— the watcher's `events.jsonl`, one plain line per event — and exits when the
-shift ends. It reads local files only: no `claude agents`, no `gh`.
+`--stream` (`stream`) prints the shift's event stream instead — the watcher's
+`events.jsonl`, one plain line per event — and exits when the shift ends. It
+reads local files only: no `claude agents`, no `gh`.
 
 The same snapshot is the shift's live status comment on its issue
-(`render_status`, written by the watcher, PyAutoBrain#622) and the dashboard's
-`- live:` record line (`live_line`); this verb itself still writes nothing.
+(`render_status`, written by the watcher) and the dashboard's `- live:`
+record line (`live_line`); this verb itself writes nothing.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def _time_left(now: _dt.datetime, review_at: _dt.datetime | None) -> str:
 
 
 def _opens_in(now: _dt.datetime, start: _dt.datetime) -> str:
-    """Before `dispatched:` the watcher does nothing (PyAutoBrain#589)."""
+    """Before `dispatched:` the watcher does nothing."""
     left = _time_left(now, start)
     return "not yet open — opens in " + left.replace(" left", "")
 
@@ -99,7 +99,7 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
     """Everything one refresh draws, as a dict. Reads only. With the
     watcher's Mind checkout (`mind`) and the shift issue, a task with no PR
     yet links to the work issue its claim names — a local git read
-    (`_digest.MindLinks`), no network (PyAutoBrain#634)."""
+    (`_digest.MindLinks`), no network."""
     rec = _brief.parse(Path(brief_path).read_text(encoding="utf-8"))
     top, brief = rec["top"], rec["brief"] or {}
     shadow = _brief.is_shadow(brief)
@@ -114,7 +114,7 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
 
     started = slot.is_dir()
     counters = _orchestrator.read_counters(slot) if started else {}
-    # The caps and tasks this shift now runs under (`/cap`, `/add`, #644).
+    # The caps and tasks this shift now runs under (`/cap`, `/add`).
     brief = _brief.effective(brief, counters)
     added = counters.get("added") or {}
     held = _orchestrator.leases(slot) if started else {}
@@ -135,8 +135,8 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         why = ("added by /add" if task in added else "named in the brief" if task in named
                else picks.get(task, {}).get("why") or "NOT RECORDED")
         again = counters.get("redispatched", {}).get(task, 0)
-        # The status comment's two-line entry (#634): no Mind prompt link —
-        # a sha-pinned link would change on every Mind commit and force an
+        # The status comment's two-line entry: no Mind prompt link — a
+        # sha-pinned link would change on every Mind commit and force an
         # edit each time; the digest carries it.
         entry = _digest.entry_lines(
             task, picks.get(task), state, tiered, tier,
@@ -163,8 +163,8 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         "digest_posted": (slot / _orchestrator.DIGEST_MARKER).exists(),
         "started": started,
         "tasks": rows,
-        # Steering (PyAutoBrain#622): a pause, the dropped tasks, every command
-        # enacted with its acknowledgement, and where the status comment is.
+        # Steering: a pause, the dropped tasks, every command enacted with its
+        # acknowledgement, and where the status comment is.
         "paused": counters.get("paused") or None,
         "dropped": sorted(counters.get("dropped") or {}),
         "commands": list(counters.get("commands") or []),
@@ -174,15 +174,15 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
         "budgets": {
             "workers": f"{sum(l.get('state') != 'parked' for l in held.values())} live of {_brief.cap_of(brief, 'max-workers')}",
             "sessions": f"{counters.get('sessions', 0)} of {_brief.cap_of(brief, 'max-sessions')}"
-                        + (" (from token-budget)"   # M3.6c: a derived cap says so
+                        + (" (from token-budget)"   # a derived cap says so
                            if _brief.cap_source(brief, "max-sessions") == "from token-budget"
                            else ""),
             "tokens": values["tokens"],
             "merges": f"{merges} of {_value(brief, 'merge-cap')}"
                       f" ({values['glance-auto-merges']} unattended)",
             "crashes": values["workers-crashed"],
-            # Questions this shift added to the inbox (M3.5, #645): a count,
-            # never the asks, and no mention — the digest gives the link.
+            # Questions this shift added to the inbox: a count, never the
+            # asks, and no mention — the digest gives the link.
             "inbox": len(counters.get("inbox") or []),
         },
         "ticks": _ticks(slot, tick_lines) if started else [],
@@ -246,7 +246,7 @@ def render(snap: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-# --- the live status comment and the dashboard line (PyAutoBrain#622) -----------
+# --- the live status comment and the dashboard line ---------------------------
 
 COMMAND_HELP = ("Steer it with a comment from the human's login, its first line one of: "
                 "`/pause`, `/resume`, `/drop <task>`, `/stop`, `/add <prompt>`, "
@@ -336,7 +336,7 @@ def watch(brief_path: Path, slot: Path, *, interval: float = MIN_INTERVAL_S,
         return 0
 
 
-# --- `batch watch --stream`: the shift's event stream (PyAutoBrain#644) -----------
+# --- `batch watch --stream`: the shift's event stream ---------------------------
 
 #: The env file the watcher's systemd unit reads; the stream reads the same
 #: brief and home from it, so the two agree on the slot.
@@ -345,8 +345,8 @@ ENV_FILE = Path.home() / ".config" / "pyauto" / "orchestrator.env"
 STREAM_POLL_S = 5
 #: The stream may attach this long before `dispatched:` …
 ATTACH_BEFORE_S = 30 * 60
-#: … and runs until this long after `review-at:` (the late-sweep window,
-#: human ruling H2) — the watcher's own end (M3.6a, PyAutoBrain#659).
+#: … and runs until this long after `review-at:` (the late-sweep window) —
+#: the watcher's own end.
 LATE_WINDOW_S = _brief.LATE_WINDOW_S
 #: Events printed on attach without `--from`.
 CATCH_UP = 5

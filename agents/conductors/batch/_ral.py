@@ -1,14 +1,11 @@
 """The unattended-ssh probe for a brief that grants the `ral` lane.
 
-Shift 2026-11-20-am ran with `lanes: any local-dev ral` and a
-`ral-allowance:`, and its one worker that needed RAL could not reach it:
-`Permission denied … Too many authentication failures`, key auth through the
-jump host with nobody to answer. It spent a session and parked on a question.
-Nothing at launch had said the lane was unusable.
-
-`batch brief --check` therefore asks once, for a brief whose `lanes:` include
-`ral`: `ssh -o BatchMode=yes -o ConnectTimeout=10 <host> true`. BatchMode
-never prompts, so the answer is what a worker will get. The result is one of:
+A worker reaches RAL by key auth through the jump host with nobody to answer
+a prompt, so a lane that is unusable must be said at launch, not found by a
+worker that spends its session on it. For a brief whose `lanes:` include
+`ral`, `batch brief --check` asks once:
+`ssh -o BatchMode=yes -o ConnectTimeout=10 <host> true`. BatchMode never
+prompts, so the answer is what a worker will get. The result is one of:
 
 - `ok`      — the host answered;
 - `failed`  — ssh ran and exited non-zero (its last line is the detail);
@@ -18,7 +15,7 @@ never prompts, so the answer is what a worker will get. The result is one of:
 Anything but `ok` and `skipped` is a **warning, never a refusal**: the human
 may be about to fix it, and a brief with no RAL task loses nothing. It runs in
 the launch chat only, never in the watcher (AUTONOMY.md "The watcher's network
-surface", RAL probe — 2026-11-22).
+surface", RAL probe).
 
 The host is the tenant's, so it is never written here. `PYAUTO_RAL_SSH_HOST`
 names it; otherwise it is read from the Mind's own access note,

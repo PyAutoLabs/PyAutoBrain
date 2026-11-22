@@ -2,14 +2,14 @@
 
 Readers only. `queue.md` is the ordered list of prompts the human wants done
 (the planner's statement of importance); `goals.md` is the ordered list of
-goals a shift brief copies into `goals:` (PyAutoMind#565). Both are written by
-the human alone, by hand or in a `/queue` chat (Brain `skills/queue`, through
-the Mind's `scripts/queue_edit.py`), and validated by the Mind's
-`lifecycle.py check`. The dashboard only reads them.
+goals a shift brief copies into `goals:`. Both are written by the human alone,
+by hand or in a `/queue` chat (Brain `skills/queue`, through the Mind's
+`scripts/queue_edit.py`), and validated by the Mind's `lifecycle.py check`.
+The dashboard only reads them.
 
-The grammar is the one `lifecycle.py` and `_batch.read_queue` read: a fenced
-block is the schema's own example, any heading ends the entry above it, and
-only a numbered `## <n>. <text>` heading starts one.
+The grammar is the one `lifecycle.py` reads: a fenced block is the schema's
+own example, any heading ends the entry above it, and only a numbered
+`## <n>. <text>` heading starts one.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ QUEUE_FIELD_RE = re.compile(r"^-\s+(kind|ref|note):\s*(.+?)\s*$")
 GOAL_FIELD_RE = re.compile(r"^-\s+(epics|tags|note):\s*(.*?)\s*$")
 
 
-# --- the planner's queue reader (was `_batch.read_queue`; `_batch` re-exports
-# it). The Mind dashboard ranks its read-only ★ with it too (PyAutoBrain#640),
-# so the page's `#n` is the planner's order by construction.
+# --- the planner's queue reader (`_batch` re-exports it). The Mind dashboard
+# ranks its read-only ★ with it too, so the page's `#n` is the planner's order
+# by construction.
 #: A `queue.md` section heading — `## <n>. <label>`. The digits matter: the
 #: file documents its own schema in a fenced block whose heading is the literal
 #: `## <n>. <label>`, and a reader that took it would rank a placeholder.
@@ -35,17 +35,12 @@ PLANNER_QUEUE_FIELD_RE = re.compile(r"^-\s+(kind|ref):\s*(.+?)\s*$")
 def read_queue(mind: Path) -> list[str]:
     """`queue.md` as prompt paths, top of the file first.
 
-    The one file the human maintains (by hand or in a `/queue` chat), and the only statement of
-    IMPORTANCE the planner has — everything else it reads is a property of the
-    work, not a preference about it. Order is priority: moving an entry up is
-    the act of prioritising it, so the list is returned in file order and
-    nothing here re-sorts it.
+    The only statement of IMPORTANCE the planner has. Order is priority, so
+    the list is returned in file order and nothing here re-sorts it.
 
     Only `kind: prompt` entries carry a path anyone can plan against. A
-    `retired` entry is history the human left in place, and the other kinds
-    name an epic or a theme rather than a file — they are skipped rather than
-    resolved, because resolving them is a decision (which phase? which chip?)
-    and this function is a reader.
+    `retired` entry and the other kinds (an epic, a theme) are skipped rather
+    than resolved: resolving them is a decision, and this function is a reader.
     """
     try:
         text = (mind / "queue.md").read_text(encoding="utf-8", errors="replace")
@@ -65,8 +60,8 @@ def read_queue(mind: Path) -> list[str]:
         if line.startswith("#"):
             # Any heading ends the entry above it. Only a numbered `## <n>.`
             # one starts a new entry: the `## Retired` footer's `### …`
-            # entries carry `- ref:` lines too, and until 2026-11-12 the last
-            # of them overwrote the final live entry's ref.
+            # entries carry `- ref:` lines too, and must not overwrite the
+            # final live entry's ref.
             flush()
             kind, ref = "", ""
             entry = bool(QUEUE_HEAD_RE.match(line))

@@ -1,4 +1,4 @@
-"""The questions inbox, Brain side (M3.5, PyAutoBrain#645) — readers only.
+"""The questions inbox, Brain side — readers only.
 
 PyAutoMind `questions.md` holds the questions shift workers parked on, one
 `### Q<n>. <task> — <short ask>` entry each under `## Open`, `## Deferred`,
@@ -133,9 +133,9 @@ def read_origin(mind, ref: str = "origin/main", fetch=None, run=None) -> dict | 
 
 # --- the parked hold -------------------------------------------------------------
 
-#: The inbox kind the readiness pass files (M3.3, PyAutoBrain#671): a gate on a
-#: queued task for the human to rule on. It is answered like a question but
-#: never holds or releases a parked task, and the inbox line leaves it out.
+#: The inbox kind the readiness pass files: a gate on a queued task for the
+#: human to rule on. It is answered like a question but never holds or
+#: releases a parked task, and the inbox line leaves it out.
 RULING = "ruling"
 
 
@@ -150,9 +150,9 @@ def questions_only(entries) -> list[dict]:
 
 def hold_for(task: str, shift: str, inbox: dict | None) -> tuple[str, dict | None]:
     """How the inbox rules on one task an earlier shift `shift` left parked:
-    ("held", None) — no entry (a park from before M3.5) or no readable inbox;
+    ("held", None) — no entry or no readable inbox;
     ("waiting", {ids}) — an entry is Open or Deferred;
-    ("dropped", {ids}) — an entry was dropped: the task is shelved (H9 a);
+    ("dropped", {ids}) — an entry was dropped: the task is shelved;
     ("answered", {ids, comments, answers}) — every entry is answered."""
     if inbox is None:
         return "held", None
@@ -256,18 +256,18 @@ def dashboard_link(mind) -> str:
 
 def unfiled_lines(counters: dict) -> list[str]:
     """One digest line per question the watcher could not file (no prompt, no
-    shift issue, an issue that is not a URL): never a silent drop (#645)."""
+    shift issue, an issue that is not a URL): never a silent drop."""
     return [f"Inbox: not filed — `{u.get('task')}` ({u.get('kind')}): {u.get('why')}; "
             "see the task's issue or session yourself."
             for u in counters.get("inbox_unfiled") or []]
 
 
 def inbox_line(counters: dict, slot_name: str, mind=None, origin=None) -> str:
-    """The digest's one inbox line (Decision H7 a), "" when the shift added
-    none: `Inbox: 2 questions added to your inbox this shift (Q17, Q18), 5
-    open in all — <link>`. Ids and the open count come from Mind origin/main
-    (`origin`, else read here); a question still queued for the writer is
-    counted without its id."""
+    """The digest's one inbox line, "" when the shift added none: `Inbox: 2
+    questions added to your inbox this shift (Q17, Q18), 5 open in all —
+    <link>`. Ids and the open count come from Mind origin/main (`origin`,
+    else read here); a question still queued for the writer is counted
+    without its id."""
     added = counters.get("inbox") or []
     if not added:
         return ""

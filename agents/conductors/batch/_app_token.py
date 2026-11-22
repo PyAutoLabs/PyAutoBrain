@@ -1,4 +1,4 @@
-"""The shift watcher's own GitHub identity: a minimal GitHub App (PyAutoBrain#630).
+"""The shift watcher's own GitHub identity: a minimal GitHub App.
 
 The watcher posts its comments (status, mentions, digest, correction) and reads
 the shift issue's comments as its own App, `pyautolabs-watcher` — Issues
@@ -17,13 +17,13 @@ With all three set, the watcher signs an RS256 JWT (PyJWT, else `openssl dgst`,
 no shell) and mints an installation token (`POST /app/installations/<id>/access_tokens`)
 on the first watcher GitHub call of a tick, reuses it for the rest of that tick,
 and keeps it **in memory only**: no token is ever written to disk, where a worker
-running as the same user could read it (#630 review). A failed mint is
-remembered on disk as a timestamp and a reason only (`MINT_FAILURE_FILE`), so
-the next mint waits `MINT_BACKOFF_S`. With none set, `PYAUTO_SHIFT_GH_TOKEN` (a
-static token) is the fallback, and with neither, `gh`'s own auth, as before.
-When the App is configured but no token can be had, the watcher's own GitHub
-calls are not made at all: never the human's `gh` auth in their place. No error
-message carries the key, a JWT or a token.
+running as the same user could read it. A failed mint is remembered on disk as
+a timestamp and a reason only (`MINT_FAILURE_FILE`), so the next mint waits
+`MINT_BACKOFF_S`. With none set, `PYAUTO_SHIFT_GH_TOKEN` (a static token) is the
+fallback, and with neither, `gh`'s own auth. When the App is configured but no
+token can be had, the watcher's own GitHub calls are not made at all: never the
+human's `gh` auth in their place. No error message carries the key, a JWT or a
+token.
 
 Runs under the systemd unit's `/usr/bin/python3` (3.10): standard library plus
 an optional PyJWT.

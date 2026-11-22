@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """agents/conductors/batch/_batch.py — the batch conductor.
 
-Composes what goes into one unattended shift. Thin
-by construction: every judgement it uses — consequence tier, review-minutes,
-readiness, difficulty — belongs to the sizing faculty, because `ORGANISM.md`
-makes faculties the opinion sinks and forbids a conductor consulting a
-conductor. This module decides *membership*, which is an act, not an opinion.
+Composes what goes into one unattended shift. Thin by construction: every
+judgement it uses — consequence tier, review-minutes, readiness, difficulty —
+belongs to the sizing faculty, because `ORGANISM.md` makes faculties the
+opinion sinks and forbids a conductor consulting a conductor. This module
+decides *membership*, which is an act, not an opinion.
 
-The composition rule, and the reason the epic exists:
+The composition rule:
 
     sum(Review-minutes) over `glance` and `judge` members <= the slot budget
 
-not a task count. The budget is the human's to set per slot (default 45) — a
-slot is whenever they come in, not a scheduled hour. Read against the ledger, an
-honest review hour holds about three library-touching tasks; a design that plans
-by count over-promises capacity roughly threefold and lands the overflow on the
-human at 6am.
+not a task count: a plan by count over-promises the human's review capacity.
+The budget is the human's to set per slot (default 45) — a slot is whenever
+they come in, not a scheduled hour.
 
 Everything above that budget is the FILL: work costing zero review-minutes
 (`notify`-tier work, slicing, witness authoring, re-grading, deeper verification
@@ -48,15 +46,14 @@ from _sizing import (  # noqa: E402
 )
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _brief  # noqa: E402
-import _green  # noqa: E402 — the keep-Heart-green lane (PyAutoBrain#625)
-import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
+import _green  # noqa: E402 — the keep-Heart-green lane
+import _login  # noqa: E402 — the CLI login probe
 import _ral  # noqa: E402 — the unattended-ssh probe for a granted `ral` lane
-# The human's goals (goals.md, PyAutoMind#565): `brief --new` copies them.
+# The human's goals (goals.md): `brief --new` copies them.
 from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
 # The close-out guard's reader (intake `looks-shipped`): the live flags minus
-# human dismissals. Loaded by path — a plain `import _shipped` would also work
-# once intake's directory is on sys.path, but this keeps the batch planner from
-# shadowing anything else of that name.
+# human dismissals. Loaded by path, so the batch planner shadows nothing else
+# of that name.
 _shipped_spec = importlib.util.spec_from_file_location(
     "_shipped_for_batch", BRAIN / "agents" / "conductors" / "intake" / "_shipped.py")
 _shipped = importlib.util.module_from_spec(_shipped_spec)
@@ -68,8 +65,8 @@ _shipped_spec.loader.exec_module(_shipped)
 # docstring. 45 rather than 60 because a slot also has to queue the next batch.
 DEFAULT_REVIEW_BUDGET = 45
 # Above half the cap the review-bearing half is halved; at the cap the batch is
-# fill only. Counted in TASKS AWAITING REVIEW, never in PRs: 94 of 332 records in
-# 2026-08 named two or more PRs, so a PR-count cap trips on one healthy batch.
+# fill only. Counted in TASKS AWAITING REVIEW, never in PRs: one task often
+# names two or more PRs, so a PR-count cap would trip on one healthy batch.
 DEFAULT_BACKPRESSURE_CAP = 8
 CHEAP_TIERS = ("notify",)
 
@@ -77,12 +74,11 @@ CHEAP_TIERS = ("notify",)
 def detect_lane() -> str:
     """`local-dev` or `web-github` — where this session is running.
 
-    Probed from the environment rather than declared, and deliberately from the
-    same signal the rest of the organism already uses: a remote session has no
-    `gh` (measured, documented in `skills/GITHUB_ACCESS.md` — installing one is
-    a trap that authenticates and then 403s every repo-scoped call). No env var
-    and no flag decides this; a session that could lie about where it is could
-    plan `local-dev` work it cannot run.
+    Probed from the environment rather than declared, from the same signal the
+    rest of the organism uses: a remote session has no `gh`
+    (`skills/GITHUB_ACCESS.md`). No env var and no flag decides this; a
+    session that could lie about where it is could plan `local-dev` work it
+    cannot run.
     """
     return "local-dev" if shutil.which("gh") else "web-github"
 
@@ -97,10 +93,10 @@ def _lane_ok(record_lane: str, session_lane: str) -> bool:
 def lane_absent_why(r: dict) -> str:
     """Why an unattended pick refuses this record for want of a lane, or "".
 
-    Fail closed (M2.3, human ruling 2026-11-12): a draft with no valid `Lane:`
-    is excluded from every unattended or cloud pick, because a lane-less draft
-    that needs the laptop, RAL or private data would otherwise reach a cloud
-    worker and burn its run. An attended session still reads it as `any`.
+    Fail closed: a draft with no valid `Lane:` is excluded from every
+    unattended or cloud pick, because a lane-less draft that needs the laptop,
+    RAL or private data would otherwise reach a cloud worker and burn its run.
+    An attended session still reads it as `any`.
     Worded without a colon: `emit` groups rejections on the text before one."""
     if r.get("lane"):
         return ""
@@ -117,8 +113,8 @@ def declared_repos(p: dict) -> list[str]:
 
     `Target:` is not unioned into a declared `Repos:` block: it is often only
     an epic label (a prompt with `Target: autofit` whose `Repos:` lists only
-    PyAutoCortex), so adding it made the claim gate report a false conflict
-    on a repo the prompt never touches (PyAutoBrain#675)."""
+    PyAutoCortex), and adding it would make the claim gate report a false
+    conflict on a repo the prompt never touches."""
     from _sizing import KNOWN_REPOS  # noqa: E402
     out = set()
     block = re.search(r"^Repos:\n((?:- .+\n)+)", p.get("text") or "", re.M)
@@ -153,28 +149,27 @@ def grade(path: Path, mind: Path, text: str | None = None) -> dict:
         "unattended": ready, "why": (why or [""])[0],
         "ready_why": ready_why, "epic": None,
         # The DECLARED lane, or None when the header has no valid `Lane:`.
-        # Absence is no longer read as `any` here (M2.3, AUTONOMY.md "M2
-        # rulings — 2026-11-12"): `plan` excludes a lane-less draft from an
-        # unattended pick and reads it as `any` only when `attended=True`.
+        # Absence is not read as `any` here (AUTONOMY.md "M2 rulings"):
+        # `plan` excludes a lane-less draft from an unattended pick and
+        # reads it as `any` only when `attended=True`.
         "lane": p.get("lane"), "lane_invalid": p.get("lane_invalid"),
         "target": p.get("target") or "",
         # What the prompt declares it will touch — its `Repos:` header and
         # its target — not every repo its body mentions: the repo-claim gate
-        # (#637, item 4) reads these, so a passing `@repo` never skips a task.
+        # reads these, so a passing `@repo` never skips a task.
         "declared_repos": declared_repos(p),
         "priority": p.get("priority") or "normal",
         "blocked": bool(p.get("blocked_by")),
-        # What it waits for, so a rejection names it (M3.6b: a side task
-        # orders itself after its epic's phase by `Blocked-by:`).
+        # What it waits for, so a rejection names it (a side task orders
+        # itself after its epic's phase by `Blocked-by:`).
         "blocked_by": list(p.get("blocked_by") or []),
     }
 
 
 # A prompt whose own header says the work is finished. Mirrors intake's
-# DONE_STATUSES: a session that ships the work and writes the outcome into
-# `Status:` but leaves the file in `draft/` is a known, recorded failure mode,
-# and the file keeps rendering as pickable backlog until someone retires it.
-# Dispatching one wastes a whole shift re-doing finished work.
+# DONE_STATUSES: a session can ship the work and write the outcome into
+# `Status:` but leave the file in `draft/`, where it keeps rendering as
+# pickable backlog. Dispatching one wastes a whole shift re-doing finished work.
 DONE_STATUSES = ("shipped", "superseded", "absorbed", "complete", "completed",
                  "done", "retired")
 
@@ -211,8 +206,8 @@ def _is_done(text: str) -> bool:
 def _phase_of(text: str) -> float:
     """`Phase: <n>` as a sortable number; phase-less members sort last."""
     raw = _header_of(text, "phase")
-    # The leading number: `5a`/`5A` → 5, `6b2` → 6 (M3.6b review). A label
-    # with no leading number (`C2`) sorts last but is still a declared phase
+    # The leading number: `5a`/`5A` → 5, `6b2` → 6. A label with no leading
+    # number (`C2`) sorts last but is still a declared phase
     # (`_phase_declared`), so the per-epic limit counts it.
     m = re.match(r"\s*(\d+(?:\.\d+)?)", raw)
     return float(m.group(1)) if m else float("inf")
@@ -227,8 +222,7 @@ def survey(mind: Path) -> list[dict]:
     one-slice-per-epic rule."""
     out = []
     # Backpressure from the close-out guard: a draft with strong evidence that
-    # its work already shipped waits for a human to close or dismiss it. The
-    # 2026-11-05-am batch proposed two shipped tasks; this is the stop.
+    # its work already shipped waits for a human to close or dismiss it.
     flagged = _shipped.flagged_paths(mind)
     for f in sorted(mind.glob("draft/**/*.md")):
         if f.name == "README.md":
@@ -249,8 +243,8 @@ def survey(mind: Path) -> list[dict]:
 
 def grade_text(text: str, rel: str, mind: Path) -> dict:
     """One `survey` record from a prompt's text as Mind origin/main holds it
-    (`/add`, PyAutoBrain#644): the canonical working tree nobody pulls
-    mid-shift may not have it yet. `rel` is its Mind-relative path."""
+    (`/add`): the canonical working tree nobody pulls mid-shift may not have
+    it yet. `rel` is its Mind-relative path."""
     g = grade(Path(mind) / rel, Path(mind), text=text)
     g["path"] = rel
     g["looks_shipped"] = rel in _shipped.flagged_paths(mind)
@@ -273,7 +267,7 @@ def _title_of(text: str) -> str:
 
 
 # `read_queue` (and its grammar) lives in `_steer.py`, so the Mind dashboard
-# ranks its read-only stars with this same reader (PyAutoBrain#640).
+# ranks its read-only stars with this same reader.
 from _steer import read_queue  # noqa: E402
 
 
@@ -282,8 +276,7 @@ def queue_rank(r: dict, queue: list[str]) -> int:
 
     Matched on the path, then the basename, because a queue entry is written
     against `draft/…` and the prompt it names moves to `active/` the moment it
-    is issued — an entry that stopped matching would silently lose its
-    priority rather than reporting anything."""
+    is issued — a path-only match would silently lose its priority."""
     path = r.get("path") or ""
     if path in queue:
         return queue.index(path)
@@ -329,10 +322,10 @@ def read_epic_ledgers(mind: Path) -> dict[str, str]:
 def queued_epics(queue: list[str], records: list[dict],
                  epic_ledgers: dict[str, str] | None = None) -> dict[str, int]:
     """{epic slug: queue index} for every queue entry that names an epic
-    ledger (PyAutoBrain#696). An entry is an epic when the prompt it names is
-    a ledger (`ledger` in its survey record: `Epic:`, no `Phase:`, `Status:
-    campaign map`), or when `epics.md` lists it as an epic's `- ledger:`.
-    A queued phase or side task queues only itself. The first entry wins."""
+    ledger. An entry is an epic when the prompt it names is a ledger (`ledger`
+    in its survey record: `Epic:`, no `Phase:`, `Status: campaign map`), or
+    when `epics.md` lists it as an epic's `- ledger:`. A queued phase or side
+    task queues only itself. The first entry wins."""
     by_path = {r.get("path") or "": r for r in records}
     by_name: dict[str, dict] = {}
     for r in records:
@@ -352,11 +345,11 @@ def queued_epics(queue: list[str], records: list[dict],
 def queue_standing(r: dict, queue: list[str],
                    epic_ranks: dict[str, int] | None = None) -> tuple[int, str]:
     """(rank, epic it is queued through or "") — the ONE answer to "is this
-    record queued?" (PyAutoBrain#696). Queued directly (`queue_rank`), or as
-    a member of a queued epic ledger, at the ledger's rank, whichever is
-    higher in the file. `rank == len(queue)` is unqueued. Only the queue
-    standing changes: every gate of `pool_gate` (phase order, autonomy,
-    Unattended, Blocked-by) still applies to the member."""
+    record queued?". Queued directly (`queue_rank`), or as a member of a
+    queued epic ledger, at the ledger's rank, whichever is higher in the file.
+    `rank == len(queue)` is unqueued. Only the queue standing changes: every
+    gate of `pool_gate` (phase order, autonomy, Unattended, Blocked-by) still
+    applies to the member."""
     direct = queue_rank(r, queue)
     epic = r.get("epic") or ""
     via = (epic_ranks or {}).get(epic) if epic and not r.get("ledger") else None
@@ -382,18 +375,17 @@ def pool_gate(r: dict, next_phase: dict[str, float]) -> str:
     Every gate but the lane, which depends on the session. Readiness says the
     work FITS one run; autonomy says the run may FINISH it. Under `--auto` a
     `supervised` run's ship checkpoint resolves to decide-and-flag
-    (AUTONOMY.md, "Decide-and-flag", extended 2026-09-07): it ships to an open
-    PR rather than parking, so it FINISHES and belongs in the pool. Only
-    `human-required` would still stop at the ship checkpoint and come back as
-    a question — which is the failure the whole epic exists to remove."""
+    (AUTONOMY.md, "Decide-and-flag"): it ships to an open PR rather than
+    parking, so it FINISHES and belongs in the pool. Only `human-required`
+    would still stop at the ship checkpoint and come back as a question."""
     if r.get("done"):
         return "Status: says the work is already done"
     if r.get("looks_shipped"):
         return ("looks shipped — confirm (close) or "
                 f"dismiss it ({_shipped.DISMISS_FILE}) first")
-    # Phase order binds only a task with a `Phase:` number (ruling R5, option
-    # a, 2026-11-17): a side task of the epic (no `Phase:`) is not a later
-    # phase, and orders itself by `Blocked-by:` below.
+    # Phase order binds only a task with a `Phase:` number: a side task of
+    # the epic (no `Phase:`) is not a later phase, and orders itself by
+    # `Blocked-by:` below.
     if r.get("epic") and has_phase(r) and r["phase"] == float("inf") \
             and next_phase.get(r["epic"], float("inf")) < float("inf"):
         return f"epic {r['epic']} phase (unnumbered) is not next"
@@ -421,11 +413,11 @@ def has_phase(r: dict) -> bool:
 
 
 def self_organ_why(r: dict) -> str:
-    """Why a shift never dips this draft, or "" (PyAutoBrain#637, item 7): it
-    targets an organ the shift runs on — its watcher, writer or release path
-    (`_brief.SELF_ORGANS`). By rule, not by a brief's `exclude:` list, so a
-    draft filed after the brief is written is kept out too. Read from the
-    target and every repo the draft names: a draft that names one is out."""
+    """Why a shift never dips this draft, or "": it targets an organ the shift
+    runs on — its watcher, writer or release path (`_brief.SELF_ORGANS`). By
+    rule, not by a brief's `exclude:` list, so a draft filed after the brief
+    is written is kept out too. Read from the target and every repo the draft
+    names: a draft that names one is out."""
     organs = {normalise_repo(o): o for o in _brief.SELF_ORGANS}
     hit = sorted({organs[n] for x in {r.get("target") or "", *(r.get("repos") or [])}
                   if x and (n := normalise_repo(x)) in organs})
@@ -438,9 +430,9 @@ def self_organ_why(r: dict) -> str:
 def scoped_reach_why(r: dict) -> str:
     """Why `backlog: scoped` may not dip this unqueued draft, or "".
 
-    Human ruling 2026-11-16 (PyAutoBrain#637, item 6; AUTONOMY.md "Shift
-    briefs and unattended `glance`"): queue.md first, then only small
-    single-repo backlog tasks. Anything bigger is queued by the human."""
+    AUTONOMY.md "Shift briefs and unattended `glance`": queue.md first, then
+    only small single-repo backlog tasks. Anything bigger is queued by the
+    human."""
     repos = r.get("repos") or []
     small = r.get("difficulty") == _brief.SCOPED_REACH_DIFFICULTY
     if small and len(repos) == 1:
@@ -461,10 +453,10 @@ EPIC_LINE_MEMBERS = 4
 def queued_epic_summary(records: list[dict], epic_ranks: dict[str, int],
                         members: list[dict], rejected: list[tuple[str, str]],
                         queue: list[str]) -> list[dict]:
-    """One entry per queued epic, in queue order (PyAutoBrain#696): what it
-    contributes to this plan, or why nothing — its next phase, and each
-    next-phase member with the planner's reason for leaving it out; or no
-    draft prompt at all for its next phase. Each entry carries its `line`."""
+    """One entry per queued epic, in queue order: what it contributes to this
+    plan, or why nothing — its next phase, and each next-phase member with
+    the planner's reason for leaving it out; or no draft prompt at all for
+    its next phase. Each entry carries its `line`."""
     why_of: dict[str, str] = {}
     for p, w in rejected:
         why_of.setdefault(p, w)
@@ -538,12 +530,11 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     of importance, and the only input here that is a preference rather than a
     property of the work. `awaiting_review` is the review-queue depth, derived
     from `active.md` by the caller (`derive_awaiting_review`) unless the human
-    passed the flag; `awaiting_source` says which, because a number nobody can
-    trace is a number nobody trusts.
+    passed the flag; `awaiting_source` says which.
 
     `attended` is False for every shift this planner composes (the batch it
-    proposes runs unattended, and the watcher picks unattended). Two M2.3 rules
-    (AUTONOMY.md "M2 rulings — 2026-11-12") apply only then:
+    proposes runs unattended, and the watcher picks unattended). Two rules
+    (AUTONOMY.md "M2 rulings") apply only then:
 
     - a backlog draft with no valid `Lane:` is excluded (`lane_absent_why`);
     - an EMPTY queue stops the backlog dip: the brief's named tasks still run,
@@ -554,10 +545,10 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
 
     With `attended=True` (`batch plan --attended`, a human at the keyboard
     picking for this session) an absent Lane reads as `any` and an empty queue
-    falls back to the backlog order, as before.
+    falls back to the backlog order.
 
     A queue entry naming an epic ledger queues the epic's members at the
-    ledger's rank (`queue_standing`, PyAutoBrain#696); `epic_ledgers` is
+    ledger's rank (`queue_standing`); `epic_ledgers` is
     `read_epic_ledgers(mind)`, the `epics.md` fallback for a ledger whose
     `Epic:` header the survey did not read. `queued_epics` in the result says,
     per queued epic, what it contributes or why nothing; `withheld` is the
@@ -587,8 +578,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
 
     # Backpressure RAMPS; it never deadlocks. It measures review-queue DEPTH,
     # never timing: timing is the human's, declared as `review-at:` at dispatch.
-    # An academic comes back late and vanishes for conference weeks, and a deep
-    # queue must shrink the next batch rather than refuse to compose one.
+    # A deep queue must shrink the next batch rather than refuse to compose one.
     if awaiting_review >= cap:
         effective_budget, pressure = 0, "at cap — fill only"
     elif awaiting_review > cap / 2:
@@ -596,16 +586,15 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     else:
         effective_budget, pressure = budget, "clear"
 
-    # A queued epic ledger queues its members at its rank (#696). Read from
-    # every record, before the brief's scope drops any, so a ledger outside
-    # the brief's scope still lends its rank.
+    # A queued epic ledger queues its members at its rank. Read from every
+    # record, before the brief's scope drops any, so a ledger outside the
+    # brief's scope still lends its rank.
     epic_ranks = queued_epics(queue, all_records, epic_ledgers)
 
     # An epic's members are worked IN ORDER, so only its lowest un-shipped
-    # phase is startable. Without this the planner can propose phase 6 while
-    # phase 3 is still open — the one-slice-per-epic rule below caps how many
+    # phase is startable — the one-slice-per-epic rule below caps how many
     # run, not which. Read over every record, the ones the brief's scope or
-    # the caller kept out included (#696): a phase held by a claim, parked, or
+    # the caller kept out included: a phase held by a claim, parked, or
     # outside the brief is still open, so the phase after it is not next.
     held_out = [w for w, _ in withheld or []]
     next_phase = next_phases(all_records + held_out)
@@ -615,8 +604,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     pool, lane_absent, reach, witness_absent = [], [], [], []
     for r in records:
         # A brief's named task is the human's own pick, not a backlog dip:
-        # neither M2.3 gate below applies to it (the brief's `lanes:` still does).
-        # A task an answer released is the human's word too (M3.6c): no dip gate.
+        # neither dip gate below applies to it (the brief's `lanes:` still does).
+        # A task an answer released is the human's word too: no dip gate.
         backlog = Path(r["path"]).name not in named_names and not r.get("resume")
         why = pool_gate(r, next_phase)
         if why:
@@ -632,9 +621,9 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         elif shift_dip and backlog and self_organ_why(r):
             rejected.append((r["path"], self_organ_why(r)))
         elif shift_dip and backlog and not r.get("witness") and not r.get("resume"):
-            # A shift dips only witnessed drafts (M3.6b): one without a
-            # `Witness:` is reviewed as `judge`, so it is never cheap fill.
-            # Counted for the digest; a named task is the human's pick.
+            # A shift dips only witnessed drafts: one without a `Witness:`
+            # is reviewed as `judge`, so it is never cheap fill. Counted
+            # for the digest; a named task is the human's pick.
             rejected.append((r["path"], "no Witness — a shift dips only witnessed "
                                         "drafts (declare one to make it pickable)"))
             witness_absent.append(r["path"])
@@ -650,9 +639,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     # the human's order and outranks everything: a queued prompt beats an
     # unqueued one, and among queued ones the file's order wins, because moving
     # an entry up IS the act of prioritising it. Below the queue a declared
-    # `Priority:` outranks cost (M2.3, 2026-11-12): sorting cheapest first let
-    # the cheapest review win and broke ties by filename, which picked work the
-    # human did not want. Cheapest first still decides within a priority.
+    # `Priority:` outranks cost: cheapest-first alone would pick work the
+    # human did not ask for. Cheapest first still decides within a priority.
     for r in pool:
         r["queue_rank"], via = queue_standing(r, queue, epic_ranks)
         r["queued"] = r["queue_rank"] < len(queue)
@@ -661,17 +649,17 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
     pool.sort(key=lambda r: (r["queue_rank"], priority_rank(r),
                              r["review_minutes"], r["path"]))
 
-    # `released` (M3.6j, PyAutoBrain#683; first #679): the watcher's own
-    # picks whose worker has ended (PR open or not) and that wait on no
-    # question, re-dispatch or restart. They stay members (known, counted,
-    # never re-dispatched) but hold no library: merges collide, starts do
-    # not, and the close-out merges a library's shift PRs in PR order (the
-    # merge-order wait), so the next task on that library may start.
+    # `released`: the watcher's own picks whose worker has ended (PR open or
+    # not) and that wait on no question, re-dispatch or restart. They stay
+    # members (known, counted, never re-dispatched) but hold no library:
+    # merges collide, starts do not, and the close-out merges a library's
+    # shift PRs in PR order (the merge-order wait), so the next task on that
+    # library may start.
     released = released or set()
     members, spent, seen_epics, libs = [], 0, set(), {}
     for r in pool:
-        # One slice per epic counts only `Phase:` tasks (ruling R5, option a,
-        # 2026-11-17): a side task of the epic shares the shift with its phase.
+        # One slice per epic counts only `Phase:` tasks: a side task of the
+        # epic shares the shift with its phase.
         if r["epic"] and has_phase(r) and r["epic"] in seen_epics:
             rejected.append((r["path"], f"epic {r['epic']} already has a phase task in "
                                         "this batch (one Phase: task per epic)"))
@@ -683,7 +671,7 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         # what downstream suites are re-run against. Workspace, docs and organ
         # repos are exempt — two docs changes in one shift cost nothing. A
         # library is held while its worker runs, so two workers never share
-        # one; its PRs then merge in PR order at the close-out (M3.6j).
+        # one; its PRs then merge in PR order at the close-out.
         clash = next((x for x in r["repos"] if x in LIBRARY_REPOS and x in libs), None)
         if clash:
             holder = libs[clash]
@@ -729,14 +717,14 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
                                     if r["unattended"] == "ready" and not r.get("done")),
         "brief": brief is not None,
         "attended": attended,
-        # The two M2.3 gates, stated rather than buried in `rejected`.
+        # The two unattended gates, stated rather than buried in `rejected`.
         "lane_absent": lane_absent,
         "queue_stop": queue_stop,
-        # The 2026-11-16 backlog-reach ruling (#637, item 6), stated likewise.
+        # The `backlog: scoped` reach rule, stated likewise.
         "scoped_reach": reach,
-        # Backlog drafts with no `Witness:`, kept out of a shift's dip (M3.6b).
+        # Backlog drafts with no `Witness:`, kept out of a shift's dip.
         "witness_absent": witness_absent,
-        # Per queued epic ledger, what it gives this plan or why nothing (#696).
+        # Per queued epic ledger, what it gives this plan or why nothing.
         "queued_epics": queued_epic_summary(
             all_records + [w for w in held_out
                            if w.get("path") not in {r.get("path") for r in all_records}],
@@ -756,10 +744,9 @@ def _lane_counts(records) -> dict[str, int]:
 def _dispatch_payload(r: dict) -> str:
     """The exact text a human pastes into one unattended session.
 
-    Written out rather than left to be composed at dispatch time: the launch is
-    the human's act (AUTONOMY.md, "What a batch launch is"), so the thing they
-    perform should carry no decisions — everything decided was decided when they
-    approved the batch.
+    Written out rather than composed at dispatch time: the launch is the
+    human's act (AUTONOMY.md, "What a batch launch is"), so the thing they
+    perform carries no decisions.
     """
     return f"Use the start-dev skill. {r['path']} --auto"
 
@@ -788,7 +775,7 @@ def emit(d: dict) -> None:
         print("Mode:              attended (--attended) — an absent Lane reads as "
               "any, an empty queue.md falls back to the backlog order")
     if d.get("queue_stop"):
-        # M2.3: an empty queue is the human saying nothing beyond the brief.
+        # An empty queue is the human saying nothing beyond the brief.
         print("Backlog dip:       STOPPED — queue.md is empty, so this unattended "
               "shift takes the brief's named tasks only")
     if d.get("lane_absent"):
@@ -804,8 +791,8 @@ def emit(d: dict) -> None:
               f"in flight, and yours to review before anything new")
     lines = queued_epic_lines(d)
     if lines:
-        # One line per queued epic ledger (#696): what it gives this batch, or
-        # why nothing — read before the long tally of rejections below.
+        # One line per queued epic ledger: what it gives this batch, or why
+        # nothing — read before the long tally of rejections below.
         print("Queued epics:")
         for line in lines:
             print(f"  {line}")
@@ -817,8 +804,8 @@ def emit(d: dict) -> None:
             rank = r.get("queue_rank", queued)
             mark = f"q{rank + 1}" if rank < queued else "  "
             # A `supervised` member ships under decide-and-flag rather than
-            # parking (AUTONOMY.md 2026-09-07); say so on the line, so the
-            # human approving the batch sees which members carry a flagged
+            # parking (AUTONOMY.md); say so on the line, so the human
+            # approving the batch sees which members carry a flagged
             # decision at review.
             note = ("  (supervised — decide-and-flag at ship)"
                     if r.get("autonomy") == "supervised" else "")
@@ -828,11 +815,9 @@ def emit(d: dict) -> None:
                 print("           (no witness — reviewed as `judge`)")
     elif d["effective_budget"] == 0:
         # At the cap the batch is fill only — and the human still dispatches it.
-        # (The FLOOR, a fill-only batch dispatched whether or not they turned
-        # up, was closed 2026-08-31 and never built.) An empty fill-only batch
-        # is a finding, not a deadlock: nothing in the backlog costs zero
-        # review-minutes, which is what the `notify` tier and the witness field
-        # exist to change.
+        # An empty fill-only batch is a finding, not a deadlock: nothing in the
+        # backlog costs zero review-minutes, which is what the `notify` tier and
+        # the witness field exist to change.
         print("  (no members — at the backpressure cap, so this batch is FILL")
         print("   ONLY. Nothing in the backlog currently qualifies as fill,")
         print("   which is itself the finding — clear the review queue, or")
@@ -965,22 +950,20 @@ def read_active(mind: Path) -> dict:
 #: An `active.md` status that says this task's PRs are open and unmerged. The
 #: `library-pr:`/`workspace-pr:` keys are the PRIMARY signal — they are the PR
 #: ledger (PyAutoMind REFERENCE.md, "The PR keys") — and these words are the
-#: fallback for rows written before that schema existed.
+#: fallback for rows without them.
 AWAITING_STATUS_WORDS = ("awaiting-merge", "pr open", "pr-open")
 
 
 def derive_awaiting_review(mind: Path) -> int:
     """How deep the human's review queue already is, read from `active.md`.
 
-    The backpressure input used to default to 0 and was never derived, so every
-    plan composed a shift as though nothing were waiting — the one input that
-    is supposed to SHRINK a batch could only ever be supplied by hand, and
-    never was. A task counts when its row names an open PR (`library-pr:` /
-    `workspace-pr:`) or its `status:` says so in words.
+    The backpressure input — the one that SHRINKS a batch — must not depend on
+    a human supplying it by hand. A task counts when its row names an open PR
+    (`library-pr:` / `workspace-pr:`) or its `status:` says so in words.
 
     Deliberately NOT a `gh` call. `active.md` is the ledger; GitHub is the
     truth about mergeability and nobody should have to be online to plan a
-    shift (`mind_post_cortex_epic.md`: no live PR state in Mind).
+    shift.
     """
     n = 0
     for entry in read_active(mind).values():
@@ -1075,7 +1058,7 @@ def main(argv=None) -> int:
                     help="brief: print a skeleton shift brief for SLOT (e.g. "
                          "2026-11-14-am) whose goals: come from goals.md; "
                          "needs --review-at; --out FILE writes it instead")
-    # the keep-Heart-green lane (PyAutoBrain#625): `brief --new` and `green`
+    # the keep-Heart-green lane: `brief --new` and `green`
     ap.add_argument("--green", default="", choices=("",) + _green.MODES,
                     help="brief --new / green: the keep-Heart-green lane — off | "
                          "report | file (bug drafts) | pick (file, then name them "
@@ -1108,7 +1091,7 @@ def main(argv=None) -> int:
     ap.add_argument("--home", type=Path, default=None,
                     help="digest / watch: the watcher's state directory "
                          "(default: $PYAUTO_ORCHESTRATOR_HOME, else .orchestrator)")
-    # ready (M3.3, PyAutoBrain#671)
+    # ready
     ap.add_argument("--queue", type=Path, default=None, metavar="SLOT_DIR", dest="queue_slot",
                     help="ready: queue each new ruling as a question-add op in this "
                          "shift slot's Mind-writer ledger (default: a dry run that "
@@ -1187,9 +1170,9 @@ def main(argv=None) -> int:
 
 def _main_ready(mind: Path, a) -> int:
     """`batch ready [--queue SLOT_DIR | --apply] [--fetch] [--root DIR]` — the
-    readiness pass (M3.3, PyAutoBrain#671, `_ready`): every queue.md entry's
-    next unit(s), their gates, and the rulings it would file. A dry run by
-    default; the premise check is offline unless `--fetch`."""
+    readiness pass (`_ready`): every queue.md entry's next unit(s), their
+    gates, and the rulings it would file. A dry run by default; the premise
+    check is offline unless `--fetch`."""
     import _ready
     if a.queue_slot is not None and a.apply:
         raise BatchUsageError("batch ready: --queue and --apply are exclusive")
@@ -1374,7 +1357,7 @@ def _main_digest(mind: Path, a) -> int:
 def _main_watch(a) -> int:
     """`batch watch --record <file> [--once] [--interval N]` — a live view of a
     running shift; writes nothing anywhere (`_watch`). With `--stream`, the
-    shift's event stream (`_watch.stream`, PyAutoBrain#644)."""
+    shift's event stream (`_watch.stream`)."""
     import _watch
     if isinstance(a.check, str) and a.check:
         print("batch watch: --check takes no file (the record is --record)", file=sys.stderr)
@@ -1408,8 +1391,8 @@ def _main_watch(a) -> int:
 SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(am|pm)$")
 #: Defaults `brief --new` writes for the keys the human usually leaves alone.
 #: `merge-cap: 0` is the safe one: nothing merges unattended until raised.
-#: RAL is in `lanes:` by default (PyAutoBrain#696): a shift that left it out
-#: rejected every `Lane: ral` phase the human had queued.
+#: RAL is in `lanes:` by default: a shift that leaves it out rejects every
+#: `Lane: ral` phase the human has queued.
 NEW_BRIEF_DEFAULTS = {"review-minutes": str(DEFAULT_REVIEW_BUDGET),
                       "lanes": "any local-dev ral", "merge-cap": "0",
                       "token-budget": "5000000"}
@@ -1456,8 +1439,8 @@ def goals_report(mind: Path) -> list[str]:
     return L
 
 
-#: `brief --new`'s scope when no goal names an epic or tag (M3.6b): the tiers
-#: a shift may merge, under the 2026-11-16 backlog-reach ruling.
+#: `brief --new`'s scope when no goal names an epic or tag: the tiers a shift
+#: may merge, under the `backlog: scoped` reach rule.
 NEW_BRIEF_SCOPED_TIERS = ("notify", "glance")
 
 
@@ -1475,10 +1458,10 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
 
     `heart` is the keep-Heart-green lane's result (`_green.run`): its picks
     become a last `heart-green` goal plus named `tasks:`, and its report the
-    record's `## Heart` section (PyAutoBrain#625).
+    record's `## Heart` section.
 
-    `issue` is the shift issue (`create_shift_issue`), written as `issue:`
-    (M3.6a, PyAutoBrain#659): `brief --check` refuses a live brief without it."""
+    `issue` is the shift issue (`create_shift_issue`), written as `issue:`:
+    `brief --check` refuses a live brief without it."""
     goals = read_goals(mind)
     now = now or _dt.datetime.now(_dt.timezone.utc)
     epics: list[str] = []
@@ -1486,7 +1469,7 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
     for g in goals:
         epics += [e for e in g["epics"] if e not in epics]
         tags += [t for t in g["tags"] if t not in tags]
-    # A queued epic ledger queues its phases (#696), so its epic is in scope:
+    # A queued epic ledger queues its phases, so its epic is in scope:
     # without it a `scoped` brief would keep out the work the queue asks for.
     goal_scoped = bool(epics or tags)
     queued = [e for e in queued_epics(read_queue(mind), survey(mind),
@@ -1521,9 +1504,8 @@ def new_brief(mind: Path, slot: str, review_at: str, now=None,
         if tags:
             L.append(f"    - tags: {', '.join(tags)}")
     else:
-        # No goal names an epic or tag: the backlog-reach ruling (2026-11-16,
-        # PyAutoBrain#637 item 6) is the default, not `fill-idle` (M3.6b) —
-        # under `scoped` the planner dips queue.md first, then only small
+        # No goal names an epic or tag: `scoped`, not `fill-idle`, is the
+        # default — the planner dips queue.md first, then only small
         # single-repo tasks, and these tiers are the ones a shift may merge.
         L += ["  - backlog: scoped                 # tiers a shift may merge; beyond "
               "queue.md small single-repo only (ruling 2026-11-16)",
@@ -1550,7 +1532,7 @@ NAMED_IN_ACTIVE = ("its prompt is in active/ — already issued: a shift starts 
 
 def check_plan(brief: dict, mind: Path) -> tuple[dict, dict[str, str], str]:
     """(plan, {path: why held}, note) — the watcher's plan under `brief`, as
-    `brief --check` runs it (M3.6b): the claim gate against Mind's local
+    `brief --check` runs it: the claim gate against Mind's local
     `origin/main` (never a fetch), then `plan` unattended on the watcher's
     lane. `note` says when the claims could not be read."""
     import _orchestrator as orch  # noqa: E402 — deferred: it imports this module
@@ -1576,10 +1558,10 @@ def named_skips(brief: dict, mind: Path,
                 ) -> tuple[dict[str, str], str]:
     """({named task: why it will not start}, a note when the claims on Mind
     origin/main could not be read) — the watcher's own gates, run at
-    `brief --check` (M3.6b, ruling R5): the claim gate against Mind's local
-    `origin/main` (never a fetch), then `plan` under this brief, unattended,
-    on the watcher's lane. A task the planner keeps is not listed; one that
-    resolves to no prompt is `_brief.check`'s warning already."""
+    `brief --check`: the claim gate against Mind's local `origin/main` (never
+    a fetch), then `plan` under this brief, unattended, on the watcher's
+    lane. A task the planner keeps is not listed; one that resolves to no
+    prompt is `_brief.check`'s warning already."""
     named = _brief.tasks_of(brief)
     if not named:
         return {}, ""
@@ -1619,9 +1601,9 @@ def mind_repo(mind: Path) -> str:
 
 def create_shift_issue(mind: Path, slot: str, review_at: str, run=None) -> tuple[str, str]:
     """(issue URL, "") or ("", why not): the one `gh issue create` on the Mind
-    repo that `brief --new --out` makes (M3.6a, PyAutoBrain#659; AUTONOMY.md
-    "The Brain reads no network", the 2026-11-17 exception). It runs in the
-    launch chat, never in the watcher."""
+    repo that `brief --new --out` makes (AUTONOMY.md "The Brain reads no
+    network" names the exception). It runs in the launch chat, never in the
+    watcher."""
     repo = mind_repo(mind)
     if not repo:
         return "", f"no GitHub `origin` remote in {mind} to make the shift issue on"
@@ -1653,8 +1635,8 @@ def _issue_in(path: Path) -> str:
 
 
 def login_findings(top: dict, brief: dict | None) -> tuple[dict, list[str], list[str]]:
-    """(probe result, errors, warnings) of the CLI login for a launch (M3.6a):
-    an expired login, or one that lapses before `review-at:`, refuses it. A
+    """(probe result, errors, warnings) of the CLI login for a launch: an
+    expired login, or one that lapses before `review-at:`, refuses it. A
     shadow brief starts no worker and is not probed."""
     if brief is None or _brief.is_shadow(brief):
         return {"state": "skipped", "detail": "shadow shift", "expires_at": ""}, [], []
@@ -1723,9 +1705,9 @@ def _main_brief(mind: Path, a) -> int:
                   "record): " + ", ".join(heart["filed"]), file=sys.stderr)
         for line in goals_report(mind):
             print(line, file=sys.stderr)
-        # The shift issue (M3.6a, PyAutoBrain#659) is made last, just before
-        # the write, so nothing that can still fail stands between the two. A
-        # file that already names one keeps it: a re-run never makes a second.
+        # The shift issue is made last, just before the write, so nothing that
+        # can still fail stands between the two. A file that already names one
+        # keeps it: a re-run never makes a second.
         issue = a.issue.strip() or (_issue_in(Path(a.out)) if a.out else "")
         made = False
         if a.out and not issue and \
@@ -1760,8 +1742,8 @@ def _main_brief(mind: Path, a) -> int:
               "(the digest is `batch digest --record <file>`)", file=sys.stderr)
         return RC_USAGE
     res = _brief.check(Path(a.check), mind)
-    # What only a launch needs (M3.6a, PyAutoBrain#659): the shift issue, and a
-    # CLI login that holds until review-at. `_brief.check` stays the watcher's.
+    # What only a launch needs: the shift issue, and a CLI login that holds
+    # until review-at. `_brief.check` stays the watcher's.
     try:
         rec = _brief.parse(Path(a.check).read_text(encoding="utf-8", errors="replace"))
     except (OSError, _brief.BriefError):
@@ -1772,8 +1754,8 @@ def _main_brief(mind: Path, a) -> int:
         res["login"] = login
         res["errors"] += errs
         res["warnings"] += warns
-        # A granted `ral` lane a worker cannot reach (2026-11-20-am): one
-        # BatchMode ssh, a warning only. A shadow brief starts no worker.
+        # A granted `ral` lane a worker cannot reach: one BatchMode ssh, a
+        # warning only. A shadow brief starts no worker.
         if rec["brief"] is not None and not _brief.is_shadow(rec["brief"]):
             res["ral"], warns = _ral.findings(_brief.lanes_of(rec["brief"]), mind)
             res["warnings"] += warns
@@ -1781,8 +1763,8 @@ def _main_brief(mind: Path, a) -> int:
     warn = goal_one_warning(Path(a.check), mind)
     if warn:
         res["warnings"].append(warn)
-    # M3.6b: every named task that will not start, with the planner's own
-    # reason, and the organ rule for each one, before the shift opens.
+    # Every named task that will not start, with the planner's own reason,
+    # and the organ rule for each one, before the shift opens.
     res["notes"] = []
     if rec is not None and rec["brief"] is not None:
         planned = check_plan(rec["brief"], mind)
@@ -1791,7 +1773,7 @@ def _main_brief(mind: Path, a) -> int:
                             for t, w in why_not.items()]
         if claim_note:
             res["warnings"].append(claim_note)
-        # #696: each queued epic ledger, and why it gives this shift nothing.
+        # Each queued epic ledger, and why it gives this shift nothing.
         res["queued_epics"] = planned[0]["queued_epics"]
         res["warnings"] += [f"queued epic {e['line']}" for e in res["queued_epics"]
                             if not e["taken"]]
@@ -1831,7 +1813,7 @@ def _main_brief(mind: Path, a) -> int:
 
 
 #: Where the lane may not write: the shared, canonical Mind checkout other
-#: sessions work in (memory: shared-Mind writes go through a temp worktree).
+#: sessions work in (shared-Mind writes go through a temp worktree).
 SHARED_MIND_HOLD = ("--mind is not a linked worktree ({}) — a main checkout is the "
                     "shared canonical Mind; the lane writes drafts only into a "
                     "Mind the caller names that is a temp "
@@ -1857,9 +1839,9 @@ def is_linked_worktree(path: Path) -> bool:
 
 
 def write_hold(mind: Path, a, preview: bool) -> str:
-    """Why the lane may not write here, or "" (review of #625): never in a
-    preview, never into an implicit Mind, and only into a linked worktree —
-    the main checkout of any Mind clone is the shared one."""
+    """Why the lane may not write here, or "": never in a preview, never into
+    an implicit Mind, and only into a linked worktree — the main checkout of
+    any Mind clone is the shared one."""
     if preview:
         return "a preview (no --out) writes nothing"
     if not getattr(a, "mind_explicit", False) or not is_linked_worktree(mind):
