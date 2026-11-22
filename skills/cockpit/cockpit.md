@@ -118,7 +118,7 @@ within 3 ticks (about 3 min), or `steer-unread` arrives, say so once.
 | "fewer workers" (no number) | nothing yet: ask "how many workers at most?" | ask |
 | "keep it under 400k" | `/cap tokens 400000` | **yes**, with n shown |
 | "the red sweep is fine", "unblock merges" | `/clear-sweep` (clears the latest red workspace sweep only) | **yes**, naming the run |
-| "merge #347" | not a comment: the `/prm` procedure on that PR, in this chat. If a close-out is `running` on it, say so and ask the human to wait or `/drop` first | /prm's own |
+| "merge #347" | not a comment: the `/prm` procedure on that PR, in this chat. If a close-out is `running` on it, say so and ask the human to wait or `/drop` first. An adversary pass first, only if they ask: an Opus sub-agent, never this chat's model (`AUTONOMY.md` "Adversary model default — 2026-11-22"); a finding on the PR description alone is a note and does not hold the merge | /prm's own |
 | "put X on the queue", "move X up" | not a shift command: the `/queue` procedure | /queue's own |
 | "go through my questions", "answer Q17" | not a shift command: `/questions` (section 6) | n/a |
 
@@ -138,12 +138,6 @@ within 3 ticks (about 3 min), or `steer-unread` arrives, say so once.
   e.g. "Post `/cap merges 3` (2 merged, 0 running, so one more)?"
 - **Unclear wording: ask.** Never guess a verb, a task or a number. One short
   question, then post on the answer; the watcher ignores any other first line.
-
-**An adversary pass before `/prm`** (only when the human asks for one) is an
-Opus sub-agent that did not write the branch, never this chat's own model and
-never Fable unless they ask (`AUTONOMY.md` "Adversary model default —
-2026-11-22"). A finding that touches only the PR description is a note for the
-human; it does not hold the `/prm` and nobody polishes the description first.
 
 ## Stop watching
 
