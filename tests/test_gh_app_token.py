@@ -8,7 +8,6 @@ the workflow's mint step declares — never more.
 from __future__ import annotations
 
 import base64
-import importlib.util
 import json
 import shutil
 import subprocess
@@ -17,12 +16,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from _helpers import load_module
+
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location(
-    "gh_app_token", ROOT / "bin" / "gh_app_token.py"
-)
-gh_app_token = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(gh_app_token)
+gh_app_token = load_module("gh_app_token", ROOT / "bin" / "gh_app_token.py", register=False)
 
 needs_openssl = pytest.mark.skipif(
     shutil.which("openssl") is None, reason="openssl not installed"

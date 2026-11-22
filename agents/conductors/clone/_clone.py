@@ -46,10 +46,8 @@ import tempfile
 from pathlib import Path
 
 # Workspace root via the one shared resolver (agents/_pyauto_root.py, mirrored
-# by bin/_pyauto_root.sh): PYAUTO_ROOT, else the nearest ancestor holding a
-# .pyauto-root marker, else beside this checkout, else the parent anyway. Naming an absolute workspace path as the *default* here
-# resolved into
-# a non-existent tree in a remote session and reported empty rather than
+# by bin/_pyauto_root.sh), never an absolute default: a literal path resolves
+# into a non-existent tree in a remote session and reports empty rather than
 # failing.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
@@ -76,8 +74,8 @@ _SHARED_GENERIC = [
     "Makefile", "__init__.py", "activate.sh", "version.txt",
     "AI_POLICY.md", "CITATIONS.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
     # (No chat-mode counterpart of AGENTS.md and no generated chat bundles: the
-    # assistants are agentic-only since 2026-09-10, so a newborn ships one
-    # instruction file and the harness adapters below, nothing chat-shaped.)
+    # assistants are agentic-only, so a newborn ships one instruction file and
+    # the harness adapters below, nothing chat-shaped.)
     "modes/*",                    # Teacher/Assistant mode machinery
     "skills/_style.md", "skills/_bootstrap_skill.md", "skills/README.md",
     "skills/start-new-project*", "skills/contribute-upstream*",
@@ -460,13 +458,10 @@ def repo_owner(repo_root):
 # SYNC (sync_substitutions). One table, so a file that lands in a sibling by
 # either route reads the same.
 #
-# Two rules were missing when the first siblings were born, and both were still
-# visible in a sibling cell (PyAutoBrain#315): the UPPERCASE package form, so a
-# generated project scaffold still pointed at the REFERENCE's `$..._ASSISTANT`
-# variable; and the science's own noun, so a profile template still headed its
-# first section with the reference's domain. Neither is a name the identity
-# rules can reach — the uppercase form is not the package, and a domain noun is
-# not a package at all.
+# Two rules the identity rules cannot reach: the UPPERCASE package form (a
+# generated project scaffold's `$..._ASSISTANT` variable), which is not the
+# package, and the science's own noun (a profile template's section heading),
+# which is not a package at all.
 # ---------------------------------------------------------------------------
 
 # The domain noun each assistant's GENERIC prose uses for its own science, as
@@ -534,7 +529,7 @@ def name_substitutions(reference_name, target_name,
         # skill prefix (al_ -> af_): package initials, e.g. autolens -> al,
         # autofit -> af. Word-anchored: unanchored, this two-letter rule also
         # rewrites the `al_` inside `total_draws`, `external_shear` and
-        # `radial_minimum` (it did, in a sibling clone — PyAutoBrain#150).
+        # `radial_minimum`.
         (f"{ref_pkg[0]}{ref_pkg[4]}_", f"{tgt_pkg[0]}{tgt_pkg[4]}_", "word"),
         (ref_lib, tgt_lib),                     # PyAutoLens -> PyAutoFit
         (ref_pkg.upper(), tgt_pkg.upper()),     # $AUTOLENS_ASSISTANT -> $AUTOFIT_…
@@ -596,14 +591,14 @@ def apply_seed(args, decision):
 # ---------------------------------------------------------------------------
 # sync — keep the born siblings from drifting on the generic files
 #
-# Birth copies the reference once; nothing re-synced afterwards, so the four
-# copies of `skills/start-new-project.md` and `wiki/project/*` grew four
-# distinct hashes. This mode replays the REFERENCE's own diff over a commit
-# range onto each sibling, restricted to that reference's generic set, with the
-# same name substitutions birth uses. It applies with GNU `patch`, so a hunk
-# whose context the sibling has adapted away is REJECTED and listed rather than
-# forced: the sibling's domain adaptation outranks the reference's prose, and
-# only a human decides what a conflict means.
+# Birth copies the reference once, and without a re-sync the siblings' copies
+# of the generic files drift apart. This mode replays the REFERENCE's own diff
+# over a commit range onto each sibling, restricted to that reference's
+# generic set, with the same name substitutions birth uses. It applies with
+# GNU `patch`, so a hunk whose context the sibling has adapted away is
+# REJECTED and listed rather than forced: the sibling's domain adaptation
+# outranks the reference's prose, and only a human decides what a conflict
+# means.
 #
 # "Since the sibling's last sync" is read from the sibling's own git history: a
 # sync commit carries the trailer `Clone-sync: <reference>@<sha>`. No new state

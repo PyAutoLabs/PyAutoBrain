@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 CLEAN_SLATE = BRAIN_HOME / "bin" / "clean_slate.sh"
@@ -176,28 +178,23 @@ def test_cleanup_is_root_scoped_ignored_and_tracked_safe(tmp_path):
     assert (assistant / "build").exists()
 
 
-def test_dataset_written_by_a_simulator_is_removed(tmp_path):
+@pytest.mark.parametrize("script,source,name,report", [
+    pytest.param("scripts/imaging/simulator.py", SIMULATOR, "simple",
+                 "remove 1 simulated dataset(s)", id="written-by-a-simulator"),
+    # The #167 gap: start_here.py writes datasets too, and no simulator does.
+    pytest.param("scripts/imaging/start_here.py", START_HERE, "simulated_lens", "",
+                 id="written-by-a-non-simulator-script"),
+])
+def test_dataset_written_by_a_script_is_removed(tmp_path, script, source, name, report):
     repo = _init_repo(tmp_path, DATASET_REPO, ignore="")
-    _script(repo, "scripts/imaging/simulator.py", SIMULATOR)
-    dataset = _dataset(repo, "imaging", "simple")
+    _script(repo, script, source)
+    dataset = _dataset(repo, "imaging", name)
 
     result = _run(tmp_path, packaging_only=False)
 
     assert result.returncode == 0, result.stderr
     assert not dataset.exists()
-    assert "remove 1 simulated dataset(s)" in result.stdout
-
-
-def test_dataset_written_by_a_non_simulator_script_is_removed(tmp_path):
-    """The #167 gap: start_here.py writes datasets too, and no simulator does."""
-    repo = _init_repo(tmp_path, DATASET_REPO, ignore="")
-    _script(repo, "scripts/imaging/start_here.py", START_HERE)
-    dataset = _dataset(repo, "imaging", "simulated_lens")
-
-    result = _run(tmp_path, packaging_only=False)
-
-    assert result.returncode == 0, result.stderr
-    assert not dataset.exists()
+    assert report in result.stdout
 
 
 def test_dataset_only_read_by_name_is_kept_while_written_one_is_removed(tmp_path):

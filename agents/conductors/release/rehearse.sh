@@ -46,16 +46,6 @@ source "$HERE/../../_common.sh"
 BUILD_REPO="PyAutoLabs/PyAutoHands"
 RELEASE_WORKFLOW="release.yml"
 REHEARSAL_ARTIFACT="testpypi-rehearsal-version"
-# The 6 libraries (PyAutoCTI joined 2026-11-04, cti-upkeep phase 1) whose main HEADs the rehearsal is built from; readiness
-# confirms the ingested report's commit_shas against these. Bare names here
-# are intentional: `commit_shas.json` keys (and heart/readiness.py's
-# _GATE_SHA_LIBS) are bare repo names, e.g. "PyAutoNerves", not "owner/repo".
-# LIBRARIES_OWNER qualifies them ONLY for the get_commit MCP calls below
-# (same convention as BUILD_REPO) — all six libraries live under this one
-# GitHub org in this ecosystem, but qualifying explicitly removes any
-# ambiguity for the agent executing the emitted plan.
-LIBRARIES=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens PyAutoCTI)
-LIBRARIES_OWNER="PyAutoLabs"
 
 ref="main"
 minor=""
@@ -108,11 +98,9 @@ if [[ -z "$ingest_dir" ]]; then
 
   if [[ "$json_only" -eq 1 ]]; then
     REF="$ref" INPUTS="$inputs" REPO="$BUILD_REPO" WF="$RELEASE_WORKFLOW" \
-    ART="$REHEARSAL_ARTIFACT" LIBS="${LIBRARIES[*]}" LIBS_OWNER="$LIBRARIES_OWNER" \
+    ART="$REHEARSAL_ARTIFACT" \
     NEXT_CMD="$next_cmd" python3 -c '
 import json, os
-libs = os.environ["LIBS"].split()
-owner = os.environ["LIBS_OWNER"]
 print(json.dumps({
   "agent": "release", "mode": "rehearse", "phase": "dispatch-plan",
   "steps": [

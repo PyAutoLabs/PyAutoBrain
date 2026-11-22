@@ -66,11 +66,6 @@ def _broken(mutate):
     return _state.validate_state(state)
 
 
-def test_an_unknown_status_is_refused():
-    errors = _broken(lambda s: s.update(status="amber"))
-    assert any("status" in e for e in errors)
-
-
 def test_a_missing_required_key_is_refused():
     errors = _broken(lambda s: s.pop("pages_url"))
     assert "missing required key: pages_url" in errors
@@ -87,19 +82,17 @@ def test_updated_must_be_parseable_utc(updated):
     assert any(e.startswith("updated") for e in errors), updated
 
 
-def test_an_item_with_an_unknown_severity_is_refused():
-    errors = _broken(lambda s: s["items"][0].update(severity="critical"))
-    assert any("items[0].severity" in e for e in errors)
-
-
-def test_a_multi_line_headline_is_refused():
-    errors = _broken(lambda s: s.update(headline="2 need you\nand more"))
-    assert any("headline" in e for e in errors)
-
-
-def test_a_wrong_schema_version_is_refused():
-    errors = _broken(lambda s: s.update(schema_version=2))
-    assert any("schema_version" in e for e in errors)
+@pytest.mark.parametrize("damage,named", [
+    pytest.param(lambda s: s.update(status="amber"), "status", id="an-unknown-status"),
+    pytest.param(lambda s: s["items"][0].update(severity="critical"), "items[0].severity",
+                 id="an-item-with-an-unknown-severity"),
+    pytest.param(lambda s: s.update(headline="2 need you\nand more"), "headline",
+                 id="a-multi-line-headline"),
+    pytest.param(lambda s: s.update(schema_version=2), "schema_version",
+                 id="a-wrong-schema-version"),
+])
+def test_a_malformed_feed_is_refused(damage, named):
+    assert any(named in e for e in _broken(damage))
 
 
 def test_build_state_round_trips():
@@ -229,38 +222,3 @@ def test_producer_declared_freshness_deadline():
     assert any('precede' in e for e in _state.validate_state(s))
     s['valid_until'] = 'not a time'
     assert any('valid_until' in e for e in _state.validate_state(s))
-
-
-@pytest.mark.parametrize('conclusion,blocked,unreadable,expected', [
-    ('failure', False, False, 'failed'), ('timed_out', False, False, 'failed'),
-    ('success', True, False, 'blocked'), (None, False, True, 'unknown'),
-    ('cancelled', False, False, 'unknown'), ('in_progress', False, False, 'active'),
-    ('queued', False, False, 'active'), ('action_required', False, False, 'action_required'),
-])
-def test_overnight_state_preserves_evidence_and_distinguishes_outcomes(conclusion, blocked, unreadable, expected):
-    import _board
-    row = dict(repo='Example/Engine', workflow='nightly.yml', conclusion=conclusion,
-               blocked=blocked, unreadable=unreadable, blocked_reason='Gate blocked: approval missing',
-               url=None if unreadable else 'https://example.invalid/runs/1')
-    item = _board._overnight_state_item(row)
-    assert item['state'] == expected
-    assert item['url'] == row['url']
-    assert item['reason']
-    assert 'requires_human_decision' not in item
-    state = _fixture('brain')
-    state['items'] = [item]
-    assert _state.validate_state(state) == []
-    if blocked:
-        assert item['reason'] == row['blocked_reason']
-        assert item['recommended_action_id'] == 'view-run'
-    if expected == 'failed':
-        action = item['actions'][0]
-        assert action['kind'] == 'prompt' and action['target'] == item['prompt']
-        assert action['safety'] == 'requires_approval'
-    row['url'] = 'https://example.invalid/runs/2'
-    assert _board._overnight_state_item(row)['id'] == item['id']
-
-
-def test_successful_overnight_work_adds_no_attention_noise():
-    import _board
-    assert _board._overnight_state_item(dict(repo='Example/Engine', workflow='nightly.yml', conclusion='success')) is None

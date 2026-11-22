@@ -88,7 +88,6 @@ require_gh nightly || exit $?
 source "$HERE/../../_common.sh"
 source "$HERE/_nightly_lib.sh"
 
-BRAIN_REPO="PyAutoLabs/PyAutoHands"   # where release-blocker labels are curated first
 ANCHOR_REPO="PyAutoLabs/PyAutoBrain"
 ANCHOR_VAR="NIGHTLY_LAST_WINDOW_END"
 # Release tags land on every library; one suffices. Which one is release

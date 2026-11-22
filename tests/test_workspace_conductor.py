@@ -7,12 +7,11 @@ it never writing anything (asserted explicitly in test_never_writes).
 """
 
 import json
-import os
-import subprocess
 from pathlib import Path
 
+from _helpers import run_brain
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 DECISION_KEYS = {
     "title", "prompt_path", "family", "target_repo", "register", "placement",
@@ -22,11 +21,7 @@ DECISION_KEYS = {
 
 
 def _run(args, root):
-    env = {**os.environ, "PYAUTO_ROOT": str(root)}
-    return subprocess.run(
-        [str(BRAIN), "workspace", *args],
-        capture_output=True, text=True, env=env,
-    )
+    return run_brain("workspace", args, root)
 
 
 def _fabricate_workspace(root, repo, packages):

@@ -21,6 +21,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agents" / "faculties" / "sizing"))
 from _sizing import (  # noqa: E402
     CONSEQUENCE_TIERS,
@@ -88,15 +90,24 @@ def test_witness_unlocks_the_cheap_tier(tmp_path):
     assert g["review_minutes"] == 0
 
 
-def test_judged_surface_beats_a_witness(tmp_path):
-    """A witness makes work checkable; it does not make an API decision
-    somebody else's to make. Surface outranks evidence."""
+@pytest.mark.parametrize("witness,task,consequence", [
+    # A witness makes work checkable; it does not make an API decision
+    # somebody else's to make. Surface outranks evidence.
+    pytest.param("byte-identical output on the full suite",
+                 "Change the default value of over_sample_size.", "judge",
+                 id="judged-surface-beats-a-witness"),
+    # A prompt quoting a judged surface inside a code fence is documenting it.
+    # Same rule, same reason, as `declared_header`'s fenced-block skip.
+    pytest.param("docs build clean",
+                 "Document the guard:\n\n```\nraises ValueError on a bad default value\n```\n",
+                 "notify", id="prose-describing-a-surface-is-not-touching-one"),
+])
+def test_a_witnessed_task_is_graded_by_the_surface_it_touches(tmp_path, witness, task,
+                                                             consequence):
     body = HEADERLESS_DOC.replace(
-        "Status: draft",
-        "Status: draft\nWitness: byte-identical output on the full suite"
-    ).replace("Rewrite two paragraphs. Nothing else.",
-              "Change the default value of over_sample_size.")
-    assert _grade(_prompt(tmp_path, body))["consequence"] == "judge"
+        "Status: draft", f"Status: draft\nWitness: {witness}"
+    ).replace("Rewrite two paragraphs. Nothing else.", task)
+    assert _grade(_prompt(tmp_path, body))["consequence"] == consequence
 
 
 def test_declared_beats_derived_and_reports_the_split(tmp_path):
@@ -116,14 +127,7 @@ def test_declared_beats_derived_and_reports_the_split(tmp_path):
     assert g2["derived_consequence"] == "notify"  # and the split is reported
 
 
-def test_prose_describing_a_surface_is_not_touching_one(tmp_path):
-    """A prompt quoting a judged surface inside a code fence is documenting it.
-    Same rule, same reason, as `declared_header`'s fenced-block skip."""
-    body = HEADERLESS_DOC.replace(
-        "Rewrite two paragraphs. Nothing else.",
-        "Document the guard:\n\n```\nraises ValueError on a bad default value\n```\n"
-    ).replace("Status: draft", "Status: draft\nWitness: docs build clean")
-    assert _grade(_prompt(tmp_path, body))["consequence"] == "notify"
+
 
 
 def test_unattended_is_not_difficulty_renamed(tmp_path):

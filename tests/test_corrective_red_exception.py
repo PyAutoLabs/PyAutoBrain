@@ -36,10 +36,6 @@ def _section(header=SECTION_HEADER):
     return _norm(rest if end == -1 else rest[:end])
 
 
-def test_section_exists():
-    assert SECTION_HEADER in AUTONOMY
-
-
 def test_development_override_requires_live_human_and_passing_branch_gates():
     sec = _section(OVERRIDE_HEADER)
     assert "non-corrective development branch" in sec

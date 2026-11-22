@@ -847,7 +847,7 @@ a skill or a record makes it the default.
 amendment: the reader did not write the PR, runs the `Witness:` itself and
 tries to falsify the claims. **A self-run adversary leg is still an absent
 leg**: the author's own session re-reading its diff is not this pass,
-whatever model it is on. `batch collect` reads it so: an adversary row whose
+whatever model it is on. Read it so: an adversary row whose
 `model` equals its `author_model` passes only with `independent_session:
 true`.
 
@@ -1649,7 +1649,9 @@ Codex hook list.
   pull request, never a base for one. It is **never forced** — a branch that is
   not a fast-forward of what is already published is pushed under a new `-N`
   name instead — and every pushed ref carries a `sweep-after:` date on the
-  batch record, after which `bin/branch_sweep.sh` may delete it.
+  batch record, after which `bin/branch_sweep.sh` may delete it. (`batch
+  collect` was retired on 2026-11-22; the sweep rule stays for refs already
+  published.)
 
   A third exception, added 2026-11-03: the **shift watcher** — read-only
   `gh pr checks` and `claude agents --json`, and one issue comment per shift —

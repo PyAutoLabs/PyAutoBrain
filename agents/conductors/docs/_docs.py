@@ -36,7 +36,6 @@ from _repo_paths import repo_path  # noqa: E402
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
 BRAIN_HOME = Path(__file__).resolve().parents[3]
 STYLE_GUIDE = BRAIN_HOME / "skills" / "WRITING_STYLE.md"
-TUTORIAL_GUIDE = BRAIN_HOME / "skills" / "TUTORIAL_WRITING_STYLE.md"
 STYLE_REL = "PyAutoBrain/skills/WRITING_STYLE.md"
 TUTORIAL_REL = "PyAutoBrain/skills/TUTORIAL_WRITING_STYLE.md"
 

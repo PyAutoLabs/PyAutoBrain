@@ -19,7 +19,7 @@ resolves ONE LEVEL TOO DEEP — where every `root / <repo>` join misses and,
 again, nothing raises. A `.pyauto-root` marker file walked up to from the
 checkout answers it instead. The probe is kept as a fallback, not replaced: a
 remote session clones one repo with no workspace root above it to mark, so
-`test_flat_workspace_without_a_marker_*` is the proof that this change can
+the `flat-workspace-without-a-marker-*` case is the proof that this change can
 only ADD correctness.
 """
 
@@ -27,6 +27,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRAIN_HOME / "agents"))
@@ -229,24 +231,34 @@ def _both_resolvers_say(brain_home, env_overrides=None):
     return py
 
 
-def test_marker_wins_in_a_nested_workspace(tmp_path):
-    """Checkouts grouped into subdirectories; the marked root is still the root.
-
-    The grouping is what is under test, not which repos do it, so the checkouts
-    are fictional: one library family beside a directory of organs.
-    """
-    root, brain = _fake_workspace(
-        tmp_path, also=("family/LibOne", "family/LibTwo", "organs/OrganOne")
-    )
-    assert _both_resolvers_say(brain) == (root, f"{MARKER} marker")
+_MARKED = f"{MARKER} marker"
 
 
-def test_marker_wins_from_inside_a_family_directory(tmp_path):
-    """The Brain itself grouped under organs/ — the root is still one level up."""
-    root, brain = _fake_workspace(
-        tmp_path, brain="organs/PyAutoBrain", also=("organs/PyAutoMind",)
-    )
-    assert _both_resolvers_say(brain) == (root, f"{MARKER} marker")
+@pytest.mark.parametrize("layout,reason", [
+    # Checkouts grouped into subdirectories; the marked root is still the
+    # root. The grouping is what is under test, not which repos do it, so the
+    # checkouts are fictional: one library family beside a directory of organs.
+    pytest.param(dict(also=("family/LibOne", "family/LibTwo", "organs/OrganOne")),
+                 _MARKED, id="marker-wins-in-a-nested-workspace"),
+    # The Brain itself grouped under organs/ — the root is still one level up.
+    pytest.param(dict(brain="organs/PyAutoBrain", also=("organs/PyAutoMind",)),
+                 _MARKED, id="marker-wins-from-inside-a-family-directory"),
+    # The remote-session case: one clone layer, no root above it to mark.
+    # This is the regression guard for the whole change. The sibling probe is
+    # demoted, never removed, so a workspace that resolved correctly before
+    # must still resolve correctly — and by the same reason string.
+    pytest.param(dict(also=("PyAutoMind",), marker=False),
+                 "beside this checkout", id="flat-workspace-without-a-marker-still-resolves"),
+    # Nothing to go on: the parent anyway, and said so.
+    pytest.param(dict(marker=False),
+                 "unverified (no sibling organ beside this checkout)",
+                 id="lone-checkout-without-marker-or-sibling-is-reported-unverified"),
+    pytest.param(dict(also=("PyAutoInsight",), marker=False),
+                 "beside this checkout", id="insight-only-sibling-marks-workspace"),
+])
+def test_a_fixture_workspace_resolves_to_its_root_in_both_resolvers(tmp_path, layout, reason):
+    root, brain = _fake_workspace(tmp_path, **layout)
+    assert _both_resolvers_say(brain) == (root, reason)
 
 
 def test_the_organs_family_directory_is_what_the_old_rule_got_wrong(tmp_path):
@@ -269,25 +281,6 @@ def test_the_organs_family_directory_is_what_the_old_rule_got_wrong(tmp_path):
     assert _both_resolvers_say(brain) == (root, f"{MARKER} marker")
 
 
-def test_flat_workspace_without_a_marker_still_resolves(tmp_path):
-    """The remote-session case: one clone layer, no root above it to mark.
-
-    This is the regression guard for the whole change. The sibling probe is
-    demoted, never removed, so a workspace that resolved correctly before must
-    still resolve correctly — and by the same reason string.
-    """
-    root, brain = _fake_workspace(tmp_path, also=("PyAutoMind",), marker=False)
-    assert _both_resolvers_say(brain) == (root, "beside this checkout")
-
-
-def test_lone_checkout_without_marker_or_sibling_is_reported_unverified(tmp_path):
-    """Nothing to go on: the parent anyway, and said so."""
-    root, brain = _fake_workspace(tmp_path, marker=False)
-    assert _both_resolvers_say(brain) == (
-        root, "unverified (no sibling organ beside this checkout)"
-    )
-
-
 def test_env_override_is_honoured_and_the_marker_only_changes_the_reason(tmp_path):
     """The operator's word stands; whether it is confirmed is visible."""
     root, brain = _fake_workspace(tmp_path, also=("PyAutoMind",))
@@ -308,8 +301,3 @@ def test_env_override_is_honoured_and_the_marker_only_changes_the_reason(tmp_pat
 
     # Either way it beats the marker this checkout actually sits under.
     assert elsewhere != root
-
-
-def test_insight_only_sibling_marks_workspace_in_both_resolvers(tmp_path):
-    root, brain = _fake_workspace(tmp_path, also=("PyAutoInsight",), marker=False)
-    assert _both_resolvers_say(brain) == (root, "beside this checkout")

@@ -11,6 +11,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from _helpers import load_module, run_brain
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 MODES = {
@@ -40,13 +44,16 @@ top()
 
 
 def _run(args, root, extra=None):
-    env = {**os.environ, "PYAUTO_ROOT": str(root)}
-    if extra:
-        env.update(extra)
-    return subprocess.run(
-        [str(BRAIN), "hygiene", *args],
-        capture_output=True, text=True, env=env,
-    )
+    return run_brain("hygiene", args, root, extra)
+
+
+@pytest.fixture(scope="module")
+def empty_root_default(tmp_path_factory):
+    """The default `--json` scan of a root holding no checkout at all, run once
+    for the tests that only read it."""
+    result = _run(["--json"], tmp_path_factory.mktemp("empty_root"))
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
 
 
 def test_json_stays_parseable_when_a_helper_crashes(tmp_path):
@@ -62,10 +69,8 @@ def test_json_stays_parseable_when_a_helper_crashes(tmp_path):
     assert "pyauto-brain hygiene refs" in by_mode["refs"]["summary"]
 
 
-def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
-    r = _run(["--json"], tmp_path)
-    assert r.returncode == 0, r.stderr
-    doc = json.loads(r.stdout)
+def test_default_json_is_a_hygiene_decision_with_all_modes(empty_root_default):
+    doc = empty_root_default
     assert doc["decision"] == "HygieneDecision"
     assert doc["mode"] == "default"
     assert {row["mode"] for row in doc["rows"]} == MODES
@@ -90,19 +95,19 @@ def test_default_json_is_a_hygiene_decision_with_all_modes(tmp_path):
     assert all(row.get("status") != "staged" for row in doc["rows"])
 
 
-def test_single_mode_json_round_trips(tmp_path):
-    # perf defers (own test); tidy is now an action mode (the PyAutoGut condemn
-    # plan, its own test), not a generic delegating scan-row.
-    for mode in MODES - {"perf", "tidy"}:
-        r = _run([mode, "--json"], tmp_path)
-        assert r.returncode == 0, r.stderr
-        doc = json.loads(r.stdout)
-        assert doc["mode"] == mode
-        assert doc["row"]["mode"] == mode
-        if mode == "packaging":
-            assert doc["row"]["delegate"].endswith("bin/clean_slate.sh --packaging")
-        else:
-            assert doc["row"]["delegate"].startswith("/")
+# perf defers (own test); tidy is now an action mode (the PyAutoGut condemn
+# plan, its own test), not a generic delegating scan-row.
+@pytest.mark.parametrize("mode", sorted(MODES - {"perf", "tidy"}))
+def test_single_mode_json_round_trips(tmp_path, mode):
+    r = _run([mode, "--json"], tmp_path)
+    assert r.returncode == 0, r.stderr
+    doc = json.loads(r.stdout)
+    assert doc["mode"] == mode
+    assert doc["row"]["mode"] == mode
+    if mode == "packaging":
+        assert doc["row"]["delegate"].endswith("bin/clean_slate.sh --packaging")
+    else:
+        assert doc["row"]["delegate"].startswith("/")
 
 
 def _init_git_repo(path):
@@ -197,6 +202,11 @@ def test_default_json_includes_docstring_finding_locations(tmp_path):
     rows = {row["mode"]: row for row in json.loads(result.stdout)["rows"]}
     assert rows["docstrings"]["count"] == 2
     assert len(rows["docstrings"]["findings"]) == 2
+    # docstrings/refs/optdeps/extras discover their own targets by walking the
+    # root, so they can legitimately find material the body map never names
+    # (this root holds no body-map repo). Suppressing them alongside the
+    # repo-array modes would hide real findings.
+    assert rows["docstrings"]["status"] != "unscanned"
 
 
 def test_default_human_worklist_ranks_docstring_findings(tmp_path):
@@ -393,12 +403,8 @@ def test_profile_ranks_nonlikelihood_and_excludes_likelihood(tmp_path):
 
 
 def _load_config_helper():
-    import importlib.util
-    path = BRAIN_HOME / "agents" / "conductors" / "hygiene" / "_hygiene_config.py"
-    spec = importlib.util.spec_from_file_location("_hygiene_config", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    return load_module("_hygiene_config", "agents/conductors/hygiene/_hygiene_config.py",
+                       register=False)
 
 
 def test_config_helper_recursive_key_diff(tmp_path):
@@ -645,16 +651,6 @@ def test_optdeps_is_clean_when_every_smoke_listed_script_is_guarded(tmp_path):
     assert row["count"] == 0 and row["status"] == "clean"
 
 
-def test_optdeps_findings_reach_the_default_worklist(tmp_path):
-    _write_optdeps_fixture(tmp_path)
-
-    result = _run([], tmp_path)
-
-    assert result.returncode == 0, result.stderr
-    assert "optdeps   1 findings" in result.stdout
-    assert "route exact findings to /refactor" in result.stdout
-
-
 _SMOKE_WORKFLOW = """\
 jobs:
   run_scripts:
@@ -807,14 +803,20 @@ def test_extras_reports_not_scannable_without_the_workflow(tmp_path):
     assert "not scannable" in row["summary"]
 
 
-def test_extras_findings_reach_the_default_worklist(tmp_path):
-    _write_extras_fixture(tmp_path)
+@pytest.mark.parametrize("fixture,row,route", [
+    pytest.param(_write_optdeps_fixture, "optdeps   1 findings",
+                 "route exact findings to /refactor", id="optdeps"),
+    pytest.param(_write_extras_fixture, "extras    1 findings",
+                 "route the missing installs to /bug", id="extras"),
+])
+def test_findings_reach_the_default_worklist(tmp_path, fixture, row, route):
+    fixture(tmp_path)
 
     result = _run([], tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert "extras    1 findings" in result.stdout
-    assert "route the missing installs to /bug" in result.stdout
+    assert row in result.stdout
+    assert route in result.stdout
 
 
 def _write_refs_fixture(root):
@@ -1130,24 +1132,18 @@ def _manifest_categories():
     return grouped
 
 
-def test_derived_repo_sets_equal_the_body_map(tmp_path):
+@pytest.mark.parametrize("parser", [
+    pytest.param("auto", id="derived-repo-sets-equal-the-body-map"),
+    # The fallback runs only where PyYAML is absent, so nothing else would ever
+    # catch it silently dropping a repo — the exact shape of the original bug.
+    pytest.param("minimal", id="the-pyyaml-free-reader-agrees-with-the-body-map"),
+])
+def test_derived_repo_sets_equal_the_body_map(tmp_path, parser):
     declared = _manifest_categories()
     if declared is None:
         return  # body map not checked out here; the drift check owns this leg
     for category in ("library", "organ", "workspace"):
-        result, names = _derived(category, tmp_path)
-        assert result.returncode == 0, result.stderr
-        assert set(names) == declared[category], category
-
-
-def test_the_pyyaml_free_reader_agrees_with_the_body_map(tmp_path):
-    # The fallback runs only where PyYAML is absent, so nothing else would ever
-    # catch it silently dropping a repo — the exact shape of the original bug.
-    declared = _manifest_categories()
-    if declared is None:
-        return
-    for category in ("library", "organ", "workspace"):
-        result, names = _derived(category, tmp_path, parser="minimal")
+        result, names = _derived(category, tmp_path, parser=parser)
         assert result.returncode == 0, result.stderr
         assert set(names) == declared[category], category
 
@@ -1173,10 +1169,10 @@ def test_crlf_covers_every_library_the_body_map_declares(tmp_path):
 ARRAY_MODES = {"tidy", "crlf", "artifacts", "deps", "docs", "packaging"}
 
 
-def test_repo_array_modes_report_unscanned_not_clean_on_an_empty_root(tmp_path):
+def test_repo_array_modes_report_unscanned_not_clean_on_an_empty_root(empty_root_default):
     # A zero from "nothing was scanned" and a zero from "nothing was wrong" are
     # indistinguishable to a consumer, so the first must not be called `clean`.
-    rows = {row["mode"]: row for row in json.loads(_run(["--json"], tmp_path).stdout)["rows"]}
+    rows = {row["mode"]: row for row in empty_root_default["rows"]}
 
     for mode in ARRAY_MODES:
         assert rows[mode]["status"] == "unscanned", mode
@@ -1185,8 +1181,8 @@ def test_repo_array_modes_report_unscanned_not_clean_on_an_empty_root(tmp_path):
         assert "no managed checkouts" in rows[mode]["reason"], mode
 
 
-def test_an_empty_root_is_reported_in_the_default_envelope_and_banner(tmp_path):
-    doc = json.loads(_run(["--json"], tmp_path).stdout)
+def test_an_empty_root_is_reported_in_the_default_envelope_and_banner(tmp_path, empty_root_default):
+    doc = empty_root_default
     assert doc["repos_present"] == 0
     assert doc["repos_declared"] > 0
     assert "no managed checkouts" in doc["unscanned_reason"]
@@ -1194,19 +1190,6 @@ def test_an_empty_root_is_reported_in_the_default_envelope_and_banner(tmp_path):
     human = _run([], tmp_path).stdout
     assert "SCANNED 0 REPOS" in human
     assert "NOT a clean bill of health" in human
-
-
-def test_helper_backed_modes_still_report_findings_on_an_empty_root(tmp_path):
-    # docstrings/refs/optdeps/extras discover their own targets by walking the
-    # root, so they can legitimately find material the body map never names.
-    # Suppressing them alongside the repo-array modes would hide real findings.
-    _write_docstring_fixture(tmp_path)
-
-    rows = {row["mode"]: row for row in json.loads(_run(["--json"], tmp_path).stdout)["rows"]}
-
-    assert rows["docstrings"]["status"] != "unscanned"
-    assert rows["docstrings"]["count"] > 0
-    assert "Recommended next: hygiene docstrings" in _run([], tmp_path).stdout
 
 
 def test_an_unreachable_body_map_reports_unscanned_rather_than_clean(tmp_path):

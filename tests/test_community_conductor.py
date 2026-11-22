@@ -8,15 +8,14 @@ tests can prove no mutating endpoint is ever hit) and never writes files.
 """
 
 import json
-import os
 import stat
-import subprocess
 from pathlib import Path
 
 import pytest
 
+from _helpers import run_brain
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 SCAN_KEYS = {
     "self_logins", "org", "hub", "extra_repos", "open_discussions",
@@ -119,16 +118,9 @@ exit 1
 
 
 def _run(args, tmp_path, stub):
-    env = {
-        **os.environ,
-        "PYAUTO_ROOT": str(tmp_path),
-        "COMMUNITY_GH": str(stub),
-        "COMMUNITY_SEARCH_PAUSE": "0",
-    }
-    return subprocess.run(
-        [str(BRAIN), "community", *args],
-        capture_output=True, text=True, env=env, cwd=tmp_path,
-    )
+    return run_brain("community", args, tmp_path,
+                     {"COMMUNITY_GH": str(stub), "COMMUNITY_SEARCH_PAUSE": "0"},
+                     cwd=tmp_path)
 
 
 

@@ -46,11 +46,6 @@ PYAUTO_ROOT, ROOT_REASON = _pyauto_root.workspace_root_reason()
 GH = os.environ.get("BOARD_GH", "gh")
 POLICY_PATH = BRAIN_HOME / "config" / "policy.yaml"
 
-# A successful scheduled run carrying a step with this name prefix stopped on
-# purpose and made no change (the nightly driver's OUTCOME CONTRACT). Keep in
-# sync with bin/overnight_status.sh and nightly-release.yml.
-BLOCKED_STEP_PREFIX = "Blocked at a gate"
-
 
 def fail(code, msg):
     print(f"board: {msg}", file=sys.stderr)
@@ -112,23 +107,18 @@ def derive_org(homes):
 # ---------------------------------------------------------------------------
 # The injection seam (--github-data)
 #
-# The legs of this board that read GitHub do so through `gh api`, and a Claude Code
-# remote session — the surface the board is actually read from on a phone — has
-# no `gh` at all. Its GitHub access is the `mcp__github__*` tool surface, which
-# is an AGENT capability: this file is a subprocess and cannot reach it, however
-# it is invoked. That is the whole reason this is a seam and not a substitution.
+# The legs of this board that read GitHub do so through `gh api`, and a Claude
+# Code remote session — the surface the board is read from on a phone — has no
+# `gh` at all. Its GitHub access is the `mcp__github__*` tool surface, an AGENT
+# capability this subprocess cannot reach; the session's injected $GH_TOKEN
+# gets 403 on every repo-scoped path. Hence a seam, not a substitution.
 #
 # So the `/board` skill (which is the agent) fetches, writes the responses to a
 # file, and passes it here; this stays a pure renderer. The map is keyed by the
 # endpoint exactly as `gh_json` receives it, so injected and live data are
-# interchangeable by construction rather than by convention — a key that drifts
-# from its call site simply misses, and a miss is "could not ask", which is a
-# state this board already renders honestly.
-#
-# The alternative — an org admin connecting the Claude GitHub App so the
-# injected $GH_TOKEN works from a subprocess — was probed on 2026-08-27 and
-# does not work: 200 on /user and /rate_limit, 403 on every repo-scoped path.
-# If that changes, this seam becomes deletable; keep it small enough to delete.
+# interchangeable by construction — a key that drifts from its call site simply
+# misses, and a miss is "could not ask", a state this board already renders
+# honestly. Keep the seam small enough to delete.
 # ---------------------------------------------------------------------------
 
 _INJECTED = None
@@ -193,72 +183,14 @@ def age_label(hours):
     return f"{hours}h" if hours < 48 else f"{hours // 24}d"
 
 
-def collect_overnight(jobs, org, degraded):
-    """Legacy explicit diagnostic helper; never called by dashboard collection.
-
-    This latest-run view cannot establish activity across a requested period.
-    """
-    rows = []
-    for job in jobs:
-        repo, _, wf = str(job).partition(":")
-        if "/" not in repo:
-            repo = f"{org}/{repo}"
-        runs = gh_json([f"repos/{repo}/actions/workflows/{wf}/runs?per_page=1"])
-        run = (runs or {}).get("workflow_runs") or [None]
-        run = run[0]
-        if run is None:
-            # "no runs" and "could not ask" are different facts and must not
-            # render the same. Without gh (a remote session has none) every
-            # workflow reported "no runs" — a claim about the world, from a
-            # board that had never been able to query it.
-            unreadable = runs is None
-            if unreadable:
-                degraded.append(f"overnight: could not read {repo}/{wf}")
-            rows.append({"repo": repo, "workflow": wf, "conclusion": None,
-                         "age_h": None, "url": None, "blocked": False,
-                         "blocked_reason": None, "unreadable": unreadable})
-            continue
-        conclusion = run.get("conclusion") or run.get("status")
-        blocked = False
-        blocked_reason = None
-        if conclusion == "success" and run.get("id"):
-            jobs_json = gh_json([f"repos/{repo}/actions/runs/{run['id']}/jobs"])
-            for j in (jobs_json or {}).get("jobs", []):
-                for step in j.get("steps") or []:
-                    if (step.get("conclusion") == "success"
-                            and str(step.get("name", "")).startswith(BLOCKED_STEP_PREFIX)):
-                        blocked = True
-                        # The blocked step's ::warning annotation names why —
-                        # surface it here so the morning glance needs no click.
-                        anns = gh_json(
-                            [f"repos/{repo}/check-runs/{j.get('id')}/annotations"])
-                        for a in anns or []:
-                            if "blocked" in str(a.get("title", "")).lower():
-                                blocked_reason = str(a.get("message", ""))[:200]
-                                break
-        rows.append({
-            "repo": repo,
-            "workflow": wf,
-            "conclusion": conclusion,
-            "age_h": age_h(run.get("created_at")),
-            "url": run.get("html_url"),
-            "blocked": blocked,
-            "blocked_reason": blocked_reason,
-            "unreadable": False,
-        })
-    return rows
-
-
 def _fetch_reason(exc):
     """Why a published surface could not be read, in the reader's terms.
 
     "unreachable" covers two very different situations and the difference is
     the actionable part: a transient network failure is worth retrying, while
-    an egress policy that refuses the host will refuse it every time until
-    someone adds it to the environment's allowlist. A remote session hits the
-    second — the sibling boards are GitHub Pages, and the proxy answers 403 to
-    CONNECT for that host — so the board reported "unreachable" every morning
-    for a reason no amount of retrying would change.
+    an egress policy that refuses the host (a remote session's proxy answers
+    403 to CONNECT for GitHub Pages) will refuse it every time until someone
+    adds it to the environment's allowlist.
     """
     code = getattr(exc, "code", None)
     reason = str(getattr(exc, "reason", exc))
@@ -345,24 +277,6 @@ def extract_heart_blockers(board):
         # Heart publish. Forwarded verbatim, like everything else here.
         "command": b.get("command"),
     } for b in blockers[:HEART_BLOCKER_CAP]]
-
-
-def extract_heart_plan(board):
-    """The Heart's whole-tier remedy — one payload that closes every current
-    evidence gap ({count, command, prompt}). Rendered here verbatim; the Brain
-    never derives a remedy of its own. None when nothing is stale, or when the
-    surface predates the field."""
-    plan = (board or {}).get("stale_plan")
-    if not isinstance(plan, dict) or not plan.get("prompt"):
-        return None
-    return {"count": plan.get("count"),
-            "command": plan.get("command"),
-            "prompt": str(plan["prompt"])}
-
-
-def fetch_heart_blockers(pages_base, repo, degraded):
-    """Fetch-and-extract in one call (the blockers-only door)."""
-    return extract_heart_blockers(fetch_heart_board(pages_base, repo, degraded))
 
 
 def _as_list(value):
@@ -478,11 +392,9 @@ def extract_heart_performance(board, board_url=""):
 def open_issues_endpoint(org):
     """The upkeep leg's `gh api` endpoint — also its `--github-data` key.
 
-    Upkeep is the board's only remaining GitHub leg (versions, community and
-    resume were retired with the agents/workflows simplification and are not
-    collected at all), so this is the one key a gh-less gatherer must supply.
-    The response is GitHub's search payload verbatim; the leg reads
-    `total_count`.
+    Upkeep is the board's only GitHub leg, so this is the one key a gh-less
+    gatherer must supply. The response is GitHub's search payload verbatim;
+    the leg reads `total_count`.
     """
     return f"search/issues?q=org:{org}+is:issue+is:open&per_page=1"
 
@@ -655,10 +567,8 @@ def headline(data):
     """The one line a reader acts on — qualified by how much was actually read.
 
     "clear to work" is a claim of knowledge, and a board whose legs could not
-    be queried has none. A remote session (no gh, Pages blocked by the egress
-    policy) rendered every section empty and still headlined "clear to work" in
-    brightgreen: the strongest possible all-clear, from a board that had asked
-    nothing. Absence of findings is not a finding.
+    be queried (no gh, Pages blocked by the egress policy) has none. Absence
+    of findings is not a finding.
     """
     core = "Agents & workflows"
     unread = len(data.get("degraded") or [])
@@ -724,51 +634,6 @@ def _iso_generated(data, *, fallback=True):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _overnight_state_item(r):
-    """Describe an observation and existing next steps; never execute them.
-
-    Identity follows the workflow across runs. The run URL is evidence, not
-    identity, so future consumers can compare records without scraping text.
-    """
-    where = f"{r['repo']}/{r['workflow']}"
-    item = {"id": f"overnight:{where}", "url": r.get("url"),
-            "actions": [], "prompt": None}
-    conclusion = r.get("conclusion")
-    if r.get("unreadable"):
-        item.update(severity="info", state="unknown",
-                    text=f"overnight: could not read {where}",
-                    reason="The workflow runs endpoint could not be read.")
-    elif r.get("blocked"):
-        item.update(severity="yellow", state="blocked",
-                    text=f"overnight: {where} blocked at a gate",
-                    reason=" ".join((r.get("blocked_reason") or
-                                     "A successful gate step reported that work was blocked.").split()))
-    elif conclusion in (None, "success"):
-        return None  # This feed is an attention list, not a run inventory.
-    else:
-        canonical = {"failure": "failed", "timed_out": "failed",
-                     "startup_failure": "failed", "action_required": "action_required",
-                     "queued": "active", "in_progress": "active", "waiting": "active",
-                     "pending": "active", "requested": "active"}.get(conclusion, "unknown")
-        prompt = (f"Use the bug skill. overnight: {where} concluded "
-                  f"{conclusion} — {r.get('url') or 'no run url'}")
-        item.update(severity="info" if canonical == "active" else "red",
-                    state=canonical, text=f"overnight: {where} {conclusion}",
-                    reason=f"GitHub reports the latest workflow run as {conclusion}.")
-        if canonical != "active":
-            item["prompt"] = prompt  # Keep the legacy copy payload compatible.
-            item["actions"].append({"id": "investigate", "label": "Copy investigation prompt",
-                                    "kind": "prompt", "target": prompt,
-                                    "safety": "requires_approval"})
-            item["recommended_action_id"] = "investigate"
-    if r.get("url"):
-        item["actions"].append({"id": "view-run", "label": "View run",
-                                "kind": "link", "target": r["url"], "safety": "read_only"})
-        item.setdefault("recommended_action_id", "view-run")
-    # A blocked gate alone does not prove a scientific/design decision is needed.
-    return item
-
-
 def render_state(data):
     """state.json — the organ cockpit feed (board/_state.py, contract v1).
 
@@ -789,25 +654,6 @@ def render_state(data):
         items=(),  # No scheduled activity digest; owners keep operational evidence.
     )
     return json.dumps(state, indent=2) + "\n"
-
-
-def _overnight_line(r):
-    if r.get("unreadable"):
-        return f"? {r['repo']}/{r['workflow']} — evidence unavailable"
-    if r["conclusion"] is None:
-        return f"– {r['repo']}/{r['workflow']} — no runs"
-    if r["blocked"]:
-        return (f"⏸ {r['repo']}/{r['workflow']} — blocked at a gate, no change "
-                f"made ({age_label(r['age_h'])})")
-    icon = "✓" if r["conclusion"] == "success" else "✗"
-    return f"{icon} {r['repo']}/{r['workflow']} — {r['conclusion']} ({age_label(r['age_h'])})"
-
-
-def review_runs(data):
-    """Only actionable or unavailable runs; successful routine runs stay in JSON."""
-    return [r for r in data.get("overnight", [])
-            if r.get("unreadable") or r.get("blocked")
-            or r.get("conclusion") != "success"]
 
 
 MAINTENANCE_ACTIONS = (

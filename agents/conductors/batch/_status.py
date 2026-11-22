@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """agents/conductors/batch/_status.py — one reading of "is a batch in flight?".
 
-The Mind's dashboard shows this as the Shift part of its Autopilot block
-(PyAutoBrain#650): the slot that is in flight, every member on one line, and —
-once there is something to review — the button to its packet. The *reading* lives here and the dashboard only supplies its facts.
+The Mind's dashboard shows this as the Shift part of its Autopilot block: the
+slot that is in flight, every member on one line, and — once there is
+something to review — the button to its packet. The *reading* lives here and
+the dashboard only supplies its facts.
 
 Two constraints shape this module, and they are why it is a module at all:
 
@@ -14,13 +15,9 @@ Two constraints shape this module, and they are why it is a module at all:
   box that said "3h ago" would be drift on every re-render of an unchanged
   tree, and `dashboard --check` would report it as such.
 
-The vocabulary (`RECORD_KEY`, `RULING_WORDS`, `PENDING_RE`) lives here and
+The vocabulary (`RECORD_KEY`, `PENDING_RE`) lives here and
 `_batch.py` imports it back, so the words the record is written in have one
 definition.
-
-It rendered a second box for the Cortex until 2026-09-03, when the science
-review slot was retired (PyAutoCortex#9); checking in on the science is
-`pyauto-brain cortex checkin` now, and that surface has no board of its own.
 """
 
 from __future__ import annotations
@@ -43,13 +40,6 @@ from _theme import pills  # noqa: E402
 #: `_cortex.py`'s reader so all three organs read one record the same way.
 RECORD_KEY = re.compile(r"^- ([a-z][a-z0-9-]*):(?:\s+(.*?))?\s*$")
 
-#: Outcome tokens a human (or an earlier collect) already ruled with. A record
-#: line opening with one of these is a VERDICT, and `--apply` leaves it alone.
-RULING_WORDS = {"DELIVERED", "NOT-DELIVERED", "FAILED", "MERGED", "PARKED",
-                "CARRIED", "SUSPECT", "REJECTED", "ACCEPTED", "UNREVIEWED",
-                "STRUCTURE-OK", "LEAVE-TO-FINISH", "TWEAK", "DEFER", "PENDING",
-                "HEALTHY", "MERGE", "REJECT", "DROP", "DROPPED", "RERUN",
-                "ACCEPT"}
 
 #: An outcome that says the member had not finished when the record was
 #: written. These are the words the ledger actually uses (`REFRESHED … still
@@ -112,29 +102,9 @@ def _head(text: str, limit: int = 72) -> str:
     return head if len(head) <= limit else head[:limit - 1].rstrip() + "…"
 
 
-def _first_word(text: str) -> str:
-    words = (text or "").split()
-    return words[0].strip("(,.").upper() if words else ""
-
-
-def freeze_line(rec: dict | None) -> str:
-    """The Heart freeze flag as one line — `""` when nothing is frozen.
-
-    `rec` is PyAutoHeart's own reading (`pyauto-heart freeze --show --json`, or
-    the `freeze.json` sidecar read straight off disk). Heart owns the flag and
-    is its only writer; this is the Brain-side copy of the *wording*, kept
-    byte-identical to `PyAutoHeart/heart/freeze.py::render_line` so the batch
-    box, `vitals` and `/prm` all say the same sentence. `expired` reads as
-    thawed, exactly as Heart reads it.
-    """
-    if not rec or rec.get("state") != "active":
-        return ""
-    return f"FROZEN: {rec.get('reason', 'unspecified')} until {rec.get('until', '?')}"
-
-
 def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
-               pages: str, freeze: str = "") -> dict | None:
-    """The Mind's (development) reading — today's behaviour, unchanged.
+               pages: str) -> dict | None:
+    """The Mind's (development) reading.
 
     A dev batch is dispatched at once and reviewed at once: it is open until
     it has been reviewed, and the review button appears when `collect` has
@@ -150,27 +120,17 @@ def dev_status(slot: str, keys: dict, members: list, review_exists: bool,
         elif PENDING_RE.search(outcome):
             state, detail = IN_PROGRESS, _head(outcome)
         else:
-            # A ruling word (`RULING_WORDS`) or a collect health reading —
+            # A ruling word or a health reading —
             # either way the member ended and a human can read it.
             state, detail = AWAITING, _head(outcome)
         rows.append({"slug": m.get("slug", ""), "state": state,
                      "detail": detail})
     return _status(slot, "dev", keys, rows,
-                   reviewable=bool(_one(keys, "collected")), pages=pages,
-                   freeze=freeze)
+                   reviewable=bool(_one(keys, "collected")), pages=pages)
 
 
 def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
-            pages: str, freeze: str = "") -> dict:
-    """`freeze` is a caller-supplied FACT, and defaults to nothing on purpose.
-
-    The flag lives in the dev box's `~/.pyauto-heart/`, which is machine state
-    and not in any checkout — so a surface that renders a **committed**
-    artifact must not pass it. The Mind's dashboard is regenerated in CI, where
-    that state does not exist, and a freeze folded into the page would read as
-    dashboard drift on the next `--check`. `batch collect`, which runs on the
-    box that holds the state and prints to a terminal, passes it.
-    """
+            pages: str) -> dict:
     return {
         "slot": slot,
         "kind": kind,
@@ -181,9 +141,8 @@ def _status(slot: str, kind: str, keys: dict, rows: list, reviewable: bool,
         "reviewable": reviewable,
         "url": review_url(pages, slot) if reviewable else "",
         "packet": f"batches/packets/{slot}.html",
-        "freeze": freeze,
         # A running shift's status, as its watcher last wrote it into the
-        # record (`- live:`, PyAutoBrain#622) — a record line, not a clock.
+        # record (`- live:`) — a record line, not a clock.
         "live": _one(keys, "live"),
         "issue": issue_url(keys),
     }
@@ -312,8 +271,6 @@ def render_html(st: dict | None, last: dict | None = None) -> str:
                 f'<p class="muted">({esc(text)}{link})</p>')
     H = [f'<h3 id="{ANCHOR}">Shift <span class="facets">({esc(st["slot"])} — '
          f"{esc(_counts(st))})</span></h3>"]
-    if st.get("freeze"):
-        H.append(f'<p class="facets">{esc(st["freeze"])}</p>')
     text, url = _live_parts(st.get("live") or "")
     url = url or st.get("issue", "")
     if text or url:
@@ -350,8 +307,6 @@ def render_md(st: dict | None, last: dict | None = None) -> str:
         text, url = _quiet(st, last)
         return "**Shift**\n\n_(" + text + (f" · [{_issue_label(url)}]({url})" if url else "") + ")_"
     L = [f"**Shift** ({st['slot']} — {_counts(st)})", ""]
-    if st.get("freeze"):
-        L += [st["freeze"], ""]
     text, url = _live_parts(st.get("live") or "")
     url = url or st.get("issue", "")
     if text or url:

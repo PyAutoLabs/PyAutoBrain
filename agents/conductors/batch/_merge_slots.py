@@ -1,13 +1,12 @@
-"""One merge-slot counter per shift (PyAutoBrain#661, ruling R3 of 2026-11-17).
+"""One merge-slot counter per shift.
 
 Inside a shift every merge counts against the brief's `merge-cap:`: a worker's
-in-turn `notify` merge and the watcher's close-outs alike. Shift 2026-11-16-pm
-read "2 merged of merge-cap 1" because the workers never asked. A worker runs
+in-turn `notify` merge and the watcher's close-outs alike. A worker runs
 `pyauto-brain merge-slot take <pr>` (`bin/merge_slot.py`) as its own bare call
 before its bare `gh pr merge`; so does a merge close-out session, immediately
-before its merge (M3.7b, PyAutoBrain#688, decision A). The watcher takes a slot
-only before it spawns a branch-update session; before a merge close-out it only
-reads whether one is free (`room`). All write the same file.
+before its merge. The watcher takes a slot only before it spawns a
+branch-update session; before a merge close-out it only reads whether one is
+free (`room`). All write the same file.
 
 The file is `merge_slots.json` in the shift's slot directory, read and written
 under an exclusive `fcntl.flock` on `merge_slots.lock` beside it, and written
@@ -166,10 +165,10 @@ def take(slot: Path, pr: str, by: str, task: str = "") -> tuple[bool, str]:
 
 def room(slot: Path, pr: str, task: str, pending: int = 0) -> tuple[bool, str]:
     """(free, why) — whether `take(pr, task)` would succeed now, read only:
-    nothing is taken and no refusal recorded (M3.7b, decision A: the watcher
-    reads this before a merge close-out; the session takes its slot itself,
-    immediately before the merge). `pending` is the slots already promised to
-    close-outs still running without one, so the cap is never oversold."""
+    nothing is taken and no refusal recorded. The watcher reads this before a
+    merge close-out; the session takes its slot itself, immediately before
+    the merge. `pending` is the slots already promised to close-outs still
+    running without one, so the cap is never oversold."""
     key = pr_key(pr)
     if key is None:
         return False, (f"{pr!r} is not a https://github.com/<owner>/<repo>/pull/<n> URL "

@@ -1,7 +1,7 @@
-"""The shift-end cloud workspace sweep (M3.7e, PyAutoBrain#692; ruling S4).
+"""The shift-end cloud workspace sweep.
 
-AUTONOMY.md "Shift speed — 2026-11-19" (S4 and the red handling) and "The
-watcher's network surface" (amendment 2026-11-19, M3.7e). The watcher:
+AUTONOMY.md "Shift speed" and "The watcher's network surface" state the
+rules. The watcher:
 
 - dispatches the sweep workflow once at shift close, when the shift merged
   at least one library or workspace PR (`dispatch`), with no inputs — never
@@ -18,8 +18,8 @@ watcher's network surface" (amendment 2026-11-19, M3.7e). The watcher:
   naming the failing scripts and the suspect PRs (one `compare` read per
   affected repo per red run, cached).
 
-Every call runs under the human's own `gh` login (decision b): `run_gh` passes
-no App token. Which repo and workflow come from `config/policy.yaml`
+Every call runs under the human's own `gh` login: `run_gh` passes no App
+token. Which repo and workflow come from `config/policy.yaml`
 `shift_watcher:` (`sweep_repo`, `sweep_workflow`, `sweep_siblings`); the
 install chains from Heart's `config/repos.yaml` `smoke:` block and the
 workspace map of its validation workflow, read from the local Heart checkout.
@@ -37,7 +37,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-#: The artifacts the sweep uploads (PyAutoHeart workspace-smoke.yml, M3.7d).
+#: The artifacts the sweep uploads (PyAutoHeart workspace-smoke.yml).
 SHAS_ARTIFACT = "workspace-smoke-shas"
 SHAS_FILE = "shas.json"
 REPORT_ARTIFACT = "workspace-validation-report"
@@ -50,17 +50,17 @@ RUN_LIST_LIMIT = 10
 #: `success` and is green.
 RED = ("failure", "timed_out", "startup_failure")
 #: Conclusions that are no verdict at all: the run before them on `main` is
-#: the latest one read (review round 1).
+#: the latest one read.
 NO_VERDICT = ("cancelled",)
 #: A run list failing for this long without a successful read in between
 #: (measured from the streak's first failure) holds every PR a merge could
-#: break: a wait, not a refusal (review round 2).
+#: break: a wait, not a refusal.
 UNKNOWN_AFTER_S = 1800
 #: A failed read starts a fresh streak when the previous read attempt (good
 #: or failed) was made by another shift (`read_shift`, none recorded counts
 #: as another), or is older than this backstop: far above any tick, even one
 #: whose gh calls all hang to their timeouts; it covers a laptop asleep
-#: mid-shift (#694, review round 1).
+#: mid-shift.
 SWEEP_STREAK_GAP_S = 7200
 UNKNOWN_WHY = "workspace sweep unknown: run list unreadable since {since}"
 SWEEP_DIR = "sweep"
@@ -161,12 +161,12 @@ def heart_map(root: Path | None = None) -> dict:
     return out
 
 
-# --- the one runner: the human's own gh login (decision b) -------------------------------
+# --- the one runner: the human's own gh login ----------------------------------------
 
 def run_gh(argv: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
     """Run one `gh` call under the human's own login: no `GH_TOKEN` from the
-    watcher's App is passed (AUTONOMY.md amendment 2026-11-19, M3.7e). The
-    test suite replaces this function (tests/conftest.py)."""
+    watcher's App is passed (AUTONOMY.md "The watcher's network surface").
+    The test suite replaces this function (tests/conftest.py)."""
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
 
 

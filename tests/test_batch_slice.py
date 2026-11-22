@@ -10,18 +10,12 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-_spec = importlib.util.spec_from_file_location(
-    "_batch_slice_under_test", BRAIN / "agents" / "conductors" / "batch" / "_batch.py")
-_batch = importlib.util.module_from_spec(_spec)
-sys.modules["_batch_slice_under_test"] = _batch
-_spec.loader.exec_module(_batch)
+from _shift_fixtures import _batch  # noqa: E402
 import _slice  # noqa: E402  (importable once _batch set sys.path)
 
 PARENT = "draft/feature/autofit/big_thing.md"

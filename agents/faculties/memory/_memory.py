@@ -38,16 +38,15 @@ def surfaces(memory: Path | None, assistant: Path | None, mind: Path | None):
     """Yield (surface-name, root, md-file) triples, discovered at query time."""
     if memory and memory.is_dir():
         # The repo's own entry surfaces: the hand-written index, the reading
-        # queue, the bibliography workflow, and the wiki schema. Without
-        # these the front door PyAutoMemory/AGENTS.md points every agent at
-        # ("index first") was invisible to this faculty (PyAutoBrain#239).
+        # queue, the bibliography workflow, and the wiki schema — the front
+        # door PyAutoMemory/AGENTS.md points every agent at ("index first").
         for rel in ("index.md", "reading-queue.md",
                     "bibliography/README.md", "wiki/AGENTS.md"):
             f = memory / rel
             if f.is_file():
                 yield "PyAutoMemory/root", memory, f
         # wiki/<domain>/ is the current layout; root-level *_wiki/ is the
-        # pre-2026-07 layout, kept for older checkouts and forks.
+        # older one, kept for older checkouts and forks.
         wikis = sorted(d for d in memory.glob("wiki/*") if d.is_dir())
         wikis += sorted(memory.glob("*_wiki"))
         for wiki in wikis:
@@ -69,8 +68,8 @@ def surfaces(memory: Path | None, assistant: Path | None, mind: Path | None):
                     yield f"autolens_assistant/{sub}", assistant.parent, f
     comp = mind / "complete" if mind else None
     if comp and comp.is_dir():
-        # the dated records are Mind's completion history (complete.md retired,
-        # issue #81); archive/ holds non-record material, index/AGENTS are meta
+        # the dated records are Mind's completion history; archive/ holds
+        # non-record material, index/AGENTS are meta
         for f in comp.rglob("*.md"):
             if f.name in ("index.md", "AGENTS.md"):
                 continue

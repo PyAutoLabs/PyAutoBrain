@@ -15,15 +15,11 @@ fixtures only.
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
+import _shift_fixtures as sf
 import test_orchestrator_dispatch as d  # noqa: E402 — the real-spawner fixtures
 from test_orchestrator_dispatch import _digest, orch  # noqa: E402
 import _batch  # noqa: E402
@@ -177,17 +173,9 @@ def test_4_a_backlog_draft_with_no_witness_is_skipped_and_counted(tmp_path):
 
 # --- 5. R2: a repo another active task claims is never dispatched, and counted --------
 
-def _git(cwd, *args):
-    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    assert res.returncode == 0, (args, res.stderr)
-
-
+@sf.needs_git
 def test_5_a_coordinated_claim_frees_its_repo_only_for_the_task_it_names(tmp_path):
-    if shutil.which("git") is None:
-        pytest.skip("needs git")
-    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
-    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    _git(tmp_path, "clone", "-q", str(bare), str(mind))
+    _, mind = sf.bare_mind(tmp_path)
     other = _write(mind, "grid_offset_roundtrip", target="PyAutoCortex")
     sharer = _write(mind, "three_autos_public_framing", target="PyAutoCortex")
     (mind / "active.md").write_text(
@@ -195,11 +183,7 @@ def test_5_a_coordinated_claim_frees_its_repo_only_for_the_task_it_names(tmp_pat
         "- repos:\n  - PyAutoCortex: feature/ep-projected-model-shared-prior\n"
         "- conflict-override: PyAutoCortex also claimed by three-autos-public-framing; "
         "human approved a separate worktree\n")
-    _git(mind, "add", "-A")
-    _git(mind, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q",
-         "-m", "seed")
-    _git(mind, "push", "-q", "origin", "HEAD:main")
-    _git(mind, "fetch", "-q", "origin")
+    sf.push(mind)
     records = [_batch.grade(mind / p, mind) for p in (other, sharer)]
     kept, out = orch.on_origin(records, mind, own=set())
     assert [r["path"] for r in kept] == [sharer]
@@ -365,10 +349,13 @@ def test_review2_self_code_is_refused_in_every_spelling(tmp_path, body, target):
     "Fires on `example-org/PyAutoPulse` and `example-org/PyAutoHands`.",
     "Moves the watcher, as `draft/feature/pyautobrain/other.md` and `batches/2026-11-13-am.md` say.",
     "From v1.2/v1.3.0 onwards.",
+    # third review: repo directories and a relative Mind record
+    "See `PyAutoBrain/`.", "See `example-org/PyAutoBrain/`.", "As `../../../active/foo.md` says.",
 ])
-def test_review2_repo_names_mind_records_and_versions_show_nothing(tmp_path, body):
+def test_review2_repo_names_dirs_mind_records_and_versions_show_nothing(tmp_path, body):
     errors, warnings, notes = _organ(tmp_path, body, target="PyAutoBrain")
-    assert errors == [] and notes == [] and "names no path" in warnings[0], (errors, warnings)
+    assert errors == [] and notes == [] and "names no path" in warnings[0], (
+        errors, warnings, notes)
 
 
 def test_review2_branch_names_are_not_hands_paths(tmp_path):
@@ -404,13 +391,6 @@ def test_review3_a_repos_own_ci_workflow_is_not_the_minds(tmp_path):
 def test_review3_a_self_directory_without_its_slash_is_still_read(tmp_path, body):
     errors, _, _ = _organ(tmp_path, body, target="PyAutoMind")
     assert errors
-
-
-@pytest.mark.parametrize("body", ["See `PyAutoBrain/`.", "See `example-org/PyAutoBrain/`.",
-                                  "As `../../../active/foo.md` says."])
-def test_review3_repo_dirs_and_relative_records_show_nothing(tmp_path, body):
-    errors, warnings, notes = _organ(tmp_path, body, target="PyAutoBrain")
-    assert errors == [] and notes == [] and "names no path" in warnings[0], (warnings, notes)
 
 
 def test_review4_the_batch_conductor_is_refused_whatever_the_task_declares(tmp_path):
@@ -470,44 +450,11 @@ def test_679_1_the_second_task_on_a_library_waits_while_the_first_is_live(tmp_pa
                      "ends"}, named
 
 
-def test_679_2_the_second_task_starts_once_every_pr_of_the_first_has_merged(tmp_path):
-    mind, brief, home = _galaxy_shift(tmp_path)
-    _end(brief, home, "ag_bug_one", {"prs": [PR1], "merged": [PR1], "issues": []})
-    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
-    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
-
-
-def test_679_3_a_question_still_holds(tmp_path):
-    mind, brief, home = _galaxy_shift(tmp_path)
-    _end(brief, home, "ag_bug_one",
-         {"prs": [], "merged": [], "issues": [ISSUE], "questions": [ISSUE]})
-    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
-    assert r["spawned"] == [], r
-
-
-def test_679_3_a_park_on_a_person_still_holds(tmp_path):
-    mind, brief, home = _galaxy_shift(tmp_path)
-    _end(brief, home, "ag_bug_one", None, how="parked")
-    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
-    assert r["spawned"] == [], r
-
-
-def test_679_4_an_abandoned_task_with_no_pr_frees_its_library(tmp_path):
-    mind, brief, home = _galaxy_shift(tmp_path)
-    _end(brief, home, "ag_bug_one", None, how="abandoned")
-    r = d._tick(brief, mind, home, NOW, d.FakeClaude())
-    assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
-
-
-def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
-    """The close-out queues `drop-section active.md`, but a set-aside op or a
-    failed push leaves the claim on origin: only this shift's own worker's
-    claim on a released pick is passed over; any other claim still holds."""
-    if shutil.which("git") is None:
-        pytest.skip("needs git")
-    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
-    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    _git(tmp_path, "clone", "-q", str(bare), str(mind))
+def _claimed_galaxy_mind(tmp_path):
+    """(mind, second task's path, claim(session)): a Mind clone of a bare
+    remote with two autogalaxy drafts; `claim` pushes an `active.md` in which
+    the first task holds the library under the named session."""
+    _, mind = sf.bare_mind(tmp_path)
     first = _write(mind, "ag_bug_one", target="autogalaxy")
     second = _write(mind, "ag_bug_two", target="autogalaxy")
 
@@ -515,12 +462,17 @@ def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
         (mind / "active.md").write_text(
             f"# Active\n\n## ag-bug-one\n- prompt: {first}\n- session: {session}\n"
             "- repos:\n  - autogalaxy: feature/ag-bug-one\n")
-        _git(mind, "add", "-A")
-        _git(mind, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit",
-             "-q", "-m", "claim")
-        _git(mind, "push", "-q", "origin", "HEAD:main")
-        _git(mind, "fetch", "-q", "origin")
+        sf.push(mind, "claim")
 
+    return mind, second, claim
+
+
+@sf.needs_git
+def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
+    """The close-out queues `drop-section active.md`, but a set-aside op or a
+    failed push leaves the claim on origin: only this shift's own worker's
+    claim on a released pick is passed over; any other claim still holds."""
+    mind, second, claim = _claimed_galaxy_mind(tmp_path)
     claim("shift worker 2026-11-18-pm (abc123)")
     records = [_batch.grade(mind / second, mind)]
     held = {second: "repo autogalaxy claimed by `ag-bug-one` in active.md on "
@@ -539,34 +491,44 @@ def test_679_5_a_released_picks_leftover_claim_does_not_hold_its_repo(tmp_path):
 
 # --- M3.6j (PyAutoBrain#683): starts wait for a live worker only -----------------------
 
-@pytest.mark.parametrize("outcome, extra", [
-    ({"prs": [PR1], "merged": [], "issues": []}, {}),                     # PR open
-    ({"prs": [PR1], "merged": [], "issues": []},                          # decision-taken
-     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused",
-                          "why": "decision-taken label → human /prm"}}}),
-    ({"prs": [PR1], "merged": [], "issues": []},                          # public name
-     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused",
-                          "why": "public name added/renamed: Thing → human /prm"}}}),
-    ({"prs": [PR1], "merged": [], "issues": []},                          # judge
-     {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused",
-                          "why": "tier judge — never merged unattended → your /prm"}}}),
-    ({"prs": [PR1, PR1 + "0"], "merged": [PR1], "issues": []}, {}),       # one of two
+_OPEN = {"prs": [PR1], "merged": [], "issues": []}
+
+
+def _refused(why):
+    return {"closeouts": {PR1: {"task": "ag_bug_one", "state": "refused", "why": why}}}
+
+
+@pytest.mark.parametrize("how, outcome, extra", [
+    pytest.param("done", _OPEN, {}, id="pr-open"),
+    pytest.param("done", _OPEN, _refused("decision-taken label → human /prm"),
+                 id="decision-taken"),
+    pytest.param("done", _OPEN, _refused("public name added/renamed: Thing → human /prm"),
+                 id="public-name"),
+    pytest.param("done", _OPEN, _refused("tier judge — never merged unattended → your /prm"),
+                 id="judge"),
+    pytest.param("done", {"prs": [PR1, PR1 + "0"], "merged": [PR1], "issues": []}, {},
+                 id="one-of-two-merged"),
+    # PyAutoBrain#679 clauses 2 and 4, which M3.6j widened into the rule above.
+    pytest.param("done", {"prs": [PR1], "merged": [PR1], "issues": []}, {},
+                 id="679_2-every-pr-merged"),
+    pytest.param("abandoned", None, {}, id="679_4-abandoned-with-no-pr"),
 ])
 def test_683_1_the_second_task_starts_once_the_first_worker_ended_pr_open(
-        tmp_path, outcome, extra):
+        tmp_path, how, outcome, extra):
     mind, brief, home = _galaxy_shift(tmp_path)
-    _end(brief, home, "ag_bug_one", outcome, **extra)
+    _end(brief, home, "ag_bug_one", outcome, how=how, **extra)
     r = d._tick(brief, mind, home, NOW, d.FakeClaude())
     assert [s["task"] for s in r["spawned"]] == ["ag_bug_two"], r
 
 
 @pytest.mark.parametrize("how, outcome, extra", [
-    ("done", {"prs": [], "merged": [], "issues": [ISSUE], "questions": [ISSUE]}, {}),
-    ("parked", None, {}),                                         # ruling d
-    ("done", {"prs": [PR1], "merged": [], "issues": []},          # /kill: re-dispatch
-     {"pending_redispatch": ["ag_bug_one"]}),
-    ("done", {"prs": [PR1], "merged": [], "issues": []},          # answered, to restart
-     {"inshift_pending": {"ag_bug_one": {"ids": ["Q1"]}}}),
+    pytest.param("done", {"prs": [], "merged": [], "issues": [ISSUE], "questions": [ISSUE]},
+                 {}, id="question"),                               # also #679 clause 3
+    pytest.param("parked", None, {}, id="park-on-a-person"),       # ruling d; #679 clause 3
+    pytest.param("done", _OPEN, {"pending_redispatch": ["ag_bug_one"]},
+                 id="kill-redispatch"),
+    pytest.param("done", _OPEN, {"inshift_pending": {"ag_bug_one": {"ids": ["Q1"]}}},
+                 id="answered-to-restart"),
 ])
 def test_683_2_a_question_park_redispatch_or_restart_still_holds(tmp_path, how, outcome,
                                                                  extra):
@@ -574,6 +536,8 @@ def test_683_2_a_question_park_redispatch_or_restart_still_holds(tmp_path, how, 
     _end(brief, home, "ag_bug_one", outcome, how=how, **extra)
     r = d._tick(brief, mind, home, NOW, d.FakeClaude())
     assert "ag_bug_two" not in [s["task"] for s in r["spawned"]], r
+    if not extra:           # nothing of the first task's to restart: nothing starts
+        assert r["spawned"] == [], r
 
 
 def test_683_3_never_two_workers_on_one_library_the_reason_names_the_live_one(tmp_path):
@@ -624,25 +588,12 @@ def test_683_6_a_worker_on_a_library_with_an_open_sibling_pr_is_told_not_to_stac
     assert not orch.worker_prompt("t", "p.md", brief, tmp_path).startswith("Open sibling")
 
 
+@sf.needs_git
 def test_683_7_a_finished_picks_leftover_claim_does_not_hold_with_its_pr_open(tmp_path):
     """test_679_5 with the first task's PR still open: `released_picks` now
     counts it, so its own shift worker's leftover claim holds nothing."""
-    if shutil.which("git") is None:
-        pytest.skip("needs git")
-    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
-    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    _git(tmp_path, "clone", "-q", str(bare), str(mind))
-    first = _write(mind, "ag_bug_one", target="autogalaxy")
-    second = _write(mind, "ag_bug_two", target="autogalaxy")
-    (mind / "active.md").write_text(
-        f"# Active\n\n## ag-bug-one\n- prompt: {first}\n"
-        "- session: shift worker 2026-11-18-pm (abc123)\n"
-        "- repos:\n  - autogalaxy: feature/ag-bug-one\n")
-    _git(mind, "add", "-A")
-    _git(mind, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit",
-         "-q", "-m", "claim")
-    _git(mind, "push", "-q", "origin", "HEAD:main")
-    _git(mind, "fetch", "-q", "origin")
+    mind, second, claim = _claimed_galaxy_mind(tmp_path)
+    claim("shift worker 2026-11-18-pm (abc123)")
     records = [_batch.grade(mind / second, mind)]
     c = {"done": ["ag_bug_one"], "picks": {"ag_bug_one": {}},
          "outcomes": {"ag_bug_one": {"prs": [PR1], "merged": [], "issues": []}}}

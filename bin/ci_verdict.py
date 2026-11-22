@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""bin/ci_verdict.py — one CI verdict for one pull request (PyAutoBrain#628).
+"""bin/ci_verdict.py — one CI verdict for one pull request.
 
     pyauto-brain ci-verdict <owner/repo>#<n> [--json] [--until <iso8601>]
 
-WHY. The CI judgement for a merge lived in three places that disagreed: `/prm`
-prose, the shift watcher's `pr_health` (`batch/_digest.py`) and the close-out
-template. Six lessons (review finding FB-4) are about misreading a PR's CI:
-one run of four read as the whole, skipped legs read as green, a conflicting
-PR or an outage showing "no checks", and an empty head sha that matched every
-run in the repo. This is the one executable judgement every merge path uses.
+WHY. One executable CI judgement for every merge path (`/prm`, the shift
+watcher's `pr_health` in `batch/_digest.py`, the close-out template), because
+a PR's CI is easy to misread: one run of several read as the whole, skipped
+legs read as green, a conflicting PR or an outage showing "no checks", an
+empty head sha that matches every run in the repo.
 
 WHAT IT READS (read-only `gh api`, REST only):
   * the PR — head sha (`.head.sha`; an empty sha is refused, never queried),
@@ -33,13 +32,13 @@ else any PENDING reason makes it PENDING, else it is GREEN.
     it), and the summary says so.
 
 The watcher's network surface is `gh pr checks` only (AUTONOMY.md "The
-watcher's network surface — 2026-11-03"), so `pr_health` keeps that read and
-hands its rows to `judge` with mergeability not read (`from_pr_checks`).
+watcher's network surface"), so `pr_health` keeps that read and hands its rows
+to `judge` with mergeability not read (`from_pr_checks`).
 
 Exit status: 0 GREEN, 1 RED, 2 PENDING, 64 usage. `--json` prints one object.
 
-`--until <iso8601>` is the close-out's in-turn CI wait (ruling S5, M3.7b,
-PyAutoBrain#688): while the verdict is PENDING and the deadline has not
+`--until <iso8601>` is the close-out's in-turn CI wait: while the verdict is
+PENDING and the deadline has not
 passed, sleep 30 s and judge again. One call runs for at most about 540 s of
 wall time from its start, gh reads included (it reads again only while
 the next sleep plus its longest read so far still fits), so a single Bash
@@ -71,7 +70,7 @@ UNTIL_MAX_S = 540
 #: Completed conclusions that are green.
 SUCCESS = frozenset({"success"})
 #: Completed conclusions that never ran or say nothing: allowed, but named, and
-#: never evidence on their own (PyAutoHeart#343).
+#: never evidence on their own.
 SKIPPED = frozenset({"skipped", "neutral"})
 #: Completed conclusions that are red, by reason code.
 FAILED = {"failure": "check-failed", "error": "check-failed",

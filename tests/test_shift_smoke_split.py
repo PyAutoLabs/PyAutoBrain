@@ -7,13 +7,9 @@ merge; it now runs nowhere before a merge, and the cloud sweep runs after.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
+from _shift_fixtures import BATCH, BRAIN
 import _orchestrator as orch  # noqa: E402
 
 PR = "https://github.com/ExampleOrg/WidgetLib/pull/7"
@@ -42,6 +38,7 @@ def test_a_notify_worker_ends_at_pr_open_and_never_merges_in_turn():
     test_a_notify_pr_left_open_is_closed_out_like_glance."""
     prompt = orch.worker_prompt("t1", "draft/x/t1.md", Path("b.md"), Path("leases"))
     assert "`Consequence: glance` or `notify`, end at PR-open" in prompt
+    assert "independent close-out" in prompt         # who merges instead (phase 4b)
     # No in-turn merge commands are handed to the worker any more.
     assert "merge-slot take <pr-url>" not in prompt
     assert "merge-slot release" not in prompt
@@ -50,12 +47,6 @@ def test_a_notify_worker_ends_at_pr_open_and_never_merges_in_turn():
     sib = orch.worker_prompt("t1", "draft/x/t1.md", Path("b.md"), Path("leases"),
                              siblings=["https://github.com/o/r/pull/1"])
     assert "Never merge in-turn ahead" not in sib and "End at PR-open" in sib
-
-
-def test_the_watcher_still_closes_out_both_unattended_tiers():
-    src = (BATCH / "_orchestrator.py").read_text()
-    gate = src.split("def _start_closeouts", 1)[1]
-    assert 'if tier not in ("glance", "notify"):' in gate
 
 
 def test_autonomy_records_the_notify_ruling():

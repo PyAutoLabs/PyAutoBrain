@@ -10,19 +10,16 @@ the fixture uses invented domain names.
 import json
 import os
 import re
-import subprocess
 import time
 from pathlib import Path
 
+from _helpers import run_brain
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 
 def _run(args, env=None):
-    return subprocess.run(
-        [str(BRAIN), "eyes", *args], capture_output=True, text=True,
-        env={**os.environ, **(env or {})},
-    )
+    return run_brain("eyes", args, env=env)
 
 
 def _make_workspace(root: Path) -> Path:

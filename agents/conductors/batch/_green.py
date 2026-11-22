@@ -1,8 +1,6 @@
-"""The keep-Heart-green lane (PyAutoBrain#625) — runs at brief time.
+"""The keep-Heart-green lane — runs at brief time.
 
-The human, 2026-11-13: "having the autonomous agent constantly trying to
-ensure its green (without having it be overly eager doing releases)". So at
-`batch brief --new` (and `batch green`, its dry run) this reads Heart's
+At `batch brief --new` (and `batch green`, its dry run) this reads Heart's
 verdict, sorts every RED, YELLOW and STALE reason into one of four classes by
 the transparent RULES table below, and for the `fixable-dev` ones files at
 most `cap` bug drafts and, on the human's opt-in (`pick`), offers them as
@@ -16,10 +14,10 @@ What it may do: read Heart; write NEW draft prompts and its state file —
 only when the caller allows it (never in a preview, never into the shared
 canonical Mind: `_batch.write_hold`); return text for the brief. What it never
 does: release, rehearse, dispatch any workflow, force, touch a freeze, add a
-quarantine entry (that needs a human-filed bug task, ruling 2026-11-12 — it
-may only PROPOSE one), write `queue.md`, or edit another prompt. It imports
-no process or network module: Heart is read through `bin/heart_feed.py`
-(published feed or `pyauto-heart readiness --json`, nothing else), and
+quarantine entry (that needs a human-filed bug task — it may only PROPOSE
+one), write `queue.md`, or edit another prompt. It imports no process or
+network module: Heart is read through `bin/heart_feed.py` (published feed or
+`pyauto-heart readiness --json`, nothing else), and
 `tests/test_batch_green.py` pins that.
 """
 
@@ -41,7 +39,7 @@ CLASSES = ("fixable-dev", "local-checkout", "release-scope", "human-only")
 MODES = ("off", "report", "file", "pick")
 MODE_ENV = "PYAUTO_HEART_GREEN"
 #: `file` by default; `pick` (naming drafts as the brief's tasks) is the
-#: human's opt-in, `--green pick` or `$PYAUTO_HEART_GREEN=pick` (review of #625).
+#: human's opt-in, `--green pick` or `$PYAUTO_HEART_GREEN=pick`.
 DEFAULT_MODE = "file"
 DEFAULT_CAP = 3
 MAX_AGE_HOURS = 6.0
@@ -50,9 +48,9 @@ GOAL_PREFIX = "heart-green"
 KEY_MARK = "<!-- heart-key: {} -->"
 
 #: Manifest legs that judge TRACKED repo content on main, and so are a dev fix.
-#: Empty on purpose: every leg Heart reports today runs `repos_sync.py` over
-#: the checkouts on disk, other sessions' worktrees included (the 2026-11-13
-#: "tenant firewall — 40 mismatch(es)" were all in one session's worktree).
+#: Empty on purpose: every leg Heart reports runs `repos_sync.py` over the
+#: checkouts on disk, other sessions' worktrees included, so a mismatch there
+#: is not evidence about main.
 MANIFEST_FIXABLE: tuple[str, ...] = ()
 
 _CI = r"(?P<concl>failure|cancelled|timed_out|startup_failure|action_required|error)"
@@ -326,7 +324,7 @@ def draft_text(f: dict, heart: dict, today: str) -> str:
     head = [f"# {title}", "", "Type: bug", f"Target: {repo or 'workspaces'}"]
     head += ["Repos:", f"- {repo}"] if repo else []
     # No `Difficulty:` (sizing derives it, `_file`) and no `Unattended:`: the
-    # lane never grades its own drafts ready (review of #625).
+    # lane never grades its own drafts ready.
     head += ["Autonomy: supervised",
              f"Priority: {'high' if f['severity'] == 'red' else 'normal'}",
              "Status: draft", f"Filed: {today}", "Consequence: judge",

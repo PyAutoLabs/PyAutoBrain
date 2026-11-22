@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +18,6 @@ from pathlib import Path
 import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_digest as t  # noqa: E402 — the 3d fixtures
 from test_orchestrator_digest import _brief, _digest, orch  # noqa: E402
 import _mind_writer as mw  # noqa: E402
@@ -167,7 +165,10 @@ def test_witness_343_a_pr_with_zero_completed_checks_is_refused_at_merge(tmp_pat
     # watcher first saw the PR — CI may not have registered yet.
     assert sp.closeouts == []
     assert orch.read_counters(orch.slot_dir(brief, home))["closeouts"] == {}
-    _tick(brief, mind, home, sp, 12, health=lambda u: health[u](u))
+    _tick(brief, mind, home, sp, 9, health=lambda u: health[u](u))
+    assert sp.closeouts == []                                 # 8 min in: waiting, not refused
+    assert PR1 not in orch.read_counters(orch.slot_dir(brief, home))["closeouts"]
+    _tick(brief, mind, home, sp, 12, health=lambda u: health[u](u))   # 11 min after first seen
     assert sp.closeouts == []
     c = orch.read_counters(orch.slot_dir(brief, home))
     assert c["closeouts"][PR1]["state"] == "refused"
@@ -232,21 +233,14 @@ def test_a_refused_closeout_is_digested_and_never_retried(tmp_path):
             " decision-taken label</sub>") in d
 
 
-def test_a_failed_closeout_is_refused_not_read_as_running(tmp_path):
+@pytest.mark.parametrize("ended", ["failed", "done"])   # a crash is not read as running
+def test_a_closeout_that_ends_without_a_verdict_is_refused_not_retried(tmp_path, ended):
     mind, brief, home, sp = _shift(tmp_path)
     _tick(brief, mind, home, sp, 1)
-    _tick(brief, mind, home, sp, 2, agents=Agents({"co000001": "failed"}))
-    c = orch.read_counters(orch.slot_dir(brief, home))
-    assert c["closeouts"][PR1]["state"] == "refused"
-    assert c["closeouts"][PR1]["why"] == "the close-out session ended without a verdict"
-
-
-def test_a_closeout_that_ends_without_a_verdict_is_refused_not_retried(tmp_path):
-    mind, brief, home, sp = _shift(tmp_path)
-    _tick(brief, mind, home, sp, 1)
-    _tick(brief, mind, home, sp, 2, agents=Agents({"co000001": "done"}))
+    _tick(brief, mind, home, sp, 2, agents=Agents({"co000001": ended}))
     _tick(brief, mind, home, sp, 3)
     c = orch.read_counters(orch.slot_dir(brief, home))
+    assert c["closeouts"][PR1]["state"] == "refused"
     assert c["closeouts"][PR1]["why"] == "the close-out session ended without a verdict"
     assert len(sp.closeouts) == 1
 
@@ -413,11 +407,6 @@ def test_closeout_command_is_named_moded_and_on_the_closeout_model(tmp_path):
         orch.closeout_command("t1", PR1, "x", tmp_path, tmp_path, "bypassPermissions")
 
 
-def test_the_worker_template_hands_glance_merges_to_the_closeout():
-    tpl = (t.BATCH / "worker_template.md").read_text()
-    assert "end at PR-open" in tpl and "independent close-out" in tpl
-
-
 def test_table_append_keeps_what_follows_the_section():
     text = ("## A\n| x |\n|---|\n| 1 |\n\n" + orch.STAGE2_HEADING + " — opened\n\n"
             "| d |\n|---|\n\n## After\ntail\n")
@@ -428,27 +417,16 @@ def test_table_append_keeps_what_follows_the_section():
         mw.table_append("## Other\n", orch.STAGE2_HEADING, "| 2 |")
 
 
-@pytest.mark.skipif(not t.LEDGER_MERGE.is_file() or shutil.which("git") is None,
-                    reason="needs git and PyAutoMind's scripts/ledger_merge.py")
+@t.sf.needs_ledger_merge
 def test_a_merged_closeout_lands_one_stage2_row_on_mind_main(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys, "dont_write_bytecode", False)
-    bare = tmp_path / "remote.git"
-    t.git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    canon = tmp_path / "canon"
-    t.git(tmp_path, "clone", "-q", str(bare), str(canon))
-    t.git(canon, "config", "user.name", "Test")
-    t.git(canon, "config", "user.email", "test@example.invalid")
+    bare, canon = t.sf.ledger_mind(tmp_path, monkeypatch)
     t._mind(canon)
-    (canon / "scripts").mkdir()
-    shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
     (canon / "autonomy_log.md").write_text(
         "# Log\n\n## Shadow window\n\n| a |\n|---|\n\n" + orch.STAGE2_HEADING
         + " — opened 2026-11-04\n\n| date | task | brief | gate | human action "
         "| merge actor | read by human |\n"
         "|---|---|---|---|---|---|---|\n\n## Later section\nkept\n")
-    t.git(canon, "add", "-A")
-    t.git(canon, "commit", "-q", "-m", "seed")
-    t.git(canon, "push", "-q", "origin", "HEAD:main")
+    t.sf.push(canon)
 
     brief = tmp_path / "shift.md"
     brief.write_text(t.BRIEF.format(issue=t.ISSUE, packet=""))

@@ -1,14 +1,13 @@
 """Protect local instructions while migrating known context-heavy sections."""
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import sys
 
+from _helpers import load_module
+
 BRAIN = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('workspace_instructions', BRAIN / 'bin/workspace_instructions.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+module = load_module('workspace_instructions', BRAIN / 'bin/workspace_instructions.py', register=False)
 SECTIONS = json.loads((module.POLICY / 'workspace_sections.json').read_text())
 LEGACY = json.loads((module.POLICY / 'workspace_sections_legacy.json').read_text())
 

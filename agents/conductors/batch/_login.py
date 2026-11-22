@@ -1,9 +1,8 @@
-"""The CLI login probe (M3.6a, PyAutoBrain#659).
+"""The CLI login probe.
 
-Shift 2026-11-16-pm lost its first workers to an expired `claude` login, and
-the watcher read them as "blocked on a person". This asks the CLI itself,
-with `claude auth status --json` — a local read of the stored login, no model
-call — and says one of:
+A worker that dies on an expired `claude` login must not be read as "blocked
+on a person". This asks the CLI itself, with `claude auth status --json` — a
+local read of the stored login, no model call — and says one of:
 
 - `ok`      — logged in, and the login has not expired;
 - `expired` — `loggedIn: false`, a `loginExpiresAt` already passed, or the CLI
@@ -14,7 +13,7 @@ call — and says one of:
 
 `batch brief --check` refuses a launch on `expired` (or a login that lapses
 before `review-at:`); the watcher holds spawning on it (AUTONOMY.md "The
-watcher's network surface", Login probe — 2026-11-17).
+watcher's network surface", Login probe).
 """
 
 from __future__ import annotations

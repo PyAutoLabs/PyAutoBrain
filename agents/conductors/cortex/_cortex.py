@@ -78,8 +78,9 @@ import _pyauto_root  # noqa: E402
 sys.path.insert(0, str(BRAIN_HOME / "board"))
 from _theme import (  # noqa: E402
     section_layout,
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel,
     normalize_refresh_stamp,
+    attr as _attr, md_cell as _cell, pages_url as _pages_url,
 )
 # The organ-cockpit feed contract (board/_state.py, state.json v1) — the same
 # constructor the Brain board uses, so this renderer cannot write a feed the
@@ -342,10 +343,6 @@ def ledger_of(c: dict, key: str) -> dict | None:
     return None
 
 
-def active_ledgers(c: dict) -> list[dict]:
-    return [d for d in c["ledgers"] if d["status"] == "active"]
-
-
 def no_ledger_rows(c: dict, kind: str | None = None) -> list[tuple[str, dict]]:
     """Rows of `projects.yaml` with no `projects/<key>.md` at all (of one
     kind, when given)."""
@@ -394,16 +391,6 @@ def _md_text(value: str) -> str:
     return str(value).replace("&", "&amp;").replace("<", "&lt;")
 
 
-def _cell(value: str) -> str:
-    return str(value).replace("|", "\\|")
-
-
-def _attr(value: str) -> str:
-    """Escape a string for a double-quoted HTML attribute."""
-    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
-            .replace("<", "&lt;").replace(">", "&gt;"))
-
-
 def _esc(value: str) -> str:
     """Text content for the HTML page."""
     return _html.escape(str(value), quote=False)
@@ -422,12 +409,6 @@ def _html_task(text_html: str, payload: str) -> str:
     return (f'<div class="task"><button class="copy" '
             f'data-cmd="{_attr(payload)}" aria-label="Copy the AI '
             f'command">📋</button><p>{text_html}</p></div>')
-
-
-def _pages_url(home: str) -> str:
-    """The GitHub Pages site URL for a repo home, `''` when underivable."""
-    m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
-    return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
 
 
 def _board_links(home: str, current: str) -> list:
@@ -748,7 +729,7 @@ def _card_html(d: dict, row: dict, blob: str) -> list[str]:
 
 def _kind_md(c: dict, kind: str, sections: list[str], blob: str) -> list[str]:
     """One kind's part of `dashboard.md`: its counts, then the Summary and
-    the Projects exactly as the whole board used to lay them out."""
+    the Projects."""
     k = _sections(c)[kind]
     L = [f"## {KIND_TITLES[kind]}", "", KIND_BLURBS[kind], "",
          f"| {KIND_TITLES[kind]} | Count |", "|-------|------:|",
@@ -1031,10 +1012,10 @@ def dashboard_body(page: str) -> str:
 
 
 # ------------------------------------------------------- the cockpit feed ---
-# The third render of the one census (PyAutoBrain#418): `state.json`, the
-# per-organ machine surface the cockpit and the phone read (board/_state.py,
-# contract v1). Every prompt is a payload the page already copies —
-# `checkin_payload`, `resume_payload` — composed, never re-derived.
+# The third render of the one census: `state.json`, the per-organ machine
+# surface the cockpit and the phone read (board/_state.py, contract v1). Every
+# prompt is a payload the page already copies — `checkin_payload`,
+# `resume_payload` — composed, never re-derived.
 STATE_ITEM_CAP = 20
 
 
@@ -1152,9 +1133,9 @@ def render_pages(c: dict) -> dict:
             "state.json": render_state(c)}
 
 
-#: The Science-side status page (PyAutoBrain#616, #618): not a copy of the
-#: board but a few tables to eyeball on the laptop in the Science folder —
-#: no check-in prompt, no cards, no logs.
+#: The Science-side status page: not a copy of the board but a few tables to
+#: eyeball on the laptop in the Science folder — no check-in prompt, no cards,
+#: no logs.
 SCIENCE_MIRROR = "STATE.md"
 
 #: A STATE.md Now/Note cell: its first sentence, capped at this many chars.
@@ -1241,7 +1222,7 @@ def render_science_state(c: dict) -> str:
 
 
 def _state_kind_rows(c: dict, kind: str, science: str | None) -> list[str]:
-    """One kind's tables in STATE.md, one per status as before."""
+    """One kind's tables in STATE.md, one per status."""
     L: list[str] = []
     for section in STATE_SECTIONS:
         rows = _summary_rows(c, section, kind)
@@ -1390,8 +1371,7 @@ def split_by_root(projects: dict, keys: list) -> tuple:
 # The laptop Science tree is `<root>/<category>/<project>`, mirrored on RAL
 # (schema decision 61). A category says what a status may be; a folder the
 # rows do not name, or a row naming no folder, is the register and the tree
-# disagreeing — which went unnoticed for weeks once (Science moved under
-# Workspace\ and pull quietly reached 3 of 12 active projects).
+# disagreeing — and then `pull` silently reaches only some of the projects.
 SCIENCE_CATEGORIES = ("active", "development", "complete", "archive")
 CATEGORY_STATUSES = {
     "active": ("active", "dormant", "planned"),
@@ -1886,14 +1866,11 @@ def push_preflight(root: Path) -> tuple:
     """`(ok, reason)` — may this check-in push its own ledger diff? Read
     **before** anything is written, and asked of **git alone**.
 
-    It used to open with a `gh` probe standing in for "this is a laptop".
-    That reading is wrong twice over: a session can push a branch without
-    `gh` (git credentials are not the GitHub CLI), and making the headline
-    verb refuse everywhere `gh` is absent is what left the ledger to the
-    merge bot. So the preflight asks only what git can answer — a checkout,
-    on `main`, clean, with an `origin` to push to — and the push itself is
-    the real gate: it either succeeds or `push_ledger` says exactly how it
-    failed.
+    No `gh` probe: a session can push a branch without `gh` (git credentials
+    are not the GitHub CLI). The preflight asks only what git can answer — a
+    checkout, on `main`, clean, with an `origin` to push to — and the push
+    itself is the real gate: it either succeeds or `push_ledger` says exactly
+    how it failed.
     """
     head = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
     if head.returncode != 0:
@@ -2189,8 +2166,8 @@ def cmd_checkin(root: Path, mod, a) -> int:
     """The door, on any surface: stamp, render, push, read the ledger back.
 
     It reaches no cluster and shells out to no sync CLI — every path such a
-    CLI runs under exists on the laptop alone, so a check-in that pulled was
-    a check-in that only worked in one place. `pull` is that leg now.
+    CLI runs under exists on the laptop alone, and the check-in must work on
+    any surface. `pull` is that leg.
     """
     projects, _ = mod.load_projects(root)
     ledgers, _ = mod.load_ledgers(root)

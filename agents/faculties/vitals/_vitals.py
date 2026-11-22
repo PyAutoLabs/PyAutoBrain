@@ -2,10 +2,10 @@
 """_vitals.py — the vitals faculty when the Heart CLI is not here.
 
 WHY. `vitals.sh` drives `pyauto-heart`, and a web/mobile session never has the
-PyAutoHeart checkout — so `resolve_heart` failed and the faculty exited, which
-meant the ship gate ran with NO verdict at all rather than a qualified one. The
-Heart already publishes its board to GitHub Pages and the Brain board already
-reads it; this reads the same two files and answers from them.
+PyAutoHeart checkout; without this the ship gate would run with NO verdict at
+all rather than a qualified one. The Heart publishes its board to GitHub Pages
+and the Brain board already reads it; this reads the same two files and
+answers from them.
 
 WHAT IT IS NOT. A published board is not a live tick: it is as fresh as the
 Heart's last publish, and every line of output says so. When the CLI is
@@ -13,9 +13,10 @@ present, `vitals.sh` still drives it for the organism-wide read.
 
 SCOPE. `--scope <repo>[,<repo>...]` answers the question a branch actually has:
 "is anything blocking MY repo?". The organism-wide verdict is one number over
-every repo, so a library branch was acknowledging a RED raised by a workspace
-smoke failure three repos away — one it could not have caused and cannot fix.
-The scoped verdict keeps both: GREEN in scope, RED organism-wide, both printed.
+every repo, so a library branch would otherwise acknowledge a RED raised by a
+workspace smoke failure three repos away — one it could not have caused and
+cannot fix. The scoped verdict keeps both: GREEN in scope, RED organism-wide,
+both printed.
 
 The fetch and the blocker extraction are NOT reimplemented here — they are
 `board/_board.py`'s (`fetch_badge`, `fetch_heart_board`,
@@ -87,8 +88,8 @@ def verdict_of(badge, board):
 
 
 def board_timestamp(board):
-    """When the published board was generated. Heart's key has changed name
-    across schema versions, so accept any of them rather than pinning one."""
+    """When the published board was generated. Heart's key differs across
+    schema versions, so accept any of them rather than pinning one."""
     for key in ("generated", "generated_at", "ts", "timestamp", "as_of", "updated"):
         value = (board or {}).get(key)
         if value:

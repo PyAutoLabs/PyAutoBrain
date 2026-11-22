@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import shutil
 import subprocess
 import sys
 import uuid
@@ -19,15 +20,11 @@ from types import SimpleNamespace
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
+import _shift_fixtures as sf
+from _shift_fixtures import BATCH, BRAIN, NOW, PROMPT  # noqa: F401 — re-exported
 import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _orchestrator as orch  # noqa: E402
-
-NOW = _dt.datetime(2026, 11, 4, 9, 0, tzinfo=_dt.timezone.utc)
 
 BRIEF = """\
 # Batch 2026-11-04 am
@@ -46,35 +43,11 @@ BRIEF = """\
   - sandbox: yes
 {extra}"""
 
-PROMPT = """\
-# {name}
-
-Type: feature
-Target: PyAutoBrain
-Repos:
-- PyAutoBrain
-Difficulty: small
-Autonomy: supervised
-Priority: normal
-Status: formalised
-Consequence: glance
-Witness: a unit test
-Review-minutes: 3
-Unattended: ready
-
-Body.
-"""
-
-
 def _shift(tmp_path, names=("t1",), budget=100000, extra=""):
     mind = tmp_path / "mind"
-    folder = mind / "draft" / "feature" / "pyautobrain"
-    folder.mkdir(parents=True)
-    for n in names:
-        (folder / f"{n}.md").write_text(PROMPT.format(name=n))
-    tasks = "\n".join(f"    - draft/feature/pyautobrain/{n}.md" for n in names)
     brief = tmp_path / "shift.md"
-    brief.write_text(BRIEF.format(tasks=tasks, budget=budget, extra=extra))
+    brief.write_text(BRIEF.format(tasks=sf.write_drafts(mind, names), budget=budget,
+                                  extra=extra))
     return mind, brief, tmp_path / "home"
 
 
@@ -116,10 +89,11 @@ def _tick(brief, mind, home, now, claude, agents=None, tokens=lambda s: 0, grace
 def test_session_command_is_never_bare(tmp_path):
     argv = orch.session_command("t1", "draft/feature/pyautobrain/t1.md",
                                 tmp_path / "shift.md", tmp_path / "leases", "auto")
-    assert argv[:2] == ["claude", "--bg"]
-    assert argv[argv.index("--name") + 1] == "shift:t1"
+    # PyAutoBrain#672: workers start as Opus at medium effort, prompt last.
+    assert argv[:10] == ["claude", "--bg", "--name", "shift:t1", "--model", "opus",
+                         "--effort", "medium", "--permission-mode", "auto"]
+    assert (orch.WORKER_MODEL, orch.WORKER_EFFORT) == ("opus", "medium")
     assert "--session-id" not in argv     # --bg assigns its own (CLI 2.1.316)
-    assert argv[argv.index("--permission-mode") + 1] == "auto"
     prompt = argv[-1]
     for must in ("Use the start-dev skill. draft/feature/pyautobrain/t1.md --auto",
                  str(tmp_path / "shift.md"),
@@ -161,16 +135,11 @@ def test_a_failed_spawn_leaves_no_lease_and_is_a_refusal(tmp_path):
     r = _tick(brief, mind, home, NOW, FakeClaude(rc=1))
     assert r["spawned"] == [] and r["refused"][0]["task"] == "t1"
     assert r["refused"][0]["why"].startswith("spawn failed: claude --bg failed")
+    # Recorded from the CLI (2.1.316): an untrusted folder exits 1 with
+    # "Workspace not trusted" — an error and no lease, never a silent stall.
+    assert "Workspace not trusted" in r["refused"][0]["why"]
     slot = orch.slot_dir(brief, home)
     assert orch.leases(slot) == {} and orch.read_counters(slot)["sessions"] == 0
-
-
-def test_real_dispatch_no_longer_needs_a_sandbox_brief(tmp_path):
-    # 3c (one Mind writer) lifted 3b's fence — human decision 2026-11-03.
-    mind, brief, home = _shift(tmp_path)
-    brief.write_text(brief.read_text().replace("  - sandbox: yes\n", ""))
-    r = _tick(brief, mind, home, NOW, FakeClaude())
-    assert [s["task"] for s in r["spawned"]] == ["t1"]
 
 
 # --- liveness: running, blocked → parked, done, gone ---------------------------------
@@ -364,16 +333,6 @@ def _trusted_root() -> Path:
     return pyauto_root()
 
 
-def test_an_untrusted_folder_fails_the_spawn_fast(tmp_path):
-    # Recorded from the CLI (2.1.316): exit 1, "Workspace not trusted". The
-    # spawner turns it into an error and leaves no lease — never a silent stall.
-    mind, brief, home = _shift(tmp_path)
-    untrusted = FakeClaude(rc=1)
-    r = _tick(brief, mind, home, NOW, untrusted)
-    assert "Workspace not trusted" in r["refused"][0]["why"]
-    assert orch.leases(orch.slot_dir(brief, home)) == {}
-
-
 @pytest.mark.skipif(os.environ.get("PYAUTO_ORCHESTRATOR_LIVE") != "1",
                     reason="starts a real claude --bg session; opt in with "
                            "PYAUTO_ORCHESTRATOR_LIVE=1")
@@ -481,28 +440,7 @@ def test_a_closed_shift_with_nothing_pending_stays_idle(tmp_path):
 
 
 def test_a_late_arrival_lands_in_the_record_on_mind_main(tmp_path, monkeypatch):
-    import shutil
-    import test_orchestrator_digest as t
-    if not t.LEDGER_MERGE.is_file() or shutil.which("git") is None:
-        pytest.skip("needs git and PyAutoMind's scripts/ledger_merge.py")
-    monkeypatch.setattr(sys, "dont_write_bytecode", False)
-    bare = tmp_path / "remote.git"
-    t.git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    canon = tmp_path / "canon"
-    t.git(tmp_path, "clone", "-q", str(bare), str(canon))
-    t.git(canon, "config", "user.name", "Test")
-    t.git(canon, "config", "user.email", "test@example.invalid")
-    _, staged, _ = _shift(tmp_path / "seed")
-    shutil.copytree(tmp_path / "seed" / "mind" / "draft", canon / "draft")
-    (canon / "scripts").mkdir()
-    shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
-    (canon / "batches").mkdir()
-    brief = canon / "batches" / "2026-11-04-am.md"
-    brief.write_text(staged.read_text())
-    t.git(canon, "add", "-A")
-    t.git(canon, "commit", "-q", "-m", "seed")
-    t.git(canon, "push", "-q", "origin", "HEAD:main")
-    home = tmp_path / "home"
+    t, bare, canon, brief, home = _git_shift(tmp_path, monkeypatch)
     slot = orch.slot_dir(brief, home)
     claude = FakeClaude()
     _tick(brief, canon, home, NOW, claude)
@@ -519,29 +457,17 @@ def test_a_late_arrival_lands_in_the_record_on_mind_main(tmp_path, monkeypatch):
 def _git_shift(tmp_path, monkeypatch, names=("t1",)):
     """A shift whose Mind is a real clone of a bare remote: (t, bare, canon,
     brief, home), the named drafts pushed to main."""
-    import shutil
-    import test_orchestrator_digest as t
-    if not t.LEDGER_MERGE.is_file() or shutil.which("git") is None:
+    if not sf.LEDGER_MERGE.is_file() or not shutil.which("git"):
         pytest.skip("needs git and PyAutoMind's scripts/ledger_merge.py")
-    monkeypatch.setattr(sys, "dont_write_bytecode", False)
-    bare = tmp_path / "remote.git"
-    t.git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    canon = tmp_path / "canon"
-    t.git(tmp_path, "clone", "-q", str(bare), str(canon))
-    t.git(canon, "config", "user.name", "Test")
-    t.git(canon, "config", "user.email", "test@example.invalid")
+    bare, canon = sf.ledger_mind(tmp_path, monkeypatch)
     _, staged, _ = _shift(tmp_path / "seed", names=names)
     shutil.copytree(tmp_path / "seed" / "mind" / "draft", canon / "draft")
-    (canon / "scripts").mkdir()
-    shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
     (canon / "active.md").write_text("# Active\n\n## someone-else\n- prompt: x\n")
     (canon / "batches").mkdir()
     brief = canon / "batches" / "2026-11-04-am.md"
     brief.write_text(staged.read_text())
-    t.git(canon, "add", "-A")
-    t.git(canon, "commit", "-q", "-m", "seed")
-    t.git(canon, "push", "-q", "origin", "HEAD:main")
-    return t, bare, canon, brief, tmp_path / "home"
+    sf.push(canon)
+    return sf, bare, canon, brief, tmp_path / "home"
 
 
 def test_a_redispatched_worker_never_strands_the_mind_writer(tmp_path, monkeypatch):

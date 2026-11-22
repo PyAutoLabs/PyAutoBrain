@@ -60,32 +60,12 @@ def _surface(**over):
     return base
 
 
-# --------------------------------------------------------------------------
-# "no runs" vs "could not ask"
-# --------------------------------------------------------------------------
-
 def _row(**over):
     row = {"repo": "Org/Repo", "workflow": "wf.yml", "conclusion": None,
            "age_h": None, "url": None, "blocked": False,
            "blocked_reason": None, "unreadable": False}
     row.update(over)
     return row
-
-
-def test_a_workflow_with_no_runs_says_so():
-    line = _board._overnight_line(_row(unreadable=False))
-    assert "no runs" in line
-
-
-def test_a_workflow_that_could_not_be_read_does_not_claim_no_runs():
-    line = _board._overnight_line(_row(unreadable=True))
-    assert "no runs" not in line, "an unaskable workflow still reports as empty"
-    assert "evidence unavailable" in line
-
-
-def test_the_two_states_render_differently():
-    assert _board._overnight_line(_row(unreadable=True)) != \
-        _board._overnight_line(_row(unreadable=False))
 
 
 # --------------------------------------------------------------------------
@@ -173,7 +153,6 @@ def test_board_collection_never_polls_overnight_jobs(monkeypatch):
     monkeypatch.setattr(_board, 'load_policy', lambda: {'overnight_jobs': ['Org/Repo:nightly.yml']})
     monkeypatch.setattr(_board, 'repo_homes', lambda: {})
     monkeypatch.setattr(_board, 'derive_org', lambda _: 'Example')
-    monkeypatch.setattr(_board, 'collect_overnight', lambda *a: pytest.fail('retired overnight poll'))
     monkeypatch.setattr(_board, 'gh_json', lambda *a: pytest.fail('unexpected GitHub call'))
     monkeypatch.setattr(_board, 'fetch_heart_board', lambda *a: {})
     monkeypatch.setattr(_board, 'extract_heart_performance', lambda *a: {})

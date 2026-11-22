@@ -14,15 +14,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-WORKTREE_SH = Path(__file__).resolve().parents[1] / "bin" / "worktree.sh"
+import pytest
 
-
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(repo), *args],
-        check=True,
-        capture_output=True,
-    )
+from _helpers import git_in as _git, hermetic_worktree_env, source_worktree
 
 
 def _repo_with_branch(root: Path, merged: bool) -> Path:
@@ -85,108 +79,53 @@ def _repo_never_committed(root: Path, main_moves: bool) -> Path:
     return repo
 
 
-def _is_stale(tmp_path: Path, task: str, active_body: str, merged: bool) -> int:
+def _is_stale(tmp_path: Path, active_body: str | None, make_repo, **repo_kw) -> int:
+    """`worktree_claim_is_stale task-x <worktree>` against a fixture main whose
+    `active.md` holds `active_body` (None: no registry at all)."""
     main = tmp_path / "main"
-    (main / "PyAutoMind").mkdir(parents=True)
-    (main / "PyAutoMind" / "active.md").write_text(active_body)
-    wt_root = tmp_path / "wt" / task
+    if active_body is None:
+        main.mkdir()
+    else:
+        (main / "PyAutoMind").mkdir(parents=True)
+        (main / "PyAutoMind" / "active.md").write_text(active_body)
+    wt_root = tmp_path / "wt" / "task-x"
     wt_root.mkdir(parents=True)
-    _repo_with_branch(wt_root, merged=merged)
-    proc = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'source "{WORKTREE_SH}"; worktree_claim_is_stale "{task}" "{wt_root}"',
-        ],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "HOME": str(tmp_path),
-            "PYAUTO_MAIN": str(main),
-            "PYAUTO_WT_ROOT": str(tmp_path / "wt"),
-        },
-        capture_output=True,
-    )
-    return proc.returncode
+    make_repo(wt_root, **repo_kw)
+    return source_worktree(f'worktree_claim_is_stale "task-x" "{wt_root}"',
+                           hermetic_worktree_env(tmp_path)).returncode
 
 
 CLAIMED = "# Active Tasks\n\n## task-x\n- issue: http://x\n- worktree: ~/wt/task-x\n"
 OTHER = "# Active Tasks\n\n## other-task\n- issue: http://y\n"
 
 
-def test_merged_work_with_live_claim_is_stale(tmp_path):
-    assert _is_stale(tmp_path, "task-x", CLAIMED, merged=True) == 0
-
-
-def test_unmerged_work_is_not_stale(tmp_path):
+@pytest.mark.parametrize("active_body,merged,code", [
+    pytest.param(CLAIMED, True, 0, id="merged-work-with-live-claim-is-stale"),
     # Real in-flight work: removing is the caller's business, no refusal.
-    assert _is_stale(tmp_path, "task-x", CLAIMED, merged=False) == 1
-
-
-def test_released_claim_is_not_stale(tmp_path):
+    pytest.param(CLAIMED, False, 1, id="unmerged-work-is-not-stale"),
     # The normal, correct end-state: record written, entry dropped.
-    assert _is_stale(tmp_path, "task-x", OTHER, merged=True) == 1
-
-
-def test_missing_active_md_fails_open(tmp_path):
-    main = tmp_path / "main"
-    main.mkdir()
-    wt_root = tmp_path / "wt" / "task-x"
-    wt_root.mkdir(parents=True)
-    _repo_with_branch(wt_root, merged=True)
-    proc = subprocess.run(
-        ["bash", "-c", f'source "{WORKTREE_SH}"; worktree_claim_is_stale "task-x" "{wt_root}"'],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "HOME": str(tmp_path),
-            "PYAUTO_MAIN": str(main),
-            "PYAUTO_WT_ROOT": str(tmp_path / "wt"),
-        },
-        capture_output=True,
-    )
-    assert proc.returncode == 1
-
-
-def test_prefixed_task_heading_does_not_false_match(tmp_path):
+    pytest.param(OTHER, True, 1, id="released-claim-is-not-stale"),
+    pytest.param(None, True, 1, id="missing-active-md-fails-open"),
     # `## task-x-phase-2` must not read as a claim on `task-x`.
-    body = "# Active Tasks\n\n## task-x-phase-2\n- issue: http://z\n"
-    assert _is_stale(tmp_path, "task-x", body, merged=True) == 1
-
-
-def test_heading_with_trailing_note_still_matches(tmp_path):
+    pytest.param("# Active Tasks\n\n## task-x-phase-2\n- issue: http://z\n", True, 1,
+                 id="prefixed-task-heading-does-not-false-match"),
     # `## task-x (phase 3 of 4)` IS a claim on task-x.
-    body = "# Active Tasks\n\n## task-x (phase 3 of 4)\n- issue: http://z\n"
-    assert _is_stale(tmp_path, "task-x", body, merged=True) == 0
+    pytest.param("# Active Tasks\n\n## task-x (phase 3 of 4)\n- issue: http://z\n", True, 0,
+                 id="heading-with-trailing-note-still-matches"),
+])
+def test_claim_staleness(tmp_path, active_body, merged, code):
+    assert _is_stale(tmp_path, active_body, _repo_with_branch, merged=merged) == code
 
 
 # --- the false positive caught before shipping --------------------------------
 
-def _is_stale_never_committed(tmp_path: Path, main_moves: bool) -> int:
-    main = tmp_path / "main"
-    (main / "PyAutoMind").mkdir(parents=True)
-    (main / "PyAutoMind" / "active.md").write_text(CLAIMED)
-    wt_root = tmp_path / "wt" / "task-x"
-    wt_root.mkdir(parents=True)
-    _repo_never_committed(wt_root, main_moves=main_moves)
-    proc = subprocess.run(
-        ["bash", "-c", f'source "{WORKTREE_SH}"; worktree_claim_is_stale "task-x" "{wt_root}"'],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "HOME": str(tmp_path),
-            "PYAUTO_MAIN": str(main),
-            "PYAUTO_WT_ROOT": str(tmp_path / "wt"),
-        },
-        capture_output=True,
-    )
-    return proc.returncode
-
-
-def test_never_committed_worktree_is_not_stale(tmp_path):
+@pytest.mark.parametrize("main_moves", [
     # Task registered, worktree created, no commits yet, user abandons it.
     # is-ancestor alone would call this "merged" and refuse — a false positive.
-    assert _is_stale_never_committed(tmp_path, main_moves=False) == 1
-
-
-def test_never_committed_worktree_is_not_stale_even_if_main_moved(tmp_path):
+    pytest.param(False, id="never-committed"),
     # The nastier variant: other tasks merged meanwhile, so the untouched
     # branch tip is a strict ancestor of origin/main. Still nothing to record.
-    assert _is_stale_never_committed(tmp_path, main_moves=True) == 1
+    pytest.param(True, id="never-committed-even-if-main-moved"),
+])
+def test_never_committed_worktree_is_not_stale(tmp_path, main_moves):
+    assert _is_stale(tmp_path, CLAIMED, _repo_never_committed, main_moves=main_moves) == 1

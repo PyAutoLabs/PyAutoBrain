@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 from pathlib import Path
+
+from _helpers import load_module
 
 
 BRAIN = Path(__file__).resolve().parents[1]
@@ -12,10 +13,7 @@ sys.path.insert(0, str(BRAIN / "agents"))
 
 
 def _load(name: str, relative: str):
-    spec = importlib.util.spec_from_file_location(name, BRAIN / relative)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module(name, BRAIN / relative, register=False)
 
 
 def _grouped(tmp_path: Path) -> Path:
@@ -54,10 +52,3 @@ def test_hygiene_config_reads_grouped_nerves(tmp_path):
     (source / "general.yaml").write_text("test: true\n")
     config = _load("grouped_hygiene_config", "agents/conductors/hygiene/_hygiene_config.py")
     assert "general.yaml" in config.library_config_relpaths(str(tmp_path), [("PyAutoNerves", "autonerves")])
-
-
-def test_batch_root_uses_outer_marker(tmp_path, monkeypatch):
-    _grouped(tmp_path)
-    monkeypatch.setenv("PYAUTO_ROOT", str(tmp_path))
-    batch = _load("grouped_integration", "agents/conductors/batch/_integration.py")
-    assert batch.workspace_root() == tmp_path

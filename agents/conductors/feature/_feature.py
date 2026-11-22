@@ -30,12 +30,11 @@ from pathlib import Path
 # persists is the same number this agent reasons over. See
 # agents/faculties/sizing/_sizing.py.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "faculties" / "sizing"))
-from _sizing import (  # noqa: E402
-    WORK_TYPES, LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, REPO_ALIASES,
-    KNOWN_REPOS, MEMORY_WIKIS, SCIENCE_KEYWORDS, RISK_KEYWORDS, AMBIGUITY_KEYWORDS,
+from _sizing import (  # noqa: E402,F401  (normalise_repo is re-exported to _bug)
+    MEMORY_WIKIS,
     policy as _sizing_policy,
-    TEST_KEYWORDS, normalise_repo, parse_prompt, discover_prompts,
-    effective_difficulty, empty_discovery_reason, _hits, _within,
+    normalise_repo, parse_prompt, discover_prompts,
+    effective_difficulty, empty_discovery_reason, _hits,
     declared_blocked, priority_rank,
 )
 
@@ -205,9 +204,6 @@ def _referenced_paths(mind: Path, *names):
             for m in re.findall(r"[\w./-]*feature/[\w./-]+\.md", f.read_text(errors="replace")):
                 refs.add(m.split("PyAutoMind/")[-1].lstrip("/"))
     return refs
-
-
-DIFF_ORDER = {"small": 0, "medium": 1, "large": 2, "too-large": 3}
 
 
 def select(mind: Path, constraint: dict, limit: int):

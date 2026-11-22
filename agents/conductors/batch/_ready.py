@@ -1,12 +1,10 @@
-"""The readiness pass, `batch ready` (M3.3 slice 1, PyAutoBrain#671).
+"""The readiness pass, `batch ready`.
 
 It walks Mind `queue.md`, resolves each entry to its next startable unit(s),
 checks each unit's gates, and turns every gate into an inbox entry of kind
-`ruling` for the human. The next launch is then `brief --new`, read, go,
-instead of a kick-off chat that finds each epic's next unit and asks the
-rulings one at a time.
+`ruling` for the human, so the next launch is `brief --new`, read, go.
 
-Resolution (human decisions D3, 2026-11-18):
+Resolution:
 
 - an epic ledger (a prompt with `Epic:` and no `Phase:`) resolves to every
   open member of that epic at the lowest leading phase number (`5c` is 5),
@@ -15,19 +13,18 @@ Resolution (human decisions D3, 2026-11-18):
   gate `no-next-phase`. The ledgers' free-form phase tables are not read;
 - any other prompt resolves to itself, in flight when it is in `active/`.
 
-Gates on each draft unit (Q5): `looks-shipped`, then `obsolete` (the premise
+Gates on each draft unit: `looks-shipped`, then `obsolete` (the premise
 check, offline unless `--fetch`), and either one stops the rest. Then each of
 `claimed`, `unattended`, `human-required`, `blocked-by` and `no-lane` that
-applies is its own ruling. A `judge` unit gets a note (D4: a tier is not a
-gate).
+applies is its own ruling. A `judge` unit gets a note (a tier is not a gate).
 
 What it writes: nothing on a dry run. `queue` puts one `question-add` op per
 new ruling in a slot's ledger, for the shift's one Mind writer, and records
 `counters["rulings"]`; `apply` writes them into a session-branch Mind checkout
 through Mind's own `questions_edit.add_text` (never on `main`, never a commit
-or a push). A ruling still Open or Deferred on Mind `origin/main` for the same
-task and gate is not filed again. Everything on the Mind side is read from the
-local `origin/main` ref: no fetch.
+or a push). A ruling in any state on Mind `origin/main` for the same task and
+gate is not filed again. Everything on the Mind side is read from the local
+`origin/main` ref: no fetch.
 """
 
 from __future__ import annotations
@@ -44,8 +41,6 @@ import _questions
 from _steer import read_queue_entries
 
 WORKER = "readiness pass"
-GATES = ("no-next-phase", "looks-shipped", "obsolete", "claimed", "unattended",
-         "human-required", "blocked-by", "no-lane")
 NOT_FILED_KIND = "Mind has no `ruling` inbox kind yet (PyAutoBrain#671)"
 _KINDS_RE = re.compile(r"^QUESTION_KINDS\s*=\s*\(([^)]*)\)", re.M)
 
@@ -302,7 +297,7 @@ def run(mind, *, root=None, fetch: bool = False, shift: str = "", now=None,
             unit_paths = [path]
             if epic and _batch._phase_declared(text) and not _batch._is_done(text):
                 # A Phase member queued directly that is not its epic's next
-                # phase: a note, not a gate (PyAutoBrain#671 review, M3).
+                # phase: a note, not a gate.
                 low = min((m["phase"] for m in epic_members(mind, epic)),
                           default=float("inf"))
                 mine = _batch._phase_of(text)
@@ -356,10 +351,9 @@ def run(mind, *, root=None, fetch: bool = False, shift: str = "", now=None,
                     for t, xs in (origin or {}).items() for x in xs
                     if _questions.is_ruling(x) and x["state"] in ("open", "deferred")),
                    key=lambda x: int(x["id"][1:]) if x["id"][1:].isdigit() else 0)
-    # Once ruled, quiet (the human's L1 ruling, 2026-11-18): a ruling in any
-    # state — Open, Deferred, Answered or Dropped — keeps its task and gate
-    # from being filed again; `/questions` reopen asks again. An open one is
-    # named first.
+    # Once ruled, quiet: a ruling in any state — Open, Deferred, Answered
+    # or Dropped — keeps its task and gate from being filed again;
+    # `/questions` reopen asks again. An open one is named first.
     ruled: dict = {}
     for t, xs in (origin or {}).items():
         for x in xs:
@@ -504,8 +498,8 @@ def needed(counters: dict) -> int:
 
 def digest_lines(counters: dict) -> list[str]:
     """The digest's closing lines: why the pass failed or filed nothing, then
-    "The next shift needs N rulings from you." — nothing for a shift whose
-    watcher predates the pass (no `counters["rulings"]`)."""
+    "The next shift needs N rulings from you." — nothing when the pass did
+    not run (no `counters["rulings"]`)."""
     if "rulings" not in counters:
         return []
     c = counters["rulings"] or {}

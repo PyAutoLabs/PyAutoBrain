@@ -1,13 +1,13 @@
-"""One Mind writer per shift (AUTONOMY.md, 2026-11-03) — the orchestrator's side.
+"""One Mind writer per shift (AUTONOMY.md) — the orchestrator's side.
 
 Workers never commit to PyAutoMind. They describe each change as an *op file*
 in the shift's `ledger/` directory (`bin/shift_ledger.py` writes them); the
 orchestrator applies every pending op in a **temporary detached worktree** on
 `origin/main`, commits once, and pushes. A rejected push means someone else
-moved `main` (another session, the dashboard self-heal bot): the ops are
-replayed on the new `origin/main` — a rebase of operations, not of diffs — at
-most `PUSH_TRIES` times. The canonical checkout's working tree is never read
-or written, nothing is reset, and nothing is forced.
+moved `main`: the ops are replayed on the new `origin/main` — a rebase of
+operations, not of diffs — at most `PUSH_TRIES` times. The canonical
+checkout's working tree is never read or written, nothing is reset, and
+nothing is forced.
 
 Ops (one JSON object per file, applied in file-name order):
 
@@ -29,91 +29,53 @@ Ops (one JSON object per file, applied in file-name order):
                     (kind `ruling`, from the readiness pass: `gate` required, `issue` optional)
     {"op": "question-retire", "path": "questions.md", "prompt": "x.md", "day": "YYYY-MM-DD", "by": "…"}
 
-`queue-retire` moves every live `queue.md` entry whose `ref:` names the
-prompt file `prompt` to the `## Retired` footer with `shipped-as:`, using
-PyAutoMind's own `lifecycle.py` `queue_retire_text`, the function
-`lifecycle.py close` runs. It is loaded from the tree being written, so
-the rule is Mind's, never a copy. An unattended close-out queues it with
-its complete record, and the watcher queues it again when it reaps the
-merge (PyAutoBrain#634: after the first unattended merge its entry
-stayed live, and `lifecycle.py check` then failed on the dangling ref). No
-live entry naming the prompt is the usual case, and it is silent.
-
-`question-add` lands one parked worker's question in the human's inbox
-(M3.5, PyAutoBrain#645) through PyAutoMind's own `scripts/questions_edit.py`
-`add_text`, loaded from the tree being written as `queue-retire` loads
-`lifecycle.py` — so the id (the file's highest plus 1, worked out in that
-tree) is right on a replay over a moved main, and an entry whose `(shift,
-task, issue)` is already there is a skipped note. A question whose prompt is
-in neither `draft/` nor `active/` any more is set aside, with its reason;
-any other failure (a Mind main without the script) holds it pending.
-`question-retire` answers the merged task's Open and Deferred questions
-(`lifecycle.questions_close_text`, what `lifecycle.py close` runs), queued
-beside every `queue-retire`: an unattended close-out never runs `close`.
-
-`jsonl-upsert` keeps one JSON line per `row[key]`: the line with that key is
-replaced (its other fields kept), else the row is appended. `table-upsert`
-does the same for a Markdown table row keyed by its first cell, keeping any
-old cell where the new one is `?` (the human's cells), and writes `header`
-first into a missing file. Both are how the shift watcher writes its one pilot
-row per shift and amends it on a late arrival (PyAutoBrain#610).
-
-`record-key` sets one top-level `- key: value` line of a batch record — the
-key's own line replaced, else inserted after `- issue:` (else `- review-at:`).
-The watcher writes the dashboard's `- live:` status line this way
-(PyAutoBrain#622); a record no longer on main is skipped, like `set-header`.
-
-`write` only creates; `edit` changes a file that exists, replacing `old`,
-which must appear in it exactly once, with `new` — an expected-base check, so
-an edit never clobbers a concurrent change (M3.6d, PyAutoBrain#660: shift
-2026-11-16-pm's `write` edits to existing drafts were set aside).
-
-A worker's ops carry their `task` (`shift_ledger.py --task`). A task's
-*closing* ops (`_closing`: its `complete/` record, `drop-section`, the
-`active/` prompt's `remove`, `queue-retire`, `question-retire`, and any op on
-a path one of them creates) apply after every other op, one group per task,
-and are *withheld* — set aside with the task, never retried — when any
-sibling op of that task was set aside for a human, this run or earlier in
-the shift (a group that fails part-way is rolled back first); while a sibling
-is *held* the group stays pending beside it. Mind never records a task
-shipped while one of its changes is missing. A `drop-section` paired with
-an `append` of the same task re-adding that `## slug` to the same path is an
-*update* of the task's own claim, not a close (PyAutoBrain#681): the drop
-applies directly before its append, the two as one unit, and only when main's
-section is this shift's own (`_own_section`) — else a conflict, set aside.
-An op that fails only because it is already true on main
-(`MechanicalError`: an edit already applied, a write of the text the file
-has, a remove of a file that is gone) is set aside as `needs: mechanical` —
-a digest line, not a "needs you". `shift_ledger.py` refuses at queue time
-what would fail (`queue_refusals`), so the worker can still switch.
-
-`set-header` sets one `Key: value` line in a prompt's header block (replacing
-the key's line if present) — how a shift worker records the premise check's
-`Verified:` stamp (`batch premise --record`) without touching the file itself.
+- `write` only creates; `edit` replaces `old`, which must appear exactly
+  once, with `new` — an expected-base check, so an edit never clobbers a
+  concurrent change.
+- `set-header` sets one `Key: value` line in a prompt's header block;
+  `record-key` sets one top-level `- key: value` line of a batch record.
+  Either is skipped when its file is no longer on main.
+- `jsonl-upsert` keeps one JSON line per `row[key]` (other fields of a
+  replaced line kept); `table-upsert` does the same for a Markdown row keyed
+  by its first cell, keeping an old cell where the new one is `?`, and writes
+  `header` first into a missing file.
+- `queue-retire`, `question-add` and `question-retire` run PyAutoMind's own
+  `lifecycle.py` / `questions_edit.py` functions, loaded from the tree being
+  written, so the rule is Mind's and ids are right on a replay over a moved
+  main. A question whose prompt is in neither `draft/` nor `active/` is set
+  aside; any other failure holds it pending.
 
 Every path must be *ledger* by PyAutoMind's own rule (`scripts/ledger_merge.py`
 `is_ledger_path`, default deny), so a worker cannot route code through here.
 
-One bad op never strands the rest (PyAutoBrain#632, B1 — a re-dispatched
-worker re-queued its claim's `draft→active` move and every later op of the
-shift stayed pending):
+A worker's ops carry their `task`. A task's *closing* ops (`_closing`, and any
+op on a path one of them creates) apply after every other op, one group per
+task, and are *withheld* — set aside with the task, never retried — when any
+sibling op of that task was set aside for a human, this run or earlier in the
+shift; while a sibling is *held* the group stays pending beside it, and a
+group that fails part-way is rolled back. Mind never records a task shipped
+while one of its changes is missing. A `drop-section` paired with an `append`
+of the same task re-adding that `## slug` to the same path is an *update* of
+the task's own claim, not a close: the two apply as one unit, and only when
+main's section is this shift's own (`_own_section`).
 
-- a *repeat* is a skipped note — only a re-dispatched task's own claim (the
-  caller names those tasks, `own_tasks`) whose earlier op this shift already
-  committed (`ledger/committed/`) and whose content on main matches it: a
-  `move` whose source is gone and destination present, a `## slug` section an
-  `active.md` append already finds there;
+One bad op never strands the rest:
+
+- a *repeat* is a skipped note — only a re-dispatched task's own claim
+  (`own_tasks`) whose earlier op this shift already committed
+  (`ledger/committed/`) and whose content on main matches it;
 - the same shape from anyone else is a *conflict*, set aside loudly;
+- an op that is already true on main (`MechanicalError`) is set aside as
+  `needs: mechanical` — a digest line, not a "needs you";
 - any other worker op that fails validation or cannot apply is *set aside* —
   moved to `ledger/set_aside/` with its reason — and the rest still commit;
-- a *critical* op (`CRITICAL_OPS`: the digest and late lines on a batch
-  record, the pilot row, the live line, a stage-2 row) is never set aside: it
-  is *held* pending and retried on every tick.
+- a *critical* op (`is_critical`) is never set aside: it is *held* pending
+  and retried on every tick.
 
-Every note, set-aside, conflict and first hold is appended to
-`ledger/report.jsonl`, which the digest and the late sweep read: none of them
-lives only in `tick.log`. Only a push rejected `PUSH_TRIES` times leaves every
-op pending.
+`shift_ledger.py` refuses at queue time what would fail (`queue_refusals`),
+so the worker can still switch. Every note, set-aside, conflict and first hold
+is appended to `ledger/report.jsonl`, which the digest and the late sweep
+read. Only a push rejected `PUSH_TRIES` times leaves every op pending.
 """
 
 from __future__ import annotations
@@ -137,8 +99,8 @@ NEEDS_MECHANICAL, NEEDS_HUMAN = "mechanical", "human"
 #: The keys a `question-add` entry carries; all strings but `options`.
 QUESTION_KEYS = ("task", "issue", "kind", "ask", "options", "shift", "asked", "worker",
                  "gate")
-#: A `ruling` (the readiness pass's, M3.3, PyAutoBrain#671) needs `gate` and
-#: may have no `issue`; every other kind needs `issue` and has no `gate`.
+#: A `ruling` (the readiness pass's) needs `gate` and may have no `issue`;
+#: every other kind needs `issue` and has no `gate`.
 QUESTION_RULING = "ruling"
 #: What a watcher-run queue retirement says in the footer, in place of the
 #: `lifecycle.py close` it did not run.
@@ -152,23 +114,23 @@ COMMITTED_DIR = "committed"
 #: Ops that could not apply (or were invalid), kept for the human with their
 #: reason (`<op file>.why`) — never retried, never blocking the others.
 SET_ASIDE_DIR = "set_aside"
-#: What the writer did besides commit, one JSON line each (#632 review).
+#: What the writer did besides commit, one JSON line each.
 REPORT_FILE = "report.jsonl"
 #: Op kinds only the watcher writes, and an `append` to a batch record: the
 #: shift's own record (digest, late lines), pilot row, live line and stage-2
-#: rows. Never set aside — held pending and retried (#632 review).
+#: rows. Never set aside — held pending and retried.
 CRITICAL_KINDS = ("record-key", "jsonl-upsert", "table-upsert", "table-append",
-                  # The questions inbox (#645): a question or its retirement
-                  # is never lost to a passing fault (a Mind main without
-                  # questions_edit.py yet) — held and retried; only a task
-                  # whose prompt is gone sets a question aside (`GoneError`).
+                  # A question or its retirement is never lost to a
+                  # passing fault (a Mind main without questions_edit.py)
+                  # — held and retried; only a task whose prompt is gone
+                  # sets a question aside (`GoneError`).
                   "question-add", "question-retire")
 
 
 def is_critical(op) -> bool:
     """A watcher op (never set aside, held pending). A worker's own
     `table-append` (its calibration row, tagged with its `task`) is not: a
-    bad one is set aside and told, never retried every tick (#660)."""
+    bad one is set aside and told, never retried every tick."""
     if not isinstance(op, dict):
         return False
     if op.get("op") == "table-append" and op.get("task"):
@@ -210,8 +172,7 @@ class GoneError(MindWriteError):
 
 def fetch(mind_repo: Path, remote: str = "origin", branch: str = "main") -> None:
     """The writer's one network read: `git fetch` of Mind `main` (refs and
-    objects only — the working tree is never touched). The watcher also calls
-    it once per shift before its first plan (#632, F4)."""
+    objects only — the working tree is never touched)."""
     _git(Path(mind_repo), "fetch", "-q", remote, branch)
 
 
@@ -354,8 +315,8 @@ def validate_op(op: dict, lm) -> list[str]:
 
 
 #: The PR keys of an `active.md` row (PyAutoMind REFERENCE.md "The PR keys"),
-#: and the keys a worker wrote in their place (PyAutoBrain#637, item 9: a bare
-#: `pr:` made `lifecycle.py check` drift and left /prm nothing to merge).
+#: and the keys a worker might write in their place: a bare `pr:` makes
+#: `lifecycle.py check` drift and leaves /prm nothing to merge.
 PR_KEYS = ("library-pr", "workspace-pr")
 _LOOSE_PR_KEY_RE = re.compile(r"^-\s+((?:[a-z]+[-_])?prs?|pull-request|pr-url)\s*:", re.I | re.M)
 
@@ -379,7 +340,7 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
     `record-key` on a file no longer on main (a stamp must not hold the shift),
     a `table-append` whose `unique` key a row already carries, and a
     re-dispatched task's own repeat of a claim this shift already committed
-    (`ctx`: {"own": task names, "prior": this shift's committed ops}, #632)."""
+    (`ctx`: {"own": task names, "prior": this shift's committed ops})."""
     target = tree / op["path"]
     kind = op["op"]
     ctx = ctx or {"own": set(), "prior": []}
@@ -411,8 +372,8 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
     elif kind == "move":
         dest = tree / op["to"]
         if not target.exists() and dest.exists():
-            # A re-dispatched worker re-queues its predecessor's claim (#632):
-            # a repeat only when this shift itself committed that very move.
+            # A re-dispatched worker re-queues its predecessor's claim: a repeat
+            # only when this shift itself committed that very move.
             task = Path(op["path"]).stem
             if task in ctx["own"] and any(
                     p.get("op") == "move" and p.get("path") == op["path"]
@@ -451,7 +412,7 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
     elif kind == "table-append":
         text = target.read_text(encoding="utf-8") if target.exists() else ""
         if op.get("unique") and _section_has(text, op["heading"], op["unique"]):
-            # A row re-queued after a crash between queue and counters (#632).
+            # A row re-queued after a crash between queue and counters.
             return f"table-append: a row with {op['unique']!r} is already there — skipped"
         target.write_text(table_append(text, op["heading"], op["row"]), encoding="utf-8")
     elif kind == "queue-retire":
@@ -518,8 +479,7 @@ def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
 def edit_text(text: str, path: str, old: str, new: str) -> str:
     """`text` with its one `old` replaced by `new`. `MechanicalError` when the
     edit is already there (a non-empty `new` present and every `old` inside
-    it);
-    `MindWriteError` when `old` is not there exactly once (the base moved)."""
+    it); `MindWriteError` when `old` is not there exactly once (the base moved)."""
     n, done = text.count(old), (text.count(new) if new else 0)
     if done and n == done * new.count(old):
         raise MechanicalError(f"edit: {path} already has the new text on main")
@@ -577,8 +537,8 @@ def _expected(mind: Path, path: str, ops: list[dict]) -> str | None:
 def queue_refusals(mind: Path, op: dict, ledger_dir: Path) -> list[str]:
     """Why `shift_ledger.py` refuses to queue `op`, checked against Mind
     `origin/main` and this shift's queued ops — so the worker, still running,
-    can switch (#660). Empty when it may be queued, and when git cannot be
-    read: then apply time is the backstop."""
+    can switch. Empty when it may be queued, and when git cannot be read:
+    then apply time is the backstop."""
     kind, path = op.get("op"), op.get("path")
     if kind not in ("write", "edit", "table-append") or not isinstance(path, str):
         return []
@@ -663,7 +623,7 @@ def _new_sections(old: str, text: str, path: str, lm,
     no `## ` section is appended as it is. A section already there is a
     repeat only when its task is a re-dispatch of this shift (`ctx["own"]`)
     and main's section is exactly the one this shift committed before
-    (`ctx["prior"]`); any other is a ConflictError (#632 review)."""
+    (`ctx["prior"]`); any other is a ConflictError."""
     pre, entries = lm.split_entries(text)
     if not entries:
         return text, None
@@ -689,8 +649,7 @@ def _new_sections(old: str, text: str, path: str, lm,
 def _update_pairs(ops: list) -> dict:
     """{append file: (drop file, drop op)} — each task's `drop-section` whose
     `## slug` an `append` of the same task re-adds to the same path: an update
-    of its own claim (PyAutoBrain#681), not a closing op. A lone drop stays
-    closing."""
+    of its own claim, not a closing op. A lone drop stays closing."""
     pairs = {}
     for f, op in ops:
         if op.get("op") != "drop-section" or not op.get("task"):
@@ -710,7 +669,7 @@ def _own_section(tree: Path, op: dict, lm, ctx: dict) -> None:
     """ConflictError unless main's `## section` (the one an update pair drops)
     is this shift's own: exactly a section this shift committed earlier
     (`ctx["prior"]`), or its `- session:` names this slot's shift worker. A
-    section that is not there is left to the drop's own error (#681)."""
+    section that is not there is left to the drop's own error."""
     target, heading = tree / op["path"], f"## {op['section']}"
     if not target.is_file():
         return
@@ -1021,20 +980,11 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
     """Commit every pending op in `<slot>/ledger/` to PyAutoMind as one commit.
 
     Returns {"committed": sha | None, "ops": n, "tries": k, "skipped": notes,
-    "set_aside": [{file, op, path, why, kind, needs, task?}], "held": [...]}. `own_tasks`
-    are the tasks this shift re-dispatched: only their repeated claims may be
-    skipped as already done (#632 review). A worker op that is invalid or
-    cannot apply is set aside (a claim already on main from someone else as a
-    `conflict`); a critical op is held pending instead. Only a push rejected
-    `PUSH_TRIES` times raises, with every op left pending.
-
-    A task's closing ops (`_closing`, and any op on a path one of them
-    creates) apply after every other op, task by task, as one group: when one
-    of the task's ops was set aside for a human (this run or in an earlier
-    `report`) or is in conflict, the group is `withheld` — set aside with it,
-    not retried; when one of them is *held* (retried), the group stays pending
-    beside it. A group that fails part-way is rolled back, so a record never
-    lands without the rest of its group.
+    "set_aside": [{file, op, path, why, kind, needs, task?}], "held": [...]}.
+    `own_tasks` are the tasks this shift re-dispatched: only their repeated
+    claims may be skipped as already done. Set-aside, held and withheld ops
+    follow the module docstring's rules; only a push rejected `PUSH_TRIES`
+    times raises, with every op left pending.
     """
     mind_repo = Path(mind_repo)
     files = pending_ops(slot)
@@ -1056,7 +1006,7 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
             continue
         ops.append((f, op))
     # A drop + append of the task's own `## slug` is an update, applied as
-    # one unit where the append stands (#681); the drop is not closing.
+    # one unit where the append stands; the drop is not closing.
     pairs = _update_pairs(ops)
     paired = {f for f, _op in pairs.values()}
     ops = [x for x in ops if x[0] not in paired]
@@ -1095,7 +1045,7 @@ def commit_ledger(slot: Path, mind_repo: Path, message: str,
                 if isinstance(task, str):
                     blocked.setdefault(task, f.name)
             for f, op in ops:
-                if f in pairs:   # an update of the task's own claim (#681)
+                if f in pairs:   # an update of the task's own claim
                     unit = [pairs[f], (f, op)]
                     try:
                         _own_section(tree, pairs[f][1], lm, ctx)

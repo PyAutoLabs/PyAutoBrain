@@ -16,11 +16,11 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
-import subprocess
 from pathlib import Path
 
 import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 from test_orchestrator_dispatch import orch  # noqa: E402
+from _shift_fixtures import git_as_t as _git  # noqa: E402
 
 NOW = d.NOW                                   # 2026-11-04T09:00Z
 MIN = _dt.timedelta(minutes=1)
@@ -109,13 +109,6 @@ BRIEF = """\
   - token-budget: 100000
   - sandbox: yes
 """
-
-
-def _git(cwd, *args, check=True):
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
-    return subprocess.run(["git", "-C", str(cwd), *args], check=check, env=env,
-                          capture_output=True, text=True)
 
 
 def _iso(t: _dt.datetime) -> str:

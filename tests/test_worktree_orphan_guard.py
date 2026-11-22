@@ -17,34 +17,15 @@ test_worktree_conflict_guard.py. Repo names are synthetic (tenant firewall).
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
-WORKTREE_SH = Path(__file__).resolve().parents[1] / "bin" / "worktree.sh"
-
-
-def _git(*args):
-    subprocess.run(
-        ["git", *map(str, args)], check=True, capture_output=True, text=True
-    )
+from _helpers import git as _git, hermetic_worktree_env, init_repo, source_worktree
 
 
 def _repo(main: Path, name: str, *, with_origin: bool = True) -> Path:
     """A flat checkout <main>/<name> with one commit and an origin/main ref."""
-    repo = main / name
-    repo.mkdir(parents=True)
-    _git("init", "-q", "-b", "main", repo)
-    _git("-C", repo, "config", "user.email", "test@example.com")
-    _git("-C", repo, "config", "user.name", "Test")
-    (repo / "README.md").write_text("x\n")
-    _git("-C", repo, "add", "README.md")
-    _git("-C", repo, "commit", "-q", "-m", "initial")
-    if with_origin:
-        remote = main.parent / f"{name}.git"
-        _git("init", "-q", "--bare", remote)
-        _git("-C", repo, "remote", "add", "origin", remote)
-        _git("-C", repo, "push", "-q", "-u", "origin", "main")
-    return repo
+    return init_repo(main / name,
+                     remote=main.parent / f"{name}.git" if with_origin else None)
 
 
 def _worktree(repo: Path, path: Path, branch: str) -> Path:
@@ -67,17 +48,7 @@ def _main(tmp_path: Path, active: str | None, parked: str | None = None) -> Path
 
 
 def _run(tmp_path: Path, snippet: str):
-    return subprocess.run(
-        ["bash", "-c", f'source "{WORKTREE_SH}"; {snippet}'],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "HOME": str(tmp_path),
-            "PYAUTO_MAIN": str(tmp_path / "main"),
-            "PYAUTO_WT_ROOT": str(tmp_path / "wt"),
-        },
-        capture_output=True,
-        text=True,
-    )
+    return source_worktree(snippet, hermetic_worktree_env(tmp_path))
 
 
 EMPTY = "# Active Tasks\n"

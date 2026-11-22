@@ -9,18 +9,15 @@ activity.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
+
+from _helpers import load_module
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[1]
     / "agents" / "conductors" / "release" / "activity_gate.py"
 )
-spec = importlib.util.spec_from_file_location("activity_gate", MODULE_PATH)
-activity_gate = importlib.util.module_from_spec(spec)
-sys.modules["activity_gate"] = activity_gate
-spec.loader.exec_module(activity_gate)
+activity_gate = load_module("activity_gate", MODULE_PATH)
 
 
 def commit(message="fix: a real change", name="Jam", email="dev@example.com"):

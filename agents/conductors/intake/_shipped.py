@@ -3,10 +3,8 @@
 
 `intake reconcile` ranks backlog prompts on VOCABULARY: words, rare identifiers
 and record lines the prompt shares with the `complete/` archive. It is offline,
-opt-in and weak by design (2026-08-25: 24 suspects of 138, mostly weak). The
-2026-11-05 queue check-in found four of five picked tasks already shipped, and
-a full sweep closed 27 drafts (PyAutoMind#539) — every one of which bypassed
-`/prm`, the only path whose close-out runs reconcile at all:
+opt-in and weak by design, and it runs only in the `/prm` close-out — so it
+misses work that bypassed `/prm`:
 
   * fixed directly on main, with no issue or PR;
   * merged by a session that never ran the close-out;
@@ -19,8 +17,7 @@ signal because each leg is a fact someone can re-check, not a resemblance:
         that is now DEFINED in one of its target repos and (where git history
         is readable) had NO definition on main at the moment the draft was
         filed. A test named in a witness and written afterwards is the witness
-        being met; an edit to a class or test file that already existed is not
-        (2026-11-07: 21 of 33 flags were such edits, none shipped).
+        being met; an edit to a class or test file that already existed is not.
   (ii)  **commit-names-draft** / **pr-names-draft** — a commit message on an
         organism repo's main since `Filed:` (or a merged PR body, from an
         optional JSON cache) names the draft's path, filename or distinctive
@@ -149,8 +146,7 @@ def filed_at(mind: Path, rel: str, filed: str) -> str:
     The commit that first added the file, when it falls on the `Filed:` day;
     else the start of that day. Day precision is not enough: a draft is very
     often filed by, or the same day as, the commit that motivated it, and that
-    commit must not then count as evidence the draft shipped (2026-11-07: 9 of
-    33 flags were exactly that).
+    commit must not then count as evidence the draft shipped.
     """
     # No `--follow`: drafts share a header template, so rename detection
     # happily "follows" a new draft back into an older sibling's history.
@@ -177,7 +173,7 @@ def open_drafts(mind: Path, prefix: str = "") -> list:
 
     An epic's campaign map (`Status: campaign map …`) is excluded too: it is
     never issued itself, its phases ship one by one, and each shipped phase
-    looks like evidence against the map (2026-11-07: `lenstwin_epic`).
+    looks like evidence against the map.
     """
     out = []
     root = mind / "draft"
@@ -405,12 +401,10 @@ def added_since(repo: Path, name: str, where: list, since: str,
 
     A name the witness merely mentions — the class a bug lives in, the test
     file a new case will join, a helper that already existed — was there when
-    the draft was filed, and later edits to it are not the witness being met:
-    on 2026-11-07, 21 of 33 flags were exactly that (`FitInterferometer`,
-    `LensCalc`, `test_presentation`, …), and none had shipped. So the name
-    must have had NO definition on main at `since` — the draft's filing
-    moment — and have one now. A same-named definition added elsewhere does
-    not count either, for the same reason.
+    the draft was filed, and later edits to it are not the witness being met.
+    So the name must have had NO definition on main at `since` — the draft's
+    filing moment — and have one now. A same-named definition added elsewhere
+    does not count either, for the same reason.
     """
     if _git(repo, "rev-parse", "--git-dir") is None:
         return None
@@ -495,12 +489,10 @@ _FOLLOWUP = ("follow-up", "follow up", "followup", "filed", "file ", "files ",
              "not yet", "still")
 #: Words that make a mention a claim the work landed, matched as whole words
 #: ON THE LINE THAT NAMES THE DRAFT. A message line merely NAMING a draft is
-#: how audits, sweeps and status notes read — measured on the live Mind
-#: (2026-11-05) that alone flagged 14 drafts, none of them shipped. A
-#: `fix:`/`feat:` subject no longer lends the claim to a body line: a code
-#: commit names the draft it FILED as often as one it fixed ("…; remove once
-#: the cost is found (draft/…md)"), which was 7 of 33 flags on 2026-11-07,
-#: none shipped. `add` is not a ship word — "add a follow-up" is filing.
+#: how audits, sweeps and status notes read. A `fix:`/`feat:` subject does not
+#: lend the claim to a body line: a code commit names the draft it FILED as
+#: often as one it fixed ("…; remove once the cost is found (draft/…md)").
+#: `add` is not a ship word — "add a follow-up" is filing.
 _SHIP_RE = re.compile(r"\b(?:fix(?:e[sd])?|implement(?:s|ed)?|ship(?:s|ped)?|"
                       r"close[sd]?|resolve[sd]?|land(?:s|ed)?|complete[sd]?|"
                       r"done|deliver(?:s|ed)?|retire[sd]?|finish(?:es|ed)?)\b",

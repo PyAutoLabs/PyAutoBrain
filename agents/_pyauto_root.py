@@ -24,19 +24,15 @@ The workspace root is the directory holding the organ checkouts side by side
    as unverified so a caller can say "I looked here and it was not a
    workspace" instead of silently finding nothing.
 
-Consumers used to default to a hardcoded developer-box path instead of step 2.
-On that box it was right; in a remote session ``$HOME`` is ``/root`` while the
-checkouts are under ``/home/user``, so every consumer resolved into a directory
-that does not exist. Nothing raised — these consumers all degrade — so they
-reported empty. That is the failure mode this module exists to remove, and
-naming any absolute workspace path here would reintroduce it for the next
-environment that does not match.
+No absolute workspace path is named here: a hardcoded developer-box default
+resolves, in a remote session, into a directory that does not exist, and
+because every consumer degrades rather than raises, they all report empty.
 
-Step 2 exists for the mirror-image failure. Step 3 asks only "does this
-directory hold an organ?", which a family subdirectory such as ``organs/``
-would answer yes to the moment the organs move into one — resolving the root
-one level too deep, where every ``root / <repo>`` join below misses and,
-again, nothing raises. The marker is what a directory says about itself.
+Step 2 guards the mirror-image failure. Step 3 asks only "does this directory
+hold an organ?", which a family subdirectory such as ``organs/`` also answers
+yes to — resolving the root one level too deep, where every ``root / <repo>``
+join misses and, again, nothing raises. The marker is what a directory says
+about itself.
 
 Stdlib only.
 """

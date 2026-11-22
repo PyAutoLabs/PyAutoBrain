@@ -92,18 +92,19 @@ def test_scope_filters_to_the_branch_repo(published, capsys):
     assert "repob_workspace" not in out
 
 
-def test_a_repo_with_no_blocker_is_scoped_green(published, capsys):
-    assert _vitals.main(["--scope", "RepoC"]) == 0
+@pytest.mark.parametrize("scope,lines", [
+    pytest.param("RepoC", ("scoped verdict: GREEN   (organism-wide: RED)",
+                           "in-scope blockers: none"),
+                 id="a-repo-with-no-blocker-is-scoped-green"),
+    pytest.param("RepoC,repob_workspace", ("scoped verdict: RED",
+                                           "repob_workspace: nightly smoke red"),
+                 id="scope-accepts-a-comma-list"),
+])
+def test_scope_narrows_the_verdict_to_the_named_repos(published, capsys, scope, lines):
+    assert _vitals.main(["--scope", scope]) == 0
     out = capsys.readouterr().out
-    assert "scoped verdict: GREEN   (organism-wide: RED)" in out
-    assert "in-scope blockers: none" in out
-
-
-def test_scope_accepts_a_comma_list(published, capsys):
-    assert _vitals.main(["--scope", "RepoC,repob_workspace"]) == 0
-    out = capsys.readouterr().out
-    assert "scoped verdict: RED" in out
-    assert "repob_workspace: nightly smoke red" in out
+    for line in lines:
+        assert line in out
 
 
 def test_json_carries_both_verdicts(published, capsys):

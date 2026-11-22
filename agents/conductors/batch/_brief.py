@@ -1,10 +1,10 @@
 """Shift briefs — parse and validate the `brief:` block of a batch record.
 
-The schema is `PyAutoMind/batches/AGENTS.md` "Shift brief (2026-11-03)"; the
-doctrine that makes a brief the launch act is `AUTONOMY.md` "Shift briefs and
-unattended `glance`". This module only READS: `check` says whether a brief is
+The schema is `PyAutoMind/batches/AGENTS.md` "Shift brief"; the doctrine that
+makes a brief the launch act is `AUTONOMY.md` "Shift briefs and unattended
+`glance`". This module only READS: `check` says whether a brief is
 well-formed, and `scope` says which backlog records it admits. Nothing here
-dispatches, merges or writes a file — those verbs are phase 3.
+dispatches, merges or writes a file.
 
 Every error names the key it is about (`brief.lanes: ...`), because the person
 fixing a brief is reading the file, not this code.
@@ -22,29 +22,29 @@ from _sizing import (  # noqa: E402 — the caller puts the faculty on sys.path
 )
 
 BACKLOG_POLICIES = ("none", "fill-idle", "scoped")
-#: Optional usage caps (phase 3a) and their defaults when a brief omits them.
+#: Optional usage caps and their defaults when a brief omits them.
 CAP_DEFAULTS = {"max-workers": 4, "max-sessions": 8}
-#: Permission modes a real worker may run in (phase 3b). `auto` is the default
-#: the human chose 2026-11-03: a worker that still needs a person shows
-#: `blocked` and is parked. `bypassPermissions` is never a worker mode.
+#: Permission modes a real worker may run in. `auto` is the default: a worker
+#: that still needs a person shows `blocked` and is parked.
+#: `bypassPermissions` is never a worker mode.
 WORKER_MODES = ("auto", "dontAsk", "acceptEdits")
 DEFAULT_WORKER_MODE = "auto"
 SCOPED_KEYS = ("epics", "tags", "tiers")
-#: `first:` values (M3.6c): `glance` sorts ready glance work first.
+#: `first:` values: `glance` sorts ready glance work first.
 FIRST_VALUES = ("glance",)
 #: The organs a shift runs on: its watcher and planner (Brain), its one Mind
 #: writer (Mind) and its release path (Hands). A shift never changes them, so
-#: the planner never dips a draft that targets one (PyAutoBrain#637, item 7).
-#: A brief's named task is the human's own pick and is not gated.
+#: the planner never dips a draft that targets one. A brief's named task is
+#: the human's own pick and is not gated.
 SELF_ORGANS = ("PyAutoBrain", "PyAutoMind", "PyAutoHands")
-#: The one size `backlog: scoped` may dip beyond `queue.md` (human ruling
-#: 2026-11-16, PyAutoBrain#637, item 6): small and single-repo only.
+#: The one size `backlog: scoped` may dip beyond `queue.md`: small and
+#: single-repo only.
 SCOPED_REACH_DIFFICULTY = "small"
-#: The late window (human ruling H2): the watcher's digest and late sweep run
-#: from `review-at:` to this long after it, and then it stops ticking the slot
-#: (M3.6a, PyAutoBrain#659). `batch watch --stream` ends at the same time.
+#: The late window: the watcher's digest and late sweep run from `review-at:`
+#: to this long after it, and then it stops ticking the slot.
+#: `batch watch --stream` ends at the same time.
 LATE_WINDOW_S = 45 * 60
-#: A shift issue: the brief's `issue:` value (M3.6a).
+#: A shift issue: the brief's `issue:` value.
 ISSUE_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 
 _ITEM_RE = re.compile(r"^(\s*)-\s+(.*?)\s*$")
@@ -145,7 +145,7 @@ def excluded_of(brief: dict) -> tuple[set[str], dict[str, list[str]]]:
 
 
 #: Tokens one worker session is assumed to need at least, for a session cap
-#: derived from the budget (M3.6c, human 2026-11-17): the cap is
+#: derived from the budget: the cap is
 #: `max(2 × max-workers, ceil(token-budget / SESSION_TOKEN_FLOOR))`, so the
 #: token budget binds before the session count does.
 SESSION_TOKEN_FLOOR = 150_000
@@ -154,8 +154,8 @@ SESSION_TOKEN_FLOOR = 150_000
 def cap_of(brief: dict, key: str) -> int:
     """A usage cap from the brief, or its default when the brief omits it.
     With no `max-sessions:`, a brief with a `token-budget:` gets a cap derived
-    from it and `max-workers:` (M3.6c) — the fixed 8 stopped all new starts in
-    shift 2026-11-16-pm with 2.3M of 5M tokens unspent."""
+    from it and `max-workers:`, so a fixed session count never stops new
+    starts while most of the budget is unspent."""
     value = _nonneg_int(brief.get(key, {}).get("value", ""))
     if value is not None:
         return value
@@ -175,16 +175,16 @@ def cap_source(brief: dict, key: str) -> str:
     return "default"
 
 
-#: The caps a `/cap` steering command may lower for one shift (#644).
+#: The caps a `/cap` steering command may lower for one shift.
 CAP_KEYS = ("merge-cap", "max-workers", "max-sessions", "token-budget")
 
 
 def effective(brief: dict, counters: dict | None) -> dict:
-    """The brief as this shift now runs it (PyAutoBrain#644): a copy with each
-    `/cap` override's value (`counters["caps"]`) swapped in, and each task the
-    human `/add`ed (`counters["added"]`) appended to `tasks:` and taken out of
-    `exclude:` — the human's newer word, as a brief that names a task again.
-    The brief file is never changed; with nothing steered it is `brief` itself."""
+    """The brief as this shift now runs it: a copy with each `/cap` override's
+    value (`counters["caps"]`) swapped in, and each task the human `/add`ed
+    (`counters["added"]`) appended to `tasks:` and taken out of `exclude:` —
+    the human's newer word, as a brief that names a task again. The brief
+    file is never changed; with nothing steered it is `brief` itself."""
     caps = (counters or {}).get("caps") or {}
     added = (counters or {}).get("added") or {}
     if not brief or not (caps or added):
@@ -213,12 +213,8 @@ def worker_mode_of(brief: dict) -> str:
 
 
 def is_shadow(brief: dict) -> bool:
-    """A shadow shift (phase 4a) plans and records proposals but spawns nothing."""
+    """A shadow shift plans and records proposals but spawns nothing."""
     return brief.get("shadow", {}).get("value", "").lower() == "yes"
-
-
-def is_sandbox(brief: dict) -> bool:
-    return brief.get("sandbox", {}).get("value", "").lower() == "yes"
 
 
 def lanes_of(brief: dict) -> list[str]:
@@ -283,12 +279,10 @@ def _measured(mind: Path, prev: Path) -> bool:
     """Whether the previous record carries `review-minutes-actual:` — in the
     canonical working tree, or on Mind's local `origin/main` ref.
 
-    PyAutoBrain#637, item 5: the gate read only the working tree, which no
-    one pulls mid-shift. A check-in pushed from a linked worktree of the
-    canonical checkout (`prompt_sync_push`, the one Mind writer) moves the
-    local `origin/main` ref at once, whether or not the working tree is
-    fast-forwarded after it, so the next tick counts it. Nothing is fetched:
-    the watcher's network surface is unchanged."""
+    No one pulls the working tree mid-shift, but a check-in pushed from a
+    linked worktree of the canonical checkout moves the local `origin/main`
+    ref at once, so the next tick counts it. Nothing is fetched: the
+    watcher's network surface is unchanged."""
     if _has_minutes(prev.read_text(encoding="utf-8", errors="replace")):
         return True
     text = origin_text(mind, f"batches/{prev.name}")
@@ -361,7 +355,7 @@ def check(path: Path, mind: Path) -> dict:
                       + ", ".join(WORKER_MODES)
                       + (" (bypassPermissions is never a worker mode)"
                          if brief["worker-mode"]["value"] == "bypassPermissions" else ""))
-    # `first: glance` (M3.6c): ready glance work starts before named judge tasks.
+    # `first: glance`: ready glance work starts before named judge tasks.
     if "first" in brief and brief["first"]["value"] not in FIRST_VALUES:
         errors.append(f"brief.first: {brief['first']['value'] or 'empty'} — only "
                       + " | ".join(FIRST_VALUES) + " (or leave the line out)")
@@ -411,7 +405,7 @@ def check(path: Path, mind: Path) -> dict:
             errors.append(f"review-minutes-actual: missing on the previous "
                           f"record {prev.name} — measure it before a new brief")
 
-    # The digest, once collect has appended one (phase 3d).
+    # The digest, once collect has appended one.
     import _digest  # noqa: E402 — deferred: _digest imports this module
     errors += _digest.validate(path.read_text(encoding="utf-8", errors="replace"))
 
@@ -419,10 +413,10 @@ def check(path: Path, mind: Path) -> dict:
 
 
 def launch_errors(top: dict, brief: dict | None) -> list[str]:
-    """What only a launch needs (M3.6a, PyAutoBrain#659): `batch brief --check`
-    adds these to `check`; the watcher does not. A live brief (not `shadow:
-    yes`) needs its shift issue: the status comment, the steering commands and
-    the digest all go there, and shift 2026-11-16-pm had none."""
+    """What only a launch needs: `batch brief --check` adds these to `check`;
+    the watcher does not. A live brief (not `shadow: yes`) needs its shift
+    issue: the status comment, the steering commands and the digest all go
+    there."""
     if brief is None or is_shadow(brief):
         return []
     issue = (top.get("issue") or {}).get("value", "").strip()
@@ -435,7 +429,7 @@ def launch_errors(top: dict, brief: dict | None) -> list[str]:
     return []
 
 
-# --- the organ rule for a named task (M3.6b) -------------------------------------
+# --- the organ rule for a named task ---------------------------------------------
 
 #: The shift's own code, per organ it runs on: its watcher and planner (Brain),
 #: its one Mind writer and lifecycle (Mind) and its release path (all of Hands,
@@ -538,11 +532,9 @@ def _classify(parts: list[str], hit: list[str], only_self: bool, organs: dict,
 def organ_findings(name: str, path: Path, mind: Path) -> tuple[list[str], list[str], list[str]]:
     """(errors, warnings, notes) of the organ rule for one named task.
 
-    The organ rule was a dip rule only (`_batch.self_organ_why`); a named task
-    is the human's pick, and in shift 2026-11-16-pm the human had to rule in
-    chat that a renderer is not the watcher, writer or release path. This says
-    it at launch instead (M3.6b), for a task that targets an organ the shift
-    runs on:
+    A named task is the human's pick, so the dip rule (`_batch.self_organ_why`)
+    does not gate it; this says at launch whether it would change what runs
+    the shift, for a task that targets an organ the shift runs on:
 
     - refused when it names the shift's own code: a path under an organ's
       `SELF_PATHS` with that organ written in it, under a multi-segment self
@@ -621,7 +613,7 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
     ex_paths, ex_keyed = excluded_of(brief)
     ex_names = {Path(p).name for p in ex_paths}
     lanes = set(lanes_of(brief)) or {"any"}
-    # `/add`ed this shift (`effective`, #644): no `exclude:` rule holds it back.
+    # `/add`ed this shift (`effective`): no `exclude:` rule holds it back.
     added = set(_csv(brief.get("added", {}).get("value", "")))
 
     kept, rejected = [], []
@@ -632,8 +624,8 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
                                   or themes & set(ex_keyed.get("tags", []))):
             rejected.append((r["path"], "excluded by the brief"))
             continue
-        # A task an answer released (the inbox, M3.5) is the human's word, as
-        # naming it would be (M3.6c): no dip policy keeps it out.
+        # A task an answer released (the inbox) is the human's word, as
+        # naming it would be: no dip policy keeps it out.
         if name not in named_names and not r.get("resume"):
             if backlog == "none":
                 rejected.append((r["path"], "outside the brief (backlog: none)"))
@@ -684,8 +676,8 @@ def pick_reason(record: dict, brief: dict) -> str:
 
 def rank_note(record: dict) -> str:
     """The planner's order, as it applied to this record (`_batch.plan`):
-    queue.md position first; below the queue, priority, then cheapest review
-    (M2.3, 2026-11-12), then the path — so a tie is alphabetical, and says so."""
+    queue.md position first; below the queue, priority, then cheapest review,
+    then the path — so a tie is alphabetical, and says so."""
     parts = []
     if record.get("queued"):
         parts.append(f"queue.md #{record['queue_rank'] + 1}"

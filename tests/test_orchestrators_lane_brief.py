@@ -7,7 +7,6 @@ One test group per clause of the prompt's `Witness:` — (a) lane parsing,
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -20,10 +19,7 @@ sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "intake"))
 import _sizing  # noqa: E402
 import _intake  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location(
-    "_batch_p2", BRAIN / "agents" / "conductors" / "batch" / "_batch.py")
-_batch = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_batch)
+from _shift_fixtures import _batch  # noqa: E402
 _brief = _batch._brief
 
 NEW_LANES = ("ral", "gpu", "wsl-data")

@@ -1,13 +1,12 @@
 """Workspace-local discovery preserves user state and needs no optional organs."""
-import importlib.util
 from pathlib import Path
 
 import pytest
 
+from _helpers import load_module
+
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('starter_discovery', ROOT / 'bin/project_discovery.py')
-discovery = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(discovery)
+discovery = load_module('starter_discovery', ROOT / 'bin/project_discovery.py', register=False)
 
 
 @pytest.fixture

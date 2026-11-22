@@ -192,11 +192,16 @@ def test_the_steering_table_covers_exactly_the_watchers_verbs():
                if cell not in comments)
 
 
-@pytest.mark.parametrize("verb", ["/stop", "/kill"])
-def test_stop_and_kill_are_confirmed_first(verb):
+@pytest.mark.parametrize("verb, confirmed", [
+    ("/stop", "**yes**"), ("/kill", "**yes**"),
+    # every cap is confirmed with its number
+    ("/cap merges", "**yes**, with n shown"), ("/cap workers", "**yes**, with n shown"),
+    ("/cap tokens", "**yes**, with n shown"),
+])
+def test_stop_kill_and_every_cap_are_confirmed_first(verb, confirmed):
     rows = [line for line in _procedure().splitlines()
             if line.startswith("| \"") and f"`{verb}" in line.split("|")[2]]
-    assert rows and all("**yes**" in row for row in rows), rows
+    assert rows and all(confirmed in row for row in rows), rows
 
 
 def test_steering_is_one_comment_from_the_humans_login():
@@ -252,13 +257,6 @@ def test_a_question_gets_a_one_shot_read_not_a_watch():
     assert "## Attach only when asked" in proc
     assert proc.index("## Attach only when asked") < proc.index("## 3. Attach")
     assert "with no Monitor" in proc
-
-
-@pytest.mark.parametrize("verb", ["/cap merges", "/cap workers", "/cap tokens"])
-def test_every_cap_is_confirmed_with_its_number(verb):
-    rows = [line for line in _procedure().splitlines()
-            if line.startswith("| \"") and f"`{verb}" in line.split("|")[2]]
-    assert rows and all("**yes**, with n shown" in row for row in rows), rows
 
 
 def test_the_merge_cap_counts_the_whole_shift():

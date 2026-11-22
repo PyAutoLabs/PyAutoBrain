@@ -13,10 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
+from _shift_fixtures import BATCH, BRAIN  # noqa: F401
 import _orchestrator as orch  # noqa: E402
 
 SECTION = "## Shift speed — 2026-11-19"

@@ -40,18 +40,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "facultie
 from _sizing import (  # noqa: E402
     WORK_TYPES, HUMAN_REVIEW, MANUAL_ONLY_WORK_TYPES,
     LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
-    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, norm_work_type,
+    normalise_repo, norm_work_type,
     declared_header, LANE_VALUES, _body_map_specs,
     declared_inline, effective_difficulty, strip_declarations, _hits,
     effective_consequence, effective_unattended, effective_review_minutes,
-    policy as _sizing_policy, BODY_MAP_PATH,
-    _body_map_specs as _sizing_specs,
+    policy as _sizing_policy,
 )
 
 # The memory faculty, imported rather than shelled out to: intake files prompts
-# in bulk (`intake ideas --apply` formalises the whole inbox in one go) and a
-# subprocess per prompt would pay the interpreter start-up every time. It is the
-# same ranking function the `/memory` verb prints — one recall implementation.
+# in bulk and a subprocess per prompt would pay the interpreter start-up every
+# time. It is the same ranking function the `/memory` verb prints.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "faculties" / "memory"))
 import _memory  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -63,8 +61,9 @@ from _repo_paths import repo_path  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "board"))
 from _theme import (  # noqa: E402
     section_layout,
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills,
     normalize_refresh_stamp,
+    attr as _attr, md_cell as _cell, pages_url as _pages_url,
 )
 # The organ-cockpit feed contract (board/_state.py, state.json v1) — the same
 # constructor the Brain board uses, so this renderer cannot write a feed the
@@ -74,9 +73,8 @@ from _state import build_state  # noqa: E402
 # The batch-status box: one reading of "is a batch in flight", shared with
 # the Cortex's dashboard (agents/conductors/batch/_status.py). Not `_batch`
 # itself: its `read_record` has no `member_re` param and its member grammar
-# (outcomes hold spaces) needs `_batch.py`'s own post-split, which `_status`'s
-# generic groupdict extraction cannot carry — see `_dev_member` below — and
-# `_batch.py` is a live edit surface this render path should not couple to.
+# (outcomes hold spaces) needs a post-split `_status`'s generic groupdict
+# extraction cannot carry — see `_dev_member` below.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "agents"
                        / "conductors" / "batch"))
 from _status import (  # noqa: E402
@@ -86,11 +84,11 @@ from _status import (  # noqa: E402
     last_shift,
 )
 # The human's steering files (queue.md, goals.md): readers shared with the
-# batch planner and `batch brief --new` (PyAutoMind#565). `read_queue` IS the
-# planner's reader, so a row's ★ `#n` is the planner's rank (PyAutoBrain#640).
+# batch planner and `batch brief --new`. `read_queue` IS the planner's reader,
+# so a row's ★ `#n` is the planner's rank.
 from _steer import queue_ranks, read_goals, read_queue, read_queue_entries  # noqa: E402
-# The questions inbox (M3.5, PyAutoBrain#645): the batch conductor's reader,
-# so the page and the watcher read `questions.md` one way.
+# The questions inbox: the batch conductor's reader, so the page and the
+# watcher read `questions.md` one way.
 import _questions  # noqa: E402
 
 # The close-out guard (strong-evidence `looks-shipped` flags): the detector and
@@ -138,18 +136,14 @@ TYPE_PRECEDENCE = ["bug", "test", "docs", "refactor", "release", "maintenance",
 # domain keyword -> the target folder (second-folder slug) it belongs under.
 TARGET_SIGNALS = _sizing_policy()["target_signals"]
 
-# Human-readable display name for the header's `Target:` line.
-#
-# Derived from the body map, which already holds every repo's name in its real
-# capitalisation — a hand-kept copy here would be the same drift #287 closed in
-# the alias table one map over, and it already had the beginnings of it: keys the
-# router could reach (`pyautohands`, and the CTI/Reduce libraries) had no row, so
-# a header came out as `Target: pyautohands`. Only the rows a body map cannot
-# know are written out: the pre-rename spellings and the workspace bucket.
+# Human-readable display name for the header's `Target:` line. Derived from the
+# body map, which holds every repo's name in its real capitalisation; only the
+# rows a body map cannot know are written out: the pre-rename spellings and the
+# workspace bucket.
 def _repo_display() -> dict:
     out = {
         normalise_repo(name): name
-        for name in _sizing_specs()
+        for name in _body_map_specs()
     }
     out.update({
         "autoconf": out.get("autonerves", "autonerves"),      # pre-rename spelling
@@ -173,9 +167,8 @@ def _slug(text: str, maxwords: int = 7) -> str:
     return slug[:48].strip("_") or "untitled"
 
 
-# Words that must never be the last one in a truncated title. A cut landing
-# on "the" or "which" reads as a rendering bug rather than a summary — the
-# page said "kernel-CDF numba fast path (the" for months.
+# Words that must never be the last one in a truncated title: a cut landing
+# on "the" or "which" reads as a rendering bug rather than a summary.
 _DANGLING = {
     "a", "an", "and", "are", "as", "at", "but", "by", "can", "for", "from",
     "if", "in", "into", "is", "it", "its", "of", "on", "or", "our", "over",
@@ -238,12 +231,11 @@ def _repos_in(text: str) -> list:
     return sorted(m for m in found if m in KNOWN_REPOS)
 
 
-# --- the declared header block (PyAutoBrain#472) ------------------------------
+# --- the declared header block ------------------------------------------------
 # Raw input is often a pasted prompt that already carries a header block. The
-# sizing faculty's `declared_header` reads the closed-vocabulary keys and
-# returns None for a value it does not recognise — correct for the faculty, but
-# it left intake silently inferring over a declared `Type: hygiene`. Intake
-# therefore reads the RAW declared values itself and says what it did with them.
+# sizing faculty's `declared_header` returns None for a value it does not
+# recognise, so intake reads the RAW declared values itself and says what it
+# did with them.
 #
 # Unknown declared types are not a hard error: an `intake ideas` batch must not
 # abort on one bullet. Common near-misses map through this table with a visible
@@ -448,34 +440,11 @@ def infer_priority(text: str) -> str:
 def infer_autonomy(level: str, factors: dict) -> str:
     """safe | supervised | human-required.
 
-    `repo_count > 1` used to force `supervised` here, and it is why 120 of the
-    137 backlog prompts carried that level on 2026-08-30: nearly every real task
-    in this organism names a library plus its workspace, or a library plus a
-    downstream repo. Repo count is *blast radius*, and blast radius is already
-    priced — `estimate_difficulty` adds 2 points per repo beyond the first. This
-    field is supposed to encode something else: whether a HUMAN'S JUDGEMENT is
-    required. A change touching four repos mechanically needs no more judgement
-    than the same change touching one.
-
-    So `repo_count` is removed and NOTHING replaces it. The first draft of this
-    change added `human_judgement` as a supervised trigger in its place, on the
-    reasoning that ambiguity is what actually predicts a park. Measured over the
-    backlog, that made things WORSE — `safe` fell from 30 to 24, because the
-    ambiguity keywords ("unclear", "investigate", "explore", "research",
-    "decide") fire on 63% of prompts and catch well-written ones indiscriminately.
-    It was the same mistake as the rule it replaced: a loose proxy standing in
-    for a judgement it does not measure. Dropping `repo_count` alone takes `safe`
-    from 30 to 55.
-
-    CHANGED 2026-08-30 as a dated EXPERIMENT, not a graduation — see
-    AUTONOMY.md "Multi-repo autonomy experiment". Deliberately not justified by
-    the calibration log's 238 rows and zero `rejected`: those rows are July
-    human-in-session work (about seven cover all of August, against 332
-    completions), `rejected` is structurally unreachable in that log, and every
-    clean row was produced *with this guard switched on* — by a review that
-    raised the work-type caps precisely BECAUSE this heuristic stayed
-    conservative. Evidence collected under a safety device cannot license
-    removing the device.
+    Repo count is deliberately not an input: it is blast radius, which
+    `estimate_difficulty` already prices (2 points per repo beyond the first),
+    while this field encodes whether a HUMAN'S JUDGEMENT is required. Nor are
+    the ambiguity keywords a `supervised` trigger — they fire on most prompts,
+    well-written or not. See AUTONOMY.md "Multi-repo autonomy experiment".
     """
     if factors["human_judgement"] and factors["repos_affected"] == 0:
         return "human-required"          # unscoped / needs a design decision
@@ -495,11 +464,11 @@ def analyse(text: str, source: str, themes=None, lane=None):
     `lane` is an EXPLICIT lane from the filer (`classify --lane any`). With
     none, a `Lane:` header in the text, else a lane inferred from a resource
     signal. With none of the three the decision carries `lane: None` and a
-    `lane_refusal`, and `write_prompt` refuses to file it (M2.3).
+    `lane_refusal`, and `write_prompt` refuses to file it.
     """
-    # A pasted prompt's own header block (PyAutoBrain#472): read its raw
-    # Type/Target/Repos so a value the faculty does not recognise is reported,
-    # not silently replaced by inference, and keep it out of the title.
+    # A pasted prompt's own header block: read its raw Type/Target/Repos so a
+    # value the faculty does not recognise is reported, not silently replaced
+    # by inference, and keep it out of the title.
     heading, header_lines, body = _split_header(text)
     raw_header = parse_header(text)
     notes = []
@@ -548,11 +517,9 @@ def analyse(text: str, source: str, themes=None, lane=None):
          "declared_difficulty": declared.get("difficulty")}
     level, score, factors, estimated = effective_difficulty(p)
 
-    # The review-cost model (sizing faculty). `Witness:` is the one field that
-    # can never be derived: it is a promise about evidence the work will
-    # produce, and a plausible-sounding invented one would defeat the whole
-    # mechanism — the value of the field is that its ABSENCE is informative.
-    # So it is read if declared and left absent otherwise, which correctly
+    # `Witness:` can never be derived: it is a promise about evidence the work
+    # will produce, and the value of the field is that its ABSENCE is
+    # informative. Read if declared, left absent otherwise, which correctly
     # grades the prompt `judge`.
     p["witness"] = header.get("witness")
     p["declared_consequence"] = header.get("declared_consequence")
@@ -601,11 +568,10 @@ def analyse(text: str, source: str, themes=None, lane=None):
     # low-confidence triage filing that means `Type: triage`, not the provisional
     # guess — the guess still rides in the IntakeDecision's `work_type` field.
     # The filer's explicit lane wins, then a `Lane:` header in the text, then
-    # a resource signal the text names. "No signal" is NOT `any` (M2.3,
-    # AUTONOMY.md "M2 rulings — 2026-11-12": a new draft filed without a Lane
-    # is rejected): an unattended planner excludes a draft with no `Lane:`, so
-    # where the work can run must be decided at filing, by a person or by a
-    # signal — never defaulted. `write_prompt` refuses a decision with none.
+    # a resource signal the text names. "No signal" is NOT `any` (AUTONOMY.md
+    # "M2 rulings"): an unattended planner excludes a draft with no `Lane:`,
+    # so where the work can run must be decided at filing, by a person or by
+    # a signal — never defaulted. `write_prompt` refuses a decision with none.
     if lane:
         lane, lane_source = lane.lower(), "explicit"
     elif header.get("lane"):
@@ -671,7 +637,7 @@ def analyse(text: str, source: str, themes=None, lane=None):
 
 
 #: Why intake will not file a draft whose lane nobody decided, and how to
-#: decide it (M2.3, AUTONOMY.md "M2 rulings — 2026-11-12").
+#: decide it (AUTONOMY.md "M2 rulings").
 LANE_REFUSAL = (
     "refused — no Lane: the text names no resource (RAL, GPU, /mnt data, "
     "private data), so where this can run is undecided, and an unattended "
@@ -681,14 +647,14 @@ LANE_REFUSAL = (
 
 
 class LaneRequired(ValueError):
-    """`write_prompt` was handed a decision with no lane (M2.3)."""
+    """`write_prompt` was handed a decision with no lane."""
 
 
 # Optional header keys a raw input may declare that classification never
-# derives, so they are carried through verbatim (PyAutoBrain#553). Dropping them
-# filed an epic member as a standalone pick and dated it by file mtime. Written
-# after `Status:` in `_HEADER_BLOCK_KEYS` order; `Lane:` rides with the
-# review-cost keys instead, below `Unattended:`.
+# derives, so they are carried through verbatim — without them an epic member
+# files as a standalone pick dated by file mtime. Written after `Status:` in
+# `_HEADER_BLOCK_KEYS` order; `Lane:` rides with the review-cost keys instead,
+# below `Unattended:`.
 PASSTHROUGH_KEYS = ("filed", "epic", "phase", "blocked-by", "closes-when")
 _PASSTHROUGH_RE = re.compile(
     r"^(Filed|Epic|Phase|Blocked-by|Closes-when):\s*(\S.*?)\s*$", re.I)
@@ -711,24 +677,20 @@ def _declared_passthrough(header_lines) -> list[tuple[str, str]]:
     return [(k.capitalize(), v) for k in PASSTHROUGH_KEYS for v in found.get(k, [])]
 
 
-# Resource lanes inferred from the text (2026-11-03). Order is precedence: a
-# prompt that needs RAL and the GPU is a RAL task, because RAL is the scarcer
-# gateway. Deliberately narrow — a loose pattern routes cloud-runnable work off
-# the cloud, which is the failure the lane exists to prevent.
+# Resource lanes inferred from the text. Order is precedence: a prompt that
+# needs RAL and the GPU is a RAL task, because RAL is the scarcer gateway.
+# Deliberately narrow — a loose pattern routes cloud-runnable work off the
+# cloud, which is the failure the lane exists to prevent.
 #
-# 2026-11-12 (PyAutoBrain#608, M1.3 slice 2): the words the ecosystem review
-# found missing, and a stricter reading of the loose ones. An unambiguous
-# mechanism (`sbatch`, `SLURM`, `--gres`, a `/mnt/ral` or `/mnt/<drive>` path,
-# CUDA, the laptop GPU, "private data") is a requirement wherever it appears.
-# A bare resource NAME — RAL, A100, HPC, GPU — is not: drafts mention them as
-# context ("not a CPU-vs-GPU limitation", "GPU runs are unaffected", "A100
-# likelihoods ... was removed"). Those count only in a requirement context:
-# the title or the `Witness:` line, or a phrase that puts the work there
-# ("re-run ... on the A100", "submit ... to RAL", "needs a GPU"). A negated
-# mention ("not", "no longer", "unaffected", "without") never counts. A100 and
-# HPC are RAL resources (the A100s live there); a GPU is the laptop's. The
-# Lane backfill (`bin/lane_backfill.py`) reads this same table, so filing and
-# backfill cannot drift apart.
+# An unambiguous mechanism (`sbatch`, `SLURM`, `--gres`, a `/mnt/ral` or
+# `/mnt/<drive>` path, CUDA, the laptop GPU, "private data") is a requirement
+# wherever it appears. A bare resource NAME — RAL, A100, HPC, GPU — is not:
+# drafts mention them as context ("GPU runs are unaffected"). Those count only
+# in a requirement context: the title or the `Witness:` line, or a phrase that
+# puts the work there ("re-run ... on the A100", "needs a GPU"). A negated
+# mention never counts. A100 and HPC are RAL resources; a GPU is the laptop's.
+# The Lane backfill (`bin/lane_backfill.py`) reads this same table, so filing
+# and backfill cannot drift apart.
 LANE_ORDER = ("ral", "gpu", "wsl-data", "local-dev")
 LANE_SIGNALS = (
     ("ral", re.compile(r"\bSLURM\b|\bsbatch\b|\bsqueue\b|--gres\b|euclid_jump"
@@ -918,45 +880,30 @@ def slice_offer(path: str, unattended: str) -> str:
 
 # --- apply (the only writing path) -------------------------------------------
 # --- Memory citations ---------------------------------------------------------
-# The doctrine says every plan consults Memory. The record says it was consulted
-# about six times in 1,547 completed tasks, because consulting it is a step a
-# human has to remember. So intake does it mechanically: every prompt it files
-# carries the top PyAutoMemory pages for its own text, as a `Memory:` header
-# line, and the session that picks the prompt up has the citations in front of
-# it before it plans anything.
+# Every plan is meant to consult Memory, and a step a human has to remember is
+# skipped, so intake does it mechanically: every prompt it files carries the
+# top PyAutoMemory pages for its own text as a `Memory:` header line.
 #
-# PyAutoMemory ONLY — not Mind history, not the assistant. Those two are
-# operational recall (what the organism did); this line answers "what does the
-# science say", which is the half a plan cannot reconstruct from the repo. A
-# prompt with no hits, or filed on a box with no PyAutoMemory, gets no line at
-# all: an empty `Memory:` would read as "nothing is known", which is a claim
-# this has no standing to make.
+# PyAutoMemory ONLY — not Mind history, not the assistant. Those are
+# operational recall; this line answers "what does the science say", which a
+# plan cannot reconstruct from the repo. A prompt with no hits, or filed on a
+# box with no PyAutoMemory, gets no line at all: an empty `Memory:` would read
+# as "nothing is known", a claim this has no standing to make.
 #
-# Nor does a prompt that targets an organ (Brain, Mind, Heart, ...: the body
-# map's `category: organ` repos, i.e. ORGANISM_REPOS). Its subject is the
-# organism's own machinery, so there is no science question to answer, and the
-# digest only ever matched on shared vocabulary ("profile", "model") — every
-# organ prompt filed got galaxy-wiki citations that had to be hand-removed.
+# Nor does a prompt that targets an organ (the body map's `category: organ`
+# repos, i.e. ORGANISM_REPOS): its subject is the organism's own machinery, so
+# there is no science question and any hit is shared vocabulary.
 #
-# Nor does a page the prompt only shares vocabulary with. The digest's ranking
-# is raw term counts, so a long page full of "model", "profile" and "fit" tops
-# it for any prompt at all (a jax-compile tooling prompt was handed
-# massive-ellipticals.md). A page is cited only when the query terms it shares
-# that are DISTINCTIVE in PyAutoMemory — on at most MEMORY_DISTINCT_SHARE of its
-# pages — carry enough weight: each scores log(N/df)/log(N) (1 for a term on a
-# single page, ~0.6 at the share cut-off), and the page needs MEMORY_FLOOR, or
-# MEMORY_FLOOR_PER_TERM per distinct query term when that is lower (a one-line
-# idea cannot accumulate what a 200-word prompt does, and a long prompt's rare
-# words hit dev-flavoured pages by chance). Calibrated on the 276 Mind drafts
-# of 2026-11-05 against the live digest (158 pages): long EP prompts score
-# 11.5-15 on expectation-propagation.md and jax-gradient bugs ~9.8 on
-# autodiff-implicit-diff.md, while the jax-compile and numba-preset tooling
-# prompts top out at 8.4 and 5.4 on any page; 67 of the 276 drafts clear the
-# floor, against nearly all of them before it. A one-line EP idea (10 terms)
-# scores 4.7 on the EP page against a 1.5 floor; a one-line jax-compile tooling
-# idea (11 terms) scores 1.5 against 1.65. Navigation pages (index, log,
-# AGENTS, README, reading-queue) are never cited: they list sources, they are
-# not one.
+# Nor is a page cited that the prompt only shares vocabulary with. The digest
+# ranks by raw term counts, so a long page full of "model", "profile" and "fit"
+# tops it for any prompt. A page is cited only when the query terms it shares
+# that are DISTINCTIVE in PyAutoMemory — on at most MEMORY_DISTINCT_SHARE of
+# its pages — carry enough weight: each scores log(N/df)/log(N) (1 for a term
+# on a single page, ~0.6 at the share cut-off), and the page needs
+# MEMORY_FLOOR, or MEMORY_FLOOR_PER_TERM per distinct query term when that is
+# lower (a one-line idea cannot accumulate what a 200-word prompt does).
+# Navigation pages (index, log, AGENTS, README, reading-queue) are never
+# cited: they list sources, they are not one.
 MEMORY_CITATIONS = 3
 MEMORY_QUERY_WORDS = 200
 MEMORY_FLOOR = 9.0
@@ -1068,7 +1015,7 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
     """Write the formal prompt file. Returns the path written (relative to mind).
 
     Refuses (`LaneRequired`) a decision with no lane — declared, explicit or
-    inferred — before anything touches the disk (M2.3)."""
+    inferred — before anything touches the disk."""
     if not decision.get("lane"):
         raise LaneRequired(LANE_REFUSAL)
     rel = Path(decision["proposed_path"])
@@ -1091,7 +1038,7 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
     decision["memory"] = cites
     decision["header"] = _with_memory(decision["header"], cites, target)
     # The input's own header block (and its heading) is already rendered in
-    # the decision's header — do not echo it into the body (PyAutoBrain#472).
+    # the decision's header — do not echo it into the body.
     _heading, header_lines, body = _split_header(body_text)
     if header_lines:
         body_text = body
@@ -1104,34 +1051,28 @@ def write_prompt(mind: Path, decision: dict, body_text: str, source_note: str):
 # The header convention this agent writes (see _render_header); census parses the
 # same fields back out of every filed prompt. Legacy prompts pre-date the header,
 # so every field is optional — absence is reported, never fatal.
-# `consequence` and `review-minutes` join the hygiene set: both are DERIVED, so
-# `intake formalise` can fill them in place like any other missing field.
+# `consequence` and `review-minutes` are in the hygiene set: both are DERIVED,
+# so `intake formalise` can fill them in place like any other missing field.
 #
-# `witness` and `unattended` deliberately do NOT. `formalise` writes every field
-# it finds missing, and a `Witness:` cannot be derived — it is a promise about
-# evidence the work will produce. An auto-written one would be plausible prose
-# with nothing behind it, which is strictly worse than none: the entire value of
-# the field is that its ABSENCE is informative, and a backlog of invented
-# witnesses would grade `notify` while offering a reviewer nothing to check.
-# (`unattended` stays out for the ordinary reason — it is derived on read and
-# never needs storing.) The dashboard reports missing witnesses as its own
-# hygiene row instead, where the fix is a human writing one.
+# `witness` and `unattended` deliberately are NOT. `formalise` writes every
+# field it finds missing, and a `Witness:` cannot be derived — an auto-written
+# one would grade `notify` while offering a reviewer nothing to check.
+# `unattended` is derived on read and never stored. The dashboard reports
+# missing witnesses as its own hygiene row, where the fix is a human writing
+# one.
 HEADER_FIELDS = ("type", "target", "difficulty", "autonomy", "priority", "status",
                  "consequence", "review-minutes")
 
 # `Fix:`-anchored PR reference in a draft prompt's body — the idiom a session
-# writes when it fixes the bug but forgets to advance the prompt's lifecycle
-# (the 2026-08-21 numba psf_weighted_data case: fixed + merged overnight,
-# still advertised as top-priority backlog). Line-anchored so a prompt merely
-# *citing* a PR as context is never flagged.
+# writes when it fixes the bug but forgets to advance the prompt's lifecycle.
+# Line-anchored so a prompt merely *citing* a PR as context is never flagged.
 _FIX_PR_RE = re.compile(r"^Fix:.*(?:PR\s*#\d+|/pull/\d+)",
                         re.MULTILINE | re.IGNORECASE)
 
-# The other half of the same failure: a session finishes the work, writes the
-# outcome into the prompt's own `Status:` header — `shipped`, `superseded`,
-# `absorbed` — and then leaves the file in `draft/`, where it keeps rendering as
-# pickable backlog. Read off the parsed header (not the body) so a prompt that
-# merely *describes* shipped sibling work is never flagged.
+# The other half of the same failure: a prompt whose own `Status:` header says
+# `shipped`, `superseded` or `absorbed` but still sits in `draft/`, rendering
+# as pickable backlog. Read off the parsed header (not the body) so a prompt
+# that merely *describes* shipped sibling work is never flagged.
 DONE_STATUSES = ("shipped", "superseded", "absorbed", "complete", "completed",
                  "done", "retired")
 
@@ -1189,11 +1130,9 @@ _ISSUE_URL = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
 _ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 
 # The Mind dates a task the moment it leaves the backlog (PyAutoMind
-# REFERENCE.md "Task dates"). The KEY names the event, so a merged feed can say
-# what each date means; most-specific event first, so a task that was filed and
-# later issued dates from its issue. A date sitting in some other field's prose
-# is deliberately not read — that is the un-parseable habit the convention
-# replaced.
+# REFERENCE.md "Task dates"). The KEY names the event; most-specific event
+# first, so a task that was filed and later issued dates from its issue. A
+# date sitting in some other field's prose is deliberately not read.
 DATE_KEYS = ("issued", "registered", "started", "planned", "filed", "parked",
              "found", "completed", "shipped")
 
@@ -1237,9 +1176,8 @@ _PENDING_RELEASE = re.compile(r"([\w.-]+)@(https://\S+)")
 def _pr_links(values: list) -> list:
     """`[{url, label}]` for every PR URL across a repeated key's values.
 
-    Both written forms collapse here: one line per URL, and the older single
-    line of `<url>, <url>`. The label is `Repo#N` — the shortest thing that
-    still says which repo, which is the whole reason the column exists."""
+    Both written forms collapse here: one line per URL, and a single line of
+    `<url>, <url>`. The label is `Repo#N`."""
     out, seen = [], set()
     for value in values or []:
         for m in _PR_URL.finditer(value):
@@ -1470,20 +1408,16 @@ def _clip(text: str, limit: int = 130) -> str:
 
 
 # --- the recent feed -----------------------------------------------------------
-# The dashboard answers "what should I do now?" everywhere else on the page.
-# This one section answers "what has been happening to the work in hand?" — the
-# single question a task page laid out by STATE cannot answer, because a task's
-# recency is orthogonal to which bucket it sits in. Merging the buckets by date
-# puts the week's issuing, parking and filing in one place.
+# The one section that answers "what has been happening to the work in hand?":
+# a task's recency is orthogonal to which state bucket it sits in, so the
+# buckets are merged by date.
 #
-# Live work ONLY. The `complete/` ledger is not in this feed: it is a thousand
-# records deep and ships ~200 a month, so including it made the table a list of
-# receipts — twenty things nobody can act on, on the page whose whole job is
-# work in hand. `complete/index.md` is where shipped work is read.
-# How deep the feed goes, and how much of it is on screen at once. The table
-# is a glance, not a log: ten rows answer "what has been happening?" without
-# a long scroll, and the rest is one tap away — so a quiet
-# week still shows a fortnight of context and a busy one does not bury it.
+# Live work ONLY. The `complete/` ledger is not in this feed — it would turn
+# the table into a list of receipts nobody can act on; `complete/index.md` is
+# where shipped work is read.
+#
+# How deep the feed goes, and how much of it is on screen at once: a glance,
+# not a log, with the rest one tap away.
 RECENT_MAX = 50
 RECENT_PAGE = 10
 
@@ -1516,11 +1450,9 @@ def recent_events(c: dict, limit: int = RECENT_MAX) -> list:
             events.append({"date": r["date"], "event": r.get("event") or "issued",
                            "title": r["title"], "path": r["path"],
                            "payload": f"Use the start-dev skill. {r['path']}"})
-    # The backlog is the LARGEST pool of work the Mind holds — 150 prompts
-    # against a handful of live rows — so a feed that skipped it could see
-    # almost none of what has been happening. Epic members stay out, as they do
-    # in every pick list on the page: they are worked in order through their
-    # epic, and a Recent row hands out a standalone the start-dev skill.
+    # The backlog is the LARGEST pool of work the Mind holds, so the feed
+    # includes it. Epic members stay out, as they do in every pick list on the
+    # page: they are worked in order through their epic.
     # A planned row and the draft its `prompt:` names are ONE task, so only
     # the later-dated of the pair is listed (a tie keeps the planned row: the
     # more specific event, with its own copy payload). An undated planned row
@@ -1576,8 +1508,7 @@ def _lane_of(header: dict) -> str:
 # An epic keeps its companions beside its ledger: `<name>_epic_report.md`,
 # numbered surveys in `<name>_epic_surveys/` and reviews in `<name>_epic_reviews/`.
 # They live under draft/ because the epic does, but they are read-only reports,
-# not prompts — census() must not list them as pickable backlog work (until
-# 2026-11-05 the dashboard offered 29 of them with "Use the start-dev skill").
+# not prompts — census() must not list them as pickable backlog work.
 EPIC_COMPANION_DIR_SUFFIXES = ("_epic_surveys", "_epic_reviews")
 EPIC_COMPANION_FILE_SUFFIX = "_epic_report.md"
 
@@ -1647,7 +1578,7 @@ def census(mind: Path) -> dict:
                 "review_minutes": header.get("review-minutes", "-"),
                 "unattended": header.get("unattended", "-"),
                 # Where it can run. Absent reads as `any` here (the attended
-                # reading); an unattended pick excludes it (M2.3, 2026-11-12).
+                # reading); an unattended pick excludes it.
                 "lane": _lane_of(header),
                 "priority": header.get("priority", "-"),
                 "status": header.get("status", "-"),
@@ -1755,8 +1686,8 @@ def census(mind: Path) -> dict:
         "by_target": _count("target"),
         "by_difficulty": _count("difficulty"),
         "by_priority": _count("priority"),
-        # Where the backlog can run (autonomous-orchestrators phase 2): the
-        # resource lanes are what a shift brief's `lanes:` admits.
+        # Where the backlog can run: the resource lanes are what a shift
+        # brief's `lanes:` admits.
         "by_lane": _count("lane"),
         "records": records,
         # Shipped work a human asked to check — never part of `records`, so
@@ -1773,19 +1704,19 @@ def census(mind: Path) -> dict:
         "drift": drift,
         "batch": _batch_status(mind),
         # The latest shift, for the Autopilot block's quiet line once every
-        # shift has been reviewed (PyAutoBrain#650).
+        # shift has been reviewed.
         "last_batch": _last_batch(mind),
         # Strong-evidence close-out flags (`intake looks-shipped`), minus what
         # a human dismissed or already closed — the "Looks shipped" section.
         "looks_shipped": _looks_shipped_rows(mind, records),
-        # The human's steering (PyAutoMind#565), read-only (PyAutoBrain#640):
-        # `queue_order` is the planner's own read, so each row's ★ `#n` is its
-        # rank; `queue` gives the labels; `goals` the Goals block.
+        # The human's steering, read-only: `queue_order` is the planner's own
+        # read, so each row's ★ `#n` is its rank; `queue` gives the labels;
+        # `goals` the Goals block.
         "queue": read_queue_entries(mind),
         "queue_order": read_queue(mind),
         "goals": read_goals(mind),
-        # The questions inbox (M3.5, #645), read-only: the Questions part of
-        # the Autopilot block (PyAutoBrain#650), with a 📋 per question.
+        # The questions inbox, read-only: the Questions part of the Autopilot
+        # block, with a 📋 per question.
         "questions": _questions.read(mind),
     }
     c["recent"] = recent_events(c)
@@ -1847,19 +1778,18 @@ def _looks_shipped_head(f: dict) -> str:
 
 
 def _unflagged(c: dict, rows: list) -> list:
-    """Drop `looks-shipped` drafts from a pick list: offering work a human is
-    being asked to confirm as finished is how the 2026-11-05 batch proposed
-    two shipped tasks."""
+    """Drop `looks-shipped` drafts from a pick list: work a human is being
+    asked to confirm as finished must not be offered as work to start."""
     flagged = {f["path"] for f in c.get("looks_shipped") or []}
     return [r for r in rows if r["path"] not in flagged]
 
 
 # `complete/` records carry `pending-release:` too — /prm copies the key over
 # from the active.md row at close-out, so the obligation outlives the row that
-# opened it. The ledger holds ~1300 records, so only the head of each file is
-# read: the record's own fields sit at the top, and everything past
-# `## Original prompt` is the starting prompt verbatim (which may quote another
-# task's keys and must not be attributed to this record).
+# opened it. Only the head of each file is read: the ledger is large, the
+# record's own fields sit at the top, and everything past `## Original prompt`
+# is the starting prompt verbatim (which may quote another task's keys and
+# must not be attributed to this record).
 _RECORD_HEAD_BYTES = 4096
 _ORIGINAL_PROMPT = re.compile(r"^##\s+Original prompt\s*$", re.M | re.I)
 
@@ -1921,10 +1851,6 @@ def pending_release(c: dict, mind: Path) -> list:
     return [groups[k] for k in sorted(groups)]
 
 
-def _cell(value: str) -> str:
-    return str(value).replace("|", "\\|")
-
-
 def _mind_home(mind: Path) -> str:
     """The Mind repo's GitHub home (`https://github.com/<org>/PyAutoMind`).
 
@@ -1936,18 +1862,12 @@ def _mind_home(mind: Path) -> str:
     f = mind / "repos.yaml"
     if not f.is_file():
         return ""
-    # `github:` may follow other keys of the entry (`path:` since the grouped
-    # checkouts layout) — scan the whole indented block, not just line one.
+    # `github:` may follow other keys of the entry (`path:`) — scan the whole
+    # indented block, not just line one.
     m = re.search(r"^\s{2}PyAutoMind:[ \t]*\n(?:[ \t]{4,}.*\n)*?[ \t]{4,}github:"
                   r"[ \t]*([^\s#]+)",
                   f.read_text(encoding="utf-8", errors="replace"), re.M)
     return f"https://github.com/{m.group(1)}" if m else ""
-
-
-def _pages_url(home: str) -> str:
-    """The GitHub Pages site URL for a repo home, `''` when underivable."""
-    m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
-    return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
 
 
 # The dev batch record's member grammar — duplicated from
@@ -2141,29 +2061,17 @@ Bring the PyAutoMind dashboard up to date. Work in the PyAutoMind checkout:
 Report what you retired, what you deliberately left in the backlog and why, and
 anything you could not verify."""
 
-REFRESH_BLURB = (
-    "generated from `active/`, `draft/` and the registry files, so it is only "
-    "as current as they are. `dashboard_refresh.yml` re-renders it on every "
-    "push to `main` — that heals a stale page, but not a stale prompt: a task "
-    "that shipped without its prompt advancing to `complete/` keeps rendering "
-    "here as pickable backlog. Reconciling those is the refresh below."
-)
-
-
 def _task_row(summary: str, payload: str) -> str:
     """One task as a single collapsed row: `▸ 📋 <task text>`.
 
     The page is read on GitHub (often a phone), where the only clipboard
-    affordance static markdown can offer is the copy button GitHub renders on
-    fenced code blocks. So every task row is a `<details>` whose summary IS
-    the task line — the 📋 toggle sits at the left of the text, costing no
-    extra line and no repeated label — and whose hidden body is the fenced
-    message that routes the assistant to the task: tap the row, tap copy, paste into
-    an AI assistant chat. The blank lines around the fence and after
-    `</details>` are what make GitHub's renderer treat the fence as markdown
-    and the next row as a new element rather than raw HTML — do not remove
-    them. The summary is HTML (see `_summary_label`); markdown would not
-    render there.
+    affordance static markdown offers is the copy button on fenced code
+    blocks. So every task row is a `<details>` whose summary IS the task line
+    and whose hidden body is the fenced message that routes the assistant to
+    the task. The blank lines around the fence and after `</details>` are
+    what make GitHub's renderer treat the fence as markdown and the next row
+    as a new element rather than raw HTML — do not remove them. The summary
+    is HTML (see `_summary_label`); markdown would not render there.
     """
     return "\n".join([f"<details><summary>📋 {summary}</summary>",
                       "",
@@ -2242,7 +2150,7 @@ def _epic_members(c: dict) -> dict:
 
 
 def _dated(row: dict) -> str:
-    """`— issued 2026-08-19`, the facet every live task row now carries.
+    """`— issued 2026-08-19`, the facet every live task row carries.
 
     The date is worth showing where the task IS, not only in the Recent feed:
     a status line reads very differently against a row issued yesterday than
@@ -2297,14 +2205,8 @@ EPIC_ORDER_CAUTION = ("Members are worked in order through the epic's ledger "
 
 
 def _fits_a_slot(records: list) -> list:
-    """The pick list for a human working in a bounded review slot.
-
-    It replaced "Quick wins" (`difficulty == small and autonomy == safe`), which
-    was near-empty: ten prompts in the whole backlog carried `safe`, so the
-    surface that exists to hand out unattended work had almost nothing to hand
-    out. The two questions that actually matter are different ones — can it
-    finish without me, and what will it cost me to review — and the sizing
-    faculty now answers both.
+    """The pick list for a human working in a bounded review slot: prompts
+    that can finish unattended, cheapest to review first.
 
     Ordered by review-minutes ASCENDING rather than by priority: this list is
     read when the human has a slot to fill and wants to know what fits in it.
@@ -2322,8 +2224,8 @@ def _fits_a_slot(records: list) -> list:
 def _dashboard_navigation(c: dict) -> list:
     """Eight stable destinations, counted from the content actually rendered.
 
-    Autopilot leads (PyAutoBrain#650): its number is `_autopilot_reading`'s,
-    the same reading as the block's badge."""
+    Autopilot leads: its number is `_autopilot_reading`'s, the same reading
+    as the block's badge."""
     standalone = sorted((r for r in c["records"] if not r.get("epic")), key=_pick_key)
     high = [r for r in standalone if r["priority"] == "high"][:PICK_LIST_MAX]
     quick = _fits_a_slot(standalone)[:PICK_LIST_MAX]
@@ -2349,13 +2251,10 @@ def render_dashboard(c: dict) -> str:
 
     Tasks only, by design: no readiness verdicts, no test state — that is the
     Heart's dashboard (`/health`). Two rules shape the layout: it must be
-    *pickable* (the top of the page answers "what should I do now?", not "how
-    many prompts are there?"), and it must read on a phone (rows over wide
-    tables, long sections behind `<details>`, and every task a single
-    collapsed row whose 📋 toggle hides its copy block, so picking one from a
-    phone is copy → paste into an AI assistant chat, not retyping a path — see
-    `_task_row`). Links are repo-root-relative so they resolve from the
-    page's GitHub blob URL.
+    *pickable* (the top of the page answers "what should I do now?"), and it
+    must read on a phone (rows over wide tables, long sections behind
+    `<details>`, every task one collapsed copy row — see `_task_row`). Links
+    are repo-root-relative so they resolve from the page's GitHub blob URL.
     """
     records = sorted(c["records"], key=_pick_key)
     L = [
@@ -2630,20 +2529,14 @@ def _pending_release_section(groups: list) -> list:
 def _md_inline(text: str) -> str:
     """Render the inline markdown this module authors (`code` spans only) as HTML.
 
-    The freshness blurb is written once and rendered on both pages; the markdown
-    page takes it verbatim, this turns its backticks into `<code>` and its
-    `**bold**` into `<b>` so the HTML twin does not print them literally.
+    A line this module authors is written once and rendered on both pages; the
+    markdown page takes it verbatim, this turns its backticks into `<code>` and
+    its `**bold**` into `<b>` so the HTML twin does not print them literally.
     Deliberately not a markdown parser — it handles exactly the two constructs
-    the blurbs this module authors actually use.
+    the text this module authors actually uses.
     """
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
     return re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
-
-
-def _attr(value: str) -> str:
-    """Escape a string for a double-quoted HTML attribute."""
-    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
-            .replace("<", "&lt;").replace(">", "&gt;"))
 
 
 def _html_task(text_html: str, payload: str, star: str = "") -> str:
@@ -2660,8 +2553,8 @@ def _queue_star(path: str, ranks: dict) -> str:
     `ranks` is `queue_ranks(read_queue(mind))` — the planner's reader and
     order — matched by basename, as the lifecycle matches (an entry written
     against `draft/…` keeps its rank once the prompt is in `active/`). Plain
-    text, no control: the queue is edited in a `/queue` chat (PyAutoBrain#640),
-    and the 📋 beside it copies the text that chat takes."""
+    text, no control: the queue is edited in a `/queue` chat, and the 📋
+    beside it copies the text that chat takes."""
     rank = ranks.get(Path(path).name)
     if rank is None:
         return ""
@@ -2680,10 +2573,10 @@ def _queued_rows(c: dict) -> list:
             for n, ref in enumerate(c.get("queue_order") or [], 1)]
 
 
-#: The Autopilot block (PyAutoBrain#650): Goals, Queue, Questions and Shift in
-#: ONE ordinary section straight above Start here, folded by the shared
-#: `section_layout` like every other section. Empty states take the page's own
-#: form — a muted, parenthesised line, as "(none right now)" is.
+#: The Autopilot block: Goals, Queue, Questions and Shift in ONE ordinary
+#: section straight above Start here, folded by the shared `section_layout`
+#: like every other section. Empty states take the page's own form — a muted,
+#: parenthesised line, as "(none right now)" is.
 AUTOPILOT_TITLE = "Autopilot"
 AUTOPILOT_ANCHOR = "autopilot"
 GOALS_EMPTY = "(no goals yet — edit in chat)"
@@ -2696,7 +2589,7 @@ def _md_inline_escape(text: str) -> str:
 
 
 # The ★ rank chip every queued prompt row carries, on whichever section the row
-# is in (PyAutoBrain#640).
+# is in.
 _STEER_CSS = """\
 span.star{flex:0 0 auto;display:inline-flex;align-items:center;gap:.15rem;
  min-height:2.75rem;padding:0 .4rem;font-size:1.05rem;color:#d4a017;
@@ -2721,8 +2614,8 @@ def _is_ruling(e: dict) -> bool:
 
 def _open_questions(c: dict) -> tuple:
     """(open, deferred) inbox questions, oldest first. Rulings (the readiness
-    pass's, PyAutoBrain#671) are counted apart, as the digest's inbox line
-    counts them (`_open_rulings`)."""
+    pass's) are counted apart, as the digest's inbox line counts them
+    (`_open_rulings`)."""
     qs = sorted((e for e in c.get("questions") or [] if not _is_ruling(e)),
                 key=lambda e: (e["fields"].get("asked", ""), e["n"]))
     return ([e for e in qs if e["state"] == "open"],
@@ -2823,18 +2716,17 @@ def _question_row(c: dict, e: dict, link) -> str:
 def _autopilot_html(c: dict, link, h2) -> list:
     """The read-only Autopilot block, straight above Start here.
 
-    One plain `<h2>` section, so the shared `section_layout` folds it into the
-    same closed `details.board-section` as every other section, with one badge
-    (`_autopilot_reading`, passed as its summary; the nav card shows the same
-    reading's count, and opens it as every card opens its section). Inside,
-    four sub-parts in Start here's conventions — an `<h3>` with a `facets` note, ordinary `.task` rows
-    with their 📋, a muted parenthesised line when empty:
+    One plain `<h2>` section, so the shared `section_layout` folds it like
+    every other section, with one badge (`_autopilot_reading`, passed as its
+    summary; the nav card shows the same reading's count). Inside, four
+    sub-parts in Start here's conventions — an `<h3>` with a `facets` note,
+    ordinary `.task` rows with their 📋, a muted parenthesised line when empty:
 
     - Goals, from `goals.md`, as a plain list (goals carry no action);
     - Queue, from `queue.md` via the planner's `read_queue`, each row with its
-      ★ rank and the prompt's 📋 (PyAutoBrain#640);
-    - Questions (M3.5, PyAutoBrain#645), each row's 📋 copying `Use the
-      questions skill. Q<n>`; deferred ones fold behind a `<details>`;
+      ★ rank and the prompt's 📋;
+    - Questions, each row's 📋 copying `Use the questions skill. Q<n>`;
+      deferred ones fold behind a `<details>`;
     - Shift (`batch/_status.py`): the running or to-be-reviewed shift's
       detail, else one quiet line naming the last shift and its issue.
 
@@ -2875,9 +2767,9 @@ def _autopilot_html(c: dict, link, h2) -> list:
 
 def _with_csp(page: str) -> str:
     """Pin the page's one inline script by hash and allow no connections at
-    all (`default-src 'none'` covers `connect-src`: the page is read-only since
-    PyAutoBrain#640). A meta CSP because Pages cannot set headers; the hash is
-    computed here, so `--check` stays deterministic."""
+    all (`default-src 'none'` covers `connect-src`: the page is read-only).
+    A meta CSP because Pages cannot set headers; the hash is computed here,
+    so `--check` stays deterministic."""
     import base64
     import hashlib
     scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
@@ -2900,12 +2792,11 @@ def render_dashboard_html(c: dict) -> str:
     Same content as `render_dashboard`, different constraint: this page is
     served by GitHub Pages (see PyAutoMind's `pages_dashboard.yml`), so it may
     carry the JavaScript that GitHub's markdown rendering strips — a real
-    copy-to-clipboard button per task, which the markdown page cannot have (in
-    the GitHub mobile app fenced blocks offer no copy affordance at all). Links
-    are absolute (from the census `home`) because Pages serves this file away
-    from the repo blobs; with no home they fall back to relative paths. The
-    Hygiene section stays markdown-only — this page exists to pick from, not
-    to audit. Self-contained by design: inline CSS/JS, no external assets.
+    copy-to-clipboard button per task. Links are absolute (from the census
+    `home`) because Pages serves this file away from the repo blobs; with no
+    home they fall back to relative paths. The Hygiene section stays
+    markdown-only — this page exists to pick from, not to audit.
+    Self-contained by design: inline CSS/JS, no external assets.
     """
     records = sorted(c["records"], key=_pick_key)
     home = c.get("home", "")
@@ -3197,10 +3088,10 @@ def _dashboard_body(page: str) -> str:
 
 
 # --- the cockpit feed (state.json) --------------------------------------------
-# The third render of the one census (PyAutoBrain#418): the per-organ machine
-# surface the cockpit and the phone read (board/_state.py, contract v1). Every
-# item's prompt is a payload the page already copies — `/start_dev <path>`,
-# `_review_payload`, `REFRESH_PAYLOAD` — composed, never re-derived.
+# The third render of the one census: the per-organ machine surface the cockpit
+# and the phone read (board/_state.py, contract v1). Every item's prompt is a
+# payload the page already copies — `/start_dev <path>`, `_review_payload`,
+# `REFRESH_PAYLOAD` — composed, never re-derived.
 STATE_ITEM_CAP = 20
 # In-flight registry statuses that are a human's move. Red: the task cannot
 # advance until someone answers; yellow: it is done on its side and waits on a
@@ -3514,12 +3405,11 @@ def emit_formalise(res: dict):
 
 # --- reconcile (shipped-but-stale audit) ----------------------------------------
 # A prompt's Status: header is NOT a completeness signal — formalise preserves an
-# existing Status verbatim, so shipped work can still read "Status: planned" (the
-# PyAutoHeart M0-M5 cluster sat exactly like that). Reconcile cross-references
-# the backlog against the Mind's shipped-state records and RANKS suspects for a
-# human to retire. Read-only, always: retiring a prompt (to the complete/ archive)
-# stays a human act, and the final verification — the target repo's git log /
-# merged PRs — stays out of scope by design.
+# existing Status verbatim, so shipped work can still read "Status: planned".
+# Reconcile cross-references the backlog against the Mind's shipped-state
+# records and RANKS suspects for a human to retire. Read-only, always: retiring
+# a prompt (to the complete/ archive) stays a human act, and the final
+# verification — the target repo's git log / merged PRs — is out of scope.
 _STOPWORDS = frozenset(
     "the a an of to in for and or is are be with on by via from into as at it "
     "this that use using make add new fix update support get set can we i you "
@@ -3529,9 +3419,7 @@ _STOPWORDS = frozenset(
 _FOLLOWUP_WORDS = ("follow", "restore", "parked", "remain", "blocked", "later",
                    "next step", "next-step", "deferred")
 # Wording that makes a reference line an assertion the work is DONE, rather than
-# a passing mention. `jax-substructure-simulator.md` opens "the 4
-# `jax_substructure/` prompts shipped to `main`" — that sentence resolves four
-# prompts, and is the difference between a citation and a completion claim.
+# a passing mention — the difference between a citation and a completion claim.
 _SHIPPED_WORDS = ("shipped", "delivered", "merged", "completed", "closed out",
                   "close-out", "landed", "is done", "now on main")
 #: A rare identifier says far more than a shared English word. Backticked
@@ -3542,38 +3430,26 @@ _IDENT_RE = re.compile(
     r"|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+)`")
 #: An identifier in this many records or more is vocabulary, not evidence.
 _IDENT_COMMON_DF = 6
-#: Ditto for stem tokens: `jax` is in ~100 records and links nothing.
+#: Ditto for stem tokens: a token like `jax` is everywhere and links nothing.
 _TOKEN_COMMON_DF = 12
 _W_SHIPPED = 7.0        # a record asserting the work is done — on its own
-                        # enough to qualify: `jax-substructure-simulator.md`
-                        # saying "the 4 prompts shipped to main" resolved four
-                        # prompts in one sentence, and nothing else flagged them.
+                        # enough to qualify
 _W_IDENT = 2.0          # per shared rare identifier beyond the first
 _SUSPECT_THRESHOLD = 7.0
 _HIGH_THRESHOLD = 12.0
-# Tuned on the 2026-08-09 labelled set (PyAutoMind f25e154e, 148 prompts, five
-# findings independently confirmed against upstream source). Result:
+# The thresholds favour precision. Three shapes are deliberately out of this
+# ranker's reach and must not be chased by lowering the bar:
 #
-#   BEFORE   96 of 148 flagged (65%) — 52 "high" — biggest find NOT flagged
-#   AFTER    31 of 148 flagged (21%) —  9 "high" — biggest find at rank 2
+#   * a prompt that states its own exit condition — PyAutoMind's
+#     `Closes-when:` header key grades that;
+#   * a prompt with NO completion record (its evidence sits inside a sibling
+#     PROMPT), which nothing Mind-local can see;
+#   * a fix that shipped upstream without a record. Only reading the target
+#     repo finds that shape.
 #
-# Of the five findings, this ranker catches the two it can: the k x s series
-# (rare-token fan-out, rank 2) and the nufft chunking prompt (shared rare
-# identifiers). The other three are NOT ranker failures and must not be chased
-# by lowering the bar:
-#
-#   * the test-mode umbrella states its own exit condition, which is what
-#     PyAutoMind's `Closes-when:` header key grades — a different tool;
-#   * the split-guard prompt had NO completion record at all (its evidence sat
-#     inside a sibling PROMPT), so nothing Mind-local could see it;
-#   * the latent prompt left no Mind trace whatsoever — the fix shipped upstream
-#     without a record. Only reading the target repo finds that shape.
-#
-# Every attempt to force those three in cost precision without gaining truth:
-# a loose `<work-type>/<target>/` series match pulled the umbrella in at 31%
-# flagged, but also FALSELY flagged test_mode_bypass_ordered_assertion_ties off
-# references to four unrelated sibling prompts — a prompt the sweep confirmed is
-# NOT shipped, and exactly the mis-grade this tool must never make.
+# Forcing them in (e.g. a loose `<work-type>/<target>/` series match) flags
+# unshipped prompts off references to unrelated siblings — the mis-grade this
+# tool must never make.
 
 
 def _tokens(s: str) -> set:
@@ -3590,8 +3466,7 @@ def _idents(text: str) -> set:
 #: would live in. Deliberately narrow. A prompt quoting a traceback, a pytest
 #: summary or a log excerpt writes it in a BARE fence or one tagged `text`, and
 #: those lines are absent from every repo by construction — scoring them would
-#: make leg 4 fire on every prompt that quotes its own evidence. Requiring an
-#: explicit source language is what keeps the absence signal honest.
+#: make leg 4 fire on every prompt that quotes its own evidence.
 _FENCE_LANGS = {
     "python": ".py", "py": ".py",
     "bash": ".sh", "sh": ".sh", "shell": ".sh", "zsh": ".sh",
@@ -3600,10 +3475,8 @@ _FENCE_LANGS = {
 }
 #: A path a prompt names, e.g. `scripts/interferometer/jax_likelihood/mge.py`.
 #: The left edge is a lookbehind, NOT `\b`: a word boundary cannot match before
-#: a leading dot, so `\b` silently truncated `.github/workflows/release.yml` to
-#: `github/workflows/release.yml` — a path that then resolves against no file in
-#: the checkout. Dot-directories are exactly where CI recipes live, which is
-#: half of what these prompts are about.
+#: a leading dot, so `\b` would truncate `.github/workflows/release.yml` to
+#: `github/workflows/release.yml`, which resolves against no file.
 _PATH_RE = re.compile(
     r"(?<![\w./-])((?:[\w.-]+/)*[\w.-]+\.(?:py|pyi|sh|yaml|yml|toml|cfg|txt|ipynb))\b")
 #: `PyAutoFit#1473` / `some_workspace#266` — a tracking reference.
@@ -3685,12 +3558,10 @@ def _issue_refs(text: str) -> set:
 
 
 # --- the upstream read (--repo) -------------------------------------------------
-# Leg 3 of the staleness work (PyAutoBrain#223). Everything above this line is
-# Mind-local: it cross-references `draft/` against `complete/` and `active/`.
-# That is structurally blind to two of the five findings the 2026-08-09 sweep
-# confirmed — one whose evidence sat in a sibling PROMPT rather than a record,
-# and one whose fix shipped upstream with NO record written at all. Re-ranking
-# cannot reach them; only reading the target repo can.
+# Leg 3. Everything above this line is Mind-local: it cross-references `draft/`
+# against `complete/` and `active/`, and so cannot see work whose evidence sits
+# in a sibling PROMPT or whose fix shipped upstream with no record. Only
+# reading the target repo can.
 #
 # THIS IS THE ONLY NETWORK ACCESS IN PyAutoBrain. Every other conductor and
 # faculty is stdlib-only and offline, and the default `reconcile` path stays
@@ -3698,35 +3569,19 @@ def _issue_refs(text: str) -> set:
 # pins it. The upstream read goes through the `source_reader` seam so the
 # hermetic tests never clone anything.
 #
-# What it must NEVER do is call a prompt shipped. `test_mode_bypass_ordered_
-# assertion_ties.md` names five identifiers and ALL FIVE are on PyAutoFit main,
-# yet the prompt is confirmed not shipped: main catches `exc.FitException` in
-# the TEST_MODE bypass — which looks exactly like the requested fix — but the
-# catch wraps only the likelihood call, while `model.instance_from_vector`
-# (where `check_assertions` actually raises) sits on the line BEFORE the `try`.
-# Presence of a name is not presence of the fix. So this leg contributes
-# evidence and a `needs-review` band, never a verdict.
+# What it must NEVER do is call a prompt shipped. Every identifier a prompt
+# names can be on upstream main while the requested fix is not: presence of a
+# name is not presence of the fix. So this leg contributes evidence and a
+# `needs-review` band, never a verdict.
 _W_UPSTREAM = 1.5       # per upstream identifier beyond the first. Deliberately
                         # below _W_SHIPPED (7.0): an upstream hit must never on
-                        # its own carry a prompt into the top band, because the
-                        # trap above would ride it there.
+                        # its own carry a prompt into the top band.
 _UPSTREAM_MIN_IDENTS = 2   # one shared name is a coincidence, not a signal
 
 # --- leg 4: the absence signal --------------------------------------------------
 # Leg 3 above tests PRESENCE — "the prompt names things that exist upstream" —
-# and that is structurally blind to the shape that motivated this leg.
-# `smoke_install_stale_jax_pin.md` shipped on 2026-08-23 (a workspace-test
-# repo, issue #266 / PR #268) with NO Mind-side trace at all: no active.md
-# entry, no active/ move, no complete/ record. It kept rendering as pickable
-# backlog and was re-picked four days later. Both guards were run against it
-# directly and both passed it: `lifecycle.py check` (its invariant is about
-# active.md slugs, and a task that skips Mind state is in neither place) and
-# `intake reconcile maintenance/ci --repo <that repo>`, pointed straight at it —
-# 0 suspects of 132 scanned. It named `smoke_install.sh`, which still exists, so
-# presence said nothing.
-#
-# The defect it described was an ABSENCE. It quoted a literal line —
-# `pip install "jax<0.7" "jaxlib<0.7"` — and that line is GONE upstream. A
+# which says nothing when the defect a prompt describes is an ABSENCE: work
+# that shipped with no Mind-side trace, whose named files still exist. A
 # backlog prompt quoting a source line that no longer exists in a file it names
 # is close to a proof the work shipped.
 #
@@ -3744,26 +3599,19 @@ _UPSTREAM_MIN_IDENTS = 2   # one shared name is a coincidence, not a signal
 # Like leg 3 it feeds `upstream_score`, never `score`: a quoted line can vanish
 # for reasons other than the prompt shipping (an unrelated refactor, a reworded
 # quote), so it ranks for review and never retires.
-_W_QUOTE_ABSENT = 4.0   # per absent quoted line. Above _W_UPSTREAM (1.5): the
-                        # prompt's own argument is that absence is the stronger
-                        # evidence, and the ordering inside `needs-review`
-                        # should say so. Still below _W_SHIPPED (7.0), which is
-                        # a Mind-local band this leg must never reach.
+_W_QUOTE_ABSENT = 4.0   # per absent quoted line. Above _W_UPSTREAM (1.5):
+                        # absence is the stronger evidence, and the ordering
+                        # inside `needs-review` should say so. Still below
+                        # _W_SHIPPED (7.0), a Mind-local band this leg must
+                        # never reach.
 
 # --- leg 5: duplicate candidates ------------------------------------------------
-# Every signal above scores a prompt against the completion ARCHIVE. Nothing
-# scored the live prompts against EACH OTHER, and near-duplicate filings are a
-# standing hazard of a backlog this size that several independent sessions file
-# into.
-#
-# Measured case: `bug/workspaces/jax_likelihood_pins_stale_by_1e4.md` (filed
-# 08-14) and `bug/autolens/jax_likelihood_smoke_pins_stale.md` (filed 08-19) —
-# same three scripts, same failing smoke gate, written five days apart by
-# sessions that did not know about each other. The 08-19 copy was verified and
-# retired on 08-26; the 08-14 copy kept rendering as pickable backlog until a
-# drift audit found it on 08-27. No guard saw it: neither was ever `active/`, so
-# no lifecycle invariant applied, and reconcile compares prompt text to RECORD
-# text — the record covering it carried the twin's words, not its own.
+# Every signal above scores a prompt against the completion ARCHIVE; this one
+# scores the live prompts against EACH OTHER. Near-duplicate filings are a
+# standing hazard of a backlog several independent sessions file into, and no
+# other guard sees them: a draft is under no lifecycle invariant, and reconcile
+# compares prompt text to RECORD text — a record covering one twin carries
+# that twin's words.
 #
 # Shared upstream file paths are the load-bearing signal: two prompts naming the
 # same source files are almost never independent work. Identifiers and issue
@@ -3775,30 +3623,22 @@ _W_DUP_ISSUE = 2.0      # per shared tracking reference
 _DUP_THRESHOLD = 8.0
 #: An identifier this many live prompts or more name is backlog vocabulary.
 _DUP_IDENT_COMMON = 4
-#: Ditto for paths — and this one is load-bearing. Measured on the 2026-08-27
-#: backlog (134 prompts): scoring every shared path flagged 36 pairs, and the
-#: noise was almost entirely BARE BASENAMES. `start_here.py`, `modeling.py`,
-#: `simulator.py`, `no_run.yaml`, `smoke_tests.txt` are workspace-wide filenames
-#: that dozens of unrelated prompts name; two prompts sharing `start_here.py`
-#: share a convention, not a task. Same discrimination `_TOKEN_COMMON_DF` and
-#: `_IDENT_COMMON_DF` already make against the records.
+#: Ditto for paths — and this one is load-bearing. `start_here.py`,
+#: `modeling.py`, `simulator.py`, `no_run.yaml`, `smoke_tests.txt` are
+#: workspace-wide filenames that dozens of unrelated prompts name; two prompts
+#: sharing one share a convention, not a task.
 _DUP_PATH_COMMON = 4
 
 
 def _upstream_noise() -> set:
     """Identifiers whose presence upstream says nothing about a prompt.
 
-    Two measured noise classes, from the first run against PyAutoFit:
+      * **Python builtins** — `TypeError` is in many files of any repo.
+      * **Repo names** — every repo names its siblings; that is vocabulary,
+        not evidence.
 
-      * **Python builtins** — `TypeError` is in 37 files of PyAutoFit. A prompt
-        mentioning it has not thereby been shipped.
-      * **Repo names** — `autofit_workspace` (26 files), `autolens_workspace`.
-        Every repo names its siblings; that is vocabulary, not evidence.
-
-    Filtering by upstream file-spread instead was tried and rejected: the counts
-    do not separate. `instance_from_vector` (22 files) is a REAL signal and sits
-    right below `autofit_workspace` (26) which is noise, so any threshold that
-    drops the noise also drops one of the trap's own identifiers.
+    A name list, not an upstream file-spread threshold: spread does not
+    separate noise from real signals (a widely used method name is evidence).
     """
     import builtins
 
@@ -3812,11 +3652,8 @@ def _body_map_slugs() -> dict:
     already folds `PyAutoArray`/`pyautoarray`/`autoarray` together — reuse both
     rather than adding a third mapping.
     """
-    import yaml
-
-    data = yaml.safe_load(BODY_MAP_PATH.read_text())
     out = {}
-    for name, spec in data["repos"].items():
+    for name, spec in _body_map_specs().items():
         slug = spec.get("github", "")
         if slug:
             out[normalise_repo(name)] = slug
@@ -3848,10 +3685,9 @@ def resolve_repo(mind: Path, target: str) -> tuple:
 
     The second folder of a prompt path is a target *or domain*: `autoarray` is a
     repo, but `workspaces`, `health_fixes`, `priors` and `graphical_ep` are topic
-    clusters spanning several. Those are among the LARGEST buckets in `draft/`
-    (`workspaces` alone is 23 prompts across four work-types), so guessing one
-    repo for them would produce confident nonsense over the biggest part of the
-    backlog. Refuse instead, and name the real candidates.
+    clusters spanning several, and among the LARGEST buckets in `draft/`.
+    Guessing one repo for them would produce confident nonsense, so refuse
+    instead and name the real candidates.
     """
     key = normalise_repo(target)
     slugs = _body_map_slugs()
@@ -3871,10 +3707,10 @@ def resolve_repo(mind: Path, target: str) -> tuple:
 def _clone_upstream(slug: str, cache: Path) -> tuple:
     """Cached shallow clone of `slug`'s default branch -> (path, sha).
 
-    Plain `--depth 1`, NOT the `--filter=blob:none` treeless clone the parent
-    prompt suggested: this leg greps the source, and a treeless clone refetches
-    every blob on demand to answer that — a false economy. GIT_LFS_SKIP_SMUDGE
-    keeps an LFS-using repo from aborting at the smudge filter.
+    Plain `--depth 1`, NOT a `--filter=blob:none` treeless clone: this leg
+    greps the source, and a treeless clone refetches every blob on demand to
+    answer that. GIT_LFS_SKIP_SMUDGE keeps an LFS-using repo from aborting at
+    the smudge filter.
     """
     import subprocess
 
@@ -3978,20 +3814,11 @@ def _check_quotes(root: Path, named: set, quoted: dict) -> dict:
                 if not any(ln in b for b in anchors.values())}
         # THE ANCHOR MUST BE CORROBORATED. If not one of the lines this prompt
         # quotes for `ext` is present in the file(s) it names, the anchor is
-        # unproven and absence means nothing — measured against the live backlog,
-        # this is what separates the signal from its two loudest false positives:
-        #
-        #   * PROPOSED code. `einstein_radius_jit_native_seed_finder.md` quotes
-        #     23 lines of a JAX-native seed finder it wants WRITTEN. All 23 are
-        #     absent because none has ever existed, and it scored higher than
-        #     every true positive.
-        #   * The WRONG REPO. A prompt read against a repo it is not about
-        #     quotes lines absent from it by construction.
-        #
+        # unproven and absence means nothing: the lines may be PROPOSED code
+        # that has never existed, or the prompt may be about another repo.
         # One quoted line still present proves the prompt is talking about this
         # file, in this checkout — and then a sibling line's absence is a change
-        # that happened. The motivating case passes it exactly: the PyAuto
-        # install line is still in `smoke_install.sh`, and the jax pin is gone.
+        # that happened.
         if len(gone) == len(lines):
             continue
         for line in gone:
@@ -4021,10 +3848,8 @@ def _check_quotes(root: Path, named: set, quoted: dict) -> dict:
 class _UpstreamReader:
     """The `--repo` seam: identifier presence (leg 3) and quote absence (leg 4).
 
-    Callable for leg 3 so every existing caller and test fake keeps working; leg
-    4 hangs off `.quotes`, and `reconcile` probes for it with `getattr`. A fake
-    that is a plain lambda therefore exercises leg 3 alone, which is what the
-    hermetic tests written before this leg existed expect.
+    Callable for leg 3; leg 4 hangs off `.quotes`, and `reconcile` probes for
+    it with `getattr`, so a fake that is a plain lambda exercises leg 3 alone.
     """
 
     def __init__(self, root: Path, slug: str = ""):
@@ -4068,8 +3893,7 @@ def duplicate_candidates(mind: Path, records: list, prefix: str = "") -> list:
 
       * **Mutual reference disqualifies.** A phased parent and its child name
         each other, as do deliberate siblings; that is a series, and reconcile
-        must not offer to merge one. The measured duplicate pair named neither
-        the other, which is exactly why it survived.
+        must not offer to merge one.
       * **Rare identifiers only.** An identifier `_DUP_IDENT_COMMON` or more
         live prompts share is backlog vocabulary, the same reasoning `ident_df`
         applies against the records.
@@ -4116,12 +3940,10 @@ def duplicate_candidates(mind: Path, records: list, prefix: str = "") -> list:
         if fa["base"] in fb["text"] or fb["base"] in fa["text"]:
             continue
         # A DECLARED series knows about itself without any member naming
-        # another. `draft/bug/health_fixes/` holds four prompts split out of one
-        # health run — they share their failing scripts because they were split
-        # by CAUSE, not by script — and the folder's own README.md names all
-        # four. That index IS the declaration, and it is the same reasoning
-        # leg 1 applies to a record that resolves a folder of prompts as a
-        # group. Without it the trio yields three pairs of already-known work.
+        # another: prompts split out of one run by CAUSE share their failing
+        # scripts, and the folder's own README.md names them all. That index IS
+        # the declaration — the same reasoning leg 1 applies to a record that
+        # resolves a folder of prompts as a group.
         if _indexed_together(mind, a, b, fa["base"], fb["base"]):
             continue
         shared_paths = sorted(f for f in fa["paths"] & fb["paths"]
@@ -4170,8 +3992,7 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
                    and p.name not in ("AGENTS.md", "index.md")]
                   if comp_dir.is_dir() else [])
     comp_names = {p.name for p in comp_files}
-    # reference lines + `## <slug>` topic headers now live inside the dated
-    # records (the monolithic complete.md ledger was retired — issue #81)
+    # reference lines + `## <slug>` topic headers live inside the dated records
     comp_lines: list = []
     comp_bodies: dict = {}
     for p in comp_files:
@@ -4181,7 +4002,7 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
 
     # Document frequency over the records: how ORDINARY a token/identifier is.
     # Without this every prompt matches on `jax`, `test`, `workspace` and the
-    # ranking is noise — the 2026-08-09 measurement flagged 96 of 148.
+    # ranking is noise.
     token_df: dict = {}
     ident_df: dict = {}
     for name, body in comp_bodies.items():
@@ -4214,18 +4035,13 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
         score = 0.0
 
         # 1. A record line that NAMES this prompt and CLAIMS it is done. A bare
-        #    mention is not evidence — measured on the 2026-08-09 labelled set,
-        #    treating any reference as high confidence produced 52 of 148 highs
-        #    and buried the true positives.
-        # A record may resolve a whole FOLDER of prompts at once —
-        # `jax-substructure-simulator.md` opens "the 4 `jax_substructure/`
-        # prompts shipped to `main`", which retires four files in one sentence.
-        # But `<work-type>/<target>/` is also just a path prefix that every
-        # sibling reference contains, so matching it bare made a prompt "named"
-        # by any mention of its neighbours (measured: it falsely flagged
-        # test_mode_bypass_ordered_assertion_ties off references to four
-        # unrelated bug/autofit/ prompts). Require the line to be talking about
-        # the folder's prompts as a group.
+        #    mention is not evidence.
+        # A record may resolve a whole FOLDER of prompts at once ("the 4
+        # `jax_substructure/` prompts shipped to `main`"). But
+        # `<work-type>/<target>/` is also just a path prefix that every sibling
+        # reference contains, so matching it bare would make a prompt "named"
+        # by any mention of its neighbours. Require the line to be talking
+        # about the folder's prompts as a group.
         series = f"{r['work_type']}/{r.get('target', '')}/"
         for ln in comp_lines:
             low = ln.lower()
@@ -4240,10 +4056,8 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
                 findings.append(("record-says-shipped", ln.strip()))
                 score += _W_SHIPPED
             else:
-                # Evidence, not score. A record merely NAMING a prompt was the
-                # single biggest source of noise in the 2026-08-09 measurement:
-                # it alone produced 52 of 148 "high" verdicts and buried every
-                # true positive among them.
+                # Evidence, not score: a record merely NAMING a prompt is the
+                # single biggest source of noise.
                 findings.append(("referenced", ln.strip()))
 
         if base in issued_names:
@@ -4255,12 +4069,9 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
             score += _W_SHIPPED
 
         # 2. Rare stem tokens, IDF-weighted, with a fan-out bonus. Raw Jaccard
-        #    missed the biggest find of the 2026-08-09 sweep:
-        #    `oversampling_kxs_coupling` against `kxs-core` scores 0.25, under
-        #    any workable threshold. The real signal is that ONE very rare token
-        #    (`kxs`, in 7 of 947 records) appears in SIX record stems — a series
-        #    that shipped in phases. Requiring two shared tokens, the obvious
-        #    first try, scores that case exactly 0.
+        #    misses a phased series: the signal there is ONE very rare token
+        #    appearing in several record stems, which a two-shared-tokens
+        #    requirement scores exactly 0.
         sig = _tokens(base.replace("_", " ")) | _tokens(r["title"])
         tok_score, evidence, best_fan = 0.0, [], 0
         for w in sig:
@@ -4280,9 +4091,8 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
                              "rare tokens shared with the records: "
                              + ", ".join(sorted(evidence))))
 
-        # 3. Rare identifiers the prompt names, appearing in a record body. This
-        #    is what a human grader actually reads — `interferometer-jax-jit.md`
-        #    naming `chunk_size` resolves the nufft prompt in one sentence.
+        # 3. Rare identifiers the prompt names, appearing in a record body —
+        #    what a human grader actually reads.
         # census() deliberately does not carry the prompt body (it is serialised
         # into the dashboard JSON); read it here instead.
         try:
@@ -4309,14 +4119,9 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
         #    ALREADY PRESENT in the target repo's source. This is the only leg
         #    that can see a prompt with no Mind-side trace at all.
         #
-        #    It deliberately does NOT add to `score`. Presence of a name is not
-        #    presence of the fix — test_mode_bypass_ordered_assertion_ties names
-        #    five identifiers, all five are upstream, and the prompt is NOT
-        #    shipped. Letting upstream hits feed `score` would carry exactly
-        #    that prompt into the `high` band and make the one mis-grade this
-        #    tool must never make. So upstream evidence gets its own weaker
-        #    band and its own ordering key, and can never inflate a Mind-local
-        #    verdict.
+        #    It deliberately does NOT add to `score` (presence of a name is
+        #    not presence of the fix): upstream evidence gets its own weaker
+        #    band and ordering key, and can never inflate a Mind-local verdict.
         upstream_score = 0.0
         if source_reader is not None:
             all_ids = {i for i in _idents(prompt_text)
@@ -4340,9 +4145,7 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
                 named = _named_paths(prompt_text)
                 quoted = _quoted_source_lines(prompt_text)
                 # A prompt that never mentions the repo being read is not about
-                # it, and its quotes are absent from it by construction. The
-                # `Repos:` header had this answer all along, while `--repo` had
-                # to be told the target by hand.
+                # it, and its quotes are absent from it by construction.
                 slug = getattr(source_reader, "slug", "")
                 about = (not slug) or normalise_repo(slug.rsplit("/", 1)[-1]) in {
                     normalise_repo(x) for x in re.findall(
@@ -4359,7 +4162,7 @@ def reconcile(mind: Path, prefix: str = "", source_reader=None,
                         + ", ".join(q["files"][:3]) + "): "
                         + "; ".join(repr(ln) for ln, _ in absent[:3])))
 
-        # `Status:` alone is not evidence — it fired on every hand-set draft. Kept
+        # `Status:` alone is not evidence — it fires on every hand-set draft. Kept
         # as context on prompts something else already flagged, never as a reason.
         if (score > 0 or upstream_score > 0) and r["status"] not in ("-", "formalised"):
             findings.append(("stale-status",
@@ -4406,8 +4209,8 @@ def emit_reconcile(res: dict):
         print("  backlog reconciles clean against the complete/ records "
               "and active/.")
     # Column width follows the widest band actually present, so the default
-    # (Mind-local) run stays byte-identical to what it printed before the
-    # upstream leg existed — only a run that emits `needs-review` widens.
+    # (Mind-local) run keeps a stable layout — only a run that emits
+    # `needs-review` widens.
     width = max((len(s["confidence"]) for s in res["suspects"]), default=6)
     width = max(width, 6)
     for s in res["suspects"]:
@@ -4523,7 +4326,7 @@ def emit_human(d: dict):
         print(f"Offer:                {d['slice_offer']}")
 
 
-#: `classify --apply` / `ideas --apply` refused a draft with no lane (M2.3).
+#: `classify --apply` / `ideas --apply` refused a draft with no lane.
 RC_LANE_REQUIRED = 6
 
 

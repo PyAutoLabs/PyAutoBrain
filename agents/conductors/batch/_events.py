@@ -1,5 +1,5 @@
-"""The shift's event stream (M3.4, PyAutoBrain#644): one append-only
-`events.jsonl` per slot, beside `counters.json` and `tick.log`.
+"""The shift's event stream: one append-only `events.jsonl` per slot, beside
+`counters.json` and `tick.log`.
 
 The watcher calls `record_tick` inside its tick lock, once per tick that did
 work, with the tick's result. It renders each new event as one plain sentence
@@ -171,14 +171,14 @@ class _Batch:
 
 def _inboxed(counters: dict, task: str, issue: str | None = None) -> bool:
     """Whether this tick's reap filed `task`'s question (on `issue`) in the
-    questions inbox (M3.5, PyAutoBrain#645: `counters["inbox"]`)."""
+    questions inbox (`counters["inbox"]`)."""
     return any(q.get("task") == task and (issue is None or q.get("issue") == issue)
                for q in counters.get("inbox") or [])
 
 
 def _outcome(event: dict, counters: dict) -> dict:
-    """A `done` reap's outcome: the event's own fields (#644 adds them), else
-    the task's outcome in `counters` (an old `tick.log` replay)."""
+    """A `done` reap's outcome: the event's own fields, else the task's
+    outcome in `counters` (a replayed `tick.log` event without them)."""
     fields = ("prs", "merged", "questions", "obsolete", "verdicts", "issues")
     if any(k in event for k in fields):
         return {k: event[k] for k in fields if k in event}
@@ -227,8 +227,8 @@ def _reaped(b: _Batch, result: dict, counters: dict) -> None:
                       f"{task} merged {ref(pr)} in-turn (notify).", task=task, pr=pr)
             questions = [] if "obsolete" in o else list(o.get("questions") or [])
             for q in questions:
-                # "Added to your inbox" only when the watcher filed it (#645):
-                # a merged task's question, or one it could not file, is not.
+                # "Added to your inbox" only when the watcher filed it: a merged
+                # task's question, or one it could not file, is not.
                 filed = _inboxed(counters, task, q)
                 b.add("question", f"question:{task}:{q}",
                       f"{task} parked with a question on {ref(q)}."
@@ -342,7 +342,7 @@ def _closeouts(b: _Batch, result: dict, counters: dict, info: dict) -> None:
                   f"{cls.removesuffix(' this shift')}: later green PRs wait for /prm.",
                   cls=cls)
             continue
-        # Merge order (M3.6j, #683): later PRs of the shift wait behind it.
+        # Merge order: later PRs of the shift wait behind it.
         later = sum(1 for w in (counters.get("merge_waits") or {}).values()
                     if pr in (w.get("behind") or []))
         tail = f"; {later} later PR(s) wait behind it" if later else ""
@@ -381,7 +381,7 @@ def _impaired(b: _Batch, result: dict) -> None:
             b.add("impaired", f"impaired:ledger-error:{why[:80]}",
                   f"Mind write failed: {why}.", needs_you=True)
         # A mechanical set-aside (already true on main) is a digest line only;
-        # a worker's human set-asides are one NEEDS YOU per task (#660).
+        # a worker's human set-asides are one NEEDS YOU per task.
         by_task: dict = {}
         per_op = []
         for x in ledger.get("set_aside") or []:
@@ -411,9 +411,9 @@ def _impaired(b: _Batch, result: dict) -> None:
 
 
 def _login_expired(b: _Batch, result: dict) -> None:
-    """The CLI login has expired (M3.6a, PyAutoBrain#659): its own needs-you
-    event, once per episode (keyed by when the tick first saw it) — never read
-    as a worker blocked on a person."""
+    """The CLI login has expired: its own needs-you event, once per episode
+    (keyed by when the tick first saw it) — never read as a worker blocked
+    on a person."""
     login = result.get("login") or {}
     if login.get("state") != "expired":
         return
@@ -439,7 +439,7 @@ def _digest_event(b: _Batch, result: dict, counters: dict) -> None:
             if filed else
             f" {len(parked)} task{'s' if len(parked) != 1 else ''} parked on a question."
             if parked else "")
-    # An early close (M3.7c, #690) says so: the shift ended before review-at.
+    # The shift ended before review-at: the line says so.
     closed = "Shift closed early." if counters.get("closed_early") else "Shift closed."
     if post.get("url"):
         b.add("digest", "digest", f"{closed} Digest: {post['url']}.{tail}", url=post["url"])

@@ -30,7 +30,7 @@ readiness gate, or execution — those belong to the organs.
 | Command | Agent | Chain |
 |---------|-------|-------|
 | `/intake` | Intake Agent | `bin/pyauto-brain intake` → files a PyAutoMind prompt (**before** `start_dev`); `census`/`dashboard` = backlog inventory / `PyAutoMind/dashboard.md` |
-| `/batch` | Batch Agent | `bin/pyauto-brain batch` → the BatchDecision for one unattended shift, budgeted in review minutes; proposes only — the human's approval in the slot dispatches it; `batch collect` scores what came back |
+| `/batch` | Batch Agent | `bin/pyauto-brain batch` → the BatchDecision for one unattended shift, budgeted in review minutes; proposes only — the human's shift brief launches it; the watcher's digest reports what came back |
 | `/community` | Community Agent | `bin/pyauto-brain community` → scan/triage the Discussions hub + user-filed issues/PRs (read-only surfaces) → session drafts replies for human approval → answer in the thread, or `/start_dev_for_user` for a report with a reproducer |
 | `/feedback` | Community Agent (session-side drafting) | Current session or explicitly selected logs → user-reviewed feedback draft → human submits to the existing Discussions hub; no CLI scan, new conductor or automatic posting |
 | `/feature` | Feature Agent | `bin/pyauto-brain feature` → `start_dev` → `ship_*` |

@@ -16,15 +16,9 @@ import sys
 import time
 from pathlib import Path
 
-import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
+from _shift_fixtures import BATCH, BRAIN, NOW, write_drafts
 import _orchestrator as orch  # noqa: E402
-
-NOW = _dt.datetime(2026, 11, 4, 9, 0, tzinfo=_dt.timezone.utc)
 
 BRIEF = """\
 # Batch 2026-11-04 am
@@ -42,36 +36,11 @@ BRIEF = """\
   - token-budget: 1000
 {caps}"""
 
-PROMPT = """\
-# {name}
-
-Type: feature
-Target: PyAutoBrain
-Repos:
-- PyAutoBrain
-Difficulty: small
-Autonomy: supervised
-Priority: normal
-Status: formalised
-Consequence: glance
-Witness: a unit test
-Review-minutes: 3
-Unattended: ready
-
-Body.
-"""
-
-
 def _shift(tmp_path: Path, names=("t1", "t2"), caps="") -> tuple[Path, Path, Path]:
     """(mind, brief, home) for a dry shift naming `names`."""
     mind = tmp_path / "mind"
-    folder = mind / "draft" / "feature" / "pyautobrain"
-    folder.mkdir(parents=True)
-    for n in names:
-        (folder / f"{n}.md").write_text(PROMPT.format(name=n))
-    tasks = "\n".join(f"    - draft/feature/pyautobrain/{n}.md" for n in names)
     brief = tmp_path / "shift.md"
-    brief.write_text(BRIEF.format(tasks=tasks, caps=caps))
+    brief.write_text(BRIEF.format(tasks=write_drafts(mind, names), caps=caps))
     return mind, brief, tmp_path / "home"
 
 

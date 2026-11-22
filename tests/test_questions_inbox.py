@@ -25,17 +25,15 @@ from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
+from _shift_fixtures import BATCH, BRAIN, git, tick_posting as _tick
+import _shift_fixtures as sf
+
 MIND_SRC = BRAIN.parent / "PyAutoMind"
 if not (MIND_SRC / "scripts" / "questions_edit.py").is_file():
     MIND_SRC = Path(os.environ.get("PYAUTO_MIND", "/nonexistent"))
 HAVE_MIND = (MIND_SRC / "scripts" / "questions_edit.py").is_file() and shutil.which("git")
 needs_mind = pytest.mark.skipif(not HAVE_MIND, reason="needs git and a PyAutoMind checkout "
                                                       "with scripts/questions_edit.py")
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
-sys.path.insert(0, str(BRAIN / "tests"))
 import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _mind_writer as mw  # noqa: E402
@@ -65,13 +63,6 @@ def _shift(tmp_path, names=("t1", "t2")):
     brief.write_text(brief.read_text().replace(
         "- review-at: 2026-11-04T11:30Z\n", f"- review-at: 2026-11-04T11:30Z\n- issue: {ISSUE}\n"))
     return mind, brief, home, orch.slot_dir(brief, home)
-
-
-def _tick(brief, mind, home, now, claude, gh, agents=None):
-    return orch.tick(brief, mind, home=home, now=now, grace_s=0,
-                     spawner=orch.RealSpawner(brief, "auto", run=claude),
-                     agents=agents or orch.AgentsView([]), tokens=lambda s: 0,
-                     poster=lambda issue, body: orch.gh_comment(issue, body, run=gh))
 
 
 def _mentions(gh):
@@ -143,13 +134,6 @@ def test_a_worker_blocked_past_the_grace_lands_a_blocked_entry_on_the_shift_issu
     assert op["entry"]["kind"] == "blocked" and op["entry"]["issue"] == ISSUE
     assert op["entry"]["ask"].startswith("the worker stopped at a prompt nobody answered "
                                          "(session 00000001, since 2026-11-04T09:01")
-
-
-def test_mention_triggers_no_longer_fire_for_questions_or_parks():
-    counters = orch.read_counters(Path("/nonexistent"))
-    counters["parked"] = ["t1"]
-    counters["outcomes"] = {"t2": {"questions": [Q1], "issues": [Q1], "prs": [], "merged": []}}
-    assert orch._mention_triggers(counters, {}) == []
 
 
 def test_the_status_comment_counts_the_inbox(tmp_path):
@@ -286,13 +270,6 @@ def test_a_resume_that_parks_again_waits_on_its_new_question(tmp_path):
 
 # --- the reader, the op, and Mind origin/main (real git) ---------------------------
 
-def git(cwd, *args, check=True):
-    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    if check:
-        assert res.returncode == 0, (args, res.stderr)
-    return res
-
-
 ACTIVE = """# Active tasks
 
 ## alpha-claim
@@ -338,13 +315,7 @@ Body.
 
 def _git_mind(tmp_path, questions: str | None = None):
     """(bare remote, canonical clone) of a fictional Mind with the real scripts."""
-    bare = tmp_path / "remote" / "PyAutoMind.git"
-    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    seed = tmp_path / "seed"
-    git(tmp_path, "clone", "-q", str(bare), str(seed))
-    for repo in (seed,):
-        git(repo, "config", "user.name", "Test")
-        git(repo, "config", "user.email", "test@example.invalid")
+    bare, seed = sf.bare_mind(tmp_path, "remote/PyAutoMind.git", "seed", identity=True)
     (seed / "scripts").mkdir()
     for name in ("ledger_merge.py", "lifecycle.py", "questions_edit.py"):
         shutil.copy(MIND_SRC / "scripts" / name, seed / "scripts" / name)
@@ -358,14 +329,8 @@ def _git_mind(tmp_path, questions: str | None = None):
     (seed / "repos.yaml").write_text("repos:\n  PyAutoMind:\n    github: example-org/PyAutoMind\n")
     if questions is not None:
         (seed / "questions.md").write_text(questions)
-    git(seed, "add", "-A")
-    git(seed, "commit", "-q", "-m", "seed")
-    git(seed, "push", "-q", "origin", "HEAD:main")
-    canon = tmp_path / "canon"
-    git(tmp_path, "clone", "-q", str(bare), str(canon))
-    git(canon, "config", "user.name", "Test")
-    git(canon, "config", "user.email", "test@example.invalid")
-    return bare, canon
+    sf.push(seed)
+    return bare, sf.clone(bare, tmp_path / "canon")
 
 
 def _entry(task, issue=Q1, shift="2026-11-14-pm2", ask="Brass or steel?"):
@@ -433,17 +398,12 @@ def test_read_origin(tmp_path):
     bare, canon = _git_mind(tmp_path)
     assert _questions.read_origin(canon) == {}                   # nothing asked yet
     assert _questions.read_origin(tmp_path / "not-a-checkout") is None
-    other = tmp_path / "other"
-    git(tmp_path, "clone", "-q", str(bare), str(other))
-    git(other, "config", "user.name", "Test")
-    git(other, "config", "user.email", "test@example.invalid")
+    other = sf.clone(bare, tmp_path / "other")
     sys.path.insert(0, str(MIND_SRC / "scripts"))
     import questions_edit as qe
     text, _q, _a = qe.add_text(qe.TEMPLATE, _entry("active/alpha.md"))
     (other / "questions.md").write_text(text)
-    git(other, "add", "-A")
-    git(other, "commit", "-q", "-m", "q")
-    git(other, "push", "-q", "origin", "HEAD:main")
+    sf.push(other, "q")
     fetched = []
     got = _questions.read_origin(canon, fetch=lambda: fetched.append(
         git(canon, "fetch", "-q", "origin", "main")))

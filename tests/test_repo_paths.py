@@ -1,14 +1,13 @@
 """Repository identity survives grouped canonical trees and flat task/CI trees."""
-import importlib.util
 from pathlib import Path
 import subprocess
 
 import pytest
 
+from _helpers import load_module
+
 MODULE = Path(__file__).resolve().parents[1] / 'agents' / '_repo_paths.py'
-spec = importlib.util.spec_from_file_location('repo_paths_under_test', MODULE)
-paths = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(paths)
+paths = load_module('repo_paths_under_test', MODULE, register=False)
 
 
 def manifest(root, body='  Demo:\n    path: science/Demo\n'):

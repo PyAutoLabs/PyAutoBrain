@@ -51,8 +51,7 @@ pyauto-brain cortex <verb> --cortex <dir>    # another checkout
 ## Where the Cortex is
 
 `--cortex <dir>` → `$PYAUTO_CORTEX` → beside this PyAutoBrain checkout →
-`$PYAUTO_ROOT/PyAutoCortex`. Its own resolver (`resolve_cortex` in
-`agents/_common.sh`, mirrored in `_cortex.py`), never an extension of the
+`$PYAUTO_ROOT/PyAutoCortex`. Its own resolver (`resolve_root` in `_cortex.py`), never an extension of the
 Mind's: a session holding one organ and not the other still works.
 
 ## What it reads, and what it refuses to read

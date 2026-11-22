@@ -1,11 +1,9 @@
 """The premise check — does a draft's premise still hold on a fresh `main`?
 
-Programme task M1.3, slice 1 (PyAutoBrain#608). In the one live shift that
-worked (2026-11-06-pm), 2 of 3 dispatched tasks were obsolete on `main`: one
-named a harness deleted five weeks earlier, the other a smoke-cap overrun the
-timing record had not shown for days. Both workers noticed and stopped, but
-each had been paid for as a full run. The planner's close-out guard looks for
-work that ARRIVED; it cannot see a premise that has GONE AWAY. This can.
+A draft can go obsolete while it waits: the harness it names is deleted, the
+overrun it reports stops happening. A worker dispatched on it is paid for as
+a full run before it notices. The planner's close-out guard looks for work
+that ARRIVED; it cannot see a premise that has GONE AWAY. This can.
 
 It is mechanical and cheap — git reads plus, optionally, one `gh api` per
 named issue; never an LLM call. For each repo the draft names it views `main`
@@ -46,7 +44,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-STATUSES = ("ok", "obsolete", "unknown")
 VERIFIED_KEY = "Verified"
 
 #: Extensions that make a backticked token a path even without a `/`.

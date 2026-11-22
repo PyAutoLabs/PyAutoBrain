@@ -15,17 +15,12 @@ Hermetic: a fictional Mind and a fictional PyAutoMemory in tmp_path.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
+from _helpers import load_module
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location(
-    "_intake_memory_under_test",
-    BRAIN_HOME / "agents" / "conductors" / "intake" / "_intake.py")
-_intake = importlib.util.module_from_spec(_spec)
-sys.modules["_intake_memory_under_test"] = _intake
-_spec.loader.exec_module(_intake)
+_intake = load_module("_intake_memory_under_test", "agents/conductors/intake/_intake.py")
 
 RAW = ("Add a substructure lensing subhalo mass function fit so the subhalo "
        "detection sensitivity map can be produced from a fitted lens model.")

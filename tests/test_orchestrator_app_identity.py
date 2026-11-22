@@ -24,8 +24,6 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 from test_orchestrator_dispatch import _digest, orch  # noqa: E402
 import test_orchestrator_steering as st  # noqa: E402 — the fake GitHub

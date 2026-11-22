@@ -395,9 +395,6 @@ def tier_validation(inference: Path) -> list[str]:
                   if len(rel) == 4 and rel[2] == VALIDATION_DIR)
 
 
-tier_lens_mature = tier_mature  # the lens surface's name for the shared walk
-
-
 def fit_catalogue(fit_inference: Path) -> tuple[list[str], dict | None]:
     """The autofit inference search catalogue's verdict cells.
 

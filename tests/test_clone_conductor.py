@@ -7,11 +7,12 @@ path lands on opposite sides for `autolens_assistant` (a domain assistant) and
 `autofit_assistant` (the domain-agnostic base).
 """
 
-import importlib.util
 import sys
 from pathlib import Path
 
 import pytest
+
+from _helpers import load_module
 
 CLONE = (
     Path(__file__).resolve().parents[1]
@@ -19,14 +20,7 @@ CLONE = (
 )
 
 
-def _load():
-    spec = importlib.util.spec_from_file_location("_clone_under_test", CLONE)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-clone = _load()
+clone = load_module("_clone_under_test", CLONE, register=False)
 
 
 def _classify(path, profile):

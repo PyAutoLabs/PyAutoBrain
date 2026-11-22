@@ -19,7 +19,6 @@ import sys
 from pathlib import Path
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_closeout as tc  # noqa: E402 — the 4b close-out fixtures
 import test_orchestrator_digest as t  # noqa: E402 — the 3d fixtures
 from test_orchestrator_digest import orch  # noqa: E402
@@ -120,7 +119,6 @@ def test_merge_cap_1_refuses_second_in_turn_notify_merge(tmp_path):
 def test_take_is_atomic_across_processes(tmp_path):
     slot = tmp_path / "slot"
     (slot / mw.LEDGER_DIR).mkdir(parents=True)
-    sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "batch"))
     import _merge_slots
     _merge_slots.publish(slot, 3, False)
     procs = [subprocess.Popen([str(CLI), "merge-slot", "take", f"https://github.com/o/r/pull/{i}",
@@ -174,7 +172,6 @@ def test_no_published_cap_or_a_pause_fails_closed(tmp_path):
     (slot / mw.LEDGER_DIR).mkdir(parents=True)
     r = _slot_cli(slot, "take", PR1, "--task", "t")
     assert r.returncode == 1 and "no merge-cap" in r.stdout
-    sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "batch"))
     import _merge_slots
     _merge_slots.publish(slot, 2, True)
     r = _slot_cli(slot, "take", PR1, "--task", "t")
@@ -189,7 +186,6 @@ def test_no_published_cap_or_a_pause_fails_closed(tmp_path):
 def _published(tmp_path, cap=1):
     slot = tmp_path / "slot"
     (slot / mw.LEDGER_DIR).mkdir(parents=True)
-    sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "batch"))
     import _merge_slots
     _merge_slots.publish(slot, cap, False)
     return slot, _merge_slots

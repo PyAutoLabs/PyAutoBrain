@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """bin/public_names.py — does a change add or rename a public library name?
-(PyAutoBrain#641)
 
     pyauto-brain public-names <owner/repo>#<n> [--json]
     pyauto-brain public-names --repo <path> --range <a>..<b> [--json]
     pyauto-brain public-names --repo-name <Repo> --before <dir> --after <dir> [--json]
 
-WHY. AUTONOMY.md "Public-name narrowing of `glance` — 2026-11-16": a change
-that adds or renames a public name in a library package goes to a human `/prm`,
-whatever its declared `Consequence:`. The seeded audit's one amended row (row
-08, `latent-profile-declarations`) added seven public `latent_*_from` helpers
-that no CI, witness or reviewer leg caught. One implementation, run three
+WHY. AUTONOMY.md "Public-name narrowing of `glance`": a change that adds or
+renames a public name in a library package goes to a human `/prm`, whatever
+its declared `Consequence:` — no CI, witness or reviewer leg catches a new
+public name. One implementation, run three
 ways: deterministically by the shift watcher before it spawns any close-out
 session (`_orchestrator.RealSpawner.spawn_closeout`: a hit or a cannot-tell
 writes the refusal and no session starts), as a stop in the in-turn tiered

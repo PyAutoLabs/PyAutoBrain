@@ -1,11 +1,10 @@
 """The distributed feedback command must work without a Brain checkout."""
-import importlib.util
 from pathlib import Path
 
+from _helpers import load_module
+
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('sync_feedback', ROOT / 'bin/sync_feedback.py')
-sync = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(sync)
+sync = load_module('sync_feedback', ROOT / 'bin/sync_feedback.py', register=False)
 
 
 def test_standalone_embeds_canonical_template_and_invitation():

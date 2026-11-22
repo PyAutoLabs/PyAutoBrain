@@ -67,8 +67,7 @@ Without gh, `--github-data <file>` accepts endpoint-keyed JSON supplied by the
 agent's GitHub tools. An endpoint absent from that file or explicitly null means
 unavailable, never an empty result. Malformed JSON is fatal. Preserve responses
 verbatim. This adapter supports retained sources; it does not re-enable
-retired overnight collection. Legacy explicit diagnostic helpers remain for
-compatibility, separate from board publication.
+retired overnight collection.
 
 The board's one remaining GitHub leg is upkeep: key
 `search/issues?q=org:<org>+is:issue+is:open&per_page=1`

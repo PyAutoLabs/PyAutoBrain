@@ -17,43 +17,24 @@ One offline test per item; each fails on 421ef0f.
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — the real-spawner fixtures
 import test_worktree_claim_guard as g  # noqa: E402 — the worktree.sh fixtures
 from test_orchestrator_dispatch import _brief, _digest, orch  # noqa: E402
 import _batch  # noqa: E402
 import _mind_writer as mw  # noqa: E402
+import _shift_fixtures as sf  # noqa: E402
+from _helpers import hermetic_worktree_env, source_worktree  # noqa: E402
+from _shift_fixtures import at as _later, commit as _commit, git_out as git  # noqa: E402
 
 NOW = d.NOW
 PR = "https://github.com/example-org/repo/pull/7"
 QUESTION = "https://github.com/example-org/repo/issues/9"
-
-
-def _later(minutes):
-    return NOW + _dt.timedelta(minutes=minutes)
-
-
-def git(cwd, *args):
-    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    assert res.returncode == 0, (args, res.stderr)
-    return res.stdout.strip()
-
-
-def _commit(repo, msg):
-    git(repo, "add", "-A")
-    git(repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q",
-        "-m", msg)
 
 
 PROMPT = """\
@@ -213,12 +194,9 @@ def test_3_a_malformed_earlier_counters_file_is_no_hold_and_never_a_crash(tmp_pa
 
 # --- 4. repo claims across shifts ---------------------------------------------------
 
+@sf.needs_git
 def test_4_a_task_on_a_repo_claimed_on_origin_is_skipped_unless_coordinated(tmp_path):
-    if shutil.which("git") is None:
-        pytest.skip("needs git")
-    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
-    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    git(tmp_path, "clone", "-q", str(bare), str(mind))
+    _, mind = sf.bare_mind(tmp_path)
     paths = [_write(mind, n, repos=(r,)) for n, r in
              (("a1", "PyAutoEyes"), ("a2", "PyAutoPulse"), ("a3", "PyAutoCortex"))]
     # The coordination line names a2: since ruling R2 (M3.6b) it frees the
@@ -228,9 +206,7 @@ def test_4_a_task_on_a_repo_claimed_on_origin_is_skipped_unless_coordinated(tmp_
         "  - PyAutoEyes: feature/earlier-pick\n- prompt: active/z.md\n\n"
         "## shared-claim\n- repos:\n  - PyAutoPulse (feature/shared)\n"
         "- coordination: human approved sharing this repo with a2\n")
-    _commit(mind, "seed")
-    git(mind, "push", "-q", "origin", "HEAD:main")
-    git(mind, "fetch", "-q", "origin")
+    sf.push(mind)
     records = [{k: _rec(mind, p)[k] for k in ("path", "repos", "declared_repos")}
                for p in paths]
     kept, out = orch.on_origin(records, mind, own=set())
@@ -263,25 +239,20 @@ def test_4_a_task_on_a_repo_claimed_on_origin_is_skipped_unless_coordinated(tmp_
 
 # --- 5. the calibration gate reads the pushed record --------------------------------
 
+@sf.needs_git
 def test_5_minutes_pushed_through_a_linked_worktree_count_on_the_next_tick(tmp_path):
-    if shutil.which("git") is None:
-        pytest.skip("needs git")
-    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
-    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    git(tmp_path, "clone", "-q", str(bare), str(mind))
+    _, mind = sf.bare_mind(tmp_path)
     (mind / "batches").mkdir()
     prev = "# Batch 2026-11-04 aa\n- dispatched: 2026-11-04T06:00Z\n- review-at: 2026-11-04T08:00Z\n"
     (mind / "batches" / "2026-11-04-aa.md").write_text(prev)
-    _commit(mind, "shift A")
-    git(mind, "push", "-q", "origin", "HEAD:main")
+    sf.push(mind, "shift A")
     # The check-in: the lead pushes the minutes from a linked worktree; the
     # canonical working tree is not fast-forwarded.
     wt = tmp_path / "wt"
     git(mind, "worktree", "add", "-q", "--detach", str(wt), "origin/main")
     (wt / "batches" / "2026-11-04-aa.md").write_text(
         prev + "- review-minutes-actual: 5\n")
-    _commit(wt, "check-in")
-    git(wt, "push", "-q", "origin", "HEAD:main")
+    sf.push(wt, "check-in")
     assert "review-minutes-actual" not in (mind / "batches" / "2026-11-04-aa.md").read_text()
     brief = mind / "batches" / "2026-11-04-ab.md"
     brief.write_text(SHIFT.format(tasks="    - draft/docs/x/none.md", backlog="none", scoped="",
@@ -427,11 +398,8 @@ def test_10_the_stale_claim_guard_counts_a_release_queued_in_the_shift_ledger(tm
     ledger = tmp_path / "ledger"
 
     def stale():
-        return subprocess.run(
-            ["bash", "-c", f'source "{g.WORKTREE_SH}"; worktree_claim_is_stale task-x "{wt_root}"'],
-            env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PYAUTO_MAIN": str(main),
-                 "PYAUTO_WT_ROOT": str(tmp_path / "wt"), "PYAUTO_SHIFT_LEDGER_DIR": str(ledger)},
-            capture_output=True).returncode
+        env = {**hermetic_worktree_env(tmp_path, main), "PYAUTO_SHIFT_LEDGER_DIR": str(ledger)}
+        return source_worktree(f'worktree_claim_is_stale task-x "{wt_root}"', env).returncode
     assert stale() == 0                                       # nothing queued: refuse
     mw.queue_op(ledger, {"op": "drop-section", "path": "active.md", "section": "task-x-2"})
     assert stale() == 0                                       # another task's release

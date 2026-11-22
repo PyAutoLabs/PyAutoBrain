@@ -11,18 +11,14 @@ chat (Brain `skills/queue`, Mind `scripts/queue_edit.py`), never from the page.
 
 import base64
 import hashlib
-import importlib.util
 import re
 import sys
 from pathlib import Path
 
+from _helpers import load_module
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location(
-    "_intake_dashboard_queue_under_test",
-    BRAIN_HOME / "agents" / "conductors" / "intake" / "_intake.py")
-_intake = importlib.util.module_from_spec(_spec)
-sys.modules["_intake_dashboard_queue_under_test"] = _intake
-_spec.loader.exec_module(_intake)
+_intake = load_module("_intake_dashboard_queue_under_test", "agents/conductors/intake/_intake.py")
 
 PROMPT = ("# {title}\n\nType: feature\nTarget: widgets\nDifficulty: small\n"
           "Autonomy: supervised\nPriority: high\nStatus: formalised\n\nBody.\n")

@@ -1,4 +1,4 @@
-"""The questions inbox, Brain side (M3.5, PyAutoBrain#645) — readers only.
+"""The questions inbox, Brain side — readers only.
 
 PyAutoMind `questions.md` holds the questions shift workers parked on, one
 `### Q<n>. <task> — <short ask>` entry each under `## Open`, `## Deferred`,
@@ -133,9 +133,9 @@ def read_origin(mind, ref: str = "origin/main", fetch=None, run=None) -> dict | 
 
 # --- the parked hold -------------------------------------------------------------
 
-#: The inbox kind the readiness pass files (M3.3, PyAutoBrain#671): a gate on a
-#: queued task for the human to rule on. It is answered like a question but
-#: never holds or releases a parked task, and the inbox line leaves it out.
+#: The inbox kind the readiness pass files: a gate on a queued task for the
+#: human to rule on. It is answered like a question but never holds or
+#: releases a parked task, and the inbox line leaves it out.
 RULING = "ruling"
 
 
@@ -150,9 +150,9 @@ def questions_only(entries) -> list[dict]:
 
 def hold_for(task: str, shift: str, inbox: dict | None) -> tuple[str, dict | None]:
     """How the inbox rules on one task an earlier shift `shift` left parked:
-    ("held", None) — no entry (a park from before M3.5) or no readable inbox;
+    ("held", None) — no entry or no readable inbox;
     ("waiting", {ids}) — an entry is Open or Deferred;
-    ("dropped", {ids}) — an entry was dropped: the task is shelved (H9 a);
+    ("dropped", {ids}) — an entry was dropped: the task is shelved;
     ("answered", {ids, comments, answers}) — every entry is answered."""
     if inbox is None:
         return "held", None
@@ -256,18 +256,18 @@ def dashboard_link(mind) -> str:
 
 def unfiled_lines(counters: dict) -> list[str]:
     """One digest line per question the watcher could not file (no prompt, no
-    shift issue, an issue that is not a URL): never a silent drop (#645)."""
+    shift issue, an issue that is not a URL): never a silent drop."""
     return [f"Inbox: not filed — `{u.get('task')}` ({u.get('kind')}): {u.get('why')}; "
             "see the task's issue or session yourself."
             for u in counters.get("inbox_unfiled") or []]
 
 
 def inbox_line(counters: dict, slot_name: str, mind=None, origin=None) -> str:
-    """The digest's one inbox line (Decision H7 a), "" when the shift added
-    none: `Inbox: 2 questions added to your inbox this shift (Q17, Q18), 5
-    open in all — <link>`. Ids and the open count come from Mind origin/main
-    (`origin`, else read here); a question still queued for the writer is
-    counted without its id."""
+    """The digest's one inbox line, "" when the shift added none: `Inbox: 2
+    questions added to your inbox this shift (Q17, Q18), 5 open in all —
+    <link>`. Ids and the open count come from Mind origin/main (`origin`,
+    else read here); a question still queued for the writer is counted
+    without its id."""
     added = counters.get("inbox") or []
     if not added:
         return ""
@@ -291,129 +291,3 @@ def inbox_line(counters: dict, slot_name: str, mind=None, origin=None) -> str:
         line += f", {open_n} open in all"
     link = dashboard_link(mind) if mind is not None else ""
     return line + (f" — {link}" if link else "") + "."
-
-
-# --- the one-off backfill (Build B, step 1) --------------------------------------
-
-def _origin_path(mind, prompt: str, ref: str = "origin/main", run=None) -> str:
-    """Where `prompt` is on Mind origin/main now: itself, else `active/<name>`,
-    else "" (completed or retired)."""
-    run = run or subprocess.run
-    for cand in (prompt, f"active/{Path(prompt).name}"):
-        try:
-            res = run(["git", "-C", str(mind), "cat-file", "-e", f"{ref}:{cand}"],
-                      capture_output=True, text=True, timeout=30)
-        except (OSError, subprocess.SubprocessError):
-            return ""
-        if res.returncode == 0:
-            return cand
-    return ""
-
-
-def _done_at(slot: Path, task: str) -> str:
-    """When the watcher reaped `task` as done (its tick's `at`), from tick.log."""
-    try:
-        lines = (slot / "tick.log").read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return ""
-    for line in lines:
-        try:
-            t = json.loads(line)
-        except ValueError:
-            continue
-        if any(isinstance(e, dict) and e.get("task") == task
-               and e.get("event") in ("done", "parked") for e in t.get("reaped") or []):
-            return (t.get("at") or "")[:16] + "Z" if t.get("at") else ""
-    return ""
-
-
-def _proof_ask(slot: Path, task: str, issue: str) -> str:
-    """The proof packet's sentence that best states the question, for the
-    lead's review of the backfill only (the watcher itself never guesses): one
-    with a `?`, else one that asks for a choice (choose, decide, which,
-    whether), else one that says it parked on the issue; the no-sidecar ask
-    when none does. Issue links read "the issue"."""
-    try:
-        text = (slot / "proofs" / f"{task}.md").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return NO_SIDECAR_ASK
-    body = " ".join(re.sub(r"^-\s+[a-z][a-z /-]*:\s*", "", ln.strip())
-                    for ln in text.splitlines() if ln.strip() and not ln.startswith("#"))
-    body = re.sub(re.escape(issue) + r"(?:#\S*)?", "the issue", body)
-    sentences = re.split(r"(?<=[.!?])\s+", body)
-    for test in (lambda x: "?" in x,
-                 lambda x: re.search(r"\b(choose|decide|which|whether)\b", x, re.I),
-                 lambda x: "the issue" in x and re.search(r"question|park", x, re.I)):
-        hit = next((x for x in sentences if test(x)), None)
-        if hit:
-            return sanitise(hit, ASK_MAX)
-    return NO_SIDECAR_ASK
-
-
-def _record_issue(mind, slot_name: str) -> str:
-    try:
-        text = (Path(mind) / "batches" / f"{slot_name}.md").read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    m = re.search(r"^- issue:[ \t]*(https://\S+)", text, re.M)
-    return m.group(1) if m else ""
-
-
-def backfill(home: Path, mind, origin: dict | None = None) -> list[str]:
-    """`questions_edit.py add` lines for every task an earlier shift left
-    parked and still held today (the watcher's own `parked_elsewhere`, as if a
-    new shift were planning), one per question it parked on, oldest shift
-    first. Prints only — the lead reviews, then runs them. A task whose prompt
-    is no longer in `draft/` or `active/` on Mind origin/main, or whose
-    question is already in the inbox, is a `#` comment line instead."""
-    import shlex
-    import _orchestrator as orch  # noqa: E402 — deferred: it imports this module
-    home = Path(home)
-    held = orch.parked_elsewhere(home / ".backfill-probe")
-    origin = read_origin(mind) if origin is None else origin
-    slots = sorted(d for d in home.iterdir() if d.is_dir()
-                   and (d / orch.COUNTERS_FILE).is_file()) if home.is_dir() else []
-    rows = []
-    for task in held:
-        # The last slot that parked it is the one whose hold stands.
-        for d in reversed(slots):
-            c = orch._safe_counters(d) or {}
-            o = (c.get("outcomes") or {}).get(task)
-            if (isinstance(o, dict) and o.get("questions")) or task in (c.get("parked") or []):
-                break
-        else:
-            continue
-        o = (c.get("outcomes") or {}).get(task) or {}
-        prompt = ((c.get("picks") or {}).get(task) or {}).get("prompt") or ""
-        worker = next((w.get("key") for w in reversed(c.get("workers") or [])
-                       if w.get("task") == task), "") or "unknown"
-        if o.get("questions"):
-            asks = [(url, "question", _proof_ask(d, task, url)) for url in o["questions"]]
-        else:
-            asks = [(_record_issue(mind, d.name), "blocked",
-                     f"the worker stopped at a prompt nobody answered (session {worker})")]
-        rows.append((d.name, task, prompt, worker, _done_at(d, task) or d.name, asks))
-    out = [f"# questions backfill: {len(rows)} held task(s) in {home} — review, then run "
-           "each line from a temporary Mind worktree on origin/main"]
-    for shift, task, prompt, worker, asked, asks in sorted(rows):
-        now = _origin_path(mind, prompt) if prompt else ""
-        if not now:
-            out.append(f"# skipped: {task} (shift {shift}) — its prompt {prompt or '?'} is "
-                       "no longer in draft/ or active/ on Mind origin/main; nothing to resume")
-            continue
-        for issue, kind, ask in asks:
-            if not issue:
-                out.append(f"# skipped: {task} (shift {shift}) — no issue to file it on")
-                continue
-            have = [e["id"] for e in (origin or {}).get(task, []) if e.get("shift") == shift
-                    and e.get("issue") == issue]
-            if have:
-                out.append(f"# skipped: {task} (shift {shift}) — already in the inbox as "
-                           + ", ".join(have))
-                continue
-            out.append(" ".join(["python3 scripts/questions_edit.py add",
-                                 "--task", shlex.quote(now), "--issue", shlex.quote(issue),
-                                 "--kind", kind, "--ask", shlex.quote(ask),
-                                 "--shift", shlex.quote(shift), "--asked", shlex.quote(asked),
-                                 "--worker", shlex.quote(worker)]))
-    return out

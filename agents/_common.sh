@@ -75,23 +75,10 @@ _resolve_dir() {
 # resolve_mind — locate the PyAutoMind checkout (the organism's intent store).
 resolve_mind() { _resolve_dir PYAUTO_MIND PyAutoMind; }
 
-# resolve_cortex — locate the PyAutoCortex checkout (the organism's science
-# state: one ledger per project — Now, Runs, Log). Resolved independently of
-# the Mind so a session holding one organ and not the other still works.
-resolve_cortex() { _resolve_dir PYAUTO_CORTEX PyAutoCortex; }
-
 # resolve_memory — locate the PyAutoMemory checkout (the organism's long-term
 # scientific/architectural knowledge). Optional: the Feature Agent degrades
 # gracefully when memory is absent rather than inventing context.
 resolve_memory() { _resolve_dir PYAUTO_MEMORY PyAutoMemory; }
-
-# readiness_verdict — run `pyauto-heart readiness --json` and echo the verdict
-# string (green/yellow/red). Returns non-zero if Heart can't be resolved/run.
-readiness_verdict() {
-  local heart
-  heart="$(resolve_heart)" || return $?
-  "$heart" readiness --json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("verdict","unknown"))'
-}
 
 # _agents_dir — directory holding the sibling agents (this file lives in it).
 # Agents are organised into two tiers beneath it: conductors/ (front-door agents
@@ -107,10 +94,6 @@ _agents_dir() {
 # read-only faculty, and only the vitals faculty talks to the Heart organ. It
 # keeps the conductors (build, release, feature, health) decoupled from Heart's
 # surface and lets them all read the verdict the same way.
-#
-# (Back-compat: `consult_health_agent_verdict` remains as an alias below — the
-# faculty was renamed health -> vitals, and the loop conductor took the name
-# `health`.)
 #
 #   --refresh     ask the vitals faculty to refresh Heart's state first (a fresh
 #                 gate); release-grade work uses this, ordinary build work does not.
@@ -216,9 +199,6 @@ except Exception:
 ' 2>/dev/null)"
   [[ "$out" == "green" ]] && echo "green" || echo "unknown"
 }
-
-# Back-compat alias for the pre-rename name (faculty: health -> vitals).
-consult_health_agent_verdict() { consult_vitals_verdict "$@"; }
 
 # Print the readiness verdict's RED reason strings, one per line (empty if none
 # / unavailable). Used by the Build Agent's --accept-red override so a human can

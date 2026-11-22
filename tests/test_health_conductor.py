@@ -18,6 +18,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 HEALTH_DIR = BRAIN_HOME / "agents" / "conductors" / "health"
@@ -77,29 +79,36 @@ def _triage(tmp_path, readiness):
     return json.loads(result.stdout), result.returncode
 
 
+@pytest.fixture(scope="module")
+def stale_triage(tmp_path_factory):
+    """The triage of the STALE-only verdict, run once for the tests that only
+    read it."""
+    return _triage(tmp_path_factory.mktemp("stale_triage"), STALE_ONLY)[0]
+
+
 # --------------------------------------------------------------------------
 # 1. the classifier walks stale_reasons
 # --------------------------------------------------------------------------
 
-def test_stale_reasons_become_triage_items(tmp_path):
-    t, _ = _triage(tmp_path, STALE_ONLY)
+def test_stale_reasons_become_triage_items(stale_triage):
+    t = stale_triage
     reasons = [it["reason"] for it in t["items"]]
     assert sorted(reasons) == sorted(STALE_ONLY["stale_reasons"])
     assert {it["severity"] for it in t["items"]} == {"stale"}
 
 
-def test_stale_items_are_evidence_gaps_not_accepted_baseline_gaps(tmp_path):
+def test_stale_items_are_evidence_gaps_not_accepted_baseline_gaps(stale_triage):
     """A stale reason is an *action item* (re-run the check), so it must not land
     in the bucket the renderer labels "accept, not action items"."""
-    t, _ = _triage(tmp_path, STALE_ONLY)
+    t = stale_triage
     assert {it["kind"] for it in t["items"]} == {"evidence-gap"}
     assert t["counts"]["expected_gaps"] == 0
     assert all(it["blocks_green"] for it in t["items"])
 
 
-def test_stale_counts_are_no_longer_zero(tmp_path):
+def test_stale_counts_are_no_longer_zero(stale_triage):
     """The reported symptom: counts read 0 blockers / 0 warnings / 0 gaps."""
-    t, _ = _triage(tmp_path, STALE_ONLY)
+    t = stale_triage
     c = t["counts"]
     assert c["evidence_gaps"] == len(STALE_ONLY["stale_reasons"])
     assert (c["blockers"], c["warnings_real"], c["advisory"]) == (0, 0, 0)
@@ -109,8 +118,8 @@ def test_stale_counts_are_no_longer_zero(tmp_path):
 # 2. the recommendation chain has a STALE branch
 # --------------------------------------------------------------------------
 
-def test_stale_recommendation_is_refresh_not_unknown(tmp_path):
-    t, _ = _triage(tmp_path, STALE_ONLY)
+def test_stale_recommendation_is_refresh_not_unknown(stale_triage):
+    t = stale_triage
     rec = t["recommendation"]
     assert rec["action"] == "refresh-evidence"
     assert rec["headline"].startswith("STALE")
@@ -118,10 +127,10 @@ def test_stale_recommendation_is_refresh_not_unknown(tmp_path):
     assert "could not obtain a verdict" not in rec["detail"]
 
 
-def test_stale_detail_states_the_tier_semantics(tmp_path):
+def test_stale_detail_states_the_tier_semantics(stale_triage):
     """The remedy is re-running the check, never fixing code — and a release
     still needs GREEN, and the scoped dev-ship gate never passes STALE."""
-    t, _ = _triage(tmp_path, STALE_ONLY)
+    t = stale_triage
     detail = t["recommendation"]["detail"].lower()
     assert "missing or expired" in detail
     assert "never a code fix" in detail
@@ -129,10 +138,10 @@ def test_stale_detail_states_the_tier_semantics(tmp_path):
     assert "leg 4" in detail
 
 
-def test_stale_prefers_the_release_validation_gap(tmp_path):
+def test_stale_prefers_the_release_validation_gap(stale_triage):
     """Refreshing the hard readiness gate is the leg that makes GREEN reachable,
     so it is recommended ahead of other evidence gaps regardless of input order."""
-    t, _ = _triage(tmp_path, STALE_ONLY)
+    t = stale_triage
     rec = t["recommendation"]
     assert "no release validation" in rec["headline"]
     assert rec["command"] == "pyauto-brain release validate"
@@ -166,11 +175,6 @@ def test_stale_verdict_with_no_named_reason_still_recommends_a_refresh(tmp_path)
 # --------------------------------------------------------------------------
 # 3. the exit code — distinguishable from unknown by a machine caller
 # --------------------------------------------------------------------------
-
-def test_stale_exits_six(tmp_path):
-    _, code = _triage(tmp_path, STALE_ONLY)
-    assert code == EXIT_STALE
-
 
 def test_every_verdict_maps_to_a_distinct_exit_code(tmp_path):
     """The point of the fix: "Heart says STALE" and "Heart unreachable" must not

@@ -19,6 +19,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
@@ -441,18 +443,15 @@ def test_a_jax_version_bump_is_a_new_key_not_a_regression(tmp_path):
     assert len(d["unpinned"]) == 1
 
 
-def test_small_absolute_moves_on_cheap_cells_are_not_drift(tmp_path):
-    """0.05s -> 0.30s is 6x and completely uninteresting; the absolute floor
-    exists so sub-second jitter does not train people to ignore the alarm."""
-    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=0.30)]})
-    _pinned(ws, [_pin(compile_s=0.05)])
-    d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
-    assert d["drifted"] == []
-
-
-def test_large_absolute_move_below_the_ratio_is_not_drift(tmp_path):
-    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=130.0)]})
-    _pinned(ws, [_pin(compile_s=100.0)])
+@pytest.mark.parametrize("pinned,measured", [
+    # 0.05s -> 0.30s is 6x and completely uninteresting; the absolute floor
+    # exists so sub-second jitter does not train people to ignore the alarm.
+    pytest.param(0.05, 0.30, id="small-absolute-moves-on-cheap-cells"),
+    pytest.param(100.0, 130.0, id="large-absolute-move-below-the-ratio"),
+])
+def test_a_move_under_either_threshold_is_not_drift(tmp_path, pinned, measured):
+    ws = _workspace(tmp_path, {"local_cpu/mge.json": [_warm(compile_s=measured)]})
+    _pinned(ws, [_pin(compile_s=pinned)])
     d = json.loads(_run(["ingest", "--axis", "compile", "--json"], ws).stdout)
     assert d["drifted"] == []
 
