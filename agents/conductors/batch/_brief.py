@@ -208,6 +208,29 @@ def effective(brief: dict, counters: dict | None) -> dict:
     return out
 
 
+def backend_of(brief: dict) -> str:
+    return brief.get("worker-backend", {}).get("value", "claude")
+
+
+def backend_errors(brief: dict) -> list[str]:
+    backend = backend_of(brief)
+    if backend not in {"claude", "codex"}:
+        return ["brief.worker-backend: must be claude or codex"]
+    errors = []
+    if backend == "codex":
+        model = brief.get("codex-model", {}).get("value", "")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", model):
+            errors.append("brief.codex-model: explicit Codex model id required")
+        if worker_mode_of(brief) not in {"auto", "dontAsk"}:
+            errors.append("brief.worker-mode: Codex supports auto or dontAsk; no acceptEdits equivalent")
+        effort = brief.get("codex-effort", {}).get("value", "medium")
+        if effort not in {"low", "medium", "high", "xhigh"}:
+            errors.append("brief.codex-effort: must be low, medium, high or xhigh")
+    elif any(k.startswith("codex-") for k in brief):
+        errors.append("brief.worker-backend: codex settings require worker-backend: codex")
+    return errors
+
+
 def worker_mode_of(brief: dict) -> str:
     return brief.get("worker-mode", {}).get("value") or DEFAULT_WORKER_MODE
 
@@ -350,6 +373,7 @@ def check(path: Path, mind: Path) -> dict:
         if key in brief and _nonneg_int(brief[key]["value"]) is None:
             errors.append(f"brief.{key}: not a whole number ({brief[key]['value']!r})")
 
+    errors.extend(backend_errors(brief))
     if "worker-mode" in brief and brief["worker-mode"]["value"] not in WORKER_MODES:
         errors.append(f"brief.worker-mode: {brief['worker-mode']['value']} — one of "
                       + ", ".join(WORKER_MODES)

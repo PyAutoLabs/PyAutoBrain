@@ -104,6 +104,10 @@ def test_no_runtime_provider_switch_was_added():
         for path in root.rglob("*"):
             if path.suffix not in {".py", ".sh"} or not path.is_file():
                 continue
+            # The explicitly selected Codex CLI adapter checks subscription
+            # auth; it is not a ChatGPT API or runtime fallback.
+            if path == ROOT / "agents/conductors/batch/_codex.py":
+                continue
             if "chatgpt" in path.read_text(encoding="utf-8", errors="replace").lower():
                 offenders.append(str(path.relative_to(ROOT)))
     assert not offenders, offenders

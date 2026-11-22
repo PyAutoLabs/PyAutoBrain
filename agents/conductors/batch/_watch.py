@@ -123,7 +123,7 @@ def snapshot(brief_path: Path, slot: Path, now: _dt.datetime, *, agents=None,
     tasks = list(dict.fromkeys(named + list(picks) + list(held)))
 
     if agents is None and not shadow and any(l.get("agent_id") for l in held.values()):
-        agents = _orchestrator.AgentsView()  # one `claude agents --json` per refresh
+        agents = _orchestrator.AgentsView(home=slot.parent)  # one `claude agents --json` per refresh
     health = health or _digest.pr_health
 
     links = _digest.MindLinks(mind, issue) if mind else None

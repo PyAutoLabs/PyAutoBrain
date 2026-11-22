@@ -899,6 +899,16 @@ never read as alive. To stop a shift, `touch <slot>/STOP` (or comment `/stop` on
 its issue); to remove the
 watcher, `systemctl --user disable --now pyauto-orchestrator.timer`.
 
+## Codex execution workers
+
+A brief may explicitly select `worker-backend: codex`; omitted means Claude.
+The adapter changes execution, observations, stop and accounting only, retaining
+this conductor's scheduling and autonomy contracts. Codex workers use an
+accounted fresh Opus session for the required pre-ship review; close-outs remain
+Opus. The canonical keys live in Mind `batches/AGENTS.md`. Read
+[Codex setup and first-run checks](../../../docs/codex_orchestrator.md) before
+the first Codex shift. No live shift is authorized by selecting a backend.
+
 ## Running
 
 ```
