@@ -4429,7 +4429,7 @@ def _merge_blockers(counters: dict, pr: str, pr_state, cache: dict) -> list[str]
         if (gh or {}).get("state") in ("MERGED", "CLOSED"):
             # Remembered for the digest's merge order: an earlier PR the
             # human merged or closed is no longer one to merge first
-            # (2026-11-19-pm2 listed PyAutoLens#868 as "open" after its merge).
+            # (2026-11-19-pm2 listed one as "open" twenty minutes after its merge).
             counters.setdefault("pr_gone", {})[u] = gh["state"]
             continue
         out.append(u)

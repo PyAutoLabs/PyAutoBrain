@@ -230,6 +230,14 @@ a re-run never makes a second; `--issue <url>` names one by hand;
 `PYAUTO_BRIEF_ISSUE=off` skips it. The issue is made last, just before the
 write: if `gh` fails, no brief is written (exit 1), and if the write fails
 after it, the URL is printed to re-run with `--issue <url>`.
+
+**The RAL probe (2026-11-22).** For a live brief whose `lanes:` include `ral`,
+`brief --check` runs one `ssh -o BatchMode=yes <host> true` (`_ral.py`) and
+warns when unattended key auth fails — shift 2026-11-20-am granted `ral` and
+its worker parked on "Too many authentication failures". A warning, never a
+refusal; launch chat only, never the watcher. The host is
+`PYAUTO_RAL_SSH_HOST`, else the "SSH alias" in the Mind's
+`policy/hpc_ral.md`; `PYAUTO_RAL_PROBE=off` skips it.
 `brief --check` then adds what only a launch needs (`_brief.launch_errors`,
 `login_findings`): a live brief (not `shadow: yes`) without a GitHub issue URL
 is refused (`issue: missing — …`), and so is a CLI login that has expired

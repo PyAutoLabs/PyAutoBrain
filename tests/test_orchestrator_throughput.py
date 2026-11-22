@@ -307,9 +307,9 @@ def test_a_carried_pr_already_merged_is_not_listed_as_needing_the_human(tmp_path
 
 
 def test_the_merge_order_drops_an_earlier_pr_github_reads_merged():
-    """2026-11-19-pm2's merge order began "▶ PyAutoLens#868 — open", twenty
+    """2026-11-19-pm2's merge order began with an earlier PR as "▶ … — open", twenty
     minutes after the human merged it."""
-    a, b, c3 = (f"https://github.com/example-org/PyAutoLens/pull/{n}" for n in (868, 872, 874))
+    a, b, c3 = (f"https://github.com/example-org/widgets/pull/{n}" for n in (868, 872, 874))
     counters = {"outcomes": {"x": {"prs": [b], "merged": [], "behind": [a]},
                              "y": {"prs": [c3], "merged": []}},
                 "closeouts": {b: {"state": "refused", "why": "merge-cap 0 reached this shift"}},

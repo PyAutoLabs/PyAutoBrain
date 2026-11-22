@@ -1392,6 +1392,8 @@ run id beyond its tries retires the watcher to fake mode.
 
 **Login probe — 2026-11-17.** The watcher runs `claude auth status --json` (local, no model call) on a shift's first tick and when a worker shows as blocked. `loggedIn: false`, or a `loginExpiresAt` already passed, is a `login-expired` event, never "blocked on a person", and no worker starts until it passes.
 
+**RAL probe — 2026-11-22.** `batch brief --check`, for a brief whose `lanes:` include `ral`, runs one `ssh -o BatchMode=yes -o ConnectTimeout=10 <host> true` in the launch chat (`agents/conductors/batch/_ral.py`). It never prompts, sends nothing but `true`, and a failure is a warning, never a refusal. The watcher never runs it. The host comes from `PYAUTO_RAL_SSH_HOST` or the Mind's `policy/hpc_ral.md`; `PYAUTO_RAL_PROBE=off` skips it. Asked for by the human 2026-11-22 after shift 2026-11-20-am granted a lane its worker could not reach.
+
 ## Human override for Heart RED (development only)
 
 Heart RED still parks every autonomous run and blocks every release. After the

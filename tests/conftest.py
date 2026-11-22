@@ -47,6 +47,8 @@ def _no_real_launch_probes(monkeypatch):
     variable and puts a fake `claude` / `gh` on PATH."""
     monkeypatch.setenv("PYAUTO_LOGIN_PROBE", "off")
     monkeypatch.setenv("PYAUTO_BRIEF_ISSUE", "off")
+    # `brief --check` on a brief that grants `ral` runs one BatchMode ssh.
+    monkeypatch.setenv("PYAUTO_RAL_PROBE", "off")
 
 
 @pytest.fixture(autouse=True)

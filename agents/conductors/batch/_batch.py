@@ -57,6 +57,7 @@ from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
 import _green  # noqa: E402 — the keep-Heart-green lane (PyAutoBrain#625)
 import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
+import _ral  # noqa: E402 — the unattended-ssh probe for a granted `ral` lane
 # The human's goals (goals.md, PyAutoMind#565): `brief --new` copies them.
 from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
 # The close-out guard's reader (intake `looks-shipped`): the live flags minus
@@ -3926,6 +3927,11 @@ def _main_brief(mind: Path, a) -> int:
         res["login"] = login
         res["errors"] += errs
         res["warnings"] += warns
+        # A granted `ral` lane a worker cannot reach (2026-11-20-am): one
+        # BatchMode ssh, a warning only. A shadow brief starts no worker.
+        if rec["brief"] is not None and not _brief.is_shadow(rec["brief"]):
+            res["ral"], warns = _ral.findings(_brief.lanes_of(rec["brief"]), mind)
+            res["warnings"] += warns
         res["ok"] = not res["errors"]
     warn = goal_one_warning(Path(a.check), mind)
     if warn:
