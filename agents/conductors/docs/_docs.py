@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
-from _repo_paths import repo_path  # noqa: E402
+from _repo_paths import manifest_field, repo_path  # noqa: E402
 
 PYAUTO_ROOT = _pyauto_root.pyauto_root()
 BRAIN_HOME = Path(__file__).resolve().parents[3]
@@ -168,9 +168,10 @@ def known_repos():
         text = manifest.read_text(encoding="utf-8")
     except OSError:
         return repos
-    for m in re.finditer(r"^  ([A-Za-z][\w.-]*):\s*\n(?:    .*\n)*?    category:\s*(\w+)",
-                         text, re.M):
-        repos[m.group(1)] = m.group(2)
+    for name, raw in manifest_field(text, "category").items():
+        m = re.match(r"\w+", raw)
+        if m and re.fullmatch(r"[A-Za-z][\w.-]*", name):
+            repos[name] = m.group(0)
     return repos
 
 

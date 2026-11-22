@@ -124,3 +124,49 @@ def test_grouped_mind_bootstraps_its_own_manifest(tmp_path):
     (tmp_path / 'PyAutoMind').mkdir()
     with pytest.raises(ValueError, match='ambiguous'):
         manifest_paths(tmp_path)
+
+
+# ---------------------------------------------- the one body-map reader ---
+BODY_MAP = '''# header comment
+categories:
+  library:
+    category: not-a-repo
+repos:
+  # --- organs ---
+  PyAutoMind:   # the Mind
+    github: "Org/PyAutoMind"  # quoted, commented
+    path: 'organs/PyAutoMind'
+
+  autofit_tool:
+    # a comment inside an entry
+    category: library # trailing
+    package: autofit
+smoke_bootstrap_rollout: true
+later:
+  Ghost:
+    category: organ
+'''
+
+
+def test_manifest_field_reads_only_the_repos_block_raw():
+    module = paths
+    assert module.manifest_repos(BODY_MAP) == ['PyAutoMind', 'autofit_tool']
+    assert module.manifest_field(BODY_MAP, 'category') == {'autofit_tool': 'library # trailing'}
+    assert module.manifest_field(BODY_MAP, 'github') == {
+        'PyAutoMind': '"Org/PyAutoMind"  # quoted, commented'}
+    assert module.manifest_field(BODY_MAP, 'path') == {'PyAutoMind': "'organs/PyAutoMind'"}
+    assert module.manifest_field(BODY_MAP, 'package') == {'autofit_tool': 'autofit'}
+
+
+def test_manifest_homes_and_majority_owner():
+    module = paths
+    text = ('repos:\n  A:\n    github: Org/A\n  B:\n    github: Org/B  # c\n'
+            '  C:\n    github: Org/C\n  D:\n    github: Other/D\n')
+    assert module.manifest_homes(text) == ['Org/A', 'Org/C', 'Other/D']
+    assert module.majority_owner(module.manifest_homes(text)) == 'Org'
+    assert module.majority_owner([]) is None
+
+
+def test_the_reader_needs_no_pyyaml():
+    source = MODULE.read_text()
+    assert 'import yaml' not in source and 'from yaml' not in source

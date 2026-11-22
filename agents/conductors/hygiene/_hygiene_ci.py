@@ -74,7 +74,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from _hygiene_repos import resolve_map  # noqa: E402
 sys.path.insert(0, str(HERE.parents[2]))
-from _repo_paths import repo_path  # noqa: E402
+from _repo_paths import majority_owner, manifest_homes, repo_path  # noqa: E402
 import _pyauto_root  # noqa: E402
 
 DEFAULT_HEART = "PyAuto" + "Heart"   # an organ: framework identity, not an instance fact
@@ -89,9 +89,7 @@ def derive_org() -> str | None:
     path = resolve_map()
     if path is None:
         return None
-    homes = re.findall(r"^\s+github:\s*(\S+)\s*$", path.read_text(encoding="utf-8"), re.M)
-    owners = [h.split("/")[0] for h in homes if "/" in h]
-    return max(set(owners), key=owners.count) if owners else None
+    return majority_owner(manifest_homes(path.read_text(encoding="utf-8")))
 
 
 def pyauto_root() -> Path:

@@ -73,7 +73,7 @@ from ci_verdict import GhError, UsageError, _gh, parse_ref  # noqa: E402
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRAIN_HOME / "agents"))
 import _pyauto_root  # noqa: E402
-from _repo_paths import repo_path  # noqa: E402
+from _repo_paths import manifest_field, repo_path  # noqa: E402
 
 CLEAN, HIT, CANNOT = "CLEAN", "HIT", "CANNOT-TELL"
 EXIT = {CLEAN: 0, HIT: 1, CANNOT: 2}
@@ -107,22 +107,10 @@ def body_map_packages(text: str) -> dict[str, str]:
     """repo name → `package:` from the body map's two-level `repos:` block
     (two-space repo keys, four-space fields), without PyYAML."""
     out: dict[str, str] = {}
-    in_repos, current = False, None
-    for line in text.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if not line.startswith(" "):
-            in_repos, current = line.startswith("repos:"), None
-            continue
-        if not in_repos:
-            continue
-        m = re.match(r"^  ([A-Za-z0-9._-]+):\s*(#.*)?$", line)
+    for repo, raw in manifest_field(text, "package").items():
+        m = re.fullmatch(r"['\"]?([A-Za-z0-9_.]+)['\"]?\s*(#.*)?", raw)
         if m:
-            current = m.group(1)
-            continue
-        m = re.match(r"^    package:\s*['\"]?([A-Za-z0-9_.]+)['\"]?\s*(#.*)?$", line)
-        if m and current:
-            out[current] = m.group(1)
+            out[repo] = m.group(1)
     return out
 
 

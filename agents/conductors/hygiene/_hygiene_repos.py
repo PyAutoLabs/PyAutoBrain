@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _repo_paths import bootstrap_repo_path  # noqa: E402
+from _repo_paths import bootstrap_repo_path, manifest_field  # noqa: E402
 from _pyauto_root import pyauto_root  # noqa: E402
 
 MAP_FILENAME = "repos.yaml"
@@ -94,9 +94,8 @@ def resolve_map() -> Path | None:
 # module exists to prevent, so "PyYAML absent" must not become a way to
 # re-introduce it.
 
-_REPO_LINE = re.compile(r"^  ([A-Za-z0-9._-]+):\s*(#.*)?$")
-_CATEGORY_LINE = re.compile(r"^    category:\s*['\"]?([A-Za-z0-9_-]+)['\"]?\s*(#.*)?$")
-_TOP_LEVEL = re.compile(r"^\S")
+#: A `category:` value: one bare or quoted word, optionally commented.
+_CATEGORY_VALUE = re.compile(r"['\"]?([A-Za-z0-9_-]+)['\"]?\s*(#.*)?")
 
 
 def parse_minimal(text: str) -> dict[str, str]:
@@ -108,24 +107,10 @@ def parse_minimal(text: str) -> dict[str, str]:
     fallback, not a YAML implementation.
     """
     out: dict[str, str] = {}
-    in_repos = False
-    current: str | None = None
-    for line in text.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if _TOP_LEVEL.match(line):
-            in_repos = line.startswith("repos:")
-            current = None
-            continue
-        if not in_repos:
-            continue
-        m = _REPO_LINE.match(line)
+    for repo, raw in manifest_field(text, "category").items():
+        m = _CATEGORY_VALUE.fullmatch(raw)
         if m:
-            current = m.group(1)
-            continue
-        m = _CATEGORY_LINE.match(line)
-        if m and current:
-            out[current] = m.group(1)
+            out[repo] = m.group(1)
     return out
 
 
