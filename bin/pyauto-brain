@@ -72,26 +72,33 @@ FACULTIES_DIR="$AGENTS_DIR/faculties"
 
 declare -A AGENT_SCRIPT=(
   [intake]="$CONDUCTORS_DIR/intake/intake.sh"
-  [batch]="$CONDUCTORS_DIR/batch/batch.sh"
-  [community]="$CONDUCTORS_DIR/community/community.sh"
   [feature]="$CONDUCTORS_DIR/feature/feature.sh"
   [bug]="$CONDUCTORS_DIR/bug/bug.sh"
   [refactor]="$CONDUCTORS_DIR/refactor/refactor.sh"
-  [workspace]="$CONDUCTORS_DIR/workspace/workspace.sh"
-  [docs]="$CONDUCTORS_DIR/docs/docs.sh"
-  [eyes]="$CONDUCTORS_DIR/eyes/eyes.sh"
-  [profiling]="$CONDUCTORS_DIR/profiling/profiling.sh"
-  [cortex]="$CONDUCTORS_DIR/cortex/cortex.sh"
   [hygiene]="$CONDUCTORS_DIR/hygiene/hygiene.sh"
-  [clone]="$CONDUCTORS_DIR/clone/clone.sh"
   [build]="$CONDUCTORS_DIR/build/build.sh"
   [release]="$CONDUCTORS_DIR/release/release.sh"
   [health]="$CONDUCTORS_DIR/health/health.sh"
   [vitals]="$FACULTIES_DIR/vitals/vitals.sh"
-  [review]="$FACULTIES_DIR/review/review.sh"
   [memory]="$FACULTIES_DIR/memory/memory.sh"
   [samplers]="$FACULTIES_DIR/samplers/samplers.sh"
   [sizing]="$FACULTIES_DIR/sizing/sizing.sh"
+)
+# Agents with no launcher of their own: the verb runs its Python module
+# directly (`exec python3 <module> "$@"`). This dispatcher has already resolved
+# and exported the workspace root (bin/_pyauto_root.sh), which is all such a
+# launcher used to add. Agents that resolve sibling checkouts or reorder
+# arguments keep their script in AGENT_SCRIPT above.
+declare -A AGENT_PY=(
+  [batch]="$CONDUCTORS_DIR/batch/_batch.py"
+  [community]="$CONDUCTORS_DIR/community/_community.py"
+  [workspace]="$CONDUCTORS_DIR/workspace/_workspace.py"
+  [docs]="$CONDUCTORS_DIR/docs/_docs.py"
+  [eyes]="$CONDUCTORS_DIR/eyes/_eyes.py"
+  [profiling]="$CONDUCTORS_DIR/profiling/_profiling.py"
+  [cortex]="$CONDUCTORS_DIR/cortex/_cortex.py"
+  [clone]="$CONDUCTORS_DIR/clone/_clone.py"
+  [review]="$FACULTIES_DIR/review/_review.py"
 )
 declare -A AGENT_DESC=(
   [intake]="File classified prompts; never start development"
@@ -134,7 +141,7 @@ cmd_help() {
   if [[ $# -gt 0 ]]; then
     local name="$1"
     # The doc lives beside the agent's script, wherever its tier put it.
-    local script="${AGENT_SCRIPT[$name]:-}"
+    local script="${AGENT_SCRIPT[$name]:-${AGENT_PY[$name]:-}}"
     local doc="${script:+$(dirname "$script")/AGENTS.md}"
     if [[ -n "$doc" && -f "$doc" ]]; then
       cat "$doc"
@@ -237,6 +244,10 @@ main() {
   fi
   if [[ "$sub" == "merge-mode" ]]; then
     exec python3 "$BRAIN_HOME/bin/merge_mode.py" "$@"
+  fi
+  local module="${AGENT_PY[$sub]:-}"
+  if [[ -n "$module" && -f "$module" ]]; then
+    exec python3 "$module" "$@"
   fi
   local script="${AGENT_SCRIPT[$sub]:-}"
   if [[ -z "$script" || ! -f "$script" ]]; then
