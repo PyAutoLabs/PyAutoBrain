@@ -742,8 +742,8 @@ def test_an_unfiled_question_is_named_in_the_digest(tmp_path):
                                   "k", NOW)
     text = _digest.build(_brief.parse(brief.read_text())["brief"], slot, c,
                          health=lambda u: "HEALTHY")
-    assert ("Inbox: not filed — `t1` (blocked): no shift issue on its lease (spawned before "
-            "M3.5); see the task's issue or session yourself.") in text
+    assert ("Inbox: not filed — `t1` (blocked): no shift issue on its lease (spawned by an "
+            "older orchestrator); see the task's issue or session yourself.") in text
     assert "Inbox: not filed — `t1` (question): issue `issue-70` is not an https URL" in text
 
 

@@ -215,8 +215,7 @@ def check_command(command: str, cwd: str = "") -> str | None:
                     return (
                         f"PyAutoMind commit pathspec '{spec}' is a DIRECTORY — "
                         "directory pathspecs sweep whatever concurrent sessions "
-                        "staged under them (this exact shape hit twice on "
-                        "2026-07-16). List the individual files. Deliberate "
+                        "staged under them. List the individual files. Deliberate "
                         "exception: prefix PYAUTO_SKIP_MIND_GUARD=1."
                     )
     return None

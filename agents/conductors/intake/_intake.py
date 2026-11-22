@@ -4345,7 +4345,7 @@ def main(argv=None):
                     help="comma-separated Themes: keywords, primary first "
                          "(vocabulary: PyAutoMind/themes.md)")
     lane_help = ("declare where the work can run; required when the text has "
-                 "no `Lane:` header and names no resource (M2.3)")
+                 "no `Lane:` header and names no resource")
     cl.add_argument("--lane", default="", choices=("",) + LANE_VALUES, help=lane_help)
 
     idp = sub.add_parser("ideas", help="scan ideas.md and propose one prompt per bullet")

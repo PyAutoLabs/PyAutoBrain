@@ -864,8 +864,8 @@ def _classify_drift(row: dict[str, Any], cold: dict[tuple, float]) -> dict[str, 
                 "--xla_gpu_autotune_level=0 not reaching XLA"
             ),
             "action": (
-                "verify the flag actually reaches XLA first; the 2026-07-15 A/B was "
-                "invalidated for two months by XLA_FLAGS being clobbered at import"
+                "verify the flag actually reaches XLA first; an XLA_FLAGS clobbered at "
+                "import silently invalidates the A/B"
             ),
         }
 

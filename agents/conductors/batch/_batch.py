@@ -440,7 +440,7 @@ def scoped_reach_why(r: dict) -> str:
     size = r.get("difficulty") or "unsized"
     return (f"not in queue.md and {size}, {len(repos)} repo(s) — beyond queue.md a "
             "scoped dip takes only small single-repo tasks; the human queues "
-            "bigger work (ruling 2026-11-16)")
+            "bigger work")
 
 
 #: The idle line for a queued epic with no draft prompt at its next phase.
@@ -1047,7 +1047,7 @@ def main(argv=None) -> int:
                     help="plan: a human at the keyboard picks for THIS session — "
                          "an absent Lane reads as any and an empty queue.md "
                          "does not stop the backlog dip (default: unattended, "
-                         "both fail closed; AUTONOMY.md M2 rulings)")
+                         "both fail closed; see AUTONOMY.md)")
     ap.add_argument("--json", action="store_true", dest="as_json")
     # brief / plan
     ap.add_argument("--check", default="", metavar="FILE", nargs="?", const=True,
@@ -1056,7 +1056,7 @@ def main(argv=None) -> int:
                          "whether the stream is attachable now (no FILE)")
     ap.add_argument("--new", default="", metavar="SLOT",
                     help="brief: print a skeleton shift brief for SLOT (e.g. "
-                         "2026-11-14-am) whose goals: come from goals.md; "
+                         "<YYYY-MM-DD>-am) whose goals: come from goals.md; "
                          "needs --review-at; --out FILE writes it instead")
     # the keep-Heart-green lane: `brief --new` and `green`
     ap.add_argument("--green", default="", choices=("",) + _green.MODES,

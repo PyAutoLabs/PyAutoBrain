@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Propose — and, only when told, write — a `Lane:` for every lane-less draft.
 
-Programme task M1.3, slice 2 (PyAutoBrain#608). `Lane:` was on 12 of ~270
-drafts and an absent Lane reads as `any`, so a draft whose Witness needs RAL or
-an A100 is planned into a cloud session that cannot run it. Intake has
-inferred a lane at filing since 2026-11-03; the older backlog was never
-backfilled. This is the one scripted pass.
+An absent `Lane:` reads as `any`, so a draft whose Witness needs RAL or an
+A100 is planned into a cloud session that cannot run it. Intake infers a lane
+when it files a draft; this backfills the drafts filed without one.
 
     lane_backfill.py [--mind DIR] [--all] [--out proposals.md] [--json]
     lane_backfill.py --apply [--from proposals.md] [--mind DIR]

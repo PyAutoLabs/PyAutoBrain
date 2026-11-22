@@ -377,7 +377,7 @@ def test_a_queued_epic_ledger_queues_its_medium_multi_repo_phase():
 def test_an_unqueued_epic_member_is_still_held_to_the_reach_ruling():
     d = _batch.plan([ledger(), member("draft/feature/lib/p5c.md", 5)],
                     budget=200, session_lane="local-dev", brief=_brief_of(), queue=["x.md"])
-    assert "ruling 2026-11-16" in why(d, "draft/feature/lib/p5c.md")
+    assert "the human queues bigger work" in why(d, "draft/feature/lib/p5c.md")
 
 
 def test_a_queued_epic_still_offers_only_its_next_phase():

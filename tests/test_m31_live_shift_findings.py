@@ -284,7 +284,7 @@ def test_6_a_scoped_dip_beyond_the_queue_takes_only_small_single_repo_tasks(tmp_
                      queue=_batch.read_queue(mind))
     assert sorted(m["path"] for m in d_["members"]) == sorted([queued, small])
     why = dict(d_["rejected"])
-    assert "medium, 1 repo(s)" in why[medium] and "ruling 2026-11-16" in why[medium]
+    assert "medium, 1 repo(s)" in why[medium] and "the human queues bigger work" in why[medium]
     assert "small, 2 repo(s)" in why[multi]
     assert sorted(d_["scoped_reach"]) == sorted([medium, multi])
     # The ruling is recorded once in the doctrine.

@@ -10,9 +10,7 @@ they must go and classify someone else's work in a repo they may not know.
 
 This runs the same check at PR time in the reference's own CI, so the author who
 adds a file classifies it while they still remember whether it is framework or
-science. Three features (the euclid mode, the JOSS paper, the results-inspector
-MCP wiring) each landed unclassified and silently blocked every future birth
-before this existed.
+science.
 
 Usage:
     python check_boundary.py <reference-checkout> [--reference <name>]

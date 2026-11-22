@@ -8,9 +8,7 @@ identity, and this helper is the conductor's only route to it.
 Why a helper rather than an array in ``hygiene.sh``: a hardcoded repo list
 drifts as the organism grows, and the drift is *invisible* — a repo that is
 never scanned produces no findings, so the conductor reports a clean bill of
-health it has not earned. (It did: five libraries scanned where the map
-declared six, four organs of seven, and a CRLF count of 5 against a true 127.)
-Deriving the sets means adding a repo to the map adds it to the scan.
+health it has not earned. Deriving the sets means adding a repo to the map adds it to the scan.
 
 This file deliberately contains **no repository names**. That is what keeps it
 firewall-clean under ``repos_sync.py``'s tenant check, and it is also the
