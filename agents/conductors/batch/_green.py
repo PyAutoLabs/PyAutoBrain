@@ -307,7 +307,7 @@ def _pickable(mind: Path, rel: str, lanes: list[str]) -> str:
         return "in flight (active/) — another session's task"
     p = parse_prompt(mind / rel, mind)
     if not p.get("lane"):
-        return "lane absent or invalid — unattended picks fail closed (M2.3)"
+        return "lane absent or invalid — unattended picks fail closed"
     if p["lane"] not in lanes:
         return f"lane {p['lane']} not in the brief's lanes ({' '.join(lanes)})"
     level, _s, factors, derived = effective_difficulty(p)
@@ -500,7 +500,7 @@ def section(res: dict) -> str:
         L.append("- nothing")
     if any(f["rule"] == "workspace-script" for f in res["findings"]):
         L.append("- proposal only: a failing Stage 3 script with a filed bug task "
-                 "may be quarantined (your ruling 2026-11-12) — the lane never does it")
+                 "may be quarantined (a human decision) — the lane never does it")
     L += ["", f"Filed: {', '.join(res['filed']) or 'none'} · picked: "
           f"{', '.join(res['picks']) or 'none'}"]
     return "\n".join(L) + "\n"

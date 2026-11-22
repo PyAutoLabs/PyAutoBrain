@@ -16,9 +16,9 @@ So anything declared in a *sibling's* ``[optional]`` — ``autoarray[optional]``
 ``autofit[optional]`` — has to be hand-added to the smoke leg, and nothing
 enforces that. The gap is invisible until a nightly smoke run goes red against
 a script that passes release validation, and the failure looks like a broken
-script rather than a missing install (2026-08-03: ``tfp-nightly``, needed by
-the JAX Matern-kernel regularization path, was in ``autoarray[optional]`` only;
-two scripts red in smoke, both green in release).
+script rather than a missing install: a package declared only in
+``autoarray[optional]`` leaves the scripts that need it red in smoke and green
+in release.
 
 The remedy is always the install set, never the script: a script that passes
 release validation is correct, and parking or skip-guarding it destroys the

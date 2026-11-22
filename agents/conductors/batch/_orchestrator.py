@@ -327,7 +327,7 @@ touch the same lines, keep the change minimal and say so in the PR body and
 your proof packet: after a sibling merges, the close-out updates your branch
 from main and refuses (leaving it for the human's /prm) on a conflict. A
 `worktree_check_conflict` hit that names only a listed sibling's branch slug
-is not a conflict (ruling e, 2026-11-19): go on. End at PR-open, as every
+is not a conflict: go on. End at PR-open, as every
 shift worker does.
 
 """
@@ -384,7 +384,7 @@ def after_step(after: list[str] | None = None, before: list[str] | None = None,
     from this PR's, which are named and not checked."""
     if not (after or before or disjoint):
         return ""
-    out = ["4b. Merge order (M3.6j, PyAutoBrain#683): this shift's earlier PRs on this\n"
+    out = ["4b. Merge order: this shift's earlier PRs on this\n"
            "   library merge before this one.\n"]
     if before:
         out.append("   Refuse with why `<url> still open → merge it first` if any of these\n"
@@ -1284,7 +1284,7 @@ def land_question(slot: Path, counters: dict, lease: dict, task: str, issue: str
     issue`. True when it was queued."""
     prompt = lease.get("prompt") or (counters["picks"].get(task) or {}).get("prompt") or ""
     why = ("no prompt recorded for the task" if not prompt
-           else "no shift issue on its lease (spawned before M3.5)" if not issue
+           else "no shift issue on its lease (spawned by an older orchestrator)" if not issue
            else f"issue `{str(issue)[:80]}` is not an https URL"
            if not str(issue).startswith("https://") else "")
     if why:

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""agents/conductors/clone/_clone.py — core for the Clone (Mitosis) Agent, v0.
+"""agents/conductors/clone/_clone.py — core for the Clone (Mitosis) Agent.
 
-analyze (default) is decision only. v1 adds `--apply --mode
-lightweight-seed`: the agent writes its generation plan as JSON and hands
-execution to PyAutoHands's `clone_seed.py` primitive (repo creation
-PRIVATE-first; the newborn's publish gate is Heart's newborn-validation
-checklist). The agent itself still writes no repo and no GitHub state — the
-mandatory clone-mode question is answered by the human typing `--mode`.
-Other modes (exact-clone, differentiated-sibling) are v2 and exit 5.
+analyze (default) is decision only. `--apply --mode lightweight-seed` writes
+the generation plan as JSON and hands execution to PyAutoHands's
+`clone_seed.py` primitive (repo creation PRIVATE-first; the newborn's publish
+gate is Heart's newborn-validation checklist). The agent itself writes no repo
+and no GitHub state — the mandatory clone-mode question is answered by the
+human typing `--mode`. The other modes (exact-clone, differentiated-sibling)
+are not implemented and exit 5.
 
 The generic-vs-domain partition is OWNED BY THE REFERENCE ASSISTANT
 (`modes/maintainer.md`, "Assistant-as-template") — this agent reads that
@@ -905,7 +905,7 @@ def main():
     if args.apply and args.mode != "lightweight-seed":
         fail(5, "--apply requires --mode lightweight-seed (the human-answered "
                 "clone-mode question); exact-clone / differentiated-sibling "
-                "are v2 — see agents/conductors/clone/DESIGN.md")
+                "are not implemented — see agents/conductors/clone/DESIGN.md")
 
     decision = build_decision(args)
     if args.json:

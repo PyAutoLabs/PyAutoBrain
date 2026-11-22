@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """agents/conductors/workspace/_workspace.py — core for the Workspace Agent.
 
-The Voice — the organism's expressive function. v0 is DECISION ONLY: it reads
+The Voice — the organism's expressive function. It is DECISION ONLY: it reads
 intent (raw text or a PyAutoMind prompt file) or a workspace repo's example
 catalogue, and emits a WorkspaceDecision / WorkspaceSurvey. It never edits
 source, never writes files — authoring is executed by the ordinary
 start_dev → start_workspace → ship_workspace flow this decision routes into.
 
-Two audience registers, one agent (the founding assessment:
-PyAutoMind active/workspace_examples_agent.md):
+Two audience registers, one agent:
 
   workspace  reference examples for practitioners (*_workspace repos)
   howto      narrative teaching for first-time learners (HowTo* repos)

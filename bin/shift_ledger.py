@@ -9,14 +9,14 @@ A shift worker names its task on every op (`--task`): a task's ops land
 together, and its completion record is held while any of them is set aside.
 
     shift_ledger.py --task T append  active.md --text-file entry.md
-    shift_ledger.py --task T write   complete/2026/11/x.md --text-file record.md   # creates only
+    shift_ledger.py --task T write   complete/<YYYY>/<MM>/x.md --text-file record.md   # creates only
     shift_ledger.py --task T edit    draft/feature/x/y.md --old-file was.txt --new-file now.txt
     shift_ledger.py --task T move    draft/feature/x/y.md active/y.md
     shift_ledger.py --task T remove  active/y.md
     shift_ledger.py --task T drop-section active.md my-task
-    shift_ledger.py --task T set-header draft/x/y.md Verified --text "2026-11-12 abc1234 (Repo)"
+    shift_ledger.py --task T set-header draft/x/y.md Verified --text "<YYYY-MM-DD> <sha> (<Repo>)"
     shift_ledger.py --task T table-append autonomy_log.md "## Calibration runs" --text "| … |"
-    shift_ledger.py --task T queue-retire queue.md y.md --text "<PR url> → complete/2026/11/y.md (2026-11-14)"
+    shift_ledger.py --task T queue-retire queue.md y.md --text "<PR url> → complete/<YYYY>/<MM>/y.md (<YYYY-MM-DD>)"
 
 `write` refuses a path that already exists; `edit` replaces `--old`, which must
 appear exactly once in the file as it is on Mind origin/main, with `--new`.
