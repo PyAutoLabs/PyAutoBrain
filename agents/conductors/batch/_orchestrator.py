@@ -3949,13 +3949,20 @@ def _close_status(brief_path: Path, slot: Path, issue: str, now: _dt.datetime,
                         now, github)
 
 
+#: The opt-in digest page is one `<pre>`: this is all the style it uses.
+PACKET_STYLE = (":root{color-scheme:light dark;--ground:#eef1f4;--ink:#17202b}"
+                "@media (prefers-color-scheme:dark){:root{--ground:#121820;--ink:#e6ebf0}}"
+                "body{background:var(--ground);color:var(--ink);margin:0}"
+                "main{max-width:72rem;margin:0 auto;padding:1.5rem 1rem}"
+                "pre{white-space:pre-wrap;overflow-wrap:anywhere;"
+                "font:14px/1.5 \"SFMono-Regular\",Menlo,Consolas,monospace}")
+
+
 def _write_packet(slot: Path, digest: str) -> Path:
     """The opt-in HTML packet (`packet: yes`): the digest on one page."""
     import html
-    css = Path(__file__).with_name("packet.css")
-    style = css.read_text(encoding="utf-8") if css.is_file() else ""
     page = ("<!doctype html><meta charset=\"utf-8\"><title>Shift digest "
-            f"{html.escape(slot.name)}</title><style>{style}</style>"
+            f"{html.escape(slot.name)}</title><style>{PACKET_STYLE}</style>"
             f"<main><pre>{html.escape(digest)}</pre></main>\n")
     out = slot / "digest.html"
     out.write_text(page, encoding="utf-8")

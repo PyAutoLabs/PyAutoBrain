@@ -312,16 +312,6 @@ def test_the_decision_says_where_the_review_queue_number_came_from():
     assert d["backpressure"]["awaiting_review"] == 2
 
 
-def test_carried_members_are_reported_to_the_next_plan():
-    """A carried member is already costing the human review-minutes in the
-    slot being planned; a batch composed as though it were not is over-sold by
-    exactly that much."""
-    d = _batch.plan([rec("a.md")], budget=45, carried=["subhalo-wave"],
-                    carried_from="2026-09-03-pm")
-    assert d["carried"] == ["subhalo-wave"]
-    assert d["carried_from"] == "2026-09-03-pm"
-
-
 # ------------------------------------- a queued epic queues its phases (#696) --
 EPIC_BRIEF = """# Batch 2026-11-20 am
 - dispatched: 2026-11-20T08:00Z

@@ -9,9 +9,10 @@ fixture.
 Two things this file defends, because getting either wrong makes the box lie
 about what a human still has to do:
 
-- The **dev** rule: the button waits for `collected:`, and the box itself
-  disappears once the slot has been reviewed (`reviewed-at:` OR a review file
-  on disk — either says the sitting is over).
+- The **dev** rule: the box disappears once the slot has been reviewed
+  (`reviewed-at:` OR a review file on disk — either says the sitting is over).
+  A record that still carries the retired `collected:` key (written by the
+  `batch collect` verb) reads like any other: no review button, no packet.
 - `pick_slot` reads `- dispatched:`, never the record's file name — two slots
   dispatched on the same date sort by clock time, not by the slot label.
 
@@ -32,35 +33,33 @@ _status = importlib.util.module_from_spec(_spec)
 sys.modules["_status_under_test"] = _status
 _spec.loader.exec_module(_status)
 
-PAGES = "https://exampleorg.github.io/PyAutoMind/"
-
 
 # ------------------------------------------------------------------- dev ---
 def test_dev_in_flight_member_reads_as_in_progress_with_no_button():
     keys = {"dispatched": ["2026-09-03T18:00Z"]}
     members = [{"slug": "autofit-resampling-info", "outcome": "RUNNING"}]
-    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False,
-                            pages=PAGES)
+    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False)
     assert st is not None
-    assert st["reviewable"] is False
-    assert st["url"] == ""
     assert st["members"][0]["state"] == _status.IN_PROGRESS
     assert "_(nothing to review yet)_" in _status.render_md(st)
     assert _status.is_live(st) and _status.badge(st) == "LIVE · 1 in progress"
     assert 'class="go"' not in _status.render_html(st)
 
 
-def test_dev_collected_slot_gets_the_button():
+def test_an_old_collected_record_renders_with_no_button_and_no_packet():
+    """`collected:` and member outcomes are what the retired `batch collect`
+    wrote; such a record still renders, it just offers nothing to press."""
     keys = {"dispatched": ["2026-09-03T18:00Z"], "collected": ["2026-09-03T20:00Z"]}
     members = [{"slug": "autofit-resampling-info",
                 "outcome": "DELIVERED (Widgets#1554)"}]
-    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False,
-                            pages=PAGES)
+    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False)
     assert st is not None
-    assert st["reviewable"] is True
-    assert st["url"] == f"{PAGES}packets/2026-09-03-pm.html"
-    assert 'class="go"' in _status.render_html(st)
-    assert "[Review this batch →]" in _status.render_md(st)
+    assert set(st) >= {"slot", "members", "in_progress", "awaiting", "live", "issue"}
+    assert not {"reviewable", "url", "packet"} & set(st)
+    html, md = _status.render_html(st), _status.render_md(st)
+    assert 'class="go"' not in html and "packets/" not in html
+    assert "Review this batch" not in md and "Review packet" not in md
+    assert "autofit-resampling-info" in html and "autofit-resampling-info" in md
     assert not _status.is_live(st) and _status.badge(st) == "1 to review"
 
 
@@ -68,8 +67,7 @@ def test_dev_slot_closes_on_reviewed_at_key():
     keys = {"dispatched": ["2026-09-03T18:00Z"], "collected": ["2026-09-03T20:00Z"],
             "reviewed-at": ["2026-09-03T21:00Z"]}
     members = [{"slug": "autofit-resampling-info", "outcome": "DELIVERED"}]
-    assert _status.dev_status("2026-09-03-pm", keys, members, review_exists=False,
-                              pages=PAGES) is None
+    assert _status.dev_status("2026-09-03-pm", keys, members, review_exists=False) is None
 
 
 def test_dev_slot_closes_when_a_review_file_exists_even_without_the_key():
@@ -78,15 +76,13 @@ def test_dev_slot_closes_when_a_review_file_exists_even_without_the_key():
     # all, and the box must still treat the sitting as over.
     keys = {"dispatched": ["2026-09-03T18:00Z"], "collected": ["2026-09-03T20:00Z"]}
     members = [{"slug": "autofit-resampling-info", "outcome": "DELIVERED"}]
-    assert _status.dev_status("2026-09-03-pm", keys, members, review_exists=True,
-                              pages=PAGES) is None
+    assert _status.dev_status("2026-09-03-pm", keys, members, review_exists=True) is None
 
 
 def test_dev_member_with_no_outcome_is_not_delivered():
     keys = {"dispatched": ["2026-09-03T18:00Z"]}
     members = [{"slug": "silent-member", "outcome": ""}]
-    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False,
-                            pages=PAGES)
+    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False)
     assert st["members"][0]["state"] == _status.NOT_DELIVERED
 
 
@@ -94,7 +90,7 @@ def test_dev_member_with_no_outcome_is_not_delivered():
 def _dev_reading(slot, dispatched):
     members = [{"slug": "m", "outcome": "RUNNING"}]
     return _status.dev_status(slot, {"dispatched": [dispatched]}, members,
-                              review_exists=False, pages=PAGES)
+                              review_exists=False)
 
 
 def test_pick_slot_reads_dispatched_not_the_lexical_slot_name():
@@ -113,18 +109,15 @@ def test_pick_slot_ignores_closed_records_and_returns_none_when_all_are():
 
 
 # --------------------------------------------------------- md/html parity ---
-def test_md_and_html_agree_on_every_slug_and_the_review_url():
+def test_md_and_html_agree_on_every_slug():
     keys = {"dispatched": ["2026-09-03T18:00Z"], "collected": ["2026-09-03T20:00Z"]}
     members = [{"slug": "autofit-resampling-info", "outcome": "DELIVERED"},
                {"slug": "autonerves-colab-silence", "outcome": "MERGED"}]
-    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False,
-                            pages=PAGES)
+    st = _status.dev_status("2026-09-03-pm", keys, members, review_exists=False)
     md, html = _status.render_md(st), _status.render_html(st)
     for m in members:
         assert m["slug"] in md
         assert m["slug"] in html
-    assert st["url"] in md
-    assert st["url"] in html
 
 
 def test_fixture_when_there_is_no_shift_at_all():
@@ -143,7 +136,7 @@ def test_a_live_shift_shows_its_detail_and_links_the_shift_issue_tidily():
             "live": [f"LIVE · 1 running · review-at 21:20 — status: {url}"]}
     st = _status.dev_status("2026-11-14-pm3", keys,
                             [{"slug": "gears", "outcome": "RUNNING"}],
-                            review_exists=False, pages=PAGES)
+                            review_exists=False)
     assert st["issue"] == "https://github.com/o/PyAutoMind/issues/571"
     assert _status.badge(st) == "LIVE · 1 in progress"
     html = _status.render_html(st)
@@ -162,7 +155,7 @@ def test_an_idle_or_reviewed_shift_is_one_quiet_line_linking_its_issue():
     issue = "https://github.com/o/PyAutoMind/issues/571"
     keys = {"dispatched": ["2026-11-14T18:00Z"], "issue": [issue],
             "live": [f"closed at review-at — the digest is below — status: {issue}#c"]}
-    st = _status.dev_status("2026-11-14-pm3", keys, [], review_exists=False, pages=PAGES)
+    st = _status.dev_status("2026-11-14-pm3", keys, [], review_exists=False)
     assert not _status.active(st) and _status.badge(st) == ""
     assert _status.render_html(st) == (
         '<h3 id="shift">Shift</h3>\n<p class="muted">(last shift 2026-11-14-pm3 — closed, '
