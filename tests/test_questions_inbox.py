@@ -145,13 +145,6 @@ def test_a_worker_blocked_past_the_grace_lands_a_blocked_entry_on_the_shift_issu
                                          "(session 00000001, since 2026-11-04T09:01")
 
 
-def test_mention_triggers_no_longer_fire_for_questions_or_parks():
-    counters = orch.read_counters(Path("/nonexistent"))
-    counters["parked"] = ["t1"]
-    counters["outcomes"] = {"t2": {"questions": [Q1], "issues": [Q1], "prs": [], "merged": []}}
-    assert orch._mention_triggers(counters, {}) == []
-
-
 def test_the_status_comment_counts_the_inbox(tmp_path):
     mind, brief, home, slot = _shift(tmp_path, names=("t1",))
     claude, gh = d.FakeClaude(), FakeGh()

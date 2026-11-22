@@ -26,7 +26,7 @@
 #   * any branch that is the head of an OPEN pull request
 #   * any branch git cannot prove is already contained in the base
 #   * `integration/*`                                   — batch review refs,
-#     published by `batch collect --integration --push`. These are deliberately
+#     published by the retired `batch collect --integration --push`. These are deliberately
 #     NOT contained in the base — previewing a merge before it happens is the
 #     whole point — so the containment proof can never clear them, and they
 #     would otherwise be kept forever. They are cleared BY DATE ALONE: the

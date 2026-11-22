@@ -1110,11 +1110,6 @@ def _exit(rec: dict, word: str) -> None:
         rec["exits"].append(word)
 
 
-def last_worker(counters: dict, task: str) -> dict | None:
-    """The newest worker record for a task (a re-dispatch makes a second)."""
-    return next((w for w in reversed(counters["workers"]) if w["task"] == task), None)
-
-
 def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
           agents: AgentsView | None = None, tokens=transcript_usage, *,
           late: bool = False) -> list[dict]:
@@ -2294,7 +2289,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                 own_tasks=counters["redispatched"])
         except _mind_writer.MindWriteError as e:
             ledger = {"committed": None, "error": str(e)}
-    mentions = _mentions(slot, counters, shift or {}, poster, now, whoami)
+    mentions = _retry_mentions(slot, counters, poster, now)
     _write_counters(slot, counters)
     live = active_leases(slot)
     max_workers = _brief.cap_of(brief, "max-workers")
@@ -2671,10 +2666,10 @@ def retry_post(marker: Path, body_file: Path, poster, now: _dt.datetime) -> dict
     return _post_and_record(marker, rec, body_file, poster)
 
 
-# --- the human, reached by @mention (#611) -----------------------------------------
+# --- the human's login, and event-comment retries -----------------------------------------
 
 MENTIONS_DIR = "mentions"
-#: The GitHub login a blocked worker @-mentions: this variable, else
+#: The human's GitHub login, whose comments on the shift issue steer it: this variable, else
 #: `config/policy.yaml` `shift_watcher: mention_login:` — never written here.
 MENTION_ENV = "PYAUTO_SHIFT_MENTION"
 _LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
@@ -2696,122 +2691,22 @@ def mention_login() -> str:
     return login if _LOGIN_RE.fullmatch(login) else ""
 
 
-def _mention_triggers(counters: dict, held: dict) -> list[tuple[str, str, str]]:
-    """(task, state, reason) for each worker that needs the human's @mention
-    on the shift issue. Since M3.5 (#645) none: a worker blocked on a person
-    past the grace (parked) and one whose `.done` names an issue not marked
-    `verdict:` both land in the questions inbox instead (`land_question`),
-    and the digest's one inbox line is their notice. The mention machinery
-    (markers, retries, the late sweep) stays for other triggers; a trigger is
-    read from durable state (`counters.json`, the leases), never from one
-    tick's events, so a tick that died before posting still mentions once."""
-    # M3.5 (#645, Decision H7 a; memory `parked-questions-bulk-inbox`: never
-    # ask mid-run): a parked worker and a question no longer @-mention the
-    # human. Each lands in `questions.md` (`land_question`), and the digest
-    # says how many at review-at. The machinery stays for other triggers.
-    return []
-
-
-def mention_body(login: str, slot_name: str, task: str, state: str, reason: str,
-                 counters: dict, worker: dict | None, lease: dict | None,
-                 review_at: str) -> str:
-    who = f"@{login} " if login else ""
-    prompt = counters["picks"].get(task, {}).get("prompt") or (lease or {}).get("prompt") or task
-    urls = _digest.urls_of(counters["outcomes"].get(task))
-    where = [f"session `{(worker or {}).get('key') or '?'}` (`claude agents` on the laptop)"]
-    if (lease or {}).get("worktree"):
-        where.append(f"worktree `{lease['worktree']}`")
-    lines = [f"{who}shift `{slot_name}`: the worker on `{task}` needs you — {state}.", "",
-             f"- reason: {reason}", f"- task: `{prompt}`",
-             f"- worker: {'; '.join(where)}",
-             f"- PR / issue: {', '.join(urls) or 'none yet'}", "",
-             f"The shift carries on without it; the digest at review-at {review_at} "
-             "lists it too. One comment per worker per state."]
-    if not login:
-        lines.append(f"(No login to mention: set `{MENTION_ENV}` or `config/policy.yaml` "
-                     "`shift_watcher: mention_login:`.)")
-    return "\n".join(lines) + "\n"
-
-
-def _note_mention(counters: dict, worker: dict | None, name: str, rec: dict) -> None:
-    if rec.get("state") == "posted":
-        counters["pushes"] += 1
-    if worker is None:
-        return
-    for m in worker.setdefault("mentions", []):
-        if m.get("marker") == name:
-            m["posted"] = rec.get("state") == "posted"
-            return
-    worker["mentions"].append({"marker": name, "state": rec.get("mention_state"),
-                               "posted": rec.get("state") == "posted"})
-
-
 def mentions_due(slot: Path) -> bool:
     d = slot / MENTIONS_DIR
     return d.is_dir() and any(post_due(m) for m in d.glob("*.json"))
 
 
 def _retry_mentions(slot: Path, counters: dict, poster, now: _dt.datetime) -> list[dict]:
-    """Re-post every mention `gh` said failed, up to `POST_TRIES` — on a live
-    tick and in the late sweep alike."""
-    d = slot / MENTIONS_DIR
+    """Re-post every needs-you event comment `gh` said failed, up to
+    `POST_TRIES` — on a live tick and in the late sweep alike."""
     out = []
-    if d.is_dir():
-        for marker in sorted(d.glob("*.json")):
-            rec = retry_post(marker, marker.with_suffix(".md"), poster, now)
-            if rec is not None:
-                if marker.stem.startswith("event."):
-                    # A needs-you event comment (#644): counted apart from pushes.
-                    if rec.get("state") == "posted":
-                        counters["event_comments"] = int(counters.get("event_comments") or 0) + 1
-                    out.append({"event": rec.get("event"), "post": rec["state"],
-                                "retry": rec["tries"]})
-                    continue
-                w = last_worker(counters, rec.get("task", ""))
-                _note_mention(counters, w if w and w.get("key") == rec.get("worker") else None,
-                              marker.stem, rec)
-                out.append({"task": rec.get("task"), "state": rec.get("mention_state"),
-                            "post": rec["state"], "retry": rec["tries"]})
-    return out
-
-
-def _mentions(slot: Path, counters: dict, shift: dict, poster, now: _dt.datetime,
-              whoami=None) -> list[dict]:
-    """One comment on the shift's digest issue per worker per state that
-    needs the human (#611), claimed by marker before the post; a post `gh`
-    said failed is retried on the next tick, up to `POST_TRIES`."""
-    d = slot / MENTIONS_DIR
-    out = _retry_mentions(slot, counters, poster, now)
-    held = leases(slot)
-    todo = []
-    for task, state, reason in _mention_triggers(counters, held):
-        w = last_worker(counters, task)
-        key = (w or {}).get("key") or task
-        name = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{task}.{state}.{key}")
-        if not (d / f"{name}.json").exists():
-            todo.append((task, state, reason, w, key, name))
-    if not todo:
-        return out
-    login = mention_login()
-    if login:
-        # Once per shift: who the comments post as. The human's own login
-        # gets no notification for its own comment (#611 review).
-        _poster_login(counters, whoami)
-    if login:
-        counters["mention_login"] = login
-    for task, state, reason, w, key, name in todo:
-        marker = d / f"{name}.json"
-        d.mkdir(parents=True, exist_ok=True)
-        body = d / f"{name}.md"
-        body.write_text(mention_body(login, slot.name, task, state, reason, counters, w,
-                                     held.get(task), shift.get("review_at", "?")),
-                        encoding="utf-8")
-        rec = post_once(marker, shift.get("issue", ""), body, poster, now,
-                        task=task, mention_state=state, worker=key)
-        if rec is None:
-            continue
-        _note_mention(counters, w, name, rec)
-        out.append({"task": task, "state": state, "post": rec["state"], "retry": 1})
+    for marker in sorted((slot / MENTIONS_DIR).glob("event.*.json")):
+        rec = retry_post(marker, marker.with_suffix(".md"), poster, now)
+        if rec is not None:
+            if rec.get("state") == "posted":
+                counters["event_comments"] = int(counters.get("event_comments") or 0) + 1
+            out.append({"event": rec.get("event"), "post": rec["state"],
+                        "retry": rec["tries"]})
     return out
 
 

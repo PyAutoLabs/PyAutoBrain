@@ -405,12 +405,9 @@ def test_a_failed_needs_you_comment_is_retried_with_the_mentions(tmp_path):
     assert not orch.mentions_due(slot) and c["event_comments"] == 1 and c["pushes"] == 0
 
 
-def test_needs_you_comments_never_raise_the_push_finding():
-    c = {"pushes": 1, "event_comments": 6, "workers": [], "picks": {}}
-    lines = orch._digest.worker_lines(c)
-    assert not any("pushes this shift" in x for x in lines)
-    assert "- needs-you event comments: 6 (at most 5 + 1 a shift)" in lines
-    assert any("2 pushes this shift" in x for x in orch._digest.worker_lines({**c, "pushes": 2}))
+def test_needs_you_comments_are_counted_in_the_digest():
+    c = {"pushes": 0, "event_comments": 6, "workers": [], "picks": {}}
+    assert "- needs-you event comments: 6 (at most 5 + 1 a shift)" in orch._digest.worker_lines(c)
 
 
 def test_a_ci_line_comes_again_after_a_change_and_never_repeats_otherwise(tmp_path):

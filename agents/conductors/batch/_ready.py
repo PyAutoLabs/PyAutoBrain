@@ -44,8 +44,6 @@ import _questions
 from _steer import read_queue_entries
 
 WORKER = "readiness pass"
-GATES = ("no-next-phase", "looks-shipped", "obsolete", "claimed", "unattended",
-         "human-required", "blocked-by", "no-lane")
 NOT_FILED_KIND = "Mind has no `ruling` inbox kind yet (PyAutoBrain#671)"
 _KINDS_RE = re.compile(r"^QUESTION_KINDS\s*=\s*\(([^)]*)\)", re.M)
 

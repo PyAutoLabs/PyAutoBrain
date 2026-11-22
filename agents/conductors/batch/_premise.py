@@ -46,7 +46,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-STATUSES = ("ok", "obsolete", "unknown")
 VERIFIED_KEY = "Verified"
 
 #: Extensions that make a backticked token a path even without a `/`.

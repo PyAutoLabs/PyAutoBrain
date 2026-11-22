@@ -92,7 +92,7 @@ _BULLET_RE = re.compile(r"^- (\S+)")
 #: an explicit `verdict:` (its deliverable) keeps the human un-mentioned; a
 #: `question:`, a bare issue URL or any other marker is a push — the push
 #: test fails toward the human, never toward silence (#632 review).
-DONE_QUESTION, DONE_VERDICT = "question", "verdict"
+DONE_VERDICT = "verdict"
 _URL_RE = re.compile(r"https?://\S+")
 _MARKER_RE = re.compile(r"^\s*([A-Za-z-]*)\s*:?\s*$")
 
@@ -1046,11 +1046,9 @@ def backlog_gate_lines(counters: dict) -> list[str]:
 # --- per-worker exits, GitHub merges, tokens (PyAutoBrain#610) -----------------
 
 WORKERS_HEADING = "### Workers"
-#: A worker's exit path is these words joined by `/` — `spawned/crashed`,
+#: A worker's exit path is words joined by `/` — `spawned/crashed`,
 #: `spawned/parked/late/finished`. `launch-failed` stands alone: no session
 #: started. `ended` is a parked worker that ended without a `.done`.
-EXIT_WORDS = ("spawned", "finished", "crashed", "parked", "late", "ended",
-              "launch-failed", "killed")
 #: `killed` is a worker the human stopped by `/kill` (#644): it is re-dispatched
 #: as a crash is, but it is not a crash, so it is not in `CRASH_WORDS`.
 CRASH_WORDS = ("crashed", "launch-failed")
@@ -1066,18 +1064,7 @@ def worker_lines(counters: dict, links: MindLinks | None = None) -> list[str]:
                + "/".join(w.get("exits") or ["spawned"])
         if w.get("stalled_s"):
             line += f" — blocked {round(w['stalled_s'] / 60)} min"
-        for m in w.get("mentions", []):
-            line += f" — mentioned ({m.get('state', '?')})"
         out.append(line)
-    poster, mentioned = counters.get("poster_login") or "", counters.get("mention_login") or ""
-    if poster and poster.lower() == mentioned.lower():
-        out.append(f"- warning: mention will not notify: posted as the mentioned account "
-                   f"({poster}) — set the watcher's App (PYAUTO_SHIFT_APP_*) or "
-                   "PYAUTO_SHIFT_GH_TOKEN")
-    pushes = counters.get("pushes", 0)
-    if pushes > 1:
-        out.append(f"- finding: {pushes} pushes this shift — the push test budgets "
-                   "about one (AUTONOMY.md)")
     events = int(counters.get("event_comments") or 0)
     if events:
         # Needs-you event comments (#644) have their own cap, 5 + 1 a shift,

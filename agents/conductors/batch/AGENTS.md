@@ -57,8 +57,6 @@ consulting a conductor. If a rule here starts needing to *judge* rather than
 | **Backpressure** | see below |
 | **Brief scope** | under a shift brief, only its named tasks and the backlog its dip policy covers run; anything else is a dispatch outside the launch, which "What a batch launch is" forbids (`AUTONOMY.md`, 2026-11-03) |
 | **Merge cap** | unattended `glance` merges stop at the brief's `merge-cap:`; each merge moves `main` and stales the next member's evidence, and the cap bounds what one unread shift can change |
-| **One integration root per slot, and it is local** | `integration/<slot>` is cut fresh from `origin/main` on every run and never pushed, so a re-run is a re-preview rather than a rewrite; a dirty integration worktree is skipped, never reset. The one-member-per-library-repo rule above is what keeps within-repo conflicts rare — the common case is one member with organ PRs across five repos. |
-| **Publishing that root is a separate act, typed by the human** | `--push` is the only remote write the batch makes, and no record can ask for it — `- integration: yes` requests the *local* preview. What it writes is a throwaway `integration/*` review ref and nothing else: never a pull request, never a base for one, never forced. A refresh that is not a fast-forward publishes `-2` rather than moving what is already there, and the ref expires at the record's `sweep-after:`. |
 
 Everything rejected says so, with its reason. A planner that silently drops work
 teaches the human to distrust the number it reports.
@@ -737,25 +735,12 @@ what arrives late waits for `/prm` — or for the next shift's first tick, which
 carries a late `glance`/`notify` PR over (M3.6c). It also runs while a failed digest or
 correction post is due its retry.
 
-**A blocked worker reaches the human (PyAutoBrain#611).** The human's channel
-(2026-11-12) is a GitHub @mention on the shift's digest issue. When a worker is
-parked (`blocked` past the grace) or its `.done` names an issue not marked
-`verdict:` (`question:`, bare or any other marker — only a posted verdict is not
-a push, #632), the
-tick posts one comment on the brief's `issue:` naming the task, the reason and
-its session, worktree or PR, @-mentioning the login from `PYAUTO_SHIFT_MENTION`
-or `config/policy.yaml` `shift_watcher: mention_login:`. One comment per worker
-per state, marker (`<slot>/mentions/`) before post, a failed post retried next
-tick; a crash, refusal or finished worker never mentions (AUTONOMY.md push test).
-Each sent mention counts in `pushes`; more than one is a digest finding. The
-trigger is durable state (a parked task or an un-verdicted issue in a `.done` with no
-marker yet), so a tick that dies between parking and posting mentions on the
-next; a failed mention is also retried by the late sweep.
-
-**The questions inbox replaces those two mentions (M3.5, PyAutoBrain#645).**
-A parked worker or a `.done` issue not marked `verdict:` no longer
-@-mentions anyone (`_mention_triggers` returns neither; the machinery above
-stays for other triggers). The reap queues one `question-add` op per issue
+**A blocked worker reaches the human through the questions inbox (M3.5,
+PyAutoBrain#645).** A parked worker (`blocked` past the grace) or a `.done`
+issue not marked `verdict:` (`question:`, bare or any other marker) @-mentions
+nobody: the per-worker @mention of PyAutoBrain#611 was removed. The human's
+login (`PYAUTO_SHIFT_MENTION`, else `config/policy.yaml` `shift_watcher:
+mention_login:`) now only names whose comments steer the shift. The reap queues one `question-add` op per issue
 (`land_question`): the task's prompt, the issue, `kind: question` (or
 `blocked`, filed on the shift issue), the ask and options from the worker's
 `{task}.question.json` sidecar (sanitised; `see the question on the issue`
@@ -774,8 +759,7 @@ claimed (`- session: shift worker …`) is graded from `active/<task>.md` on
 origin (`resume_records`), kept by `on_origin(…, resumes=)` (its own claim
 does not hold its repos) and spawned with `RESUME_NOTE`; its pick's `why:`
 starts `resumed after Q<n> was answered`. The human answers in a `/questions`
-chat (`skills/questions`). `batch questions --backfill` prints the
-`questions_edit.py add` lines that seed the inbox from today's holds.
+chat (`skills/questions`).
 
 **The readiness pass (M3.3, PyAutoBrain#671, `_ready.py`).** `batch ready`
 resolves each `queue.md` entry to its next unit(s) (an epic ledger to its open
@@ -849,8 +833,8 @@ The App is minimal on purpose: **Issues read/write on PyAutoMind only** —
 all the watcher does is comment on, edit its comment on and read the shift
 issue. It is **not `pyautolabs-bot`**: that App is a ruleset bypass actor with
 org-wide push, and a laptop timer must hold no bypass power. Posting as an App
-also means the @mention of the human comes from another account, so it
-notifies them. `_app_token.py` signs an RS256 JWT (`iat` now − 60 s, `exp` now
+also means the watcher's comments come from another account, so they
+notify the human. `_app_token.py` signs an RS256 JWT (`iat` now − 60 s, `exp` now
 + 9 min, `iss` the App id; PyJWT, else `openssl dgst -sha256 -sign` with no
 shell) and mints an installation token with one `POST
 /app/installations/<id>/access_tokens` on the first watcher GitHub call of a
@@ -858,7 +842,7 @@ tick, reusing it for the rest of that tick. The token is held **in memory
 only** — never written to disk, where a worker running as the same user could
 read it; each tick that makes a watcher GitHub call mints its own. The token is
 passed as `GH_TOKEN` to the watcher's own `gh` calls and to nothing else:
-**every watcher write** (the status comment and its edits, mentions, the digest,
+**every watcher write** (the status comment and its edits, event comments, the digest,
 the correction) and the steering read of the shift issue's comments. Two
 **reads** deliberately stay under the human's own `gh` auth, because the App
 cannot see library repositories: `gh pr view` for the PRs its workers named
@@ -874,12 +858,9 @@ configured in part (one or two variables) is the same failure. Without the
 App, `PYAUTO_SHIFT_GH_TOKEN` (a static fine-grained token, PyAutoMind
 issues:write only) is the fallback; with neither, comments post as the human's
 account. Neither the App variables, the key path, the static token nor a
-minted token reaches a worker or close-out (`worker_env`). Once a shift,
-before the first mention, the posting account is named — as the App,
-`<slug>[bot]` from one `GET /app` with the JWT (`gh api user` does not answer
-for an installation token), else `gh api user` — and if it is the mentioned
-login (never, as the App) the digest's `### Workers` warns "mention will not
-notify: posted as the mentioned account". With nothing pending, the tick is
+minted token reaches a worker or close-out (`worker_env`). When the status comment is adopted, the posting account is named — as the
+App, `<slug>[bot]` from one `GET /app` with the JWT (`gh api user` does not
+answer for an installation token), else `gh api user`. With nothing pending, the tick is
 idle. The worker
 prompt also forbids EnterWorktree (its permission prompt stalls an unattended
 worker) and requires the `decision-taken` label on any PR carrying a flagged
@@ -926,104 +907,13 @@ pyauto-brain batch plan --budget 45          # review-minutes available
 pyauto-brain batch plan --awaiting-review 6  # backpressure input
 pyauto-brain batch plan --json
 
-pyauto-brain batch collect                   # score the newest record; offline
-pyauto-brain batch collect --slot 2026-09-03-pm
-pyauto-brain batch collect --evidence ev.json    # PR state from this session
-pyauto-brain batch collect --fetch               # laptop: `gh pr view` per PR
-pyauto-brain batch collect --integration         # laptop: merge every member's head into one worktree root
-pyauto-brain batch collect --evidence ev.json --apply  # the one form that writes
-pyauto-brain batch collect --out report.md --json
-
 pyauto-brain batch watch --record <brief>         # live view of a running shift; read-only
 pyauto-brain batch watch --record <brief> --once  # one snapshot
 ```
 
-**One board: the development one.** The science board this conductor once
-opened (`--kind cortex`) was retired on 2026-09-03 — 0 slots were ever opened
-by it, 0 rulings came from its packets — and checking in on the science is
-`pyauto-brain cortex collect --pull --apply` now, which needs no record at all.
+`plan` is stdlib-only, offline and writes nothing.
 
-`plan` is stdlib-only, offline and writes nothing. `collect` is the same by
-default — it reads the newest batch record (`--slot` picks another; the
-newest is lexical, so `-night` sorts before `-pm` on one date), scores what it
-can see and prints. It has no GitHub of its own: on the web surface the
-session gathers PR state with the GitHub MCP tools (`skills/GITHUB_ACCESS.md`)
-and hands it over as `--evidence <json>`; `--fetch` is the laptop's shortcut,
-one `gh pr view` per PR, opt-in and still writing nothing. Only `--apply`
-writes — `batches/packets/<slot>.html` and the record's own stamps — which is
-why it needs a stamp (`--stamp <ISO>`, else now).
-
-Exit codes: **0** every member delivered · **1** a member needs the human
-(FAILED, NOT-DELIVERED, SUSPECT, or still PENDING) · **2** usage · **4** no
-Mind (no `batches/` at all).
-
-## Running a batch by hand (there is no dispatcher yet, and that is fine)
-
-Phase 5 — automatic fan-out — is deliberately unbuilt. Everything below works
-today, costs about two minutes of tapping, and is the honest way to find out
-what a dispatcher actually needs before writing one.
-
-**In the slot — whenever the human comes in; there is no schedule:**
-
-1. `pyauto-brain batch plan` — read the BatchDecision. Pass `--budget` if this
-   slot is not a default 45-minute one. Edit the decision by removing members
-   you do not want; do not add ones it rejected without reading why.
-2. **Acknowledge the Heart reason set for the shift**, if Heart is YELLOW
-   (`pyauto-brain vitals`). Write it verbatim into the batch record — a grant
-   recorded loosely is how a scoped one becomes standing, which doctrine voids
-   (`AUTONOMY.md`, "Leg 4 under a batch launch").
-3. **Say when you expect to be back** — `review-at:`, an ISO timestamp. The
-   shift is dispatch → `review-at:`, and the grant expires there. It is the one
-   thing only the human knows, so it is stated, never inferred.
-4. Open the batch record `PyAutoMind/batches/<YYYY-MM-DD>-<am|pm>.md` from the
-   schema in that folder's `AGENTS.md`, and write the members, the planned
-   review-minutes, `review-at:` and the reason set **before** dispatching. That
-   file is what makes the launch auditable afterwards.
-5. **Dispatch — `local-dev` members first** (2026-08-31): paste their lines
-   into laptop CLI chats while the laptop is still on, so RAL submissions
-   queue this evening — that is the priority use of the remaining laptop
-   hours. Cloud members follow, each line into **its own session**. One
-   session per member — they must not share one, because a single session
-   would serialise them and carry one member's context into the next.
-   Spawned cloud members need the **member-session contract**
-   (`skills/batch/batch.md`, dispatch step 3): seed PyAutoMind as the session
-   source with the bootstrap preamble, and instruct members to **end at their
-   deliverable** — no PR watching, no event subscriptions, no self-armed
-   check-ins after the last push; the batch review owns follow-through
-   (2026-08-31: a bare-spawned wave died on missing sources, and green
-   members' self-armed check-ins drained usage overnight). The rule is now
-   universal, not a batch-only exemption
-   (`PyAutoMind/policy/end_at_deliverable.md`).
-6. **Open the packet now** (2026-08-31): write the review page to
-   `PyAutoMind/batches/packets/<date>-<slot>.html` with every member present
-   — overnight runs as PENDING entries — stamped `generated:`. The human
-   wakes to a live page; the morning collect fills it in.
-7. Go and do something else.
-
-**At `review-at:` (or whenever they actually sit down):**
-
-8. **Collect** — `pyauto-brain batch collect --evidence <json> --apply`
-   ("The collect recipe" below). It scores every dev member, fills the PENDING
-   entries in place and stamps the page `refreshed:` — normally while the
-   human is already reading the finished members. A dev member without a
-   green-CI PR is not `delivered:`, and collect says so first and loudly.
-   Science runs are not batch members at all: `pyauto-brain cortex collect
-   --pull --apply` is their check-in, and it has its own door.
-9. The human reviews on the packet page — tick, choose, annotate, submit —
-   and the review lands as `batches/reviews/<date>-<slot>.md` (or they
-   dictate it in-chat; same review). Failures first, then `decision-taken`,
-   then clean. Act on it member by member: merge (`/prm <PR>`) and write
-   science rulings into the project ledgers; tweaks become follow-up prompts
-   drafted for them at the **top of `queue.md`**; rejects go to
-   `condemned.md`. **Follow-ups are enacted in the next batch — a review
-   never executes its own follow-ups, and an open follow-up never holds the
-   next dispatch** (2026-08-31).
-10. Close the batch record — `reviewed-at:` (when they really sat down, which
-   calibrates their own estimates), `delivered:`, `packet:`, `review:`, and
-   especially **`review-minutes-actual:`**. That last number is the only
-   calibration the review estimate will ever get, and everything the planner
-   does rests on it.
-11. Plan the next batch, and declare the next `review-at:`.
+Exit codes: **0** ok · **1** findings · **2** usage · **4** no Mind.
 
 **The one leg you must not skip.** A batch launch requires the independent
 adversary (`AUTONOMY.md` leg 5). Run it before reading a PR:
@@ -1035,331 +925,15 @@ pyauto-brain review --task <name> --witness "<the prompt's Witness:>" --adversar
 in a session **that did not write the branch — by default a fresh Opus
 session or sub-agent, even when your own chat is on Fable**; a more expensive
 model reads only when the human asks (`AUTONOMY.md` "Adversary model default —
-2026-11-22"). A self-run adversary leg is an absent leg, not a weak one. `collect` cannot run
-it for you and does not pretend to: with no `adversary` block in the evidence
-the leg is UNOBSERVABLE and the member reaches the human as SUSPECT — the
-honest state, rather than a gap that closes itself. The shift worker does not
-run this pass (`AUTONOMY.md` "Shift speed — 2026-11-19", ruling S3): your read,
-or the close-out session for an unattended merge, is the adversary.
+2026-11-22"). A self-run adversary leg is an absent leg, not a weak one. The
+shift worker does not run this pass (`AUTONOMY.md` "Shift speed — 2026-11-19",
+ruling S3): your read, or the close-out session for an unattended merge, is
+the adversary.
 
-**What to expect from batch 1.** Small. The planner picks against a 45-minute
-review budget, and with almost no prompt carrying a `Witness:` nearly everything
-grades `judge` at 20 minutes — so a slot holds two or three. That number is the
-honest state of the backlog rather than a limit of the machinery, and the way to
-move it is to write witnesses, which costs zero review-minutes and is the best
-possible fill work.
-
-## The collect recipe
-
-The verb answers one question — *what came back, and is it worth the human's
-next hour?* — and answers it the way the Cortex conductor answers it for a
-science pull: **six legs, then one health word**. It is a reader, not an actor:
-it merges nothing, runs nothing and rules on nothing.
-
-### Six legs, each PASS · FAIL · UNOBSERVABLE
-
-| Leg | Passes when |
-|---|---|
-| `pr` | a PR exists |
-| `diff` | the diff is non-empty |
-| `checks` | every check completed |
-| `green` | every check green |
-| `witness` | the witness is declared, and holds |
-| `adversary` | an independent adversary read it |
-
-**No evidence is UNOBSERVABLE, never delivered.** The offline default invents
-nothing: with neither `--evidence` nor `--fetch`, every leg that needs GitHub
-is unobservable and its member reaches the human as SUSPECT. Inventing PASS
-would be inventing evidence and FAIL would condemn healthy work — the same
-choice the Cortex conductor makes for the `delivered:` legs it cannot see.
-
-`adversary` is the leg with a rule of its own: it passes only when the read was
-independent of the branch's author. **A self-run adversary leg is an absent
-leg, not a weak one** (`AUTONOMY.md` leg 5), so a missing `model` or
-`author_model` is FAIL, and so is an equal one unless the row carries
-`"independent_session": true` — the default Opus reader of an Opus branch, in
-a session that did not write it (`AUTONOMY.md` "Adversary model default —
-2026-11-22").
-
-### Six health words, in the order the human reads them
-
-```
-FAILED · NOT-DELIVERED · SUSPECT · HEALTHY · PENDING · MERGED
-```
-
-Severity order and sort order are the same list, so the top of the report is
-the part that needs a person and the bottom is the part that is not finished
-being work. `FAILED` is a failed check, green or witness; `NOT-DELIVERED` is no
-PR, an empty diff, or checks that never ran — green is not delivered
-(`batches/AGENTS.md`); `SUSPECT` is green work carrying an unobservable leg or
-a flagged decision; `MERGED` and `PENDING` short-circuit ahead of all of it,
-because a merged member is a retrospective and a pending one has not landed.
-`delivered: n/m` counts HEALTHY and MERGED over every non-PENDING member.
-
-### The evidence JSON
-
-One object per member slug; every key optional, so a session supplies what it
-actually looked up and nothing more.
-
-```jsonc
-{"schema": 1, "members": {
-  "resampling-info-summary-section": {
-    "prs": [{"repo": "PyAutoLabs/PyAutoFit", "number": 1554, "url": "...",
-             "state": "open", "merged": false,
-             "additions": 86, "deletions": 12, "changed_files": 3,
-             "mergeable": "MERGEABLE",
-             "head_ref": "feature/autofit-resampling-info",
-             "head_sha": "2629933c...", "head_repo": "PyAutoLabs/PyAutoFit",
-             "checks": [{"name": "tests", "status": "completed",
-                         "conclusion": "success"}]}],
-    "witness":   {"holds": true, "evidence": "ordering test green on 2629933c"},
-    "adversary": {"ran": true, "model": "gpt-5.1",
-                  "author_model": "claude-opus-4", "verdict": "CLEAN"},
-    "flagged":   ["decide-and-flag: PR opened rather than parked"],
-    "pending":   false,
-    "summary":   "one line"}}}
-```
-
-`head_ref`/`head_repo` are the member -> branch map: the record stores no repo
-or branch per member and `active.md`'s `repos:` field has four dialects, so the
-PR's own head is the only reliable source. A `head_repo` that differs from
-`repo` is a fork — its head is not on `origin`, so it is reported rather than
-merged.
-
-`witness.holds` is tri-state: `true` PASS, `false` FAIL, absent UNOBSERVABLE.
-
-### Integration branches (`--integration`)
-
-One throwaway worktree root per slot under `$PYAUTO_WT_ROOT`, built by
-`bin/worktree.sh` with `PYAUTO_WT_BRANCH=integration/<slot>`. Every affected
-repo becomes a real worktree on `integration/<slot>`, cut from `origin/main`,
-with every member's head branch merged in **dispatch order** — so the human can
-*run* the whole batch before ruling on any of it, and "how would these resolve
-at the end?" is answered by a merge rather than by reading diffs.
-
-**It fetches and reads; it never pushes, opens a PR, or touches a remote ref.**
-Like `--fetch` it is opt-in, non-default and laptop-only — a cloud session is
-pointed at the laptop rather than failing halfway through a root it cannot
-finish. Pushing `integration/<slot>` is a separate, later decision, and a
-separate flag — see `--push` below.
-
-```jsonc
-{"slot": "2026-09-03-pm",
- "root": "~/Code/PyAutoLabs-wt/integration-2026-09-03-pm",
- "activate": "<root>/activate.sh", "branch": "integration/2026-09-03-pm",
- "at": "2026-09-03T08:00Z",
- "repos": [{"repo": "PyAutoLabs/PyAutoFit", "dir": "PyAutoFit",
-            "path": "<root>/PyAutoFit", "branch": "integration/2026-09-03-pm",
-            "base": "origin/main", "base_sha": "…", "head_sha": "…",
-            "merged": ["autofit-resampling-info"],
-            "conflicts": [{"member": "autoarray-x", "branch": "feature/x",
-                           "paths": ["src/mask/mask_2d.py"]}],
-            "status": "clean | conflicted | skipped", "note": "",
-            // --push only; "" and false on every run without it
-            "remote_branch": "integration/2026-09-03-pm", "pushed": true,
-            "push_note": ""}],
- "pushed": false, "sweep_after": "",
- "notes": ["…"]}
-```
-
-`status` is the merge verdict and `pushed` is the network one; they are
-deliberately separate. A push that fails leaves a clean integration reading
-`clean`, because whether the merge collided is a fact about the merge and a
-dead network does not change it.
-
-**Four reasons a member's PR is left out**, each said out loud: it is already
-merged; it is CLOSED; it has no `head_ref` in the evidence (gathered before the
-head fields were asked for — re-run `--fetch`); or its head lives on a **fork**,
-whose branch is not on `origin` and cannot be merged from a local checkout at
-all. A repo with no local checkout under the workspace root is dropped the same
-way.
-
-**Nothing is resolved.** A member whose merge conflicts is left OUT of that
-repo's branch and named with the conflicting paths; the merge is aborted and
-the next member is tried. **That report is the product** — it does not change
-the exit code, and it does not change any member's health word. A member's
-health is about *its own* delivery; a merge collision is a property of the
-*slot*, and mixing them would make a green, delivered member read as SUSPECT
-because a sibling touched the same file.
-
-**A dirty integration worktree is skipped, never reset.** The branch is re-cut
-from `origin/main` on every run (`checkout -B`), because the merge result is a
-function of the current base and the current heads — a second run stacked onto
-the first would preview a base that no longer exists. That is safe only because
-the one thing a re-cut could destroy, a human's uncommitted experiment inside
-the review root, is refused outright and reported. **That refusal, not the
-branch policy, is the safety property.**
-
-`activate.sh`'s `PYTHONPATH` covers the libraries, so a **library** member's
-change is live anywhere once the root is sourced. A **workspace** member is a
-real worktree in the root but is not on the PYTHONPATH, so its script must be
-run from inside `<root>/<workspace>`.
-
-**Collect does not rewrite your `--evidence` file.** That file is an *input*;
-`--apply` writes exactly two things, the packet and the record's stamps. The
-computed block is emitted on `--json`, rendered into the packet and stamped on
-the record as `integration-root:` — persisting it is `--json > ev.json`'s job,
-and a block pasted back into an evidence file is how a cloud session renders one
-at all.
-
-### Pushing the integration branch (`--push`)
-
-`--push` publishes what `--integration` built. It **requires** `--integration`
-(without it, a usage error and rc 2) and it is refused on `plan` — and no
-record can ask for it. `- integration: yes` is a request for the *local*
-preview; putting a ref on GitHub is a separate act, typed at collect by the
-human, because it writes into shared repos under the laptop's own credential.
-Laptop lane only, for the same reason `--integration` is: a cloud session's
-credential cannot write a ref at all, so it is pointed at the laptop rather
-than failing halfway.
-
-**What it publishes.** One real branch per repo — `integration/<slot>` — whose
-tip is exactly the state `--integration` merged. A **conflicted** repo still
-publishes: its branch carries the members that merged, and the ones left out
-are named, with their conflicting paths, in the same report. A pushed branch is
-therefore never a claim that the whole slot merges; it is the same partial
-preview, on a machine the reviewer can reach.
-
-**Never a PR, never a base.** These refs are review scaffolding with a
-death date, not proposals. Nothing opens a pull request from one, nothing
-targets one as a base, and nothing merges one anywhere.
-
-**Never forced.** Three arms, decided per repo after re-fetching the
-`integration/*` namespace:
-
-- the remote branch carries the **same tree** → not re-pushed at all, and said
-  so. This is the common case on a refresh: `--integration` re-cuts and
-  re-merges honestly, so the commit SHAs differ every run even when nothing
-  changed. Compare trees, not commits, or every refresh mints a new name.
-- the remote branch is an **ancestor** → a plain fast-forward push.
-- otherwise → published as `integration/<slot>-2` (then `-3`, …, first free
-  name, capped). The earlier ref is left exactly where it was. There is no
-  `--force` and no `--force-with-lease` anywhere in this path; `branch -f`
-  appears once, on a *local* name already proven absent on origin.
-
-A push that fails is a note and a `push_note` on the row, never a change to the
-merge verdict.
-
-**How it ends.** Every push stamps `integration-remote:` on the record and
-fills `sweep-after:` (see below); `bin/branch_sweep.sh --records <a checkout of
-PyAutoMind/batches>` deletes `integration/*` refs on or after that date and
-protects them in every other case — no records dir, no record, no date, no
-deletion. That expiry is the only thing keeping these refs from accumulating:
-they can never be proven contained in `main`, so the sweep's ordinary
-containment gate would keep them forever.
-
-### The packet is refreshed, never rewritten
-
-`--apply` writes `batches/packets/<slot>.html` in place and at the same path,
-because the human's chips and notes live in `localStorage` keyed by the page
-(`batches/packets/TEMPLATE.md`) and a moved file orphans them. Every member
-owns a section with a stable `id="m-<slug>"`; a refresh replaces that span and
-leaves **every other member's markup byte-identical** — a PENDING stub becomes
-a full block under the same id, and nothing a neighbour's stored notes are
-anchored to moves. The regenerable non-member regions (stamp, tiles, rulings
-needed, sidenav) are bounded by `pyauto:*` sentinel comments; a hand-authored
-archived packet has none, so it gets its member splices plus a note saying the
-header was left alone. Collect never rewrites such a page wholesale.
-
-### What it stamps on the record
-
-`--apply` edits the batch record line by line, never re-serialising it:
-`collected:` once (the first collect owns it), one `refreshed:` line per apply,
-`delivered: n/m`, `packet:`, and — after an `--integration` run —
-`integration-root:` (a key of its own: the dispatch-time
-`- integration: yes` is the human's request, and is never overwritten
-with a path). After an `--integration --push` run it also writes
-`integration-remote:` — `<Repo>:<branch>`, comma-separated, under the repo name
-`branch_sweep.sh --name` matches on — **rewritten on every push**, because the
-current publication is the truth and a stale list would send the sweep after a
-ref that no longer exists. Alongside it, `sweep-after:` is **filled once and
-never overwritten**: `review-at:` plus a week by default, and a date the human
-typed is a decision about their own review. Member outcomes become `<HEALTH> (<one line of evidence>)` —
-**unless the outcome already opens with a ruling word**
-(`ACCEPTED`, `REJECTED`, `MERGED`, `LEAVE-TO-FINISH`, …), which is a human's
-verdict and is never overwritten by a machine re-read. Once the slot's review
-has landed, **no member line changes at all** — the record is the history of
-a batch that closed, and the pm record's `PR OPENED AT REVIEW (…)` sentences
-are exactly the outcomes no word list would have protected. The write is
-rehearsed on a throwaway copy and refused if a member line or a key would be
-lost; the `notes: |` block is never touched.
-
-Two **blocks** are stamped alongside those keys, both derived and both rewritten
-on every apply of an open record (and filled once, then left, on a closed one —
-its contents are history, like `delivered:`):
-
-- **`outcomes:`** — one `<slug>: <merged | rejected-at-review | carried |
-  unreviewed>` per member. This is the *accounting*; the member line's outcome
-  column is the *evidence* ("PyAutoFit#1554, 4/4 checks green"). It is read
-  from the ledger and nothing else: a `complete/` record that names the member
-  (`- batch: <slot> — member `<slug>``, or a record filed under the member's
-  own name) → `merged`; a review `decision:` that rejected it →
-  `rejected-at-review`; a row still in `active.md` → `carried`; otherwise
-  `unreviewed`. In that order, because a rejected member is still in
-  `active.md` and a merged one may be too. All nine members of the
-  2026-08-31-pm slot merged and every one of them was recorded
-  `decision: UNREVIEWED` — the completion records knew, and nothing read them.
-- **`merge-order:`** — the `/prm` sequence, as advice and never an action:
-  dispatch order (the order the human listed the members in — the only stable
-  order there is, since `members` is sorted by health), with library repos
-  first (the library-first merge gate) and same-repo members serialised (the
-  first merge moves `main` and stales its siblings' evidence). Nothing is
-  filtered: a member with no PR is listed in its place with what it is waiting
-  on, because an order that silently omits a member is an order somebody merges
-  out of. It is rendered in the collect report's summary too.
-
-### The close leg
-
-**`dev` — collected once, reviewed once.** A review that has landed closes the
-batch outright. Where `batches/reviews/<slot>.md` exists, collect **refuses to
-write the packet** — that file is the record now, and rewriting the page the
-human ruled on destroys what they ruled against — and instead fills
-`reviewed-at:`, `review-minutes-actual:` and `review:` from it — **fills,
-never overwrites**: a value the record already carries (anything but blank or
-`(not given)`) is the human's and stays. The decisions inside are reported,
-never enacted: merges, follow-ups and rejections are the orchestrator's next
-act with the human, not collect's. The review button lives on `collected:` —
-there is exactly one packet to press it on, because a dev batch is dispatched
-at once and reviewed at once.
-
-**`cortex` — a rolling board, reviewed as many times as it takes.** A review
-landing does **not** by itself refuse the packet write: `PyAutoCortex/batches/
-AGENTS.md`, "The first review does not close the slot" — the human rules on
-whatever is reviewable whenever they come in, and the packet keeps refreshing
-under whatever is still on the board while they do. A later sitting lands as
-`batches/reviews/<slot>-r<N>.md` (N ≥ 2; the first sitting is `<slot>.md` — see
-"Two kinds, two records" below), and each one adds its own `- review:` line to
-the record rather than replacing the last. What a review DOES do, on every
-kind, is take its own members out of further splicing (`_on_the_board`): a
-member the record already shows `ruled: yes` for is never re-rendered, on this
-sitting's collect or any later one — its packet span is what the human was
-shown. The record's `delivered:`/`packet:` keys are filled once the slot is
-CLOSED — nothing left in a board state, carried members excluded — and moved
-on every refresh until then; `reviewed-at:`/`review-minutes-actual:` still
-fill from whichever sitting sets them first, and `carried:` is written once
-per member the moment a sitting finds it still running.
-
-### The extension point
-
-Scoring is registered per member **kind** (`KINDS`) — a scorer plus a block
-renderer, over the one flat scored shape the report and the packet both read.
-`dev` was the kind that shipped first; the science kind (`cortex`) now ships
-here too, over the phase-2 Cortex conductor's own `score_phase` and
-`member_block` rather than a second collect. A third kind is a scorer, a block
-renderer and a claim function — nothing else moves.
-
-## One kind, one record
-
-`dev` reads the Mind, and that is the whole roster. A second kind — `cortex`,
-a science phase on a rolling board with its own record, packet, chips and
-carry-forward — existed from 2026-08-31 to 2026-09-03 and was retired: 0 slots
-were opened by the conductor, 0 rulings came from a packet, 0 partial reviews
-were ever filed. What the human actually does with the science is check in on
-the runs, which is `pyauto-brain cortex collect` (`agents/conductors/cortex/`).
-
-The extension point above (`KINDS`) is what made that possible and is kept: a
-member kind is a scorer plus a block builder plus a claim, and nothing about
-the record, the packet or the renderer has to learn its vocabulary.
+The manual batch flow this conductor began with (a hand-dispatched batch
+record, then `batch collect` scoring it into a review packet, with an optional
+`integration/<slot>` preview) was retired in favour of the watcher above: a
+shift is now a brief, and its digest is the report.
 
 ## Slicing a `needs-slicing` prompt (`slice`)
 

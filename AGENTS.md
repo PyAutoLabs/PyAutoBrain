@@ -69,7 +69,7 @@ invoking it; `bin/pyauto-brain help <verb>` exposes its full contract.
 | Verb | Purpose | Entrypoint |
 |------|---------|------------|
 | `intake` | File classified prompts; never start development | `bin/pyauto-brain intake` |
-| `batch` | Propose a review-budgeted batch; collect its results | `bin/pyauto-brain batch` |
+| `batch` | Propose a review-budgeted shift; brief, watch and digest it | `bin/pyauto-brain batch` |
 | `community` | Triage community threads; human-approved replies and development handoffs | `bin/pyauto-brain community` |
 | `feature` | Select, size and plan features | `bin/pyauto-brain feature` |
 | `bug` | Classify regressions and plan repairs | `bin/pyauto-brain bug` |

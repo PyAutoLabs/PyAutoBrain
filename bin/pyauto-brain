@@ -95,7 +95,7 @@ declare -A AGENT_SCRIPT=(
 )
 declare -A AGENT_DESC=(
   [intake]="File classified prompts; never start development"
-  [batch]="Propose a review-budgeted batch; collect its results"
+  [batch]="Propose a review-budgeted shift; brief, watch and digest it"
   [community]="Triage community threads; human-approved replies and development handoffs"
   [feature]="Select, size and plan features"
   [bug]="Classify regressions and plan repairs"

@@ -217,10 +217,6 @@ def is_shadow(brief: dict) -> bool:
     return brief.get("shadow", {}).get("value", "").lower() == "yes"
 
 
-def is_sandbox(brief: dict) -> bool:
-    return brief.get("sandbox", {}).get("value", "").lower() == "yes"
-
-
 def lanes_of(brief: dict) -> list[str]:
     node = brief.get("lanes")
     return _csv(node["value"]) if node else []
