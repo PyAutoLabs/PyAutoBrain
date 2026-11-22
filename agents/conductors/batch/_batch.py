@@ -57,6 +57,7 @@ from _status import PENDING_RE, RULING_WORDS, freeze_line  # noqa: E402
 import _brief  # noqa: E402
 import _green  # noqa: E402 — the keep-Heart-green lane (PyAutoBrain#625)
 import _login  # noqa: E402 — the CLI login probe (M3.6a, PyAutoBrain#659)
+import _ral  # noqa: E402 — the unattended-ssh probe for a granted `ral` lane
 # The human's goals (goals.md, PyAutoMind#565): `brief --new` copies them.
 from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
 # The close-out guard's reader (intake `looks-shipped`): the live flags minus
@@ -1516,13 +1517,17 @@ def leg_adversary(ev) -> tuple:
     if not isinstance(row, dict) or not row.get("ran"):
         return UNOBSERVABLE, "no adversary leg recorded"
     model, author = (row.get("model") or ""), (row.get("author_model") or "")
-    if not model or not author or model == author:
-        # AUTONOMY.md leg 5, verbatim in intent: the leg is a reading by a
-        # DIFFERENT model from the one that wrote the diff.
+    # AUTONOMY.md leg 5: the leg is a reading independent of the author. A
+    # different model is one; so is the same model in a session that did not
+    # write the branch ("Adversary model default — 2026-11-22": Opus reads
+    # Opus by default), which the row must say — it is never assumed.
+    independent = row.get("independent_session") is True
+    if not model or not author or (model == author and not independent):
         return FAIL, ("a self-run adversary leg is an absent leg, not a weak "
                       "one (AUTONOMY.md leg 5)"
                       + (f" — model {model}" if model else " — no model named"))
-    return PASS, f"{model} vs author {author}: {row.get('verdict') or 'read'}"
+    how = "independent session" if model == author else f"vs author {author}"
+    return PASS, f"{model} {how}: {row.get('verdict') or 'read'}"
 
 
 #: Health, in the order the packet shows members in: what failed, what did not
@@ -3922,6 +3927,11 @@ def _main_brief(mind: Path, a) -> int:
         res["login"] = login
         res["errors"] += errs
         res["warnings"] += warns
+        # A granted `ral` lane a worker cannot reach (2026-11-20-am): one
+        # BatchMode ssh, a warning only. A shadow brief starts no worker.
+        if rec["brief"] is not None and not _brief.is_shadow(rec["brief"]):
+            res["ral"], warns = _ral.findings(_brief.lanes_of(rec["brief"]), mind)
+            res["warnings"] += warns
         res["ok"] = not res["errors"]
     warn = goal_one_warning(Path(a.check), mind)
     if warn:

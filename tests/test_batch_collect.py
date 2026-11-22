@@ -219,6 +219,25 @@ def test_a_self_run_adversary_is_an_absent_leg(tmp_path):
     assert "absent leg, not a weak one" in why
 
 
+def test_a_same_model_adversary_passes_only_as_an_independent_session(tmp_path):
+    """AUTONOMY.md "Adversary model default — 2026-11-22": Opus reads an Opus
+    branch by default, in a session that did not write it, and the row says so."""
+    mind = mini_mind(tmp_path)
+    row = {"ran": True, "model": "claude-opus-4", "author_model": "claude-opus-4",
+           "verdict": "CLEAN"}
+    for flag in ("true", 1, False):          # only the JSON `true` counts
+        d = _batch.collect(mind, "2026-09-03-pm", evidence=evidence(
+            adversary={**row, "independent_session": flag}))
+        assert one(d)["legs"]["adversary"][0] == _batch.FAIL, flag
+    d = _batch.collect(mind, "2026-09-03-pm", evidence=evidence(
+        adversary={**row, "independent_session": True}))
+    verdict, why = one(d)["legs"]["adversary"]
+    assert verdict == _batch.PASS and "independent session" in why
+    d = _batch.collect(mind, "2026-09-03-pm", evidence=evidence(
+        adversary={"ran": True, "model": "claude-opus-4", "independent_session": True}))
+    assert one(d)["legs"]["adversary"][0] == _batch.FAIL   # no author named
+
+
 def test_a_missing_witness_is_unobservable_and_makes_the_member_suspect(tmp_path):
     (tmp_path / "mind").mkdir(parents=True, exist_ok=True)
     mind = mini_mind(tmp_path)

@@ -254,6 +254,31 @@ def test_amendment_names_its_revert_condition():
         assert trigger in sec
 
 
+# --- Adversary model default (2026-11-22) -------------------------------------
+
+DEFAULT_HEADER = "## Adversary model default — 2026-11-22"
+
+
+def test_the_adversary_default_is_an_independent_opus_session():
+    assert AUTONOMY.count(DEFAULT_HEADER) == 1
+    assert AUTONOMY.index(AMEND_HEADER) < AUTONOMY.index(DEFAULT_HEADER)
+    rest = AUTONOMY[AUTONOMY.index(DEFAULT_HEADER) + len(DEFAULT_HEADER):]
+    sec = _norm(rest[:rest.find("\n## ")])
+    assert "the default reader is opus" in sec
+    assert "fable only when asked" in sec
+    assert "a self-run adversary leg is still an absent leg" in sec
+    assert sec.count("revert condition:") == 1
+    assert "Adversary model default" in _norm_ws(AUTONOMY[AUTONOMY.index("## Consumers"):])
+    brain = Path(__file__).resolve().parents[1]
+    for doc in ("skills/MODEL_DELEGATION.md", "agents/faculties/review/AGENTS.md",
+                "agents/conductors/batch/AGENTS.md", "skills/cockpit/cockpit.md"):
+        assert "Adversary model default" in _norm_ws((brain / doc).read_text()), doc
+
+
+def _norm_ws(text: str) -> str:
+    return " ".join(text.split())
+
+
 def test_unattended_rule_and_consumers_point_at_the_amendment():
     shift = AUTONOMY[AUTONOMY.index(SHIFT_HEADER):]
     assert "Stage-2\nadversary amendment — 2026-11-04" in shift \

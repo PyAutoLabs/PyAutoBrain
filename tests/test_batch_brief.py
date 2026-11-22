@@ -187,3 +187,70 @@ def test_a_write_failure_after_the_issue_names_it_for_a_rerun(tmp_path, monkeypa
     err = capsys.readouterr().err
     assert ISSUE in err and f"--issue {ISSUE}" in err
     assert len(_calls(log)) == 1
+
+
+# --- the RAL probe: a granted `ral` lane a worker cannot reach (2026-11-20-am) -----
+
+RAL = ("  - lanes: any ral\n", "  - lanes: any ral\n  - ral-allowance:\n    - packets: 2\n"
+       "    - partition: ral\n    - cpu-hours: 64\n")
+
+
+def _ral_brief(tmp_path: Path, extra: str = "") -> Path:
+    f = _brief(tmp_path, extra=extra)
+    f.write_text(f.read_text().replace("  - lanes: any\n", RAL[1]))
+    return f
+
+
+def test_check_warns_when_unattended_ssh_to_ral_fails(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("PYAUTO_RAL_PROBE", raising=False)
+    monkeypatch.delenv("PYAUTO_RAL_SSH_HOST", raising=False)
+    mind = _mind(tmp_path)
+    (mind / "policy").mkdir()
+    (mind / "policy" / "hpc_ral.md").write_text(
+        "- Cluster: connect via SSH alias `example_jump` (→ hpc.example.invalid).\n")
+    log = _fake(tmp_path, monkeypatch, "ssh",
+                "Received disconnect: Too many authentication failures\n", rc=255)
+    brief = _ral_brief(tmp_path)
+    rc, out = _check(brief, mind, capsys)
+    assert rc == 0, out                                    # a warning, never a refusal
+    warn = [ln for ln in out.splitlines() if "ral is granted" in ln]
+    assert len(warn) == 1 and "`example_jump`" in warn[0]
+    assert "Too many authentication failures" in warn[0]
+    assert log.read_text().splitlines() == [
+        "-o BatchMode=yes -o ConnectTimeout=10 example_jump true"]
+
+    # The host answers: no warning. The environment names the host first.
+    (tmp_path / "ssh.rc").write_text("0")
+    monkeypatch.setenv("PYAUTO_RAL_SSH_HOST", "other_jump")
+    rc, out = _check(brief, mind, capsys)
+    assert rc == 0 and "ral is granted" not in out
+    assert log.read_text().splitlines()[-1].endswith("other_jump true")
+
+
+def test_check_runs_no_ssh_without_the_ral_lane_or_for_a_shadow_brief(tmp_path, monkeypatch,
+                                                                     capsys):
+    monkeypatch.delenv("PYAUTO_RAL_PROBE", raising=False)
+    monkeypatch.setenv("PYAUTO_RAL_SSH_HOST", "example_jump")
+    mind = _mind(tmp_path)
+    log = _fake(tmp_path, monkeypatch, "ssh", "denied\n", rc=255)
+    rc, out = _check(_brief(tmp_path), mind, capsys)                  # lanes: any
+    assert rc == 0 and "ral is granted" not in out and not log.exists()
+    rc, out = _check(_ral_brief(tmp_path, extra="  - shadow: yes\n"), mind, capsys)
+    assert "ral is granted" not in out and not log.exists()
+
+
+def test_the_ral_probe_names_no_host_of_its_own(tmp_path, monkeypatch, capsys):
+    """No host named anywhere: one warning that it could not be checked, and
+    no ssh call. A value that would read as an ssh option is not a host."""
+    import _ral
+    monkeypatch.delenv("PYAUTO_RAL_PROBE", raising=False)
+    monkeypatch.delenv("PYAUTO_RAL_SSH_HOST", raising=False)
+    mind = _mind(tmp_path)
+    log = _fake(tmp_path, monkeypatch, "ssh", "", rc=0)
+    rc, out = _check(_ral_brief(tmp_path), mind, capsys)
+    assert rc == 0 and "unattended ssh could not be checked (no host named" in out
+    assert not log.exists()
+    monkeypatch.setenv("PYAUTO_RAL_SSH_HOST", "-oProxyCommand=evil")
+    assert _ral.host_of(mind) == ""
+    res, warns = _ral.findings(["any", "ral"], mind)
+    assert res["state"] == "unknown" and len(warns) == 1 and not log.exists()

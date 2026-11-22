@@ -28,6 +28,7 @@ import test_orchestrator_digest as t  # noqa: E402 — the 3d fixtures
 import test_orchestrator_dispatch as d  # noqa: E402 — the real-spawner fixtures
 from test_orchestrator_digest import _brief, orch  # noqa: E402
 import _batch  # noqa: E402
+import _digest  # noqa: E402
 import _questions  # noqa: E402
 import _watch  # noqa: E402
 
@@ -280,8 +281,43 @@ def _carry_shift(tmp_path, prev_extra: dict, merged=()):
 def test_review_a_carried_pr_the_human_merged_since_is_not_closed_out(tmp_path):
     r, c = _carry_shift(tmp_path, {}, merged=(LATE,))
     assert LATE not in r["closeouts"]["started"] and CUT in r["closeouts"]["started"]
-    assert c["closeouts"][LATE]["why"].endswith("GitHub reads it MERGED — not closed out")
+    late = c["closeouts"][LATE]
+    assert late["state"] == "refused" and late["settled"] == "merged"
+    assert late["why"].startswith("already merged since 2026-11-03-pm")
     assert c.get("glance_auto_merges", 0) == 0
+    assert LATE in r["closeouts"]["merged_outside"]
+
+
+def test_a_carried_pr_already_merged_is_not_listed_as_needing_the_human(tmp_path):
+    """2026-11-19-pm2 and 2026-11-20-am listed PRs the human had merged between
+    shifts as "Needs you — not merged unattended", each with an empty proof
+    packet. A settled carry-over is named once, in the carry-over line."""
+    r, c = _carry_shift(tmp_path, {}, merged=(LATE,))
+    assert _digest.is_settled("late", c) and not _digest.is_settled("cut", c)
+    state, _ = _digest.task_state("late", c, co._health({}))
+    assert _digest.plain_outcome(state) == "Already merged — nothing to do"
+    brief = tmp_path / "2026-11-04-am.md"
+    text = _digest.build(_brief.parse(brief.read_text())["brief"],
+                         orch.slot_dir(brief, tmp_path / "home"), c, health=co._health({}))
+    assert "#### late" not in text and "`late`" not in text
+    assert "not closed out" not in text
+    line = [ln for ln in text.splitlines() if "you had already merged" in ln]
+    assert len(line) == 1 and LATE in line[0] and CUT not in line[0]
+    assert not [e for e in _digest.validate(text) if "late" in e]
+
+
+def test_the_merge_order_drops_an_earlier_pr_github_reads_merged():
+    """2026-11-19-pm2's merge order began with an earlier PR as "▶ … — open", twenty
+    minutes after the human merged it."""
+    a, b, c3 = (f"https://github.com/example-org/widgets/pull/{n}" for n in (868, 872, 874))
+    counters = {"outcomes": {"x": {"prs": [b], "merged": [], "behind": [a]},
+                             "y": {"prs": [c3], "merged": []}},
+                "closeouts": {b: {"state": "refused", "why": "merge-cap 0 reached this shift"}},
+                "merge_waits": {c3: {"behind": [b]}}, "pr_gone": {a: "MERGED"}}
+    lines = _digest.merge_order_lines(counters)
+    assert not [ln for ln in lines if a in ln]
+    assert [ln for ln in lines if ln.strip().startswith("- ▶")] and b in "".join(
+        ln for ln in lines if "▶" in ln)
 
 
 def test_review_a_question_parked_tasks_pr_is_not_carried(tmp_path):
@@ -430,3 +466,16 @@ def test_review2_the_digest_names_an_in_shift_restart(tmp_path, monkeypatch):
     d._tick(brief, mind, home, NOW + _dt.timedelta(minutes=20), claude)
     lines = t._digest.backlog_gate_lines(orch.read_counters(slot))
     assert "Restarted in-shift after an answer: 1 task(s) — `t1` (Q7)" in lines
+
+
+def test_a_task_the_spawn_gate_refused_all_shift_says_why_it_never_started():
+    """2026-11-20-am: a named task waited on `max-workers` to `review-at:` and
+    its digest entry said only "not started"."""
+    counters = {"refusals": [
+        {"task": "t9", "class": "max-workers 4 reached", "why": "max-workers 4 reached",
+         "count": 157, "at": "2026-11-20T08:37:12Z", "last": "2026-11-20T09:28:26Z"}]}
+    state, tiered = _digest.task_state("t9", counters, health=None)
+    assert state == ("not started — refused: max-workers 4 reached "
+                     "(last 2026-11-20T09:28:26Z)") and not tiered
+    assert _digest.plain_outcome(state) == "Not started"
+    assert _digest.task_state("t8", counters, health=None)[0] == "not started"

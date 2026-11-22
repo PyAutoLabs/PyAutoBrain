@@ -133,8 +133,8 @@ bin/pyauto-brain batch collect --slot <date>-<slot> --evidence ev.json --apply
 
 **Before reading any PR from a batch, the independent adversary leg must have
 run** (`AUTONOMY.md` leg 5): `bin/pyauto-brain review --task <name> --witness
-"<the prompt's Witness:>" --adversary`, **in a session using a different model
-from the one that wrote the branch**. A self-run adversary leg is an absent
+"<the prompt's Witness:>" --adversary`, **in a fresh Opus session or sub-agent
+that did not write the branch** (Fable only when the human asks). A self-run adversary leg is an absent
 leg, not a weak one, and recording it as run is a false ledger row. If it has
 not run, say so rather than reviewing as though it had.
 

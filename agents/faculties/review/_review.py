@@ -200,7 +200,10 @@ def resolve_repos(task: str | None, repos: list[str]) -> list[Path]:
 ADVERSARY_CONTRACT = """\
 INDEPENDENT ADVERSARY MODE (autonomous-ship gate, leg 5)
 
-  Who may run this: NOT the session or model that wrote the branch. The leg's
+  Who may run this: NOT the session that wrote the branch. By default an Opus
+  session or sub-agent that shares none of the author's context (AUTONOMY.md
+  "Adversary model default — 2026-11-22"); a more expensive model only when
+  the human asked for it. The leg's
   entire value is independence — the organism's own audit found the review leg
   on autonomous ships was in practice the branch's own author, that "a healthy
   pass and a rote one write the identical ledger row", and that the one
@@ -296,7 +299,7 @@ def main(argv=None) -> int:
     ap.add_argument("--adversary", action="store_true",
                     help="independent-adversary mode (autonomous-ship gate leg "
                          "5): print the independence contract. Must be run by a "
-                         "different model from the one that wrote the branch")
+                         "session that did not write the branch (Opus by default)")
     a = ap.parse_args(argv)
     if not a.task and not a.repo:
         print("review: pass --task <name> or --repo <path>", file=sys.stderr)
