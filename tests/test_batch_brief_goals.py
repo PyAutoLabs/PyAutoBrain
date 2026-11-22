@@ -8,20 +8,12 @@ result. Fictional fixtures only.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import subprocess
-import sys
 from pathlib import Path
 
-import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-_spec = importlib.util.spec_from_file_location(
-    "_batch_goals", BRAIN / "agents" / "conductors" / "batch" / "_batch.py")
-_batch = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_batch)
+from _shift_fixtures import _batch  # noqa: E402
 _brief = _batch._brief
 
 GOALS = """# Goals
@@ -121,15 +113,6 @@ def test_new_writes_the_5m_token_budget_and_leaves_the_caps_to_the_code(tmp_path
     out = capsys.readouterr().out
     assert "  - token-budget: 5000000\n" in out
     assert "max-workers:" not in out and "max-sessions:" not in out
-
-
-def test_goals_without_epics_or_tags_take_the_reach_scope(tmp_path):
-    """M3.6b: no longer `fill-idle` — the 2026-11-16 backlog-reach ruling,
-    scoped by the tiers a shift may merge."""
-    mind = _mind(tmp_path, "# Goals\n\n## 1. Ship it\n")
-    text = _batch.new_brief(mind, "2026-11-14-am", "2099-01-01T12:00Z")
-    assert "fill-idle" not in text
-    assert "  - backlog: scoped" in text and "    - tiers: notify, glance" in text
 
 
 def test_no_goals_still_composes_but_check_refuses(tmp_path, capsys):

@@ -17,7 +17,6 @@ Hermetic: every repo is a git repo built in tmp_path with pinned dates.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
 import subprocess
@@ -26,16 +25,10 @@ from pathlib import Path
 
 import pytest
 
+from _helpers import load_module as _load
+
 BRAIN = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-
-
-def _load(name, rel):
-    spec = importlib.util.spec_from_file_location(name, BRAIN / rel)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
 
 
 _shipped = _load("_shipped_under_test", "agents/conductors/intake/_shipped.py")

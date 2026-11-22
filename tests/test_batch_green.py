@@ -13,23 +13,17 @@ from __future__ import annotations
 
 import ast
 import datetime as dt
-import importlib.util
 import io
 import json
 import os
 import subprocess
-import sys
 import urllib.request
 from pathlib import Path
 
 import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-_spec = importlib.util.spec_from_file_location(
-    "_batch_green", BRAIN / "agents" / "conductors" / "batch" / "_batch.py")
-_batch = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_batch)
+from _shift_fixtures import _batch, git_as_t as _git  # noqa: E402
 _green = _batch._green
 _brief = _batch._brief
 
@@ -54,13 +48,6 @@ def _heart(rows, **kw):
     out = _green.from_doc(_readiness(rows, **kw))
     out.update(source="fixture", why="", age_hours=kw.get("hours_ago", 1.0))
     return out
-
-
-def _git(mind, *args):
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
-    subprocess.run(["git", "-C", str(mind), *args], check=True, env=env,
-                   capture_output=True)
 
 
 @pytest.fixture

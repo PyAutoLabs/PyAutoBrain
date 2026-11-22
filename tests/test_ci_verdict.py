@@ -142,16 +142,17 @@ def test_pending_leg_is_pending():
     assert "1 of 2 not completed" in v["reasons"][0]["detail"]
 
 
-def test_a_queued_run_with_no_jobs_yet_is_pending():
-    runs = GREEN_RUNS[:1] + [wf(3, [], name="Lint", status="queued")]
+@pytest.mark.parametrize("run,expected,detail", [
+    pytest.param(dict(status="queued"), "PENDING", "Lint [pull_request] (queued)",
+                 id="a-queued-run-with-no-jobs-yet-is-pending"),
+    pytest.param(dict(conclusion="startup_failure"), "RED",
+                 "Lint [pull_request] (startup_failure)",
+                 id="a-run-that-failed-before-any-job-is-red"),
+])
+def test_a_run_with_no_jobs_is_judged_by_the_run_itself(run, expected, detail):
+    runs = GREEN_RUNS[:1] + [wf(3, [], name="Lint", **run)]
     v = verdict(FakeGh(runs))
-    assert v["verdict"] == cv.PENDING and "Lint [pull_request] (queued)" in v["reasons"][0]["detail"]
-
-
-def test_a_run_that_failed_before_any_job_is_red():
-    runs = GREEN_RUNS[:1] + [wf(3, [], name="Lint", conclusion="startup_failure")]
-    v = verdict(FakeGh(runs))
-    assert v["verdict"] == cv.RED and "Lint [pull_request] (startup_failure)" in v["reasons"][0]["detail"]
+    assert v["verdict"] == getattr(cv, expected) and detail in v["reasons"][0]["detail"]
 
 
 @pytest.mark.parametrize("sha", ["", None, "   "])

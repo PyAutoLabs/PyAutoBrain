@@ -40,12 +40,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "facultie
 from _sizing import (  # noqa: E402
     WORK_TYPES, HUMAN_REVIEW, MANUAL_ONLY_WORK_TYPES,
     LIBRARY_REPOS, WORKSPACE_REPOS, ORGANISM_REPOS, KNOWN_REPOS,
-    RISK_KEYWORDS, AMBIGUITY_KEYWORDS, normalise_repo, norm_work_type,
+    normalise_repo, norm_work_type,
     declared_header, LANE_VALUES, _body_map_specs,
     declared_inline, effective_difficulty, strip_declarations, _hits,
     effective_consequence, effective_unattended, effective_review_minutes,
-    policy as _sizing_policy, BODY_MAP_PATH,
-    _body_map_specs as _sizing_specs,
+    policy as _sizing_policy,
 )
 
 # The memory faculty, imported rather than shelled out to: intake files prompts
@@ -63,8 +62,9 @@ from _repo_paths import repo_path  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "board"))
 from _theme import (  # noqa: E402
     section_layout,
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills,
     normalize_refresh_stamp,
+    attr as _attr, md_cell as _cell, pages_url as _pages_url,
 )
 # The organ-cockpit feed contract (board/_state.py, state.json v1) — the same
 # constructor the Brain board uses, so this renderer cannot write a feed the
@@ -149,7 +149,7 @@ TARGET_SIGNALS = _sizing_policy()["target_signals"]
 def _repo_display() -> dict:
     out = {
         normalise_repo(name): name
-        for name in _sizing_specs()
+        for name in _body_map_specs()
     }
     out.update({
         "autoconf": out.get("autonerves", "autonerves"),      # pre-rename spelling
@@ -1921,10 +1921,6 @@ def pending_release(c: dict, mind: Path) -> list:
     return [groups[k] for k in sorted(groups)]
 
 
-def _cell(value: str) -> str:
-    return str(value).replace("|", "\\|")
-
-
 def _mind_home(mind: Path) -> str:
     """The Mind repo's GitHub home (`https://github.com/<org>/PyAutoMind`).
 
@@ -1942,12 +1938,6 @@ def _mind_home(mind: Path) -> str:
                   r"[ \t]*([^\s#]+)",
                   f.read_text(encoding="utf-8", errors="replace"), re.M)
     return f"https://github.com/{m.group(1)}" if m else ""
-
-
-def _pages_url(home: str) -> str:
-    """The GitHub Pages site URL for a repo home, `''` when underivable."""
-    m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
-    return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
 
 
 # The dev batch record's member grammar — duplicated from
@@ -2140,15 +2130,6 @@ Bring the PyAutoMind dashboard up to date. Work in the PyAutoMind checkout:
 
 Report what you retired, what you deliberately left in the backlog and why, and
 anything you could not verify."""
-
-REFRESH_BLURB = (
-    "generated from `active/`, `draft/` and the registry files, so it is only "
-    "as current as they are. `dashboard_refresh.yml` re-renders it on every "
-    "push to `main` — that heals a stale page, but not a stale prompt: a task "
-    "that shipped without its prompt advancing to `complete/` keeps rendering "
-    "here as pickable backlog. Reconciling those is the refresh below."
-)
-
 
 def _task_row(summary: str, payload: str) -> str:
     """One task as a single collapsed row: `▸ 📋 <task text>`.
@@ -2630,20 +2611,14 @@ def _pending_release_section(groups: list) -> list:
 def _md_inline(text: str) -> str:
     """Render the inline markdown this module authors (`code` spans only) as HTML.
 
-    The freshness blurb is written once and rendered on both pages; the markdown
-    page takes it verbatim, this turns its backticks into `<code>` and its
-    `**bold**` into `<b>` so the HTML twin does not print them literally.
+    A line this module authors is written once and rendered on both pages; the
+    markdown page takes it verbatim, this turns its backticks into `<code>` and
+    its `**bold**` into `<b>` so the HTML twin does not print them literally.
     Deliberately not a markdown parser — it handles exactly the two constructs
-    the blurbs this module authors actually use.
+    the text this module authors actually uses.
     """
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
     return re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
-
-
-def _attr(value: str) -> str:
-    """Escape a string for a double-quoted HTML attribute."""
-    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
-            .replace("<", "&lt;").replace(">", "&gt;"))
 
 
 def _html_task(text_html: str, payload: str, star: str = "") -> str:
@@ -3812,11 +3787,8 @@ def _body_map_slugs() -> dict:
     already folds `PyAutoArray`/`pyautoarray`/`autoarray` together — reuse both
     rather than adding a third mapping.
     """
-    import yaml
-
-    data = yaml.safe_load(BODY_MAP_PATH.read_text())
     out = {}
-    for name, spec in data["repos"].items():
+    for name, spec in _body_map_specs().items():
         slug = spec.get("github", "")
         if slug:
             out[normalise_repo(name)] = slug

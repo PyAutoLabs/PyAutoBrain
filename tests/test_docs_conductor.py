@@ -7,12 +7,11 @@ conductor is read-only — test_never_writes asserts it explicitly.
 """
 
 import json
-import os
-import subprocess
 from pathlib import Path
 
+from _helpers import run_brain
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 DECISION_KEYS = {
     "title", "prompt_path", "surface", "surface_label", "target_repo",
@@ -82,10 +81,7 @@ def _body_map(root):
 
 def _run(args, root):
     _body_map(root)
-    env = {**os.environ, "PYAUTO_ROOT": str(root)}
-    return subprocess.run(
-        [str(BRAIN), "docs", *args], capture_output=True, text=True, env=env,
-    )
+    return run_brain("docs", args, root)
 
 
 def _decide(text, root):

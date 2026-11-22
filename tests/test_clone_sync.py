@@ -19,12 +19,12 @@ What the mode promises, and therefore what is asserted here:
 """
 
 import argparse
-import importlib.util
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
+
+from _helpers import load_module
 
 CLONE = (
     Path(__file__).resolve().parents[1]
@@ -95,10 +95,7 @@ title: Project state
 
 
 def _load():
-    spec = importlib.util.spec_from_file_location("_clone_sync_under_test", CLONE)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    return load_module("_clone_sync_under_test", CLONE, register=False)
 
 
 def _git(repo, *args):
@@ -282,11 +279,7 @@ def test_substitution_rewrites_the_uppercase_env_var(workspace):
     assert "AUTOLENS" not in out
 
 
-def test_word_anchor_does_not_rewrite_mid_word(workspace):
-    subs = workspace.clone.sync_substitutions(REFERENCE, "autocti_assistant")
-    assert workspace.clone.substitute("total_draws external_shear", subs) == (
-        "total_draws external_shear"
-    )
+
 
 
 def test_since_falls_back_to_the_commit_trailer(workspace):
@@ -353,10 +346,14 @@ def test_qualified_compounds_do_not_become_nonsense(workspace):
     assert workspace.clone.substitute("lensing-fluent", subs) == "CTI-fluent"
 
 
-def test_domain_noun_is_word_anchored(workspace):
-    """`microlensing` is one word, not a domain noun to rewrite."""
+@pytest.mark.parametrize("text", [
+    pytest.param("total_draws external_shear", id="word-anchor-does-not-rewrite-mid-word"),
+    # `microlensing` is one word, not a domain noun to rewrite.
+    pytest.param("microlensing", id="domain-noun-is-word-anchored"),
+])
+def test_substitution_is_word_anchored(workspace, text):
     subs = workspace.clone.sync_substitutions(REFERENCE, "autocti_assistant")
-    assert workspace.clone.substitute("microlensing", subs) == "microlensing"
+    assert workspace.clone.substitute(text, subs) == text
 
 
 def test_domain_noun_is_never_guessed_for_an_unknown_science(workspace):

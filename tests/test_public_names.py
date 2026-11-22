@@ -27,6 +27,7 @@ BRAIN_HOME = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BRAIN_HOME / "bin"))
 
 import public_names as pn  # noqa: E402
+from _helpers import git_in as _git  # noqa: E402
 from _repo_paths import repo_path  # noqa: E402 — public_names put agents/ on the path
 
 FIXTURE = BRAIN_HOME / "tests" / "fixtures" / "public_names" / "row08_latent"
@@ -103,10 +104,6 @@ def test_witness_row08_from_the_real_merge_commit_range():
 
 # --- a scratch library repo ----------------------------------------------------------
 
-def _git(repo, *args):
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
-
-
 def _repo(tmp_path, name="LibGalaxy", package="autogalaxy", files=None):
     repo = tmp_path / name
     (repo / package).mkdir(parents=True)
@@ -139,20 +136,21 @@ def _change(repo, files, remove=()):
 
 
 @needs_git
-def test_a_private_helper_passes(tmp_path):
-    repo = _repo(tmp_path)
-    v = _change(repo, {"autogalaxy/convert.py":
-                       "def _helper(a):\n    return a\n\n_CACHE = {}\n\n"
-                       "def ell_from(a):\n    return _helper(a)\n\nSCALE = 2\n"})
-    assert v["verdict"] == pn.CLEAN and v["added"] == [] and v["renamed"] == []
-
-
-@needs_git
-def test_a_body_only_change_passes(tmp_path):
-    repo = _repo(tmp_path)
-    v = _change(repo, {"autogalaxy/convert.py":
-                       "def ell_from(a, b=1):\n    return a * b\n\nSCALE = 3\n"})
-    assert v["verdict"] == pn.CLEAN and v["modules_compared"] == 1
+@pytest.mark.parametrize("files,expected", [
+    pytest.param({"autogalaxy/convert.py":
+                  "def _helper(a):\n    return a\n\n_CACHE = {}\n\n"
+                  "def ell_from(a):\n    return _helper(a)\n\nSCALE = 2\n"},
+                 {"added": [], "renamed": []}, id="a-private-helper-passes"),
+    pytest.param({"autogalaxy/convert.py":
+                  "def ell_from(a, b=1):\n    return a * b\n\nSCALE = 3\n"},
+                 {"modules_compared": 1}, id="a-body-only-change-passes"),
+    pytest.param({"autogalaxy/convert.pyi": "def stub_only() -> int: ...\n"},
+                 {"modules_compared": 0}, id="stub-files-are-skipped"),
+])
+def test_a_change_that_adds_no_public_name_passes(tmp_path, files, expected):
+    v = _change(_repo(tmp_path), files)
+    assert v["verdict"] == pn.CLEAN
+    assert {key: v[key] for key in expected} == expected
 
 
 @needs_git
@@ -186,12 +184,18 @@ def test_a_new_init_export_is_caught(tmp_path):
 
 
 @needs_git
-def test_a_new_all_entry_and_star_import_in_init_are_caught(tmp_path):
-    repo = _repo(tmp_path)
-    v = _change(repo, {"autogalaxy/__init__.py":
-                       "from .convert import ell_from\nfrom .extra import *\n"
-                       "__all__ = ['ell_from', 'Extra']\n"})
-    assert {e["name"] for e in v["added"]} == {"* from .extra", "Extra"}
+@pytest.mark.parametrize("init,added", [
+    pytest.param("from .convert import ell_from\nfrom .extra import *\n"
+                 "__all__ = ['ell_from', 'Extra']\n",
+                 {"* from .extra", "Extra"}, id="a-new-all-entry-and-star-import"),
+    pytest.param("from .convert import ell_from\n__all__ = ['ell_from']\n"
+                 "__all__.extend(['Extra'])\n__all__.append('More')\n"
+                 "__all__ += ['Third']\n",
+                 {"Extra", "More", "Third"}, id="all-extend-append-and-augmented-assign"),
+])
+def test_new_init_exports_are_read(tmp_path, init, added):
+    v = _change(_repo(tmp_path), {"autogalaxy/__init__.py": init})
+    assert {e["name"] for e in v["added"]} == added
 
 
 @needs_git
@@ -487,23 +491,21 @@ def test_an_empty_merge_base_cannot_tell():
 
 
 @needs_git
-def test_all_extend_and_append_in_init_are_read(tmp_path):
-    repo = _repo(tmp_path)
-    v = _change(repo, {"autogalaxy/__init__.py":
-                       "from .convert import ell_from\n__all__ = ['ell_from']\n"
-                       "__all__.extend(['Extra'])\n__all__.append('More')\n"
-                       "__all__ += ['Third']\n"})
-    assert {e["name"] for e in v["added"]} == {"Extra", "More", "Third"}
-
-
-@needs_git
-def test_a_star_import_of_a_changed_module_cannot_tell(tmp_path):
-    repo = _repo(tmp_path, files={"autogalaxy/__init__.py": "from ._impl import *\n",
-                                  "autogalaxy/_impl.py": "def a():\n    pass\n"})
-    v = _change(repo, {"autogalaxy/_impl.py": "def a():\n    pass\n\ndef b():\n    pass\n"})
+@pytest.mark.parametrize("base,change,why", [
+    pytest.param({"autogalaxy/__init__.py": "from ._impl import *\n",
+                  "autogalaxy/_impl.py": "def a():\n    pass\n"},
+                 {"autogalaxy/_impl.py": "def a():\n    pass\n\ndef b():\n    pass\n"},
+                 "autogalaxy/__init__.py star-imports `autogalaxy._impl`, a private",
+                 id="of-a-changed-private-module"),
+    pytest.param({"autogalaxy/__init__.py": "from ... import *\n",
+                  "autogalaxy/agg.py": "def a():\n    pass\n"},
+                 {"autogalaxy/agg.py": "def a():\n    return 1\n"},
+                 "cannot be resolved", id="that-cannot-be-resolved"),
+])
+def test_a_star_import_cannot_tell(tmp_path, base, change, why):
+    v = _change(_repo(tmp_path, files=base), change)
     assert v["verdict"] == pn.CANNOT
-    assert "autogalaxy/__init__.py star-imports `autogalaxy._impl`, a private" \
-        in v["cannot_tell"][0]
+    assert why in v["cannot_tell"][0]
 
 
 @needs_git
@@ -514,21 +516,6 @@ def test_a_star_import_of_a_changed_public_module_is_compared_directly(tmp_path)
     assert v["verdict"] == pn.CLEAN and v["cannot_tell"] == []
     v = _change(repo, {"autogalaxy/agg.py": "def a():\n    return 1\n\ndef b():\n    pass\n"})
     assert v["verdict"] == pn.HIT and [e["name"] for e in v["added"]] == ["b"]
-
-
-@needs_git
-def test_a_star_import_that_cannot_be_resolved_cannot_tell(tmp_path):
-    repo = _repo(tmp_path, files={"autogalaxy/__init__.py": "from ... import *\n",
-                                  "autogalaxy/agg.py": "def a():\n    pass\n"})
-    v = _change(repo, {"autogalaxy/agg.py": "def a():\n    return 1\n"})
-    assert v["verdict"] == pn.CANNOT and "cannot be resolved" in v["cannot_tell"][0]
-
-
-@needs_git
-def test_stub_files_are_skipped(tmp_path):
-    repo = _repo(tmp_path)
-    v = _change(repo, {"autogalaxy/convert.pyi": "def stub_only() -> int: ...\n"})
-    assert v["verdict"] == pn.CLEAN and v["modules_compared"] == 0
 
 
 class _Check:

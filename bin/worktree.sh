@@ -18,8 +18,7 @@
 #   back to the canonical checkout so relative paths keep working.
 # * Numba and matplotlib cache dirs are per-task to prevent concurrent pytest
 #   runs from thrashing each other's caches.
-# * PYAUTO_WT_BRANCH overrides the per-task branch name. The batch conductor's
-#   `collect --integration` sets it to integration/<slot> so a throwaway review
+# * PYAUTO_WT_BRANCH overrides the per-task branch name, so a throwaway review
 #   root does not masquerade as feature work; unset, nothing changes.
 
 set -o pipefail
@@ -32,15 +31,6 @@ PYAUTO_WT_ROOT="${PYAUTO_WT_ROOT:-${PYAUTO_MAIN}-wt}"
 # Libraries that participate in PYTHONPATH. Order matters — it mirrors the
 # order in ~/.bashrc.
 PYAUTO_LIBS=(PyAutoNerves PyAutoFit PyAutoArray PyAutoGalaxy PyAutoLens PyAutoCTI)
-
-# _worktree_is_lib repo_name -> 0 if repo is a library, 1 otherwise
-_worktree_is_lib() {
-  local repo="$1" lib
-  for lib in "${PYAUTO_LIBS[@]}"; do
-    [[ "$lib" == "$repo" ]] && return 0
-  done
-  return 1
-}
 
 # _worktree_default_branch repo_name -> echoes the default branch name for repo
 # All PyAutoLabs repos use `main` as of 2026-04-10.

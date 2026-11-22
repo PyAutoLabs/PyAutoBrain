@@ -16,7 +16,6 @@ The human's rulings of 2026-11-19 (AUTONOMY.md "Shift speed — 2026-11-19"):
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
 import subprocess
@@ -26,10 +25,10 @@ from pathlib import Path
 import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_closeout as tc  # noqa: E402 — the phase-4b and M3.6j fixtures
 from test_orchestrator_closeout import GA7, GA8, Agents  # noqa: E402
 from test_orchestrator_digest import orch  # noqa: E402
+from _shift_fixtures import at as _at  # noqa: E402
 
 t = tc.t
 NOW = t.NOW
@@ -41,10 +40,6 @@ def _steering_read(monkeypatch):
     """The shift issue reads as no comments: offline, `gh_issue_comments` says
     it cannot read them, which holds the shift open (review round 1)."""
     monkeypatch.setattr(orch, "gh_issue_comments", lambda *a, **k: [])
-
-
-def _at(minutes):
-    return NOW + _dt.timedelta(minutes=minutes)
 
 
 # --- 1. the 60 s timer, the kick path unit and the kick file ---------------------------

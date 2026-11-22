@@ -16,17 +16,14 @@ a real prompt or record, so the assertions are about the ranking logic, not
 about whatever happens to be checked out.
 """
 
-import importlib.util
-import sys
 from pathlib import Path
 
+import pytest
+
+from _helpers import load_module
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location(
-    "_intake_under_test",
-    BRAIN_HOME / "agents" / "conductors" / "intake" / "_intake.py")
-_intake = importlib.util.module_from_spec(_spec)
-sys.modules["_intake_under_test"] = _intake
-_spec.loader.exec_module(_intake)
+_intake = load_module("_intake_under_test", "agents/conductors/intake/_intake.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -59,16 +56,23 @@ def _score(res, stem):
 # --------------------------------------------------------------------------- #
 # the noise that swamped the original ranking
 # --------------------------------------------------------------------------- #
-def test_a_record_merely_naming_a_prompt_is_not_a_suspect(tmp_path):
-    """The 2026-08-09 measurement's single biggest noise source. Any reference
-    scored `high`, which is why 52 of 148 prompts were `high` and the real
-    findings were indistinguishable from them."""
-    root = _mind(
-        tmp_path,
-        {"bug/flywheel/sprocket_wobble.md": "# Sprocket wobble\n\nIt wobbles.\n"},
-        {"gadget-alignment.md": "## gadget-alignment\n- notes: adjacent to "
-                                "sprocket_wobble.md, which is unrelated here.\n"},
-    )
+@pytest.mark.parametrize("prompt,record", [
+    # The 2026-08-09 measurement's single biggest noise source. Any reference
+    # scored `high`, which is why 52 of 148 prompts were `high` and the real
+    # findings were indistinguishable from them.
+    pytest.param("# Sprocket wobble\n\nIt wobbles.\n",
+                 "## gadget-alignment\n- notes: adjacent to "
+                 "sprocket_wobble.md, which is unrelated here.\n",
+                 id="a-record-merely-naming-a-prompt-is-not-a-suspect"),
+    # `Status:` is hand-set on most of the backlog; on its own it said nothing
+    # and contributed a whole confidence band of noise.
+    pytest.param("# Sprocket wobble\n\nStatus: planned\n\nIt wobbles.\n",
+                 "## gadget-alignment\n- notes: unrelated.\n",
+                 id="status-alone-never-makes-a-suspect"),
+])
+def test_noise_is_not_a_suspect(tmp_path, prompt, record):
+    root = _mind(tmp_path, {"bug/flywheel/sprocket_wobble.md": prompt},
+                 {"gadget-alignment.md": record})
     assert _paths(_intake.reconcile(root)) == set()
 
 
@@ -83,18 +87,6 @@ def test_a_record_asserting_the_work_shipped_is_a_suspect(tmp_path):
     )
     res = _intake.reconcile(root)
     assert "draft/bug/flywheel/sprocket_wobble.md" in _paths(res)
-
-
-def test_status_alone_never_makes_a_suspect(tmp_path):
-    """`Status:` is hand-set on most of the backlog; on its own it said nothing
-    and contributed a whole confidence band of noise."""
-    root = _mind(
-        tmp_path,
-        {"bug/flywheel/sprocket_wobble.md":
-            "# Sprocket wobble\n\nStatus: planned\n\nIt wobbles.\n"},
-        {"gadget-alignment.md": "## gadget-alignment\n- notes: unrelated.\n"},
-    )
-    assert _paths(_intake.reconcile(root)) == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -393,51 +385,52 @@ def test_a_quoted_line_gone_from_a_named_file_is_surfaced(tmp_path):
     assert any(f["kind"] == "upstream-quote-absent" for f in s[0]["findings"])
 
 
-def test_a_quoted_line_still_present_is_not_evidence(tmp_path):
-    """The control. Same prompt, same file — but the line is still there, so
-    the prompt describes live work and must stay off the list."""
-    up = _tree(tmp_path / "up", {".github/scripts/smoke_install.sh":
-                                 'pip install "./PyAutoArray[optional]"\n'
-                                 'pip install "jax<0.7" "jaxlib<0.7"\n'})
+@pytest.mark.parametrize("upstream", [
+    # The control. Same prompt, same file — but the line is still there, so
+    # the prompt describes live work and must stay off the list.
+    pytest.param({".github/scripts/smoke_install.sh":
+                  'pip install "./PyAutoArray[optional]"\n'
+                  'pip install "jax<0.7" "jaxlib<0.7"\n'},
+                 id="a-quoted-line-still-present-is-not-evidence"),
+    # Absent from the named file is not enough. A refactor that moved the line
+    # elsewhere in the tree is not the prompt shipping, so absence must be
+    # checked against the WHOLE checkout before it counts.
+    pytest.param({".github/scripts/smoke_install.sh": 'pip install "./PyAutoArray[optional]"\n',
+                  "ci/pins.sh": 'pip install "jax<0.7" "jaxlib<0.7"\n'},
+                 id="a-moved-line-is-not-a-shipped-fix"),
+])
+def test_a_quoted_line_still_in_the_checkout_is_not_evidence(tmp_path, upstream):
+    up = _tree(tmp_path / "up", upstream)
     root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
     assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
 
 
-def test_a_moved_line_is_not_a_shipped_fix(tmp_path):
-    """Absent from the named file is not enough. A refactor that moved the line
-    elsewhere in the tree is not the prompt shipping, so absence must be checked
-    against the WHOLE checkout before it counts."""
-    up = _tree(tmp_path / "up", {
-        ".github/scripts/smoke_install.sh": 'pip install "./PyAutoArray[optional]"\n',
-        "ci/pins.sh": 'pip install "jax<0.7" "jaxlib<0.7"\n'})
-    root = _mind(tmp_path / "mind", {"maintenance/ci/smoke_pin.md": _GONE_PROMPT}, {})
-    assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
-
-
-def test_quoted_output_is_not_treated_as_source(tmp_path):
-    """The precision filter that makes the leg usable. A prompt quoting its own
-    evidence — a traceback, a pytest summary, a log excerpt — writes it in a
-    BARE fence, and those lines are absent from every repo by construction.
-    Scoring them would fire leg 4 on most of the backlog."""
-    body = ("# Three pins fail the smoke gate\n\n"
-            "It lives in `scripts/interferometer/rectangular.py`.\n\n"
-            "```\n"
-            "AssertionError: Not equal to tolerance rtol=0.0001, atol=0\n"
-            " [0]: -3163.8939270532364 (ACTUAL), -3164.286252 (DESIRED)\n"
-            "```\n")
-    up = _tree(tmp_path / "up", {"scripts/interferometer/rectangular.py": "x = 1\n"})
-    root = _mind(tmp_path / "mind", {"bug/workspaces/pins.md": body}, {})
-    assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
-
-
-def test_a_quote_with_no_named_file_has_nothing_to_be_absent_from(tmp_path):
-    """The anchor requirement. Without a file the prompt names that actually
-    exists upstream, 'absent' has no referent — the quote could belong to any
-    repo, or to none."""
-    body = ("# Some pin somewhere\n\n```bash\n"
-            'pip install "jax<0.7" "jaxlib<0.7"\n```\n')
-    up = _tree(tmp_path / "up", {"unrelated.py": "x = 1\n"})
-    root = _mind(tmp_path / "mind", {"maintenance/ci/nameless.md": body}, {})
+@pytest.mark.parametrize("rel,body,upstream", [
+    # The precision filter that makes the leg usable. A prompt quoting its own
+    # evidence — a traceback, a pytest summary, a log excerpt — writes it in a
+    # BARE fence, and those lines are absent from every repo by construction.
+    # Scoring them would fire leg 4 on most of the backlog.
+    pytest.param("bug/workspaces/pins.md",
+                 "# Three pins fail the smoke gate\n\n"
+                 "It lives in `scripts/interferometer/rectangular.py`.\n\n"
+                 "```\n"
+                 "AssertionError: Not equal to tolerance rtol=0.0001, atol=0\n"
+                 " [0]: -3163.8939270532364 (ACTUAL), -3164.286252 (DESIRED)\n"
+                 "```\n",
+                 {"scripts/interferometer/rectangular.py": "x = 1\n"},
+                 id="quoted-output-is-not-treated-as-source"),
+    # The anchor requirement. Without a file the prompt names that actually
+    # exists upstream, 'absent' has no referent — the quote could belong to
+    # any repo, or to none.
+    pytest.param("maintenance/ci/nameless.md",
+                 "# Some pin somewhere\n\n```bash\n"
+                 'pip install "jax<0.7" "jaxlib<0.7"\n```\n',
+                 {"unrelated.py": "x = 1\n"},
+                 id="a-quote-with-no-named-file-has-nothing-to-be-absent-from"),
+])
+def test_an_unanchored_quote_is_not_evidence(tmp_path, rel, body, upstream):
+    up = _tree(tmp_path / "up", upstream)
+    root = _mind(tmp_path / "mind", {rel: body}, {})
     assert _paths(_intake.reconcile(root, source_reader=_up(up))) == set()
 
 

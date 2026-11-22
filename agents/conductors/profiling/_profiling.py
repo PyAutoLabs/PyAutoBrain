@@ -164,10 +164,6 @@ def grid_info(ws: Path) -> dict[str, Any]:
     }
 
 
-def load_grid(ws: Path) -> list[tuple[str, str, tuple[str, ...]]]:
-    return grid_info(ws)["grid"]
-
-
 def routing_evidence(info):
     return {key: value for key, value in info.items() if key != "grid"}
 

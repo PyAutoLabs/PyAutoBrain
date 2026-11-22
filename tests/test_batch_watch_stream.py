@@ -15,13 +15,11 @@ import io
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — puts the batch conductor on sys.path
 from test_orchestrator_dispatch import orch  # noqa: E402
 import _events  # noqa: E402

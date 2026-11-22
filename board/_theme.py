@@ -480,6 +480,23 @@ def _esc(value):
     return _html.escape(str(value), quote=True)
 
 
+def attr(value: str) -> str:
+    """Escape a string for a double-quoted HTML attribute."""
+    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def md_cell(value: str) -> str:
+    """Escape a string for a markdown table cell (the twin page's tables)."""
+    return str(value).replace("|", "\\|")
+
+
+def pages_url(home: str) -> str:
+    """The GitHub Pages site URL for a repo home, `''` when underivable."""
+    m = _re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
+    return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
+
+
 def organ(key):
     """The palette entry for a board, or the umbrella's when `key` is
     unknown — an adopting fork gets a styled page rather than a crash."""

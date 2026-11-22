@@ -10,18 +10,16 @@ Hermetic: every fixture is a fictional Mind in tmp_path, so the assertions are
 about the renderer, not about whatever backlog happens to be checked out.
 """
 
-import importlib.util
 import re
 import sys
 from pathlib import Path
 
+import pytest
+
+from _helpers import load_module
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location(
-    "_intake_dashboard_under_test",
-    BRAIN_HOME / "agents" / "conductors" / "intake" / "_intake.py")
-_intake = importlib.util.module_from_spec(_spec)
-sys.modules["_intake_dashboard_under_test"] = _intake
-_spec.loader.exec_module(_intake)
+_intake = load_module("_intake_dashboard_under_test", "agents/conductors/intake/_intake.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -768,14 +766,22 @@ def test_recent_links_a_registry_row_to_its_own_entry_not_the_file_top(tmp_path)
     assert "flywheel-balance" not in page
 
 
-def test_an_in_flight_prompt_can_be_dated_by_its_own_header(tmp_path):
-    """The prompt's `Issued:` header is its own copy of the registry date, so
-    an orphan (no row claims it) still dates rather than dropping out."""
+@pytest.mark.parametrize("headers", [
+    # The prompt's `Issued:` header is its own copy of the registry date, so
+    # an orphan (no row claims it) still dates rather than dropping out.
+    pytest.param("Issued: 2026-08-19", id="an-in-flight-prompt-can-be-dated-by-its-own-header"),
+    # An issued prompt keeps the `Filed:` it had as a draft; the later, more
+    # specific event is the one the feed reports.
+    pytest.param("Filed: 2026-07-01\nIssued: 2026-08-19",
+                 id="issued-beats-filed-on-a-prompt-carrying-both"),
+])
+def test_an_in_flight_prompt_is_dated_by_its_issued_header(tmp_path, headers):
     body = _prompt("Sprocket calibration").replace(
-        "Status: formalised", "Status: formalised\nIssued: 2026-08-19")
+        "Status: formalised", f"Status: formalised\n{headers}")
     rows = _intake.census(
         _mind(tmp_path, active={"sprocket_calibration.md": body}))["recent"]
     assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]
+
 
 
 def test_a_registry_date_beats_the_prompts_own_copy(tmp_path):
@@ -876,13 +882,8 @@ def test_html_hides_the_overflow_rows_and_offers_a_button(tmp_path):
     assert section.count("<tr>") == 10
     assert section.count("<tr hidden>") == 40
     assert '<button class="more" data-page="10">… 10 more (40 left)</button>' in section
-
-
-def test_html_ships_every_row_so_a_reader_without_js_sees_the_feed(tmp_path):
-    """Hidden, not absent: with JS off the whole feed is there rather than ten
-    rows and a dead button."""
-    html = _intake.render_dashboard_html(_intake.census(_many(tmp_path, 80)))
-    section = html.split("<h2>Recent")[1]
+    # Hidden, not absent: with JS off the whole feed is there rather than ten
+    # rows and a dead button — and those fifty are every row there is.
     assert section.count("<tr") == 50
 
 
@@ -938,15 +939,7 @@ def test_an_epic_member_is_not_offered_standalone_in_the_feed(tmp_path):
     assert [r["title"] for r in _intake.census(mind)["recent"]] == ["Loose end"]
 
 
-def test_issued_beats_filed_on_a_prompt_carrying_both(tmp_path):
-    """An issued prompt keeps the `Filed:` it had as a draft; the later, more
-    specific event is the one the feed reports."""
-    body = _prompt("Sprocket").replace(
-        "Status: formalised",
-        "Status: formalised\nFiled: 2026-07-01\nIssued: 2026-08-19")
-    rows = _intake.census(
-        _mind(tmp_path, active={"sprocket.md": body}))["recent"]
-    assert [(r["date"], r["event"]) for r in rows] == [("2026-08-19", "issued")]
+
 
 
 # Optional thematic metadata remains useful when selecting work.

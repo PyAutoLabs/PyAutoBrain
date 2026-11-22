@@ -203,11 +203,6 @@ def parse_ref(ref):
     fail(5, f"cannot parse ref '{ref}' — use a full issue/PR/discussion URL or owner/repo#N")
 
 
-def parse_issue_ref(ref):
-    owner_repo, number, _ = parse_ref(ref)
-    return owner_repo, number
-
-
 def pr_block(owner_repo, number):
     """The change-shape block for a PR ref; None when the pulls endpoint is
     unreadable (surface degrades, never invents)."""

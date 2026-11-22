@@ -22,7 +22,6 @@ from pathlib import Path
 import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 sys.path.insert(0, str(BRAIN / "bin"))
 import test_orchestrator_closeout as tc  # noqa: E402 — the phase-4b and M3.6j fixtures
 from test_orchestrator_closeout import (FIT8, GA7, GA8, PR1, PR2, Agents,  # noqa: E402
@@ -92,26 +91,15 @@ def test_s5_the_ci_deadline_leaves_the_merge_margin_before_review_at(tmp_path):
     assert sp.kws and all(kw["ci_until"] == "2026-11-04T11:25:00Z" for kw in sp.kws)
 
 
-def test_s5_red_or_unknown_ci_still_refuses_with_no_session(tmp_path):
+def test_s5_unknown_ci_still_refuses_with_no_session(tmp_path):
+    """Red CI: test_orchestrator_closeout.py test_red_ci_is_refused_…; NO-CHECKS
+    after its grace: test_witness_343_… there."""
     mind, brief, home, sp = _shift(tmp_path)
-    tc._tick(brief, mind, home, sp, 1, health=tc._health({PR1: "FAILED", PR2: "UNKNOWN"}))
+    tc._tick(brief, mind, home, sp, 1, health=tc._health({PR1: "UNKNOWN", PR2: "UNKNOWN"}))
     assert sp.closeouts == []
     c = orch.read_counters(orch.slot_dir(brief, home))
-    assert c["closeouts"][PR1]["why"] == "CI FAILED — never merged unattended"
+    assert c["closeouts"][PR1]["why"] == "CI UNKNOWN — never merged unattended"
     assert c["closeouts"][PR2]["why"] == "CI UNKNOWN — never merged unattended"
-
-
-def test_s5_no_checks_waits_out_the_grace_then_refuses(tmp_path):
-    mind, brief, home, sp = _shift(tmp_path)
-    none = tc._health({PR1: "NO-CHECKS", PR2: "NO-CHECKS"})
-    tc._tick(brief, mind, home, sp, 1, health=none)
-    tc._tick(brief, mind, home, sp, 9, health=none)
-    c = orch.read_counters(orch.slot_dir(brief, home))
-    assert sp.closeouts == [] and PR1 not in c["closeouts"]   # waiting, not refused
-    tc._tick(brief, mind, home, sp, 12, health=none)          # 11 min after first seen
-    c = orch.read_counters(orch.slot_dir(brief, home))
-    assert sp.closeouts == []
-    assert c["closeouts"][PR1]["why"] == "CI NO-CHECKS — never merged unattended"
 
 
 # --- S2 + S5: the rendered close-out prompt -------------------------------------------
@@ -215,25 +203,19 @@ def test_s6_a_pr_disjoint_from_every_pr_merged_ahead_is_closed_out_without_updat
 
 
 @pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
-def test_s6_one_shared_file_still_gets_the_branch_update(tmp_path):
-    files = {GA7: ["autogalaxy/a.py", "autogalaxy/shared.py"], GA8: ["autogalaxy/shared.py"]}
-    mind, brief, home, sp, r = _merged_ahead(tmp_path, files)
+@pytest.mark.parametrize("files, mergeable", [
+    pytest.param({GA7: ["autogalaxy/a.py", "autogalaxy/shared.py"],
+                  GA8: ["autogalaxy/shared.py"]}, "", id="one-shared-file"),
+    pytest.param({GA7: ["autogalaxy/a.py"], GA8: ["autogalaxy/b.py"]}, "CONFLICTING",
+                 id="conflicting-even-with-disjoint-files"),
+    pytest.param({GA7: ["autogalaxy/a.py"]}, "", id="unreadable-file-list-fails-toward-it"),
+])
+def test_s6_the_branch_update_still_runs(tmp_path, files, mergeable):
+    mind, brief, home, sp, r = _merged_ahead(tmp_path, files, mergeable=mergeable)
     assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
-
-
-@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
-def test_s6_a_conflicting_pr_gets_the_update_even_with_disjoint_files(tmp_path):
-    files = {GA7: ["autogalaxy/a.py"], GA8: ["autogalaxy/b.py"]}
-    mind, brief, home, sp, r = _merged_ahead(tmp_path, files, mergeable="CONFLICTING")
-    assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
-
-
-@pytest.mark.usefixtures("shift_held_open")   # M3.7c: no early close
-def test_s6_an_unreadable_file_list_fails_toward_the_update(tmp_path):
-    mind, brief, home, sp, r = _merged_ahead(tmp_path, {GA7: ["autogalaxy/a.py"]})
-    assert sp.closeouts[-1] == ("picked", GA8, {"update_after": [GA7]})
-    # Kept as unreadable (None), never read again (review round 1, finding 2).
-    assert orch.read_counters(orch.slot_dir(brief, home))["pr_files"][GA8] is None
+    if GA8 not in files:
+        # Kept as unreadable (None), never read again (review round 1, finding 2).
+        assert orch.read_counters(orch.slot_dir(brief, home))["pr_files"][GA8] is None
 
 
 @pytest.mark.parametrize("bad", ["none", "raise"])

@@ -8,18 +8,12 @@ or written.
 """
 
 import os
-import subprocess
-from pathlib import Path
 
 import pytest
 
+from _helpers import init_repo, source_worktree
 
-WORKTREE_SH = Path(__file__).resolve().parents[1] / "bin/worktree.sh"
 ROOT_ACTIVATE = b"# fabricated root activate.sh - must never change\nexport FAKE_ROOT=1\n"
-
-
-def _git(*args):
-    subprocess.run(["git", *map(str, args)], check=True, capture_output=True)
 
 
 @pytest.fixture
@@ -29,18 +23,7 @@ def workspace(tmp_path):
     mind.mkdir(parents=True)
     (mind / "repos.yaml").write_text("repos:\n  Demo:\n    path: Demo\n")
     (main / "activate.sh").write_bytes(ROOT_ACTIVATE)
-    demo = main / "Demo"
-    demo.mkdir()
-    remote = tmp_path / "remote.git"
-    _git("init", "--bare", remote)
-    _git("init", "-b", "main", demo)
-    _git("-C", demo, "config", "user.email", "test@example.com")
-    _git("-C", demo, "config", "user.name", "Test")
-    (demo / "README.md").write_text("demo\n")
-    _git("-C", demo, "add", "README.md")
-    _git("-C", demo, "commit", "-m", "initial")
-    _git("-C", demo, "remote", "add", "origin", remote)
-    _git("-C", demo, "push", "-u", "origin", "main")
+    init_repo(main / "Demo", remote=tmp_path / "remote.git")
 
     bundles = tmp_path / "bundles"
     env = os.environ | {
@@ -52,10 +35,7 @@ def workspace(tmp_path):
 
 
 def _run(env, cmd):
-    result = subprocess.run(
-        ["bash", "-c", f'source "{WORKTREE_SH}"; {cmd}'],
-        env=env, capture_output=True, text=True,
-    )
+    result = source_worktree(cmd, env)
     assert result.returncode == 0, result.stderr
     return result
 

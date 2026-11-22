@@ -121,17 +121,17 @@ Read-only: this scanner never writes to a scanned repository.
 
 from __future__ import annotations
 
-import argparse
 import fnmatch
-import json
 import os
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _repo_paths import repo_path, iter_checkouts  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _hygiene_scan import finding_row, main, repository_paths  # noqa: E402
 
 # Backtick-quoted spans, and bare scripts//notebooks/ path mentions.
 BACKTICK_REFERENCE = re.compile(r"`([^`\n]{1,200}?)`")
@@ -308,16 +308,6 @@ def line_of(offsets: list[int], position: int) -> int:
         else:
             high = middle - 1
     return low + 1
-
-
-def repository_paths(root: Path) -> list[Path]:
-    """Return user-facing ``*_workspace`` and ``HowTo*`` repositories."""
-    candidates = [*iter_checkouts(root), *root.glob("*_workspace"), *root.glob("HowTo*")]
-    candidates = [p for p in candidates if p.name.endswith("_workspace") or p.name.startswith("HowTo")]
-    return sorted(
-        {path.resolve() for path in candidates if (path / "scripts").is_dir()},
-        key=lambda path: path.name.lower(),
-    )
 
 
 def scanned_files(repository: Path) -> list[Path]:
@@ -687,15 +677,7 @@ def summary_for(findings: list[Finding], repository_count: int, skipped: int) ->
 
 def row_for(root: Path) -> dict:
     findings, repository_count, skipped = scan(root)
-    return {
-        "mode": "refs",
-        "kind": "finding",
-        "status": "finding" if findings else "clean",
-        "count": len(findings),
-        "summary": summary_for(findings, repository_count, skipped),
-        "delegate": "/refactor",
-        "findings": [asdict(finding) for finding in findings],
-    }
+    return finding_row("refs", findings, summary_for(findings, repository_count, skipped))
 
 
 def render_human(row: dict) -> None:
@@ -709,23 +691,5 @@ def render_human(row: dict) -> None:
         print(f"    {finding['file']}:{finding['line']} {arrow} {finding['reference']}")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, required=True)
-    output = parser.add_mutually_exclusive_group()
-    output.add_argument("--json-row", action="store_true")
-    output.add_argument("--summary", action="store_true")
-    args = parser.parse_args()
-
-    row = row_for(args.root.resolve())
-    if args.json_row:
-        print(json.dumps(row, sort_keys=True))
-    elif args.summary:
-        print(f"{row['count']}|{row['summary']}")
-    else:
-        render_human(row)
-    return 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(row_for, render_human))

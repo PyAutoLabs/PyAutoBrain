@@ -14,7 +14,6 @@ Repo names are read from the fixtures, never written here (tenant firewall).
 from __future__ import annotations
 
 import datetime as _dt
-import importlib.util
 import json
 import os
 import re
@@ -27,12 +26,8 @@ import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
 FIX = Path(__file__).resolve().parent / "fixtures" / "premise"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 sys.path.insert(0, str(BRAIN / "agents" / "conductors" / "batch"))
-_spec = importlib.util.spec_from_file_location(
-    "_batch_premise", BRAIN / "agents" / "conductors" / "batch" / "_batch.py")
-_batch = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_batch)
+from _shift_fixtures import _batch  # noqa: E402
 import _mind_writer  # noqa: E402
 import _orchestrator as orch  # noqa: E402
 import _premise  # noqa: E402
@@ -133,18 +128,18 @@ def test_witness_a_is_cheap(tmp_path):
 
 # --- the timing probe's guards ---------------------------------------------------
 
-def test_a_timing_record_that_still_shows_the_overrun_is_not_obsolete(tmp_path):
-    root = _delaunay_root(tmp_path, [330.0, 338.8, 353.9, 305.0])
+@pytest.mark.parametrize("secs, start, evidence", [
+    pytest.param([330.0, 338.8, 353.9, 305.0], "2026-11-02", "timing reproduced",
+                 id="a-record-that-still-shows-the-overrun-is-not-obsolete"),
+    pytest.param([9.0, 10.0], "2026-09-16", "timing stale-record",
+                 id="a-stale-record-decides-nothing"),
+])
+def test_a_timing_record_that_does_not_contradict_the_claim_is_ok(tmp_path, secs, start,
+                                                                   evidence):
+    root = _delaunay_root(tmp_path, secs, start=start)
     res = _premise.check(DELAUNAY, root, fetch=False, at=SHIFT, offline=True)
     assert res["status"] == "ok", res
-    assert any(e.startswith("timing reproduced") for e in res["evidence"])
-
-
-def test_a_stale_timing_record_decides_nothing(tmp_path):
-    root = _delaunay_root(tmp_path, [9.0, 10.0], start="2026-09-16")
-    res = _premise.check(DELAUNAY, root, fetch=False, at=SHIFT, offline=True)
-    assert res["status"] == "ok", res
-    assert any(e.startswith("timing stale-record") for e in res["evidence"])
+    assert any(e.startswith(evidence) for e in res["evidence"])
 
 
 def test_a_release_profile_claim_is_not_compared_with_smoke_timings(tmp_path):
@@ -190,48 +185,26 @@ def test_everything_found_is_ok(tmp_path):
     assert _premise.verified_value(res).startswith(res["date"])
 
 
-def test_a_rename_is_moved_not_gone(tmp_path):
-    root = _demo(tmp_path)
-    d = _draft(tmp_path, "demo_repo", "Body.", witness="`pkg/moved.py` still runs")
-    res = _premise.check(d, root, fetch=False, offline=True)
-    assert res["status"] == "ok", res
-    assert any("pkg/new/moved.py" in e for e in res["evidence"])
-
-
-def test_one_path_gone_in_the_body_only_is_unknown(tmp_path):
-    root = _demo(tmp_path)
-    d = _draft(tmp_path, "demo_repo", "Read `pkg/old.py` for context; edit `pkg/a.py`.")
-    res = _premise.check(d, root, fetch=False, offline=True)
-    assert res["status"] == "unknown", res
-    assert any(e.startswith("GONE pkg/old.py") for e in res["evidence"])
-
-
-def test_every_named_path_gone_is_obsolete(tmp_path):
-    root = _demo(tmp_path)
-    d = _draft(tmp_path, "demo_repo", "Merge `pkg/old.py` into `pkg/other.py`.")
-    assert _premise.check(d, root, fetch=False, offline=True)["status"] == "obsolete"
-
-
-def test_a_removed_function_named_by_the_witness_is_obsolete(tmp_path):
-    root = _demo(tmp_path)
-    d = _draft(tmp_path, "demo_repo", "Edit `pkg/a.py`.", witness="`dropped()` is fast")
-    res = _premise.check(d, root, fetch=False, offline=True)
-    assert res["status"] == "obsolete", res
-    assert any(e.startswith("GONE dropped()") for e in res["evidence"])
-
-
-def test_a_file_to_create_is_not_evidence(tmp_path):
-    root = _demo(tmp_path)
-    d = _draft(tmp_path, "demo_repo", "Add `pkg/brand_new.py` beside `pkg/a.py`.",
-               witness="`pkg/brand_new.py` exists")
-    assert _premise.check(d, root, fetch=False, offline=True)["status"] == "ok"
-
-
-def test_at_replays_main_as_it_stood(tmp_path):
-    root = _demo(tmp_path)
-    d = _draft(tmp_path, "demo_repo", "Merge `pkg/old.py` into `pkg/other.py`.")
-    res = _premise.check(d, root, fetch=False, offline=True, at="2026-09-15T00:00Z")
-    assert res["status"] == "ok", res
+@pytest.mark.parametrize("body, witness, at, status, evidence", [
+    pytest.param("Body.", "`pkg/moved.py` still runs", None, "ok", r"pkg/new/moved\.py",
+                 id="a-rename-is-moved-not-gone"),
+    pytest.param("Read `pkg/old.py` for context; edit `pkg/a.py`.", "", None, "unknown",
+                 r"^GONE pkg/old\.py", id="one-path-gone-in-the-body-only-is-unknown"),
+    pytest.param("Merge `pkg/old.py` into `pkg/other.py`.", "", None, "obsolete", None,
+                 id="every-named-path-gone-is-obsolete"),
+    pytest.param("Edit `pkg/a.py`.", "`dropped()` is fast", None, "obsolete",
+                 r"^GONE dropped\(\)", id="a-removed-function-named-by-the-witness-is-obsolete"),
+    pytest.param("Add `pkg/brand_new.py` beside `pkg/a.py`.", "`pkg/brand_new.py` exists", None,
+                 "ok", None, id="a-file-to-create-is-not-evidence"),
+    pytest.param("Merge `pkg/old.py` into `pkg/other.py`.", "", "2026-09-15T00:00Z", "ok",
+                 None, id="at-replays-main-as-it-stood"),
+])
+def test_gone_moved_and_absent_names_in_the_demo_repo(tmp_path, body, witness, at, status,
+                                                      evidence):
+    d = _draft(tmp_path, "demo_repo", body, witness=witness)
+    res = _premise.check(d, _demo(tmp_path), fetch=False, offline=True, at=at)
+    assert res["status"] == status, res
+    assert evidence is None or any(re.search(evidence, e) for e in res["evidence"]), res
 
 
 def test_a_root_level_namesake_deletion_is_not_evidence(tmp_path):

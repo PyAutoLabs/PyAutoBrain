@@ -7,19 +7,14 @@ conductor's own `census` — the check `pyauto-brain intake census` applies — 
 the header rules are never restated in this file.
 """
 
-import importlib.util
 import re
-import sys
 from pathlib import Path
+
+from _helpers import load_module
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 TEMPLATE = BRAIN_HOME / "skills" / "profiling" / "lifecycle.md"
-_spec = importlib.util.spec_from_file_location(
-    "_intake_lifecycle_under_test",
-    BRAIN_HOME / "agents" / "conductors" / "intake" / "_intake.py")
-_intake = importlib.util.module_from_spec(_spec)
-sys.modules["_intake_lifecycle_under_test"] = _intake
-_spec.loader.exec_module(_intake)
+_intake = load_module("_intake_lifecycle_under_test", "agents/conductors/intake/_intake.py")
 
 PLACEHOLDERS = ("<dataset_type>", "<variant>", "<instrument>", "<regime>", "<trigger>")
 BLOCK = re.compile(r"^```prompt (\S+)\n(.*?)^```$", re.M | re.S)

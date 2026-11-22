@@ -13,27 +13,18 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-import shutil
-import sys
-from pathlib import Path
 
-import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 import test_orchestrator_digest as t  # noqa: E402 — the 3d fixtures
 from test_orchestrator_dispatch import _brief, _digest, orch  # noqa: E402
 import _mind_writer as mw  # noqa: E402
+from _shift_fixtures import at as _later  # noqa: E402
 
 NOW = d.NOW
 AFTER = NOW + _dt.timedelta(hours=3)          # past review-at 11:30Z
 PR = "https://github.com/o/r/pull/41"
 ISSUE = t.ISSUE
-
-
-def _later(minutes):
-    return NOW + _dt.timedelta(minutes=minutes)
 
 
 def _digest_of(brief, home):
@@ -138,31 +129,16 @@ def test_jsonl_and_table_upserts_keep_one_row_per_key():
     assert table.count("| a |") == 1 and "| a | 2 | 7 |" in table
 
 
-@pytest.mark.skipif(not t.LEDGER_MERGE.is_file() or shutil.which("git") is None,
-                    reason="needs git and PyAutoMind's scripts/ledger_merge.py")
+@t.sf.needs_ledger_merge
 def test_one_pilot_jsonl_line_per_shift_and_a_late_arrival_amends_it(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys, "dont_write_bytecode", False)
-    bare = tmp_path / "remote.git"
-    t.git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    canon = tmp_path / "canon"
-    t.git(tmp_path, "clone", "-q", str(bare), str(canon))
-    t.git(canon, "config", "user.name", "Test")
-    t.git(canon, "config", "user.email", "test@example.invalid")
-    (canon / "scripts").mkdir()
-    shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
-    folder = canon / "draft" / "feature" / "pyautobrain"
-    folder.mkdir(parents=True)
-    for n in ("t1", "t2"):
-        (folder / f"{n}.md").write_text(d.PROMPT.format(name=n))
+    bare, canon = t.sf.ledger_mind(tmp_path, monkeypatch)
+    tasks = t.sf.write_drafts(canon, ("t1", "t2"))
     (canon / "batches").mkdir()
     brief = canon / "batches" / "2026-11-04-am.md"
-    tasks = "\n".join(f"    - draft/feature/pyautobrain/{n}.md" for n in ("t1", "t2"))
     brief.write_text(d.BRIEF.format(tasks=tasks, budget=100000, extra="")
                      .replace("- review-at: 2026-11-04T11:30Z\n",
                               f"- review-at: 2026-11-04T11:30Z\n- issue: {ISSUE}\n"))
-    t.git(canon, "add", "-A")
-    t.git(canon, "commit", "-q", "-m", "seed")
-    t.git(canon, "push", "-q", "origin", "HEAD:main")
+    t.sf.push(canon)
 
     home = tmp_path / "home"
     slot = orch.slot_dir(brief, home)

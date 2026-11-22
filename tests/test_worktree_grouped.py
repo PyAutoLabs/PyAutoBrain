@@ -2,14 +2,8 @@
 
 import os
 import subprocess
-from pathlib import Path
 
-
-WORKTREE_SH = Path(__file__).resolve().parents[1] / "bin/worktree.sh"
-
-
-def _git(*args):
-    subprocess.run(["git", *map(str, args)], check=True, capture_output=True)
+from _helpers import WORKTREE_SH, init_repo, source_worktree
 
 
 def test_create_and_remove_from_grouped_checkout(tmp_path):
@@ -17,18 +11,7 @@ def test_create_and_remove_from_grouped_checkout(tmp_path):
     mind = main / "PyAutoMind"
     mind.mkdir(parents=True)
     (mind / "repos.yaml").write_text("repos:\n  Demo:\n    path: science/Demo\n")
-    demo = main / "science" / "Demo"
-    demo.mkdir(parents=True)
-    remote = tmp_path / "remote.git"
-    _git("init", "--bare", remote)
-    _git("init", "-b", "main", demo)
-    _git("-C", demo, "config", "user.email", "test@example.com")
-    _git("-C", demo, "config", "user.name", "Test")
-    (demo / "README.md").write_text("demo\n")
-    _git("-C", demo, "add", "README.md")
-    _git("-C", demo, "commit", "-m", "initial")
-    _git("-C", demo, "remote", "add", "origin", remote)
-    _git("-C", demo, "push", "-u", "origin", "main")
+    init_repo(main / "science" / "Demo", remote=tmp_path / "remote.git")
 
     bundle = tmp_path / "bundles" / "task"
     env = os.environ | {
@@ -36,10 +19,7 @@ def test_create_and_remove_from_grouped_checkout(tmp_path):
         "PYAUTO_WT_ROOT": str(bundle.parent),
         "PYAUTO_WT_FORCE": "1",
     }
-    result = subprocess.run(
-        ["bash", "-c", f'source "{WORKTREE_SH}"; worktree_create task Demo'],
-        env=env, capture_output=True, text=True,
-    )
+    result = source_worktree("worktree_create task Demo", env)
     assert result.returncode == 0, result.stderr
     assert (bundle / "Demo" / ".git").is_file()
     assert (bundle / "PyAutoMind").is_symlink()
@@ -52,9 +32,6 @@ def test_create_and_remove_from_grouped_checkout(tmp_path):
     assert lookup.returncode == 0, lookup.stderr
     assert lookup.stdout.strip() == str(bundle / "Demo")
 
-    result = subprocess.run(
-        ["bash", "-c", f'source "{WORKTREE_SH}"; worktree_remove task'],
-        env=env, capture_output=True, text=True,
-    )
+    result = source_worktree("worktree_remove task", env)
     assert result.returncode == 0, result.stderr
     assert not bundle.exists()

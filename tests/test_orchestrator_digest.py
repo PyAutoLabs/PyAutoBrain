@@ -12,22 +12,18 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
+import _shift_fixtures as sf
+from _shift_fixtures import BATCH, BRAIN, LEDGER_MERGE, NOW, git  # noqa: F401 — re-exported
 import _brief  # noqa: E402
 import _digest  # noqa: E402
 import _orchestrator as orch  # noqa: E402
 
-NOW = _dt.datetime(2026, 11, 4, 9, 0, tzinfo=_dt.timezone.utc)
 AFTER = NOW + _dt.timedelta(hours=3)
 ISSUE = "https://github.com/example-org/example-mind/issues/9999"
 
@@ -235,28 +231,19 @@ def test_brief_check_accepts_a_whole_digest(tmp_path):
     assert res["ok"], res["errors"]
 
 
-def test_brief_check_refuses_a_missing_counter(tmp_path):
+@pytest.mark.parametrize("old, new, error", [
+    pytest.param("- reverts: 0\n", "", "digest: counter reverts missing", id="a-missing-counter"),
+    pytest.param(" · why: scoped epic e1", "", "digest: backlog pick picked has no `why:`",
+                 id="a-pick-without-a-reason"),
+    pytest.param("#### picked", "#### someone-else", "digest: picked has no proof packet",
+                 id="a-task-without-a-packet"),
+])
+def test_brief_check_refuses(tmp_path, old, new, error):
     mind, brief, home = _shift(tmp_path)
-    rec = _with_digest(tmp_path, brief, home,
-                       lambda d: d.replace("- reverts: 0\n", ""))
-    res = _brief.check(rec, mind)
-    assert not res["ok"] and "digest: counter reverts missing" in res["errors"]
-
-
-def test_brief_check_refuses_a_pick_without_a_reason(tmp_path):
-    mind, brief, home = _shift(tmp_path)
-    rec = _with_digest(tmp_path, brief, home,
-                       lambda d: d.replace(" · why: scoped epic e1", ""))
+    rec = _with_digest(tmp_path, brief, home, lambda d: d.replace(old, new))
     res = _brief.check(rec, mind)
     assert not res["ok"]
-    assert any("backlog pick picked has no `why:`" in e for e in res["errors"])
-
-
-def test_brief_check_refuses_a_task_without_a_packet(tmp_path):
-    mind, brief, home = _shift(tmp_path)
-    rec = _with_digest(tmp_path, brief, home,
-                       lambda d: d.replace("#### picked", "#### someone-else"))
-    assert "digest: picked has no proof packet" in _brief.check(rec, mind)["errors"]
+    assert any(e == error or e.startswith(error + " ") for e in res["errors"]), res["errors"]
 
 
 # --- posted exactly once ---------------------------------------------------------
@@ -355,36 +342,14 @@ def test_the_html_packet_is_opt_in(tmp_path):
 
 # --- the record append, through the one Mind writer ------------------------------
 
-LEDGER_MERGE = BRAIN.parent / "PyAutoMind" / "scripts" / "ledger_merge.py"
-if not LEDGER_MERGE.is_file():
-    LEDGER_MERGE = Path(os.environ.get("PYAUTO_MIND", "/nonexistent")) / "scripts" / "ledger_merge.py"
-
-
-def git(cwd, *args):
-    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    assert res.returncode == 0, (args, res.stderr)
-    return res
-
-
-@pytest.mark.skipif(not LEDGER_MERGE.is_file() or shutil.which("git") is None,
-                    reason="needs git and PyAutoMind's scripts/ledger_merge.py")
+@sf.needs_ledger_merge
 def test_the_digest_lands_in_the_record_on_mind_main(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys, "dont_write_bytecode", False)
-    bare = tmp_path / "remote.git"
-    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    canon = tmp_path / "canon"
-    git(tmp_path, "clone", "-q", str(bare), str(canon))
-    git(canon, "config", "user.name", "Test")
-    git(canon, "config", "user.email", "test@example.invalid")
+    bare, canon = sf.ledger_mind(tmp_path, monkeypatch)
     _mind(canon)
-    (canon / "scripts").mkdir()
-    shutil.copy(LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
     (canon / "batches").mkdir()
     brief = canon / "batches" / "2026-11-04-am.md"
     brief.write_text(BRIEF.format(issue=ISSUE, packet=""))
-    git(canon, "add", "-A")
-    git(canon, "commit", "-q", "-m", "seed")
-    git(canon, "push", "-q", "origin", "HEAD:main")
+    sf.push(canon)
 
     home = tmp_path / "home"
     _run_shift(tmp_path, brief, canon, home)

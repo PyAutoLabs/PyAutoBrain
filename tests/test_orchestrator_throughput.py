@@ -16,13 +16,10 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_closeout as co  # noqa: E402 — the 4b close-out fixtures
 import test_orchestrator_digest as t  # noqa: E402 — the 3d fixtures
 import test_orchestrator_dispatch as d  # noqa: E402 — the real-spawner fixtures

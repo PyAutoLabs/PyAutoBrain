@@ -10,12 +10,10 @@ pass reads it locally and never fetches.
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -25,7 +23,6 @@ BRAIN = Path(__file__).resolve().parents[1]
 BATCH = BRAIN / "agents" / "conductors" / "batch"
 sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
 sys.path.insert(0, str(BATCH))
-sys.path.insert(0, str(BRAIN / "tests"))
 import _batch  # noqa: E402
 import _brief  # noqa: E402
 import _digest  # noqa: E402
@@ -33,8 +30,8 @@ import _mind_writer as mw  # noqa: E402
 import _orchestrator as orch  # noqa: E402
 import _questions  # noqa: E402
 import test_orchestrator_dispatch as d  # noqa: E402
+from _shift_fixtures import git, needs_git  # noqa: E402
 
-needs_git = pytest.mark.skipif(not shutil.which("git"), reason="needs git")
 
 NOW = d.NOW
 FOLDER = "draft/feature/pyautogut"
@@ -106,12 +103,6 @@ ACTIVE = """\
 """
 
 LIFECYCLE = 'QUESTION_KINDS = ({kinds})\n'
-
-
-def git(cwd, *args):
-    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    assert res.returncode == 0, (args, res.stderr)
-    return res
 
 
 def _prompt(name, extra="", **swap):

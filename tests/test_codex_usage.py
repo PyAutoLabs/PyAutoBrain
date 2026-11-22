@@ -1,15 +1,13 @@
 import json
-import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
+from _helpers import load_module
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "bin" / "codex_usage.py"
-SPEC = importlib.util.spec_from_file_location("codex_usage", SCRIPT)
-assert SPEC and SPEC.loader
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+MODULE = load_module("codex_usage", SCRIPT, register=False)
 aggregate, parse_rollout = MODULE.aggregate, MODULE.parse_rollout
 
 

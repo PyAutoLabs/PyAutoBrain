@@ -9,15 +9,9 @@ called. Fictional fixtures only.
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 from pathlib import Path
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
-import _batch  # noqa: E402
+from _shift_fixtures import BATCH, BRAIN, _batch, git_as_t as _git
 
 ISSUE = "https://github.com/example-org/PyAutoMind/issues/42"
 GOALS = "# Goals\n\n## 1. Land the flywheel rework\n- epics: flywheel-rework\n"
@@ -36,12 +30,6 @@ BRIEF = """\
   - merge-cap: 0
   - token-budget: 5000000
 {extra}"""
-
-
-def _git(cwd, *args):
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, env=env, capture_output=True)
 
 
 def _mind(tmp_path: Path) -> Path:

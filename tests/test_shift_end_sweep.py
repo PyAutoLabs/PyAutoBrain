@@ -24,22 +24,20 @@ and the red handling; "The watcher's network surface", amendment M3.7e):
 from __future__ import annotations
 
 import ast
-import datetime as _dt
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
 BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_closeout as tc  # noqa: E402 — the 4b and M3.6j fixtures
 from test_orchestrator_closeout import FIT8, GA7, Agents  # noqa: E402
 from test_orchestrator_digest import _brief, _digest, orch  # noqa: E402
 import _mind_writer as mw  # noqa: E402
+from _shift_fixtures import at as _at  # noqa: E402
 
 t = tc.t
 NOW = t.NOW
@@ -72,10 +70,6 @@ jobs:
           )
           for proj in "${!WS[@]}"; do
 """
-
-
-def _at(minutes):
-    return NOW + _dt.timedelta(minutes=minutes)
 
 
 def _sha(c):

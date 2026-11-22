@@ -14,16 +14,14 @@ import datetime as _dt
 import json
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
-import pytest
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 from test_orchestrator_dispatch import orch  # noqa: E402
 import _events  # noqa: E402
+from _shift_fixtures import at as _at  # noqa: E402
 
 NOW = d.NOW
 FIXTURE = BRAIN / "tests" / "fixtures" / "shift_2026-11-14-pm3"
@@ -31,10 +29,6 @@ PR = "https://github.com/example-org/example-lib/pull/901"
 PR2 = "https://github.com/example-org/other-lib/pull/904"
 ISSUE = "https://github.com/example-org/example-workspace/issues/670"
 INFO = {"review_at": "2026-11-04T11:30Z", "named": 2, "merge_cap": 2, "token_budget": "400000"}
-
-
-def _at(minutes: float) -> _dt.datetime:
-    return NOW + _dt.timedelta(minutes=minutes)
 
 
 def _slot(tmp_path) -> Path:

@@ -30,16 +30,14 @@ reports and delegates to /refactor; it never edits a file.
 
 from __future__ import annotations
 
-import argparse
 import ast
-import json
 import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _repo_paths import iter_checkouts  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _hygiene_scan import finding_row, main, repository_paths  # noqa: E402
 
 SKIP_PARTS = {".git", "__pycache__", "build", "dist", ".ipynb_checkpoints"}
 # A newline in a string value is ordinary text, not evidence of a mangled macro.
@@ -59,16 +57,6 @@ class ParseError:
     repo: str
     file: str
     message: str
-
-
-def repository_paths(root: Path) -> list[Path]:
-    """Return user-facing ``*_workspace`` and ``HowTo*`` repositories."""
-    candidates = [*iter_checkouts(root), *root.glob("*_workspace"), *root.glob("HowTo*")]
-    candidates = [p for p in candidates if p.name.endswith("_workspace") or p.name.startswith("HowTo")]
-    return sorted(
-        {path.resolve() for path in candidates if (path / "scripts").is_dir()},
-        key=lambda path: path.name.lower(),
-    )
 
 
 def warned_count(source: str, path: Path) -> int:
@@ -156,22 +144,8 @@ def summary_for(findings: list[Finding], errors: list[ParseError], repos: int) -
 
 def row_for(root: Path) -> dict:
     findings, errors, repository_count = scan(root)
-    if errors:
-        status = "partial"
-    elif findings:
-        status = "finding"
-    else:
-        status = "clean"
-    return {
-        "mode": "escapes",
-        "kind": "finding",
-        "status": status,
-        "count": len(findings),
-        "summary": summary_for(findings, errors, repository_count),
-        "delegate": "/refactor",
-        "findings": [asdict(finding) for finding in findings],
-        "parse_errors": [asdict(error) for error in errors],
-    }
+    return finding_row(
+        "escapes", findings, summary_for(findings, errors, repository_count), errors)
 
 
 def render_human(row: dict) -> None:
@@ -188,23 +162,5 @@ def render_human(row: dict) -> None:
             print(f"  {error['repo']}/{error['file']}: {error['message']}")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, required=True)
-    output = parser.add_mutually_exclusive_group()
-    output.add_argument("--json-row", action="store_true")
-    output.add_argument("--summary", action="store_true")
-    args = parser.parse_args()
-
-    row = row_for(args.root.resolve())
-    if args.json_row:
-        print(json.dumps(row, sort_keys=True))
-    elif args.summary:
-        print(f"{row['count']}|{row['summary']}")
-    else:
-        render_human(row)
-    return 0
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(row_for, render_human))

@@ -13,17 +13,14 @@ a block of contract text must not depend on the environment having a diff.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
+import pytest
+
+from _helpers import load_module
+
 BRAIN = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location(
-    "_review_adversary_under_test",
-    BRAIN / "agents" / "faculties" / "review" / "_review.py")
-_review = importlib.util.module_from_spec(_spec)
-sys.modules["_review_adversary_under_test"] = _review
-_spec.loader.exec_module(_review)
+_review = load_module("_review_adversary_under_test", "agents/faculties/review/_review.py")
 
 WITNESS = "ids bit-identical, 62 -> 9.7 ms"
 # Mirrors `repo_surface`'s return shape exactly — a fixture that drifts from the
@@ -52,12 +49,6 @@ def test_the_witness_is_lifted_and_falsified_first(capsys):
     assert "Falsify it first" in out
 
 
-def test_no_witness_section_when_none_is_declared(capsys):
-    """A task with no witness grades `judge` and is reviewed by a human; the
-    surface must not imply a claim that was never made."""
-    assert "THE WITNESS" not in _emit(capsys)
-
-
 def test_adversary_mode_states_who_may_not_run_it(capsys):
     """The independence rule is the leg. A surface that omits it invites the
     exact failure the leg exists to close."""
@@ -66,8 +57,14 @@ def test_adversary_mode_states_who_may_not_run_it(capsys):
     assert "A self-run adversary leg is not a weaker version" in out
 
 
-def test_contract_is_absent_unless_asked_for(capsys):
-    assert "INDEPENDENT ADVERSARY MODE" not in _emit(capsys)
+@pytest.mark.parametrize("section", [
+    # A task with no witness grades `judge` and is reviewed by a human; the
+    # surface must not imply a claim that was never made.
+    pytest.param("THE WITNESS", id="no-witness-section-when-none-is-declared"),
+    pytest.param("INDEPENDENT ADVERSARY MODE", id="contract-is-absent-unless-asked-for"),
+])
+def test_a_plain_surface_carries_neither_optional_section(capsys, section):
+    assert section not in _emit(capsys)
 
 
 def test_payload_carries_witness_and_mode():

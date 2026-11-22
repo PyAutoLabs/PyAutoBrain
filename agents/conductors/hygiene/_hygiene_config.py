@@ -182,12 +182,6 @@ def library_config_relpaths(root: str, libraries=LIBRARIES) -> set[str]:
     return out
 
 
-def _suppressed(relpath: str) -> bool:
-    """True if `relpath`'s top segment under config/ is an owned subtree
-    (ORPHAN_OWNERS) — a workspace copy there is expected, not drift."""
-    return relpath.split("/")[0] in ORPHAN_OWNERS
-
-
 def orphan_detail(root: str, libraries=LIBRARIES, lib_relpaths=None,
                   owners=ORPHAN_OWNERS) -> list[tuple[str, list[str]]]:
     """The orphan files themselves: one `(repo, sorted orphan relpaths)` record

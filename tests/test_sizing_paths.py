@@ -11,6 +11,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agents" / "faculties" / "sizing"))
 from _sizing import parse_prompt  # noqa: E402
 
@@ -36,26 +38,17 @@ def _write(mind: Path, rel: str) -> Path:
     return p
 
 
-def test_draft_path_strips_state_folder(tmp_path):
-    p = _write(tmp_path, "draft/bug/pyautohands/some_task.md")
-    out = parse_prompt(p, tmp_path)
+@pytest.mark.parametrize("rel", [
+    pytest.param("draft/bug/pyautohands/some_task.md", id="draft-path-strips-state-folder"),
+    # work_type from the Type: header, target from the Target: header.
+    pytest.param("active/some_task.md", id="active-flat-path-falls-back-to-headers"),
+    pytest.param("bug/pyautohands/some_task.md", id="legacy-flat-taxonomy-path-still-resolves"),
+])
+def test_path_regime_resolves_work_type_and_target(tmp_path, rel):
+    out = parse_prompt(_write(tmp_path, rel), tmp_path)
     assert out["work_type"] == "bug"
     assert out["target"] == "pyautohands"
-
-
-def test_active_flat_path_falls_back_to_headers(tmp_path):
-    p = _write(tmp_path, "active/some_task.md")
-    out = parse_prompt(p, tmp_path)
-    assert out["work_type"] == "bug"          # from Type: header
-    assert out["target"] == "pyautohands"     # from Target: header
     assert "pyautohands" in out["repos"]
-
-
-def test_legacy_flat_taxonomy_path_still_resolves(tmp_path):
-    p = _write(tmp_path, "bug/pyautohands/some_task.md")
-    out = parse_prompt(p, tmp_path)
-    assert out["work_type"] == "bug"
-    assert out["target"] == "pyautohands"
 
 
 def test_header_never_overrides_a_valid_path_taxonomy(tmp_path):

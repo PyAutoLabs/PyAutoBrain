@@ -15,7 +15,6 @@ assertion is about exit codes, because those are the `dashboard_refresh.yml`
 contract.
 """
 
-import importlib.util
 import json
 import os
 import re
@@ -27,19 +26,14 @@ from pathlib import Path
 
 import pytest
 
+from _helpers import git_in as _git, load_module
+
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 CONDUCTOR = BRAIN_HOME / "agents" / "conductors" / "cortex" / "_cortex.py"
 BRAIN = BRAIN_HOME / "bin" / "pyauto-brain"
 
 
-def _load():
-    spec = importlib.util.spec_from_file_location("_cortex_under_test", CONDUCTOR)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_cortex = _load()
+_cortex = load_module("_cortex_under_test", CONDUCTOR, register=False)
 
 
 def _owner() -> str:
@@ -1098,11 +1092,6 @@ def test_checkin_keys_sweep_active_rows_and_any_ledger_with_a_run(tmp_skeleton):
 
 
 # --- the push rule ---------------------------------------------------------
-def _git(root, *args):
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
-                          text=True, check=True)
-
-
 def _init_repo(root: Path, origin: Path):
     origin.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)

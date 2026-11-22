@@ -23,10 +23,11 @@ idiom of test_worktree_claim_guard.py.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
-WORKTREE_SH = Path(__file__).resolve().parents[1] / "bin" / "worktree.sh"
+import pytest
+
+from _helpers import hermetic_worktree_env, source_worktree
 
 # Fixture repo names are deliberately synthetic (RepoA…RepoG): the awk in
 # worktree.sh does plain string compares and validates against no repo list,
@@ -104,17 +105,7 @@ def _run(tmp_path: Path, active_body: str | None, snippet: str):
     else:
         (main / "PyAutoMind").mkdir(parents=True)
         (main / "PyAutoMind" / "active.md").write_text(active_body)
-    return subprocess.run(
-        ["bash", "-c", f'source "{WORKTREE_SH}"; {snippet}'],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "HOME": str(tmp_path),
-            "PYAUTO_MAIN": str(main),
-            "PYAUTO_WT_ROOT": str(tmp_path / "wt"),
-        },
-        capture_output=True,
-        text=True,
-    )
+    return source_worktree(snippet, hermetic_worktree_env(tmp_path))
 
 
 def _claims(tmp_path: Path, active_body: str) -> list[list[str]]:
@@ -123,33 +114,26 @@ def _claims(tmp_path: Path, active_body: str) -> list[list[str]]:
     return [line.split("\t") for line in proc.stdout.splitlines() if line]
 
 
-# --- the regression: the paren form is what every writer emits ----------------
-
-def test_paren_form_claim_conflicts(tmp_path):
-    proc = _run(tmp_path, PAREN, "worktree_check_conflict new-task RepoB")
-    assert proc.returncode == 1, "paren-form claim did not register as a conflict"
-    assert "paren-task" in proc.stderr
-
-
-def test_paren_form_repo_is_bare(tmp_path):
-    task, repo, branch, wt = _claims(tmp_path, PAREN)[0]
-    assert repo == "RepoB"
-    assert branch == "feature/paren-task"
-    assert wt == "~/wt/paren-task"
-
-
-# --- back-compat: the documented colon form must keep working -----------------
-
-def test_colon_form_claim_conflicts(tmp_path):
-    proc = _run(tmp_path, COLON, "worktree_check_conflict new-task RepoA")
-    assert proc.returncode == 1
-    assert "colon-task" in proc.stderr
+@pytest.mark.parametrize("body,repo,claimant", [
+    # The regression: the paren form is what every writer emits.
+    pytest.param(PAREN, "RepoB", "paren-task", id="paren-form"),
+    # Back-compat: the documented colon form must keep working.
+    pytest.param(COLON, "RepoA", "colon-task", id="colon-form"),
+    # `  - RepoG` with no branch is a real shape; it must still conflict.
+    pytest.param(ANNOTATED, "RepoG", "annotated-task", id="claim-without-a-branch"),
+])
+def test_claim_conflicts(tmp_path, body, repo, claimant):
+    proc = _run(tmp_path, body, f"worktree_check_conflict new-task {repo}")
+    assert proc.returncode == 1, "the claim did not register as a conflict"
+    assert claimant in proc.stderr
 
 
-def test_colon_form_repo_is_bare(tmp_path):
-    task, repo, branch, wt = _claims(tmp_path, COLON)[0]
-    assert repo == "RepoA"
-    assert branch == "feature/colon-task"
+@pytest.mark.parametrize("body,expected", [
+    pytest.param(PAREN, ["RepoB", "feature/paren-task", "~/wt/paren-task"], id="paren-form"),
+    pytest.param(COLON, ["RepoA", "feature/colon-task", "~/wt/colon-task"], id="colon-form"),
+])
+def test_claimed_repo_is_bare(tmp_path, body, expected):
+    assert _claims(tmp_path, body)[0][1:] == expected
 
 
 # --- field-order independence -------------------------------------------------
@@ -170,13 +154,12 @@ def test_worktree_does_not_leak_between_tasks(tmp_path):
 
 # --- the guard's own contract -------------------------------------------------
 
-def test_task_does_not_conflict_with_itself(tmp_path):
-    proc = _run(tmp_path, PAREN, "worktree_check_conflict paren-task RepoB")
-    assert proc.returncode == 0, proc.stderr
-
-
-def test_unclaimed_repo_does_not_conflict(tmp_path):
-    proc = _run(tmp_path, PAREN, "worktree_check_conflict new-task RepoE")
+@pytest.mark.parametrize("task,repo", [
+    pytest.param("paren-task", "RepoB", id="task-does-not-conflict-with-itself"),
+    pytest.param("new-task", "RepoE", id="unclaimed-repo-does-not-conflict"),
+])
+def test_no_conflict(tmp_path, task, repo):
+    proc = _run(tmp_path, PAREN, f"worktree_check_conflict {task} {repo}")
     assert proc.returncode == 0, proc.stderr
 
 
@@ -193,13 +176,6 @@ def test_trailing_note_does_not_corrupt_repo(tmp_path):
     rows = {r[1]: r for r in _claims(tmp_path, ANNOTATED)}
     assert set(rows) == {"RepoF", "RepoG"}
     assert rows["RepoF"][2].startswith("feature/howto-smoke")
-
-
-def test_claim_without_a_branch_still_claims(tmp_path):
-    # `  - RepoG` with no branch is a real shape; it must still conflict.
-    proc = _run(tmp_path, ANNOTATED, "worktree_check_conflict new-task RepoG")
-    assert proc.returncode == 1
-    assert "annotated-task" in proc.stderr
 
 
 def test_entry_claiming_no_repos_yields_no_claims(tmp_path):

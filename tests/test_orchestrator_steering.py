@@ -8,33 +8,26 @@ goes to a fake GitHub (`FakeGitHub`), so nothing here reaches the network.
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
 import subprocess
-import sys
 from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 from test_orchestrator_dispatch import _brief, orch  # noqa: E402
 import _mind_writer  # noqa: E402
 import _status  # noqa: E402
 import _watch  # noqa: E402
+from _shift_fixtures import at as _at  # noqa: E402
 
 NOW = d.NOW                                   # 2026-11-04T09:00Z; dispatched 08:30Z
 ISSUE = "https://github.com/example-org/example-mind/issues/4242"
 LOGIN = "example-human"
 BOT = "example-bot"
-
-
-def _at(minutes: float) -> _dt.datetime:
-    return NOW + _dt.timedelta(minutes=minutes)
 
 
 class FakeGitHub:
@@ -676,10 +669,7 @@ def _add_shift(tmp_path, monkeypatch, drafts=(), active="", brief_edit=None):
     brief.write_text(brief_edit(text) if brief_edit else text)
 
     def publish():
-        other = tmp_path / "other"
-        t.git(tmp_path, "clone", "-q", str(bare), str(other))
-        t.git(other, "config", "user.name", "Test")
-        t.git(other, "config", "user.email", "test@example.invalid")
+        other = t.clone(bare, tmp_path / "other")
         for rel, target, lane in drafts:
             f = other / rel
             f.parent.mkdir(parents=True, exist_ok=True)
@@ -687,9 +677,7 @@ def _add_shift(tmp_path, monkeypatch, drafts=(), active="", brief_edit=None):
                                            lane=f"Lane: {lane}\n" if lane else ""))
         if active:
             (other / "active.md").write_text((other / "active.md").read_text() + active)
-        t.git(other, "add", "-A")
-        t.git(other, "commit", "-q", "-m", "filed mid-shift")
-        t.git(other, "push", "-q", "origin", "HEAD:main")
+        t.push(other, "filed mid-shift")
     return canon, brief, home, orch.slot_dir(brief, home), publish
 
 

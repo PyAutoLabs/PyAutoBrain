@@ -78,8 +78,9 @@ import _pyauto_root  # noqa: E402
 sys.path.insert(0, str(BRAIN_HOME / "board"))
 from _theme import (  # noqa: E402
     section_layout,
-    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel, pills, stats,
+    JS as _THEME_JS, boards_footer, css as _theme_css, hero, orchestration_panel,
     normalize_refresh_stamp,
+    attr as _attr, md_cell as _cell, pages_url as _pages_url,
 )
 # The organ-cockpit feed contract (board/_state.py, state.json v1) — the same
 # constructor the Brain board uses, so this renderer cannot write a feed the
@@ -342,10 +343,6 @@ def ledger_of(c: dict, key: str) -> dict | None:
     return None
 
 
-def active_ledgers(c: dict) -> list[dict]:
-    return [d for d in c["ledgers"] if d["status"] == "active"]
-
-
 def no_ledger_rows(c: dict, kind: str | None = None) -> list[tuple[str, dict]]:
     """Rows of `projects.yaml` with no `projects/<key>.md` at all (of one
     kind, when given)."""
@@ -394,16 +391,6 @@ def _md_text(value: str) -> str:
     return str(value).replace("&", "&amp;").replace("<", "&lt;")
 
 
-def _cell(value: str) -> str:
-    return str(value).replace("|", "\\|")
-
-
-def _attr(value: str) -> str:
-    """Escape a string for a double-quoted HTML attribute."""
-    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
-            .replace("<", "&lt;").replace(">", "&gt;"))
-
-
 def _esc(value: str) -> str:
     """Text content for the HTML page."""
     return _html.escape(str(value), quote=False)
@@ -422,12 +409,6 @@ def _html_task(text_html: str, payload: str) -> str:
     return (f'<div class="task"><button class="copy" '
             f'data-cmd="{_attr(payload)}" aria-label="Copy the AI '
             f'command">📋</button><p>{text_html}</p></div>')
-
-
-def _pages_url(home: str) -> str:
-    """The GitHub Pages site URL for a repo home, `''` when underivable."""
-    m = re.match(r"https://github\.com/([^/]+)/([^/]+)$", home)
-    return f"https://{m.group(1).lower()}.github.io/{m.group(2)}/" if m else ""
 
 
 def _board_links(home: str, current: str) -> list:

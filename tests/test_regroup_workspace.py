@@ -1,14 +1,13 @@
 """Exercise real Git administration and reversible data/link preservation."""
-import importlib.util
 from pathlib import Path
 import subprocess
 import sys
 
+from _helpers import load_module
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'agents'))
-spec = importlib.util.spec_from_file_location('regroup_under_test', ROOT / 'bin/regroup_workspace.py')
-migration = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(migration)
+migration = load_module('regroup_under_test', ROOT / 'bin/regroup_workspace.py', register=False)
 
 
 def git(path, *args):

@@ -19,19 +19,12 @@ from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-BATCH = BRAIN / "agents" / "conductors" / "batch"
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-sys.path.insert(0, str(BATCH))
+import _shift_fixtures as sf
+from _shift_fixtures import BATCH, BRAIN, LEDGER_MERGE, git, identify as _identity
 import _mind_writer as mw  # noqa: E402
 import _orchestrator as orch  # noqa: E402
 
-LEDGER_MERGE = BRAIN.parent / "PyAutoMind" / "scripts" / "ledger_merge.py"
-if not LEDGER_MERGE.is_file():
-    LEDGER_MERGE = Path(os.environ.get("PYAUTO_MIND", "/nonexistent")) / "scripts" / "ledger_merge.py"
-pytestmark = pytest.mark.skipif(
-    not LEDGER_MERGE.is_file() or shutil.which("git") is None,
-    reason="needs git and a PyAutoMind checkout beside this Brain (scripts/ledger_merge.py)")
+pytestmark = sf.needs_ledger_merge
 
 ACTIVE = """# Active tasks
 
@@ -41,26 +34,10 @@ ACTIVE = """# Active tasks
 """
 
 
-def git(cwd, *args, env=None, check=True):
-    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, env=env)
-    if check:
-        assert res.returncode == 0, (args, res.stderr)
-    return res
-
-
-def _identity(repo):
-    git(repo, "config", "user.name", "Test")
-    git(repo, "config", "user.email", "test@example.invalid")
-
-
 @pytest.fixture
 def mind(tmp_path):
     """(bare remote, canonical clone, second clone)."""
-    bare = tmp_path / "remote" / "PyAutoMind.git"
-    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    seed = tmp_path / "seed"
-    git(tmp_path, "clone", "-q", str(bare), str(seed))
-    _identity(seed)
+    bare, seed = sf.bare_mind(tmp_path, "remote/PyAutoMind.git", "seed", identity=True)
     (seed / "scripts").mkdir()
     shutil.copy(LEDGER_MERGE, seed / "scripts" / "ledger_merge.py")
     (seed / "active.md").write_text(ACTIVE)
@@ -68,14 +45,8 @@ def mind(tmp_path):
     (seed / "draft" / "feature" / "x" / "t1.md").write_text("# t1\n")
     (seed / "active").mkdir()
     (seed / "active" / "t2.md").write_text("# t2\n")
-    git(seed, "add", "-A")
-    git(seed, "commit", "-q", "-m", "seed")
-    git(seed, "push", "-q", "origin", "HEAD:main")
-    canon = tmp_path / "canon"
-    other = tmp_path / "other"
-    for c in (canon, other):
-        git(tmp_path, "clone", "-q", str(bare), str(c))
-        _identity(c)
+    sf.push(seed)
+    canon, other = (sf.clone(bare, tmp_path / n) for n in ("canon", "other"))
     # The canonical checkout is shared and may be dirty with someone else's work.
     (canon / "someone_elses_notes.md").write_text("untracked, not ours\n")
     return bare, canon, other

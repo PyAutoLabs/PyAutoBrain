@@ -7,17 +7,8 @@ under full backpressure).
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "agents" / "faculties" / "sizing"))
-_spec = importlib.util.spec_from_file_location(
-    "_batch_under_test", BRAIN / "agents" / "conductors" / "batch" / "_batch.py")
-_batch = importlib.util.module_from_spec(_spec)
-sys.modules["_batch_under_test"] = _batch
-_spec.loader.exec_module(_batch)
+from _shift_fixtures import _batch  # noqa: E402
 
 
 def rec(path, *, minutes=20, tier="judge", ready="ready", repos=(), epic="",

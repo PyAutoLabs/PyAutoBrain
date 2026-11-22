@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
 import shutil
@@ -23,27 +22,16 @@ from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_closeout as co  # noqa: E402
 import test_orchestrator_digest as t  # noqa: E402
 from test_orchestrator_digest import _digest, orch  # noqa: E402
 import _mind_writer as mw  # noqa: E402
+import _shift_fixtures as sf  # noqa: E402
+from _shift_fixtures import commit as _commit, git_out as git  # noqa: E402
 
 PR = "https://github.com/o/r/pull/7"
 WORK_ISSUE = "https://github.com/o/r/issues/6"
 MIND_ISSUE = "https://github.com/example-org/example-mind/issues/1"
-
-
-def git(cwd, *args):
-    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    assert res.returncode == 0, (args, res.stderr)
-    return res.stdout.strip()
-
-
-def _commit(repo, msg):
-    git(repo, "add", "-A")
-    git(repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", msg)
 
 
 @pytest.fixture
@@ -52,9 +40,7 @@ def moved_mind(tmp_path):
     → complete/ (renamed), and an `active.md` claim for a second task."""
     if shutil.which("git") is None:
         pytest.skip("needs git")
-    bare, mind = tmp_path / "mind.git", tmp_path / "mind"
-    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    git(tmp_path, "clone", "-q", str(bare), str(mind))
+    _, mind = sf.bare_mind(tmp_path)
     body = "# Task t1\n\n" + "".join(f"line {i}\n" for i in range(30))
     (mind / "draft" / "bug" / "x").mkdir(parents=True)
     (mind / "draft" / "bug" / "x" / "t1.md").write_text(body)
@@ -70,9 +56,7 @@ def moved_mind(tmp_path):
     (mind / "complete" / "2026" / "11").mkdir(parents=True)
     git(mind, "mv", "active/t1.md", "complete/2026/11/t-one.md")
     (mind / "complete" / "2026" / "11" / "t-one.md").write_text("## What shipped\n\n- x\n\n" + body)
-    _commit(mind, "close")
-    git(mind, "push", "-q", "origin", "HEAD:main")
-    git(mind, "fetch", "-q", "origin")
+    sf.push(mind, "close")
     return mind
 
 
@@ -266,21 +250,15 @@ QUEUE = """# Queue
 @pytest.mark.skipif(not LIFECYCLE.is_file() or shutil.which("git") is None,
                     reason="needs git and PyAutoMind's scripts/lifecycle.py beside this Brain")
 def test_queue_retire_lands_in_the_ledger_commit_with_minds_own_rule(tmp_path):
-    bare, seed = tmp_path / "mind.git", tmp_path / "seed"
-    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    git(tmp_path, "clone", "-q", str(bare), str(seed))
+    bare, seed = sf.bare_mind(tmp_path, name="seed")
     (seed / "scripts").mkdir()
     shutil.copy(t.LEDGER_MERGE, seed / "scripts" / "ledger_merge.py")
     shutil.copy(LIFECYCLE, seed / "scripts" / "lifecycle.py")
     (seed / "queue.md").write_text(QUEUE)
     (seed / "active").mkdir()
     (seed / "active" / "t1.md").write_text("# t1\n")
-    _commit(seed, "seed")
-    git(seed, "push", "-q", "origin", "HEAD:main")
-    canon = tmp_path / "canon"
-    git(tmp_path, "clone", "-q", str(bare), str(canon))
-    git(canon, "config", "user.name", "T")
-    git(canon, "config", "user.email", "t@example.invalid")
+    sf.push(seed)
+    canon = sf.clone(bare, tmp_path / "canon")
     slot = tmp_path / "slot"
     ledger = slot / mw.LEDGER_DIR
     mw.queue_op(ledger, {"op": "move", "path": "active/t1.md",

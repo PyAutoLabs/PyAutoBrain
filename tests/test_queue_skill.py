@@ -8,7 +8,6 @@ move, `lifecycle.py check` clean) is the Mind's `tests/test_queue_edit.py`;
 the end-to-end leg here runs when the sibling Mind is checked out.
 """
 
-import importlib.util
 import os
 import re
 import shutil
@@ -18,15 +17,13 @@ from pathlib import Path
 
 import pytest
 
+from _helpers import load_module
+
 BRAIN = Path(__file__).resolve().parents[1]
 SKILL = BRAIN / "skills" / "queue"
 MIND = BRAIN.parent / "PyAutoMind"
 
-_spec = importlib.util.spec_from_file_location(
-    "_intake_queue_skill_under_test", BRAIN / "agents" / "conductors" / "intake" / "_intake.py")
-_intake = importlib.util.module_from_spec(_spec)
-sys.modules["_intake_queue_skill_under_test"] = _intake
-_spec.loader.exec_module(_intake)
+_intake = load_module("_intake_queue_skill_under_test", "agents/conductors/intake/_intake.py")
 
 
 def _front(path: Path) -> dict:

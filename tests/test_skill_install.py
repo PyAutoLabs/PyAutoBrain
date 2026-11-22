@@ -5,6 +5,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 BRAIN_HOME = Path(__file__).resolve().parents[1]
 DISPATCHER = BRAIN_HOME / "bin" / "pyauto-brain"
@@ -66,17 +68,18 @@ def _pyauto_root(tmp_path):
     return root
 
 
-def test_installer_keeps_commands_and_installs_both_skill_homes(tmp_path):
+def _install(tmp_path, pyauto_root):
+    """Run the installer into fresh Claude and Codex homes under `tmp_path`;
+    returns (claude_home, codex_home, the completed run)."""
     claude_home = tmp_path / "claude"
     codex_home = tmp_path / "codex"
     env = os.environ | {
         "HOME": str(tmp_path / "home"),
-        "PYAUTO_ROOT": str(_pyauto_root(tmp_path)),
+        "PYAUTO_ROOT": str(pyauto_root),
         "CLAUDE_HOME": str(claude_home),
         "CODEX_HOME": str(codex_home),
     }
-
-    subprocess.run(
+    result = subprocess.run(
         ["bash", str(INSTALLER)],
         cwd=BRAIN_HOME,
         env=env,
@@ -84,6 +87,11 @@ def test_installer_keeps_commands_and_installs_both_skill_homes(tmp_path):
         capture_output=True,
         text=True,
     )
+    return claude_home, codex_home, result
+
+
+def test_installer_keeps_commands_and_installs_both_skill_homes(tmp_path):
+    claude_home, codex_home, _ = _install(tmp_path, _pyauto_root(tmp_path))
 
     for name in ("intake", "start_dev", "feedback"):
         assert (claude_home / "skills" / name).is_symlink()
@@ -103,27 +111,12 @@ def test_installer_keeps_commands_and_installs_both_skill_homes(tmp_path):
 
 
 def test_installer_preserves_non_symlink_destinations(tmp_path):
-    claude_home = tmp_path / "claude"
-    codex_home = tmp_path / "codex"
-    protected = codex_home / "skills" / "intake"
+    protected = tmp_path / "codex" / "skills" / "intake"
     protected.mkdir(parents=True)
     marker = protected / "user-owned.txt"
     marker.write_text("keep\n")
-    env = os.environ | {
-        "HOME": str(tmp_path / "home"),
-        "PYAUTO_ROOT": str(_pyauto_root(tmp_path)),
-        "CLAUDE_HOME": str(claude_home),
-        "CODEX_HOME": str(codex_home),
-    }
 
-    result = subprocess.run(
-        ["bash", str(INSTALLER)],
-        cwd=BRAIN_HOME,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    _, _, result = _install(tmp_path, _pyauto_root(tmp_path))
 
     assert marker.read_text() == "keep\n"
     assert "SKIP intake (Codex skill" in result.stdout
@@ -137,23 +130,8 @@ def test_invalid_codex_name_does_not_suppress_claude_surfaces(tmp_path):
         "---\nname: legacy_skill\ndescription: Legacy test skill.\n---\n"
     )
     (skill / "legacy_skill.md").write_text("# Legacy command\n")
-    claude_home = tmp_path / "claude"
-    codex_home = tmp_path / "codex"
-    env = os.environ | {
-        "HOME": str(tmp_path / "home"),
-        "PYAUTO_ROOT": str(pyauto_root),
-        "CLAUDE_HOME": str(claude_home),
-        "CODEX_HOME": str(codex_home),
-    }
 
-    result = subprocess.run(
-        ["bash", str(INSTALLER)],
-        cwd=BRAIN_HOME,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    claude_home, codex_home, result = _install(tmp_path, pyauto_root)
 
     assert (claude_home / "skills" / "legacy_skill").is_symlink()
     assert (claude_home / "commands" / "legacy_skill.md").is_symlink()
@@ -161,27 +139,21 @@ def test_invalid_codex_name_does_not_suppress_claude_surfaces(tmp_path):
     assert "Codex skill name invalid" in result.stdout
 
 
-def test_command_surface_block_is_current():
-    """This repo's committed command-surface block matches the agent registry.
-    Guards against editing bin/pyauto-brain without regenerating the block
-    (bash PyAutoBrain/bin/install.sh --write-agents-surface)."""
+@pytest.mark.parametrize("check", [
+    # This repo's committed command-surface block matches the agent registry.
+    # Guards against editing bin/pyauto-brain without regenerating the block
+    # (bash PyAutoBrain/bin/install.sh --write-agents-surface).
+    pytest.param(["--check-agents-surface"], id="command-surface-block"),
+    # This repo's committed .claude/ + .codex/ discovery symlinks match
+    # skills/. Guards against adding or deleting a skill without regenerating
+    # the trees (bash PyAutoBrain/bin/install.sh --write-project-discovery).
+    # Scoped to PyAutoBrain so a sibling organ's drift never reddens a local
+    # Brain run.
+    pytest.param(["--check-project-discovery", "PyAutoBrain"], id="project-discovery-tree"),
+])
+def test_committed_generated_surface_is_current(check):
     result = subprocess.run(
-        ["bash", str(INSTALLER), "--check-agents-surface"],
-        cwd=BRAIN_HOME,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "DRIFT" not in result.stdout
-
-
-def test_project_discovery_tree_is_current():
-    """This repo's committed .claude/ + .codex/ discovery symlinks match skills/.
-    Guards against adding or deleting a skill without regenerating the trees
-    (bash PyAutoBrain/bin/install.sh --write-project-discovery). Scoped to
-    PyAutoBrain so a sibling organ's drift never reddens a local Brain run."""
-    result = subprocess.run(
-        ["bash", str(INSTALLER), "--check-project-discovery", "PyAutoBrain"],
+        ["bash", str(INSTALLER), *check],
         cwd=BRAIN_HOME,
         capture_output=True,
         text=True,
@@ -228,49 +200,23 @@ def test_workspace_policy_migrates_legacy_block(tmp_path):
     assert "Never rewrite pushed history" in text
 
 
-def test_workspace_policy_rejects_malformed_target_without_writing(tmp_path):
+@pytest.mark.parametrize("original", [
+    pytest.param("before\n<!-- pyauto:model-delegation:begin -->\nunterminated\n",
+                 id="malformed-target"),
+    pytest.param("- **Never rewrite pushed history.** Keep this.\n"
+                 "- **Delegate execution to a subagent — for every task.**\n"
+                 "- **Model delegation** (provider-aware defaults: old)\n"
+                 "  → `PyAutoBrain/skills/WORKFLOW.md`.\n",
+                 id="reversed-legacy-block"),
+    pytest.param("<!-- pyauto:model-delegation:begin -->\npolicy\n"
+                 "<!-- pyauto:model-delegation:end -->\n"
+                 "<!-- pyauto:model-delegation-pointer:end -->\npointer\n"
+                 "<!-- pyauto:model-delegation-pointer:begin -->\n",
+                 id="reversed-pointer-markers"),
+])
+def test_workspace_policy_rejects_a_bad_target_without_writing(tmp_path, original):
     root = _pyauto_root(tmp_path)
     agents = root / "AGENTS.md"
-    original = "before\n<!-- pyauto:model-delegation:begin -->\nunterminated\n"
-    agents.write_text(original)
-    result = subprocess.run(
-        ["bash", str(INSTALLER), "--write-workspace-policy"],
-        env=os.environ | {"PYAUTO_ROOT": str(root)},
-        text=True,
-        capture_output=True,
-    )
-    assert result.returncode != 0
-    assert agents.read_text() == original
-
-
-def test_workspace_policy_rejects_reversed_legacy_block_without_writing(tmp_path):
-    root = _pyauto_root(tmp_path)
-    agents = root / "AGENTS.md"
-    original = (
-        "- **Never rewrite pushed history.** Keep this.\n"
-        "- **Delegate execution to a subagent — for every task.**\n"
-        "- **Model delegation** (provider-aware defaults: old)\n"
-        "  → `PyAutoBrain/skills/WORKFLOW.md`.\n"
-    )
-    agents.write_text(original)
-    result = subprocess.run(
-        ["bash", str(INSTALLER), "--write-workspace-policy"],
-        env=os.environ | {"PYAUTO_ROOT": str(root)},
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode != 0
-    assert agents.read_text() == original
-
-
-def test_workspace_policy_rejects_reversed_pointer_markers(tmp_path):
-    root = _pyauto_root(tmp_path)
-    agents = root / "AGENTS.md"
-    original = (
-        "<!-- pyauto:model-delegation:begin -->\npolicy\n<!-- pyauto:model-delegation:end -->\n"
-        "<!-- pyauto:model-delegation-pointer:end -->\npointer\n"
-        "<!-- pyauto:model-delegation-pointer:begin -->\n"
-    )
     agents.write_text(original)
     result = subprocess.run(
         ["bash", str(INSTALLER), "--write-workspace-policy"],

@@ -11,11 +11,9 @@ so a worker and a reader see the same answer.
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_closeout_merge_slots as ms  # noqa: E402 — fake gh, shift env
 import test_orchestrator_closeout as tc  # noqa: E402
 import test_orchestrator_digest as t  # noqa: E402

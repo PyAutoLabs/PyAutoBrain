@@ -19,7 +19,6 @@ import sys
 from pathlib import Path
 
 BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_closeout as tc  # noqa: E402 — the 4b close-out fixtures
 import test_orchestrator_digest as t  # noqa: E402 — the 3d fixtures
 from test_orchestrator_digest import orch  # noqa: E402

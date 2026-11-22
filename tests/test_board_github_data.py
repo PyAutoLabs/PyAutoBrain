@@ -50,36 +50,32 @@ def test_an_injected_endpoint_is_answered_without_gh(tmp_path):
     assert _board.gh_json([RUNS]) == payload
 
 
-def test_an_endpoint_that_was_not_injected_is_could_not_ask(tmp_path):
-    """The invariant: a miss must not become an empty answer.
-
-    `None` is what the callers read as *could not ask* — it is why a workflow
-    row carries `unreadable` rather than "no runs". An injected map that
-    answered `{}` or `[]` for a key it does not hold would hand the board a
-    confident wrong answer, which is the failure this whole surface was
-    rebuilt to stop.
-    """
-    _board.load_github_data(_write(tmp_path, {RUNS: {"workflow_runs": []}}))
-    assert _board.gh_json(["repos/Org/Other/actions/runs"]) is None
-
-
-def test_an_injected_null_is_still_could_not_ask(tmp_path):
-    """The gatherer says so explicitly when its own fetch failed."""
-    _board.load_github_data(_write(tmp_path, {RUNS: None}))
-    assert _board.gh_json([RUNS]) is None
+@pytest.mark.parametrize("injected,endpoint", [
+    # The invariant: a miss must not become an empty answer. `None` is what
+    # the callers read as *could not ask* — it is why a leg names itself
+    # unread rather than reporting zero. An injected map that answered `{}` or
+    # `[]` for a key it does not hold would hand the board a confident wrong
+    # answer, which is the failure this whole surface was rebuilt to stop.
+    pytest.param({RUNS: {"workflow_runs": []}}, "repos/Org/Other/actions/runs",
+                 id="an-endpoint-that-was-not-injected"),
+    # The gatherer says so explicitly when its own fetch failed.
+    pytest.param({RUNS: None}, RUNS, id="an-injected-null"),
+    # The dev-box path is untouched: no injected map, so `gh` is consulted —
+    # here a command that does not exist, which is exactly the honest `None`.
+    pytest.param(None, RUNS, id="without-the-flag-nothing-changes"),
+])
+def test_could_not_ask_is_none(tmp_path, injected, endpoint):
+    if injected is None:
+        assert _board._INJECTED is None
+    else:
+        _board.load_github_data(_write(tmp_path, injected))
+    assert _board.gh_json([endpoint]) is None
 
 
 def test_an_injected_empty_result_is_a_real_answer(tmp_path):
     """And the other half of the distinction: asked, and there was nothing."""
     _board.load_github_data(_write(tmp_path, {RUNS: {"workflow_runs": []}}))
     assert _board.gh_json([RUNS]) == {"workflow_runs": []}
-
-
-def test_without_the_flag_nothing_changes(tmp_path):
-    """The dev-box path is untouched: no injected map, so `gh` is consulted —
-    here a command that does not exist, which is exactly the honest `None`."""
-    assert _board._INJECTED is None
-    assert _board.gh_json([RUNS]) is None
 
 
 def test_a_malformed_file_fails_loudly_rather_than_degrading(tmp_path):
@@ -101,49 +97,6 @@ def test_a_malformed_file_fails_loudly_rather_than_degrading(tmp_path):
     listy.write_text("[]", encoding="utf-8")
     with pytest.raises(SystemExit):
         _board.load_github_data(listy)
-
-
-def test_the_overnight_leg_renders_live_from_injected_data(tmp_path):
-    """End to end on the leg this phase exists for.
-
-    Seven `overnight: could not read …` rows are the largest block of the
-    board's eleven dark legs; one injected endpoint turns one of them into a
-    real row, with no `gh` anywhere in the process.
-    """
-    _board.load_github_data(_write(tmp_path, {
-        RUNS: {"workflow_runs": [{
-            "id": 42,
-            "conclusion": "success",
-            "status": "completed",
-            # `created_at`, not `updated_at`: the row's age comes from this
-            # field, and a gatherer that stores the wrong one renders "?" —
-            # which reads as a render bug rather than a bad file. Pinned here
-            # because the first hand-written fixture got it wrong.
-            "created_at": "2026-01-01T00:00:00Z",
-            "html_url": "https://example.invalid/run/42",
-        }]},
-        "repos/Org/Repo/actions/runs/42/jobs": {"jobs": []},
-    }))
-
-    degraded = []
-    rows = _board.collect_overnight(["Org/Repo:nightly.yml"], "Org", degraded)
-
-    assert len(rows) == 1
-    assert rows[0]["unreadable"] is False
-    assert rows[0]["conclusion"] == "success"
-    assert rows[0]["age_h"] is not None, "the age field the row reads is unset"
-    assert not degraded, degraded
-
-
-def test_an_uninjected_workflow_stays_unreadable_and_degrades(tmp_path):
-    """The same call with the endpoint absent: honest, and still degraded."""
-    _board.load_github_data(_write(tmp_path, {}))
-
-    degraded = []
-    rows = _board.collect_overnight(["Org/Repo:nightly.yml"], "Org", degraded)
-
-    assert rows[0]["unreadable"] is True
-    assert degraded, "a leg that could not be read must degrade the render"
 
 
 # --------------------------------------------------------------------------
@@ -195,11 +148,17 @@ def test_a_remote_render_reads_all_four_phase2_legs(tmp_path, monkeypatch):
     assert data["resume"]["pending_prs"] == []
 
 
-def test_without_the_upkeep_key_the_leg_names_itself_unread(tmp_path, monkeypatch):
+@pytest.mark.parametrize("injected", [
+    pytest.param(lambda: {_board.open_issues_endpoint("Org"): None},
+                 id="injected-null"),
+    # The endpoint absent altogether: honest, and still degraded.
+    pytest.param(dict, id="not-injected"),
+])
+def test_without_the_upkeep_key_the_leg_names_itself_unread(tmp_path, monkeypatch,
+                                                           injected):
     """A gatherer that could not ask leaves upkeep dark — and says so, rather
     than reporting zero open issues."""
-    _board.load_github_data(_write(tmp_path, {
-        _board.open_issues_endpoint("Org"): None}))
+    _board.load_github_data(_write(tmp_path, injected()))
 
     data = _remote_collect(monkeypatch)
 

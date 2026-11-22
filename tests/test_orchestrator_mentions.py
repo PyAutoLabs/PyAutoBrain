@@ -8,14 +8,12 @@ from __future__ import annotations
 import datetime as _dt
 
 import pytest
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 from test_orchestrator_dispatch import _brief, _digest, orch  # noqa: E402
+from _shift_fixtures import tick_posting as _tick  # noqa: E402
 
 NOW = d.NOW
 
@@ -65,13 +63,6 @@ def _shift(tmp_path, monkeypatch, login=LOGIN):
     brief.write_text(brief.read_text().replace(
         "- review-at: 2026-11-04T11:30Z\n", f"- review-at: 2026-11-04T11:30Z\n- issue: {ISSUE}\n"))
     return mind, brief, home, orch.slot_dir(brief, home)
-
-
-def _tick(brief, mind, home, now, claude, gh, agents=None):
-    return orch.tick(brief, mind, home=home, now=now, grace_s=0,
-                     spawner=orch.RealSpawner(brief, "auto", run=claude),
-                     agents=agents or orch.AgentsView([]), tokens=lambda s: 0,
-                     poster=lambda issue, body: orch.gh_comment(issue, body, run=gh))
 
 
 def test_a_worker_that_finishes_normally_makes_no_mention(tmp_path, monkeypatch):

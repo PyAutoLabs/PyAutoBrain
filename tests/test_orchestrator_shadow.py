@@ -9,14 +9,10 @@ records what it would have dispatched — no lease, no worker — and the shift'
 from __future__ import annotations
 
 import datetime as _dt
-import shutil
-import sys
 from pathlib import Path
 
 import pytest
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_digest as t  # noqa: E402 — the 3d fixtures
 from test_orchestrator_digest import _brief, _digest, orch  # noqa: E402
 
@@ -111,25 +107,14 @@ def test_pilot_row_has_one_cell_per_column_and_leaves_the_humans_blank(tmp_path)
     assert got["review-minutes-planned"] == "45" and got["tokens"] == "0"
 
 
-@pytest.mark.skipif(not t.LEDGER_MERGE.is_file() or shutil.which("git") is None,
-                    reason="needs git and PyAutoMind's scripts/ledger_merge.py")
+@t.sf.needs_ledger_merge
 def test_a_shadow_shift_lands_exactly_one_pilot_row_on_mind_main(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys, "dont_write_bytecode", False)
-    bare = tmp_path / "remote.git"
-    t.git(tmp_path, "init", "-q", "--bare", "-b", "main", str(bare))
-    canon = tmp_path / "canon"
-    t.git(tmp_path, "clone", "-q", str(bare), str(canon))
-    t.git(canon, "config", "user.name", "Test")
-    t.git(canon, "config", "user.email", "test@example.invalid")
+    bare, canon = t.sf.ledger_mind(tmp_path, monkeypatch)
     t._mind(canon)
-    (canon / "scripts").mkdir()
-    shutil.copy(t.LEDGER_MERGE, canon / "scripts" / "ledger_merge.py")
     (canon / "batches" / "pilot").mkdir(parents=True)
     (canon / "batches" / "pilot" / "pilot.md").write_text("# Pilot\n\n" + _digest.PILOT_HEADER)
     mind, brief, home = _shadow(tmp_path, mind_root=canon)
-    t.git(canon, "add", "-A")
-    t.git(canon, "commit", "-q", "-m", "seed")
-    t.git(canon, "push", "-q", "origin", "HEAD:main")
+    t.sf.push(canon)
 
     orch.tick(brief, canon, home=home, now=t.NOW, spawner=NoSpawn())
     r = orch.tick(brief, canon, home=home, now=t.AFTER, poster=t.Poster(), health=t._health)

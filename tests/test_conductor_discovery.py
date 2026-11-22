@@ -16,6 +16,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "agents" / "faculties" / "sizing"))
 sys.path.insert(0, str(ROOT / "agents" / "conductors" / "feature"))
@@ -47,19 +49,16 @@ def _rel(mind: Path, paths) -> set[str]:
 
 
 # --- discover_prompts: the layout regimes -------------------------------------
-def test_draft_layout_is_discovered(tmp_path):
-    _write(tmp_path, "draft/bug/pyautohands/one.md")
-    _write(tmp_path, "draft/bug/pyautofit/two.md")
-    assert _rel(tmp_path, discover_prompts(tmp_path, "bug")) == {
-        "draft/bug/pyautohands/one.md",
-        "draft/bug/pyautofit/two.md",
-    }
-
-
-def test_legacy_flat_layout_still_resolves(tmp_path):
-    """Pre-migration paths keep working, mirroring parse_prompt's third regime."""
-    _write(tmp_path, "bug/pyautohands/legacy.md")
-    assert _rel(tmp_path, discover_prompts(tmp_path, "bug")) == {"bug/pyautohands/legacy.md"}
+@pytest.mark.parametrize("prompts", [
+    pytest.param(["draft/bug/pyautohands/one.md", "draft/bug/pyautofit/two.md"],
+                 id="draft-layout-is-discovered"),
+    # Pre-migration paths keep working, mirroring parse_prompt's third regime.
+    pytest.param(["bug/pyautohands/legacy.md"], id="legacy-flat-layout-still-resolves"),
+])
+def test_layout_is_discovered(tmp_path, prompts):
+    for rel in prompts:
+        _write(tmp_path, rel)
+    assert _rel(tmp_path, discover_prompts(tmp_path, "bug")) == set(prompts)
 
 
 def test_both_layouts_coexist_without_duplicates(tmp_path):
@@ -86,18 +85,17 @@ def test_readme_is_not_a_task(tmp_path):
     assert _rel(tmp_path, discover_prompts(tmp_path, "bug")) == {"draft/bug/health_fixes/one.md"}
 
 
-def test_complete_records_are_not_backlog(tmp_path):
-    """complete/ holds shipped records; selection must never resurface them."""
+@pytest.mark.parametrize("elsewhere", [
+    # complete/ holds shipped records; selection must never resurface them.
+    pytest.param(["complete/2026/07/bug/shipped.md", "complete/archive/shelved/bug/old.md"],
+                 id="complete-records-are-not-backlog"),
+    # active/ is issued, in-flight work; selection answers 'what next'.
+    pytest.param(["active/issued.md"], id="active-is-not-discovered"),
+])
+def test_only_the_backlog_is_discovered(tmp_path, elsewhere):
     _write(tmp_path, "draft/bug/pyautohands/live.md")
-    _write(tmp_path, "complete/2026/07/bug/shipped.md")
-    _write(tmp_path, "complete/archive/shelved/bug/old.md")
-    assert _rel(tmp_path, discover_prompts(tmp_path, "bug")) == {"draft/bug/pyautohands/live.md"}
-
-
-def test_active_is_not_discovered(tmp_path):
-    """active/ is issued, in-flight work; selection answers 'what next'."""
-    _write(tmp_path, "draft/bug/pyautohands/live.md")
-    _write(tmp_path, "active/issued.md")
+    for rel in elsewhere:
+        _write(tmp_path, rel)
     assert _rel(tmp_path, discover_prompts(tmp_path, "bug")) == {"draft/bug/pyautohands/live.md"}
 
 
@@ -113,22 +111,22 @@ def _populated(tmp_path) -> Path:
     return tmp_path
 
 
-def test_feature_selection_is_non_empty_on_draft_layout(tmp_path):
-    ranked, total = _feature.select(_populated(tmp_path), {}, 5)
-    assert total == 1
-    assert [r["path"] for r in ranked] == ["draft/feature/pyautohands/feat.md"]
+def _ranked(selection):
+    """(paths, total) from a ranking conductor's `(ranked, total)`."""
+    ranked, total = selection
+    return [r["path"] for r in ranked], total
 
 
-def test_bug_selection_is_non_empty_on_draft_layout(tmp_path):
-    ranked, total = _bug.select_bug(_populated(tmp_path), {}, 5)
-    assert total == 1
-    assert [r["path"] for r in ranked] == ["draft/bug/pyautohands/bug.md"]
-
-
-def test_refactor_backlog_is_non_empty_on_draft_layout(tmp_path):
-    assert _refactor.candidates(_populated(tmp_path))["backlog"] == [
-        "draft/refactor/pyautohands/ref.md"
-    ]
+@pytest.mark.parametrize("select,expected", [
+    pytest.param(lambda mind: _ranked(_feature.select(mind, {}, 5)),
+                 (["draft/feature/pyautohands/feat.md"], 1), id="feature-selection"),
+    pytest.param(lambda mind: _ranked(_bug.select_bug(mind, {}, 5)),
+                 (["draft/bug/pyautohands/bug.md"], 1), id="bug-selection"),
+    pytest.param(lambda mind: _refactor.candidates(mind)["backlog"],
+                 ["draft/refactor/pyautohands/ref.md"], id="refactor-backlog"),
+])
+def test_selection_is_non_empty_on_draft_layout(tmp_path, select, expected):
+    assert select(_populated(tmp_path)) == expected
 
 
 # --- empty_discovery_reason: an empty result must say WHICH empty it is -------

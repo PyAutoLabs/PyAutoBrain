@@ -11,22 +11,15 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-import sys
 import uuid
-from pathlib import Path
 
-BRAIN = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BRAIN / "tests"))
 import test_orchestrator_dispatch as d  # noqa: E402 — the 3b fixtures
 from test_orchestrator_dispatch import orch  # noqa: E402
 import test_orchestrator_closeout as co  # noqa: E402 — the 4b fixtures
+from _shift_fixtures import at as _later  # noqa: E402
 
 NOW = d.NOW
 USAGE = {"input": 100, "output": 20, "cache_creation": 30, "cache_read": 5000, "total": 150}
-
-
-def _later(minutes):
-    return NOW + _dt.timedelta(minutes=minutes)
 
 
 # --- (1) live, close-out, dedupe, unavailable --------------------------------------
