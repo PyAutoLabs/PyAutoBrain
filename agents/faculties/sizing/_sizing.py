@@ -15,24 +15,19 @@ hard the work is. Both conductors that reason over Mind intent consult it:
 `estimate_difficulty` is the heuristic; `effective_difficulty` is the PRECEDENCE
 RULE over it — a difficulty the author DECLARED wins, with the derived level
 returned alongside so a disagreement stays visible. The rule lives here, not in
-the conductors: each conductor that reconciled it for itself was one more chance
-to forget, and three of them did (PyAutoBrain#217, then #274). `declared_header`
+the conductors, so no conductor can reconcile it differently. `declared_header`
 reads the keys a filed prompt declares; `declared_inline` reads the same keys out
 of unheadered conception prose. Neither reads a code fence — a prompt QUOTING a
 header is documenting it, not declaring it.
 
-Keeping the heuristic here — one definition, imported by both — is the whole
-point: a value Intake persists that the Feature Agent silently recomputed with a
-divergent copy would be a drift bug. This module therefore also owns the shared
-prompt-parsing primitives and the PyAutoMind taxonomy/vocabulary both agents key
-off (mirrors PyAutoMind/ROUTING.md).
+One definition of the heuristic, imported by both conductors: a value Intake
+persists that the Feature Agent recomputed with a divergent copy would be a
+drift bug. This module therefore also owns the shared prompt-parsing primitives
+and the PyAutoMind taxonomy/vocabulary both agents key off (mirrors
+PyAutoMind/ROUTING.md).
 
-It is intentionally dependency-free (stdlib only) and never writes anything.
+Dependency-free (stdlib only); never writes anything.
 
-Calibration status: reviewed 2026-07-09 against the first 59 rows of
-PyAutoMind/autonomy_log.md (AUTONOMY.md "Calibration review — 2026-07-09").
-The conception heuristics held — zero rejected outcomes; the work-type cap,
-not this estimate, was the binding clamp — so the scoring below is unchanged.
 `too-large` is a routing signal, not a difficulty grade: such prompts go to a
 decomposition pass, never straight to dispatch (intake AGENTS.md).
 """
@@ -84,7 +79,7 @@ def norm_work_type(value: str) -> str:
     """
     return re.sub(r"[\s-]+", "_", value.strip().lower())
 
-# --- policy + body-map loaders (the extraction seam, PyAutoBrain#75) ---------
+# --- policy + body-map loaders ------------------------------------------------
 # Vocabulary lives in PyAutoBrain/config/policy.yaml (a declared config
 # surface an adopting fork replaces); repo IDENTITY derives from the body map
 # (PyAutoMind/repos.yaml) at runtime. Both loads are strict — these tables
@@ -128,32 +123,27 @@ def _body_map_categories() -> dict:
     return {name: spec["category"] for name, spec in _body_map_specs().items()}
 
 
-# --- the canonical-key rule (PyAutoBrain#287) --------------------------------
+# --- the canonical-key rule ---------------------------------------------------
 # One repo, one key. A prompt may spell a repo three ways — `@PyAutoFit`,
 # `@autofit`, `PyAutoFit/` — and every one of them has to reach the SAME key, or
 # whichever spelling the author happened to type silently decides whether the
-# policy maps (test_witness, target_default_wiki, ...) resolve. Seven repos hit
-# that split before it was closed here — one at #267, two more at #269, and the
-# bare organ spellings plus one project repo at #287.
+# policy maps (test_witness, target_default_wiki, ...) resolve.
 #
-# THE RULE (first written down at #269, now executable): the canonical key is
-# the package the repo SHIPS where it ships one, and the repo name where it does
-# not. That asymmetry is not arbitrary — it is what prompts actually write. A
+# THE RULE: the canonical key is the package the repo SHIPS where it ships one,
+# and the repo name where it does not — which is what prompts actually write. A
 # library is named by its import (`@autofit`); an organ ships no package, so the
 # only name it has is the repo's (`@PyAutoBrain`).
 #
-# The authority for "does it ship a package" is the body map's `package:` field —
-# repo identity, declared once, where identity lives.
+# The authority for "does it ship a package" is the body map's `package:` field.
 
 
 def _hand_aliases() -> dict:
     """The alias rows a body map cannot derive.
 
     Two kinds only: the short forms prompts use for the libraries (`aa`, `af`),
-    and the pre-rename spellings that keep ~150 archived Mind prompts routing to
-    the repo they now name (`pyautobuild` -> the Hands, and the Nerves repo's
-    former name). Neither is inferable from a body map that records only what
-    the organism is called TODAY.
+    and the pre-rename spellings that keep archived Mind prompts routing to the
+    repo they now name. Neither is inferable from a body map that records only
+    what the organism is called TODAY.
     """
     return policy()["repo_aliases"]
 
@@ -165,11 +155,9 @@ def canonical_key(name: str, spec: dict | None = None) -> str:
     package = spec.get("package")
     if package:
         return package.lower()
-    # Fallback for a body map that predates `package:` (an adopting fork, or
-    # this repo's own CI, which pins the sibling Mind checkout to `main`): the
-    # hand table still carries the library rows, so the answer is the same one
-    # `package:` gives. Kept deliberately — it is what lets the Brain half of
-    # #287 stand alone instead of going red until the Mind half merges.
+    # Fallback for a body map without `package:` (an adopting fork, or a
+    # sibling Mind checkout pinned to an older `main`): the hand table still
+    # carries the library rows, so the answer is the same one `package:` gives.
     low = name.lower()
     return _hand_aliases().get(low, low)
 
@@ -199,13 +187,11 @@ def unreachable_repos() -> dict:
     ``normalise_repo`` truncates at the first ``.`` or ``/`` (so `@aa.decorators`
     and an org-qualified `@<org>/<repo>` path both resolve to their head token).
     A repo whose NAME contains one of those separators therefore cannot survive
-    normalisation, and registering it as a known target would be a lie: nothing
-    could ever resolve to it. Aliasing the truncated head instead would be worse
-    than the lie — where the head happens to be the ORG's own name, every
-    org-qualified mention would start resolving to that one repo.
+    normalisation, and registering it as a known target would be a lie. Aliasing
+    the truncated head instead would be worse — where the head happens to be the
+    ORG's own name, every org-qualified mention would resolve to that one repo.
 
-    Derived from the names themselves, so it stays right for any body map rather
-    than being a hand-kept exclusion list (PyAutoBrain#287).
+    Derived from the names themselves, not a hand-kept exclusion list.
     """
     return {
         name: "name contains a '.' or '/', which normalise_repo truncates — "
@@ -218,12 +204,11 @@ def unreachable_repos() -> dict:
 def _derived_aliases() -> dict:
     """Every registered spelling of every body-map repo -> its canonical key.
 
-    This is the half of ``repo_aliases`` that must NOT be typed by hand. The
-    known-target set was always derived from the body map while the alias table
-    was maintained by hand, so the two drifted silently and the gap surfaced only
-    as a wrong-but-plausible conductor message — "strengthen tests first" for a
-    repo with a full suite (PyAutoBrain#267, #269, #287). Deriving the join means
-    a repo added to the body map arrives with its spellings already joined.
+    This is the half of ``repo_aliases`` that must NOT be typed by hand: the
+    known-target set is derived from the body map, and a hand-kept alias table
+    drifts from it silently, surfacing only as a wrong-but-plausible conductor
+    message. Deriving the join means a repo added to the body map arrives with
+    its spellings already joined.
     """
     grouping = policy()["sizing_categories"]
     registered = {cat for kinds in grouping.values() for cat in kinds}
@@ -241,10 +226,9 @@ def _derived_aliases() -> dict:
 def _repo_aliases() -> dict:
     """The effective alias table: derived join + the rows only a human can know.
 
-    A hand row that CONTRADICTS the derivation is drift, and drift in this table
-    is exactly what #287 is about — so it raises here rather than quietly
-    winning. A hand row the derivation does not cover (a short form, a rename)
-    passes through untouched.
+    A hand row that CONTRADICTS the derivation is drift, so it raises here
+    rather than quietly winning. A hand row the derivation does not cover (a
+    short form, a rename) passes through untouched.
     """
     derived = _derived_aliases()
     hand = _hand_aliases()
@@ -348,16 +332,11 @@ def _hits(text: str, keywords) -> list:
 def discover_prompts(mind: Path, work_type: str) -> list[Path]:
     """Every backlog prompt of one work-type, across the Mind lifecycle layout.
 
-    The discovery counterpart to `parse_prompt`, and shared for the same reason:
-    three conductors (feature / bug / refactor) each held a private copy rooted
-    at the pre-#71 `mind/<work-type>/`, so from the day the split closed
-    (2026-07-13) all three selection modes silently returned "no prompts found"
-    against a live backlog.
+    The discovery counterpart to `parse_prompt`, shared so every conductor
+    walks the same roots:
 
-    Covers the two regimes that hold *backlog* prompts, mirroring `parse_prompt`:
-
-      - `draft/<work-type>/<target>/*.md` — the current layout (PyAutoMind#71);
-      - `<work-type>/<target>/*.md`       — legacy flat, pre-migration.
+      - `draft/<work-type>/<target>/*.md` — the current layout;
+      - `<work-type>/<target>/*.md`       — legacy flat.
 
     `active/` is deliberately NOT discovered: it is flat (so its paths carry no
     work-type to filter on) and holds issued, in-flight work, whereas selection
@@ -384,13 +363,8 @@ def empty_discovery_reason(mind: Path, work_type: str) -> str:
     """Explain an empty `discover_prompts` result — is it a bare backlog or a bad root?
 
     A flat "no prompts found" reads identically whether the backlog is genuinely
-    empty or discovery is pointed somewhere wrong. That ambiguity is what let
-    PyAutoBrain#211 survive four weeks: three conductors reported an empty
-    backlog while sitting on 87 prompts, and the message a broken root produced
-    was the message an empty backlog produced. Diagnosing the empty case is
-    therefore not cosmetic — it is the signal that bug lacked.
-
-    Diagnosis only; callers keep their own exit codes.
+    empty or discovery is pointed somewhere wrong, so the empty case is
+    diagnosed. Diagnosis only; callers keep their own exit codes.
     """
     if not mind.is_dir():
         return f"PyAutoMind path is not a directory: {mind}"
@@ -423,13 +397,12 @@ def empty_discovery_reason(mind: Path, work_type: str) -> str:
 DIFFICULTY_LEVELS = ("small", "medium", "large", "too-large")
 AUTONOMY_LEVELS = ("safe", "supervised", "human-required")
 
-# --- the review-cost model (batch epic phase 0a) -----------------------------
+# --- the review-cost model ----------------------------------------------------
 # `Difficulty:` is static blast radius. It cannot answer the only question a
 # batch needs answered, which is what a task will cost the HUMAN once it lands.
 # These three do. They are graded by RULES over repo class and surface, never by
-# an agent's reading of its own work — the ledger's own base rate for an agent
-# mis-scoping its own change is 20% (68 of 332 records in 2026-08 carry a
-# correction or a retraction), so self-assessment is not an input here.
+# an agent's reading of its own work: agents mis-scope their own changes often
+# enough that self-assessment is not an input here.
 CONSEQUENCE_TIERS = ("notify", "glance", "judge")
 UNATTENDED_LEVELS = ("ready", "needs-slicing", "never")
 # Where the work can run. Spelled in the environment vocabulary
@@ -437,33 +410,30 @@ UNATTENDED_LEVELS = ("ready", "needs-slicing", "never")
 # `analysis-only`) rather than a parallel cloud/laptop one — `local-dev` means
 # the work needs the local dataset and output trees, an SSH endpoint, or the
 # human at the machine. An absent `Lane:` is `any` only in an ATTENDED
-# session; every unattended or cloud pick excludes it (M2.3, AUTONOMY.md "M2
-# rulings — 2026-11-12"; `_batch.lane_absent_why`), and intake refuses to file a
-# draft whose lane is neither declared nor inferred.
+# session; every unattended or cloud pick excludes it (AUTONOMY.md "M2
+# rulings"; `_batch.lane_absent_why`), and intake refuses to file a draft
+# whose lane is neither declared nor inferred.
 #
-# `ral`, `gpu` and `wsl-data` (2026-11-03, autonomous-orchestrators phase 2)
-# name the resource the work needs: RAL test runs, the laptop GPU, data under
-# `/mnt/c`. Each REFINES `local-dev` rather than replacing it, so every consumer
-# that only asks "laptop or not?" goes through `lane_is_local` and keeps
-# working. `none` is spelled `any` (`PyAutoMind/REFERENCE.md`).
+# `ral`, `gpu` and `wsl-data` name the resource the work needs: RAL test runs,
+# the laptop GPU, data under `/mnt/c`. Each REFINES `local-dev` rather than
+# replacing it, so every consumer that only asks "laptop or not?" goes through
+# `lane_is_local`. `none` is spelled `any` (`PyAutoMind/REFERENCE.md`).
 LANE_VALUES = ("any", "local-dev", "ral", "gpu", "wsl-data")
 
 
 def lane_is_local(lane) -> bool:
     """True for every lane but `any`. A missing lane is not local here — the
     question this answers is "laptop or not?"; whether a missing lane may run
-    at all is the planner's call (unattended: no, M2.3)."""
+    at all is the planner's call (unattended: no)."""
     return (lane or "any") != "any"
 
 # Surfaces that make a change a PI's decision whatever repo it lives in: a
 # public API, a default value, an error contract, a science-policy call, or an
 # external contributor's request. Judged from the prompt's own words.
-# Kept deliberately specific. A loose keyword here does not fail safe in the way
-# it first appears: it grades everything `judge`, the tier starves, and the model
-# stops discriminating at all. The 233-prompt campaign regrade moved 15 prompts
-# from judge to glance after dropping `raises `; all carried declared tiers.
-# Crash descriptions are not error-contract changes; `error contract` covers
-# the latter without judging every symptom that names a raised exception.
+# Kept deliberately specific. A loose keyword here does not fail safe: it
+# grades everything `judge`, the tier starves, and the model stops
+# discriminating at all. Crash descriptions are not error-contract changes —
+# hence `error contract`, not a bare `raises `.
 JUDGE_SURFACE_KEYWORDS = [
     "public api", "default value", "defaults to", "error contract",
     "science policy", "external contributor", "external reporter",
@@ -479,8 +449,8 @@ BYTE_EQUALITY_MARKERS = [
 # Repo categories (PyAutoMind/repos.yaml) whose contents nobody outside this
 # workshop consumes. Everything else is somebody's dependency.
 INTERNAL_REPO_CATEGORIES = frozenset({"organ", "admin"})
-# Seeds, NOT measurements. Phase 7's batch records carry the minutes the human
-# actually spent, and those are what will correct these.
+# Seeds, NOT measurements: batch records carry the minutes the human actually
+# spent, and those are what correct these.
 REVIEW_MINUTES_SEED = {"notify": 0, "glance": 3, "judge": 20}
 # `medium` is not a documented Priority: value but occurs in the live backlog;
 # read it as normal rather than dropping the prompt's stated intent.
@@ -505,9 +475,8 @@ def declared_header(text: str) -> dict:
     """The header keys a prompt *declares*, as opposed to what we infer.
 
     Fenced blocks are documentation, not declarations — a prompt that quotes
-    another prompt's header in a ```-block (the bug prompt for this very fix
-    does exactly that) must not be read as declaring it. Same rule, and the
-    same reason, as PyAutoMind `lifecycle.py:draft_gate_refs`.
+    another prompt's header in a ```-block must not be read as declaring it.
+    Same rule as PyAutoMind `lifecycle.py:draft_gate_refs`.
     """
     out = {"declared_difficulty": None, "declared_type": None,
            "declared_autonomy": None, "status": None,
@@ -574,8 +543,7 @@ def declared_header(text: str) -> dict:
                 out["lane"] = v
             elif v not in LANE_VALUES and out["lane_invalid"] is None:
                 # Not adopted, so the prompt reads as `any` — but recorded, so
-                # the census can flag it. The archived spelling
-                # `any | local-dev` lands here: it is not a lane.
+                # the census can flag it (`any | local-dev` is not a lane).
                 out["lane_invalid"] = value
         elif key == "unattended":
             v = _norm_level(value)
@@ -627,10 +595,10 @@ def declared_inline(text: str):
     """(fields, spans) — declarations made in prose, for unheadered raw input.
 
     Fenced blocks and inline code spans are masked first: a prompt that *quotes*
-    a `Difficulty:` line (a repro, a transcript — the bug prompt for this very
-    fix does exactly that) is documenting, not declaring. Same rule as
-    `declared_header`. First declaration of each key wins; `spans` are its
-    offsets in `text`, so a caller can keep the clause out of a derived title.
+    a `Difficulty:` line (a repro, a transcript) is documenting, not declaring.
+    Same rule as `declared_header`. First declaration of each key wins; `spans`
+    are its offsets in `text`, so a caller can keep the clause out of a derived
+    title.
     """
     fields, spans = {}, []
     for m in _DECLARATION.finditer(_mask_code(text)):
@@ -704,11 +672,10 @@ def parse_prompt(path: Path, mind: Path, text: str | None = None):
         parts = rel.parts
     except ValueError:
         parts = path.parts
-    # Lifecycle layout (Mind #71): backlog prompts live under draft/ — the
-    # taxonomy folders (<work-type>/<target>/) sit below the state folder.
-    # active/ is FLAT (issued prompts, no taxonomy folders), so its path
-    # carries no work-type/target at all — the header fallback below supplies
-    # them there.
+    # Lifecycle layout: backlog prompts live under draft/ — the taxonomy
+    # folders (<work-type>/<target>/) sit below the state folder. active/ is
+    # FLAT (issued prompts, no taxonomy folders), so its path carries no
+    # work-type/target at all — the header fallback below supplies them there.
     if parts and parts[0] == "draft":
         parts = parts[1:]
     elif parts and parts[0] == "active":
@@ -845,9 +812,7 @@ def estimate_consequence(p: dict, factors: dict | None = None):
     if factors is None:
         _, _, factors = estimate_difficulty(p)
     # Mask fenced blocks and inline code first, on the module's own standing
-    # rule: a prompt QUOTING a surface is documenting it, not touching it. The
-    # prompts that define this very model are the worst offenders — they name
-    # every judged surface in prose while touching none of them.
+    # rule: a prompt QUOTING a surface is documenting it, not touching it.
     text = _mask_code(p["text"]).lower()
     witness = (p.get("witness") or "").strip()
     reasons = []
@@ -895,11 +860,9 @@ def estimate_unattended(p: dict, level: str, factors: dict | None = None):
     Deliberately NOT difficulty renamed. Difficulty asks how big the blast
     radius is; this asks whether one unattended run can carry the task to
     PR-open. The rule that separates them is the compaction rule: **a task that
-    would need context compaction to finish is too big to run unattended.**
-    That is measured, not cautious — `anthropics/claude-code#54393`, a
-    postmortem of five consecutive failed autonomous overnight runs, names
-    "good plan -> compact -> garbage drift" as a primary failure primitive, and
-    nothing downstream of the run catches it.
+    would need context compaction to finish is too big to run unattended** —
+    a plan drifts after compaction, and nothing downstream of the run catches
+    it.
     """
     if factors is None:
         _, _, factors = estimate_difficulty(p)
@@ -995,10 +958,9 @@ def judge_slices(children: list) -> dict:
 def estimate_review_minutes(tier: str, level: str) -> int:
     """A SEED, not a measurement.
 
-    Everything here is derived from the tier plus a nudge for size; the honest
-    numbers come from phase 7's batch records, which carry the minutes the human
-    actually spent. Read a value from this function as "what to plan with until
-    we have measured", and never as evidence about how long anything took.
+    Derived from the tier plus a nudge for size; the honest numbers are the
+    minutes batch records carry. Read a value from this function as "what to
+    plan with until measured", never as evidence about how long anything took.
     """
     minutes = REVIEW_MINUTES_SEED.get(tier, REVIEW_MINUTES_SEED["judge"])
     if tier == "judge" and level in ("large", "too-large"):
@@ -1050,12 +1012,9 @@ def effective_review_minutes(p: dict, tier: str, level: str):
 
 
 # The per-work-type autonomy caps, mirrored from `AUTONOMY.md` "Per-work-type
-# caps". Until 2026-08-30 these lived ONLY as prose there, applied by whichever
-# agent happened to read the doctrine — so nothing could compute what a prompt's
-# autonomy actually resolves to, and the batch planner proposed work that would
-# park at the ship checkpoint the moment it ran. A rule every consumer has to
-# re-read and re-apply by hand is a rule that gets applied differently by each
-# of them; this is the same lesson `effective_difficulty` already carries.
+# caps". Held as data so every consumer computes what a prompt's autonomy
+# resolves to the same way — the batch planner must not propose work that
+# would park at the ship checkpoint.
 #
 # Editing this table is a doctrine change: edit AUTONOMY.md first, then mirror.
 WORK_TYPE_AUTONOMY_CAPS = {
@@ -1070,8 +1029,8 @@ _AUTONOMY_RANK = {"safe": 0, "supervised": 1, "human-required": 2}
 def autonomy_cap(work_type: str, difficulty: str) -> str:
     """The most autonomy this work-type may ever have, whatever it declares."""
     if work_type in ("feature", "docs"):
-        # Raised 2026-07-09 on calibration evidence; `large` and above still
-        # checkpoints, because size is where the heuristic is least trustworthy.
+        # `large` and above still checkpoints, because size is where the
+        # heuristic is least trustworthy.
         return "safe" if difficulty in ("small", "medium") else "supervised"
     return WORK_TYPE_AUTONOMY_CAPS.get(work_type, "human-required")
 
@@ -1098,7 +1057,7 @@ def effective_autonomy(p: dict, difficulty: str):
 
 
 #: The merge modes `merge_mode` can return (AUTONOMY.md "Merge authority
-#: follows Consequence — 2026-10-02" and its ruling R3 of 2026-11-17).
+#: follows Consequence").
 MERGE_HUMAN = "human /prm"
 MERGE_ON_GREEN = "auto-merge on green"
 MERGE_ON_GREEN_WITNESS = "auto-merge on green if the Witness passes"
@@ -1113,11 +1072,11 @@ def merge_mode(p: dict, level: str, *, auto: bool = False, in_shift: bool = Fals
     sizing faculty would infer never carries merge authority): `judge` or no
     header is a human `/prm`; `glance` auto-merges on green only if the
     `Witness:` passes; `notify` auto-merges on green. The effective `level`
-    decides the checkpoints, not who merges — except, under ruling R3, that a
-    `notify` task whose work-type cap lowered its level, run under `--auto`,
-    merges only when it declares a `Witness:`, else it is a human `/prm`. A
-    shift is an `--auto` launch, and inside one the merge waits for a merge
-    slot (`pyauto-brain merge-slot take`).
+    decides the checkpoints, not who merges — except that a `notify` task
+    whose work-type cap lowered its level, run under `--auto`, merges only
+    when it declares a `Witness:`, else it is a human `/prm`. A shift is an
+    `--auto` launch, and inside one the merge waits for a merge slot
+    (`pyauto-brain merge-slot take`).
     """
     tier = p.get("declared_consequence")
     witness = bool((p.get("witness") or "").strip())
@@ -1139,20 +1098,18 @@ def merge_mode(p: dict, level: str, *, auto: bool = False, in_shift: bool = Fals
 def effective_difficulty(p: dict):
     """(level, score, factors, derived_level) — the DECLARED level wins.
 
-    The single precedence rule, defined here rather than per conductor. Three
-    conductors size a prompt (feature, bug, intake) and each one that re-derived
-    difficulty while ignoring `declared_difficulty` shipped the same bug
-    (PyAutoBrain#217, then #274) — one heuristic with three reconciliations is
-    three chances to forget one.
+    The single precedence rule, defined here rather than per conductor, so the
+    three conductors that size a prompt (feature, bug, intake) cannot
+    reconcile it differently.
 
     REFERENCE.md promises that the `Difficulty:` Intake persists is "the value
     the Feature Agent later acts on", so a declared level overrides the
     re-derived one. Length is the heuristic's biggest input and a bad size proxy
     — a prompt is long when it carries a design, not when the work is large —
-    which is exactly what declaring a level exists to correct. The derived score
-    is kept (it still orders prompts within a level) and the derived LEVEL is
+    which is what declaring a level exists to correct. The derived score is
+    kept (it still orders prompts within a level) and the derived LEVEL is
     returned alongside, so a disagreement is reported rather than silently
-    resolved: it is evidence about the heuristic and worth seeing.
+    resolved.
     """
     derived_level, score, factors = estimate_difficulty(p)
     return p.get("declared_difficulty") or derived_level, score, factors, derived_level

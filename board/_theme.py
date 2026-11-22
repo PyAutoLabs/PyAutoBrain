@@ -1,10 +1,7 @@
 """board/_theme.py — the shared look of the one-tap board family.
 
 Every organ publishes the same kind of page: a phone-first, self-contained
-list of rows, each carrying a 📋 copy-for-assistant payload. Until now each
-renderer carried its own copy of the same GitHub-grey stylesheet, so the
-family looked like six unrelated pages that happened to share a layout — and
-none of them looked like the organ whose logo sits at the top of its README.
+list of rows, each carrying a 📋 copy-for-assistant payload.
 
 This module is the one place that answers "what does a board look like". It
 is **presentation only**: no state, no collection, no policy. Renderers
@@ -19,11 +16,10 @@ keeps speaking: the accent runs on through the page's *type* rather than
 stopping at the masthead. Body copy stays plain, because these are lists
 people scan on a phone before breakfast, not dashboards to admire.
 
-The mark is **drawn, not borrowed**. An emoji stood in for it at first, which
-read as a cartoon beside the real logo — 🧠 is not the Brain's circuit brain.
-`MARKS` holds each logo's glyph as inline SVG line art traced off the file:
-it inherits the accent, stays sharp at any size, and costs ~1KB in the one
-page that uses it, where the 80-150KB `logo.png` would be most of the page.
+The mark is **drawn, not borrowed**: `MARKS` holds each logo's glyph as inline
+SVG line art traced off the file. It inherits the accent, stays sharp at any
+size, and costs ~1KB in the one page that uses it, where the 80-150KB
+`logo.png` would be most of the page.
 
 The accent is the page's **type colour**, not merely its link colour: the
 things that give a page its shape — section headings, disclosure summaries,
@@ -31,15 +27,15 @@ code spans, the emphasised head of a row — are all set in the organ's hue, so
 a board reads as its organ from top to bottom instead of as grey GitHub
 chrome under a coloured masthead. Only the running prose stays near-black.
 
-Colour is doing two jobs at once now, and the decorative one never overwrites
-the semantic one:
+Colour does two jobs at once, and the decorative one never overwrites the
+semantic one:
 
 * the **accent** is organ identity — links, headings, summaries, code, the
   section rules, the stats and the hero;
 * **pills** are the task facets (target, difficulty, autonomy, priority), so
   a backlog can be scanned by colour instead of read word by word;
-* **ok / warn / bad** stay reserved for the verdict semantics they already
-  carry on the Heart-style boards.
+* **ok / warn / bad** stay reserved for the verdict semantics they carry on
+  the Heart-style boards.
 
 That reservation is literal in the stylesheet: the accent rule is
 `b:not([class])`, so an element carrying a semantic class — `ok`, `warn`,
@@ -1041,10 +1037,10 @@ def hero(key, kind, lede_html="", *, navigation=(), navigation_columns=None, dis
 # Facet vocabulary → pill tone. Anything unlisted falls back to the neutral
 # tone, so a new `Difficulty:` value renders as a plain pill instead of
 # silently taking someone else's colour.
-# Colour marks the *exception*, never the default. `supervised` is 9 of every
-# 10 prompts in the Mind — tinting it amber would paint the whole backlog and
-# say nothing. So the majority value stays neutral and the tones are spent on
-# what changes a decision: green go, amber caution, red handle-with-care.
+# Colour marks the *exception*, never the default: `supervised` is the large
+# majority of Mind prompts, so tinting it would paint the whole backlog and
+# say nothing. The tones are spent on what changes a decision: green go,
+# amber caution, red handle-with-care.
 _TONES = {
     "safe": "g",
     "large": "y",
@@ -1052,9 +1048,8 @@ _TONES = {
 }
 
 
-# The PyAutoMind work-type taxonomy, one glyph each. The work type is what
-# `draft/` is organised around and the one facet the boards never showed; a
-# glyph carries it without spending colour, which is reserved for judgement.
+# The PyAutoMind work-type taxonomy, one glyph each: a glyph carries the work
+# type without spending colour, which is reserved for judgement.
 WORK_TYPE_GLYPHS = {
     "feature": "✨", "bug": "\U0001f41b", "refactor": "♻️",
     "docs": "\U0001f4d6", "test": "\U0001f9ea", "release": "\U0001f680",
@@ -1115,17 +1110,14 @@ def stats(*pairs):
 
 
 # The board family's canonical membership and order live in ONE place:
-# `config/policy.yaml` `board: boards:`. Every renderer that draws the footer
-# used to keep its own copy of that list, and every copy drifted — the three
-# sibling organs shipped a tuple written before the Cortex had a board, so
-# their footers were both short a chip and out of the ruled organ order.
+# `config/policy.yaml` `board: boards:`, so no renderer keeps its own copy.
 #
 # `board_links` is that single read, offered to every renderer. It stays a
 # stdlib regex over the one-pair-per-line block rather than a yaml parse for
 # the same reason `_intake._board_links` does: these renderers also run bare
 # in workflows that install nothing, and this module is presentation-only —
 # it must not grow a dependency. File order IS the order: editing
-# `policy.yaml` reorders every board's footer at once, which is the point.
+# `policy.yaml` reorders every board's footer at once.
 _BOARDS_BLOCK = _re.compile(r"^  boards:\n((?:    \w+: \S+\n)+)", _re.M)
 _BOARD_PAIR = _re.compile(r"^    (\w+): (\S+)$", _re.M)
 

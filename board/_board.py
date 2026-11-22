@@ -107,23 +107,18 @@ def derive_org(homes):
 # ---------------------------------------------------------------------------
 # The injection seam (--github-data)
 #
-# The legs of this board that read GitHub do so through `gh api`, and a Claude Code
-# remote session — the surface the board is actually read from on a phone — has
-# no `gh` at all. Its GitHub access is the `mcp__github__*` tool surface, which
-# is an AGENT capability: this file is a subprocess and cannot reach it, however
-# it is invoked. That is the whole reason this is a seam and not a substitution.
+# The legs of this board that read GitHub do so through `gh api`, and a Claude
+# Code remote session — the surface the board is read from on a phone — has no
+# `gh` at all. Its GitHub access is the `mcp__github__*` tool surface, an AGENT
+# capability this subprocess cannot reach; the session's injected $GH_TOKEN
+# gets 403 on every repo-scoped path. Hence a seam, not a substitution.
 #
 # So the `/board` skill (which is the agent) fetches, writes the responses to a
 # file, and passes it here; this stays a pure renderer. The map is keyed by the
 # endpoint exactly as `gh_json` receives it, so injected and live data are
-# interchangeable by construction rather than by convention — a key that drifts
-# from its call site simply misses, and a miss is "could not ask", which is a
-# state this board already renders honestly.
-#
-# The alternative — an org admin connecting the Claude GitHub App so the
-# injected $GH_TOKEN works from a subprocess — was probed on 2026-08-27 and
-# does not work: 200 on /user and /rate_limit, 403 on every repo-scoped path.
-# If that changes, this seam becomes deletable; keep it small enough to delete.
+# interchangeable by construction — a key that drifts from its call site simply
+# misses, and a miss is "could not ask", a state this board already renders
+# honestly. Keep the seam small enough to delete.
 # ---------------------------------------------------------------------------
 
 _INJECTED = None
@@ -193,11 +188,9 @@ def _fetch_reason(exc):
 
     "unreachable" covers two very different situations and the difference is
     the actionable part: a transient network failure is worth retrying, while
-    an egress policy that refuses the host will refuse it every time until
-    someone adds it to the environment's allowlist. A remote session hits the
-    second — the sibling boards are GitHub Pages, and the proxy answers 403 to
-    CONNECT for that host — so the board reported "unreachable" every morning
-    for a reason no amount of retrying would change.
+    an egress policy that refuses the host (a remote session's proxy answers
+    403 to CONNECT for GitHub Pages) will refuse it every time until someone
+    adds it to the environment's allowlist.
     """
     code = getattr(exc, "code", None)
     reason = str(getattr(exc, "reason", exc))
@@ -399,11 +392,9 @@ def extract_heart_performance(board, board_url=""):
 def open_issues_endpoint(org):
     """The upkeep leg's `gh api` endpoint — also its `--github-data` key.
 
-    Upkeep is the board's only remaining GitHub leg (versions, community and
-    resume were retired with the agents/workflows simplification and are not
-    collected at all), so this is the one key a gh-less gatherer must supply.
-    The response is GitHub's search payload verbatim; the leg reads
-    `total_count`.
+    Upkeep is the board's only GitHub leg, so this is the one key a gh-less
+    gatherer must supply. The response is GitHub's search payload verbatim;
+    the leg reads `total_count`.
     """
     return f"search/issues?q=org:{org}+is:issue+is:open&per_page=1"
 
@@ -576,10 +567,8 @@ def headline(data):
     """The one line a reader acts on — qualified by how much was actually read.
 
     "clear to work" is a claim of knowledge, and a board whose legs could not
-    be queried has none. A remote session (no gh, Pages blocked by the egress
-    policy) rendered every section empty and still headlined "clear to work" in
-    brightgreen: the strongest possible all-clear, from a board that had asked
-    nothing. Absence of findings is not a finding.
+    be queried (no gh, Pages blocked by the egress policy) has none. Absence
+    of findings is not a finding.
     """
     core = "Agents & workflows"
     unread = len(data.get("degraded") or [])

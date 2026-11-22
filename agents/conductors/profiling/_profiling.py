@@ -9,8 +9,7 @@ results tree and the pinned-value drift surface, and emits a structured
 ProfilingDecision the human/session executes. It does NOT run sweeps itself
 and never edits source — like every conductor, it decides and delegates.
 
-Three modes (design decision recorded in the founding Mind prompt,
-`issued/profiling_agent.md`, and lived in autolens_profiling#52/#54/#56):
+Three modes:
 
 - **campaign** — diff the campaign grid (sweep CELLS × configs) against the
   results tree (done / CPU-unusable / missing) and emit the dispatch plan for
@@ -25,7 +24,7 @@ Three modes (design decision recorded in the founding Mind prompt,
   (Heart's `profiling_drift` leg — consulted via the vitals faculty's state,
   never by dispatching Heart) and classify each: stale pin → re-pin in the
   workspace; library regression → file a `bug/` prompt via intake. Never
-  debug libraries inside the profiling repo (the phase-2 boundary rule).
+  debug libraries inside the profiling repo.
 
 Stdlib-only. The project source catalogue supplies routing; pre-migration
 grids and remaining tables use literal AST readers, never scientific imports.
@@ -43,10 +42,8 @@ from pathlib import Path
 from typing import Any
 
 # Workspace root via the one shared resolver (agents/_pyauto_root.py, mirrored
-# by bin/_pyauto_root.sh): PYAUTO_ROOT, else the nearest ancestor holding a
-# .pyauto-root marker, else beside this checkout, else the parent anyway. Naming an absolute workspace path as the *default* here
-# resolved into
-# a non-existent tree in a remote session and reported empty rather than
+# by bin/_pyauto_root.sh), never an absolute default: a literal path resolves
+# into a non-existent tree in a remote session and reports empty rather than
 # failing.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import _pyauto_root  # noqa: E402
@@ -87,19 +84,15 @@ COMPARABILITY_FIELDS = ("hardware", "hostname", "jax_version", "mixed_precision"
 CELL_FIELDS = ("dataset_class", "model_type", "instrument", "transform")
 PIN_FIELDS = COMPARABILITY_FIELDS + CELL_FIELDS
 
-# Drift thresholds. Generous on purpose: host load alone has produced 7x errors
-# in this corpus, so a tight bound would flag a busy laptop as a regression and
-# teach people to ignore the alarm.
+# Drift thresholds. Generous on purpose: compile timings are host-load-sensitive
+# (up to 7x in this corpus), so a tight bound would flag a busy laptop as a
+# regression and teach people to ignore the alarm.
 COMPILE_DRIFT_RATIO = 2.0
 COMPILE_DRIFT_FLOOR_S = 1.0
 
-# The 2x band is a GROSS flag, not a measured change: today every pin and every
-# warm row is one compile timing, so drift compares one point against one point
-# (the limitation autolens_profiling's timing-noise audit, #362, found in its P7
-# release badge). Decision (a) of draft/bug/pyautobrain/
-# profiling_compile_drift_point_vs_point.md: keep the band, say so on every
-# drifted row. The repeat count is the compile analogue of P7's
-# `single_jit_repeats`; no producer writes it yet, so it is read when present
+# The 2x band is a GROSS flag, not a measured change: a pin and a warm row are
+# each one compile timing, so drift compares one point against one point, and
+# every drifted row says so. The repeat count is read when a producer writes it
 # and never inferred — a row without it is a single sample.
 COMPILE_REPEATS_FIELD = "compile_repeats"
 SINGLE_SAMPLE_CAVEAT = (
@@ -490,10 +483,10 @@ def campaign_lifecycle(ws: Path, tier: str, lifecycle: dict[str, Any]) -> dict[s
 def campaign_compile(ws: Path, tier: str) -> dict[str, Any]:
     """Coverage of the jax_compile corpus against the science grid.
 
-    Answers "how much of the grid has compile data on this tier", which nothing
-    did before: the compile corpus and the runtime grid live in separate trees
-    with no cross-reference. Read-only, like every campaign — it never runs
-    probe.py, it emits the invocations a human would run.
+    Answers "how much of the grid has compile data on this tier": the compile
+    corpus and the runtime grid live in separate trees with no
+    cross-reference. Read-only, like every campaign — it never runs probe.py,
+    it emits the invocations a human would run.
     """
     if tier not in TIER_CONFIGS:
         return {"agent": "profiling", "mode": "campaign", "error": f"unknown tier {tier!r}"}
@@ -645,9 +638,9 @@ def _drift_sampling(pin: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
 def ingest_compile(ws: Path) -> dict[str, Any]:
     """Which warm compile rows are unpinned, and which have drifted from a pin.
 
-    The surveillance the arc exists for: the persistent cache and
-    `--xla_gpu_autotune_level=0` are *settings*, so a config drift or an
-    `XLA_FLAGS` clobber puts the worst case back with nothing failing.
+    The persistent cache and `--xla_gpu_autotune_level=0` are *settings*, so a
+    config drift or an `XLA_FLAGS` clobber puts the worst case back with
+    nothing failing; this is the surveillance for that.
 
     Every comparison here happens strictly inside one comparability key. Rows
     from different hardware, hosts, jax versions, precisions or cache states are
@@ -701,8 +694,7 @@ def ingest_compile(ws: Path) -> dict[str, Any]:
         ratio = got / expected
         # Both gates, deliberately. The ratio alone screams about sub-second
         # cells where a 100 ms jitter is 3x; the absolute delta alone misses a
-        # cheap cell degrading by an order of magnitude. Generous because host
-        # load alone has produced 7x errors in this corpus.
+        # cheap cell degrading by an order of magnitude.
         if ratio >= COMPILE_DRIFT_RATIO and abs(got - expected) >= COMPILE_DRIFT_FLOOR_S:
             drifted.append(
                 {
@@ -765,9 +757,8 @@ def ingest(ws: Path) -> dict[str, Any]:
 
     probes: list[dict[str, Any]] = []
     # Fresh evidence only: a probe older than the table file has already been
-    # reasoned over (e.g. the 2026-05 A100 probes whose recommendations the
-    # table deliberately halved after cuFFT scratch failures — resurfacing
-    # them would reintroduce the failure the halving fixed).
+    # reasoned over, and the table may deliberately differ from its
+    # recommendation — resurfacing it would undo that decision.
     table_mtime = (ws / "scripts" / "misc" / "vram" / "config.py").stat().st_mtime
     for p in sorted(runtime.rglob("vmap_probe_*.json")):
         if p.stat().st_mtime <= table_mtime:
@@ -829,9 +820,9 @@ def _cold_reference(ws: Path) -> dict[tuple, float]:
     """Slowest cold compile per (comparability-minus-cache_state, cell, transform).
 
     The yardstick for "has the cache stopped being hit": a warm row that has
-    climbed back to its own cold scale is the regression this arc exists for.
-    Slowest rather than mean — the alarm should need the warm row to reach the
-    full cold cost, not merely an average a fast cold run drags down.
+    climbed back to its own cold scale. Slowest rather than mean — the alarm
+    should need the warm row to reach the full cold cost, not merely an
+    average a fast cold run drags down.
     """
     out: dict[tuple, float] = {}
     fields = [f for f in PIN_FIELDS if f != "cache_state"]
@@ -941,9 +932,8 @@ def _classify_unpinned(key: tuple, pins: list[dict[str, Any]]) -> dict[str, Any]
 def triage_compile(ws: Path) -> dict[str, Any]:
     """Classify what `ingest --axis compile` found, and say what to do about it.
 
-    Phases 1-2 make compile drift visible; this makes it actionable. The
-    classification IS the deliverable — profiling records and routes, it never
-    adjudicates library correctness inside the profiling repo.
+    The classification IS the deliverable — profiling records and routes, it
+    never adjudicates library correctness inside the profiling repo.
     """
     ing = ingest_compile(ws)
     if ing.get("pins", 0) == 0:
@@ -1213,9 +1203,6 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true", dest="as_json")
     a = ap.parse_args(argv)
 
-    # ingest/triage own the compile axis in later phases of the arc (pins, then
-    # drift classification). Refusing now is deliberate: a mode that silently
-    # ignored --axis would report runtime findings under a compile flag.
     ws = workspace_root(a.workspace)
     if not ws.is_dir():
         print(f"profiling: workspace not found: {ws}", file=sys.stderr)
