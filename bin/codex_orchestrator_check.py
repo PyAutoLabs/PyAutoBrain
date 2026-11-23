@@ -40,7 +40,7 @@ def check() -> dict:
                             'verify gh auth and Heart before a shift. This check starts no model.'}
 
 
-def smoke(model: str) -> dict:
+def smoke(model: str, mode: str = 'auto') -> dict:
     # Disposable workspace: no repositories, shift grants or publication.
     import shutil
 
@@ -52,7 +52,7 @@ def smoke(model: str) -> dict:
               'Do not read other projects, call another model, use the network, '
               'create a task, commit, push or launch any background work.')
     lease = _codex.launch(prompt, home=home, cwd=root, write_root=root, model=model,
-                          effort='medium', mode='dontAsk', env=dict(os.environ))
+                          effort='medium', mode=mode, env=dict(os.environ))
     sid = lease['agent_id']
     try:
         end = time.monotonic() + 300
@@ -62,7 +62,7 @@ def smoke(model: str) -> dict:
                 usage = _codex.usage(sid, home)
                 passed = state == 'done' and marker.exists() and marker.read_text().strip() == 'PYAUTO_CODEX_OK'
                 return {'ok': passed and usage is not None, 'state': state, 'usage': usage,
-                        'marker': passed, 'scope': 'no-op only; no development/merge readiness claim'}
+                        'marker': passed, 'worker_mode': mode, 'scope': 'no-op only; no development/merge readiness claim'}
             time.sleep(.2)
         return {'ok': False, 'error': 'smoke timed out after 300 seconds'}
     finally:
@@ -83,12 +83,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--smoke', action='store_true', help='explicitly run one no-op model session')
     parser.add_argument('--model', help='installed Codex model id; required with --smoke')
+    parser.add_argument('--worker-mode', choices=('auto', 'dontAsk'), default='auto',
+                        help='worker approval mode exercised by --smoke (default: auto)')
     args = parser.parse_args()
     if args.smoke and not args.model:
         parser.error('--smoke requires --model')
     result = check()
     if args.smoke and result['ok']:
-        result = smoke(args.model)
+        result = smoke(args.model, args.worker_mode)
     print(json.dumps(result, indent=2))
     return 0 if result['ok'] else 1
 

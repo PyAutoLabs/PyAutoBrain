@@ -155,12 +155,12 @@ def command(model: str, effort: str, mode: str, cwd: Path, write_root: Path) -> 
             "-c", f"model_reasoning_effort={json.dumps(effort)}",
             "-c", 'model_provider="openai"', "-c", 'forced_login_method="chatgpt"',
             "-c", "features.multi_agent=false", "-c", "features.goals=false",  # usage is for this worker only
-            "--sandbox", "workspace-write", "--cd", str(cwd),
+            "--cd", str(cwd),
             "--add-dir", str(write_root), "--skip-git-repo-check"]
     if mode == "auto":
         argv.append("--approve-for-me")
     else:
-        argv += ["-c", 'approval_policy="never"']
+        argv += ["--sandbox", "workspace-write", "-c", 'approval_policy="never"']
     return argv + ["-"]
 
 

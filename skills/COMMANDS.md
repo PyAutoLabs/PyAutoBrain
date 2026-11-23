@@ -124,7 +124,7 @@ call, so the Brain is not bypassed):
   as `/queue` writes the queue.
 
 - **`/cockpit`** — watch a running shift from chat and steer it
-  (PyAutoBrain#646). One Monitor on the canonical `batch watch --stream`
+  (PyAutoBrain#646). Codex reads in the current turn; Claude uses one Monitor on the canonical `batch watch --stream`
   command, inside the shift's window, re-armed only at `segment-end`; the one
   watch a session may hold (Mind `policy/shift_cockpit_watch.md`, enforced by
   the end-at-deliverable hook). Steering is one comment on the shift issue from

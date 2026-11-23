@@ -128,7 +128,10 @@ def test_command_preserves_sandbox_and_model(mode, tmp_path):
     argv = _codex.command("selected-model", "high", mode, tmp_path, tmp_path / "worktrees")
     assert argv[:3] == ["codex", "exec", "--json"]
     assert argv[argv.index("--model") + 1] == "selected-model"
-    assert argv[argv.index("--sandbox") + 1] == "workspace-write"
+    if mode == "auto":
+        assert "--sandbox" not in argv  # --approve-for-me selects workspace-write itself
+    else:
+        assert argv[argv.index("--sandbox") + 1] == "workspace-write"
     assert "features.multi_agent=false" in argv
     assert ("--approve-for-me" in argv) == (mode == "auto")
     assert "--trust" not in argv and "--dangerously-bypass-hook-trust" not in argv
@@ -332,3 +335,24 @@ def test_check_default_does_not_launch_a_worker(tmp_path, monkeypatch):
     monkeypatch.setattr(check.subprocess, 'run', lambda *a, **kw: SimpleNamespace(
         returncode=0, stdout='--json --sandbox --add-dir --approve-for-me'))
     assert check.check()['ok']
+
+@pytest.mark.parametrize(("options", "expected"), [([], "auto"), (["--worker-mode", "dontAsk"], "dontAsk")])
+def test_smoke_invokes_production_launcher_with_selected_mode(tmp_path, monkeypatch, options, expected):
+    import importlib.util
+    path = Path(orch.__file__).resolve().parents[3] / "bin" / "codex_orchestrator_check.py"
+    spec = importlib.util.spec_from_file_location("codex_check_mode_test", path)
+    check = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(check)
+    monkeypatch.setattr(check, "check", lambda: {"ok": True})
+    monkeypatch.setattr(sys, "argv", ["check", "--smoke", "--model", "selected", *options])
+
+    def launch(prompt, *, cwd, mode, model, **kwargs):
+        assert mode == expected and model == "selected"
+        (cwd / "smoke-ok.txt").write_text("PYAUTO_CODEX_OK")
+        return {"agent_id": "disposable"}
+
+    monkeypatch.setattr(_codex, "launch", launch)
+    monkeypatch.setattr(_codex, "state", lambda *_: "done")
+    monkeypatch.setattr(_codex, "usage", lambda *_: {"total": 1})
+    monkeypatch.setattr(_codex, "stop", lambda *_: None)
+    assert check.main() == 0

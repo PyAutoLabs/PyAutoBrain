@@ -13,11 +13,8 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 
 ## Attach only when asked
 
-Arm the watch only on an explicit request for one: `/cockpit`, "/cockpit
-watch", "watch the shift", "start the cockpit" (policy condition 1: the human
-asked for it in this session). A question ("what's the shift doing?", "is
-anything stuck?") gets a one-shot answer from `batch watch --once` or the reads
-in section 7, with no Monitor; offer the watch in one line if it would help.
+Attach only when explicitly asked in this session, e.g. `/cockpit` or "watch the shift".
+For a status question, answer once with `batch watch --once` or the reads in section 7, with no Monitor.
 
 ## The rule of this chat
 
@@ -53,7 +50,12 @@ the record's `- issue:` line.
 
 ## 3. Attach
 
-Call `Monitor` with `timeout_ms: 1800000`, description `shift <slot> events`,
+In Codex, run the command below in a foreground terminal during the **current chat turn**.
+Read stdout from the same session handle with short, interruptible waits and relay each event as it arrives.
+Resume only on exit 3 with the printed cursor. On cancellation or turn end, interrupt and reap the reader.
+If streaming is unavailable, give the human the command for their terminal.
+
+In Claude, call `Monitor` with `timeout_ms: 1800000`, description `shift <slot> events`,
 and exactly this command, in this flag order, with nothing before, after or
 around it:
 
@@ -141,9 +143,8 @@ within 3 ticks (about 3 min), or `steer-unread` arrives, say so once.
 
 ## Stop watching
 
-On "stop watching" or "close the cockpit", stop the Monitor with `TaskStop`
-and say "Stopped watching; the shift carries on." The shift is unaffected (to
-stop it, that is `/stop`). Do not arm again unless asked.
+On "stop watching" or "close the cockpit", interrupt and reap the Codex reader or use Claude's `TaskStop`.
+Confirm that the shift carries on. Resume watching only on request.
 
 ## 6. Questions
 
@@ -174,9 +175,7 @@ second Monitor.
 - Arming anything after the shift ends, or re-arming after any exit but
   `segment-end`.
 
-## Without Monitor (web, mobile, Codex)
+## Without a streaming tool
 
-Run `batch watch --once` in the foreground when asked, and steer by the same
-comments. Nothing is armed. Without `gh`, post the steering comment and make
-the reads through the GitHub MCP tools that
-[`../GITHUB_ACCESS.md`](../GITHUB_ACCESS.md) maps each `gh` call to.
+On web or mobile, use `batch watch --once` on request and steer through the shift issue.
+When `gh` is unavailable, use the equivalents in [GitHub access](../GITHUB_ACCESS.md).
