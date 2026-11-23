@@ -53,7 +53,17 @@ the record's `- issue:` line.
 
 ## 3. Attach
 
-Call `Monitor` with `timeout_ms: 1800000`, description `shift <slot> events`,
+In Codex, an explicit watch runs in the **current chat turn**. Run the canonical
+command below in a foreground terminal session that returns a session handle.
+Read incremental stdout from that same handle and relay each event in chat as
+it arrives. Use short bounded waits so steering can interrupt the read. Carry
+the printed cursor into the next segment only on exit 3. On user cancellation
+or before ending the turn, interrupt and reap the stream reader. This detaches
+the chat from the feed; stopping the shift requires the separate steering act
+below. If foreground streaming is unavailable, give the user the same command
+for their terminal. A status question alone still uses the one-shot snapshot.
+
+In Claude, call `Monitor` with `timeout_ms: 1800000`, description `shift <slot> events`,
 and exactly this command, in this flag order, with nothing before, after or
 around it:
 

@@ -105,7 +105,8 @@ After the read-only check passes, explicitly run one disposable no-op session:
 python3 PyAutoBrain/bin/codex_orchestrator_check.py --smoke --model <your-installed-model-id>
 ```
 
-This consumes a Codex session. It verifies launch, completion, a written marker
+This uses the production auto-mode launcher and consumes one Codex session.
+Pass `--worker-mode dontAsk` to exercise that mode instead. It verifies launch, completion, a written marker
 and usage in a temporary workspace. It does not create an issue, PR or shift,
 run a reviewer, or prove repository permissions. It times out after five minutes.
 

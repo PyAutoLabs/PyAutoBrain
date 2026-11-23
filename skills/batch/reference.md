@@ -74,7 +74,12 @@ without `issue:`, and an expired CLI login (the human runs `claude /login`).
 45 min after `review-at:`. Never two open briefs at once. The watcher reads
 the `origin/main` ref of the Mind checkout in its env file **without
 fetching**, so push the brief from that checkout or `git fetch` it before
-launch; otherwise the watcher idles with "no open brief".
+launch; otherwise the watcher idles with "no open brief". After a push from a separate
+worktree, also verify the configured Mind checkout contains the pushed brief:
+compare the local file's `git hash-object` with `git rev-parse origin/main:batches/<slot>.md`.
+When its `main` lags, use `git merge --ff-only origin/main` there and repeat
+the comparison. If Git reports a conflict or the hashes differ, report that
+pickup is blocked. Verify pickup with the first watcher tick or status comment.
 
 ## When the batch is complete
 
