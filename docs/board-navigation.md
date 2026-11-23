@@ -17,6 +17,7 @@ arguments. Logos, wordmarks, taglines and banner styling are unchanged.
 | Brain | Orchestration |
 | Mind | Planning |
 | Cortex | Science |
+| Broca | Assistants |
 | Memory | Knowledge |
 | Eyes | Visualization |
 | Ears | Community |
@@ -26,7 +27,6 @@ arguments. Logos, wordmarks, taglines and banner styling are unchanged.
 | Insight | Inference |
 | DNA | Environments |
 | Nerves | Configuration |
-| Broca | Assistants |
 | Gut | Cleanup |
 | Scientist | Overview |
 
