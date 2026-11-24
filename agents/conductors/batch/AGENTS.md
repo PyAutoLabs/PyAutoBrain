@@ -335,7 +335,9 @@ re-dispatch is pending. A park holds it for 15 minutes from the park
 park (on a question or a person), an outcome with an open question, and an
 answered restart still pending. The park time is `counters["park_times"]`
 (the lease's `parked_at`, or when the `.done` was read), else the inbox entry's
-`asked`; with no known time the park keeps holding. Inside the 15 minutes the
+`asked`, taken at the end of its minute; with no known time the park keeps
+holding. A lease-parked task that later writes a `.done` with a question keeps
+its lease park time. Only an open question (not obsolete, not merged) is a park. Inside the 15 minutes the
 waiting task is refused as `<repo> held by <task> (parked) until HH:MMZ` and
 counted `startable`. After them the library is free; an answer that arrives
 later restarts the task only when no other worker holds its library. Once its

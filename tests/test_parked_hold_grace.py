@@ -141,10 +141,13 @@ def test_720_5_an_unknown_park_time_keeps_the_hold(tmp_path):
     assert orch.park_hold_end(c, "a", late) == ""          # held, but not until a time
     assert orch.park_holds_in_grace(c, late) == {}
     # A known time releases it; the inbox's `asked` serves for older counters.
+    # It is read at the end of its minute, so the hold never ends early.
     c["inbox"] = [{"task": "a", "issue": Q1, "kind": "question", "asked": "2026-11-04T09:00Z"}]
-    assert orch.park_hold_end(c, "a", NOW + 14 * MIN) == "09:15Z"
-    assert "a" in orch.released_picks(c, now=NOW + 15 * MIN)
-    assert orch._library_holder(c, {}, "b", ["autogalaxy"], NOW + 15 * MIN) is None
+    assert orch.park_time(c, "a") == NOW + MIN
+    assert orch.park_hold_end(c, "a", NOW + 15 * MIN) == "09:16Z"
+    assert "a" not in orch.released_picks(c, now=NOW + 15 * MIN)
+    assert "a" in orch.released_picks(c, now=NOW + 16 * MIN)
+    assert orch._library_holder(c, {}, "b", ["autogalaxy"], NOW + 16 * MIN) is None
     # Without `now` every park holds, as before the amendment.
     assert "a" not in orch.released_picks(c)
 
@@ -158,3 +161,35 @@ def test_720_5_an_unknown_park_time_keeps_the_hold_at_a_tick(tmp_path):
         assert _spawned(r) == [] and "ag_bug_two" not in r.get("startable", []), r
     assert orch.park_hold_until(orch.read_counters(orch.slot_dir(brief, home)),
                                 "ag_bug_one") is None
+
+
+@pytest.mark.parametrize("outcome", [
+    pytest.param({"prs": [], "merged": [], "questions": [Q1], "obsolete": "fixed on main"},
+                 id="obsolete"),
+    pytest.param({"prs": [PR2], "merged": [PR2], "questions": [Q1]}, id="merged"),
+])
+def test_720_review_an_obsolete_or_merged_outcome_is_not_a_park(outcome):
+    """Review finding 3: a park is what `_reap` stamps a park time on (the
+    `_open_parks` test), so an obsolete or merged outcome holds nothing."""
+    c = {"done": ["a"], "picks": {"a": {"repos": ["autogalaxy"]}}, "parked": [],
+         "pending_redispatch": [], "outcomes": {"a": outcome}}
+    assert orch._park_holds(c) == set() and orch._open_parks(c) == []
+    assert "a" in orch.released_picks(c, now=NOW)
+    assert orch._library_holder(c, {}, "b", ["autogalaxy"], NOW) is None
+
+
+@nt.sf.needs_git
+def test_720_review_a_parked_tasks_claim_is_a_repo_hold_in_the_digest(tmp_path):
+    """Review finding 2: the claim a parked task's own shift worker left holds
+    its repo until the grace ends, and the digest counts it as repo-held, not
+    as a draft claimed on Mind origin/main."""
+    mind, second, claim = nt._claimed_galaxy_mind(tmp_path)
+    claim("shift worker 2026-11-18-pm (abc123)")
+    records = [nt._batch.grade(mind / second, mind)]
+    kept, out = orch.on_origin(records, mind, own={"ag_bug_one"}, released=set(),
+                               slot_name="2026-11-18-pm", parked={"ag_bug_one": "09:15Z"})
+    assert kept == [] and out == {
+        second: "repo autogalaxy held by ag_bug_one (parked) until 09:15Z"}
+    lines = orch._digest.backlog_gate_lines({"backlog_gates": {"origin": out}})
+    assert [ln for ln in lines if ln.startswith("Repo claimed on Mind origin/main: 1 ")], lines
+    assert not [ln for ln in lines if ln.startswith("Claimed on Mind origin/main")], lines

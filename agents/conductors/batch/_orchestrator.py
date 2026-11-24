@@ -1329,7 +1329,7 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
             # queued before the counters write; a replay after a crash is a
             # silent repeat in `questions_edit.add_text`.
             done = counters["outcomes"][task]
-            if done.get("questions") and "obsolete" not in done and not done.get("merged"):
+            if _open_question(done):
                 # The park's start (ruling d, amended): when the outcome was
                 # read, unless the lease parked earlier and recorded its own.
                 times = counters.setdefault("park_times", {})
@@ -1665,13 +1665,18 @@ INSHIFT_RESTART_S = 30 * 60
 ANSWER_FETCH_EVERY_S = 10 * 60
 
 
+def _open_question(o) -> bool:
+    """An outcome parked on a question: questions, not obsolete, not merged."""
+    return isinstance(o, dict) and bool(o.get("questions")) and "obsolete" not in o \
+        and not o.get("merged")
+
+
 def _open_parks(counters: dict) -> list[str]:
     """Tasks of this shift parked on a question whose answer is not yet in
     hand (a release pending its spawn is not open: the answer was seen)."""
     pending = counters.get("inshift_pending") or {}
     return [t for t, o in (counters.get("outcomes") or {}).items()
-            if isinstance(o, dict) and o.get("questions") and "obsolete" not in o
-            and not o.get("merged") and t not in pending]
+            if _open_question(o) and t not in pending]
 
 
 def _fetch_for_answers(mind: Path, counters: dict, now: _dt.datetime,
@@ -1946,30 +1951,34 @@ def park_time(counters: dict, task: str) -> _dt.datetime | None:
     """When `task` parked this shift: `park_times` (a lease park's
     `parked_at`, or when an outcome with an open question was read), else the
     newest inbox entry the park filed (`asked`, to the minute: counters
-    written before `park_times` existed). None when unknown."""
+    written before `park_times` existed), taken at the end of its minute so
+    the hold never ends early. None when unknown."""
     raw = (counters.get("park_times") or {}).get(task)
+    late = _dt.timedelta(0)
     if not raw:
         asked = [str(q["asked"]) for q in counters.get("inbox") or []
                  if isinstance(q, dict) and q.get("task") == task and q.get("asked")]
         raw = max(asked) if asked else None
+        late = _dt.timedelta(minutes=1)
     if not raw:
         return None
     try:
         t = _parse_iso(str(raw))
     except ValueError:
         return None
-    return t if t.tzinfo else t.replace(tzinfo=_dt.UTC)
+    return (t if t.tzinfo else t.replace(tzinfo=_dt.UTC)) + late
 
 
 def _park_holds(counters: dict) -> set[str]:
     """This shift's picks held by a park (ruling d): a lease park, a finished
-    pick whose outcome carries an open question, an answered park waiting to
-    restart. A pending re-dispatch is not a park: it holds without a grace."""
+    pick whose outcome carries an open question (not obsolete, not merged:
+    `_open_parks`' test, the one `_reap` stamps `park_times` on), an answered
+    park waiting to restart. A pending re-dispatch is not a park: it holds
+    without a grace."""
     outcomes = counters.get("outcomes") or {}
     finished = {*(counters.get("done") or []), *(counters.get("abandoned") or [])}
     return ({*(counters.get("parked") or []), *(counters.get("inshift_pending") or {})}
-            | {t for t in finished if isinstance(outcomes.get(t), dict)
-               and outcomes[t].get("questions")}) \
+            | {t for t in finished if _open_question(outcomes.get(t))}) \
         - set(counters.get("pending_redispatch") or [])
 
 
@@ -2151,7 +2160,8 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
 
     def claimed_by(repo: str, slug: str) -> str:
         if slug in waits:
-            return f"{repo} held by {waits[slug][0]}{PARK_HOLD_WORDS}{waits[slug][1]}"
+            # `repo ` first, as every repo-held reason: the digest buckets by it.
+            return f"repo {repo} held by {waits[slug][0]}{PARK_HOLD_WORDS}{waits[slug][1]}"
         return f"repo {repo} claimed by `{slug}` in active.md on Mind origin/main"
     kept, out = [], {}
     for r in records:
