@@ -741,6 +741,165 @@ def held_leases(slot: Path) -> dict[str, dict]:
     return out
 
 
+# --- the review table ----------------------------------------------------------
+
+REVIEW_HEADING = "### Review table"
+#: The table's groups, by the human's next action, most urgent first. A task
+#: sits in exactly one: the most urgent of its PRs' groups.
+G_MERGE, G_ANSWER, G_FIX, G_BLOCKED, G_RUNNING, G_DONE, G_PROPOSED = range(7)
+REVIEW_GROUPS = ("Merge: your /prm", "Answer: question on the issue",
+                 "Fix: CI failed or crashed", "Blocked or not started", "Still running",
+                 "Done", "Proposed (shadow)")
+#: A `plain_outcome` word's group; the first prefix that matches wins. An
+#: unknown word goes to Merge: it fails toward the human's attention.
+_GROUP_OF = (
+    ("Dropped", G_BLOCKED),
+    ("Merged with NO merge slot", G_MERGE),
+    ("Merged", G_DONE), ("Already merged", G_DONE), ("Verdict posted", G_DONE),
+    ("Finished", G_DONE),
+    ("CI failed", G_FIX), ("Abandoned", G_FIX), ("Crashed", G_FIX), ("Killed", G_FIX),
+    ("Needs you — question", G_ANSWER), ("Needs you — blocked", G_ANSWER),
+    ("Needs you — not merged", G_MERGE), ("Waiting — merges after", G_MERGE),
+    ("CI green", G_MERGE), ("No CI checks", G_MERGE), ("CI unknown", G_MERGE),
+    ("Still running", G_RUNNING), ("Waiting — workspace sweep", G_RUNNING),
+    ("Branch", G_RUNNING), ("CI running", G_RUNNING),
+    ("Obsolete", G_BLOCKED), ("Not started", G_BLOCKED),
+    ("Proposed", G_PROPOSED),
+)
+#: A note longer than this is cut, with an ellipsis.
+NOTE_MAX = 90
+_WORK_REF_RE = re.compile(r"^https://github\.com/[^/\s]+/([^/\s]+)/(?:pull|issues)/(\d+)")
+_URL_PART_RE = re.compile(r"; (?=https?://)")
+
+
+def work_ref(url: str) -> str:
+    """`repo#n` for a GitHub PR or issue URL; the URL itself otherwise."""
+    m = _WORK_REF_RE.match(url or "")
+    return f"{m.group(1)}#{m.group(2)}" if m else (url or "?")
+
+
+def _cell(text: str) -> str:
+    """Text safe in a Markdown table cell: one line, pipes escaped."""
+    return " ".join(str(text or "").split()).replace("|", r"\|")
+
+
+def _group_of(word: str) -> int:
+    return next((g for p, g in _GROUP_OF if word.startswith(p)), G_MERGE)
+
+
+def _state_parts(state: str) -> list[tuple[str, str]]:
+    """A `task_state` as (url, what) per URL it names; ("", state) when it
+    names none."""
+    parts = []
+    for part in _URL_PART_RE.split(state):
+        if part.startswith("http") and " — " in part:
+            url, what = part.split(" — ", 1)
+            parts.append((url, what))
+        else:
+            parts.append(("", part))
+    return parts
+
+
+def _part_note(url: str, what: str) -> str:
+    """The short reason one part of a task's state gives, or ""."""
+    if what.startswith("awaiting /prm — close-out refused: "):
+        why = what[len("awaiting /prm — close-out refused: "):]
+        return refusal_class(why).split(" — ", 1)[0]
+    if what.startswith("PARKED-ON-ISSUE"):
+        return f"question on {work_ref(url)}" if url else "question on the issue"
+    if what.startswith("waits behind"):
+        return ""   # the Work cell says "after repo#m"
+    for head in ("not started — skipped: ", "not started — refused: ",
+                 NOT_REDISPATCHED + ": ", "obsolete (premise check): "):
+        if what.startswith(head):
+            return what[len(head):].split(" — ", 1)[0]
+    if what.startswith(IN_TURN_NO_SLOT):
+        return "merged with NO merge slot"
+    if what.startswith(("parked", "blocked on a person")):
+        return "blocked on a person"
+    return plain_outcome(what)
+
+
+def merge_ordered(prs: list[str], waits: dict) -> list[str]:
+    """A task's PRs in merge order: as its `.done` named them, except that a
+    PR waiting behind another of them comes after it."""
+    out: list[str] = []
+
+    def place(u, seen=()):
+        if u in out or u in seen:
+            return
+        for b in (waits.get(u) or {}).get("behind") or []:
+            if b in prs:
+                place(b, (*seen, u))
+        out.append(u)
+    for u in prs:
+        place(u)
+    return out
+
+
+def review_row(task: str, counters: dict, state: str, tier: str,
+               links: MindLinks | None = None) -> dict:
+    """One task as a review-table row: its group, the Task, Tier, Work and
+    Note cells, and how many open PRs it leaves for the human."""
+    pick = counters.get("picks", {}).get(task) or {}
+    out = (counters.get("outcomes") or {}).get(task) or {}
+    dropped = state.startswith("dropped")
+    parts = _state_parts(state)
+    group = G_BLOCKED if dropped else min(
+        (_group_of(plain_outcome(what)) for _, what in parts), default=G_MERGE)
+    waits = counters.get("merge_waits") or {}
+    prs = merge_ordered(list(out.get("prs") or []), waits)
+    work = []
+    for url in prs + list(out.get("issues") or []):
+        ref = f"[{_cell(work_ref(url))}]({url})"
+        behind = (waits.get(url) or {}).get("behind") or []
+        work.append(ref + (" after " + ", ".join(map(work_ref, behind)) if behind else ""))
+    notes = (["dropped by /drop"] if dropped else []) + [
+        n for url, what in parts for n in [_part_note(url, what)] if n]
+    note = "; ".join(dict.fromkeys(notes))
+    if len(note) > NOTE_MAX:
+        note = note[:NOTE_MAX - 1].rstrip() + "…"
+    title = _cell(pick.get("title") or task)
+    mind_url = links.prompt_url(pick.get("prompt") or "") if links else ""
+    done = set(out.get("merged") or []) | settled_prs(counters)
+    return {"task": task, "group": group,
+            "cells": [f"[{title}]({mind_url})" if mind_url else title,
+                      _cell(tier) if tier and tier != "?" else "—",
+                      "<br>".join(work) or "—", _cell(note) or "—"],
+            "open_prs": sum(1 for u in prs if "/pull/" in u and u not in done)}
+
+
+def _count_line(rows: list[dict]) -> str:
+    n = [sum(1 for r in rows if r["group"] == g) for g in range(len(REVIEW_GROUPS))]
+    prs = sum(r["open_prs"] for r in rows if r["group"] == G_MERGE)
+    words = (f"{n[G_MERGE]} to /prm" + (f" ({prs} PR{'s' if prs != 1 else ''})" if prs else ""),
+             f"{n[G_ANSWER]} to answer", f"{n[G_FIX]} to fix",
+             f"{n[G_BLOCKED]} blocked or not started", f"{n[G_RUNNING]} still running",
+             f"{n[G_DONE]} done", f"{n[G_PROPOSED]} proposed")
+    return " · ".join(w for g, w in enumerate(words) if n[g])
+
+
+def review_table_lines(rows: list[dict]) -> list[str]:
+    """The `### Review table`: a count line, then one table of every named
+    task and backlog pick, grouped by the human's next action (a bold row
+    per group, empty groups left out) and numbered 1…N straight through, so
+    a reply can say "prm 1–4, 6"."""
+    out = [REVIEW_HEADING]
+    if not rows:
+        return out + ["Nothing to review — no tasks this shift.", ""]
+    out += [_count_line(rows), "", "| # | Task | Tier | Work | Note |", "|---|---|---|---|---|"]
+    n = 0
+    for g, name in enumerate(REVIEW_GROUPS):
+        group = [r for r in rows if r["group"] == g]
+        if not group:
+            continue
+        out.append(f"| | **{name}** | | | |")
+        for r in group:
+            n += 1
+            out.append(f"| {n} | " + " | ".join(r["cells"]) + " |")
+    return out + [""]
+
+
 def _line(task: str, counters: dict, tier: str, health, links: MindLinks | None = None,
           why: str = "", lease: dict | None = None) -> str:
     state, tiered = task_state(task, counters, health, lease=lease)
@@ -764,12 +923,23 @@ def _packet(task: str, slot: Path, counters: dict) -> str:
             "- revert: see the PR")
 
 
+def _memo(health):
+    """`health`, read once per URL."""
+    seen: dict = {}
+
+    def once(url):
+        if url not in seen:
+            seen[url] = health(url)
+        return seen[url]
+    return once
+
+
 def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
           health=None, issue: str = "", mind=None) -> str:
     """The `## Digest` block for one shift, as Markdown. `mind` is the
     watcher's Mind checkout, read locally for the prompt links."""
     tiers = tiers or {}
-    health = health or pr_health
+    health = _memo(health or pr_health)   # the table and the entries read it once
     try:   # the slot file is the merge evidence; fresh at build time
         counters = {**counters, "slot_holders": _merge_slots.holders(slot)}
     except (_merge_slots.MergeSlotError, OSError):
@@ -787,10 +957,18 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     inbox = [x for x in [_questions.inbox_line(counters, Path(slot).name, mind)]
              + _questions.unfiled_lines(counters) if x]
     lines += inbox + [""] if inbox else []
-    lines += ["### Brief work"]
     links = MindLinks(mind, issue)
     # A worker still out at review-at keeps its lease.
     held = {t: l for t, l in held_leases(slot).items() if l.get("state") != "parked"}
+    # The review table: every named task and backlog pick (a settled
+    # carry-over is in neither, so it is left out here too).
+    rows = []
+    for t in named + backlog:
+        tier = tiers.get(t, picks.get(t, {}).get("tier", "?"))
+        state, _ = task_state(t, counters, health, lease=held.get(t))
+        rows.append(review_row(t, counters, state, tier, links))
+    lines += review_table_lines(rows)
+    lines += ["### Brief work"]
     lines += [_line(t, counters, tiers.get(t, picks.get(t, {}).get("tier", "?")), health, links,
                     lease=held.get(t)) for t in named] or [NO_PICKS]
     lines += ["", "### Backlog picks"]

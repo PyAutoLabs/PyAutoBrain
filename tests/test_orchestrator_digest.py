@@ -477,3 +477,138 @@ def test_683_the_digest_lists_each_librarys_merge_order_and_marks_the_next_prm(t
     c["merge_waits"] = {}
     assert "### Merge order" not in _digest.build(
         _brief.parse(brief.read_text())["brief"], slot, c, health=_health, issue=ISSUE)
+
+
+# --- PyAutoBrain#718: the review table at the top of the digest ----------------------
+
+G = "https://github.com/example-org/autogalaxy/pull/"
+
+
+def _row(task, counters, health=_health, tier="judge"):
+    state, _ = _digest.task_state(task, counters, health)
+    return _digest.review_row(task, counters, state, tier)
+
+
+@pytest.mark.parametrize("counters, health, group", [
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}},
+                  "closeouts": {G + "1": {"state": "refused", "why": "tier judge — your /prm"}}},
+                 _health, _digest.G_MERGE, id="awaiting-prm"),
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}}},
+                 _health, _digest.G_MERGE, id="ci-green"),
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}}},
+                 lambda u: "NO-CHECKS", _digest.G_MERGE, id="no-checks"),
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [G + "1"], "issues": []}}},
+                 _health, _digest.G_MERGE, id="merged-with-no-slot-needs-you"),
+    pytest.param({"outcomes": {"t": {"prs": [], "merged": [], "issues": [G[:-5] + "issues/3"]}}},
+                 _health, _digest.G_ANSWER, id="parked-on-issue"),
+    pytest.param({"parked": ["t"]}, _health, _digest.G_ANSWER, id="blocked-on-a-person"),
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}}},
+                 lambda u: "FAILED", _digest.G_FIX, id="ci-failed"),
+    pytest.param({"abandoned": ["t"]}, _health, _digest.G_FIX, id="abandoned"),
+    pytest.param({"pending_redispatch": ["t"]}, _health, _digest.G_FIX, id="not-redispatched"),
+    pytest.param({}, _health, _digest.G_BLOCKED, id="not-started"),
+    pytest.param({"dropped": {"t": {}}}, _health, _digest.G_BLOCKED, id="dropped"),
+    pytest.param({"outcomes": {"t": {"prs": [], "merged": [], "issues": [], "obsolete": "done"}}},
+                 _health, _digest.G_BLOCKED, id="obsolete"),
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}}},
+                 lambda u: "RUNNING", _digest.G_RUNNING, id="ci-running"),
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}},
+                  "closeouts": {G + "1": {"state": "running"}}},
+                 _health, _digest.G_RUNNING, id="closeout-running"),
+    pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [G + "1"], "issues": []}},
+                  "closeouts": {G + "1": {"state": "merged", "model": "m"}}},
+                 _health, _digest.G_DONE, id="merged-unattended"),
+    pytest.param({"outcomes": {"t": {"prs": [], "merged": [], "issues": [G[:-5] + "issues/3"],
+                                     "verdicts": [G[:-5] + "issues/3"]}}},
+                 _health, _digest.G_DONE, id="verdict-posted"),
+    pytest.param({"picks": {"t": {"proposed": True}}}, _health, _digest.G_PROPOSED,
+                 id="proposed-shadow"),
+])
+def test_718_each_state_sits_in_its_action_group(counters, health, group):
+    assert _row("t", counters, health)["group"] == group
+
+
+def test_718_a_task_goes_to_its_most_urgent_group():
+    """One PR merged, one awaiting /prm: the task is a Merge row, not Done."""
+    c = {"outcomes": {"t": {"prs": [G + "1", G + "2"], "merged": [G + "1"], "issues": []}},
+         "closeouts": {G + "1": {"state": "merged", "model": "m"},
+                       G + "2": {"state": "refused", "why": "decision-taken — the human's /prm"}}}
+    row = _row("t", c)
+    assert row["group"] == _digest.G_MERGE
+    assert row["open_prs"] == 1                       # the merged one is not counted
+    assert row["cells"][3] == "Merged; decision-taken"   # in PR order
+
+
+def test_718_groups_in_order_numbered_straight_through_and_empty_ones_left_out():
+    rows = [{"group": g, "cells": [name, "judge", "—", "—"], "open_prs": 1}
+            for g, name in [(_digest.G_DONE, "d"), (_digest.G_MERGE, "m1"),
+                            (_digest.G_BLOCKED, "b"), (_digest.G_MERGE, "m2")]]
+    lines = _digest.review_table_lines(rows)
+    assert lines[0] == "### Review table"
+    assert lines[1] == "2 to /prm (2 PRs) · 1 blocked or not started · 1 done"
+    one = [{**rows[1], "open_prs": 1}]
+    assert _digest.review_table_lines(one)[1] == "1 to /prm (1 PR)"
+    body = [ln for ln in lines if ln.startswith("| ") and not ln.startswith("| # ")]
+    assert body == ["| | **Merge: your /prm** | | | |", "| 1 | m1 | judge | — | — |",
+                    "| 2 | m2 | judge | — | — |", "| | **Blocked or not started** | | | |",
+                    "| 3 | b | judge | — | — |", "| | **Done** | | | |",
+                    "| 4 | d | judge | — | — |"]
+    assert not any("Answer" in ln or "Still running" in ln for ln in lines)
+    assert _digest.review_table_lines([])[1].startswith("Nothing to review")
+
+
+def test_718_a_multi_pr_task_lists_its_prs_in_merge_order_with_after():
+    g7, g8, g9 = G + "7", G + "8", G + "9"
+    lens = "https://github.com/example-org/autolens/pull/5"
+    c = {"outcomes": {"t": {"prs": [g9, lens, g8], "merged": [], "issues": []}},
+         "closeouts": {g7: {"state": "refused", "why": "tier judge — your /prm"}},
+         "merge_waits": {g8: {"behind": [g7]}, g9: {"behind": [g7, g8]}}}
+    row = _row("t", c)
+    assert row["group"] == _digest.G_MERGE
+    assert row["cells"][2] == (f"[autogalaxy#8]({g8}) after autogalaxy#7<br>"
+                               f"[autogalaxy#9]({g9}) after autogalaxy#7, autogalaxy#8<br>"
+                               f"[autolens#5]({lens})")
+
+
+def test_718_pipes_and_newlines_never_break_the_table():
+    c = {"picks": {"t": {"title": "a | b\nc"}},
+         "backlog_gates": {"named": {"draft/x/t.md": "repo a|b held by\nsomeone"}}}
+    row = _row("t", c)
+    assert row["cells"][0] == r"a \| b c"
+    assert row["cells"][3] == r"repo a\|b held by someone"
+    line = _digest.review_table_lines([row])[-2]
+    assert line.count("|") - line.count(r"\|") == 6     # 5 cells, never more
+
+
+def test_718_the_digest_opens_with_the_table_and_brief_work_is_unchanged(tmp_path):
+    """Built from a real shift: the table sits after the notices and before
+    `### Brief work`, covers each named task and backlog pick once, leaves a
+    settled carry-over out, and the record still validates."""
+    mind, brief, home = _shift(tmp_path)
+    slot = orch.slot_dir(brief, home)
+    c = orch.read_counters(slot)
+    done = "https://github.com/o/r/pull/66"
+    c["picks"]["carried"] = {"title": "Carried", "tier": "glance"}
+    c["outcomes"]["carried"] = {"prs": [done], "merged": [], "issues": [],
+                                "carried_from": "2026-11-03-am"}
+    c["closeouts"] = {**(c.get("closeouts") or {}),
+                      done: {"state": "refused", "settled": "merged", "why": "already merged"}}
+    b = _brief.parse(brief.read_text())["brief"]
+    d = _digest.build(b, slot, c, health=_health, issue=ISSUE)
+    head, rest = d.split("### Brief work", 1)
+    table = head.split("### Review table", 1)[1]
+    assert head.index("## Digest") < head.index("### Review table")
+    # `named` merged in-turn with no slot: it needs you, but no PR is left open.
+    assert table.splitlines()[1] == "1 to /prm · 1 blocked or not started · 1 still running"
+    rows = [ln for ln in table.splitlines() if ln[:2] == "| " and ln[2:3].isdigit()]
+    assert [r.split(" | ")[1] for r in rows] == ["named", "never", "picked"]
+    assert "Carried" not in table                         # settled: left out
+    assert "| " not in rest.split("### Proof packets")[0]   # no table rows below
+    # The entries below are exactly what they were (the earlier tests pin them).
+    assert ("- **Merged with NO merge slot — needs you** — [named](https://github.com/o/r/pull/1)"
+            in rest)
+    assert _digest.validate(d) == []
+    rec = tmp_path / "record.md"
+    rec.write_text(brief.read_text() + "\n" + d)
+    res = _brief.check(rec, mind)
+    assert res["ok"], res["errors"]
