@@ -511,7 +511,7 @@ def _row(task, counters, health=_health, tier="judge"):
     pytest.param({"outcomes": {"t": {"prs": [], "merged": [], "issues": [], "obsolete": "done"}}},
                  _health, _digest.G_BLOCKED, id="obsolete"),
     pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}}},
-                 lambda u: "RUNNING", _digest.G_RUNNING, id="ci-running"),
+                 lambda u: "RUNNING", _digest.G_MERGE, id="ci-running-is-your-prm"),
     pytest.param({"outcomes": {"t": {"prs": [G + "1"], "merged": [], "issues": []}},
                   "closeouts": {G + "1": {"state": "running"}}},
                  _health, _digest.G_RUNNING, id="closeout-running"),
@@ -612,3 +612,66 @@ def test_718_the_digest_opens_with_the_table_and_brief_work_is_unchanged(tmp_pat
     rec.write_text(brief.read_text() + "\n" + d)
     res = _brief.check(rec, mind)
     assert res["ok"], res["errors"]
+
+
+_ONE = {"prs": [G + "1"], "merged": [], "issues": []}
+
+
+def _co(state, **kw):
+    return {"outcomes": {"t": dict(_ONE)}, "closeouts": {G + "1": {"state": state, **kw}}}
+
+
+@pytest.mark.parametrize("counters, health, group, note", [
+    pytest.param(_co("updated", after=[G + "0"]), lambda u: "FAILED", _digest.G_FIX,
+                 "branch updated, CI FAILED", id="updated-ci-failed"),
+    pytest.param(_co("updated", after=[G + "0"]), _health, _digest.G_MERGE,
+                 "branch updated, CI HEALTHY", id="updated-ci-green"),
+    pytest.param(_co("updated", after=[G + "0"]), lambda u: "RUNNING", _digest.G_MERGE,
+                 "branch updated, CI RUNNING", id="updated-ci-running"),
+    pytest.param(_co("current"), lambda u: "FAILED", _digest.G_FIX,
+                 "branch up to date, CI FAILED", id="current-ci-failed"),
+    pytest.param(_co("current"), _health, _digest.G_MERGE,
+                 "branch up to date, CI HEALTHY", id="current-ci-green"),
+    pytest.param(_co("current"), lambda u: "RUNNING", _digest.G_MERGE,
+                 "branch up to date, CI RUNNING", id="current-ci-running"),
+    pytest.param({"outcomes": {"t": dict(_ONE)}}, lambda u: "RUNNING", _digest.G_MERGE,
+                 "CI still running", id="ci-running"),
+    pytest.param({"outcomes": {"t": dict(_ONE)},
+                  "sweep_waits": {G + "1": {"why": "workspace sweep unknown since 08:00Z"}}},
+                 _health, _digest.G_MERGE, "workspace sweep unknown", id="sweep-wait"),
+    pytest.param({"outcomes": {"t": {"prs": [], "merged": [], "issues": []}}}, _health,
+                 _digest.G_BLOCKED, "finished, no PR or issue named", id="finished-no-pr"),
+    pytest.param({"outcomes": {"t": {**_ONE, "merged": [G + "1"]}}}, _health, _digest.G_MERGE,
+                 "merged with NO merge slot", id="in-turn-no-slot"),
+    pytest.param({"outcomes": {"t": {**_ONE, "merged": [G + "1"]}},
+                  "slot_holders": {_digest._merge_slots.pr_key(G + "1"): {"task": "t"}}},
+                 _health, _digest.G_DONE, "Merged", id="in-turn-merged-with-slot"),
+    pytest.param(_co("refused", settled="merged",
+                     why="already merged since 2026-11-23-am3 (by someone)"),
+                 _health, _digest.G_DONE, "Already merged — nothing to do", id="settled"),
+    pytest.param({"outcomes": {"t": {**_ONE, "merged": [G + "1"]}}, "dropped": {"t": {}}},
+                 _health, _digest.G_MERGE, "dropped by /drop; merged with NO merge slot",
+                 id="dropped-but-merged-with-no-slot"),
+    pytest.param({"outcomes": {"t": {"prs": [], "merged": [],
+                                     "issues": [G[:-5] + "issues/3"]}}, "dropped": {"t": {}}},
+                 _health, _digest.G_BLOCKED, "dropped by /drop; question on autogalaxy#3",
+                 id="dropped-parked-stays-blocked"),
+    pytest.param({"outcomes": {"t": dict(_ONE)}, "dropped": {"t": {}}},
+                 lambda u: "FAILED", _digest.G_FIX, "dropped by /drop; CI failed — needs you",
+                 id="dropped-but-ci-failed"),
+])
+def test_718_review_round_1_states(counters, health, group, note):
+    row = _row("t", counters, health)
+    assert (row["group"], row["cells"][3]) == (group, note)
+
+
+def test_718_a_verdict_is_not_an_open_pr():
+    c = {"outcomes": {"t": {"prs": [G + "1", G + "2"], "merged": [], "issues": [],
+                            "verdicts": [G + "1"]}}}
+    row = _row("t", c)
+    assert row["group"] == _digest.G_MERGE and row["open_prs"] == 1
+    assert _digest._count_line([row]) == "1 to /prm (1 PR)"
+
+
+def test_718_cells_escape_html_and_never_double_escape_a_pipe():
+    assert _digest._cell("<b>a</b> \\| b | c") == "&lt;b&gt;a&lt;/b&gt; \\| b \\| c"

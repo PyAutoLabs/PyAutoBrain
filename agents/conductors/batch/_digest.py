@@ -751,21 +751,30 @@ REVIEW_GROUPS = ("Merge: your /prm", "Answer: question on the issue",
                  "Fix: CI failed or crashed", "Blocked or not started", "Still running",
                  "Done", "Proposed (shadow)")
 #: A `plain_outcome` word's group; the first prefix that matches wins. An
-#: unknown word goes to Merge: it fails toward the human's attention.
+#: unknown word goes to Merge: it fails toward the human's attention. The
+#: digest is written at `review-at:` and the late sweep never closes a PR
+#: out ("what arrives late waits for /prm"), so a PR whose CI is still
+#: running, or held on an unknown workspace sweep, is the human's /prm too.
+#: Only a close-out at work and a worker still out are "still running".
 _GROUP_OF = (
-    ("Dropped", G_BLOCKED),
     ("Merged with NO merge slot", G_MERGE),
     ("Merged", G_DONE), ("Already merged", G_DONE), ("Verdict posted", G_DONE),
-    ("Finished", G_DONE),
+    ("Finished", G_BLOCKED),
     ("CI failed", G_FIX), ("Abandoned", G_FIX), ("Crashed", G_FIX), ("Killed", G_FIX),
     ("Needs you — question", G_ANSWER), ("Needs you — blocked", G_ANSWER),
     ("Needs you — not merged", G_MERGE), ("Waiting — merges after", G_MERGE),
     ("CI green", G_MERGE), ("No CI checks", G_MERGE), ("CI unknown", G_MERGE),
-    ("Still running", G_RUNNING), ("Waiting — workspace sweep", G_RUNNING),
-    ("Branch", G_RUNNING), ("CI running", G_RUNNING),
+    ("CI running", G_MERGE), ("Waiting — workspace sweep", G_MERGE),
+    ("Still running", G_RUNNING),
     ("Obsolete", G_BLOCKED), ("Not started", G_BLOCKED),
     ("Proposed", G_PROPOSED),
 )
+#: The CI word that ends an UPDATED or CURRENT state (`… CI on new head FAILED`).
+_TRAILING_CI_RE = re.compile(r"\bCI (?:on new head )?([A-Z][A-Z-]*)\s*$")
+#: The CI words that send a PR to Fix.
+_CI_RED = ("FAILED", "RED")
+#: The prefixes `task_state` puts on a task the human dropped by `/drop`.
+_DROPPED = ("dropped, still running — ", "dropped by /drop — ")
 #: A note longer than this is cut, with an ellipsis.
 NOTE_MAX = 90
 _WORK_REF_RE = re.compile(r"^https://github\.com/[^/\s]+/([^/\s]+)/(?:pull|issues)/(\d+)")
@@ -779,12 +788,32 @@ def work_ref(url: str) -> str:
 
 
 def _cell(text: str) -> str:
-    """Text safe in a Markdown table cell: one line, pipes escaped."""
-    return " ".join(str(text or "").split()).replace("|", r"\|")
+    """Text safe in a Markdown table cell: one line, `<` and `>` as entities
+    (GitHub would read them as HTML), pipes escaped once."""
+    text = " ".join(str(text or "").split()).replace("<", "&lt;").replace(">", "&gt;")
+    return re.sub(r"(?<!\\)\|", r"\\|", text)
 
 
 def _group_of(word: str) -> int:
     return next((g for p, g in _GROUP_OF if word.startswith(p)), G_MERGE)
+
+
+def _trailing_ci(what: str) -> str:
+    """The CI word an UPDATED or CURRENT state ends on, or ""."""
+    if not what.startswith((UPDATED, CURRENT)):
+        return ""
+    m = _TRAILING_CI_RE.search(what)
+    return m.group(1) if m else "UNKNOWN"
+
+
+def _part_group(what: str) -> int:
+    """One part of a task's state as a review group. A branch updated from
+    main (or already up to date) is judged by its CI word: red is Fix, any
+    other is the human's /prm."""
+    ci = _trailing_ci(what)
+    if ci:
+        return G_FIX if ci in _CI_RED else G_MERGE
+    return _group_of(plain_outcome(what))
 
 
 def _state_parts(state: str) -> list[tuple[str, str]]:
@@ -817,6 +846,16 @@ def _part_note(url: str, what: str) -> str:
         return "merged with NO merge slot"
     if what.startswith(("parked", "blocked on a person")):
         return "blocked on a person"
+    ci = _trailing_ci(what)
+    if ci:
+        return ("branch updated" if what.startswith(UPDATED) else "branch up to date") \
+            + f", CI {ci}"
+    if what.startswith("RUNNING"):
+        return "CI still running"
+    if what.startswith("waiting: workspace sweep unknown"):
+        return "workspace sweep unknown"
+    if what.startswith("finished, no PR or issue named"):
+        return "finished, no PR or issue named"
     return plain_outcome(what)
 
 
@@ -843,10 +882,13 @@ def review_row(task: str, counters: dict, state: str, tier: str,
     Note cells, and how many open PRs it leaves for the human."""
     pick = counters.get("picks", {}).get(task) or {}
     out = (counters.get("outcomes") or {}).get(task) or {}
-    dropped = state.startswith("dropped")
-    parts = _state_parts(state)
-    group = G_BLOCKED if dropped else min(
-        (_group_of(plain_outcome(what)) for _, what in parts), default=G_MERGE)
+    dropped = next((p for p in _DROPPED if state.startswith(p)), "")
+    parts = _state_parts(state[len(dropped):])
+    group = min((_part_group(what) for _, what in parts), default=G_MERGE)
+    # A dropped task is Blocked, unless a part of it still needs the human:
+    # a merge with no slot, or an open PR to merge or fix.
+    if dropped and group not in (G_MERGE, G_FIX):
+        group = G_BLOCKED
     waits = counters.get("merge_waits") or {}
     prs = merge_ordered(list(out.get("prs") or []), waits)
     work = []
@@ -861,7 +903,8 @@ def review_row(task: str, counters: dict, state: str, tier: str,
         note = note[:NOTE_MAX - 1].rstrip() + "…"
     title = _cell(pick.get("title") or task)
     mind_url = links.prompt_url(pick.get("prompt") or "") if links else ""
-    done = set(out.get("merged") or []) | settled_prs(counters)
+    done = set(out.get("merged") or []) | set(out.get("verdicts") or []) \
+        | settled_prs(counters)
     return {"task": task, "group": group,
             "cells": [f"[{title}]({mind_url})" if mind_url else title,
                       _cell(tier) if tier and tier != "?" else "—",
