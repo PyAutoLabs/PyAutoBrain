@@ -16,8 +16,9 @@
 #   step 4  validate         validate.sh Phases A→C — the emitted dispatch
 #                            plans are EXECUTED here with `gh` (in CI, unlike
 #                            the MCP-only cloud sessions the plans were written
-#                            for, gh is available to bash)
-#   step 5  gate             vitals faculty → `pyauto-heart readiness
+#                            for, gh is available to bash); 4c ingests, runs
+#                            Heart's rehearsal-ancestry check, then aggregates
+#   step 5  gate            vitals faculty → `pyauto-heart readiness
 #                            --profile release-ci` — GREEN only; STALE/YELLOW/
 #                            RED stop and page; there is NO force input
 #   step 6  live release     dispatch Build's release.yml (rehearsal=false,
@@ -413,6 +414,14 @@ bash "$HEART_DIR/heart/checks/open_prs.sh" || echo "nightly: open_prs check fail
   page "could not ingest the validation artifacts into Heart"
   exit 1
 }
+# M2.4 (PyAutoHands#337): a library main that moved FORWARD from the rehearsed
+# commit keeps the rehearsal fresh, but only when this check proves the
+# ancestry (it reads the ingested validation_report + ci_status, writes the
+# rehearsal_ancestry sidecar that aggregate folds in). Without it every merge
+# during the validation window read as "ancestry unproven" → STALE (#721).
+# A failure is non-fatal: the moved repos stay unproven, i.e. STALE.
+PYTHONPATH="$HEART_DIR" python3 -m heart.checks.rehearsal_ancestry \
+  || echo "nightly: rehearsal_ancestry check failed (moved repos read as unproven)" >&2
 PYTHONPATH="$HEART_DIR" python3 -c "from heart import state; state.aggregate()" || {
   page "could not aggregate the Heart snapshot"
   exit 1
