@@ -122,6 +122,20 @@ def test_nightly_uses_the_record_not_main_heads():
     assert '{"rehearsal": "false", "minor_version": "1"}' not in NIGHTLY
 
 
+def test_nightly_proves_rehearsal_ancestry_before_aggregate():
+    # PyAutoBrain#721: without the ancestry sidecar, Heart reads any main that
+    # moved during the validation window as "ancestry unproven" → STALE.
+    # The check needs the ingested validation_report, and aggregate must fold
+    # its sidecar in, so the order is ingest → ancestry → aggregate.
+    ingest = NIGHTLY.index('"$heart" validate --ingest "$ART_DIR"')
+    ancestry = NIGHTLY.index("python3 -m heart.checks.rehearsal_ancestry")
+    aggregate = NIGHTLY.index("state.aggregate()")
+    assert ingest < ancestry < aggregate
+    # Non-fatal, like ci_status: a failure leaves the repos unproven (STALE).
+    line = NIGHTLY[ancestry:NIGHTLY.index("\n", NIGHTLY.index("\n", ancestry) + 1)]
+    assert "|| echo" in line
+
+
 # --- rehearse.sh ingest: the record is the commit_shas authority -----------------------
 
 def _fake_heart(tmp_path, log):
