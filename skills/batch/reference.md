@@ -34,7 +34,8 @@ reached; `batch.md` points here from each one.
 ## Under a brief, the digest is the review surface
 
 **Under a brief, the digest is the review surface** (2026-11-03). The watcher
-appends a `## Digest` to the record — brief work, then backlog picks with a
+appends a `## Digest` to the record — a review table grouped by what the human
+does next (merge, answer, fix, blocked, running, done), then brief work, then backlog picks with a
 one-line reason each, one proof packet per task, then the shift counters — and
 posts it once as a comment on the shift's `issue:`. The record plus that comment
 is what the human reads; the HTML packet is written only when the brief says

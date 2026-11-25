@@ -560,7 +560,8 @@ The reap keeps what the worker left before deleting its marker: the `.done`
 lines go to `outcomes` (`<url>`; a `merged <url>` line, which no shift
 worker writes since 2026-11-19, is still recorded as an in-turn merge), and `<task>.proof.md` moves to `<slot>/proofs/`. The first tick after
 `review-at:` runs `finish_shift` once: `_digest.build` writes the `## Digest`
-(`PyAutoMind/batches/AGENTS.md` format — brief work, backlog picks each with
+(`PyAutoMind/batches/AGENTS.md` format — first a numbered review table grouped
+by the human's next action (#718), then brief work, backlog picks each with
 its `why:`, one proof packet per started task or a stub that says none was
 written, every counter) to `<slot>/digest.md`, appends it to the record through
 the one Mind writer, writes `digest.html` only under `packet: yes`, then
