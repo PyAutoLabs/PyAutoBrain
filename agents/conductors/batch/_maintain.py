@@ -14,9 +14,12 @@ boards whose only difference is a run id — give the same keys, and the same
 defect has one key whichever source reports it. That key is what slice 14.2
 will write into a prompt and dedupe against.
 
-`batch maintain --dry-run` prints them. It is run by hand (and later by the
-14.2/14.3 filing steps); the watcher's tick never reads Heart and never calls
-this. Nothing here writes: no prompt, no state file, no Mind.
+`batch maintain --dry-run` prints them; `batch maintain --file --mind <path>`
+hands them to the 14.2 writer (`_maintain_write.file_findings`), which files
+sized draft prompts into that Mind (a linked worktree or a non-git directory,
+never the shared checkout) and keeps `maintain.json`. It is run by hand (and
+later by the 14.3 filing step); the watcher's tick never reads Heart and never
+calls this. The adapters and loaders here write nothing.
 
 A read that failed never looks like all-clear: every requested source reports
 `ok`, `stale` and `partial`, and the CLI exits 3 when any requested source was
@@ -67,7 +70,20 @@ EXCLUDED_FAMILIES = frozenset({"worktree_drift", "repo_state", "release", "open_
 #: missing or old — a collector refresh, not a fix — so they are left out.
 FILED_STATUSES = ("red", "yellow")
 #: A release-execution workflow is never a glance fix.
+#: Broad on purpose: only ever LOWERS an organ CI red to judge (the glance gate).
 RELEASE_WORKFLOW_RX = re.compile(r"release", re.I)
+#: Narrow: a release-EXECUTION workflow, human-only (its witness needs a
+#: release run) — the name, trimmed and minus a `.yml`, starts or ends with
+#: the word "release": "PyAuto Release", "Nightly Release", "Release",
+#: "release.yml". "Pre-release checks" and "release-notes lint" are not.
+RELEASE_EXEC_RX = re.compile(r"^release(?:\s|$)|(?:^|\s)release$", re.I)
+#: Heart's unit-test timing roll-up line; with it present, a bare per-test
+#: status line (`<path>::<test>[/<py>]: red|warn`) is a timing row, not a failure.
+TIMING_ROLLUP_RX = re.compile(r"^\s*Unit-test timing:", re.I)
+TEST_STATUS_LINE_RX = re.compile(r"^(?P<id>.+::.+?)(?:/\d+\.\d+)?: (?:red|warn|yellow)$")
+#: The published feed cuts a long line with "…", which can drop the status: a
+#: test id cut before any `: ` (so no failure text is visible).
+TEST_CUT_LINE_RX = re.compile(r"^(?P<id>[^:]+::(?:(?!: ).)+?)…$")
 #: Words in a census reason that force judge whatever the evidence says.
 KILLED_RX = re.compile(r"\bOOM\b|SIGKILL|\bkilled\b|timed?[\s-]*out|times out", re.I)
 PY_SUFFIX_RX = re.compile(r"/\d+\.\d+$")
@@ -263,13 +279,55 @@ def monitoring_findings(board: dict, organs=frozenset()) -> list[Finding]:
     return out
 
 
-def release_findings(heart: dict, organs=frozenset()) -> list[Finding]:
+def timing_context(heart: dict, board: dict | None = None) -> tuple[bool, frozenset]:
+    """(roll-up?, test ids): whether the verdict carries a `Unit-test timing:`
+    roll-up line, and the board's `unit_test_timing` subjects (py suffix off)."""
+    rollup = any(TIMING_ROLLUP_RX.match(str(r.get("text") or ""))
+                 for r in (heart or {}).get("reasons") or [])
+    subjects = frozenset(
+        PY_SUFFIX_RX.sub("", str(f.get("subject") or ""))
+        for f in ((board or {}).get("monitoring") or {}).get("findings") or []
+        if isinstance(f, dict) and f.get("family") == "unit_test_timing")
+    return rollup, subjects
+
+
+def is_timing(c: dict, ctx) -> bool:
+    """A `unit-test` reason that is a timing row: it says "timing"; or it is a
+    bare `<path>::<test>: red|warn` status line (no failure text) and the
+    verdict carries the timing roll-up, or the board lists it as timing."""
+    if c.get("rule") != "unit-test":
+        return False
+    text = str(c.get("text") or "").strip()
+    if re.search(r"timing", text, re.I):
+        return True
+    rollup, subjects = ctx or (False, frozenset())
+    m = TEST_STATUS_LINE_RX.match(text)
+    if m:
+        # the board's timing subjects decide when read, so a real failing test
+        # beside an unrelated timing regression is never hidden; else the roll-up
+        return (m["id"] in subjects) if subjects else rollup
+    cut = TEST_CUT_LINE_RX.match(text)
+    if cut:  # a cut id: the board's timing subjects decide when read, else the roll-up
+        if subjects:
+            return any(s.startswith(cut["id"]) for s in subjects)
+        return rollup
+    return False
+
+
+def release_exec(wf: str) -> bool:
+    name = re.sub(r"\.ya?ml$", "", (wf or "").strip(), flags=re.I).strip()
+    return bool(name) and RELEASE_EXEC_RX.search(name) is not None
+
+
+def release_findings(heart: dict, organs=frozenset(), board=None) -> list[Finding]:
     """Heart's release verdict through `_green.classify`: its fixable-dev
     findings (the same filter `_green.run` files from), plus the organ
     CI-red lines no `_green` rule matches. The verdict carries no `on_head`
     evidence, so an organ CI red from here is judge (the monitoring row, read
-    first, carries it)."""
+    first, carries it). A unit-test timing row (`is_timing`, with the board's
+    timing subjects when given) is marked so the writer skips it."""
     out = []
+    ctx = timing_context(heart, board)
     for reason in (heart or {}).get("reasons") or []:
         if reason.get("severity") == "stale":
             continue
@@ -280,22 +338,26 @@ def release_findings(heart: dict, organs=frozenset()) -> list[Finding]:
             classified = [dict(reason, rule="organ-ci-red", cls="fixable-dev",
                                key=_ci_key(m["repo"], m["wf"]), lane="any",
                                repo=repo, action="fix the red workflow on main")]
-        for c in classified:
-            if c["cls"] != "fixable-dev" or not c.get("key"):
-                continue
-            repo = c.get("repo") or ""
-            key = _norm_ci(c["key"])
-            wf = key[3:].partition(":")[2] if key.startswith("ci:") else ""
-            tier = (_organ_ci_tier(repo, wf, None, organs) if key.startswith("ci:")
-                    else "judge")
-            out.append(Finding(
-                key=key, source="release", repo=repo,
-                paths=[c["script"]] if c.get("script") else [],
-                summary=f"[{c['severity']}] {c['text']}"[:240], witness=RELEASE_WITNESS,
-                tier_floor=tier, lane=c.get("lane") or "local-dev",
-                evidence={"rule": c["rule"], "severity": c["severity"], "text": c["text"],
-                          "action": c.get("action", "")}))
+        out += [release_finding(c, organs, timing=is_timing(c, ctx)) for c in classified
+                if c["cls"] == "fixable-dev" and c.get("key")]
     return out
+
+
+def release_finding(c: dict, organs=frozenset(), timing: bool = False) -> Finding:
+    """One `_green.classify` fixable-dev finding as a `Finding` (the release
+    adapter's shape; `_green`'s file mode hands the writer these)."""
+    repo = c.get("repo") or ""
+    key = _norm_ci(c["key"])
+    wf = key[3:].partition(":")[2] if key.startswith("ci:") else ""
+    tier = (_organ_ci_tier(repo, wf, None, organs) if key.startswith("ci:")
+            else "judge")
+    return Finding(
+        key=key, source="release", repo=repo,
+        paths=[c["script"]] if c.get("script") else [],
+        summary=f"[{c['severity']}] {c['text']}"[:240], witness=RELEASE_WITNESS,
+        tier_floor=tier, lane=c.get("lane") or "local-dev",
+        evidence={"rule": c["rule"], "severity": c["severity"], "text": c["text"],
+                  "action": c.get("action", ""), **({"timing": True} if timing else {})})
 
 
 def dedupe(findings) -> list[Finding]:
@@ -313,27 +375,52 @@ def dedupe(findings) -> list[Finding]:
                                    and f.key[3:] in wf_repos)]
 
 
-def collect(census=None, board=None, heart=None, sources=SOURCES,
-            organs=frozenset(), stale_sources=()) -> list[Finding]:
-    """All requested sources, deduped. A finding from a source in
-    `stale_sources` (over the 6 h rule, or a grey/stale verdict) is flagged
-    `stale`, as is a monitoring row Heart itself marks `fresh: false`."""
-    found = []
+def collect_raw(census=None, board=None, heart=None, sources=SOURCES,
+                organs=frozenset()) -> dict:
+    """{source: [Finding]} before the cross-source dedupe — what each source
+    itself lists. The writer clears a key only when no freshly read source
+    lists it, whichever source won the dedupe."""
+    out = {}
     if "census" in sources:
         # One whole source (the loader picks it): the census document given,
         # else the board's census rows. Never a merge of the two.
         rows = (census or {}).get("rows") if census is not None else \
             board_census_rows(board) if board is not None else []
-        found += census_findings({"rows": rows or []})
+        out["census"] = census_findings({"rows": rows or []})
     if "monitoring" in sources and board is not None:
-        found += monitoring_findings(board, organs)
+        out["monitoring"] = monitoring_findings(board, organs)
     if "release" in sources and heart is not None:
-        found += release_findings(heart, organs)
-    out = dedupe(found)
+        out["release"] = release_findings(heart, organs, board)
+    return out
+
+
+def collect(census=None, board=None, heart=None, sources=SOURCES,
+            organs=frozenset(), stale_sources=(), raw=None) -> list[Finding]:
+    """All requested sources, deduped. A finding from a source in
+    `stale_sources` (over the 6 h rule, or a grey/stale verdict) is flagged
+    `stale`, as is a monitoring row Heart itself marks `fresh: false`."""
+    raw = raw if raw is not None else collect_raw(census, board, heart, sources, organs)
+    out = dedupe([f for s in SOURCES for f in raw.get(s, [])])
     for f in out:
         if f.source in stale_sources:
             f.stale = True
     return out
+
+
+def human_only_reason(f: Finding) -> str:
+    """Why a listed finding is the human's, never a filed fix, or "": a
+    release-execution workflow (its witness needs a release run) or a
+    unit-test timing line (slice 14.5's Heart-flagged timing, not a fix)."""
+    if f.key.startswith("ci:"):
+        wf = f.key[3:].partition(":")[2]
+        if release_exec(wf):
+            return ("human-only: a release-execution workflow — its witness needs a "
+                    "release run")
+    ev = f.evidence or {}
+    if ev.get("rule") == "unit-test" and (
+            ev.get("timing") or re.search(r"timing", str(ev.get("text") or ""), re.I)):
+        return "human-only: a unit-test timing line — slice 14.5, not a fix"
+    return ""
 
 
 # --- loaders (read-only) ------------------------------------------------------
@@ -367,7 +454,9 @@ def fetch_board(url: str, timeout=BOARD_TIMEOUT):
 
 def _read(data, source, why, age, status=None, partial=False) -> dict:
     ok = isinstance(data, dict) and status != "grey"
-    stale = (not ok) or partial or age is None or age > MAX_AGE_HOURS or status == "stale"
+    # A negative age (`--at` before the evidence) is unknown, so stale.
+    stale = ((not ok) or partial or age is None or age < 0 or age > MAX_AGE_HOURS
+             or status == "stale")
     return {"data": data if isinstance(data, dict) else None,
             "source": source if isinstance(data, dict) else "none",
             "why": why, "age_hours": age, "ok": ok, "stale": stale, "partial": partial,
@@ -439,7 +528,7 @@ def _read_line(name, r) -> str:
 
 
 def render(findings, reads) -> str:
-    L = ["batch maintain --dry-run — maintenance findings (read-only; writing is slice 14.2)", ""]
+    L = ["batch maintain — maintenance findings", ""]
     L += [_read_line(name, r) for name, r in reads.items()]
     L += ["", f"{len(findings)} finding(s)", ""]
     rows = [("KEY", "SOURCE", "REPO", "TIER", "SUMMARY")] + [
@@ -458,10 +547,22 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="batch maintain",
         description="List maintenance findings from the no-run census, Heart's "
-                    "monitoring inventory and its release verdict (read-only). "
+                    "monitoring inventory and its release verdict (--dry-run), or "
+                    "file them as draft prompts into a Mind (--file --mind). "
                     "Exit 3 when a requested source could not be read.")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="required: list findings, write nothing")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true",
+                      help="list findings, write nothing")
+    mode.add_argument("--file", action="store_true",
+                      help="file each finding as a draft prompt into --mind (Phase 14.2)")
+    ap.add_argument("--mind", default="", metavar="DIR",
+                    help="--file: the Mind to write into — a linked worktree on "
+                         "origin/main or a non-git directory, never the shared checkout")
+    ap.add_argument("--cap", type=int, default=3,
+                    help="--file: at most this many new prompts per run (default 3)")
+    ap.add_argument("--home", default="", metavar="DIR",
+                    help="--file: the directory holding maintain.json (default: the "
+                         "orchestrator home, beside heart_green.json)")
     ap.add_argument("--sources", default=",".join(SOURCES),
                     help=f"comma-separated subset of {','.join(SOURCES)}")
     ap.add_argument("--json", action="store_true", dest="as_json")
@@ -473,9 +574,18 @@ def main(argv=None) -> int:
                     help="read this saved `readiness --json` / state.json instead of Heart")
     ap.add_argument("--at", default="", help="judge ages as of this ISO time (a replay)")
     a = ap.parse_args(argv)
-    if not a.dry_run:
-        print("batch maintain: only --dry-run exists — writing is slice 14.2",
+    if not (a.dry_run or a.file):
+        print("batch maintain: pass --dry-run (list) or --file --mind <dir> (write, Phase 14.2)",
               file=sys.stderr)
+        return 2
+    if a.file and not a.mind:
+        print("batch maintain --file: --mind <dir> is required — a linked worktree "
+              "on origin/main (`git -C <mind> worktree add --detach <dir> origin/main`) "
+              "or a non-git directory; the shared checkout is never written",
+              file=sys.stderr)
+        return 2
+    if a.cap < 0:
+        print("batch maintain: --cap must be >= 0", file=sys.stderr)
         return 2
     sources = [s.strip() for s in a.sources.split(",") if s.strip()]
     bad = [s for s in sources if s not in SOURCES]
@@ -487,6 +597,13 @@ def main(argv=None) -> int:
     if a.at:
         now = _dt.datetime.fromisoformat(a.at.replace("Z", "+00:00"))
         now = now if now.tzinfo else now.replace(tzinfo=_dt.timezone.utc)
+    hold = ""
+    if a.file:
+        import _maintain_write  # noqa: E402 — the 14.2 writer
+        hold = _maintain_write.write_hold(Path(a.mind))
+        if hold:  # refuse before any read: nothing is written, the state included
+            print(f"batch maintain --file: refused — {hold}", file=sys.stderr)
+            return 2
     reads = {}
     board_read = None
     if "monitoring" in sources or "census" in sources:
@@ -498,21 +615,38 @@ def main(argv=None) -> int:
     if "release" in sources:
         reads["release"] = load_release(a.heart_json, now)
     stale = {s for s, r in reads.items() if r["stale"]}
-    found = collect(census=(reads.get("census") or {}).get("data"),
-                    board=(board_read or {}).get("data"),
-                    heart=(reads.get("release") or {}).get("data"),
-                    sources=sources, organs=glance_organs(), stale_sources=stale)
+    raw = collect_raw(census=(reads.get("census") or {}).get("data"),
+                      board=(board_read or {}).get("data"),
+                      heart=(reads.get("release") or {}).get("data"),
+                      sources=sources, organs=glance_organs())
+    found = collect(sources=sources, stale_sources=stale, raw=raw)
     unread = [s for s, r in reads.items() if not r["ok"]]
+    wres = None
+    if a.file:
+        home = Path(a.home) if a.home else _orchestrator_home()
+        wres = _maintain_write.file_findings(
+            found, reads, Path(a.mind), cap=a.cap,
+            state_path=home / _maintain_write.STATE_NAME, now=now,
+            present=_maintain_write.present_keys(raw, reads))
     if a.as_json:
-        print(json.dumps({"dry_run": True, "sources": sources, "unread": unread,
+        print(json.dumps({"dry_run": bool(a.dry_run), "sources": sources, "unread": unread,
                           "reads": {k: {kk: v for kk, v in r.items() if kk != "data"}
                                     for k, r in reads.items()},
                           "count": len(found),
-                          "findings": [f.as_dict() for f in found]}, indent=2, default=str))
+                          "findings": [f.as_dict() for f in found],
+                          **({"write": wres} if wres is not None else {})},
+                         indent=2, default=str))
     else:
         sys.stdout.write(render(found, reads))
+        if wres is not None:
+            sys.stdout.write(_maintain_write.render(wres))
     if unread:
         print(f"batch maintain: source(s) not read: {', '.join(unread)} — "
               "the list is incomplete, not all-clear", file=sys.stderr)
         return RC_UNREAD
     return 0
+
+
+def _orchestrator_home() -> Path:
+    import _orchestrator  # noqa: E402 — deferred: only the state path
+    return Path(_orchestrator.orchestrator_home())

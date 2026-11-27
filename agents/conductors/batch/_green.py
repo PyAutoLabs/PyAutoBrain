@@ -3,8 +3,11 @@
 At `batch brief --new` (and `batch green`, its dry run) this reads Heart's
 verdict, sorts every RED, YELLOW and STALE reason into one of four classes by
 the transparent RULES table below, and for the `fixable-dev` ones files at
-most `cap` bug drafts and, on the human's opt-in (`pick`), offers them as
-the brief's named tasks.
+most `cap` drafts and, on the human's opt-in (`pick`), offers ready ones as
+the brief's named tasks. Filing goes through the maintenance writer
+(`_maintain_write`, Phase 14.2 — one filing path): drafts land at
+`draft/maintenance/<target>/maint_<key>.md`, judge tier and so
+`Unattended: never`, and the state is the writer's `maintain.json`.
 
 It runs at brief time, never in the watcher's tick: the tick's network
 surface (AUTONOMY.md) does not read the Heart feed, and this lane must not
@@ -16,9 +19,9 @@ canonical Mind: `_batch.write_hold`); return text for the brief. What it never
 does: release, rehearse, dispatch any workflow, force, touch a freeze, add a
 quarantine entry (that needs a human-filed bug task — it may only PROPOSE
 one), write `queue.md`, or edit another prompt. It imports no process or
-network module: Heart is read through `bin/heart_feed.py` (published feed or
-`pyauto-heart readiness --json`, nothing else), and
-`tests/test_batch_green.py` pins that.
+network module itself: Heart is read through `bin/heart_feed.py` (published
+feed or `pyauto-heart readiness --json`, nothing else), the writer is loaded
+lazily and reads no network, and `tests/test_batch_green.py` pins that.
 """
 
 from __future__ import annotations
@@ -30,8 +33,7 @@ import re
 from pathlib import Path
 
 from _sizing import (  # noqa: E402 — the caller puts the faculty on sys.path
-    effective_difficulty, effective_unattended, normalise_repo,
-    parse_prompt,
+    effective_difficulty, effective_unattended, parse_prompt,
 )
 
 BRAIN = Path(__file__).resolve().parents[3]
@@ -43,7 +45,10 @@ MODE_ENV = "PYAUTO_HEART_GREEN"
 DEFAULT_MODE = "file"
 DEFAULT_CAP = 3
 MAX_AGE_HOURS = 6.0
-STATE_NAME = "heart_green.json"
+#: The maintenance writer's state file (`_maintain_write`), beside the old one.
+STATE_NAME = "maintain.json"
+#: The lane's own state before Phase 14.2; the writer migrates its rows once.
+LEGACY_STATE_NAME = "heart_green.json"
 GOAL_PREFIX = "heart-green"
 KEY_MARK = "<!-- heart-key: {} -->"
 
@@ -263,14 +268,6 @@ def _corpus(mind: Path) -> dict[str, str]:
     return out
 
 
-def load_state(path: Path | None) -> dict:
-    try:
-        data = json.loads(path.read_text()) if path else {}
-    except (OSError, ValueError):
-        data = {}
-    return data if isinstance(data.get("reasons"), dict) else {"version": 1, "reasons": {}}
-
-
 _ISSUE_RE = re.compile(r"^Issue:\s*(\S+)", re.M)
 _REF_RE = re.compile(r"(?:github\.com/)?(?:[\w.-]+/)?([\w.-]+)(?:#|/issues/)(\d+)$")
 
@@ -286,9 +283,10 @@ def _match(f: dict, corpus: dict, queue: str) -> tuple[str, str]:
     prompt whose `Issue:` IS the entry's bug ref; `mentions`: the quoted
     reason or the script/test path; `queued`. A pick-only finding (its bug
     task exists) matches exactly or not at all — a mention is not its task."""
-    mark, bug = KEY_MARK.format(f["key"]), _issue_id(f["bug"]) if f["bug"] else None
+    bug = _issue_id(f["bug"]) if f["bug"] else None
+    marked = _writer().key_marked
     for path, text in corpus.items():
-        if mark in text or (bug and any(_issue_id(i) == bug
+        if marked(text, f["key"]) or (bug and any(_issue_id(i) == bug
                                         for i in _ISSUE_RE.findall(text[:3000]))):
             return "exact", path
     if not f["file"]:
@@ -318,56 +316,23 @@ def _pickable(mind: Path, rel: str, lanes: list[str]) -> str:
 
 # --- the lane -----------------------------------------------------------------
 
-def draft_text(f: dict, heart: dict, today: str) -> str:
-    repo = f.get("repo") or ""
-    title = f"Heart green: {f['text'][:90]}"
-    head = [f"# {title}", "", "Type: bug", f"Target: {repo or 'workspaces'}"]
-    head += ["Repos:", f"- {repo}"] if repo else []
-    # No `Difficulty:` (sizing derives it, `_file`) and no `Unattended:`: the
-    # lane never grades its own drafts ready.
-    head += ["Autonomy: supervised",
-             f"Priority: {'high' if f['severity'] == 'red' else 'normal'}",
-             "Status: draft", f"Filed: {today}", "Consequence: judge",
-             "Witness: after the fix merges, a fresh Heart read (under 6 h old) no "
-             "longer lists the reason quoted below, and the fix's own CI is green",
-             "Review-minutes: 10", f"Lane: {f['lane']}"]
-    body = [
-        "**Re-check first.** Filed from Heart's verdict of "
-        f"{heart.get('updated')} ({heart.get('source')}). Before any work, re-read "
-        "Heart (`bin/heart_feed.py`, or `pyauto-heart readiness --json`): if the "
-        "reason below is gone, close this draft as already green and stop.",
-        "", f"Heart reason ({f['severity']}, verbatim):", f"> {f['text']}", "",
-        f"Rule `{f['rule']}` → fixable-dev: {f['action']}.", "",
-        "Never: release, rehearse, dispatch a release or build workflow, force, or "
-        "add a quarantine entry. A fix in a repo whose `main` CI is red needs the "
-        "human's corrective exception to ship (AUTONOMY.md); this is judge tier, "
-        "so the human runs `/prm`.", "", KEY_MARK.format(f["key"]),
-        f"<!-- filed {today} by the keep-Heart-green lane (PyAutoBrain#625) -->"]
-    return "\n".join(head) + "\n\n" + "\n".join(body) + "\n"
+def _writer():
+    """The maintenance writer (`_maintain_write`) — the one filing path
+    (Phase 14.2). Loaded on first use; it reads no network and spawns only
+    `git rev-parse`, which this lane never asks it to (`guard=False`)."""
+    import _maintain_write  # noqa: E402 — the batch dir is on sys.path
+    return _maintain_write
 
 
-def _draft_path(mind: Path, f: dict) -> Path:
-    folder = normalise_repo(f["repo"]) if f.get("repo") else "workspaces"
-    name = "heart_green_" + _slugify(f["key"]) + ".md"
-    return mind / "draft" / "bug" / folder / name
-
-
-def _file(mind: Path, f: dict, heart: dict, today: str) -> str:
-    """Write one draft; its `Difficulty:` is the sizing faculty's, not ours."""
-    dest = _draft_path(mind, f)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    text = draft_text(f, heart, today)
-    dest.write_text(text, encoding="utf-8")
-    level = effective_difficulty(parse_prompt(dest, mind))[0]
-    dest.write_text(text.replace("\nAutonomy:", f"\nDifficulty: {level}\nAutonomy:", 1),
-                    encoding="utf-8")
-    return dest.relative_to(mind).as_posix()
-
-
-def _save(state: dict, state_path: Path | None, mode: str) -> None:
-    if state_path and mode in ("file", "pick"):
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
+def _read_flags(heart: dict) -> dict:
+    """Heart's verdict as a writer read: ok unless grey/unread; stale over the
+    6 h rule or on a STALE verdict (then nothing is cleared)."""
+    age = heart.get("age_hours")
+    ok = heart.get("status") != "grey" and heart.get("source") != "none"
+    return {"ok": ok, "partial": False, "source": heart.get("source"), "age_hours": age,
+            "why": heart.get("why") or "",
+            "stale": (not ok) or age is None or age < 0 or age > MAX_AGE_HOURS
+            or heart.get("status") == "stale"}
 
 
 def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT_CAP,
@@ -387,26 +352,43 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
     if mode == "off":
         res["note"] = f"lane off (--green off or ${MODE_ENV}=off)"
         return res
+    import _maintain  # noqa: E402 — the release adapter and Finding shape (lazy)
     status, age = heart.get("status"), heart.get("age_hours")
     findings = [f for r in heart.get("reasons") or [] for f in classify(r)]
+    timing = _maintain.timing_context(heart)
+    for f in findings:  # timing lines and release-execution runs are the human's
+        why = (_maintain.human_only_reason(_maintain.release_finding(
+                   f, timing=_maintain.is_timing(f, timing)))
+               if f["cls"] == "fixable-dev" and f["key"] else "")
+        if why:
+            f.update(cls="human-only", file=False, lane="", action=why,
+                     rule=f"{f['rule']} → human-only")
     res["findings"] = findings
     if status == "grey" or heart.get("source") == "none":
         res["note"] = f"Heart unreadable ({heart.get('why')}) — the lane did nothing"
         return res
-    if age is None or age > MAX_AGE_HOURS:
-        res["note"] = ("Heart evidence " + ("of unknown age" if age is None else
+    if age is None or age < 0 or age > MAX_AGE_HOURS:
+        res["note"] = ("Heart evidence " + ("of unknown age" if age is None or age < 0 else
                        f"{age:.1f} h old") + f", over the {MAX_AGE_HOURS:g} h rule — "
                        "STALE: re-check; nothing filed or picked")
         return res
-    # A fresh, valid read: a key it no longer lists is cleared, so a later
-    # recurrence files again (still deduped against open drafts and tasks).
-    state = load_state(state_path)
-    listed = {f["key"] for f in findings if f["key"]}
-    for key in [k for k in state["reasons"] if k not in listed]:
-        del state["reasons"][key]
+    # One filing path (Phase 14.2): the maintenance writer owns the state
+    # (`maintain.json`), the clearing and the file. A fresh, valid read that no
+    # longer lists a key clears it, so a later recurrence files again (still
+    # deduped against open drafts and tasks); a STALE verdict clears nothing.
+    w = _writer()
+    state = w.load_state(state_path)
+    read = _read_flags(heart)
+    writes = mode in ("file", "pick")
+    # Every key this verdict lists, through the SAME release adapter
+    # `batch maintain` uses (organ CI reds included), so the lane never clears
+    # a key the CLI filed while Heart still lists it — also on a GREEN read.
+    listed = _maintain.release_findings(heart, _maintain.glance_organs())
     if status in ("green", "stale"):
         res["note"] = f"Heart {status.upper()} — nothing for a shift to fix"
-        _save(state, state_path, mode)
+        if writes:
+            w.file_findings(listed, {"release": read}, mind, cap=0, state_path=state_path,
+                            now=now, guard=False, only=set())
         return res
     corpus, queue = _corpus(mind), ""
     try:
@@ -414,7 +396,7 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
     except OSError:
         pass
     order = {"red": 0, "yellow": 1}
-    seen, today = set(), now.date().isoformat()
+    seen, to_file = set(), {}
     for f in sorted(findings, key=lambda f: order.get(f["severity"], 2)):
         if f["cls"] != "fixable-dev" or f["severity"] == "stale" or not f["key"]:
             continue
@@ -422,8 +404,8 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
             f["outcome"] = "duplicate of a row above"
             continue
         seen.add(f["key"])
-        row = state["reasons"].setdefault(f["key"], {"first_seen": stamp})
-        row.update(last_seen=stamp, text=f["text"])
+        finding = _maintain.release_finding(f)
+        row = state["keys"].get(finding.key) or {}
         how, path = _match(f, corpus, queue)
         if how == "queued":
             f["outcome"] = "already named in queue.md — not filed; the planner ranks it"
@@ -443,18 +425,24 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
                             "a fresh read clears it")
         elif mode == "report":
             f["outcome"] = "would file (report mode)"
-        elif len(res["filed"]) >= cap:
-            f["outcome"] = f"deferred — cap {cap} reached; next brief"
         else:
-            rel = _file(mind, f, heart, today)
-            row.update(filed=rel, filed_at=today)
-            res["filed"].append(rel)
-            why = _pickable(mind, rel, list(lanes))
-            f["outcome"] = f"filed {rel}" + (f" — not picked: {why}" if why else "")
-            if not why and mode == "pick" and len(res["picks"]) < cap:
-                res["picks"].append(rel)
-                f["outcome"] += " (picked)"
-    _save(state, state_path, mode)
+            to_file[finding.key] = f
+    if not writes:
+        return res
+    wres = w.file_findings(listed, {"release": read}, mind, cap=cap, state_path=state_path,
+                           now=now, guard=False, only=set(to_file),
+                           needles={k: f["needles"] for k, f in to_file.items()})
+    for r in wres["skipped"]:
+        if r["key"] in to_file:
+            to_file[r["key"]]["outcome"] = r["reason"].replace("next run", "next brief")
+    for r in wres["filed"]:
+        f, rel = to_file[r["key"]], r["path"]
+        res["filed"].append(rel)
+        why = _pickable(mind, rel, list(lanes))
+        f["outcome"] = f"filed {rel}" + (f" — not picked: {why}" if why else "")
+        if not why and mode == "pick" and len(res["picks"]) < cap:
+            res["picks"].append(rel)
+            f["outcome"] += " (picked)"
     return res
 
 

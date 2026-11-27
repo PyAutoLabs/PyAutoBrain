@@ -76,7 +76,7 @@ def wt_mind(mind, tmp_path):
 
 def _run(mind, rows, mode="file", cap=3, **kw):
     return _green.run(mind, _heart(rows, **kw), mode=mode, cap=cap, lanes=("any",),
-                      state_path=mind.parent / "home" / "heart_green.json", now=NOW)
+                      state_path=mind.parent / "home" / "maintain.json", now=NOW)
 
 
 # --- classes ------------------------------------------------------------------
@@ -139,13 +139,15 @@ def test_files_at_most_cap_and_defers_the_rest(mind):
     assert len(deferred) == len(rows) - 3
     text = (mind / res["filed"][0]).read_text()
     for need in ("Lane: any", "Witness:", "Re-check first", "Consequence: judge",
-                 "\nDifficulty: ", "<!-- heart-key: ci:", "> " + rows[0]["text"]):
+                 "\nDifficulty: ", "<!-- maint-key: ci:", "Source-key: ci:",
+                 "> " + rows[0]["text"], "Unattended: never"):
         assert need in text, need
-    assert "Unattended:" not in text, "the lane never grades its own drafts ready"
+    # Phase 14.2: Heart findings are judge, so the writer declares Unattended:
+    # never — sizing alone would grade them ready.
     p = _batch.parse_prompt(mind / res["filed"][0], mind)
     assert text.split("\nDifficulty: ")[1].split("\n")[0] == \
         _batch.effective_difficulty(p)[0], "Difficulty is the sizing faculty's"
-    assert all(p.startswith("draft/bug/") for p in res["filed"])
+    assert all(p.startswith("draft/maintenance/") for p in res["filed"])
     # report-only classes are never filed
     assert not [f for f in res["findings"]
                 if f["cls"] != "fixable-dev" and "filed" in f.get("outcome", "")]
@@ -160,13 +162,13 @@ def test_reruns_file_each_key_once_at_most_cap_a_brief(mind):
     assert len(filed) == len(set(filed)) == len(keys), "each reason filed exactly once"
     assert runs[-1]["filed"] == []
     first_keys = {_key(mind, p) for p in runs[0]["filed"]}
-    assert all(f["outcome"].startswith("existing draft/bug/")
+    assert all(f["outcome"].startswith("existing draft/maintenance/")
                for f in runs[1]["findings"] if f["key"] in first_keys)
 
 
 def _key(mind, rel):
     text = (mind / rel).read_text()
-    return text.split("<!-- heart-key: ", 1)[1].split(" -->", 1)[0]
+    return text.split("<!-- maint-key: ", 1)[1].split(" -->", 1)[0]
 
 
 def test_state_stops_a_refile_after_the_draft_left_the_backlog(mind):
@@ -176,8 +178,8 @@ def test_state_stops_a_refile_after_the_draft_left_the_backlog(mind):
     again = _run(mind, rows)
     assert again["filed"] == []
     assert "since left the backlog" in again["findings"][0]["outcome"]
-    state = json.loads((mind.parent / "home" / "heart_green.json").read_text())
-    assert state["reasons"]["ci:" + rows[0]["text"].split(":")[0]]["filed"] == filed[0]
+    state = json.loads((mind.parent / "home" / "maintain.json").read_text())
+    assert state["keys"]["ci:" + rows[0]["text"].split(":")[0]]["filed"] == filed[0]
 
 
 def test_a_fresh_read_without_the_reason_clears_it_so_a_recurrence_files_again(mind):
@@ -185,8 +187,8 @@ def test_a_fresh_read_without_the_reason_clears_it_so_a_recurrence_files_again(m
     filed = _run(mind, rows)["filed"]
     (mind / filed[0]).unlink()
     _run(mind, other)  # fresh and valid, and the reason is gone
-    state = json.loads((mind.parent / "home" / "heart_green.json").read_text())
-    assert not [k for k in state["reasons"] if k.startswith("ci:")]
+    state = json.loads((mind.parent / "home" / "maintain.json").read_text())
+    assert not [k for k in state["keys"] if k.startswith("ci:")]
     assert _run(mind, rows)["filed"] == filed, "the recurrence is filed again"
     assert _run(mind, rows)["filed"] == [], "and deduped against its open draft"
 
@@ -216,13 +218,21 @@ def test_existing_human_draft_queue_entry_or_active_task_blocks_a_new_draft(mind
 
 def test_pick_mode_names_lane_matching_drafts_only(mind):
     ws = _rows("workspace-script")[0]
-    res = _run(mind, _rows("ci-red")[:1] + [ws], mode="pick", cap=5)
-    assert len(res["filed"]) == 3
-    assert len(res["picks"]) == 1 and res["picks"][0] in res["filed"]
+    ci_row = _rows("ci-red")[0]
+    # Phase 14.2: a filed Heart draft is judge, so `Unattended: never` — pick
+    # names an existing ready draft carrying the key, never a fresh judge one.
+    (mind / "draft/bug/x/ready.md").write_text(
+        f"# Ready\n\nType: bug\nLane: any\nUnattended: ready\n\n"
+        f"{_green.KEY_MARK.format(_green.classify(ci_row)[0]['key'])}\n")
+    res = _run(mind, [ci_row, ws], mode="pick", cap=5)
+    assert len(res["filed"]) == 2
+    assert res["picks"] == ["draft/bug/x/ready.md"]
     ci = [f for f in res["findings"] if f["rule"] == "ci-red"]
     assert ci[0]["outcome"].endswith("(picked)")
     local = [f for f in res["findings"] if f["rule"] == "workspace-script"]
-    assert all("lane local-dev not in the brief's lanes" in f["outcome"] for f in local)
+    assert all("not picked" in f["outcome"] for f in local)
+    texts = [(mind / p).read_text() for p in res["filed"]]
+    assert all("Unattended: never" in t for t in texts)
 
 
 def test_lane_less_existing_draft_is_never_picked(mind):
@@ -279,6 +289,11 @@ def test_unreadable_heart_does_nothing(mind):
 def test_brief_new_writes_a_heart_section_and_names_the_picks(wt_mind, tmp_path, capsys):
     mind = wt_mind
     rows = _rows("ci-red", "dirty", "release-validation", "open-pr", "workspace-script")
+    # Phase 14.2: freshly filed Heart drafts are judge (`Unattended: never`), so
+    # the pick is an existing ready draft carrying a listed key.
+    (mind / "draft/bug/x/ready.md").write_text(
+        "# Ready\n\nType: bug\nLane: any\nUnattended: ready\n\n"
+        + _green.KEY_MARK.format(_green.classify(rows[0])[0]["key"]) + "\n")
     hj = tmp_path / "heart.json"
     hj.write_text(json.dumps(_readiness(rows)))
     out = tmp_path / "brief.md"
@@ -296,7 +311,7 @@ def test_brief_new_writes_a_heart_section_and_names_the_picks(wt_mind, tmp_path,
     goals = [c["text"] for c in brief["goals"]["children"]]
     assert goals[0] == "1. Ship the flywheel" and goals[-1].startswith("2. heart-green")
     picks = _brief.tasks_of(brief)
-    assert picks and all((mind / p).is_file() for p in picks)
+    assert picks == ["draft/bug/x/ready.md"]
     assert _brief.check(out, mind)["ok"]
     assert "heart-green filed" in capsys.readouterr().err
     # the next brief's goal diff ignores the lane's own goal
@@ -347,7 +362,7 @@ def test_only_a_linked_worktree_may_be_written(mind, wt_mind, tmp_path):
         out = tmp_path / f"b-{target.name}.md"
         assert _brief_new(target, tmp_path, "--mind", str(target), "--green", "file",
                           "--out", str(out)) == 0
-        filed = list(target.glob("draft/bug/*/heart_green_*.md"))
+        filed = list(target.glob("draft/maintenance/*/maint_*.md"))
         assert bool(filed) is writes, target
         assert ("not a linked worktree" in out.read_text()) is not writes
 
@@ -359,7 +374,7 @@ def test_default_mode_files_but_never_picks(wt_mind, tmp_path, monkeypatch):
     out = tmp_path / "b.md"
     assert _brief_new(mind, tmp_path, "--mind", str(mind), "--out", str(out)) == 0
     text = out.read_text()
-    assert list(mind.glob("draft/bug/*/heart_green_*.md"))
+    assert list(mind.glob("draft/maintenance/*/maint_*.md"))
     assert "  - tasks:" not in text and "heart-green:" not in text
 
 
@@ -376,7 +391,7 @@ def test_green_verb_defaults_to_report(mind, tmp_path, capsys, monkeypatch):
     assert _batch.main(["green", "--mind", str(mind), "--heart-json", str(hj),
                         "--at", NOW.isoformat(), "--home", str(tmp_path / "h")]) == 0
     assert "would file (report mode)" in capsys.readouterr().out
-    assert not list((mind / "draft").glob("bug/*/heart_green_*.md"))
+    assert not list((mind / "draft").glob("maintenance/*/maint_*.md"))
 
 
 # --- no release, dispatch or quarantine path ----------------------------------
@@ -389,8 +404,10 @@ def test_lane_module_imports_no_process_or_network_module():
     tree = ast.parse((BRAIN / "agents/conductors/batch/_green.py").read_text())
     mods = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     mods |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    # `_maintain_write` (the one filing path, Phase 14.2) and `_maintain` (its
+    # Finding shape) are loaded lazily; the writer's own import test pins it.
     assert mods <= {"__future__", "datetime", "importlib.util", "json", "re",
-                    "pathlib", "_sizing"}, mods
+                    "pathlib", "_sizing", "_maintain_write", "_maintain"}, mods
     docs = {id(n.body[0].value) for n in ast.walk(tree)
             if isinstance(n, (ast.Module, ast.FunctionDef)) and n.body
             and isinstance(n.body[0], ast.Expr)}
@@ -444,7 +461,7 @@ def test_a_full_brief_run_spawns_only_heart_readiness_and_git(wt_mind, tmp_path,
                       "--at", NOW.isoformat(),
                       "--home", str(tmp_path / "home"), "--out", str(tmp_path / "b.md")])
     assert rc == 0 and urls == []
-    assert list(mind.glob("draft/bug/*/heart_green_*.md")), "it did file"
+    assert list(mind.glob("draft/maintenance/*/maint_*.md")), "it did file"
     heart = [c for c in calls if Path(c[0]).name == "pyauto-heart"]
     assert heart == [[str(fake), "readiness", "--json"]]
     others = [c for c in calls if c not in heart]

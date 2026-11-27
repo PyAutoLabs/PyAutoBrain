@@ -48,6 +48,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _brief  # noqa: E402
 import _green  # noqa: E402 — the keep-Heart-green lane
 import _login  # noqa: E402 — the CLI login probe
+# The one git probe for "may a lane write into this Mind?" (re-exported:
+# `_batch.is_linked_worktree` is what callers and tests name).
+from _mind_guard import is_linked_worktree  # noqa: E402,F401
 import _ral  # noqa: E402 — the unattended-ssh probe for a granted `ral` lane
 # The human's goals (goals.md): `brief --new` copies them.
 from _steer import read_goals  # noqa: E402,F401 — re-exported beside read_queue
@@ -1018,12 +1021,14 @@ def main(argv=None) -> int:
     if argv[:1] == ["collect"]:
         return _main_collect(argv[1:])
     if argv[:1] == ["maintain"]:
-        import _maintain  # noqa: E402 — Phase 14.1, read-only; never from the tick
+        import _maintain  # noqa: E402 — Phase 14.1/14.2; never from the tick
         return _maintain.main(argv[1:])
     ap = argparse.ArgumentParser(
         prog="batch",
-        epilog="batch maintain --dry-run [--sources census,monitoring,release] [--json]: "
-               "list maintenance findings (Phase 14.1, read-only; `batch maintain -h`)")
+        epilog="batch maintain --dry-run | --file --mind DIR [--cap N] "
+               "[--sources census,monitoring,release] [--json]: list maintenance "
+               "findings, or file them as draft prompts (Phases 14.1-14.2; "
+               "`batch maintain -h`)")
     ap.add_argument("verb", choices=["plan", "brief", "digest", "watch",
                                      "slice", "premise", "green", "ready", "maintain"],
                     nargs="?",
@@ -2155,23 +2160,6 @@ SHARED_MIND_HOLD = ("--mind is not a linked worktree ({}) — a main checkout is
                     "Mind the caller names that is a temp "
                     "worktree on origin/main (`git -C <mind> worktree add <dir> "
                     "origin/main`), passed as --mind, committed and pushed from there")
-
-
-def is_linked_worktree(path: Path) -> bool:
-    """True only for a LINKED git worktree (`--git-dir` differs from
-    `--git-common-dir`). The main checkout of any clone, wherever it lives,
-    is False — so is anything git cannot read."""
-    dirs = []
-    for flag in ("--git-dir", "--git-common-dir"):
-        try:
-            out = subprocess.run(["git", "-C", str(path), "rev-parse", flag],
-                                 capture_output=True, text=True, timeout=30)
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-        if out.returncode != 0 or not out.stdout.strip():
-            return False
-        dirs.append((path / out.stdout.strip()).resolve())
-    return dirs[0] != dirs[1]
 
 
 def write_hold(mind: Path, a, preview: bool) -> str:
