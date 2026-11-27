@@ -329,9 +329,42 @@ dispatch is refused. Doctrine: `AUTONOMY.md` "The watcher's network surface —
 **A library is held while its worker runs; merges wait in PR order (M3.6j,
 2026-11-19, PyAutoBrain#683).** The plan admits one *live* task per library
 repo, so two workers never share one. Work does not collide; merges do. A task
-this shift picked holds its library while its worker runs, while it is parked
-(on a question or a person: ruling d), while a re-dispatch or an answered
-restart is pending, and while its outcome carries an open question. Once its
+this shift picked holds its library while its worker runs and while a
+re-dispatch is pending. A park holds it for 15 minutes from the park
+(`PARK_HOLD_GRACE`; ruling d as amended 2026-11-24, PyAutoBrain#720): a lease
+park (on a question or a person) and an outcome with an open question. The
+park time is `counters["park_times"]` (the lease's `parked_at`, or when the
+`.done` was read), else the inbox entry's `asked`, taken at the end of its
+minute; with no known time the park keeps holding. A lease-parked task that
+later writes a `.done` with a question keeps its lease park time. Only an open
+question (not obsolete, not merged) is a park. Inside the 15 minutes the
+waiting task is refused as `<repo> held by <task> (parked) until HH:MMZ` and
+counted `startable`; it starts on the first tick after them.
+
+A lease park's session is still alive, so its library is released only once
+that session is stopped (human ruling 2026-11-27, "Stop, then release").
+When its 15 minutes end, `stop_expired_parks` stops it through `/kill`'s stop
+(`_stop_session`: `claude stop <id>`, or the Codex supervisor's STOP file),
+records `park_released[task]` (`how: stopped`) and a `park-stopped` event, and
+moves the task from `parked` to `done` with its newest `blocked` inbox question
+added to the outcome's open questions. From then on it is a park on a question:
+an answer restarts it with the answer (`released_here`) once its library is
+free. Its library is released only when the reap sees the stopped session end
+(`ended`, the lease reaped); until then the waiting task is refused as `<repo>
+held by <task> (parked: stopped, its session is still ending)` and counted
+`startable`. A session not seen to end within `PARK_STOP_END_S` (10 minutes)
+raises one `park-stop-overdue` event (needs you); the library stays held and
+the waiting task becomes final, so the shift may close early. The stop is
+skipped while the shift is paused. Fail closed: no session id, no question in
+the inbox, or a failed stop keeps the hold, is recorded in `park_stop_failed`
+(one `park-stop-failed` event, needs you) and is tried again next tick. A new
+park of the task, or a new worker for it, clears both records, so every park
+is stopped at its own grace's end. A lease park whose session ended by itself
+(`parked-ended`) is released by the 15 minutes alone (`how: ended`). An
+answered park waiting to restart (`inshift_pending`) keeps its library until
+it starts, so no other task on that library goes ahead of it. The plan, the
+claim gate and the spawn loop give one wording for every park hold
+(`park_hold_suffix`). Once its
 worker has ended, the next tick may start the next task on that library, its
 PR open, refused or merged alike (`released_picks`; first PyAutoBrain#679 freed
 it only at merge, and one `/prm`-bound PR stalled the shift). A `/drop`ped task
@@ -397,7 +430,9 @@ start (`startable`: a failed launch, an unreadable spend, an expired login).
 Nothing this tick could not read: the steering comments (`commands_unread`)
 or Mind `origin/main` (a draft held as `fail closed`) keeps it open. A
 task held by a library, `max-sessions` or the token budget cannot start, and a
-task parked on a question does not hold the shift open. `close_early` records
+task parked on a question does not hold the shift open. A task held only by a
+park whose 15 minutes still run can start when they end, so it is `startable`
+and keeps the shift open until then (PyAutoBrain#720). `close_early` records
 `counters["closed_early"]` and runs `finish_shift` with that time as the end.
 The digest opens with `Closed early at <time>; review-at was <time>`. Later
 ticks in the window run the late sweep while something is owed, else idle;
@@ -705,7 +740,8 @@ longer merge in-turn (2026-11-19, ruling "ii"); as a backstop `merge-slot take`
 on the same library is open (`in_turn_merge_blockers`, the close-out's rule). An `updated` PR's CI is read only
 once GitHub shows the head the update made; a head that moved since refuses.
 The spawn loop also refuses a task whose library a live, parked or
-re-dispatch-pending task holds, whatever the plan's order made of it.
+re-dispatch-pending task holds, whatever the plan's order made of it; a park
+holds only for its 15 minutes, and a lease park until its session is stopped.
 
 **Watching a shift live (`batch watch`, PyAutoBrain#575).** `batch watch
 --record <brief> [--once] [--interval N]` (`_watch.py`) draws a running shift

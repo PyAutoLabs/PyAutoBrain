@@ -1106,7 +1106,27 @@ while an earlier PR of the shift on it is open. Six rulings:
   tick, carried ones included;
 - **(c)** an earlier PR blocks until GitHub says MERGED or CLOSED, whatever its
   state in the shift (dropped, red, refused, abandoned);
-- **(d)** a park on a question keeps holding its library's start;
+- **(d)** a park on a question keeps holding its library's start. Since the
+  human's amendment of 2026-11-24 ("Release after 15 min", in chat,
+  PyAutoBrain#720) it holds for 15 minutes from the park, then releases the
+  library. This covers a lease park (blocked on a person) and a worker that
+  ended with an open question in its outcome. Inside the 15 minutes a task
+  waiting on that library can still start, so the shift does not close early.
+  An answer inside them restarts the task as before. A later answer restarts
+  it only when its library is free: it waits like any task, and two workers
+  never share a library. A park with no known time keeps holding.
+  Amended again by the human on 2026-11-27 ("Stop, then release", review of
+  PyAutoBrain#720): inside the 15 minutes a task waiting on that library is
+  counted startable, and it starts when they end. A lease park's session is
+  still alive, so when its 15 minutes end the watcher first stops that
+  session (the `/kill` stop) and releases the library only once the session
+  is seen to have ended. The stopped task becomes a park on its newest inbox
+  question, and an answer restarts it with the answer once its library is
+  free. A stop that fails, or a lease park with no question in the inbox,
+  keeps holding; a stopped session not seen to end within 10 minutes keeps
+  holding too, and the watcher tells the human once. Each park of a task is
+  stopped at its own grace's end. An answered park waiting to restart keeps
+  its library until it starts;
 - **(e)** a worker may proceed past a `worktree_check_conflict` hit that names
   only a listed sibling PR's slug;
 - **(f)** library repos only, and only PRs this shift knows (its outcomes and a

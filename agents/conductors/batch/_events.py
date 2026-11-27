@@ -211,6 +211,21 @@ def _reaped(b: _Batch, result: dict, counters: dict) -> None:
                   f"{task} is stuck at a prompt (since {_hhmm(since)})."
                   + (" Added to your inbox." if filed else ""), task=task,
                   inbox=filed or None)
+        elif ev == "park-stopped":
+            # Ruling (d), amended 2026-11-27: stop, then release.
+            b.add("parked", f"park-stopped:{task}:{run}",
+                  f"{task} was stopped 15 minutes after it parked; its library is free. "
+                  "Its question stays in your inbox: an answer restarts it.", task=task)
+        elif ev == "park-stop-failed":
+            b.add("parked", f"park-stop-failed:{task}:{run}",
+                  f"{task}'s parked session could not be stopped "
+                  f"({e.get('why') or 'no reason given'}): its library stays held.",
+                  needs_you=True, task=task)
+        elif ev == "park-stop-overdue":
+            b.add("parked", f"park-stop-overdue:{task}:{run}",
+                  f"{task}'s parked session was stopped but has not ended "
+                  f"({e.get('why') or 'no reason given'}): its library stays held. "
+                  "Check the session by hand.", needs_you=True, task=task)
         elif ev == "done":
             o = _outcome(e, counters)
             merged = list(o.get("merged") or [])

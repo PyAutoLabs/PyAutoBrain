@@ -519,7 +519,8 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
          awaiting_source: str = "given", brief: dict | None = None,
          attended: bool = False, released: set[str] | None = None,
          epic_ledgers: dict[str, str] | None = None,
-         withheld: list[tuple[dict, str]] | None = None) -> dict:
+         withheld: list[tuple[dict, str]] | None = None,
+         held_why: dict[str, str] | None = None) -> dict:
     """Compose the next batch — a BatchDecision.
 
     Every constraint states itself in `rejected`, because a planner that
@@ -674,6 +675,12 @@ def plan(records: list[dict], *, budget: int = DEFAULT_REVIEW_BUDGET,
         clash = next((x for x in r["repos"] if x in LIBRARY_REPOS and x in libs), None)
         if clash:
             holder = libs[clash]
+            if holder in (held_why or {}):
+                # A park's hold (ruling d, amended 2026-11-24 and 11-27), in
+                # the spawn loop's words (`_orchestrator.park_hold_suffix`):
+                # until when inside its grace, else why it still holds.
+                rejected.append((r["path"], f"{clash} held by {holder}{held_why[holder]}"))
+                continue
             rejected.append((r["path"], f"{clash} held by {holder} — will start once "
                                         f"{holder}'s worker ends"
                              if Path(r["path"]).name in named_names
