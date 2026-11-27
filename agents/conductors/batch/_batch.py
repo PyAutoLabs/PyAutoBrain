@@ -967,7 +967,56 @@ NOT_PLAN = ("fetch", "apply", "out")
 RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
 
+#: What `batch collect` (retired 2026-11-22) says instead of scoring members.
+COLLECT_RETIRED = ("batch collect is retired: a shift run from a brief has no `members:` "
+                   "block to score — the digest is the review surface "
+                   "(`batch digest --record <record>`; the watcher writes it into the "
+                   "record and posts it on the shift issue)")
+
+
+def _digest_of(text: str) -> str:
+    """The record's `## Digest` section (to the next `## ` heading), or ""."""
+    m = re.search(r"^## Digest[ \t]*$", text, re.M)
+    if not m:
+        return ""
+    nxt = re.search(r"^## ", text[m.end():], re.M)
+    return text[m.start():m.end() + nxt.start() if nxt else len(text)].rstrip() + "\n"
+
+
+def _main_collect(argv: list[str]) -> int:
+    """`batch collect [--slot S] [--record F] [--mind M]` — the retired verb
+    (M3.6g, PyAutoBrain#728): never "0 members" on a brief-form shift. With a
+    record that holds a digest it prints that digest; otherwise it says the
+    digest is the review surface. Writes nothing."""
+    ap = argparse.ArgumentParser(prog="batch collect")
+    ap.add_argument("--slot", default="")
+    ap.add_argument("--record", default="")
+    ap.add_argument("--mind", type=Path, default=None)
+    a, _rest = ap.parse_known_args(argv)
+    mind = (a.mind or BODY_MAP_PATH.parent).resolve()
+    record = Path(a.record) if a.record else \
+        (mind / "batches" / f"{a.slot}.md" if a.slot else None)
+    text = ""
+    if record is not None:
+        try:
+            text = record.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+    digest = _digest_of(text)
+    if digest:
+        sys.stdout.write(digest)
+        print(f"\n(batch collect is retired: the digest above, from {record}, is the "
+              "review surface)")
+        return RC_OK
+    print(COLLECT_RETIRED.replace("<record>", str(record) if record else "<record>"),
+          file=sys.stderr)
+    return RC_USAGE
+
+
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["collect"]:
+        return _main_collect(argv[1:])
     ap = argparse.ArgumentParser(prog="batch")
     ap.add_argument("verb", choices=["plan", "brief", "digest", "watch",
                                      "slice", "premise", "green", "ready"],

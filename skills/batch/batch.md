@@ -86,7 +86,11 @@ In order:
    time of day.
 3. Confirm what was launched, and stop. Do not follow the runs: the watcher
    starts the workers, and each **ends at its deliverable**
-   (`PyAutoMind/policy/end_at_deliverable.md`).
+   (`PyAutoMind/policy/end_at_deliverable.md`). If the human asks to watch
+   ("watch the shift", `/cockpit`), load the `cockpit` skill **here, in this
+   same chat** — never send them to a new chat for the live feed
+   (`PyAutoMind/policy/shift_cockpit_watch.md` needs only that they asked in
+   this session).
 
 **Brief verbs** (`batch brief --check`, `batch plan --brief`, `batch digest`):
 [`reference.md`](reference.md). Run the check before pushing a brief; it refuses a live brief without `issue:` or with an expired CLI login. `brief --new` also runs the keep-Heart-green lane: a `## Heart` section and up to 3 bug drafts for fixable Heart reasons (only with `--out` and a non-shared `--mind`; named as tasks only with `--green pick`); it never releases (`batch green` = dry run; `agents/conductors/batch/AGENTS.md`).
