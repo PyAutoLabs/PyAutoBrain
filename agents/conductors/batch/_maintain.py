@@ -109,6 +109,8 @@ def glance_organs() -> set:
     try:
         from _sizing import _body_map_specs
         oracle = _green._hf().heart_board_repo()
+        if not oracle:  # the oracle cannot be named, so it cannot be excluded: nothing is glance
+            return set()
         return {n for n, s in _body_map_specs().items()
                 if s.get("category") == "organ" and not s.get("package")
                 and s.get("organ") != "Brain" and n != oracle}
@@ -365,7 +367,7 @@ def fetch_board(url: str, timeout=BOARD_TIMEOUT):
 
 def _read(data, source, why, age, status=None, partial=False) -> dict:
     ok = isinstance(data, dict) and status != "grey"
-    stale = (not ok) or age is None or age > MAX_AGE_HOURS or status == "stale"
+    stale = (not ok) or partial or age is None or age > MAX_AGE_HOURS or status == "stale"
     return {"data": data if isinstance(data, dict) else None,
             "source": source if isinstance(data, dict) else "none",
             "why": why, "age_hours": age, "ok": ok, "stale": stale, "partial": partial,

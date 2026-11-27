@@ -247,6 +247,24 @@ def test_glance_organs_derived_from_body_map(monkeypatch):
     assert _maintain.glance_organs() == {"OrganA"}
 
 
+def test_glance_organs_fails_safe_when_the_oracle_is_unnamed(monkeypatch):
+    import _sizing
+    monkeypatch.setattr(_sizing, "_body_map_specs",
+                        lambda: {"OrganA": {"category": "organ"}})
+
+    class _HF:
+        @staticmethod
+        def heart_board_repo():
+            return None   # policy missing or without `board: heart_board`
+    monkeypatch.setattr(_green, "_hf", lambda: _HF)
+    assert _maintain.glance_organs() == set()
+
+
+def test_a_partial_read_is_stale():
+    assert _maintain._read({}, "local", "board not read", 1.0, partial=True)["stale"] is True
+    assert _maintain._read({}, "local", "", 1.0)["stale"] is False
+
+
 # --- release ------------------------------------------------------------------
 
 REASONS = [
