@@ -19,8 +19,9 @@ will write into a prompt and dedupe against.
 this. Nothing here writes: no prompt, no state file, no Mind.
 
 A read that failed never looks like all-clear: every requested source reports
-`ok` and `stale`, and the CLI exits 3 when any requested source was not read.
-14.2 must never file from, or clear keys for, an unread or stale source.
+`ok`, `stale` and `partial`, and the CLI exits 3 when any requested source was
+not read. 14.2 must never file from, or clear keys for, an unread or stale
+source, and never clear keys from a partial one.
 
 The adapters are pure functions of already-loaded data; the loaders read
 local files first, else the published board, and say how old what they read is.
@@ -67,10 +68,8 @@ EXCLUDED_FAMILIES = frozenset({"worktree_drift", "repo_state", "release", "open_
 FILED_STATUSES = ("red", "yellow")
 #: A release-execution workflow is never a glance fix.
 RELEASE_WORKFLOW_RX = re.compile(r"release", re.I)
-#: The census's own measured-seconds rule (Heart `no_run_census.SECONDS_RE`):
-#: a seconds figure that is not a mention of the cap.
-SECONDS_RX = re.compile(r"(\d+(?:\.\d+)?)\s*s\b(?!\s*cap)", re.I)
-CAP_RX = re.compile(r"(\d+(?:\.\d+)?)\s*s\s*cap", re.I)
+#: Words in a census reason that force judge whatever the evidence says.
+KILLED_RX = re.compile(r"\bOOM\b|SIGKILL|\bkilled\b|timed?[\s-]*out|times out", re.I)
 PY_SUFFIX_RX = re.compile(r"/\d+\.\d+$")
 
 CENSUS_WITNESS = ("the entry is gone from the repo's no_run.yaml and the script passes "
@@ -103,13 +102,16 @@ class Finding:
 
 def glance_organs() -> set:
     """Organs whose own workflow red may be a glance fix: the body map's
-    `organ` repos, minus those shipping a package (`package:`) and the Brain
-    itself (`organ: Brain`) — a change there reaches users or this lane."""
+    `organ` repos, minus those shipping a package (`package:`), the Brain
+    itself (`organ: Brain`) and the readiness oracle this lane reads (the
+    policy's `board: heart_board`, the same declared surface `heart_feed.py`
+    reads) — a change there reaches users, this lane or its evidence."""
     try:
         from _sizing import _body_map_specs
+        oracle = _green._hf().heart_board_repo()
         return {n for n, s in _body_map_specs().items()
                 if s.get("category") == "organ" and not s.get("package")
-                and s.get("organ") != "Brain"}
+                and s.get("organ") != "Brain" and n != oracle}
     except Exception:  # noqa: BLE001 — no body map: nothing is glance
         return set()
 
@@ -130,19 +132,17 @@ def _norm_ci(key: str) -> str:
 # --- adapters (pure) ----------------------------------------------------------
 
 def _census_tier(row: dict) -> str:
-    """Glance only for a real marker removal: the row is measured and its
-    seconds figure is within the cap it names. Otherwise judge."""
-    reason = str(row.get("reason") or "")
+    """Glance only for a real marker removal, proven by STRUCTURED evidence:
+    a SLOW row with `passed: true` and a numeric `seconds`/`measured_s` within
+    a numeric `cap_s`. Free text is never parsed for seconds; NEEDS_FIX is
+    never glance; a reason naming a kill or a timeout forces judge."""
+    if row.get("marker") != "SLOW" or KILLED_RX.search(str(row.get("reason") or "")):
+        return "judge"
+    secs = row.get("seconds", row.get("measured_s"))
     cap = row.get("cap_s")
-    if cap is None:
-        m = CAP_RX.search(reason)
-        cap = float(m.group(1)) if m else None
-    secs = row.get("seconds")
-    if secs is None:
-        m = SECONDS_RX.search(reason)
-        secs = float(m.group(1)) if m else None
-    if row.get("measured") is True and cap is not None and secs is not None \
-            and float(secs) <= float(cap):
+    num = (int, float)
+    if row.get("passed") is True and isinstance(secs, num) and isinstance(cap, num) \
+            and not isinstance(secs, bool) and not isinstance(cap, bool) and secs <= cap:
         return "glance"
     return "judge"
 
@@ -318,10 +318,11 @@ def collect(census=None, board=None, heart=None, sources=SOURCES,
     `stale`, as is a monitoring row Heart itself marks `fresh: false`."""
     found = []
     if "census" in sources:
-        rows = list((census or {}).get("rows") or [])
-        if board is not None:
-            rows += board_census_rows(board)
-        found += census_findings({"rows": rows})
+        # One whole source (the loader picks it): the census document given,
+        # else the board's census rows. Never a merge of the two.
+        rows = (census or {}).get("rows") if census is not None else \
+            board_census_rows(board) if board is not None else []
+        found += census_findings({"rows": rows or []})
     if "monitoring" in sources and board is not None:
         found += monitoring_findings(board, organs)
     if "release" in sources and heart is not None:
@@ -362,12 +363,12 @@ def fetch_board(url: str, timeout=BOARD_TIMEOUT):
     return (obj, "") if isinstance(obj, dict) else (None, "board.json is not an object")
 
 
-def _read(data, source, why, age, status=None) -> dict:
+def _read(data, source, why, age, status=None, partial=False) -> dict:
     ok = isinstance(data, dict) and status != "grey"
     stale = (not ok) or age is None or age > MAX_AGE_HOURS or status == "stale"
     return {"data": data if isinstance(data, dict) else None,
             "source": source if isinstance(data, dict) else "none",
-            "why": why, "age_hours": age, "ok": ok, "stale": stale,
+            "why": why, "age_hours": age, "ok": ok, "stale": stale, "partial": partial,
             **({"status": status} if status is not None else {})}
 
 
@@ -386,23 +387,32 @@ def load_board(board_json: str = "", now=None) -> dict:
 
 
 def load_census(census_json: str = "", board_read: dict | None = None, now=None) -> dict:
-    """Heart's local census, plus the board's census rows (both feed the
-    census adapter; its key dedupes them). Its age is the freshest part's."""
+    """ONE whole census source, the fresher of two: Heart's local
+    `no_run_census.json`, or the board's census rows (its `no_run_census`
+    monitoring rows are the complete set; `performance.no_run` is a capped
+    subset of them). Never a merge: a stale local file must not resurrect
+    entries the board has since dropped. The read's age is that source's.
+
+    With the board unreadable and only the local file read, the read is
+    `partial` and its `why` carries the board's failure; 14.2 must not clear
+    keys from a stale or partial read."""
     path = Path(census_json) if census_json else HEART_STATE_DIR / CENSUS_NAME
-    data, why = _read_json(path)
-    age = _green._hf().age_hours(data.get("ts"), now) if isinstance(data, dict) else None
-    board = (board_read or {}).get("data")
-    parts = [f"local {path.name}"] if isinstance(data, dict) else []
-    if isinstance(board, dict):
-        parts.append("board census rows")
-        bage = (board_read or {}).get("age_hours")
-        if bage is not None and (age is None or bage < age):
-            age = bage
-    if not parts:
-        return _read(None, "none", "; ".join(x for x in (why, (board_read or {})
-                                                          .get("why")) if x), None)
-    return _read(data if isinstance(data, dict) else {"rows": []}, " + ".join(parts),
-                 why if not isinstance(data, dict) else "", age)
+    local, lwhy = _read_json(path)
+    local = local if isinstance(local, dict) else None
+    lage = _green._hf().age_hours(local.get("ts"), now) if local else None
+    br = board_read or {}
+    board = br.get("data") if br.get("ok") else None
+    bage = br.get("age_hours")
+    if board is not None and (local is None or (bage is not None
+                                                and (lage is None or bage < lage))):
+        return _read({"ts": board.get("ts"), "rows": board_census_rows(board)},
+                     "board census rows", "", bage)
+    if local is not None:
+        partial = board is None
+        why = (f"board census rows not read ({br.get('why') or 'board unread'})"
+               if partial else "")
+        return _read(local, f"local {path.name}", why, lage, partial=partial)
+    return _read(None, "none", "; ".join(x for x in (lwhy, br.get("why")) if x), None)
 
 
 def load_release(heart_json: str = "", now=None) -> dict:
@@ -421,6 +431,8 @@ def _read_line(name, r) -> str:
     age = "age unknown" if r.get("age_hours") is None else f"{r['age_hours']:.1f} h old"
     status = f", verdict {r['status']}" if r.get("status") else ""
     flag = " — STALE: listed, never filed or cleared" if r["stale"] else ""
+    if r.get("partial"):
+        flag += f" — PARTIAL ({r.get('why')}): never clear keys from it"
     return f"  {name:<10} {r['source']} ({age}{status}){flag}"
 
 

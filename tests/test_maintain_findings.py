@@ -47,8 +47,13 @@ CENSUS_ROWS = [
 ]
 #: Only on the board's monitoring rows, not in the local census file.
 BOARD_ONLY_ROW = {"entry": "cluster/start_here", "marker": "SLOW", "date": "2026-09-01",
-                  "reason": "takes 120.5s, under the 300s cap", "measured": True,
-                  "prompt": "Use the bug skill."}
+                  "reason": "re-timed after the fix", "measured": True, "passed": True,
+                  "seconds": 120.5, "cap_s": 300.0, "prompt": "Use the bug skill."}
+#: A live row (2026-11-27, placeholder repo) that free-text parsing graded glance.
+OOM_ROW = {"repo": "ws_delta", "entry": "interferometer/visualization/modeling_jit",
+           "marker": "SLOW", "date": "2026-07-30", "measured": True,
+           "reason": "historically >300s cap; local re-measurement OOM-killed (SIGKILL) "
+                     "at 132s - memory-heavy interferometer JIT", "prompt": "x"}
 
 
 def _board(run_id=111, census_rows=CENSUS_ROWS, ts=TS):
@@ -146,18 +151,70 @@ def test_census_findings_shape_and_tiers():
     assert "no_run.yaml" in f.witness and "smoke cap" in f.witness
     glance = _maintain.census_findings({"rows": [dict(BOARD_ONLY_ROW, repo="ws_gamma")]})
     assert [f.tier_floor for f in glance] == ["glance"]
-    over = dict(BOARD_ONLY_ROW, repo="ws_gamma", reason="takes 420.0s, over the 300s cap")
-    assert _maintain.census_findings({"rows": [over]})[0].tier_floor == "judge"
 
 
-def test_census_rows_from_every_source_are_census_findings():
+@pytest.mark.parametrize("row", [
+    OOM_ROW,
+    dict(OOM_ROW, passed=True, seconds=132.0, cap_s=300.0),     # kill words force judge
+    dict(BOARD_ONLY_ROW, repo="ws_gamma", seconds=420.0),       # over the cap
+    dict(BOARD_ONLY_ROW, repo="ws_gamma", passed=None),         # no structured pass
+    dict(BOARD_ONLY_ROW, repo="ws_gamma", seconds="120.5"),     # not numeric
+    dict(BOARD_ONLY_ROW, repo="ws_gamma", cap_s=None),          # no structured cap
+    dict(BOARD_ONLY_ROW, repo="ws_gamma", marker="NEEDS_FIX"),  # never glance
+    dict(BOARD_ONLY_ROW, repo="ws_gamma", reason="timed out once, then passed"),
+    {"repo": "ws_gamma", "entry": "a.py", "marker": "SLOW", "measured": True,
+     "reason": "takes 120.5s, under the 300s cap"},             # free text is not evidence
+])
+def test_census_tier_judge_without_structured_pass(row):
+    assert _maintain.census_findings({"rows": [row]})[0].tier_floor == "judge"
+
+
+def test_census_rows_from_one_whole_source():
     fs = _maintain.collect(census=_census(), board=_board(), organs=ORGANS,
                            sources=("census", "monitoring"))
     nr = [f for f in fs if f.key.startswith("no_run:")]
-    assert len(nr) == 3 and all(f.source == "census" for f in nr)
-    assert "no_run:ws_gamma/cluster/start_here" in _keys(nr)
+    # the given census document only — the board's census rows are not merged in,
+    # and monitoring never lists them itself
+    assert len(nr) == 2 and all(f.source == "census" for f in nr)
     only = _maintain.collect(census=None, board=_board(), sources=("census",))
     assert {f.source for f in only} == {"census"} and len(only) == 3
+    assert "no_run:ws_gamma/cluster/start_here" in _keys(only)
+
+
+def _board_read(board, age):
+    return _maintain._read(board, "file b", "", age)
+
+
+def test_load_census_stale_local_never_merged_with_fresh_board(tmp_path):
+    local = tmp_path / "census.json"
+    extra = dict(CENSUS_ROWS[0], entry="imaging/fixed_since_jit")
+    local.write_text(json.dumps({"ts": (NOW - dt.timedelta(hours=29)).isoformat(),
+                                 "rows": CENSUS_ROWS + [extra]}))
+    r = _maintain.load_census(str(local), _board_read(_board(), 1.0), now=NOW)
+    assert r["source"] == "board census rows" and r["age_hours"] == 1.0
+    assert not r["stale"] and not r["partial"]
+    keys = _keys(_maintain.census_findings(r["data"]))
+    assert "no_run:ws_alpha/imaging/fixed_since_jit" not in keys
+    assert "no_run:ws_gamma/cluster/start_here" in keys
+
+
+def test_load_census_fresher_local_wins(tmp_path):
+    local = tmp_path / "census.json"
+    local.write_text(json.dumps({"ts": (NOW - dt.timedelta(hours=1)).isoformat(),
+                                 "rows": CENSUS_ROWS}))
+    r = _maintain.load_census(str(local), _board_read(_board(), 3.0), now=NOW)
+    assert r["source"] == "local census.json" and r["age_hours"] == pytest.approx(1.0)
+    assert len(_maintain.census_findings(r["data"])) == 2
+
+
+def test_load_census_board_unread_is_partial(tmp_path):
+    local = tmp_path / "census.json"
+    local.write_text(json.dumps({"ts": (NOW - dt.timedelta(hours=29)).isoformat(),
+                                 "rows": CENSUS_ROWS}))
+    board = _maintain._read(None, "none", "board.json unreachable (URLError)", None)
+    r = _maintain.load_census(str(local), board, now=NOW)
+    assert r["ok"] and r["partial"] and r["stale"]
+    assert "board.json unreachable" in r["why"]
 
 
 # --- tiers ----------------------------------------------------------------------
@@ -179,7 +236,14 @@ def test_glance_organs_derived_from_body_map(monkeypatch):
              "OrganPkg": {"category": "organ", "package": "organpkg"},
              "OrganSelf": {"category": "organ", "organ": "Brain"},
              "libalpha": {"category": "library", "package": "libalpha"}}
+    specs["OrganOracle"] = {"category": "organ", "organ": "Oracle"}
     monkeypatch.setattr(_sizing, "_body_map_specs", lambda: specs)
+
+    class _HF:
+        @staticmethod
+        def heart_board_repo():
+            return "OrganOracle"   # the policy's `board: heart_board`
+    monkeypatch.setattr(_green, "_hf", lambda: _HF)
     assert _maintain.glance_organs() == {"OrganA"}
 
 
@@ -276,7 +340,7 @@ def test_cli_dry_run_json_shape(tmp_path):
         assert f["tier_floor"] in ("glance", "judge") and f["witness"]
     assert {f["source"] for f in doc["findings"]} == {"census", "monitoring", "release"}
     for r in doc["reads"].values():
-        assert r["ok"] is True and r["stale"] is False
+        assert r["ok"] is True and r["stale"] is False and r["partial"] is False
     assert doc["reads"]["monitoring"]["age_hours"] == pytest.approx(1.0)
 
 
@@ -322,12 +386,14 @@ def test_cli_grey_release_verdict_is_unread(tmp_path):
 
 def test_cli_sources_subset_and_bad_source(tmp_path):
     board, census, _h = _files(tmp_path)
+    census.write_text(json.dumps(dict(_census(), ts=(NOW - dt.timedelta(hours=20)).isoformat())))
     rc, out, _ = _run(["maintain", "--dry-run", "--json", "--sources", "census",
                        "--census-json", str(census), "--board-json", str(board),
                        "--at", NOW.isoformat()])
     doc = json.loads(out)
     assert rc == 0 and {f["source"] for f in doc["findings"]} == {"census"}
-    assert doc["count"] == 3  # monitoring's census rows count as census
+    assert doc["count"] == 3  # the fresher board's census rows, the complete set
+    assert doc["reads"]["census"]["source"] == "board census rows"
     rc, _, err = _run(["maintain", "--dry-run", "--sources", "census,bogus"])
     assert rc != 0 and "bogus" in err
 
@@ -348,3 +414,16 @@ def test_maintain_writes_nothing_and_tick_never_calls_it():
                  BRAIN / "bin" / "orchestrator_watch.py"):
         src = path.read_text(encoding="utf-8")
         assert "maintain" not in src and "_maintain" not in src, path
+
+
+def test_cli_census_only_board_unreadable_is_partial(tmp_path):
+    _b, census, _h = _files(tmp_path)
+    rc, out, _ = _run(["maintain", "--dry-run", "--json", "--sources", "census",
+                       "--census-json", str(census), "--board-json", str(tmp_path / "absent"),
+                       "--at", NOW.isoformat()])
+    r = json.loads(out)["reads"]["census"]
+    assert rc == 0 and r["ok"] and r["partial"] is True and "absent" in r["why"]
+    rc, out, _ = _run(["maintain", "--dry-run", "--sources", "census",
+                       "--census-json", str(census), "--board-json", str(tmp_path / "absent"),
+                       "--at", NOW.isoformat()])
+    assert "PARTIAL" in out
