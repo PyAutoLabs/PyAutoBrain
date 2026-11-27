@@ -175,8 +175,8 @@ def test_maintenance_brief_is_shadow_and_names_only_generated_prompts(mind, tmp_
     # Cheapest tier first.
     tiers = [_batch.grade(mind / t, mind)["consequence"] for t in tasks]
     assert tiers == sorted(tiers, key=("notify", "glance", "judge").index)
-    # The backlog stays within generated prompts.
-    assert _brief.scoped_of(brief)["sources"] == ["maintenance"]
+    # Only the named tasks run: no backlog dip at all.
+    assert brief["backlog"]["value"] == "none" and "scoped" not in brief
     assert "## Maintenance" in (tmp_path / "brief.md").read_text()
     # brief --check accepts it and lists each named task with tier and Witness.
     rc, out, err = _check(tmp_path, tmp_path / "brief.md", mind)
@@ -244,6 +244,7 @@ def test_the_cap_holds(plain_mind, tmp_path):
 
 
 def test_tiers_filter_what_is_named(plain_mind, tmp_path):
+    _generated(plain_mind, [ROWS[1]])                     # an open judge prompt
     rc, _, err = _new(tmp_path, plain_mind, "--maintenance-tiers", "glance",
                       "--maintenance-cap", "7")
     assert rc == 0, err
@@ -278,9 +279,12 @@ def _rec(name, *, key="", tier="glance", epic=""):
             "epic": epic, "themes": [], "lane": "any"}
 
 
-def _scoped_brief(scoped: str, exclude: str = "") -> dict:
+GATE = "  - maintenance:\n    - gate-open: PyAutoBrain#574\n"
+
+
+def _scoped_brief(scoped: str, exclude: str = "", gate: str = GATE) -> dict:
     text = ("- dispatched: 2026-11-28T00:00Z\n- review-at: 2026-11-28T12:00Z\n- brief:\n"
-            "  - goals:\n    - 1. g\n  - backlog: scoped\n  - scoped:\n" + scoped
+            "  - goals:\n    - 1. g\n" + gate + "  - backlog: scoped\n  - scoped:\n" + scoped
             + ("  - exclude:\n" + exclude if exclude else "") + "  - lanes: any\n")
     return _brief.parse(text)["brief"]
 
@@ -379,7 +383,8 @@ def test_check_wants_the_maintenance_goal_and_flags_a_hand_task(plain_mind, tmp_
 def test_check_refuses_an_unknown_scoped_source(plain_mind, tmp_path):
     _new(tmp_path, plain_mind)
     path = tmp_path / "brief.md"
-    path.write_text(path.read_text().replace("- sources: maintenance", "- sources: rumours"))
+    path.write_text(path.read_text().replace(
+        "  - backlog: none", "  - backlog: scoped\n  - scoped:\n    - sources: rumours"))
     res = _brief.check(path, plain_mind)
     assert any("brief.scoped.sources: rumours" in e for e in res["errors"])
 
@@ -422,3 +427,145 @@ def test_the_digest_names_a_maintenance_shift(plain_mind, tmp_path):
     digest = _digest.build(brief, slot, {}, health=lambda url: {}, mind=plain_mind)
     assert line in digest
     assert _brief.maintenance_line({"goals": brief["goals"]}) == ""
+
+
+# --- review fixes (2026-11-27): the M3 gate on the tasks, backlog none, ranking -----
+
+LIVE = """\
+- dispatched: 2026-11-28T00:00Z
+- review-at: 2026-11-28T12:00Z
+- issue: https://github.com/example-org/ExampleMind/issues/7
+- brief:
+  - goals:
+    - 1. g
+{body}  - review-minutes: 45
+  - lanes: any local-dev
+  - merge-cap: 1
+  - token-budget: 1000
+"""
+
+
+def test_a_live_brief_with_the_block_deleted_cannot_name_generated_tasks(plain_mind,
+                                                                           tmp_path):
+    rc, _, err = _new(tmp_path, plain_mind, "--live", "--gate-open", "--issue", ISSUE)
+    assert rc == 0, err
+    path = tmp_path / "brief.md"
+    text = path.read_text()
+    start = text.index("  - maintenance:\n")
+    end = text.index("  - tasks:")
+    path.write_text(text[:start] + text[end:])          # the block deleted, tasks kept
+    res = _brief.check(path, plain_mind)
+    assert not res["ok"]
+    assert any("is a generated prompt (`Source-key:`)" in e for e in res["errors"])
+    # Shadow, the same tasks pass the gate (a shadow shift runs nothing).
+    path.write_text(path.read_text().replace("- brief:\n", "- brief:\n  - shadow: yes\n"))
+    assert not any("Source-key" in e for e in _brief.check(path, plain_mind)["errors"])
+
+
+def test_a_live_brief_may_not_scope_or_exclude_by_sources_without_the_gate(plain_mind,
+                                                                          tmp_path):
+    for body in ("  - backlog: scoped\n  - scoped:\n    - sources: maintenance\n",
+                 "  - backlog: fill-idle\n  - exclude:\n    - sources: maintenance\n"):
+        path = tmp_path / "live.md"
+        path.write_text(LIVE.format(body=body))
+        res = _brief.check(path, plain_mind)
+        assert any("sources: maintenance" in e and "M3 gate" in e for e in res["errors"]), body
+
+
+def test_an_ordinary_live_brief_never_dips_a_generated_draft(plain_mind, tmp_path):
+    gen = _generated(plain_mind, [_row(0, "ws_a", glance=True)])[0]
+    hand = plain_mind / "draft" / "feature" / "ws_a" / "hand.md"
+    hand.parent.mkdir(parents=True)
+    hand.write_text(HAND, encoding="utf-8")
+    recs = _batch.survey(plain_mind)
+    assert next(r for r in recs if r["path"] == gen)["unattended"] == "ready"
+    for body in ("  - backlog: fill-idle\n",
+                 "  - backlog: scoped\n  - scoped:\n    - tiers: glance\n"):
+        path = tmp_path / "live.md"
+        path.write_text(LIVE.format(body=body))
+        brief = _parsed(path)
+        kept, rejected, _ = _brief.scope(recs, brief)
+        assert gen not in [r["path"] for r in kept]
+        assert "M3 gate" in dict(rejected)[gen]
+        assert "draft/feature/ws_a/hand.md" in [r["path"] for r in kept]
+        d = _batch.plan(recs, session_lane="local-dev", brief=brief, queue=["x"])
+        assert gen not in [m["path"] for m in d["members"]]
+
+
+def test_a_passed_over_draft_is_never_dipped_by_a_maintenance_brief(plain_mind, tmp_path):
+    earlier = _generated(plain_mind, ROWS[:3])
+    (plain_mind / "active.md").write_text(
+        f"# Active\n\n## {Path(earlier[0]).stem}\n- status: started\n", encoding="utf-8")
+    rc, _, err = _new(tmp_path, plain_mind, "--maintenance-cap", "1")
+    assert rc == 0, err
+    brief = _parsed(tmp_path / "brief.md")
+    named = _brief.tasks_of(brief)
+    assert len(named) == 1
+    recs = _batch.survey(plain_mind)
+    kept, rejected, _ = _brief.scope(recs, brief)
+    assert [r["path"] for r in kept] == named
+    passed = [r["path"] for r in recs if r["path"] not in named]
+    assert passed and all(p in dict(rejected) for p in passed)
+    d = _batch.plan(recs, session_lane="local-dev", brief=brief, queue=["x"])
+    assert {m["path"] for m in d["members"]} <= set(named)
+
+
+def _organ_board() -> dict:
+    """Census rows (judge) plus two organ CI reds on head (glance)."""
+    b = _board([_row(i, f"ws_{c}", glance=False) for i, c in enumerate("abcdef")])
+    for organ in ("OrganAlpha", "OrganBeta"):
+        b["monitoring"]["findings"].append({
+            "id": f"ci_status:{organ}/workflows/Dashboard", "family": "ci_status",
+            "subject": f"{organ}/workflows/Dashboard", "status": "red", "summary": "red",
+            "observed_at": TS, "fresh": True, "source": "snapshot",
+            "evidence": {"repo": organ, "workflow": "Dashboard", "on_head": True}})
+    return b
+
+
+def test_rank_files_glance_then_red_then_source_order_then_key():
+    fs = [_maintain.Finding(key=k, source=src, repo="r", paths=[], summary="s",
+                            witness="w", tier_floor=tier, lane="any",
+                            evidence={"status": st})
+          for k, src, tier, st in [("b", "census", "judge", ""), ("a", "census", "judge", ""),
+                                   ("z", "release", "judge", "red"),
+                                   ("m", "monitoring", "glance", ""),
+                                   ("c", "census", "glance", "")]]
+    assert [f.key for f in W.rank(fs)] == ["c", "m", "z", "a", "b"]
+
+
+def test_with_a_small_cap_glance_organ_ci_findings_are_filed_first(plain_mind, tmp_path,
+                                                                    monkeypatch):
+    monkeypatch.setattr(_maintain, "glance_organs", lambda: {"OrganAlpha", "OrganBeta"})
+    rc, _, err = _new(tmp_path, plain_mind, "--maintenance-cap", "3", board=_organ_board())
+    assert rc == 0, err
+    filed = [p.relative_to(plain_mind).as_posix() for p in
+             plain_mind.glob("draft/**/*.md")]
+    tiers = sorted(_batch.grade(plain_mind / f, plain_mind)["consequence"] for f in filed)
+    assert len(filed) == 3 and tiers == ["glance", "glance", "judge"]
+    assert sum("organ" in f.lower() for f in filed) == 2
+
+
+def test_a_glance_only_brief_files_only_glance(plain_mind, tmp_path):
+    rc, _, err = _new(tmp_path, plain_mind, "--maintenance-tiers", "glance",
+                      "--maintenance-cap", "7")
+    assert rc == 0, err
+    filed = list(plain_mind.glob("draft/**/*.md"))
+    assert len(filed) == 4
+    assert {_batch.grade(f, plain_mind)["consequence"] for f in filed} == {"glance"}
+
+
+def test_a_non_canonical_mind_keeps_maintain_json_beside_the_record(plain_mind, tmp_path,
+                                                                   monkeypatch):
+    real = tmp_path / "real_home"
+    import _orchestrator
+    monkeypatch.setattr(_orchestrator, "orchestrator_home", lambda: real)
+    b, h = _inputs(tmp_path)
+    (tmp_path / "rec").mkdir()
+    rc, _, err = _cli(["brief", "--new", SLOT, "--maintenance", "--review-at", REVIEW_AT,
+                       "--board-json", str(b), "--census-json", str(tmp_path / "absent"),
+                       "--heart-json", str(h), "--at", NOW.isoformat(),
+                       "--out", str(tmp_path / "rec" / "brief.md"), "--mind", str(plain_mind)])
+    assert rc == 0, err
+    assert "maintain.json goes beside the record" in err
+    assert (tmp_path / "rec" / "brief.maintain" / W.STATE_NAME).is_file()
+    assert not real.exists()

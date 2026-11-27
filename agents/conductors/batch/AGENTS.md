@@ -428,7 +428,8 @@ call the same `file_findings` for the release source.
 `batch brief --new <slot> --maintenance --review-at <ISO> --out <record> --mind <dir>`
 writes a brief whose tasks come from the boards, not from a human. It reads
 the sources (14.1, `_maintain.read_sources`), files through the writer (14.2,
-`file_findings`, capped at the brief's `cap`) into `--mind`, then names as
+`file_findings`, capped at the brief's `cap`, only findings whose tier is in
+`tiers:`) into `--mind`, then names as
 `tasks:` the generated prompts in that Mind's `draft/` — newly filed and
 already open alike, anything with a `Source-key:` header.
 
@@ -446,10 +447,28 @@ already open alike, anything with a `Source-key:` header.
   key the fresh read no longer lists (its re-check would close it); one
   claimed in `active.md`; blocked (`Blocked-by:` or `Status: blocked`) or
   done; a tier outside `tiers:`; past the cap.
-- **Backlog.** `backlog: scoped` with `scoped: sources: maintenance` (plus
-  `tiers:`): `sources:` narrows the other scoped keys, so a dip stays within
-  generated prompts. `exclude: sources: maintenance` keeps them out of any
-  other brief. Lanes `any local-dev` (no RAL); `merge-cap: 0`.
+- **Backlog: none.** A maintenance brief runs only its named tasks, so a
+  prompt passed over (stale source, key no longer listed, claimed, past the
+  cap) never comes back as a dip. The schema keeps `scoped:`/`exclude:`
+  `sources: maintenance` (`sources:` narrows the other scoped keys) for later
+  use; generated briefs do not write it. Lanes `any local-dev` (no RAL);
+  `merge-cap: 0`.
+- **The M3 gate holds on the tasks.** `brief --check` refuses any live
+  (non-shadow) brief that names a generated prompt (`Source-key:`), or uses
+  `scoped:`/`exclude:` `sources: maintenance`, unless it has a `maintenance:`
+  block with `gate-open:` — so deleting the block does not get past it. And
+  `scope()` keeps every generated prompt out of the backlog of any brief
+  without `gate-open:` (`fill-idle` and `scoped` alike): an ordinary shift
+  never dips one, even a glance one graded `Unattended: ready`.
+- **Ranking.** The writer files in one order (`_maintain_write.rank`, shared
+  with `batch maintain --file`): tier (glance before judge), then a red or
+  high-priority finding, then source order, then key; one cap, no per-tier
+  caps. So a small cap takes glance organ-CI fixes before a pile of judge
+  census rows.
+- **State home.** `maintain.json` goes to `--home` when given; to the
+  orchestrator home only when `--mind` is a linked worktree of the configured
+  canonical Mind; otherwise beside the record (`<record>.maintain/`), said
+  on stderr — an experimental run never writes the real state.
 - **Shadow by default.** `shadow: yes` unless `--live`, and a shadow brief
   makes no shift issue. **`--live` is refused unless `--gate-open`** — the
   human's explicit word that the M3 gate (PyAutoBrain#574) is open, written

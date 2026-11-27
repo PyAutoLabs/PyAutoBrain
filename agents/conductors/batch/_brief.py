@@ -271,6 +271,36 @@ def maintenance_of(brief: dict) -> dict | None:
             "gate_open": kv.get("gate-open", {}).get("value", "")}
 
 
+def gate_open(brief: dict) -> bool:
+    """Whether the brief carries the human's word that the M3 gate is open: a
+    `maintenance:` block with `gate-open:`. Without it no generated
+    maintenance prompt runs live, named or dipped."""
+    m = maintenance_of(brief)
+    return bool(m and m["gate_open"])
+
+
+def generated_gate_errors(brief: dict, mind: Path) -> list[str]:
+    """The M3 gate on the tasks, not only on the block: a live (non-shadow)
+    brief without `gate-open:` may neither name a generated prompt (one with
+    a `Source-key:`) nor scope or exclude by `sources: maintenance`."""
+    if is_shadow(brief) or gate_open(brief):
+        return []
+    errors = []
+    why = (f"generated maintenance prompts run live only behind the M3 gate "
+           f"({MAINTENANCE_GATE}): a `maintenance:` block with `gate-open:`, or "
+           "`shadow: yes`")
+    for t in tasks_of(brief):
+        f = _resolve(mind, t)
+        if f is not None and source_key(f.read_text(encoding="utf-8", errors="replace")):
+            errors.append(f"brief.tasks: {t} is a generated prompt (`Source-key:`) — {why}")
+    _ex_paths, ex_keyed = excluded_of(brief)
+    for where, vals in (("scoped", scoped_of(brief).get("sources", [])),
+                        ("exclude", ex_keyed.get("sources", []))):
+        if vals:
+            errors.append(f"brief.{where}.sources: {', '.join(vals)} — {why}")
+    return errors
+
+
 def maintenance_goal(brief: dict) -> str:
     """The brief's maintenance goal line (`maintenance: …`), or ""."""
     node = (brief or {}).get("goals")
@@ -464,6 +494,7 @@ def check(path: Path, mind: Path) -> dict:
             errors.append(f"brief.{where}.sources: {', '.join(bad_src)} — one of "
                           + ", ".join(SCOPED_SOURCES))
     errors.extend(maintenance_errors(brief))
+    errors.extend(generated_gate_errors(brief, mind))
 
     for key in ("review-minutes", "merge-cap", "token-budget"):
         if key not in brief:
@@ -746,6 +777,9 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
     lanes = set(lanes_of(brief)) or {"any"}
     # `/add`ed this shift (`effective`): no `exclude:` rule holds it back.
     added = set(_csv(brief.get("added", {}).get("value", "")))
+    # The M3 gate on the backlog: without `gate-open:` no generated
+    # maintenance prompt is ever dipped, whatever the dip policy.
+    gated = not gate_open(brief)
 
     kept, rejected = [], []
     for r in records:
@@ -759,6 +793,11 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
         # A task an answer released (the inbox) is the human's word, as
         # naming it would be: no dip policy keeps it out.
         if name not in named_names and not r.get("resume"):
+            if gated and r.get("source_key") and name not in added:
+                rejected.append((r["path"], "a generated maintenance prompt — dipped only "
+                                            f"behind the M3 gate ({MAINTENANCE_GATE}, "
+                                            "`gate-open:`)"))
+                continue
             if backlog == "none":
                 rejected.append((r["path"], "outside the brief (backlog: none)"))
                 continue

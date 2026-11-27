@@ -140,8 +140,11 @@ def test_files_at_most_cap_and_defers_the_rest(mind):
     text = (mind / res["filed"][0]).read_text()
     for need in ("Lane: any", "Witness:", "Re-check first", "Consequence: judge",
                  "\nDifficulty: ", "<!-- maint-key: ci:", "Source-key: ci:",
-                 "> " + rows[0]["text"], "Unattended: never"):
+                 "Unattended: never"):
         assert need in text, need
+    # The writer files in its rank (PyAutoBrain#737), not row order: the first
+    # filed carries one of the rows' reasons verbatim.
+    assert any("> " + r["text"] in text for r in rows)
     # Phase 14.2: Heart findings are judge, so the writer declares Unattended:
     # never — sizing alone would grade them ready.
     p = _batch.parse_prompt(mind / res["filed"][0], mind)

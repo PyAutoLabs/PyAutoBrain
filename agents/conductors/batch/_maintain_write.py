@@ -328,6 +328,19 @@ def classify(f, read: dict, mind: Path, today: str) -> dict:
 
 # --- the writer -----------------------------------------------------------------
 
+def rank(findings) -> list:
+    """The order the writer files in, so `batch maintain --file` and the
+    maintenance brief agree on what one cap takes: tier (cheapest first:
+    glance before judge), then priority (a red or high-priority finding
+    first), then the source order (census, monitoring, release), then key.
+    A stable sort; one cap, no per-tier caps."""
+    tiers = {t: i for i, t in enumerate(("notify", "glance", "judge"))}
+    srcs = {s: i for i, s in enumerate(_maintain.SOURCES)}
+    return sorted(findings, key=lambda f: (tiers.get(f.tier_floor, 9),
+                                           0 if _priority(f) == "high" else 1,
+                                           srcs.get(f.source, 9), f.key))
+
+
 def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
                   state_path: Path | None = None, now=None, guard: bool = True,
                   only=None, needles: dict | None = None,
@@ -366,7 +379,7 @@ def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
             res["cleared"].append(key)
     docs, queue = corpus(mind)
     seen = set()
-    for f in findings:
+    for f in rank(findings):
         if f.key in seen or (only is not None and f.key not in only):
             continue
         seen.add(f.key)

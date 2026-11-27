@@ -2373,6 +2373,41 @@ def pick_generated(mind: Path, reads: dict, present: set, cap: int,
     return cands[:cap], passed
 
 
+def _orchestrator_home_path() -> Path:
+    import _orchestrator  # noqa: E402 — deferred: only the state path
+    return Path(_orchestrator.orchestrator_home())
+
+
+def canonical_derived(mind: Path) -> bool:
+    """Whether `mind` is a linked worktree of the configured canonical Mind
+    (its git common dir is the canonical checkout's) — the one Mind whose
+    filings the real `maintain.json` tracks."""
+    if not is_linked_worktree(mind):
+        return False
+    def common(path: Path):
+        try:
+            out = subprocess.run(["git", "-C", str(path), "rev-parse", "--git-common-dir"],
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return (path / out.stdout.strip()).resolve() if out.returncode == 0 else None
+    canon = common(BODY_MAP_PATH.parent.resolve())
+    return canon is not None and common(Path(mind)) == canon
+
+
+def maintenance_home(mind: Path, a) -> Path:
+    """Where the writer's `maintain.json` lives for this run: `--home` when
+    given; the orchestrator home only for a worktree of the canonical Mind;
+    otherwise a folder beside the record (`<record>.maintain/`), so an
+    experimental run never writes the real state."""
+    if a.home:
+        return Path(a.home)
+    if not a.out or canonical_derived(mind):
+        return _orchestrator_home_path()
+    out = Path(a.out)
+    return out.parent / f"{out.stem}.maintain"
+
+
 def maintenance_lane(mind: Path, a, *, sources: list[str], cap: int, tiers: list[str],
                      preview: bool) -> dict:
     """Read the boards (14.1), file through the writer (14.2) into `mind` —
@@ -2385,15 +2420,17 @@ def maintenance_lane(mind: Path, a, *, sources: list[str], cap: int, tiers: list
     reads, raw, found = _maintain.read_sources(sources, a.board_json, a.census_json,
                                                a.heart_json, now)
     present = _maintain_write.present_keys(raw, reads)
+    # Only the tiers this brief may name are filed (every finding still
+    # counts as listed, so nothing else is cleared).
+    in_tiers = {f.key for f in found if f.tier_floor in tiers}
     if preview:
         wres = {"filed": [], "skipped": [], "cleared": [], "cap": cap, "notes": [],
                 "hold": "a preview (no --out) writes nothing"}
     else:
-        import _orchestrator  # noqa: E402 — deferred: only the state path
-        home = Path(a.home or _orchestrator.orchestrator_home())
         wres = _maintain_write.file_findings(
-            found, reads, mind, cap=cap, state_path=home / _maintain_write.STATE_NAME,
-            now=now, present=present)
+            found, reads, mind, cap=cap,
+            state_path=Path(a.maintain_home) / _maintain_write.STATE_NAME,
+            now=now, present=present, only=in_tiers)
     named, passed = pick_generated(mind, reads, present, cap, tiers)
     return {"sources": sources, "cap": cap, "tiers": tiers, "reads": reads,
             "findings": len(found), "write": wres, "named": named, "passed": passed}
@@ -2433,8 +2470,9 @@ def maintenance_section(res: dict) -> str:
 def new_maintenance_brief(slot: str, review_at: str, res: dict, *, live: bool,
                           issue: str = "", now=None) -> str:
     """A maintenance brief: one `maintenance:` goal, the `maintenance:` block,
-    `shadow: yes` unless live, the generated prompts as `tasks:`, a backlog
-    scoped to generated prompts (`scoped: sources: maintenance`), then the
+    `shadow: yes` unless live, the generated prompts as `tasks:` and
+    `backlog: none` — a prompt passed over (stale source, key no longer
+    listed, claimed, past the cap) never comes back as a dip — then the
     `## Maintenance` section."""
     now = now or _dt.datetime.now(_dt.timezone.utc)
     shift = {"am": "morning", "pm": "afternoon"}.get(slot.rsplit("-", 1)[-1], slot)
@@ -2461,10 +2499,8 @@ def new_maintenance_brief(slot: str, review_at: str, res: dict, *, live: bool,
     if res["named"]:
         L.append("  - tasks:                          # generated (Source-key), see ## Maintenance")
         L += [f"    - {r['path']}" for r in res["named"]]
-    L += ["  - backlog: scoped                 # generated maintenance prompts only",
-          "  - scoped:",
-          "    - sources: maintenance",
-          f"    - tiers: {tiers}",
+    L += ["  - backlog: none                   # only the named tasks: nothing passed over "
+          "comes back as a dip",
           f"  - review-minutes: {NEW_BRIEF_DEFAULTS['review-minutes']}",
           f"  - lanes: {MAINTENANCE_LANES}",
           f"  - merge-cap: {NEW_BRIEF_DEFAULTS['merge-cap']}"
@@ -2519,6 +2555,12 @@ def _main_maintenance_brief(mind: Path, a) -> int:
     if not (mind / "draft").is_dir():
         print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
         return RC_NO_MIND
+    a.maintain_home = maintenance_home(mind, a)
+    if not preview and not a.home and a.maintain_home != _orchestrator_home_path():
+        print(f"batch brief --new: --mind is not a worktree of the canonical Mind, so "
+              f"maintain.json goes beside the record, in {a.maintain_home} (pass "
+              "--home to choose); the real orchestrator home is not written",
+              file=sys.stderr)
     res = maintenance_lane(mind, a, sources=sources, cap=a.maintenance_cap,
                            tiers=tiers, preview=preview)
     w = res["write"]
