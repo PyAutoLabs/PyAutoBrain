@@ -14,6 +14,7 @@ Shared routing context: `PyAutoBrain/skills/COMMANDS.md`.
 ## Attach only when asked
 
 Attach only when explicitly asked in this session, e.g. `/cockpit` or "watch the shift".
+The batch launch chat hands over here in the same chat when the human asks to watch.
 For a status question, answer once with `batch watch --once` or the reads in section 7, with no Monitor.
 
 ## The rule of this chat
@@ -83,9 +84,14 @@ Then say, in one line, the `attached <slot>: …` summary and the inbox count
   Nothing else is pushed.
 - **`segment-end next=--from N`** (exit 3): arm the same command again with
   `--from N`. This is the only re-arm.
-- **Anything else ends the watch:** `shift-end`, the `stopped` line, the
-  `STOP file present` line, the `Watch window over` line, exit 2 (refused), or
-  a Monitor expiry without `segment-end`. Do not arm again. Say:
+- **The watch runs to the stream's own end**, at the latest `review-at:` + 45
+  min (the late window, its `Watch window over` line). No event line ends it:
+  not the digest (`Shift closed…`), a `Late arrival`, nor `shift-end` on its
+  own — keep relaying, so a PR that opens after the digest is reported.
+- **Only the stream's exit ends the watch:** exit 0 (after `shift-end`, which
+  the watcher writes once nothing of the shift is still running, `stopped`,
+  `STOP file present` or `Watch window over`), exit 2 (refused), or a Monitor
+  expiry without `segment-end`. Do not arm again. Say:
   "Shift over. Digest: <url>. <q> questions in your inbox. Go through them now
   or later?" (the digest URL from the `digest` line, else the shift issue). The
   session ends at that deliverable.
