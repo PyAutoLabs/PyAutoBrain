@@ -300,13 +300,17 @@ git); the tests pin that and record every process a full brief run starts.
 ## Hygiene ledger keys (Phase 14.0, PyAutoBrain#735)
 
 The Brain board publishes `hygiene_ledger.jsonl` beside its board.json (spec in
-`board/AGENTS.md`): one line per UTC day with each hygiene row's count and its
-per-finding keys `<mode>:<repo>:<file>:<reference>`, never a line number, so a
-key survives line drift (`board/_hygiene_ledger.finding_key` defines each
-mode; `docstrings`/`escapes` keys are per file). **14.5's hygiene source reads
-these keys to dedupe**, and should treat a row whose `not_scanned` is non-empty
-as partial: never clear keys for a repo that was not scanned. The laptop and
-the cloud scan the same declared set (`workspace` + `howto` from the body map).
+`board/AGENTS.md`): one line per UTC day with each hygiene row's count, status,
+`not_scanned` repos and per-finding keys `<mode>:<repo>:<file>:<reference>`,
+never a line number, so a key survives line drift. Keyed modes: `refs`,
+`docstrings`, `escapes` (both per file), `optdeps`, `extras`
+(`extras:::<dependency>`); `board/_hygiene_ledger.finding_key` defines each.
+**14.5's hygiene source reads these keys to dedupe, and must never clear keys
+from a partial or unkeyed mode**: a mode whose status is `partial`,
+`unscanned`, `error` or `deferred`, that has `not_scanned` repos, or that is
+listed in `unkeyed` (non-clean with no keys) proves nothing is fixed
+(`_hygiene_ledger.mode_complete` is the test). The laptop and the cloud scan the
+same declared set (`workspace` + `howto` from the body map).
 
 ## Maintenance findings (`_maintain.py`, Phase 14.1, PyAutoBrain#731)
 

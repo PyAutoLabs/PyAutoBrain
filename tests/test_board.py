@@ -666,6 +666,13 @@ def test_hygiene_ledger_fills_history_and_draws_a_sparkline_per_row(tmp_path):
     assert _run(["--apply", "--out", str(tmp_path / "site")], tmp_path, stub,
                 env_extra=env).returncode == 0
     assert (tmp_path / "site" / "hygiene_ledger.jsonl").read_text() == path.read_text()
+    # A ledger holding fewer days than its fetch read is never published.
+    (tmp_path / "hygiene_ledger.jsonl.fetched.json").write_text('{"days": 9}')
+    r = _run(["--apply", "--out", str(tmp_path / "site2")], tmp_path, stub,
+             env_extra=env)
+    assert r.returncode != 0 and "shorter ledger" in r.stderr
+    assert not (tmp_path / "site2" / "hygiene_ledger.jsonl").exists()
+    (tmp_path / "hygiene_ledger.jsonl.fetched.json").unlink()
     # No ledger configured: no history, as before.
     env.pop("BOARD_HYGIENE_LEDGER")
     assert json.loads(_run(["--json"], tmp_path, stub,

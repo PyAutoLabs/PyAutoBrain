@@ -223,12 +223,14 @@ def canonical(path: str) -> str:
 
 
 def tracked_tree(path: Path) -> tuple[set[str], set[str]] | None:
-    """``(files, directories)`` git tracks in ``path``, or None if not a checkout.
+    """``(files, directories)`` of the tree committed at ``HEAD``, or None if
+    ``path`` is not a checkout.
 
-    The index lists every tracked path whether or not it is on disk, so a
-    sparse or partial clone (the board's cloud checkout keeps only text files)
-    indexes the SAME tree as a full laptop checkout of the same commit, and a
-    laptop's untracked local files never satisfy a reference the published
+    The committed tree lists every path whether or not it is on disk, so a
+    sparse or no-checkout clone (the board's cloud checkout keeps only text
+    files, and clones reference-only repos with no checkout at all) indexes the
+    SAME tree as a full laptop checkout of the same commit, and a laptop's
+    untracked or merely staged files never satisfy a reference the published
     repository cannot. Reading the disk instead made the two disagree
     (PyAutoBrain#735: extension-less tracked files such as a ``submit`` script
     were absent from the sparse checkout and their references called dead).
@@ -237,7 +239,7 @@ def tracked_tree(path: Path) -> tuple[set[str], set[str]] | None:
         return None
     try:
         result = subprocess.run(
-            ["git", "-C", str(path), "ls-files", "-z"],
+            ["git", "-C", str(path), "ls-tree", "-r", "--name-only", "-z", "HEAD"],
             capture_output=True, timeout=120, check=True,
         )
     except (OSError, subprocess.SubprocessError):
@@ -428,6 +430,9 @@ class Resolver:
             path.name for path in (iter_checkouts(root) or root.iterdir()) if path.is_dir()
         }
         self.suppressed = 0
+        #: Declared repositories a reference pointed into that are not present
+        #: under the root -> how many references were skipped for that reason.
+        self.absent: dict[str, int] = {}
 
     def index(self, name: str) -> RepositoryIndex | None:
         if name not in self.indexes:
@@ -471,6 +476,8 @@ class Resolver:
                 path = path.split("/", 1)[1]
                 directory = ""
             if target is None:
+                absent = LIBRARY_REPOSITORIES.get(head, head)
+                self.absent[absent] = self.absent.get(absent, 0) + 1
                 return None
             # Re-check runtime roots AFTER a repo prefix strip: a sibling-
             # qualified `autolens_workspace/dataset/...` is just as
@@ -710,7 +717,11 @@ def documented_directories(repository: Path, index: RepositoryIndex | None = Non
     return findings
 
 
-def scan(root: Path) -> tuple[list[Finding], int, int, list[str]]:
+def scan(root: Path, absent_repos: dict | None = None
+         ) -> tuple[list[Finding], int, int, list[str]]:
+    """``absent_repos``, when given, receives ``{repo: skipped refs}`` for the
+    declared repositories references point into that are not under ``root``."""
+    absent_repos = {} if absent_repos is None else absent_repos
     resolver = Resolver(root)
     repositories, missing = scan_set(root)
     findings: list[Finding] = []
@@ -719,6 +730,7 @@ def scan(root: Path) -> tuple[list[Finding], int, int, list[str]]:
         for path in scanned_files(repository):
             findings.extend(findings_in_file(resolver, repository, path))
         findings.extend(documented_directories(repository, index))
+    absent_repos.update(resolver.absent)
     return findings, len(repositories), resolver.suppressed, missing
 
 
@@ -737,9 +749,17 @@ def summary_for(findings: list[Finding], repository_count: int, skipped: int) ->
 
 
 def row_for(root: Path) -> dict:
-    findings, repository_count, skipped, missing = scan(root)
-    return finding_row("refs", findings, summary_for(findings, repository_count, skipped),
-                       not_scanned=missing)
+    absent: dict[str, int] = {}
+    findings, repository_count, skipped, missing = scan(root, absent)
+    summary = summary_for(findings, repository_count, skipped)
+    if absent:
+        # Skipped, never dead — but named, so a cloud/laptop difference in the
+        # skipped count is explained rather than silent.
+        summary += "; refs into repos not present here: " + ", ".join(
+            f"{name} ({count})" for name, count in sorted(absent.items()))
+    row = finding_row("refs", findings, summary, not_scanned=missing)
+    row["absent_repos"] = dict(sorted(absent.items()))
+    return row
 
 
 def render_human(row: dict) -> None:

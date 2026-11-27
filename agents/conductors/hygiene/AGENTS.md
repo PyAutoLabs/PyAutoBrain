@@ -74,8 +74,12 @@ categories. A declared repo with no `scripts/` under the root is named in the
 row's `not_scanned` and summary (`NOT SCANNED`), and with no findings the row is
 `partial`, never `clean`. Disk discovery is only the fallback for a root that
 holds no body map (fixtures). `refs` also resolves against each repo's
-**git-tracked tree**, not the disk, and treats every repo name the map declares
-as a sibling prefix (an absent one is skipped, not dead). PyAutoBrain#735: the
+**committed tree** (`git ls-tree -r HEAD`), not the disk, and treats every repo
+name the map declares as a sibling prefix. The cloud board clones every other
+declared repo reference-only (blobless, no checkout) so such references resolve
+there as on a laptop; a reference into a repo absent from the root is skipped,
+not dead, and named with its count in the summary and the row's
+`absent_repos`. PyAutoBrain#735: the
 cloud board reported 55 dead refs and the laptop 0 because the cloud's sparse
 clone hid extension-less tracked files (`submit`), its sibling set held only
 cloned repos (so `<x>_workspace_test/…` resolved as a folder of the citing repo),

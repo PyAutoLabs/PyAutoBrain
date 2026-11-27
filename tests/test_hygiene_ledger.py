@@ -75,7 +75,11 @@ def test_same_day_rerun_replaces_the_line_never_adds_one(tmp_path):
 
 def test_line_shape_counts_and_keys(tmp_path):
     line = ledger.day_line(_rows(), "2026-11-27", "abc")
-    assert set(line) == {"date", "sha", "rows", "findings"}
+    assert set(line) == {"date", "sha", "rows", "status", "not_scanned", "unkeyed",
+                         "findings", "evidence"}
+    assert line["status"]["refs"] == "finding" and line["status"]["perf"] == "deferred"
+    # Non-clean and no per-finding keys: recorded as unkeyed, never as clean.
+    assert line["unkeyed"] == ["perf"]
     assert line["rows"] == {"perf": None, "crlf": 0, "refs": 2, "escapes": 1,
                             "docstrings": 2}
     assert line["findings"]["refs"] == [
@@ -102,9 +106,13 @@ def test_other_mode_keys():
     assert ledger.finding_key("optdeps", {"workspace": "w", "script": "s.py",
                                           "dependency": "d", "symbols": ["x"]}) \
         == "optdeps:w:s.py:d"
-    assert ledger.finding_key("extras", {"dependency": "d", "declared_by": ["a[x]"],
-                                         "repos": ["b", "a"]}) \
-        == "extras:a+b:pyproject.toml:d"
+    finding = {"dependency": "d", "declared_by": ["a[x]"], "repos": ["b", "a"]}
+    assert ledger.finding_key("extras", finding) == "extras:::d"
+    # The declaring repos are evidence, not key.
+    line = ledger.day_line([{"mode": "extras", "status": "finding", "count": 1,
+                             "findings": [finding]}], "2026-11-27", None)
+    assert line["evidence"]["extras:::d"] == {"repos": ["b", "a"],
+                                              "declared_by": ["a[x]"]}
 
 
 def test_history_is_non_empty_after_two_days_with_one_point_per_day(tmp_path):
@@ -119,11 +127,14 @@ def test_history_is_non_empty_after_two_days_with_one_point_per_day(tmp_path):
     assert ledger.sparkline([3]) == ""  # one point is not a trend
 
 
-def test_malformed_ledger_line_is_dropped_not_fatal(tmp_path):
+def test_a_reader_skips_a_malformed_line_but_the_writer_refuses(tmp_path):
     path = tmp_path / ledger.LEDGER_NAME
-    path.write_text('{"date":"2026-11-25","rows":{"refs":1}}\nnot json\n')
-    lines = ledger.record(path, _rows(), "2026-11-26", None)
-    assert [e["date"] for e in lines] == ["2026-11-25", "2026-11-26"]
+    body = '{"date":"2026-11-25","rows":{"refs":1}}\nnot json\n'
+    path.write_text(body)
+    assert [e["date"] for e in ledger.read_ledger(path)] == ["2026-11-25"]
+    with pytest.raises(ledger.LedgerError):
+        ledger.record(path, _rows(), "2026-11-26", None)
+    assert path.read_text() == body  # nothing rewritten, no day dropped
 
 
 class _Response(io.BytesIO):
@@ -140,18 +151,111 @@ def _raiser(error):
     return opener
 
 
-def test_fetch_404_starts_an_empty_ledger(tmp_path):
+URL = "https://pages.invalid/Board/hygiene_ledger.jsonl?ts=1"
+
+
+def _pages(ledger_body=None, board=None, seen=None):
+    """An opener serving the two Pages files; None = 404."""
+    def opener(request, timeout):
+        url = request.full_url
+        if seen is not None:
+            seen.append(request)
+        body = ledger_body if "/hygiene_ledger.jsonl" in url else board
+        if body is None:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return _Response(body if isinstance(body, bytes) else json.dumps(body).encode())
+    return opener
+
+
+@pytest.mark.parametrize("board", [None, {"history": []}])
+def test_fetch_404_on_a_true_first_publish_starts_empty(tmp_path, board):
     out = tmp_path / "l.jsonl"
-    err = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
-    assert ledger.fetch("u", out, opener=_raiser(err)) == "absent"
+    assert ledger.fetch(URL, out, opener=_pages(None, board)) == "absent"
+    assert out.read_text() == ""
+    assert ledger.check_publish(out) == 0
+
+
+def test_fetch_404_beside_a_board_with_history_fails_closed(tmp_path):
+    out = tmp_path / "l.jsonl"
+    board = {"history": [{"date": "2026-11-26", "rows": {"refs": 1}}]}
+    with pytest.raises(ledger.LedgerError, match="lost"):
+        ledger.fetch(URL, out, opener=_pages(None, board))
+    assert not out.exists()
+    # Only an explicit reset starts over.
+    assert ledger.fetch(URL, out, opener=_pages(None, board), reset=True) == "reset"
     assert out.read_text() == ""
 
 
-def test_fetch_success_writes_the_body(tmp_path):
+def test_fetch_success_writes_the_body_and_bypasses_the_cache(tmp_path):
     out = tmp_path / "l.jsonl"
-    body = b'{"date":"2026-11-26","rows":{}}\n'
-    assert ledger.fetch("u", out, opener=lambda url, timeout: _Response(body)) == "fetched"
+    body = b'{"date":"2026-11-26","rows":{}}\n\n'
+    seen = []
+    assert ledger.fetch(URL, out, opener=_pages(body, seen=seen)) == "fetched"
     assert out.read_bytes() == body
+    assert seen[0].get_header("Cache-control") == "no-cache"
+    assert ledger.check_publish(out) == 1
+
+
+@pytest.mark.parametrize("body", [
+    b"<!doctype html><html><body>Site not found</body></html>\n",
+    b'{"date":"2026-11-25","rows":{}}\n{"date":"2026-11-26","ro',  # truncated
+])
+def test_fetch_refuses_a_corrupt_body(tmp_path, body):
+    out = tmp_path / "l.jsonl"
+    with pytest.raises(ledger.LedgerError, match="malformed"):
+        ledger.fetch(URL, out, opener=_pages(body))
+    assert not out.exists()
+
+
+def test_publish_refuses_fewer_days_than_were_fetched(tmp_path):
+    out = tmp_path / "l.jsonl"
+    body = b"".join(json.dumps({"date": f"2026-11-2{d}", "rows": {}}).encode() + b"\n"
+                    for d in range(3))
+    ledger.fetch(URL, out, opener=_pages(body))
+    out.write_text(body.decode().splitlines()[0] + "\n")  # something lost two days
+    with pytest.raises(ledger.LedgerError, match="fewer|refusing"):
+        ledger.check_publish(out)
+
+
+# ----------------------------------------------------- same-day completeness --
+
+
+def _complete_refs():
+    return [{"mode": "refs", "status": "finding", "count": 1, "findings": [
+        {"repo": "demo_workspace", "file": "a.py", "line": 1, "reference": "x/y.py"}]}]
+
+
+@pytest.mark.parametrize("rerun", [
+    {"mode": "refs", "status": "partial", "count": 0, "findings": [],
+     "not_scanned": ["HowToDemo"]},
+    {"mode": "refs", "status": "error", "count": None},
+    {"mode": "refs", "status": "unscanned", "count": None},
+])
+def test_an_incomplete_rerun_never_replaces_complete_keys_that_day(tmp_path, rerun):
+    path = tmp_path / ledger.LEDGER_NAME
+    ledger.record(path, _complete_refs(), "2026-11-27", "a")
+    lines = ledger.record(path, [rerun], "2026-11-27", "b")
+    assert len(lines) == 1
+    line = lines[0]
+    assert line["findings"]["refs"] == ["refs:demo_workspace:a.py:x/y.py"]
+    assert line["status"]["refs"] == "finding" and line["rows"]["refs"] == 1
+    assert "refs" not in line["not_scanned"] and "refs" not in line["unkeyed"]
+    assert line["sha"] == "b"
+
+
+def test_a_complete_rerun_does_replace_that_days_keys(tmp_path):
+    path = tmp_path / ledger.LEDGER_NAME
+    ledger.record(path, _complete_refs(), "2026-11-27", "a")
+    lines = ledger.record(path, [{"mode": "refs", "status": "clean", "count": 0,
+                                  "findings": []}], "2026-11-27", "b")
+    assert lines[0]["findings"]["refs"] == [] and lines[0]["status"]["refs"] == "clean"
+
+
+def test_not_scanned_is_recorded_per_mode():
+    line = ledger.day_line([{"mode": "refs", "status": "partial", "count": 0,
+                             "findings": [], "not_scanned": ["HowToDemo"]}], "d", None)
+    assert line["not_scanned"] == {"refs": ["HowToDemo"]}
+    assert not ledger.mode_complete(line, "refs")
 
 
 @pytest.mark.parametrize("error", [
@@ -160,7 +264,7 @@ def test_fetch_success_writes_the_body(tmp_path):
 ])
 def test_fetch_fails_closed_on_anything_but_404(tmp_path, error):
     with pytest.raises(urllib.error.URLError):
-        ledger.fetch("u", tmp_path / "l.jsonl", opener=_raiser(error))
+        ledger.fetch(URL, tmp_path / "l.jsonl", opener=_raiser(error))
 
 
 def test_fetch_cli_exits_nonzero_on_an_unreachable_ledger(tmp_path):
@@ -208,6 +312,23 @@ def test_workflow_fetches_the_ledger_before_rendering_and_publishes_it():
     env = steps[render_i]["env"]
     assert env["BOARD_HYGIENE_LEDGER"].endswith("/hygiene_ledger.jsonl")
     assert "--apply --out _site" in steps[render_i]["run"]
+
+
+def test_workflow_passes_url_parts_through_env_and_busts_the_cache():
+    step = next(s for s in _steps() if "_hygiene_ledger.py fetch" in s.get("run", ""))
+    assert "${{" not in step["run"]
+    assert {"PAGES_OWNER", "PAGES_REPO", "RUN_ID"} <= set(step["env"])
+    assert "?ts=${RUN_ID}" in step["run"]
+
+
+def test_workflow_clones_other_declared_repos_reference_only():
+    clone = next(s["run"] for s in _steps()
+                 if s.get("name", "").startswith("check out the hygiene scan set"))
+    assert '"--no-checkout"' in clone
+    # Every declared repo is cloned; the category only decides whether it is
+    # then checked out (sparse) for scanning.
+    assert clone.index('"git", "clone"') < clone.index('if meta.get("category") not in SCAN:')
+    assert clone.index('if meta.get("category") not in SCAN:') < clone.index('"sparse-checkout"')
 
 
 def test_workflow_clones_every_category_the_workspace_scanners_declare():
@@ -296,3 +417,48 @@ def test_reference_into_a_declared_but_absent_repo_is_skipped_not_dead(tmp_path)
         '"""See `demo_workspace_test/scripts/parity/check.py`."""\n')
     row = refs.row_for(tmp_path)
     assert row["findings"] == []
+
+
+def test_reference_into_an_absent_repo_is_named_with_its_count(tmp_path):
+    _mind(tmp_path, [("demo_workspace", "workspace"),
+                     ("demo_workspace_test", "workspace_test")])
+    repo = _workspace(tmp_path, "demo_workspace")
+    (repo / "scripts" / "example.py").write_text(
+        '"""See `demo_workspace_test/scripts/a.py` and `demo_workspace_test/scripts/b.py`."""\n')
+    row = refs.row_for(tmp_path)
+    assert row["absent_repos"] == {"demo_workspace_test": 2}
+    assert "refs into repos not present here: demo_workspace_test (2)" in row["summary"]
+
+
+def test_reference_resolves_in_a_no_checkout_clone_of_the_target(tmp_path):
+    """The cloud clones reference-only repos with no checkout; their committed
+    tree (git ls-tree) still resolves references into them."""
+    (tmp_path / "src").mkdir()
+    source = _git_workspace(tmp_path / "src", "demo_workspace_test")
+    (source / "scripts" / "hpc" / "check.py").write_text("pass\n")
+    git_in(source, "add", "-A")
+    git_in(source, "commit", "-q", "-m", "x")
+    root = tmp_path / "root"
+    root.mkdir()
+    _mind(root, [("demo_workspace", "workspace"),
+                 ("demo_workspace_test", "workspace_test")])
+    git_in(root, "clone", "-q", "--no-checkout", str(source), "demo_workspace_test")
+    repo = _workspace(root, "demo_workspace")
+    (repo / "scripts" / "example.py").write_text(
+        '"""See `demo_workspace_test/scripts/hpc/check.py` and '
+        '`demo_workspace_test/scripts/hpc/gone.py`."""\n')
+    row = refs.row_for(root)
+    assert {f["reference"] for f in row["findings"]} == {
+        "demo_workspace_test/scripts/hpc/gone.py"}
+    assert row["absent_repos"] == {}
+
+
+def test_index_is_the_committed_tree_not_the_staging_area(tmp_path):
+    repo = _git_workspace(tmp_path, "demo_workspace")
+    (repo / "scripts" / "hpc" / "kept.py").write_text("pass\n")
+    git_in(repo, "add", "-A")
+    git_in(repo, "commit", "-q", "-m", "x")
+    (repo / "scripts" / "hpc" / "staged.py").write_text("pass\n")
+    git_in(repo, "add", "-A")  # staged, never committed
+    files, _dirs = refs.tracked_tree(repo)
+    assert "scripts/hpc/kept.py" in files and "scripts/hpc/staged.py" not in files

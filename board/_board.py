@@ -486,7 +486,9 @@ def collect_hygiene_history(hygiene, full_rows, now, degraded):
             lines = ledger.record(path, full_rows, now.strftime("%Y-%m-%d"), _brain_sha())
         else:
             lines = ledger.read_ledger(path)
-    except OSError as error:
+    except (OSError, ledger.LedgerError) as error:
+        # Today's line is not written; --apply's check_publish then refuses
+        # to publish a ledger it cannot read whole.
         degraded.append(f"hygiene: ledger unavailable ({error})")
         return []
     hist = ledger.history(lines)
@@ -961,9 +963,13 @@ def main():
         ledger_path = os.environ.get(HYGIENE_LEDGER_ENV)
         extra = ""
         if ledger_path and Path(ledger_path).is_file():
+            try:
+                days = ledger.check_publish(Path(ledger_path))
+            except (OSError, ValueError, ledger.LedgerError) as error:
+                fail(5, f"hygiene ledger not published: {error}")
             (out / ledger.LEDGER_NAME).write_text(
                 Path(ledger_path).read_text(encoding="utf-8"), encoding="utf-8")
-            extra = f" + {ledger.LEDGER_NAME}"
+            extra = f" + {ledger.LEDGER_NAME} ({days} day(s))"
         print(f"board: wrote {out}/index.html + badge.json + state.json + "
               f"board.json + board.md{extra}")
         return
