@@ -487,6 +487,16 @@ def test_a_genuine_failing_test_is_still_filed(plain_mind, reasons):
 CUT_LINE = "RepoX/test_repox/pkg/test_mod.py::test__long_case_name[ParamA-…"
 
 
+def test_with_the_board_read_a_bare_status_line_is_timing_only_if_listed():
+    ctx = (True, frozenset({"R/t.py::test_slow"}))
+    slow = {"rule": "unit-test", "text": "R/t.py::test_slow: red"}
+    fail = {"rule": "unit-test", "text": "R/t.py::test_fail: red"}
+    assert _maintain.is_timing(slow, ctx)
+    assert not _maintain.is_timing(fail, ctx), \
+        "a failing test beside an unrelated timing roll-up must stay fileable"
+    assert _maintain.is_timing(fail, (True, frozenset())), "no board: the roll-up decides"
+
+
 def test_a_feed_cut_test_line_is_timing_under_a_rollup_or_a_board_subject():
     heart = _heart([CUT_LINE, ROLLUP])
     assert _maintain.release_findings(heart)[0].evidence.get("timing")

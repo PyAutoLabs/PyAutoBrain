@@ -303,7 +303,9 @@ def is_timing(c: dict, ctx) -> bool:
     rollup, subjects = ctx or (False, frozenset())
     m = TEST_STATUS_LINE_RX.match(text)
     if m:
-        return rollup or m["id"] in subjects
+        # the board's timing subjects decide when read, so a real failing test
+        # beside an unrelated timing regression is never hidden; else the roll-up
+        return (m["id"] in subjects) if subjects else rollup
     cut = TEST_CUT_LINE_RX.match(text)
     if cut:  # a cut id: the board's timing subjects decide when read, else the roll-up
         if subjects:
