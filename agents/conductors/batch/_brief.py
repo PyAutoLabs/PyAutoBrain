@@ -271,6 +271,13 @@ def maintenance_of(brief: dict) -> dict | None:
             "gate_open": kv.get("gate-open", {}).get("value", "")}
 
 
+#: Why a generated maintenance prompt is kept out of a shift without the gate:
+#: `check`, `scope()` and the watcher's `/add` say it in the same words.
+M3_GATE_REASON = (f"a generated maintenance prompt (`Source-key:`) — runs live only "
+                  f"behind the M3 gate ({MAINTENANCE_GATE}): a `maintenance:` block "
+                  "with `gate-open:`")
+
+
 def gate_open(brief: dict) -> bool:
     """Whether the brief carries the human's word that the M3 gate is open: a
     `maintenance:` block with `gate-open:`. Without it no generated
@@ -286,9 +293,7 @@ def generated_gate_errors(brief: dict, mind: Path) -> list[str]:
     if is_shadow(brief) or gate_open(brief):
         return []
     errors = []
-    why = (f"generated maintenance prompts run live only behind the M3 gate "
-           f"({MAINTENANCE_GATE}): a `maintenance:` block with `gate-open:`, or "
-           "`shadow: yes`")
+    why = M3_GATE_REASON + ", or `shadow: yes`"
     for t in tasks_of(brief):
         f = _resolve(mind, t)
         if f is not None and source_key(f.read_text(encoding="utf-8", errors="replace")):
@@ -780,6 +785,7 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
     # The M3 gate on the backlog: without `gate-open:` no generated
     # maintenance prompt is ever dipped, whatever the dip policy.
     gated = not gate_open(brief)
+    shadow = is_shadow(brief)
 
     kept, rejected = [], []
     for r in records:
@@ -790,14 +796,16 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
                                   or _source_match(r, ex_keyed.get("sources", []))):
             rejected.append((r["path"], "excluded by the brief"))
             continue
+        # The M3 gate before every exemption: a generated prompt runs live
+        # only behind `gate-open:` — named, resumed after an answer, `/add`ed
+        # or dipped alike. A shadow brief's named tasks are only proposals.
+        if gated and r.get("source_key") \
+                and not (shadow and name in named_names):
+            rejected.append((r["path"], M3_GATE_REASON))
+            continue
         # A task an answer released (the inbox) is the human's word, as
         # naming it would be: no dip policy keeps it out.
         if name not in named_names and not r.get("resume"):
-            if gated and r.get("source_key") and name not in added:
-                rejected.append((r["path"], "a generated maintenance prompt — dipped only "
-                                            f"behind the M3 gate ({MAINTENANCE_GATE}, "
-                                            "`gate-open:`)"))
-                continue
             if backlog == "none":
                 rejected.append((r["path"], "outside the brief (backlog: none)"))
                 continue

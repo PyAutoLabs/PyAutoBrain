@@ -457,18 +457,26 @@ already open alike, anything with a `Source-key:` header.
   (non-shadow) brief that names a generated prompt (`Source-key:`), or uses
   `scoped:`/`exclude:` `sources: maintenance`, unless it has a `maintenance:`
   block with `gate-open:` — so deleting the block does not get past it. And
-  `scope()` keeps every generated prompt out of the backlog of any brief
-  without `gate-open:` (`fill-idle` and `scoped` alike): an ordinary shift
-  never dips one, even a glance one graded `Unattended: ready`.
+  `scope()` keeps every generated prompt out of any brief without
+  `gate-open:` before its exemptions — a dip (`fill-idle` and `scoped`
+  alike), a resume after an answered question, or a named task of a live
+  brief; only a shadow brief's named tasks (proposals) pass. The watcher's
+  `/add` refuses a generated prompt in a shift without `gate-open:` in the
+  same words. An ordinary shift never runs one, even a glance one graded
+  `Unattended: ready`.
 - **Ranking.** The writer files in one order (`_maintain_write.rank`, shared
   with `batch maintain --file`): tier (glance before judge), then a red or
-  high-priority finding, then source order, then key; one cap, no per-tier
-  caps. So a small cap takes glance organ-CI fixes before a pile of judge
+  high-priority finding, then source order, then the finding's own place in
+  the list (Heart's order kept); one cap, no per-tier caps. So a small cap takes glance organ-CI fixes before a pile of judge
   census rows.
-- **State home.** `maintain.json` goes to `--home` when given; to the
-  orchestrator home only when `--mind` is a linked worktree of the configured
-  canonical Mind; otherwise beside the record (`<record>.maintain/`), said
-  on stderr — an experimental run never writes the real state.
+- **State home.** With `--out`, `maintain.json` goes to the real
+  orchestrator home only when `--home` names it explicitly — the switch a
+  real launch passes (`--home "$PYAUTO_ORCHESTRATOR_HOME"`, the home in
+  `~/.config/pyauto/orchestrator.env`). Without `--home` it goes beside the
+  record (`<record>.maintain/`), said on stderr, so a throwaway or
+  experimental run (a scratch worktree of the canonical Mind included) never
+  writes the real state — whose `filed` rows would stop real filings. The
+  keep-Heart-green lane's own state handling is unchanged.
 - **Shadow by default.** `shadow: yes` unless `--live`, and a shadow brief
   makes no shift issue. **`--live` is refused unless `--gate-open`** — the
   human's explicit word that the M3 gate (PyAutoBrain#574) is open, written

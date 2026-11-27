@@ -781,6 +781,37 @@ def test_add_is_refused_in_a_shadow_shift(tmp_path, monkeypatch):
     assert r["commands"][0]["ack"] == "refused: shadow shift: nothing is dispatched."
 
 
+def _gate(text):
+    """A maintenance block with `gate-open:` (the M3 gate open, PyAutoBrain#737)."""
+    return _two_workers(text).replace(
+        "    - 1. sandbox shift\n",
+        "    - 1. sandbox shift\n    - 2. maintenance: board findings\n").replace(
+        "  - backlog: none\n",
+        "  - backlog: none\n  - maintenance:\n    - gate-open: PyAutoBrain#574\n")
+
+
+@pytest.mark.parametrize("gated", [False, True])
+def test_add_of_a_generated_prompt_needs_the_m3_gate(tmp_path, monkeypatch, gated):
+    monkeypatch.setitem(globals(), "ADD_PROMPT", ADD_PROMPT.replace(
+        "Unattended: ready\n", "Unattended: ready\nSource-key: no_run:ws_x/scripts/x.py\n"))
+    mind, brief, home, slot, publish = _add_shift(
+        tmp_path, monkeypatch, drafts=[(X, LIB, "local-dev")],
+        brief_edit=_gate if gated else _two_workers)
+    claude, gh = d.FakeClaude(), FakeGitHub()
+    _tick(brief, mind, home, 0, claude, gh)
+    publish()
+    gh.add(LOGIN, "/add x", 1)
+    r = _tick(brief, mind, home, 2, claude, gh, {"t1": "working"})
+    ack = r["commands"][0]["ack"]
+    if gated:
+        assert ack == "added x (glance): starts this tick; max-workers 2, 1 running."
+        assert _spawned(claude) == ["shift:t1", "shift:x"]
+    else:
+        assert ack.startswith("refused: x: a generated maintenance prompt") and \
+            "PyAutoBrain#574" in ack
+        assert _spawned(claude) == ["shift:t1"] and "added" not in orch.read_counters(slot)
+
+
 # /kill: `claude stop` is a fake on PATH; no session is ever started or stopped.
 
 def _fake_claude_bin(tmp_path, monkeypatch, rc=0):

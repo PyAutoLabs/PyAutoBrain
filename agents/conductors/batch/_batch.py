@@ -2378,31 +2378,15 @@ def _orchestrator_home_path() -> Path:
     return Path(_orchestrator.orchestrator_home())
 
 
-def canonical_derived(mind: Path) -> bool:
-    """Whether `mind` is a linked worktree of the configured canonical Mind
-    (its git common dir is the canonical checkout's) — the one Mind whose
-    filings the real `maintain.json` tracks."""
-    if not is_linked_worktree(mind):
-        return False
-    def common(path: Path):
-        try:
-            out = subprocess.run(["git", "-C", str(path), "rev-parse", "--git-common-dir"],
-                                 capture_output=True, text=True, timeout=30)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return (path / out.stdout.strip()).resolve() if out.returncode == 0 else None
-    canon = common(BODY_MAP_PATH.parent.resolve())
-    return canon is not None and common(Path(mind)) == canon
-
-
 def maintenance_home(mind: Path, a) -> Path:
-    """Where the writer's `maintain.json` lives for this run: `--home` when
-    given; the orchestrator home only for a worktree of the canonical Mind;
-    otherwise a folder beside the record (`<record>.maintain/`), so an
-    experimental run never writes the real state."""
+    """Where the writer's `maintain.json` lives for this run: the real
+    orchestrator home only when `--home` names it (the launch passes it
+    explicitly); otherwise a folder beside the record (`<record>.maintain/`),
+    so a throwaway or experimental run never writes — or, by recording keys
+    as filed, blocks — the real state. A preview writes none."""
     if a.home:
         return Path(a.home)
-    if not a.out or canonical_derived(mind):
+    if not a.out:
         return _orchestrator_home_path()
     out = Path(a.out)
     return out.parent / f"{out.stem}.maintain"
@@ -2556,11 +2540,10 @@ def _main_maintenance_brief(mind: Path, a) -> int:
         print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
         return RC_NO_MIND
     a.maintain_home = maintenance_home(mind, a)
-    if not preview and not a.home and a.maintain_home != _orchestrator_home_path():
-        print(f"batch brief --new: --mind is not a worktree of the canonical Mind, so "
-              f"maintain.json goes beside the record, in {a.maintain_home} (pass "
-              "--home to choose); the real orchestrator home is not written",
-              file=sys.stderr)
+    if not preview and not a.home:
+        print(f"batch brief --new: no --home, so maintain.json goes beside the record, "
+              f"in {a.maintain_home}; the real orchestrator home is written only with "
+              "--home", file=sys.stderr)
     res = maintenance_lane(mind, a, sources=sources, cap=a.maintenance_cap,
                            tiers=tiers, preview=preview)
     w = res["write"]

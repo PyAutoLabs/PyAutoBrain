@@ -332,13 +332,15 @@ def rank(findings) -> list:
     """The order the writer files in, so `batch maintain --file` and the
     maintenance brief agree on what one cap takes: tier (cheapest first:
     glance before judge), then priority (a red or high-priority finding
-    first), then the source order (census, monitoring, release), then key.
-    A stable sort; one cap, no per-tier caps."""
+    first), then the source order (census, monitoring, release), then the
+    finding's own place in the list (Heart's order is kept). One cap, no
+    per-tier caps."""
     tiers = {t: i for i, t in enumerate(("notify", "glance", "judge"))}
     srcs = {s: i for i, s in enumerate(_maintain.SOURCES)}
-    return sorted(findings, key=lambda f: (tiers.get(f.tier_floor, 9),
-                                           0 if _priority(f) == "high" else 1,
-                                           srcs.get(f.source, 9), f.key))
+    order = sorted(enumerate(findings), key=lambda ix: (
+        tiers.get(ix[1].tier_floor, 9), 0 if _priority(ix[1]) == "high" else 1,
+        srcs.get(ix[1].source, 9), ix[0]))
+    return [f for _i, f in order]
 
 
 def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,

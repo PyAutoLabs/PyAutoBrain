@@ -522,7 +522,7 @@ def _organ_board() -> dict:
     return b
 
 
-def test_rank_files_glance_then_red_then_source_order_then_key():
+def test_rank_files_glance_then_red_then_source_order_then_input_order():
     fs = [_maintain.Finding(key=k, source=src, repo="r", paths=[], summary="s",
                             witness="w", tier_floor=tier, lane="any",
                             evidence={"status": st})
@@ -530,7 +530,8 @@ def test_rank_files_glance_then_red_then_source_order_then_key():
                                    ("z", "release", "judge", "red"),
                                    ("m", "monitoring", "glance", ""),
                                    ("c", "census", "glance", "")]]
-    assert [f.key for f in W.rank(fs)] == ["c", "m", "z", "a", "b"]
+    # Within a tier, priority and source, the finding's own order (b before a).
+    assert [f.key for f in W.rank(fs)] == ["c", "m", "z", "b", "a"]
 
 
 def test_with_a_small_cap_glance_organ_ci_findings_are_filed_first(plain_mind, tmp_path,
@@ -568,4 +569,39 @@ def test_a_non_canonical_mind_keeps_maintain_json_beside_the_record(plain_mind, 
     assert rc == 0, err
     assert "maintain.json goes beside the record" in err
     assert (tmp_path / "rec" / "brief.maintain" / W.STATE_NAME).is_file()
+    assert not real.exists()
+
+
+# --- re-review fixes: resume behind the gate, the state home ------------------------
+
+def test_a_resumed_generated_prompt_is_rejected_without_the_gate(plain_mind, tmp_path):
+    rec = dict(_rec("gen", key="no_run:r/a"), resume=True)
+    hand = dict(_rec("hand"), resume=True)
+    live = _parsed_text(LIVE.format(body="  - backlog: none\n"))
+    kept, rejected, _ = _brief.scope([rec, hand], live)
+    assert [r["path"] for r in kept] == [hand["path"]]
+    assert "M3 gate" in dict(rejected)[rec["path"]]
+    gated = _parsed_text(LIVE.format(body="  - backlog: none\n" + GATE))
+    kept, _, _ = _brief.scope([rec], gated)
+    assert [r["path"] for r in kept] == [rec["path"]]
+
+
+def _parsed_text(text: str) -> dict:
+    return _brief.parse(text)["brief"]
+
+
+def test_a_worktree_of_a_canonical_like_mind_without_home_writes_beside_the_record(
+        main_mind, wt_mind, tmp_path, monkeypatch):
+    import _orchestrator
+    real = tmp_path / "real_home"
+    monkeypatch.setattr(_orchestrator, "orchestrator_home", lambda: real)
+    monkeypatch.setattr(_batch, "BODY_MAP_PATH", main_mind / "repos.yaml")
+    b, h = _inputs(tmp_path)
+    rc, _, err = _cli(["brief", "--new", SLOT, "--maintenance", "--review-at", REVIEW_AT,
+                       "--board-json", str(b), "--census-json", str(tmp_path / "absent"),
+                       "--heart-json", str(h), "--at", NOW.isoformat(),
+                       "--out", str(tmp_path / "brief.md"), "--mind", str(wt_mind)])
+    assert rc == 0, err
+    assert "written only with --home" in err
+    assert (tmp_path / "brief.maintain" / W.STATE_NAME).is_file()
     assert not real.exists()
