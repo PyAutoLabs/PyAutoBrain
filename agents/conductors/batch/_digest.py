@@ -994,6 +994,9 @@ def build(brief: dict, slot: Path, counters: dict, *, tiers: dict | None = None,
     backlog = [t for t in picks if t not in named and not is_settled(t, counters)]
 
     lines = [DIGEST_HEADING, ""]
+    # A maintenance brief (Phase 14.3) is named as one: its goal line.
+    maint = _brief.maintenance_line(brief)
+    lines += [maint, ""] if maint else []
     lines += closed_early_lines(counters)
     # The one notice of the shift's parked questions: no @mention mid-shift,
     # one line here; the asks live in the inbox.

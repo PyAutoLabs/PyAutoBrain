@@ -94,6 +94,7 @@ In order:
 
 **Brief verbs** (`batch brief --check`, `batch plan --brief`, `batch digest`):
 [`reference.md`](reference.md). Run the check before pushing a brief; it refuses a live brief without `issue:` or with an expired CLI login. `brief --new` also runs the keep-Heart-green lane: a `## Heart` section and up to 3 bug drafts for fixable Heart reasons (only with `--out` and a non-shared `--mind`; named as tasks only with `--green pick`); it never releases (`batch green` = dry run; `agents/conductors/batch/AGENTS.md`).
+`brief --new --maintenance` (Phase 14.3) instead names the maintenance writer's generated prompts as tasks (`maintenance:` block: sources, cap, tiers); it is `shadow: yes` unless `--live --gate-open`, and the live run waits for the M3 gate (PyAutoBrain#574): `agents/conductors/batch/AGENTS.md` "The maintenance brief".
 
 ## The watcher (phases 3a–3d)
 

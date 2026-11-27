@@ -513,6 +513,30 @@ def load_release(heart_json: str = "", now=None) -> dict:
                  status=str(h.get("status") or "grey").lower())
 
 
+def read_sources(sources=SOURCES, board_json: str = "", census_json: str = "",
+                 heart_json: str = "", now=None) -> tuple[dict, dict, list[Finding]]:
+    """(reads, raw, findings) for `sources`: each source's read ({ok, stale,
+    partial, …}), what each listed before the dedupe (`collect_raw`), and the
+    deduped findings. Read-only; `batch maintain` and the maintenance brief
+    (`batch brief --new --maintenance`, Phase 14.3) share it."""
+    reads = {}
+    board_read = None
+    if "monitoring" in sources or "census" in sources:
+        board_read = load_board(board_json, now)
+    if "census" in sources:
+        reads["census"] = load_census(census_json, board_read, now)
+    if "monitoring" in sources:
+        reads["monitoring"] = board_read
+    if "release" in sources:
+        reads["release"] = load_release(heart_json, now)
+    stale = {s for s, r in reads.items() if r["stale"]}
+    raw = collect_raw(census=(reads.get("census") or {}).get("data"),
+                      board=(board_read or {}).get("data"),
+                      heart=(reads.get("release") or {}).get("data"),
+                      sources=sources, organs=glance_organs())
+    return reads, raw, collect(sources=sources, stale_sources=stale, raw=raw)
+
+
 # --- CLI ----------------------------------------------------------------------
 
 def _read_line(name, r) -> str:
@@ -604,22 +628,8 @@ def main(argv=None) -> int:
         if hold:  # refuse before any read: nothing is written, the state included
             print(f"batch maintain --file: refused — {hold}", file=sys.stderr)
             return 2
-    reads = {}
-    board_read = None
-    if "monitoring" in sources or "census" in sources:
-        board_read = load_board(a.board_json, now)
-    if "census" in sources:
-        reads["census"] = load_census(a.census_json, board_read, now)
-    if "monitoring" in sources:
-        reads["monitoring"] = board_read
-    if "release" in sources:
-        reads["release"] = load_release(a.heart_json, now)
-    stale = {s for s, r in reads.items() if r["stale"]}
-    raw = collect_raw(census=(reads.get("census") or {}).get("data"),
-                      board=(board_read or {}).get("data"),
-                      heart=(reads.get("release") or {}).get("data"),
-                      sources=sources, organs=glance_organs())
-    found = collect(sources=sources, stale_sources=stale, raw=raw)
+    reads, raw, found = read_sources(sources, a.board_json, a.census_json,
+                                     a.heart_json, now)
     unread = [s for s, r in reads.items() if not r["ok"]]
     wres = None
     if a.file:

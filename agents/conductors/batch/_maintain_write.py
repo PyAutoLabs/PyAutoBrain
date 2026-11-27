@@ -149,6 +149,22 @@ def key_marked(text: str, key: str) -> bool:
             or key in _SOURCE_KEY_RX.findall(text))
 
 
+_FILED_FROM_RX = re.compile(r"Filed from the `(\w+)` source")
+
+
+def source_key_of(text: str) -> str:
+    """A generated prompt's `Source-key:` header, or ""."""
+    keys = _SOURCE_KEY_RX.findall(text)
+    return keys[0] if keys else ""
+
+
+def source_of(text: str) -> str:
+    """The source a generated prompt was filed from (its "Filed from the
+    `<source>` source" line, which `draft_text` writes), or "" when unknown."""
+    m = _FILED_FROM_RX.search(text)
+    return m.group(1) if m and m.group(1) in _maintain.SOURCES else ""
+
+
 def corpus(mind: Path) -> tuple[dict, str]:
     out = {}
     for sub in ("draft", "active"):
