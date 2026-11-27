@@ -70,7 +70,11 @@ def main(argv=None) -> int:
     ap.add_argument("--mind", type=Path, default=os.environ.get("PYAUTO_MIND"),
                     help="PyAutoMind checkout to validate paths against (read only)")
     a = ap.parse_args(argv)
-    ledger = os.environ.get("PYAUTO_SHIFT_LEDGER_DIR")
+    try:
+        ledger = mw.shift_ledger_dir()
+    except mw.ShiftEnvMismatch as e:
+        print(f"shift_ledger: {e}", file=sys.stderr)
+        return 2
     if not ledger:
         print("shift_ledger: PYAUTO_SHIFT_LEDGER_DIR is not set — this is for "
               "shift workers only", file=sys.stderr)

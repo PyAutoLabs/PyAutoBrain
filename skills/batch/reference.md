@@ -12,6 +12,11 @@ reached; `batch.md` points here from each one.
   (2026-11-03). Under a brief, every worker starts from the same template
   the orchestrator uses — sources, bootstrap, the brief's path — so the two
   points below are met by construction rather than remembered.
+  The shift's variables (ledger dir, brief, kick file, the Mind hooks lock)
+  travel on the argv as `claude --settings '{"env": …}'`, not in the process
+  env, because a `claude --bg` daemon spare keeps the environment of whoever
+  started the daemon (PyAutoBrain#724). A human `claude --bg` on a daemon a
+  worker started can still inherit worker variables (CLI behaviour, not fixed).
 
 - *Spawned cloud sessions need sources and a bootstrap preamble.* A session
   created bare (environment inherited, no source repos) has no clones, no

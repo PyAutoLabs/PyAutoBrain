@@ -464,12 +464,14 @@ def closeout_command(task: str, pr_url: str, prompt_path: str, brief_path: Path,
     if mode not in _brief.WORKER_MODES:
         raise OrchestratorError(f"worker mode {mode!r} is not one of "
                                 + ", ".join(_brief.WORKER_MODES))
+    settings = settings_args(lease_dir, brief_path)
     if update_after:
         return ["claude", "--bg", "--name", f"shift-update:{task}", "--model",
                 CLOSEOUT_MODEL, "--effort", WORKER_EFFORT, "--permission-mode", mode,
+                *settings,
                 update_prompt(task, pr_url, prompt_path, brief_path, lease_dir, update_after)]
     return ["claude", "--bg", "--name", f"shift-close:{task}", "--model", CLOSEOUT_MODEL,
-            "--effort", WORKER_EFFORT, "--permission-mode", mode,
+            "--effort", WORKER_EFFORT, "--permission-mode", mode, *settings,
             closeout_prompt(task, pr_url, prompt_path, brief_path, lease_dir, after, before,
                             disjoint, ci_until)]
 
@@ -502,7 +504,35 @@ def _ensure_kick_dir(env: dict) -> None:
         pass
 
 
-def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
+def shift_env(lease_dir: Path, brief_path: Path, base: dict | None = None) -> dict:
+    """This shift's own variables, for `claude --settings '{"env": …}'`.
+
+    `claude --bg` hosts a session on a spare process the background daemon
+    pre-spawned, and a spare carries the environment of whoever started the
+    daemon, not the caller's (PyAutoBrain#724). The settings env is applied
+    by the session itself, whichever process hosts it, so every worker,
+    update and close-out gets this shift's ledger, brief, kick file and the
+    hooks lock that stops a Mind commit. Settings env replaces values rather
+    than appending, so the hooks lock is `GIT_CONFIG_*` index 0. It is on the
+    argv, visible in `ps`: never a secret here. `base` (default the process
+    env) only locates the kick file."""
+    base = os.environ if base is None else base
+    return {"PYAUTO_SHIFT_WORKER": "1",
+            "PYAUTO_SHIFT_LEDGER_DIR": str(Path(lease_dir).parent / _mind_writer.LEDGER_DIR),
+            "PYAUTO_SHIFT_BRIEF": str(brief_path),
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.hooksPath",
+            "GIT_CONFIG_VALUE_0": str(WORKER_HOOKS),
+            KICK_ENV: str(kick_path(base))}
+
+
+def settings_args(lease_dir: Path, brief_path: Path, base: dict | None = None) -> list[str]:
+    """`--settings <json>` carrying `shift_env`, placed before a session's prompt."""
+    return ["--settings", json.dumps({"env": shift_env(lease_dir, brief_path, base)})]
+
+
+def worker_env(lease_dir: Path, base: dict | None = None,
+               brief_path: Path | None = None) -> dict:
     """The environment a worker runs in: marked as a shift worker, pointed at
     the shift's ledger, and with git's hooks path overridden so a commit in
     PyAutoMind is refused whatever tool makes it. The watcher's own GitHub
@@ -510,7 +540,11 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
     (`PYAUTO_SHIFT_GH_TOKEN`), not its App settings (`PYAUTO_SHIFT_APP_*`,
     the key's path among them), and no variable carrying either token or an
     App installation token it minted; the human's own gh auth stays.
-    `PYAUTO_SHIFT_KICK` names the kick file (`kick_path`)."""
+    `PYAUTO_SHIFT_KICK` names the kick file (`kick_path`). With `brief_path`,
+    `PYAUTO_SHIFT_BRIEF` names this shift's brief. A `claude --bg` session may
+    not see this environment (a daemon spare keeps the daemon-starter's), so
+    the shift variables also travel on the argv (`shift_env`); this stays as
+    the backstop and for launchers that do take the caller's env (Codex)."""
     env = dict(os.environ if base is None else base)
     secrets = {env.pop(GH_TOKEN_ENV, "").strip()} | _auth().secrets()
     for key in _app_token.APP_ENVS:
@@ -525,6 +559,8 @@ def worker_env(lease_dir: Path, base: dict | None = None) -> dict:
                 f"GIT_CONFIG_KEY_{n}": "core.hooksPath",
                 f"GIT_CONFIG_VALUE_{n}": str(WORKER_HOOKS),
                 KICK_ENV: str(kick_path(env))})
+    if brief_path is not None:
+        env["PYAUTO_SHIFT_BRIEF"] = str(brief_path)
     return env
 
 
@@ -542,6 +578,7 @@ def session_command(task: str, prompt_path: str, brief_path: Path, lease_dir: Pa
                                 + ", ".join(_brief.WORKER_MODES))
     return ["claude", "--bg", "--name", f"shift:{task}", "--model", WORKER_MODEL,
             "--effort", WORKER_EFFORT, "--permission-mode", mode,
+            *settings_args(lease_dir, brief_path),
             worker_prompt(task, prompt_path, brief_path, lease_dir, redispatch, resume,
                           siblings)]
 
@@ -637,7 +674,7 @@ class RealSpawner:
               siblings: list[str] | None = None) -> dict:
         argv = session_command(task, prompt_path, self.brief_path, lease_dir, self.mode,
                                redispatch, resume, siblings)
-        env = worker_env(lease_dir)
+        env = worker_env(lease_dir, brief_path=self.brief_path)
         _ensure_kick_dir(env)
         res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
                          timeout=120, env=env)
@@ -670,7 +707,7 @@ class RealSpawner:
                                 before=before, disjoint=disjoint, ci_until=ci_until)
         # The same scoped route as a worker: a close-out may be the session
         # that starts the daemon.
-        env = worker_env(lease_dir)
+        env = worker_env(lease_dir, brief_path=self.brief_path)
         _ensure_kick_dir(env)
         res = run_scoped(self.run, argv, task, cwd=self.cwd, capture_output=True, text=True,
                          timeout=120, env=env)
@@ -724,7 +761,7 @@ class CodexSpawner(RealSpawner):
                    "parallelism and the later independent Opus close-out. "
                    "If permissions or review block completion, queue the question "
                    "and write the documented question sidecar and .done marker, then stop.\n")
-        env = worker_env(lease_dir)
+        env = worker_env(lease_dir, brief_path=self.brief_path)
         _ensure_kick_dir(env)
         home = Path(lease_dir).parent.parent
         # The existing worktree root is writable alongside the workspace root.

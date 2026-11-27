@@ -1204,7 +1204,12 @@ def _main_premise(mind: Path, a) -> int:
     res = _premise.safe_check(draft.resolve(), root, fetch=not a.no_fetch,
                               at=a.at or None, offline=a.offline)
     if a.write_verified:
-        res["recorded"] = record_verified(mind, draft.resolve(), res)
+        import _mind_writer
+        try:
+            res["recorded"] = record_verified(mind, draft.resolve(), res)
+        except _mind_writer.ShiftEnvMismatch as e:
+            print(f"batch premise: {e}", file=sys.stderr)
+            return RC_USAGE
     if a.as_json:
         print(json.dumps(res, indent=2))
     else:
@@ -1231,11 +1236,11 @@ def record_verified(mind: Path, draft: Path, res: dict) -> str:
         rel = draft.relative_to(mind.resolve()).as_posix()
     except ValueError:
         return "not stamped (the draft is not inside the Mind)"
-    ledger = os.environ.get("PYAUTO_SHIFT_LEDGER_DIR")
+    ledger = _mind_writer.shift_ledger_dir()   # raises on another shift's ledger
     if ledger:
         op = {"op": "set-header", "path": rel, "key": _premise.VERIFIED_KEY,
               "value": value}
-        queued = _mind_writer.queue_op(Path(ledger), op)
+        queued = _mind_writer.queue_op(ledger, op)
         return f"queued set-header {rel} → {queued.name}"
     draft.write_text(_mind_writer.set_header(draft.read_text(encoding="utf-8"),
                                              _premise.VERIFIED_KEY, value),
