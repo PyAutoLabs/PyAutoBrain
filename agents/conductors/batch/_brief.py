@@ -39,7 +39,7 @@ SCOPED_SOURCES = ("maintenance",)
 #: and the Consequence tiers it may name. `gate-open:` is the human's word that
 #: the M3 gate is open, written only by `brief --new --maintenance --live
 #: --gate-open`; a live maintenance brief without it is refused.
-MAINTENANCE_SOURCES = ("census", "monitoring", "release")
+MAINTENANCE_SOURCES = ("census", "monitoring", "release", "hygiene", "timing")
 MAINTENANCE_KEYS = ("sources", "cap", "tiers", "gate-open")
 MAINTENANCE_DEFAULT_CAP = 5
 #: Judge is nameable for a shadow shift; only glance ever merges unattended,

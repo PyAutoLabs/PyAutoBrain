@@ -7,7 +7,9 @@ finding's evidence, a re-check-first step and the tier-raise rule.
 
 It is the ONE filing path (human decision 3): `batch maintain --file` calls it
 for every source, and the keep-Heart-green lane's `file`/`pick` modes call it
-for the release source.
+for the release source. Since 14.5 (PyAutoBrain#739) the hygiene source files
+per mode (`hygiene:<mode>` is the source name, so each mode's read gates its
+own filing and clearing) and the timing source files with timing's action text.
 
 - **Read gating.** Nothing is filed from a source whose read is not `ok`, or
   is `stale` or `partial`, nor from a finding flagged `stale`; each is listed
@@ -76,6 +78,15 @@ RECHECK = {
     "release": ("re-read Heart (`bin/heart_feed.py`, or `pyauto-heart readiness "
                 "--json`): if the reason below is gone, close this draft as already "
                 "green and stop."),
+    "hygiene": ("re-read the hygiene ledger (`batch maintain --dry-run --sources "
+                "hygiene`): if the key is absent from the latest day and that mode is "
+                "complete, close this draft as already fixed and stop; if the mode reads "
+                "partial, check the file by hand before any edit."),
+    "timing": ("re-read the Heart board (`batch maintain --dry-run --sources timing`): "
+               "if the key is no longer flagged (warn, slowed or red), close this draft "
+               "as already back under its threshold and stop. Then confirm the slowdown "
+               "is real (compare several post-merge runs, not one) before changing "
+               "anything."),
 }
 
 
@@ -149,7 +160,7 @@ def key_marked(text: str, key: str) -> bool:
             or key in _SOURCE_KEY_RX.findall(text))
 
 
-_FILED_FROM_RX = re.compile(r"Filed from the `(\w+)` source")
+_FILED_FROM_RX = re.compile(r"Filed from the `(\w+(?::\w+)?)` source")
 
 
 def source_key_of(text: str) -> str:
@@ -162,7 +173,8 @@ def source_of(text: str) -> str:
     """The source a generated prompt was filed from (its "Filed from the
     `<source>` source" line, which `draft_text` writes), or "" when unknown."""
     m = _FILED_FROM_RX.search(text)
-    return m.group(1) if m and m.group(1) in _maintain.SOURCES else ""
+    return m.group(1) if m and _maintain.base_source(m.group(1)) in _maintain.SOURCES \
+        else ""
 
 
 def corpus(mind: Path) -> tuple[dict, str]:
@@ -238,6 +250,11 @@ def _surface_rule(f) -> str:
         scope = (f"its own surface (`no_run.yaml` in {repo}). If your diff touches "
                  "anything other than `no_run.yaml` (the script itself, a library, a "
                  "config or a workflow)")
+    elif _maintain.base_source(f.source) == "hygiene":
+        surface = ", ".join(f"`{p}`" for p in f.paths) or "the file the key names"
+        scope = (f"its own surface (the file the key names, {surface} in {repo}: a text, "
+                 "comment or documentation edit). If your diff touches any other file, "
+                 "or changes what the code does")
     elif f.key.startswith("ci:"):
         scope = (f"its own surface (the code the red workflow runs in {repo}), which "
                  "excludes `.github/workflows/`, dependency pins and public names. If "
@@ -271,11 +288,14 @@ def draft_text(f, read: dict, today: str, *, target: str, lane: str,
     read_line = (f"Filed from the `{f.source}` source ({read.get('source') or '?'}, "
                  + ("age unknown" if when is None else f"{when:.1f} h old") + ").")
     body = [f"**Re-check first.** {read_line} Before any work, "
-            + RECHECK.get(f.source, "re-read the source; if the finding is gone, stop."),
+            + RECHECK.get(_maintain.base_source(f.source),
+                          "re-read the source; if the finding is gone, stop."),
             "", f"Finding (`{f.source}`, key `{f.key}`):", f"> {f.summary}", ""]
     if f.source == "release":
         body += [f"Heart reason ({ev.get('severity')}, verbatim):", f"> {ev.get('text')}",
                  "", f"Rule `{ev.get('rule')}` → fixable-dev: {ev.get('action')}.", ""]
+    elif ev.get("action"):
+        body += [f"**Action.** {ev['action'][:1].upper()}{ev['action'][1:]}.", ""]
     body += ["Evidence:", "```json",
              json.dumps(ev, indent=1, sort_keys=True, default=str)[:3000], "```", ""]
     if f.paths:

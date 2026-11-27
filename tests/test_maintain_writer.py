@@ -32,6 +32,12 @@ import _maintain  # noqa: E402
 import _maintain_write as W  # noqa: E402
 
 BRAIN = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _no_published_ledger(monkeypatch):
+    """Never the network: the published hygiene ledger reads as unread."""
+    monkeypatch.setattr(_maintain, "ledger_url", lambda: (None, "tests: no ledger URL"))
 MIND_SCRIPTS = BRAIN.parent / "PyAutoMind" / "scripts"
 NOW = dt.datetime(2026, 11, 27, 15, 0, tzinfo=dt.timezone.utc)
 TS = "2026-11-27T14:00:00+00:00"

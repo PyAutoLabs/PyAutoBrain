@@ -29,6 +29,12 @@ TS = "2026-11-27T14:00:00+00:00"
 ORGANS = {"OrganA", "OrganB"}
 
 
+@pytest.fixture(autouse=True)
+def _no_published_ledger(monkeypatch):
+    """Never the network: the published hygiene ledger reads as unread."""
+    monkeypatch.setattr(_maintain, "ledger_url", lambda: (None, "tests: no ledger URL"))
+
+
 def _mon(family, subject, status="red", disc="", evidence=None, summary="failure",
          fresh=True):
     return {"id": f"{family}:{subject}:{disc}", "family": family, "subject": subject,
@@ -347,6 +353,7 @@ def test_cli_dry_run_json_shape(tmp_path):
     board, census, heart = _files(tmp_path)
     rc, out, _ = _run(["maintain", "--dry-run", "--json", "--board-json", str(board),
                        "--census-json", str(census), "--heart-json", str(heart),
+                       "--sources", "census,monitoring,release",
                        "--at", NOW.isoformat()])
     assert rc == 0
     doc = json.loads(out)
