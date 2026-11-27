@@ -23,7 +23,7 @@ from _shift_fixtures import BATCH, BRAIN  # noqa: F401 — sets sys.path
 import _mind_writer as mw  # noqa: E402
 import _orchestrator as orch  # noqa: E402
 
-PR = "https://github.com/PyAutoLabs/PyAutoBrain/pull/1"
+PR = "https://github.com/o/r/pull/1"
 
 
 @pytest.fixture(autouse=True)
