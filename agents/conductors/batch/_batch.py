@@ -1647,12 +1647,14 @@ def _repo_key(entry: str) -> str:
     return normalise_repo(s.rsplit("/", 1)[-1]) if s else ""
 
 
-def _prompt_repos(path: Path, mind: Path) -> tuple[set[str], str]:
+def _prompt_repos(path: Path, mind: Path, ignored: list | None = None
+                  ) -> tuple[set[str], str]:
     """(the repos one prompt touches, why it resolves to none or ""). Its
     `Repos:` entries and `parse_prompt`'s known repos count; `Target:` counts
     only when it resolves to a known repo (`workspaces` is every workspace),
     so a topic target (`priors`, `euclid`) is ignored. An entry that resolves
-    to no known repo is ignored; a prompt left with none fails closed."""
+    to no known repo is ignored (a `Repos:` one is appended to `ignored`, for
+    the launch warning); a prompt left with none fails closed."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
@@ -1661,23 +1663,26 @@ def _prompt_repos(path: Path, mind: Path) -> tuple[set[str], str]:
     entries = []
     block = re.search(r"^Repos:\n((?:- .+\n?)+)", text, re.M)
     if block:
-        entries += [ln[1:] for ln in block.group(1).splitlines() if ln.startswith("- ")]
+        entries += [(ln[1:], True) for ln in block.group(1).splitlines()
+                    if ln.startswith("- ")]
     m = re.search(r"^Target:\s*(.+?)\s*$", text, re.M)
     if m:
-        entries.append(m.group(1))
-    for entry in entries:
+        entries.append((m.group(1), False))
+    for entry, listed in entries:
         key = _repo_key(entry)
         if key == "workspaces":
             out |= {normalise_repo(w) for w in _workspace_repos()}
         elif key and key in known:
             out.add(key)
+        elif listed and ignored is not None:
+            ignored.append(f"{path.name}: {entry.strip()}")
     out |= {normalise_repo(r) for r in parse_prompt(path, mind, text)["repos"]
             if normalise_repo(r) in known}
     return out, ("" if out else f"{path.name} names no known repo")
 
 
-def touched_repos(brief: dict, mind: Path, planned: dict | None = None
-                  ) -> tuple[set[str], str]:
+def touched_repos(brief: dict, mind: Path, planned: dict | None = None,
+                  ignored: list | None = None) -> tuple[set[str], str]:
     """(every repo the brief touches at launch, normalised; why it is every
     repo or "").
 
@@ -1698,7 +1703,7 @@ def touched_repos(brief: dict, mind: Path, planned: dict | None = None
               if m.get("path")]
     out: set[str] = set()
     for p in dict.fromkeys(paths):
-        repos, bad = _prompt_repos(p, mind)
+        repos, bad = _prompt_repos(p, mind, ignored)
         out |= repos
         if bad:
             why.append(bad)
@@ -1708,7 +1713,9 @@ def touched_repos(brief: dict, mind: Path, planned: dict | None = None
     return {r for r in out if r}, ""
 
 
-_LEAD_REPO_RE = re.compile(r"^([\w.-]+)(?:/[\w./-]*)?:")
+#: A reason's leading `<repo>:` token; a path form (`group/repo:`) names its
+#: last segment, as `_repo_key` takes it.
+_LEAD_REPO_RE = re.compile(r"^((?:[\w.-]+/)*[\w.-]+):")
 
 
 def _names_repo(finding: dict, touched: set[str]) -> str:
@@ -1722,7 +1729,7 @@ def _names_repo(finding: dict, touched: set[str]) -> str:
     if finding.get("repo"):
         names = {normalise_repo(finding["repo"])}
     elif lead:
-        names = {normalise_repo(lead.group(1))}
+        names = {normalise_repo(lead.group(1).rsplit("/", 1)[-1])}
     else:
         names = {normalise_repo(w) for w in re.findall(r"[\w.-]+", text)}
     hit = sorted(names & touched)
@@ -1777,7 +1784,12 @@ def heart_launch(top: dict, brief: dict | None, mind: Path, a,
                      + ("of unknown age" if age is None else f"{age:.1f} h old")
                      + f", over the {_green.MAX_AGE_HOURS:g} h rule: a launch needs a "
                      "fresh read or your acknowledgement" + tail], []
-    touched, unresolved = touched_repos(brief, mind, planned)
+    ignored: list[str] = []
+    touched, unresolved = touched_repos(brief, mind, planned, ignored)
+    warns = ([f"heart: `Repos:` entries that are no known repo, left out of the "
+              f"touched set: {'; '.join(ignored[:5])}"
+              + (f"; +{len(ignored) - 5} more" if len(ignored) > 5 else "")]
+             if ignored and ALL_REPOS not in touched else [])
     findings = _launch_findings(heart, LAUNCH_SEVERITIES)
     res.update(findings=findings, stale=_launch_findings(heart, ("stale",)),
                touched=sorted(touched), unresolved=unresolved)
@@ -1794,9 +1806,9 @@ def heart_launch(top: dict, brief: dict | None, mind: Path, a,
             why.append(f"touched repos unresolved: {unresolved}")
         return res, [need + f"Heart is {status.upper()} and needs your acknowledgement: "
                      + "; ".join(why[:5]) + (f"; +{len(why) - 5} more" if len(why) > 5
-                                              else "") + tail], []
+                                              else "") + tail], warns
     res["r1"] = True
-    return res, [], []
+    return res, [], warns
 
 
 def launch_read(res: dict, heading: bool = False) -> str:
@@ -2035,7 +2047,10 @@ def _main_brief(mind: Path, a) -> int:
             changed, kind, hold = write_launch_read(Path(a.check), heart)
             res["heart"]["written"] = changed
             if hold and kind == "pushed":
-                res["notes"].append(f"heart: launch read not written: {hold}")
+                res["notes"].append(
+                    f"heart: launch read not written: {hold}"
+                    + (" — R1 holds on this read, but its reason set is NOT on file "
+                       "for this shift" if heart["r1"] else ""))
             elif hold and heart["r1"]:
                 res["errors"].append(f"heart: R1 holds, but its reason set cannot be "
                                      f"written into the record: {hold}")

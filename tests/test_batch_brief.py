@@ -456,8 +456,14 @@ def test_touched_repos_on_a_scoped_brief_replica_is_concrete(tmp_path, capsys):
     parsed = _batch._brief.parse(brief.read_text())["brief"]
     touched, why = _batch.touched_repos(parsed, mind)
     assert (touched, why) == ({"wsone", "libalpha", "wstwo", "libbeta"}, "")
+    # A report-only RED on the unplanned dip's repo and the manifest: R1 holds.
+    heart = _heart(tmp_path, ["libgamma: 3 commit(s) behind origin", REPORT_ONLY[2]])
+    rc, out = _check(brief, mind, capsys, *_hj(heart))
+    assert rc == 0 and "no heart-ack needed (R1)" in out, out
+    assert "touches (libalpha, libbeta, wsone, wstwo)" in brief.read_text()
+    # One on a named task's repo refuses, naming it.
     rc, out = _check(brief, mind, capsys, *_hj(_heart(tmp_path, REPORT_ONLY)))
-    assert "names libgamma" not in out
+    assert rc == 1 and "names libbeta, which this brief touches" in out, out
 
 
 def test_a_launch_read_that_no_longer_holds_is_removed(tmp_path, capsys):
@@ -526,6 +532,7 @@ def test_a_pushed_record_reports_the_launch_read_as_info(tmp_path, capsys):
     before = rec.read_text()
     rc, out = _check(rec, mind, capsys, *_hj(_heart(tmp_path, REPORT_ONLY)))
     assert rc == 0 and "launch read not written" in out and "already on origin/main" in out, out
+    assert "its reason set is NOT on file for this shift" in out
     assert rec.read_text() == before
 
 
@@ -547,6 +554,23 @@ def test_a_reason_is_matched_by_its_own_repo_first():
     assert _batch._names_repo(dict(f, repo="libalpha"), touched) == "libalpha"
     assert _batch._names_repo({"repo": "", "text": "manifest drift: libalpha — 2"},
                               touched) == "libalpha"        # no token: the words
+    # A path-form token names its last segment.
+    assert _batch._names_repo({"repo": "", "text": "group/libalpha: 2 uncommitted files"},
+                              touched) == "libalpha"
+
+
+def test_unknown_repos_entries_are_warned_not_refused(tmp_path, capsys):
+    """A `Repos:` entry that is no known repo narrows the touched set: the
+    launch says so, but R1 still decides on the rest. A topic Target is not
+    listed."""
+    mind = _mind(tmp_path)
+    brief = _r1_brief(tmp_path, mind, repos="- libalpha\n- notarepo (typo?)\n",
+                      target="priors")
+    rc, out = _check(brief, mind, capsys, *_hj(_heart(tmp_path, REPORT_ONLY)))
+    assert rc == 0, out
+    assert ("heart: `Repos:` entries that are no known repo, left out of the touched "
+            "set: array_task.md: notarepo (typo?)") in out
+    assert "priors" not in out
 
 
 def test_check_json_carries_the_heart_result(tmp_path, capsys):
