@@ -120,7 +120,7 @@ def _remote_collect(monkeypatch):
     monkeypatch.setattr(_board, "repo_homes", list)
     monkeypatch.setattr(_board, "derive_org", lambda _homes: "Org")
     monkeypatch.setattr(_board, "fetch_heart_board", lambda *a: {})
-    monkeypatch.setattr(_board, "collect_hygiene", lambda _degraded: None)
+    monkeypatch.setattr(_board, "collect_hygiene", lambda _degraded, *_rows: None)
     monkeypatch.setattr(_board, "collect_devbox", lambda: None)
     monkeypatch.setattr(_board, "collect_doors", list)
     return _board.collect()

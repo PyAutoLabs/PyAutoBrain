@@ -297,6 +297,17 @@ propose one). `_green.py` imports no process or network module itself (the
 writer, loaded lazily, reads no network and the lane never asks it to run
 git); the tests pin that and record every process a full brief run starts.
 
+## Hygiene ledger keys (Phase 14.0, PyAutoBrain#735)
+
+The Brain board publishes `hygiene_ledger.jsonl` beside its board.json (spec in
+`board/AGENTS.md`): one line per UTC day with each hygiene row's count and its
+per-finding keys `<mode>:<repo>:<file>:<reference>`, never a line number, so a
+key survives line drift (`board/_hygiene_ledger.finding_key` defines each
+mode; `docstrings`/`escapes` keys are per file). **14.5's hygiene source reads
+these keys to dedupe**, and should treat a row whose `not_scanned` is non-empty
+as partial: never clear keys for a repo that was not scanned. The laptop and
+the cloud scan the same declared set (`workspace` + `howto` from the body map).
+
 ## Maintenance findings (`_maintain.py`, Phase 14.1, PyAutoBrain#731)
 
 `batch maintain --dry-run [--sources census,monitoring,release] [--json]`

@@ -349,6 +349,7 @@ def _run(args, tmp_path, stub, env_extra=None):
         "COMMUNITY_SEARCH_PAUSE": "0",
     }
     env.pop("BOARD_HYGIENE_SCAN", None)  # scans are opt-in per test
+    env.pop("BOARD_HYGIENE_LEDGER", None)  # so is the ledger
     env.update(env_extra or {})
     return subprocess.run(
         [str(BRAIN), "board", *args],
@@ -636,6 +637,39 @@ def test_cloud_hygiene_scan_renders_and_supersedes_devbox_rows(tmp_path):
     # Without the env, the scan never runs (terminal digests stay instant).
     s = json.loads(_run(["--json"], tmp_path, stub).stdout)
     assert s["hygiene"] is None
+
+
+def test_hygiene_ledger_fills_history_and_draws_a_sparkline_per_row(tmp_path):
+    """PyAutoBrain#735: with a ledger, the render upserts today's line (once,
+    however often it re-runs), board.json carries one history point per day,
+    every hygiene row gets a sparkline, and --apply publishes the sidecar."""
+    stub = _fabricate(tmp_path, _default_fixtures())
+    path = tmp_path / "hygiene_ledger.jsonl"
+    path.write_text(json.dumps({"date": "2000-01-01", "sha": "old",
+                                "rows": {"deps": 1, "crlf": 2},
+                                "findings": {}}) + "\n")
+    env = {"BOARD_HYGIENE_SCAN": "1",
+           "BOARD_HYGIENE_CMD": str(_hygiene_stub(tmp_path)),
+           "BOARD_HYGIENE_LEDGER": str(path)}
+    for _ in range(2):  # a same-day re-run must not add a line
+        r = _run(["--json"], tmp_path, stub, env_extra=env)
+        assert r.returncode == 0, r.stderr
+    s = json.loads(r.stdout)
+    assert len(path.read_text().splitlines()) == 2
+    assert [h["date"] for h in s["history"]][0] == "2000-01-01"
+    assert len(s["history"]) == 2
+    assert s["history"][1]["rows"] == {"deps": 3, "crlf": 0}
+    assert all(row["spark"] for row in s["hygiene"]["rows"])
+    page = _run(["--html"], tmp_path, stub, env_extra=env).stdout
+    assert "Hygiene trend (2 days" in page
+    assert s["hygiene"]["rows"][0]["spark"] in page
+    assert _run(["--apply", "--out", str(tmp_path / "site")], tmp_path, stub,
+                env_extra=env).returncode == 0
+    assert (tmp_path / "site" / "hygiene_ledger.jsonl").read_text() == path.read_text()
+    # No ledger configured: no history, as before.
+    env.pop("BOARD_HYGIENE_LEDGER")
+    assert json.loads(_run(["--json"], tmp_path, stub,
+                           env_extra=env).stdout)["history"] == []
 
 
 def test_expired_devbox_observation_is_dropped(tmp_path):

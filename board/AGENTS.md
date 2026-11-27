@@ -16,7 +16,7 @@ community collection. The board does not duplicate their dashboards.
    plus an actionable CI-speedup entry linked to Heart's timing evidence.
 
 No morning sync, community section/shortcut, readiness/release, versions,
-resume, autonomous history, need-you/trend banner or global Degraded section.
+resume, autonomous history (the hygiene ledger's trend is the one history kept), need-you/trend banner or global Degraded section.
 Explain unavailable retained evidence locally; never present a failed read as
 an empty successful check. Do not remove conductors merely because their
 operational evidence lives in another organ.
@@ -33,6 +33,24 @@ state describe availability of Brain's directory and maintenance evidence,
 never overnight outcomes or release readiness.
 The internal `degraded` list remains diagnostic metadata and keeps freshness
 unknown when a required read fails, but is not a global page section.
+
+## Hygiene ledger (PyAutoBrain#735)
+
+`board/_hygiene_ledger.py` keeps one JSONL line per UTC day of the hygiene
+pre-scan: `{date, sha, rows: {mode: count}, findings: {mode: [key, …]}}`. A
+same-day re-run replaces that day's line. Keys are `<mode>:<repo>:<file>:<ref>`
+without line numbers (per-mode rules in `finding_key`; `docstrings`/`escapes`
+are file-level). With `BOARD_HYGIENE_LEDGER` set, the render upserts today's
+line, fills board.json `history` (last 30 days, counts only), draws a sparkline
+per hygiene row plus a collapsed trend list, and `--apply` publishes
+`hygiene_ledger.jsonl` beside board.json. Unset, there is no history.
+
+Write path: a **published sidecar**, not a commit. `brain_board.yml` fetches the
+live ledger from its own Pages site and keeps `contents: read`; committing would
+need a token that can push to the ruleset-protected `main`. The sidecar's cost
+is durability, so the fetch fails closed: anything but a 404 (not published yet)
+stops the job before deploy and the live ledger stays. The cloud job is the only
+writer; a dev-box `board publish` never touches it.
 
 `bin/pyauto-brain board` renders Markdown; `--html`, `--json`, `--badge`,
 `--state` select other formats. `--apply --out <dir>` writes the published

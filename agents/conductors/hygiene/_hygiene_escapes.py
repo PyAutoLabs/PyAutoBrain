@@ -37,7 +37,7 @@ from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _hygiene_scan import finding_row, main, repository_paths  # noqa: E402
+from _hygiene_scan import finding_row, main, repository_paths, scan_set  # noqa: E402,F401
 
 SKIP_PARTS = {".git", "__pycache__", "build", "dist", ".ipynb_checkpoints"}
 # A newline in a string value is ordinary text, not evidence of a mangled macro.
@@ -102,10 +102,10 @@ def silent_count(source: str) -> int:
     return total
 
 
-def scan(root: Path) -> tuple[list[Finding], list[ParseError], int]:
+def scan(root: Path) -> tuple[list[Finding], list[ParseError], int, list[str]]:
     findings: list[Finding] = []
     errors: list[ParseError] = []
-    repositories = repository_paths(root)
+    repositories, missing = scan_set(root)
     for repository in repositories:
         for script in sorted((repository / "scripts").rglob("*.py")):
             if SKIP_PARTS & set(script.parts):
@@ -127,7 +127,7 @@ def scan(root: Path) -> tuple[list[Finding], list[ParseError], int]:
                         silent,
                     )
                 )
-    return findings, errors, len(repositories)
+    return findings, errors, len(repositories), missing
 
 
 def summary_for(findings: list[Finding], errors: list[ParseError], repos: int) -> str:
@@ -143,9 +143,10 @@ def summary_for(findings: list[Finding], errors: list[ParseError], repos: int) -
 
 
 def row_for(root: Path) -> dict:
-    findings, errors, repository_count = scan(root)
+    findings, errors, repository_count, missing = scan(root)
     return finding_row(
-        "escapes", findings, summary_for(findings, errors, repository_count), errors)
+        "escapes", findings, summary_for(findings, errors, repository_count), errors,
+        not_scanned=missing)
 
 
 def render_human(row: dict) -> None:

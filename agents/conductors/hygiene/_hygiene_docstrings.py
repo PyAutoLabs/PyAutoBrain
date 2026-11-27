@@ -11,7 +11,7 @@ from pathlib import Path
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _hygiene_scan import finding_row, main, repository_paths  # noqa: E402
+from _hygiene_scan import finding_row, main, repository_paths, scan_set  # noqa: E402,F401
 
 
 TRIPLE_QUOTE = re.compile(r"(?i)^[ruf]*(?:\"\"\"|''')")
@@ -112,10 +112,10 @@ def findings_in_source(source: str, repo: str, file: str) -> list[Finding]:
     return findings
 
 
-def scan(root: Path) -> tuple[list[Finding], list[ParseError], int]:
+def scan(root: Path) -> tuple[list[Finding], list[ParseError], int, list[str]]:
     findings: list[Finding] = []
     errors: list[ParseError] = []
-    repositories = repository_paths(root)
+    repositories, missing = scan_set(root)
 
     for repository in repositories:
         script_paths = {
@@ -137,7 +137,7 @@ def scan(root: Path) -> tuple[list[Finding], list[ParseError], int]:
                         message=str(error),
                     )
                 )
-    return findings, errors, len(repositories)
+    return findings, errors, len(repositories), missing
 
 
 def summary_for(
@@ -154,9 +154,10 @@ def summary_for(
 
 
 def row_for(root: Path) -> dict:
-    findings, errors, repository_count = scan(root)
+    findings, errors, repository_count, missing = scan(root)
     return finding_row(
-        "docstrings", findings, summary_for(findings, errors, repository_count), errors)
+        "docstrings", findings, summary_for(findings, errors, repository_count), errors,
+        not_scanned=missing)
 
 
 def render_human(row: dict) -> None:

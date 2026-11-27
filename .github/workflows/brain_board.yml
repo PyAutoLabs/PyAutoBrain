@@ -54,11 +54,13 @@ jobs:
           repository: ${{ github.repository_owner }}/PyAutoMind
           path: PyAutoMind
       # Hygiene runs IN THE CLOUD: check out the conductor's scan set
-      # (libraries + organs + workspaces, from the body map) so its --json
+      # (libraries + organs + workspaces + HowTo courses, from the body map —
+      # the same declared set a laptop scan reads, PyAutoBrain#735) so its --json
       # pre-scan needs no dev box at all. Blobless clones + a sparse checkout
       # of text/code files keep the big workspace datasets off the runner;
       # a repo that fails to clone is simply absent — hygiene reports
-      # repos_present honestly rather than pretending it scanned everything.
+      # repos_present honestly rather than pretending it scanned everything,
+      # and the workspace scanners name it NOT SCANNED in their row.
       - name: check out the hygiene scan set (blobless + sparse)
         run: |
           python3 -m pip install --quiet pyyaml
@@ -67,7 +69,7 @@ jobs:
           from pathlib import Path
           repos = yaml.safe_load(Path("PyAutoMind/repos.yaml").read_text())["repos"]
           for name, meta in sorted(repos.items()):
-              if meta.get("category") not in ("library", "organ", "workspace"):
+              if meta.get("category") not in ("library", "organ", "workspace", "howto"):
                   continue
               if Path(name).exists():
                   continue
@@ -90,10 +92,23 @@ jobs:
                       subprocess.TimeoutExpired) as e:
                   print(f"::warning::scan checkout skipped {name}: {e}")
           EOF
+      # The hygiene ledger is a PUBLISHED SIDECAR (board/_hygiene_ledger.py):
+      # fetch yesterday's from this board's own Pages site, the render upserts
+      # today's line, and it publishes beside board.json. No commit, so the job
+      # keeps `contents: read` — a ledger commit would need a token that can
+      # push to main. Fails closed: any fetch error but 404 ("not published
+      # yet") stops the job BEFORE deploy, so the live ledger is never replaced
+      # by a one-day file.
+      - name: fetch the published hygiene ledger
+        run: |
+          python3 PyAutoBrain/board/_hygiene_ledger.py fetch \
+            --url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/hygiene_ledger.jsonl" \
+            --out hygiene_ledger.jsonl
       - name: render the board
         env:
           PYAUTO_ROOT: ${{ github.workspace }}
           BOARD_HYGIENE_SCAN: "1"
+          BOARD_HYGIENE_LEDGER: ${{ github.workspace }}/hygiene_ledger.jsonl
         run: |
           python3 PyAutoBrain/board/_board.py --apply --out _site
       # enablement: true creates the Pages site on first run where the token
