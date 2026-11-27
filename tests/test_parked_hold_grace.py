@@ -193,3 +193,77 @@ def test_720_review_a_parked_tasks_claim_is_a_repo_hold_in_the_digest(tmp_path):
     lines = orch._digest.backlog_gate_lines({"backlog_gates": {"origin": out}})
     assert [ln for ln in lines if ln.startswith("Repo claimed on Mind origin/main: 1 ")], lines
     assert not [ln for ln in lines if ln.startswith("Claimed on Mind origin/main")], lines
+
+
+# --- the 2026-11-24-am replay ----------------------------------------------------
+#
+# The minimal facts of shift 2026-11-24-am (slot counters, events and brief):
+# brief window 08:00Z-09:30Z, max-workers 2. `substructure_util_zero_padded_
+# halo_slots_make` (autogalaxy + autolens) started 08:28:39Z and ended with an
+# open question in its outcome, read at the 08:32:52Z tick (PARKED-ON-ISSUE).
+# Behind it waited `mge_deflections_reverse_mode_nan_at_grid_centre`
+# (autogalaxy) and `jit_cache_not_hit_modeling_visualization` (autolens);
+# with no worker left live the shift closed early at 08:34:47Z, neither
+# started. Placeholder org and issue; the task slugs and repos are the shift's.
+
+PARK_TASK = "substructure_util_zero_padded_halo_slots_make"
+HELD = {"mge_deflections_reverse_mode_nan_at_grid_centre": "autogalaxy",
+        "jit_cache_not_hit_modeling_visualization": "autolens"}
+AM24_Q = "https://github.com/example-org/autolens/issues/871"
+AM24_START = _dt.datetime(2026, 11, 24, 8, 28, 39, tzinfo=_dt.UTC)
+AM24_PARK = _dt.datetime(2026, 11, 24, 8, 32, 52, tzinfo=_dt.UTC)
+AM24_CLOSED_EARLY = _dt.datetime(2026, 11, 24, 8, 34, 47, tzinfo=_dt.UTC)
+
+
+def _am24_shift(tmp_path):
+    """The 11-24-am brief cut to its three library tasks, first tick run:
+    the parking task is live on autogalaxy and autolens, both others held."""
+    mind, brief, home = nt._shift(tmp_path)
+    rels = []
+    for task, repos in ((PARK_TASK, ("autogalaxy", "autolens")),
+                        *((t, (r,)) for t, r in HELD.items())):
+        rel = nt._write(mind, task, target=repos[0])
+        f = mind / rel
+        text = f.read_text().replace("Consequence: notify", "Consequence: glance")
+        f.write_text(text.replace(f"Repos:\n- {repos[0]}\n",
+                                  "Repos:\n" + "".join(f"- {r}\n" for r in repos)))
+        rels.append(rel)
+    text = brief.read_text().replace("Batch 2026-11-04 am", "Batch 2026-11-24 am")
+    for old, new in (("2026-11-04T08:30Z", "2026-11-24T08:00Z"),
+                     ("2026-11-04T11:30Z", "2026-11-24T09:30Z"),
+                     ("max-workers: 4", "max-workers: 2"),
+                     ("    - draft/feature/x/none.md", "\n".join(f"    - {r}" for r in rels))):
+        assert old in text, old
+        text = text.replace(old, new)
+    brief.write_text(text)
+    r = d._tick(brief, mind, home, AM24_START, d.FakeClaude())
+    assert _spawned(r) == [PARK_TASK], r
+    return mind, brief, home, orch.slot_dir(brief, home)
+
+
+def test_720_replay_2026_11_24_am_the_held_tasks_start_15_minutes_after_the_park(tmp_path):
+    mind, brief, home, slot = _am24_shift(tmp_path)
+    assert orch.read_counters(slot)["picks"][PARK_TASK]["repos"] == ["autogalaxy", "autolens"]
+    # 08:32:52Z: the worker has ended with an open question (PARKED-ON-ISSUE).
+    (slot / "leases" / f"{PARK_TASK}.done").write_text(f"question: {AM24_Q}\n")
+    r = d._tick(brief, mind, home, AM24_PARK, d.FakeClaude(),
+                agents=d._agents({PARK_TASK: "done"}, slot))
+    assert {"task": PARK_TASK, "event": "done"} in r["reaped"], r
+    assert orch.park_time(orch.read_counters(slot), PARK_TASK) == AM24_PARK
+    # 08:34:47Z, when the shift closed early, and park + 14 min: held but
+    # startable, so the shift stays open; the reason says when the hold ends.
+    for at in (AM24_CLOSED_EARLY, AM24_PARK + GRACE - MIN):
+        r = d._tick(brief, mind, home, at, d.FakeClaude(), agents=d._agents({}, slot))
+        assert _spawned(r) == [], r
+        assert set(HELD) <= set(r.get("startable", [])), r
+        c = orch.read_counters(slot)
+        assert not orch.early_close_ready(slot, c, r), r
+        assert "closed_early" not in c, c
+        for task, repo in HELD.items():
+            assert _named(brief, home)[f"draft/feature/x/{task}.md"] == \
+                f"{repo} held by {PARK_TASK} (parked) until 08:48Z"
+    # Park + 15 min (08:47:52Z): both held tasks start, one per library.
+    r = d._tick(brief, mind, home, AM24_PARK + GRACE, d.FakeClaude(),
+                agents=d._agents({}, slot))
+    assert sorted(_spawned(r)) == sorted(HELD), r
+    assert set(orch.active_leases(slot)) == set(HELD)
