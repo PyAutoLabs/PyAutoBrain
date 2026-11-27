@@ -1614,59 +1614,137 @@ def login_findings(top: dict, brief: dict | None) -> tuple[dict, list[str], list
     return login, errors, warnings
 
 
-#: `brief --check`'s Heart read: `off` skips it (the tests); a saved document
-#: is `--heart-json`. Anything else reads Heart as `brief --new` does.
+#: `brief --check`'s Heart read: `off` skips it (a test-only switch); a saved
+#: document is `--heart-json`. Anything else reads Heart as `brief --new` does.
 HEART_PROBE_ENV = "PYAUTO_HEART_PROBE"
 #: The launch read R1 writes into the record, between these marks.
 R1_START, R1_END = "<!-- heart-launch-read:start -->", "<!-- heart-launch-read:end -->"
-#: The severities a launch judges: a STALE reason is an evidence gap, never
-#: acknowledged at a launch (skills/batch/batch.md step 1).
+#: The severities a launch judges. A STALE reason is an evidence gap: it is
+#: recorded in the launch read, marked "not judged", and never judged here.
 LAUNCH_SEVERITIES = ("red", "yellow")
+#: A touched set that could not be resolved: every repo counts as touched.
+ALL_REPOS = "*"
 
 
-def touched_repos(brief: dict, mind: Path, planned: dict | None = None) -> set[str]:
-    """Every repo the brief may touch, normalised: its named tasks' `Repos:`,
-    `Target:` and @-mentions, and every member the watcher's plan takes."""
-    out: set[str] = set()
-    paths = [p for p in (_brief._resolve(mind, t) for t in _brief.tasks_of(brief)) if p]
+def _known_repos() -> set[str]:
+    """Every spelling of every repo the body map knows (`_sizing`)."""
+    from _sizing import KNOWN_REPOS  # noqa: E402
+    return set(KNOWN_REPOS)
+
+
+def _workspace_repos() -> set[str]:
+    """Every workspace repo the body map knows: `Target: workspaces`."""
+    from _sizing import WORKSPACE_REPOS  # noqa: E402
+    return set(WORKSPACE_REPOS)
+
+
+def _repo_key(entry: str) -> str:
+    """A `Repos:` line or `Target:` value as one normalised repo key: the last
+    path segment, with any `(…)`, ` — …` or ` - …` tail and backticks or `@`
+    stripped. "" when nothing is left."""
+    s = re.split(r"\s+[—–-]\s+|\s*\(", entry.strip(), 1)[0]
+    s = s.strip().strip("`").lstrip("@").rstrip("/")
+    return normalise_repo(s.rsplit("/", 1)[-1]) if s else ""
+
+
+def _prompt_repos(path: Path, mind: Path) -> tuple[set[str], str]:
+    """(the repos one prompt touches, why it cannot be resolved or "")."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return set(), f"{path.name} unreadable ({e})"
+    known, out, bad = _known_repos(), set(), []
+    entries = []
+    block = re.search(r"^Repos:\n((?:- .+\n?)+)", text, re.M)
+    if block:
+        entries += [ln[1:] for ln in block.group(1).splitlines() if ln.startswith("- ")]
+    m = re.search(r"^Target:\s*(.+?)\s*$", text, re.M)
+    if m:
+        entries.append(m.group(1))
+    for entry in entries:
+        key = _repo_key(entry)
+        if key == "workspaces":
+            out |= {normalise_repo(w) for w in _workspace_repos()}
+        elif key and key in known:
+            out.add(key)
+        else:
+            bad.append(entry.strip())
+    out |= {normalise_repo(r) for r in parse_prompt(path, mind, text)["repos"]
+            if normalise_repo(r) in known}
+    if bad:
+        return out, f"{path.name}: {', '.join(bad)} is not a known repo"
+    if not out:
+        return out, f"{path.name} names no repo"
+    return out, ""
+
+
+def touched_repos(brief: dict, mind: Path, planned: dict | None = None
+                  ) -> tuple[set[str], str]:
+    """(every repo the brief may touch, normalised; why it is every repo or "").
+
+    A launch-time prediction: the named tasks, every member the watcher's plan
+    takes, and for a `backlog: fill-idle | scoped` brief every backlog prompt
+    its scope admits. Anything that cannot be resolved fails closed: the set
+    is `{ALL_REPOS}` and R1 cannot pass."""
+    paths, why = [], []
+    for t in _brief.tasks_of(brief):
+        p = _brief._resolve(mind, t)
+        if p is None:
+            why.append(f"{t} resolves to no prompt")
+        else:
+            paths.append(p)
     paths += [mind / m["path"] for m in (planned or {}).get("members") or []
               if m.get("path")]
-    for p in paths:
+    if brief.get("backlog", {}).get("value", "none") != "none":
         try:
-            text = p.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        rec = parse_prompt(p, mind, text)
-        out |= {normalise_repo(r) for r in rec["repos"]}
-        block = re.search(r"^Repos:\n((?:- .+\n)+)", text, re.M)
-        if block:
-            out |= {normalise_repo(ln[1:].strip()) for ln in block.group(1).splitlines()}
-        m = re.search(r"^Target:\s*(\S+)\s*$", text, re.M)
-        if m:
-            out.add(normalise_repo(m.group(1)))
-    return {r for r in out if r}
+            kept, _rejected, _named = _brief.scope(survey(mind), brief)
+        except Exception as e:  # noqa: BLE001 — any failure fails closed
+            return {ALL_REPOS}, f"the backlog scope could not be read ({e})"
+        paths += [mind / r["path"] for r in kept]
+    out: set[str] = set()
+    for p in dict.fromkeys(paths):
+        repos, bad = _prompt_repos(p, mind)
+        out |= repos
+        if bad:
+            why.append(bad)
+    if why:
+        return {ALL_REPOS}, "; ".join(why[:3]) + (f"; +{len(why) - 3} more"
+                                                   if len(why) > 3 else "")
+    return {r for r in out if r}, ""
 
 
 def _names_repo(finding: dict, touched: set[str]) -> str:
     """The touched repo a Heart reason names (its own `repo`, or any word of
-    its text), or ""."""
+    its text), or "". Every reason names one when the set is `{ALL_REPOS}`."""
+    if ALL_REPOS in touched:
+        return "every repo (touched set unresolved)"
     names = {normalise_repo(finding.get("repo") or "")}
     names |= {normalise_repo(w) for w in re.findall(r"[\w.-]+", finding.get("text", ""))}
     hit = sorted(names & touched)
     return hit[0] if hit else ""
 
 
+def _launch_findings(heart: dict, severities) -> list[dict]:
+    return [f for r in heart.get("reasons") or [] if r.get("severity") in severities
+            for f in _green.classify(r)]
+
+
 def heart_launch(top: dict, brief: dict | None, mind: Path, a,
                  planned: dict | None = None) -> tuple[dict, list[str], list[str]]:
     """(result, errors, warnings) of Heart at a shift launch (AUTONOMY.md,
-    "Leg 4 under a batch launch", ruling R1 2026-11-17). A RED or YELLOW
-    needs the human's `heart-ack:` unless every red and yellow reason is
-    `report only` and none names a repo the brief touches; then the reason
-    set is written into the record instead (`write_launch_read`). A shadow
-    brief starts no worker and is not read."""
-    res = {"state": "skipped", "r1": False, "findings": []}
+    "Leg 4 under a batch launch": ruling R1 2026-11-17 and the rulings of
+    2026-11-27). The human's `heart-ack:` passes any read. Without it, a RED
+    or YELLOW, or a read that is grey, unreadable, missing or over 6 h old,
+    is refused — except a fresh RED or YELLOW whose every red and yellow
+    reason is local-checkout `report only` and names no repo the brief
+    touches: then `r1` is set and the reason set goes into the record
+    (`write_launch_read`). A shadow brief starts no worker and is not read."""
+    res = {"state": "skipped", "r1": False, "findings": [], "stale": []}
     if brief is None or _brief.is_shadow(brief):
         return res, [], []
+    ack = top.get("heart-ack")
+    if ack and (ack["value"] or ack["children"]):
+        return dict(res, state="acknowledged"), [], []
     if not a.heart_json and os.environ.get(HEART_PROBE_ENV, "").lower() == "off":
         return dict(res, state="not read"), [], []
     now = _brief._iso(a.at) if a.at else None
@@ -1677,34 +1755,35 @@ def heart_launch(top: dict, brief: dict | None, mind: Path, a,
     res.update(state=status, heart=heart)
     if status == "green":
         return res, [], []
+    need = "heart-ack: missing — "
+    tail = " (AUTONOMY.md, leg 4 under a batch launch, rulings of 2026-11-27)"
     if status not in ("red", "yellow"):
-        return res, [], [f"heart: {status.upper()} ({heart.get('why') or 'no verdict'}) — "
-                         "consult vitals; a RED or YELLOW needs your `heart-ack:`"]
+        return res, [need + f"Heart read {status.upper()} "
+                     f"({heart.get('why') or 'no verdict'}): a launch needs a fresh "
+                     "read or your acknowledgement" + tail], []
     if age is None or age > _green.MAX_AGE_HOURS:
-        return res, [], [f"heart: {status.upper()} evidence "
-                         + ("of unknown age" if age is None else f"{age:.1f} h old")
-                         + " — re-check vitals; a RED or YELLOW needs your `heart-ack:`"]
-    ack = top.get("heart-ack")
-    if ack and (ack["value"] or ack["children"]):
-        res["state"] = f"{status} (acknowledged)"
-        return res, [], []
-    touched = touched_repos(brief, mind, planned)
-    findings = [f for r in heart.get("reasons") or []
-                if r.get("severity") in LAUNCH_SEVERITIES for f in _green.classify(r)]
-    res.update(findings=findings, touched=sorted(touched))
+        return res, [need + f"Heart {status.upper()} evidence "
+                     + ("of unknown age" if age is None else f"{age:.1f} h old")
+                     + f", over the {_green.MAX_AGE_HOURS:g} h rule: a launch needs a "
+                     "fresh read or your acknowledgement" + tail], []
+    touched, unresolved = touched_repos(brief, mind, planned)
+    findings = _launch_findings(heart, LAUNCH_SEVERITIES)
+    res.update(findings=findings, stale=_launch_findings(heart, ("stale",)),
+               touched=sorted(touched), unresolved=unresolved)
     why = []
     for f in findings:
         repo = _names_repo(f, touched)
-        if not f["action"].startswith("report only"):
+        if f["cls"] != "local-checkout" or not f["action"].startswith("report only"):
             why.append(f"[{f['severity']}] {f['text']} ({f['cls']})")
         elif repo:
             why.append(f"[{f['severity']}] {f['text']} (names {repo}, which this brief "
                        "touches)")
     if why:
-        return res, [f"heart-ack: missing — Heart is {status.upper()} and needs your "
-                     "acknowledgement (AUTONOMY.md, leg 4 under a batch launch): "
+        if unresolved:
+            why.append(f"touched repos unresolved: {unresolved}")
+        return res, [need + f"Heart is {status.upper()} and needs your acknowledgement: "
                      + "; ".join(why[:5]) + (f"; +{len(why) - 5} more" if len(why) > 5
-                                              else "")], []
+                                              else "") + tail], []
     res["r1"] = True
     return res, [], []
 
@@ -1715,31 +1794,82 @@ def launch_read(res: dict) -> str:
     touched = ", ".join(res.get("touched") or []) or "none named"
     L = [R1_START, "### Launch read — no `heart-ack:` needed (R1, 2026-11-17)", "",
          f"Heart **{res['state'].upper()}**, read {h.get('updated') or 'never'} from "
-         f"{h.get('source', 'none')}. Every red and yellow reason is `report only` and "
-         f"none names a repo this brief touches ({touched}), so the shift launches "
-         "without your `heart-ack:` (AUTONOMY.md, leg 4 under a batch launch). "
-         "The reason set:", ""]
+         f"{h.get('source', 'none')}. Every red and yellow reason is local-checkout "
+         f"`report only` and none names a repo this brief touches ({touched}), so the "
+         "shift launches without your `heart-ack:` (AUTONOMY.md, leg 4 under a batch "
+         "launch). The reason set:", ""]
     L += [f"- [{f['severity']}] {f['text']} — rule `{f['rule']}`" for f in res["findings"]]
+    L += [f"- [stale] {f['text']} — rule `{f['rule']}` — not judged (an evidence gap)"
+          for f in res.get("stale") or []]
     return "\n".join(L + [R1_END]) + "\n"
 
 
-def write_launch_read(path: Path, res: dict) -> None:
-    """Write (or replace) the launch read in the record's `## Heart` section;
-    a record without one gets the section at its end."""
-    text = path.read_text(encoding="utf-8")
-    block = launch_read(res)
+def _with_launch_read(text: str, block: str) -> str:
+    """`text` with the launch read set to `block` ("" removes it)."""
     if R1_START in text and R1_END in text:
         head, rest = text.split(R1_START, 1)
-        text = head + block.rstrip("\n") + rest.split(R1_END, 1)[1]
-    elif "\n## Heart\n" in text:
+        rest = rest.split(R1_END, 1)[1]
+        if block:
+            return head + block.rstrip("\n") + rest
+        return head.rstrip("\n") + "\n" + rest.lstrip("\n") if rest.strip() else \
+            head.rstrip("\n") + "\n"
+    if not block:
+        return text
+    if "\n## Heart\n" in text:
         head, rest = text.split("\n## Heart\n", 1)
         nxt = re.search(r"^## ", rest, re.M)
         cut = nxt.start() if nxt else len(rest)
         body = rest[:cut].rstrip("\n") + "\n\n" + block + ("\n" if nxt else "")
-        text = head + "\n## Heart\n" + body + rest[cut:]
-    else:
-        text = text.rstrip("\n") + "\n\n## Heart\n\n" + block
-    path.write_text(text, encoding="utf-8")
+        return head + "\n## Heart\n" + body + rest[cut:]
+    return text.rstrip("\n") + "\n\n## Heart\n\n" + block
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess | None:
+    try:
+        return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True,
+                              text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def record_write_hold(path: Path) -> str:
+    """Why `--check` may not write into the record at `path`, or "": never into
+    the shared canonical Mind checkout (`$PYAUTO_MIND`, else the resolved
+    one), nor into a record already on its checkout's `origin/main`. A record
+    outside git (`--out`) or in a temp worktree is fine."""
+    path = Path(path).resolve()
+    top = _git(path.parent, "rev-parse", "--show-toplevel")
+    if top is None or top.returncode != 0 or not top.stdout.strip():
+        return ""
+    root = Path(top.stdout.strip()).resolve()
+    canonical = Path(os.environ.get("PYAUTO_MIND") or BODY_MAP_PATH.parent).resolve()
+    if root == canonical:
+        return (f"{path} is in the shared canonical Mind checkout ({root}) — write the "
+                "brief in a temp worktree on origin/main and check it there")
+    rel = path.relative_to(root).as_posix()
+    on_main = _git(root, "cat-file", "-e", f"origin/main:{rel}")
+    if on_main is not None and on_main.returncode == 0:
+        return (f"{rel} is already on origin/main — the launch read goes in before the "
+                "push")
+    return ""
+
+
+def write_launch_read(path: Path, res: dict) -> tuple[bool, str]:
+    """Set the record's launch read: R1's reason set when `res["r1"]`, else
+    remove a launch read left by an earlier check. (changed?, why it could not
+    be written or ""). Nothing is written when the text would not change."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        return False, f"{path} unreadable ({e})"
+    new = _with_launch_read(text, launch_read(res) if res["r1"] else "")
+    if new == text:
+        return False, ""
+    hold = record_write_hold(path)
+    if hold:
+        return False, hold
+    path.write_text(new, encoding="utf-8")
+    return True, ""
 
 
 def goal_one_warning(path: Path, mind: Path) -> str:
@@ -1877,14 +2007,28 @@ def _main_brief(mind: Path, a) -> int:
         # brief does not touch needs no `heart-ack:`; its reason set is
         # written into the record instead. The one write `--check` makes.
         heart, errs, warns = heart_launch(rec["top"], rec["brief"], mind, a, planned[0])
-        res["heart"] = {k: v for k, v in heart.items() if k in ("state", "r1", "touched")}
+        res["heart"] = {k: v for k, v in heart.items()
+                        if k in ("state", "r1", "touched", "unresolved")}
+        res["heart"]["reasons"] = [f"[{f['severity']}] {f['text']}"
+                                   for f in heart["findings"] + heart["stale"]]
         res["errors"] += errs
         res["warnings"] += warns
+        if heart["state"] != "not read" and not _brief.is_shadow(rec["brief"]):
+            changed, hold = write_launch_read(Path(a.check), heart)
+            res["heart"]["written"] = changed
+            if hold and heart["r1"]:
+                res["errors"].append(f"heart: R1 holds, but its reason set cannot be "
+                                     f"written into the record: {hold}")
+            elif hold:
+                res["warnings"].append(f"heart: an earlier launch read is left in the "
+                                       f"record: {hold}")
+            elif changed and not heart["r1"]:
+                res["notes"].append("heart: removed the earlier R1 launch read — this "
+                                    "read does not qualify")
         if heart["r1"]:
-            write_launch_read(Path(a.check), heart)
             res["notes"].append(f"heart: {heart['state'].upper()}, every reason report "
                                 "only and none on a touched repo — no heart-ack needed "
-                                "(R1); the reason set is written under ## Heart")
+                                "(R1); the reason set is under ## Heart")
         res["ok"] = not res["errors"]
     # The premise leg: a named task whose premise is gone on main is flagged
     # here, before the shift pays a worker to discover it. A warning, not a

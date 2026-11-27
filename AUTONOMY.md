@@ -484,19 +484,41 @@ own `batches/AGENTS.md` drops both: the Heart gates releases, not runs), and
 not missing, they do not exist on that schema.
 
 **A report-only RED needs no acknowledgement — ruling R1, 2026-11-17
-(recorded 2026-11-27, PyAutoBrain#727).** At a shift launch, a Heart RED (or a
-YELLOW, the weaker verdict on the same reasons) whose every red and yellow
-reason is `report only` (a library checkout behind or dirty, on another branch, worktree or manifest drift — the
-local-checkout class of the keep-Heart-green lane), and none of which names a
-repo the brief touches, needs no `heart-ack:` from the human. `batch brief
---check` applies it and writes the reason set into the record under
-`## Heart` instead, so what the shift launched on is still on file. Anything
-else still needs the human's `heart-ack:`: a human-only reason (an open PR,
-release validation, a quarantine), a release-scope reason, a fixable one, or
-any reason on a repo the brief touches. A STALE reason is an evidence gap and
-is not judged here. Unchanged: a run still parks on a new RED, and nothing is
-acknowledged autonomously — the rule only says which launch reads need the
-human's word.
+(recorded 2026-11-27, PyAutoBrain#727).** At a shift launch, a Heart RED made
+only of `report only` reasons (the keep-Heart-green lane's local-checkout
+class: a library checkout behind or dirty, on another branch, worktree or
+manifest drift), none of which names a repo the brief touches, needs no
+`heart-ack:` from the human; the brief records the reason set under
+`## Heart` instead. Anything else still needs the human's `heart-ack:`: a
+human-only reason (an open PR, release validation, a quarantine), a
+release-scope reason, a fixable one, a reason Heart's own per-repo key puts
+in another class, or any reason on a repo the brief touches.
+
+**The human's rulings of 2026-11-27 on R1's enforcement (PyAutoBrain#727
+review).**
+
+- **(a)** `batch brief --check` mechanically refuses any unacknowledged
+  Heart RED or YELLOW at a launch. It also refuses, unless `heart-ack:` is
+  present, when the Heart read is grey, unreadable or missing, or its
+  evidence is older than 6 h. R1's exemption passes on a fresh read only.
+- **(b)** R1 applies to a YELLOW made only of report-only reasons on
+  untouched repos, as well as to a RED.
+
+How the check applies them: the human's `heart-ack:` passes any read and
+nothing is written. A STALE reason is an evidence gap; it is recorded in the
+launch read, marked "not judged", and does not decide the launch. The
+touched set is a launch-time prediction: the named tasks, every member the
+watcher's plan takes and, for a `backlog: fill-idle | scoped` brief, every
+backlog prompt the brief's scope admits. A repo entry that does not resolve
+to a known repo, a prompt naming none, or a scope that cannot be read makes
+every repo touched, so R1 cannot pass. `Target: workspaces` touches every
+workspace. A later check that no longer qualifies removes the earlier launch
+read. The check never writes into the shared canonical Mind checkout nor into
+a record already on `origin/main`; R1 then refuses with the reason. The
+watcher reads no Heart (its tick's network surface excludes the feed), and a
+member's own leg-4 check is the scoped dev-ship gate
+(`consult_vitals_verdict --repos`), unchanged by R1. Unchanged too: a run
+still parks on a new RED, and nothing is acknowledged autonomously.
 
 ## Shift speed — 2026-11-19
 
