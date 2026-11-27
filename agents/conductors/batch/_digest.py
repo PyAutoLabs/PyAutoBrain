@@ -1170,6 +1170,9 @@ def identity_lines(counters: dict) -> list[str]:
                 f"{auth.get('last', '?')}: {auth['error']}"]
 
 
+#: The words a park hold's reason carries before the time its 15 minutes end
+#: (ruling d, amended 2026-11-24): `repo X held by T (parked) until 08:48Z`.
+PARK_HOLD_WORDS = " (parked) until "
 #: A question id in a hold's reason (`waiting on Q17 in your inbox`).
 _QID_RE = re.compile(r"\bQ\d+\b")
 
@@ -1185,8 +1188,12 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                    "brief's named tasks only.")
     origin = gates.get("origin") or {}
     closed = {p: w for p, w in origin.items() if w.endswith(FAIL_CLOSED)}
-    repo_held = {p: w for p, w in origin.items() if w.startswith("repo ") and p not in closed}
-    claimed = sorted(p for p in origin if p not in closed and p not in repo_held)
+    park_held = {p: w for p, w in origin.items() if w.startswith("repo ")
+                 and PARK_HOLD_WORDS in w and p not in closed}
+    repo_held = {p: w for p, w in origin.items() if w.startswith("repo ") and p not in closed
+                 and p not in park_held}
+    claimed = sorted(p for p in origin
+                     if p not in closed and p not in repo_held and p not in park_held)
 
     def names(paths):
         return (", ".join(f"`{Path(a).stem}`" for a in paths[:SUMMARY_NAMES])
@@ -1203,6 +1210,11 @@ def backlog_gate_lines(counters: dict) -> list[str]:
         out.append(f"Repo claimed on Mind origin/main: {len(repo_held)} draft(s) skipped — "
                    + "; ".join(f"`{Path(p).stem}` ({w.split(' in active.md')[0]})"
                                for p, w in sorted(repo_held.items())[:SUMMARY_NAMES]))
+    if park_held:
+        out.append(f"Repo held by this shift's park on a question: {len(park_held)} draft(s) "
+                   "wait for its 15 minutes to end — "
+                   + "; ".join(f"`{Path(p).stem}` ({w})"
+                               for p, w in sorted(park_held.items())[:SUMMARY_NAMES]))
     parked = gates.get("parked") or {}
     if parked:
         # The inbox's word on each, by Q-id, so "why wasn't X picked" answers

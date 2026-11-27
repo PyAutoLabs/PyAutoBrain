@@ -1114,7 +1114,16 @@ while an earlier PR of the shift on it is open. Six rulings:
   waiting on that library can still start, so the shift does not close early.
   An answer inside them restarts the task as before. A later answer restarts
   it only when its library is free: it waits like any task, and two workers
-  never share a library. A park with no known time keeps holding;
+  never share a library. A park with no known time keeps holding.
+  Amended again by the human on 2026-11-27 ("Stop, then release", review of
+  PyAutoBrain#720): inside the 15 minutes a task waiting on that library is
+  counted startable, and it starts when they end. A lease park's session is
+  still alive, so when its 15 minutes end the watcher first stops that
+  session (the `/kill` stop) and only then releases the library. The stopped
+  task becomes a park on its inbox question, and an answer restarts it with
+  the answer once its library is free. A stop that fails, or a lease park
+  with no question in the inbox, keeps holding. An answered park waiting to
+  restart keeps its library until it starts;
 - **(e)** a worker may proceed past a `worktree_check_conflict` hit that names
   only a listed sibling PR's slug;
 - **(f)** library repos only, and only PRs this shift knows (its outcomes and a

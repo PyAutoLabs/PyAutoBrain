@@ -332,15 +332,31 @@ repo, so two workers never share one. Work does not collide; merges do. A task
 this shift picked holds its library while its worker runs and while a
 re-dispatch is pending. A park holds it for 15 minutes from the park
 (`PARK_HOLD_GRACE`; ruling d as amended 2026-11-24, PyAutoBrain#720): a lease
-park (on a question or a person), an outcome with an open question, and an
-answered restart still pending. The park time is `counters["park_times"]`
-(the lease's `parked_at`, or when the `.done` was read), else the inbox entry's
-`asked`, taken at the end of its minute; with no known time the park keeps
-holding. A lease-parked task that later writes a `.done` with a question keeps
-its lease park time. Only an open question (not obsolete, not merged) is a park. Inside the 15 minutes the
+park (on a question or a person) and an outcome with an open question. The
+park time is `counters["park_times"]` (the lease's `parked_at`, or when the
+`.done` was read), else the inbox entry's `asked`, taken at the end of its
+minute; with no known time the park keeps holding. A lease-parked task that
+later writes a `.done` with a question keeps its lease park time. Only an open
+question (not obsolete, not merged) is a park. Inside the 15 minutes the
 waiting task is refused as `<repo> held by <task> (parked) until HH:MMZ` and
-counted `startable`. After them the library is free; an answer that arrives
-later restarts the task only when no other worker holds its library. Once its
+counted `startable`; it starts on the first tick after them.
+
+A lease park's session is still alive, so its library is released only once
+that session is stopped (human ruling 2026-11-27, "Stop, then release").
+When its 15 minutes end, `stop_expired_parks` stops it through `/kill`'s stop
+(`_stop_session`: `claude stop <id>`, or the Codex supervisor's STOP file),
+records `park_released[task]` (`how: stopped`) and a `park-stopped` event, and
+moves the task from `parked` to `done` with its inbox question as the
+outcome's open question. From then on it is a park on a question: an answer
+restarts it with the answer (`released_here`) once its library is free, and
+its old lease is reaped when the session has ended. The stop is skipped while
+the shift is paused. Fail closed: no session id, no question in the inbox, or
+a failed stop keeps the hold, is recorded in `park_stop_failed` (one
+`park-stop-failed` event, needs you) and is tried again next tick. A lease
+park whose session ended by itself (`parked-ended`) is released by the 15
+minutes alone (`how: ended`). An answered park waiting to restart
+(`inshift_pending`) keeps its library until it starts, so no other task on
+that library goes ahead of it. Once its
 worker has ended, the next tick may start the next task on that library, its
 PR open, refused or merged alike (`released_picks`; first PyAutoBrain#679 freed
 it only at merge, and one `/prm`-bound PR stalled the shift). A `/drop`ped task
@@ -717,7 +733,7 @@ on the same library is open (`in_turn_merge_blockers`, the close-out's rule). An
 once GitHub shows the head the update made; a head that moved since refuses.
 The spawn loop also refuses a task whose library a live, parked or
 re-dispatch-pending task holds, whatever the plan's order made of it; a park
-holds only for its 15 minutes.
+holds only for its 15 minutes, and a lease park until its session is stopped.
 
 **Watching a shift live (`batch watch`, PyAutoBrain#575).** `batch watch
 --record <brief> [--once] [--interval N]` (`_watch.py`) draws a running shift

@@ -90,7 +90,7 @@ STALL_GRACE_S = 900
 PARK_HOLD_GRACE = _dt.timedelta(minutes=15)
 #: The words a park hold's refusal carries before its end time, which marks a
 #: refused task as one that can still start this shift (`startable`).
-PARK_HOLD_WORDS = " (parked) until "
+PARK_HOLD_WORDS = _digest.PARK_HOLD_WORDS
 #: Sessions that ended without succeeding — reaped as crashes (`_digest`).
 ENDED_STATES = _digest.ENDED_STATES
 #: The worker prompt every real worker starts from (never a bare session).
@@ -1375,6 +1375,10 @@ def _reap(slot: Path, counters: dict, now: _dt.datetime, grace_s: float,
                 # Ended without a `.done`: released, never a crash and never
                 # re-dispatched — it stays parked for the human.
                 mark("ended")
+                if task in counters["parked"]:
+                    # No session left on its library: the grace alone ends its hold.
+                    counters.setdefault("park_released", {}).setdefault(
+                        task, {"at": _iso(now), "how": "ended"})
                 _write_counters(slot, counters)
                 path.unlink(missing_ok=True)
                 events.append({"task": task, "event": "parked-ended"})
@@ -1989,13 +1993,44 @@ def park_hold_until(counters: dict, task: str) -> _dt.datetime | None:
     return t + PARK_HOLD_GRACE if t else None
 
 
+def _lease_park_unstopped(counters: dict, task: str) -> bool:
+    """A lease park whose session may still be alive: parked on a person and
+    neither stopped by the watcher at its grace's end nor ended by itself
+    (`park_released`). It holds its library past the grace until stopped
+    (ruling d, amended 2026-11-27: stop, then release)."""
+    return task in (counters.get("parked") or []) \
+        and task not in (counters.get("park_released") or {})
+
+
 def _park_still_holds(counters: dict, task: str, now: _dt.datetime | None) -> bool:
     """A park holds until its grace ends; without `now`, or with no known park
-    time, it holds (fail closed: ruling d before the 2026-11-24 amendment)."""
-    if now is None:
+    time, it holds (fail closed: ruling d before the 2026-11-24 amendment).
+    A lease park whose session is not yet stopped holds past the grace, and
+    an answered park waiting to restart (`inshift_pending`) holds until it
+    spawns, so no other task on its library jumps ahead of it."""
+    if now is None or task in (counters.get("inshift_pending") or {}) \
+            or _lease_park_unstopped(counters, task):
         return True
     until = park_hold_until(counters, task)
     return until is None or now < until
+
+
+def _held_reason(counters: dict, live, holder: str, repo: str,
+                 now: _dt.datetime | None) -> tuple[str, bool]:
+    """(why a task waits on `holder`'s hold of `repo`, whether it can still
+    start this shift): a park inside its grace says until when (startable);
+    an answered park waiting to restart goes first; a lease park whose
+    session could not be stopped keeps holding (fail closed)."""
+    if holder not in live:
+        until = park_hold_end(counters, holder, now)
+        if until:
+            return f"{repo} held by {holder}{PARK_HOLD_WORDS}{until}", True
+        if holder in (counters.get("inshift_pending") or {}):
+            return f"{repo} held by {holder} (answered: it restarts first)", False
+        if _lease_park_unstopped(counters, holder):
+            return (f"{repo} held by {holder} (parked: its session is not stopped "
+                    "yet)"), False
+    return f"{repo} held by {holder} while its worker runs", False
 
 
 def park_hold_end(counters: dict, task: str, now: _dt.datetime | None) -> str:
@@ -2163,6 +2198,12 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
             # `repo ` first, as every repo-held reason: the digest buckets by it.
             return f"repo {repo} held by {waits[slug][0]}{PARK_HOLD_WORDS}{waits[slug][1]}"
         return f"repo {repo} claimed by `{slug}` in active.md on Mind origin/main"
+
+    def first_hold(holds):
+        """The first hold that is not a park in its grace, else the first:
+        a task waits "(parked) until" only when nothing else holds the repo."""
+        holds = list(holds)
+        return next((h for h in holds if h[1] not in waits), holds[0] if holds else None)
     kept, out = [], {}
     for r in records:
         task = task_id(r.get("path") or "")
@@ -2184,10 +2225,11 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
                 out[r["path"]] = (f"resumed after {ids}, but its claim `{slug}` in active.md "
                                   "is not this home's shift worker's (session: "
                                   f"{(sec.get('session') or 'none')[:60]}) — left to the human")
-            elif held := next(((repo, other) for other, sec2 in claims["sections"].items()
-                               if other != slug and other not in spent
-                               and not coordinated_for(sec2, task)
-                               for repo in sec2["repos"] if _repo_key(repo) in mine), None):
+            elif held := first_hold((repo, other)
+                                    for other, sec2 in claims["sections"].items()
+                                    if other != slug and other not in spent
+                                    and not coordinated_for(sec2, task)
+                                    for repo in sec2["repos"] if _repo_key(repo) in mine):
                 # Every other claim on the repo counts, not only the first
                 # (`claimed_repos` keeps one per repo): its own does not.
                 out[r["path"]] = claimed_by(*held)
@@ -2197,9 +2239,12 @@ def on_origin(records: list[dict], mind: Path, own: set[str],
             out[r["path"]] = "not in draft/ on Mind origin/main (claimed or retired)"
         elif task in claims["active"]:
             out[r["path"]] = "claimed in active.md on Mind origin/main"
-        elif held := _held_for(claims.get("sections") or {}, task,
-                               r.get("declared_repos") or r.get("repos") or [],
-                               ignore=spent):
+        elif held := (_held_for(claims.get("sections") or {}, task,
+                                r.get("declared_repos") or r.get("repos") or [],
+                                ignore=spent | set(waits))
+                      or _held_for(claims.get("sections") or {}, task,
+                                   r.get("declared_repos") or r.get("repos") or [],
+                                   ignore=spent)):
             out[r["path"]] = claimed_by(*held)
         else:
             kept.append(r)
@@ -2515,6 +2560,16 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         # A /stop this tick: from here on it is the STOP file's tick.
         return {"action": "stopped", "reason": f"{STOP_FILE} written by /stop",
                 "reaped": reaped, "commands": commands}
+    if not counters.get("paused") and not _brief.is_shadow(brief) \
+            and getattr(spawner, "real", False):
+        # A lease park whose 15 minutes have run is stopped before its
+        # library is released (ruling d, amended 2026-11-27).
+        run = getattr(spawner, "run", None)
+        stops = stop_expired_parks(slot, counters, now,
+                                   stop=lambda sid: _stop_session(slot, sid, run=run))
+        if stops:
+            reaped += stops
+            planned.clear()   # the plan must see the library released
     if not _brief.is_shadow(brief):
         _sweep_tick(slot, counters, now)   # the red block and its one bug draft
         _write_counters(slot, counters)
@@ -2626,15 +2681,18 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
         # start this shift, so it is `startable`, not final.
         holder = _library_holder(counters, live, task, member.get("repos") or [], now)
         if holder:
-            until = "" if holder[1] in live else park_hold_end(counters, holder[1], now)
-            if until:
-                refused.append({"task": task, "why": f"{holder[0]} held by {holder[1]}"
-                                                     f"{PARK_HOLD_WORDS}{until}"})
+            why, can = _held_reason(counters, live, holder[1], holder[0], now)
+            refused.append({"task": task, "why": why})
+            if can:
                 startable.append(task)
-                continue
-            refused.append({"task": task, "why": f"{holder[0]} held by {holder[1]} "
-                                                 "while its worker runs"})
-            final.add(task)
+            else:
+                final.add(task)
+            continue
+        if (slot / "leases" / f"{task}.json").exists():
+            # A stopped park's lease is reaped once its session has ended:
+            # the restart waits for that, and never runs beside it.
+            refused.append({"task": task, "why": "its stopped session is still ending"})
+            startable.append(task)
             continue
         if len(live) >= max_workers:
             refused.append({"task": task, "why": f"max-workers {max_workers} reached"})
@@ -3441,6 +3499,73 @@ def claude_stop(agent_id: str, run=None) -> tuple[bool, str]:
     return True, ""
 
 
+def _stop_session(slot: Path, agent: str, run=None) -> tuple[bool, str]:
+    """`/kill`'s stop of one worker session: the Codex supervisor's STOP file
+    for a Codex session, else `claude stop <id>`: (stopped?, why not)."""
+    if agent.startswith(_codex.PREFIX):
+        return _codex.stop(agent, slot.parent)
+    return claude_stop(agent, run=run)
+
+
+def stop_expired_parks(slot: Path, counters: dict, now: _dt.datetime,
+                       stop=None) -> list[dict]:
+    """Ruling (d) as amended 2026-11-27 ("Stop, then release"): a lease park
+    (a worker blocked on a person, its session still alive) whose
+    `PARK_HOLD_GRACE` has run is stopped through `/kill`'s stop path before
+    its library is released, so an answer typed into that session later can
+    never put two workers on one library.
+
+    A stopped park becomes a park on a question: it leaves `parked` for
+    `done`, with its inbox question as the outcome's open question, so an
+    answer restarts it fresh (with the answer, `released_here`) once its
+    library is free. Recorded in `park_released` (`how: stopped`). Its lease
+    stays until the reap sees the session end.
+
+    Fail closed: no session id, no question filed in the inbox (nothing to
+    restart it from), or a stop that fails keeps the hold; it is recorded in
+    `park_stop_failed` and tried again next tick. `stop(agent_id)` is the
+    seam; unset, `_stop_session`. Returns reap-style events."""
+    events = []
+    for task, lease in leases(slot).items():
+        if lease.get("state") != "parked" or not _lease_park_unstopped(counters, task):
+            continue
+        until = park_hold_until(counters, task)
+        if until is None or now < until:
+            continue
+        agent = lease.get("agent_id") or ""
+        filed = next((q for q in counters.get("inbox") or []
+                      if isinstance(q, dict) and q.get("task") == task and q.get("issue")),
+                     None)
+        if not agent:
+            ok, why = False, "no session id on its lease"
+        elif filed is None:
+            ok, why = False, "its question was never filed in your inbox"
+        else:
+            ok, why = (stop or (lambda sid: _stop_session(slot, sid)))(agent)
+        if not ok:
+            failed = counters.setdefault("park_stop_failed", {})
+            first = task not in failed
+            failed[task] = {"at": _iso(now), "why": str(why)[:200],
+                            "tries": int((failed.get(task) or {}).get("tries") or 0) + 1}
+            _write_counters(slot, counters)
+            if first:
+                events.append({"task": task, "event": "park-stop-failed",
+                               "why": str(why)[:160]})
+            continue
+        counters.setdefault("park_released", {})[task] = {
+            "at": _iso(now), "how": "stopped", "key": _worker_key(lease, task)}
+        (counters.get("park_stop_failed") or {}).pop(task, None)
+        counters["parked"].remove(task)
+        if task not in counters["done"]:
+            counters["done"].append(task)
+        if not isinstance(counters["outcomes"].get(task), dict):
+            counters["outcomes"][task] = {"prs": [], "merged": [], "issues": [filed["issue"]],
+                                          "questions": [filed["issue"]]}
+        _write_counters(slot, counters)
+        events.append({"task": task, "event": "park-stopped", "issue": filed["issue"]})
+    return events
+
+
 def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict) -> str:
     """`/kill <task>`: stop that task's running worker with `claude stop`. The
     next reap sees it ended: it is `killed` (not a crash) and re-dispatched
@@ -3463,8 +3588,7 @@ def _cmd_kill(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict
     # A crash between this stop and the counters write leaves the comment
     # unseen: the next tick stops the same agent id again, at most — never another session.
     codex = agent.startswith(_codex.PREFIX)
-    stop = ctx.get("stop") or ((lambda sid: _codex.stop(sid, slot.parent))
-                               if codex else claude_stop)
+    stop = ctx.get("stop") or (lambda sid: _stop_session(slot, sid))
     ok, why = stop(agent)
     if not ok:
         if codex:
