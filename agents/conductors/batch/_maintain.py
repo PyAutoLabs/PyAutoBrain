@@ -14,9 +14,12 @@ boards whose only difference is a run id — give the same keys, and the same
 defect has one key whichever source reports it. That key is what slice 14.2
 will write into a prompt and dedupe against.
 
-`batch maintain --dry-run` prints them. It is run by hand (and later by the
-14.2/14.3 filing steps); the watcher's tick never reads Heart and never calls
-this. Nothing here writes: no prompt, no state file, no Mind.
+`batch maintain --dry-run` prints them; `batch maintain --file --mind <path>`
+hands them to the 14.2 writer (`_maintain_write.file_findings`), which files
+sized draft prompts into that Mind (a linked worktree or a non-git directory,
+never the shared checkout) and keeps `maintain.json`. It is run by hand (and
+later by the 14.3 filing step); the watcher's tick never reads Heart and never
+calls this. The adapters and loaders here write nothing.
 
 A read that failed never looks like all-clear: every requested source reports
 `ok`, `stale` and `partial`, and the CLI exits 3 when any requested source was
@@ -280,22 +283,26 @@ def release_findings(heart: dict, organs=frozenset()) -> list[Finding]:
             classified = [dict(reason, rule="organ-ci-red", cls="fixable-dev",
                                key=_ci_key(m["repo"], m["wf"]), lane="any",
                                repo=repo, action="fix the red workflow on main")]
-        for c in classified:
-            if c["cls"] != "fixable-dev" or not c.get("key"):
-                continue
-            repo = c.get("repo") or ""
-            key = _norm_ci(c["key"])
-            wf = key[3:].partition(":")[2] if key.startswith("ci:") else ""
-            tier = (_organ_ci_tier(repo, wf, None, organs) if key.startswith("ci:")
-                    else "judge")
-            out.append(Finding(
-                key=key, source="release", repo=repo,
-                paths=[c["script"]] if c.get("script") else [],
-                summary=f"[{c['severity']}] {c['text']}"[:240], witness=RELEASE_WITNESS,
-                tier_floor=tier, lane=c.get("lane") or "local-dev",
-                evidence={"rule": c["rule"], "severity": c["severity"], "text": c["text"],
-                          "action": c.get("action", "")}))
+        out += [release_finding(c, organs) for c in classified
+                if c["cls"] == "fixable-dev" and c.get("key")]
     return out
+
+
+def release_finding(c: dict, organs=frozenset()) -> Finding:
+    """One `_green.classify` fixable-dev finding as a `Finding` (the release
+    adapter's shape; `_green`'s file mode hands the writer these)."""
+    repo = c.get("repo") or ""
+    key = _norm_ci(c["key"])
+    wf = key[3:].partition(":")[2] if key.startswith("ci:") else ""
+    tier = (_organ_ci_tier(repo, wf, None, organs) if key.startswith("ci:")
+            else "judge")
+    return Finding(
+        key=key, source="release", repo=repo,
+        paths=[c["script"]] if c.get("script") else [],
+        summary=f"[{c['severity']}] {c['text']}"[:240], witness=RELEASE_WITNESS,
+        tier_floor=tier, lane=c.get("lane") or "local-dev",
+        evidence={"rule": c["rule"], "severity": c["severity"], "text": c["text"],
+                  "action": c.get("action", "")})
 
 
 def dedupe(findings) -> list[Finding]:
@@ -439,7 +446,7 @@ def _read_line(name, r) -> str:
 
 
 def render(findings, reads) -> str:
-    L = ["batch maintain --dry-run — maintenance findings (read-only; writing is slice 14.2)", ""]
+    L = ["batch maintain — maintenance findings", ""]
     L += [_read_line(name, r) for name, r in reads.items()]
     L += ["", f"{len(findings)} finding(s)", ""]
     rows = [("KEY", "SOURCE", "REPO", "TIER", "SUMMARY")] + [
@@ -458,10 +465,22 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="batch maintain",
         description="List maintenance findings from the no-run census, Heart's "
-                    "monitoring inventory and its release verdict (read-only). "
+                    "monitoring inventory and its release verdict (--dry-run), or "
+                    "file them as draft prompts into a Mind (--file --mind). "
                     "Exit 3 when a requested source could not be read.")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="required: list findings, write nothing")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true",
+                      help="list findings, write nothing")
+    mode.add_argument("--file", action="store_true",
+                      help="file each finding as a draft prompt into --mind (Phase 14.2)")
+    ap.add_argument("--mind", default="", metavar="DIR",
+                    help="--file: the Mind to write into — a linked worktree on "
+                         "origin/main or a non-git directory, never the shared checkout")
+    ap.add_argument("--cap", type=int, default=3,
+                    help="--file: at most this many new prompts per run (default 3)")
+    ap.add_argument("--home", default="", metavar="DIR",
+                    help="--file: the directory holding maintain.json (default: the "
+                         "orchestrator home, beside heart_green.json)")
     ap.add_argument("--sources", default=",".join(SOURCES),
                     help=f"comma-separated subset of {','.join(SOURCES)}")
     ap.add_argument("--json", action="store_true", dest="as_json")
@@ -473,9 +492,18 @@ def main(argv=None) -> int:
                     help="read this saved `readiness --json` / state.json instead of Heart")
     ap.add_argument("--at", default="", help="judge ages as of this ISO time (a replay)")
     a = ap.parse_args(argv)
-    if not a.dry_run:
-        print("batch maintain: only --dry-run exists — writing is slice 14.2",
+    if not (a.dry_run or a.file):
+        print("batch maintain: pass --dry-run (list) or --file --mind <dir> (write, Phase 14.2)",
               file=sys.stderr)
+        return 2
+    if a.file and not a.mind:
+        print("batch maintain --file: --mind <dir> is required — a linked worktree "
+              "on origin/main (`git -C <mind> worktree add --detach <dir> origin/main`) "
+              "or a non-git directory; the shared checkout is never written",
+              file=sys.stderr)
+        return 2
+    if a.cap < 0:
+        print("batch maintain: --cap must be >= 0", file=sys.stderr)
         return 2
     sources = [s.strip() for s in a.sources.split(",") if s.strip()]
     bad = [s for s in sources if s not in SOURCES]
@@ -487,6 +515,13 @@ def main(argv=None) -> int:
     if a.at:
         now = _dt.datetime.fromisoformat(a.at.replace("Z", "+00:00"))
         now = now if now.tzinfo else now.replace(tzinfo=_dt.timezone.utc)
+    hold = ""
+    if a.file:
+        import _maintain_write  # noqa: E402 — the 14.2 writer
+        hold = _maintain_write.write_hold(Path(a.mind))
+        if hold:  # refuse before any read: nothing is written, the state included
+            print(f"batch maintain --file: refused — {hold}", file=sys.stderr)
+            return 2
     reads = {}
     board_read = None
     if "monitoring" in sources or "census" in sources:
@@ -503,16 +538,31 @@ def main(argv=None) -> int:
                     heart=(reads.get("release") or {}).get("data"),
                     sources=sources, organs=glance_organs(), stale_sources=stale)
     unread = [s for s, r in reads.items() if not r["ok"]]
+    wres = None
+    if a.file:
+        home = Path(a.home) if a.home else _orchestrator_home()
+        wres = _maintain_write.file_findings(
+            found, reads, Path(a.mind), cap=a.cap,
+            state_path=home / _maintain_write.STATE_NAME, now=now)
     if a.as_json:
-        print(json.dumps({"dry_run": True, "sources": sources, "unread": unread,
+        print(json.dumps({"dry_run": bool(a.dry_run), "sources": sources, "unread": unread,
                           "reads": {k: {kk: v for kk, v in r.items() if kk != "data"}
                                     for k, r in reads.items()},
                           "count": len(found),
-                          "findings": [f.as_dict() for f in found]}, indent=2, default=str))
+                          "findings": [f.as_dict() for f in found],
+                          **({"write": wres} if wres is not None else {})},
+                         indent=2, default=str))
     else:
         sys.stdout.write(render(found, reads))
+        if wres is not None:
+            sys.stdout.write(_maintain_write.render(wres))
     if unread:
         print(f"batch maintain: source(s) not read: {', '.join(unread)} — "
               "the list is incomplete, not all-clear", file=sys.stderr)
         return RC_UNREAD
     return 0
+
+
+def _orchestrator_home() -> Path:
+    import _orchestrator  # noqa: E402 — deferred: only the state path
+    return Path(_orchestrator.orchestrator_home())

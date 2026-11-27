@@ -261,21 +261,21 @@ text; no match is `human-only`, fail closed):
 
 | Class | Examples | The lane |
 |---|---|---|
-| `fixable-dev` | red CI on `main`, a failing workspace script, a red unit test, a yanked or unparseable floor, URL lint, Lifecycle Drift | files a bug draft; picks it only on opt-in |
+| `fixable-dev` | red CI on `main`, a failing workspace script, a red unit test, a yanked or unparseable floor, URL lint, Lifecycle Drift | files a maintenance draft (through the 14.2 writer); picks only on opt-in |
 | `local-checkout` | behind, dirty, on a branch, worktree drift, every manifest-drift leg (they read the checkouts on disk, other sessions' worktrees included; `MANIFEST_FIXABLE` allowlists a leg that judges `main`) | reports only: another session's work may be in progress |
 | `release-scope` | release integrate failed, install check F, rehearsal stale, a floor above the newest release | reports, and names the human's release action |
 | `human-only` | open PR, quarantine doctrine, parked scripts, timing, credentials | reports |
 
 For `fixable-dev` it dedupes on a key (`ci:<repo>`, `script:<path>` …):
-a prompt in `draft/`/`active/` carrying `<!-- heart-key: <key> -->`, quoting
-the reason or naming the script, a `queue.md` line, or the lane's state file
-(`<orchestrator home>/heart_green.json`: a key it filed is not re-filed while
-Heart keeps listing it; a fresh, valid read without the reason clears the
-row, so a later recurrence files again). It files at most `--green-cap` (3)
-new drafts per brief — `Consequence: judge`, a `Lane:`, a re-check-first
-note, the quoted reason, a Witness, `Difficulty:` from the sizing faculty and
-no `Unattended:` (the lane never grades its own drafts ready) — red first;
-the rest wait for the next brief.
+a prompt in `draft/`/`active/` carrying the key (`Source-key:`,
+`<!-- maint-key: <key> -->`, or the old `<!-- heart-key: <key> -->`), quoting
+the reason or naming the script, a `queue.md` line, or the state file
+(`<orchestrator home>/maintain.json`: a key it filed is not re-filed while
+Heart keeps listing it; a fresh, valid, non-STALE read without the reason
+clears the row, so a later recurrence files again). It files at most
+`--green-cap` (3) new drafts per brief, red first, through the maintenance
+writer (Phase 14.2, below — one filing path): `draft/maintenance/<target>/maint_<key>.md`,
+`Consequence: judge`, and so `Unattended: never`.
 
 **Where it writes.** Modes are `--green off|report|file|pick` (or
 `$PYAUTO_HEART_GREEN`); the default is `file`. It writes drafts and its state
@@ -284,7 +284,8 @@ only when `brief --new` has `--out` (a stdout preview writes nothing) and
 worktree on `origin/main`, committed and pushed from there. Otherwise it
 reports what it would file and says why. `pick` is the human's opt-in: a filed
 or existing `draft/` prompt whose `Lane:` the brief allows and that sizing
-grades `Unattended: ready` becomes a named task under a last `heart-green`
+grades `Unattended: ready` (since 14.2 never a freshly filed Heart draft,
+which is judge) becomes a named task under a last `heart-green`
 goal. An active quarantine's bug task is picked only when a prompt carries the
 lane's key mark or has the entry's bug ref as its `Issue:`; it is never filed.
 The record gets a `## Heart` section: reasons by class, filed, picked, and what
@@ -292,16 +293,17 @@ needs the human. `batch green` is the same lane alone, `report` by default.
 
 It never releases, rehearses, dispatches a workflow, forces, touches a
 freeze, writes `queue.md`, edits another prompt, or quarantines (it may
-propose one). `_green.py` imports no process or network module; the tests
-pin that and record every process a full brief run starts.
+propose one). `_green.py` imports no process or network module itself (the
+writer, loaded lazily, reads no network and the lane never asks it to run
+git); the tests pin that and record every process a full brief run starts.
 
 ## Maintenance findings (`_maintain.py`, Phase 14.1, PyAutoBrain#731)
 
 `batch maintain --dry-run [--sources census,monitoring,release] [--json]`
 lists what needs fixing on `main` as one `Finding` shape — `key`, `source`,
 `repo`, `paths`, `summary`, `witness`, `tier_floor`, `lane`, `evidence`,
-`stale`. It is **read-only**: without `--dry-run` it refuses (writing prompts
-is slice 14.2). It is run by hand, and later by the 14.2/14.3 filing steps;
+`stale`. `--dry-run` writes nothing; `--file` hands the findings to the 14.2
+writer (below). It is run by hand, and later by the 14.3 filing step;
 the watcher's tick never calls it.
 
 | Source | Read from | Key | Tier floor |
@@ -337,6 +339,45 @@ a row Heart marks `fresh: false`). The command exits 3 when any requested
 source was not read. **14.2 must never file from, or clear keys for, an unread
 or stale source, and never clear keys from a partial one.** `--board-json`,
 `--census-json`, `--heart-json` and `--at` replay saved documents.
+
+## The maintenance prompt writer (`_maintain_write.py`, Phase 14.2, PyAutoBrain#733)
+
+`batch maintain --file --mind <dir> [--cap N] [--home DIR] [--sources …]`
+files each finding as `draft/maintenance/<target>/maint_<slug(key)>.md`. It
+is the **one filing path**: the keep-Heart-green lane's `file`/`pick` modes
+call the same `file_findings` for the release source.
+
+- **Read gating.** Nothing is filed from a source whose read is not `ok`, or
+  is `stale` or `partial`, nor from a finding flagged `stale`; each is listed
+  as skipped with its reason. Exit 3 when a requested source was unread (as
+  14.1), else 0; the output lists filed, skipped (with reasons) and cleared.
+- **The prompt.** Type/Target/Repos/Difficulty/`Autonomy: supervised`/Priority/
+  `Status: draft`/Filed/Consequence (the finding's tier floor)/Witness (the
+  finding's)/Review-minutes/Lane/Unattended, then `Source-key: <key>`. The
+  body carries the evidence, a re-check-first step for that source, and the
+  14.1 tier rule: when the fix's diff touches anything beyond the finding's
+  own surface (for a census row, anything other than that repo's
+  `no_run.yaml`), the worker raises `Consequence:` to `judge`.
+- **Classify.** Intake `analyse()` (never writes) gives the work type, target
+  (a declared, known repo; else the finding's repo) and lane; an intake lane
+  refusal is skipped, never filed. Sizing gives Difficulty, Unattended and
+  Review-minutes from the prompt text — except that a `judge` finding is
+  always `Unattended: never` (sizing's `estimate_unattended` reads size,
+  never consequence, and would grade most of them `ready`).
+- **Dedupe.** The `<!-- maint-key: … -->` mark, the `Source-key:` header,
+  `_green`'s old `<!-- heart-key: … -->` mark or a mention of the key in
+  `draft/`, `active/` or `queue.md`, or a state row that already filed it.
+  At most `--cap` (default 3) new files per run; the rest wait.
+- **State.** `maintain.json` in the orchestrator home (beside
+  `heart_green.json`, whose rows it migrates once, as `release` keys):
+  first_seen / last_seen / source / filed / filed_at per key. A key whose
+  source was read `ok`, fresh and whole this run and no longer lists it is
+  cleared; an unread, stale or partial read clears nothing.
+- **Write guard.** Only into a Mind that is a linked worktree or not a git
+  checkout (`_mind_guard`, the probe `_batch.write_hold` also uses); a main
+  checkout — the shared canonical Mind may be one — is refused before
+  anything is read, state included. `--file` without `--mind` refuses. Every
+  write is a new file; no existing prompt is edited.
 
 ## The watcher (phases 3a–3d)
 
