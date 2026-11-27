@@ -80,10 +80,11 @@ without `issue:`, and an expired CLI login (the human runs `claude /login`).
 It also reads Heart (`--heart-json <file>` replays a saved read): without
 the human's `heart-ack:` it refuses a RED or YELLOW, and a grey, unreadable
 or over-6 h read, unless a fresh read's every red and yellow reason is
-local-checkout `report only` and none names a repo the brief may touch
-(ruling R1, AUTONOMY.md leg 4) — then it writes the reason set under
-`## Heart`. Check the record in a temp worktree or at its `--out` path before
-pushing: it never writes into the shared Mind checkout or a pushed record.
+local-checkout `report only` and none names a repo its named tasks or
+planned members touch (ruling R1, AUTONOMY.md leg 4) — then it writes the
+reason set under `## Heart`. Check the record in a temp worktree or at its
+`--out` path before pushing: it writes only outside git or in a linked
+worktree, and a re-check of a pushed record only notes the launch read.
 **Pushing the brief is the launch.** The watcher finds it on Mind
 `origin/main` itself, ticks it from `dispatched:` to `review-at:`, and stops
 45 min after `review-at:`. Never two open briefs at once. The watcher reads

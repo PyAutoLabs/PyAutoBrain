@@ -405,7 +405,7 @@ def test_planned_member_repos_count_as_touched(tmp_path):
 @pytest.mark.parametrize("repos,target,hit", [
     ("- example/libalpha (the array library)\n", "example/libalpha", "libalpha"),
     ("- libalpha — tests only\n", "`libalpha`", "libalpha"),
-    ("- notarepo\n", "libalpha", "every repo"),           # unknown: fail closed
+    ("- notarepo\n", "topicx", "every repo"),     # no known repo at all: fail closed
 ])
 def test_path_style_or_annotated_repos_resolve_or_fail_closed(tmp_path, capsys, repos,
                                                               target, hit):
@@ -424,18 +424,40 @@ def test_target_workspaces_touches_every_workspace(tmp_path, capsys):
     assert rc == 1 and "names wstwo" in out, out
 
 
-def test_a_scoped_backlog_counts_every_repo_in_scope(tmp_path, capsys):
-    """A prompt the brief's scope admits, not named and not planned, is touched."""
+def test_a_topic_target_is_ignored_when_repos_resolve(tmp_path):
     mind = _mind(tmp_path)
-    _task(mind, repos="- libbeta\n", target="libbeta", rel="draft/feature/x/dip.md",
+    _task(mind, repos="- libalpha\n- notarepo\n", target="priors")
+    brief = {"tasks": {"value": "", "children": [{"text": TASK, "children": []}]}}
+    assert _batch.touched_repos(brief, mind) == ({"libalpha"}, "")
+
+
+# A replica of the 2026-11-16-pm brief's shape (backlog: scoped): named tasks
+# with topic targets, path-style and annotated `Repos:` entries. Placeholders.
+REPLICA = {
+    "draft/bug/ws/wall_estimates.md": ("wsone", "- wsone\n"),
+    "draft/feature/nerves/lifecycle_p5a.md": ("libalpha", "- libalpha\n"),
+    "draft/feature/euclid/campaign_p5d.md": ("euclid", "- group/wstwo (pipeline)\n"),
+    "draft/bug/mind/dashboard_titles.md": ("health_fixes", "- libbeta — data fix\n"),
+}
+
+
+def test_touched_repos_on_a_scoped_brief_replica_is_concrete(tmp_path, capsys):
+    """The human's ruling of 2026-11-27: named tasks plus the plan's members,
+    never the whole backlog scope — the replica resolves to concrete repos."""
+    mind = _mind(tmp_path)
+    for rel, (target, repos) in REPLICA.items():
+        _task(mind, repos=repos, target=target, rel=rel)
+    # Backlog the scope admits but nobody named or planned is not touched.
+    _task(mind, repos="- libgamma\n", target="libgamma", rel="draft/bug/x/dip.md",
           extra="\nConsequence: glance\n")
-    brief = _brief(tmp_path, extra="  - scoped:\n    - tiers: glance\n")
+    tasks = "".join(f"    - {rel}\n" for rel in REPLICA)
+    brief = _brief(tmp_path, extra=f"  - tasks:\n{tasks}  - scoped:\n    - tiers: notify, glance\n")
     brief.write_text(brief.read_text().replace("backlog: fill-idle", "backlog: scoped"))
-    touched, why = _batch.touched_repos(_batch._brief.parse(brief.read_text())["brief"],
-                                        mind)
-    assert why == "" and "libbeta" in touched
+    parsed = _batch._brief.parse(brief.read_text())["brief"]
+    touched, why = _batch.touched_repos(parsed, mind)
+    assert (touched, why) == ({"wsone", "libalpha", "wstwo", "libbeta"}, "")
     rc, out = _check(brief, mind, capsys, *_hj(_heart(tmp_path, REPORT_ONLY)))
-    assert rc == 1 and "names libbeta" in out, out
+    assert "names libgamma" not in out
 
 
 def test_a_launch_read_that_no_longer_holds_is_removed(tmp_path, capsys):
@@ -446,23 +468,85 @@ def test_a_launch_read_that_no_longer_holds_is_removed(tmp_path, capsys):
     heart = _heart(tmp_path, REPORT_ONLY, yellow=["libgamma: open PR 9d old"])
     rc, out = _check(brief, mind, capsys, *_hj(heart))
     assert rc == 1 and "removed the earlier R1 launch read" in out
-    assert R1_MARK not in brief.read_text() and "\n## Heart\n" in brief.read_text()
+    # The heading R1 added went inside the marks: no empty `## Heart` is left.
+    assert R1_MARK not in brief.read_text() and "## Heart" not in brief.read_text()
+
+
+def test_removing_a_launch_read_keeps_the_heart_section_and_spacing():
+    res = {"r1": True, "state": "red", "heart": {}, "findings": [], "stale": []}
+    text = "# B\n- k: v\n\n## Heart\n\nlane text\n\n## Digest\n\nd\n"
+    added = _batch._with_launch_read(text, res)
+    assert added.count("## Heart") == 1 and "\n\n## Digest\n" in added
+    assert _batch._with_launch_read(added, None) == text
 
 
 R1_MARK = "heart-launch-read:start"
 
 
-def test_no_write_into_the_shared_canonical_mind(tmp_path, monkeypatch, capsys):
+def test_no_write_into_a_main_git_checkout(tmp_path, capsys):
+    """`write_hold`'s rule: a main checkout of any clone may be the shared
+    Mind, whatever $PYAUTO_MIND says."""
     mind = _mind(tmp_path)
     _task(mind)
     brief = mind / "batches" / "2026-11-17-pm.md"
     brief.write_text(BRIEF.format(issue=f"- issue: {ISSUE}\n",
                                   extra=f"  - tasks:\n    - {TASK}\n"))
     before = brief.read_text()
-    monkeypatch.setenv("PYAUTO_MIND", str(mind))
     rc, out = _check(brief, mind, capsys, *_hj(_heart(tmp_path, REPORT_ONLY)))
-    assert rc == 1 and "shared canonical Mind checkout" in out, out
+    assert rc == 1 and "is in a main git checkout" in out, out
     assert brief.read_text() == before
+
+
+def _committed_mind(tmp_path):
+    mind = _mind(tmp_path)
+    _task(mind)
+    rec = mind / "batches" / "2026-11-17-pm.md"
+    rec.write_text(BRIEF.format(issue=f"- issue: {ISSUE}\n",
+                                extra=f"  - tasks:\n    - {TASK}\n"))
+    _git(mind, "add", "-A")
+    _git(mind, "commit", "-qm", "brief")
+    return mind, rec
+
+
+def test_a_linked_worktree_record_is_written(tmp_path, capsys):
+    mind, rec = _committed_mind(tmp_path)
+    wt = tmp_path / "wt"
+    _git(mind, "worktree", "add", "-q", "--detach", str(wt))
+    brief = wt / "batches" / rec.name
+    rc, out = _check(brief, wt, capsys, *_hj(_heart(tmp_path, REPORT_ONLY)))
+    assert rc == 0, out
+    assert R1_MARK in brief.read_text()
+
+
+def test_a_pushed_record_reports_the_launch_read_as_info(tmp_path, capsys):
+    """A post-launch re-check: the record is on origin/main, so nothing is
+    written and the check is not refused for it."""
+    mind, rec = _committed_mind(tmp_path)
+    _git(mind, "update-ref", "refs/remotes/origin/main", "HEAD")
+    before = rec.read_text()
+    rc, out = _check(rec, mind, capsys, *_hj(_heart(tmp_path, REPORT_ONLY)))
+    assert rc == 0 and "launch read not written" in out and "already on origin/main" in out, out
+    assert rec.read_text() == before
+
+
+def test_the_probe_switch_is_honoured_only_under_pytest(tmp_path, monkeypatch, capsys):
+    mind = _mind(tmp_path)
+    brief = _r1_brief(tmp_path, mind)
+    assert _check(brief, mind, capsys)[0] == 0          # PYAUTO_HEART_PROBE=off, in pytest
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    rc, out = _check(brief, mind, capsys)
+    assert rc == 1 and "Heart not read" in out, out
+    _ack(brief)
+    assert _check(brief, mind, capsys)[0] == 0
+
+
+def test_a_reason_is_matched_by_its_own_repo_first():
+    touched = {"libalpha"}
+    f = {"repo": "", "text": "libgamma: 1 uncommitted file under libalpha/"}
+    assert _batch._names_repo(f, touched) == ""             # the leading token wins
+    assert _batch._names_repo(dict(f, repo="libalpha"), touched) == "libalpha"
+    assert _batch._names_repo({"repo": "", "text": "manifest drift: libalpha — 2"},
+                              touched) == "libalpha"        # no token: the words
 
 
 def test_check_json_carries_the_heart_result(tmp_path, capsys):

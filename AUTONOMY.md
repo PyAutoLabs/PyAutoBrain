@@ -503,18 +503,25 @@ review).**
   evidence is older than 6 h. R1's exemption passes on a fresh read only.
 - **(b)** R1 applies to a YELLOW made only of report-only reasons on
   untouched repos, as well as to a RED.
+- **(c)** The touched set is the brief's named tasks plus the members the
+  watcher's plan takes at launch — not the whole backlog scope. Later
+  backlog picks, refills and `/add` are covered because each worker
+  re-checks Heart scoped to its own repos at ship (the scoped dev-ship
+  gate). Per prompt, its `Repos:` entries and the known repos it names
+  count; `Target:` counts only when it resolves to a known repo, so a topic
+  target (`priors`, `euclid`) is ignored. Only a named or planned prompt
+  that yields no known repo at all fails closed (every repo touched).
 
 How the check applies them: the human's `heart-ack:` passes any read and
 nothing is written. A STALE reason is an evidence gap; it is recorded in the
 launch read, marked "not judged", and does not decide the launch. The
-touched set is a launch-time prediction: the named tasks, every member the
-watcher's plan takes and, for a `backlog: fill-idle | scoped` brief, every
-backlog prompt the brief's scope admits. A repo entry that does not resolve
-to a known repo, a prompt naming none, or a scope that cannot be read makes
-every repo touched, so R1 cannot pass. `Target: workspaces` touches every
-workspace. A later check that no longer qualifies removes the earlier launch
-read. The check never writes into the shared canonical Mind checkout nor into
-a record already on `origin/main`; R1 then refuses with the reason. The
+touched set follows ruling (c); a named task that resolves to no prompt also
+makes every repo touched, so R1 cannot pass, and `Target: workspaces`
+touches every workspace. A later check that no longer qualifies removes the
+earlier launch read. The check writes only outside git or in a linked
+worktree (the main checkout of any clone may be the shared Mind): there R1
+refuses with the reason. A record already on `origin/main` is a launched
+shift, so a re-check only notes that its launch read was not written. The
 watcher reads no Heart (its tick's network surface excludes the feed), and a
 member's own leg-4 check is the scoped dev-ship gate
 (`consult_vitals_verdict --repos`), unchanged by R1. Unchanged too: a run
