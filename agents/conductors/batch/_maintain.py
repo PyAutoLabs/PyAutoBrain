@@ -125,7 +125,10 @@ HYGIENE_ACTION = {
     "refs": "fix the dead reference (or name the undocumented folder) in this file",
     "docstrings": "merge or remove the adjacent docstrings in this file",
     "escapes": "fix the LaTeX the string escapes eat in this file (a raw string or "
-               "doubled backslashes)",
+               "doubled backslashes). Glance only while every changed string is a "
+               "docstring or a comment; changing any other string literal (a plot label, "
+               "a format string, a regex) changes runtime output and raises the tier to "
+               "judge",
     "optdeps": "add the house `find_spec` skip guard to this smoke-listed script "
                "(the `/refactor` route); never drop the script from the smoke list",
     "extras": "add the missing install to the workspace-validation smoke leg (the "
@@ -137,6 +140,22 @@ HYGIENE_ACTION = {
 HYGIENE_MAX_AGE_HOURS = 48
 #: Heart's per-row timing states that flag a row (performance rows).
 TIMING_FLAGGED_STATES = frozenset({"warn", "slowed", "red", "yellow"})
+#: A slowdown state proper; a red gate counts only with duration evidence and
+#: no failing conclusion (`_gate_slowdown`).
+SLOWDOWN_STATES = frozenset({"warn", "slowed"})
+#: A Heart-flagged timing row is a FAILURE, never a slowdown, when Heart's
+#: monitoring walker reached it under one of these keys (heart/monitoring.py
+#: marks them red), or it carries a failing exit, `ok: false`, a timeout/hang
+#: kind, a failing conclusion or status, or says it timed out.
+FAILURE_PATH_RX = re.compile(r"(?:^|[/:])(failures|failing_scripts|events)/")
+TIMEOUT_KINDS = frozenset({"suspect_cancelled", "timed_out", "timeout", "hang", "kill_timer"})
+FAIL_CONCLUSIONS = frozenset({"failure", "timed_out", "cancelled", "startup_failure",
+                              "action_required"})
+FAIL_STATUSES = frozenset({"failed", "failure", "error", "timed_out", "timeout"})
+TIMED_OUT_RX = re.compile(r"timed?[\s-]*out|times out", re.I)
+SMOKE_WITNESS = "the script passes under the smoke cap on a fresh run"
+SMOKE_ACTION = ("fix the failing or timed-out smoke script (reproduce first: run it under "
+                "the smoke cap on main and read its own error before changing anything)")
 
 _CI = _green._CI
 #: Organ CI-red lines `_green` matches with no rule (`ci-red-legacy` allows no
@@ -520,6 +539,51 @@ def _flagged(row: dict) -> bool:
     return str(row.get("state") or "").lower() in TIMING_FLAGGED_STATES
 
 
+def failure_reason(row: dict, path: str = "", summary: str = "") -> str:
+    """Why a Heart-flagged timing row is a failure (a red smoke script, a
+    timed-out run, a failing gate), or "" when it can be a slowdown."""
+    m = FAILURE_PATH_RX.search(str(path or ""))
+    if m:
+        return f"reported under `{m.group(1)}`"
+    ec = row.get("exit_code")
+    if isinstance(ec, int) and not isinstance(ec, bool) and ec != 0:
+        return f"exit code {ec}"
+    if row.get("ok") is False:
+        return "ok: false"
+    if str(row.get("kind") or "").lower() in TIMEOUT_KINDS:
+        return f"kind {row['kind']}"
+    if str(row.get("conclusion") or "").lower() in FAIL_CONCLUSIONS:
+        return f"conclusion {row['conclusion']}"
+    if str(row.get("status") or "").lower() in FAIL_STATUSES:
+        return f"status {row['status']}"
+    text = " ".join(str(row.get(k) or "") for k in ("reason", "detail", "summary")) \
+        + " " + str(summary or "")
+    if TIMED_OUT_RX.search(text):
+        return "timed out"
+    return ""
+
+
+def _num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _gate_slowdown(row: dict) -> bool:
+    """A gate row is a slowdown only on `state` warn/slowed, or a red/yellow
+    with duration evidence (a ratio or a delta) and no failing conclusion —
+    never a red driven by conclusions: `ci_status` covers failing gates."""
+    st = str(row.get("state") or "").lower()
+    if st in SLOWDOWN_STATES:
+        return True
+    return (st in ("", "red", "yellow") and not row.get("conclusion")
+            and (_num(row.get("ratio")) or _num(row.get("delta_s"))))
+
+
+def smoke_key(repo: str, entry: str) -> str:
+    """`smoke:<repo>:<entry>` — a failing or timed-out smoke script (python
+    suffix stripped), never a `timing:` key."""
+    return f"smoke:{str(repo).strip()}:{PY_SUFFIX_RX.sub('', str(entry).strip())}"
+
+
 def _perf_rows(board: dict):
     """(kind, repo, name, row) for each Heart-flagged performance row."""
     perf = (board or {}).get("performance") or {}
@@ -590,29 +654,54 @@ def timing_findings(board: dict) -> list[Finding]:
     `smoke_timings` and `unit_test_timing` monitoring rows. One finding per
     key, however many rows (run ids, python versions) report it. Judge
     always (a slow witness). Stale when Heart marks every monitoring row for
-    the key not fresh, or stale, and none flags it fresh."""
+    the key not fresh, or stale, and none flags it fresh.
+
+    A flagged row that is a FAILURE (`failure_reason`) is never a slowdown: a
+    smoke script becomes `smoke:<repo>:<entry>` (fix it, reproduce first;
+    witness: passes under the smoke cap), and a failing gate is dropped (the
+    monitoring `ci_status` rows file it). A gate is a slowdown only on
+    `_gate_slowdown`."""
     found: dict[str, Finding] = {}
     fresh_flag, stale_flag = set(), set()
 
-    def add(kind, repo, name, row, origin):
+    def classify(kind, repo, name, row, path="", summary=""):
+        """(key, kind, failure) or None when the row is not this source's."""
         if not repo or not name:
-            return
-        key = timing_key(kind, repo, name)
+            return None
+        why = failure_reason(row, path, summary)
+        if kind == "gate":
+            return None if why or not _gate_slowdown(row) else \
+                (timing_key(kind, repo, name), kind, "")
+        if kind == "script" and why:
+            return smoke_key(repo, name), "smoke", why
+        return timing_key(kind, repo, name), kind, ""
+
+    def add(cls, repo, name, row, origin):
+        key, kind, why = cls
         compact = {k: v for k, v in row.items()
                    if k not in ("spark", "baseline_run_ids", "action")}
         f = found.get(key)
         if f is None:
             name = PY_SUFFIX_RX.sub("", str(name).strip())
-            path = name.split("::", 1)[0] if kind == "unit" else name if kind == "script" else ""
+            path = name.split("::", 1)[0] if kind == "unit" else \
+                name if kind in ("script", "smoke") else ""
+            if kind == "smoke":
+                state = row.get("state") or row.get("status") or "red"
+                summary = (f"[{state}] failing or timed-out smoke script {repo}: {name} "
+                           f"— {why}")
+                witness, action = SMOKE_WITNESS, SMOKE_ACTION
+            else:
+                summary = _timing_summary(kind, repo, name, row)
+                witness, action = TIMING_WITNESS, TIMING_ACTION
             f = found[key] = Finding(
                 key=key, source="timing", repo=str(repo).strip(),
-                paths=[path] if path else [],
-                summary=_timing_summary(kind, repo, name, row)[:240],
-                witness=TIMING_WITNESS, tier_floor="judge",
+                paths=[path] if path else [], summary=summary[:240],
+                witness=witness, tier_floor="judge",
                 lane="any" if kind == "gate" else "local-dev",
-                evidence={"kind": kind, "name": name, "action": TIMING_ACTION,
-                          "status": "yellow", "rows": []})
-        if "baseline" not in f.summary:  # the richest row names the summary
+                evidence={"kind": kind, "name": name, "action": action,
+                          "status": "red" if kind == "smoke" else "yellow", "rows": [],
+                          **({"failure": why} if why else {})})
+        if kind != "smoke" and "baseline" not in f.summary:  # the richest row names it
             better = _timing_summary(kind, f.repo, f.evidence["name"], row)[:240]
             if "baseline" in better:
                 f.summary = better
@@ -622,23 +711,32 @@ def timing_findings(board: dict) -> list[Finding]:
         f.evidence["rows"].append({"from": origin, **compact})
 
     for kind, repo, name, row in _perf_rows(board):
-        add(kind, repo, name, row, "performance")
+        cls = classify(kind, repo, name, row)
+        if cls:
+            add(cls, repo, name, row, "performance")
     for m in ((board or {}).get("monitoring") or {}).get("findings") or []:
         if not isinstance(m, dict):
             continue
         parsed = _mon_timing(m)
         if parsed is None:
             continue
-        key = timing_key(*parsed)
+        ev = m.get("evidence") if isinstance(m.get("evidence"), dict) else {}
+        row = {"status": m.get("status"), "id": m.get("id"),
+               "observed_at": m.get("observed_at"), **ev}
+        if parsed[0] == "gate" and "state" not in ev:
+            row["state"] = ""   # a monitoring status alone is not a slowdown state
+        cls = classify(*parsed, row, path=str(m.get("source") or ""),
+                       summary=str(m.get("summary") or ""))
+        if cls is None:
+            continue
+        key = cls[0]
         if m.get("fresh") is False or m.get("status") in ("stale", "grey"):
             stale_flag.add(key)
         if m.get("status") not in FILED_STATUSES:
             continue
         if m.get("fresh") is not False:
             fresh_flag.add(key)
-        ev = m.get("evidence") if isinstance(m.get("evidence"), dict) else {}
-        add(*parsed, {"status": m.get("status"), "id": m.get("id"),
-                      "observed_at": m.get("observed_at"), **ev}, "monitoring")
+        add(cls, parsed[1], parsed[2], row, "monitoring")
     for key, f in found.items():
         f.stale = key in stale_flag and key not in fresh_flag
         f.evidence["rows"] = f.evidence["rows"][:6]

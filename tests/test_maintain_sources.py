@@ -451,3 +451,93 @@ def test_rank_is_unchanged_for_the_first_three_sources():
     assert _maintain.SOURCES[:3] == ("census", "monitoring", "release")
     assert _maintain.SOURCES == ("census", "monitoring", "release", "hygiene",
                                             "timing")
+
+
+# --- review fixes: failures are never slowdowns -------------------------------------------
+
+def _smoke_mon(entry, status="red", path="smoke_timings/rows/0", summary="red", **ev):
+    m = _mon("smoke_timings", f"ws_eps/{entry}/3.12", status, "4242",
+             evidence={"repo": "ws_eps", "entry": entry, "run_id": 4242, **ev})
+    return dict(m, source=f"snapshot.smoke_timings:{path}", summary=summary)
+
+
+def _only_mon(*rows):
+    return {"ts": TS, "performance": {}, "monitoring": {"findings": list(rows)}}
+
+
+def test_a_red_failing_smoke_script_is_a_smoke_key_never_a_timing_key():
+    board = _only_mon(
+        _smoke_mon("scripts/broken.py", path="smoke_timings/failing_scripts/0",
+                   state="red"),
+        _smoke_mon("scripts/exit.py", exit_code=1, state="red"),
+        _smoke_mon("scripts/notok.py", ok=False))
+    by = {f.key: f for f in _maintain.timing_findings(board)}
+    assert set(by) == {"smoke:ws_eps:scripts/broken.py", "smoke:ws_eps:scripts/exit.py",
+                       "smoke:ws_eps:scripts/notok.py"}
+    for f in by.values():
+        assert f.tier_floor == "judge" and f.witness == _maintain.SMOKE_WITNESS
+        assert f.evidence["action"] == _maintain.SMOKE_ACTION and f.evidence["failure"]
+        text = _draft(f)
+        assert "fix the failing or timed-out smoke script" in text.lower()
+        assert "reproduce" in text and "Nothing is failing" not in text
+        assert "re-baseline" not in text
+    assert "failing_scripts" in by["smoke:ws_eps:scripts/broken.py"].evidence["failure"]
+
+
+@pytest.mark.parametrize("row", [
+    {"kind": "timed_out"}, {"kind": "kill_timer"}, {"kind": "hang"},
+    {"reason": "timed out at the 300s cap"},
+])
+def test_a_timed_out_smoke_row_is_a_smoke_key(row):
+    board = _only_mon(_smoke_mon("scripts/slowpoke.py", **row))
+    assert _keys(_maintain.timing_findings(board)) == ["smoke:ws_eps:scripts/slowpoke.py"]
+    s = _only_mon(_smoke_mon("scripts/slowpoke.py", summary="timed out"))
+    assert _keys(_maintain.timing_findings(s)) == ["smoke:ws_eps:scripts/slowpoke.py"]
+
+
+def test_a_genuinely_slowed_smoke_row_stays_a_timing_key():
+    board = _only_mon(_smoke_mon("scripts/slowed.py", status="yellow", state="warn",
+                                 exit_code=0, seconds=90.0, prev_s=20.0, ratio=4.5))
+    board["performance"] = {"scripts": {"slowed": [
+        {"repo": "ws_eps", "entry": "scripts/slowed.py", "seconds": 90.0, "state": "slowed",
+         "exit_code": 0, "status": "passed"}]}}
+    fs = _maintain.timing_findings(board)
+    assert _keys(fs) == ["timing:script:ws_eps:scripts/slowed.py"]
+    assert fs[0].evidence["action"] == _maintain.TIMING_ACTION
+
+
+def test_a_failing_perf_script_row_is_a_smoke_key():
+    board = {"ts": TS, "performance": {"scripts": {"rows": [
+        {"repo": "ws_eps", "entry": "scripts/x.py", "seconds": 301.0, "state": "red",
+         "exit_code": 124, "status": "failed"}]}}, "monitoring": {"findings": []}}
+    assert _keys(_maintain.timing_findings(board)) == ["smoke:ws_eps:scripts/x.py"]
+
+
+def test_a_gate_red_from_conclusions_is_not_a_slowdown():
+    failing = _mon("ci_timing", "ws_eps/Smoke Tests", "red",
+                   evidence={"repo": "ws_eps", "workflow": "Smoke Tests",
+                             "conclusion": "failure", "median_s": 300.0})
+    timed = _mon("ci_timing", "ws_eps/Docs", "red",
+                 evidence={"repo": "ws_eps", "workflow": "Docs", "conclusion": "timed_out"})
+    bare_red = _mon("ci_timing", "ws_eps/Lint", "red",
+                    evidence={"repo": "ws_eps", "workflow": "Lint"})
+    slowed = _mon("ci_timing", "ws_eps/Tests", "yellow",
+                  evidence={"repo": "ws_eps", "workflow": "Tests", "state": "warn",
+                            "median_s": 400.0, "baseline_s": 200.0})
+    by_ratio = _mon("ci_timing", "ws_eps/Build", "red",
+                    evidence={"repo": "ws_eps", "workflow": "Build", "ratio": 2.4})
+    board = _only_mon(failing, timed, bare_red, slowed, by_ratio)
+    board["performance"] = {"gates": [
+        {"repo": "ws_eps", "workflow": "Pages", "state": "red", "conclusion": "failure",
+         "median_s": 50.0}]}
+    assert set(_keys(_maintain.timing_findings(board))) == {
+        "timing:gate:ws_eps:Tests", "timing:gate:ws_eps:Build"}
+
+
+def test_escapes_prompt_names_the_docstring_or_comment_rule():
+    f = next(f for f in _all_hygiene(_line()) if f.key.startswith("escapes:"))
+    text = _draft(f)
+    assert "not a docstring or a comment" in text and "plot label" in text
+    assert "format string" in text and "regex" in text and "runtime output" in text
+    d = next(f for f in _all_hygiene(_line()) if f.key.startswith("docstrings:"))
+    assert "plot label" not in _draft(d)

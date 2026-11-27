@@ -377,6 +377,20 @@ Both are in the default `--sources` and in the 14.3 brief's `sources:`.
 - **Unread, not all-clear.** An unpublished (404), unreadable, empty or
   malformed ledger, or one whose latest day is over 48 h old (a daily
   ledger, so not the 6 h rule) or in the future, is unread: exit 3.
+- **Failures are never slowdowns.** A flagged row Heart's monitoring walker
+  reached under `failures`, `failing_scripts` or `events`, or with a non-zero
+  `exit_code`, `ok: false`, a timeout or hang `kind`, a failing conclusion
+  or status, or a summary saying it timed out, is a failure. A smoke script
+  failure is filed as `smoke:<repo>:<entry>` (judge; "fix the failing or
+  timed-out smoke script, reproduce first"; witness: the script passes under
+  the smoke cap on a fresh run), never a `timing:` key. A gate is a slowdown
+  only on `state` warn/slowed, or a red with duration evidence (ratio or
+  delta) and no failing conclusion; a failing gate is dropped here, since the
+  monitoring `ci_status` rows file it.
+- **Escapes.** The glance floor holds only while every changed string is a
+  docstring or a comment; a change to any other string literal (a plot
+  label, a format string, a regex) changes runtime output and raises the
+  tier to judge. The prompt body says so.
 - **Timing.** Stale when Heart marks every monitoring row for the key not
   fresh (or `stale`) and none flags it fresh. The action text is "investigate
   whether the slowdown is real, then speed it up or re-baseline" — never "fix
@@ -470,12 +484,20 @@ the sources (14.1, `_maintain.read_sources`), files through the writer (14.2,
 already open alike, anything with a `Source-key:` header.
 
 - **The block.** `maintenance:` holds `sources:` (default all of census,
-  monitoring, release, hygiene, timing; `--hygiene-json` replays a ledger), `cap:` (default 5) and `tiers:` (default
+  monitoring, release, hygiene, timing since 14.5; `--hygiene-json` replays a
+  ledger), `cap:` (default 5) and `tiers:` (default
   `glance, judge`). The one goal is `maintenance: board findings (…)`; the
   digest's first line names the shift as a maintenance shift from it.
   `brief --check` validates the block (known keys, sources, tiers, a whole
   `cap`, the goal), warns on a named task with no `Source-key:` ("none by
   hand"), and lists each named task with its tier, Witness and key.
+- **The default sources since 14.5.** With hygiene and timing in the
+  defaults, ranking is glance first, so a cap-5 brief names any glance organ
+  CI reds and then mostly glance hygiene edits (`escapes:` and `docstrings:`
+  files); census, timing and other judge findings come only after those.
+  Narrow it with `--sources` (for example `--sources census,monitoring,release`
+  for the 14.3 behaviour, or `--sources timing` for a slowdown shift) or with
+  `--maintenance-tiers judge`.
 - **What is named.** Cheapest tier first, then priority, then path, up to
   `cap`. Passed over, each with its reason in the record's `## Maintenance`
   section: a prompt whose source is unread, stale or partial this run (the

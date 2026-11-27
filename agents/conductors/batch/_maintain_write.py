@@ -87,6 +87,10 @@ RECHECK = {
                "as already back under its threshold and stop. Then confirm the slowdown "
                "is real (compare several post-merge runs, not one) before changing "
                "anything."),
+    "smoke": ("re-read the Heart board (`batch maintain --dry-run --sources timing`): if "
+              "the `smoke:` key is gone, close this draft as already fixed and stop. Then "
+              "reproduce: run the script on main under the smoke cap and read its own "
+              "error before changing anything."),
 }
 
 
@@ -255,6 +259,10 @@ def _surface_rule(f) -> str:
         scope = (f"its own surface (the file the key names, {surface} in {repo}: a text, "
                  "comment or documentation edit). If your diff touches any other file, "
                  "or changes what the code does")
+        if f.key.startswith("escapes:"):
+            scope += (", or changes any string that is not a docstring or a comment (a "
+                      "plot label, a format string, a regex — any string literal the code "
+                      "uses at runtime: fixing its escapes changes runtime output)")
     elif f.key.startswith("ci:"):
         scope = (f"its own surface (the code the red workflow runs in {repo}), which "
                  "excludes `.github/workflows/`, dependency pins and public names. If "
@@ -288,7 +296,8 @@ def draft_text(f, read: dict, today: str, *, target: str, lane: str,
     read_line = (f"Filed from the `{f.source}` source ({read.get('source') or '?'}, "
                  + ("age unknown" if when is None else f"{when:.1f} h old") + ").")
     body = [f"**Re-check first.** {read_line} Before any work, "
-            + RECHECK.get(_maintain.base_source(f.source),
+            + RECHECK.get("smoke" if f.key.startswith("smoke:")
+                          else _maintain.base_source(f.source),
                           "re-read the source; if the finding is gone, stop."),
             "", f"Finding (`{f.source}`, key `{f.key}`):", f"> {f.summary}", ""]
     if f.source == "release":
