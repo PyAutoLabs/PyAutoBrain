@@ -77,6 +77,11 @@ Compose it with `batch brief --new <slot> --review-at <ISO> --out <file>`,
 which also makes the shift issue on PyAutoMind and writes `issue:`
 (2026-11-17). Then run `batch brief --check <file>`: it refuses a live brief
 without `issue:`, and an expired CLI login (the human runs `claude /login`).
+It also reads Heart (`--heart-json <file>` replays a saved read): a RED or
+YELLOW without the human's `heart-ack:` is refused, unless every red and
+yellow reason is `report only` and none names a repo the brief touches
+(ruling R1, AUTONOMY.md leg 4) — then it writes the reason set under
+`## Heart` in the record, so commit the record after the check.
 **Pushing the brief is the launch.** The watcher finds it on Mind
 `origin/main` itself, ticks it from `dispatched:` to `review-at:`, and stops
 45 min after `review-at:`. Never two open briefs at once. The watcher reads

@@ -483,6 +483,21 @@ own `batches/AGENTS.md` drops both: the Heart gates releases, not runs), and
 **their absence there is never read as an unacknowledged RED** — the fields are
 not missing, they do not exist on that schema.
 
+**A report-only RED needs no acknowledgement — ruling R1, 2026-11-17
+(recorded 2026-11-27, PyAutoBrain#727).** At a shift launch, a Heart RED (or a
+YELLOW, the weaker verdict on the same reasons) whose every red and yellow
+reason is `report only` (a library checkout behind or dirty, on another branch, worktree or manifest drift — the
+local-checkout class of the keep-Heart-green lane), and none of which names a
+repo the brief touches, needs no `heart-ack:` from the human. `batch brief
+--check` applies it and writes the reason set into the record under
+`## Heart` instead, so what the shift launched on is still on file. Anything
+else still needs the human's `heart-ack:`: a human-only reason (an open PR,
+release validation, a quarantine), a release-scope reason, a fixable one, or
+any reason on a repo the brief touches. A STALE reason is an evidence gap and
+is not judged here. Unchanged: a run still parks on a new RED, and nothing is
+acknowledged autonomously — the rule only says which launch reads need the
+human's word.
+
 ## Shift speed — 2026-11-19
 
 The human's rulings, 2026-11-19, on the orchestrator speed review

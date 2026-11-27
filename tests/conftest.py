@@ -49,6 +49,9 @@ def _no_real_launch_probes(monkeypatch):
     monkeypatch.setenv("PYAUTO_BRIEF_ISSUE", "off")
     # `brief --check` on a brief that grants `ral` runs one BatchMode ssh.
     monkeypatch.setenv("PYAUTO_RAL_PROBE", "off")
+    # `brief --check` reads Heart at the launch (R1, PyAutoBrain#727); a test
+    # that wants it passes a saved `--heart-json`.
+    monkeypatch.setenv("PYAUTO_HEART_PROBE", "off")
 
 
 @pytest.fixture(autouse=True)

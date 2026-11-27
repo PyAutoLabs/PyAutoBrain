@@ -242,3 +242,77 @@ def test_the_ral_probe_names_no_host_of_its_own(tmp_path, monkeypatch, capsys):
     assert _ral.host_of(mind) == ""
     res, warns = _ral.findings(["any", "ral"], mind)
     assert res["state"] == "unknown" and len(warns) == 1 and not log.exists()
+
+
+# --- R1 (PyAutoBrain#727): a report-only Heart RED needs no `heart-ack:` --------
+
+import datetime as _dt  # noqa: E402
+import json  # noqa: E402
+
+import pytest  # noqa: E402
+
+TASK = "draft/feature/x/array_task.md"
+REPORT_ONLY = ["libgamma: 3 commit(s) behind origin",
+               "libbeta: 2 uncommitted source changes",
+               "manifest drift: example leg — 2 file(s) differ"]
+
+
+def _heart(tmp_path: Path, red: list[str], yellow: list[str] = ()) -> Path:
+    """A fresh saved `readiness --json`, RED."""
+    f = tmp_path / "heart.json"
+    f.write_text(json.dumps({
+        "verdict": "red", "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "red_reasons": red, "yellow_reasons": list(yellow), "stale_reasons": [],
+        "repository_reasons": []}))
+    return f
+
+
+def _r1_brief(tmp_path: Path, mind: Path) -> Path:
+    """A live brief naming one task that touches libalpha, with no `heart-ack:`."""
+    (mind / TASK).write_text("# Array task\n\nType: feature\nTarget: libalpha\n"
+                             "Repos:\n- libalpha\n", encoding="utf-8")
+    return _brief(tmp_path, extra=f"  - tasks:\n    - {TASK}\n")
+
+
+def test_r1_report_only_red_off_the_touched_repos_needs_no_ack(tmp_path, capsys):
+    mind = _mind(tmp_path)
+    brief = _r1_brief(tmp_path, mind)
+    heart = _heart(tmp_path, REPORT_ONLY)
+    rc, out = _check(brief, mind, capsys, "--heart-json", str(heart))
+    assert rc == 0, out
+    assert "no heart-ack needed (R1)" in out
+    text = brief.read_text()
+    assert "\n## Heart\n" in text and "(R1, 2026-11-17)" in text
+    for reason in REPORT_ONLY:
+        assert f"- [red] {reason}" in text
+    # A second check replaces the reason set rather than adding another.
+    assert _check(brief, mind, capsys, "--heart-json", str(heart))[0] == 0
+    assert brief.read_text().count("(R1, 2026-11-17)") == 1
+
+
+def test_r1_a_reason_on_a_touched_repo_still_needs_the_ack(tmp_path, capsys):
+    mind = _mind(tmp_path)
+    brief = _r1_brief(tmp_path, mind)
+    heart = _heart(tmp_path, REPORT_ONLY + ["libalpha: 1 commit(s) behind origin"])
+    rc, out = _check(brief, mind, capsys, "--heart-json", str(heart))
+    assert rc == 1 and "heart-ack: missing" in out and "names libalpha" in out
+    assert "## Heart" not in brief.read_text()
+
+
+@pytest.mark.parametrize("reason", [
+    "libgamma: open PR 9d old",                          # human-only
+    "release validation stale: source moved since rehearsal",  # release-scope
+])
+def test_r1_a_human_only_reason_still_needs_the_ack(tmp_path, capsys, reason):
+    mind = _mind(tmp_path)
+    brief = _r1_brief(tmp_path, mind)
+    heart = _heart(tmp_path, REPORT_ONLY, yellow=[reason])
+    rc, out = _check(brief, mind, capsys, "--heart-json", str(heart))
+    assert rc == 1 and "heart-ack: missing" in out and reason in out
+    assert "## Heart" not in brief.read_text()
+    # The human's acknowledgement launches it, and nothing is written.
+    acked = brief.read_text().replace("- brief:", f"- heart-ack:\n  - {reason}\n- brief:")
+    brief.write_text(acked)
+    rc, out = _check(brief, mind, capsys, "--heart-json", str(heart))
+    assert rc == 0, out
+    assert brief.read_text() == acked
