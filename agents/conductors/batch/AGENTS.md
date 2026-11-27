@@ -423,6 +423,76 @@ call the same `file_findings` for the release source.
   anything is read, state included. `--file` without `--mind` refuses. Every
   write is a new file; no existing prompt is edited.
 
+## The maintenance brief (Phase 14.3, PyAutoBrain#737)
+
+`batch brief --new <slot> --maintenance --review-at <ISO> --out <record> --mind <dir>`
+writes a brief whose tasks come from the boards, not from a human. It reads
+the sources (14.1, `_maintain.read_sources`), files through the writer (14.2,
+`file_findings`, capped at the brief's `cap`, only findings whose tier is in
+`tiers:`) into `--mind`, then names as
+`tasks:` the generated prompts in that Mind's `draft/` — newly filed and
+already open alike, anything with a `Source-key:` header.
+
+- **The block.** `maintenance:` holds `sources:` (default all of census,
+  monitoring, release), `cap:` (default 5) and `tiers:` (default
+  `glance, judge`). The one goal is `maintenance: board findings (…)`; the
+  digest's first line names the shift as a maintenance shift from it.
+  `brief --check` validates the block (known keys, sources, tiers, a whole
+  `cap`, the goal), warns on a named task with no `Source-key:` ("none by
+  hand"), and lists each named task with its tier, Witness and key.
+- **What is named.** Cheapest tier first, then priority, then path, up to
+  `cap`. Passed over, each with its reason in the record's `## Maintenance`
+  section: a prompt whose source is unread, stale or partial this run (the
+  writer's own `unusable` — nothing is filed **or named** from it); one whose
+  key the fresh read no longer lists (its re-check would close it); one
+  claimed in `active.md`; blocked (`Blocked-by:` or `Status: blocked`) or
+  done; a tier outside `tiers:`; past the cap.
+- **Backlog: none.** A maintenance brief runs only its named tasks, so a
+  prompt passed over (stale source, key no longer listed, claimed, past the
+  cap) never comes back as a dip. The schema keeps `scoped:`/`exclude:`
+  `sources: maintenance` (`sources:` narrows the other scoped keys) for later
+  use; generated briefs do not write it. Lanes `any local-dev` (no RAL);
+  `merge-cap: 0`.
+- **The M3 gate holds on the tasks.** `brief --check` refuses any live
+  (non-shadow) brief that names a generated prompt (`Source-key:`), or uses
+  `scoped:`/`exclude:` `sources: maintenance`, unless it has a `maintenance:`
+  block with `gate-open:` — so deleting the block does not get past it. And
+  `scope()` keeps every generated prompt out of any brief without
+  `gate-open:` before its exemptions — a dip (`fill-idle` and `scoped`
+  alike), a resume after an answered question, or a named task of a live
+  brief; only a shadow brief's named tasks (proposals) pass. The watcher's
+  `/add` refuses a generated prompt in a shift without `gate-open:` in the
+  same words. An ordinary shift never runs one, even a glance one graded
+  `Unattended: ready`.
+- **Ranking.** The writer files in one order (`_maintain_write.rank`, shared
+  with `batch maintain --file`): tier (glance before judge), then a red or
+  high-priority finding, then source order, then the finding's own place in
+  the list (Heart's order kept); one cap, no per-tier caps. So a small cap takes glance organ-CI fixes before a pile of judge
+  census rows.
+- **State home.** With `--out`, `maintain.json` goes to the real
+  orchestrator home only when `--home` names it explicitly — the switch a
+  real launch passes (`--home "$PYAUTO_ORCHESTRATOR_HOME"`, the home in
+  `~/.config/pyauto/orchestrator.env`). Without `--home` it goes beside the
+  record (`<record>.maintain/`), said on stderr, so a throwaway or
+  experimental run (a scratch worktree of the canonical Mind included) never
+  writes the real state — whose `filed` rows would stop real filings. The
+  keep-Heart-green lane's own state handling is unchanged.
+- **Shadow by default.** `shadow: yes` unless `--live`, and a shadow brief
+  makes no shift issue. **`--live` is refused unless `--gate-open`** — the
+  human's explicit word that the M3 gate (PyAutoBrain#574) is open, written
+  into the block as `gate-open:`; `brief --check` refuses a live maintenance
+  brief without it (a hand edit of `shadow:` included). A declared rule, not
+  an issue-state read: a closed issue is not a human decision, and the check
+  stays offline.
+- **Write guard.** With `--out`, an explicit `--mind` that is a linked
+  worktree or not a git checkout (`_maintain_write.write_hold`), checked
+  before any read; a main checkout is refused. Without `--out` it is a
+  preview: it reads, files nothing, and prints the brief.
+- **Reuse.** The keep-Heart-green lane does not run (the release source is
+  filed through the same writer). The watcher, digest, planner gates and
+  the R1 Heart launch read at `--check` are unchanged; there is no second
+  watcher.
+
 ## The watcher (phases 3a–3d)
 
 `bin/orchestrator_watch.py --mind <PyAutoMind>` finds the brief and runs **one

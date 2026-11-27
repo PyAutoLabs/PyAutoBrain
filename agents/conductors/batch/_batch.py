@@ -240,6 +240,7 @@ def survey(mind: Path) -> list[dict]:
         g["ledger"] = is_ledger_text(text)
         g["themes"] = _themes_of(text)
         g["title"] = _title_of(text)
+        g["source_key"] = _header_of(text, "source-key")
         out.append(g)
     return out
 
@@ -258,6 +259,7 @@ def grade_text(text: str, rel: str, mind: Path) -> dict:
     g["ledger"] = is_ledger_text(text)
     g["themes"] = _themes_of(text)
     g["title"] = _title_of(text)
+    g["source_key"] = _header_of(text, "source-key")
     return g
 
 
@@ -965,7 +967,7 @@ def derive_awaiting_review(mind: Path) -> int:
 # -------------------------------------------------------------------- cli ---
 #: Flags other verbs own. Passing one to `plan` or `slice` is a usage error
 #: rather than a silent no-op.
-NOT_PLAN = ("fetch", "apply", "out")
+NOT_PLAN = ("fetch", "apply", "out", "maintenance", "live", "gate_open")
 
 RC_OK, RC_FINDINGS, RC_USAGE, RC_NO_MIND = 0, 1, 2, 4
 
@@ -1135,6 +1137,31 @@ def main(argv=None) -> int:
                          "into --mind's questions.md")
     ap.add_argument("--out", default="",
                     help="brief --new: write the brief to this file")
+    # the maintenance brief (Phase 14.3, PyAutoBrain#737)
+    ap.add_argument("--maintenance", action="store_true",
+                    help="brief --new: a maintenance brief — read the boards (14.1), "
+                         "file through the writer (14.2) into --mind (a linked worktree "
+                         "or non-git directory, with --out) and name the generated "
+                         "prompts as its tasks; `shadow: yes` unless --live")
+    ap.add_argument("--live", action="store_true",
+                    help="brief --new --maintenance: a live brief (no `shadow:`) — "
+                         f"refused unless --gate-open: the live run waits for "
+                         f"{_brief.MAINTENANCE_GATE}")
+    ap.add_argument("--gate-open", action="store_true", dest="gate_open",
+                    help="brief --new --maintenance --live: the human's word that the "
+                         f"M3 gate ({_brief.MAINTENANCE_GATE}) is open; written into "
+                         "the brief as `gate-open:`")
+    ap.add_argument("--sources", default="",
+                    help="brief --new --maintenance: board sources, a subset of "
+                         + ",".join(_brief.MAINTENANCE_SOURCES) + " (default: all)")
+    ap.add_argument("--maintenance-cap", type=int, default=_brief.MAINTENANCE_DEFAULT_CAP,
+                    help="brief --new --maintenance: file and name at most this many")
+    ap.add_argument("--maintenance-tiers", default=",".join(_brief.MAINTENANCE_DEFAULT_TIERS),
+                    help="brief --new --maintenance: Consequence tiers it may name")
+    ap.add_argument("--board-json", default="", metavar="FILE",
+                    help="brief --new --maintenance: a saved Heart board.json")
+    ap.add_argument("--census-json", default="", metavar="FILE",
+                    help="brief --new --maintenance: a saved no_run_census.json")
     ap.add_argument("--review-at", default="",
                     help="when you expect to be back — the shift is dispatch "
                          "-> review-at, and it is yours to declare")
@@ -1974,6 +2001,8 @@ def goal_one_warning(path: Path, mind: Path) -> str:
         brief = _brief.parse(path.read_text(encoding="utf-8", errors="replace"))["brief"]
     except (OSError, _brief.BriefError):
         return ""
+    if brief and "maintenance" in brief:
+        return ""   # a maintenance shift's one goal is the boards (Phase 14.3)
     node = (brief or {}).get("goals")
     have = " ".join(c["text"] for c in node["children"]) if node else ""
     if goals[0]["text"].lower() in have.lower():
@@ -2007,6 +2036,8 @@ def _main_brief(mind: Path, a) -> int:
             print(f"batch brief --new: --issue {a.issue!r} is not a GitHub issue URL",
                   file=sys.stderr)
             return RC_USAGE
+        if a.maintenance or a.live or a.gate_open:
+            return _main_maintenance_brief(mind, a)
         heart = green_lane(mind, a, os.environ.get(_green.MODE_ENV) or _green.DEFAULT_MODE,
                            preview=not a.out)
         if heart["filed"]:
@@ -2089,6 +2120,12 @@ def _main_brief(mind: Path, a) -> int:
                             if not e["taken"]]
         res["notes"] += [f"queued epic {e['line']}" for e in res["queued_epics"]
                          if e["taken"]]
+        if "maintenance" in rec["brief"]:
+            res["maintenance"] = maintenance_tasks(rec["brief"], mind)
+            res["notes"] += [_brief.maintenance_line(rec["brief"])]
+            res["notes"] += [f"maintenance task: {m['path']} [{m['tier']}] "
+                             f"Witness: {m['witness'] or 'NONE'} · Source-key: "
+                             f"{m['source_key'] or 'NONE'}" for m in res["maintenance"]]
         for t in _brief.tasks_of(rec["brief"]):
             f = _brief._resolve(mind, t)
             if f is not None:
@@ -2242,6 +2279,305 @@ def _main_plan(mind: Path, a, lane: str) -> int:
         print(json.dumps(d, indent=2))
         return RC_OK
     emit(d)
+    return RC_OK
+
+
+
+# --- the maintenance brief (Phase 14.3, PyAutoBrain#737) -------------------------
+
+#: A maintenance brief's lanes: its generated prompts are local-dev or any;
+#: no RAL, so no `ral-allowance:` to edit.
+MAINTENANCE_LANES = "any local-dev"
+
+
+def maintenance_tasks(brief: dict, mind: Path) -> list[dict]:
+    """Each named task of a brief with its tier, Witness and `Source-key:`, as
+    `brief --check` lists them for a maintenance brief."""
+    out = []
+    for t in _brief.tasks_of(brief):
+        f = _brief._resolve(mind, t)
+        if f is None:
+            out.append({"path": t, "tier": "?", "witness": "", "source_key": ""})
+            continue
+        g = grade(f, mind)
+        out.append({"path": t, "tier": g["consequence"], "witness": g.get("witness") or "",
+                    "source_key": _brief.source_key(
+                        f.read_text(encoding="utf-8", errors="replace"))})
+    return out
+
+
+def _claimed_in_active(mind: Path) -> set[str]:
+    """Prompt stems `active.md` claims: a `## <slug>` section, or its `prompt:`."""
+    out = set()
+    for slug, e in read_active(mind).items():
+        out.add(slug)
+        if e.get("prompt"):
+            out.add(Path(e["prompt"]).stem)
+    return out
+
+
+def pick_generated(mind: Path, reads: dict, present: set, cap: int,
+                   tiers: list[str]) -> tuple[list[dict], list[tuple[str, str]]]:
+    """(named, passed over) — the generated prompts (a `Source-key:` header)
+    in `mind`'s `draft/` a maintenance brief names, up to `cap`: newly filed
+    and already open alike. A prompt is passed over, with why, when its source
+    is unread, stale or partial this run (`_maintain_write.unusable`), when the
+    fresh read no longer lists its key, when `active.md` claims it, when it is
+    blocked or done, when its tier is outside `tiers`, or past the cap.
+    Order: cheapest tier first, then priority, then path."""
+    import _maintain_write  # noqa: E402 — Phase 14.2; never from the tick
+    claimed = _claimed_in_active(mind)
+    cands, passed = [], []
+    for f in sorted(mind.glob("draft/**/*.md")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        key = _brief.source_key(text)
+        if not key:
+            continue
+        rel = f.relative_to(mind).as_posix()
+        src = _maintain_write.source_of(text)
+        if not src:
+            passed.append((rel, "its source is not recorded in the prompt"))
+            continue
+        why = _maintain_write.unusable(reads.get(src))
+        if why:
+            passed.append((rel, f"{src}: {why} — nothing named from it"))
+            continue
+        if key not in present:
+            passed.append((rel, f"the fresh {src} read no longer lists {key} — its "
+                                "re-check would close it"))
+            continue
+        if f.stem in claimed:
+            passed.append((rel, "claimed in active.md"))
+            continue
+        g = grade(f, mind)
+        if _is_done(text):
+            passed.append((rel, "Status: says the work is already done"))
+            continue
+        if g["blocked"] or _header_of(text, "status").lower() == "blocked":
+            passed.append((rel, "blocked (" + ("; ".join(g.get("blocked_by") or [])
+                                               or "Status: blocked") + ")"))
+            continue
+        if g["consequence"] not in tiers:
+            passed.append((rel, f"tier {g['consequence']} not in the brief's tiers "
+                                f"({', '.join(tiers)})"))
+            continue
+        if not g.get("witness"):
+            passed.append((rel, "no Witness"))
+            continue
+        cands.append({"path": rel, "key": key, "source": src, "tier": g["consequence"],
+                      "witness": g["witness"], "unattended": g["unattended"],
+                      "difficulty": g["difficulty"], "priority": g["priority"]})
+    order = {t: i for i, t in enumerate(_brief.CONSEQUENCE_TIERS)}
+    cands.sort(key=lambda r: (order.get(r["tier"], 99), priority_rank(r), r["path"]))
+    passed += [(r["path"], f"over the cap ({cap})") for r in cands[cap:]]
+    return cands[:cap], passed
+
+
+def _orchestrator_home_path() -> Path:
+    import _orchestrator  # noqa: E402 — deferred: only the state path
+    return Path(_orchestrator.orchestrator_home())
+
+
+def maintenance_home(mind: Path, a) -> Path:
+    """Where the writer's `maintain.json` lives for this run: the real
+    orchestrator home only when `--home` names it (the launch passes it
+    explicitly); otherwise a folder beside the record (`<record>.maintain/`),
+    so a throwaway or experimental run never writes — or, by recording keys
+    as filed, blocks — the real state. A preview writes none."""
+    if a.home:
+        return Path(a.home)
+    if not a.out:
+        return _orchestrator_home_path()
+    out = Path(a.out)
+    return out.parent / f"{out.stem}.maintain"
+
+
+def maintenance_lane(mind: Path, a, *, sources: list[str], cap: int, tiers: list[str],
+                     preview: bool) -> dict:
+    """Read the boards (14.1), file through the writer (14.2) into `mind` —
+    never in a preview — and pick the generated prompts the brief names."""
+    import _maintain  # noqa: E402
+    import _maintain_write  # noqa: E402
+    now = _brief._iso(a.at) if a.at else None
+    if now is not None and now.tzinfo is None:
+        now = now.replace(tzinfo=_dt.timezone.utc)
+    reads, raw, found = _maintain.read_sources(sources, a.board_json, a.census_json,
+                                               a.heart_json, now)
+    present = _maintain_write.present_keys(raw, reads)
+    # Only the tiers this brief may name are filed (every finding still
+    # counts as listed, so nothing else is cleared).
+    in_tiers = {f.key for f in found if f.tier_floor in tiers}
+    if preview:
+        wres = {"filed": [], "skipped": [], "cleared": [], "cap": cap, "notes": [],
+                "hold": "a preview (no --out) writes nothing"}
+    else:
+        wres = _maintain_write.file_findings(
+            found, reads, mind, cap=cap,
+            state_path=Path(a.maintain_home) / _maintain_write.STATE_NAME,
+            now=now, present=present, only=in_tiers)
+    named, passed = pick_generated(mind, reads, present, cap, tiers)
+    return {"sources": sources, "cap": cap, "tiers": tiers, "reads": reads,
+            "findings": len(found), "write": wres, "named": named, "passed": passed}
+
+
+def maintenance_section(res: dict) -> str:
+    """The record's `## Maintenance` section: each source's read, what the
+    writer filed and skipped, what the brief names and what it passed over."""
+    import _maintain  # noqa: E402
+    import _maintain_write  # noqa: E402
+    w = res["write"]
+    L = ["## Maintenance", "",
+         f"Generated by `batch brief --new --maintenance` (Phase 14.3): "
+         f"{res['findings']} finding(s) read; tasks are the maintenance writer's "
+         "prompts (`Source-key:`), none named by hand.", "", "### Source reads", ""]
+    for name in res["sources"]:
+        r = res["reads"].get(name)
+        why = _maintain_write.unusable(r)
+        L.append(f"- {_maintain._read_line(name, r).strip()}" if r else f"- {name}: not read")
+        if why:
+            L.append(f"  - nothing filed or named from {name}: {why}")
+    L += ["", f"### Filed ({len(w['filed'])}, cap {w.get('cap')})", ""]
+    L += [f"- {r['path']} [{r['tier']}] {r['key']}" for r in w["filed"]] or ["- none"]
+    if w.get("hold"):
+        L.append(f"- write held: {w['hold']}")
+    L += ["", f"### Skipped by the writer ({len(w['skipped'])})", ""]
+    L += [f"- {r['key']} ({r['source']}): {r['reason']}" for r in w["skipped"]] or ["- none"]
+    L += ["", f"### Named ({len(res['named'])}, cap {res['cap']}, tiers "
+          f"{', '.join(res['tiers'])})", ""]
+    L += [f"- {r['path']} [{r['tier']}, Unattended {r['unattended']}] {r['key']} — "
+          f"Witness: {r['witness']}" for r in res["named"]] or ["- none"]
+    L += ["", f"### Passed over ({len(res['passed'])})", ""]
+    L += [f"- {p}: {why}" for p, why in res["passed"]] or ["- none"]
+    return "\n".join(L) + "\n"
+
+
+def new_maintenance_brief(slot: str, review_at: str, res: dict, *, live: bool,
+                          issue: str = "", now=None) -> str:
+    """A maintenance brief: one `maintenance:` goal, the `maintenance:` block,
+    `shadow: yes` unless live, the generated prompts as `tasks:` and
+    `backlog: none` — a prompt passed over (stale source, key no longer
+    listed, claimed, past the cap) never comes back as a dip — then the
+    `## Maintenance` section."""
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    shift = {"am": "morning", "pm": "afternoon"}.get(slot.rsplit("-", 1)[-1], slot)
+    srcs, tiers = ", ".join(res["sources"]), ", ".join(res["tiers"])
+    L = [f"# Batch {slot.rsplit('-', 1)[0]} {slot.rsplit('-', 1)[-1]} (maintenance)",
+         f"- dispatched: {now.strftime('%Y-%m-%dT%H:%MZ')}",
+         f"- review-at: {review_at}",
+         f"- shift: {shift}"]
+    if issue:
+        L.append(f"- issue: {issue}")
+    L += ["- brief:",
+          "  - goals:",
+          f"    - 1. {_brief.MAINTENANCE_GOAL_PREFIX} board findings ({srcs}) — the "
+          "maintenance writer's generated prompts, none named by hand",
+          "  - maintenance:",
+          f"    - sources: {srcs}",
+          f"    - cap: {res['cap']}",
+          f"    - tiers: {tiers}"]
+    if live:
+        L.append(f"    - gate-open: {_brief.MAINTENANCE_GATE}   # declared by --live --gate-open")
+    else:
+        L.append(f"  - shadow: yes                     # proposes only; the live run waits "
+                 f"for {_brief.MAINTENANCE_GATE}")
+    if res["named"]:
+        L.append("  - tasks:                          # generated (Source-key), see ## Maintenance")
+        L += [f"    - {r['path']}" for r in res["named"]]
+    L += ["  - backlog: none                   # only the named tasks: nothing passed over "
+          "comes back as a dip",
+          f"  - review-minutes: {NEW_BRIEF_DEFAULTS['review-minutes']}",
+          f"  - lanes: {MAINTENANCE_LANES}",
+          f"  - merge-cap: {NEW_BRIEF_DEFAULTS['merge-cap']}"
+          "                     # unattended glance merges: raise deliberately",
+          f"  - token-budget: {NEW_BRIEF_DEFAULTS['token-budget']}"]
+    return "\n".join(L) + "\n\n" + maintenance_section(res)
+
+
+def _main_maintenance_brief(mind: Path, a) -> int:
+    """`batch brief --new <slot> --maintenance --review-at <ISO> [--out F --mind M]
+    [--live --gate-open]` — Phase 14.3. The caller has checked the slot and
+    `--review-at`.
+
+    `--live` refusal rule (declared, offline): a live maintenance brief needs
+    `--gate-open`, the human's explicit word that the M3 gate
+    (PyAutoBrain#574) is open; it is written into the brief as `gate-open:`,
+    and `brief --check` refuses a live maintenance brief without it. An
+    issue's state is not read: a closed issue is not a human decision."""
+    if not a.maintenance:
+        print("batch brief --new: --live and --gate-open belong to --maintenance",
+              file=sys.stderr)
+        return RC_USAGE
+    if a.gate_open and not a.live:
+        print("batch brief --new --maintenance: --gate-open belongs to --live",
+              file=sys.stderr)
+        return RC_USAGE
+    if a.live and not a.gate_open:
+        print(f"batch brief --new --maintenance --live: refused — the live run waits "
+              f"for the M3 gate ({_brief.MAINTENANCE_GATE}, human decision 1, "
+              "2026-11-27). Make a shadow brief (drop --live), or pass --gate-open "
+              "once the human has opened the gate.", file=sys.stderr)
+        return RC_FINDINGS
+    sources = _brief._csv(a.sources) if a.sources else list(_brief.MAINTENANCE_SOURCES)
+    tiers = _brief._csv(a.maintenance_tiers)
+    bad = [x for x in sources if x not in _brief.MAINTENANCE_SOURCES]
+    bad_t = [t for t in tiers if t not in _brief.CONSEQUENCE_TIERS]
+    if bad or not sources or bad_t or not tiers or a.maintenance_cap < 0:
+        print("batch brief --new --maintenance: --sources a subset of "
+              f"{','.join(_brief.MAINTENANCE_SOURCES)}, --maintenance-tiers a subset of "
+              f"{','.join(_brief.CONSEQUENCE_TIERS)}, --maintenance-cap >= 0",
+              file=sys.stderr)
+        return RC_USAGE
+    import _maintain_write  # noqa: E402
+    preview = not a.out
+    if not preview:
+        hold = ("--mind is required — a linked worktree on origin/main or a non-git "
+                "directory; the shared checkout is never written"
+                if not a.mind_explicit else _maintain_write.write_hold(mind))
+        if hold:   # refused before any read: nothing is written
+            print(f"batch brief --new --maintenance: refused — {hold}", file=sys.stderr)
+            return RC_USAGE
+    if not (mind / "draft").is_dir():
+        print(f"batch: no PyAutoMind backlog at {mind}", file=sys.stderr)
+        return RC_NO_MIND
+    a.maintain_home = maintenance_home(mind, a)
+    if not preview and not a.home:
+        print(f"batch brief --new: no --home, so maintain.json goes beside the record, "
+              f"in {a.maintain_home}; the real orchestrator home is written only with "
+              "--home", file=sys.stderr)
+    res = maintenance_lane(mind, a, sources=sources, cap=a.maintenance_cap,
+                           tiers=tiers, preview=preview)
+    w = res["write"]
+    if w["filed"]:
+        print(f"batch brief --new: the maintenance writer filed {len(w['filed'])} "
+              f"draft(s) in {mind} (uncommitted): "
+              + ", ".join(r["path"] for r in w["filed"]), file=sys.stderr)
+    for name in sources:
+        why = _maintain_write.unusable(res["reads"].get(name))
+        if why:
+            print(f"batch brief --new: nothing filed or named from {name} — {why}",
+                  file=sys.stderr)
+    # A shadow brief needs no shift issue and makes none; a live one does.
+    issue = a.issue.strip() or (_issue_in(Path(a.out)) if a.out else "")
+    if a.live and a.out and not issue and \
+            os.environ.get(BRIEF_ISSUE_ENV, "").strip().lower() != "off":
+        issue, why = create_shift_issue(mind, a.new, a.review_at)
+        if not issue:
+            print(f"batch brief --new: no shift issue, so no brief written — {why}. "
+                  "Pass --issue <url> to name one by hand.", file=sys.stderr)
+            return RC_FINDINGS
+        print(f"batch brief --new: made the shift issue {issue}", file=sys.stderr)
+    text = new_maintenance_brief(a.new, a.review_at, res, live=a.live, issue=issue)
+    if not a.out:
+        sys.stdout.write(text)
+        return RC_OK
+    try:
+        Path(a.out).write_text(text, encoding="utf-8")
+    except OSError as e:
+        print(f"batch brief --new: could not write {a.out} ({e})", file=sys.stderr)
+        return RC_FINDINGS
+    print(f"batch brief --new: wrote {a.out} — a "
+          f"{'live' if a.live else 'shadow'} maintenance brief naming "
+          f"{len(res['named'])} generated task(s)")
     return RC_OK
 
 

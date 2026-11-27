@@ -3530,6 +3530,8 @@ def _cmd_add(slot: Path, counters: dict, arg: str, who: str, at: str, ctx: dict)
     (added_dir / Path(rel).name).write_text(text, encoding="utf-8")
     import _batch  # noqa: E402 — deferred, as in `_tick_body`
     rec = _batch.grade_text(text, rel, mind)
+    if rec.get("source_key") and not _brief.gate_open(brief):
+        return f"refused: {task}: {_brief.M3_GATE_REASON}"
     if (organ := _batch.self_organ_why(rec)):
         return f"refused: {task} {organ} (the organ rule: /add never overrides it)"
     if (lane := _batch.lane_absent_why(rec)):

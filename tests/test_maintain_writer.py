@@ -104,7 +104,9 @@ FINDINGS = [_f("no_run:ws_alpha/imaging/slow_one"),
 
 def test_two_runs_file_each_prompt_exactly_once(mind):
     first = _file(mind, FINDINGS)
-    assert [r["key"] for r in first["filed"]] == [f.key for f in FINDINGS]
+    # Filed in the writer's rank (glance first), not input order (PyAutoBrain#737).
+    assert [r["key"] for r in first["filed"]] == [f.key for f in W.rank(FINDINGS)]
+    by_key = {r["key"]: r["path"] for r in first["filed"]}
     for r in first["filed"]:
         assert r["path"].startswith("draft/maintenance/") and "/maint_" in r["path"]
         text = (mind / r["path"]).read_text()
@@ -116,9 +118,9 @@ def test_two_runs_file_each_prompt_exactly_once(mind):
         glance = r["tier"] == "glance"
         assert ("raise `Consequence:` to `judge`" in text) is glance, r["path"]
         assert glance or "never lower it" in text
-    census = (mind / first["filed"][0]["path"]).read_text()
+    census = (mind / by_key[FINDINGS[0].key]).read_text()
     assert "Consequence: judge" in census and "Tier rule" not in census
-    ci = (mind / first["filed"][2]["path"]).read_text()
+    ci = (mind / by_key[FINDINGS[2].key]).read_text()
     assert "excludes `.github/workflows/`, dependency pins and public names" in ci
     second = _file(mind, FINDINGS)
     assert second["filed"] == []
@@ -234,7 +236,7 @@ def test_a_stale_finding_is_never_filed(plain_mind):
 
 def test_a_fixed_finding_clears_its_key_so_a_recurrence_files_again(plain_mind):
     gone = FINDINGS[0]
-    rel = _file(plain_mind, FINDINGS)["filed"][0]["path"]
+    rel = {r["key"]: r["path"] for r in _file(plain_mind, FINDINGS)["filed"]}[gone.key]
     res = _file(plain_mind, FINDINGS[1:])  # fresh ok read without it
     assert res["cleared"] == [gone.key] and gone.key not in _state(plain_mind)
     assert FINDINGS[2].key in _state(plain_mind)

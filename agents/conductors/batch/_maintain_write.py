@@ -149,6 +149,22 @@ def key_marked(text: str, key: str) -> bool:
             or key in _SOURCE_KEY_RX.findall(text))
 
 
+_FILED_FROM_RX = re.compile(r"Filed from the `(\w+)` source")
+
+
+def source_key_of(text: str) -> str:
+    """A generated prompt's `Source-key:` header, or ""."""
+    keys = _SOURCE_KEY_RX.findall(text)
+    return keys[0] if keys else ""
+
+
+def source_of(text: str) -> str:
+    """The source a generated prompt was filed from (its "Filed from the
+    `<source>` source" line, which `draft_text` writes), or "" when unknown."""
+    m = _FILED_FROM_RX.search(text)
+    return m.group(1) if m and m.group(1) in _maintain.SOURCES else ""
+
+
 def corpus(mind: Path) -> tuple[dict, str]:
     out = {}
     for sub in ("draft", "active"):
@@ -312,6 +328,21 @@ def classify(f, read: dict, mind: Path, today: str) -> dict:
 
 # --- the writer -----------------------------------------------------------------
 
+def rank(findings) -> list:
+    """The order the writer files in, so `batch maintain --file` and the
+    maintenance brief agree on what one cap takes: tier (cheapest first:
+    glance before judge), then priority (a red or high-priority finding
+    first), then the source order (census, monitoring, release), then the
+    finding's own place in the list (Heart's order is kept). One cap, no
+    per-tier caps."""
+    tiers = {t: i for i, t in enumerate(("notify", "glance", "judge"))}
+    srcs = {s: i for i, s in enumerate(_maintain.SOURCES)}
+    order = sorted(enumerate(findings), key=lambda ix: (
+        tiers.get(ix[1].tier_floor, 9), 0 if _priority(ix[1]) == "high" else 1,
+        srcs.get(ix[1].source, 9), ix[0]))
+    return [f for _i, f in order]
+
+
 def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
                   state_path: Path | None = None, now=None, guard: bool = True,
                   only=None, needles: dict | None = None,
@@ -350,7 +381,7 @@ def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
             res["cleared"].append(key)
     docs, queue = corpus(mind)
     seen = set()
-    for f in findings:
+    for f in rank(findings):
         if f.key in seen or (only is not None and f.key not in only):
             continue
         seen.add(f.key)

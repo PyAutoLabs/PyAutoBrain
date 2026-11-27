@@ -29,7 +29,27 @@ CAP_DEFAULTS = {"max-workers": 4, "max-sessions": 8}
 #: `bypassPermissions` is never a worker mode.
 WORKER_MODES = ("auto", "dontAsk", "acceptEdits")
 DEFAULT_WORKER_MODE = "auto"
-SCOPED_KEYS = ("epics", "tags", "tiers")
+SCOPED_KEYS = ("epics", "tags", "tiers", "sources")
+#: `scoped: sources:` values. `maintenance` is a prompt the maintenance writer
+#: generated (it carries a `Source-key:` header, Phase 14.2): a maintenance
+#: brief's backlog dips stay within those (Phase 14.3).
+SCOPED_SOURCES = ("maintenance",)
+#: The `maintenance:` block of a maintenance brief (Phase 14.3,
+#: PyAutoBrain#737): the board sources its tasks come from, how many it names
+#: and the Consequence tiers it may name. `gate-open:` is the human's word that
+#: the M3 gate is open, written only by `brief --new --maintenance --live
+#: --gate-open`; a live maintenance brief without it is refused.
+MAINTENANCE_SOURCES = ("census", "monitoring", "release")
+MAINTENANCE_KEYS = ("sources", "cap", "tiers", "gate-open")
+MAINTENANCE_DEFAULT_CAP = 5
+#: Judge is nameable for a shadow shift; only glance ever merges unattended,
+#: which the merge gates (not this list) enforce.
+MAINTENANCE_DEFAULT_TIERS = ("glance", "judge")
+#: The goal line that names a brief a maintenance shift (the digest reads it).
+MAINTENANCE_GOAL_PREFIX = "maintenance:"
+#: The gate a live maintenance shift waits on (human decision 1, 2026-11-27).
+MAINTENANCE_GATE = "PyAutoBrain#574"
+_SOURCE_KEY_HEADER_RE = re.compile(r"(?m)^Source-key:[ \t]*(\S.*?)\s*$")
 #: `first:` values: `glance` sorts ready glance work first.
 FIRST_VALUES = ("glance",)
 #: The organs a shift runs on: its watcher and planner (Brain), its one Mind
@@ -235,6 +255,116 @@ def worker_mode_of(brief: dict) -> str:
     return brief.get("worker-mode", {}).get("value") or DEFAULT_WORKER_MODE
 
 
+def maintenance_of(brief: dict) -> dict | None:
+    """The `maintenance:` block as {sources, cap, tiers, gate_open}, with the
+    defaults for what it omits; None when the brief has no such block."""
+    node = (brief or {}).get("maintenance")
+    if node is None:
+        return None
+    kv = _keyed(node["children"])
+    cap = _nonneg_int(kv.get("cap", {}).get("value", ""))
+    return {"sources": _csv(kv["sources"]["value"]) if "sources" in kv
+            else list(MAINTENANCE_SOURCES),
+            "cap": MAINTENANCE_DEFAULT_CAP if cap is None else cap,
+            "tiers": _csv(kv["tiers"]["value"]) if "tiers" in kv
+            else list(MAINTENANCE_DEFAULT_TIERS),
+            "gate_open": kv.get("gate-open", {}).get("value", "")}
+
+
+#: Why a generated maintenance prompt is kept out of a shift without the gate:
+#: `check`, `scope()` and the watcher's `/add` say it in the same words.
+M3_GATE_REASON = (f"a generated maintenance prompt (`Source-key:`) — runs live only "
+                  f"behind the M3 gate ({MAINTENANCE_GATE}): a `maintenance:` block "
+                  "with `gate-open:`")
+
+
+def gate_open(brief: dict) -> bool:
+    """Whether the brief carries the human's word that the M3 gate is open: a
+    `maintenance:` block with `gate-open:`. Without it no generated
+    maintenance prompt runs live, named or dipped."""
+    m = maintenance_of(brief)
+    return bool(m and m["gate_open"])
+
+
+def generated_gate_errors(brief: dict, mind: Path) -> list[str]:
+    """The M3 gate on the tasks, not only on the block: a live (non-shadow)
+    brief without `gate-open:` may neither name a generated prompt (one with
+    a `Source-key:`) nor scope or exclude by `sources: maintenance`."""
+    if is_shadow(brief) or gate_open(brief):
+        return []
+    errors = []
+    why = M3_GATE_REASON + ", or `shadow: yes`"
+    for t in tasks_of(brief):
+        f = _resolve(mind, t)
+        if f is not None and source_key(f.read_text(encoding="utf-8", errors="replace")):
+            errors.append(f"brief.tasks: {t} is a generated prompt (`Source-key:`) — {why}")
+    _ex_paths, ex_keyed = excluded_of(brief)
+    for where, vals in (("scoped", scoped_of(brief).get("sources", [])),
+                        ("exclude", ex_keyed.get("sources", []))):
+        if vals:
+            errors.append(f"brief.{where}.sources: {', '.join(vals)} — {why}")
+    return errors
+
+
+def maintenance_goal(brief: dict) -> str:
+    """The brief's maintenance goal line (`maintenance: …`), or ""."""
+    node = (brief or {}).get("goals")
+    for c in node["children"] if node else ():
+        text = re.sub(r"^\d+\.\s*", "", c["text"])
+        if text.lower().startswith(MAINTENANCE_GOAL_PREFIX):
+            return text
+    return ""
+
+
+def source_key(text: str) -> str:
+    """A prompt's `Source-key:` header (the maintenance writer's), or ""."""
+    m = _SOURCE_KEY_HEADER_RE.search(text or "")
+    return m.group(1) if m else ""
+
+
+def maintenance_errors(brief: dict) -> list[str]:
+    """`brief --check`'s refusals for a `maintenance:` block (none without one)."""
+    node = brief.get("maintenance")
+    if node is None:
+        return []
+    errors = []
+    kv = _keyed(node["children"])
+    for key in kv:
+        if key not in MAINTENANCE_KEYS:
+            errors.append(f"brief.maintenance.{key}: unknown — one of "
+                          + ", ".join(MAINTENANCE_KEYS))
+    m = maintenance_of(brief)
+    bad = [x for x in m["sources"] if x not in MAINTENANCE_SOURCES]
+    if bad or not m["sources"]:
+        errors.append(f"brief.maintenance.sources: {', '.join(bad) or 'empty'} — a "
+                      "subset of " + ", ".join(MAINTENANCE_SOURCES))
+    if "cap" in kv and _nonneg_int(kv["cap"]["value"]) is None:
+        errors.append(f"brief.maintenance.cap: not a whole number ({kv['cap']['value']!r})")
+    bad = [t for t in m["tiers"] if t not in CONSEQUENCE_TIERS]
+    if bad or not m["tiers"]:
+        errors.append(f"brief.maintenance.tiers: {', '.join(bad) or 'empty'} — tiers are "
+                      + " | ".join(CONSEQUENCE_TIERS))
+    if not maintenance_goal(brief):
+        errors.append(f"brief.goals: a maintenance brief names its goal "
+                      f"`{MAINTENANCE_GOAL_PREFIX} board findings …` (the digest reads it)")
+    if not is_shadow(brief) and not m["gate_open"]:
+        errors.append(f"brief.maintenance.gate-open: missing on a live maintenance brief — "
+                      f"the live run waits for the M3 gate ({MAINTENANCE_GATE}); set "
+                      "`shadow: yes`, or re-make it with `brief --new --maintenance --live "
+                      "--gate-open` once the human has opened the gate")
+    return errors
+
+
+def maintenance_line(brief: dict) -> str:
+    """The digest's line naming a maintenance shift, or "" for any other."""
+    m = maintenance_of(brief)
+    if m is None:
+        return ""
+    goal = maintenance_goal(brief) or MAINTENANCE_GOAL_PREFIX + " board findings"
+    return (f"Maintenance shift — goal: {goal} (cap {m['cap']}; tiers "
+            f"{', '.join(m['tiers'])})")
+
+
 def is_shadow(brief: dict) -> bool:
     """A shadow shift plans and records proposals but spawns nothing."""
     return brief.get("shadow", {}).get("value", "").lower() == "yes"
@@ -352,7 +482,7 @@ def check(path: Path, mind: Path) -> dict:
     scoped = scoped_of(brief)
     if backlog == "scoped" and not scoped:
         errors.append("brief.scoped: missing — `backlog: scoped` needs epics, "
-                      "tags or tiers")
+                      "tags, tiers or sources")
     for key in scoped:
         if key not in SCOPED_KEYS:
             errors.append(f"brief.scoped.{key}: unknown — one of "
@@ -361,6 +491,15 @@ def check(path: Path, mind: Path) -> dict:
     if bad_tiers:
         errors.append(f"brief.scoped.tiers: {', '.join(bad_tiers)} — tiers are "
                       + " | ".join(CONSEQUENCE_TIERS))
+    _ex_paths, ex_keyed = excluded_of(brief)
+    for where, vals in (("scoped", scoped.get("sources", [])),
+                        ("exclude", ex_keyed.get("sources", []))):
+        bad_src = [x for x in vals if x not in SCOPED_SOURCES]
+        if bad_src:
+            errors.append(f"brief.{where}.sources: {', '.join(bad_src)} — one of "
+                          + ", ".join(SCOPED_SOURCES))
+    errors.extend(maintenance_errors(brief))
+    errors.extend(generated_gate_errors(brief, mind))
 
     for key in ("review-minutes", "merge-cap", "token-budget"):
         if key not in brief:
@@ -409,12 +548,16 @@ def check(path: Path, mind: Path) -> dict:
     # Named tasks. An unresolved path warns rather than refuses: a brief kept
     # as an example outlives the prompts it names.
     tiers = []
+    maint = "maintenance" in brief
     for t in tasks_of(brief):
         f = _resolve(mind, t)
         if f is None:
             warnings.append(f"brief.tasks: {t} resolves to no prompt in draft/ or active/")
         else:
             tiers.append(_tier(f, mind))
+            if maint and not source_key(f.read_text(encoding="utf-8", errors="replace")):
+                warnings.append(f"brief.tasks: {t} has no `Source-key:` — a maintenance "
+                                "brief names only generated prompts, none by hand")
     cap = _nonneg_int(brief.get("merge-cap", {}).get("value", ""))
     if cap and tiers and all(t == "judge" for t in tiers) and backlog == "none":
         errors.append(f"brief.merge-cap: {cap} but every named task is judge and "
@@ -639,14 +782,26 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
     lanes = set(lanes_of(brief)) or {"any"}
     # `/add`ed this shift (`effective`): no `exclude:` rule holds it back.
     added = set(_csv(brief.get("added", {}).get("value", "")))
+    # The M3 gate on the backlog: without `gate-open:` no generated
+    # maintenance prompt is ever dipped, whatever the dip policy.
+    gated = not gate_open(brief)
+    shadow = is_shadow(brief)
 
     kept, rejected = [], []
     for r in records:
         name = Path(r["path"]).name
         themes = set(r.get("themes") or [])
         if name not in added and (name in ex_names or r.get("epic") in ex_keyed.get("epics", [])
-                                  or themes & set(ex_keyed.get("tags", []))):
+                                  or themes & set(ex_keyed.get("tags", []))
+                                  or _source_match(r, ex_keyed.get("sources", []))):
             rejected.append((r["path"], "excluded by the brief"))
+            continue
+        # The M3 gate before every exemption: a generated prompt runs live
+        # only behind `gate-open:` — named, resumed after an answer, `/add`ed
+        # or dipped alike. A shadow brief's named tasks are only proposals.
+        if gated and r.get("source_key") \
+                and not (shadow and name in named_names):
+            rejected.append((r["path"], M3_GATE_REASON))
             continue
         # A task an answer released (the inbox) is the human's word, as
         # naming it would be: no dip policy keeps it out.
@@ -664,8 +819,29 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
     return kept, rejected, named
 
 
+def _source_match(record: dict, sources: list[str]) -> str:
+    """The `sources:` value a record carries, or "": `maintenance` is a
+    prompt with a `Source-key:` header (survey's `source_key`)."""
+    if "maintenance" in sources and record.get("source_key"):
+        return "maintenance"
+    return ""
+
+
 def _scoped_match(record: dict, scoped: dict[str, list[str]]) -> str:
-    """The `scoped:` rule a record matches, as the digest names it; "" if none."""
+    """The `scoped:` rule a record matches, as the digest names it; "" if none.
+
+    `sources:` narrows the others: with it, a record must carry one of those
+    sources, AND match an `epics:`/`tags:`/`tiers:` rule when any is given."""
+    sources = scoped.get("sources", [])
+    if sources:
+        src = _source_match(record, sources)
+        if not src:
+            return ""
+        rest = {k: v for k, v in scoped.items() if k != "sources" and v}
+        if not rest:
+            return f"scoped source {src}"
+        rule = _scoped_match(record, rest)
+        return f"{rule} · source {src}" if rule else ""
     if record.get("epic") in scoped.get("epics", []):
         return f"scoped epic {record['epic']}"
     tags = sorted(set(record.get("themes") or []) & set(scoped.get("tags", [])))
