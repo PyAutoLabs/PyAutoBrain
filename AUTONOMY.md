@@ -483,6 +483,50 @@ own `batches/AGENTS.md` drops both: the Heart gates releases, not runs), and
 **their absence there is never read as an unacknowledged RED** — the fields are
 not missing, they do not exist on that schema.
 
+**A report-only RED needs no acknowledgement — ruling R1, 2026-11-17
+(recorded 2026-11-27, PyAutoBrain#727).** At a shift launch, a Heart RED made
+only of `report only` reasons (the keep-Heart-green lane's local-checkout
+class: a library checkout behind or dirty, on another branch, worktree or
+manifest drift), none of which names a repo the brief touches, needs no
+`heart-ack:` from the human; the brief records the reason set under
+`## Heart` instead. Anything else still needs the human's `heart-ack:`: a
+human-only reason (an open PR, release validation, a quarantine), a
+release-scope reason, a fixable one, a reason Heart's own per-repo key puts
+in another class, or any reason on a repo the brief touches.
+
+**The human's rulings of 2026-11-27 on R1's enforcement (PyAutoBrain#727
+review).**
+
+- **(a)** `batch brief --check` mechanically refuses any unacknowledged
+  Heart RED or YELLOW at a launch. It also refuses, unless `heart-ack:` is
+  present, when the Heart read is grey, unreadable or missing, or its
+  evidence is older than 6 h. R1's exemption passes on a fresh read only.
+- **(b)** R1 applies to a YELLOW made only of report-only reasons on
+  untouched repos, as well as to a RED.
+- **(c)** The touched set is the brief's named tasks plus the members the
+  watcher's plan takes at launch — not the whole backlog scope. Later
+  backlog picks, refills and `/add` are covered because each worker
+  re-checks Heart scoped to its own repos at ship (the scoped dev-ship
+  gate). Per prompt, its `Repos:` entries and the known repos it names
+  count; `Target:` counts only when it resolves to a known repo, so a topic
+  target (`priors`, `euclid`) is ignored. Only a named or planned prompt
+  that yields no known repo at all fails closed (every repo touched).
+
+How the check applies them: the human's `heart-ack:` passes any read and
+nothing is written. A STALE reason is an evidence gap; it is recorded in the
+launch read, marked "not judged", and does not decide the launch. The
+touched set follows ruling (c); a named task that resolves to no prompt also
+makes every repo touched, so R1 cannot pass, and `Target: workspaces`
+touches every workspace. A later check that no longer qualifies removes the
+earlier launch read. The check writes only outside git or in a linked
+worktree (the main checkout of any clone may be the shared Mind): there R1
+refuses with the reason. A record already on `origin/main` is a launched
+shift, so a re-check only notes that its launch read was not written. The
+watcher reads no Heart (its tick's network surface excludes the feed), and a
+member's own leg-4 check is the scoped dev-ship gate
+(`consult_vitals_verdict --repos`), unchanged by R1. Unchanged too: a run
+still parks on a new RED, and nothing is acknowledged autonomously.
+
 ## Shift speed — 2026-11-19
 
 The human's rulings, 2026-11-19, on the orchestrator speed review
