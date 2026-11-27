@@ -126,7 +126,7 @@ def load_state(path: Path | None) -> dict:
     return state
 
 
-def save_state(state: dict, path: Path | None) -> None:
+def save_state(state: dict, path: Path | None) -> str:
     """Write the state; a legacy file migrated this run is renamed
     `heart_green.json.migrated`, so even a lost `maintain.json` cannot
     re-migrate keys cleared since."""
@@ -135,7 +135,12 @@ def save_state(state: dict, path: Path | None) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
         if legacy and Path(legacy).exists():
-            Path(legacy).replace(legacy + ".migrated")
+            try:
+                Path(legacy).replace(legacy + ".migrated")
+            except OSError as exc:  # a note, never a crash: maintain.json is saved
+                return (f"could not rename {legacy} to .migrated ({exc}); it is "
+                        "migrated already (`migrated` is set in maintain.json)")
+    return ""
 
 
 def key_marked(text: str, key: str) -> bool:
@@ -328,7 +333,7 @@ def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
     mind = Path(mind)
     now = now or _dt.datetime.now(_dt.timezone.utc)
     stamp, today = now.strftime("%Y-%m-%dT%H:%MZ"), now.date().isoformat()
-    res = {"filed": [], "skipped": [], "cleared": [], "hold": "", "cap": cap}
+    res = {"filed": [], "skipped": [], "cleared": [], "hold": "", "cap": cap, "notes": []}
     hold = write_hold(mind) if guard else ""
     if hold:
         res["hold"] = hold
@@ -396,7 +401,9 @@ def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
             res["filed"].append({"key": f.key, "path": c["rel"], "tier": f.tier_floor,
                                  "unattended": c["unattended"],
                                  "difficulty": c["difficulty"], "lane": c["lane"]})
-    save_state(state, state_path)
+    note = save_state(state, state_path)
+    if note:
+        res["notes"].append(note)
     return res
 
 
@@ -411,4 +418,5 @@ def render(res: dict) -> str:
     L += [f"  {r['key']} ({r['source']}): {r['reason']}" for r in res["skipped"]] \
         or ["  none"]
     L += ["", f"Cleared ({len(res['cleared'])}): " + (", ".join(res["cleared"]) or "none")]
+    L += [f"Note: {n}" for n in res.get("notes") or []]
     return "\n".join(L) + "\n"

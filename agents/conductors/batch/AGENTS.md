@@ -361,10 +361,18 @@ call the same `file_findings` for the release source.
   repo's `no_run.yaml`; for a `ci:` row the surface excludes
   `.github/workflows/`, dependency pins and public names. A `judge` finding
   says only that its floor is never lowered.
-- **Human-only, never filed.** A release-execution workflow (`ci:` key whose
-  workflow matches 14.1's release-workflow rule — its witness needs a release
-  run) and a unit-test timing line (slice 14.5) are skipped as human-only by
-  the writer, and the green lane reports them under `human-only`.
+- **Human-only, never filed.** The writer skips, and the green lane reports
+  under `human-only`:
+  - a release-execution workflow, whose witness needs a release run: a `ci:`
+    workflow name that, trimmed and minus `.yml`, starts or ends with the word
+    "release" ("PyAuto Release", "Nightly Release", "Release"). "Pre-release
+    checks" or "release-notes lint" are filed normally, as judge: the broad
+    "release" substring only lowers an organ CI red's tier (14.1's glance gate);
+  - a unit-test timing row (slice 14.5): a `unit-test` reason that says
+    "timing", or a bare `<path>::<test>[/<py>]: red|warn` status line when the
+    verdict carries Heart's `Unit-test timing:` roll-up or the board lists it
+    under `unit_test_timing`. The same line with failure text, or with no
+    roll-up, is a failing test and is filed.
 - **Classify.** Intake `analyse()` (never writes) gives the work type, target
   (a declared, known repo; else the finding's repo) and lane; an intake lane
   refusal is skipped, never filed. Sizing gives Difficulty, Unattended and
@@ -378,7 +386,8 @@ call the same `file_findings` for the release source.
   At most `--cap` (default 3) new files per run; the rest wait.
 - **State.** `maintain.json` in the orchestrator home (beside
   `heart_green.json`, whose rows it migrates once, as `release` keys, then
-  renames it `heart_green.json.migrated`): first_seen / last_seen / source /
+  renames it `heart_green.json.migrated`; a rename that fails is a printed
+  note, never a crash): first_seen / last_seen / source /
   filed / filed_at per key. A key is cleared only when its source was read
   `ok`, fresh and whole this run and NO freshly read source lists it —
   counted before the cross-source dedupe (`collect_raw`), so a stale row
@@ -387,7 +396,11 @@ call the same `file_findings` for the release source.
   as stale) clears nothing. The green lane lists its keys through the same
   release adapter (`_maintain.release_findings`, organ CI reds included), on
   a GREEN verdict too, so the CLI and the lane share `maintain.json` without
-  clearing each other's keys.
+  clearing each other's keys. One known, low-impact edge: the lane's own
+  "still listed" set is the release source alone, so a `release` row whose key
+  only a census or monitoring row still lists is cleared by a brief — the next
+  `batch maintain --file` re-adds the row, and the open prompt's key mark still
+  stops a second file.
 - **Write guard.** Only into a Mind that is a linked worktree or not a git
   checkout (`_mind_guard`, the probe `_batch.write_hold` also uses); a main
   checkout — the shared canonical Mind may be one — is refused before

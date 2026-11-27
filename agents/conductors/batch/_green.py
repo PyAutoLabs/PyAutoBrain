@@ -355,8 +355,10 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
     import _maintain  # noqa: E402 — the release adapter and Finding shape (lazy)
     status, age = heart.get("status"), heart.get("age_hours")
     findings = [f for r in heart.get("reasons") or [] for f in classify(r)]
+    timing = _maintain.timing_context(heart)
     for f in findings:  # timing lines and release-execution runs are the human's
-        why = (_maintain.human_only_reason(_maintain.release_finding(f))
+        why = (_maintain.human_only_reason(_maintain.release_finding(
+                   f, timing=_maintain.is_timing(f, timing)))
                if f["cls"] == "fixable-dev" and f["key"] else "")
         if why:
             f.update(cls="human-only", file=False, lane="", action=why,

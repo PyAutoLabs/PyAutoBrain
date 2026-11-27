@@ -70,7 +70,20 @@ EXCLUDED_FAMILIES = frozenset({"worktree_drift", "repo_state", "release", "open_
 #: missing or old — a collector refresh, not a fix — so they are left out.
 FILED_STATUSES = ("red", "yellow")
 #: A release-execution workflow is never a glance fix.
+#: Broad on purpose: only ever LOWERS an organ CI red to judge (the glance gate).
 RELEASE_WORKFLOW_RX = re.compile(r"release", re.I)
+#: Narrow: a release-EXECUTION workflow, human-only (its witness needs a
+#: release run) — the name, trimmed and minus a `.yml`, starts or ends with
+#: the word "release": "PyAuto Release", "Nightly Release", "Release",
+#: "release.yml". "Pre-release checks" and "release-notes lint" are not.
+RELEASE_EXEC_RX = re.compile(r"^release(?:\s|$)|(?:^|\s)release$", re.I)
+#: Heart's unit-test timing roll-up line; with it present, a bare per-test
+#: status line (`<path>::<test>[/<py>]: red|warn`) is a timing row, not a failure.
+TIMING_ROLLUP_RX = re.compile(r"^\s*Unit-test timing:", re.I)
+TEST_STATUS_LINE_RX = re.compile(r"^(?P<id>.+::.+?)(?:/\d+\.\d+)?: (?:red|warn|yellow)$")
+#: The published feed cuts a long line with "…", which can drop the status: a
+#: test id cut before any `: ` (so no failure text is visible).
+TEST_CUT_LINE_RX = re.compile(r"^(?P<id>[^:]+::(?:(?!: ).)+?)…$")
 #: Words in a census reason that force judge whatever the evidence says.
 KILLED_RX = re.compile(r"\bOOM\b|SIGKILL|\bkilled\b|timed?[\s-]*out|times out", re.I)
 PY_SUFFIX_RX = re.compile(r"/\d+\.\d+$")
@@ -266,13 +279,53 @@ def monitoring_findings(board: dict, organs=frozenset()) -> list[Finding]:
     return out
 
 
-def release_findings(heart: dict, organs=frozenset()) -> list[Finding]:
+def timing_context(heart: dict, board: dict | None = None) -> tuple[bool, frozenset]:
+    """(roll-up?, test ids): whether the verdict carries a `Unit-test timing:`
+    roll-up line, and the board's `unit_test_timing` subjects (py suffix off)."""
+    rollup = any(TIMING_ROLLUP_RX.match(str(r.get("text") or ""))
+                 for r in (heart or {}).get("reasons") or [])
+    subjects = frozenset(
+        PY_SUFFIX_RX.sub("", str(f.get("subject") or ""))
+        for f in ((board or {}).get("monitoring") or {}).get("findings") or []
+        if isinstance(f, dict) and f.get("family") == "unit_test_timing")
+    return rollup, subjects
+
+
+def is_timing(c: dict, ctx) -> bool:
+    """A `unit-test` reason that is a timing row: it says "timing"; or it is a
+    bare `<path>::<test>: red|warn` status line (no failure text) and the
+    verdict carries the timing roll-up, or the board lists it as timing."""
+    if c.get("rule") != "unit-test":
+        return False
+    text = str(c.get("text") or "").strip()
+    if re.search(r"timing", text, re.I):
+        return True
+    rollup, subjects = ctx or (False, frozenset())
+    m = TEST_STATUS_LINE_RX.match(text)
+    if m:
+        return rollup or m["id"] in subjects
+    cut = TEST_CUT_LINE_RX.match(text)
+    if cut:  # a cut id: the board's timing subjects decide when read, else the roll-up
+        if subjects:
+            return any(s.startswith(cut["id"]) for s in subjects)
+        return rollup
+    return False
+
+
+def release_exec(wf: str) -> bool:
+    name = re.sub(r"\.ya?ml$", "", (wf or "").strip(), flags=re.I).strip()
+    return bool(name) and RELEASE_EXEC_RX.search(name) is not None
+
+
+def release_findings(heart: dict, organs=frozenset(), board=None) -> list[Finding]:
     """Heart's release verdict through `_green.classify`: its fixable-dev
     findings (the same filter `_green.run` files from), plus the organ
     CI-red lines no `_green` rule matches. The verdict carries no `on_head`
     evidence, so an organ CI red from here is judge (the monitoring row, read
-    first, carries it)."""
+    first, carries it). A unit-test timing row (`is_timing`, with the board's
+    timing subjects when given) is marked so the writer skips it."""
     out = []
+    ctx = timing_context(heart, board)
     for reason in (heart or {}).get("reasons") or []:
         if reason.get("severity") == "stale":
             continue
@@ -283,12 +336,12 @@ def release_findings(heart: dict, organs=frozenset()) -> list[Finding]:
             classified = [dict(reason, rule="organ-ci-red", cls="fixable-dev",
                                key=_ci_key(m["repo"], m["wf"]), lane="any",
                                repo=repo, action="fix the red workflow on main")]
-        out += [release_finding(c, organs) for c in classified
+        out += [release_finding(c, organs, timing=is_timing(c, ctx)) for c in classified
                 if c["cls"] == "fixable-dev" and c.get("key")]
     return out
 
 
-def release_finding(c: dict, organs=frozenset()) -> Finding:
+def release_finding(c: dict, organs=frozenset(), timing: bool = False) -> Finding:
     """One `_green.classify` fixable-dev finding as a `Finding` (the release
     adapter's shape; `_green`'s file mode hands the writer these)."""
     repo = c.get("repo") or ""
@@ -302,7 +355,7 @@ def release_finding(c: dict, organs=frozenset()) -> Finding:
         summary=f"[{c['severity']}] {c['text']}"[:240], witness=RELEASE_WITNESS,
         tier_floor=tier, lane=c.get("lane") or "local-dev",
         evidence={"rule": c["rule"], "severity": c["severity"], "text": c["text"],
-                  "action": c.get("action", "")})
+                  "action": c.get("action", ""), **({"timing": True} if timing else {})})
 
 
 def dedupe(findings) -> list[Finding]:
@@ -335,7 +388,7 @@ def collect_raw(census=None, board=None, heart=None, sources=SOURCES,
     if "monitoring" in sources and board is not None:
         out["monitoring"] = monitoring_findings(board, organs)
     if "release" in sources and heart is not None:
-        out["release"] = release_findings(heart, organs)
+        out["release"] = release_findings(heart, organs, board)
     return out
 
 
@@ -358,12 +411,12 @@ def human_only_reason(f: Finding) -> str:
     unit-test timing line (slice 14.5's Heart-flagged timing, not a fix)."""
     if f.key.startswith("ci:"):
         wf = f.key[3:].partition(":")[2]
-        if wf and RELEASE_WORKFLOW_RX.search(wf):
+        if release_exec(wf):
             return ("human-only: a release-execution workflow — its witness needs a "
                     "release run")
     ev = f.evidence or {}
-    if ev.get("rule") == "unit-test" and re.search(r"timing", str(ev.get("text") or ""),
-                                                   re.I):
+    if ev.get("rule") == "unit-test" and (
+            ev.get("timing") or re.search(r"timing", str(ev.get("text") or ""), re.I)):
         return "human-only: a unit-test timing line — slice 14.5, not a fix"
     return ""
 

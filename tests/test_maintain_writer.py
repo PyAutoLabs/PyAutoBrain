@@ -444,17 +444,106 @@ def test_in_git_checkout_fails_closed_when_git_answers_non_zero(tmp_path, monkey
     assert W.write_hold(repo / "sub")
 
 
-@pytest.mark.parametrize("reason,why", [
-    ("RepoX/tests/test_a.py::test_b: Unit-test timing regression (3.2s > 1.0s)",
-     "unit-test timing line"),
-    ("RepoX: release.yml failure on main", "release-execution workflow"),
+#: Heart's real line shapes (placeholder repo/path): bare per-test status lines
+#: plus the separate roll-up that marks them as timing rows.
+TIMING_LINE = "RepoX/test_repox/pkg/test_mod.py::test__case__reapplied: red"
+ROLLUP = "Unit-test timing: 2 test regressions (>3× baseline), 0 slow (>1.5×)"
+
+
+@pytest.mark.parametrize("reasons,why", [
+    ([TIMING_LINE, ROLLUP], "unit-test timing line"),
+    (["RepoX: release.yml failure on main"], "release-execution workflow"),
 ])
-def test_timing_lines_and_release_runs_are_human_only(plain_mind, reason, why):
-    res = _grun(plain_mind, _heart([reason]))
+def test_timing_lines_and_release_runs_are_human_only(plain_mind, reasons, why):
+    res = _grun(plain_mind, _heart(reasons))
     assert res["filed"] == []
     f = res["findings"][0]
     assert f["cls"] == "human-only" and why in f["action"]
     assert why in _green.section(res).split("### Needs the human", 1)[1]
+
+
+def test_the_cli_skips_a_timing_line_under_a_rollup(plain_mind, tmp_path):
+    hj = tmp_path / "heart.json"
+    hj.write_text(json.dumps({"verdict": "red", "ts": TS, "repository_reasons": [],
+                              "red_reasons": [TIMING_LINE, ROLLUP]}))
+    rc, out, err = _cli(["maintain", "--file", "--mind", str(plain_mind), "--sources",
+                         "release", "--heart-json", str(hj), "--home",
+                         str(plain_mind.parent / "home"), "--at", NOW.isoformat()])
+    assert rc == 0, err
+    assert "Filed (0" in out and "unit-test timing line" in out
+    assert not list(plain_mind.glob("draft/maintenance/**/*.md"))
+
+
+@pytest.mark.parametrize("reasons", [
+    [TIMING_LINE],  # the same shape, no timing roll-up: a failing test
+    ["RepoX/test_repox/pkg/test_mod.py::test__case__reapplied: AssertionError: 1 != 2",
+     ROLLUP],  # failure text, even beside a roll-up
+])
+def test_a_genuine_failing_test_is_still_filed(plain_mind, reasons):
+    res = _grun(plain_mind, _heart(reasons))
+    assert res["filed"] == ["draft/maintenance/repox/maint_test_repox_test_repox_pkg_test_mod_py.md"]
+
+
+CUT_LINE = "RepoX/test_repox/pkg/test_mod.py::test__long_case_name[ParamA-…"
+
+
+def test_a_feed_cut_test_line_is_timing_under_a_rollup_or_a_board_subject():
+    heart = _heart([CUT_LINE, ROLLUP])
+    assert _maintain.release_findings(heart)[0].evidence.get("timing")
+    board = {"monitoring": {"findings": [
+        {"family": "unit_test_timing", "status": "red",
+         "subject": "RepoX/test_repox/pkg/test_mod.py::test__long_case_name[ParamA-p0]"}]}}
+    assert _maintain.release_findings(_heart([CUT_LINE]), board=board)[0].evidence["timing"]
+    other = {"monitoring": {"findings": [dict(board["monitoring"]["findings"][0],
+                                             subject="RepoX/other.py::test_x")]}}
+    assert not _maintain.release_findings(heart, board=other)[0].evidence.get("timing"), \
+        "with the board read, only its own timing subjects count"
+    assert not _maintain.release_findings(_heart([CUT_LINE]))[0].evidence.get("timing")
+
+
+def test_the_board_timing_subjects_mark_a_line_without_a_rollup():
+    board = {"monitoring": {"findings": [
+        {"family": "unit_test_timing", "status": "red",
+         "subject": "RepoX/test_repox/pkg/test_mod.py::test__case__reapplied/3.13"}]}}
+    heart = _heart([TIMING_LINE])
+    assert not _maintain.release_findings(heart)[0].evidence.get("timing")
+    f = _maintain.release_findings(heart, board=board)[0]
+    assert f.evidence["timing"] and "timing" in _maintain.human_only_reason(f)
+
+
+@pytest.mark.parametrize("wf,exec_", [
+    ("PyAuto Release", True), ("Nightly Release", True), ("Release", True),
+    (" release.yml ", True), ("Pre-release checks", False), ("release-notes lint", False),
+    ("tests", False)])
+def test_release_execution_is_a_narrow_match(wf, exec_):
+    assert _maintain.release_exec(wf) is exec_
+
+
+@pytest.mark.parametrize("wf", ["Pre-release checks", "release-notes lint"])
+def test_a_release_named_check_is_filed_as_judge(plain_mind, wf):
+    board = {"monitoring": {"findings": [
+        {"id": f"ci_status:OrganA/workflows/{wf}:1", "family": "ci_status",
+         "subject": f"OrganA/workflows/{wf}", "status": "red", "summary": "failure",
+         "fresh": True, "evidence": {"run_id": 1, "on_head": True}}]}}
+    found = _maintain.monitoring_findings(board, organs={"OrganA"})
+    assert found[0].tier_floor == "judge", "the broad match still lowers the tier"
+    res = _file(plain_mind, found, reads={"monitoring": OK})
+    assert [r["tier"] for r in res["filed"]] == ["judge"], res["skipped"]
+
+
+def test_a_failed_legacy_rename_is_a_note_not_a_crash(plain_mind, monkeypatch):
+    home = plain_mind.parent / "home"
+    home.mkdir()
+    (home / W.LEGACY_STATE_NAME).write_text(json.dumps({"reasons": {"ci:RepoX": {}}}))
+
+    def boom(self, target):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(W.Path, "replace", boom)
+    res = _file(plain_mind, [], reads={"census": OK})
+    assert res["notes"] and "could not rename" in res["notes"][0]
+    assert _state(plain_mind)["ci:RepoX"]["source"] == "release"
+    assert "Note: could not rename" in W.render(res)
 
 
 def test_the_writer_never_files_a_release_execution_workflow(plain_mind):
