@@ -112,3 +112,12 @@ def shift_held_open(monkeypatch):
     orch = sys.modules.get("_orchestrator")
     if orch is not None:
         monkeypatch.setattr(orch, "early_close_ready", lambda *a, **k: False)
+
+
+@pytest.fixture(autouse=True)
+def _no_shift_brief(monkeypatch):
+    """A shift worker running this suite carries its own `PYAUTO_SHIFT_BRIEF`
+    (PyAutoBrain#724); a test that points `PYAUTO_SHIFT_LEDGER_DIR` at a tmp
+    slot would then trip the ledger/brief slot guard. A test that wants the
+    brief sets it itself."""
+    monkeypatch.delenv("PYAUTO_SHIFT_BRIEF", raising=False)

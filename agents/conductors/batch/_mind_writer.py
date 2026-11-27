@@ -81,6 +81,7 @@ read. Only a push rejected `PUSH_TRIES` times leaves every op pending.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -168,6 +169,34 @@ class MechanicalError(MindWriteError):
 class GoneError(MindWriteError):
     """The op's subject is gone from Mind main (a question whose prompt was
     completed or retired): set aside even when the op is critical."""
+
+
+class ShiftEnvMismatch(MindWriteError):
+    """`PYAUTO_SHIFT_LEDGER_DIR` names another shift's ledger than
+    `PYAUTO_SHIFT_BRIEF` (a stale environment, PyAutoBrain#724)."""
+
+
+def shift_ledger_dir(env=None) -> Path | None:
+    """The shift's ledger directory from `$PYAUTO_SHIFT_LEDGER_DIR`, or None
+    outside a shift (unset or blank).
+
+    The ledger is `.orchestrator/<slot>/ledger` and the brief's stem is the
+    slot (`2026-11-26-pm2`). When `$PYAUTO_SHIFT_BRIEF` is set and names
+    another slot, this raises `ShiftEnvMismatch` naming both paths: an op
+    queued in another shift's ledger would never land (a daemon spare can
+    carry an earlier shift's environment). No brief, no check."""
+    env = os.environ if env is None else env
+    ledger = str(env.get("PYAUTO_SHIFT_LEDGER_DIR") or "").strip()
+    if not ledger:
+        return None
+    brief = str(env.get("PYAUTO_SHIFT_BRIEF") or "").strip()
+    if brief and Path(brief).stem != Path(ledger).parent.name:
+        raise ShiftEnvMismatch(
+            f"refused: the shift environment is stale — PYAUTO_SHIFT_LEDGER_DIR={ledger} "
+            f"is slot {Path(ledger).parent.name!r} but PYAUTO_SHIFT_BRIEF={brief} is slot "
+            f"{Path(brief).stem!r}; nothing was queued. Tell the human (the op would "
+            "never land in this shift's ledger)")
+    return Path(ledger)
 
 
 def fetch(mind_repo: Path, remote: str = "origin", branch: str = "main") -> None:

@@ -549,6 +549,18 @@ may already exist. **Enforced, not asked:** a worker runs with
 `GIT_CONFIG_*`) pointing at `bin/worker_git_hooks/`, whose `pre-commit`
 refuses any commit in a PyAutoMind repo — `prompt_sync_push`, `lifecycle close`
 or a raw `git commit` alike — and otherwise chains to the repo's own hook.
+These variables (and `PYAUTO_SHIFT_BRIEF`, `PYAUTO_SHIFT_KICK`) travel to every
+worker, update and close-out as `claude --settings '{"env": …}'` (`shift_env`),
+because `claude --bg` hosts a session on a daemon spare that keeps the
+environment of whoever started the daemon, not the caller's (PyAutoBrain#724);
+`worker_env` stays as the backstop. Every ledger reader refuses a ledger whose
+slot is not the brief's: the Python readers through
+`_mind_writer.shift_ledger_dir`, and `bin/worktree.sh`'s
+`_worktree_release_queued` with the same check in shell (it warns and treats
+the claim as still held). Not fixed: a human `claude --bg` on a daemon a worker
+started can still inherit worker variables (CLI behaviour), `PYAUTO_SHIFT_BRIEF`
+among them, which the watcher CLI honours as an override only inside that
+brief's own window.
 With that in place real dispatch no longer needs `sandbox: yes` (human,
 2026-11-03); the key stays as a test-shift marker.
 

@@ -45,6 +45,7 @@ from pathlib import Path
 BATCH = Path(__file__).resolve().parents[1] / "agents" / "conductors" / "batch"
 sys.path.insert(0, str(BATCH))
 import _merge_slots  # noqa: E402
+import _mind_writer  # noqa: E402 — the one ledger-dir reader
 
 #: The take's message when an earlier PR of the shift must merge first.
 ORDER_REFUSAL = ("{blockers} of this shift on the same library is still open and merges "
@@ -67,11 +68,12 @@ WORKER = _merge_slots.SESSION
 
 
 def _slot() -> Path | None:
-    """The shift slot directory, or None outside a shift."""
-    ledger = os.environ.get("PYAUTO_SHIFT_LEDGER_DIR", "").strip()
-    if not os.environ.get("PYAUTO_SHIFT_WORKER") or not ledger:
+    """The shift slot directory, or None outside a shift. Raises
+    `ShiftEnvMismatch` when the ledger and brief name different shifts."""
+    if not os.environ.get("PYAUTO_SHIFT_WORKER"):
         return None
-    return Path(ledger).parent
+    ledger = _mind_writer.shift_ledger_dir()
+    return None if ledger is None else ledger.parent
 
 
 def main(argv=None) -> int:
@@ -82,6 +84,12 @@ def main(argv=None) -> int:
     ap.add_argument("--task", default="", help="the task slug, recorded with the slot")
     ap.add_argument("--why", default="", help="release: why the slot is freed")
     args = ap.parse_args(argv)
+    try:
+        _slot()
+    except _mind_writer.ShiftEnvMismatch as e:
+        print(f"merge-slot: cannot tell: {e} — do not merge; leave the PR for /prm",
+              file=sys.stderr)
+        return 2
     if args.action in ("take", "release") and not args.pr:
         ap.error(f"{args.action} needs a PR URL")
     if args.pr and _merge_slots.pr_key(args.pr) is None:
