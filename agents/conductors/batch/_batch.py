@@ -1017,6 +1017,9 @@ def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["collect"]:
         return _main_collect(argv[1:])
+    if argv[:1] == ["maintain"]:
+        import _maintain  # noqa: E402 — Phase 14.1, read-only; never from the tick
+        return _maintain.main(argv[1:])
     ap = argparse.ArgumentParser(prog="batch")
     ap.add_argument("verb", choices=["plan", "brief", "digest", "watch",
                                      "slice", "premise", "green", "ready"],

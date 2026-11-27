@@ -295,6 +295,31 @@ freeze, writes `queue.md`, edits another prompt, or quarantines (it may
 propose one). `_green.py` imports no process or network module; the tests
 pin that and record every process a full brief run starts.
 
+## Maintenance findings (`_maintain.py`, Phase 14.1, PyAutoBrain#731)
+
+`batch maintain --dry-run [--sources census,monitoring,release] [--json]`
+lists what needs fixing on `main` as one `Finding` shape — `key`, `source`,
+`repo`, `paths`, `summary`, `witness`, `tier_floor`, `lane`, `evidence`. It is
+**read-only**: without `--dry-run` it refuses (writing prompts is slice 14.2).
+It runs at brief and collect time only; the watcher's tick never calls it.
+
+| Source | Read from | Key | Tier floor |
+|---|---|---|---|
+| `census` | Heart's local `no_run_census.json`, else the board's `performance.no_run` (10 rows) when that is fresher | `no_run:<repo>/<entry>` | glance |
+| `monitoring` | the published Heart `board.json`, `monitoring.findings` (red and yellow only) | the Heart `id` with its `run_id`/`run_url` discriminator dropped; census rows map to `no_run:`, CI rows to `ci:<repo>[:<workflow>]` | glance for an organ's own workflow red; judge otherwise (workflow files, dependency caps, public names, and whenever unsure) |
+| `release` | `_green.read_heart` + `_green.classify` (unchanged); only `fixable-dev`, never `stale` | `_green`'s key; organ lines `<Organ>/workflows/<name>: failure`, which no `_green` rule matches, become `ci:<Organ>:<name>` | glance for organ CI red; judge otherwise |
+
+The same defect has one key whichever source reports it, so findings are
+deduped by key (the census record wins). Left out: `worktree_drift` and
+`repo_state` (local checkout state belongs to Gut and `/repo_cleanup`),
+`release` (the release adapter reads the verdict: one filing path), open PRs,
+`grey`/`stale` rows (missing evidence is a collector refresh, not a fix) and
+roll-ups (`:coverage`, a repo-level CI row beside its workflow rows). Each
+witness: census, the entry is gone from `no_run.yaml` and the script passes
+under the smoke cap; monitoring, the key is absent or green on a fresh board
+read; release, a fresh verdict no longer lists the reason. `--board-json`,
+`--census-json`, `--heart-json` and `--at` replay saved documents.
+
 ## The watcher (phases 3a–3d)
 
 `bin/orchestrator_watch.py --mind <PyAutoMind>` finds the brief and runs **one
