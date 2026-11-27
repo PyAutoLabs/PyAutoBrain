@@ -515,14 +515,32 @@ def shift_env(lease_dir: Path, brief_path: Path, base: dict | None = None) -> di
     hooks lock that stops a Mind commit. Settings env replaces values rather
     than appending, so the hooks lock is `GIT_CONFIG_*` index 0. It is on the
     argv, visible in `ps`: never a secret here. `base` (default the process
-    env) only locates the kick file."""
+    env) locates the kick file and gives the caller's own `GIT_CONFIG_*`
+    entries: settings env replaces the whole set, so they are copied (indices
+    0..n-1, a value carrying a watcher secret dropped) and the hooks lock is
+    index n, as `worker_env` does."""
     base = os.environ if base is None else base
+    secrets = {str(base.get(GH_TOKEN_ENV, "")).strip()} | _auth().secrets()
+    secrets.discard("")
+    try:
+        n = int(base.get("GIT_CONFIG_COUNT", "0") or 0)
+    except ValueError:
+        n = 0
+    git_config = {}
+    for i in range(max(n, 0)):
+        key, value = base.get(f"GIT_CONFIG_KEY_{i}"), base.get(f"GIT_CONFIG_VALUE_{i}")
+        if key is None or value is None or str(value).strip() in secrets:
+            # A gap or a secret: keep the index, make it harmless.
+            key, value = "pyauto.shiftEnvPlaceholder", ""
+        git_config[f"GIT_CONFIG_KEY_{i}"], git_config[f"GIT_CONFIG_VALUE_{i}"] = key, value
+    n = max(n, 0)
+    git_config.update({"GIT_CONFIG_COUNT": str(n + 1),
+                       f"GIT_CONFIG_KEY_{n}": "core.hooksPath",
+                       f"GIT_CONFIG_VALUE_{n}": str(WORKER_HOOKS)})
     return {"PYAUTO_SHIFT_WORKER": "1",
             "PYAUTO_SHIFT_LEDGER_DIR": str(Path(lease_dir).parent / _mind_writer.LEDGER_DIR),
             "PYAUTO_SHIFT_BRIEF": str(brief_path),
-            "GIT_CONFIG_COUNT": "1",
-            "GIT_CONFIG_KEY_0": "core.hooksPath",
-            "GIT_CONFIG_VALUE_0": str(WORKER_HOOKS),
+            **git_config,
             KICK_ENV: str(kick_path(base))}
 
 

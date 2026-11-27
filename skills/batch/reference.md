@@ -16,7 +16,9 @@ reached; `batch.md` points here from each one.
   travel on the argv as `claude --settings '{"env": …}'`, not in the process
   env, because a `claude --bg` daemon spare keeps the environment of whoever
   started the daemon (PyAutoBrain#724). A human `claude --bg` on a daemon a
-  worker started can still inherit worker variables (CLI behaviour, not fixed).
+  worker started can still inherit worker variables (CLI behaviour, not fixed),
+  `PYAUTO_SHIFT_BRIEF` among them, which the watcher CLI honours as an
+  override only inside that brief's own window.
 
 - *Spawned cloud sessions need sources and a bootstrap preamble.* A session
   created bare (environment inherited, no source repos) has no clones, no

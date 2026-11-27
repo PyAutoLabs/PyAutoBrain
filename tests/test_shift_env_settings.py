@@ -26,6 +26,12 @@ import _orchestrator as orch  # noqa: E402
 PR = "https://github.com/PyAutoLabs/PyAutoBrain/pull/1"
 
 
+@pytest.fixture(autouse=True)
+def _no_caller_git_config(monkeypatch):
+    """The argv tests read the process env; start them with no `GIT_CONFIG_*`."""
+    monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
+
+
 def _settings_env(argv: list[str]) -> dict:
     """The `env` of the argv's one `--settings` JSON."""
     assert argv.count("--settings") == 1, argv[:-1]
@@ -88,6 +94,35 @@ def test_settings_env_carries_no_secret(tmp_path, monkeypatch):
                         "PYAUTO_SHIFT_BRIEF", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0",
                         "GIT_CONFIG_VALUE_0", orch.KICK_ENV}
     assert "ghp_fictional_secret" not in json.dumps(env)
+
+
+def test_settings_env_keeps_the_callers_git_config_and_locks_after_it(tmp_path):
+    brief, lease_dir = _paths(tmp_path, "2026-11-26-pm2")
+    env = orch.shift_env(lease_dir, brief, base={"GIT_CONFIG_COUNT": "1",
+                                                 "GIT_CONFIG_KEY_0": "safe.directory",
+                                                 "GIT_CONFIG_VALUE_0": "/srv/x"})
+    assert env["GIT_CONFIG_COUNT"] == "2"
+    assert (env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]) == ("safe.directory", "/srv/x")
+    assert (env["GIT_CONFIG_KEY_1"], env["GIT_CONFIG_VALUE_1"]) == (
+        "core.hooksPath", str(orch.WORKER_HOOKS))
+
+
+def test_settings_env_without_caller_git_config_locks_at_index_0(tmp_path):
+    brief, lease_dir = _paths(tmp_path, "2026-11-26-pm2")
+    env = orch.shift_env(lease_dir, brief, base={})
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert (env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]) == (
+        "core.hooksPath", str(orch.WORKER_HOOKS))
+    assert "GIT_CONFIG_KEY_1" not in env
+
+
+def test_settings_env_drops_a_secret_from_copied_git_config(tmp_path):
+    brief, lease_dir = _paths(tmp_path, "2026-11-26-pm2")
+    env = orch.shift_env(lease_dir, brief, base={
+        orch.GH_TOKEN_ENV: "ghp_fictional_secret", "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.extraHeader", "GIT_CONFIG_VALUE_0": "ghp_fictional_secret"})
+    assert "ghp_fictional_secret" not in json.dumps(env)
+    assert env["GIT_CONFIG_COUNT"] == "2" and env["GIT_CONFIG_KEY_1"] == "core.hooksPath"
 
 
 def test_worker_env_names_the_brief_and_keeps_its_appended_lock(tmp_path):
@@ -184,3 +219,24 @@ def test_merge_slot_cli_refuses_a_mismatch(tmp_path):
                          env=env, capture_output=True, text=True, timeout=60)
     assert res.returncode == 2
     assert "2026-11-26-pm2" in res.stderr and "do not merge" in res.stderr
+
+
+def _release_queued(tmp_path, brief: str | None) -> subprocess.CompletedProcess:
+    from _helpers import hermetic_worktree_env, source_worktree
+    ledger = tmp_path / ".orchestrator" / "2026-11-26-pm" / mw.LEDGER_DIR
+    mw.queue_op(ledger, {"op": "drop-section", "path": "active.md", "section": "task-x"})
+    env = {**hermetic_worktree_env(tmp_path), "PYAUTO_SHIFT_LEDGER_DIR": str(ledger)}
+    if brief:
+        env["PYAUTO_SHIFT_BRIEF"] = brief
+    return source_worktree("_worktree_release_queued task-x", env)
+
+
+def test_worktree_release_guard_fails_closed_on_another_shifts_ledger(tmp_path):
+    res = _release_queued(tmp_path, str(tmp_path / "2026-11-26-pm2.md"))
+    assert res.returncode == 1                       # not found: the claim stays
+    assert "2026-11-26-pm2" in res.stderr and "PYAUTO_SHIFT_LEDGER_DIR" in res.stderr
+
+
+def test_worktree_release_guard_reads_its_own_shifts_ledger(tmp_path):
+    assert _release_queued(tmp_path, str(tmp_path / "2026-11-26-pm.md")).returncode == 0
+    assert _release_queued(tmp_path / "b", None).returncode == 0

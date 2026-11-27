@@ -300,9 +300,25 @@ worktree_add_repo() {
 # checkout mid-shift. A release queued (or already committed) in that ledger
 # is a released claim (PyAutoBrain#637, item 10). Only the guard's question
 # changes: the dirty-repo refusal in worktree_remove still applies.
+# A ledger whose slot (`.orchestrator/<slot>/ledger`) is not the stem of
+# PYAUTO_SHIFT_BRIEF is another shift's (a stale env, PyAutoBrain#724): warn
+# and fail closed — no release counts, the claim stays, removal refuses.
+# The shell twin of `_mind_writer.shift_ledger_dir`.
 _worktree_release_queued() {
-  local task="$1" ledger="${PYAUTO_SHIFT_LEDGER_DIR:-}" f
+  local task="$1" ledger="${PYAUTO_SHIFT_LEDGER_DIR:-}" brief="${PYAUTO_SHIFT_BRIEF:-}" f
   [[ -n "$ledger" && -d "$ledger" ]] || return 1
+  if [[ -n "$brief" ]]; then
+    local ledger_slot brief_slot
+    ledger_slot="$(basename "$(dirname "$ledger")")"
+    brief_slot="$(basename "$brief" .md)"
+    if [[ "$ledger_slot" != "$brief_slot" ]]; then
+      echo "worktree: refused to read a queued claim release — the shift environment is" \
+           "stale: PYAUTO_SHIFT_LEDGER_DIR=$ledger is slot '$ledger_slot' but" \
+           "PYAUTO_SHIFT_BRIEF=$brief is slot '$brief_slot'; the claim is treated as" \
+           "still held. Tell the human." >&2
+      return 1
+    fi
+  fi
   for f in "$ledger"/*.json "$ledger"/committed/*.json; do
     [[ -f "$f" ]] || continue
     grep -Eq '"op": *"drop-section"' "$f" || continue
