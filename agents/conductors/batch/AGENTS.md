@@ -295,6 +295,49 @@ freeze, writes `queue.md`, edits another prompt, or quarantines (it may
 propose one). `_green.py` imports no process or network module; the tests
 pin that and record every process a full brief run starts.
 
+## Maintenance findings (`_maintain.py`, Phase 14.1, PyAutoBrain#731)
+
+`batch maintain --dry-run [--sources census,monitoring,release] [--json]`
+lists what needs fixing on `main` as one `Finding` shape — `key`, `source`,
+`repo`, `paths`, `summary`, `witness`, `tier_floor`, `lane`, `evidence`,
+`stale`. It is **read-only**: without `--dry-run` it refuses (writing prompts
+is slice 14.2). It is run by hand, and later by the 14.2/14.3 filing steps;
+the watcher's tick never calls it.
+
+| Source | Read from | Key | Tier floor |
+|---|---|---|---|
+| `census` | ONE whole source, the fresher: Heart's local `no_run_census.json`, or the board's census rows (its `no_run_census` monitoring rows are the complete set; `performance.no_run` is a capped subset). Never merged — a stale local file must not resurrect entries the board has dropped | `no_run:<repo>/<entry>` | glance only for a SLOW row with structured evidence of a pass (`passed: true`, numeric `seconds`/`measured_s` ≤ numeric `cap_s`); free text is never parsed for seconds, NEEDS_FIX is never glance, and a reason naming OOM, SIGKILL, killed or a timeout forces judge |
+| `monitoring` | the published Heart `board.json`, `monitoring.findings` (red and yellow only) | the Heart `id` with its `run_id`/`run_url` discriminator dropped; CI rows (and an un-namespaced `<repo>:ci`) become `ci:<repo>[:<workflow>]` | glance only for an organ's own workflow red on its head commit that is not a release-execution workflow; judge otherwise |
+| `release` | `_green.read_heart` + `_green.classify` (unchanged); only `fixable-dev`, never `stale` reasons | `_green`'s key; organ lines `<Organ>/workflows/<name>: failure`, which no `_green` rule matches, become `ci:<Organ>:<name>` | judge (the verdict carries no `on_head`; the monitoring row for the same key, read first, does) |
+
+Glance-eligible organs come from the body map: `category: organ`, minus a repo
+that ships a `package:`, the Brain itself (`organ: Brain`) and the readiness
+oracle this lane reads (the policy's `board: heart_board`, the surface
+`heart_feed.py` reads). When unsure, judge. **14.2 must
+raise a census finding's tier when its diff touches anything other than
+`no_run.yaml`.**
+
+The same defect has one key whichever source reports it: findings are deduped
+by key (census, then monitoring, then release), and a repo-level `ci:<repo>`
+gives way to any `ci:<repo>:<workflow>`. Left out: `worktree_drift` and
+`repo_state` (local checkout state belongs to Gut and `/repo_cleanup`),
+`release` (the release adapter reads the verdict: one filing path), open PRs,
+the timing families (`smoke_timings`, `unit_test_timing`, `ci_timing`, script
+and import timings — Heart-flagged rows only, in slice 14.5), `grey`/`stale`
+rows (missing evidence is a collector refresh, not a fix) and `:coverage`
+roll-ups. Each witness: census, the entry is gone from `no_run.yaml` and the
+script passes under the smoke cap; monitoring, the key is absent or green on a
+fresh board read; release, a fresh verdict no longer lists the reason.
+
+**A failed read never looks like all-clear.** Every requested source reports
+`ok`, `stale` (over the 6 h rule, or a `stale` verdict; a `grey` verdict is
+unread) and `partial` (the census read only the local file because the board
+could not be read; its `why` says so), and each finding reports `stale` (also
+a row Heart marks `fresh: false`). The command exits 3 when any requested
+source was not read. **14.2 must never file from, or clear keys for, an unread
+or stale source, and never clear keys from a partial one.** `--board-json`,
+`--census-json`, `--heart-json` and `--at` replay saved documents.
+
 ## The watcher (phases 3a–3d)
 
 `bin/orchestrator_watch.py --mind <PyAutoMind>` finds the brief and runs **one
