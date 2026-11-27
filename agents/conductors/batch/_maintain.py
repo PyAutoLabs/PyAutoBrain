@@ -320,27 +320,52 @@ def dedupe(findings) -> list[Finding]:
                                    and f.key[3:] in wf_repos)]
 
 
-def collect(census=None, board=None, heart=None, sources=SOURCES,
-            organs=frozenset(), stale_sources=()) -> list[Finding]:
-    """All requested sources, deduped. A finding from a source in
-    `stale_sources` (over the 6 h rule, or a grey/stale verdict) is flagged
-    `stale`, as is a monitoring row Heart itself marks `fresh: false`."""
-    found = []
+def collect_raw(census=None, board=None, heart=None, sources=SOURCES,
+                organs=frozenset()) -> dict:
+    """{source: [Finding]} before the cross-source dedupe — what each source
+    itself lists. The writer clears a key only when no freshly read source
+    lists it, whichever source won the dedupe."""
+    out = {}
     if "census" in sources:
         # One whole source (the loader picks it): the census document given,
         # else the board's census rows. Never a merge of the two.
         rows = (census or {}).get("rows") if census is not None else \
             board_census_rows(board) if board is not None else []
-        found += census_findings({"rows": rows or []})
+        out["census"] = census_findings({"rows": rows or []})
     if "monitoring" in sources and board is not None:
-        found += monitoring_findings(board, organs)
+        out["monitoring"] = monitoring_findings(board, organs)
     if "release" in sources and heart is not None:
-        found += release_findings(heart, organs)
-    out = dedupe(found)
+        out["release"] = release_findings(heart, organs)
+    return out
+
+
+def collect(census=None, board=None, heart=None, sources=SOURCES,
+            organs=frozenset(), stale_sources=(), raw=None) -> list[Finding]:
+    """All requested sources, deduped. A finding from a source in
+    `stale_sources` (over the 6 h rule, or a grey/stale verdict) is flagged
+    `stale`, as is a monitoring row Heart itself marks `fresh: false`."""
+    raw = raw if raw is not None else collect_raw(census, board, heart, sources, organs)
+    out = dedupe([f for s in SOURCES for f in raw.get(s, [])])
     for f in out:
         if f.source in stale_sources:
             f.stale = True
     return out
+
+
+def human_only_reason(f: Finding) -> str:
+    """Why a listed finding is the human's, never a filed fix, or "": a
+    release-execution workflow (its witness needs a release run) or a
+    unit-test timing line (slice 14.5's Heart-flagged timing, not a fix)."""
+    if f.key.startswith("ci:"):
+        wf = f.key[3:].partition(":")[2]
+        if wf and RELEASE_WORKFLOW_RX.search(wf):
+            return ("human-only: a release-execution workflow — its witness needs a "
+                    "release run")
+    ev = f.evidence or {}
+    if ev.get("rule") == "unit-test" and re.search(r"timing", str(ev.get("text") or ""),
+                                                   re.I):
+        return "human-only: a unit-test timing line — slice 14.5, not a fix"
+    return ""
 
 
 # --- loaders (read-only) ------------------------------------------------------
@@ -374,7 +399,9 @@ def fetch_board(url: str, timeout=BOARD_TIMEOUT):
 
 def _read(data, source, why, age, status=None, partial=False) -> dict:
     ok = isinstance(data, dict) and status != "grey"
-    stale = (not ok) or partial or age is None or age > MAX_AGE_HOURS or status == "stale"
+    # A negative age (`--at` before the evidence) is unknown, so stale.
+    stale = ((not ok) or partial or age is None or age < 0 or age > MAX_AGE_HOURS
+             or status == "stale")
     return {"data": data if isinstance(data, dict) else None,
             "source": source if isinstance(data, dict) else "none",
             "why": why, "age_hours": age, "ok": ok, "stale": stale, "partial": partial,
@@ -533,17 +560,19 @@ def main(argv=None) -> int:
     if "release" in sources:
         reads["release"] = load_release(a.heart_json, now)
     stale = {s for s, r in reads.items() if r["stale"]}
-    found = collect(census=(reads.get("census") or {}).get("data"),
-                    board=(board_read or {}).get("data"),
-                    heart=(reads.get("release") or {}).get("data"),
-                    sources=sources, organs=glance_organs(), stale_sources=stale)
+    raw = collect_raw(census=(reads.get("census") or {}).get("data"),
+                      board=(board_read or {}).get("data"),
+                      heart=(reads.get("release") or {}).get("data"),
+                      sources=sources, organs=glance_organs())
+    found = collect(sources=sources, stale_sources=stale, raw=raw)
     unread = [s for s, r in reads.items() if not r["ok"]]
     wres = None
     if a.file:
         home = Path(a.home) if a.home else _orchestrator_home()
         wres = _maintain_write.file_findings(
             found, reads, Path(a.mind), cap=a.cap,
-            state_path=home / _maintain_write.STATE_NAME, now=now)
+            state_path=home / _maintain_write.STATE_NAME, now=now,
+            present=_maintain_write.present_keys(raw, reads))
     if a.as_json:
         print(json.dumps({"dry_run": bool(a.dry_run), "sources": sources, "unread": unread,
                           "reads": {k: {kk: v for kk, v in r.items() if kk != "data"}

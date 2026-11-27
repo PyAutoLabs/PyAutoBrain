@@ -331,7 +331,7 @@ def _read_flags(heart: dict) -> dict:
     ok = heart.get("status") != "grey" and heart.get("source") != "none"
     return {"ok": ok, "partial": False, "source": heart.get("source"), "age_hours": age,
             "why": heart.get("why") or "",
-            "stale": (not ok) or age is None or age > MAX_AGE_HOURS
+            "stale": (not ok) or age is None or age < 0 or age > MAX_AGE_HOURS
             or heart.get("status") == "stale"}
 
 
@@ -352,14 +352,21 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
     if mode == "off":
         res["note"] = f"lane off (--green off or ${MODE_ENV}=off)"
         return res
+    import _maintain  # noqa: E402 — the release adapter and Finding shape (lazy)
     status, age = heart.get("status"), heart.get("age_hours")
     findings = [f for r in heart.get("reasons") or [] for f in classify(r)]
+    for f in findings:  # timing lines and release-execution runs are the human's
+        why = (_maintain.human_only_reason(_maintain.release_finding(f))
+               if f["cls"] == "fixable-dev" and f["key"] else "")
+        if why:
+            f.update(cls="human-only", file=False, lane="", action=why,
+                     rule=f"{f['rule']} → human-only")
     res["findings"] = findings
     if status == "grey" or heart.get("source") == "none":
         res["note"] = f"Heart unreadable ({heart.get('why')}) — the lane did nothing"
         return res
-    if age is None or age > MAX_AGE_HOURS:
-        res["note"] = ("Heart evidence " + ("of unknown age" if age is None else
+    if age is None or age < 0 or age > MAX_AGE_HOURS:
+        res["note"] = ("Heart evidence " + ("of unknown age" if age is None or age < 0 else
                        f"{age:.1f} h old") + f", over the {MAX_AGE_HOURS:g} h rule — "
                        "STALE: re-check; nothing filed or picked")
         return res
@@ -371,20 +378,23 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
     state = w.load_state(state_path)
     read = _read_flags(heart)
     writes = mode in ("file", "pick")
+    # Every key this verdict lists, through the SAME release adapter
+    # `batch maintain` uses (organ CI reds included), so the lane never clears
+    # a key the CLI filed while Heart still lists it — also on a GREEN read.
+    listed = _maintain.release_findings(heart, _maintain.glance_organs())
     if status in ("green", "stale"):
         res["note"] = f"Heart {status.upper()} — nothing for a shift to fix"
         if writes:
-            w.file_findings([], {"release": read}, mind, cap=0, state_path=state_path,
-                            now=now, guard=False)
+            w.file_findings(listed, {"release": read}, mind, cap=0, state_path=state_path,
+                            now=now, guard=False, only=set())
         return res
     corpus, queue = _corpus(mind), ""
     try:
         queue = (mind / "queue.md").read_text(encoding="utf-8")
     except OSError:
         pass
-    import _maintain  # noqa: E402 — the writer's Finding shape (already loaded)
     order = {"red": 0, "yellow": 1}
-    seen, listed, to_file = set(), [], {}
+    seen, to_file = set(), {}
     for f in sorted(findings, key=lambda f: order.get(f["severity"], 2)):
         if f["cls"] != "fixable-dev" or f["severity"] == "stale" or not f["key"]:
             continue
@@ -393,7 +403,6 @@ def run(mind: Path, heart: dict, *, mode: str = DEFAULT_MODE, cap: int = DEFAULT
             continue
         seen.add(f["key"])
         finding = _maintain.release_finding(f)
-        listed.append(finding)
         row = state["keys"].get(finding.key) or {}
         how, path = _match(f, corpus, queue)
         if how == "queued":

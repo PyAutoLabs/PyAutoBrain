@@ -121,13 +121,21 @@ def load_state(path: Path | None) -> dict:
             if isinstance(row, dict):
                 state["keys"].setdefault(_maintain._norm_ci(k), dict(row, source="release"))
         state["migrated"] = LEGACY_STATE_NAME
+        if legacy.exists():
+            state["_legacy"] = str(legacy)  # renamed on the first save, never re-read
     return state
 
 
 def save_state(state: dict, path: Path | None) -> None:
+    """Write the state; a legacy file migrated this run is renamed
+    `heart_green.json.migrated`, so even a lost `maintain.json` cannot
+    re-migrate keys cleared since."""
+    legacy = state.pop("_legacy", None)
     if path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
+        if legacy and Path(legacy).exists():
+            Path(legacy).replace(legacy + ".migrated")
 
 
 def key_marked(text: str, key: str) -> bool:
@@ -149,6 +157,22 @@ def corpus(mind: Path) -> tuple[dict, str]:
     return out, queue
 
 
+def mentions(needle: str, text: str) -> bool:
+    """`needle` in `text` as a whole token: `ci:X` is not inside `ci:X:wf`,
+    `no_run:r/a/foo` is not inside `…/foo_bar` (a trailing `.` before a
+    non-word, as at a sentence end, still counts)."""
+    if not needle:
+        return False
+    rx = r"(?<![\w])" + re.escape(needle) + r"(?![\w:/-]|\.\w)"
+    return re.search(rx, text) is not None
+
+
+def present_keys(raw: dict, reads: dict) -> set:
+    """Every key a freshly read (ok, not stale, not partial) source lists,
+    before the cross-source dedupe (`_maintain.collect_raw`)."""
+    return {f.key for s, fs in raw.items() if not unusable(reads.get(s)) for f in fs}
+
+
 def match(key: str, needles, docs: dict, queue: str) -> tuple[str, str]:
     """(how, path): `exact` (a key mark), `mentions` (a needle in a prompt),
     `queued` (the key or a needle in queue.md), or ("", "")."""
@@ -156,9 +180,9 @@ def match(key: str, needles, docs: dict, queue: str) -> tuple[str, str]:
         if key_marked(text, key):
             return "exact", path
     for path, text in docs.items():
-        if any(n and n in text for n in needles):
+        if any(mentions(n, text) for n in needles):
             return "mentions", path
-    if any(n and n in queue for n in [key, *needles]):
+    if any(mentions(n, queue) for n in [key, *needles]):
         return "queued", "queue.md"
     return "", ""
 
@@ -183,19 +207,26 @@ def slug(key: str) -> str:
 
 
 def _surface_rule(f) -> str:
+    """The 14.1 tier rule, for a `glance` floor only: the floor holds while the
+    fix stays on the finding's own surface."""
+    if f.tier_floor != "glance":
+        return (f"**Tier.** `Consequence: {f.tier_floor}` is this finding's floor; "
+                "never lower it.")
     repo = f.repo or "the repo"
     if f.source == "census":
-        surface = f"`no_run.yaml` in {repo}"
-        beyond = "the script itself, a library, a config or a workflow"
+        scope = (f"its own surface (`no_run.yaml` in {repo}). If your diff touches "
+                 "anything other than `no_run.yaml` (the script itself, a library, a "
+                 "config or a workflow)")
+    elif f.key.startswith("ci:"):
+        scope = (f"its own surface (the code the red workflow runs in {repo}), which "
+                 "excludes `.github/workflows/`, dependency pins and public names. If "
+                 "your diff touches any of those, or another repo")
     else:
-        surface = (", ".join(f"`{p}`" for p in f.paths) + f" in {repo}") if f.paths \
-            else "the failing check named above"
-        beyond = "any other file or repo"
-    return (f"**Tier rule (Phase 14.1).** `Consequence: {f.tier_floor}` is this finding's "
-            f"floor and holds only while the fix touches nothing beyond its own surface. "
-            f"If your diff touches anything other than {surface} ({beyond}), raise "
-            "`Consequence:` to `judge` before shipping and say why in the PR; never "
-            "lower it.")
+        surface = ", ".join(f"`{p}`" for p in f.paths) or "the failing check named above"
+        scope = f"its own surface ({surface} in {repo}). If your diff touches anything else"
+    return (f"**Tier rule (Phase 14.1).** `Consequence: glance` is this finding's floor "
+            f"and holds only while the fix stays on {scope}, raise `Consequence:` to "
+            "`judge` before shipping and say why in the PR; never lower it.")
 
 
 def _priority(f) -> str:
@@ -278,7 +309,8 @@ def classify(f, read: dict, mind: Path, today: str) -> dict:
 
 def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
                   state_path: Path | None = None, now=None, guard: bool = True,
-                  only=None, needles: dict | None = None) -> dict:
+                  only=None, needles: dict | None = None,
+                  present: set | None = None) -> dict:
     """File at most `cap` new prompts for `findings` (every finding the reads
     listed). `reads` maps a source name to its read ({ok, stale, partial, …}).
 
@@ -287,7 +319,9 @@ def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
     counts as listed for clearing. `needles` maps a key to the strings whose
     mention counts as covered (default: the key). `guard=False` is for a
     caller that already refused anything but a linked worktree
-    (`_batch.write_hold`).
+    (`_batch.write_hold`). `present` is every key the fresh sources list
+    before the cross-source dedupe (`present_keys`); default, the keys of
+    `findings` from fresh sources.
 
     Returns {filed: [{key, path, tier, unattended, difficulty, lane}],
     skipped: [{key, source, reason}], cleared: [keys], hold}."""
@@ -303,7 +337,8 @@ def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
         return res
     state = load_state(state_path)
     fresh = {s for s, r in reads.items() if not unusable(r)}
-    present = {f.key for f in findings if f.source in fresh}
+    if present is None:
+        present = {f.key for f in findings if f.source in fresh}
     for key, row in list(state["keys"].items()):
         if row.get("source", "release") in fresh and key not in present:
             del state["keys"][key]
@@ -325,6 +360,10 @@ def file_findings(findings, reads: dict, mind: Path, *, cap: int = DEFAULT_CAP,
             continue
         if f.stale:
             skip("stale finding (Heart marks its row not fresh) — never filed")
+            continue
+        human = _maintain.human_only_reason(f)
+        if human:
+            skip(human)
             continue
         row = state["keys"].setdefault(f.key, {"first_seen": stamp})
         row.update(last_seen=stamp, source=f.source, summary=f.summary[:160])

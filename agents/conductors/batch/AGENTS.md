@@ -354,10 +354,17 @@ call the same `file_findings` for the release source.
 - **The prompt.** Type/Target/Repos/Difficulty/`Autonomy: supervised`/Priority/
   `Status: draft`/Filed/Consequence (the finding's tier floor)/Witness (the
   finding's)/Review-minutes/Lane/Unattended, then `Source-key: <key>`. The
-  body carries the evidence, a re-check-first step for that source, and the
-  14.1 tier rule: when the fix's diff touches anything beyond the finding's
-  own surface (for a census row, anything other than that repo's
-  `no_run.yaml`), the worker raises `Consequence:` to `judge`.
+  body carries the evidence and a re-check-first step for that source. A
+  `glance` finding also carries the 14.1 tier rule: when the fix's diff
+  touches anything beyond the finding's own surface, the worker raises
+  `Consequence:` to `judge` — for a census row anything other than that
+  repo's `no_run.yaml`; for a `ci:` row the surface excludes
+  `.github/workflows/`, dependency pins and public names. A `judge` finding
+  says only that its floor is never lowered.
+- **Human-only, never filed.** A release-execution workflow (`ci:` key whose
+  workflow matches 14.1's release-workflow rule — its witness needs a release
+  run) and a unit-test timing line (slice 14.5) are skipped as human-only by
+  the writer, and the green lane reports them under `human-only`.
 - **Classify.** Intake `analyse()` (never writes) gives the work type, target
   (a declared, known repo; else the finding's repo) and lane; an intake lane
   refusal is skipped, never filed. Sizing gives Difficulty, Unattended and
@@ -366,13 +373,21 @@ call the same `file_findings` for the release source.
   never consequence, and would grade most of them `ready`).
 - **Dedupe.** The `<!-- maint-key: … -->` mark, the `Source-key:` header,
   `_green`'s old `<!-- heart-key: … -->` mark or a mention of the key in
-  `draft/`, `active/` or `queue.md`, or a state row that already filed it.
+  `draft/`, `active/` or `queue.md` (whole tokens: `ci:X` is not inside
+  `ci:X:wf`), or a state row that already filed it.
   At most `--cap` (default 3) new files per run; the rest wait.
 - **State.** `maintain.json` in the orchestrator home (beside
-  `heart_green.json`, whose rows it migrates once, as `release` keys):
-  first_seen / last_seen / source / filed / filed_at per key. A key whose
-  source was read `ok`, fresh and whole this run and no longer lists it is
-  cleared; an unread, stale or partial read clears nothing.
+  `heart_green.json`, whose rows it migrates once, as `release` keys, then
+  renames it `heart_green.json.migrated`): first_seen / last_seen / source /
+  filed / filed_at per key. A key is cleared only when its source was read
+  `ok`, fresh and whole this run and NO freshly read source lists it —
+  counted before the cross-source dedupe (`collect_raw`), so a stale row
+  winning the dedupe cannot clear a key a fresh source lists. An unread,
+  stale or partial read (a negative age, `--at` before the evidence, counts
+  as stale) clears nothing. The green lane lists its keys through the same
+  release adapter (`_maintain.release_findings`, organ CI reds included), on
+  a GREEN verdict too, so the CLI and the lane share `maintain.json` without
+  clearing each other's keys.
 - **Write guard.** Only into a Mind that is a linked worktree or not a git
   checkout (`_mind_guard`, the probe `_batch.write_hold` also uses); a main
   checkout — the shared canonical Mind may be one — is refused before

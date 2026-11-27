@@ -33,12 +33,17 @@ def is_linked_worktree(path: Path) -> bool:
 
 def in_git_checkout(path: Path) -> bool:
     """True when `path` is inside any git working tree. Fails closed: when git
-    cannot be run, any `.git` entry in `path` or an ancestor counts as one."""
+    cannot be run or answers non-zero, any `.git` entry in `path` or an
+    ancestor counts as one."""
     path = Path(path).resolve()
     try:
         out = subprocess.run(["git", "-C", str(path), "rev-parse",
                               "--is-inside-work-tree"],
                              capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
-        return any((p / ".git").exists() for p in (path, *path.parents))
-    return out.returncode == 0 and out.stdout.strip() == "true"
+        out = None
+    if out is not None and out.returncode == 0:
+        return out.stdout.strip() == "true"
+    # git could not answer (not a repo, dubious ownership, a broken repo):
+    # any `.git` entry here or above still counts as a checkout.
+    return any((p / ".git").exists() for p in (path, *path.parents))

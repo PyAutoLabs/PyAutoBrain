@@ -110,11 +110,16 @@ def test_two_runs_file_each_prompt_exactly_once(mind):
         text = (mind / r["path"]).read_text()
         for need in (f"Source-key: {r['key']}", f"<!-- maint-key: {r['key']} -->",
                      "Re-check first", "Autonomy: supervised", "Status: draft",
-                     "Filed: 2026-11-27", "Witness: ", "Review-minutes: ", "Lane: ",
-                     "Tier rule", "raise `Consequence:` to `judge`"):
+                     "Filed: 2026-11-27", "Witness: ", "Review-minutes: ", "Lane: "):
             assert need in text, (need, r["path"])
+        # The tier-raise rule is for a glance floor only; judge never lowers.
+        glance = r["tier"] == "glance"
+        assert ("raise `Consequence:` to `judge`" in text) is glance, r["path"]
+        assert glance or "never lower it" in text
     census = (mind / first["filed"][0]["path"]).read_text()
-    assert "anything other than `no_run.yaml` in ws_alpha" in census and "Consequence: judge" in census
+    assert "Consequence: judge" in census and "Tier rule" not in census
+    ci = (mind / first["filed"][2]["path"]).read_text()
+    assert "excludes `.github/workflows/`, dependency pins and public names" in ci
     second = _file(mind, FINDINGS)
     assert second["filed"] == []
     assert all(s["reason"].startswith("existing draft/maintenance/")
@@ -361,3 +366,135 @@ def test_writer_imports_no_network_module():
     names = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
     assert not names & {"load_board", "fetch_board", "load_census", "load_release",
                         "read_heart", "urlopen"}
+
+
+# --- review fixes (69049d6 FINDINGS) ------------------------------------------------
+
+def test_a_glance_census_finding_keeps_the_no_run_yaml_rule(plain_mind):
+    res = _file(plain_mind, [_f("no_run:ws_alpha/fast.py", tier="glance")])
+    text = (plain_mind / res["filed"][0]["path"]).read_text()
+    assert "anything other than `no_run.yaml`" in text
+    assert "raise `Consequence:` to `judge`" in text
+
+
+def _heart(red, verdict="red", hours_ago=1.0):
+    ts = (NOW - dt.timedelta(hours=hours_ago)).isoformat()
+    heart = _green.from_doc({"verdict": verdict, "ts": ts, "repository_reasons": [],
+                             "red_reasons": list(red)})
+    heart.update(source="fixture", why="", age_hours=hours_ago)
+    return heart
+
+
+def _grun(mind, heart, mode="file"):
+    return _green.run(mind, heart, mode=mode, state_path=mind.parent / "home" / W.STATE_NAME,
+                      now=NOW)
+
+
+def test_a_green_verdict_still_listing_a_key_does_not_clear_it(plain_mind):
+    assert _grun(plain_mind, _heart(["RepoX: CI failure"]))["filed"]
+    _grun(plain_mind, _heart(["RepoX: CI failure"], verdict="green"))
+    assert "ci:RepoX" in _state(plain_mind), "still listed: never cleared"
+    _grun(plain_mind, _heart([], verdict="green"))
+    assert "ci:RepoX" not in _state(plain_mind), "a fresh read without it clears it"
+
+
+def test_cli_and_green_lane_share_maintain_json_without_clearing_each_other(plain_mind,
+                                                                           tmp_path):
+    reasons = ["OrganA/workflows/tests: failure", "RepoX: CI failure"]
+    hj = tmp_path / "heart.json"
+    hj.write_text(json.dumps({"verdict": "red", "ts": TS, "repository_reasons": [],
+                              "red_reasons": reasons}))
+    cli = ["maintain", "--file", "--mind", str(plain_mind), "--sources", "release",
+           "--heart-json", str(hj), "--home", str(plain_mind.parent / "home"),
+           "--at", NOW.isoformat()]
+    rc, out, err = _cli(cli)
+    assert rc == 0, err
+    keys = set(_state(plain_mind))
+    assert {"ci:OrganA:tests", "ci:RepoX"} <= keys, keys
+    _grun(plain_mind, _heart(reasons))  # the brief's lane, same state file
+    assert keys <= set(_state(plain_mind)), "the lane cleared a key the CLI filed"
+    rc, _, _ = _cli(cli)
+    assert rc == 0 and keys <= set(_state(plain_mind))
+
+
+def test_a_stale_row_winning_the_dedupe_cannot_clear_a_freshly_listed_key(plain_mind):
+    key = "ci:OrganA:tests"
+    _file(plain_mind, [_f(key, source="release", repo="OrganA", lane="any", paths=[])],
+          reads={"release": OK})
+    stale_mon = _f(key, source="monitoring", repo="OrganA", lane="any", paths=[])
+    fresh_rel = _f(key, source="release", repo="OrganA", lane="any", paths=[])
+    reads = {"monitoring": dict(OK, stale=True), "release": OK}
+    raw = {"monitoring": [stale_mon], "release": [fresh_rel]}
+    found = _maintain.collect(raw=raw, stale_sources={"monitoring"})
+    assert [f.source for f in found] == ["monitoring"], "monitoring wins the dedupe"
+    res = _file(plain_mind, found, reads=reads, present=W.present_keys(raw, reads))
+    assert res["cleared"] == [] and key in _state(plain_mind)
+
+
+def test_in_git_checkout_fails_closed_when_git_answers_non_zero(tmp_path, monkeypatch):
+    import _mind_guard
+    repo, plain = tmp_path / "repo", tmp_path / "plain"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "sub").mkdir()
+    plain.mkdir()
+    monkeypatch.setattr(_mind_guard.subprocess, "run", lambda *a, **k:
+                        subprocess.CompletedProcess(a[0], 128, "", "dubious ownership"))
+    assert _mind_guard.in_git_checkout(repo / "sub") is True
+    assert _mind_guard.in_git_checkout(plain) is False
+    assert W.write_hold(repo / "sub")
+
+
+@pytest.mark.parametrize("reason,why", [
+    ("RepoX/tests/test_a.py::test_b: Unit-test timing regression (3.2s > 1.0s)",
+     "unit-test timing line"),
+    ("RepoX: release.yml failure on main", "release-execution workflow"),
+])
+def test_timing_lines_and_release_runs_are_human_only(plain_mind, reason, why):
+    res = _grun(plain_mind, _heart([reason]))
+    assert res["filed"] == []
+    f = res["findings"][0]
+    assert f["cls"] == "human-only" and why in f["action"]
+    assert why in _green.section(res).split("### Needs the human", 1)[1]
+
+
+def test_the_writer_never_files_a_release_execution_workflow(plain_mind):
+    f = _f("ci:OrganA:PyAuto Release", source="monitoring", repo="OrganA", lane="any",
+           paths=[])
+    res = _file(plain_mind, [f])
+    assert res["filed"] == [] and "release-execution" in res["skipped"][0]["reason"]
+
+
+def test_mentions_are_whole_tokens(plain_mind):
+    d = plain_mind / "draft/maintenance/x"
+    d.mkdir(parents=True)
+    (d / "other.md").write_text("# Other\n\nSee ci:RepoX:wf and no_run:ws_alpha/foo_bar.\n")
+    res = _file(plain_mind, [_f("ci:RepoX", source="release", repo="RepoX", lane="any",
+                                paths=[]), _f("no_run:ws_alpha/foo")],
+                reads={"release": OK, "census": OK})
+    assert len(res["filed"]) == 2, res["skipped"]
+    assert W.mentions("ci:RepoX", "fix ci:RepoX.") and W.mentions("ci:RepoX", "`ci:RepoX`")
+    assert not W.mentions("ci:RepoX", "ci:RepoX:wf")
+    assert not W.mentions("no_run:r/a/foo", "no_run:r/a/foo_bar")
+
+
+def test_the_legacy_state_is_renamed_after_migration(plain_mind):
+    home = plain_mind.parent / "home"
+    home.mkdir()
+    legacy = home / W.LEGACY_STATE_NAME
+    legacy.write_text(json.dumps({"version": 1, "reasons": {"ci:RepoX": {"filed": "a.md"}}}))
+    assert W.load_state(home / W.STATE_NAME)["keys"]["ci:RepoX"]["source"] == "release"
+    assert legacy.exists(), "a read alone renames nothing"
+    _file(plain_mind, [], reads={"census": OK})
+    assert not legacy.exists() and (home / (W.LEGACY_STATE_NAME + ".migrated")).exists()
+    (home / W.STATE_NAME).write_text("{corrupt")
+    assert W.load_state(home / W.STATE_NAME)["keys"] == {}, "never re-migrated"
+
+
+def test_a_negative_age_is_unknown_so_stale():
+    assert _maintain._read({"ts": TS}, "x", "", -1.0)["stale"] is True
+    assert _green._read_flags({"status": "red", "source": "f", "age_hours": -1.0})["stale"]
+
+
+def test_green_files_nothing_from_a_negative_age(plain_mind):
+    res = _grun(plain_mind, _heart(["RepoX: CI failure"], hours_ago=-1.0))
+    assert res["filed"] == [] and "unknown age" in res["note"]
