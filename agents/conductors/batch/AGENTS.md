@@ -346,17 +346,25 @@ that session is stopped (human ruling 2026-11-27, "Stop, then release").
 When its 15 minutes end, `stop_expired_parks` stops it through `/kill`'s stop
 (`_stop_session`: `claude stop <id>`, or the Codex supervisor's STOP file),
 records `park_released[task]` (`how: stopped`) and a `park-stopped` event, and
-moves the task from `parked` to `done` with its inbox question as the
-outcome's open question. From then on it is a park on a question: an answer
-restarts it with the answer (`released_here`) once its library is free, and
-its old lease is reaped when the session has ended. The stop is skipped while
-the shift is paused. Fail closed: no session id, no question in the inbox, or
-a failed stop keeps the hold, is recorded in `park_stop_failed` (one
-`park-stop-failed` event, needs you) and is tried again next tick. A lease
-park whose session ended by itself (`parked-ended`) is released by the 15
-minutes alone (`how: ended`). An answered park waiting to restart
-(`inshift_pending`) keeps its library until it starts, so no other task on
-that library goes ahead of it. Once its
+moves the task from `parked` to `done` with its newest `blocked` inbox question
+added to the outcome's open questions. From then on it is a park on a question:
+an answer restarts it with the answer (`released_here`) once its library is
+free. Its library is released only when the reap sees the stopped session end
+(`ended`, the lease reaped); until then the waiting task is refused as `<repo>
+held by <task> (parked: stopped, its session is still ending)` and counted
+`startable`. A session not seen to end within `PARK_STOP_END_S` (10 minutes)
+raises one `park-stop-overdue` event (needs you); the library stays held and
+the waiting task becomes final, so the shift may close early. The stop is
+skipped while the shift is paused. Fail closed: no session id, no question in
+the inbox, or a failed stop keeps the hold, is recorded in `park_stop_failed`
+(one `park-stop-failed` event, needs you) and is tried again next tick. A new
+park of the task, or a new worker for it, clears both records, so every park
+is stopped at its own grace's end. A lease park whose session ended by itself
+(`parked-ended`) is released by the 15 minutes alone (`how: ended`). An
+answered park waiting to restart (`inshift_pending`) keeps its library until
+it starts, so no other task on that library goes ahead of it. The plan, the
+claim gate and the spawn loop give one wording for every park hold
+(`park_hold_suffix`). Once its
 worker has ended, the next tick may start the next task on that library, its
 PR open, refused or merged alike (`released_picks`; first PyAutoBrain#679 freed
 it only at merge, and one `/prm`-bound PR stalled the shift). A `/drop`ped task

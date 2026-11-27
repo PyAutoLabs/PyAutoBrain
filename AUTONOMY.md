@@ -1119,11 +1119,14 @@ while an earlier PR of the shift on it is open. Six rulings:
   PyAutoBrain#720): inside the 15 minutes a task waiting on that library is
   counted startable, and it starts when they end. A lease park's session is
   still alive, so when its 15 minutes end the watcher first stops that
-  session (the `/kill` stop) and only then releases the library. The stopped
-  task becomes a park on its inbox question, and an answer restarts it with
-  the answer once its library is free. A stop that fails, or a lease park
-  with no question in the inbox, keeps holding. An answered park waiting to
-  restart keeps its library until it starts;
+  session (the `/kill` stop) and releases the library only once the session
+  is seen to have ended. The stopped task becomes a park on its newest inbox
+  question, and an answer restarts it with the answer once its library is
+  free. A stop that fails, or a lease park with no question in the inbox,
+  keeps holding; a stopped session not seen to end within 10 minutes keeps
+  holding too, and the watcher tells the human once. Each park of a task is
+  stopped at its own grace's end. An answered park waiting to restart keeps
+  its library until it starts;
 - **(e)** a worker may proceed past a `worktree_check_conflict` hit that names
   only a listed sibling PR's slug;
 - **(f)** library repos only, and only PRs this shift knows (its outcomes and a

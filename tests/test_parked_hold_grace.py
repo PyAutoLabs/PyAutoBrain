@@ -87,22 +87,35 @@ def test_720_1_2_the_held_task_waits_startable_then_starts_after_15_minutes(tmp_
         assert "closed_early" not in orch.read_counters(slot), r
         assert _named(brief, home)[B_PATH] == \
             f"autogalaxy held by ag_bug_one (parked) until {until}"
-    # The first tick at the end of the grace starts the waiting task.
     claude = d.FakeClaude()
     r = d._tick(brief, mind, home, park + GRACE, claude, agents=agents())
-    assert _spawned(r) == ["ag_bug_two"], r
     c = orch.read_counters(slot)
     if parked is _lease_park:
-        # Stop, then release (2026-11-27): the parked session is stopped first,
-        # and the park becomes a question park an answer restarts.
+        # Stop, then release (2026-11-27): at the end of the grace the parked
+        # session is stopped, and the park becomes a question park an answer
+        # restarts; its library is held until the session is seen to end.
         assert _stops(claude) == [_agent(slot, "ag_bug_one")], claude.calls
-        assert claude.calls[0][0][:2] == ["claude", "stop"], claude.calls  # before the spawn
+        assert _spawned(r) == [], r
         assert {"task": "ag_bug_one", "event": "park-stopped", "issue": nt.ISSUE} \
             in r["reaped"], r
         assert c["park_released"]["ag_bug_one"]["how"] == "stopped"
         assert "ag_bug_one" not in c["parked"] and "ag_bug_one" in c["done"]
         assert c["outcomes"]["ag_bug_one"]["questions"] == [nt.ISSUE]
+        # Still ending: held, but it will start, so the shift stays open.
+        assert "ag_bug_two" in r.get("startable", []), r
+        assert not orch.early_close_ready(slot, c, r)
+        assert _named(brief, home)[B_PATH] == \
+            "autogalaxy held by ag_bug_one (parked: stopped, its session is still ending)"
+        assert "ag_bug_one" not in orch.released_picks(c, now=park + GRACE)
+        # The reap sees the session end: the waiting task starts.
+        r = d._tick(brief, mind, home, park + GRACE + MIN, d.FakeClaude(),
+                    agents=d._agents({"ag_bug_one": "stopped"}, slot))
+        assert {"task": "ag_bug_one", "event": "parked-ended"} in r["reaped"], r
+        assert _spawned(r) == ["ag_bug_two"], r
+        assert orch.read_counters(slot)["park_released"]["ag_bug_one"]["ended"]
     else:
+        # The first tick at the end of the grace starts the waiting task.
+        assert _spawned(r) == ["ag_bug_two"], r
         assert _stops(claude) == [] and "park_released" not in c, claude.calls
 
 
@@ -209,7 +222,7 @@ def test_720_review_a_parked_tasks_claim_is_a_repo_hold_in_the_digest(tmp_path):
     claim("shift worker 2026-11-18-pm (abc123)")
     records = [nt._batch.grade(mind / second, mind)]
     kept, out = orch.on_origin(records, mind, own={"ag_bug_one"}, released=set(),
-                               slot_name="2026-11-18-pm", parked={"ag_bug_one": "09:15Z"})
+                               slot_name="2026-11-18-pm", parked={"ag_bug_one": " (parked) until 09:15Z"})
     assert kept == [] and out == {
         second: "repo autogalaxy held by ag_bug_one (parked) until 09:15Z"}
     lines = orch._digest.backlog_gate_lines({"backlog_gates": {"origin": out}})
@@ -244,9 +257,9 @@ def test_720_r2_a_failed_stop_keeps_the_lease_parks_hold(tmp_path):
             "why": "no such session"} in r["reaped"], r
     # Held, and no longer "until" a time: not startable until the stop works.
     assert "ag_bug_two" not in r.get("startable", []), r
-    assert _named(brief, home)[B_PATH].startswith("autogalaxy held by ag_bug_one"), \
-        _named(brief, home)
-    assert orch.PARK_HOLD_WORDS not in _named(brief, home)[B_PATH]
+    # The plan's reason is the spawn loop's (re-review N4).
+    assert _named(brief, home)[B_PATH] == \
+        "autogalaxy held by ag_bug_one (parked: its session is not stopped yet)"
     c = orch.read_counters(slot)
     assert orch._held_reason(c, {}, "ag_bug_one", "autogalaxy", park + GRACE) == (
         "autogalaxy held by ag_bug_one (parked: its session is not stopped yet)", False)
@@ -255,21 +268,26 @@ def test_720_r2_a_failed_stop_keeps_the_lease_parks_hold(tmp_path):
     assert "ag_bug_one" not in orch.released_picks(c, now=park + 2 * GRACE)
     assert orch._library_holder(c, {}, "ag_bug_two", ["autogalaxy"], park + 2 * GRACE) \
         == ("autogalaxy", "ag_bug_one")
-    # The next tick's stop works: the park is released and the task starts.
+    # The next tick's stop works; once its session is seen to end, the
+    # waiting task starts.
     claude = d.FakeClaude()
     r = d._tick(brief, mind, home, park + GRACE + MIN, claude, agents=blocked())
-    assert _stops(claude) == [_agent(slot, "ag_bug_one")] and _spawned(r) == ["ag_bug_two"], r
-    assert "park_stop_failed" not in orch.read_counters(slot) or \
-        "ag_bug_one" not in orch.read_counters(slot)["park_stop_failed"]
+    assert _stops(claude) == [_agent(slot, "ag_bug_one")] and _spawned(r) == [], r
+    assert "ag_bug_one" not in orch.read_counters(slot).get("park_stop_failed", {})
+    r = d._tick(brief, mind, home, park + GRACE + 2 * MIN, d.FakeClaude(),
+                agents=d._agents({"ag_bug_one": "stopped"}, slot))
+    assert _spawned(r) == ["ag_bug_two"], r
 
 
 def test_720_r2_an_answer_after_the_stop_restarts_it_only_when_the_library_is_free(
         tmp_path, monkeypatch):
     mind, brief, home, slot, park, blocked = _lease_park(tmp_path)
     r = d._tick(brief, mind, home, park + GRACE, d.FakeClaude(), agents=blocked())
+    assert _spawned(r) == [], r
+    r = d._tick(brief, mind, home, park + GRACE + MIN, d.FakeClaude(),
+                agents=d._agents({"ag_bug_one": "stopped"}, slot))
     assert _spawned(r) == ["ag_bug_two"], r
-    # The human answers the lease park's inbox question while ag_bug_two runs;
-    # the stopped session has ended.
+    # The human answers the lease park's inbox question while ag_bug_two runs.
     _answer(monkeypatch, slot, "2026-11-04T09:35Z", issue=nt.ISSUE)
     both = lambda: d._agents({"ag_bug_one": "stopped", "ag_bug_two": "working"}, slot)
     for at in (park + GRACE + 5 * MIN, park + GRACE + 10 * MIN):
@@ -349,11 +367,127 @@ def test_720_r2_a_park_label_only_when_no_other_claim_holds_the_repo(tmp_path):
     nt.sf.push(mind, "two claims")
     records = [nt._batch.grade(mind / second, mind)]
     kept, out = orch.on_origin(records, mind, own={"ag_bug_one"}, released=set(),
-                               slot_name="2026-11-18-pm", parked={"ag_bug_one": "09:15Z"})
+                               slot_name="2026-11-18-pm", parked={"ag_bug_one": " (parked) until 09:15Z"})
     assert kept == [] and out == {second: "repo autogalaxy claimed by `human-other` in "
                                           "active.md on Mind origin/main"}
     lines = orch._digest.backlog_gate_lines({"backlog_gates": {"origin": out}})
     assert [ln for ln in lines if ln.startswith("Repo claimed on Mind origin/main: 1 ")], lines
+
+
+
+# --- review round 3 (2026-11-27) -----------------------------------------------------
+
+def _stop_and_end(brief, mind, home, slot, at, task="ag_bug_one", others=None):
+    """`at` is `task`'s grace end: its session is stopped that tick, nothing
+    else on its library starts; the next tick the reap sees it end."""
+    claude = d.FakeClaude()
+    r = d._tick(brief, mind, home, at, claude,
+                agents=d._agents({task: "blocked", **(others or {})}, slot))
+    assert _stops(claude) == [_agent(slot, task)], claude.calls
+    assert _spawned(r) == [], r
+    return d._tick(brief, mind, home, at + MIN, d.FakeClaude(),
+                   agents=d._agents({task: "stopped", **(others or {})}, slot))
+
+
+def test_720_r3_a_second_lease_park_of_the_task_is_stopped_at_its_own_grace_end(
+        tmp_path, monkeypatch):
+    """Re-review N1: the stop records of a first park never exempt a second
+    park of the same task from the stop."""
+    mind, brief, home = nt._galaxy_shift(tmp_path, names=(*nt.GALAXY, "ag_bug_three"))
+    slot = orch.slot_dir(brief, home)
+    blocked = lambda: d._agents({"ag_bug_one": "blocked"}, slot)
+    d._tick(brief, mind, home, NOW + MIN, d.FakeClaude(), agents=blocked())
+    park = NOW + MIN + _dt.timedelta(seconds=orch.STALL_GRACE_S)
+    d._tick(brief, mind, home, park, d.FakeClaude(), agents=blocked())
+    r = _stop_and_end(brief, mind, home, slot, park + GRACE)
+    assert _spawned(r) == ["ag_bug_two"], r
+    # Answered; ag_bug_two ends and the answered task restarts before ag_bug_three.
+    _answer(monkeypatch, slot, "2026-11-04T09:33Z", issue=nt.ISSUE)
+    (slot / "leases" / "ag_bug_two.done").write_text(f"{PR2}\n")
+    t = park + GRACE + 3 * MIN
+    r = d._tick(brief, mind, home, t, d.FakeClaude(),
+                agents=d._agents({"ag_bug_two": "done"}, slot))
+    assert _spawned(r) == ["ag_bug_one"], r
+    c = orch.read_counters(slot)
+    assert "ag_bug_one" not in c.get("park_released", {})
+    # It blocks again and is parked a second time.
+    d._tick(brief, mind, home, t + MIN, d.FakeClaude(), agents=blocked())
+    park2 = t + MIN + _dt.timedelta(seconds=orch.STALL_GRACE_S)
+    r = d._tick(brief, mind, home, park2, d.FakeClaude(), agents=blocked())
+    assert {"task": "ag_bug_one", "event": "parked"}.items() <= r["reaped"][0].items(), r
+    for at in (park2 + MIN, park2 + GRACE - MIN):
+        r = d._tick(brief, mind, home, at, d.FakeClaude(), agents=blocked())
+        assert _spawned(r) == [] and "ag_bug_three" in r.get("startable", []), r
+    # Its own grace end: stopped first; ag_bug_three only after it has ended.
+    r = _stop_and_end(brief, mind, home, slot, park2 + GRACE)
+    assert _spawned(r) == ["ag_bug_three"], r
+
+
+def test_720_r3_the_stop_files_the_newest_blocked_question_into_the_outcome(tmp_path):
+    """Re-review N3: the stopped task's open question is its newest `blocked`
+    inbox entry, added to an outcome it already has."""
+    mind, brief, home, slot, park, blocked = _lease_park(tmp_path)
+    c = orch.read_counters(slot)
+    old, new = "https://github.com/example-org/autogalaxy/issues/1", nt.ISSUE
+    other = "https://github.com/example-org/autogalaxy/issues/2"
+    for q in c["inbox"]:
+        if q["task"] == "ag_bug_one":
+            q["asked"] = "2026-11-04T09:16Z"
+    c["inbox"] = [{"task": "ag_bug_one", "issue": other, "kind": "question",
+                   "asked": "2026-11-04T09:20Z"},
+                  *c["inbox"],
+                  {"task": "ag_bug_one", "issue": old, "kind": "blocked",
+                   "asked": "2026-11-04T08:40Z"}]
+    c["outcomes"]["ag_bug_one"] = {"prs": [PR2], "merged": [], "issues": []}
+    orch._write_counters(slot, c)
+    r = d._tick(brief, mind, home, park + GRACE, d.FakeClaude(), agents=blocked())
+    assert {"task": "ag_bug_one", "event": "park-stopped", "issue": new} in r["reaped"], r
+    o = orch.read_counters(slot)["outcomes"]["ag_bug_one"]
+    assert o["questions"] == [new] and o["prs"] == [PR2], o
+    assert orch._open_question(o)
+
+
+def test_720_r3_a_stopped_session_that_never_ends_stops_holding_the_shift_open(tmp_path):
+    """Re-review N5: a stopped session not seen to end within
+    `PARK_STOP_END_S` is said once (needs you); the library stays held, and
+    the waiting task is no longer startable, so the shift may close early."""
+    mind, brief, home, slot, park, blocked = _lease_park(tmp_path)
+    r = d._tick(brief, mind, home, park + GRACE, d.FakeClaude(), agents=blocked())
+    wait = _dt.timedelta(seconds=orch.PARK_STOP_END_S)
+    assert wait == 10 * MIN
+    r = d._tick(brief, mind, home, park + GRACE + wait - MIN, d.FakeClaude(),
+                agents=blocked())
+    assert _spawned(r) == [] and "ag_bug_two" in r.get("startable", []), r
+    r = d._tick(brief, mind, home, park + GRACE + wait, d.FakeClaude(), agents=blocked())
+    assert [e for e in r["reaped"] if e.get("event") == "park-stop-overdue"] == [
+        {"task": "ag_bug_one", "event": "park-stop-overdue",
+         "why": "its session has not ended 10 minutes after the stop"}], r
+    assert _spawned(r) == [] and "ag_bug_two" not in r.get("startable", []), r
+    assert _named(brief, home)[B_PATH] == \
+        "autogalaxy held by ag_bug_one (parked: stopped, but its session has not ended)"
+    c = orch.read_counters(slot)
+    assert orch._library_holder(c, {}, "ag_bug_two", ["autogalaxy"],
+                                park + GRACE + 2 * wait) == ("autogalaxy", "ag_bug_one")
+    # Said once.
+    r = d._tick(brief, mind, home, park + GRACE + wait + MIN, d.FakeClaude(),
+                agents=blocked())
+    assert not [e for e in r["reaped"] if e.get("event") == "park-stop-overdue"], r
+    # Seen to end at last: released.
+    r = d._tick(brief, mind, home, park + GRACE + wait + 2 * MIN, d.FakeClaude(),
+                agents=d._agents({"ag_bug_one": "stopped"}, slot))
+    assert _spawned(r) == ["ag_bug_two"], r
+
+
+def test_720_r3_the_plan_and_the_spawn_loop_give_one_wording():
+    """Re-review N4: the planner's held reason is the spawn loop's."""
+    c = {"done": ["a"], "picks": {"a": {"repos": ["autogalaxy"]}}, "parked": [],
+         "pending_redispatch": [], "inshift_pending": {"a": {"ids": ["Q7"]}},
+         "outcomes": {"a": {"prs": [], "merged": [], "questions": [Q1]}},
+         "park_times": {"a": "2026-11-04T09:00:00Z"}}
+    holds = orch.park_hold_reasons(c, set(), NOW + 30 * MIN)
+    assert holds == {"a": (" (answered: it restarts first)", False)}
+    assert orch._held_reason(c, {}, "a", "autogalaxy", NOW + 30 * MIN)[0] == \
+        "autogalaxy held by a" + holds["a"][0]
 
 
 # --- the 2026-11-24-am replay ----------------------------------------------------

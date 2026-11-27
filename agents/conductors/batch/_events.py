@@ -221,6 +221,11 @@ def _reaped(b: _Batch, result: dict, counters: dict) -> None:
                   f"{task}'s parked session could not be stopped "
                   f"({e.get('why') or 'no reason given'}): its library stays held.",
                   needs_you=True, task=task)
+        elif ev == "park-stop-overdue":
+            b.add("parked", f"park-stop-overdue:{task}:{run}",
+                  f"{task}'s parked session was stopped but has not ended "
+                  f"({e.get('why') or 'no reason given'}): its library stays held. "
+                  "Check the session by hand.", needs_you=True, task=task)
         elif ev == "done":
             o = _outcome(e, counters)
             merged = list(o.get("merged") or [])

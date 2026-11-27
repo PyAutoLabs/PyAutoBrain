@@ -1173,6 +1173,9 @@ def identity_lines(counters: dict) -> list[str]:
 #: The words a park hold's reason carries before the time its 15 minutes end
 #: (ruling d, amended 2026-11-24): `repo X held by T (parked) until 08:48Z`.
 PARK_HOLD_WORDS = " (parked) until "
+#: Every park hold's reason carries one of these after its holder's name
+#: (`_orchestrator.park_hold_suffix`): the digest lists them apart.
+PARK_HOLD_MARKS = (" (parked) until ", " (parked: ", " (answered: ")
 #: A question id in a hold's reason (`waiting on Q17 in your inbox`).
 _QID_RE = re.compile(r"\bQ\d+\b")
 
@@ -1189,7 +1192,7 @@ def backlog_gate_lines(counters: dict) -> list[str]:
     origin = gates.get("origin") or {}
     closed = {p: w for p, w in origin.items() if w.endswith(FAIL_CLOSED)}
     park_held = {p: w for p, w in origin.items() if w.startswith("repo ")
-                 and PARK_HOLD_WORDS in w and p not in closed}
+                 and any(m in w for m in PARK_HOLD_MARKS) and p not in closed}
     repo_held = {p: w for p, w in origin.items() if w.startswith("repo ") and p not in closed
                  and p not in park_held}
     claimed = sorted(p for p in origin
@@ -1212,7 +1215,7 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                                for p, w in sorted(repo_held.items())[:SUMMARY_NAMES]))
     if park_held:
         out.append(f"Repo held by this shift's park on a question: {len(park_held)} draft(s) "
-                   "wait for its 15 minutes to end — "
+                   "wait for it — "
                    + "; ".join(f"`{Path(p).stem}` ({w})"
                                for p, w in sorted(park_held.items())[:SUMMARY_NAMES]))
     parked = gates.get("parked") or {}
