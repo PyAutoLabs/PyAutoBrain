@@ -452,6 +452,7 @@ def collect_hygiene(degraded, full_rows=None):
             "summary": str(row.get("summary", ""))[:200],
             "delegate": row.get("delegate"),
             **({"not_scanned": row["not_scanned"]} if row.get("not_scanned") else {}),
+            **({"absent_repos": row["absent_repos"]} if row.get("absent_repos") else {}),
         } for row in decision.get("rows", [])],
     }
 
@@ -952,24 +953,28 @@ def main():
     data = collect()
     if args.apply:
         out = Path(args.out)
+        # The ledger sidecar publishes beside board.json; the next run fetches
+        # it back from Pages and appends (board/_hygiene_ledger.py). Set means
+        # "publish the ledger": the fetched file and its marker must both
+        # exist, checked BEFORE anything is written, or the run fails rather
+        # than publish a site that drops or shortens the live ledger.
+        ledger_path = os.environ.get(HYGIENE_LEDGER_ENV)
+        extra = ""
+        if ledger_path:
+            try:
+                days = ledger.check_publish(Path(ledger_path))
+            except (OSError, ValueError, ledger.LedgerError) as error:
+                fail(5, f"hygiene ledger not published: {error}")
+            extra = f" + {ledger.LEDGER_NAME} ({days} day(s))"
         out.mkdir(parents=True, exist_ok=True)
         (out / "index.html").write_text(render_html(data), encoding="utf-8")
         (out / "badge.json").write_text(render_badge(data), encoding="utf-8")
         (out / "state.json").write_text(render_state(data), encoding="utf-8")
         (out / "board.json").write_text(render_json(data), encoding="utf-8")
         (out / "board.md").write_text(render_md(data), encoding="utf-8")
-        # The ledger sidecar publishes beside board.json; the next run fetches
-        # it back from Pages and appends (board/_hygiene_ledger.py).
-        ledger_path = os.environ.get(HYGIENE_LEDGER_ENV)
-        extra = ""
-        if ledger_path and Path(ledger_path).is_file():
-            try:
-                days = ledger.check_publish(Path(ledger_path))
-            except (OSError, ValueError, ledger.LedgerError) as error:
-                fail(5, f"hygiene ledger not published: {error}")
+        if ledger_path:
             (out / ledger.LEDGER_NAME).write_text(
                 Path(ledger_path).read_text(encoding="utf-8"), encoding="utf-8")
-            extra = f" + {ledger.LEDGER_NAME} ({days} day(s))"
         print(f"board: wrote {out}/index.html + badge.json + state.json + "
               f"board.json + board.md{extra}")
         return

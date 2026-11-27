@@ -75,7 +75,7 @@ def test_same_day_rerun_replaces_the_line_never_adds_one(tmp_path):
 
 def test_line_shape_counts_and_keys(tmp_path):
     line = ledger.day_line(_rows(), "2026-11-27", "abc")
-    assert set(line) == {"date", "sha", "rows", "status", "not_scanned", "unkeyed",
+    assert set(line) == {"date", "sha", "rows", "status", "not_scanned", "absent_repos", "unkeyed",
                          "findings", "evidence"}
     assert line["status"]["refs"] == "finding" and line["status"]["perf"] == "deferred"
     # Non-clean and no per-finding keys: recorded as unkeyed, never as clean.
@@ -427,6 +427,7 @@ def test_reference_into_an_absent_repo_is_named_with_its_count(tmp_path):
         '"""See `demo_workspace_test/scripts/a.py` and `demo_workspace_test/scripts/b.py`."""\n')
     row = refs.row_for(tmp_path)
     assert row["absent_repos"] == {"demo_workspace_test": 2}
+    assert row["status"] == "partial"  # unchecked refs: never a complete scan
     assert "refs into repos not present here: demo_workspace_test (2)" in row["summary"]
 
 
@@ -462,3 +463,51 @@ def test_index_is_the_committed_tree_not_the_staging_area(tmp_path):
     git_in(repo, "add", "-A")  # staged, never committed
     files, _dirs = refs.tracked_tree(repo)
     assert "scripts/hpc/kept.py" in files and "scripts/hpc/staged.py" not in files
+
+
+def test_an_absent_repo_rerun_keeps_the_earlier_complete_keys(tmp_path):
+    """The reviewer's repro: a complete refs line with 2 keys, then a same-day
+    re-run where a reference-only clone failed (absent repo, fewer keys)."""
+    path = tmp_path / ledger.LEDGER_NAME
+    full = [{"mode": "refs", "status": "finding", "count": 2, "absent_repos": {},
+             "findings": [
+                 {"repo": "demo_workspace", "file": "a.py", "line": 1, "reference": "x/1.py"},
+                 {"repo": "demo_workspace", "file": "a.py", "line": 2, "reference": "x/2.py"}]}]
+    ledger.record(path, full, "2026-11-27", "a")
+    rerun = [{"mode": "refs", "status": "partial", "count": 1,
+              "absent_repos": {"demo_workspace_test": 4},
+              "findings": [{"repo": "demo_workspace", "file": "a.py", "line": 1,
+                            "reference": "x/1.py"}]}]
+    first_rerun_line = ledger.day_line(rerun, "2026-11-27", "b")
+    assert first_rerun_line["absent_repos"] == {"refs": {"demo_workspace_test": 4}}
+    assert not ledger.mode_complete(first_rerun_line, "refs")
+    lines = ledger.record(path, rerun, "2026-11-27", "b")
+    assert lines[0]["findings"]["refs"] == ["refs:demo_workspace:a.py:x/1.py",
+                                            "refs:demo_workspace:a.py:x/2.py"]
+    assert lines[0]["rows"]["refs"] == 2 and lines[0]["status"]["refs"] == "finding"
+    assert "refs" not in lines[0]["absent_repos"]
+    # Even a status-"finding" row is incomplete while a repo is absent.
+    rerun[0]["status"] = "finding"
+    assert not ledger.mode_complete(ledger.day_line(rerun, "d", None), "refs")
+
+
+def test_check_publish_requires_the_fetch_marker(tmp_path):
+    path = tmp_path / ledger.LEDGER_NAME
+    path.write_text('{"date":"2026-11-26","rows":{}}\n')
+    with pytest.raises(ledger.LedgerError, match="marker"):
+        ledger.check_publish(path)
+    with pytest.raises(ledger.LedgerError, match="marker"):
+        ledger.check_publish(tmp_path / "absent.jsonl")
+
+
+def test_fetch_refuses_a_ledger_shorter_than_the_live_board_history(tmp_path):
+    """A truncation on a line boundary parses cleanly; the live board's
+    history length is the cross-check."""
+    out = tmp_path / "l.jsonl"
+    body = b'{"date":"2026-11-26","rows":{}}\n'
+    board = {"history": [{"date": f"2026-11-2{d}", "rows": {}} for d in range(4)]}
+    with pytest.raises(ledger.LedgerError, match="truncated"):
+        ledger.fetch(URL, out, opener=_pages(body, board))
+    assert not out.exists()
+    board["history"] = board["history"][:1]
+    assert ledger.fetch(URL, out, opener=_pages(body, board)) == "fetched"

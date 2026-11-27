@@ -759,6 +759,12 @@ def row_for(root: Path) -> dict:
             f"{name} ({count})" for name, count in sorted(absent.items()))
     row = finding_row("refs", findings, summary, not_scanned=missing)
     row["absent_repos"] = dict(sorted(absent.items()))
+    if absent and not row.get("parse_errors"):
+        # A declared repo the references point into was not under the root
+        # (e.g. a failed reference-only clone): its dead refs went unchecked,
+        # so this is a PARTIAL scan whatever was found — never one that can
+        # make findings look fixed.
+        row["status"] = "partial"
     return row
 
 

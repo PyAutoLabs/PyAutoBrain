@@ -11,6 +11,7 @@ Format — append-only JSONL, one line per UTC day::
      "rows": {"<mode>": <count or null>, ...},
      "status": {"<mode>": "<the row's status>", ...},
      "not_scanned": {"<mode>": ["<declared repo missing on disk>", ...], ...},
+     "absent_repos": {"<mode>": {"<declared repo refs point into, absent>": n}},
      "unkeyed": ["<non-clean mode with no per-finding keys>", ...],
      "findings": {"<mode>": ["<mode>:<repo>:<file>:<reference>", ...], ...},
      "evidence": {"<key>": {...}, ...}}
@@ -119,6 +120,7 @@ def day_line(rows: list[dict], date: str, sha: str | None) -> dict:
     counts: dict[str, int | None] = {}
     status: dict[str, str] = {}
     not_scanned: dict[str, list[str]] = {}
+    absent_repos: dict[str, dict[str, int]] = {}
     unkeyed: list[str] = []
     findings: dict[str, list[str]] = {}
     evidence: dict[str, dict] = {}
@@ -131,6 +133,8 @@ def day_line(rows: list[dict], date: str, sha: str | None) -> dict:
         status[mode] = str(row.get("status") or "")
         if row.get("not_scanned"):
             not_scanned[mode] = sorted(str(n) for n in row["not_scanned"])
+        if isinstance(row.get("absent_repos"), dict) and row["absent_repos"]:
+            absent_repos[mode] = {str(k): v for k, v in sorted(row["absent_repos"].items())}
         if isinstance(row.get("findings"), list):
             keys = set()
             for finding in row["findings"]:
@@ -145,17 +149,21 @@ def day_line(rows: list[dict], date: str, sha: str | None) -> dict:
         elif status[mode] != "clean":
             unkeyed.append(mode)
     return {"date": date, "sha": sha, "rows": counts, "status": status,
-            "not_scanned": not_scanned, "unkeyed": sorted(unkeyed),
+            "not_scanned": not_scanned, "absent_repos": absent_repos,
+            "unkeyed": sorted(unkeyed),
             "findings": findings, "evidence": evidence}
 
 
 def mode_complete(line: dict, mode: str) -> bool:
     """Whether ``line`` holds a COMPLETE scan of ``mode``: keyed, every
-    declared repo read, and a status that is a verdict rather than a gap."""
+    declared repo read, every declared repo its references point into present
+    (a failed reference-only clone hides dead refs), and a status that is a
+    verdict rather than a gap."""
     status = (line.get("status") or {}).get(mode)
     return (mode in (line.get("findings") or {})
             and mode not in (line.get("unkeyed") or [])
             and not (line.get("not_scanned") or {}).get(mode)
+            and not (line.get("absent_repos") or {}).get(mode)
             and status not in INCOMPLETE_STATUSES)
 
 
@@ -165,7 +173,7 @@ def merge_same_day(old: dict, new: dict) -> dict:
     keys, status and count are kept, so a re-run that lost a repo or a helper
     cannot make findings look fixed."""
     merged = json.loads(json.dumps(new))
-    for key in ("rows", "status", "not_scanned", "findings", "evidence"):
+    for key in ("rows", "status", "not_scanned", "absent_repos", "findings", "evidence"):
         merged.setdefault(key, {})
     merged.setdefault("unkeyed", [])
     modes = set(old.get("rows") or {}) | set(old.get("findings") or {})
@@ -176,6 +184,7 @@ def merge_same_day(old: dict, new: dict) -> dict:
         merged["status"][mode] = (old.get("status") or {}).get(mode)
         merged["findings"][mode] = list(old["findings"][mode])
         merged["not_scanned"].pop(mode, None)
+        merged["absent_repos"].pop(mode, None)
         merged["unkeyed"] = [m for m in merged["unkeyed"] if m != mode]
         for key in old["findings"][mode]:
             if key in (old.get("evidence") or {}):
@@ -287,20 +296,22 @@ def sibling_url(url: str, name: str) -> str:
     return base.rsplit("/", 1)[0] + "/" + name + (f"?{query}" if query else "")
 
 
-def _board_has_history(url: str, opener) -> bool:
-    """Whether the live board.json beside ``url`` carries history. A 404 is a
-    true first publish (False); any other failure raises."""
+def _board_history_days(url: str, opener) -> int:
+    """How many history points the live board.json beside ``url`` carries
+    (it holds up to ``HISTORY_DAYS``). A 404 is a true first publish (0); any
+    other failure raises."""
     try:
         body = _get(sibling_url(url, BOARD_NAME), opener)
     except urllib.error.HTTPError as error:
         if error.code == 404:
-            return False
+            return 0
         raise
     try:
         board = json.loads(body)
     except json.JSONDecodeError as error:
         raise LedgerError(f"live {BOARD_NAME} is not JSON ({error})") from error
-    return bool(isinstance(board, dict) and board.get("history"))
+    hist = board.get("history") if isinstance(board, dict) else None
+    return len(hist) if isinstance(hist, list) else 0
 
 
 def _write_marker(out: Path, days: int, outcome: str) -> None:
@@ -327,7 +338,7 @@ def fetch(url: str, out: Path, opener=urllib.request.urlopen, reset: bool = Fals
     except urllib.error.HTTPError as error:
         if error.code != 404:
             raise
-        if _board_has_history(url, opener):
+        if _board_history_days(url, opener):
             raise LedgerError(
                 f"{LEDGER_NAME} is 404 but the live {BOARD_NAME} has history: the "
                 "ledger was lost, not new. Re-run with --reset to start over") from error
@@ -339,23 +350,38 @@ def fetch(url: str, out: Path, opener=urllib.request.urlopen, reset: bool = Fals
     if len(lines) != nonblank:
         raise LedgerError(f"fetched ledger has {nonblank - len(lines)} malformed of "
                           f"{nonblank} line(s) (an error page or a truncated file)")
+    days = len({e["date"] for e in lines})
+    # A truncation that ends on a line boundary parses cleanly: the board's own
+    # history (a projection of the same ledger) is the cross-check.
+    published = _board_history_days(url, opener)
+    if days < published:
+        raise LedgerError(f"fetched ledger has {days} day(s) but the live {BOARD_NAME} "
+                          f"history has {published}: the ledger is truncated")
     Path(out).write_bytes(body)
-    _write_marker(out, len({e['date'] for e in lines}), "fetched")
+    _write_marker(out, days, "fetched")
     return "fetched"
 
 
 def check_publish(path: Path) -> int:
-    """Refuse to publish a ledger holding fewer days than ``fetch`` read.
-    Returns the day count; raises ``LedgerError``. No marker (a local render
-    that never fetched): nothing to compare against."""
+    """Refuse to publish a ledger that ``fetch`` did not produce, or that holds
+    fewer days than ``fetch`` read. Returns the day count; raises
+    ``LedgerError``. Both the ledger and its ``.fetched.json`` marker are
+    required: a run that skipped the fetch must neither publish a ledger nor
+    drop the live one."""
+    path = Path(path)
+    marker = Path(str(path) + MARKER_SUFFIX)
+    if not path.is_file() or not marker.is_file():
+        raise LedgerError(f"{path.name} or its {MARKER_SUFFIX} marker is missing: "
+                          "run `_hygiene_ledger.py fetch` before publishing")
     lines = read_ledger(path, strict=True)
     days = len({e["date"] for e in lines})
-    marker = Path(str(path) + MARKER_SUFFIX)
-    if marker.is_file():
+    try:
         fetched = int(json.loads(marker.read_text(encoding="utf-8")).get("days") or 0)
-        if days < fetched:
-            raise LedgerError(f"ledger has {days} day(s) but {fetched} were fetched; "
-                              "refusing to publish a shorter ledger")
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as error:
+        raise LedgerError(f"unreadable fetch marker ({error})") from error
+    if days < fetched:
+        raise LedgerError(f"ledger has {days} day(s) but {fetched} were fetched; "
+                          "refusing to publish a shorter ledger")
     return days
 
 

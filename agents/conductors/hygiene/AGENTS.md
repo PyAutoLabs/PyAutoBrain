@@ -78,8 +78,8 @@ holds no body map (fixtures). `refs` also resolves against each repo's
 name the map declares as a sibling prefix. The cloud board clones every other
 declared repo reference-only (blobless, no checkout) so such references resolve
 there as on a laptop; a reference into a repo absent from the root is skipped,
-not dead, and named with its count in the summary and the row's
-`absent_repos`. PyAutoBrain#735: the
+not dead, named with its count in the summary and the row's `absent_repos`,
+and the row is then `partial`: those references went unchecked. PyAutoBrain#735: the
 cloud board reported 55 dead refs and the laptop 0 because the cloud's sparse
 clone hid extension-less tracked files (`submit`), its sibling set held only
 cloned repos (so `<x>_workspace_test/…` resolved as a folder of the citing repo),

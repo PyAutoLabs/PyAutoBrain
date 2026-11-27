@@ -663,20 +663,48 @@ def test_hygiene_ledger_fills_history_and_draws_a_sparkline_per_row(tmp_path):
     page = _run(["--html"], tmp_path, stub, env_extra=env).stdout
     assert "Hygiene trend (2 days" in page
     assert s["hygiene"]["rows"][0]["spark"] in page
+    marker = tmp_path / "hygiene_ledger.jsonl.fetched.json"
+    # A run that skipped the fetch (no marker) publishes nothing at all.
+    r = _run(["--apply", "--out", str(tmp_path / "site0")], tmp_path, stub,
+             env_extra=env)
+    assert r.returncode == 5 and "marker is missing" in r.stderr
+    assert not (tmp_path / "site0").exists()
+    marker.write_text('{"days": 1, "outcome": "fetched"}')  # what fetch wrote
     assert _run(["--apply", "--out", str(tmp_path / "site")], tmp_path, stub,
                 env_extra=env).returncode == 0
     assert (tmp_path / "site" / "hygiene_ledger.jsonl").read_text() == path.read_text()
     # A ledger holding fewer days than its fetch read is never published.
-    (tmp_path / "hygiene_ledger.jsonl.fetched.json").write_text('{"days": 9}')
+    marker.write_text('{"days": 9}')
     r = _run(["--apply", "--out", str(tmp_path / "site2")], tmp_path, stub,
              env_extra=env)
-    assert r.returncode != 0 and "shorter ledger" in r.stderr
-    assert not (tmp_path / "site2" / "hygiene_ledger.jsonl").exists()
-    (tmp_path / "hygiene_ledger.jsonl.fetched.json").unlink()
+    assert r.returncode == 5 and "shorter ledger" in r.stderr
+    assert not (tmp_path / "site2").exists()
+    marker.unlink()
     # No ledger configured: no history, as before.
     env.pop("BOARD_HYGIENE_LEDGER")
     assert json.loads(_run(["--json"], tmp_path, stub,
                            env_extra=env).stdout)["history"] == []
+
+
+def test_a_partial_refs_row_is_visible_on_the_board(tmp_path):
+    """An absent repo makes refs `partial` (PyAutoBrain#735): the board must
+    show that row, not hide it among the quiet clean ones."""
+    stub = _fabricate(tmp_path, _default_fixtures())
+    hyg = tmp_path / "hygiene_partial.sh"
+    decision = {"decision": "HygieneDecision", "repos_declared": 2, "repos_present": 2,
+                "rows": [{"mode": "refs", "kind": "finding", "status": "partial",
+                          "count": 1, "summary": "1 folder-list defects; refs into "
+                          "repos not present here: RepoB (3)", "delegate": "/refactor",
+                          "findings": [], "absent_repos": {"RepoB": 3}}]}
+    hyg.write_text("#!/usr/bin/env bash\ncat <<'EOF'\n" + json.dumps(decision) + "\nEOF\n")
+    hyg.chmod(hyg.stat().st_mode | stat.S_IEXEC)
+    env = {"BOARD_HYGIENE_SCAN": "1", "BOARD_HYGIENE_CMD": str(hyg)}
+    page = _run(["--html"], tmp_path, stub, env_extra=env).stdout
+    assert "repos not present here: RepoB (3)" in page and ">partial<" in page
+    md = _run([], tmp_path, stub, env_extra=env).stdout
+    assert "repos not present here: RepoB (3)" in md
+    s = json.loads(_run(["--json"], tmp_path, stub, env_extra=env).stdout)
+    assert s["hygiene"]["rows"][0]["absent_repos"] == {"RepoB": 3}
 
 
 def test_expired_devbox_observation_is_dropped(tmp_path):

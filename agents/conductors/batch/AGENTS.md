@@ -307,7 +307,8 @@ never a line number, so a key survives line drift. Keyed modes: `refs`,
 (`extras:::<dependency>`); `board/_hygiene_ledger.finding_key` defines each.
 **14.5's hygiene source reads these keys to dedupe, and must never clear keys
 from a partial or unkeyed mode**: a mode whose status is `partial`,
-`unscanned`, `error` or `deferred`, that has `not_scanned` repos, or that is
+`unscanned`, `error` or `deferred`, that has `not_scanned` or `absent_repos`
+(references into a declared repo that was not present), or that is
 listed in `unkeyed` (non-clean with no keys) proves nothing is fixed
 (`_hygiene_ledger.mode_complete` is the test). The laptop and the cloud scan the
 same declared set (`workspace` + `howto` from the body map).
