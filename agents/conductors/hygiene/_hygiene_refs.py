@@ -125,11 +125,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _repo_paths import repo_path, iter_checkouts  # noqa: E402
+from _repo_paths import manifest_paths, repo_path, iter_checkouts  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _hygiene_scan import finding_row, main, repository_paths  # noqa: E402
+from _hygiene_scan import finding_row, main, repository_paths, scan_set  # noqa: E402,F401
 
 # Backtick-quoted spans, and bare scripts//notebooks/ path mentions.
 BACKTICK_REFERENCE = re.compile(r"`([^`\n]{1,200}?)`")
@@ -221,23 +222,65 @@ def canonical(path: str) -> str:
     return folded
 
 
+def tracked_tree(path: Path) -> tuple[set[str], set[str]] | None:
+    """``(files, directories)`` of the tree committed at ``HEAD``, or None if
+    ``path`` is not a checkout.
+
+    The committed tree lists every path whether or not it is on disk, so a
+    sparse or no-checkout clone (the board's cloud checkout keeps only text
+    files, and clones reference-only repos with no checkout at all) indexes the
+    SAME tree as a full laptop checkout of the same commit, and a laptop's
+    untracked or merely staged files never satisfy a reference the published
+    repository cannot. Reading the disk instead made the two disagree
+    (PyAutoBrain#735: extension-less tracked files such as a ``submit`` script
+    were absent from the sparse checkout and their references called dead).
+    """
+    if not (path / ".git").exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "ls-tree", "-r", "--name-only", "-z", "HEAD"],
+            capture_output=True, timeout=120, check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    files = {name for name in result.stdout.decode("utf-8", "replace").split("\0") if name}
+    if not files:
+        return None
+    directories: set[str] = set()
+    for name in files:
+        parts = name.split("/")[:-1]
+        for depth in range(1, len(parts) + 1):
+            directories.add("/".join(parts[:depth]))
+    return files, directories
+
+
+def disk_tree(path: Path) -> tuple[set[str], set[str]]:
+    """``(files, directories)`` on disk: the fallback for a non-git directory."""
+    files: set[str] = set()
+    directories: set[str] = set()
+    for parent, child_directories, child_files in os.walk(path):
+        child_directories[:] = [
+            name for name in child_directories if name not in PRUNED_DIRECTORIES
+        ]
+        base = Path(parent).relative_to(path).as_posix()
+        prefix = "" if base == "." else f"{base}/"
+        for name in child_directories:
+            directories.add(f"{prefix}{name}")
+        for name in child_files:
+            files.add(f"{prefix}{name}")
+    return files, directories
+
+
 class RepositoryIndex:
-    """Canonical file and directory index of one checked-out repository."""
+    """Canonical file and directory index of one repository: its git-tracked
+    tree when it is a checkout, else what is on disk."""
 
     def __init__(self, path: Path):
         self.path = path
-        files: set[str] = set()
-        directories: set[str] = set()
-        for parent, child_directories, child_files in os.walk(path):
-            child_directories[:] = [
-                name for name in child_directories if name not in PRUNED_DIRECTORIES
-            ]
-            base = Path(parent).relative_to(path).as_posix()
-            prefix = "" if base == "." else f"{base}/"
-            for name in child_directories:
-                directories.add(f"{prefix}{name}")
-            for name in child_files:
-                files.add(f"{prefix}{name}")
+        files, directories = tracked_tree(path) or disk_tree(path)
+        self.raw_files = files
+        self.raw_directories = directories
         self.files = files | {canonical(name) for name in files}
         self.directories = directories | {canonical(name) for name in directories}
 
@@ -373,8 +416,23 @@ class Resolver:
         self.indexes: dict[str, RepositoryIndex] = {}
         if not root.is_dir():
             raise FileNotFoundError(root)
-        self.siblings = {path.name for path in (iter_checkouts(root) or root.iterdir()) if path.is_dir()}
+        # Every repository NAME the organism declares, plus whatever is on disk.
+        # The body map decides what is a sibling prefix, not the disk: a
+        # reference into a declared repository that is not checked out here
+        # (`<x>_workspace_test/...` on a cloud runner that never clones it) is
+        # unresolvable and skipped, where an on-disk-only sibling set treated
+        # the prefix as a folder of the current repo and called it dead.
+        try:
+            declared = set(manifest_paths(root))
+        except ValueError:
+            declared = set()
+        self.siblings = declared | {
+            path.name for path in (iter_checkouts(root) or root.iterdir()) if path.is_dir()
+        }
         self.suppressed = 0
+        #: Declared repositories a reference pointed into that are not present
+        #: under the root -> how many references were skipped for that reason.
+        self.absent: dict[str, int] = {}
 
     def index(self, name: str) -> RepositoryIndex | None:
         if name not in self.indexes:
@@ -418,6 +476,8 @@ class Resolver:
                 path = path.split("/", 1)[1]
                 directory = ""
             if target is None:
+                absent = LIBRARY_REPOSITORIES.get(head, head)
+                self.absent[absent] = self.absent.get(absent, 0) + 1
                 return None
             # Re-check runtime roots AFTER a repo prefix strip: a sibling-
             # qualified `autolens_workspace/dataset/...` is just as
@@ -587,7 +647,7 @@ def findings_in_file(
     return sorted(findings, key=lambda finding: (finding.line, finding.reference))
 
 
-def documented_directories(repository: Path) -> list[Finding]:
+def documented_directories(repository: Path, index: RepositoryIndex | None = None) -> list[Finding]:
     """Report example folders that their own parent README never mentions.
 
     The inverse of the dead-reference scan above: that one starts from prose and
@@ -609,51 +669,69 @@ def documented_directories(repository: Path) -> list[Finding]:
 
     A directory is a candidate only if it carries example content (a script,
     notebook, or its own README); asset and output directories are skipped.
+
+    Candidates come from the repository index (its tracked tree), like every
+    other resolution here, so an untracked local folder is not an orphan and a
+    sparse cloud checkout sees the same folders as a full one.
     """
     findings: list[Finding] = []
-    scripts = repository / "scripts"
-    if not scripts.is_dir():
+    if not (repository / "scripts").is_dir():
         return findings
-    for readme in sorted(scripts.rglob("README.md")):
+    index = index or RepositoryIndex(repository)
+    content = [
+        name for name in index.raw_files
+        if name.endswith((".py", ".ipynb")) or name.rsplit("/", 1)[-1] == "README.md"
+    ]
+    readmes = sorted(
+        name for name in index.raw_files
+        if name.startswith("scripts/") and name.rsplit("/", 1)[-1] == "README.md"
+    )
+    for relative in readmes:
+        readme = repository / relative
         try:
             text = readme.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for child in sorted(readme.parent.iterdir()):
-            if not child.is_dir() or child.name in PRUNED_DIRECTORIES:
+        parent = relative.rsplit("/", 1)[0]
+        children = sorted(
+            name.rsplit("/", 1)[-1] for name in index.raw_directories
+            if name.rsplit("/", 1)[0] == parent and "/" in name
+        )
+        for child in children:
+            if child in PRUNED_DIRECTORIES or child.startswith((".", "__")):
                 continue
-            if child.name.startswith((".", "__")):
+            prefix = f"{parent}/{child}/"
+            if not any(name.startswith(prefix) for name in content):
                 continue
-            has_content = any(
-                any(child.rglob(pattern))
-                for pattern in ("*.py", "*.ipynb", "README.md")
-            )
-            if not has_content:
-                continue
-            if re.search(rf"\b{re.escape(child.name)}\b", text):
+            if re.search(rf"\b{re.escape(child)}\b", text):
                 continue
             findings.append(
                 Finding(
                     repo=repository.name,
-                    file=readme.relative_to(repository).as_posix(),
+                    file=relative,
                     line=1,
-                    reference=f"{child.name}/ (folder exists, README never names it)",
+                    reference=f"{child}/ (folder exists, README never names it)",
                     kind="orphan",
                 )
             )
     return findings
 
 
-def scan(root: Path) -> tuple[list[Finding], int, int]:
+def scan(root: Path, absent_repos: dict | None = None
+         ) -> tuple[list[Finding], int, int, list[str]]:
+    """``absent_repos``, when given, receives ``{repo: skipped refs}`` for the
+    declared repositories references point into that are not under ``root``."""
+    absent_repos = {} if absent_repos is None else absent_repos
     resolver = Resolver(root)
-    repositories = repository_paths(root)
+    repositories, missing = scan_set(root)
     findings: list[Finding] = []
     for repository in repositories:
-        resolver.indexes.setdefault(repository.name, RepositoryIndex(repository))
+        index = resolver.indexes.setdefault(repository.name, RepositoryIndex(repository))
         for path in scanned_files(repository):
             findings.extend(findings_in_file(resolver, repository, path))
-        findings.extend(documented_directories(repository))
-    return findings, len(repositories), resolver.suppressed
+        findings.extend(documented_directories(repository, index))
+    absent_repos.update(resolver.absent)
+    return findings, len(repositories), resolver.suppressed, missing
 
 
 def summary_for(findings: list[Finding], repository_count: int, skipped: int) -> str:
@@ -671,8 +749,23 @@ def summary_for(findings: list[Finding], repository_count: int, skipped: int) ->
 
 
 def row_for(root: Path) -> dict:
-    findings, repository_count, skipped = scan(root)
-    return finding_row("refs", findings, summary_for(findings, repository_count, skipped))
+    absent: dict[str, int] = {}
+    findings, repository_count, skipped, missing = scan(root, absent)
+    summary = summary_for(findings, repository_count, skipped)
+    if absent:
+        # Skipped, never dead — but named, so a cloud/laptop difference in the
+        # skipped count is explained rather than silent.
+        summary += "; refs into repos not present here: " + ", ".join(
+            f"{name} ({count})" for name, count in sorted(absent.items()))
+    row = finding_row("refs", findings, summary, not_scanned=missing)
+    row["absent_repos"] = dict(sorted(absent.items()))
+    if absent and not row.get("parse_errors"):
+        # A declared repo the references point into was not under the root
+        # (e.g. a failed reference-only clone): its dead refs went unchecked,
+        # so this is a PARTIAL scan whatever was found — never one that can
+        # make findings look fixed.
+        row["status"] = "partial"
+    return row
 
 
 def render_human(row: dict) -> None:

@@ -54,11 +54,13 @@ jobs:
           repository: ${{ github.repository_owner }}/PyAutoMind
           path: PyAutoMind
       # Hygiene runs IN THE CLOUD: check out the conductor's scan set
-      # (libraries + organs + workspaces, from the body map) so its --json
+      # (libraries + organs + workspaces + HowTo courses, from the body map —
+      # the same declared set a laptop scan reads, PyAutoBrain#735) so its --json
       # pre-scan needs no dev box at all. Blobless clones + a sparse checkout
       # of text/code files keep the big workspace datasets off the runner;
       # a repo that fails to clone is simply absent — hygiene reports
-      # repos_present honestly rather than pretending it scanned everything.
+      # repos_present honestly rather than pretending it scanned everything,
+      # and the workspace scanners name it NOT SCANNED in their row.
       - name: check out the hygiene scan set (blobless + sparse)
         run: |
           python3 -m pip install --quiet pyyaml
@@ -66,9 +68,12 @@ jobs:
           import subprocess, yaml
           from pathlib import Path
           repos = yaml.safe_load(Path("PyAutoMind/repos.yaml").read_text())["repos"]
+          # Every other declared repo is cloned REFERENCE-ONLY (no checkout,
+          # no blobs): the refs scanner indexes its committed tree with
+          # `git ls-tree`, so a `<repo>/path` reference resolves here exactly
+          # as it does on a laptop instead of being skipped on the cloud only.
+          SCAN = ("library", "organ", "workspace", "howto")
           for name, meta in sorted(repos.items()):
-              if meta.get("category") not in ("library", "organ", "workspace"):
-                  continue
               if Path(name).exists():
                   continue
               home = meta.get("github")
@@ -79,6 +84,8 @@ jobs:
                   subprocess.run(["git", "clone", "--quiet", "--depth", "1",
                                   "--filter=blob:none", "--no-checkout",
                                   url, name], check=True, timeout=300)
+                  if meta.get("category") not in SCAN:
+                      continue
                   subprocess.run(["git", "-C", name, "sparse-checkout", "set",
                                   "--no-cone", "*.py", "*.ipynb", "*.rst",
                                   "*.md", "*.txt", "*.yaml", "*.yml", "*.toml",
@@ -90,10 +97,33 @@ jobs:
                       subprocess.TimeoutExpired) as e:
                   print(f"::warning::scan checkout skipped {name}: {e}")
           EOF
+      # The hygiene ledger is a PUBLISHED SIDECAR (board/_hygiene_ledger.py):
+      # fetch yesterday's from this board's own Pages site, the render upserts
+      # today's line, and it publishes beside board.json. No commit, so the job
+      # keeps `contents: read` — a ledger commit would need a token that can
+      # push to main. Fails closed: any fetch error but a first-publish 404, or
+      # a malformed body, stops the job BEFORE deploy, and the render refuses
+      # to publish fewer days than were fetched, so the live ledger is never
+      # replaced by a shorter one.
+      # A 404 ledger beside a board.json that has history is a LOST ledger, not
+      # a new one, and also fails; start over only by dispatching with --reset
+      # added here on purpose. `?ts=` (plus a no-cache header) bypasses the
+      # Pages CDN cache, so the run never appends to a stale copy. A failed
+      # fetch blocks that day's board refresh — intended.
+      - name: fetch the published hygiene ledger
+        env:
+          PAGES_OWNER: ${{ github.repository_owner }}
+          PAGES_REPO: ${{ github.event.repository.name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 PyAutoBrain/board/_hygiene_ledger.py fetch \
+            --url "https://${PAGES_OWNER}.github.io/${PAGES_REPO}/hygiene_ledger.jsonl?ts=${RUN_ID}" \
+            --out hygiene_ledger.jsonl
       - name: render the board
         env:
           PYAUTO_ROOT: ${{ github.workspace }}
           BOARD_HYGIENE_SCAN: "1"
+          BOARD_HYGIENE_LEDGER: ${{ github.workspace }}/hygiene_ledger.jsonl
         run: |
           python3 PyAutoBrain/board/_board.py --apply --out _site
       # enablement: true creates the Pages site on first run where the token

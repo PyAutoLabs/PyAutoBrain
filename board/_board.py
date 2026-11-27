@@ -30,6 +30,8 @@ from _theme import (  # noqa: E402
 # The organ cockpit feed contract (state.json) — the validator every organ
 # shares, so this board cannot publish a feed the cockpit would reject.
 from _state import build_state  # noqa: E402
+# The hygiene ledger: the per-day trend + per-finding keys (PyAutoBrain#735).
+import _hygiene_ledger as ledger  # noqa: E402
 
 THEME_ORGAN = "brain"  # whose logo this page wears
 
@@ -420,9 +422,13 @@ HYGIENE_CMD = os.environ.get(
 HYGIENE_QUIET_STATUSES = ("clean", "unscanned", "deferred", "advisory")
 
 
-def collect_hygiene(degraded):
+def collect_hygiene(degraded, full_rows=None):
     """The hygiene conductor's --json pre-scan, run in THIS render (cloud or
-    local — wherever the scan set is checked out). None when not enabled."""
+    local — wherever the scan set is checked out). None when not enabled.
+
+    ``full_rows``, when a list, receives the decision's rows WITH their
+    findings — the ledger's per-finding keys come from them, while the board
+    itself carries only the trimmed rows."""
     if os.environ.get("BOARD_HYGIENE_SCAN") != "1":
         return None
     try:
@@ -434,6 +440,8 @@ def collect_hygiene(degraded):
     if decision is None:
         degraded.append("hygiene: pre-scan failed — rows unavailable this render")
         return None
+    if full_rows is not None:
+        full_rows.extend(row for row in decision.get("rows", []) if isinstance(row, dict))
     return {
         "repos_present": decision.get("repos_present"),
         "repos_declared": decision.get("repos_declared"),
@@ -443,8 +451,51 @@ def collect_hygiene(degraded):
             "count": row.get("count"),
             "summary": str(row.get("summary", ""))[:200],
             "delegate": row.get("delegate"),
+            **({"not_scanned": row["not_scanned"]} if row.get("not_scanned") else {}),
+            **({"absent_repos": row["absent_repos"]} if row.get("absent_repos") else {}),
         } for row in decision.get("rows", [])],
     }
+
+
+# The hygiene ledger sidecar (board/_hygiene_ledger.py). Set by brain_board.yml
+# to the file its fetch step pulled from the live Pages site; unset (a terminal
+# digest, a dev box) the board neither reads nor writes a ledger.
+HYGIENE_LEDGER_ENV = "BOARD_HYGIENE_LEDGER"
+
+
+def _brain_sha():
+    sha = os.environ.get("GITHUB_SHA")
+    if sha:
+        return sha
+    try:
+        r = subprocess.run(["git", "-C", str(BRAIN_HOME), "rev-parse", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.strip() or None
+
+
+def collect_hygiene_history(hygiene, full_rows, now, degraded):
+    """Upsert today's ledger line (when this render scanned) and return the
+    board's ``history``. Attaches each hygiene row's sparkline in place."""
+    path = os.environ.get(HYGIENE_LEDGER_ENV)
+    if not path:
+        return []
+    path = Path(path)
+    try:
+        if hygiene is not None:
+            lines = ledger.record(path, full_rows, now.strftime("%Y-%m-%d"), _brain_sha())
+        else:
+            lines = ledger.read_ledger(path)
+    except (OSError, ledger.LedgerError) as error:
+        # Today's line is not written; --apply's check_publish then refuses
+        # to publish a ledger it cannot read whole.
+        degraded.append(f"hygiene: ledger unavailable ({error})")
+        return []
+    hist = ledger.history(lines)
+    for row in (hygiene or {}).get("rows", []):
+        row["spark"] = ledger.sparkline(ledger.series(hist, row.get("mode")))
+    return hist
 
 
 # Dev-box observations (state/devbox_board.json, pushed by `board publish` —
@@ -527,6 +578,8 @@ def collect():
     boards = {name: f"{pages_base}/{repo}/"
               for name, repo in board_family.items()}
     now = datetime.now(timezone.utc)
+    hygiene_rows = []
+    hygiene = collect_hygiene(degraded, hygiene_rows)
     data = {
         "generated": now.strftime("%Y-%m-%d %H:%M UTC"),
         "org": org,
@@ -546,15 +599,16 @@ def collect():
         "pulse": None,
         "insight": None,
         "open_issues": open_issues,
-        "hygiene": collect_hygiene(degraded),
+        "hygiene": hygiene,
         "devbox": collect_devbox(),
         "autonomy": [],
         "doors": collect_doors(),
         "boards": boards,
         "degraded": degraded,
     }
-    # Retired keys remain empty for board.json readers; no retired sources are fetched.
-    data["history"] = []
+    # `history` is the hygiene ledger's trend (one point per UTC day, per row;
+    # board/_hygiene_ledger.py). Empty when this render keeps no ledger.
+    data["history"] = collect_hygiene_history(hygiene, hygiene_rows, now, degraded)
     return data
 
 
@@ -681,8 +735,15 @@ def render_md(data):
         lines.append("Performance evidence unavailable; consult Heart before planning a speed-up.")
     hygiene = data.get("hygiene")
     if hygiene:
-        lines += [f"- {r.get('mode', 'hygiene')}: {r.get('summary', '')} — {r.get('delegate', '')}"
+        lines += [f"- {r.get('mode', 'hygiene')}: {r.get('summary', '')}"
+                  + (f" {r['spark']}" if r.get("spark") else "")
+                  + f" — {r.get('delegate', '')}"
                   for r in hygiene.get("rows", []) if r.get("status") not in HYGIENE_QUIET_STATUSES]
+        trend = _hygiene_trend(data)
+        if trend:
+            days, rows = trend
+            lines.append(f"Hygiene trend ({days} day{'s' if days != 1 else ''}): "
+                         + " · ".join(f"{m} {c} {s}".rstrip() for m, c, s in rows))
     else:
         lines.append("Hygiene scan unavailable; run the hygiene workflow for current evidence.")
     devbox = data.get("devbox")
@@ -714,10 +775,28 @@ def _plain(text_html):
 
 
 def _hygiene_row(row):
-    """One hygiene finding: the summary reads, the mode and status pill."""
+    """One hygiene finding: the summary reads, the mode and status pill, and
+    the ledger's per-day trend when there is one."""
     summary = html.escape(str(row.get("summary", ""))[:140])
-    return summary + pills((str(row.get("mode") or "?"), ""),
-                           (str(row.get("status") or ""), "y"))
+    spark = (f' <span class="muted" title="daily count, oldest first">'
+             f'{html.escape(row["spark"])}</span>' if row.get("spark") else "")
+    return summary + spark + pills((str(row.get("mode") or "?"), ""),
+                                   (str(row.get("status") or ""), "y"))
+
+
+def _hygiene_trend(data):
+    """Every hygiene row's ledger trend, collapsed — clean rows included, since
+    a row that went quiet is a trend too. None without history."""
+    hist = data.get("history") or []
+    rows = (data.get("hygiene") or {}).get("rows") or []
+    if not hist or not rows:
+        return None
+    lines = []
+    for row in rows:
+        mode = str(row.get("mode") or "?")
+        count = row.get("count")
+        lines.append((mode, "–" if count is None else str(count), row.get("spark") or ""))
+    return len(hist), lines
 
 
 # The html twin. Self-contained by the same contract as the Mind dashboard —
@@ -789,6 +868,16 @@ def render_html(data):
         else:
             H.append(_plain("Every mode came back clean"
                             + pills(("nothing flagged", "g"))))
+        trend = _hygiene_trend(data)
+        if trend:
+            days, lines = trend
+            H.append(f"<details><summary>Hygiene trend ({days} day"
+                     f"{'s' if days != 1 else ''}, from the ledger)</summary>")
+            for mode, count, spark in lines:
+                H.append(_plain(f"<b>{esc(mode)}</b> {esc(count)} "
+                                f'<span class="muted">{esc(spark) or "(one day so far)"}</span>'))
+            H.append('<p class="muted"><a href="hygiene_ledger.jsonl">hygiene ledger</a></p>')
+            H.append("</details>")
 
     devbox = data.get("devbox")
     if devbox:
@@ -864,14 +953,30 @@ def main():
     data = collect()
     if args.apply:
         out = Path(args.out)
+        # The ledger sidecar publishes beside board.json; the next run fetches
+        # it back from Pages and appends (board/_hygiene_ledger.py). Set means
+        # "publish the ledger": the fetched file and its marker must both
+        # exist, checked BEFORE anything is written, or the run fails rather
+        # than publish a site that drops or shortens the live ledger.
+        ledger_path = os.environ.get(HYGIENE_LEDGER_ENV)
+        extra = ""
+        if ledger_path:
+            try:
+                days = ledger.check_publish(Path(ledger_path))
+            except (OSError, ValueError, ledger.LedgerError) as error:
+                fail(5, f"hygiene ledger not published: {error}")
+            extra = f" + {ledger.LEDGER_NAME} ({days} day(s))"
         out.mkdir(parents=True, exist_ok=True)
         (out / "index.html").write_text(render_html(data), encoding="utf-8")
         (out / "badge.json").write_text(render_badge(data), encoding="utf-8")
         (out / "state.json").write_text(render_state(data), encoding="utf-8")
         (out / "board.json").write_text(render_json(data), encoding="utf-8")
         (out / "board.md").write_text(render_md(data), encoding="utf-8")
+        if ledger_path:
+            (out / ledger.LEDGER_NAME).write_text(
+                Path(ledger_path).read_text(encoding="utf-8"), encoding="utf-8")
         print(f"board: wrote {out}/index.html + badge.json + state.json + "
-              "board.json + board.md")
+              f"board.json + board.md{extra}")
         return
     if args.html:
         print(render_html(data), end="")

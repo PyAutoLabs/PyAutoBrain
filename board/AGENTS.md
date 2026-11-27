@@ -16,7 +16,7 @@ community collection. The board does not duplicate their dashboards.
    plus an actionable CI-speedup entry linked to Heart's timing evidence.
 
 No morning sync, community section/shortcut, readiness/release, versions,
-resume, autonomous history, need-you/trend banner or global Degraded section.
+resume, autonomous history (the hygiene ledger's trend is the one history kept), need-you/trend banner or global Degraded section.
 Explain unavailable retained evidence locally; never present a failed read as
 an empty successful check. Do not remove conductors merely because their
 operational evidence lives in another organ.
@@ -33,6 +33,44 @@ state describe availability of Brain's directory and maintenance evidence,
 never overnight outcomes or release readiness.
 The internal `degraded` list remains diagnostic metadata and keeps freshness
 unknown when a required read fails, but is not a global page section.
+
+## Hygiene ledger (PyAutoBrain#735)
+
+`board/_hygiene_ledger.py` keeps one JSONL line per UTC day of the hygiene
+pre-scan: `{date, sha, rows, status, not_scanned, absent_repos, unkeyed,
+findings, evidence}`.
+`sha` is the Brain commit that rendered, not the scanned repos' commits.
+Keyed modes (`KEYED_MODES`): `refs`, `docstrings`, `escapes`, `optdeps`,
+`extras`; keys are `<mode>:<repo>:<file>:<ref>` without line numbers (rules in
+`finding_key`; `docstrings`/`escapes` are per file, `extras` is
+`extras:::<dependency>` with the declaring repos in `evidence`). Any other
+non-clean mode is listed in `unkeyed`. A same-day re-run replaces that day's
+line, except that a partial, unscanned, errored or unkeyed mode (or one with
+`absent_repos`) never replaces
+the complete keys and status an earlier run that day recorded for that mode.
+With `BOARD_HYGIENE_LEDGER` set, the render upserts today's line, fills
+board.json `history` (last 30 days, counts only), draws a sparkline per hygiene
+row plus a collapsed trend list, and `--apply` publishes `hygiene_ledger.jsonl`
+beside board.json. Unset, there is no history.
+
+Write path: a **published sidecar**, not a commit. `brain_board.yml` fetches the
+live ledger from its own Pages site (cache bypassed with `?ts=<run id>` and a
+no-cache header) and keeps `contents: read`; committing would need a token that
+can push to the ruleset-protected `main`. The sidecar's cost is durability, so
+it fails closed: a non-404 error, a malformed body (an HTML page, a truncated
+file), a ledger with fewer days than the live board.json's `history` (a
+truncation on a line boundary), or a 404 ledger beside a board.json that has
+history (a LOST ledger) stops the job before deploy. `--apply` with
+`BOARD_HYGIENE_LEDGER` set requires the ledger AND fetch's `.fetched.json`
+marker (exit 5 otherwise, before writing anything) and refuses fewer days
+than were fetched. **A fetch failure therefore blocks that day's board refresh —
+intended.** Only a true first publish (board.json 404 or history empty), or
+`fetch --reset` added on purpose, starts an empty ledger. The cloud job is the
+only writer; a dev-box `board publish` never touches it.
+
+Known follow-up, not fixed here: the `tokens` row still differs between laptop
+and cloud, because it reads the workspace-root `AGENTS.md`, which only a laptop
+has.
 
 `bin/pyauto-brain board` renders Markdown; `--html`, `--json`, `--badge`,
 `--state` select other formats. `--apply --out <dir>` writes the published

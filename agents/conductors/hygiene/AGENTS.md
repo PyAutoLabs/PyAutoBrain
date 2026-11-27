@@ -63,11 +63,30 @@ than its category — because category alone gets it wrong. The config layer is 
 | ships a distribution | has a `pyproject.toml` | `deps` |
 | ships api docs | has a `docs/api/` tree | `docs` |
 
-The helper-backed modes (`docstrings`, `escapes`, `refs`, `optdeps`, `extras`,
-`config`, `tokens`)
-are **not** on this list: they discover their own targets by walking the scan
-root for workspace-shaped directories, so they can find material the map never
-names — and they keep reporting even when the repo-array modes are `unscanned`.
+The helper-backed modes (`optdeps`, `extras`, `config`, `tokens`) are **not**
+on this list: they find their own targets under the scan root, and keep
+reporting even when the repo-array modes are `unscanned`.
+
+The workspace scanners (`docstrings`, `escapes`, `refs`) read the body map's
+`workspace` + `howto` categories (`_hygiene_scan.scan_set`) — the SAME declared
+set on a laptop and on the cloud board, whose clone step takes the same
+categories. A declared repo with no `scripts/` under the root is named in the
+row's `not_scanned` and summary (`NOT SCANNED`), and with no findings the row is
+`partial`, never `clean`. Disk discovery is only the fallback for a root that
+holds no body map (fixtures). `refs` also resolves against each repo's
+**committed tree** (`git ls-tree -r HEAD`), not the disk, and treats every repo
+name the map declares as a sibling prefix. The cloud board clones every other
+declared repo reference-only (blobless, no checkout) so such references resolve
+there as on a laptop; a reference into a repo absent from the root is skipped,
+not dead, named with its count in the summary and the row's `absent_repos`,
+and the row is then `partial`: those references went unchecked. PyAutoBrain#735: the
+cloud board reported 55 dead refs and the laptop 0 because the cloud's sparse
+clone hid extension-less tracked files (`submit`), its sibling set held only
+cloned repos (so `<x>_workspace_test/…` resolved as a folder of the citing repo),
+and it never cloned the HowTo courses (5 repos scanned against 8).
+
+The board keeps each day's rows and per-finding keys in the hygiene ledger
+(`board/_hygiene_ledger.py`, see `board/AGENTS.md`).
 
 | Mode | Pre-scan (kind) | Delegates to |
 |------|-----------------|--------------|
