@@ -1020,9 +1020,12 @@ def main(argv=None) -> int:
     if argv[:1] == ["maintain"]:
         import _maintain  # noqa: E402 — Phase 14.1, read-only; never from the tick
         return _maintain.main(argv[1:])
-    ap = argparse.ArgumentParser(prog="batch")
+    ap = argparse.ArgumentParser(
+        prog="batch",
+        epilog="batch maintain --dry-run [--sources census,monitoring,release] [--json]: "
+               "list maintenance findings (Phase 14.1, read-only; `batch maintain -h`)")
     ap.add_argument("verb", choices=["plan", "brief", "digest", "watch",
-                                     "slice", "premise", "green", "ready"],
+                                     "slice", "premise", "green", "ready", "maintain"],
                     nargs="?",
                     default="plan")
     ap.add_argument("prompt", nargs="?", default="",
@@ -1156,6 +1159,9 @@ def main(argv=None) -> int:
             return _main_green(mind, a)
         if a.verb == "ready":
             return _main_ready(mind, a)
+        if a.verb == "maintain":  # normally intercepted above, before argparse
+            import _maintain  # noqa: E402
+            return _maintain.main(argv[1:])
         return _main_plan(mind, a, lane)
     except BatchUsageError as e:
         print(e, file=sys.stderr)

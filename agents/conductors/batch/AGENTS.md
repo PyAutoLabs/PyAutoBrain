@@ -299,25 +299,39 @@ pin that and record every process a full brief run starts.
 
 `batch maintain --dry-run [--sources census,monitoring,release] [--json]`
 lists what needs fixing on `main` as one `Finding` shape — `key`, `source`,
-`repo`, `paths`, `summary`, `witness`, `tier_floor`, `lane`, `evidence`. It is
-**read-only**: without `--dry-run` it refuses (writing prompts is slice 14.2).
-It runs at brief and collect time only; the watcher's tick never calls it.
+`repo`, `paths`, `summary`, `witness`, `tier_floor`, `lane`, `evidence`,
+`stale`. It is **read-only**: without `--dry-run` it refuses (writing prompts
+is slice 14.2). It is run by hand, and later by the 14.2/14.3 filing steps;
+the watcher's tick never calls it.
 
 | Source | Read from | Key | Tier floor |
 |---|---|---|---|
-| `census` | Heart's local `no_run_census.json`, else the board's `performance.no_run` (10 rows) when that is fresher | `no_run:<repo>/<entry>` | glance |
-| `monitoring` | the published Heart `board.json`, `monitoring.findings` (red and yellow only) | the Heart `id` with its `run_id`/`run_url` discriminator dropped; census rows map to `no_run:`, CI rows to `ci:<repo>[:<workflow>]` | glance for an organ's own workflow red; judge otherwise (workflow files, dependency caps, public names, and whenever unsure) |
-| `release` | `_green.read_heart` + `_green.classify` (unchanged); only `fixable-dev`, never `stale` | `_green`'s key; organ lines `<Organ>/workflows/<name>: failure`, which no `_green` rule matches, become `ci:<Organ>:<name>` | glance for organ CI red; judge otherwise |
+| `census` | Heart's local `no_run_census.json` plus the board's census rows (`performance.no_run` and the `no_run_census` monitoring rows) — one adapter, one key shape | `no_run:<repo>/<entry>` | glance only for a real marker removal (the row is measured and its seconds are within the cap); judge otherwise |
+| `monitoring` | the published Heart `board.json`, `monitoring.findings` (red and yellow only) | the Heart `id` with its `run_id`/`run_url` discriminator dropped; CI rows (and an un-namespaced `<repo>:ci`) become `ci:<repo>[:<workflow>]` | glance only for an organ's own workflow red on its head commit that is not a release-execution workflow; judge otherwise |
+| `release` | `_green.read_heart` + `_green.classify` (unchanged); only `fixable-dev`, never `stale` reasons | `_green`'s key; organ lines `<Organ>/workflows/<name>: failure`, which no `_green` rule matches, become `ci:<Organ>:<name>` | judge (the verdict carries no `on_head`; the monitoring row for the same key, read first, does) |
 
-The same defect has one key whichever source reports it, so findings are
-deduped by key (the census record wins). Left out: `worktree_drift` and
+Glance-eligible organs come from the body map: `category: organ`, minus a repo
+that ships a `package:` and the Brain itself. When unsure, judge. **14.2 must
+raise a census finding's tier when its diff touches anything other than
+`no_run.yaml`.**
+
+The same defect has one key whichever source reports it: findings are deduped
+by key (census, then monitoring, then release), and a repo-level `ci:<repo>`
+gives way to any `ci:<repo>:<workflow>`. Left out: `worktree_drift` and
 `repo_state` (local checkout state belongs to Gut and `/repo_cleanup`),
 `release` (the release adapter reads the verdict: one filing path), open PRs,
-`grey`/`stale` rows (missing evidence is a collector refresh, not a fix) and
-roll-ups (`:coverage`, a repo-level CI row beside its workflow rows). Each
-witness: census, the entry is gone from `no_run.yaml` and the script passes
-under the smoke cap; monitoring, the key is absent or green on a fresh board
-read; release, a fresh verdict no longer lists the reason. `--board-json`,
+the timing families (`smoke_timings`, `unit_test_timing`, `ci_timing`, script
+and import timings — Heart-flagged rows only, in slice 14.5), `grey`/`stale`
+rows (missing evidence is a collector refresh, not a fix) and `:coverage`
+roll-ups. Each witness: census, the entry is gone from `no_run.yaml` and the
+script passes under the smoke cap; monitoring, the key is absent or green on a
+fresh board read; release, a fresh verdict no longer lists the reason.
+
+**A failed read never looks like all-clear.** Every requested source reports
+`ok` and `stale` (over the 6 h rule, or a `stale` verdict; a `grey` verdict is
+unread), and so does each finding (also a row Heart marks `fresh: false`). The
+command exits 3 when any requested source was not read. **14.2 must never file
+from, or clear keys for, an unread or stale source.** `--board-json`,
 `--census-json`, `--heart-json` and `--at` replay saved documents.
 
 ## The watcher (phases 3a–3d)
