@@ -305,8 +305,8 @@ The Brain board publishes `hygiene_ledger.jsonl` beside its board.json (spec in
 never a line number, so a key survives line drift. Keyed modes: `refs`,
 `docstrings`, `escapes` (both per file), `optdeps`, `extras`
 (`extras:::<dependency>`); `board/_hygiene_ledger.finding_key` defines each.
-**14.5's hygiene source reads these keys to dedupe, and must never clear keys
-from a partial or unkeyed mode**: a mode whose status is `partial`,
+**14.5's hygiene source reads these keys (below), and never files or clears
+keys from a partial or unkeyed mode**: a mode whose status is `partial`,
 `unscanned`, `error` or `deferred`, that has `not_scanned` or `absent_repos`
 (references into a declared repo that was not present), or that is
 listed in `unkeyed` (non-clean with no keys) proves nothing is fixed
@@ -315,7 +315,7 @@ same declared set (`workspace` + `howto` from the body map).
 
 ## Maintenance findings (`_maintain.py`, Phase 14.1, PyAutoBrain#731)
 
-`batch maintain --dry-run [--sources census,monitoring,release] [--json]`
+`batch maintain --dry-run [--sources census,monitoring,release,hygiene,timing] [--json]`
 lists what needs fixing on `main` as one `Finding` shape — `key`, `source`,
 `repo`, `paths`, `summary`, `witness`, `tier_floor`, `lane`, `evidence`,
 `stale`. `--dry-run` writes nothing; `--file` hands the findings to the 14.2
@@ -354,7 +354,53 @@ could not be read; its `why` says so), and each finding reports `stale` (also
 a row Heart marks `fresh: false`). The command exits 3 when any requested
 source was not read. **14.2 must never file from, or clear keys for, an unread
 or stale source, and never clear keys from a partial one.** `--board-json`,
-`--census-json`, `--heart-json` and `--at` replay saved documents.
+`--census-json`, `--heart-json`, `--hygiene-json` and `--at` replay saved
+documents.
+
+### The hygiene and timing sources (Phase 14.5, PyAutoBrain#739)
+
+Both are in the default `--sources` and in the 14.3 brief's `sources:`.
+
+| Source | Read from | Key | Tier floor |
+|---|---|---|---|
+| `hygiene` | the latest day's line of the published `hygiene_ledger.jsonl` beside the Brain board's board.json (the policy's `board: boards: brain` on the Pages base the Heart feed URL derives; `--hygiene-json FILE` replays a saved ledger or line) | the ledger's own keys, unchanged: `refs:<repo>:<file>:<ref>`, `docstrings:<repo>:<file>:adjacent-docstrings`, `escapes:<repo>:<file>:latex-escapes`, `optdeps:<workspace>:<script>:<dep>`, `extras:::<dep>` | glance for refs, docstrings and escapes (a text fix in the one file the key names; touching anything else raises it to judge); judge for optdeps and extras (dependencies) |
+| `timing` | the Heart board: `performance.gates`, `scripts` and `unit` rows whose `state` is warn, slowed or red (and the `slowed` lists), and the red/yellow `ci_timing`, `smoke_timings` and `unit_test_timing` monitoring rows — never `hygiene ci`'s raw ranking | `timing:gate:<repo>:<workflow>`, `timing:script:<repo>:<entry>`, `timing:unit:<repo>:<nodeid>` (run id and `/<py>` suffix dropped: one key per gate, script or test) | judge always |
+
+- **Per-mode gating.** Each hygiene mode is its own source,
+  `hygiene:<mode>`, with its own read: `partial` (never filed, never cleared;
+  findings listed with `*`) when the mode's status is partial, unscanned,
+  error or deferred, it is `unkeyed`, or it has `not_scanned` or
+  `absent_repos` (`_hygiene_ledger.mode_complete`). The writer's state rows
+  carry the per-mode source, so a complete mode clears its keys (an empty
+  complete mode clears them all) while a partial one clears none, and a mode
+  missing from the day clears nothing.
+- **Unread, not all-clear.** An unpublished (404), unreadable, empty or
+  malformed ledger, or one whose latest day is over 48 h old (a daily
+  ledger, so not the 6 h rule) or in the future, is unread: exit 3.
+- **Failures are never slowdowns.** A flagged row Heart's monitoring walker
+  reached under `failures`, `failing_scripts` or `events`, or with a non-zero
+  `exit_code`, `ok: false`, a timeout or hang `kind`, a failing conclusion
+  or status, or a summary saying it timed out, is a failure. A smoke script
+  failure is filed as `smoke:<repo>:<entry>` (judge; "fix the failing or
+  timed-out smoke script, reproduce first"; witness: the script passes under
+  the smoke cap on a fresh run), never a `timing:` key. A gate is a slowdown
+  only on `state` warn/slowed, or a red with duration evidence (ratio or
+  delta) and no failing conclusion; a failing gate is dropped here, since the
+  monitoring `ci_status` rows file it.
+- **Escapes.** The glance floor holds only while every changed string is a
+  docstring or a comment; a change to any other string literal (a plot
+  label, a format string, a regex) changes runtime output and raises the
+  tier to judge. The prompt body says so.
+- **Timing.** Stale when Heart marks every monitoring row for the key not
+  fresh (or `stale`) and none flags it fresh. The action text is "investigate
+  whether the slowdown is real, then speed it up or re-baseline" — never "fix
+  the failing test". Witness (slow, hence judge): post-merge runs back below
+  Heart's flagged threshold. The monitoring adapter leaves every timing
+  family to this source. A release-verdict unit-test timing line about a test
+  the timing source lists is dropped from the release list (one slow test,
+  one key); one it does not list stays human-only (14.2).
+- **Witnesses.** Hygiene: the key is absent from a fresh ledger day whose
+  mode is complete. Timing: as above.
 
 ## The maintenance prompt writer (`_maintain_write.py`, Phase 14.2, PyAutoBrain#733)
 
@@ -375,8 +421,10 @@ call the same `file_findings` for the release source.
   touches anything beyond the finding's own surface, the worker raises
   `Consequence:` to `judge` — for a census row anything other than that
   repo's `no_run.yaml`; for a `ci:` row the surface excludes
-  `.github/workflows/`, dependency pins and public names. A `judge` finding
-  says only that its floor is never lowered.
+  `.github/workflows/`, dependency pins and public names; for a hygiene key
+  (14.5) the one file the key names, a text or documentation edit only. A
+  `judge` finding says only that its floor is never lowered. A hygiene or
+  timing finding also carries its source's action line.
 - **Human-only, never filed.** The writer skips, and the green lane reports
   under `human-only`:
   - a release-execution workflow, whose witness needs a release run: a `ci:`
@@ -384,11 +432,13 @@ call the same `file_findings` for the release source.
     "release" ("PyAuto Release", "Nightly Release", "Release"). "Pre-release
     checks" or "release-notes lint" are filed normally, as judge: the broad
     "release" substring only lowers an organ CI red's tier (14.1's glance gate);
-  - a unit-test timing row (slice 14.5): a `unit-test` reason that says
+  - a release-verdict unit-test timing row: a `unit-test` reason that says
     "timing", or a bare `<path>::<test>[/<py>]: red|warn` status line when the
     verdict carries Heart's `Unit-test timing:` roll-up or the board lists it
     under `unit_test_timing`. The same line with failure text, or with no
-    roll-up, is a failing test and is filed.
+    roll-up, is a failing test and is filed. Since 14.5 a timing row about a
+    test the timing source lists is not in the release list at all: the
+    timing finding files it.
 - **Classify.** Intake `analyse()` (never writes) gives the work type, target
   (a declared, known repo; else the finding's repo) and lane; an intake lane
   refusal is skipped, never filed. Sizing gives Difficulty, Unattended and
@@ -434,12 +484,20 @@ the sources (14.1, `_maintain.read_sources`), files through the writer (14.2,
 already open alike, anything with a `Source-key:` header.
 
 - **The block.** `maintenance:` holds `sources:` (default all of census,
-  monitoring, release), `cap:` (default 5) and `tiers:` (default
+  monitoring, release, hygiene, timing since 14.5; `--hygiene-json` replays a
+  ledger), `cap:` (default 5) and `tiers:` (default
   `glance, judge`). The one goal is `maintenance: board findings (…)`; the
   digest's first line names the shift as a maintenance shift from it.
   `brief --check` validates the block (known keys, sources, tiers, a whole
   `cap`, the goal), warns on a named task with no `Source-key:` ("none by
   hand"), and lists each named task with its tier, Witness and key.
+- **The default sources since 14.5.** With hygiene and timing in the
+  defaults, ranking is glance first, so a cap-5 brief names any glance organ
+  CI reds and then mostly glance hygiene edits (`escapes:` and `docstrings:`
+  files); census, timing and other judge findings come only after those.
+  Narrow it with `--sources` (for example `--sources census,monitoring,release`
+  for the 14.3 behaviour, or `--sources timing` for a slowdown shift) or with
+  `--maintenance-tiers judge`.
 - **What is named.** Cheapest tier first, then priority, then path, up to
   `cap`. Passed over, each with its reason in the record's `## Maintenance`
   section: a prompt whose source is unread, stale or partial this run (the

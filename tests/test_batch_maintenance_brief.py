@@ -13,6 +13,7 @@ reads a real Heart, the network or the shared Mind.
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import io
 import json
@@ -94,7 +95,24 @@ def _cli(argv):
     return rc, out.getvalue(), err.getvalue()
 
 
+@pytest.fixture(autouse=True)
+def _no_published_ledger(monkeypatch):
+    """Never the network: the published hygiene ledger reads as unread."""
+    monkeypatch.setattr(_maintain, "ledger_url", lambda: (None, "tests: no ledger URL"))
+
+
+#: A current hygiene ledger day with every keyed mode complete and clean.
+CLEAN_LEDGER = {"date": "2026-11-27", "sha": "x",
+                "rows": {m: 0 for m in ("refs", "docstrings", "escapes", "optdeps", "extras")},
+                "status": {m: "clean" for m in ("refs", "docstrings", "escapes", "optdeps",
+                                                "extras")},
+                "not_scanned": {}, "absent_repos": {}, "unkeyed": [],
+                "findings": {m: [] for m in ("refs", "docstrings", "escapes", "optdeps",
+                                             "extras")}, "evidence": {}}
+
+
 def _inputs(tmp_path, board=None, heart_verdict="GREEN", heart_ts=TS):
+    (tmp_path / "ledger.jsonl").write_text(json.dumps(CLEAN_LEDGER) + "\n")
     b = tmp_path / "board.json"
     b.write_text(json.dumps(board if board is not None else _board()))
     h = tmp_path / "heart.json"
@@ -108,6 +126,7 @@ def _new(tmp_path, mind, *extra, board=None, out="brief.md", mind_arg=True):
     args = ["brief", "--new", SLOT, "--maintenance", "--review-at", REVIEW_AT,
             "--board-json", str(b), "--census-json", str(tmp_path / "absent.json"),
             "--heart-json", str(h), "--home", str(tmp_path / "home"),
+            "--hygiene-json", str(tmp_path / "ledger.jsonl"),
             "--at", NOW.isoformat()]
     if out:
         args += ["--out", str(tmp_path / out)]
@@ -605,3 +624,56 @@ def test_a_worktree_of_a_canonical_like_mind_without_home_writes_beside_the_reco
     assert "written only with --home" in err
     assert (tmp_path / "brief.maintain" / W.STATE_NAME).is_file()
     assert not real.exists()
+
+
+# --- Phase 14.5: the hygiene and timing sources (PyAutoBrain#739) ----------------
+
+def _gapped_ledger(tmp_path) -> Path:
+    """refs complete with one finding; escapes partial (a repo not scanned)."""
+    line = copy.deepcopy(CLEAN_LEDGER)
+    line["findings"]["refs"] = ["refs:ws_a:README.md:old/"]
+    line["status"]["refs"] = "finding"
+    line["findings"]["escapes"] = ["escapes:ws_b:scripts/e.py:latex-escapes"]
+    line["status"]["escapes"] = "finding"
+    line["not_scanned"]["escapes"] = ["ws_c"]
+    p = tmp_path / "gapped.jsonl"
+    p.write_text(json.dumps(line) + "\n")
+    return p
+
+
+def _timing_board() -> dict:
+    board = _board(rows=[])
+    board["performance"] = {"gates": [], "scripts": {"rows": []}, "unit": {
+        "slowed_tests": [{"repo": "lib_a", "nodeid": "tests/t.py::test_slow", "seconds": 5.0,
+                          "prev_s": 1.0, "state": "warn"}], "tests": []}}
+    return board
+
+
+def test_a_brief_with_the_new_sources_names_hygiene_and_timing_prompts(plain_mind, tmp_path):
+    rc, _, err = _new(tmp_path, plain_mind, "--sources", "hygiene,timing",
+                      "--maintenance-cap", "9", "--hygiene-json", str(_gapped_ledger(tmp_path)),
+                      board=_timing_board())
+    assert rc == 0, err
+    brief = _parsed(tmp_path / "brief.md")
+    assert _brief.maintenance_of(brief)["sources"] == ["hygiene", "timing"]
+    keys = {_brief.source_key((plain_mind / t).read_text()) for t in _brief.tasks_of(brief)}
+    assert keys == {"refs:ws_a:README.md:old/", "timing:unit:lib_a:tests/t.py::test_slow"}
+    record = (tmp_path / "brief.md").read_text()
+    # the partial mode is read, listed and never filed or named
+    assert "hygiene:escapes" in record and "escapes:ws_b:scripts/e.py:latex-escapes" in record
+    assert "nothing filed or named from hygiene:escapes" in err
+    assert not list(plain_mind.glob("draft/**/maint_escapes*"))
+    rc, out, _ = _check(tmp_path, tmp_path / "brief.md", plain_mind)
+    res = json.loads(out)
+    assert rc == 0 and res["ok"], res["errors"]
+    assert {m["tier"] for m in res["maintenance"]} == {"glance", "judge"}
+
+
+def test_check_accepts_the_new_sources_and_still_refuses_unknown_ones(plain_mind, tmp_path):
+    rc, _, err = _new(tmp_path, plain_mind)
+    assert rc == 0, err
+    brief = _parsed(tmp_path / "brief.md")
+    assert _brief.maintenance_of(brief)["sources"] == list(_brief.MAINTENANCE_SOURCES)
+    assert {"hygiene", "timing"} <= set(_brief.MAINTENANCE_SOURCES)
+    rc, _, err = _new(tmp_path, plain_mind, "--sources", "hygiene,bogus")
+    assert rc != 0 and "census,monitoring,release,hygiene,timing" in err
