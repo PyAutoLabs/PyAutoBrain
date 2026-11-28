@@ -348,3 +348,103 @@ def test_writer_priority_capped_at_normal(tmp_path):
                         target="organa", lane="any", difficulty="small",
                         unattended="ready", review_minutes=5)
     assert "Priority: normal" in text and "Priority: high" not in text
+
+
+# --- review follow-ups (PyAutoBrain#747) ----------------------------------------------
+
+def test_a_stale_source_with_no_findings_is_never_green_or_all_clear(tmp_path):
+    stale = {"ok": True, "stale": True, "partial": False, "source": "fixture",
+             "why": "", "age_hours": 9.0}
+    fresh = dict(stale, stale=False, age_hours=1.0)
+    for reads in ({"monitoring": stale, "release": fresh},
+                  {"monitoring": dict(fresh, partial=True, why="absent_repos x"),
+                   "release": fresh}):
+        sec = H.collect(_write(tmp_path / "m", {"draft/x.md": "# x\n"}),
+                        reader=lambda reads=reads: (reads, {}, []))
+        assert sec["count"] == 0 and sec["stale"] == ["monitoring"]
+        assert "stale/partial (monitoring): not all-clear" in H.headline(sec)
+        assert not H.all_clear_reads(sec)
+        tones = []
+        H.render_html(sec, lambda s: s,
+                      lambda *vals, **k: tones.extend(t for _v, t in vals) or "",
+                      lambda s: s)
+        assert tones[0] == "y"
+    sec = H.collect(tmp_path / "m", reader=lambda: ({"release": fresh}, {}, []))
+    assert H.all_clear_reads(sec) and "not all-clear" not in H.headline(sec)
+
+
+def test_a_closed_task_whose_key_is_still_reported_says_so(tmp_path):
+    mind = _fixture_mind(tmp_path / "mind")
+    # A `lifecycle.py close` record: names the key in prose, no Source-key mark.
+    _write(mind, {"complete/2026/11/closed_ep.md":
+                  "# Closed\n\nFixed no_run:ws_beta/graphical/ep.py upstream.\n"})
+    result = _maintain.read_sources(_maintain.SOURCES, **_inputs(tmp_path))
+    sec = H.collect(mind, reader=lambda: result)
+    row = {r["key"]: r for r in sec["findings"]}["no_run:ws_beta/graphical/ep.py"]
+    assert row["status"] == "open" and row["note"] == H.CLOSED_NOTE
+    assert row["mind_path"] == "complete/2026/11/closed_ep.md"
+    assert "open (closed task, awaiting a fresh read)" in "\n".join(H.render_md(sec))
+    # a key no record mentions stays plain open
+    plain = {r["key"]: r for r in sec["findings"]}["ci:OrganA:Pages Dashboard"]
+    assert plain["note"] == ""
+
+
+def test_system_exit_is_contained_to_the_section(tmp_path):
+    def bye():
+        raise SystemExit(4)
+    sec = H.collect(tmp_path, reader=bye)
+    assert sec["error"].startswith("SystemExit") and "UNREAD" in H.headline(sec)
+
+
+def test_a_hung_read_times_out_as_unread(tmp_path):
+    import threading
+    release = threading.Event()
+    sec = H.collect(tmp_path, reader=lambda: release.wait(30), timeout=0.2)
+    release.set()
+    assert sec["error"] == "timed out after 0.2 s"
+    assert "UNREAD this render (timed out" in H.headline(sec)
+
+
+def test_feed_only_never_runs_the_local_readiness_cli(monkeypatch):
+    import _green
+    hf = _green._hf()
+    calls = []
+    monkeypatch.setattr(_green, "_hf", lambda: hf)
+    monkeypatch.setattr(hf, "local_readiness", lambda *a, **k: calls.append(1) or (None, "x"))
+    monkeypatch.setattr(hf, "feed_url", lambda: ("https://example.invalid/state.json", None))
+    monkeypatch.setattr(hf, "fetch_feed", lambda url: ({"status": "green", "updated": TS,
+                                                        "items": []}, None))
+    monkeypatch.setenv(H.FEED_ONLY_ENV, "1")
+    assert H.FEED_ONLY_ENV == _maintain.FEED_ONLY_ENV
+    r = _maintain.load_release()
+    assert calls == [] and r["source"] == "published feed" and r["ok"]
+    monkeypatch.delenv(H.FEED_ONLY_ENV)
+    _maintain.load_release()
+    assert calls == [1]  # unset: batch maintain's read, local CLI first
+
+
+def test_promoted_summary_survives_the_state_item_cap(tmp_path):
+    files = {"repos.yaml": REPOS_YAML,
+             "draft/maintenance/organb/maint_judge.md": _gen("ci:OrganB:Docs")}
+    for i in range(14):
+        files[f"draft/feature/widgets/high_{i:02}.md"] = _ordinary(f"High {i}").replace(
+            "Unattended: ready", "Unattended: never")
+        files[f"draft/feature/widgets/ready_{i:02}.md"] = _ordinary(f"Ready {i}", "normal")
+    c = _intake.census(_write(tmp_path / "mind", files))
+    items = json.loads(_intake.render_state(c))["items"]
+    assert len(items) == _intake.STATE_ITEM_CAP
+    summary = [i for i in items if i["text"].startswith(_intake.PROMOTED_TITLE)]
+    assert summary and summary[0]["severity"] == "yellow"
+    assert summary[0]["text"] == ("Promoted from Homeostasis (maintenance orchestrator): "
+                                  "1 prompt(s) need you — see the dashboard")
+    assert summary[0]["url"].endswith("#promoted-homeostasis")
+    assert not [i for i in items if i["text"].startswith("promoted from Homeostasis:")]
+
+
+def test_a_copied_source_key_header_alone_does_not_hide_a_hand_written_prompt(tmp_path):
+    copied = _ordinary("Hand-written fix").replace(
+        "Unattended: ready\n", "Unattended: ready\nSource-key: ci:OrganA:Pages\n")
+    c = _intake.census(_write(tmp_path / "mind", {
+        "repos.yaml": REPOS_YAML, "draft/feature/widgets/hand.md": copied}))
+    assert c["records"][0]["generated"] == "" and c["homeostasis"]["glance"] == 0
+    assert "draft/feature/widgets/hand.md" in {r["path"] for r in _intake._start_here_picks(c)}

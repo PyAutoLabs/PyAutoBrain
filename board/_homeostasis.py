@@ -37,6 +37,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 
 TITLE = "Homeostasis (maintenance orchestrator)"
@@ -52,6 +53,16 @@ INPUT_ENV = {"board_json": "BOARD_MAINTAIN_BOARD_JSON",
              "heart_json": "BOARD_MAINTAIN_HEART_JSON",
              "hygiene_json": "BOARD_MAINTAIN_HYGIENE_JSON"}
 STATUSES = ("open", "promoted", "in-progress", "done")
+#: An open finding whose key a complete/ record mentions without the writer's
+#: mark: the task was closed (a `lifecycle.py close` record carries no
+#: `Source-key:`), and the source has not yet read it fixed.
+CLOSED_NOTE = "closed task, awaiting a fresh read"
+#: The whole collection's time bound; past it the section renders UNREAD.
+TIMEOUT_ENV = "BOARD_HOMEOSTASIS_TIMEOUT"
+DEFAULT_TIMEOUT = 180.0
+#: Set by `brain_board.yml`: the release source reads Heart's published feed
+#: only, never a local `pyauto-heart readiness` (`_maintain.load_release`).
+FEED_ONLY_ENV = "BOARD_HEART_FEED_ONLY"
 CLEARED = "cleared"
 MIND_DIRS = ("draft", "active", "complete")
 _CONSEQUENCE_RX = re.compile(r"^Consequence:\s*(\w+)", re.M)
@@ -76,6 +87,28 @@ def enabled() -> bool:
 
 
 # --- the Mind side -------------------------------------------------------------
+
+def closed_mentions(mind: Path, keys) -> dict:
+    """{key: path} of a `complete/` record that mentions an unmarked key
+    anywhere in its text (as a whole token, `_maintain_write.mentions`)."""
+    _m, W = _batch()
+    keys = [k for k in keys if k]
+    out: dict = {}
+    base = Path(mind) / "complete"
+    if not keys or not base.is_dir():
+        return out
+    for f in sorted(base.rglob("*.md")):
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for k in keys:
+            if k not in out and k in text and W.mentions(k, text):
+                out[k] = f.relative_to(mind).as_posix()
+        if len(out) == len(keys):
+            break
+    return out
+
 
 def mind_marks(mind: Path) -> dict:
     """{key: [{where, path, tier, source}]} for every prompt (`draft/`,
@@ -170,16 +203,23 @@ def build(reads: dict, raw: dict, findings: list, mind: Path | None,
     and the Mind. Pure: no network, no writes."""
     marks = mind_marks(mind) if mind is not None else None
     listed = {f.key for fs in raw.values() for f in fs}
+    closed = closed_mentions(mind, [f.key for f in findings if f.key not in marks]) \
+        if marks is not None else {}
     rows = []
     for f in findings:
         status, prompt = status_of((marks or {}).get(f.key)) if marks is not None \
             else ("unknown", "")
+        note = ""
+        if status == "open" and not prompt and f.key in closed:
+            note, prompt = CLOSED_NOTE, closed[f.key]
         rows.append({"key": f.key, "source": f.source, "tier": f.tier_floor,
-                     "repo": f.repo, "status": status, "mind_path": prompt,
+                     "repo": f.repo, "status": status, "note": note, "mind_path": prompt,
                      "stale": bool(f.stale), "witness": f.witness,
                      "summary": f.summary})
     cleared = cleared_keys(marks, listed, reads) if marks is not None else []
     unread = [s for s, r in reads.items() if not r.get("ok")]
+    stale = [s for s, r in reads.items()
+             if r.get("ok") and (r.get("stale") or r.get("partial"))]
     status_counts = {s: sum(1 for r in rows if r["status"] == s)
                      for s in STATUSES + (("unknown",) if marks is None else ())}
     status_counts[CLEARED] = len(cleared)
@@ -187,6 +227,7 @@ def build(reads: dict, raw: dict, findings: list, mind: Path | None,
         "title": TITLE,
         "count": len(rows),
         "unread": unread,
+        "stale": stale,
         "mind": "read" if marks is not None else (mind_why or "unread"),
         "reads": [_read_row(n, r) for n, r in reads.items()],
         "counts": {"source": _count(rows, "source"), "tier": _count(rows, "tier"),
@@ -196,24 +237,52 @@ def build(reads: dict, raw: dict, findings: list, mind: Path | None,
     }
 
 
-def collect(mind: Path | None, *, reader=None) -> dict:
+def _timeout() -> float:
+    try:
+        return float(os.environ.get(TIMEOUT_ENV) or DEFAULT_TIMEOUT)
+    except ValueError:
+        return DEFAULT_TIMEOUT
+
+
+def _collect(mind, reader) -> dict:
+    M, _w = _batch()
+    if reader is None:
+        def reader():
+            return M.read_sources(M.SOURCES, **_inputs())
+    reads, raw, findings = reader()
+    why = ""
+    if mind is None or not Path(mind).is_dir():
+        why = f"no Mind checkout at {mind}" if mind is not None else "no Mind checkout"
+        mind = None
+    return build(reads, raw, findings, mind, why)
+
+
+def collect(mind: Path | None, *, reader=None, timeout: float | None = None) -> dict:
     """The section for one board render. `reader` returns `read_sources`'s
     (reads, raw, findings) — default: `batch maintain --dry-run`'s read of
-    every source, with the saved inputs `INPUT_ENV` names. Never raises: a
-    failure is `{"title", "error"}`, rendered as this section unread."""
-    try:
-        M, _w = _batch()
-        if reader is None:
-            def reader():
-                return M.read_sources(M.SOURCES, **_inputs())
-        reads, raw, findings = reader()
-        why = ""
-        if mind is None or not Path(mind).is_dir():
-            why = f"no Mind checkout at {mind}" if mind is not None else "no Mind checkout"
-            mind = None
-        return build(reads, raw, findings, mind, why)
-    except Exception as exc:  # noqa: BLE001 — this section fails soft, the board never
-        return {"title": TITLE, "error": f"{exc.__class__.__name__}: {str(exc)[:160]}"}
+    every source, with the saved inputs `INPUT_ENV` names (`brain_board.yml`
+    sets `FEED_ONLY_ENV`, so CI reads Heart's published feed only). Never
+    raises and never hangs the board: an exception or `SystemExit`, or no answer within `timeout`
+    seconds (`TIMEOUT_ENV`, default 180), is `{"title", "error"}`, rendered as
+    this section UNREAD. The read runs in a daemon thread, so one past the
+    bound is abandoned, not waited for."""
+    box: dict = {}
+
+    def run():
+        try:
+            box["section"] = _collect(mind, reader)
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 — this section fails soft
+            box["error"] = f"{exc.__class__.__name__}: {str(exc)[:160]}"
+
+    t = threading.Thread(target=run, name="homeostasis", daemon=True)
+    t.start()
+    limit = _timeout() if timeout is None else timeout
+    t.join(limit)
+    if t.is_alive():
+        return {"title": TITLE, "error": f"timed out after {limit:g} s"}
+    if "error" in box:
+        return {"title": TITLE, "error": box["error"]}
+    return box["section"]
 
 
 def sidecar(section: dict) -> dict:
@@ -259,9 +328,24 @@ def headline(section: dict | None) -> str:
     if section["unread"]:
         head += (f" — {len(section['unread'])} source(s) UNREAD "
                  f"({', '.join(section['unread'])}): incomplete, not all-clear")
+    if section.get("stale"):
+        head += (f" — {len(section['stale'])} source(s) stale/partial "
+                 f"({', '.join(section['stale'])}): not all-clear")
     if section["mind"] != "read":
         head += f" — statuses unknown ({section['mind']})"
     return head
+
+
+def all_clear_reads(section: dict | None) -> bool:
+    """Every source read fresh and complete and the Mind read: only then may
+    the section's count read green (0 findings is all-clear only then)."""
+    return bool(section) and not section.get("error") and not section["unread"] \
+        and not section.get("stale") and section["mind"] == "read"
+
+
+def _status_cell(r: dict) -> str:
+    return r["status"] + (f" ({r['note']})" if r.get("note") else "") \
+        + (f" ({r['mind_path']})" if r["mind_path"] else "")
 
 
 def render_md(section: dict | None) -> list:
@@ -279,7 +363,7 @@ def render_md(section: dict | None) -> list:
               "|-----|--------|------|------|--------|---------|"]
         for r in section["findings"]:
             cells = (r["key"], r["source"], r["tier"] + ("*" if r["stale"] else ""),
-                     r["repo"] or "-", r["status"] + (f" ({r['mind_path']})" if r["mind_path"] else ""),
+                     r["repo"] or "-", _status_cell(r),
                      r["witness"])
             L.append("| " + " | ".join(str(x).replace("|", "\\|") for x in cells) + " |")
     if section["cleared"]:
@@ -295,7 +379,7 @@ def render_html(section: dict | None, esc, pills, plain) -> list:
     if section is None or section.get("error"):
         return H + [plain(esc(headline(section)) + pills(("unread", "y")))]
     c = section["counts"]
-    tone = "y" if section["unread"] or section["mind"] != "read" else "g"
+    tone = "g" if all_clear_reads(section) else "y"
     H.append(plain(esc(headline(section)) + pills((f"{section['count']} findings", tone))))
     for label, key in (("By source", "source"), ("By tier", "tier"), ("By status", "status")):
         H.append(plain(f"<b>{label}</b> " + esc(_counts_line(c[key]))))
@@ -310,8 +394,9 @@ def render_html(section: dict | None, esc, pills, plain) -> list:
         # The page's one table style (`table.recent`): rows on a phone.
         H.append('<table class="recent homeostasis">')
         for r in section["findings"]:
-            status = esc(r["status"]) + (f' <span class="facets">{esc(r["mind_path"])}</span>'
-                                         if r["mind_path"] else "")
+            status = esc(r["status"] + (f" ({r['note']})" if r.get("note") else "")) \
+                + (f' <span class="facets">{esc(r["mind_path"])}</span>'
+                   if r["mind_path"] else "")
             H.append(f'<tr><td class="what">{status}</td>'
                      f"<td><code>{esc(r['key'])}</code>"
                      + pills((r["source"], ""), (r["tier"] + ("*" if r["stale"] else ""),

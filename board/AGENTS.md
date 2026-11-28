@@ -98,16 +98,30 @@ workspace's Mind, read only). It matches the writer's key marks
 | `open` | no prompt carries the key, or only a glance draft does (Homeostasis's own queue) |
 | `promoted` | a judge prompt in `draft/` carries it |
 | `in-progress` | a prompt in `active/` carries it |
-| `done` | only a `complete/` record carries it |
+| `done` | only a `complete/` record carries the key mark |
 | `cleared` | the Mind carries the key but no source lists it now, and the key's source (from the prompt's "Filed from" line, else every source) read fresh and complete |
+
+**`done` needs the close-out to carry the key.** A `lifecycle.py close`
+record today has no `Source-key:`, so a closed maintenance task almost never
+reads `done`; making the close-out keep the key is a follow-up in Mind. Until
+then, a reported finding that no prompt carries but that a `complete/` record
+mentions anywhere in its text reads `open (closed task, awaiting a fresh
+read)`, with that record's path. A finding with no mention reads plain `open`.
 
 The section shows counts by source, tier and status, the source reads in
 `batch maintain`'s words, the findings (key, source, tier, repo, status,
 witness) and the cleared keys. An unread, stale or partial source reads as
-such, never as zero findings; a key from an unread source is never cleared.
-With no Mind, statuses read `unknown`. Any error fails this section only; the
-board still renders. `--apply` writes `homeostasis.json` (the whole section)
-beside board.json; board.json keeps the counts and reads only. It is a pure
+such, never as zero findings. The headline names unread and stale/partial
+sources as "not all-clear", and the count pill is green only when every
+source read fresh and complete and the Mind was read. A key from an unread
+source is never cleared. With no Mind, statuses read `unknown`. Any error
+(`SystemExit` included) fails this section only, and the board still renders.
+The collection runs under an overall time bound (`BOARD_HOMEOSTASIS_TIMEOUT`,
+default 180 s); past it the section renders UNREAD. `brain_board.yml` sets
+`BOARD_HEART_FEED_ONLY=1`, so the release source reads Heart's published feed
+only and never runs a local `pyauto-heart readiness`
+(`_maintain.load_release`). `--apply` writes `homeostasis.json` (the whole
+section) beside board.json; board.json keeps the counts and reads only. It is a pure
 render with no state between runs, so unlike the hygiene ledger there is
 nothing to fetch or merge.
 
