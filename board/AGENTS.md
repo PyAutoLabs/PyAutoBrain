@@ -110,9 +110,21 @@ then, a reported finding that no prompt carries but that a `complete/` record
 mentions anywhere in its text reads `open (closed task, awaiting a fresh
 read)`, with that record's path. A finding with no mention reads plain `open`.
 
-The section shows counts by source, tier and status, the source reads in
-`batch maintain`'s words, the findings (key, source, tier, repo, status,
-witness) and the cleared keys. An unread, stale or partial source reads as
+The section is written for a human reader (PyAutoBrain#749; plain words per
+`skills/WRITING_STYLE.md`). It opens with a short intro: what Homeostasis is,
+that nothing runs from the page, and what "could run unattended" (glance) and
+"needs you" (judge) mean. The counts read as plain words ("41 problems
+reported · 15 could run unattended · …"). Findings are grouped by kind from
+the key prefix (`KINDS`: skipped smoke scripts, failing smoke scripts,
+failing CI, slow tests and gates, LaTeX escapes, docstrings, broken refs,
+dependency gaps, other), one collapsed block each with one sentence on the
+problem and its fix. Each row is What (a short name and repo, with just
+enough folders to tell clashing names apart), Why (the finding's `summary`,
+long paths cut) and Next (the status in plain words, with a short "Mind
+prompt" link). The key, witness and full paths are tooltips, never a cell.
+`cleared` keys are listed apart as "No longer reported". Source reads are
+collapsed, one plain line each, with no absolute paths. The sidecar rows
+keep every field and add `kind`, `what` and `next`. An unread, stale or partial source reads as
 such, never as zero findings. The headline names unread and stale/partial
 sources as "not all-clear", and the count pill is green only when every
 source read fresh and complete and the Mind was read. A key from an unread

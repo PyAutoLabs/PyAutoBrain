@@ -180,7 +180,7 @@ def test_unread_source_is_shown_unread_and_never_clears(tmp_path):
     assert sec["unread"] == ["release"]
     assert "UNREAD" in H.headline(sec) and "not all-clear" in H.headline(sec)
     md = "\n".join(H.render_md(sec))
-    assert re.search(r"release: UNREAD — .*not all-clear", md)
+    assert re.search(r"Heart release check: UNREAD — .*not all-clear", md)
     # a key filed from the unread source is never cleared; a fresh source's is
     assert {r["key"] for r in sec["cleared"]} == {"ci:OrganC:Gone"}
 
@@ -217,10 +217,10 @@ def test_board_renders_the_section_and_writes_the_sidecar_only_on_apply(tmp_path
     r = _run(["--html"], tmp_path, stub, env)
     assert r.returncode == 0, r.stderr
     assert "<h2>Homeostasis (maintenance orchestrator)</h2>" in r.stdout
-    assert 'href="#homeostasis"' in r.stdout and "promoted" in r.stdout
+    assert 'href="#homeostasis"' in r.stdout and H.NEXT_PROMOTED in r.stdout
     md = _run([], tmp_path, stub, env).stdout
     assert "## Homeostasis (maintenance orchestrator)" in md
-    assert "| ci:OrganB:Docs | monitoring | judge | OrganB | in-progress" in md
+    assert "| `Docs · OrganB` | Latest run: failure | Being fixed ([Mind prompt](" in md
     assert not list(tmp_path.rglob(H.SIDECAR)), "no sidecar without --apply"
     out = tmp_path / "site"
     r = _run(["--apply", "--out", str(out)], tmp_path, stub, env)
@@ -240,6 +240,187 @@ def test_board_without_opt_in_collects_nothing_and_writes_no_sidecar(tmp_path):
     assert r.returncode == 0, r.stderr
     assert not (out / H.SIDECAR).exists()
     assert "not collected this render" in (out / "board.md").read_text()
+
+
+# --- the section reads plainly (PyAutoBrain#749) ------------------------------------
+
+import html as _html  # noqa: E402
+
+LONG_PROMPT = ("draft/maintenance/ws_gamma_test/"
+               "maint_no_run_ws_gamma_test_imaging_visualization_modelin.md")
+OLD_ROW_FIELDS = {"key", "source", "tier", "repo", "status", "note", "mind_path",
+                  "stale", "witness", "summary"}
+
+
+def _page(sec, org="ExampleOrg"):
+    return "\n".join(H.render_html(sec, _html.escape, lambda *a, **k: "",
+                                   lambda s: f"<p>{s}</p>", org))
+
+
+def _cells(page):
+    """Each table cell's visible text (tags and attributes stripped)."""
+    return [_html.unescape(re.sub(r"<[^>]+>", "", c))
+            for c in re.findall(r"<td[^>]*>(.*?)</td>", page, re.S)]
+
+
+def test_intro_says_what_the_section_is_and_that_nothing_runs(tmp_path):
+    sec, _ = _section(tmp_path)
+    page, md = _page(sec), "\n".join(H.render_md(sec))
+    for text in (_html.unescape(re.sub(r"<[^>]+>", "", page)), md):
+        assert H.INTRO.split('"Promoted')[0] in text
+        assert "Nothing runs from this page." in text
+        assert '"Could run unattended"' in text and '"Needs you"' in text
+    assert 'href="https://exampleorg.github.io/PyAutoMind/#promoted-homeostasis"' in page
+    assert page.index(H.INTRO[:40]) < page.index("<details")
+
+
+def test_counts_are_plain_words_and_keep_the_not_all_clear_flags(tmp_path):
+    sec, _ = _section(tmp_path)
+    assert H.headline(sec) == ("5 problems reported · 1 could run unattended · 4 need you"
+                               " · 1 waiting on you in Mind · 1 being fixed · 1 fixed"
+                               " · 2 no longer reported")
+    unread, _ = _section(tmp_path / "u", heart=False)
+    assert H.headline(unread).startswith("5 problems reported")
+    assert "UNREAD" in H.headline(unread) and "not all-clear" in H.headline(unread)
+
+
+def test_kind_of_every_key_prefix():
+    assert {k: H.kind_of(k) for k in (
+        "no_run:r/a.py", "smoke:r:a", "escapes:r:f:latex-escapes", "docstrings:r:f:x",
+        "refs:r:f:x", "optdeps:r:f:dep", "extras:::dep", "ci:R:wf", "timing:gate:r:wf",
+        "wf:legacy", "weird")} == {
+        "no_run:r/a.py": "no_run", "smoke:r:a": "smoke",
+        "escapes:r:f:latex-escapes": "escapes", "docstrings:r:f:x": "docstrings",
+        "refs:r:f:x": "refs", "optdeps:r:f:dep": "deps", "extras:::dep": "deps",
+        "ci:R:wf": "ci", "timing:gate:r:wf": "timing", "wf:legacy": "other",
+        "weird": "other"}
+
+
+def test_findings_are_grouped_by_kind_with_counts_and_one_sentence(tmp_path):
+    sec, _ = _section(tmp_path)
+    assert sec["counts"]["kind"] == {"no_run": 2, "ci": 2, "refs": 1}
+    page, md = _page(sec), "\n".join(H.render_md(sec))
+    order = [page.index(f"<summary>{H.KIND_TITLE[k]} ({n})</summary>")
+             for k, n in (("no_run", 2), ("ci", 2), ("refs", 1))]
+    assert order == sorted(order)
+    for kind, title, text in H.KINDS:
+        present = kind in sec["counts"]["kind"]
+        assert (_html.escape(text) in page) is present
+        assert (f"### {title} (" in md) is present
+    assert "| What | Why | Next |" in md
+    assert "Findings (" not in page
+
+
+def test_rows_say_what_why_and_next_in_plain_words(tmp_path):
+    sec, _ = _section(tmp_path)
+    rows = {r["key"]: r for r in sec["findings"]}
+    assert {k: r["next"] for k, r in rows.items()} == {
+        "ci:OrganA:Pages Dashboard": H.NEXT_PROMOTED,
+        "ci:OrganB:Docs": H.NEXT_ACTIVE,
+        "no_run:ws_alpha/imaging/slow_one": H.NEXT_DONE,
+        "no_run:ws_beta/graphical/ep.py": H.NEXT_JUDGE,
+        REFS_KEY: H.NEXT_GLANCE}
+    assert rows["no_run:ws_beta/graphical/ep.py"]["what"] == "ep · ws_beta"
+    assert rows["ci:OrganA:Pages Dashboard"]["what"] == "Pages Dashboard · OrganA"
+    cells = _cells(_page(sec))
+    # the finding's own summary is shown (not only its key)
+    assert "Marked NEEDS_FIX since 2026-08-03: EP parked" in cells
+    assert "Marked SLOW since 2026-07-30: times out at the 300s cap" in cells
+    assert any(c.startswith(H.NEXT_PROMOTED + " Mind prompt") for c in cells)
+    # keys and witnesses are tooltips, not cells
+    assert not [c for c in cells if "no_run:" in c or "witness" in c]
+
+
+def test_a_long_path_is_never_printed_in_a_cell(tmp_path):
+    sec, _ = _section(tmp_path)
+    long_key = ("no_run:ws_gamma_test/imaging/visualization/"
+                "modeling_visualization_jit")
+    sec["findings"].append(dict(sec["findings"][0], key=long_key, kind=H.kind_of(long_key),
+                                repo="ws_gamma_test", status="promoted",
+                                mind_path=LONG_PROMPT, next=H.NEXT_PROMOTED,
+                                summary="SLOW since 2026-07-30: times out in "
+                                        "ws_gamma_test/scripts/imaging/"
+                                        "visualization/modeling_visualization_jit.py"))
+    H.name_rows(sec["findings"])
+    page = _page(sec)
+    cells = _cells(page)
+    assert "modeling_visualization_jit · ws_gamma_test" in cells
+    for c in cells:
+        assert LONG_PROMPT not in c and "maint_no_run" not in c, c
+        assert not re.search(r"\S+/\S+/\S+/\S+", c), c  # no path deeper than two parts
+    # the prompt is a short link: its path only in the href and the tooltip
+    assert (f'<a href="https://github.com/ExampleOrg/PyAutoMind/blob/main/{LONG_PROMPT}" '
+            f'title="{LONG_PROMPT}">Mind prompt</a>') in page
+    md = "\n".join(H.render_md(sec, "ExampleOrg"))
+    assert f"[Mind prompt](https://github.com/ExampleOrg/PyAutoMind/blob/main/{LONG_PROMPT})" in md
+
+
+def test_names_that_clash_get_just_enough_folders():
+    rows = [{"key": f"escapes:ws:scripts/{mode}/features/{f}/likelihood_function.py:x",
+             "repo": "ws", "kind": "escapes"}
+            for mode in ("imaging", "interferometer") for f in ("pixelization", "mge")]
+    rows.append({"key": "escapes:ws:scripts/other.py:x", "repo": "ws", "kind": "escapes"})
+    H.name_rows(rows)
+    assert [r["what"] for r in rows] == [
+        "imaging/…/pixelization/likelihood_function · ws",
+        "imaging/…/mge/likelihood_function · ws",
+        "interferometer/…/pixelization/likelihood_function · ws",
+        "interferometer/…/mge/likelihood_function · ws",
+        "other · ws"]
+
+
+def test_cleared_is_its_own_no_longer_reported_block(tmp_path):
+    sec, _ = _section(tmp_path)
+    page, md = _page(sec), "\n".join(H.render_md(sec, "ExampleOrg"))
+    assert "<summary>No longer reported (2)</summary>" in page
+    assert _html.escape(H.CLEARED_TEXT) in page and H.CLEARED_TEXT in md
+    assert "### No longer reported (2)" in md
+    assert "Cleared (" not in page and "Cleared (" not in md
+    assert "<code title=\"ci:OrganC:Gone\">Gone · OrganC</code>" in page
+    assert ("- `Gone · OrganC` ([Mind prompt](https://github.com/ExampleOrg/PyAutoMind/"
+            "blob/main/draft/maintenance/organc/maint_gone.md))") in md
+
+
+def test_source_lines_are_plain_names_with_no_absolute_paths():
+    rows = [
+        {"source": "monitoring", "ok": True, "stale": False, "partial": False,
+         "from": "/home/runner/work/PyAutoBrain/PyAutoBrain/_inputs/board.json",
+         "why": "", "age_hours": 1.23},
+        {"source": "hygiene:refs", "ok": True, "stale": True, "partial": False,
+         "from": "published hygiene ledger, day 2026-11-28", "why": "",
+         "age_hours": 12.4},
+        {"source": "release", "ok": False, "stale": False, "partial": False,
+         "from": "none", "why": "cannot read /home/runner/work/x/heart.json",
+         "age_hours": None},
+    ]
+    lines = [H.read_line(r) for r in rows]
+    assert lines[0] == "Heart board (1.2 h old)"
+    assert lines[1].startswith("hygiene ledger: broken references, 2026-11-28 (12 h old)"
+                               " — STALE")
+    assert lines[2] == ("Heart release check: UNREAD — cannot read heart.json. "
+                        "Problems from it are not all-clear.")
+    assert not [ln for ln in lines if "/home/" in ln]
+    sec = {"title": H.TITLE, "count": 0, "unread": ["release"], "stale": ["hygiene:refs"],
+           "mind": "read", "reads": rows, "findings": [], "cleared": [],
+           "counts": {"source": {}, "tier": {}, "status": {}, "kind": {}}}
+    page = _page(sec)
+    assert "/home/" not in page and "<summary>Sources read (3)</summary>" in page
+    assert "/home/" not in "\n".join(H.render_md(sec))
+
+
+def test_sidecar_keeps_every_old_field_and_adds_the_plain_words(tmp_path):
+    sec, _ = _section(tmp_path)
+    side = H.sidecar(sec)
+    assert {"title", "count", "unread", "stale", "mind", "reads", "counts", "findings",
+            "cleared", "schema"} <= set(side)
+    assert {"source", "tier", "status"} <= set(side["counts"])
+    for r in side["findings"]:
+        assert OLD_ROW_FIELDS | {"kind", "what", "next"} <= set(r)
+    for r in side["cleared"]:
+        assert {"key", "where", "path", "tier", "source"} <= set(r)
+    # a row from an older sidecar (no plain-word fields) still renders
+    old = dict(sec, findings=[{k: r[k] for k in OLD_ROW_FIELDS} for r in sec["findings"]])
+    assert _cells(_page(old)) == _cells(_page(sec))
 
 
 # --- the Mind dashboard split -------------------------------------------------------
@@ -383,7 +564,7 @@ def test_a_closed_task_whose_key_is_still_reported_says_so(tmp_path):
     row = {r["key"]: r for r in sec["findings"]}["no_run:ws_beta/graphical/ep.py"]
     assert row["status"] == "open" and row["note"] == H.CLOSED_NOTE
     assert row["mind_path"] == "complete/2026/11/closed_ep.md"
-    assert "open (closed task, awaiting a fresh read)" in "\n".join(H.render_md(sec))
+    assert row["next"] == H.NEXT_CLOSED and H.NEXT_CLOSED in "\n".join(H.render_md(sec))
     # a key no record mentions stays plain open
     plain = {r["key"]: r for r in sec["findings"]}["ci:OrganA:Pages Dashboard"]
     assert plain["note"] == ""

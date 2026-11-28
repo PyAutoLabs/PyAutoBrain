@@ -760,7 +760,7 @@ def render_md(data):
                      + (" — STALE; refresh with `pyauto-brain board publish`" if devbox.get("stale") else ""))
         for wt in devbox.get("worktrees", []):
             lines.append(f"- {wt.get('repo')}: {wt.get('branch')} · {wt.get('ahead', 0)} unpushed · dirty: {bool(wt.get('dirty'))}")
-    lines += homeostasis.render_md(data.get("homeostasis"))
+    lines += homeostasis.render_md(data.get("homeostasis"), data.get("org", ""))
     return "\n".join(lines) + "\n"
 
 
@@ -920,7 +920,8 @@ def render_html(data):
                 facets.append((f'{wt["stashes"]} stash(es)', "n"))
             H.append(_plain("worktree" + pills(*facets)))
 
-    H += homeostasis.render_html(data.get("homeostasis"), esc, pills, _plain)
+    H += homeostasis.render_html(data.get("homeostasis"), esc, pills, _plain,
+                                 data.get("org", ""))
 
     # Cross-organ navigation remains with the shared footer, without a duplicate community shortcut.
     footer = boards_footer({k: v for k, v in data["boards"].items() if k != "ears"}, THEME_ORGAN)

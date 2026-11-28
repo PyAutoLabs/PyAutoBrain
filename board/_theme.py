@@ -779,6 +779,13 @@ table.recent td.what{white-space:nowrap;color:var(--accent);font-size:.85em;
  padding-top:.58rem;opacity:.8}
 table.recent td.pick{width:2.6rem;padding-right:0}
 table.recent button.copy{width:2.2rem;height:2.2rem;font-size:.95rem}
+/* Maintenance-finding rows (Brain board): a short name, the reason, what
+   happens next. The name cell is not `nowrap` (as `td.what` is), so it wraps
+   with the page; one long prompt path once widened that column to half the
+   page. Full keys and paths are tooltips. */
+table.homeostasis td.hname{width:30%%;font-size:.88em}
+table.homeostasis td.hnext{width:22%%;font-size:.88em;color:var(--muted)}
+@media(max-width:34rem){table.homeostasis td.hname,table.homeostasis td.hnext{width:auto}}
 /* On a phone a four-column row is not a row, it is a ribbon. Measured at a
    375px viewport: the meta columns took 156px and the text was left 187 — half
    the screen — so every entry wrapped into a tall thin column down the right
