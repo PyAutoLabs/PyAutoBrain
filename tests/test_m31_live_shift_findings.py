@@ -386,6 +386,49 @@ def test_9_a_bare_pr_key_in_an_active_md_row_is_refused():
     assert "- library-pr: <url>" in prompt and "bare `pr:`" in prompt
 
 
+def _lm():
+    return SimpleNamespace(is_ledger_path=lambda p: True, ENTRY_MERGED_FILES=("active.md",))
+
+
+def test_9_a_no_branch_repos_entry_colon_form_is_refused():
+    op = {"op": "append", "path": "active.md",
+          "text": "\n## t1\n- status: parked\n- repos:\n  - RepoK: (no branch yet)\n"}
+    errs = mw.validate_op(op, _lm())
+    assert len(errs) == 1 and "`RepoK`" in errs[0] and "PyAutoBrain#742" in errs[0]
+    assert errs[0].startswith("append:")
+    op = dict(op, text="\n## t1\n- repos:\n  - RepoK: No branch created\n")
+    assert len(mw.validate_op(op, _lm())) == 1
+
+
+def test_9_a_no_branch_repos_entry_paren_form_is_refused():
+    op = {"op": "append", "path": "active.md",
+          "text": "\n## t1\n- repos:\n  - RepoK (no branch)\n  - RepoL (no branch — parked)\n"}
+    errs = mw.validate_op(op, _lm())
+    assert len(errs) == 2 and "`RepoK`" in errs[0] and "`RepoL`" in errs[1]
+
+
+def test_9_a_an_edit_adding_a_no_branch_repos_entry_is_refused():
+    op = {"op": "edit", "path": "active.md",
+          "old": "## t1\n- repos:\n  - RepoK: feature/x\n",
+          "new": "## t1\n- repos:\n  - RepoK: feature/x\n  - RepoL: (no branch)\n"}
+    errs = mw.validate_op(op, _lm())
+    assert len(errs) == 1 and errs[0].startswith("edit:") and "`RepoL`" in errs[0]
+
+
+def test_9_a_a_real_branch_or_bare_repos_entry_is_accepted():
+    op = {"op": "append", "path": "active.md",
+          "text": "\n## t1\n- status: in-progress\n- repos:\n  - RepoK: feature/no-branch-guard\n"
+                  "  - RepoL\n"}
+    assert mw.validate_op(op, _lm()) == []
+
+
+def test_9_a_an_edit_carrying_a_legacy_no_branch_line_unchanged_is_accepted():
+    op = {"op": "edit", "path": "active.md",
+          "old": "## t1\n- status: parked\n- repos:\n  - RepoK: (no branch)\n",
+          "new": "## t1\n- status: in-progress\n- repos:\n  - RepoK: (no branch)\n"}
+    assert mw.validate_op(op, _lm()) == []
+
+
 # --- 10. worktree clean-up after an unattended merge ------------------------------------
 
 def test_10_the_stale_claim_guard_counts_a_release_queued_in_the_shift_ledger(tmp_path):
