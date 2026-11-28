@@ -14,6 +14,8 @@ community collection. The board does not duplicate their dashboards.
    it beside the banner controls). Focus on the user's request and route it.
 3. Maintenance: issue/repo cleanup, Hygiene findings and local observations,
    plus an actionable CI-speedup entry linked to Heart's timing evidence.
+4. Homeostasis (maintenance orchestrator): every maintenance finding and
+   where it stands (below).
 
 No morning sync, community section/shortcut, readiness/release, versions,
 resume, autonomous history (the hygiene ledger's trend is the one history kept), need-you/trend banner or global Degraded section.
@@ -71,6 +73,43 @@ only writer; a dev-box `board publish` never touches it.
 Known follow-up, not fixed here: the `tokens` row still differs between laptop
 and cloud, because it reads the workspace-root `AGENTS.md`, which only a laptop
 has.
+
+## Homeostasis (maintenance orchestrator) (PyAutoBrain#747)
+
+`board/_homeostasis.py` is Homeostasis's board, hosted here until Physiology
+is cut out of the Brain (not on Heart: Heart holds the readiness verdict, not
+a work queue). With `BOARD_HOMEOSTASIS=1` (set by `brain_board.yml`; opt-in
+like the hygiene pre-scan, so a terminal render stays instant) the render
+reads the findings through `batch maintain`'s own path
+(`_maintain.read_sources`: census, monitoring, release, hygiene per mode,
+timing). The counts therefore match `batch maintain --dry-run`. The hygiene
+source reads `BOARD_HYGIENE_LEDGER` when set (today's line), else the
+published ledger. `BOARD_MAINTAIN_{BOARD,CENSUS,HEART,HYGIENE}_JSON` replay
+saved inputs.
+
+Status comes from the Mind beside the Brain (`repo_path(PYAUTO_ROOT,
+"PyAutoMind")`: in CI the workflow's sibling clone of Mind `main`; locally the
+workspace's Mind, read only). It matches the writer's key marks
+(`Source-key:`, `<!-- maint-key: -->`, the legacy `<!-- heart-key: -->`) in
+`draft/`, `active/` and `complete/`:
+
+| Status | Meaning |
+|--------|---------|
+| `open` | no prompt carries the key, or only a glance draft does (Homeostasis's own queue) |
+| `promoted` | a judge prompt in `draft/` carries it |
+| `in-progress` | a prompt in `active/` carries it |
+| `done` | only a `complete/` record carries it |
+| `cleared` | the Mind carries the key but no source lists it now, and the key's source (from the prompt's "Filed from" line, else every source) read fresh and complete |
+
+The section shows counts by source, tier and status, the source reads in
+`batch maintain`'s words, the findings (key, source, tier, repo, status,
+witness) and the cleared keys. An unread, stale or partial source reads as
+such, never as zero findings; a key from an unread source is never cleared.
+With no Mind, statuses read `unknown`. Any error fails this section only; the
+board still renders. `--apply` writes `homeostasis.json` (the whole section)
+beside board.json; board.json keeps the counts and reads only. It is a pure
+render with no state between runs, so unlike the hygiene ledger there is
+nothing to fetch or merge.
 
 `bin/pyauto-brain board` renders Markdown; `--html`, `--json`, `--badge`,
 `--state` select other formats. `--apply --out <dir>` writes the published

@@ -32,6 +32,9 @@ from _theme import (  # noqa: E402
 from _state import build_state  # noqa: E402
 # The hygiene ledger: the per-day trend + per-finding keys (PyAutoBrain#735).
 import _hygiene_ledger as ledger  # noqa: E402
+# Homeostasis (maintenance orchestrator): `batch maintain`'s findings and their
+# Mind status, opt-in per render (PyAutoBrain#747).
+import _homeostasis as homeostasis  # noqa: E402
 
 THEME_ORGAN = "brain"  # whose logo this page wears
 
@@ -609,6 +612,11 @@ def collect():
     # `history` is the hygiene ledger's trend (one point per UTC day, per row;
     # board/_hygiene_ledger.py). Empty when this render keeps no ledger.
     data["history"] = collect_hygiene_history(hygiene, hygiene_rows, now, degraded)
+    # After the ledger upsert, so the hygiene source reads today's line. The
+    # Mind is the sibling checkout the body map is read from (a clone of `main`
+    # in brain_board.yml). Fails soft: this section only, never the board.
+    data["homeostasis"] = (homeostasis.collect(repo_path(PYAUTO_ROOT, "PyAutoMind"))
+                           if homeostasis.enabled() else None)
     return data
 
 
@@ -752,6 +760,7 @@ def render_md(data):
                      + (" — STALE; refresh with `pyauto-brain board publish`" if devbox.get("stale") else ""))
         for wt in devbox.get("worktrees", []):
             lines.append(f"- {wt.get('repo')}: {wt.get('branch')} · {wt.get('ahead', 0)} unpushed · dirty: {bool(wt.get('dirty'))}")
+    lines += homeostasis.render_md(data.get("homeostasis"))
     return "\n".join(lines) + "\n"
 
 
@@ -812,7 +821,8 @@ def render_html(data):
          f"<style>{_theme_css(THEME_ORGAN)}</style></head><body>",
          hero(THEME_ORGAN, "Agents & workflows", navigation=[
              {"label": "Agents & workflows", "href": "#agents"},
-             {"label": "Maintenance", "href": "#maintenance"}])]
+             {"label": "Maintenance", "href": "#maintenance"},
+             {"label": "Homeostasis", "href": f"#{homeostasis.ANCHOR}"}])]
     work_links = ([{"label": "Open work repository", "href":
                    f"https://github.com/{data['org']}/{data['repo']}"}]
                   if data.get("org") and data.get("repo") else [])
@@ -910,6 +920,8 @@ def render_html(data):
                 facets.append((f'{wt["stashes"]} stash(es)', "n"))
             H.append(_plain("worktree" + pills(*facets)))
 
+    H += homeostasis.render_html(data.get("homeostasis"), esc, pills, _plain)
+
     # Cross-organ navigation remains with the shared footer, without a duplicate community shortcut.
     footer = boards_footer({k: v for k, v in data["boards"].items() if k != "ears"}, THEME_ORGAN)
     if footer:
@@ -919,6 +931,9 @@ def render_html(data):
 
 
 def render_json(data):
+    # board.json carries the Homeostasis counts and reads; the findings and
+    # cleared keys are the homeostasis.json sidecar's.
+    data = dict(data, homeostasis=homeostasis.summary(data.get("homeostasis")))
     data = _portable_board_data(data)
     return json.dumps(data, indent=2) + "\n"
 
@@ -938,7 +953,8 @@ def main():
                              "board/_state.py)")
     parser.add_argument("--apply", action="store_true",
                         help="write index.html + badge.json + state.json + "
-                             "board.json + board.md into --out")
+                             "board.json + board.md into --out (plus "
+                             "homeostasis.json with BOARD_HOMEOSTASIS=1)")
     parser.add_argument("--out", default="_site", help="--apply output dir")
     parser.add_argument("--github-data", metavar="FILE",
                         help="pre-fetched `gh api` responses ({endpoint: "
@@ -975,6 +991,12 @@ def main():
         if ledger_path:
             (out / ledger.LEDGER_NAME).write_text(
                 Path(ledger_path).read_text(encoding="utf-8"), encoding="utf-8")
+        # A pure render, no state between runs: written whenever collected.
+        if data.get("homeostasis") is not None:
+            (out / homeostasis.SIDECAR).write_text(
+                json.dumps(homeostasis.sidecar(data["homeostasis"]), indent=2,
+                           default=str) + "\n", encoding="utf-8")
+            extra += f" + {homeostasis.SIDECAR}"
         print(f"board: wrote {out}/index.html + badge.json + state.json + "
               f"board.json + board.md{extra}")
         return

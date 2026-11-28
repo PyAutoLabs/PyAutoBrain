@@ -155,6 +155,21 @@ month, so including it made the table a list of receipts — twenty things nobod
 can act on, on the page whose whole job is work in hand. `complete/index.md` is
 where shipped work is read.
 
+**Generated maintenance prompts (PyAutoBrain#747).** A draft with a
+`Source-key:` header was filed by the maintenance writer for Homeostasis
+(maintenance orchestrator). `census()` keeps every one in `records`, marked
+`generated: glance|judge` (by `Consequence:`), with its `source_key`. The
+pages show them apart. A generated glance prompt needs no human, so it is in
+no pick list, work-type section or Recent row. One collapsed line in Start
+here counts them ("Homeostasis (maintenance orchestrator): N generated glance
+prompt(s) — see the Brain board") and links the Brain board's `#homeostasis`
+section. The link comes from the declared board family (`_board_links`), so
+the code names no instance. A generated judge prompt needs the human, so it
+is in one collapsed "Promoted from Homeostasis (maintenance orchestrator)"
+group in Start here, with its copy row. `state.json` picks follow Start here;
+promoted prompts and the glance count are extra info items marked with a
+`reason`. Human prompts are unchanged.
+
 Census/dashboard are the Mind *backlog* view — deliberately distinct from
 Heart's `/health status` health view (see "must never do"). The prompt-taxonomy
 folder is authoritative for a prompt's work-type/target; header fields are

@@ -164,6 +164,18 @@ def key_marked(text: str, key: str) -> bool:
             or key in _SOURCE_KEY_RX.findall(text))
 
 
+_MARK_RXS = (_SOURCE_KEY_RX,
+             re.compile(re.escape(KEY_MARK).replace(r"\{\}", "(.+?)")),
+             re.compile(re.escape(_green.KEY_MARK).replace(r"\{\}", "(.+?)")))
+
+
+def marked_keys(text: str) -> set:
+    """Every key `text` carries by a mark `key_marked` accepts: `Source-key:`
+    headers, the writer's mark and `_green`'s legacy mark. The Homeostasis
+    board (board/_homeostasis.py) reads a Mind's prompts and records by it."""
+    return {k.strip() for rx in _MARK_RXS for k in rx.findall(text) if k.strip()}
+
+
 _FILED_FROM_RX = re.compile(r"Filed from the `(\w+(?::\w+)?)` source")
 
 
@@ -276,8 +288,26 @@ def _surface_rule(f) -> str:
 
 
 def _priority(f) -> str:
+    """The finding's own priority: `high` for a red one, else `normal`. The
+    writer ranks by it (`rank`); the prompt carries it capped (`prompt_priority`)."""
     ev = f.evidence or {}
     return "high" if "red" in (ev.get("severity"), ev.get("status")) else "normal"
+
+
+#: A generated prompt's highest `Priority:` (PyAutoBrain#747). Agent-generated
+#: maintenance is Homeostasis's queue, shown on the Brain board; `high` would
+#: put it at the top of the human's Start here, so it is capped here.
+PRIORITY_CAP = "normal"
+_PRIORITY_ORDER = ("low", "normal", "high")
+
+
+def prompt_priority(f) -> str:
+    """The `Priority:` a generated prompt carries: the finding's own
+    (`_priority`), at most `PRIORITY_CAP`."""
+    own = _priority(f)
+    if _PRIORITY_ORDER.index(own) > _PRIORITY_ORDER.index(PRIORITY_CAP):
+        return PRIORITY_CAP
+    return own
 
 
 def draft_text(f, read: dict, today: str, *, target: str, lane: str,
@@ -288,7 +318,7 @@ def draft_text(f, read: dict, today: str, *, target: str, lane: str,
     head = [f"# {title}", "", f"Type: {WORK_TYPE}", f"Target: {target}"]
     head += ["Repos:", f"- {f.repo}"] if f.repo else []
     head += [f"Difficulty: {difficulty}", "Autonomy: supervised",
-             f"Priority: {_priority(f)}", "Status: draft", f"Filed: {today}",
+             f"Priority: {prompt_priority(f)}", "Status: draft", f"Filed: {today}",
              f"Consequence: {f.tier_floor}", f"Witness: {f.witness}",
              f"Review-minutes: {review_minutes}", f"Lane: {lane}",
              f"Unattended: {unattended}", f"Source-key: {f.key}"]
