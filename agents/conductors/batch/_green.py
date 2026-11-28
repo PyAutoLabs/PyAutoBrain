@@ -180,11 +180,13 @@ def from_doc(doc: dict) -> dict:
             "reasons": [r for r in reasons if r["severity"] in ("red", "yellow", "stale")]}
 
 
-def read_heart(heart_json: str = "", now=None) -> dict:
+def read_heart(heart_json: str = "", now=None, local: bool = True) -> dict:
     """Heart's release verdict: a saved document, else the local
     `pyauto-heart readiness --json` (it carries the per-repo keys), else the
     published feed — also when the local snapshot is over the 6 h age rule
-    of `heart_feed.py` and the feed is fresher. The rule applies to all three."""
+    of `heart_feed.py` and the feed is fresher. The rule applies to all three.
+    `local=False` reads the published feed only, never the local CLI (the
+    Brain board's Homeostasis section in CI, `_maintain.load_release`)."""
     hf = _hf()
     why = ""
     if heart_json:
@@ -192,6 +194,14 @@ def read_heart(heart_json: str = "", now=None) -> dict:
             doc, source = json.loads(Path(heart_json).read_text()), f"file {heart_json}"
         except (OSError, ValueError) as exc:
             doc, source, why = None, "none", f"{heart_json} unreadable ({exc})"
+    elif not local:
+        doc, why, source = None, "local readiness not read (feed only)", "none"
+        url, uwhy = hf.feed_url()
+        feed, fwhy = hf.fetch_feed(url) if url else (None, uwhy)
+        if feed:
+            doc, source, why = feed, "published feed", ""
+        else:
+            why = f"{why}; {fwhy}"
     else:
         doc, why = hf.local_readiness()
         source = "local readiness"

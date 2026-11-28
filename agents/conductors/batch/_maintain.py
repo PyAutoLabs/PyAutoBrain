@@ -935,8 +935,14 @@ def load_census(census_json: str = "", board_read: dict | None = None, now=None)
     return _read(None, "none", "; ".join(x for x in (lwhy, br.get("why")) if x), None)
 
 
+#: Set (to 1) by the Brain board's job (`brain_board.yml`): the release source
+#: reads Heart's published feed only, never a local `pyauto-heart readiness`.
+FEED_ONLY_ENV = "BOARD_HEART_FEED_ONLY"
+
+
 def load_release(heart_json: str = "", now=None) -> dict:
-    h = _green.read_heart(heart_json, now=now)
+    h = _green.read_heart(heart_json, now=now,
+                          local=os.environ.get(FEED_ONLY_ENV) != "1")
     data = h if h.get("source") != "none" else None
     return _read(data, h.get("source", "none"), h.get("why") or "", h.get("age_hours"),
                  status=str(h.get("status") or "grey").lower())

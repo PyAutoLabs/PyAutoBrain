@@ -473,6 +473,29 @@ call the same `file_findings` for the release source.
   anything is read, state included. `--file` without `--mind` refuses. Every
   write is a new file; no existing prompt is edited.
 
+- **Priority (PyAutoBrain#747).** A generated prompt's `Priority:` is the
+  finding's own (`high` for a red finding, else `normal`), capped at
+  `normal` (`PRIORITY_CAP`, `prompt_priority`), so generated work never tops
+  the human's Start here. The writer still ranks by the uncapped priority.
+  Drafts filed before the cap are not rewritten.
+
+## Homeostasis (maintenance orchestrator) on the Brain board (PyAutoBrain#747)
+
+Homeostasis is the maintenance orchestrator of the Physiology layer. Its board
+is a section of the Brain board (`board/_homeostasis.py`) until Physiology is
+cut out of the Brain; it is not on Heart, whose job is the readiness verdict.
+The section reads findings through `_maintain.read_sources` (the same
+sources, flags and dedupe as `batch maintain --dry-run`, so the counts
+agree) and derives each finding's status from the Mind by the writer's key
+marks (`_maintain_write.generated_keys`: a `Source-key:` header with the
+writer's `<!-- maint-key -->` mark for the same key, or the legacy heart-key mark): open, promoted, in-progress, done, and
+`cleared` for a key the Mind carries that a fresh, complete read no longer
+reports. See `board/AGENTS.md`. The Mind dashboard shows generated glance
+prompts as one collapsed Homeostasis line and generated judge prompts in one
+"Promoted from Homeostasis" group (intake `AGENTS.md`). Later, not yet: glance
+prompts stop living in Mind `draft/` and are filed only when a shift names
+them; shift workers and claims still need a prompt file.
+
 ## The maintenance brief (Phase 14.3, PyAutoBrain#737)
 
 `batch brief --new <slot> --maintenance --review-at <ISO> --out <record> --mind <dir>`

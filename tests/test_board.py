@@ -41,6 +41,9 @@ SURFACE_KEYS = {
     # no Pulse is checked out.
     "pulse",
     "insight",
+    # Homeostasis (maintenance orchestrator): counts and reads, None unless
+    # BOARD_HOMEOSTASIS=1 (PyAutoBrain#747); its lists are homeostasis.json's.
+    "homeostasis",
 }
 
 AUTONOMY_LOG = """\
@@ -458,7 +461,7 @@ def test_navigation_matches_the_reduced_scope(tmp_path):
     page = _run(["--html"], tmp_path, stub).stdout
     nav = re.search(r'<nav class="board-nav".*?</nav>', page, re.S).group()
     targets = re.findall(r'href="#([^"]+)"', nav)
-    assert targets == ["agents", "maintenance"]
+    assert targets == ["agents", "maintenance", "homeostasis"]
     for target in targets:
         assert f'id="{target}"' in page
     assert page.index('<h2>Agents &amp; workflows') < page.index('<h2>Maintenance')
