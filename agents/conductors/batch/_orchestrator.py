@@ -1722,7 +1722,8 @@ def _fetch_for_answers(mind: Path, counters: dict, now: _dt.datetime,
 
 
 def released_here(slot: Path, counters: dict, inbox: dict | None, now: _dt.datetime,
-                  review_at: _dt.datetime | None) -> dict[str, dict]:
+                  review_at: _dt.datetime | None, brief: dict | None = None,
+                  deferred: dict | None = None) -> dict[str, dict]:
     """{task: release} for each task THIS shift parked on a question that the
     inbox has answered, while more than `INSHIFT_RESTART_S` remain: the task
     restarts this shift instead of the next.
@@ -1733,7 +1734,13 @@ def released_here(slot: Path, counters: dict, inbox: dict | None, now: _dt.datet
     that never spawns — a full cap, a pause, the clock — still leaves the
     park for the next shift's `parked_elsewhere`. Once per answer: ids
     already used to restart the task never release it again; a new question
-    answered later does."""
+    answered later does.
+
+    Under a maintenance `brief` (PyAutoBrain#741) only the shift's own work
+    restarts: a named task, or a pick that was not itself an answered resume
+    (`takes_answered_restart`). Any other answered park is never made pending
+    and is recorded in `deferred` instead; its park and answer stay for the
+    next ordinary shift. Each release returned carries `own: True`."""
     pending = counters.setdefault("inshift_pending", {})
     if review_at is None or (review_at - now).total_seconds() <= INSHIFT_RESTART_S:
         pending.clear()
@@ -1748,12 +1755,25 @@ def released_here(slot: Path, counters: dict, inbox: dict | None, now: _dt.datet
         rule, info = _questions.hold_for(task, Path(slot).name, inbox)
         if rule != "answered":
             continue
+        own = not _picked_on_answer((counters.get("picks") or {}).get(task))
+        if brief is not None and not _brief.takes_answered_restart(brief, f"{task}.md",
+                                                                   {"own": own}):
+            pending.pop(task, None)
+            if deferred is not None:
+                deferred[task] = dict(info)
+            continue
         spent = {i for r in used.get(task) or [] for i in r.get("ids") or []}
         fresh = [i for i in info["ids"] if i not in spent]
         if fresh:
             pending[task] = dict(info, ids=fresh, picked_in=[Path(slot).name])
-    return {t: dict(v) for t, v in pending.items()
+    return {t: dict(v, own=True) for t, v in pending.items()
             if t in (counters.get("outcomes") or {})}
+
+
+def _picked_on_answer(pick: dict | None) -> bool:
+    """Whether this shift picked the task as an answered resume (`pick_record`'s
+    `why:` names the answer first), not as its own work."""
+    return str((pick or {}).get("why") or "").startswith("resumed after ")
 
 
 def _spawned_release(counters: dict, task: str, now: _dt.datetime) -> None:
@@ -2397,7 +2417,11 @@ def parked_elsewhere(slot: Path, inbox: dict | None = None,
                 if task not in c["outcomes"]:
                     park(str(task), f"parked in shift {d.name} (blocked on a person) — "
                                     "not startable until answered")
-            for task in c.get("picks") or {}:
+            for task, pick in (c.get("picks") or {}).items():
+                if isinstance(pick, dict) and pick.get("proposed"):
+                    # A shadow shift's proposal started nothing: it neither
+                    # uses a release nor claims anything (#741).
+                    continue
                 picked_in.setdefault(task, []).append(d.name)
                 if task in released and task in freed and task not in touched:
                     # Picked on the release, and no park or finish since:
@@ -2546,8 +2570,11 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             inbox = _questions.read_origin(
                 mind, fetch=lambda: _fetch_for_answers(mind, counters, now, review_at))
             parked = parked_elsewhere(slot, inbox, resumes)
-            # This shift's own parks an answer released with time left.
-            here = released_here(slot, counters, inbox, now, review_at)
+            # This shift's own parks an answer released with time left. A
+            # maintenance brief restarts only its own work (#741).
+            deferred: dict = {}
+            here = released_here(slot, counters, inbox, now, review_at, brief=brief,
+                                 deferred=deferred)
             resumes.update(here)
             _write_counters(slot, counters)
             planned["parked"] = {r["path"]: parked[task_id(r["path"])] for r in recs
@@ -2583,6 +2610,7 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
             planned["claimed"] = claimed
             planned["resume"] = {t: v for t, v in resumes.items()
                                  if any(task_id(r["path"]) == t for r in recs)}
+            planned["deferred"] = deferred
             # Unattended by construction: an absent Lane is excluded and an
             # empty queue.md stops the backlog dip (AUTONOMY.md "M2 rulings").
             # Recorded each tick so the digest can say so. Kept out above, with
@@ -2596,6 +2624,12 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                        queue=_batch.read_queue(mind), released=freed,
                                        epic_ledgers=_batch.read_epic_ledgers(mind),
                                        withheld=withheld, held_why=why)
+            # A release `scope()` left for the next ordinary shift is not
+            # resumed here: the digest lists it apart, answer kept.
+            held = {task_id(p) for p, w in planned["d"]["rejected"]
+                    if w == _brief.ANSWERED_RESTART_REASON}
+            planned["deferred"].update({t: planned["resume"].pop(t) for t in held
+                                        if t in planned["resume"]})
             # Kept out or rejected only by a park hold that ends on its own
             # (its grace, or a stopped session still ending): startable.
             waits = [f" held by {t}{r[0]}" for t, r in holds.items() if r[1]]
@@ -2677,6 +2711,9 @@ def _tick_body(slot, brief, mind, now, spawner, grace_s, records, agents,
                                  "origin": planned.get("claimed") or {},
                                  "parked": planned.get("parked") or {},
                                  "resumed": planned.get("resume") or {},
+                                 # Answered, but not this maintenance brief's own
+                                 # work: the next ordinary shift resumes them.
+                                 "answered_deferred": planned.get("deferred") or {},
                                  "scoped_reach": sorted(d.get("scoped_reach") or []),
                                  # Why each named task did not start (the digest's
                                  # "Not started" reason), and the backlog drafts

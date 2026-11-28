@@ -511,6 +511,13 @@ already open alike, anything with a `Source-key:` header.
   `sources: maintenance` (`sources:` narrows the other scoped keys) for later
   use; generated briefs do not write it. Lanes `any local-dev` (no RAL);
   `merge-cap: 0`.
+- **No answered restarts (PyAutoBrain#741, human ruling 2026-11-28).** A
+  brief with a `maintenance:` block, shadow or live, takes no task an answer
+  released unless it names it: `scope()` rejects the resume and the watcher
+  does not restart another shift's park in-shift (its own pick still
+  restarts). The answer is not used — the digest lists the task as "left for
+  the next ordinary shift", which resumes it; a shadow proposal never uses a
+  release either.
 - **The M3 gate holds on the tasks.** `brief --check` refuses any live
   (non-shadow) brief that names a generated prompt (`Source-key:`), or uses
   `scoped:`/`exclude:` `sources: maintenance`, unless it has a `maintenance:`

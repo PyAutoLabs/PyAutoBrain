@@ -600,8 +600,14 @@ def test_a_resumed_generated_prompt_is_rejected_without_the_gate(plain_mind, tmp
     kept, rejected, _ = _brief.scope([rec, hand], live)
     assert [r["path"] for r in kept] == [hand["path"]]
     assert "M3 gate" in dict(rejected)[rec["path"]]
+    # Behind the gate a maintenance brief still takes no answered restart it
+    # does not name (PyAutoBrain#741); named, the generated task runs.
     gated = _parsed_text(LIVE.format(body="  - backlog: none\n" + GATE))
-    kept, _, _ = _brief.scope([rec], gated)
+    kept, rejected, _ = _brief.scope([rec], gated)
+    assert kept == [] and dict(rejected)[rec["path"]] == _brief.ANSWERED_RESTART_REASON
+    named = _parsed_text(LIVE.format(body=f"  - tasks:\n    - {rec['path']}\n"
+                                          "  - backlog: none\n" + GATE))
+    kept, _, _ = _brief.scope([rec], named)
     assert [r["path"] for r in kept] == [rec["path"]]
 
 
