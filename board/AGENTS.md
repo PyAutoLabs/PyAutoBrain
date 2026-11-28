@@ -121,8 +121,14 @@ dependency gaps, other), one collapsed block each with one sentence on the
 problem and its fix. Each row is What (a short name and repo, with just
 enough folders to tell clashing names apart), Why (the finding's `summary`,
 long paths cut) and Next (the status in plain words, with a short "Mind
-prompt" link). The key, witness and full paths are tooltips, never a cell.
-`cleared` keys are listed apart as "No longer reported". Source reads are
+prompt" link). Next never says "fixed" (a row exists only while a source
+reports its key, so a `done` key reads "task closed — waiting for a fresh
+check") and never promises an unattended run before the M3 gate opens; stale
+and human-only (`_maintain.human_only_reason`) findings say so. The key,
+witness and full paths are tooltips, never a cell. `cleared` keys are listed
+apart as "No longer reported", each marked as an open prompt or a Mind
+record. Mind links come from the board family's `mind` Pages URL (policy
+`board.boards`); without it prompts are named, not linked. Source reads are
 collapsed, one plain line each, with no absolute paths. The sidecar rows
 keep every field and add `kind`, `what` and `next`. An unread, stale or partial source reads as
 such, never as zero findings. The headline names unread and stale/partial

@@ -214,11 +214,16 @@ _KIND_PREFIX = {"no_run": "no_run", "smoke": "smoke", "ci": "ci", "timing": "tim
                 "escapes": "escapes", "docstrings": "docstrings", "refs": "refs",
                 "optdeps": "deps", "extras": "deps"}
 #: The "Next" column: the finding's status in plain words.
+#: A row exists only because a source still reports its key, so no row ever
+#: says "fixed": a closed task waits for a fresh check. Unattended runs wait
+#: for the M3 gate, so a glance row says so rather than promise a run.
 NEXT_PROMOTED = "Waiting on you — in Mind"
-NEXT_GLANCE = "Could run in a maintenance shift"
+NEXT_QUEUED = "Queued — runs unattended once the M3 gate opens"
+NEXT_GLANCE = "Not filed yet — could run unattended once the M3 gate opens"
+NEXT_HUMAN_ONLY = "Needs you — not filed automatically"
+NEXT_STALE = "Not checked fresh — re-check first"
 NEXT_JUDGE = "Needs you — not filed yet"
 NEXT_ACTIVE = "Being fixed"
-NEXT_DONE = "Fixed"
 NEXT_CLOSED = "Task closed — waiting for a fresh check"
 NEXT_UNKNOWN = "Not known — Mind not read"
 WHAT_MAX = 64
@@ -231,20 +236,25 @@ def kind_of(key: str) -> str:
 
 
 def next_of(row: dict) -> str:
-    """What happens next to a finding, in plain words, from its status."""
+    """What happens next to a finding, in plain words, from its status, its
+    tier, its read (stale) and whether only a human may act on it."""
     status = row.get("status")
     if status == "promoted":
         return NEXT_PROMOTED
     if status == "in-progress":
         return NEXT_ACTIVE
-    if status == "done":
-        return NEXT_DONE
     if status == "unknown":
         return NEXT_UNKNOWN
-    if row.get("note") == CLOSED_NOTE:
-        return NEXT_CLOSED
-    if row.get("mind_path") or row.get("tier") == "glance":
-        return NEXT_GLANCE  # Homeostasis's own queue: a glance draft, or one to come
+    if status == "done" or row.get("note") == CLOSED_NOTE:
+        return NEXT_CLOSED  # still reported: closed, not yet seen fixed
+    if row.get("stale"):
+        return NEXT_STALE
+    if row.get("human_only"):
+        return NEXT_HUMAN_ONLY
+    if row.get("mind_path"):
+        return NEXT_QUEUED  # a glance draft: Homeostasis's own queue
+    if row.get("tier") == "glance":
+        return NEXT_GLANCE
     return NEXT_JUDGE
 
 
@@ -316,7 +326,7 @@ def name_rows(rows: list) -> None:
         r["what"] = f"{label} · {repo[id(r)]}" if repo[id(r)] else label
 
 
-_ABS_RX = re.compile(r"(?<![\w.~])/(?:[^\s/,;()'\"`]+/)+([^\s/,;()'\"`]+)")
+_ABS_RX = re.compile(r"(?<![\w.~:/])/(?:[^\s/,;()'\"`]+/)+([^\s/,;()'\"`]+)")
 _LONG_PATH_RX = re.compile(r"[^\s`'\"()]*/[^\s`'\"()]*/[^\s`'\"()]+")
 _TAG_RX = re.compile(r"^\[[\w -]+\]\s*")
 
@@ -389,6 +399,7 @@ def build(reads: dict, raw: dict, findings: list, mind: Path | None,
           mind_why: str = "") -> dict:
     """The section (and the sidecar's body) from one `read_sources` result
     and the Mind. Pure: no network, no writes."""
+    M, _w = _batch()
     marks = mind_marks(mind) if mind is not None else None
     listed = {f.key for fs in raw.values() for f in fs}
     closed = closed_mentions(mind, [f.key for f in findings if f.key not in marks]) \
@@ -404,7 +415,9 @@ def build(reads: dict, raw: dict, findings: list, mind: Path | None,
                "repo": f.repo, "status": status, "note": note, "mind_path": prompt,
                "stale": bool(f.stale), "witness": f.witness,
                "summary": f.summary}
-        rows.append(dict(row, kind=kind_of(f.key), next=next_of(row)))
+        human_only = M.human_only_reason(f)
+        rows.append(dict(row, kind=kind_of(f.key), human_only=human_only,
+                         next=next_of(dict(row, human_only=human_only))))
     name_rows(rows)
     cleared = cleared_keys(marks, listed, reads) if marks is not None else []
     for r in cleared:
@@ -504,8 +517,10 @@ INTRO = (
     "\"Needs you\" means it waits for you: once filed, it appears in Mind's "
     "\"Promoted from Homeostasis\" group.")
 CLEARED_TITLE = "No longer reported"
-CLEARED_TEXT = ("The boards stopped reporting these, but a Mind prompt for each is still "
-                "open. The problem is probably fixed and the prompt can be closed.")
+CLEARED_TEXT = ("The boards stopped reporting these, but Mind still carries their key. "
+                "The problem is probably fixed. A prompt that is still open can be "
+                "closed.")
+CLEARED_OPEN = "prompt still open"
 #: Each source's plain name (`batch maintain`'s source ids).
 SOURCE_NAMES = {
     "census": "Heart's list of skipped smoke scripts",
@@ -522,13 +537,17 @@ SOURCE_NAMES = {
 _DAY_RX = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 
 
-def mind_links(org: str) -> dict:
-    """The Mind's prompt blobs and its dashboard's promoted group, for `org`
-    (none without one: prompts are then named, not linked)."""
-    if not org:
+def mind_links(org: str, mind_pages: str = "") -> dict:
+    """The Mind's prompt blobs and its dashboard's promoted group. The Mind's
+    Pages URL is the board family's (`board.boards.mind` in the policy,
+    `data["boards"]["mind"]`); its repo name is that URL's last part. Without
+    an org or that URL there are no links (prompts are named, not linked),
+    never a guessed one."""
+    repo = str(mind_pages or "").rstrip("/").rpartition("/")[2]
+    if not org or not repo or "." in repo:
         return {}
-    return {"blob": f"https://github.com/{org}/PyAutoMind/blob/main/",
-            "promoted": f"https://{org.lower()}.github.io/PyAutoMind/#promoted-homeostasis"}
+    return {"blob": f"https://github.com/{org}/{repo}/blob/main/",
+            "promoted": f"{mind_pages.rstrip('/')}/#promoted-homeostasis"}
 
 
 def _age(hours) -> str:
@@ -567,7 +586,7 @@ def counts_line(section: dict) -> str:
             f"{sum(n for t, n in tier.items() if t != 'glance')} need you"]
     for n, words in ((st.get("promoted", 0), "waiting on you in Mind"),
                      (st.get("in-progress", 0), "being fixed"),
-                     (st.get("done", 0), "fixed"),
+                     (st.get("done", 0), "closed, waiting for a fresh check"),
                      (st.get("unknown", 0), "status not known"),
                      (st.get(CLEARED, 0), "no longer reported")):
         if n or words == "waiting on you in Mind":
@@ -624,11 +643,11 @@ def _link_label(path: str) -> str:
     return "Mind record" if str(path).startswith("complete/") else "Mind prompt"
 
 
-def render_md(section: dict | None, org: str = "") -> list:
+def render_md(section: dict | None, org: str = "", mind_pages: str = "") -> list:
     L = ["", f"## {TITLE}"]
     if section is None or section.get("error"):
         return L + [headline(section)]
-    links = mind_links(org)
+    links = mind_links(org, mind_pages)
 
     def mind_link(path):
         if not path:
@@ -651,15 +670,19 @@ def render_md(section: dict | None, org: str = "") -> list:
         L += ["", "\\* out of date: listed, never filed"]
     if section["cleared"]:
         L += ["", f"### {CLEARED_TITLE} ({len(section['cleared'])})", "", CLEARED_TEXT, ""]
-        L += [f"- `{_row_fields(r)['what']}`{mind_link(r['path'])}"
-              for r in section["cleared"]]
+        for r in section["cleared"]:
+            label = _link_label(r["path"])
+            link = f"[{label}]({links['blob']}{r['path']})" if links else label
+            still = f"{CLEARED_OPEN}: " if label == "Mind prompt" else ""
+            L.append(f"- `{_row_fields(r)['what']}` — {still}{link}")
     L += ["", "<details><summary>Sources read</summary>", ""]
     L += [f"- {read_line(r)}" for r in section["reads"]]
     L += ["", "</details>"]
     return L
 
 
-def render_html(section: dict | None, esc, pills, plain, org: str = "") -> list:
+def render_html(section: dict | None, esc, pills, plain, org: str = "",
+                mind_pages: str = "") -> list:
     """The section's HTML: an intro, the counts in plain words, one collapsed
     block per kind of problem (what · why · next), the keys no longer
     reported, and the sources read. Keys, witnesses and full paths are
@@ -667,7 +690,7 @@ def render_html(section: dict | None, esc, pills, plain, org: str = "") -> list:
     H = [f'<a id="{ANCHOR}"></a><h2>{esc(TITLE)}</h2>']
     if section is None or section.get("error"):
         return H + [plain(esc(headline(section)) + pills(("unread", "y")))]
-    links = mind_links(org)
+    links = mind_links(org, mind_pages)
 
     def mind_link(path):
         if not path:
@@ -705,8 +728,10 @@ def render_html(section: dict | None, esc, pills, plain, org: str = "") -> list:
                  f"({len(section['cleared'])})</summary>")
         H.append(f'<p class="muted">{esc(CLEARED_TEXT)}</p>')
         for r in section["cleared"]:
+            still = (f" — {CLEARED_OPEN}:" if _link_label(r["path"]) == "Mind prompt"
+                     else " —")
             H.append(plain(f'<code title="{esc(r["key"])}">{esc(_row_fields(r)["what"])}'
-                           f"</code>{mind_link(r['path'])}"))
+                           f"</code>{esc(still)}{mind_link(r['path'])}"))
         H.append("</details>")
     H.append(f"<details><summary>Sources read ({len(section['reads'])})</summary>")
     for r in section["reads"]:
