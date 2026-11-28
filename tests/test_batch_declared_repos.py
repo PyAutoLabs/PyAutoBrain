@@ -49,14 +49,14 @@ def test_declared_repos(target, repos, expected):
 # PyAutoBrain#742: a worker parked on a question before its first edit holds
 # no repo; one parked after it (real branch, worktree) still does.
 PARKED = ("# Active\n\n## parked-task\n- status: awaiting-input\n- question: q?\n"
-          "- repos:\n  - PyAutoFit: (no branch; parked before implementation)\n")
+          "- repos:\n  - RepoH: (no branch; parked before implementation)\n")
 PARKED_PAREN = ("# Active\n\n## parked-task\n- status: awaiting-input\n"
-                "- repos:\n  - PyAutoFit (no branch; parked)\n  - PyAutoArray\n")
-PARKED_INLINE = "# Active\n\n## parked-task\n- status: awaiting-input\n- repos: PyAutoFit\n"
+                "- repos:\n  - RepoH (no branch; parked)\n  - RepoI\n")
+PARKED_INLINE = "# Active\n\n## parked-task\n- status: awaiting-input\n- repos: RepoH\n"
 PARKED_LIVE = ("# Active\n\n## parked-task\n- status: awaiting-input\n"
-               "- worktree: ~/wt/parked-task\n- repos:\n  - PyAutoFit (feature/parked-task)\n")
+               "- worktree: ~/wt/parked-task\n- repos:\n  - RepoH (feature/parked-task)\n")
 NO_BRANCH_WITH_WT = ("# Active\n\n## mixed\n- worktree: ~/wt/mixed\n- repos:\n"
-                     "  - PyAutoFit: (no branch yet)\n  - PyAutoArray (feature/mixed)\n  - PyAutoLens\n")
+                     "  - RepoH: (no branch yet)\n  - RepoI (feature/mixed)\n  - RepoJ\n")
 
 
 @pytest.mark.parametrize("active", [
@@ -67,14 +67,14 @@ NO_BRANCH_WITH_WT = ("# Active\n\n## mixed\n- worktree: ~/wt/mixed\n- repos:\n"
 def test_parked_branchless_entry_is_not_a_claim(active):
     sections = orch.claim_sections(active)
     assert sections["parked-task"]["repos"] == []
-    assert normalise_repo("PyAutoFit") not in orch.claimed_repos(sections)
+    assert normalise_repo("RepoH") not in orch.claimed_repos(sections)
 
 
 def test_parked_entry_with_a_real_branch_still_claims():
     sections = orch.claim_sections(PARKED_LIVE)
-    assert sections["parked-task"]["repos"] == ["PyAutoFit"]
-    assert orch.claimed_repos(sections)[normalise_repo("PyAutoFit")][1] == "parked-task"
+    assert sections["parked-task"]["repos"] == ["RepoH"]
+    assert orch.claimed_repos(sections)[normalise_repo("RepoH")][1] == "parked-task"
 
 
 def test_no_branch_entry_is_dropped_but_bare_and_branched_entries_claim():
-    assert orch.claim_sections(NO_BRANCH_WITH_WT)["mixed"]["repos"] == ["PyAutoArray", "PyAutoLens"]
+    assert orch.claim_sections(NO_BRANCH_WITH_WT)["mixed"]["repos"] == ["RepoI", "RepoJ"]
