@@ -248,10 +248,13 @@ def validate_op(op: dict, lm) -> list[str]:
             errs.append("edit: new is missing")
         elif new == old:
             errs.append("edit: new is the same as old — nothing to change")
+        elif op.get("path") == "active.md" and isinstance(old, str) and old:
+            errs += no_branch_repo_errors(new, old=old, prefix="edit")
     if kind in ("append", "write") and not isinstance(op.get("text"), str):
         errs.append(f"{kind}: text is missing")
     elif kind == "append" and op.get("path") == "active.md":
         errs += pr_key_errors(op["text"])
+        errs += no_branch_repo_errors(op["text"])
     if kind == "drop-section":
         if not op.get("section"):
             errs.append("drop-section: section is missing")
@@ -359,6 +362,30 @@ def pr_key_errors(text: str) -> list[str]:
     return [f"append: active.md key `{k}:` — a PR line uses `library-pr:` or "
             "`workspace-pr:` (PyAutoMind REFERENCE.md \"The PR keys\"), one per PR"
             for k in bad]
+
+
+#: An indented `- repos:` bullet whose branch says there is none — `  - Repo:
+#: (no branch …)`, `  - Repo: no branch …` or `  - Repo (no branch …)`. A park
+#: before the first edit writes no `- repos:` block at all; such a line claims
+#: the repo with no branch to show for it (PyAutoBrain#742). A bare `  - Repo`
+#: is still a legitimate claim shape and is not matched.
+_NO_BRANCH_REPO_RE = re.compile(r"(?im)^[ \t]+- ([A-Za-z0-9_.-]+)(?::[ \t]*|[ \t]+)\(?no branch.*$")
+
+
+def no_branch_repo_errors(text: str, old: str | None = None,
+                          prefix: str = "append") -> list[str]:
+    """A refusal for every `active.md` repos entry that says it has no branch.
+
+    With `old` (an edit's base text), only the offending lines `text` adds
+    are refused, so a legacy line carried through unchanged is accepted."""
+    from collections import Counter
+    found = Counter(m.group(0).rstrip() for m in _NO_BRANCH_REPO_RE.finditer(text or ""))
+    if old is not None:
+        found -= Counter(m.group(0).rstrip() for m in _NO_BRANCH_REPO_RE.finditer(old))
+    repos = sorted({_NO_BRANCH_REPO_RE.match(line).group(1) for line in found})
+    return [f"{prefix}: active.md repos entry `{r}` has no branch — a park before "
+            "your first edit writes no `- repos:` block; the restart claims the "
+            "repo when it begins (PyAutoBrain#742)" for r in repos]
 
 
 def apply_op(tree: Path, op: dict, lm, ctx: dict | None = None) -> str | None:
