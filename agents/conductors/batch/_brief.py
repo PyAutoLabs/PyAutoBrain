@@ -278,6 +278,25 @@ M3_GATE_REASON = (f"a generated maintenance prompt (`Source-key:`) — runs live
                   "with `gate-open:`")
 
 
+#: Why a maintenance brief (a `maintenance:` block, shadow or live) leaves a
+#: task an answer released alone: only its own work runs (human ruling
+#: 2026-11-28, PyAutoBrain#741). The answer stays in hand; the next ordinary
+#: shift resumes it. `scope()`, the watcher and the digest say it alike.
+ANSWERED_RESTART_REASON = ("answered restart — resumes in the next ordinary shift "
+                           "(human ruling 2026-11-28)")
+
+
+def takes_answered_restart(brief: dict, name: str, resume: dict | None) -> bool:
+    """Whether the brief may start this task on an answer's release. Any
+    brief without a `maintenance:` block may; a maintenance brief only for
+    a task it names (its generated tasks, or one the human `/add`ed) or its
+    own pick restarted in-shift (`resume["own"]`, set by the watcher)."""
+    if maintenance_of(brief) is None:
+        return True
+    return name in {Path(t).name for t in tasks_of(brief)} \
+        or bool((resume or {}).get("own"))
+
+
 def gate_open(brief: dict) -> bool:
     """Whether the brief carries the human's word that the M3 gate is open: a
     `maintenance:` block with `gate-open:`. Without it no generated
@@ -796,6 +815,12 @@ def scope(records: list[dict], brief: dict) -> tuple[list[dict], list[tuple[str,
                                   or _source_match(r, ex_keyed.get("sources", []))):
             rejected.append((r["path"], "excluded by the brief"))
             continue
+        # A maintenance brief runs only its own work: a task an answer
+        # released waits for the next ordinary shift, answer kept.
+        if r.get("resume") and not takes_answered_restart(
+                brief, name, r["resume"] if isinstance(r["resume"], dict) else None):
+            rejected.append((r["path"], ANSWERED_RESTART_REASON))
+            continue
         # The M3 gate before every exemption: a generated prompt runs live
         # only behind `gate-open:` — named, resumed after an answer, `/add`ed
         # or dipped alike. A shadow brief's named tasks are only proposals.
@@ -866,12 +891,20 @@ def pick_reason(record: dict, brief: dict) -> str:
         rule = "backlog: fill-idle"
     elif backlog == "scoped":
         rule = _scoped_match(record, scoped_of(brief))
-        if not rule:
-            return "NOT RECORDED"
     else:
-        return "NOT RECORDED"
+        rule = ""
+    if not rule:
+        if not record.get("resume"):
+            return "NOT RECORDED"
+        # Admitted by the answer alone (`scope()`'s resume exemption), not a
+        # dip rule: say so, rather than the digest's missing-rule marker.
+        rule = RESUME_RULE
     rank = rank_note(record)
     return f"{rule} · {rank}" if rank else rule
+
+
+#: The rule a resumed pick ran under when no dip rule covers it.
+RESUME_RULE = "the answer's release (no dip rule applies)"
 
 
 def rank_note(record: dict) -> str:

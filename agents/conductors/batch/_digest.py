@@ -1238,6 +1238,15 @@ def backlog_gate_lines(counters: dict) -> list[str]:
                    "their old standing — " + "; ".join(
                        f"`{t}` ({', '.join(v.get('ids') or [])} answered)"
                        for t, v in sorted(resumed.items())[:SUMMARY_NAMES]))
+    deferred = gates.get("answered_deferred") or {}
+    if deferred:
+        out.append(f"Answered, left for the next ordinary shift: {len(deferred)} task(s) — a "
+                   "maintenance shift runs only its own work (human ruling 2026-11-28); the "
+                   "answer stays in your inbox — " + "; ".join(
+                       f"`{t}` ({', '.join(v.get('ids') or [])} answered)"
+                       for t, v in sorted(deferred.items())[:SUMMARY_NAMES])
+                   + (f" +{len(deferred) - SUMMARY_NAMES} more"
+                      if len(deferred) > SUMMARY_NAMES else ""))
     carried = counters.get("carried_in") or {}
     done = [u for u in carried.get("prs") or [] if u in settled_prs(counters)]
     left = [u for u in carried.get("prs") or [] if u not in done]
