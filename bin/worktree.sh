@@ -453,8 +453,17 @@ worktree_list_claimed() {
     # Claim rows are buffered and flushed at the end of each task entry:
     # `worktree:` may appear either side of the `repos:` block, so it is not
     # known when a repo bullet is read.
-    function flush(   i) {
+    #
+    # Not every entry is a claim (PyAutoBrain#742): one whose branch text says
+    # "(no branch ...)", or a branchless one in a section parked on a question
+    # (status: awaiting-input) that has no worktree: line, holds nothing.
+    function flush(   i, b, parked) {
+      parked = (status == "awaiting-input" && !seen_wt)
       for (i = 1; i <= n; i++) {
+        b = tolower(branches[i])
+        sub(/^[ \t]+/, "", b)
+        if (b ~ /^\(?no branch/) continue
+        if (parked && b == "") continue
         printf "%s\t%s\t%s\t%s\n", task, repos[i], branches[i], wt
       }
       n = 0
@@ -463,10 +472,17 @@ worktree_list_claimed() {
       flush()
       task = $2
       wt = "-"
+      seen_wt = 0
+      status = ""
       next
     }
     /^- worktree:/ {
       wt = $3
+      seen_wt = 1
+      next
+    }
+    /^- status:/ {
+      status = $3
       next
     }
     /^  - [A-Za-z]/ {

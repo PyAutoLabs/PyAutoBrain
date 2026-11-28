@@ -101,6 +101,8 @@ The terms of this shift (AUTONOMY.md "Shift briefs and unattended `glance`"):
   `- session: shift worker <slot> (<your session id>)`, `<slot>` being the
   brief file's name without `.md`: after the human answers a question you
   parked on, a later shift resumes your claim only on that exact line.
+  A park before your first edit writes no `- repos:` block (the restart
+  claims the repo when it begins).
   In your `active.md` row, each PR is its own `- library-pr: <url>` (library
   or organ repo) or `- workspace-pr: <url>` line (PyAutoMind REFERENCE.md
   "The PR keys"). Never a bare `pr:`: the ledger refuses it, and `/prm`
