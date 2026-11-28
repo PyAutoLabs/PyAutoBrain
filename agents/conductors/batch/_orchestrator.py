@@ -1912,31 +1912,57 @@ def coordinated_for(sec: dict, task: str) -> bool:
     return bool(name) and bool(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text))
 
 
+def _claim_branch(line: str) -> str:
+    """The branch text of one `- repos:` bullet, parsed as `worktree.sh`
+    does: `Repo: branch` (legacy) or `Repo (branch)`; "" for a bare name."""
+    rest = re.sub(r"^\s+- ", "", line).rstrip()
+    if ": " in rest:
+        return rest.split(": ", 1)[1].strip()
+    m = re.search(r" *\((.*)\)[^)]*$", rest)
+    return m.group(1).strip() if m else ""
+
+
+def _not_a_claim(branch: str, parked: bool) -> bool:
+    """A `- repos:` entry that holds nothing (PyAutoBrain#742): its branch text
+    says `(no branch …)`, or it is branchless in a section parked on a
+    question (`status: awaiting-input`) that never made a worktree — a worker
+    that parks before its first edit. Every other entry claims its repo."""
+    b = branch.strip().lower()
+    if b.startswith("(no branch") or b.startswith("no branch"):
+        return True
+    return parked and not b
+
+
 def claim_sections(active_text: str) -> dict[str, dict]:
     """The `## slug` sections of an `active.md`: each one's claimed repos (its
     `- repos:` block, in either schema `worktree.sh` reads) and whether it
     records human-authorized coordination (`coordination:` or
-    `conflict-override:`)."""
+    `conflict-override:`). Entries that are not claims (`_not_a_claim`) are
+    left out of `repos`."""
     out: dict[str, dict] = {}
     slug, body = None, []
 
     def flush():
         if slug is None:
             return
-        repos, inside = [], False
+        entries, inside = [], False
         for ln in body:
             if ln.startswith("- repos:"):
                 inside = True
                 inline = ln[len("- repos:"):].strip()
-                repos += [x for x in re.split(r"[,\s]+", inline) if x]
+                entries += [(x, "") for x in re.split(r"[,\s]+", inline) if x]
                 continue
             if inside:
                 m = _CLAIM_REPO_RE.match(ln)
                 if m:
-                    repos.append(m.group(1))
+                    entries.append((m.group(1), _claim_branch(ln)))
                     continue
                 if ln.strip():
                     inside = False
+        text = "\n".join(body)
+        parked = (re.search(r"(?m)^- status:[ \t]*awaiting-input\b", text) is not None
+                  and re.search(r"(?m)^- worktree:", text) is None)
+        repos = [r for r, br in entries if not _not_a_claim(br, parked)]
         keys = dict(re.findall(r"(?m)^- (session|prompt):[ \t]*(.*?)\s*$", "\n".join(body)))
         out[slug] = {"repos": repos,
                      "coordinated": bool(_COORDINATION_RE.search("\n".join(body))),

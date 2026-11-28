@@ -216,3 +216,69 @@ def test_conflict_guard_can_be_forced_past_a_missing_registry(tmp_path):
                 "worktree_check_conflict --allow-missing-registry t RepoA")
     assert proc.returncode == 0
     assert "UNGUARDED" in proc.stderr
+
+
+# PyAutoBrain#742: a shift worker that parked on a question before its first
+# edit left a `repos:` entry with no branch and no `worktree:` line. It held
+# its repo for nothing and starved every draft on it.
+PARKED = """# Active Tasks
+
+## parked-task
+- status: awaiting-input
+- question: does the stated bug reproduce?
+- repos:
+  - RepoH: (no branch; parked before implementation — stated bug did not reproduce)
+"""
+
+# The same park in the paren schema, and a bare entry: neither claims.
+PARKED_PAREN = """# Active Tasks
+
+## parked-paren-task
+- status: awaiting-input
+- repos:
+  - RepoH (no branch; parked before implementation)
+  - RepoI
+"""
+
+# Parked AFTER its first edit: a real branch and worktree still hold the repo.
+PARKED_WITH_BRANCH = """# Active Tasks
+
+## parked-live-task
+- status: awaiting-input
+- worktree: ~/wt/parked-live-task
+- repos:
+  - RepoH (feature/parked-live-task)
+"""
+
+# A `(no branch …)` entry is not a claim even beside a worktree.
+NO_BRANCH_WITH_WORKTREE = """# Active Tasks
+
+## mixed-task
+- worktree: ~/wt/mixed-task
+- repos:
+  - RepoH: (no branch yet)
+  - RepoJ (feature/mixed-task)
+"""
+
+
+@pytest.mark.parametrize("body", [
+    pytest.param(PARKED, id="parked-colon-no-branch"),
+    pytest.param(PARKED_PAREN, id="parked-paren-no-branch"),
+])
+def test_parked_branchless_entry_is_not_a_claim(tmp_path, body):
+    assert [c for c in _claims(tmp_path, body) if c[1] in ("RepoH", "RepoI")] == []
+    proc = _run(tmp_path / "guard", body, "worktree_check_conflict new-task RepoH")
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_parked_entry_with_a_real_branch_still_conflicts(tmp_path):
+    proc = _run(tmp_path, PARKED_WITH_BRANCH, "worktree_check_conflict new-task RepoH")
+    assert proc.returncode == 1
+    assert "parked-live-task" in proc.stderr
+
+
+def test_no_branch_entry_beside_a_worktree_is_not_a_claim(tmp_path):
+    claims = _claims(tmp_path, NO_BRANCH_WITH_WORKTREE)
+    assert [c[1] for c in claims] == ["RepoJ"]
+    assert _run(tmp_path / "guard", NO_BRANCH_WITH_WORKTREE,
+                "worktree_check_conflict new-task RepoH").returncode == 0
