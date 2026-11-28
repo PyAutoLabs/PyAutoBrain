@@ -169,11 +169,16 @@ _MARK_RXS = (_SOURCE_KEY_RX,
              re.compile(re.escape(_green.KEY_MARK).replace(r"\{\}", "(.+?)")))
 
 
-def marked_keys(text: str) -> set:
-    """Every key `text` carries by a mark `key_marked` accepts: `Source-key:`
-    headers, the writer's mark and `_green`'s legacy mark. The Homeostasis
-    board (board/_homeostasis.py) reads a Mind's prompts and records by it."""
-    return {k.strip() for rx in _MARK_RXS for k in rx.findall(text) if k.strip()}
+def generated_keys(text: str) -> set:
+    """The keys a GENERATED prompt or its record carries: a `Source-key:`
+    header line together with the writer's `<!-- maint-key -->` mark for the
+    same key, or `_green`'s legacy `<!-- heart-key -->` mark (whose drafts had
+    no header). A mark or header quoted in a hand-written prompt's prose alone
+    never counts (PyAutoBrain#747)."""
+    header = {k.strip() for k in _MARK_RXS[0].findall(text)}
+    maint = {k.strip() for k in _MARK_RXS[1].findall(text)}
+    legacy = {k.strip() for k in _MARK_RXS[2].findall(text)}
+    return {k for k in (header & maint) | legacy if k and k != "…"}
 
 
 _FILED_FROM_RX = re.compile(r"Filed from the `(\w+(?::\w+)?)` source")

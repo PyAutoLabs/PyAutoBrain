@@ -448,3 +448,16 @@ def test_a_copied_source_key_header_alone_does_not_hide_a_hand_written_prompt(tm
         "repos.yaml": REPOS_YAML, "draft/feature/widgets/hand.md": copied}))
     assert c["records"][0]["generated"] == "" and c["homeostasis"]["glance"] == 0
     assert "draft/feature/widgets/hand.md" in {r["path"] for r in _intake._start_here_picks(c)}
+
+
+def test_a_hand_written_prompt_quoting_a_mark_is_not_a_cleared_key(tmp_path):
+    quoted = ("# Close-out carries the key\n\nType: feature\nWitness: the record keeps "
+              "`Source-key: <key>` (and the writer's `<!-- maint-key: … -->` mark)\n")
+    assert W.generated_keys(quoted) == set()
+    assert W.generated_keys(_gen("ci:OrganA:x")) == {"ci:OrganA:x"}
+    assert W.generated_keys("<!-- heart-key: wf:legacy -->") == {"wf:legacy"}
+    mind = _fixture_mind(tmp_path / "mind")
+    _write(mind, {"draft/feature/pyautomind/quoted.md": quoted})
+    result = _maintain.read_sources(_maintain.SOURCES, **_inputs(tmp_path))
+    sec = H.collect(mind, reader=lambda: result)
+    assert "draft/feature/pyautomind/quoted.md" not in {r["path"] for r in sec["cleared"]}

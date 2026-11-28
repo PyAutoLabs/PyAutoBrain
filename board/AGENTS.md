@@ -89,9 +89,11 @@ saved inputs.
 
 Status comes from the Mind beside the Brain (`repo_path(PYAUTO_ROOT,
 "PyAutoMind")`: in CI the workflow's sibling clone of Mind `main`; locally the
-workspace's Mind, read only). It matches the writer's key marks
-(`Source-key:`, `<!-- maint-key: -->`, the legacy `<!-- heart-key: -->`) in
-`draft/`, `active/` and `complete/`:
+workspace's Mind, read only). It matches the writer's key marks in
+`draft/`, `active/` and `complete/` (`_maintain_write.generated_keys`). A
+`Source-key:` header counts together with a `<!-- maint-key: -->` mark for
+the same key; the legacy `<!-- heart-key: -->` mark counts alone. A mark
+quoted in a hand-written prompt's prose never counts:
 
 | Status | Meaning |
 |--------|---------|

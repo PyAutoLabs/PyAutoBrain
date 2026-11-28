@@ -487,7 +487,8 @@ cut out of the Brain; it is not on Heart, whose job is the readiness verdict.
 The section reads findings through `_maintain.read_sources` (the same
 sources, flags and dedupe as `batch maintain --dry-run`, so the counts
 agree) and derives each finding's status from the Mind by the writer's key
-marks (`_maintain_write.marked_keys`): open, promoted, in-progress, done, and
+marks (`_maintain_write.generated_keys`: a `Source-key:` header with the
+writer's `<!-- maint-key -->` mark for the same key, or the legacy heart-key mark): open, promoted, in-progress, done, and
 `cleared` for a key the Mind carries that a fresh, complete read no longer
 reports. See `board/AGENTS.md`. The Mind dashboard shows generated glance
 prompts as one collapsed Homeostasis line and generated judge prompts in one

@@ -13,7 +13,8 @@ lists every maintenance finding and where each one stands:
   (`PyAutoMind` beside the Brain: a sibling clone of `main` in
   `brain_board.yml`, the workspace's Mind locally), matched by the key marks
   the writer puts in a prompt (`Source-key:`, `<!-- maint-key: -->`, `_green`'s
-  legacy `<!-- heart-key: -->`; `_maintain_write.marked_keys`):
+  legacy `<!-- heart-key: -->`; `_maintain_write.generated_keys`: the header
+  and the mark together, or the legacy mark):
 
   open         no prompt or record carries the key, or only a glance draft does
                (Homeostasis's own queue; it needs no human)
@@ -126,7 +127,7 @@ def mind_marks(mind: Path) -> dict:
                 text = f.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            keys = W.marked_keys(text)
+            keys = W.generated_keys(text)
             if not keys:
                 continue
             m = _CONSEQUENCE_RX.search(text)
