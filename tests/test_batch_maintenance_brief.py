@@ -31,7 +31,9 @@ import _maintain_write as W  # noqa: E402
 NOW = dt.datetime(2026, 11, 27, 15, 0, tzinfo=dt.timezone.utc)
 TS = "2026-11-27T14:00:00+00:00"
 SLOT = "2026-11-28-am"
-REVIEW_AT = "2026-11-28T12:00Z"
+# `brief --new` stamps `dispatched:` with the wall clock, so review-at must be
+# in the future whenever the suite runs (a fixed date failed every run after it).
+REVIEW_AT = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)).strftime("%Y-%m-%dT%H:%MZ")
 ISSUE = "https://github.com/example-org/ExampleMind/issues/7"
 
 
